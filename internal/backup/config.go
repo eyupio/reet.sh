@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/eyupio/reet.sh/internal/store"
 )
 
 const (
@@ -21,6 +23,7 @@ const (
 	EnvKeep        = "REET_BACKUP_KEEP"
 	EnvUserEvery   = "REET_BACKUP_USER_EVERY"
 	EnvUserKeep    = "REET_BACKUP_USER_KEEP"
+	EnvDestination = "REET_BACKUP_DESTINATION"
 	EnvS3Endpoint  = "REET_BACKUP_S3_ENDPOINT"
 	EnvS3Region    = "REET_BACKUP_S3_REGION"
 	EnvS3Bucket    = "REET_BACKUP_S3_BUCKET"
@@ -33,13 +36,14 @@ const (
 )
 
 const (
-	DefaultEvery     = 24 * time.Hour
-	DefaultKeep      = 48
-	DefaultUserEvery = 0
-	DefaultUserKeep  = 14
-	DefaultPrefix    = "reet/"
-	DefaultName      = "offsite"
-	MaxKeep          = 100000
+	DefaultEvery       = 24 * time.Hour
+	DefaultKeep        = 48
+	DefaultUserEvery   = 0
+	DefaultUserKeep    = 14
+	DefaultPrefix      = "reet/"
+	DefaultDestination = "both"
+	DefaultName        = "offsite"
+	MaxKeep            = 100000
 )
 
 // S3 is one destination.
@@ -65,21 +69,22 @@ func (s S3) Where() string {
 // Config is what the environment says. Everything the owner saves on the
 // Backups page overrides the schedule and retention here.
 type Config struct {
-	Dir        string
-	Key        string
-	KeySource  string
-	Every      time.Duration
-	Keep       int
-	UserEvery  time.Duration
-	UserKeep   int
-	Version    string
-	AllowLocal bool
-	RemoteName string
-	S3         S3
-	Findings   []Finding
-	Usable     bool
-	KeyPath    string
-	Sealer     *Sealer
+	Dir         string
+	Key         string
+	KeySource   string
+	Every       time.Duration
+	Keep        int
+	UserEvery   time.Duration
+	UserKeep    int
+	Destination string
+	Version     string
+	AllowLocal  bool
+	RemoteName  string
+	S3          S3
+	Findings    []Finding
+	Usable      bool
+	KeyPath     string
+	Sealer      *Sealer
 }
 
 // Finding is a configuration problem the Backups page shows in words.
@@ -145,6 +150,17 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		}
 		return d
 	}
+	destination := func(name, def string) string {
+		v := strings.ToLower(str(name, def))
+		if v == "" {
+			v = def
+		}
+		if !store.ValidBackupDestination(v) {
+			errs = append(errs, fmt.Errorf("%s is %q; write local, remote or both", name, v))
+			return def
+		}
+		return v
+	}
 	num := func(name string, def int) int {
 		v := str(name, "")
 		if v == "" {
@@ -158,14 +174,15 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		return n
 	}
 	c := Config{
-		Dir:        str(EnvDir, filepath.Join(data, "backups")),
-		Key:        str(EnvKey, ""),
-		Every:      dur(EnvEvery, DefaultEvery),
-		Keep:       num(EnvKeep, DefaultKeep),
-		UserEvery:  dur(EnvUserEvery, DefaultUserEvery),
-		UserKeep:   num(EnvUserKeep, DefaultUserKeep),
-		AllowLocal: strings.EqualFold(str(EnvAllowLocal, ""), "1") || strings.EqualFold(str(EnvAllowLocal, ""), "true"),
-		RemoteName: str(EnvS3Name, DefaultName),
+		Dir:         str(EnvDir, filepath.Join(data, "backups")),
+		Key:         str(EnvKey, ""),
+		Every:       dur(EnvEvery, DefaultEvery),
+		Keep:        num(EnvKeep, DefaultKeep),
+		UserEvery:   dur(EnvUserEvery, DefaultUserEvery),
+		UserKeep:    num(EnvUserKeep, DefaultUserKeep),
+		Destination: destination(EnvDestination, DefaultDestination),
+		AllowLocal:  strings.EqualFold(str(EnvAllowLocal, ""), "1") || strings.EqualFold(str(EnvAllowLocal, ""), "true"),
+		RemoteName:  str(EnvS3Name, DefaultName),
 	}
 	c.KeyPath = filepath.Join(filepath.Dir(c.Dir), "backup.key")
 	c.S3 = S3{
@@ -219,7 +236,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		c.Findings = append(c.Findings, Finding{Severity: "error", Code: "backup.offsite_incomplete",
 			Message: "REET_BACKUP_S3_ENDPOINT names an endpoint but the bucket, access key id and secret access key are not all set, so nothing can be shipped to it."})
 	}
-	if !c.S3.Configured() {
+	if c.Destination == store.DestinationBoth && !c.S3.Configured() {
 		c.Findings = append(c.Findings, Finding{Severity: "warning", Code: "backup.no_offsite",
 			Message: "No off-site destination is configured. Copies are on this machine only and are lost with it; add an S3-compatible destination on Admin, Backups."})
 	}

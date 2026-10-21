@@ -7,9 +7,9 @@ reet takes copies of two things:
 - **A person's shelf**, for that person: their own skills, notes, tags and
   environments, exported as the same JSON snapshot the UI calls Download JSON.
 
-Both are sealed with one key, kept on the machine, and copied to any
-S3-compatible destination you configure. Off-site is where a copy survives
-losing the machine.
+Both are sealed with one key, written where the owner chooses, and copied to
+any S3-compatible destination you configure. Off-site is where a copy survives
+losing the machine, so "both" is the default.
 
 ## The key
 
@@ -50,7 +50,33 @@ localhost is accepted; an `http://` endpoint elsewhere is refused unless
 even though the copies themselves are sealed.
 
 The **Test** button writes a small object under the prefix, reads it back byte
-for byte, and deletes it again. It never leaves the test object behind.
+for byte, and deletes it again. It never leaves the test object behind. The
+form has its own **Test** beside **Save**, against exactly what is typed
+there, so a destination and its secret can be proven before they are stored.
+When an existing destination is edited and the secret is left blank, the test
+uses the stored secret only while the endpoint is unchanged.
+
+Saving a destination reports what happened in the form itself: a refused
+name, endpoint, bucket or credential is shown where it was typed rather than
+only at the top of the page.
+
+## Where copies go
+
+Each owner chooses one of three answers, saved with the schedule:
+
+- **This machine and off-site** (the default): every copy is written beside
+  the database and sent to each enabled destination.
+- **This machine only**: nothing is sent. A copy survives a mistake, not the
+  disk.
+- **Off-site only**: a copy is sent to an enabled destination and removed from
+  this machine once at least one destination has it. If no destination takes
+  it, the copy is kept here rather than lost, and the run says so. With no
+  usable destination at all, the run fails before taking a copy and says what
+  to fix.
+
+Reading, verifying, downloading and restoring treat a copy the same way
+wherever it is; one held only at a destination is fetched from there. Set the
+default for a new owner with `REET_BACKUP_DESTINATION=local|remote|both`.
 
 ## Schedule and retention
 

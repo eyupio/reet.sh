@@ -45,6 +45,22 @@ func TestBackupAndProfileAPI(t *testing.T) {
 		}
 		return v
 	}
+	send := func(method, path string, body any) map[string]any {
+		raw, _ := json.Marshal(body)
+		req, _ := http.NewRequest(method, ts.URL+path, bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var v map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&v)
+		if resp.StatusCode != 200 {
+			t.Fatalf("%s %s: %s %v", method, path, resp.Status, v)
+		}
+		return v
+	}
 	post := func(path string, body any) map[string]any {
 		raw, _ := json.Marshal(body)
 		resp, err := http.Post(ts.URL+path, "application/json", bytes.NewReader(raw))
@@ -65,6 +81,25 @@ func TestBackupAndProfileAPI(t *testing.T) {
 	status := get("/api/v2/admin/backups")
 	if status["enabled"] != true || status["scope"] != "instance" {
 		t.Fatalf("admin status: %+v", status)
+	}
+	saved := send(http.MethodPatch, "/api/v2/admin/backups", map[string]any{"everySeconds": 7200, "keep": 5, "destination": "remote"})
+	if saved["destination"] != "remote" || saved["everySeconds"] != float64(7200) {
+		t.Fatalf("settings were not saved: %+v", saved)
+	}
+	reloaded := get("/api/v2/admin/backups")
+	settings, _ := reloaded["settings"].(map[string]any)
+	if settings["destination"] != "remote" {
+		t.Fatalf("destination did not survive a reload: %+v", settings)
+	}
+	saved = send(http.MethodPatch, "/api/v2/admin/backups", map[string]any{"everySeconds": 7200, "keep": 5, "destination": "both"})
+	if saved["destination"] != "both" {
+		t.Fatalf("destination was not put back: %+v", saved)
+	}
+	draft := send(http.MethodPost, "/api/v2/admin/backups/remotes/test", map[string]any{
+		"name": "probe", "endpoint": "not a url", "bucket": "b", "accessKey": "k", "secretKey": "s",
+	})
+	if draft["ok"] != false || draft["error"] == nil || draft["error"] == "" {
+		t.Fatalf("a bad draft endpoint was not refused: %+v", draft)
 	}
 	item := post("/api/v2/admin/backups/run", map[string]any{})
 	if item["kind"] != "instance" || item["local"] != true {

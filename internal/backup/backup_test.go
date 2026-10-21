@@ -181,7 +181,7 @@ func TestInstanceBackupAndVerify(t *testing.T) {
 
 func TestRetentionKeepsNewest(t *testing.T) {
 	svc, st, user := testService(t, nil)
-	if _, err := svc.SaveSettings(user.ID, 0, 2); err != nil {
+	if _, err := svc.SaveSettings(user.ID, 0, 2, store.DestinationBoth); err != nil {
 		t.Fatal(err)
 	}
 	addSkill(t, st, user.ID, "owner/repo/one")
@@ -317,5 +317,155 @@ func TestInvalidBackupIDsCannotEscape(t *testing.T) {
 		if _, _, err := svc.Download(context.Background(), user.ID, id); err == nil {
 			t.Fatalf("%q was accepted", id)
 		}
+	}
+}
+
+func TestSettingsPersistDestination(t *testing.T) {
+	svc, _, user := testService(t, nil)
+	saved, err := svc.SaveSettings(user.ID, 3600, 3, store.DestinationRemote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Destination != store.DestinationRemote || saved.EverySeconds != 3600 || saved.Keep != 3 {
+		t.Fatalf("saved: %+v", saved)
+	}
+	got, err := svc.Settings(context.Background(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Destination != store.DestinationRemote {
+		t.Fatalf("destination was not persisted: %+v", got)
+	}
+	if _, err := svc.SaveSettings(user.ID, 0, 3, "elsewhere"); err == nil {
+		t.Fatal("an unknown destination was accepted")
+	}
+}
+
+func TestLocalOnlyDoesNotShip(t *testing.T) {
+	fake := newFakeS3(t)
+	svc, st, user := testService(t, nil)
+	if _, err := svc.CreateRemote(user.ID, RemoteInput{
+		Name: ptr("mine"), Endpoint: ptr(fake.server.URL), Bucket: ptr("bucket"), AccessKey: ptr("key"),
+		SecretKey: ptr("secret"), PathStyle: rawBool(true), Keep: ptrInt(3),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveSettings(user.ID, 0, 5, store.DestinationLocal); err != nil {
+		t.Fatal(err)
+	}
+	addSkill(t, st, user.ID, "owner/repo/local")
+	item, err := svc.RunUser(context.Background(), user.ID, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !item.Local || len(item.Remotes) != 0 {
+		t.Fatalf("local-only item: %+v", item)
+	}
+	if keys := fake.keys(); len(keys) != 0 {
+		t.Fatalf("local-only copied off-site: %v", keys)
+	}
+}
+
+func TestRemoteOnlyKeepsNothingHereWhenShipped(t *testing.T) {
+	fake := newFakeS3(t)
+	svc, st, user := testService(t, nil)
+	if _, err := svc.CreateRemote(user.ID, RemoteInput{
+		Name: ptr("mine"), Endpoint: ptr(fake.server.URL), Bucket: ptr("bucket"), AccessKey: ptr("key"),
+		SecretKey: ptr("secret"), PathStyle: rawBool(true), Keep: ptrInt(3),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveSettings(user.ID, 0, 5, store.DestinationRemote); err != nil {
+		t.Fatal(err)
+	}
+	addSkill(t, st, user.ID, "owner/repo/remote")
+	item, err := svc.RunUser(context.Background(), user.ID, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Local || len(item.Remotes) != 1 || item.Remotes[0] != "mine" {
+		t.Fatalf("remote-only item: %+v", item)
+	}
+	if keys := fake.keys(); len(keys) != 1 {
+		t.Fatalf("remote keys: %v", keys)
+	}
+	local, err := svc.LocalItems(user.ID)
+	if err != nil || len(local) != 0 {
+		t.Fatalf("remote-only kept a local copy: %+v %v", local, err)
+	}
+	if v := svc.Verify(context.Background(), user.ID, item.ID); !v.OK {
+		t.Fatalf("verify from the destination: %+v", v)
+	}
+}
+
+func TestRemoteOnlyWithoutADestinationFails(t *testing.T) {
+	svc, _, user := testService(t, nil)
+	if _, err := svc.SaveSettings(user.ID, 0, 5, store.DestinationRemote); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.RunUser(context.Background(), user.ID, "test"); err == nil || !strings.Contains(err.Error(), "no enabled destination") {
+		t.Fatalf("remote-only with no destination: %v", err)
+	}
+}
+
+func TestRemoteOnlyKeepsTheCopyWhenShippingFails(t *testing.T) {
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "<Error><Code>AccessDenied</Code></Error>", http.StatusForbidden)
+	}))
+	defer broken.Close()
+	svc, st, user := testService(t, nil)
+	if _, err := svc.CreateRemote(user.ID, RemoteInput{
+		Name: ptr("mine"), Endpoint: ptr(broken.URL), Bucket: ptr("bucket"), AccessKey: ptr("key"),
+		SecretKey: ptr("secret"), PathStyle: rawBool(true), Keep: ptrInt(3),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveSettings(user.ID, 0, 5, store.DestinationRemote); err != nil {
+		t.Fatal(err)
+	}
+	addSkill(t, st, user.ID, "owner/repo/fallback")
+	item, err := svc.RunUser(context.Background(), user.ID, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !item.Local || len(item.Remotes) != 0 {
+		t.Fatalf("a failed ship should keep the local copy: %+v", item)
+	}
+}
+
+func TestTestRemoteDraftBeforeSaving(t *testing.T) {
+	fake := newFakeS3(t)
+	svc, _, user := testService(t, nil)
+	in := RemoteInput{
+		Name: ptr("mine"), Endpoint: ptr(fake.server.URL), Bucket: ptr("bucket"), AccessKey: ptr("key"),
+		SecretKey: ptr("secret"), PathStyle: rawBool(true),
+	}
+	steps, err := svc.TestRemoteDraft(context.Background(), user.ID, in)
+	if err != nil || len(steps) != 3 {
+		t.Fatalf("draft test: %+v %v", steps, err)
+	}
+	if _, err := svc.CreateRemote(user.ID, in); err != nil {
+		t.Fatal(err)
+	}
+	// The secret already stored is used when the form leaves it blank.
+	again := RemoteInput{
+		Name: ptr("mine"), Endpoint: ptr(fake.server.URL), Bucket: ptr("bucket"), AccessKey: ptr("key"),
+		PathStyle: rawBool(true),
+	}
+	if _, err := svc.TestRemoteDraft(context.Background(), user.ID, again); err != nil {
+		t.Fatalf("draft test with the stored secret: %v", err)
+	}
+	// Renaming it keeps the stored secret for a draft test.
+	renamed := again
+	renamed.Name = ptr("renamed")
+	renamed.OriginalName = ptr("mine")
+	if _, err := svc.TestRemoteDraft(context.Background(), user.ID, renamed); err != nil {
+		t.Fatalf("draft test across a rename: %v", err)
+	}
+	// Pointing it somewhere else without the secret is refused.
+	moved := again
+	moved.Endpoint = ptr(strings.Replace(fake.server.URL, "127.0.0.1", "localhost", 1))
+	if _, err := svc.TestRemoteDraft(context.Background(), user.ID, moved); err == nil || !strings.Contains(err.Error(), "enter it again") {
+		t.Fatalf("a moved destination without its secret: %v", err)
 	}
 }

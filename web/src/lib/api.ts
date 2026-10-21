@@ -32,6 +32,9 @@ export type AuthStatus = {
   bootstrapRequired: boolean
   user: User | null
 }
+export type APIToken = { id: number; name: string; createdAt: number; lastUsedAt?: number }
+export type UserMeta = User & { createdAt: number; disabledAt?: number; lastActive?: number; tokens: number }
+export type Invite = { email: string; role: string; expiresAt: number }
 export type Tag = { id: number; name: string; source?: 'topic' | 'user'; hidden?: boolean; count?: number }
 export type Environment = {
   id: string
@@ -191,6 +194,42 @@ export async function exportAll(includeEvents = true, format: 'json' | 'md' | 'c
 }
 export async function restoreAll(data: unknown): Promise<{ restored: number }> {
   return (await req('/api/restore', { method: 'POST', body: json(data) })).json()
+}
+export async function listTokens(): Promise<{ tokens: APIToken[] }> {
+  return (await req('/api/v2/tokens')).json()
+}
+export async function createToken(name: string): Promise<{ id: number; name: string; token: string; createdAt: number }> {
+  return (await req('/api/v2/tokens', { method: 'POST', body: json({ name }) })).json()
+}
+export async function revokeToken(id: number): Promise<void> {
+  await req(`/api/v2/tokens?id=${id}`, { method: 'DELETE' })
+}
+export async function listAdminUsers(): Promise<{ users: UserMeta[] }> {
+  return (await req('/api/v2/admin/users')).json()
+}
+export async function updateAdminUser(data: { id: number; role?: string; disabled?: boolean }): Promise<{ users: UserMeta[] }> {
+  return (await req('/api/v2/admin/users', { method: 'PATCH', body: json(data) })).json()
+}
+export async function deleteAdminUser(id: number): Promise<void> {
+  await req(`/api/v2/admin/users?id=${id}`, { method: 'DELETE' })
+}
+export async function resetUserPassword(id: number): Promise<{ password: string }> {
+  return (await req('/api/v2/admin/users/reset', { method: 'POST', body: json({ id }) })).json()
+}
+export async function revokeUserTokens(id: number): Promise<void> {
+  await req('/api/v2/admin/users/revoke', { method: 'POST', body: json({ id }) })
+}
+export async function transferOwner(id: number): Promise<{ users: UserMeta[] }> {
+  return (await req('/api/v2/admin/users/transfer', { method: 'POST', body: json({ id }) })).json()
+}
+export async function createInvite(email: string, role: string): Promise<{ url: string; token: string; email: string; role: string; expiresAt: number }> {
+  return (await req('/api/v2/admin/invites', { method: 'POST', body: json({ email, role }) })).json()
+}
+export async function getInvite(token: string): Promise<Invite> {
+  return (await req(`/api/v2/auth/invite?token=${encodeURIComponent(token)}`)).json()
+}
+export async function joinAccount(data: { token: string; name: string; password: string }): Promise<User> {
+  return (await req('/api/v2/auth/join', { method: 'POST', body: json(data) })).json()
 }
 export async function listEnvironments(): Promise<{ environments: Environment[] }> {
   return (await req('/api/environments')).json()

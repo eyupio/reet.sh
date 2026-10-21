@@ -1036,3 +1036,223 @@ func (s *Store) RestoreSnapshotFor(userID int64, snapshot Snapshot) error {
 		return nil
 	})
 }
+
+// APIToken is a named personal credential; the secret itself is never stored.
+type APIToken struct {
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	CreatedAt  int64  `json:"createdAt"`
+	LastUsedAt int64  `json:"lastUsedAt,omitempty"`
+}
+
+func (s *Store) CreateAPIToken(userID int64, name, hash string) (APIToken, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "token"
+	}
+	t := now()
+	res, err := s.db.Exec(`INSERT INTO api_tokens(user_id,name,hash,created_at) VALUES(?,?,?,?)`, userID, name, hash, t)
+	if err != nil {
+		return APIToken{}, err
+	}
+	id, _ := res.LastInsertId()
+	return APIToken{ID: id, Name: name, CreatedAt: t}, nil
+}
+
+func (s *Store) ListAPITokens(userID int64) ([]APIToken, error) {
+	rows, err := s.db.Query(`SELECT id,name,created_at,last_used_at FROM api_tokens
+		WHERE user_id=? AND revoked_at=0 ORDER BY created_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []APIToken{}
+	for rows.Next() {
+		var t APIToken
+		if err := rows.Scan(&t.ID, &t.Name, &t.CreatedAt, &t.LastUsedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) RevokeAPIToken(userID, id int64) error {
+	res, err := s.db.Exec(`UPDATE api_tokens SET revoked_at=? WHERE id=? AND user_id=? AND revoked_at=0`, now(), id, userID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) RevokeUserTokens(userID int64) error {
+	_, err := s.db.Exec(`UPDATE api_tokens SET revoked_at=? WHERE user_id=? AND revoked_at=0`, now(), userID)
+	return err
+}
+
+func (s *Store) HasActiveAPITokens(userID int64) (bool, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM api_tokens WHERE revoked_at=0 AND (?=0 OR user_id=?)`, userID, userID).Scan(&n)
+	return n > 0, err
+}
+
+func (s *Store) APITokenUser(hash string, at int64) (User, bool, error) {
+	var u User
+	err := s.db.QueryRow(`SELECT u.id,u.email,u.name,u.role,u.password_hash,u.created_at,u.disabled_at
+		FROM api_tokens t JOIN users u ON u.id=t.user_id
+		WHERE t.hash=? AND t.revoked_at=0 AND u.disabled_at=0`, hash).
+		Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.PasswordHash, &u.CreatedAt, &u.DisabledAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return User{}, false, nil
+	}
+	if err != nil {
+		return User{}, false, err
+	}
+	_, _ = s.db.Exec(`UPDATE api_tokens SET last_used_at=? WHERE hash=?`, at, hash)
+	return u, true, nil
+}
+
+// Invite is a one-time account invitation, stored hashed.
+type Invite struct {
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	ExpiresAt int64  `json:"expiresAt"`
+}
+
+func (s *Store) CreateInvite(hash, email, role string, createdBy, expiresAt int64) error {
+	_, err := s.db.Exec(`INSERT INTO invites(token_hash,email,role,created_by,created_at,expires_at)
+		VALUES(?,?,?,?,?,?)`, hash, normalizeEmail(email), role, createdBy, now(), expiresAt)
+	return err
+}
+
+func (s *Store) InviteByHash(hash string, at int64) (Invite, bool, error) {
+	var i Invite
+	err := s.db.QueryRow(`SELECT email,role,expires_at FROM invites WHERE token_hash=? AND expires_at>?`, hash, at).
+		Scan(&i.Email, &i.Role, &i.ExpiresAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Invite{}, false, nil
+	}
+	return i, err == nil, err
+}
+
+func (s *Store) DeleteInvite(hash string) error {
+	_, err := s.db.Exec(`DELETE FROM invites WHERE token_hash=?`, hash)
+	return err
+}
+
+func (s *Store) PruneInvites(at int64) error {
+	_, err := s.db.Exec(`DELETE FROM invites WHERE expires_at<=?`, at)
+	return err
+}
+
+// UserMeta is a user plus the admin list's last-active and token counts.
+type UserMeta struct {
+	ID         int64  `json:"id"`
+	Email      string `json:"email"`
+	Name       string `json:"name"`
+	Role       string `json:"role"`
+	CreatedAt  int64  `json:"createdAt"`
+	DisabledAt int64  `json:"disabledAt,omitempty"`
+	LastActive int64  `json:"lastActive,omitempty"`
+	Tokens     int    `json:"tokens"`
+}
+
+func (s *Store) ListUsersMeta() ([]UserMeta, error) {
+	rows, err := s.db.Query(`SELECT u.id,u.email,u.name,u.role,u.created_at,u.disabled_at,
+		COALESCE((SELECT MAX(s.last_seen) FROM sessions s WHERE s.user_id=u.id),0),
+		(SELECT COUNT(*) FROM api_tokens t WHERE t.user_id=u.id AND t.revoked_at=0)
+		FROM users u ORDER BY lower(u.name), lower(u.email)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []UserMeta{}
+	for rows.Next() {
+		var u UserMeta
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CreatedAt, &u.DisabledAt, &u.LastActive, &u.Tokens); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) UpdateUserRole(id int64, role string) error {
+	switch role {
+	case "owner", "admin", "member", "viewer":
+	default:
+		return errors.New("invalid role")
+	}
+	res, err := s.db.Exec(`UPDATE users SET role=? WHERE id=?`, role, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) SetUserPassword(id int64, hash string) error {
+	res, err := s.db.Exec(`UPDATE users SET password_hash=? WHERE id=?`, hash, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return s.DeleteUserSessions(id)
+}
+
+func (s *Store) TransferOwner(currentOwnerID, targetID int64) error {
+	if currentOwnerID == targetID {
+		return errors.New("already the owner")
+	}
+	return s.withTx(func(tx *sql.Tx) error {
+		var role string
+		var disabled int64
+		if err := tx.QueryRow(`SELECT role,disabled_at FROM users WHERE id=?`, targetID).Scan(&role, &disabled); err != nil {
+			return err
+		}
+		if disabled != 0 {
+			return errors.New("the target account is disabled")
+		}
+		if _, err := tx.Exec(`UPDATE users SET role='admin' WHERE id=?`, currentOwnerID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`UPDATE users SET role='owner' WHERE id=?`, targetID)
+		return err
+	})
+}
+
+func (s *Store) DeleteUser(id int64) error {
+	return s.withTx(func(tx *sql.Tx) error {
+		var role string
+		if err := tx.QueryRow(`SELECT role FROM users WHERE id=?`, id).Scan(&role); err != nil {
+			return err
+		}
+		if role == "owner" {
+			return errors.New("transfer ownership before deleting the owner")
+		}
+		for _, stmt := range []string{
+			`DELETE FROM shelf WHERE user_id=?`,
+			`DELETE FROM skill_tags WHERE user_id=?`,
+			`DELETE FROM skill_envs WHERE env_id IN (SELECT id FROM environments WHERE user_id=?)`,
+			`DELETE FROM environments WHERE user_id=?`,
+			`DELETE FROM ignored WHERE user_id=?`,
+			`DELETE FROM events WHERE user_id=?`,
+			`DELETE FROM api_tokens WHERE user_id=?`,
+			`DELETE FROM sessions WHERE user_id=?`,
+			`DELETE FROM invites WHERE created_by=?`,
+			`DELETE FROM users WHERE id=?`,
+		} {
+			if _, err := tx.Exec(stmt, id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}

@@ -5,6 +5,7 @@
     patchSkill, patchSkills, refreshSkill, removeSkill, removeSkills, resolveSkill, restoreAll, signOutAccount, tagSkills, UnauthorizedError,
     type Counts, type Environment, type Event, type Flags, type Skill, type Sort, type Tag, type User,
   } from './lib/api'
+  import Account from './lib/Account.svelte'
   import AccountSignIn from './lib/AccountSignIn.svelte'
   import Admin from './lib/Admin.svelte'
   import Bookmarklets from './lib/Bookmarklets.svelte'
@@ -12,6 +13,7 @@
   import ConfirmDialog from './lib/ConfirmDialog.svelte'
   import CopyButton from './lib/CopyButton.svelte'
   import Footer from './lib/Footer.svelte'
+  import Join from './lib/Join.svelte'
   import Logo from './lib/Logo.svelte'
   import Setup from './lib/Setup.svelte'
   import SignIn from './lib/SignIn.svelte'
@@ -62,6 +64,9 @@
 
   const origin = location.origin
   const isAdmin = location.pathname.startsWith('/admin')
+  const isAccount = location.pathname.startsWith('/account')
+  const isJoin = location.pathname.startsWith('/join')
+  const joinToken = new URLSearchParams(location.search).get('token') ?? ''
   const signedIn = $derived(token !== '')
   const authenticated = $derived(authMode === 'none' || (authMode === 'token' && token !== '') || (authMode === 'accounts' && currentUser !== null))
   const canLoad = $derived(authChecked && authenticated && !needsAuth)
@@ -203,6 +208,11 @@
     await loadMeta()
     await tick()
     addEl?.focus()
+  }
+
+  async function afterJoin(user: User) {
+    await afterAuth(user)
+    location.assign('/')
   }
 
   async function attemptSignIn(): Promise<string | null> {
@@ -534,14 +544,16 @@
   }
 </script>
 
-{#if !needsAuth && !isAdmin}<a class="skip" href="#sections">Skip to your skills</a>{/if}
+{#if !needsAuth && !isAdmin && !isAccount && !isJoin}<a class="skip" href="#sections">Skip to your skills</a>{/if}
 <main>
   <header>
     <h1><Logo /></h1>
     {#if !isAdmin}<p class="tag">Keep the reet good AI skills from skills.sh, all in one place.</p>{/if}
   </header>
 
-  {#if !authChecked}
+  {#if isJoin}
+    <Join token={joinToken} onsuccess={afterJoin} />
+  {:else if !authChecked}
     <p class="empty" role="status">Loading…</p>
   {:else if authMode === 'accounts' && setupRequired}
     <Setup {bootstrapRequired} onsuccess={afterAuth} />
@@ -551,10 +563,14 @@
     <SignIn onattempt={attemptSignIn} />
   {:else if !authMode}
     <p class="notice bad" role="alert">Could not check how this instance signs in. Reload the page to try again.</p>
+  {:else if isAccount && authMode === 'accounts'}
+    <Account user={currentUser!} onsignout={signOut} onerror={fail} />
+  {:else if isAccount}
+    <p class="notice bad" role="alert">Accounts are not enabled on this instance.</p>
   {:else if isAdmin && !isAdminUser}
     <p class="notice bad" role="alert">Admins only. Your account does not have access to this page.</p>
   {:else if isAdmin}
-    <Admin onerror={fail} {role} />
+    <Admin onerror={fail} {role} accounts={authMode === 'accounts'} currentEmail={currentUser?.email ?? ''} />
   {:else}
     {#if canWrite}
       <form class="add" onsubmit={add}>

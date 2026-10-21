@@ -64,6 +64,7 @@ func serve() error {
 	defer st.Close()
 	_ = st.PruneEvents(time.Now().AddDate(-1, 0, 0).UnixMilli())
 	_ = st.PruneSessions(time.Now().UnixMilli())
+	_ = st.PruneInvites(time.Now().UnixMilli())
 	mode := api.AuthMode(os.Getenv("REET_AUTH"))
 	switch mode {
 	case "":

@@ -274,11 +274,15 @@ func Run(args []string, out io.Writer) error {
 		Ignored  int      `json:"ignored"`
 		Pruned   int      `json:"pruned"`
 		Errors   []string `json:"errors"`
+		User     string   `json:"user"`
 	}
 	if json.NewDecoder(resp.Body).Decode(&res) != nil {
 		return errors.New("unreadable reply from server")
 	}
 	fmt.Fprintf(out, "%d new, %d ignored, %d pruned on %s\n", res.Created, res.Ignored, res.Pruned, host)
+	if res.User != "" {
+		fmt.Fprintf(out, "reported as %s\n", res.User)
+	}
 	fmt.Fprintf(out, "imported %d skills as used\n", res.Imported)
 	for _, e := range res.Errors {
 		fmt.Fprintf(out, "  skipped: %s\n", e)

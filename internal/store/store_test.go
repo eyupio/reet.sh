@@ -605,3 +605,32 @@ func TestMigrateLegacyEnvironment(t *testing.T) {
 		t.Fatalf("env id: %s", sk.Environments[0].ID)
 	}
 }
+
+func TestDeleteUserRemovesTheirData(t *testing.T) {
+	s := newStore(t)
+	owner, err := s.DefaultOwner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := s.CreateUser("gone@example.com", "Gone", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := mustRef(t, "a/b/owned")
+	s.UpsertFor(member.ID, r, Patch{Liked: bp(true)})
+	s.AddSkillTagsFor(member.ID, r.ID, []string{"gone-tag"})
+	s.RecordEnvironmentFor(member.ID, r.ID, "laptop", "claude", "", ".claude", "")
+	s.AddEventFor(member.ID, "ui", "test", r.ID, nil)
+	if _, err := s.CreateAPIToken(member.ID, "scan", "token-hash"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteUser(member.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := s.UserByID(member.ID); ok {
+		t.Fatal("user still exists")
+	}
+	if ignored, _ := s.IsIgnoredFor(owner, r.ID); ignored {
+		t.Fatal("owner state was touched")
+	}
+}

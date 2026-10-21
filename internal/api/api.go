@@ -145,6 +145,18 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	mux.HandleFunc("POST /api/v2/auth/sign-in", s.signIn)
 	mux.HandleFunc("POST /api/v2/auth/sign-out", s.signOut)
 	mux.HandleFunc("GET /api/v2/auth/me", s.me)
+	mux.HandleFunc("GET /api/v2/auth/invite", s.inviteInfo)
+	mux.HandleFunc("POST /api/v2/auth/join", s.join)
+	mux.HandleFunc("GET /api/v2/tokens", s.requireWriter(s.listTokens))
+	mux.HandleFunc("POST /api/v2/tokens", s.requireWriter(s.createToken))
+	mux.HandleFunc("DELETE /api/v2/tokens", s.requireWriter(s.revokeToken))
+	mux.HandleFunc("GET /api/v2/admin/users", s.requireAdmin(s.adminUsers))
+	mux.HandleFunc("PATCH /api/v2/admin/users", s.requireAdmin(s.adminUserUpdate))
+	mux.HandleFunc("DELETE /api/v2/admin/users", s.requireOwner(s.adminUserDelete))
+	mux.HandleFunc("POST /api/v2/admin/users/reset", s.requireAdmin(s.adminUserReset))
+	mux.HandleFunc("POST /api/v2/admin/users/revoke", s.requireAdmin(s.adminUserRevoke))
+	mux.HandleFunc("POST /api/v2/admin/users/transfer", s.requireOwner(s.adminUserTransfer))
+	mux.HandleFunc("POST /api/v2/admin/invites", s.requireAdmin(s.adminInvite))
 	mux.HandleFunc("PATCH /api/admin/settings", s.requireOwner(s.adminSettings))
 	mux.HandleFunc("GET /api/export", s.requireWriter(s.export))
 	mux.HandleFunc("POST /api/restore", s.requireWriter(s.restore))
@@ -219,7 +231,7 @@ func guardedPath(path string) bool {
 
 func openAuthPath(path string) bool {
 	switch path {
-	case "/api/version", "/api/v2/auth/status", "/api/v2/auth/setup", "/api/v2/auth/sign-in", "/api/v2/auth/sign-out":
+	case "/api/version", "/api/v2/auth/status", "/api/v2/auth/setup", "/api/v2/auth/sign-in", "/api/v2/auth/sign-out", "/api/v2/auth/invite", "/api/v2/auth/join":
 		return true
 	}
 	return false
@@ -338,6 +350,12 @@ func (s *server) auth(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
+			if tok := requestToken(r); tok != "" {
+				if u, ok, _ := s.st.APITokenUser(auth.HashToken(tok), time.Now().UnixMilli()); ok {
+					next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey{}, u)))
+					return
+				}
+			}
 			if s.hasBootstrap(r) && bootstrapPath(r.URL.Path) {
 				users, err := s.st.UserCount()
 				if err != nil || users == 0 {
@@ -347,6 +365,10 @@ func (s *server) auth(next http.Handler) http.Handler {
 				owner, ok, err := s.st.OwnerUser()
 				if err != nil || !ok {
 					writeErr(w, http.StatusUnauthorized, "the owner account is missing")
+					return
+				}
+				if active, _ := s.st.HasActiveAPITokens(owner.ID); active {
+					writeErr(w, http.StatusUnauthorized, "bootstrap token disabled; create a personal API token")
 					return
 				}
 				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey{}, owner)))
@@ -905,7 +927,7 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 		source, action = "scan", "scan"
 	}
 	s.event(s.uid(r), source, action, "", map[string]any{"imported": imported, "created": created, "ignored": ignoredCount, "pruned": pruned})
-	writeJSON(w, 200, map[string]any{"imported": imported, "created": created, "ignored": ignoredCount, "pruned": pruned, "errors": errs})
+	writeJSON(w, 200, map[string]any{"imported": imported, "created": created, "ignored": ignoredCount, "pruned": pruned, "errors": errs, "user": s.currentUser(r).Name})
 }
 
 func (s *server) environments(w http.ResponseWriter, r *http.Request) {
@@ -1335,6 +1357,382 @@ func (s *server) me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeErr(w, http.StatusUnauthorized, "sign in required")
+}
+
+func (s *server) listTokens(w http.ResponseWriter, r *http.Request) {
+	if s.authMode != AuthAccounts {
+		writeErr(w, http.StatusNotFound, "accounts are not enabled")
+		return
+	}
+	tokens, err := s.st.ListAPITokens(s.uid(r))
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"tokens": tokens})
+}
+
+func (s *server) createToken(w http.ResponseWriter, r *http.Request) {
+	if s.authMode != AuthAccounts {
+		writeErr(w, http.StatusNotFound, "accounts are not enabled")
+		return
+	}
+	var in struct {
+		Name string `json:"name"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	raw, err := auth.NewToken()
+	if err != nil {
+		writeErr(w, 500, "could not create a token")
+		return
+	}
+	token := "reet_" + raw
+	tok, err := s.st.CreateAPIToken(s.uid(r), in.Name, auth.HashToken(token))
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.event(s.uid(r), "ui", "token-create", "", map[string]any{"name": tok.Name})
+	writeJSON(w, 200, map[string]any{"id": tok.ID, "name": tok.Name, "token": token, "createdAt": tok.CreatedAt})
+}
+
+func (s *server) revokeToken(w http.ResponseWriter, r *http.Request) {
+	if s.authMode != AuthAccounts {
+		writeErr(w, http.StatusNotFound, "accounts are not enabled")
+		return
+	}
+	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+	if err != nil || id == 0 {
+		writeErr(w, 400, "id required")
+		return
+	}
+	if err := s.st.RevokeAPIToken(s.uid(r), id); errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "token not found")
+		return
+	} else if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.event(s.uid(r), "ui", "token-revoke", "", map[string]any{"id": id})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) adminUsers(w http.ResponseWriter, r *http.Request) {
+	if s.authMode != AuthAccounts {
+		writeErr(w, http.StatusNotFound, "accounts are not enabled")
+		return
+	}
+	users, err := s.st.ListUsersMeta()
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"users": users})
+}
+
+func (s *server) adminTarget(w http.ResponseWriter, r *http.Request, id int64) (store.User, bool) {
+	target, ok, err := s.st.UserByID(id)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return store.User{}, false
+	}
+	if !ok {
+		writeErr(w, 404, "user not found")
+		return store.User{}, false
+	}
+	actor := s.currentUser(r)
+	if target.ID == actor.ID {
+		writeErr(w, 400, "use another admin account to change this one")
+		return store.User{}, false
+	}
+	if target.Role == "owner" {
+		writeErr(w, 403, "the owner account cannot be changed here")
+		return store.User{}, false
+	}
+	if actor.Role == "admin" && target.Role == "admin" {
+		writeErr(w, 403, "only the owner can change an admin")
+		return store.User{}, false
+	}
+	return target, true
+}
+
+func (s *server) adminUserUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.authMode != AuthAccounts {
+		writeErr(w, http.StatusNotFound, "accounts are not enabled")
+		return
+	}
+	var in struct {
+		ID       int64   `json:"id"`
+		Role     *string `json:"role"`
+		Disabled *bool   `json:"disabled"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	target, ok := s.adminTarget(w, r, in.ID)
+	if !ok {
+		return
+	}
+	actor := s.currentUser(r)
+	if in.Role != nil {
+		role := *in.Role
+		if role == "owner" {
+			writeErr(w, 400, "use transfer ownership")
+			return
+		}
+		if role != "admin" && role != "member" && role != "viewer" {
+			writeErr(w, 400, "invalid role")
+			return
+		}
+		if role == "admin" && actor.Role != "owner" {
+			writeErr(w, 403, "only the owner can make an admin")
+			return
+		}
+		if err := s.st.UpdateUserRole(target.ID, role); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		s.event(actor.ID, "ui", "user-role", "", map[string]any{"name": target.Name, "email": target.Email, "role": role})
+	}
+	if in.Disabled != nil {
+		if err := s.st.SetUserDisabled(target.ID, *in.Disabled); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		if *in.Disabled {
+			_ = s.st.DeleteUserSessions(target.ID)
+			_ = s.st.RevokeUserTokens(target.ID)
+		}
+		s.event(actor.ID, "ui", "user-disable", "", map[string]any{"name": target.Name, "email": target.Email, "disabled": *in.Disabled})
+	}
+	s.adminUsers(w, r)
+}
+
+func (s *server) adminUserDelete(w http.ResponseWriter, r *http.Request) {
+	if s.authMode != AuthAccounts {
+		writeErr(w, http.StatusNotFound, "accounts are not enabled")
+		return
+	}
+	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+	if err != nil || id == 0 {
+		writeErr(w, 400, "id required")
+		return
+	}
+	target, ok := s.adminTarget(w, r, id)
+	if !ok {
+		return
+	}
+	if err := s.st.DeleteUser(target.ID); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.event(s.uid(r), "ui", "user-delete", "", map[string]any{"name": target.Name, "email": target.Email})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) adminUserReset(w http.ResponseWriter, r *http.Request) {
+	if s.authMode != AuthAccounts {
+		writeErr(w, http.StatusNotFound, "accounts are not enabled")
+		return
+	}
+	var in struct {
+		ID int64 `json:"id"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	target, ok := s.adminTarget(w, r, in.ID)
+	if !ok {
+		return
+	}
+	raw, err := auth.NewToken()
+	if err != nil {
+		writeErr(w, 500, "could not reset the password")
+		return
+	}
+	password := raw[:16]
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		writeErr(w, 500, "could not reset the password")
+		return
+	}
+	if err := s.st.SetUserPassword(target.ID, hash); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	_ = s.st.RevokeUserTokens(target.ID)
+	s.event(s.uid(r), "ui", "user-reset", "", map[string]any{"name": target.Name, "email": target.Email})
+	writeJSON(w, 200, map[string]any{"password": password})
+}
+
+func (s *server) adminUserRevoke(w http.ResponseWriter, r *http.Request) {
+	if s.authMode != AuthAccounts {
+		writeErr(w, http.StatusNotFound, "accounts are not enabled")
+		return
+	}
+	var in struct {
+		ID int64 `json:"id"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	target, ok := s.adminTarget(w, r, in.ID)
+	if !ok {
+		return
+	}
+	if err := s.st.RevokeUserTokens(target.ID); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.event(s.uid(r), "ui", "user-revoke", "", map[string]any{"name": target.Name, "email": target.Email})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) adminUserTransfer(w http.ResponseWriter, r *http.Request) {
+	if s.authMode != AuthAccounts {
+		writeErr(w, http.StatusNotFound, "accounts are not enabled")
+		return
+	}
+	var in struct {
+		ID int64 `json:"id"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	target, ok, err := s.st.UserByID(in.ID)
+	if err != nil || !ok {
+		writeErr(w, 404, "user not found")
+		return
+	}
+	actor := s.currentUser(r)
+	if target.ID == actor.ID {
+		writeErr(w, 400, "already the owner")
+		return
+	}
+	if err := s.st.TransferOwner(actor.ID, target.ID); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	s.event(actor.ID, "ui", "user-transfer", "", map[string]any{"name": target.Name, "email": target.Email})
+	s.adminUsers(w, r)
+}
+
+func (s *server) adminInvite(w http.ResponseWriter, r *http.Request) {
+	if s.authMode != AuthAccounts {
+		writeErr(w, http.StatusNotFound, "accounts are not enabled")
+		return
+	}
+	var in struct {
+		Email string `json:"email"`
+		Role  string `json:"role"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(in.Email))
+	if !strings.Contains(email, "@") || len(email) > 254 {
+		writeErr(w, 400, "enter a valid email address")
+		return
+	}
+	if _, exists, _ := s.st.UserByEmail(email); exists {
+		writeErr(w, http.StatusConflict, "that email is already registered")
+		return
+	}
+	role := in.Role
+	if role == "" {
+		role = "member"
+	}
+	if role != "admin" && role != "member" && role != "viewer" {
+		writeErr(w, 400, "invalid role")
+		return
+	}
+	actor := s.currentUser(r)
+	if role == "admin" && actor.Role != "owner" {
+		writeErr(w, 403, "only the owner can invite an admin")
+		return
+	}
+	raw, err := auth.NewToken()
+	if err != nil {
+		writeErr(w, 500, "could not create an invite")
+		return
+	}
+	expires := time.Now().Add(7 * 24 * time.Hour)
+	if err := s.st.CreateInvite(auth.HashToken(raw), email, role, actor.ID, expires.UnixMilli()); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.event(actor.ID, "ui", "invite", "", map[string]any{"email": email, "role": role})
+	writeJSON(w, 200, map[string]any{
+		"url":       "/join?token=" + raw,
+		"token":     raw,
+		"email":     email,
+		"role":      role,
+		"expiresAt": expires.UnixMilli(),
+	})
+}
+
+func (s *server) inviteInfo(w http.ResponseWriter, r *http.Request) {
+	if s.authMode != AuthAccounts {
+		writeErr(w, http.StatusNotFound, "accounts are not enabled")
+		return
+	}
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		writeErr(w, 400, "token required")
+		return
+	}
+	invite, ok, err := s.st.InviteByHash(auth.HashToken(token), time.Now().UnixMilli())
+	if err != nil || !ok {
+		writeErr(w, 404, "invite not found or expired")
+		return
+	}
+	writeJSON(w, 200, invite)
+}
+
+func (s *server) join(w http.ResponseWriter, r *http.Request) {
+	if s.authMode != AuthAccounts {
+		writeErr(w, http.StatusNotFound, "accounts are not enabled")
+		return
+	}
+	var in struct {
+		Token    string `json:"token"`
+		Name     string `json:"name"`
+		Password string `json:"password"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	invite, ok, err := s.st.InviteByHash(auth.HashToken(in.Token), time.Now().UnixMilli())
+	if err != nil || !ok {
+		writeErr(w, 404, "invite not found or expired")
+		return
+	}
+	if len(in.Password) < 8 {
+		writeErr(w, 400, "password must be at least 8 characters")
+		return
+	}
+	hash, err := auth.HashPassword(in.Password)
+	if err != nil {
+		writeErr(w, 500, "could not create the account")
+		return
+	}
+	user, err := s.st.CreateUser(invite.Email, strings.TrimSpace(in.Name), invite.Role, hash)
+	if errors.Is(err, store.ErrUserExists) {
+		writeErr(w, 409, "that email is already registered")
+		return
+	} else if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	_ = s.st.DeleteInvite(auth.HashToken(in.Token))
+	if _, err := s.newSession(w, r, user); err != nil {
+		writeErr(w, 500, "could not start a session")
+		return
+	}
+	s.event(user.ID, "ui", "join", "", map[string]any{"name": user.Name, "email": user.Email})
+	writeJSON(w, 200, user)
 }
 
 func settingEnabled(st *store.Store, key string) bool {

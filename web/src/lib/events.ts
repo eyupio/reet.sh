@@ -1,6 +1,7 @@
 import type { Event } from './api'
 
 type Detail = {
+  host?: string
   name?: string
   from?: string
   to?: string
@@ -34,6 +35,8 @@ export function eventLabel(e: Event): string {
   const d = detail(e)
   const name = subject(e, d)
   switch (e.action) {
+    case 'merge-machines': return `Consolidated machine ${d.from || ''} as ${d.to || ''}`
+    case 'forget-machine': return `Forgot machine ${d.host || ''}`
     case 'add':
       return `Added ${name}`
     case 'like':

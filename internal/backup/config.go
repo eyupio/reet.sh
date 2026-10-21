@@ -24,6 +24,7 @@ const (
 	EnvUserEvery   = "REET_BACKUP_USER_EVERY"
 	EnvUserKeep    = "REET_BACKUP_USER_KEEP"
 	EnvDestination = "REET_BACKUP_DESTINATION"
+	EnvCompression = "REET_BACKUP_COMPRESSION"
 	EnvS3Endpoint  = "REET_BACKUP_S3_ENDPOINT"
 	EnvS3Region    = "REET_BACKUP_S3_REGION"
 	EnvS3Bucket    = "REET_BACKUP_S3_BUCKET"
@@ -42,6 +43,7 @@ const (
 	DefaultUserKeep    = 14
 	DefaultPrefix      = "reet/"
 	DefaultDestination = "both"
+	DefaultCompression = "gzip"
 	DefaultName        = "offsite"
 	MaxKeep            = 100000
 )
@@ -77,6 +79,7 @@ type Config struct {
 	UserEvery   time.Duration
 	UserKeep    int
 	Destination string
+	Compression string
 	Version     string
 	AllowLocal  bool
 	RemoteName  string
@@ -150,6 +153,17 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		}
 		return d
 	}
+	compression := func(name, def string) string {
+		v := strings.ToLower(str(name, def))
+		if v == "" {
+			v = def
+		}
+		if v != CompressionGzip && v != CompressionNone {
+			errs = append(errs, fmt.Errorf("%s is %q; write gzip or none", name, v))
+			return def
+		}
+		return v
+	}
 	destination := func(name, def string) string {
 		v := strings.ToLower(str(name, def))
 		if v == "" {
@@ -181,6 +195,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		UserEvery:   dur(EnvUserEvery, DefaultUserEvery),
 		UserKeep:    num(EnvUserKeep, DefaultUserKeep),
 		Destination: destination(EnvDestination, DefaultDestination),
+		Compression: compression(EnvCompression, DefaultCompression),
 		AllowLocal:  strings.EqualFold(str(EnvAllowLocal, ""), "1") || strings.EqualFold(str(EnvAllowLocal, ""), "true"),
 		RemoteName:  str(EnvS3Name, DefaultName),
 	}

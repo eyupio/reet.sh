@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import {
-    backupDownloadUrl, createBackupRemote, deleteBackup, deleteBackupRemote, getBackupStatus, listBackupRemoteCopies,
-    runBackupNow, restoreUserBackup, saveBackupSettings, testBackupRemote, testBackupRemoteDraft, updateBackupRemote,
-    verifyBackup,
-    type BackupCheck, type BackupDestination, type BackupItem, type BackupRemote, type BackupRemoteInput, type BackupStatus,
+    backupDownloadUrl, createBackupRemote, deleteBackup, deleteBackupRemote, deleteBackupRemoteCopy, getBackupStatus,
+    listBackupRemoteCopies, pruneBackupCopies, runBackupNow, restoreUserBackup, saveBackupSettings, shipBackupCopies,
+    testBackupRemote, testBackupRemoteDraft, updateBackupRemote, verifyBackup,
+    type BackupCheck, type BackupCompression, type BackupDestination, type BackupItem, type BackupRemote,
+    type BackupRemoteInput, type BackupStatus,
   } from './api'
   import CopyButton from './CopyButton.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -20,7 +21,10 @@
   let error = $state('')
   let saved = $state('')
   let busy = $state('')
-  let form = $state({ every: '24h', keep: '48', destination: 'both' as BackupDestination })
+  let form = $state({
+    every: '24h', keep: '48', destination: 'both' as BackupDestination,
+    compression: 'gzip' as BackupCompression, password: '', removePassword: false,
+  })
   let checks = $state<Record<string, BackupCheck>>({})
   let verified = $state<Record<string, { ok: boolean; problems: string[] }>>({})
   let openCopies = $state<string | null>(null)
@@ -50,7 +54,10 @@
     try {
       status = await getBackupStatus(admin)
       const every = status.settings.everySeconds
-      form = { every: everyText(every), keep: String(status.settings.keep), destination: status.settings.destination || 'both' }
+      form = {
+        every: everyText(every), keep: String(status.settings.keep), destination: status.settings.destination || 'both',
+        compression: status.settings.compression || 'gzip', password: '', removePassword: false,
+      }
       error = ''
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
@@ -89,11 +96,16 @@
       error = 'Fix the schedule or retention before saving.'
       return
     }
+    if (!form.removePassword && form.password !== '' && form.password.trim().length < 12) {
+      error = 'A copy password needs at least 12 characters, or leave it empty.'
+      return
+    }
     busy = 'settings'
     saved = ''
     error = ''
     try {
-      await saveBackupSettings(admin, everySeconds(form.every), Number(form.keep), form.destination)
+      const password = form.removePassword ? '' : form.password.trim() ? form.password : undefined
+      await saveBackupSettings(admin, everySeconds(form.every), Number(form.keep), form.destination, form.compression, password)
       saved = 'Saved. It applies to the next copy.'
       await load()
     } catch (e) {
@@ -102,6 +114,11 @@
     } finally {
       busy = ''
     }
+  }
+
+  function protectionText(): string {
+    const compression = form.compression === 'gzip' ? 'gzip' : 'no compression'
+    return `${status?.settings.hasPassword ? 'Password' : 'Instance key'} + ${compression}`
   }
 
   function destinationText(destination: BackupDestination): string {
@@ -128,7 +145,12 @@
   async function verify(item: BackupItem) {
     busy = `verify:${item.id}`
     try {
-      verified = { ...verified, [item.id]: await verifyBackup(admin, item.id) }
+      let result = await verifyBackup(admin, item.id)
+      if (!result.ok && result.problems.join(' ').toLowerCase().includes('password')) {
+        const password = prompt('This copy is protected with a password. Enter it to verify the copy:')
+        if (password) result = await verifyBackup(admin, item.id, password)
+      }
+      verified = { ...verified, [item.id]: result }
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
       onerror?.(e)
@@ -269,6 +291,60 @@
     }
   }
 
+  async function copyOffsite() {
+    busy = 'offsite'
+    saved = ''
+    try {
+      const out = await shipBackupCopies(admin)
+      const failed = Object.keys(out.errors).length
+      saved = out.sent.length
+        ? `Copied ${out.sent.length} ${out.sent.length === 1 ? 'copy' : 'copies'} off-site.${failed ? ` ${failed} destination(s) refused: ${Object.values(out.errors).join('; ')}` : ''}`
+        : failed
+          ? `Nothing was copied. ${Object.values(out.errors).join('; ')}`
+          : 'Every destination already holds every copy.'
+      await load()
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      busy = ''
+    }
+  }
+
+  async function applyRetention() {
+    if (!confirm('Apply retention now? This deletes copies older than the counts set here and at each destination.')) return
+    busy = 'prune'
+    saved = ''
+    try {
+      const out = await pruneBackupCopies(admin)
+      const remote = out.remotes.reduce((n, r) => n + r.removed.length, 0)
+      const failed = out.remotes.filter((r) => r.error)
+      saved = `Removed ${out.removed.length + remote} ${out.removed.length + remote === 1 ? 'copy' : 'copies'}.${failed.length ? ` ${failed.map((r) => `${r.name}: ${r.error}`).join('; ')}` : ''}`
+      await load()
+      if (openCopies) copies = (await listBackupRemoteCopies(admin, openCopies)).items
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      busy = ''
+    }
+  }
+
+  async function removeRemoteCopy(name: string, item: BackupItem) {
+    if (!confirm(`Remove ${item.id} from ${name}? What this machine holds is left alone.`)) return
+    busy = `remote-copy:${item.id}`
+    try {
+      await deleteBackupRemoteCopy(admin, name, item.id)
+      copies = (await listBackupRemoteCopies(admin, name)).items
+      await load()
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      busy = ''
+    }
+  }
+
   async function showCopies(name: string) {
     if (openCopies === name) {
       openCopies = null
@@ -390,6 +466,13 @@
             : 'On this machine and at every enabled destination.'}</small>
       </article>
       <article>
+        <h3>Protection</h3>
+        <p>{protectionText()}</p>
+        <small>{status.settings.hasPassword
+          ? 'A copy opens with its password alone; it is stored sealed here for the schedule.'
+          : 'A copy opens with the instance backup key.'}</small>
+      </article>
+      <article>
         <h3>Off-site</h3>
         <p>{status.remotes.filter((r) => !r.disabled && !r.problem).length || 'None'}</p>
         <small>{status.remotes.length ? 'Every copy is sealed before it leaves' : 'Copies are on this machine only'}</small>
@@ -441,6 +524,32 @@
                 : 'Every copy is on this machine and at each enabled destination.'}
           </small>
         </label>
+        <label>
+          <span>Compression</span>
+          <select bind:value={form.compression} disabled={!canEdit}>
+            <option value="gzip">gzip</option>
+            <option value="none">No compression</option>
+          </select>
+          <small>Compressed before the copy is sealed.</small>
+        </label>
+        <label>
+          <span>Copy password</span>
+          <input type="password" bind:value={form.password} autocomplete="new-password" disabled={!canEdit}
+            placeholder={status.settings.hasPassword ? 'stored; leave blank to keep' : 'optional, at least 12 characters'} />
+          <small class:bad={form.password !== '' && form.password.trim().length < 12}>
+            {form.password !== '' && form.password.trim().length < 12
+              ? 'At least 12 characters, or leave it empty.'
+              : status.settings.hasPassword
+                ? 'A password is stored. With one, a copy opens with that password instead of the instance key.'
+                : 'Optional. With one, a copy opens with that password alone.'}
+          </small>
+        </label>
+        {#if status.settings.hasPassword && canEdit}
+          <label class="check">
+            <input type="checkbox" bind:checked={form.removePassword} />
+            Remove the stored password
+          </label>
+        {/if}
         {#if canEdit}
           <button type="submit" class="btn primary" disabled={busy === 'settings' || everyBad || keepBad}>
             {busy === 'settings' ? 'Saving…' : 'Save'}
@@ -458,6 +567,14 @@
           <p class="muted">Any S3-compatible service: AWS S3, Cloudflare R2, Backblaze B2, MinIO, Garage. The secret is sealed in the database.</p>
         </div>
         {#if canEdit}
+          {#if status.remotes.length > 0 && status.settings.destination !== 'local'}
+            <button type="button" class="btn" onclick={copyOffsite} disabled={busy === 'offsite'}>
+              {busy === 'offsite' ? 'Copying…' : 'Copy offsite now'}
+            </button>
+            <button type="button" class="btn" onclick={applyRetention} disabled={busy === 'prune'}>
+              {busy === 'prune' ? 'Applying…' : 'Apply retention now'}
+            </button>
+          {/if}
           <button type="button" class="btn" onclick={() => editRemote()}>Add destination</button>
         {/if}
       </div>
@@ -518,7 +635,13 @@
                   {:else}
                     <ul>
                       {#each copies as c (c.id)}
-                        <li><code>{c.id}</code><span>{when(c.takenAt)} · {bytes(c.bytes)}</span></li>
+                        <li>
+                          <code>{c.id}</code><span>{when(c.takenAt)} · {bytes(c.bytes)}</span>
+                          {#if canEdit}
+                            <button type="button" class="btn quiet danger" onclick={() => removeRemoteCopy(r.name, c)}
+                              disabled={busy === `remote-copy:${c.id}`}>Remove</button>
+                          {/if}
+                        </li>
                       {/each}
                     </ul>
                   {/if}
@@ -640,7 +763,16 @@
                 if (!restoreFor) return
                 busy = 'restore'
                 try {
-                  const r = await restoreUserBackup(restoreFor!.id)
+                  let r
+                  try {
+                    r = await restoreUserBackup(restoreFor!.id)
+                  } catch (e) {
+                    const message = e instanceof Error ? e.message : String(e)
+                    if (!message.toLowerCase().includes('password')) throw e
+                    const password = prompt('This copy is protected with a password. Enter it to restore your shelf:')
+                    if (!password) throw e
+                    r = await restoreUserBackup(restoreFor!.id, password)
+                  }
                   saved = `Restored ${r.restored} skills from ${restoreFor!.id}.`
                   restoreFor = null
                   await load()

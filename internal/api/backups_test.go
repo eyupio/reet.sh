@@ -91,9 +91,12 @@ func TestBackupAndProfileAPI(t *testing.T) {
 	if settings["destination"] != "remote" {
 		t.Fatalf("destination did not survive a reload: %+v", settings)
 	}
-	saved = send(http.MethodPatch, "/api/v2/admin/backups", map[string]any{"everySeconds": 7200, "keep": 5, "destination": "both"})
-	if saved["destination"] != "both" {
-		t.Fatalf("destination was not put back: %+v", saved)
+	saved = send(http.MethodPatch, "/api/v2/admin/backups", map[string]any{
+		"everySeconds": 7200, "keep": 5, "destination": "both", "compression": "none",
+		"password": "a copy password long enough",
+	})
+	if saved["destination"] != "both" || saved["compression"] != "none" || saved["hasPassword"] != true {
+		t.Fatalf("settings were not saved: %+v", saved)
 	}
 	draft := send(http.MethodPost, "/api/v2/admin/backups/remotes/test", map[string]any{
 		"name": "probe", "endpoint": "not a url", "bucket": "b", "accessKey": "k", "secretKey": "s",

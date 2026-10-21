@@ -1,0 +1,116 @@
+name: binary release
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - 'scripts/install.sh'
+      - 'scripts/install_test.go'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'web/**'
+      - 'brand/logo/**'
+      - 'go.mod'
+      - 'go.sum'
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci && npm run check && npm run build
+        working-directory: web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-web
+          path: web/dist
+          include-hidden-files: true
+
+  verify:
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-web
+          path: web/dist
+      - run: go vet ./... && go test -race ./...
+
+  build:
+    needs: [web, verify]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [linux, darwin]
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-web
+          path: web/dist
+      - name: Build release archive
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: '0'
+          REET_REF: ${{ github.ref_name }}
+          REET_SHA: ${{ github.sha }}
+          REET_REF_TYPE: ${{ github.ref_type }}
+        run: |
+          version=dev
+          if [ "$REET_REF_TYPE" = tag ]; then
+            [[ "$REET_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] || { echo 'Expected a version tag such as v1.2.3' >&2; exit 1; }
+            version=$REET_REF
+          fi
+          mkdir -p staging artifacts
+          go build -trimpath -ldflags="-s -w -X main.version=$version -X main.commit=$REET_SHA" -o staging/reet ./cmd/reet
+          cp LICENSE README.md staging/
+          tar -czf "artifacts/reet_${version}_${GOOS}_${GOARCH}.tar.gz" -C staging reet LICENSE README.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.os }}-${{ matrix.arch }}
+          path: artifacts/*
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: artifacts
+          merge-multiple: true
+      - name: Publish checksummed binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REET_TAG: ${{ github.ref_name }}
+        run: |
+          (cd artifacts && sha256sum reet_*.tar.gz > checksums.txt)
+          flags=()
+          case "$REET_TAG" in *-*) flags+=(--prerelease) ;; esac
+          gh release create "$REET_TAG" artifacts/* --verify-tag --generate-notes --title "$REET_TAG" "${flags[@]}"

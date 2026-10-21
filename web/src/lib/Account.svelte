@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import PageHeader from './PageHeader.svelte'
   import { createToken, listTokens, revokeToken, type APIToken, type User } from './api'
   import CopyButton from './CopyButton.svelte'
 
@@ -65,16 +66,13 @@
 </script>
 
 <section class="account" aria-labelledby="account-title">
-  <a class="back" href="/">← Back to the shelf</a>
-  <p class="eyebrow">Account</p>
-  <h2 id="account-title">{user.name}</h2>
-  <p class="who">{user.email} · {user.role}</p>
+  <PageHeader eyebrow="Your account" title={user.name || user.email} titleId="account-title" lede={`${user.email} · ${user.role}`} />
 
   {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
 
   {#if canTokens}
     <section class="block" aria-labelledby="tokens-title">
-      <h3 id="tokens-title">API tokens</h3>
+      <h2 id="tokens-title">Personal API tokens</h2>
       <p class="muted">Use a token with <code>reet scan --token …</code> or an API client. A token is shown once, then only its name remains.</p>
 
       {#if freshToken}
@@ -114,27 +112,18 @@
   {/if}
 
   <section class="block">
+    <h2>Session</h2>
+    <p class="muted">Sign out of your account on this browser.</p>
     <button type="button" class="btn" onclick={onsignout}>Sign out</button>
   </section>
 </section>
 
 <style>
   .account { padding-top: 4px; }
-  .back { color: var(--muted); font-size: 0.9rem; text-decoration: none; }
-  .back:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
-  .eyebrow {
-    margin: 22px 0 0; color: var(--accent); font-size: 0.72rem; font-weight: 700;
-    letter-spacing: 0.12em; text-transform: uppercase;
-  }
-  h2 { margin: 6px 0 0; font: 600 2rem/1.1 var(--serif); letter-spacing: -0.02em; }
-  .who { margin: 6px 0 0; color: var(--muted); }
   .notice { margin: 16px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
   .notice.bad { border-color: var(--bad); }
   .block { margin-top: 24px; padding: clamp(18px, 3vw, 28px); border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
-  h3 {
-    margin: 0; color: var(--muted); font-size: 0.68rem; font-weight: 700;
-    letter-spacing: 0.1em; text-transform: uppercase;
-  }
+  h2 { margin: 0 0 10px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.025em; }
   .muted { margin: 8px 0 0; color: var(--muted); }
   .fresh { margin-top: 14px; padding: 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--tint); }
   .fresh p { margin: 0 0 8px; font-size: 0.88rem; }
@@ -149,6 +138,6 @@
   .createrow { display: flex; gap: 8px; flex-wrap: wrap; }
   .createrow input { flex: 1; min-width: 0; }
   @media (max-width: 560px) {
-    h2 { font-size: 1.7rem; }
+    .createrow { flex-direction: column; }
   }
 </style>

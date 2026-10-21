@@ -1,0 +1,95 @@
+#!/bin/sh
+# Download a checksummed reet release. No Go toolchain or elevated access needed.
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: install.sh [--version VERSION] [--dir DIRECTORY]
+
+Install reet for Linux or macOS (amd64 or arm64) from GitHub Releases.
+  --version VERSION  Install a specific release, e.g. v1.2.3 (default: latest)
+  --dir DIRECTORY    Install directory (default: REET_INSTALL_DIR or ~/.local/bin)
+  -h, --help         Show this help
+
+Requires curl, tar, and sha256sum or shasum. Existing reet binaries are replaced
+only after the downloaded archive's SHA-256 checksum has been verified.
+EOF
+}
+fail() { printf 'reet: %s\n' "$*" >&2; exit 1; }
+
+version=latest
+install_dir=${REET_INSTALL_DIR:-"${HOME:?HOME is not set}/.local/bin"}
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --version|--dir)
+      [ "$#" -ge 2 ] && [ -n "$2" ] || fail "$1 requires a value"
+      case "$1" in --version) version=$2 ;; --dir) install_dir=$2 ;; esac
+      shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) fail "unknown option: $1 (use --help)" ;;
+  esac
+done
+
+case "$(uname -s)" in
+  Linux) os=linux ;;
+  Darwin) os=darwin ;;
+  *) fail 'supported systems are Linux and macOS; see GitHub Releases for available binaries' ;;
+esac
+case "$(uname -m)" in
+  x86_64|amd64) arch=amd64 ;;
+  aarch64|arm64) arch=arm64 ;;
+  *) fail 'supported architectures are amd64 and arm64' ;;
+esac
+for dependency in curl tar awk install mktemp; do
+  command -v "$dependency" >/dev/null 2>&1 || fail "$dependency is required"
+done
+if command -v sha256sum >/dev/null 2>&1; then
+  checksum=sha256sum
+elif command -v shasum >/dev/null 2>&1; then
+  checksum=shasum
+else
+  fail 'sha256sum or shasum is required to verify the download'
+fi
+
+release_root=https://github.com/eyupio/reet.sh/releases
+fetch() {
+  curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+    --retry 3 --connect-timeout 10 --max-time 180 "$@"
+}
+if [ "$version" = latest ]; then
+  latest_url=$(fetch --head --output /dev/null --write-out '%{url_effective}' "$release_root/latest") || fail 'could not find the latest release; check that a binary release has been published'
+  version=${latest_url##*/}
+fi
+case "$version" in v*) ;; *) version=v$version ;; esac
+printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$' || fail 'version must be a release tag such as v1.2.3'
+asset=reet_${version}_${os}_${arch}.tar.gz
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/reet-install.XXXXXX") || fail 'could not create a temporary directory'
+staged_binary=
+cleanup() {
+  rm -rf "$work_dir"
+  if [ -n "$staged_binary" ]; then rm -f "$staged_binary"; fi
+}
+trap cleanup 0
+trap 'exit 1' HUP INT TERM
+printf 'Downloading reet %s for %s/%s…\n' "$version" "$os" "$arch"
+fetch --output "$work_dir/$asset" "$release_root/download/$version/$asset" || fail "could not download $asset"
+fetch --output "$work_dir/checksums.txt" "$release_root/download/$version/checksums.txt" || fail 'could not download release checksums'
+expected=$(awk -v name="$asset" '$2 == name { print $1; matches++ } END { if (matches != 1) exit 1 }' "$work_dir/checksums.txt") || fail 'release must contain exactly one checksum for this archive'
+printf '%s\n' "$expected" | grep -Eq '^[0-9a-f]{64}$' || fail 'release checksum is not a SHA-256 digest'
+if [ "$checksum" = sha256sum ]; then
+  actual=$(sha256sum "$work_dir/$asset" | awk '{print $1}')
+else
+  actual=$(shasum -a 256 "$work_dir/$asset" | awk '{print $1}')
+fi
+[ "$actual" = "$expected" ] || fail 'checksum mismatch; the existing installation was not changed'
+tar -xzf "$work_dir/$asset" -C "$work_dir" reet || fail 'could not extract the release binary'
+[ -f "$work_dir/reet" ] && [ ! -L "$work_dir/reet" ] || fail 'archive does not contain a regular reet binary'
+case "$install_dir" in /*) ;; *) install_dir=$PWD/$install_dir ;; esac
+mkdir -p "$install_dir" || fail "cannot create $install_dir; choose a writable directory with --dir"
+[ ! -d "$install_dir/reet" ] || fail "$install_dir/reet is a directory"
+staged_binary=$(mktemp "$install_dir/.reet-install.XXXXXX") || fail "cannot write to $install_dir; choose a writable directory with --dir"
+install -m 0755 "$work_dir/reet" "$staged_binary"
+mv -f "$staged_binary" "$install_dir/reet"
+staged_binary=
+printf 'Installed reet %s to %s/reet\n' "$version" "$install_dir"
+case ":${PATH:-}:" in *":$install_dir:"*) ;; *) printf 'Add %s to your PATH to run reet from any directory.\n' "$install_dir" ;; esac

@@ -37,6 +37,11 @@ func main() {
 		cmd = os.Args[1]
 	}
 	switch cmd {
+	case "version", "--version", "-v":
+		fmt.Printf("reet %s (%s)\n", version, commit)
+	case "help", "--help", "-h":
+		fmt.Println("usage: reet serve | reet healthcheck | reet scan [options] | reet version")
+		fmt.Println("Run reet scan --help for scanner options.")
 	case "serve":
 		if err := serve(); err != nil {
 			log.Fatal(err)
@@ -51,7 +56,7 @@ func main() {
 			log.Fatal(err)
 		}
 	default:
-		fmt.Fprintf(os.Stderr, "usage: reet serve | reet healthcheck | reet scan [--server URL] [--token T] [--dir PATH] [--dry-run]\n")
+		fmt.Fprintln(os.Stderr, "usage: reet serve | reet healthcheck | reet scan [options] | reet version")
 		os.Exit(2)
 	}
 }

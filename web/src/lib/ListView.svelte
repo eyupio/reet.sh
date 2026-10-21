@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import PageHeader from './PageHeader.svelte'
   import {
     addListMember, addListSkill, addListToShelf, deleteList, getList, listSkills,
     removeListMember, removeListSkill, transferList, updateList, updateListMember, updateListSkill,
@@ -278,19 +279,9 @@
   </section>
 {:else}
   <article class="listpage">
-    <a class="back" href="/">← Your shelf</a>
-    <header class="hero">
-      <p class="eyebrow">{visibilityLabel(detail.visibility)}</p>
-      <h1>{detail.name}</h1>
-      {#if detail.description}<p class="lede">{detail.description}</p>{/if}
-      <p class="meta">
-        <span>{detail.skillCount} {detail.skillCount === 1 ? 'skill' : 'skills'}</span>
-        <span aria-hidden="true">·</span>
-        <span>{detail.memberCount} {detail.memberCount === 1 ? 'person' : 'people'}</span>
-        <span aria-hidden="true">·</span>
-        <span>{roleLabel(detail.role ?? '')}</span>
-      </p>
-    </header>
+    <PageHeader eyebrow={visibilityLabel(detail.visibility)} title={detail.name} lede={detail.description}>
+      {#snippet meta()}{#if detail}<span class="badge">{detail.skillCount} {detail.skillCount === 1 ? 'skill' : 'skills'} · {detail.memberCount} {detail.memberCount === 1 ? 'person' : 'people'} · {roleLabel(detail.role ?? '')}</span>{/if}{/snippet}
+    </PageHeader>
 
     <div class="actions">
       {#if canWrite}
@@ -494,14 +485,12 @@
 {/if}
 
 <style>
-  .listpage { margin-top: 18px; }
+  .listpage { margin-top: 0; }
   .back { color: var(--muted); font-size: 0.85rem; text-decoration: none; }
   .back:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
-  .hero { margin-top: 16px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
   .eyebrow { margin: 0; color: var(--accent); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
   h1 { margin: 6px 0 0; font: 600 clamp(1.9rem, 5vw, 2.6rem)/1.06 var(--serif); letter-spacing: -0.025em; overflow-wrap: anywhere; }
   .lede { margin: 10px 0 0; color: var(--muted); max-width: 58ch; }
-  .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; color: var(--muted); font-size: 0.82rem; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
   .status { margin: 14px 0 0; color: var(--good); font-size: 0.88rem; }
   .inline { background: none; border: 0; padding: 0 2px; color: var(--accent); font: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
@@ -511,7 +500,7 @@
   .start h1 { margin: 8px 0 0; }
 
   .panel { margin-top: 18px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--bg) 38%, var(--card)); }
-  .panel h2 { margin: 0 0 4px; font: 600 1.15rem/1.2 var(--serif); letter-spacing: -0.01em; }
+  .panel h2 { margin: 0 0 4px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.01em; }
   .panel-lede { margin: 0 0 12px; color: var(--muted); font-size: 0.86rem; }
   .field { display: grid; gap: 5px; margin-top: 10px; font-size: 0.8rem; font-weight: 600; }
   .field input, .field select { width: 100%; font-weight: 400; }
@@ -545,9 +534,9 @@
   .or { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; }
 
   .entries { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 14px; }
-  .entry { padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); box-shadow: 0 18px 50px -48px rgb(0 0 0 / 0.4); }
+  .entry { padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); box-shadow: 0 18px 50px -48px rgb(0 0 0 / 0.4); }
   .entry-head { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
-  .entry h2 { margin: 0; font: 600 1.1rem/1.25 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+  .entry h2 { margin: 0; font: 500 1.4rem/1.25 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; }
   .entry h2 a { color: inherit; text-decoration: none; }
   .entry h2 a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
   .source { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 0; color: var(--muted); font-size: 0.76rem; }

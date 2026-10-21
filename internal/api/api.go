@@ -2095,11 +2095,11 @@ func quickPage(w http.ResponseWriter, code int, msg string) {
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bookmarklet · reet.sh</title>
 <style>
 :root{--bg:#f7f6f2;--card:#fffdf9;--ink:#1d1c1a;--muted:#5f5c54;--line:#e4e1d8;--accent:#c2410c;--accent-ink:#fff;color-scheme:light dark}
-@media(prefers-color-scheme:dark){:root{--bg:#151413;--card:#1d1c1a;--ink:#efece6;--muted:#a8a399;--line:#33312d;--accent:#fb923c;--accent-ink:#1a1208}}
+@media(prefers-color-scheme:dark){:root{--bg:#151413;--card:#1d1c1a;--ink:#efece6;--muted:#b2aca2;--line:#49453e;--accent:#fb923c;--accent-ink:#1a1208}}
 *{box-sizing:border-box}body{margin:0;min-height:100dvh;padding:24px;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,sans-serif}
 main{width:100%%;max-width:440px;padding:32px;border:1px solid var(--line);border-radius:16px;background:var(--card)}
 .eyebrow{margin:18px 0 0;color:var(--accent);font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
-h1{margin:12px 0;font:600 28px/1.2 Georgia,serif;letter-spacing:-.02em;overflow-wrap:anywhere}p{color:var(--muted);font-size:14px}
+h1{margin:12px 0;font:500 28px/1.2 Georgia,serif;letter-spacing:-.025em;overflow-wrap:anywhere}p{color:var(--muted);font-size:14px}
 a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin-top:12px;padding:10px 16px;border-radius:8px;background:var(--accent);color:var(--accent-ink);font-size:14px;font-weight:600;text-decoration:none}
 a:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
 </style></head><body><main><img src="/favicon.svg" width="40" height="40" alt=""><p class="eyebrow">reet.sh · Bookmarklet</p><h1>%s</h1><p>This window will close automatically. You can also return to your shelf.</p><a href="/">Open your shelf</a></main>

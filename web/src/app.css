@@ -1,22 +1,23 @@
 :root {
-  --bg: #f7f6f2; --card: #fffdf9; --ink: #1d1c1a; --muted: #5f5c54; --line: #e4e1d8;
+  --bg: #f7f6f2; --card: #fffdf9; --ink: #1d1c1a; --muted: #5f5c54; --line: #dedbd2;
   --accent: #c2410c; --accent-ink: #fff; --tint: #fde8d8; --heart: #be1f4a; --good: #15703b; --bad: #b91c1c;
   --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
   --sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-  --content-width: 920px;
+  --content-width: 1120px;
+  --radius: 12px;
   --shadow: 0 16px 48px -32px rgb(29 28 26 / 0.24);
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #151413; --card: #1d1c1a; --ink: #efece6; --muted: #a8a399; --line: #33312d;
+    --bg: #151413; --card: #1d1c1a; --ink: #efece6; --muted: #b2aca2; --line: #49453e;
     --accent: #fb923c; --accent-ink: #1a1208; --tint: #3a2615; --heart: #ff7a9c; --good: #4ade80; --bad: #f87171;
   }
 }
 *, *::before, *::after { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 var(--sans); min-width: 320px; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 var(--sans); min-width: 320px; }
 #app { min-height: 100dvh; display: flex; flex-direction: column; }
 code, kbd { font-family: var(--mono); }
 a { text-underline-offset: 3px; }
@@ -26,11 +27,11 @@ input[type='checkbox'] { accent-color: var(--accent); }
 input[aria-invalid='true'] { border-color: var(--bad); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button, input, select, textarea { font: inherit; color: inherit; }
-input, select, textarea { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; min-width: 0; }
+input, select, textarea { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-height: 42px; min-width: 0; }
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 textarea { width: 100%; resize: vertical; }
 
-.btn { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 8px 14px; cursor: pointer; min-height: 40px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 9px 14px; cursor: pointer; min-height: 42px; text-decoration: none; }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn:hover:not(:disabled) { border-color: var(--muted); }
 .btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 90%, var(--ink)); border-color: var(--accent); }
@@ -38,6 +39,7 @@ textarea { width: 100%; resize: vertical; }
 .btn.quiet { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.quiet:hover:not(:disabled) { color: var(--ink); text-decoration: underline; }
 .btn.danger:hover { color: var(--bad); }
+.badge { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; color: var(--muted); font-size: 0.72rem; }
 .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (prefers-reduced-motion: no-preference) {
   .btn { transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 160ms var(--ease-out); }
@@ -45,4 +47,7 @@ textarea { width: 100%; resize: vertical; }
 }
 @media (pointer: coarse) {
   .btn, input, select, textarea, .filters button { min-height: 44px; }
+}
+@media (max-width: 560px) {
+  input, select, textarea { font-size: 16px; }
 }

@@ -67,7 +67,7 @@
   }
   dialog::backdrop { background: rgb(20 18 15 / 0.45); backdrop-filter: blur(2px); }
   .box {
-    padding: 24px; background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+    padding: 28px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
     box-shadow: 0 28px 80px -24px rgb(0 0 0 / 0.45);
   }
   h2 { margin: 0; font: 600 1.5rem/1.15 var(--serif); letter-spacing: -0.02em; }

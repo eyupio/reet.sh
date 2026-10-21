@@ -6,7 +6,7 @@ The explorer in `web/concepts/controller.html` covers the signed-out pages first
 
 | Direction | Approach | Best suited to |
 | --- | --- | --- |
-| Library — recommended | Warm paper, serif headings, a two-column account form, and familiar shelf stages | An evolution of the current reet.sh identity |
+| Library — implemented | Warm paper, serif headings, a two-column account form, and familiar shelf stages | An evolution of the current reet.sh identity |
 | Workbench | Persistent desktop navigation, compact rows, sans-serif headings | Larger shelves and instance administration |
 | Focus | One reading column, open separators, restrained controls | Personal use and focused tasks |
 
@@ -39,15 +39,19 @@ The prototype supports password visibility, password confirmation checks, naviga
 
 The explorer has 19 named views. Some are panels in the existing app, not separate routes. Role-dependent controls are shown as an owner concept; the real app continues to enforce its existing permissions.
 
+See [Library implementation](library-implementation.md) for current application screenshots, the refined logo, and release validation.
+
 ## Changes in the Svelte app
 
-The implementation applies the shared Library foundation while leaving the three full design directions available for review:
+The application now implements the Library direction throughout. The three studies remain available as design references:
 
 - Account sign-in, setup, invitations, and legacy token sign-in share `AuthCard`.
 - Account password fields share `PasswordInput`, with a labelled show/hide control, correct password-manager autocomplete, and preserved Svelte bindings.
 - Forms declare required credentials, password length constraints for new passwords, busy state, and error descriptions.
 - The header offers Shelf, Account, and Admin navigation when the authenticated role can use them. All routes have a skip link; non-public routes have descriptive document titles.
-- Shared spacing and type tokens, a wider reading column, and a wider admin layout improve use of available space. Account and admin sections use consistent panels.
+- Shared Library spacing and type tokens, serif page headings, a wide reading column, and bordered shelf cards carry through lists, account and admin. The header is a separate banner; each page has its own primary heading.
+- Tools are grouped into import, bookmarklet, backup and organisation panels that stack on phones.
+- The logo’s s has been redrawn with open cubic curves. The app imports the themeable SVG generated from `brand/generate.py`.
 - Admin section links shorten navigation; wide tables can be focused and scrolled by keyboard. User-role selectors have accessible names.
 - Restore from JSON uses a keyboard-operable button and file input.
 - Public-list primary buttons keep the correct foreground colour. Active navigation, list-owner labels, and adoption badges have stronger contrast.
@@ -62,7 +66,7 @@ No production dependency was added. The concept explorer is outside the shipped 
 
 Global colours, fonts, content width, and shadow live in `web/src/app.css`. The explorer has its own inline tokens and overrides under `data-direction` and `data-theme`. Keep both palettes in sync when carrying a concept into production.
 
-Build the production UI with `cd web && npm ci && npm run check && npm run build`, then run the existing Go server. No deployment or public hosting was performed. The explorer is a review artifact, rather than a user-facing theme switch in the production app.
+Build the production UI with `cd web && npm ci && npm run check && npm run build`, then run the existing Go server. The release binary embeds the same built UI. See [binary installation](binary-installation.md) for downloads and publishing. The explorer is a review artifact, rather than a user-facing theme switch in the production app.
 
 ## Verification
 

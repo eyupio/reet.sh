@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import PageHeader from './PageHeader.svelte'
   import {
     createInvite, deleteAdminUser, getAdminStatus, getRollup, listAdminUsers, resetUserPassword, revokeUserTokens,
     saveAdminSettings, transferOwner, updateAdminUser, type AdminStatus, type Rollup, type RollupSkill, type UserMeta,
@@ -292,9 +293,7 @@
 </script>
 
 <section class="admin" aria-labelledby="admin-title">
-  <a class="back" href="/">← Back to the shelf</a>
-  <p class="eyebrow">Operator</p>
-  <h2 id="admin-title">Admin</h2>
+  <PageHeader eyebrow="Instance administration" title="Your instance." titleId="admin-title" lede="A view of your instance, its people, and the toolkit they share." />
   <nav class="section-nav" aria-label="Admin sections">
     <a href="#admin-overview">Overview</a>
     <a href="#admin-envs">Environments</a>
@@ -308,6 +307,7 @@
     <p class="notice bad" role="alert">{error || 'Could not load the admin status.'}</p>
   {:else}
     {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
+    <h2 class="vh">Instance overview</h2>
     <div class="cards" id="admin-overview">
       <article>
         <h3>Version</h3>
@@ -339,7 +339,7 @@
     </div>
 
     <section class="block" aria-labelledby="admin-envs">
-      <h3 id="admin-envs">Environments</h3>
+      <h2 id="admin-envs">Environments</h2>
       {#if status.environments.length === 0}
         <p class="muted">No scans yet. Run <code>reet scan --env NAME</code> on a machine.</p>
       {:else}
@@ -364,7 +364,7 @@
 
     {#if accounts}
       <section class="block" aria-labelledby="admin-users">
-        <h3 id="admin-users">Users</h3>
+        <h2 id="admin-users">Users</h2>
         {#if usersError}<p class="error" role="alert">{usersError}</p>{/if}
         <div class="invite">
           <label for="invite-email">Invite by email</label>
@@ -445,7 +445,7 @@
     {/if}
 
       <section class="block" aria-labelledby="admin-team">
-        <h3 id="admin-team">Team rollup</h3>
+        <h2 id="admin-team">Team rollup</h2>
         <p class="muted">What the team uses, what sits on a list unused, and where a skill is in use outside a list. Active accounts only.</p>
         {#if rollupError}<p class="error" role="alert">{rollupError}</p>{/if}
         {#if rollupLoading && !rollup}
@@ -577,7 +577,7 @@
       </section>
 
     <section class="block" aria-labelledby="admin-settings">
-      <h3 id="admin-settings">Jobs and instance</h3>
+      <h2 id="admin-settings">Jobs and instance</h2>
       {#if isOwner}
         <form onsubmit={save}>
           <label class="check"><input type="checkbox" bind:checked={form.refreshEnabled} /> Six-hourly metadata refresh</label>
@@ -599,7 +599,7 @@
     </section>
 
     <section class="block" aria-labelledby="admin-events">
-      <h3 id="admin-events">Recent activity</h3>
+      <h2 id="admin-events">Recent activity</h2>
       {#if status.events.length === 0}
         <p class="muted">Nothing recorded yet.</p>
       {:else}
@@ -634,23 +634,17 @@
   .section-nav a { display: inline-flex; align-items: center; min-height: 40px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 0.82rem; }
   .section-nav a:hover { background: var(--tint); border-color: var(--accent); color: var(--ink); }
   h3, #admin-overview { scroll-margin-top: 24px; }
-  .back { color: var(--muted); font-size: 0.9rem; text-decoration: none; }
-  .back:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
-  .eyebrow {
-    margin: 22px 0 0; color: var(--accent); font-size: 0.72rem; font-weight: 700;
-    letter-spacing: 0.12em; text-transform: uppercase;
-  }
-  h2 { display: block; margin: 6px 0 0; font: 600 2rem/1.1 var(--serif); letter-spacing: -0.02em; }
+  .block h2 { margin: 0 0 12px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.025em; }
   .empty { text-align: center; color: var(--muted); font: italic 1.15rem/1.5 var(--serif); padding: 40px 0; }
   .notice { margin: 16px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
   .notice.bad { border-color: var(--bad); }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-top: 22px; }
-  .cards article { padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
-  .cards h3, .block h3 {
+  .cards article { padding: 22px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+  .cards h3 {
     margin: 0; color: var(--muted); font-size: 0.68rem; font-weight: 700;
     letter-spacing: 0.1em; text-transform: uppercase;
   }
-  .cards p { margin: 6px 0 0; font-size: 1.05rem; font-weight: 650; }
+  .cards p { margin: 6px 0 0; font: 500 1.7rem/1.2 var(--serif); }
   .cards p.ok { color: var(--good); }
   .cards p.bad { color: var(--bad); }
   .cards small { display: block; margin-top: 4px; color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }
@@ -660,8 +654,8 @@
   .muted { margin: 8px 0 0; color: var(--muted); }
   .tablewrap { margin-top: 14px; overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
-  td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { text-align: left; color: var(--muted); font-weight: 600; padding: 12px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 16px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
   td.num { font-variant-numeric: tabular-nums; }
   tr.old td { opacity: 0.55; }
   form { display: grid; gap: 10px; margin-top: 10px; max-width: 460px; }
@@ -735,7 +729,7 @@
     .drift { grid-template-columns: 1fr; gap: 22px; }
   }
   @media (max-width: 560px) {
-    h2 { font-size: 1.7rem; }
+    .cards article { padding: 16px; }
     .cards { grid-template-columns: 1fr 1fr; }
     .rollup-filters { display: grid; grid-template-columns: 1fr 1fr; }
     .rollup-filters label:nth-child(3) { grid-column: 1; }

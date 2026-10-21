@@ -18,6 +18,7 @@
   import Logo from './lib/Logo.svelte'
   import NewList from './lib/NewList.svelte'
   import PublicList from './lib/PublicList.svelte'
+  import PageHeader from './lib/PageHeader.svelte'
   import Setup from './lib/Setup.svelte'
   import SignIn from './lib/SignIn.svelte'
   import SkillCard from './lib/SkillCard.svelte'
@@ -569,11 +570,10 @@
 </svelte:head>
 
 <a class="skip" href="#main-content">Skip to content</a>
-<main id="main-content" tabindex="-1" class:wide={isAdmin && authenticated && !needsAuth}>
-  <header class="site-header">
+<header class="site-header">
+  <div class="header-inner">
     <div>
-      <h1><a class="home" href="/"><Logo /></a></h1>
-      {#if !isAdmin}<p class="tag">Keep the reet good AI skills from skills.sh, all in one place.</p>{/if}
+      <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
     </div>
     {#if authenticated && !needsAuth && !isPublicList && !isJoin}
       <nav class="site-nav" aria-label="Main navigation">
@@ -584,8 +584,10 @@
     {:else if isPublicList || isJoin}
       <a class="entry-link" href="/">Open your shelf →</a>
     {/if}
-  </header>
-
+    {#if (!authenticated || needsAuth) && !isPublicList && !isJoin}<span class="tag">Your shelf for AI skills</span>{/if}
+  </div>
+</header>
+<main id="main-content" tabindex="-1" class:auth-page={!isPublicList && (!authenticated || needsAuth || isJoin)}>
   {#if isPublicList}
     <PublicList slug={publicSlug} />
   {:else if isJoin}
@@ -599,18 +601,24 @@
   {:else if authMode === 'token' && needsAuth}
     <SignIn onattempt={attemptSignIn} />
   {:else if !authMode}
+    <PageHeader eyebrow="Connection problem" title="The shelf is out of reach." />
     <p class="notice bad" role="alert">Could not check how this instance signs in. Reload the page to try again.</p>
   {:else if isAccount && authMode === 'accounts'}
     <Account user={currentUser!} onsignout={signOut} onerror={fail} />
   {:else if isList}
     <ListView id={listId} {canWrite} userRole={role} onerror={fail} />
   {:else if isAccount}
+    <PageHeader eyebrow="Your account" title="Accounts are not enabled." />
     <p class="notice bad" role="alert">Accounts are not enabled on this instance.</p>
   {:else if isAdmin && !isAdminUser}
+    <PageHeader eyebrow="Instance administration" title="Admin access is needed." />
     <p class="notice bad" role="alert">Admins only. Your account does not have access to this page.</p>
   {:else if isAdmin}
     <Admin onerror={fail} {role} accounts={authMode === 'accounts'} currentEmail={currentUser?.email ?? ''} />
   {:else}
+    <PageHeader eyebrow="Your personal library" title="Your shelf. Your toolkit." lede="The good finds, the next experiments, and the skills you use every day.">
+      {#snippet actions()}<span class="badge">{counts.all} {counts.all === 1 ? 'skill' : 'skills'} · on this instance</span>{/snippet}
+    </PageHeader>
     {#if canWrite}
       <form class="add" onsubmit={add}>
         <label class="vh" for="add-input">Skill URL or slug</label>
@@ -749,9 +757,11 @@
           <p class="browse"><a href="https://www.skills.sh/topic" target="_blank" rel="noopener noreferrer">Browse skills.sh topics<span class="vh"> (opens in a new tab)</span></a></p>
         </section>
       {:else if visible.length === 0}
-        <p class="empty">
-          {counts.all === 0 ? 'Nowt on the shelf yet. Paste a skills.sh link above, or import what you have installed.' : 'Nowt matches that.'}
-        </p>
+        <div class="no-matches">
+          <h2>No skills match that.</h2>
+          <p>Try another search or clear your filters.</p>
+          <button type="button" class="btn" onclick={() => { q = ''; show = 'all'; onlyLiked = false; selectedTags = []; selectedEnv = ''; onlyOne = false }}>Clear filters</button>
+        </div>
       {:else}
         {#each visible as g (g.id)}
           <section class={g.id} aria-labelledby="h-{g.id}">
@@ -846,20 +856,19 @@
 <style>
   .skip { position: absolute; left: 8px; top: -48px; background: var(--accent); color: var(--accent-ink); padding: 8px 12px; border-radius: 8px; z-index: 10; }
   .skip:focus { top: 8px; }
-  main { width: 100%; max-width: var(--content-width); margin: 0 auto; padding: clamp(24px, 5vw, 44px) 24px 56px; flex: 1; }
-  main.wide { max-width: 1160px; }
+  main { width: 100%; max-width: var(--content-width); margin: 0 auto; padding: 36px 40px 56px; flex: 1; }
+  main.auth-page { max-width: 960px; }
   main:focus { outline: none; }
-  .site-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-bottom: 24px; margin-bottom: 24px; border-bottom: 1px solid var(--line); }
-  .site-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: none; }
-  .site-nav a, .entry-link { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--muted); font-size: 0.85rem; font-weight: 600; text-decoration: none; border-radius: 8px; }
+  .site-header { border-bottom: 1px solid var(--line); }
+  .header-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: var(--content-width); margin: auto; padding: 24px 40px; }
+  .site-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .site-nav a, .entry-link { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--muted); font-size: 0.8rem; font-weight: 600; text-decoration: none; border-radius: 8px; }
   .site-nav a:hover, .entry-link:hover { color: var(--ink); background: var(--card); }
   .site-nav a[aria-current='page'] { color: var(--ink); background: var(--tint); }
-
-  h1 { margin: 0; line-height: 1; }
   .home { display: inline-block; color: inherit; text-decoration: none; }
-  .tag { margin: 10px 0 0; color: var(--muted); font: 0.86rem/1.5 var(--sans); max-width: 40ch; }
+  .tag { color: var(--muted); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em; }
 
-  .add { display: flex; gap: 8px; margin: 28px 0 8px; }
+  .add { display: flex; gap: 8px; margin: 24px 0 12px; }
   .add input { flex: 1; }
 
   .notices { display: grid; gap: 8px; }
@@ -932,11 +941,14 @@
   .count { margin: 14px 0 0; color: var(--muted); font-size: 0.9rem; }
   #sections { scroll-margin-top: 140px; }
   section { margin-top: 28px; }
-  h2 { margin: 0; display: flex; align-items: baseline; gap: 10px; font: 600 1.7rem/1.1 var(--serif); letter-spacing: -0.02em; }
+  h2 { margin: 0; display: flex; align-items: baseline; gap: 10px; font: 500 1.65rem/1.2 var(--serif); letter-spacing: -0.02em; }
   h2 small { font: 500 0.9rem var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; }
-  .hint { margin: 4px 0 0; color: var(--muted); font: italic 0.98rem var(--serif); }
-  ul { list-style: none; margin: 8px 0 0; padding: 0; }
+  .hint { margin: 4px 0 0; color: var(--muted); font: 0.78rem/1.5 var(--sans); }
+  ul { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 12px; }
   .none { color: var(--muted); font: italic 1.05rem/1.5 var(--serif); padding: 18px 0 6px 22px; }
+  .no-matches { padding: 48px 20px; text-align: center; }
+  .no-matches h2 { display: block; }
+  .no-matches p { color: var(--muted); }
   .empty { text-align: center; color: var(--muted); font: italic 1.15rem/1.5 var(--serif); padding: 56px 0; }
 
   .start {
@@ -985,8 +997,9 @@
     }
   }
   @media (max-width: 560px) {
-    main { padding: 24px 16px 40px; }
-    .site-header { align-items: flex-start; flex-direction: column; gap: 16px; padding-bottom: 20px; margin-bottom: 20px; }
+    main { padding: 28px 16px 40px; }
+    .header-inner { flex-wrap: wrap; gap: 14px; padding: 20px 16px; }
+    .tag { margin-left: auto; max-width: 18ch; text-align: right; }
     .site-nav { width: 100%; }
     .site-nav a { flex: 1; justify-content: center; border: 1px solid var(--line); }
     .add { flex-direction: column; }

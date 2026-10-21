@@ -138,6 +138,29 @@ def icon_rose(ink, accent, uid):
             f'<circle r="8.5" fill="{accent}"/></g>')
 
 
+ROSE_PETAL = "M-9,-12H9L19,-45L0,-34L-19,-45Z"
+
+
+def _rose_cutout(cx, cy, scale):
+    """Mask content: five petals and a ring, leaving a small centre dot."""
+    petals = "".join(f'<path d="{ROSE_PETAL}" transform="rotate({72*k})" fill="#000" stroke="#000" '
+                     f'stroke-width="5" stroke-linejoin="round"/>' for k in range(5))
+    return (f'<g transform="translate({cx},{cy}) scale({scale})">{petals}'
+            f'<circle r="13" fill="#000"/><circle r="7.5" fill="#fff"/></g>')
+
+
+def icon_rose_bookmark(ink, accent, uid):
+    """Yorkshire rose knocked out of an ink bookmark, with an accent centre."""
+    cx, cy, sc = 50, 41, 0.44
+    return (_ribbon_with_cutout(ink, _rose_cutout(cx, cy, sc), uid)
+            + f'<circle cx="{cx}" cy="{cy}" r="{7.5*sc:.1f}" fill="{accent}"/>')
+
+
+def icon_rose_bookmark_accent(ink, accent, uid):
+    """Yorkshire rose knocked out of an accent bookmark."""
+    return _ribbon_with_cutout(accent, _rose_cutout(50, 41, 0.44), uid)
+
+
 def icon_tick_glyph(ink, accent, uid):
     """The tick-tailed t from the wordmark, on its own."""
     stem, tick, _ = glyph_t_tick(0)
@@ -146,7 +169,8 @@ def icon_tick_glyph(ink, accent, uid):
             f'<path stroke="{ink}" d="{stem}"/><path stroke="{accent}" d="{tick}"/></g>')
 
 
-ICONS = {"tick": icon_tick, "rose": icon_rose, "sparkle": icon_sparkle, "tickglyph": icon_tick_glyph}
+ICONS = {"tick": icon_tick, "rose": icon_rose, "sparkle": icon_sparkle, "tickglyph": icon_tick_glyph,
+         "rosebookmark": icon_rose_bookmark, "rosebookmark-accent": icon_rose_bookmark_accent}
 
 CONCEPTS = {
     "concept-1-reet-tick": dict(icon="tick", tick=False, lockups=True,
@@ -157,6 +181,10 @@ CONCEPTS = {
                                     title="reet.sh: bookmark with an AI sparkle"),
     "concept-4-tick-wordmark": dict(icon="tickglyph", tick=True, lockups=False,
                                     title="reet.sh: wordmark with a tick for a t"),
+    "concept-5-rose-bookmark": dict(icon="rosebookmark", tick=False, lockups=True,
+                                    title="reet.sh: Yorkshire rose inside a bookmark"),
+    "concept-5b-rose-bookmark-accent": dict(icon="rosebookmark-accent", tick=False, lockups=True,
+                                            title="reet.sh: Yorkshire rose inside an accent bookmark"),
 }
 
 

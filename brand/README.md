@@ -1,6 +1,6 @@
 # reet.sh logo concepts
 
-Four directions for the reet.sh mark. All are plain SVG with the letters drawn as
+Five directions for the reet.sh mark (concept 5 came out of review: the rose inside the bookmark). All are plain SVG with the letters drawn as
 paths, so they need no fonts and look the same in every browser, editor and
 print pipeline. Open `contact-sheet.html` in a browser (or see
 `contact-sheet.png`) to compare everything side by side.
@@ -23,7 +23,7 @@ accent. The dot of `.sh` is a filled circle in the accent, which is the only
 place a solid shape meets the monoline letters, so it reads as a deliberate
 marker rather than a typo.
 
-## Concept 1: reet tick (recommended)
+## Concept 1: reet tick
 
 `concept-1-reet-tick/`
 
@@ -63,6 +63,19 @@ word carries its own meaning without a separate mark. There's a
 `wordmark-cursor-*` variant with a block cursor after `.sh` for a terminal
 feel, and `icon-*` / `tile-*` files with the tick-t on its own for favicons.
 No horizontal or vertical lockups, since the icon is already in the word.
+
+## Concept 5: rose in a bookmark (recommended)
+
+`concept-5-rose-bookmark/` and `concept-5b-rose-bookmark-accent/`
+
+Concepts 1 and 2 combined: the Yorkshire rose knocked out of the bookmark
+ribbon. In `concept-5` the ribbon is ink and the rose shows the background
+through it, so on a light page it is literally a white rose in a dark
+bookmark; a small accent dot marks the centre. `concept-5b` is the same mark
+with the ribbon in the accent colour and no separate centre dot, which
+carries the brand colour on its own but loses the "white rose" reading on
+light backgrounds. Both read as a bookmark with a flower at 16 px and as a
+rose from about 24 px up.
 
 ## Files
 

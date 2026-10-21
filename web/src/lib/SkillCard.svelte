@@ -8,7 +8,7 @@
   import { elapsed, isOldEnvironment, isStale, sinceLabel } from './time'
 
   let {
-    skill, stage, tagOptions, selecting, selectedIDs, onselect,
+    skill, stage, tagOptions, selecting, selectedIDs, onselect, canWrite,
     onpatch, onrefresh, onlink, onremove, onfiltertag, onfilterenv, ontags, onhistory,
   }: {
     skill: Skill
@@ -16,6 +16,7 @@
     tagOptions: string[]
     selecting: boolean
     selectedIDs: string[]
+    canWrite: boolean
     onselect: (s: Skill, e: MouseEvent) => void
     onpatch: (s: Skill, flags: Flags, act: string) => Promise<boolean>
     onrefresh: (s: Skill) => void
@@ -182,13 +183,15 @@
     {/if}
   {/if}
 
-  <div class="tagrow">
-    {#each tags as tag (tag.id)}
-      <button type="button" class="tag" onclick={() => onfiltertag(tag)} title="Filter by {tag.name}">{tag.name}</button>
-    {/each}
-    <button type="button" class="tag add" aria-expanded={tagging} onclick={toggleTagging}>+ Tag</button>
-  </div>
-  {#if tagging}
+  {#if canWrite || tags.length}
+    <div class="tagrow">
+      {#each tags as tag (tag.id)}
+        <button type="button" class="tag" onclick={() => onfiltertag(tag)} title="Filter by {tag.name}">{tag.name}</button>
+      {/each}
+      {#if canWrite}<button type="button" class="tag add" aria-expanded={tagging} onclick={toggleTagging}>+ Tag</button>{/if}
+    </div>
+  {/if}
+  {#if canWrite && tagging}
     <div class="tag-edit">
       {#if tags.length}
         <div class="tag-current">
@@ -223,26 +226,30 @@
   {/if}
 
   <div class="actions">
-    {#each moves(stage) as m, i}
-      <button type="button" class="chip" class:move={m.primary} data-act={'m' + i} onclick={() => onpatch(skill, m.flags, 'm' + i)}>
-        {m.label}
+    {#if canWrite}
+      {#each moves(stage) as m, i}
+        <button type="button" class="chip" class:move={m.primary} data-act={'m' + i} onclick={() => onpatch(skill, m.flags, 'm' + i)}>
+          {m.label}
+        </button>
+      {/each}
+      <button
+        type="button" class="chip heart" data-act="like" aria-pressed={skill.liked}
+        onclick={() => onpatch(skill, { liked: !skill.liked }, 'like')}
+      >
+        <span aria-hidden="true">{skill.liked ? '♥' : '♡'}</span>Like
       </button>
-    {/each}
-    <button
-      type="button" class="chip heart" data-act="like" aria-pressed={skill.liked}
-      onclick={() => onpatch(skill, { liked: !skill.liked }, 'like')}
-    >
-      <span aria-hidden="true">{skill.liked ? '♥' : '♡'}</span>Like
-    </button>
-    <span class="spacer"></span>
-    <button type="button" class="btn quiet" data-act="notes" aria-expanded={editing} aria-label="Notes for {skill.name}" onclick={toggleNotes}>Notes</button>
-    <button type="button" class="btn quiet" aria-expanded={historyOpen} aria-label="History for {skill.name}" onclick={toggleHistory}>History</button>
-    {#if skill.sourceType === 'local'}
-      <button type="button" class="btn quiet" aria-expanded={linking} aria-label="Link {skill.name} to skills.sh" onclick={() => (linking = !linking)}>Link</button>
-    {:else}
-      <button type="button" class="btn quiet" aria-label="Refresh {skill.name}" onclick={() => onrefresh(skill)}>Refresh</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn quiet" data-act="notes" aria-expanded={editing} aria-label="Notes for {skill.name}" onclick={toggleNotes}>Notes</button>
     {/if}
-    <button type="button" class="btn quiet danger" aria-label="Remove {skill.name}" onclick={() => onremove(skill)}>Remove</button>
+    <button type="button" class="btn quiet" aria-expanded={historyOpen} aria-label="History for {skill.name}" onclick={toggleHistory}>History</button>
+    {#if canWrite}
+      {#if skill.sourceType === 'local'}
+        <button type="button" class="btn quiet" aria-expanded={linking} aria-label="Link {skill.name} to skills.sh" onclick={() => (linking = !linking)}>Link</button>
+      {:else}
+        <button type="button" class="btn quiet" aria-label="Refresh {skill.name}" onclick={() => onrefresh(skill)}>Refresh</button>
+      {/if}
+      <button type="button" class="btn quiet danger" aria-label="Remove {skill.name}" onclick={() => onremove(skill)}>Remove</button>
+    {/if}
   </div>
 
   {#if historyOpen}
@@ -292,7 +299,7 @@
     </div>
   {/if}
 
-  {#if editing}
+  {#if canWrite && editing}
     <div class="edit">
       <label class="vh" for="notes-{skill.id}">Notes for {skill.name}</label>
       <textarea id="notes-{skill.id}" rows="3" bind:value={draft} placeholder="Why you like it, how you use it…"></textarea>
@@ -305,7 +312,7 @@
     <p class="notes">{skill.notes}</p>
   {/if}
 
-  {#if linking}
+  {#if canWrite && linking}
     <form class="edit link" onsubmit={link}>
       <label class="vh" for="link-{skill.id}">skills.sh URL for {skill.name}</label>
       <div>

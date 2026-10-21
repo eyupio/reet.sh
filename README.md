@@ -75,11 +75,11 @@ The compose file uses the prebuilt image `ghcr.io/eyupio/reet.sh` (no local buil
 
 ### Accounts
 
-The default `REET_AUTH=accounts` creates one owner through the setup page on first visit, then signs people in with email and password. Sessions are HttpOnly, SameSite=Lax cookies; passwords are stored with argon2id; sign-in is rate-limited. If `REET_TOKEN` is set it is required once on the setup page and keeps working for `reet scan` until personal tokens arrive.
+The default `REET_AUTH=accounts` creates one owner through the setup page on first visit, then signs people in with email and password. Each account has its own shelf. Roles are owner, admin, member and viewer; viewers are read-only until shared lists arrive. Sessions are HttpOnly, SameSite=Lax cookies; passwords are stored with argon2id; sign-in is rate-limited. If `REET_TOKEN` is set it is required once on the setup page and keeps working for `reet scan` until personal tokens arrive.
 
 - **Solo or trusted LAN:** `REET_AUTH=none` removes sign-in and maps everything to an implicit owner. Use it only on a network you trust.
 - **Legacy single token:** `REET_AUTH=token` keeps the single `REET_TOKEN` login card and requires it for the UI, API and bookmarklets.
-- **Upgrading:** an existing shelf is kept; the first visit asks for the owner account. Nothing is moved or deleted.
+- **Upgrading:** an existing shelf is kept and becomes the owner's shelf on first setup; flags, notes, tags and environments are carried over. Nothing is deleted.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -132,7 +132,7 @@ If the container exits with "unable to open database file", the data folder isn'
 
   It reads the skills folders for your tools (`~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills`, `~/.codex/skills`, `~/.config/opencode/skills`, plus `.claude/skills` and `.agents/skills` in the current directory) and the skills CLI lock file at `~/.agents/.skill-lock.json` if present, then marks each skill as "in use". Existing likes, saves and notes are kept.
 
-  In accounts mode, `--token` is the bootstrap `REET_TOKEN`; personal API tokens arrive with the account work. `--env NAME` names this machine (the hostname is the default) and turns each folder into an environment on the card, such as `sam-mbp · Claude Code`. `--prune` removes the environment link for skills that are no longer in a scanned folder; the skill and its notes stay. Add `--dir PATH` for other folders and `--dry-run` to preview. The scanner needs to see your skills folders, so run it on the machine that has them, not inside the container. Build it with `go install github.com/eyupio/reet.sh/cmd/reet@latest` (the scanner does not need the web UI).
+  In accounts mode, `--token` is the bootstrap `REET_TOKEN`; personal API tokens arrive in the next account step. `--env NAME` names this machine (the hostname is the default) and turns each folder into an environment on the card, such as `sam-mbp · Claude Code`. `--prune` removes the environment link for skills that are no longer in a scanned folder; the skill and its notes stay. Add `--dir PATH` for other folders and `--dry-run` to preview. The scanner needs to see your skills folders, so run it on the machine that has them, not inside the container. Build it with `go install github.com/eyupio/reet.sh/cmd/reet@latest` (the scanner does not need the web UI).
 
   Skills found only by folder name show as "unlinked". Use **Link** on the card to attach the skills.sh URL.
 
@@ -146,7 +146,7 @@ Use **Download JSON** and **Restore from JSON** in the UI, or call `GET /api/exp
 
 - **Select** in the toolbar turns cards into checkboxes. Shift-click selects a range; the floating bar can tag, move, like or remove the selection, and a bulk remove gets the same Undo toast as a single remove.
 - Metadata for the 50 oldest skills is refreshed every six hours (two seconds apart) and the card shows the weekly install sparkline and change. **Refresh** on a card checks immediately and says when nothing changed.
-- **Admin** in the footer opens `/admin`: version, database size, skills.sh reachability, topic seed status, counts, environments, the refresh/topic switches, instance name and recent activity. The admin surface is available to any signed-in account until per-role access arrives.
+- **Admin** in the footer opens `/admin`: version, database size, skills.sh reachability, topic seed status, counts, environments, the refresh/topic switches, instance name and recent activity. The admin surface is available to the owner and admins; only the owner can change instance settings.
 
 ## Development
 

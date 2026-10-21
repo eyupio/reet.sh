@@ -53,6 +53,7 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 - **Accounts and profiles.** Owner setup, argon2id passwords, HttpOnly SameSite sessions, rate-limited sign-in. Each person's Account has their profile, password, sessions, personal API tokens, activity and backups. Or token mode, or no auth on a trusted LAN.
 - **Yours to take away.** Export JSON, Markdown or CSV, and restore from JSON. The database is one file.
 - **Sealed backups, here and off-site.** The owner backs up the whole instance; every person can back up their own shelf. Copies are encrypted before they are written or shipped, verified after every take, pruned by a count you choose, and sent to any S3-compatible destination.
+- **Yorkshire at heart.** A reet good toolkit, with a white-rose bookmark and a practical, quietly quirky voice. See [voice and copy](docs/voice-and-copy.md) when changing user-facing text.
 - **Pleasant to use.** Light and dark themes, works on a phone, keyboard friendly, respects reduced motion.
 
 <details>

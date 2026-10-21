@@ -164,7 +164,7 @@
     try {
       apply(await updateListSkill(id, skill.id, noteDrafts[skill.id] ?? ''))
       editingNote = ''
-      say('Note saved.')
+      say('Sorted. Note saved.')
     } catch (e) {
       fail(e)
     } finally {
@@ -209,7 +209,7 @@
     try {
       apply(await updateList(id, { ...form, audience }))
       settingsOpen = false
-      say('List settings saved.')
+      say('Sorted. List settings saved.')
     } catch (e) {
       fail(e)
     } finally {
@@ -439,7 +439,7 @@
     {/if}
 
     {#if detail.skills.length === 0}
-      <p class="empty">{detail.canEdit ? 'No skills yet. Add the first one above.' : 'This list is empty.'}</p>
+      <p class="empty">{detail.canEdit ? 'Nowt here yet. Add the first skill above.' : 'This list is empty.'}</p>
     {:else}
       <ol class="entries">
         {#each detail.skills as skill (skill.id)}

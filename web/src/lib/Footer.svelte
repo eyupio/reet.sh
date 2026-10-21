@@ -25,7 +25,8 @@
       {#if build}
         <span class="version" title={build.commit !== 'unknown' ? `commit ${build.commit}` : undefined}>{build.version}</span>
       {/if}
-      <span class="descriptor">Your shelf for AI skills</span>
+      <span class="descriptor">A reet good shelf for AI skills</span>
+      <span class="meaning">reet: Yorkshire for “right”.</span>
     </span>
     <span class="end">
       {#if signedIn && userName}<a class="user" href="/account">{userName}</a>{/if}
@@ -49,6 +50,7 @@
   .brand { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
   .name { font-weight: 600; color: var(--ink); }
   .version { color: var(--muted); font-size: 0.72rem; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+  .meaning { font-size: 0.75rem; }
   .descriptor { letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.75rem; }
   .end { display: inline-flex; align-items: center; gap: 16px; flex-wrap: wrap; }
   .credit { white-space: nowrap; }

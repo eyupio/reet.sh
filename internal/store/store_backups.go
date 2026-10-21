@@ -64,10 +64,12 @@ type BackupRun struct {
 
 // Profile is the part of a person's account the UI reads back.
 type Profile struct {
-	Theme      string `json:"theme"`
-	Timezone   string `json:"timezone"`
-	DateFormat string `json:"dateFormat"`
-	UpdatedAt  int64  `json:"updatedAt"`
+	Theme         string `json:"theme"`
+	Timezone      string `json:"timezone"`
+	DateFormat    string `json:"dateFormat"`
+	ShelfView     string `json:"shelfView"`
+	CardsExpanded bool   `json:"cardsExpanded"`
+	UpdatedAt     int64  `json:"updatedAt"`
 }
 
 // SessionInfo is one signed-in browser.
@@ -134,6 +136,20 @@ func (s *Store) migrateBackups() error {
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
 			return err
+		}
+	}
+	for _, column := range []struct{ name, ddl string }{
+		{"shelf_view", "shelf_view TEXT NOT NULL DEFAULT 'list'"},
+		{"cards_expanded", "cards_expanded INTEGER NOT NULL DEFAULT 0"},
+	} {
+		ok, err := hasColumn(s.db, "user_profiles", column.name)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			if _, err := s.db.Exec(`ALTER TABLE user_profiles ADD COLUMN ` + column.ddl); err != nil {
+				return err
+			}
 		}
 	}
 	for _, c := range []struct{ name, ddl string }{
@@ -379,15 +395,15 @@ func (s *Store) DeleteBackupRemote(ownerID int64, name string) error {
 // time so the page has something to show.
 func (s *Store) ProfileFor(userID int64) (Profile, error) {
 	var p Profile
-	err := s.db.QueryRow(`SELECT theme,timezone,date_format,updated_at FROM user_profiles WHERE user_id=?`, userID).
-		Scan(&p.Theme, &p.Timezone, &p.DateFormat, &p.UpdatedAt)
+	err := s.db.QueryRow(`SELECT theme,timezone,date_format,shelf_view,cards_expanded,updated_at FROM user_profiles WHERE user_id=?`, userID).
+		Scan(&p.Theme, &p.Timezone, &p.DateFormat, &p.ShelfView, &p.CardsExpanded, &p.UpdatedAt)
 	if err == nil {
 		return p, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return p, err
 	}
-	p = Profile{Theme: "system", DateFormat: "locale"}
+	p = Profile{Theme: "system", DateFormat: "locale", ShelfView: "list"}
 	if _, err := s.db.Exec(`INSERT OR IGNORE INTO user_profiles(user_id,theme,timezone,date_format,updated_at) VALUES(?,?,?,?,?)`,
 		userID, p.Theme, p.Timezone, p.DateFormat, now()); err != nil {
 		return p, err
@@ -396,10 +412,13 @@ func (s *Store) ProfileFor(userID int64) (Profile, error) {
 }
 
 func (s *Store) SaveProfileFor(userID int64, p Profile) error {
-	_, err := s.db.Exec(`INSERT INTO user_profiles(user_id,theme,timezone,date_format,updated_at) VALUES(?,?,?,?,?)
+	if p.ShelfView == "" {
+		p.ShelfView = "list"
+	}
+	_, err := s.db.Exec(`INSERT INTO user_profiles(user_id,theme,timezone,date_format,shelf_view,cards_expanded,updated_at) VALUES(?,?,?,?,?,?,?)
 		ON CONFLICT(user_id) DO UPDATE SET theme=excluded.theme, timezone=excluded.timezone,
-			date_format=excluded.date_format, updated_at=excluded.updated_at`,
-		userID, p.Theme, p.Timezone, p.DateFormat, now())
+			date_format=excluded.date_format, shelf_view=excluded.shelf_view, cards_expanded=excluded.cards_expanded, updated_at=excluded.updated_at`,
+		userID, p.Theme, p.Timezone, p.DateFormat, p.ShelfView, p.CardsExpanded, now())
 	return err
 }
 

@@ -49,7 +49,7 @@ func TestInstallRelease(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
 			mockBin := filepath.Join(root, "mock-bin")
-			installDir := filepath.Join(root, "bin with spaces")
+			installDir := filepath.Join(root, "bin with spaces ' and $(printf ignored)")
 			for _, directory := range []string{mockBin, installDir} {
 				if err := os.Mkdir(directory, 0755); err != nil {
 					t.Fatal(err)
@@ -147,6 +147,21 @@ esac
 			}
 			if !bytes.Equal(installed, binary) {
 				t.Fatal("installed file differs from verified release")
+			}
+			var pathCommand string
+			for _, line := range strings.Split(string(output), "\n") {
+				if strings.HasPrefix(line, "export PATH=") {
+					pathCommand = line
+				}
+			}
+			if pathCommand == "" {
+				t.Fatal("installer did not provide a PATH command")
+			}
+			checkPath := exec.Command("sh", "-c", pathCommand+"\ncommand -v reet")
+			checkPath.Env = cmd.Env
+			resolved, pathErr := checkPath.CombinedOutput()
+			if pathErr != nil || strings.TrimSpace(string(resolved)) != filepath.Join(installDir, "reet") {
+				t.Fatalf("copyable PATH command did not preserve the install path: %v: %s", pathErr, resolved)
 			}
 			info, err := os.Stat(filepath.Join(installDir, "reet"))
 			if err != nil || info.Mode()&0111 == 0 {

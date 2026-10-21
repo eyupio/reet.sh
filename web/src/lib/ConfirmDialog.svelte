@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import type { Snippet } from 'svelte'
 
   let {
     title,
@@ -10,6 +11,7 @@
     onconfirm,
     onsecondary,
     oncancel,
+    children,
   }: {
     title: string
     body: string
@@ -19,6 +21,7 @@
     onconfirm: () => void
     onsecondary?: () => void
     oncancel: () => void
+    children?: Snippet
   } = $props()
 
   let dialog = $state<HTMLDialogElement>()
@@ -50,6 +53,7 @@
   <div class="box">
     <h2 id="confirm-title">{title}</h2>
     <p>{body}</p>
+    {#if children}{@render children()}{/if}
     <div class="actions">
       <button type="button" class="btn quiet" bind:this={cancelBtn} onclick={cancel}>Cancel</button>
       {#if secondaryLabel && onsecondary}
@@ -62,7 +66,7 @@
 
 <style>
   dialog {
-    max-width: min(440px, calc(100vw - 32px)); padding: 0; border: 0;
+    max-width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 0; border: 0;
     background: transparent; color: var(--ink);
   }
   dialog::backdrop { background: rgb(20 18 15 / 0.45); backdrop-filter: blur(2px); }

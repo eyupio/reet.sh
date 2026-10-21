@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import Backups from './Backups.svelte'
-  import CopyButton from './CopyButton.svelte'
+  import ConfirmDialog from './ConfirmDialog.svelte'
   import EnvironmentSync from './EnvironmentSync.svelte'
   import PageHeader from './PageHeader.svelte'
   import {
@@ -30,23 +30,26 @@
   ])
 
   let section = $state<Section>(sectionFromHash())
-  let profile = $state<Profile>({ theme: 'system', timezone: '', dateFormat: 'locale', updatedAt: 0 })
+  let profile = $state<Profile>({ theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list', cardsExpanded: false, updatedAt: 0 })
   let sessions = $state<ProfileSession[]>([])
   let events = $state<Event[]>([])
   let tokens = $state<APIToken[]>([])
   let freshToken = $state('')
   let tokenName = $state('scan token')
+  let freshTokenId = $state(0)
+  let revokePending = $state<APIToken | null>(null)
   let error = $state('')
   let notice = $state('')
   let busy = $state('')
 
   // svelte-ignore state_referenced_locally
-  let profileForm = $state({ name: user.name, theme: 'system', timezone: '', dateFormat: 'locale' })
+  let profileForm = $state({ name: user.name, theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list' as 'list' | 'board', cardsExpanded: false })
   let passwordForm = $state({ current: '', password: '', confirm: '' })
 
   function sectionFromHash(): Section {
-    const h = location.hash.replace('#', '') as Section
-    return ['profile', 'security', 'sessions', 'tokens', 'backups', 'activity'].includes(h) ? h : 'profile'
+    const h = location.hash.replace('#', '')
+    if (h === 'connect-machine') return 'tokens'
+    return ['profile', 'security', 'sessions', 'tokens', 'backups', 'activity'].includes(h) ? h as Section : 'profile'
   }
 
   function go(s: Section) {
@@ -76,7 +79,7 @@
       const r = await getProfile()
       who = r.user
       profile = r.profile
-      profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat }
+      profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat, shelfView: r.profile.shelfView, cardsExpanded: r.profile.cardsExpanded }
       applyTheme(r.profile.theme)
       error = ''
     } catch (e) {
@@ -117,12 +120,13 @@
     busy = 'profile'
     notice = ''
     try {
-      const r = await saveProfile(profileForm)
+      const { name, ...preferences } = profileForm
+      const r = await saveProfile(canWrite ? profileForm : preferences)
       who = r.user
       profile = r.profile
       onuserchange?.(r.user)
       applyTheme(r.profile.theme)
-      notice = 'Profile saved. The theme follows you to every browser you sign in from.'
+      notice = 'Reet, defaults saved. Your preferences follow you to every browser you sign in from.'
       error = ''
     } catch (e) {
       fail(e)
@@ -180,11 +184,13 @@
 
   async function makeToken(e: SubmitEvent) {
     e.preventDefault()
+    if (busy) return
     busy = 'token'
     freshToken = ''
     try {
       const r = await createToken(tokenName.trim() || 'scan token')
       freshToken = r.token
+      freshTokenId = r.id
       tokenName = 'scan token'
       await loadTokens()
       notice = ''
@@ -196,11 +202,17 @@
   }
 
   async function revoke(id: number) {
+    revokePending = null
+    if (busy) return
+    busy = 'revoke'
     try {
       await revokeToken(id)
+      if (id === freshTokenId) { freshToken = ''; freshTokenId = 0 }
       await loadTokens()
     } catch (e) {
       fail(e)
+    } finally {
+      busy = ''
     }
   }
 
@@ -269,7 +281,7 @@
       <form onsubmit={save}>
         <div class="grid2">
           <label class="wide"><span>Name</span>
-            <input bind:value={profileForm.name} autocomplete="name" maxlength="100" placeholder="Your name" />
+            <input bind:value={profileForm.name} autocomplete="name" maxlength="100" placeholder="Your name" disabled={!canWrite} />
             <small>Shown on lists and in the team rollup. Leave it empty to be shown by your address.</small>
           </label>
           <label><span>Theme</span>
@@ -291,6 +303,14 @@
               <option value="ymd">Year, month, day</option>
             </select>
             <small>Today reads {sampleDate()}.</small>
+          </label>
+          <label><span>Default shelf layout</span>
+            <select bind:value={profileForm.shelfView}><option value="list">List</option><option value="board">Board</option></select>
+            <small>Switching List/Board on your shelf also saves this preference.</small>
+          </label>
+          <label><span>Default skill cards</span>
+            <select bind:value={profileForm.cardsExpanded}><option value={false}>Collapsed — quick actions and core data</option><option value={true}>Expanded — all details</option></select>
+            <small>Individual cards and Expand all / Collapse all can override this during your visit.</small>
           </label>
         </div>
         <div class="formacts">
@@ -357,35 +377,30 @@
       <section class="block" aria-labelledby="tokens-title">
         <h2 id="tokens-title">Personal API tokens</h2>
         <p class="muted">Use a token with <code>reet scan --token …</code> or an API client. A token is shown once, then only its name remains.</p>
-        <EnvironmentSync {canWrite} token={freshToken} />
-        {#if freshToken}
-          <div class="fresh" role="status">
-            <p>Copy this token now. It will not be shown again.</p>
-            <div class="tokenline">
-              <code>{freshToken}</code>
-              <CopyButton text={freshToken} />
-            </div>
-          </div>
-        {/if}
+        <EnvironmentSync {canWrite} token={freshToken}>
+          {#snippet tokenSetup()}
+            <form onsubmit={makeToken} aria-busy={busy === 'token'}>
+              <label for="token-name">Name this machine's token</label>
+              <div class="createrow">
+                <input id="token-name" bind:value={tokenName} placeholder="e.g. work laptop" autocomplete="off" required disabled={!!busy} />
+                <button type="submit" class="btn primary" disabled={!!busy}>{busy === 'token' ? 'Creating…' : 'Create token'}</button>
+              </div>
+            </form>
+            {#if freshToken}<div class="fresh" role="status"><p>Reet, token created. Copy the connection command below now; the token disappears when you leave this page.</p></div>{/if}
+          {/snippet}
+        </EnvironmentSync>
         {#if tokens.length}
           <ul class="rows">
             {#each tokens as token (token.id)}
               <li>
                 <div><strong>{token.name}</strong><small>created {when(token.createdAt)} · used {when(token.lastUsedAt)}</small></div>
-                <button type="button" class="btn quiet danger" onclick={() => revoke(token.id)}>Revoke</button>
+                <button type="button" class="btn quiet danger" onclick={() => (revokePending = token)} disabled={!!busy}>Revoke</button>
               </li>
             {/each}
           </ul>
         {:else}
           <p class="muted">No API tokens yet.</p>
         {/if}
-        <form onsubmit={makeToken}>
-          <label for="token-name">New token name</label>
-          <div class="createrow">
-            <input id="token-name" bind:value={tokenName} placeholder="scan token" autocomplete="off" />
-            <button type="submit" class="btn primary" disabled={busy === 'token'}>{busy === 'token' ? 'Creating…' : 'Create token'}</button>
-          </div>
-        </form>
       </section>
     {/if}
   {:else if section === 'backups'}
@@ -412,6 +427,10 @@
     <button type="button" class="btn" onclick={onsignout}>Sign out</button>
   </section>
 </section>
+
+{#if revokePending}
+  <ConfirmDialog title={`Revoke ${revokePending.name}?`} body="Scanners and API clients using this token will lose access immediately. You can create a replacement, but this token cannot be restored." confirmLabel="Revoke token" danger onconfirm={() => { if (revokePending) void revoke(revokePending.id) }} oncancel={() => (revokePending = null)} />
+{/if}
 
 <style>
   .account { padding-top: 4px; }
@@ -448,8 +467,6 @@
   .tag { margin-left: 6px; padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.65rem; }
   .fresh { margin-top: 14px; padding: 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--tint); }
   .fresh p { margin: 0 0 8px; font-size: 0.88rem; }
-  .tokenline { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
-  .tokenline code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 0.82rem; }
   .createrow { display: flex; gap: 8px; flex-wrap: wrap; }
   .createrow input { flex: 1; min-width: 0; }
   .events { list-style: none; margin: 12px 0 0; padding: 0; }

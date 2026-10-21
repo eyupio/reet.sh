@@ -5,6 +5,7 @@
     createInvite, deleteAdminUser, getAdminStatus, getRollup, listAdminUsers, resetUserPassword, revokeUserTokens,
     saveAdminSettings, transferOwner, updateAdminUser, type AdminStatus, type Rollup, type RollupSkill, type UserMeta,
   } from './api'
+  import Backups from './Backups.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import CopyButton from './CopyButton.svelte'
   import { eventLabel, eventTitle } from './events'
@@ -298,6 +299,7 @@
     <a href="#admin-overview">Overview</a>
     <a href="#admin-envs">Environments</a>
     {#if accounts}<a href="#admin-users">Users</a><a href="#admin-team">Team rollup</a>{/if}
+    <a href="#admin-backups">Backups</a>
     <a href="#admin-settings">Jobs and instance</a>
   </nav>
 
@@ -576,6 +578,10 @@
         {/if}
       </section>
 
+    <div id="admin-backups">
+      <Backups {onerror} {role} admin />
+    </div>
+
     <section class="block" aria-labelledby="admin-settings">
       <h2 id="admin-settings">Jobs and instance</h2>
       {#if isOwner}
@@ -633,7 +639,7 @@
   .section-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
   .section-nav a { display: inline-flex; align-items: center; min-height: 40px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 0.82rem; }
   .section-nav a:hover { background: var(--tint); border-color: var(--accent); color: var(--ink); }
-  h3, #admin-overview { scroll-margin-top: 24px; }
+  h3, #admin-overview, #admin-backups { scroll-margin-top: 24px; }
   .block h2 { margin: 0 0 12px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.025em; }
   .empty { text-align: center; color: var(--muted); font: italic 1.15rem/1.5 var(--serif); padding: 40px 0; }
   .notice { margin: 16px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }

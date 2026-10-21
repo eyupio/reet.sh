@@ -6,7 +6,7 @@
   import { audienceLabel } from './lib/api'
   import { onMount, tick } from 'svelte'
   import {
-    addSkill, addSkillTags, clearToken, getAuthStatus, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
+    addSkill, addSkillTags, applyTheme, clearToken, getAuthStatus, getProfile, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
     patchSkill, patchSkills, refreshSkill, removeSkill, removeSkills, resolveSkill, restoreAll, signOutAccount, tagSkills, UnauthorizedError,
     type Counts, type Environment, type Event, type Flags, type ListRef, type SharedList, type Skill, type Sort, type Tag, type User,
   } from './lib/api'
@@ -216,6 +216,7 @@
       setupRequired = status.setupRequired
       bootstrapRequired = status.bootstrapRequired
       currentUser = status.user
+      if (status.user) void loadTheme()
       if (status.mode === 'token') {
         token = getToken()
         needsAuth = token === ''
@@ -231,9 +232,18 @@
     }
   }
 
+  async function loadTheme() {
+    try {
+      applyTheme((await getProfile()).profile.theme)
+    } catch {
+      /* the shelf still works without a stored preference */
+    }
+  }
+
   async function afterAuth(user: User) {
     authMode = 'accounts'
     currentUser = user
+    void loadTheme()
     setupRequired = false
     needsAuth = false
     token = ''
@@ -272,6 +282,7 @@
         /* the local session is cleared even if the server call cannot be made */
       }
       currentUser = null
+      applyTheme('system')
       needsAuth = true
       token = ''
       clearToken()
@@ -624,7 +635,7 @@
   {:else if isSpaces}
     <Spaces {canWrite} />
   {:else if isAccount && authMode === 'accounts'}
-    <Account user={currentUser!} onsignout={signOut} onerror={fail} />
+    <Account user={currentUser!} onsignout={signOut} onerror={fail} onuserchange={(u) => (currentUser = u)} />
   {:else if isList}
     <ListView id={listId} {canWrite} userRole={role} onerror={fail} />
   {:else if isAccount}

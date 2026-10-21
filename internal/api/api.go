@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/auth"
+	"github.com/eyupio/reet.sh/internal/backup"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -41,6 +42,7 @@ type server struct {
 	dummyHash   string
 	defaultUser store.User
 	queue       chan ref.Ref
+	backups     *backup.Service
 }
 
 // AuthMode selects how the instance authenticates requests.
@@ -92,6 +94,12 @@ func WithRefresh(enabled bool) Option {
 // WithAuthMode selects token, accounts or no authentication.
 func WithAuthMode(mode AuthMode) Option {
 	return func(s *server) { s.authMode = mode }
+}
+
+// WithBackups gives the API the backup service. Without one the backup pages
+// answer that no key is configured.
+func WithBackups(service *backup.Service) Option {
+	return func(s *server) { s.backups = service }
 }
 
 // New returns the API handler. An empty token disables authentication.
@@ -186,6 +194,8 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	mux.HandleFunc("PATCH /api/admin/settings", s.requireOwner(s.adminSettings))
 	mux.HandleFunc("GET /api/export", s.requireWriter(s.export))
 	mux.HandleFunc("POST /api/restore", s.requireWriter(s.restore))
+	s.registerBackupRoutes(mux)
+	s.registerProfileRoutes(mux)
 	mux.HandleFunc("GET /quick", s.requireWriter(s.quick))
 	return s.logRequests(s.auth(mux))
 }

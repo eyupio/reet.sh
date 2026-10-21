@@ -115,6 +115,28 @@ export function eventLabel(e: Event): string {
       return `${d.name || 'Someone'} signed in`
     case 'sign-out':
       return `${d.name || 'Someone'} signed out`
+    case 'profile':
+      return 'Updated your profile'
+    case 'password-change':
+      return 'Changed your password'
+    case 'session-end':
+      return 'Signed out a session'
+    case 'session-end-others':
+      return `Signed out ${d.count ?? 0} other sessions`
+    case 'backup-settings':
+      return 'Changed backup settings'
+    case 'backup-run':
+      return 'Took a backup'
+    case 'backup-delete':
+      return 'Deleted a backup from this machine'
+    case 'backup-restore':
+      return `Restored ${d.restored ?? 0} skills from a backup`
+    case 'backup-remote-add':
+      return `Added backup destination ${d.name || ''}`.trim()
+    case 'backup-remote-change':
+      return `Changed backup destination ${d.name || ''}`.trim()
+    case 'backup-remote-remove':
+      return `Removed backup destination ${d.name || ''}`.trim()
   }
   return `${e.action.replace(/-/g, ' ')} ${name}`.trim()
 }

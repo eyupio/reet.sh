@@ -835,6 +835,23 @@ func TestSharedListsRolesAndPublicLink(t *testing.T) {
 	if code, body := doClient(t, owner, srv, "POST", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10)+"/members", `{"email":"viewer@example.com","role":"viewer"}`); code != 200 {
 		t.Fatalf("add viewer: %d %s", code, body)
 	}
+	viewerUser, _, _ := st.UserByEmail("viewer@example.com")
+	if code, _ := doClient(t, owner, srv, "POST", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10)+"/members", `{"email":"viewer@example.com","role":"editor"}`); code != 400 {
+		t.Fatalf("viewer as editor: %d", code)
+	}
+	if code, _ := doClient(t, owner, srv, "PATCH", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10)+"/members", `{"userId":`+strconv.FormatInt(viewerUser.ID, 10)+`,"role":"editor"}`); code != 400 {
+		t.Fatalf("promote viewer: %d", code)
+	}
+	if code, _ := doClient(t, owner, srv, "POST", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10)+"/transfer", `{"userId":`+strconv.FormatInt(viewerUser.ID, 10)+`}`); code != 400 {
+		t.Fatalf("viewer as list owner: %d", code)
+	}
+	// Defence in depth: even a viewer row written directly as editor stays read-only.
+	if err := st.AddListMember(list.ID, viewerUser.ID, "editor"); err != nil {
+		t.Fatal(err)
+	}
+	if code, body := doClient(t, viewer, srv, "GET", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10), ""); code != 200 || !strings.Contains(body, `"canEdit":false`) {
+		t.Fatalf("viewer edit grant: %d %s", code, body)
+	}
 	if code, body := doClient(t, editor, srv, "POST", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10)+"/skills", `{"input":"a/b/editor-skill"}`); code != 200 || !strings.Contains(body, "editor-skill") {
 		t.Fatalf("editor add: %d %s", code, body)
 	}

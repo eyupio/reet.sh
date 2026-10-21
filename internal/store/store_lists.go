@@ -88,19 +88,26 @@ func normalMemberRole(r string) (string, error) {
 func listAccessFor(userID int64, userRole string, ownerID int64, memberRole, visibility string) (role string, read, edit, manage, transfer bool) {
 	switch {
 	case userID == ownerID:
-		return "owner", true, true, true, true
+		role, read, edit, manage, transfer = "owner", true, true, true, true
 	case userRole == "owner":
-		return "admin", true, true, true, true
+		role, read, edit, manage, transfer = "admin", true, true, true, true
 	case userRole == "admin":
-		return "admin", true, true, true, false
+		role, read, edit, manage, transfer = "admin", true, true, true, false
 	case memberRole == "editor":
-		return "editor", true, true, false, false
+		role, read, edit = "editor", true, true
 	case memberRole == "viewer":
-		return "viewer", true, false, false, false
+		role, read = "viewer", true
 	case visibility == "members":
-		return "reader", true, false, false, false
+		role, read = "reader", true
 	}
-	return "", false, false, false, false
+	// An instance viewer can be given a list role, but the account itself stays read-only.
+	if read && userRole == "viewer" {
+		edit, manage, transfer = false, false, false
+		if role == "editor" {
+			role = "viewer"
+		}
+	}
+	return
 }
 
 func newListSlug() string {

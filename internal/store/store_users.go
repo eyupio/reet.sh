@@ -319,9 +319,13 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 	}
 	q := `SELECT ` + shelfCols + ` FROM skills s JOIN shelf sh ON sh.skill_id=s.id WHERE sh.user_id=?`
 	args := []any{userID}
-	switch f.Tab {
-	case "liked", "bookmarked", "used":
-		q += ` AND sh.` + f.Tab + `=1`
+	tabWhere := map[string]string{
+		"liked":      ` AND sh.liked=1`,
+		"bookmarked": ` AND sh.bookmarked=1`,
+		"used":       ` AND sh.used=1`,
+	}
+	if clause, ok := tabWhere[f.Tab]; ok {
+		q += clause
 	}
 	switch f.Stage {
 	case "use":

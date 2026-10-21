@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/meta"
+	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -934,4 +935,102 @@ func TestSharedListCardsAndMembersVisibility(t *testing.T) {
 		t.Fatalf("card list label: %d %s", code, body)
 	}
 	_ = other
+}
+
+func TestAdminRollupAndPrivacy(t *testing.T) {
+	srv, st := newAccountsSrvStore(t, "bootstrap")
+	ownerClient := &http.Client{Jar: mustJar(t)}
+	if code, _ := doClient(t, ownerClient, srv, "POST", "/api/v2/auth/setup", `{"name":"Owner","email":"owner@example.com","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 200 {
+		t.Fatalf("setup: %d", code)
+	}
+	owner, _, _ := st.UserByEmail("owner@example.com")
+	hash, _ := auth.HashPassword("long-enough-password")
+	member, _ := st.CreateUser("member@example.com", "Member", "member", hash)
+	viewer, _ := st.CreateUser("viewer@example.com", "Viewer", "viewer", hash)
+	for _, u := range []struct{ email string }{{"member@example.com"}, {"viewer@example.com"}} {
+		client := &http.Client{Jar: mustJar(t)}
+		if code, body := doClient(t, client, srv, "POST", "/api/v2/auth/sign-in", `{"email":"`+u.email+`","password":"long-enough-password"}`); code != 200 {
+			t.Fatalf("sign-in %s: %d %s", u.email, code, body)
+		}
+	}
+	yes := true
+	team := ref.Ref{ID: "a/b/team-used", Source: "a/b", Slug: "team-used", SourceType: "github", URL: "https://www.skills.sh/a/b/team-used"}
+	unlisted := ref.Ref{ID: "a/b/unlisted", Source: "a/b", Slug: "unlisted", SourceType: "github", URL: "https://www.skills.sh/a/b/unlisted"}
+	unused := ref.Ref{ID: "a/b/list-unused", Source: "a/b", Slug: "list-unused", SourceType: "github", URL: "https://www.skills.sh/a/b/list-unused"}
+	for _, r := range []ref.Ref{team, unlisted, unused} {
+		if err := st.EnsureSkill(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.UpsertFor(owner.ID, team, store.Patch{Used: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.UpsertFor(member.ID, team, store.Patch{Used: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.UpsertFor(member.ID, unlisted, store.Patch{Used: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordEnvironmentFor(member.ID, team.ID, "member-mbp", "Claude Code", "", "/skills", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordEnvironmentFor(viewer.ID, unused.ID, "viewer-mbp", "Cursor", "", "/skills", ""); err != nil {
+		t.Fatal(err)
+	}
+	list, err := st.CreateList(owner.ID, "Team picks", "", "members")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddListSkill(list.ID, team.ID, "", owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddListSkill(list.ID, unused.ID, "", owner.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	code, body := doClient(t, ownerClient, srv, "GET", "/api/admin/rollup", "")
+	var rollup store.Rollup
+	if code != 200 || json.Unmarshal([]byte(body), &rollup) != nil {
+		t.Fatalf("rollup: %d %s", code, body)
+	}
+	if !rollup.Individual || len(rollup.Members) != 3 || len(rollup.Skills) != 3 {
+		t.Fatalf("rollup shape: %+v", rollup)
+	}
+	byID := map[string]store.RollupSkill{}
+	for _, sk := range rollup.Skills {
+		byID[sk.ID] = sk
+	}
+	if got := byID[team.ID]; got.UsedBy != 2 || got.OnShelf != 2 || got.InstalledBy != 1 || got.EnvironmentLinks != 1 || len(got.Lists) != 1 || len(got.Members) != 3 {
+		t.Fatalf("team skill: %+v", got)
+	}
+	if got := byID[unused.ID]; got.EnvironmentLinks != 1 {
+		t.Fatalf("environment links: %+v", got)
+	}
+	if _, ok := byID[unused.ID]; !ok {
+		t.Fatalf("list-only skill missing: %+v", rollup.Skills)
+	}
+	if len(rollup.Drift.Unlisted) != 1 || rollup.Drift.Unlisted[0] != unlisted.ID {
+		t.Fatalf("drift unlisted: %+v", rollup.Drift)
+	}
+	if len(rollup.Drift.Unused) != 1 || rollup.Drift.Unused[0].SkillID != unused.ID {
+		t.Fatalf("drift unused: %+v", rollup.Drift)
+	}
+	memberClient := &http.Client{Jar: mustJar(t)}
+	doClient(t, memberClient, srv, "POST", "/api/v2/auth/sign-in", `{"email":"member@example.com","password":"long-enough-password"}`)
+	if code, _ := doClient(t, memberClient, srv, "GET", "/api/admin/rollup", ""); code != 403 {
+		t.Fatalf("member rollup: %d", code)
+	}
+	if code, _ := doClient(t, ownerClient, srv, "PATCH", "/api/admin/settings", `{"rollupIndividual":false}`); code != 200 {
+		t.Fatalf("privacy setting: %d", code)
+	}
+	rollup = store.Rollup{}
+	code, body = doClient(t, ownerClient, srv, "GET", "/api/admin/rollup", "")
+	if code != 200 || json.Unmarshal([]byte(body), &rollup) != nil || rollup.Individual {
+		t.Fatalf("private rollup: %d %s", code, body)
+	}
+	for _, sk := range rollup.Skills {
+		if len(sk.Members) != 0 {
+			t.Fatalf("individual rows leaked: %+v", sk)
+		}
+	}
 }

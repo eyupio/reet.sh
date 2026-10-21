@@ -140,6 +140,7 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	mux.HandleFunc("GET /api/events", s.events)
 	mux.HandleFunc("GET /api/ignored", s.ignored)
 	mux.HandleFunc("GET /api/admin/status", s.requireAdmin(s.adminStatus))
+	mux.HandleFunc("GET /api/admin/rollup", s.requireAdmin(s.rollup))
 	mux.HandleFunc("GET /api/v2/auth/status", s.authStatus)
 	mux.HandleFunc("POST /api/v2/auth/setup", s.setup)
 	mux.HandleFunc("POST /api/v2/auth/sign-in", s.signIn)
@@ -1831,6 +1832,7 @@ func (s *server) adminStatus(w http.ResponseWriter, r *http.Request) {
 			"refreshEnabled":   settingEnabled(s.st, "refresh_enabled"),
 			"topicsEnabled":    settingEnabled(s.st, "topics_enabled"),
 			"linkListsEnabled": s.linkListsEnabled(),
+			"rollupIndividual": s.rollupIndividual(),
 			"instanceName":     instanceName,
 		},
 	})
@@ -1841,6 +1843,7 @@ func (s *server) adminSettings(w http.ResponseWriter, r *http.Request) {
 		RefreshEnabled   *bool   `json:"refreshEnabled"`
 		TopicsEnabled    *bool   `json:"topicsEnabled"`
 		LinkListsEnabled *bool   `json:"linkListsEnabled"`
+		RollupIndividual *bool   `json:"rollupIndividual"`
 		InstanceName     *string `json:"instanceName"`
 	}
 	if !decode(w, r, &in) {
@@ -1879,6 +1882,17 @@ func (s *server) adminSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		detail["linkListsEnabled"] = *in.LinkListsEnabled
+	}
+	if in.RollupIndividual != nil {
+		value := "0"
+		if *in.RollupIndividual {
+			value = "1"
+		}
+		if err := s.st.SetSetting("rollup_individual", value); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		detail["rollupIndividual"] = *in.RollupIndividual
 	}
 	if in.InstanceName != nil {
 		if err := s.st.SetSetting("instance_name", strings.TrimSpace(*in.InstanceName)); err != nil {

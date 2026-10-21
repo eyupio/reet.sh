@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import {
-    createInvite, deleteAdminUser, getAdminStatus, listAdminUsers, resetUserPassword, revokeUserTokens,
-    saveAdminSettings, transferOwner, updateAdminUser, type AdminStatus, type UserMeta,
+    createInvite, deleteAdminUser, getAdminStatus, getRollup, listAdminUsers, resetUserPassword, revokeUserTokens,
+    saveAdminSettings, transferOwner, updateAdminUser, type AdminStatus, type Rollup, type RollupSkill, type UserMeta,
   } from './api'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import CopyButton from './CopyButton.svelte'
@@ -20,7 +20,7 @@
   let loading = $state(true)
   let saving = $state(false)
   let saved = $state('')
-  let form = $state({ refreshEnabled: true, topicsEnabled: true, linkListsEnabled: false, instanceName: '' })
+  let form = $state({ refreshEnabled: true, topicsEnabled: true, linkListsEnabled: false, rollupIndividual: true, instanceName: '' })
   let users = $state<UserMeta[]>([])
   let usersError = $state('')
   let inviteEmail = $state('')
@@ -31,6 +31,12 @@
   let resetName = $state('')
   let busyID = $state(0)
   let confirmAction = $state<{ kind: 'delete' | 'transfer'; user: UserMeta } | null>(null)
+  let rollup = $state<Rollup | null>(null)
+  let rollupError = $state('')
+  let rollupLoading = $state(false)
+  let rollupList = $state(0)
+  let rollupTag = $state('')
+  let rollupSort = $state<'adoption' | 'name'>('adoption')
 
   async function load() {
     loading = true
@@ -58,10 +64,91 @@
     }
   }
 
+  async function loadRollup() {
+    if (!accounts) return
+    rollupLoading = true
+    try {
+      rollup = await getRollup()
+      rollupError = ''
+    } catch (e) {
+      rollupError = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      rollupLoading = false
+    }
+  }
+
+  const rollupTags = $derived.by(() => {
+    const names = new Set<string>()
+    for (const skill of rollup?.skills ?? []) for (const tag of skill.tags ?? []) names.add(tag)
+    return [...names].sort((a, b) => a.localeCompare(b))
+  })
+
+  const rollupRows = $derived.by(() => {
+    const rows = (rollup?.skills ?? []).filter((skill) => {
+      if (rollupList !== 0 && !(skill.lists ?? []).some((list) => list.id === rollupList)) return false
+      if (rollupTag && !(skill.tags ?? []).includes(rollupTag)) return false
+      return true
+    })
+    return [...rows].sort((a, b) => {
+      if (rollupSort === 'name') return a.name.localeCompare(b.name)
+      return b.usedBy - a.usedBy || a.name.localeCompare(b.name)
+    })
+  })
+
+  const rollupSkillByID = $derived(new Map((rollup?.skills ?? []).map((skill) => [skill.id, skill] as const)))
+  const unlistedSkills = $derived((rollup?.drift.unlisted ?? []).map((id) => rollupSkillByID.get(id)).filter((skill): skill is RollupSkill => Boolean(skill)))
+  const majorityCount = $derived((rollup?.skills ?? []).filter((skill) => (rollup?.members.length ?? 0) > 0 && skill.usedBy * 2 > (rollup?.members.length ?? 0)).length)
+  const nothingInstalledCount = $derived((rollup?.members ?? []).filter((member) => member.installed === 0).length)
+
+  function usedMembers(skill: RollupSkill) {
+    return (skill.members ?? []).filter((member) => member.used)
+  }
+
+  function environmentChips(skill: RollupSkill) {
+    return (skill.members ?? []).flatMap((member) => (member.environments ?? []).map((env) => ({ member: member.name, env })))
+  }
+
+  function csvCell(value: string | number): string {
+    const text = String(value)
+    return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text
+  }
+
+  function downloadCSV() {
+    const data = rollup
+    if (!data) return
+    const header = ['skill', 'source', 'lists', 'used_by', 'team_size', 'on_shelf', 'machines', 'used_members', 'environments']
+    const rows = rollupRows.map((skill) => {
+      const envs = environmentChips(skill).map(({ member, env }) => `${member} on ${env}`).join('; ')
+      return [
+        skill.name,
+        skill.source,
+        (skill.lists ?? []).map((list) => list.name).join('; '),
+        skill.usedBy,
+        data.members.length,
+        skill.onShelf,
+        skill.environmentLinks,
+        data.members.length,
+        usedMembers(skill).map((member) => member.name).join('; '),
+        envs,
+      ]
+    })
+    const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'reet-team-rollup.csv'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
   onMount(() => {
     document.title = 'Admin · reet.sh'
     void load()
     void loadUsers()
+    void loadRollup()
     return () => {
       document.title = 'reet.sh – your shelf for AI skills'
     }
@@ -184,6 +271,7 @@
     try {
       await saveAdminSettings(form)
       if (status) status = { ...status, settings: { ...form } }
+      await loadRollup()
       saved = 'Saved.'
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
@@ -350,6 +438,137 @@
       </section>
     {/if}
 
+      <section class="block" aria-labelledby="admin-team">
+        <h3 id="admin-team">Team rollup</h3>
+        <p class="muted">What the team uses, what sits on a list unused, and where a skill is in use outside a list. Active accounts only.</p>
+        {#if rollupError}<p class="error" role="alert">{rollupError}</p>{/if}
+        {#if rollupLoading && !rollup}
+          <p class="muted">Loading rollup…</p>
+        {:else if rollup}
+          <div class="rollup-summary">
+            <span><strong>{rollup.members.length}</strong> people</span>
+            <span><strong>{rollup.skills.length}</strong> skills</span>
+            <span><strong>{majorityCount}</strong> used by more than half</span>
+            <span><strong>{unlistedSkills.length}</strong> in use, on no list</span>
+            <span><strong>{rollup.drift.unused.length}</strong> list skills unused</span>
+          </div>
+
+          <div class="rollup-filters">
+            <label>List
+              <select bind:value={rollupList}>
+                <option value={0}>All lists</option>
+                {#each rollup.lists as list (list.id)}<option value={list.id}>{list.name}</option>{/each}
+              </select>
+            </label>
+            <label>Tag
+              <select bind:value={rollupTag}>
+                <option value="">All tags</option>
+                {#each rollupTags as tag}<option value={tag}>{tag}</option>{/each}
+              </select>
+            </label>
+            <label>Sort
+              <select bind:value={rollupSort}>
+                <option value="adoption">Adoption</option>
+                <option value="name">Name</option>
+              </select>
+            </label>
+            <button type="button" class="btn" onclick={downloadCSV} disabled={rollupRows.length === 0}>Download CSV</button>
+          </div>
+
+          {#if !rollup.individual}
+            <p class="privacy-note">Per-person rows are hidden by the owner. The table shows counts only.</p>
+          {/if}
+
+          {#if rollupRows.length === 0}
+            <p class="muted">Nothing matches those filters.</p>
+          {:else}
+            <div class="tablewrap">
+              <table class="rollup-table">
+                <thead><tr><th>Skill</th><th>Lists</th><th>In use</th><th>On shelf</th><th>Machines</th><th>Team</th></tr></thead>
+                <tbody>
+                  {#each rollupRows as skill (skill.id)}
+                    <tr>
+                      <td class="skillcell"><strong>{skill.name}</strong><small><code>{skill.source}</code></small></td>
+                      <td>
+                        {#if skill.lists?.length}
+                          <div class="listchips">
+                            {#each skill.lists as list (list.id)}<a href={`/lists/${list.id}`} class="listchip">{list.name}</a>{/each}
+                          </div>
+                        {:else}<span class="muted">—</span>{/if}
+                      </td>
+                      <td class="num">
+                        <div class="adoption">
+                          <span>{skill.usedBy} / {rollup.members.length}</span>
+                          <span class="bar" aria-hidden="true"><i style={`width:${rollup.members.length ? Math.round((skill.usedBy / rollup.members.length) * 100) : 0}%`}></i></span>
+                        </div>
+                      </td>
+                      <td class="num">{skill.onShelf}</td>
+                      <td class="num">{skill.environmentLinks}</td>
+                      <td class="teamcell">
+                        {#if rollup.individual}
+                          {#if usedMembers(skill).length}
+                            <div class="memberchips">{#each usedMembers(skill) as member (member.id)}<span class="memberchip" title={member.environments?.join(', ') || 'No environment yet'}>{member.name}</span>{/each}</div>
+                          {:else}<span class="muted">Nobody yet</span>{/if}
+                          {#if environmentChips(skill).length}
+                            <div class="envchips">{#each environmentChips(skill) as chip}<span class="envchip">{chip.member.split(' ')[0]} · {chip.env}</span>{/each}</div>
+                          {/if}
+                        {:else}<span class="muted">Counts only</span>{/if}
+                      </td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          {/if}
+
+          <div class="drift">
+            <div class="driftcol">
+              <h4>In use, on no list <small>{unlistedSkills.length}</small></h4>
+              {#if unlistedSkills.length === 0}
+                <p class="muted">Every skill in use is on a list.</p>
+              {:else}
+                <ul>
+                  {#each unlistedSkills as skill (skill.id)}
+                    <li><strong>{skill.name}</strong><small>{skill.usedBy} of {rollup.members.length} use it</small>{#if rollup.individual && usedMembers(skill).length}<span>{usedMembers(skill).map((member) => member.name).join(', ')}</span>{/if}</li>
+                  {/each}
+                </ul>
+              {/if}
+            </div>
+            <div class="driftcol">
+              <h4>On a list, nobody uses <small>{rollup.drift.unused.length}</small></h4>
+              {#if rollup.drift.unused.length === 0}
+                <p class="muted">Every listed skill is in use by someone.</p>
+              {:else}
+                <ul>
+                  {#each rollup.drift.unused as item (`${item.listId}-${item.skillId}`)}
+                    <li><strong>{item.name}</strong><small>{item.listName}</small><span>{item.source}</span></li>
+                  {/each}
+                </ul>
+              {/if}
+            </div>
+          </div>
+
+          <div class="people-summary">
+            <h4>People <small>{rollup.members.length}</small></h4>
+            {#if rollup.individual}
+              <div class="peoplegrid">
+                {#each rollup.members as member (member.id)}
+                  <article class:empty-person={member.installed === 0}>
+                    <strong>{member.name}</strong>
+                    <small>{member.role}{#if member.email === currentEmail} · you{/if}</small>
+                    <span>{member.used} in use · {member.installed} installed</span>
+                  </article>
+                {/each}
+              </div>
+            {:else}
+              <p class="muted">{rollup.members.length} active people; {nothingInstalledCount === 1 ? '1 has' : `${nothingInstalledCount} have`} nothing installed.</p>
+            {/if}
+          </div>
+        {:else}
+          <p class="muted">The rollup is not available yet.</p>
+        {/if}
+      </section>
+
     <section class="block" aria-labelledby="admin-settings">
       <h3 id="admin-settings">Jobs and instance</h3>
       {#if isOwner}
@@ -357,6 +576,7 @@
           <label class="check"><input type="checkbox" bind:checked={form.refreshEnabled} /> Six-hourly metadata refresh</label>
           <label class="check"><input type="checkbox" bind:checked={form.topicsEnabled} /> Daily skills.sh topic seed</label>
           <label class="check"><input type="checkbox" bind:checked={form.linkListsEnabled} /> Let list owners share read-only links</label>
+          <label class="check"><input type="checkbox" bind:checked={form.rollupIndividual} /> Show per-person usage in the team rollup</label>
           <label class="field">
             <span>Instance name</span>
             <input bind:value={form.instanceName} placeholder="Team shelf" autocomplete="off" />
@@ -367,7 +587,7 @@
           </div>
         </form>
       {:else}
-        <p class="muted">Only the owner can change these settings. Refresh is {form.refreshEnabled ? 'on' : 'off'}; the topic seed is {form.topicsEnabled ? 'on' : 'off'}; link sharing is {form.linkListsEnabled ? 'on' : 'off'}.</p>
+        <p class="muted">Only the owner can change these settings. Refresh is {form.refreshEnabled ? 'on' : 'off'}; the topic seed is {form.topicsEnabled ? 'on' : 'off'}; link sharing is {form.linkListsEnabled ? 'on' : 'off'}; per-person rollup rows are {form.rollupIndividual ? 'on' : 'off'}.</p>
       {/if}
     </section>
 
@@ -460,8 +680,55 @@
   td.actions .btn { padding-left: 6px; padding-right: 6px; margin-left: 2px; }
   td select { padding: 4px 8px; min-height: 32px; }
   @media (pointer: coarse) { td select { min-height: 44px; } }
+
+  .rollup-summary { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; color: var(--muted); font-size: 0.84rem; }
+  .rollup-summary strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .rollup-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-top: 14px; }
+  .rollup-filters label { display: grid; gap: 4px; color: var(--muted); font-size: 0.76rem; font-weight: 600; }
+  .rollup-filters select { min-height: 36px; padding: 6px 10px; }
+  .privacy-note { margin: 12px 0 0; color: var(--muted); font-size: 0.8rem; }
+  .rollup-table { margin-top: 10px; min-width: 760px; }
+  .rollup-table .skillcell { min-width: 170px; }
+  .rollup-table .skillcell strong { display: block; overflow-wrap: anywhere; }
+  .rollup-table .muted { margin: 0; }
+  .listchips, .memberchips, .envchips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .listchip {
+    display: inline-flex; padding: 2px 7px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+    border-radius: 6px; background: color-mix(in srgb, var(--tint) 25%, var(--card)); color: var(--accent);
+    font-size: 0.72rem; font-weight: 600; text-decoration: none;
+  }
+  .listchip:hover { border-color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+  .memberchip { padding: 2px 7px; border: 1px solid color-mix(in srgb, var(--good) 30%, var(--line)); border-radius: 999px; color: var(--good); font-size: 0.7rem; }
+  .envchip { padding: 2px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--muted); font-size: 0.68rem; }
+  .envchips { margin-top: 4px; }
+  .teamcell { min-width: 190px; max-width: 320px; }
+  .adoption { display: grid; gap: 4px; min-width: 72px; }
+  .bar { display: block; height: 4px; min-width: 64px; border-radius: 999px; background: var(--line); overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+  .drift { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 22px; }
+  .driftcol h4, .people-summary h4 { margin: 0; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+  .driftcol h4 small, .people-summary h4 small { margin-left: 5px; color: var(--muted); font-weight: 500; }
+  .driftcol ul { list-style: none; margin: 8px 0 0; padding: 0; }
+  .driftcol li { display: grid; gap: 1px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 0.82rem; }
+  .driftcol li strong { font-weight: 600; overflow-wrap: anywhere; }
+  .driftcol li small { color: var(--muted); }
+  .driftcol li span { color: var(--muted); font-size: 0.76rem; overflow-wrap: anywhere; }
+  .people-summary { margin-top: 22px; }
+  .peoplegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 8px; }
+  .peoplegrid article { padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); }
+  .peoplegrid article.empty-person { border-color: color-mix(in srgb, var(--bad) 32%, var(--line)); }
+  .peoplegrid strong { display: block; font-size: 0.84rem; overflow-wrap: anywhere; }
+  .peoplegrid small { display: block; color: var(--muted); font-size: 0.72rem; }
+  .peoplegrid span { display: block; margin-top: 3px; color: var(--muted); font-size: 0.72rem; }
+  @media (max-width: 720px) {
+    .drift { grid-template-columns: 1fr; gap: 22px; }
+  }
   @media (max-width: 560px) {
     h2 { font-size: 1.7rem; }
     .cards { grid-template-columns: 1fr 1fr; }
+    .rollup-filters { display: grid; grid-template-columns: 1fr 1fr; }
+    .rollup-filters label:nth-child(3) { grid-column: 1; }
+    .rollup-filters .btn { grid-column: 2; align-self: end; }
+    .rollup-table { min-width: 700px; }
   }
 </style>

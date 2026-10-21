@@ -50,6 +50,29 @@ export type ListDetail = SharedList & {
   canManage: boolean
   canTransfer: boolean
 }
+export type RollupMember = { id: number; name: string; email: string; role: string; used: number; installed: number }
+export type RollupMemberUse = { id: number; name: string; used: boolean; environments?: string[] }
+export type RollupSkill = {
+  id: string
+  name: string
+  source: string
+  tags?: string[]
+  lists?: ListRef[]
+  usedBy: number
+  onShelf: number
+  installedBy: number
+  environmentLinks: number
+  members?: RollupMemberUse[]
+}
+export type RollupUnused = { listId: number; listName: string; skillId: string; name: string; source: string }
+export type Rollup = {
+  generatedAt: number
+  individual: boolean
+  members: RollupMember[]
+  lists: ListRef[]
+  skills: RollupSkill[]
+  drift: { unlisted: string[]; unused: RollupUnused[] }
+}
 export type Counts = { all: number; liked: number; bookmarked: number; used: number }
 export type Tab = 'all' | 'liked' | 'bookmarked' | 'used'
 export type Sort = 'recent' | 'name' | 'installs'
@@ -298,12 +321,12 @@ export type AdminStatus = {
   metaLastOK: string
   metaLastError: string
   topics: { lastSynced: string; lastError: string }
-  settings: { refreshEnabled: boolean; topicsEnabled: boolean; linkListsEnabled: boolean; instanceName: string }
+  settings: { refreshEnabled: boolean; topicsEnabled: boolean; linkListsEnabled: boolean; rollupIndividual: boolean; instanceName: string }
 }
 export async function getAdminStatus(): Promise<AdminStatus> {
   return (await req('/api/admin/status')).json()
 }
-export async function saveAdminSettings(settings: { refreshEnabled?: boolean; topicsEnabled?: boolean; linkListsEnabled?: boolean; instanceName?: string }): Promise<void> {
+export async function saveAdminSettings(settings: { refreshEnabled?: boolean; topicsEnabled?: boolean; linkListsEnabled?: boolean; rollupIndividual?: boolean; instanceName?: string }): Promise<void> {
   await req('/api/admin/settings', { method: 'PATCH', body: json(settings) })
 }
 export async function listIgnored(): Promise<{ ignored: Ignored[] }> {
@@ -356,4 +379,7 @@ export async function transferList(id: number, userId: number): Promise<ListDeta
 }
 export async function addListToShelf(id: number): Promise<{ added: number }> {
   return (await req(`/api/v2/lists/${id}/add-to-shelf`, { method: 'POST', body: json({}) })).json()
+}
+export async function getRollup(): Promise<Rollup> {
+  return (await req('/api/admin/rollup')).json()
 }

@@ -17,7 +17,7 @@
     <p class="local">Self-hosted. Yours to keep.</p>
   </aside>
   <div class="form-panel">
-    <h2 id="auth-title">{title}</h2>
+    <h1 id="auth-title">{title}</h1>
     <p class="lede">{lede}</p>
     {@render children()}
   </div>
@@ -26,7 +26,7 @@
 <style>
   .auth {
     display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
-    margin: 36px auto 0; overflow: hidden;
+    margin: 12px auto 24px; overflow: hidden;
     background: var(--card); border: 1px solid var(--line); border-radius: 18px;
     box-shadow: var(--shadow);
   }
@@ -41,7 +41,7 @@
   .stages small { display: block; margin-top: 2px; color: var(--muted); font-size: 0.8rem; }
   .local { margin: auto 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.75rem; }
   .form-panel { min-width: 0; align-self: center; padding: clamp(24px, 4vw, 40px); }
-  h2 { margin: 0; font: 600 1.7rem/1.15 var(--serif); letter-spacing: -0.02em; }
+  h1 { margin: 0; font: 500 1.8rem/1.15 var(--serif); letter-spacing: -0.02em; }
   .lede { margin: 8px 0 0; color: var(--muted); max-width: 40ch; }
   @media (max-width: 560px) {
     .auth { grid-template-columns: 1fr; margin-top: 24px; border-radius: 14px; }
@@ -50,7 +50,7 @@
     .headline br { display: none; }
     .intro-copy, .stages, .local { display: none; }
     .form-panel { padding: 24px 22px; }
-    h2 { font-size: 1.5rem; }
+    h1 { font-size: 1.5rem; }
   }
   @media (prefers-reduced-motion: no-preference) {
     .auth { animation: rise 320ms var(--ease-out) both; }

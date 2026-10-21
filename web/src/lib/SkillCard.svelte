@@ -338,13 +338,12 @@
 </li>
 
 <style>
-  .skill { position: relative; padding: 18px 0 16px 22px; border-bottom: 1px solid var(--line); }
-  .skill::before { content: ''; position: absolute; left: 0; top: 22px; bottom: 20px; width: 4px; border-radius: 4px; background: var(--line); }
-  .skill.use::before { background: var(--accent); }
-  .skill.try::before { background: repeating-linear-gradient(to bottom, var(--accent) 0 6px, transparent 6px 10px); }
+  .skill { position: relative; padding: 20px 22px; border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: var(--radius); background: var(--card); min-width: 0; }
+  .skill.use { border-left-color: var(--accent); }
+  .skill.try { border-left-color: var(--accent); border-left-style: dashed; }
   .row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
   .head { flex: 1; min-width: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-  h3 { flex: 0 0 auto; margin: 0; font: 600 1.25rem/1.25 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+  h3 { flex: 0 1 auto; min-width: 0; margin: 0; font: 500 1.4rem/1.25 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; }
   .pickbox {
     display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
     background: none; border: 0; cursor: pointer; flex: none;
@@ -357,13 +356,13 @@
   .box svg { width: 12px; height: 12px; color: var(--accent-ink); }
   h3 a { color: inherit; text-decoration-color: var(--line); text-underline-offset: 4px; }
   h3 a:hover { color: var(--accent); text-decoration-color: currentColor; }
-  .meta { color: var(--muted); font-size: 0.85rem; display: flex; gap: 12px; flex-wrap: wrap; }
+  .meta { color: var(--muted); font-size: 0.75rem; display: flex; gap: 12px; flex-wrap: wrap; }
   .age, .stale, .week { white-space: nowrap; }
   .change { font-variant-numeric: tabular-nums; color: var(--good); }
   .change.down { color: var(--bad); }
   .stale { font-style: italic; }
   code { overflow-wrap: anywhere; }
-  .desc { margin: 6px 0 0; color: var(--muted); max-width: 62ch; }
+  .desc { margin: 6px 0 0; color: var(--muted); max-width: 70ch; font-size: 0.86rem; }
   .desc.clamp { display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .more {
     display: inline-flex; align-items: center; margin-top: 4px; padding: 2px 0; min-height: 32px;
@@ -446,6 +445,7 @@
   .edit div { display: flex; gap: 8px; }
   .edit.link input { flex: 1; }
   @media (max-width: 560px) {
+    .skill { padding: 18px 16px; }
     .spacer { display: none; }
     .edit.link div { flex-direction: column; }
     .install-line { flex-direction: column; align-items: stretch; }

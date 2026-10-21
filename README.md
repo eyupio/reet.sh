@@ -127,6 +127,18 @@ If the container exits with "unable to open database file", the data folder isn'
 
 (The `reet` server itself reads `REET_ADDR` (default `:8080`), `REET_DATA_DIR`, `REET_TOKEN` and `SKILLS_SH_TOKEN`; compose maps the settings above onto them.)
 
+## Install the binary
+
+Install `reet` on a Linux or macOS machine (amd64 or arm64) without Go or Node:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+reet --version
+```
+
+The installer downloads a GitHub release, verifies its SHA-256 checksum, and installs to `~/.local/bin`. The binary includes the Library web UI (`reet serve`) and the scanner (`reet scan`). See [binary installation](docs/binary-installation.md) for pinned versions, custom destinations, manual installation, and publishing releases. Binaries become available after the first version tag runs the release workflow.
+
 ## Adding skills
 
 - **Paste a link.** Paste a skills.sh URL or `owner/repo/skill` into the box at the top.
@@ -154,7 +166,7 @@ Use **Download JSON** and **Restore from JSON** in the UI, or call `GET /api/exp
 
 - **Select** in the toolbar turns cards into checkboxes. Shift-click selects a range; the floating bar can tag, move, like or remove the selection, and a bulk remove gets the same Undo toast as a single remove.
 - Metadata for the 50 oldest skills is refreshed every six hours (two seconds apart) and the card shows the weekly install sparkline and change. **Refresh** on a card checks immediately and says when nothing changed.
-- **Admin** in the footer opens `/admin` for the owner and admins: version, database size, skills.sh reachability, topic seed status, counts, environments, users and invites, the team rollup, the refresh/topic/link-sharing switches, instance name and recent activity. Only the owner can change instance settings or transfer ownership.
+- **Admin** in the header opens `/admin` for the owner and admins: version, database size, skills.sh reachability, topic seed status, counts, environments, users and invites, the team rollup, the refresh/topic/link-sharing switches, instance name and recent activity. Only the owner can change instance settings or transfer ownership.
 - **Team rollup** on `/admin` shows adoption by skill across active accounts, the people behind each count, environment chips, and drift: skills in use outside any list and list skills nobody uses. Filter by list or tag, sort by adoption, and download exactly the visible rows as CSV. The owner can turn off per-person usage and leave counts only.
 
 ## Development
@@ -166,7 +178,9 @@ cd .. && go test ./... && go run ./cmd/reet serve
 
 For UI work, run `npm run dev` in `web/` (it proxies the API to `localhost:8080`).
 
-The [whole UI design studies](docs/ui-redesign.md) compare Library, Workbench and Focus across the signed-out pages, shelf, lists, account and admin. Open `web/concepts/controller.html` directly, or visit `/concepts/controller.html` on the Vite dev server. The app uses a shared account form, header navigation, and a wider admin layout; the three complete directions remain interactive concepts for review.
+The [whole UI design studies](docs/ui-redesign.md) compare Library, Workbench and Focus across the signed-out pages, shelf, lists, account and admin. Open `web/concepts/controller.html` directly, or visit `/concepts/controller.html` on the Vite dev server. The app implements Library throughout: shared account forms, page headings, bordered shelf cards, list and account panels, grouped tools, and spacious admin tables. The other two directions remain concepts for reference. See [Library implementation](docs/library-implementation.md) for screenshots and validation.
+
+Version tags also publish checksummed Linux and macOS binaries through the [binary release workflow](.github/workflows/release.yml).
 
 The `Dockerfile` builds the UI and the binary and cross-compiles for `linux/amd64` and `linux/arm64`. The GitHub Actions workflow tests every push and publishes `ghcr.io/eyupio/reet.sh` (`latest`, `vX.Y.Z` and `sha-<short>` tags) from `main` and version tags.
 

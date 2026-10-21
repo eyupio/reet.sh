@@ -53,10 +53,11 @@ def glyph_t(pen):
 
 
 def glyph_s(pen):
-    r, cx = 21, pen + 33
-    sx, sy = _pt(cx, 79, r, -25)
-    ex, ey = _pt(cx, 121, r, 155)
-    return f"M{sx:.1f},{sy:.1f}A{r},{r} 0 1 0 {cx},100A{r},{r} 0 1 1 {ex:.1f},{ey:.1f}", 66
+    # Open bowls and a continuous waist: the old large arcs nearly closed into
+    # two circles once the round stroke caps were applied at small sizes.
+    return (f"M{pen+54},62C{pen+42},49 {pen+14},47 {pen+14},74"
+            f"C{pen+14},101 {pen+52},96 {pen+52},124"
+            f"C{pen+52},151 {pen+26},156 {pen+12},141"), 66
 
 
 def glyph_h(pen):
@@ -170,7 +171,11 @@ def main():
         p = OUT / f"{name}.svg"
         p.write_text(layout_tile(ink, accent, bg, name))
         files.append(p)
-    print(f"wrote {len(files)} files to {OUT}")
+    # Inline this generated asset in the app so geometry has one source of truth.
+    themed = OUT.parent.parent / "web" / "src" / "lib" / "logo.svg"
+    themed.write_text(layout_horizontal("var(--ink, #1d1c1a)", "var(--accent, #c2410c)", "theme"))
+    files.append(themed)
+    print(f"wrote {len(files)} logo assets")
 
 
 if __name__ == "__main__":

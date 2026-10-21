@@ -41,10 +41,10 @@
 </footer>
 
 <style>
-  footer { color: var(--muted); font-size: 0.85rem; padding: 0 24px; }
+  footer { color: var(--muted); font-size: 0.85rem; padding: 0 40px; }
   .inner {
     display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px;
-    max-width: calc(var(--content-width) - 48px); margin: 0 auto; padding: 22px 0 32px; border-top: 1px solid var(--line);
+    max-width: calc(var(--content-width) - 80px); margin: 0 auto; padding: 22px 0 32px; border-top: 1px solid var(--line);
   }
   .brand { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
   .name { font-weight: 600; color: var(--ink); }
@@ -63,5 +63,5 @@
   .user:hover, .user:focus-visible { color: var(--ink); text-decoration: underline; }
   .signout:hover, .signout:focus-visible, .admin:hover, .admin:focus-visible { color: var(--ink); text-decoration: underline; }
   @media (pointer: coarse) { .signout, .admin { min-height: 44px; } }
-  @media (max-width: 560px) { .descriptor { display: none; } }
+  @media (max-width: 560px) { footer { padding: 0 16px; } .descriptor { display: none; } }
 </style>

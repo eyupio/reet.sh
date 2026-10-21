@@ -88,7 +88,7 @@ python3 brand/contact-sheet.py   # rebuilds contact-sheet.html
 ```
 
 Letterforms, icon geometry and the colour table all live in `generate.py`.
-Change there, not in the SVGs.
+Change there, not in the SVGs. The generator also writes `web/src/lib/logo.svg`, the themeable lockup imported by the Svelte header, so the app always uses the same letter geometry as the brand assets. The `s` uses open cubic curves for readable shapes at small sizes.
 
 ## Web icons and social image
 

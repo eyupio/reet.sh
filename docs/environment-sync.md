@@ -1,6 +1,6 @@
 # Environments and confirmed sync
 
-The **Your account → Connect a machine** flow is the starting point: install the binary, create a named personal token in the connection step, then copy the connection command into that machine's terminal. It includes this instance's URL and the newly created token. Copy it before leaving the page; tokens are not saved to browser storage or shown again after a reload. Existing token holders can set `REET_URL` and `REET_TOKEN` directly in their terminal. Use a separate token per machine or server so access can be revoked independently. Generated scan/sync commands use the environment rather than embedding the token. After running the scan, use **Check for my scan** to confirm a complete, recent inventory for the selected machine name.
+The **Account → Machines → Connect a machine** flow is the starting point: install the binary, create a named personal token in the connection step, then copy the connection command into that machine's terminal. It includes this instance's URL and the newly created token. Copy it before leaving the page; tokens are not saved to browser storage or shown again after a reload. Existing token holders can set `REET_URL` and `REET_TOKEN` directly in their terminal. Use a separate token per machine or server so access can be revoked independently. Generated scan/sync commands use the environment rather than embedding the token. After running the scan, use **Check for my scan** to confirm a complete, recent inventory for the selected machine name.
 
 ## Connect a machine
 
@@ -17,17 +17,17 @@ Choose a stable, distinct `--env` name for each machine. It defaults to the host
 
 `--prune` updates reported inventory: it does not uninstall skills or delete shelf entries. Empty scans register the machine too. Missing skills folders under an existing agent configuration report an empty inventory; unreadable folders are not treated as empty. An import with errors does not prune old inventory or qualify as a complete reference scan.
 
-If a machine has no skills yet, expand **Connecting an empty machine?** on Account. Create the selected agent's empty skills folder and run the generated scan. This does not install the agent itself.
+If a machine has no skills yet, expand **Connecting an empty machine?** on **Account → Machines**. Create the selected agent's empty skills folder and run the generated scan. This does not install the agent itself.
 
 ## Choose a desired skill set
 
-On Account, choose a recently scanned **Reference** and **Target**, then **Save reference snapshot**. Both must belong to your account and have complete scans from the last 14 days. A target can be the shared `.agents/skills` environment used by current Codex, Claude Code, Cursor or OpenCode global environments, or a supported project environment. Legacy `.codex/skills` folders remain scan-only: the current skills CLI installs Codex into `.agents/skills`. Other/custom directories remain visible but require manual installation.
+On **Account → Compare & sync**, choose a recently scanned **Reference** and **Target**, then **Save reference snapshot**. Both must belong to your account and have complete scans from the last 14 days. A target can be the shared `.agents/skills` environment used by current Codex, Claude Code, Cursor or OpenCode global environments, or a supported project environment. Legacy `.codex/skills` folders remain scan-only: the current skills CLI installs Codex into `.agents/skills`. Other/custom directories remain visible but require manual installation.
 
 The controller persists the desired snapshot and its revision in SQLite. A later change to the reference machine does not silently change your target: save another reference snapshot when you want those changes. The page shows missing skills, extra skills, last report time and concrete commands for each target. Stale/incomplete reports say to rescan rather than declaring the machine up to date. Counts reflect reports, not live remote filesystem access.
 
 ## Preview and apply locally
 
-Copy the target's command from Account and run it on that machine. For a project target, run it from that exact project directory:
+Copy the target's command from **Account → Compare & sync** and run it on that machine. For a project target, run it from that exact project directory:
 
 ```sh
 reet sync --server "$REET_URL" --env my-laptop --target 'account/environment/id'
@@ -67,6 +67,6 @@ An environment is a machine, identified within your account by its stable `--env
 
 The Library filters first by machine, then optionally by agent/project group. Machine skill counts deduplicate skills installed in several agent folders. **Only on one machine** counts machine identities, not agents. Existing scan and sync target IDs continue to identify individual agent/project groups, so saved references and older binaries keep working.
 
-On Account, **Compare machines** shows unique skills shared by the selected machines and skills present on only one side. Select individual agent groups to compare placement rather than combined inventories. A match compares reported skill identities/sources, not installed file contents or versions. Stale/incomplete agent reports and machines with only a server heartbeat cannot confirm a match; unknown/local sources require review. Rescan both machines with `--prune`, then refresh before deciding what to apply.
+On **Account → Compare & sync**, **Compare machines** shows unique skills shared by the selected machines and skills present on only one side. Select individual agent groups to compare placement rather than combined inventories. A match compares reported skill identities/sources, not installed file contents or versions. Stale/incomplete agent reports and machines with only a server heartbeat cannot confirm a match; unknown/local sources require review. Rescan both machines with `--prune`, then refresh before deciding what to apply.
 
 For a confirmed, source-linked comparison between individual groups, **Use these groups for a sync reference** prepares the snapshot form. Review it and explicitly save the desired reference. The target CLI still previews and confirms installs/removals locally; comparison alone never changes any machine.

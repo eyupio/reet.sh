@@ -131,7 +131,7 @@
       <section class="tool-card" aria-labelledby="backup-title">
         <h3 id="backup-title">Backup and export</h3>
         <p>Take your shelf with you. JSON backs up your personal skills, flags, tags, notes and optional history. Markdown and CSV follow your current filters.</p>
-        <p>Lists, teams, accounts and sync references are not included. For encrypted, scheduled copies, open <a href="/account#backups">Account → Backups</a>. Instance backups are managed in <a href="/admin#admin-backups">Admin → Backups</a>.</p>
+        <p>Lists, teams, accounts and sync references are not included. For encrypted, scheduled copies, open <a href="/account/backups">Account → Backups</a>. Instance backups are managed in <a href="/admin/backups">Admin → Backups</a>.</p>
         <div class="export-row">
           <label for="export-format">Format</label>
           <select id="export-format" bind:value={format}>

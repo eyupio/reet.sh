@@ -74,7 +74,11 @@
   const prompt = $derived(installPrompt(skill))
   const source = $derived(sourceURL(skill))
   const installText = $derived(installKind === 'prompt' ? prompt : command)
-  const installations = $derived(installationReports.map(report => ({ ...report, status: installationStatus(report, skill.id) })))
+  const installations = $derived(installationReports.map(report => ({ ...report, status: installationStatus(report, skill.id) })).sort((a, b) => {
+    const rank = { installed: 0, missing: 1, unknown: 2 }
+    return rank[a.status] - rank[b.status] || a.host.localeCompare(b.host)
+  }))
+  const visibleInstallations = $derived(expanded ? installations : installations.slice(0, 3))
   const installationLabels = { installed: 'Installed', missing: 'Missing', unknown: 'Not confirmed' }
 
   $effect(() => {
@@ -207,11 +211,14 @@
   </div>
   {#if installations.length}
     <ul class="installation-badges" aria-label={`Reported installation by environment for ${skill.name}`}>
-      {#each installations as report (report.host)}
+      {#each visibleInstallations as report (report.host)}
         <li class="installation-badge {report.status}" title={report.status === 'installed' ? 'Present in at least one complete agent scan from the last 14 days.' : report.status === 'missing' ? 'Absent from all reported agent groups. All of this machine’s agent scans are complete and less than 14 days old.' : report.groupCount ? 'Rescan this machine: one or more agent inventories are incomplete or out of date.' : 'No agent inventory reported. A server heartbeat cannot confirm installed skills.'}>
           <span class="status-dot" aria-hidden="true"></span><span class="host">{report.host}</span><strong>{installationLabels[report.status]}</strong>
         </li>
       {/each}
+      {#if !expanded && installations.length > visibleInstallations.length}
+        <li><button type="button" class="environment-more" onclick={() => onexpand(true)} aria-label={`Show all ${installations.length} environments for ${skill.name}`}>+{installations.length - visibleInstallations.length} more</button></li>
+      {/if}
     </ul>
   {/if}
   <div class="actions quick-actions" role="group" aria-label={`Quick actions for ${skill.name}`}>
@@ -414,6 +421,8 @@
   .age { margin: 0 0 10px; color: var(--muted); font-size: 0.75rem; }
   .source { color: var(--muted); font-size: 0.75rem; overflow-wrap: anywhere; }
   .source-link { display: inline-flex; align-items: center; gap: 5px; min-height: 24px; max-width: 100%; justify-self: start; text-decoration-color: var(--line); }
+  .head h3 a { text-decoration: none; }
+  .head h3 a:hover { text-decoration: underline; }
   .source-link:hover { color: var(--accent); text-decoration-color: currentColor; }
   .source-link code { min-width: 0; }
   .source-link svg { width: 12px; height: 12px; flex: none; }
@@ -427,6 +436,7 @@
   .metric > svg { width: 14px; height: 14px; flex: none; }
   .card-details:not([hidden]) { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
   .quick-actions { margin-top: 10px; }
+  .environment-more { min-height: 32px; padding: 4px 8px; background: transparent; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); cursor: pointer; font-size: 0.75rem; }
   .installation-badges { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 10px 0 0; }
   .installation-badge { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--muted); font-size: 0.75rem; }
   .installation-badge .host { overflow-wrap: anywhere; min-width: 0; }

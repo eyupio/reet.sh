@@ -4,10 +4,10 @@
   import { getSyncState, saveSyncTarget, deleteSyncTarget, forgetEnvironment, type SyncState, type SyncEnvironment, type SyncTarget } from './api'
   import CopyButton from './CopyButton.svelte'
   import MachineComparison from './MachineComparison.svelte'
-  import { groupLabel, agentGroups } from './machines'
+  import { groupLabel, agentGroups, inventoryMachines } from './machines'
   import ConfirmDialog from './ConfirmDialog.svelte'
 
-  let { canWrite, token = '', tokenSetup }: { canWrite: boolean; token?: string; tokenSetup?: Snippet } = $props()
+  let { canWrite, token = '', tokenSetup, view = 'machines', startConnect = false }: { canWrite: boolean; token?: string; tokenSetup?: Snippet; view?: 'machines' | 'compare'; startConnect?: boolean } = $props()
   let syncState = $state<SyncState>({ environments: [], targets: [] })
   let loading = $state(true)
   let busy = $state(false)
@@ -20,9 +20,11 @@
   let target = $state('')
   let forgetting = $state<SyncEnvironment | null>(null)
   let now = $state(Date.now())
-  let connectOpen = $state(location.hash === '#connect-machine')
+  // svelte-ignore state_referenced_locally
+  let connectOpen = $state(startConnect)
   let loadedOnce = false
-  const machines = $derived(syncState.machines ?? [])
+  const machines = $derived(inventoryMachines(syncState.machines ?? []))
+  const serverMachines = $derived((syncState.machines ?? []).filter(machine => agentGroups(machine).length === 0))
   const connectedMachine = $derived(machines.find(machine => machine.host === host.trim() && agentGroups(machine).some(group => group.complete && fresh(group))))
   const site = location.origin
   function quote(value: string): string { return "'" + value.replaceAll("'", "'\\''") + "'" }
@@ -52,7 +54,7 @@
     try {
       syncState = await getSyncState()
       if (!loadedOnce) {
-        connectOpen = (syncState.machines?.length ?? 0) === 0 || location.hash === '#connect-machine'
+        connectOpen = inventoryMachines(syncState.machines ?? []).length === 0 || startConnect
         loadedOnce = true
       }
     } catch (e) { error = e instanceof Error ? e.message : String(e) } finally { loading = false }
@@ -75,13 +77,13 @@
 </script>
 
 <section class="sync" aria-labelledby="sync-title">
-  <header><div><p class="eyebrow">Machines & servers</p><h2 id="sync-title">Your machines</h2></div><button class="btn quiet" type="button" onclick={load} disabled={loading || busy}>{loading ? 'Refreshing…' : 'Refresh status'}</button></header>
+  <header><div><p class="eyebrow">Machines & servers</p><h2 id="sync-title">{view === 'machines' ? 'Your machines' : 'Compare & sync'}</h2></div><button class="btn quiet" type="button" onclick={load} disabled={loading || busy}>{loading ? 'Refreshing…' : 'Refresh status'}</button></header>
   <p class="lede">Use this reet instance as your controller. It remembers each scan and your chosen skill sets; changes run locally, after you confirm.</p>
-  <label class="site">Controller site <input value={site} readonly /></label>
+  {#if view === 'machines'}<label class="site">Controller site <input value={site} readonly /></label>{/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
 
-  {#if canWrite}
+  {#if canWrite && view === 'machines'}
     <details id="connect-machine" class="connect" bind:open={connectOpen}><summary>{machines.length ? 'Connect another machine' : 'Connect your first machine'}</summary>
     <p class="hint">Ey up. Three steps to connect this account to your machine.</p>
     <ol class="setup">
@@ -124,12 +126,15 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
     </details>
   {/if}
 
+  {#if view === 'compare'}
   <MachineComparison {machines} {canWrite} onreference={(from, to) => { source = from; target = to; notice = 'Groups selected. Review the reference and target below, then save the snapshot.'; document.getElementById('reference-title')?.focus() }} />
+  {/if}
+  {#if view === 'machines'}
   <div class="sectionhead"><h3>Known machines</h3><span>{machines.length} machines · {syncState.environments.filter(e => !e.agent.startsWith('reet')).length} agent groups</span></div>
   {#if !loading && !machines.length}<p class="empty">No machines have reported yet.{canWrite ? ' Run the scan command above, then refresh status.' : ''}</p>{/if}
   <ul class="environments">
     {#each machines as machine (machine.host)}
-      <li><div class="envhead"><strong>{machine.host}</strong><span class="badge">{machine.skillCount} unique skills · {agentGroups(machine).length} agent groups</span></div>
+      <li><details class="machine-inventory"><summary class="envhead"><strong>{machine.host}</strong><span class="badge">{machine.skillCount} unique skills · {agentGroups(machine).length} agent groups</span></summary>
         <p class="hint">One machine environment. Each agent / project below is a subgroup; shared skills count once above.</p>
         {#each machine.groups.filter(g => g.agent.startsWith('reet')) as heartbeat (heartbeat.id)}
           <p class="hint">{groupLabel(heartbeat)}: {status(heartbeat)} · {heartbeat.os || 'OS unknown'}/{heartbeat.arch || '?'} · {heartbeat.version || 'Version unknown'} · {when(heartbeat.scannedAt || heartbeat.lastSeen)}</p>
@@ -144,10 +149,17 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
             </li>
           {:else}<li class="hint">No agent inventories reported yet. Run a scan on this machine to compare its skills.</li>{/each}
         </ul>
-      </li>
+      </details></li>
     {/each}
   </ul>
+  {#if serverMachines.length}
+    <details class="server"><summary>Server-only reports ({serverMachines.length})</summary><p class="hint">These machines have reported a heartbeat but no agent inventory. Container restarts may create new host IDs.</p>
+      <ul>{#each serverMachines as machine (machine.host)}{#each machine.groups as heartbeat (heartbeat.id)}<li><strong>{machine.host}</strong><p class="hint">{status(heartbeat)} · {when(heartbeat.scannedAt || heartbeat.lastSeen)}</p>{#if canWrite}<button class="btn quiet" onclick={() => forgetting = heartbeat} disabled={busy}>Forget report for {machine.host}</button>{/if}</li>{/each}{/each}</ul>
+    </details>
+  {/if}
+  {/if}
 
+  {#if view === 'compare'}
   {#if canWrite}
     <h3 id="reference-title" class="mirror-title" tabindex="-1">Choose a reference skill set</h3>
     <p class="hint">Choose a machine and agent group on each side. Capture a recently scanned group as the desired skill set for the target group. This saves a snapshot on the controller; nothing is installed yet. Save again when you want to adopt newer reference changes. Local-only skills need a linked source first.</p>
@@ -169,6 +181,7 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
       </li>
     {/each}
   </ul>
+  {/if}
 </section>
 
 {#if forgetting}
@@ -176,6 +189,7 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
 {/if}
 
 <style>
+ .machine-inventory > summary { cursor: pointer; min-height: 44px; }
  .sync { margin-top:24px; padding:clamp(18px,3vw,28px); border:1px solid var(--line); border-radius:12px; background:var(--card); }
  header,.envhead,.sectionhead,.policy-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
  .eyebrow { margin:0 0 4px; color:var(--accent); text-transform:uppercase; letter-spacing:.1em; font-size:.7rem; font-weight:650; }

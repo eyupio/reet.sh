@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import NavigationMenu from './NavigationMenu.svelte'
+  import { groupLabel } from './machines'
   import PageHeader from './PageHeader.svelte'
   import {
     createInvite, deleteAdminUser, getAdminStatus, getRollup, listAdminUsers, resetUserPassword, revokeUserTokens,
@@ -9,15 +11,37 @@
   import ConfirmDialog from './ConfirmDialog.svelte'
   import CopyButton from './CopyButton.svelte'
   import { eventLabel, eventTitle } from './events'
-  import { elapsed, isOldEnvironment } from './time'
+  import { elapsed } from './time'
 
   let {
     onerror, role = 'owner', accounts = false, currentEmail = '',
   }: { onerror?: (e: unknown) => void; role?: string; accounts?: boolean; currentEmail?: string } = $props()
 
+  // svelte-ignore state_referenced_locally (Account mode is fixed for this page.)
+  const sections = [
+    { key: 'overview', label: 'Overview' }, { key: 'environments', label: 'Environments' },
+    ...(accounts ? [{ key: 'users', label: 'Users' }, { key: 'team', label: 'Team usage' }] : []),
+    { key: 'backups', label: 'Backups' }, { key: 'settings', label: 'Settings' }, { key: 'activity', label: 'Activity' },
+  ]
+  const legacy: Record<string, string> = { 'admin-overview': 'overview', 'admin-envs': 'environments', 'admin-users': 'users', 'admin-team': 'team', 'admin-backups': 'backups', 'admin-settings': 'settings', 'admin-events': 'activity' }
+  const requested = legacy[location.hash.slice(1)] || location.pathname.split('/')[2] || 'overview'
+  const section = sections.some(s => s.key === requested) ? requested : 'overview'
+  const sectionTitle = sections.find(s => s.key === section)!.label
+  const descriptions: Record<string, string> = {
+    overview: 'Health, jobs and storage for your instance.',
+    environments: 'Inspect scanned machines and agent reports, with server heartbeats kept separate.',
+    users: 'Invite people and manage their access.',
+    team: 'See which skills your team uses and where shared lists need attention.',
+    backups: 'Protect the whole instance with encrypted backups.',
+    settings: 'Configure background jobs, sharing and usage privacy.',
+    activity: 'Recent changes across the instance.',
+  }
   const isOwner = $derived(role === 'owner')
 
   let status = $state<AdminStatus | null>(null)
+  const environmentHosts = $derived([...new Set((status?.environments ?? []).filter(env => !env.agent.startsWith('reet')).map(env => env.host))])
+  const serverReports = $derived((status?.environments ?? []).filter(env => env.agent.startsWith('reet')).sort((a, b) => b.lastSeen - a.lastSeen))
+
   let error = $state('')
   let loading = $state(true)
   let saving = $state(false)
@@ -145,10 +169,11 @@
   }
 
   onMount(() => {
-    document.title = 'Admin · reet.sh'
+    history.replaceState(null, '', `/admin/${section}`)
+    document.title = `${sectionTitle} · Admin · reet.sh`
     void load()
-    void loadUsers()
-    void loadRollup()
+    if (section === 'users') void loadUsers()
+    if (section === 'team') void loadRollup()
     return () => {
       document.title = 'reet.sh – your shelf for AI skills'
     }
@@ -293,15 +318,21 @@
   }
 </script>
 
+{#snippet teamDetails(skill: RollupSkill)}
+  {#if rollup?.individual}
+    <details class="team-details">
+      <summary>{usedMembers(skill).length} {usedMembers(skill).length === 1 ? 'person' : 'people'} · {environmentChips(skill).length} {environmentChips(skill).length === 1 ? 'agent report' : 'agent reports'}</summary>
+      {#if usedMembers(skill).length}
+        <div class="memberchips">{#each usedMembers(skill) as member (member.id)}<span class="memberchip">{member.name}</span>{/each}</div>
+      {:else}<p class="muted">Nobody yet</p>{/if}
+      <ul class="report-list">{#each environmentChips(skill) as chip}<li><strong>{chip.member}</strong><span>{chip.env}</span></li>{/each}</ul>
+    </details>
+  {:else}<span class="muted">Counts only</span>{/if}
+{/snippet}
+
 <section class="admin" aria-labelledby="admin-title">
-  <PageHeader eyebrow="Instance administration" title="Your instance." titleId="admin-title" lede="A view of your instance, its people, and the toolkit they share." />
-  <nav class="section-nav" aria-label="Admin sections">
-    <a href="#admin-overview">Overview</a>
-    <a href="#admin-envs">Environments</a>
-    {#if accounts}<a href="#admin-users">Users</a><a href="#admin-team">Team rollup</a>{/if}
-    <a href="#admin-backups">Backups</a>
-    <a href="#admin-settings">Jobs and instance</a>
-  </nav>
+  <PageHeader eyebrow="Instance administration" title={sectionTitle} titleId="admin-title" lede={descriptions[section]} />
+  <NavigationMenu label="Admin" items={sections.map(s => ({ label: s.label, href: `/admin/${s.key}`, current: section === s.key }))} />
 
   {#if loading}
     <p class="empty" role="status">Loading…</p>
@@ -309,6 +340,7 @@
     <p class="notice bad" role="alert">{error || 'Could not load the admin status.'}</p>
   {:else}
     {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
+    {#if section === 'overview'}
     <h2 class="vh">Instance overview</h2>
     <div class="cards" id="admin-overview">
       <article>
@@ -340,31 +372,32 @@
       <span><strong>{status.counts.liked}</strong> liked</span>
     </div>
 
+    {/if}
+    {#if section === 'environments'}
     <section class="block" aria-labelledby="admin-envs">
-      <h2 id="admin-envs">Environments</h2>
-      {#if status.environments.length === 0}
-        <p class="muted">No scans yet. Run <code>reet scan --env NAME</code> on a machine.</p>
-      {:else}
-        <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll wide tables.) -->
-        <div class="tablewrap" tabindex="0" role="region" aria-label="Environments table, scroll horizontally for more">
-          <table>
-            <thead><tr><th>Environment</th><th>Skills</th><th>Last scan</th><th>Path</th></tr></thead>
-            <tbody>
-              {#each status.environments as env (env.id)}
-                <tr class:old={isOldEnvironment(env.lastSeen)}>
-                  <td>{env.name}</td>
-                  <td class="num">{env.skillCount ?? 0}</td>
-                  <td>{when(String(env.lastSeen))}</td>
-                  <td><code>{env.path || '—'}</code></td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
+      <h2 id="admin-envs">Scanned machines</h2>
+      <p class="muted">Agent inventories are grouped by machine. Server heartbeats are separate from skill scans.</p>
+      {#if environmentHosts.length === 0}<p class="muted">No agent scans yet. Run <code>reet scan --env NAME</code> on a machine.</p>{/if}
+      <div class="environment-machines">
+        {#each environmentHosts as host (host)}
+          <details class="machine-group">
+            <summary><strong>{host}</strong><span>{status.environments.filter(env => env.host === host && !env.agent.startsWith('reet')).length} agent groups</span></summary>
+            <ul>{#each status.environments.filter(env => env.host === host && !env.agent.startsWith('reet')) as env (env.id)}
+              <li><div><strong>{groupLabel(env)}</strong><span>{env.skillCount ?? 0} skills · Last seen {when(String(env.lastSeen))}</span></div><code>{env.path || 'No path reported'}</code></li>
+            {/each}</ul>
+          </details>
+        {/each}
+      </div>
+      {#if serverReports.length}
+        <details class="server-reports"><summary>Server heartbeats <span>{serverReports.length} reports</span></summary>
+          <p class="muted">These record running servers, not installed skills. Container restarts may create new host IDs.</p>
+          <ul>{#each serverReports as env (env.id)}<li><code>{env.host}</code><span>Last seen {when(String(env.lastSeen))}</span></li>{/each}</ul>
+        </details>
       {/if}
     </section>
+    {/if}
 
-    {#if accounts}
+    {#if accounts && section === 'users'}
       <section class="block" aria-labelledby="admin-users">
         <h2 id="admin-users">Users</h2>
         {#if usersError}<p class="error" role="alert">{usersError}</p>{/if}
@@ -403,7 +436,7 @@
 
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll wide tables.) -->
         <div class="tablewrap" tabindex="0" role="region" aria-label="Users table, scroll horizontally for more">
-          <table>
+          <table class="users-table">
             <thead><tr><th>User</th><th>Role</th><th>Last active</th><th>Tokens</th><th></th></tr></thead>
             <tbody>
               {#each users as user (user.id)}
@@ -427,6 +460,7 @@
                   <td>{user.tokens}</td>
                   <td class="actions">
                     {#if canManage(user)}
+                      <details class="user-actions"><summary>Manage {user.name}</summary><div>
                       <button type="button" class="btn quiet" onclick={() => toggleDisabled(user)} disabled={busyID === user.id}>
                         {user.disabledAt ? 'Enable' : 'Disable'}
                       </button>
@@ -436,6 +470,7 @@
                         <button type="button" class="btn quiet" onclick={() => (confirmAction = { kind: 'transfer', user })} disabled={busyID === user.id}>Make owner</button>
                         <button type="button" class="btn quiet danger" onclick={() => (confirmAction = { kind: 'delete', user })} disabled={busyID === user.id}>Delete</button>
                       {/if}
+                    </div></details>
                     {/if}
                   </td>
                 </tr>
@@ -446,15 +481,15 @@
       </section>
     {/if}
 
+    {#if section === 'team'}
       <section class="block" aria-labelledby="admin-team">
-        <h2 id="admin-team">Team rollup</h2>
-        <p class="muted">What the team uses, what sits on a list unused, and where a skill is in use outside a list. Active accounts only.</p>
+        <h2 id="admin-team" class="vh">Skill adoption</h2>
         {#if rollupError}<p class="error" role="alert">{rollupError}</p>{/if}
         {#if rollupLoading && !rollup}
           <p class="muted">Loading rollup…</p>
         {:else if rollup}
           <div class="rollup-summary">
-            <span><strong>{rollup.teamSize}</strong> people</span>
+            <span><strong>{rollup.teamSize}</strong> {rollup.teamSize === 1 ? 'person' : 'people'}</span>
             <span><strong>{rollup.skills.length}</strong> skills</span>
             <span><strong>{majorityCount}</strong> used by more than half</span>
             <span><strong>{unlistedSkills.length}</strong> in use, on no list</span>
@@ -491,9 +526,9 @@
             <p class="muted">Nothing matches those filters.</p>
           {:else}
             <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll wide tables.) -->
-            <div class="tablewrap" tabindex="0" role="region" aria-label="Team adoption table, scroll horizontally for more">
+            <div class="tablewrap rollup-desktop" tabindex="0" role="region" aria-label="Team adoption table, scroll horizontally for more">
               <table class="rollup-table">
-                <thead><tr><th>Skill</th><th>Lists</th><th>In use</th><th>On shelf</th><th>Machines</th><th>Team</th></tr></thead>
+                <thead><tr><th>Skill</th><th>Lists</th><th>In use</th><th>Saved by</th><th>Agent reports</th><th>Team</th></tr></thead>
                 <tbody>
                   {#each rollupRows as skill (skill.id)}
                     <tr>
@@ -514,22 +549,26 @@
                       <td class="num">{skill.onShelf}</td>
                       <td class="num">{skill.environmentLinks}</td>
                       <td class="teamcell">
-                        {#if rollup.individual}
-                          {#if usedMembers(skill).length}
-                            <div class="memberchips">{#each usedMembers(skill) as member (member.id)}<span class="memberchip" title={member.environments?.join(', ') || 'No environment yet'}>{member.name}</span>{/each}</div>
-                          {:else}<span class="muted">Nobody yet</span>{/if}
-                          {#if environmentChips(skill).length}
-                            <div class="envchips">{#each environmentChips(skill) as chip}<span class="envchip">{chip.member.split(' ')[0]} · {chip.env}</span>{/each}</div>
-                          {/if}
-                        {:else}<span class="muted">Counts only</span>{/if}
+                        {@render teamDetails(skill)}
                       </td>
                     </tr>
                   {/each}
                 </tbody>
               </table>
             </div>
+            <ul class="rollup-mobile">
+              {#each rollupRows as skill (skill.id)}
+                <li class="usage-card">
+                  <h3>{skill.name}</h3><code class="usage-source">{skill.source || 'Local skill'}</code>
+                  <dl><div><dt>In use</dt><dd>{skill.usedBy} / {rollup.teamSize}</dd></div><div><dt>Saved by</dt><dd>{skill.onShelf}</dd></div><div><dt>Agent reports</dt><dd>{skill.environmentLinks}</dd></div></dl>
+                  {#if skill.lists?.length}<div class="listchips">{#each skill.lists as list (list.id)}<a class="listchip" href={`/lists/${list.id}`}>{list.name}</a>{/each}</div>{/if}
+                  {@render teamDetails(skill)}
+                </li>
+              {/each}
+            </ul>
           {/if}
 
+          <details class="additional-usage"><summary>List gaps & people</summary>
           <div class="drift">
             <div class="driftcol">
               <h4>In use, on no list <small>{unlistedSkills.length}</small></h4>
@@ -573,15 +612,20 @@
               <p class="muted">{rollup.teamSize} active people; {rollup.nothingInstalled === 1 ? '1 has' : `${rollup.nothingInstalled} have`} nothing installed.</p>
             {/if}
           </div>
+          </details>
         {:else}
           <p class="muted">The rollup is not available yet.</p>
         {/if}
       </section>
 
+    {/if}
+    {#if section === 'backups'}
     <div id="admin-backups">
       <Backups {onerror} {role} admin />
     </div>
 
+    {/if}
+    {#if section === 'settings'}
     <section class="block" aria-labelledby="admin-settings">
       <h2 id="admin-settings">Jobs and instance</h2>
       {#if isOwner}
@@ -604,6 +648,8 @@
       {/if}
     </section>
 
+    {/if}
+    {#if section === 'activity'}
     <section class="block" aria-labelledby="admin-events">
       <h2 id="admin-events">Recent activity</h2>
       {#if status.events.length === 0}
@@ -619,6 +665,7 @@
         </ul>
       {/if}
     </section>
+    {/if}
     {#if confirmAction}
       <ConfirmDialog
         title={confirmAction.kind === 'delete' ? `Delete ${confirmAction.user.name}?` : `Make ${confirmAction.user.name} the owner?`}
@@ -636,9 +683,6 @@
 
 <style>
   .admin { padding-top: 4px; }
-  .section-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
-  .section-nav a { display: inline-flex; align-items: center; min-height: 40px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 0.82rem; }
-  .section-nav a:hover { background: var(--tint); border-color: var(--accent); color: var(--ink); }
   h3, #admin-overview, #admin-backups { scroll-margin-top: 24px; }
   .block h2 { margin: 0 0 12px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.025em; }
   .empty { text-align: center; color: var(--muted); font: italic 1.15rem/1.5 var(--serif); padding: 40px 0; }
@@ -663,7 +707,7 @@
   th { text-align: left; color: var(--muted); font-weight: 600; padding: 12px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
   td { padding: 16px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
   td.num { font-variant-numeric: tabular-nums; }
-  tr.old td { opacity: 0.55; }
+
   form { display: grid; gap: 10px; margin-top: 10px; max-width: 460px; }
   .check { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.9rem; }
   .check input { min-height: 0; width: 18px; height: 18px; accent-color: var(--accent); }
@@ -687,7 +731,11 @@
   td small { display: block; color: var(--muted); font-size: 0.75rem; }
   .you { color: var(--muted); font-size: 0.75rem; font-weight: 500; }
   tr.disabled td { opacity: 0.55; }
-  td.actions { white-space: nowrap; }
+  .users-table th:first-child, .users-table td:first-child { position: sticky; left: 0; z-index: 1; background: var(--card); min-width: 140px; max-width: 220px; overflow-wrap: anywhere; }
+  .user-actions { min-width: 140px; }
+  .user-actions > summary { cursor: pointer; min-height: 44px; padding: 8px 0; font-size: 0.8rem; }
+  .user-actions > div { display: grid; gap: 6px; padding-top: 8px; }
+  td.actions { white-space: normal; }
   td.actions .btn { padding-left: 6px; padding-right: 6px; margin-left: 2px; }
   td select { padding: 4px 8px; min-height: 32px; }
   @media (pointer: coarse) { td select { min-height: 44px; } }
@@ -702,7 +750,7 @@
   .rollup-table .skillcell { min-width: 170px; }
   .rollup-table .skillcell strong { display: block; overflow-wrap: anywhere; }
   .rollup-table .muted { margin: 0; }
-  .listchips, .memberchips, .envchips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .listchips, .memberchips { display: flex; flex-wrap: wrap; gap: 4px; }
   .listchip {
     display: inline-flex; padding: 2px 7px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
     border-radius: 6px; background: color-mix(in srgb, var(--tint) 25%, var(--card)); color: var(--accent);
@@ -710,8 +758,6 @@
   }
   .listchip:hover { border-color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
   .memberchip { padding: 2px 7px; border: 1px solid color-mix(in srgb, var(--good) 30%, var(--line)); border-radius: 999px; color: var(--good); font-size: 0.7rem; }
-  .envchip { padding: 2px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--muted); font-size: 0.68rem; }
-  .envchips { margin-top: 4px; }
   .teamcell { min-width: 190px; max-width: 320px; }
   .adoption { display: grid; gap: 4px; min-width: 72px; }
   .bar { display: block; height: 4px; min-width: 64px; border-radius: 999px; background: var(--line); overflow: hidden; }
@@ -741,5 +787,35 @@
     .rollup-filters label:nth-child(3) { grid-column: 1; }
     .rollup-filters .btn { grid-column: 2; align-self: end; }
     .rollup-table { min-width: 700px; }
+  }
+  .environment-machines { display: grid; gap: 10px; margin-top: 16px; }
+  .machine-group, .server-reports { border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; }
+  .machine-group summary, .server-reports summary { cursor: pointer; overflow-wrap: anywhere; min-height: 24px; }
+  .machine-group summary span, .server-reports summary span { margin-left: 10px; color: var(--muted); font-size: 0.8rem; }
+  .machine-group ul, .server-reports ul, .report-list { list-style: none; padding: 0; margin: 10px 0 0; }
+  .machine-group li { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+  .machine-group li span, .server-reports li span { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 4px; }
+  .machine-group code, .server-reports code { overflow-wrap: anywhere; font-size: 0.78rem; }
+  .server-reports { margin-top: 20px; }
+  .server-reports li { padding: 10px 0; border-top: 1px solid var(--line); }
+  .team-details summary, .additional-usage > summary { cursor: pointer; min-height: 36px; font-size: 0.8rem; color: var(--ink); padding: 8px 0; }
+  .team-details .memberchips { margin-top: 8px; }
+  .report-list li { display: grid; gap: 3px; padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+  .report-list strong { font-size: 0.78rem; font-weight: 500; }
+  .report-list span { font-size: 0.75rem; color: var(--muted); }
+  .additional-usage { border-top: 1px solid var(--line); margin-top: 20px; }
+  .rollup-mobile { display: none; }
+  .rollup-table th:first-child, .rollup-table td:first-child { position: sticky; left: 0; background: var(--card); z-index: 1; }
+  @media (max-width: 1000px) {
+    .rollup-desktop { display: none; }
+    .rollup-mobile { display: grid; gap: 12px; list-style: none; margin: 20px 0 0; padding: 0; }
+    .usage-card { padding: 16px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+    .usage-card h3 { margin: 0; font: 600 1.2rem/1.3 var(--serif); overflow-wrap: anywhere; }
+    .usage-source { display: block; color: var(--muted); font-size: 0.75rem; overflow-wrap: anywhere; margin-top: 4px; }
+    .usage-card dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0 12px; }
+    .usage-card dt { color: var(--muted); font-size: 0.75rem; }
+    .usage-card dd { margin: 3px 0 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .usage-card .team-details { border-top: 1px solid var(--line); margin-top: 12px; }
+    .machine-group li { grid-template-columns: 1fr; }
   }
 </style>

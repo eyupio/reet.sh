@@ -29,7 +29,8 @@
   .lede { margin: 0; color: var(--muted); max-width: 60ch; font-size: 0.88rem; }
   .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; color: var(--muted); font-size: 0.78rem; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; }
-  @media (max-width: 720px) {
-    .page-heading { align-items: flex-start; flex-direction: column; gap: 18px; }
+  @media (max-width: 1000px) {
+    .page-heading { align-items: flex-start; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+    h1 { margin: 6px 0 8px; font-size: clamp(1.75rem, 4vw, 2.25rem); }
   }
 </style>

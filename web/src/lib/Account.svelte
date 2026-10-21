@@ -1,6 +1,8 @@
 <script lang="ts">
+  import NavigationMenu from './NavigationMenu.svelte'
   import { onMount } from 'svelte'
   import Backups from './Backups.svelte'
+  import CopyButton from './CopyButton.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import EnvironmentSync from './EnvironmentSync.svelte'
   import PageHeader from './PageHeader.svelte'
@@ -16,7 +18,7 @@
     user, onsignout, onerror, onuserchange,
   }: { user: User; onsignout: () => void; onerror?: (e: unknown) => void; onuserchange?: (u: User) => void } = $props()
 
-  type Section = 'profile' | 'security' | 'sessions' | 'tokens' | 'backups' | 'activity'
+  type Section = 'machines' | 'sync' | 'profile' | 'security' | 'sessions' | 'tokens' | 'backups' | 'activity'
   // svelte-ignore state_referenced_locally
   let who = $state<User>(user)
   const canWrite = $derived(who.role !== 'viewer')
@@ -24,11 +26,14 @@
     { key: 'profile', label: 'Profile' },
     { key: 'security', label: 'Password' },
     { key: 'sessions', label: 'Sessions' },
+    { key: 'machines', label: 'Machines' },
+    { key: 'sync', label: 'Compare & sync' },
     ...(canWrite ? [{ key: 'tokens' as const, label: 'API tokens' }] : []),
     { key: 'backups', label: 'Backups' },
     { key: 'activity', label: 'Activity' },
   ])
 
+  const startConnect = location.hash === '#connect-machine'
   let section = $state<Section>(sectionFromHash())
   let profile = $state<Profile>({ theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list', cardsExpanded: false, updatedAt: 0 })
   let sessions = $state<ProfileSession[]>([])
@@ -47,22 +52,14 @@
   let passwordForm = $state({ current: '', password: '', confirm: '' })
 
   function sectionFromHash(): Section {
-    const h = location.hash.replace('#', '')
-    if (h === 'connect-machine') return 'tokens'
-    return ['profile', 'security', 'sessions', 'tokens', 'backups', 'activity'].includes(h) ? h as Section : 'profile'
-  }
-
-  function go(s: Section) {
-    section = s
-    error = ''
-    notice = ''
-    history.replaceState(null, '', `#${s}`)
-    if (s === 'sessions') void loadSessions()
-    if (s === 'activity') void loadActivity()
-    if (s === 'tokens') void loadTokens()
+    const h = location.hash.slice(1) || location.pathname.split('/')[2] || 'profile'
+    if (h === 'connect-machine') return 'machines'
+    return ['profile', 'security', 'sessions', 'machines', 'sync', 'tokens', 'backups', 'activity'].includes(h) ? h as Section : 'profile'
   }
 
   onMount(() => {
+    history.replaceState(null, '', `/account/${section}`)
+    document.title = `${sections.find(s => s.key === section)?.label ?? 'Account'} · Account · reet.sh`
     void loadProfile()
     if (section === 'sessions') void loadSessions()
     if (section === 'activity') void loadActivity()
@@ -259,17 +256,23 @@
   }
 </script>
 
+{#snippet tokenForm()}
+  {#if canWrite}
+    <form onsubmit={makeToken} aria-busy={busy === 'token'}>
+      <label for="token-name">Token name</label>
+      <div class="createrow"><input id="token-name" bind:value={tokenName} placeholder="e.g. work laptop" autocomplete="off" required disabled={!!busy} /><button type="submit" class="btn primary" disabled={!!busy}>{busy === 'token' ? 'Creating…' : 'Create token'}</button></div>
+    </form>
+    {#if freshToken}<div class="fresh" role="status"><p>Reet, token created. Copy it now; it disappears when you leave this page.</p><div class="token-secret"><code>{freshToken}</code><CopyButton text={freshToken} label="Copy token" /></div></div>{/if}
+  {/if}
+{/snippet}
+
 <section class="account" aria-labelledby="account-title">
   <div class="idcard">
     <span class="avatar" aria-hidden="true">{initials()}</span>
     <PageHeader eyebrow="Your account" title={who.name || who.email} titleId="account-title" lede={`${who.email} · ${who.role}`} />
   </div>
 
-  <nav class="section-nav" aria-label="Account sections">
-    {#each sections as s (s.key)}
-      <button type="button" aria-current={section === s.key ? 'page' : undefined} onclick={() => go(s.key)}>{s.label}</button>
-    {/each}
-  </nav>
+  <NavigationMenu label="Account" items={sections.map(s => ({ label: s.label, href: `/account/${s.key}`, current: section === s.key }))} />
 
   {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
   {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
@@ -370,6 +373,12 @@
         </ul>
       {/if}
     </section>
+  {:else if section === 'machines'}
+    <EnvironmentSync {canWrite} token={freshToken} {startConnect} view="machines">
+      {#snippet tokenSetup()}{@render tokenForm()}{/snippet}
+    </EnvironmentSync>
+  {:else if section === 'sync'}
+    <EnvironmentSync {canWrite} view="compare" />
   {:else if section === 'tokens'}
     {#if !canWrite}
       <p class="muted">Viewer accounts cannot create API tokens.</p>
@@ -377,18 +386,8 @@
       <section class="block" aria-labelledby="tokens-title">
         <h2 id="tokens-title">Personal API tokens</h2>
         <p class="muted">Use a token with <code>reet scan --token …</code> or an API client. A token is shown once, then only its name remains.</p>
-        <EnvironmentSync {canWrite} token={freshToken}>
-          {#snippet tokenSetup()}
-            <form onsubmit={makeToken} aria-busy={busy === 'token'}>
-              <label for="token-name">Name this machine's token</label>
-              <div class="createrow">
-                <input id="token-name" bind:value={tokenName} placeholder="e.g. work laptop" autocomplete="off" required disabled={!!busy} />
-                <button type="submit" class="btn primary" disabled={!!busy}>{busy === 'token' ? 'Creating…' : 'Create token'}</button>
-              </div>
-            </form>
-            {#if freshToken}<div class="fresh" role="status"><p>Reet, token created. Copy the connection command below now; the token disappears when you leave this page.</p></div>{/if}
-          {/snippet}
-        </EnvironmentSync>
+        {@render tokenForm()}
+
         {#if tokens.length}
           <ul class="rows">
             {#each tokens as token (token.id)}
@@ -421,11 +420,13 @@
     </section>
   {/if}
 
+  {#if section === 'sessions'}
   <section class="block signout">
     <h2>Session</h2>
     <p class="muted">Sign out of your account on this browser.</p>
     <button type="button" class="btn" onclick={onsignout}>Sign out</button>
   </section>
+  {/if}
 </section>
 
 {#if revokePending}
@@ -441,14 +442,6 @@
     background: color-mix(in srgb, var(--tint) 45%, var(--card)); color: var(--accent);
     font: 600 1.3rem/1 var(--sans); letter-spacing: 0.03em;
   }
-  .section-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
-  .section-nav button {
-    min-height: 40px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px;
-    background: transparent; color: var(--muted); font-size: 0.82rem; cursor: pointer;
-  }
-  .section-nav button:hover { background: var(--tint); border-color: var(--accent); color: var(--ink); }
-  .section-nav button[aria-current='page'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
-  h2 { margin: 0 0 10px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.025em; }
   .notice { margin: 16px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
   .notice.bad { border-color: var(--bad); }
   .notice.good { border-color: var(--good); }
@@ -472,12 +465,14 @@
   .events { list-style: none; margin: 12px 0 0; padding: 0; }
   .events li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 0.84rem; }
   .events time { flex: none; }
+  .token-secret { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+  .token-secret code { min-width: 0; overflow-wrap: anywhere; }
   .signout { margin-top: 28px; }
   @media (max-width: 560px) {
     .grid2 { grid-template-columns: 1fr; }
     .idcard { gap: 12px; }
     .avatar { width: 52px; height: 52px; font-size: 1.05rem; }
     .createrow { flex-direction: column; }
-    .section-nav button { flex: 1 1 auto; }
+
   }
 </style>

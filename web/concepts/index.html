@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>reet.sh – UI concepts</title>
+  <style>
+    :root { --bg: #f7f6f2; --card: #fff; --ink: #1d1c1a; --muted: #5f5c54; --line: #e4e1d8; --accent: #b83a08; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #151413; --card: #1f1e1c; --ink: #efece6; --muted: #a8a399; --line: #33312d; --accent: #fb923c; } }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 system-ui, sans-serif; }
+    main { max-width: 960px; margin: 0 auto; padding: 40px 16px 64px; }
+    h1 { margin: 0 0 4px; font-size: 1.8rem; letter-spacing: -.02em; }
+    p { color: var(--muted); max-width: 62ch; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-top: 24px; padding: 0; list-style: none; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 8px; }
+    .card h2 { margin: 0; font-size: 1.1rem; }
+    .card h2 a { color: inherit; text-decoration: none; }
+    .card h2 a::after { content: ""; position: absolute; inset: 0; }
+    .card { position: relative; }
+    .card:hover, .card:focus-within { border-color: var(--accent); }
+    .card p { margin: 0; font-size: .92rem; }
+    .tag { font-size: .8rem; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+    dl { margin: 6px 0 0; font-size: .85rem; color: var(--muted); }
+    dt { display: inline; font-weight: 600; color: var(--ink); }
+    dd { display: inline; margin: 0; }
+    dd::after { content: ""; display: block; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>reet.sh UI concepts</h1>
+    <p>Three directions for the same shelf (same data, same actions as <code>web/src/App.svelte</code>). They are standalone mockups: open each file directly, no build needed. The app itself is unchanged. "Reet" is Yorkshire for "really/very", so the copy has a light Yorkshire touch (easy to dial up or down), and each page has a marked <code>LOGO SLOT</code> where your logo goes.</p>
+    <ul class="grid">
+      <li class="card"><span class="tag">A · Evolve</span><h2><a href="a-editorial.html">Editorial</a></h2>
+        <p>Keeps the warm identity and the list. Adds a serif voice, a sticky filter bar, an "in use" rail on each entry and quieter secondary actions.</p>
+        <dl><dt>Best for:</dt> <dd>a low-risk upgrade of today's layout</dd><dt>Trade-off:</dt> <dd>still one long scrolling list</dd></dl></li>
+      <li class="card"><span class="tag">B · Dense</span><h2><a href="b-console.html">Console</a></h2>
+        <p>A compact table for a large shelf, with keyboard shortcuts (<kbd>j</kbd> <kbd>k</kbd> <kbd>l</kbd> <kbd>s</kbd> <kbd>u</kbd> <kbd>/</kbd>) and counts always visible.</p>
+        <dl><dt>Best for:</dt> <dd>power users with 50+ skills</dd><dt>Trade-off:</dt> <dd>less friendly to casual browsing</dd></dl></li>
+      <li class="card"><span class="tag">C · Rethink</span><h2><a href="c-board.html">Board</a></h2>
+        <p>Turns Save / In use into a pipeline: On the shelf → Saved to try → In use. Likes become a filter instead of a tab.</p>
+        <dl><dt>Best for:</dt> <dd>seeing what you meant to try</dd><dt>Trade-off:</dt> <dd>changes the mental model (tabs → columns)</dd></dl></li>
+    </ul>
+  </main>
+</body>
+</html>

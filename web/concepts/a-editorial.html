@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>reet.sh – Concept A, Editorial</title>
+  <style>
+    :root {
+      --bg: #f7f6f2; --card: #fffdf9; --ink: #1d1c1a; --muted: #5f5c54; --line: #e4e1d8;
+      --accent: #b83a08; --accent-ink: #fff; --tint: #fde8d8; --good: #15803d; --bad: #b91c1c;
+      --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+      --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #151413; --card: #1d1c1a; --ink: #efece6; --muted: #a8a399; --line: #33312d; --accent: #fb923c; --accent-ink: #1a1208; --tint: #3a2615; --good: #4ade80; --bad: #f87171; }
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 var(--sans); }
+    .skip { position: absolute; left: 8px; top: -48px; background: var(--accent); color: var(--accent-ink); padding: 8px 12px; border-radius: 8px; z-index: 10; }
+    .skip:focus { top: 8px; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    main { max-width: 760px; margin: 0 auto; padding: clamp(24px, 6vw, 56px) 16px 72px; }
+
+    header h1 { margin: 0; font: 600 clamp(2.4rem, 8vw, 3.6rem)/1 var(--serif); letter-spacing: -0.03em; }
+    header h1 span { color: var(--accent); font-style: italic; }
+    header p { margin: 10px 0 0; color: var(--muted); font: italic 1.1rem/1.4 var(--serif); max-width: 34ch; }
+
+    .add { display: flex; gap: 8px; margin: 28px 0 8px; }
+    .add input { flex: 1; min-width: 0; }
+    input, select, textarea { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+    input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
+    .btn { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 8px 14px; cursor: pointer; min-height: 40px; }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+    .btn.quiet { background: transparent; border-color: transparent; color: var(--muted); }
+    .btn.quiet:hover { color: var(--ink); text-decoration: underline; }
+    .btn.danger:hover { color: var(--bad); }
+    .notice { margin: 0 0 8px; padding: 8px 12px; border: 1px solid var(--good); border-radius: 10px; background: var(--card); min-height: 0; }
+    .notice:empty { display: none; }
+
+    .toolbar { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(8px);
+      display: flex; flex-wrap: wrap; gap: 10px 16px; justify-content: space-between; align-items: center; padding: 14px 0; margin-top: 16px; border-bottom: 1px solid var(--line); }
+    .filters { display: flex; gap: 4px; flex-wrap: wrap; }
+    .filters button { background: none; border: 0; padding: 6px 12px; border-radius: 999px; cursor: pointer; color: var(--muted); font-weight: 500; min-height: 36px; }
+    .filters button[aria-pressed="true"] { background: var(--tint); color: var(--ink); font-weight: 650; }
+    .filters small { margin-left: 4px; font-variant-numeric: tabular-nums; opacity: .8; }
+    .controls { display: flex; gap: 8px; }
+    .controls input { width: 11rem; }
+    .controls input, .controls select { min-width: 0; }
+
+    .count { margin: 14px 0 6px; color: var(--muted); font-size: .9rem; }
+    ul { list-style: none; margin: 0; padding: 0; }
+    .skill { position: relative; padding: 20px 0 18px 22px; border-bottom: 1px solid var(--line); }
+    .skill::before { content: ""; position: absolute; left: 0; top: 24px; bottom: 22px; width: 4px; border-radius: 4px; background: var(--line); }
+    .skill.used::before { background: var(--accent); }
+    .row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+    .skill h2 { margin: 0; font: 600 1.35rem/1.25 var(--serif); letter-spacing: -.01em; overflow-wrap: anywhere; }
+    .skill h2 a { color: inherit; text-decoration-color: var(--line); text-underline-offset: 4px; }
+    .skill h2 a:hover { color: var(--accent); text-decoration-color: currentColor; }
+    .meta { color: var(--muted); font-size: .85rem; display: flex; gap: 12px; flex-wrap: wrap; }
+    .meta code { overflow-wrap: anywhere; }
+    .desc { margin: 6px 0 0; color: var(--muted); max-width: 62ch; }
+    .notes { margin: 12px 0 0; padding: 4px 0 4px 14px; border-left: 2px solid var(--accent); font: italic 1rem/1.5 var(--serif); white-space: pre-wrap; }
+    .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; align-items: center; }
+    .chip { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 4px 12px; cursor: pointer; min-height: 36px; color: var(--muted); }
+    .chip:hover { color: var(--ink); border-color: var(--muted); }
+    .chip[aria-pressed="true"] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
+    .spacer { flex: 1; }
+    .edit { margin-top: 12px; display: grid; gap: 8px; }
+    .edit textarea { width: 100%; resize: vertical; }
+    .edit div { display: flex; gap: 8px; }
+    .empty { text-align: center; color: var(--muted); font: italic 1.15rem/1.5 var(--serif); padding: 56px 0; }
+    .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    @media (max-width: 560px) { .add { flex-direction: column; } .controls { width: 100%; } .controls input { flex: 1; width: auto; } .spacer { display: none; } }
+    @media (prefers-reduced-motion: no-preference) { .chip, .filters button, .btn { transition: background-color .15s, border-color .15s, color .15s; } }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#list">Skip to your skills</a>
+  <main>
+    <header>
+      <!-- LOGO SLOT: placeholder wordmark, swap for the real logo -->
+      <h1>reet<span>.sh</span></h1>
+      <p>Keep the reet good AI skills from skills.sh, all in one place.</p>
+    </header>
+
+    <form class="add" id="add">
+      <label class="vh" for="add-in">Skill URL or slug</label>
+      <input id="add-in" placeholder="Paste a skills.sh URL or owner/repo/skill" autocomplete="off" />
+      <button class="btn primary" type="submit">Add to shelf</button>
+    </form>
+    <p class="notice" id="notice" role="status"></p>
+
+    <div class="toolbar" role="group" aria-label="Filter and sort">
+      <div class="filters" id="filters"></div>
+      <div class="controls">
+        <label class="vh" for="q">Search skills</label>
+        <input id="q" type="search" placeholder="Search" />
+        <label class="vh" for="sort">Sort by</label>
+        <select id="sort"><option value="recent">Recent</option><option value="name">Name</option><option value="installs">Installs</option></select>
+      </div>
+    </div>
+
+    <p class="count" id="count" role="status"></p>
+    <ul id="list"></ul>
+  </main>
+
+  <script src="data.js"></script>
+  <script src="shelf.js"></script>
+  <script>
+    (function () {
+      'use strict'
+      const { esc, fmt, state } = Shelf
+      const $ = (id) => document.getElementById(id)
+      const TABS = [['all', 'All'], ['liked', 'Liked'], ['bookmarked', 'Saved'], ['used', 'In use']]
+      const FLAGS = [['liked', '♥', '♡', 'Like'], ['bookmarked', '★', '☆', 'Save'], ['used', '✔', '○', 'In use']]
+      let editing = null
+
+      function render() {
+        const c = Shelf.counts()
+        $('filters').innerHTML = TABS.map(([id, label]) =>
+          `<button type="button" data-fk="tab-${id}" data-tab="${id}" aria-pressed="${state.tab === id}">${label}<small>${c[id]}</small></button>`).join('')
+
+        const rows = Shelf.view()
+        $('count').textContent = rows.length === 1 ? '1 skill' : rows.length + ' skills'
+        $('list').innerHTML = rows.length ? rows.map(card).join('') :
+          `<li class="empty">${c.all ? 'Nowt matches that.' : 'Nowt on the shelf yet. Paste a skills.sh link above.'}</li>`
+      }
+
+      function card(s) {
+        const title = s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.name)}<span class="vh"> (opens skills.sh)</span></a>` : esc(s.name)
+        const chips = FLAGS.map(([k, on, off, label]) =>
+          `<button type="button" class="chip" data-fk="${k}-${esc(s.id)}" data-id="${esc(s.id)}" data-flag="${k}" aria-pressed="${s[k]}"><span aria-hidden="true">${s[k] ? on : off}</span>${label}</button>`).join('')
+        const notes = editing === s.id
+          ? `<div class="edit"><label class="vh" for="n-${esc(s.id)}">Notes for ${esc(s.name)}</label><textarea id="n-${esc(s.id)}" data-fk="ta-${esc(s.id)}" rows="3" placeholder="Why you like it, how you use it…">${esc(s.notes)}</textarea>
+             <div><button class="btn primary" type="button" data-save="${esc(s.id)}">Save notes</button><button class="btn quiet" type="button" data-cancel>Cancel</button></div></div>`
+          : s.notes ? `<p class="notes">${esc(s.notes)}</p>` : ''
+        return `<li class="skill${s.used ? ' used' : ''}">
+          <div class="row"><h2>${title}</h2><div class="meta"><code>${s.sourceType === 'local' ? 'unlinked' : esc(s.source)}</code>${s.installs ? `<span>${fmt(s.installs)} installs</span>` : ''}</div></div>
+          ${s.description ? `<p class="desc">${esc(s.description)}</p>` : ''}
+          <div class="actions">${chips}<span class="spacer"></span>
+            <button class="btn quiet" type="button" data-fk="notes-${esc(s.id)}" data-notes="${esc(s.id)}" aria-expanded="${editing === s.id}">Notes</button>
+            <button class="btn quiet danger" type="button" data-fk="rm-${esc(s.id)}" data-remove="${esc(s.id)}">Remove</button></div>
+          ${notes}</li>`
+      }
+
+      function say(msg) { $('notice').textContent = msg; clearTimeout(say.t); say.t = setTimeout(() => ($('notice').textContent = ''), 4000) }
+      const redraw = () => Shelf.keepFocus(render)
+      Shelf.onChange(redraw)
+
+      document.addEventListener('click', (e) => {
+        const t = e.target.closest('button'); if (!t) return
+        if (t.dataset.tab) Shelf.set({ tab: t.dataset.tab })
+        else if (t.dataset.flag) Shelf.toggle(t.dataset.id, t.dataset.flag)
+        else if (t.dataset.notes !== undefined) { editing = editing === t.dataset.notes ? null : t.dataset.notes; redraw() }
+        else if (t.dataset.save) { Shelf.setNotes(t.dataset.save, $('n-' + t.dataset.save).value); editing = null; redraw() }
+        else if (t.hasAttribute('data-cancel')) { editing = null; redraw() }
+        else if (t.dataset.remove) {
+          const i = Shelf.skills.findIndex((x) => x.id === t.dataset.remove)
+          if (i > -1 && confirm(`Remove ${Shelf.skills[i].name} from your shelf?`)) { Shelf.skills.splice(i, 1); say('Sorted, removed.'); $('q').focus(); redraw() }
+        }
+      })
+      $('q').addEventListener('input', (e) => Shelf.set({ q: e.target.value }))
+      $('sort').addEventListener('change', (e) => Shelf.set({ sort: e.target.value }))
+      $('add').addEventListener('submit', (e) => {
+        e.preventDefault()
+        const s = Shelf.add($('add-in').value)
+        if (s) { $('add-in').value = ''; say('Reet, added ' + s.name + '.') }
+      })
+      render()
+    })()
+  </script>
+</body>
+</html>

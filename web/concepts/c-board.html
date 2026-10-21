@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>reet.sh – Concept C, Board</title>
+  <style>
+    :root {
+      --bg: #f3f2fb; --col: #e9e7f7; --card: #fff; --ink: #1c1b2e; --muted: #5a5873; --line: #d8d5ee;
+      --accent: #5b3fd1; --accent-ink: #fff; --heart: #c4254f; --bad: #b42318;
+      --shadow: 0 1px 2px rgb(40 30 90 / .08), 0 4px 12px rgb(40 30 90 / .06);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #121120; --col: #1a1930; --card: #232241; --ink: #ecebfa; --muted: #aaa8c8; --line: #35335a; --accent: #a99bff; --accent-ink: #14102e; --heart: #ff7a9c; --bad: #fca5a5; --shadow: 0 1px 2px rgb(0 0 0 / .4); }
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .skip { position: absolute; left: 8px; top: -48px; background: var(--accent); color: var(--accent-ink); padding: 8px 12px; border-radius: 8px; z-index: 10; }
+    .skip:focus { top: 8px; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    main { max-width: 1180px; margin: 0 auto; padding: 28px 16px 64px; }
+
+    .top { display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; align-items: center; }
+    h1 { margin: 0; font-size: 1.6rem; letter-spacing: -.02em; }
+    h1 span { color: var(--accent); }
+    .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    input, select, textarea { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 9px 14px; min-width: 0; }
+    input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
+    .btn { border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 7px 14px; cursor: pointer; min-height: 38px; }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+    .btn.sm { padding: 4px 10px; min-height: 32px; font-size: .88rem; }
+    .btn.quiet { background: transparent; border-color: transparent; color: var(--muted); }
+    .btn.quiet:hover { color: var(--ink); text-decoration: underline; }
+    .btn.danger:hover { color: var(--bad); }
+    .heartfilter[aria-pressed="true"] { background: var(--heart); border-color: var(--heart); color: #fff; font-weight: 600; }
+
+    .add { display: flex; gap: 8px; margin: 20px 0 6px; }
+    .add input { flex: 1; }
+    .notice { margin: 0 0 6px; color: var(--accent); min-height: 1.5em; }
+
+    .board { display: grid; gap: 16px; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; margin-top: 14px; }
+    .col { background: var(--col); border-radius: 18px; padding: 14px; min-height: 140px; }
+    .col h2 { margin: 2px 4px 12px; font-size: .78rem; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); display: flex; justify-content: space-between; }
+    .col h2 b { color: var(--ink); font-variant-numeric: tabular-nums; }
+    .col ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+    .tile { background: var(--card); border-radius: 14px; padding: 14px; box-shadow: var(--shadow); border: 1px solid transparent; }
+    .col.use .tile { border-left: 4px solid var(--accent); }
+    .tile .t { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+    .tile h3 { margin: 0; font-size: 1rem; line-height: 1.3; overflow-wrap: anywhere; }
+    .tile h3 a { color: inherit; text-decoration-color: var(--line); text-underline-offset: 3px; }
+    .tile h3 a:hover { color: var(--accent); text-decoration-color: currentColor; }
+    .heart { background: none; border: 0; cursor: pointer; font-size: 1.25rem; line-height: 1; padding: 4px; margin: -4px -4px 0 0; color: var(--muted); border-radius: 8px; }
+    .heart[aria-pressed="true"] { color: var(--heart); }
+    .heart:hover { color: var(--heart); }
+    .sub { color: var(--muted); font-size: .8rem; margin: 2px 0 0; display: flex; gap: 10px; flex-wrap: wrap; }
+    .sub code { overflow-wrap: anywhere; }
+    .d { margin: 8px 0 0; color: var(--muted); font-size: .9rem; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .n { margin: 8px 0 0; padding: 6px 10px; border-radius: 8px; background: var(--col); font-size: .88rem; white-space: pre-wrap; }
+    .moves { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; align-items: center; }
+    .moves .spacer { flex: 1; }
+    .edit { margin-top: 10px; display: grid; gap: 8px; }
+    .edit textarea { width: 100%; resize: vertical; border-radius: 10px; }
+    .edit div { display: flex; gap: 8px; }
+    .none { color: var(--muted); text-align: center; padding: 24px 8px; font-size: .9rem; }
+    .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    @media (max-width: 880px) { .board { grid-template-columns: 1fr; } }
+    @media (max-width: 560px) { .add { flex-direction: column; } .tools { width: 100%; } .tools input { flex: 1; } }
+    @media (prefers-reduced-motion: no-preference) { .tile { transition: transform .15s, box-shadow .15s; } .tile:hover { transform: translateY(-1px); } }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#board">Skip to board</a>
+  <main>
+    <header class="top">
+      <!-- LOGO SLOT: placeholder wordmark, swap for the real logo -->
+      <h1>reet<span>.sh</span></h1>
+      <div class="tools" role="group" aria-label="Search and sort">
+        <label class="vh" for="q">Search skills</label>
+        <input id="q" type="search" placeholder="Search skills" />
+        <label class="vh" for="sort">Sort by</label>
+        <select id="sort"><option value="recent">Recent</option><option value="name">Name</option><option value="installs">Installs</option></select>
+        <button type="button" class="btn heartfilter" id="hf" aria-pressed="false">♥ Liked only</button>
+      </div>
+    </header>
+
+    <form class="add" id="add">
+      <label class="vh" for="add-in">Skill URL or slug</label>
+      <input id="add-in" placeholder="Paste a skills.sh URL or owner/repo/skill" autocomplete="off" />
+      <button class="btn primary" type="submit">Add</button>
+    </form>
+    <p class="notice" id="notice" role="status"></p>
+
+    <div class="board" id="board"></div>
+  </main>
+
+  <script src="data.js"></script>
+  <script src="shelf.js"></script>
+  <script>
+    (function () {
+      'use strict'
+      const { esc, fmt, state } = Shelf
+      const $ = (id) => document.getElementById(id)
+      // Columns are a pipeline derived from the existing flags: no data-model change needed.
+      const COLS = [
+        { id: 'backlog', title: 'On the shelf', test: (s) => !s.used && !s.bookmarked, empty: 'Nowt left here. Everything is saved or in use.' },
+        { id: 'try', title: 'Saved to try', test: (s) => !s.used && s.bookmarked, empty: 'Nowt saved for later.' },
+        { id: 'use', title: 'In use', test: (s) => s.used, empty: 'Mark a skill as in use to see it here.' },
+      ]
+      let editing = null, onlyLiked = false
+
+      function render() {
+        const rows = Shelf.view().filter((s) => !onlyLiked || s.liked)
+        $('board').innerHTML = COLS.map((c) => {
+          const items = rows.filter(c.test)
+          return `<section class="col ${c.id}" aria-labelledby="h-${c.id}"><h2 id="h-${c.id}">${c.title} <b>${items.length}</b></h2>
+            <ul>${items.length ? items.map((s) => tile(s, c.id)).join('') : `<li class="none">${state.q || onlyLiked ? 'Nowt matches.' : c.empty}</li>`}</ul></section>`
+        }).join('')
+      }
+      function moves(s, col) {
+        const b = (label, attrs) => `<button type="button" class="btn sm" data-fk="${attrs.k}-${esc(s.id)}" data-id="${esc(s.id)}" data-flag="${attrs.flag}">${label}</button>`
+        if (col === 'backlog') return b('Save for later', { k: 'sv', flag: 'bookmarked' }) + b('Start using', { k: 'us', flag: 'used' })
+        if (col === 'try') return b('Start using', { k: 'us', flag: 'used' }) + b('Unsave', { k: 'sv', flag: 'bookmarked' })
+        return b('Stop using', { k: 'us', flag: 'used' }) + (s.bookmarked ? '' : b('Save', { k: 'sv', flag: 'bookmarked' }))
+      }
+      function tile(s, col) {
+        const title = s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.name)}<span class="vh"> (opens skills.sh)</span></a>` : esc(s.name)
+        const notes = editing === s.id
+          ? `<div class="edit"><label class="vh" for="n-${esc(s.id)}">Notes for ${esc(s.name)}</label><textarea id="n-${esc(s.id)}" rows="3" data-fk="ta-${esc(s.id)}" placeholder="Why you like it, how you use it…">${esc(s.notes)}</textarea>
+             <div><button class="btn primary sm" type="button" data-save="${esc(s.id)}">Save notes</button><button class="btn quiet sm" type="button" data-cancel>Cancel</button></div></div>`
+          : s.notes ? `<p class="n">${esc(s.notes)}</p>` : ''
+        return `<li class="tile">
+          <div class="t"><h3>${title}</h3>
+            <button type="button" class="heart" data-fk="lk-${esc(s.id)}" data-id="${esc(s.id)}" data-flag="liked" aria-pressed="${s.liked}" aria-label="Like ${esc(s.name)}"><span aria-hidden="true">${s.liked ? '♥' : '♡'}</span></button></div>
+          <p class="sub"><code>${s.sourceType === 'local' ? 'unlinked' : esc(s.source)}</code>${s.installs ? `<span>${fmt(s.installs)} installs</span>` : ''}</p>
+          ${s.description ? `<p class="d">${esc(s.description)}</p>` : ''}${notes}
+          <div class="moves">${moves(s, col)}<span class="spacer"></span>
+            <button type="button" class="btn quiet sm" data-fk="nt-${esc(s.id)}" data-notes="${esc(s.id)}" aria-expanded="${editing === s.id}">Notes</button>
+            <button type="button" class="btn quiet danger sm" data-fk="rm-${esc(s.id)}" data-remove="${esc(s.id)}" aria-label="Remove ${esc(s.name)}">Remove</button></div></li>`
+      }
+
+      function say(msg) { $('notice').textContent = msg; clearTimeout(say.t); say.t = setTimeout(() => ($('notice').textContent = ''), 4000) }
+      const redraw = () => Shelf.keepFocus(render)
+      Shelf.onChange(redraw)
+
+      document.addEventListener('click', (e) => {
+        const t = e.target.closest('button'); if (!t) return
+        if (t.id === 'hf') { onlyLiked = !onlyLiked; t.setAttribute('aria-pressed', onlyLiked); redraw() }
+        else if (t.dataset.flag) Shelf.toggle(t.dataset.id, t.dataset.flag)
+        else if (t.dataset.notes !== undefined) { editing = editing === t.dataset.notes ? null : t.dataset.notes; redraw() }
+        else if (t.dataset.save) { Shelf.setNotes(t.dataset.save, $('n-' + t.dataset.save).value); editing = null; redraw() }
+        else if (t.hasAttribute('data-cancel')) { editing = null; redraw() }
+        else if (t.dataset.remove) {
+          const i = Shelf.skills.findIndex((x) => x.id === t.dataset.remove)
+          if (i > -1 && confirm(`Remove ${Shelf.skills[i].name} from your shelf?`)) { Shelf.skills.splice(i, 1); say('Removed.'); $('q').focus(); redraw() }
+        }
+      })
+      $('q').addEventListener('input', (e) => Shelf.set({ q: e.target.value }))
+      $('sort').addEventListener('change', (e) => Shelf.set({ sort: e.target.value }))
+      $('add').addEventListener('submit', (e) => {
+        e.preventDefault()
+        const s = Shelf.add($('add-in').value)
+        if (s) { $('add-in').value = ''; say('Added ' + s.name + '.') }
+      })
+      render()
+    })()
+  </script>
+</body>
+</html>

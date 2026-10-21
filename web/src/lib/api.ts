@@ -459,8 +459,8 @@ export type BackupStatus = {
   enabled: boolean
   dir: string
   key: { fingerprint: string; source: string; path?: string }
-  settings: { everySeconds: number; keep: number; destination: BackupDestination; nextAt: number; lastAt: number; lastState: string; lastError: string; updatedAt: number }
-  defaults: { everySeconds: number; keep: number; userEverySeconds: number; userKeep: number; destination: BackupDestination }
+  settings: { everySeconds: number; keep: number; destination: BackupDestination; compression: BackupCompression; hasPassword: boolean; nextAt: number; lastAt: number; lastState: string; lastError: string; updatedAt: number }
+  defaults: { everySeconds: number; keep: number; userEverySeconds: number; userKeep: number; destination: BackupDestination; compression: BackupCompression }
   remotes: BackupRemote[]
   runs: BackupRun[]
   items: BackupItem[]
@@ -482,14 +482,20 @@ export type BackupRemoteInput = {
 }
 export type BackupCheck = { name: string; ok: boolean; error?: string; steps: { step: string; ok: boolean; detail: string }[] }
 export type BackupDestination = 'local' | 'remote' | 'both'
+export type BackupCompression = 'gzip' | 'none'
 
 const bpath = (admin: boolean) => (admin ? '/api/v2/admin/backups' : '/api/v2/backups')
 
 export async function getBackupStatus(admin = false): Promise<BackupStatus> {
   return (await req(bpath(admin))).json()
 }
-export async function saveBackupSettings(admin: boolean, everySeconds: number, keep: number, destination: BackupDestination): Promise<void> {
-  await req(bpath(admin), { method: 'PATCH', body: json({ everySeconds, keep, destination }) })
+export async function saveBackupSettings(
+  admin: boolean, everySeconds: number, keep: number, destination: BackupDestination,
+  compression: BackupCompression, password?: string,
+): Promise<void> {
+  const body: Record<string, unknown> = { everySeconds, keep, destination, compression }
+  if (password !== undefined) body.password = password
+  await req(bpath(admin), { method: 'PATCH', body: json(body) })
 }
 export async function runBackupNow(admin = false): Promise<BackupItem> {
   return (await req(`${bpath(admin)}/run`, { method: 'POST', body: json({}) })).json()
@@ -512,14 +518,27 @@ export async function testBackupRemote(admin: boolean, name: string): Promise<Ba
 export async function listBackupRemoteCopies(admin: boolean, name: string): Promise<{ items: BackupItem[] }> {
   return (await req(`${bpath(admin)}/remotes/${encodeURIComponent(name)}/copies`)).json()
 }
-export async function verifyBackup(admin: boolean, id: string): Promise<{ ok: boolean; problems: string[] }> {
-  return (await req(`${bpath(admin)}/items/${encodeURIComponent(id)}/verify`, { method: 'POST', body: json({}) })).json()
+export type BackupShipment = { sent: { remote: string; id: string; bytes: number }[]; errors: Record<string, string> }
+export type BackupPrune = { removed: string[]; remotes: { name: string; removed: string[]; error?: string }[] }
+export async function shipBackupCopies(admin: boolean): Promise<BackupShipment> {
+  return (await req(`${bpath(admin)}/offsite`, { method: 'POST', body: json({}) })).json()
+}
+export async function pruneBackupCopies(admin: boolean): Promise<BackupPrune> {
+  return (await req(`${bpath(admin)}/prune`, { method: 'POST', body: json({}) })).json()
+}
+export async function deleteBackupRemoteCopy(admin: boolean, name: string, id: string): Promise<void> {
+  await req(`${bpath(admin)}/remotes/${encodeURIComponent(name)}/copies/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+export async function verifyBackup(admin: boolean, id: string, password?: string): Promise<{ ok: boolean; problems: string[] }> {
+  const body = password ? { password } : {}
+  return (await req(`${bpath(admin)}/items/${encodeURIComponent(id)}/verify`, { method: 'POST', body: json(body) })).json()
 }
 export async function deleteBackup(admin: boolean, id: string): Promise<void> {
   await req(`${bpath(admin)}/items/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
-export async function restoreUserBackup(id: string): Promise<{ restored: number }> {
-  return (await req(`/api/v2/backups/items/${encodeURIComponent(id)}/restore`, { method: 'POST', body: json({}) })).json()
+export async function restoreUserBackup(id: string, password?: string): Promise<{ restored: number }> {
+  const body = password ? { password } : {}
+  return (await req(`/api/v2/backups/items/${encodeURIComponent(id)}/restore`, { method: 'POST', body: json(body) })).json()
 }
 export function backupDownloadUrl(admin: boolean, id: string): string {
   return `${bpath(admin)}/items/${encodeURIComponent(id)}/download`

@@ -118,6 +118,7 @@ Click your name in the footer to open **Account**. Its sections are **Profile** 
 | `REET_BACKUP_EVERY`, `REET_BACKUP_KEEP` | `24h`, `48` | Instance backup schedule and the count kept here. `0` turns the schedule off; `0` kept means every copy. |
 | `REET_BACKUP_USER_EVERY`, `REET_BACKUP_USER_KEEP` | `0`, `14` | Defaults for a person's own backups; they can change them under Account → Backups. |
 | `REET_BACKUP_DESTINATION` | `both` | Where copies go by default: `local` (this machine only), `remote` (an enabled destination only, kept here when none took it) or `both`. Each owner can change it on the Backups page. |
+| `REET_BACKUP_COMPRESSION` | `gzip` | Compress copies before sealing by default: `gzip` or `none`. Each owner can change it, and give copies a password, on the Backups page. |
 | `REET_BACKUP_S3_*` | empty | One destination from the environment (`ENDPOINT`, `REGION`, `BUCKET`, `PREFIX`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `PATH_STYLE`, `NAME`), readable by a machine rebuilt from nothing. More destinations are added in the UI. |
 | `REET_BACKUP_ALLOW_LOCAL` | empty | Set `1` to allow an `http://` destination on another machine. Backups are sealed, but the access key id would travel in the clear. |
 
@@ -189,12 +190,14 @@ There are two kinds: a one-off export, and sealed copies taken on a schedule.
 
 **Personal shelf export and restore.** Use **JSON (personal shelf backup) → Download** and **Restore from JSON** in Shelf tools, or call `GET /api/export` and `POST /api/restore`. The export includes personal skills, flags, notes, tags, attached environment reports and the ignored list; tick **Include local history** to add the event log. It does not include accounts, shared lists, teams, sync references or standalone machine heartbeats; use an instance backup for those. **Markdown** and **CSV** downloads follow the current search, stage, tag and environment filters.
 
-**Sealed, scheduled backups.** The instance owner configures the schedule, retention and off-site destinations under **Admin → Backups**; each person can back up their own shelf under **Account → Backups**, to their own destination. Every copy is verified after it is taken, then kept on this machine, copied to each enabled S3-compatible destination, or both, as the owner chooses. **Download** hands over the sealed `.reetbackup` file; **Export JSON** is the unsealed snapshot. The key is separate from the database: keep a copy of `data/backup.key` (or `REET_BACKUP_KEY`) somewhere else, or an off-site copy cannot be opened after the machine is lost.
+**Sealed, scheduled backups.** The instance owner configures the schedule, retention and off-site destinations under **Admin → Backups**; each person can back up their own shelf under **Account → Backups**, to their own destination. Every copy is verified after it is taken, then kept on this machine, copied to each enabled S3-compatible destination, or both, as the owner chooses. Copies are gzip-compressed by default; an owner can protect them with a password instead of the instance key and open a downloaded copy with `reet backup open`. **Download** hands over the sealed `.reetbackup` file; **Export JSON** is the unsealed snapshot. The key is separate from the database: keep a copy of `data/backup.key` (or `REET_BACKUP_KEY`) somewhere else, or an off-site copy cannot be opened after the machine is lost.
 
 ```sh
 reet backup keygen                     # print a key for REET_BACKUP_KEY
 reet backup list                      # instance copies on this machine
 reet backup run                       # take one now, and ship it
+reet backup open --password-file p f  # open a downloaded copy to stdout
+reet backup escrow --out f --passphrase-file p   # key and destinations, sealed
 reet backup restore --yes <id>        # with the server stopped
 ```
 

@@ -158,6 +158,40 @@ func (c *s3Client) list(ctx context.Context, prefix string) ([]s3Object, error) 
 	}
 }
 
+// putRetry sends a copy up to three times when the store may pass: a 5xx,
+// 429 or 408, or a connection that failed or timed out. A refusal that will
+// not pass is attempted once.
+func (c *s3Client) putRetry(ctx context.Context, key string, body []byte) error {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		err = c.put(ctx, key, body)
+		if err == nil || !retryableS3(err) {
+			return err
+		}
+		wait := time.Duration(attempt+1) * 500 * time.Millisecond
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(wait):
+		}
+	}
+	return err
+}
+
+func retryableS3(err error) bool {
+	msg := strings.ToLower(err.Error())
+	for _, s := range []string{
+		"answered 5", "answered 429", "answered 408", "slowdown", "internalerror",
+		"requesttimeout", "timeout", "connection reset", "connection refused",
+		"no such host", "unexpected eof", "broken pipe", "use of closed network connection",
+	} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *s3Client) put(ctx context.Context, key string, body []byte) error {
 	sum := sha256.Sum256(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.url(key).String(), bytes.NewReader(body))

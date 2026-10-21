@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -24,6 +26,9 @@ func (s *server) registerBackupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v2/admin/backups/remotes/{name}", s.requireOwner(s.adminBackupRemoteDelete))
 	mux.HandleFunc("POST /api/v2/admin/backups/remotes/{name}/test", s.requireOwner(s.adminBackupRemoteTest))
 	mux.HandleFunc("GET /api/v2/admin/backups/remotes/{name}/copies", s.requireAdmin(s.adminBackupRemoteCopies))
+	mux.HandleFunc("DELETE /api/v2/admin/backups/remotes/{name}/copies/{id}", s.requireOwner(s.adminBackupRemoteCopyDelete))
+	mux.HandleFunc("POST /api/v2/admin/backups/offsite", s.requireOwner(s.adminBackupOffsite))
+	mux.HandleFunc("POST /api/v2/admin/backups/prune", s.requireOwner(s.adminBackupPrune))
 	mux.HandleFunc("GET /api/v2/admin/backups/items/{id}/download", s.requireOwner(s.adminBackupDownload))
 	mux.HandleFunc("POST /api/v2/admin/backups/items/{id}/verify", s.requireAdmin(s.adminBackupVerify))
 	mux.HandleFunc("DELETE /api/v2/admin/backups/items/{id}", s.requireOwner(s.adminBackupDelete))
@@ -39,6 +44,9 @@ func (s *server) registerBackupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v2/backups/remotes/{name}", s.requireWriter(s.userBackupRemoteDelete))
 	mux.HandleFunc("POST /api/v2/backups/remotes/{name}/test", s.requireWriter(s.userBackupRemoteTest))
 	mux.HandleFunc("GET /api/v2/backups/remotes/{name}/copies", s.userBackupRemoteCopies)
+	mux.HandleFunc("DELETE /api/v2/backups/remotes/{name}/copies/{id}", s.requireWriter(s.userBackupRemoteCopyDelete))
+	mux.HandleFunc("POST /api/v2/backups/offsite", s.requireWriter(s.userBackupOffsite))
+	mux.HandleFunc("POST /api/v2/backups/prune", s.requireWriter(s.userBackupPrune))
 	mux.HandleFunc("GET /api/v2/backups/items/{id}/download", s.userBackupDownload)
 	mux.HandleFunc("POST /api/v2/backups/items/{id}/verify", s.userBackupVerify)
 	mux.HandleFunc("POST /api/v2/backups/items/{id}/restore", s.requireWriter(s.userBackupRestore))
@@ -149,6 +157,30 @@ func (s *server) adminBackupRemoteCopies(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.backupRemoteCopies(w, r, svc, adminOwner())
+}
+
+func (s *server) adminBackupRemoteCopyDelete(w http.ResponseWriter, r *http.Request) {
+	svc := s.backupsOr(w)
+	if svc == nil {
+		return
+	}
+	s.deleteRemoteCopy(w, r, svc, adminOwner())
+}
+
+func (s *server) adminBackupOffsite(w http.ResponseWriter, r *http.Request) {
+	svc := s.backupsOr(w)
+	if svc == nil {
+		return
+	}
+	s.shipBackups(w, r, svc, adminOwner())
+}
+
+func (s *server) adminBackupPrune(w http.ResponseWriter, r *http.Request) {
+	svc := s.backupsOr(w)
+	if svc == nil {
+		return
+	}
+	s.pruneBackups(w, r, svc, adminOwner())
 }
 
 func (s *server) adminBackupDownload(w http.ResponseWriter, r *http.Request) {
@@ -271,6 +303,30 @@ func (s *server) userBackupRemoteCopies(w http.ResponseWriter, r *http.Request) 
 	s.backupRemoteCopies(w, r, svc, s.uid(r))
 }
 
+func (s *server) userBackupRemoteCopyDelete(w http.ResponseWriter, r *http.Request) {
+	svc := s.backupsOr(w)
+	if svc == nil {
+		return
+	}
+	s.deleteRemoteCopy(w, r, svc, s.uid(r))
+}
+
+func (s *server) userBackupOffsite(w http.ResponseWriter, r *http.Request) {
+	svc := s.backupsOr(w)
+	if svc == nil {
+		return
+	}
+	s.shipBackups(w, r, svc, s.uid(r))
+}
+
+func (s *server) userBackupPrune(w http.ResponseWriter, r *http.Request) {
+	svc := s.backupsOr(w)
+	if svc == nil {
+		return
+	}
+	s.pruneBackups(w, r, svc, s.uid(r))
+}
+
 func (s *server) userBackupDownload(w http.ResponseWriter, r *http.Request) {
 	svc := s.backupsOr(w)
 	if svc == nil {
@@ -293,7 +349,7 @@ func (s *server) userBackupRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	n, err := svc.RestoreUser(r.Context(), s.uid(r), id)
+	n, err := svc.RestoreUserWithPassword(r.Context(), s.uid(r), id, backupPassword(r))
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -317,6 +373,8 @@ func (s *server) saveBackupSettings(w http.ResponseWriter, r *http.Request, svc 
 		EverySeconds *int64  `json:"everySeconds"`
 		Keep         *int    `json:"keep"`
 		Destination  *string `json:"destination"`
+		Compression  *string `json:"compression"`
+		Password     *string `json:"password"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -327,7 +385,7 @@ func (s *server) saveBackupSettings(w http.ResponseWriter, r *http.Request, svc 
 		return
 	}
 	every, keep := current.EverySeconds, current.Keep
-	destination := current.Destination
+	destination, compression := current.Destination, current.Compression
 	if in.EverySeconds != nil {
 		every = *in.EverySeconds
 	}
@@ -337,7 +395,12 @@ func (s *server) saveBackupSettings(w http.ResponseWriter, r *http.Request, svc 
 	if in.Destination != nil {
 		destination = *in.Destination
 	}
-	saved, err := svc.SaveSettings(ownerID, every, keep, destination)
+	if in.Compression != nil {
+		compression = *in.Compression
+	}
+	saved, err := svc.SaveSettings(ownerID, backup.SettingsInput{
+		EverySeconds: every, Keep: keep, Destination: destination, Compression: compression, Password: in.Password,
+	})
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -346,7 +409,8 @@ func (s *server) saveBackupSettings(w http.ResponseWriter, r *http.Request, svc 
 	if strings.HasPrefix(r.URL.Path, "/api/v2/admin/") {
 		scope = "instance"
 	}
-	s.event(s.uid(r), "backup", "backup-settings", "", map[string]any{"scope": scope, "everySeconds": saved.EverySeconds, "keep": saved.Keep, "destination": saved.Destination})
+	s.event(s.uid(r), "backup", "backup-settings", "", map[string]any{"scope": scope, "everySeconds": saved.EverySeconds, "keep": saved.Keep,
+		"destination": saved.Destination, "compression": saved.Compression, "password": saved.HasPassword})
 	writeJSON(w, 200, saved)
 }
 
@@ -442,6 +506,39 @@ func (s *server) backupRemoteCopies(w http.ResponseWriter, r *http.Request, svc 
 	writeJSON(w, 200, map[string]any{"items": items})
 }
 
+func (s *server) deleteRemoteCopy(w http.ResponseWriter, r *http.Request, svc *backup.Service, ownerID int64) {
+	name, id := r.PathValue("name"), r.PathValue("id")
+	if err := svc.DeleteRemoteCopy(r.Context(), ownerID, name, id); errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "destination not found")
+		return
+	} else if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	s.event(s.uid(r), "backup", "backup-remote-copy-delete", "", map[string]any{"name": name, "id": id})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) shipBackups(w http.ResponseWriter, r *http.Request, svc *backup.Service, ownerID int64) {
+	out, err := svc.ShipMissing(r.Context(), ownerID)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.event(s.uid(r), "backup", "backup-offsite", "", map[string]any{"sent": len(out.Sent), "errors": len(out.Errors)})
+	writeJSON(w, 200, out)
+}
+
+func (s *server) pruneBackups(w http.ResponseWriter, r *http.Request, svc *backup.Service, ownerID int64) {
+	out, err := svc.PruneNow(r.Context(), ownerID)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.event(s.uid(r), "backup", "backup-prune", "", map[string]any{"local": len(out.Removed), "remotes": len(out.Remotes)})
+	writeJSON(w, 200, out)
+}
+
 func (s *server) downloadBackup(w http.ResponseWriter, r *http.Request, svc *backup.Service, ownerID int64) {
 	id := r.PathValue("id")
 	payload, err := svc.Archive(r.Context(), ownerID, id)
@@ -458,8 +555,24 @@ func (s *server) downloadBackup(w http.ResponseWriter, r *http.Request, svc *bac
 }
 
 func (s *server) verifyBackup(w http.ResponseWriter, r *http.Request, svc *backup.Service, ownerID int64) {
-	result := svc.Verify(r.Context(), ownerID, r.PathValue("id"))
+	result := svc.VerifyWithPassword(r.Context(), ownerID, r.PathValue("id"), backupPassword(r))
 	writeJSON(w, 200, result)
+}
+
+// backupPassword reads the optional password a verify or restore sends. A
+// request with no body, or a body that is not one, means no password: the
+// stored one is then used, or the copy says it needs one.
+func backupPassword(r *http.Request) string {
+	if r.Body == nil {
+		return ""
+	}
+	var in struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
+		return ""
+	}
+	return in.Password
 }
 
 func (s *server) deleteBackup(w http.ResponseWriter, r *http.Request, svc *backup.Service, ownerID int64) {

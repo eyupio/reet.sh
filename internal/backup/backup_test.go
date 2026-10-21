@@ -1,7 +1,9 @@
 package backup
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -181,7 +183,7 @@ func TestInstanceBackupAndVerify(t *testing.T) {
 
 func TestRetentionKeepsNewest(t *testing.T) {
 	svc, st, user := testService(t, nil)
-	if _, err := svc.SaveSettings(user.ID, 0, 2, store.DestinationBoth); err != nil {
+	if _, err := svc.SaveSettings(user.ID, SettingsInput{EverySeconds: 0, Keep: 2, Destination: store.DestinationBoth}); err != nil {
 		t.Fatal(err)
 	}
 	addSkill(t, st, user.ID, "owner/repo/one")
@@ -322,7 +324,7 @@ func TestInvalidBackupIDsCannotEscape(t *testing.T) {
 
 func TestSettingsPersistDestination(t *testing.T) {
 	svc, _, user := testService(t, nil)
-	saved, err := svc.SaveSettings(user.ID, 3600, 3, store.DestinationRemote)
+	saved, err := svc.SaveSettings(user.ID, SettingsInput{EverySeconds: 3600, Keep: 3, Destination: store.DestinationRemote})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +338,7 @@ func TestSettingsPersistDestination(t *testing.T) {
 	if got.Destination != store.DestinationRemote {
 		t.Fatalf("destination was not persisted: %+v", got)
 	}
-	if _, err := svc.SaveSettings(user.ID, 0, 3, "elsewhere"); err == nil {
+	if _, err := svc.SaveSettings(user.ID, SettingsInput{EverySeconds: 0, Keep: 3, Destination: "elsewhere"}); err == nil {
 		t.Fatal("an unknown destination was accepted")
 	}
 }
@@ -350,7 +352,7 @@ func TestLocalOnlyDoesNotShip(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.SaveSettings(user.ID, 0, 5, store.DestinationLocal); err != nil {
+	if _, err := svc.SaveSettings(user.ID, SettingsInput{EverySeconds: 0, Keep: 5, Destination: store.DestinationLocal}); err != nil {
 		t.Fatal(err)
 	}
 	addSkill(t, st, user.ID, "owner/repo/local")
@@ -375,7 +377,7 @@ func TestRemoteOnlyKeepsNothingHereWhenShipped(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.SaveSettings(user.ID, 0, 5, store.DestinationRemote); err != nil {
+	if _, err := svc.SaveSettings(user.ID, SettingsInput{EverySeconds: 0, Keep: 5, Destination: store.DestinationRemote}); err != nil {
 		t.Fatal(err)
 	}
 	addSkill(t, st, user.ID, "owner/repo/remote")
@@ -400,7 +402,7 @@ func TestRemoteOnlyKeepsNothingHereWhenShipped(t *testing.T) {
 
 func TestRemoteOnlyWithoutADestinationFails(t *testing.T) {
 	svc, _, user := testService(t, nil)
-	if _, err := svc.SaveSettings(user.ID, 0, 5, store.DestinationRemote); err != nil {
+	if _, err := svc.SaveSettings(user.ID, SettingsInput{EverySeconds: 0, Keep: 5, Destination: store.DestinationRemote}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.RunUser(context.Background(), user.ID, "test"); err == nil || !strings.Contains(err.Error(), "no enabled destination") {
@@ -420,7 +422,7 @@ func TestRemoteOnlyKeepsTheCopyWhenShippingFails(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.SaveSettings(user.ID, 0, 5, store.DestinationRemote); err != nil {
+	if _, err := svc.SaveSettings(user.ID, SettingsInput{EverySeconds: 0, Keep: 5, Destination: store.DestinationRemote}); err != nil {
 		t.Fatal(err)
 	}
 	addSkill(t, st, user.ID, "owner/repo/fallback")
@@ -467,5 +469,244 @@ func TestTestRemoteDraftBeforeSaving(t *testing.T) {
 	moved.Endpoint = ptr(strings.Replace(fake.server.URL, "127.0.0.1", "localhost", 1))
 	if _, err := svc.TestRemoteDraft(context.Background(), user.ID, moved); err == nil || !strings.Contains(err.Error(), "enter it again") {
 		t.Fatalf("a moved destination without its secret: %v", err)
+	}
+}
+
+func TestPasswordProtectedAndCompressedCopy(t *testing.T) {
+	svc, st, user := testService(t, nil)
+	password := "a copy password long enough"
+	if _, err := svc.SaveSettings(user.ID, SettingsInput{
+		Keep: 5, Destination: store.DestinationBoth, Compression: CompressionGzip, Password: &password,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	addSkill(t, st, user.ID, "owner/repo/secret")
+	item, err := svc.RunUser(context.Background(), user.ID, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(svc.cfg.Dir, item.ID+".reetbackup"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := ManifestOf(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Protection != ProtectionPassword || m.Compression != CompressionGzip {
+		t.Fatalf("manifest says %+v", m)
+	}
+	if _, _, err := svc.cfg.Sealer.Open(data); err == nil {
+		t.Fatal("a password copy opened with the instance key alone")
+	}
+	if _, _, err := svc.cfg.Sealer.OpenWithPassword(data, "the wrong password here"); err == nil {
+		t.Fatal("a wrong password opened the copy")
+	}
+	if _, payload, err := svc.cfg.Sealer.OpenWithPassword(data, password); err != nil || len(payload) == 0 {
+		t.Fatalf("the password did not open the copy: %v", err)
+	}
+	// The stored password is what the server uses for verify, download and
+	// restore until somebody removes it.
+	if v := svc.Verify(context.Background(), user.ID, item.ID); !v.OK {
+		t.Fatalf("verify with the stored password: %+v", v)
+	}
+	if _, _, err := svc.Download(context.Background(), user.ID, item.ID); err != nil {
+		t.Fatalf("download with the stored password: %v", err)
+	}
+	if _, _, err := svc.DownloadWithPassword(context.Background(), user.ID, item.ID, password); err != nil {
+		t.Fatalf("download with a typed password: %v", err)
+	}
+	if len(data) >= int(m.Size) && m.Size > 1024 {
+		t.Fatalf("a repetitive shelf copy did not compress: %d stored, %d plain", len(data), m.Size)
+	}
+}
+
+func TestCopyPasswordIsWriteOnlyAndShortOnesAreRefused(t *testing.T) {
+	svc, _, user := testService(t, nil)
+	short := "too short"
+	if _, err := svc.SaveSettings(user.ID, SettingsInput{Keep: 5, Destination: store.DestinationBoth, Password: &short}); err == nil {
+		t.Fatal("a short copy password was accepted")
+	}
+	password := "a copy password long enough"
+	saved, err := svc.SaveSettings(user.ID, SettingsInput{Keep: 5, Destination: store.DestinationBoth, Password: &password})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !saved.HasPassword || saved.PasswordSealed == "" {
+		t.Fatalf("the password was not stored: %+v", saved)
+	}
+	raw, _ := json.Marshal(saved)
+	if strings.Contains(string(raw), password) || strings.Contains(string(raw), saved.PasswordSealed) {
+		t.Fatalf("a JSON view exposed the password: %s", raw)
+	}
+	empty := ""
+	cleared, err := svc.SaveSettings(user.ID, SettingsInput{Keep: 5, Destination: store.DestinationBoth, Password: &empty})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.HasPassword {
+		t.Fatalf("the password was not cleared: %+v", cleared)
+	}
+}
+
+func TestSealArchiveRoundTrip(t *testing.T) {
+	sealer, _ := NewSealer(testKey, "test")
+	payload := bytes.Repeat([]byte("reet backup "), 4096)
+	m := Manifest{ID: "instance-x", Kind: "instance", Target: "instance"}
+	sealed, err := sealer.SealArchive(m, payload, SealOptions{Compress: true, Password: "a password long enough"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, err := ManifestOf(sealed)
+	if err != nil || head.Protection != ProtectionPassword || head.Compression != CompressionGzip || head.Size != int64(len(payload)) {
+		t.Fatalf("manifest: %+v %v", head, err)
+	}
+	got, opened, err := sealer.OpenWithPassword(sealed, "a password long enough")
+	if err != nil || !bytes.Equal(opened, payload) || got.ID != m.ID {
+		t.Fatalf("open: %v", err)
+	}
+	if !strings.Contains(string(opened), "reet backup") {
+		t.Fatal("the payload did not come back")
+	}
+}
+
+func TestShipMissingThenRemoveARemoteCopy(t *testing.T) {
+	fake := newFakeS3(t)
+	svc, st, user := testService(t, nil)
+	if _, err := svc.SaveSettings(user.ID, SettingsInput{Keep: 5, Destination: store.DestinationLocal}); err != nil {
+		t.Fatal(err)
+	}
+	addSkill(t, st, user.ID, "owner/repo/missing")
+	item, err := svc.RunUser(context.Background(), user.ID, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateRemote(user.ID, RemoteInput{
+		Name: ptr("later"), Endpoint: ptr(fake.server.URL), Bucket: ptr("bucket"), AccessKey: ptr("key"),
+		SecretKey: ptr("secret"), PathStyle: rawBool(true), Keep: ptrInt(3),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := svc.ShipMissing(context.Background(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Sent) != 1 || out.Sent[0].ID != item.ID || len(out.Errors) != 0 {
+		t.Fatalf("shipment: %+v", out)
+	}
+	if keys := fake.keys(); len(keys) != 1 {
+		t.Fatalf("remote keys: %v", keys)
+	}
+	if err := svc.DeleteRemoteCopy(context.Background(), user.ID, "later", item.ID); err != nil {
+		t.Fatal(err)
+	}
+	if keys := fake.keys(); len(keys) != 0 {
+		t.Fatalf("remote copy was not removed: %v", keys)
+	}
+}
+
+func TestPruneNowAppliesTheCurrentCount(t *testing.T) {
+	svc, st, user := testService(t, nil)
+	if _, err := svc.SaveSettings(user.ID, SettingsInput{Keep: 5, Destination: store.DestinationBoth}); err != nil {
+		t.Fatal(err)
+	}
+	addSkill(t, st, user.ID, "owner/repo/prune")
+	for i := 0; i < 3; i++ {
+		if _, err := svc.RunUser(context.Background(), user.ID, "test"); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if _, err := svc.SaveSettings(user.ID, SettingsInput{Keep: 1, Destination: store.DestinationBoth}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := svc.PruneNow(context.Background(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Removed) != 2 {
+		t.Fatalf("pruned %v, want 2", out.Removed)
+	}
+	local, err := svc.LocalItems(user.ID)
+	if err != nil || len(local) != 1 {
+		t.Fatalf("local copies after pruning: %+v %v", local, err)
+	}
+}
+
+func TestEscrowRoundTrip(t *testing.T) {
+	svc, _, _ := testService(t, nil)
+	if _, err := svc.CreateRemote(0, RemoteInput{
+		Name: ptr("offsite"), Endpoint: ptr("http://127.0.0.1:9000"), Bucket: ptr("bucket"),
+		AccessKey: ptr("key"), SecretKey: ptr("the destination secret"), PathStyle: rawBool(true), Keep: ptrInt(7),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e, err := svc.Escrow(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Key != testKey || len(e.Destinations) != 1 || e.Destinations[0].SecretKey != "the destination secret" {
+		t.Fatalf("escrow: %+v", e)
+	}
+	passphrase := "an escrow passphrase long enough"
+	sealed, err := SealEscrow(e, passphrase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := OpenEscrow(sealed, passphrase)
+	if err != nil || got.Key != testKey || len(got.Destinations) != 1 {
+		t.Fatalf("open escrow: %+v %v", got, err)
+	}
+	if _, err := OpenEscrow(sealed, "the wrong escrow passphrase"); err == nil {
+		t.Fatal("a wrong escrow passphrase opened it")
+	}
+	if _, err := SealEscrow(e, "short"); err == nil {
+		t.Fatal("a short escrow passphrase was accepted")
+	}
+}
+
+func TestShipMissingBackfillsANewDestination(t *testing.T) {
+	a, b, c := newFakeS3(t), newFakeS3(t), newFakeS3(t)
+	svc, st, user := testService(t, nil)
+	for _, r := range []struct {
+		name string
+		f    *fakeS3
+	}{{"a", a}, {"b", b}} {
+		if _, err := svc.CreateRemote(user.ID, RemoteInput{
+			Name: ptr(r.name), Endpoint: ptr(r.f.server.URL), Bucket: ptr("bucket"), AccessKey: ptr("key"),
+			SecretKey: ptr("secret"), PathStyle: rawBool(true), Keep: ptrInt(5),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.SaveSettings(user.ID, SettingsInput{Keep: 5, Destination: store.DestinationLocal}); err != nil {
+		t.Fatal(err)
+	}
+	addSkill(t, st, user.ID, "owner/repo/backfill")
+	item, err := svc.RunUser(context.Background(), user.ID, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ShipMissing(context.Background(), user.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.keys()) != 1 || len(b.keys()) != 1 {
+		t.Fatalf("the first two destinations: %v %v", a.keys(), b.keys())
+	}
+	if err := svc.DeleteLocal(user.ID, item.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateRemote(user.ID, RemoteInput{
+		Name: ptr("c"), Endpoint: ptr(c.server.URL), Bucket: ptr("bucket"), AccessKey: ptr("key"),
+		SecretKey: ptr("secret"), PathStyle: rawBool(true), Keep: ptrInt(5),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := svc.ShipMissing(context.Background(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Sent) == 0 || len(c.keys()) != 1 {
+		t.Fatalf("the new destination was not backfilled: %+v %v", out, c.keys())
 	}
 }

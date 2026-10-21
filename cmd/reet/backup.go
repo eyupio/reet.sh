@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/backup"
@@ -16,7 +17,7 @@ import (
 
 func runBackup(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet backup keygen | list | run | restore [--yes] ID")
+		return errors.New("usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] ID")
 	}
 	switch args[0] {
 	case "keygen":
@@ -30,10 +31,16 @@ func runBackup(args []string, out io.Writer) error {
 		return backupList(out)
 	case "run":
 		return backupRun(out)
+	case "open":
+		return backupOpen(args[1:], out)
+	case "escrow":
+		return backupEscrow(args[1:], out)
+	case "unescrow":
+		return backupUnescrow(args[1:], out)
 	case "restore":
 		return backupRestore(args[1:], out)
 	default:
-		return fmt.Errorf("unknown backup command %q; use keygen, list, run or restore", args[0])
+		return fmt.Errorf("unknown backup command %q; use keygen, list, run, open, escrow, unescrow or restore", args[0])
 	}
 }
 
@@ -89,15 +96,181 @@ func backupRun(out io.Writer) error {
 	return nil
 }
 
-func backupRestore(args []string, out io.Writer) error {
-	f := flag.NewFlagSet("reet backup restore", flag.ContinueOnError)
+// passwordFlags adds the two ways a password-protected copy takes its
+// password. The file form accepts - for standard input.
+func passwordFlags(f *flag.FlagSet) (file, literal *string) {
+	return f.String("password-file", "", "read the copy password from this file, or - for standard input"),
+		f.String("password", "", "the copy password, for a copy protected with one")
+}
+
+func passphraseFlags(f *flag.FlagSet) (file, literal *string) {
+	return f.String("passphrase-file", "", "read the escrow passphrase from this file, or - for standard input"),
+		f.String("passphrase", "", "the escrow passphrase")
+}
+
+func readPassword(file, literal string) (string, error) {
+	if file != "" && literal != "" {
+		return "", errors.New("give either --password or --password-file, not both")
+	}
+	if literal != "" {
+		return literal, nil
+	}
+	if file == "" {
+		return "", nil
+	}
+	var raw []byte
+	var err error
+	if file == "-" {
+		raw, err = io.ReadAll(os.Stdin)
+	} else {
+		raw, err = os.ReadFile(file)
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading the copy password: %w", err)
+	}
+	return strings.TrimSpace(string(raw)), nil
+}
+
+func backupOpen(args []string, out io.Writer) error {
+	f := flag.NewFlagSet("reet backup open", flag.ContinueOnError)
 	f.SetOutput(out)
-	yes := f.Bool("yes", false, "confirm replacing the live database")
+	file, literal := passwordFlags(f)
 	if err := f.Parse(args); err != nil {
 		return err
 	}
 	if f.NArg() != 1 {
-		return errors.New("usage: reet backup restore --yes ID")
+		return errors.New("usage: reet backup open [--password-file FILE | --password VALUE] FILE")
+	}
+	raw, err := os.ReadFile(f.Arg(0))
+	if err != nil {
+		return err
+	}
+	password, err := readPassword(*file, *literal)
+	if err != nil {
+		return err
+	}
+	key := ""
+	if m, err := backup.ManifestOf(raw); err != nil {
+		return err
+	} else if !(m.Protection == backup.ProtectionPassword && password != "") {
+		key, err = backup.Lookup(os.Getenv, backup.EnvKey)
+		if err != nil {
+			return err
+		}
+	}
+	_, payload, err := backup.OpenArchive(raw, password, key)
+	if err != nil {
+		return err
+	}
+	_, err = out.Write(payload)
+	return err
+}
+
+func backupEscrow(args []string, out io.Writer) error {
+	f := flag.NewFlagSet("reet backup escrow", flag.ContinueOnError)
+	f.SetOutput(out)
+	outPath := f.String("out", "", "write the sealed escrow here")
+	file, literal := passphraseFlags(f)
+	if err := f.Parse(args); err != nil {
+		return err
+	}
+	if *outPath == "" {
+		return errors.New("usage: reet backup escrow --out FILE --passphrase-file FILE")
+	}
+	passphrase, err := readPassword(*file, *literal)
+	if err != nil {
+		return err
+	}
+	if len(passphrase) < backup.MinPassword {
+		return fmt.Errorf("the escrow passphrase needs at least %d characters", backup.MinPassword)
+	}
+	st, svc, err := openBackup()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	e, err := svc.Escrow(0)
+	if err != nil {
+		return err
+	}
+	sealed, err := backup.SealEscrow(e, passphrase)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(*outPath, sealed, 0o600); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "Escrow written to %s with %d destination(s). Keep it and the passphrase somewhere other than this machine and the backup bucket.\n", *outPath, len(e.Destinations))
+	return nil
+}
+
+func backupUnescrow(args []string, out io.Writer) error {
+	f := flag.NewFlagSet("reet backup unescrow", flag.ContinueOnError)
+	f.SetOutput(out)
+	inPath := f.String("in", "", "read the sealed escrow from here")
+	name := f.String("remote", "", "the destination to print; the first when empty")
+	file, literal := passphraseFlags(f)
+	if err := f.Parse(args); err != nil {
+		return err
+	}
+	if *inPath == "" {
+		return errors.New("usage: reet backup unescrow --in FILE --passphrase-file FILE [--remote NAME]")
+	}
+	passphrase, err := readPassword(*file, *literal)
+	if err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(*inPath)
+	if err != nil {
+		return err
+	}
+	e, err := backup.OpenEscrow(raw, passphrase)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "REET_BACKUP_KEY=%s\n", e.Key)
+	var chosen *backup.EscrowRemote
+	var others []string
+	for i := range e.Destinations {
+		r := &e.Destinations[i]
+		if (*name == "" && chosen == nil) || r.Name == *name {
+			chosen = r
+		} else {
+			others = append(others, r.Name)
+		}
+	}
+	if chosen == nil {
+		if len(e.Destinations) == 0 {
+			return errors.New("this escrow holds no destinations")
+		}
+		return fmt.Errorf("this escrow holds no destination named %q; it holds %s", *name, strings.Join(others, ", "))
+	}
+	fmt.Fprintf(out, "REET_BACKUP_S3_NAME=%s\n", chosen.Name)
+	fmt.Fprintf(out, "REET_BACKUP_S3_ENDPOINT=%s\n", chosen.Endpoint)
+	fmt.Fprintf(out, "REET_BACKUP_S3_REGION=%s\n", chosen.Region)
+	fmt.Fprintf(out, "REET_BACKUP_S3_BUCKET=%s\n", chosen.Bucket)
+	fmt.Fprintf(out, "REET_BACKUP_S3_PREFIX=%s\n", chosen.Prefix)
+	fmt.Fprintf(out, "REET_BACKUP_S3_ACCESS_KEY_ID=%s\n", chosen.AccessKey)
+	fmt.Fprintf(out, "REET_BACKUP_S3_SECRET_ACCESS_KEY=%s\n", chosen.SecretKey)
+	if chosen.PathStyle != nil {
+		fmt.Fprintf(out, "REET_BACKUP_S3_PATH_STYLE=%t\n", *chosen.PathStyle)
+	}
+	if len(others) > 0 {
+		fmt.Fprintf(out, "# other destinations: %s\n", strings.Join(others, ", "))
+	}
+	return nil
+}
+
+func backupRestore(args []string, out io.Writer) error {
+	f := flag.NewFlagSet("reet backup restore", flag.ContinueOnError)
+	f.SetOutput(out)
+	yes := f.Bool("yes", false, "confirm replacing the live database")
+	file, literal := passwordFlags(f)
+	if err := f.Parse(args); err != nil {
+		return err
+	}
+	if f.NArg() != 1 {
+		return errors.New("usage: reet backup restore --yes [--password-file FILE | --password VALUE] ID")
 	}
 	id := f.Arg(0)
 	if !*yes {
@@ -108,7 +281,12 @@ func backupRestore(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	m, payload, err := svc.Download(context.Background(), 0, id)
+	password, err := readPassword(*file, *literal)
+	if err != nil {
+		st.Close()
+		return err
+	}
+	m, payload, err := svc.DownloadWithPassword(context.Background(), 0, id, password)
 	if err != nil {
 		st.Close()
 		return err

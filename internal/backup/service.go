@@ -105,6 +105,7 @@ type Defaults struct {
 	UserEvery    int64  `json:"userEverySeconds"`
 	UserKeep     int    `json:"userKeep"`
 	Destination  string `json:"destination"`
+	Compression  string `json:"compression"`
 }
 
 type runtimeRemote struct {
@@ -121,6 +122,13 @@ func anyUsableRemote(remotes []RemoteView) bool {
 		}
 	}
 	return false
+}
+
+func effectiveCompression(compression string) string {
+	if compression == CompressionGzip || compression == CompressionNone {
+		return compression
+	}
+	return DefaultCompression
 }
 
 func effectiveDestination(destination string) string {
@@ -148,7 +156,11 @@ func (s *Service) settingsFor(ownerID int64) (store.BackupSettings, error) {
 	if !store.ValidBackupDestination(destination) {
 		destination = store.DestinationBoth
 	}
-	return s.st.EnsureBackupSettings(ownerID, every, keep, destination)
+	compression := s.cfg.Compression
+	if compression != CompressionGzip && compression != CompressionNone {
+		compression = DefaultCompression
+	}
+	return s.st.EnsureBackupSettings(ownerID, every, keep, destination, compression)
 }
 
 func (s *Service) loadRemotes(ownerID int64) ([]runtimeRemote, error) {
@@ -250,6 +262,7 @@ func (s *Service) Status(ctx context.Context, ownerID int64) (StatusView, error)
 			EverySeconds: int64(s.cfg.Every / time.Second), Keep: s.cfg.Keep,
 			UserEvery: int64(s.cfg.UserEvery / time.Second), UserKeep: s.cfg.UserKeep,
 			Destination: effectiveDestination(s.cfg.Destination),
+			Compression: effectiveCompression(s.cfg.Compression),
 		},
 		Findings: append([]Finding(nil), s.cfg.Findings...),
 	}
@@ -299,37 +312,118 @@ func (s *Service) Status(ctx context.Context, ownerID int64) (StatusView, error)
 	return view, nil
 }
 
-// SaveSettings stores a schedule, retention and where copies go for one
-// owner.
-func (s *Service) SaveSettings(ownerID int64, everySeconds int64, keep int, destination string) (store.BackupSettings, error) {
-	if everySeconds < 0 || (everySeconds > 0 && everySeconds < 60) {
+// SettingsInput is a change to one owner's backup settings. Password is
+// nil to leave the stored copy password alone, a pointer to "" to remove it,
+// and a pointer to a value to replace it.
+type SettingsInput struct {
+	EverySeconds int64
+	Keep         int
+	Destination  string
+	Compression  string
+	Password     *string
+}
+
+// SaveSettings stores a schedule, retention, where copies go and how they
+// are stored for one owner.
+func (s *Service) SaveSettings(ownerID int64, in SettingsInput) (store.BackupSettings, error) {
+	if in.EverySeconds < 0 || (in.EverySeconds > 0 && in.EverySeconds < 60) {
 		return store.BackupSettings{}, errors.New("the shortest schedule is a minute; 0 turns it off")
 	}
-	if keep < 0 || keep > MaxKeep {
+	if in.Keep < 0 || in.Keep > MaxKeep {
 		return store.BackupSettings{}, fmt.Errorf("keep a number of copies from 0 to %d; 0 keeps every one", MaxKeep)
 	}
-	destination = strings.ToLower(strings.TrimSpace(destination))
+	destination := strings.ToLower(strings.TrimSpace(in.Destination))
 	if destination == "" {
 		destination = store.DestinationBoth
 	}
 	if !store.ValidBackupDestination(destination) {
 		return store.BackupSettings{}, errors.New("copies go to local, remote or both")
 	}
+	compression := strings.ToLower(strings.TrimSpace(in.Compression))
+	if compression == "" {
+		compression = effectiveCompression(s.cfg.Compression)
+	}
+	if compression != CompressionGzip && compression != CompressionNone {
+		return store.BackupSettings{}, errors.New("compression is gzip or none")
+	}
 	current, err := s.settingsFor(ownerID)
 	if err != nil {
 		return store.BackupSettings{}, err
 	}
-	current.EverySeconds = everySeconds
-	current.Keep = keep
+	if in.Password != nil {
+		password := *in.Password
+		if strings.TrimSpace(password) == "" {
+			current.PasswordSealed = ""
+		} else {
+			if len(password) < MinPassword {
+				return store.BackupSettings{}, fmt.Errorf("a copy password needs at least %d characters", MinPassword)
+			}
+			if s.cfg.Sealer == nil {
+				return store.BackupSettings{}, errors.New("backups are not enabled: no usable backup key")
+			}
+			sealed, err := s.cfg.Sealer.SealSecret(password)
+			if err != nil {
+				return store.BackupSettings{}, err
+			}
+			current.PasswordSealed = sealed
+		}
+	}
+	current.EverySeconds = in.EverySeconds
+	current.Keep = in.Keep
 	current.Destination = destination
+	current.Compression = compression
 	current.NextAt = 0
-	if everySeconds > 0 {
-		current.NextAt = time.Now().Add(time.Duration(everySeconds) * time.Second).UnixMilli()
+	if in.EverySeconds > 0 {
+		current.NextAt = time.Now().Add(time.Duration(in.EverySeconds) * time.Second).UnixMilli()
 	}
 	if err := s.st.SaveBackupSettingsFor(current); err != nil {
 		return store.BackupSettings{}, err
 	}
 	return s.st.BackupSettingsFor(ownerID)
+}
+
+// copyPassword opens the stored copy password for one owner, or "" when
+// none is set.
+func (s *Service) copyPassword(ownerID int64) (string, error) {
+	settings, err := s.settingsFor(ownerID)
+	if err != nil {
+		return "", err
+	}
+	if settings.PasswordSealed == "" {
+		return "", nil
+	}
+	if s.cfg.Sealer == nil {
+		return "", errors.New("the backup key is missing, so the stored copy password cannot be opened")
+	}
+	return s.cfg.Sealer.OpenSecret(settings.PasswordSealed)
+}
+
+// openArchive opens a sealed copy. A password-protected one uses password,
+// or the stored one when password is empty.
+func (s *Service) openArchive(ownerID int64, data []byte, password string) (Manifest, []byte, error) {
+	m, err := ManifestOf(data)
+	if err != nil {
+		return m, nil, err
+	}
+	if m.Protection != ProtectionPassword {
+		if s.cfg.Sealer == nil {
+			return m, nil, errors.New("the backup key is missing, so this copy cannot be opened")
+		}
+		return s.cfg.Sealer.Open(data)
+	}
+	if s.cfg.Sealer == nil {
+		return m, nil, errors.New("backups are not enabled: no usable backup key")
+	}
+	if password == "" {
+		password, err = s.copyPassword(ownerID)
+		if err != nil {
+			return m, nil, err
+		}
+	}
+	if password == "" {
+		return m, nil, errors.New("this copy is protected with a password; enter it to open it")
+	}
+	return s.cfg.Sealer.OpenWithPassword(data, password)
 }
 
 func (s *Service) newID(ownerID int64) string {
@@ -348,18 +442,15 @@ func (s *Service) localPath(id string) string {
 	return filepath.Join(s.cfg.Dir, id+".reetbackup")
 }
 
-func (s *Service) readLocal(id string) (Manifest, []byte, error) {
+func (s *Service) localManifest(id string) (Manifest, error) {
 	if !validID(id) {
-		return Manifest{}, nil, os.ErrNotExist
+		return Manifest{}, os.ErrNotExist
 	}
 	data, err := os.ReadFile(s.localPath(id))
 	if err != nil {
-		return Manifest{}, nil, err
+		return Manifest{}, err
 	}
-	if _, err := ManifestOf(data); err != nil {
-		return Manifest{}, nil, err
-	}
-	return s.cfg.Sealer.Open(data)
+	return ManifestOf(data)
 }
 
 func (s *Service) localItems(ownerID int64) ([]Item, error) {
@@ -554,10 +645,27 @@ func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) 
 	if len(payload) > maxObjectBytes {
 		return fail(fmt.Errorf("this copy would be %d MiB, larger than this build's %d MiB limit; reduce the event history or keep the copy on this machine only", len(payload)>>20, maxObjectBytes>>20))
 	}
-	m := Manifest{ID: id, Kind: scope, OwnerID: ownerID, Target: targetOf(ownerID), TakenAt: started, Version: s.cfg.Version}
-	sealed, err := s.cfg.Sealer.Seal(m, payload)
+	password, err := s.copyPassword(ownerID)
 	if err != nil {
 		return fail(err)
+	}
+	m := Manifest{ID: id, Kind: scope, OwnerID: ownerID, Target: targetOf(ownerID), TakenAt: started, Version: s.cfg.Version}
+	sealed, err := s.cfg.Sealer.SealArchive(m, payload, SealOptions{
+		Compress: settings.Compression != CompressionNone,
+		Password: password,
+	})
+	if err != nil {
+		return fail(err)
+	}
+	// Open what was just written, as a restore would, before it counts as a
+	// copy: a bad seal or a bad compression must not reach a destination or
+	// push a good copy out of retention.
+	written, opened, err := s.openArchive(ownerID, sealed, password)
+	if err != nil {
+		return fail(fmt.Errorf("checking the copy just taken: %w", err))
+	}
+	if err := verifyContent(ctx, written, opened); err != nil {
+		return fail(fmt.Errorf("checking the copy just taken: %w", err))
 	}
 	path := s.localPath(id)
 	if err := writeAtomic(path, sealed, 0o600); err != nil {
@@ -650,7 +758,7 @@ func (s *Service) ship(ctx context.Context, ownerID int64, id string, data []byt
 		}
 		_ = s.st.SetBackupRemoteUploading(ownerID, r.Name, true)
 		key := remotePath(r.S3.Prefix, scopeOf(ownerID), ownerID, id)
-		putErr := cl.put(ctx, key, data)
+		putErr := cl.putRetry(ctx, key, data)
 		at := time.Now().UnixMilli()
 		msg := ""
 		if putErr != nil {
@@ -722,42 +830,251 @@ func (s *Service) pruneRemotes(ctx context.Context, ownerID int64, keep int) err
 	if err != nil {
 		return err
 	}
-	scope := scopeOf(ownerID)
 	for _, r := range remotes {
-		if r.Disabled || r.Problem != "" || r.Keep <= 0 {
-			continue
-		}
-		cl, err := newS3Client(r.S3)
-		if err != nil {
-			continue
-		}
-		rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		objects, err := cl.list(rctx, listingPrefix(r.S3.Prefix, scope, ownerID))
-		if err == nil {
-			sort.Slice(objects, func(i, j int) bool { return objects[i].LastModified.After(objects[j].LastModified) })
-			n := r.Keep
-			for i, o := range objects {
-				if i < n || !strings.HasSuffix(o.Key, ".reetbackup") {
-					continue
-				}
-				_ = cl.remove(rctx, o.Key)
-			}
-		}
-		cancel()
+		_, _ = s.pruneOneRemote(ctx, ownerID, r)
 	}
 	return nil
 }
 
-// Download opens one copy, from disk or from a destination that still has it.
+// pruneOneRemote removes what one destination holds beyond its own count.
+func (s *Service) pruneOneRemote(ctx context.Context, ownerID int64, r runtimeRemote) ([]string, error) {
+	if r.Disabled || r.Problem != "" || r.Keep <= 0 {
+		return nil, nil
+	}
+	cl, err := newS3Client(r.S3)
+	if err != nil {
+		return nil, err
+	}
+	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	objects, err := cl.list(rctx, listingPrefix(r.S3.Prefix, scopeOf(ownerID), ownerID))
+	if err != nil {
+		return nil, err
+	}
+	copies := objects[:0]
+	for _, o := range objects {
+		if strings.HasSuffix(o.Key, ".reetbackup") {
+			copies = append(copies, o)
+		}
+	}
+	sort.Slice(copies, func(i, j int) bool { return copies[i].LastModified.After(copies[j].LastModified) })
+	var removed []string
+	for i, o := range copies {
+		if i < r.Keep {
+			continue
+		}
+		if err := cl.remove(rctx, o.Key); err != nil {
+			return removed, err
+		}
+		removed = append(removed, strings.TrimSuffix(filepath.Base(o.Key), ".reetbackup"))
+	}
+	return removed, nil
+}
+
+// SentCopy is one copy a copy-offsite pass sent to one destination.
+type SentCopy struct {
+	Remote string `json:"remote"`
+	ID     string `json:"id"`
+	Bytes  int64  `json:"bytes"`
+}
+
+// Shipment is what a copy-offsite pass did.
+type Shipment struct {
+	Sent   []SentCopy        `json:"sent"`
+	Errors map[string]string `json:"errors"`
+}
+
+// ShipMissing makes each destination hold every copy this machine or
+// another destination holds, then applies that destination's own retention.
+// It is what to run after fixing a credential or adding a destination, and
+// it works when a copy is no longer on this machine because copies go
+// off-site only.
+func (s *Service) ShipMissing(ctx context.Context, ownerID int64) (Shipment, error) {
+	out := Shipment{Sent: []SentCopy{}, Errors: map[string]string{}}
+	local, err := s.localItems(ownerID)
+	if err != nil {
+		return out, err
+	}
+	remotes, err := s.enabledRemotes(ownerID)
+	if err != nil {
+		return out, err
+	}
+	type source struct {
+		r  runtimeRemote
+		cl *s3Client
+	}
+	var sources []source
+	held := map[string]map[string]bool{}
+	ids := map[string]bool{}
+	localIDs := map[string]bool{}
+	for _, it := range local {
+		ids[it.ID] = true
+		localIDs[it.ID] = true
+	}
+	for _, r := range remotes {
+		cl, err := newS3Client(r.S3)
+		if err != nil {
+			out.Errors[r.Name] = err.Error()
+			continue
+		}
+		rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		objects, err := cl.list(rctx, listingPrefix(r.S3.Prefix, scopeOf(ownerID), ownerID))
+		cancel()
+		if err != nil {
+			out.Errors[r.Name] = err.Error()
+			continue
+		}
+		held[r.Name] = map[string]bool{}
+		for _, o := range objects {
+			if !strings.HasSuffix(o.Key, ".reetbackup") {
+				continue
+			}
+			id := strings.TrimSuffix(filepath.Base(o.Key), ".reetbackup")
+			if validID(id) {
+				held[r.Name][id] = true
+				ids[id] = true
+			}
+		}
+		sources = append(sources, source{r: r, cl: cl})
+	}
+	for _, src := range sources {
+		r := src.r
+		for id := range ids {
+			if held[r.Name][id] {
+				continue
+			}
+			var data []byte
+			if localIDs[id] {
+				data, err = os.ReadFile(s.localPath(id))
+			}
+			if data == nil || err != nil {
+				data = nil
+				for _, other := range sources {
+					if other.r.Name == r.Name || !held[other.r.Name][id] {
+						continue
+					}
+					rctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+					data, err = other.cl.get(rctx, remotePath(other.r.S3.Prefix, scopeOf(ownerID), ownerID, id))
+					cancel()
+					if err == nil {
+						break
+					}
+					data = nil
+				}
+			}
+			if data == nil {
+				continue
+			}
+			if err := src.cl.putRetry(ctx, remotePath(r.S3.Prefix, scopeOf(ownerID), ownerID, id), data); err != nil {
+				out.Errors[r.Name] = err.Error()
+				_ = s.st.SetBackupRemoteResult(ownerID, r.Name, time.Now().UnixMilli(), err.Error())
+				break
+			}
+			held[r.Name][id] = true
+			_ = s.st.SetBackupRemoteResult(ownerID, r.Name, time.Now().UnixMilli(), "")
+			out.Sent = append(out.Sent, SentCopy{Remote: r.Name, ID: id, Bytes: int64(len(data))})
+		}
+		if _, err := s.pruneOneRemote(ctx, ownerID, r); err != nil && out.Errors[r.Name] == "" {
+			out.Errors[r.Name] = err.Error()
+		}
+	}
+	return out, nil
+}
+
+// RemotePrune is what retention removed from one destination.
+type RemotePrune struct {
+	Name    string   `json:"name"`
+	Removed []string `json:"removed"`
+	Error   string   `json:"error,omitempty"`
+}
+
+// PruneResult is what applying retention now removed, here and per
+// destination.
+type PruneResult struct {
+	Removed []string      `json:"removed"`
+	Remotes []RemotePrune `json:"remotes"`
+}
+
+// PruneNow applies retention to this machine and every destination by its
+// own count, without taking a new copy.
+func (s *Service) PruneNow(ctx context.Context, ownerID int64) (PruneResult, error) {
+	settings, err := s.settingsFor(ownerID)
+	if err != nil {
+		return PruneResult{}, err
+	}
+	removed, err := s.pruneLocal(ownerID, settings.Keep)
+	if err != nil {
+		return PruneResult{}, err
+	}
+	out := PruneResult{Removed: removed, Remotes: []RemotePrune{}}
+	remotes, err := s.loadRemotes(ownerID)
+	if err != nil {
+		return out, err
+	}
+	for _, r := range remotes {
+		gone, err := s.pruneOneRemote(ctx, ownerID, r)
+		rp := RemotePrune{Name: r.Name, Removed: gone, Error: ""}
+		if err != nil {
+			rp.Error = err.Error()
+		}
+		out.Remotes = append(out.Remotes, rp)
+	}
+	return out, nil
+}
+
+// DeleteRemoteCopy removes one copy from one destination.
+func (s *Service) DeleteRemoteCopy(ctx context.Context, ownerID int64, name, id string) error {
+	if !validID(id) {
+		return os.ErrNotExist
+	}
+	remotes, err := s.loadRemotes(ownerID)
+	if err != nil {
+		return err
+	}
+	for _, r := range remotes {
+		if r.Name != name {
+			continue
+		}
+		if r.Problem != "" {
+			return errors.New(r.Problem)
+		}
+		cl, err := newS3Client(r.S3)
+		if err != nil {
+			return err
+		}
+		rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		return cl.remove(rctx, remotePath(r.S3.Prefix, scopeOf(ownerID), ownerID, id))
+	}
+	return store.ErrNotFound
+}
+
+// Download opens one copy, from disk or from a destination that still has
+// it. A copy protected with a password uses the one stored for its owner.
 func (s *Service) Download(ctx context.Context, ownerID int64, id string) (Manifest, []byte, error) {
+	return s.download(ctx, ownerID, id, "")
+}
+
+// DownloadWithPassword opens a copy with a password typed by a person,
+// which is what a machine rebuilt from nothing has and a stored setting it
+// does not.
+func (s *Service) DownloadWithPassword(ctx context.Context, ownerID int64, id, password string) (Manifest, []byte, error) {
+	return s.download(ctx, ownerID, id, password)
+}
+
+func (s *Service) download(ctx context.Context, ownerID int64, id, password string) (Manifest, []byte, error) {
 	if !validID(id) {
 		return Manifest{}, nil, os.ErrNotExist
 	}
-	if m, payload, err := s.readLocal(id); err == nil {
+	if data, err := os.ReadFile(s.localPath(id)); err == nil {
+		m, err := ManifestOf(data)
+		if err != nil {
+			return Manifest{}, nil, err
+		}
 		if err := ownedBy(m, ownerID); err != nil {
 			return Manifest{}, nil, err
 		}
-		return m, payload, nil
+		return s.openArchive(ownerID, data, password)
 	}
 	remotes, err := s.loadRemotes(ownerID)
 	if err != nil {
@@ -777,14 +1094,14 @@ func (s *Service) Download(ctx context.Context, ownerID int64, id string) (Manif
 		if err != nil {
 			continue
 		}
-		m, payload, err := s.cfg.Sealer.Open(data)
+		m, err := ManifestOf(data)
 		if err != nil {
 			return Manifest{}, nil, err
 		}
 		if err := ownedBy(m, ownerID); err != nil {
 			return Manifest{}, nil, err
 		}
-		return m, payload, nil
+		return s.openArchive(ownerID, data, password)
 	}
 	return Manifest{}, nil, os.ErrNotExist
 }
@@ -853,42 +1170,62 @@ type VerifyResult struct {
 
 // Verify opens a copy as a restore would.
 func (s *Service) Verify(ctx context.Context, ownerID int64, id string) VerifyResult {
-	m, payload, err := s.Download(ctx, ownerID, id)
+	return s.VerifyWithPassword(ctx, ownerID, id, "")
+}
+
+// VerifyWithPassword verifies a copy with a password typed by a person,
+// which an old password-protected copy needs after its stored password has
+// been removed.
+func (s *Service) VerifyWithPassword(ctx context.Context, ownerID int64, id, password string) VerifyResult {
+	m, payload, err := s.DownloadWithPassword(ctx, ownerID, id, password)
 	if err != nil {
 		return VerifyResult{Problems: []string{err.Error()}}
 	}
+	if err := verifyContent(ctx, m, payload); err != nil {
+		return VerifyResult{Problems: []string{err.Error()}}
+	}
+	return VerifyResult{OK: true, Problems: []string{}}
+}
+
+// verifyContent is what a restore checks in an opened copy: SQLite's own
+// check for the instance's database, and a shelf that is valid JSON with
+// skills in it.
+func verifyContent(ctx context.Context, m Manifest, payload []byte) error {
 	if m.Kind == "instance" {
 		temp, err := os.CreateTemp("", "reet-verify-*.db")
 		if err != nil {
-			return VerifyResult{Problems: []string{err.Error()}}
+			return err
 		}
 		name := temp.Name()
 		temp.Close()
 		defer os.Remove(name)
 		if err := os.WriteFile(name, payload, 0o600); err != nil {
-			return VerifyResult{Problems: []string{err.Error()}}
+			return err
 		}
 		vctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		err = store.CheckDatabaseFile(vctx, name)
 		cancel()
-		if err != nil {
-			return VerifyResult{Problems: []string{err.Error()}}
-		}
-		return VerifyResult{OK: true, Problems: []string{}}
+		return err
 	}
 	var snap store.Snapshot
 	if err := json.Unmarshal(payload, &snap); err != nil {
-		return VerifyResult{Problems: []string{"the shelf backup is not valid JSON: " + err.Error()}}
+		return errors.New("the shelf backup is not valid JSON: " + err.Error())
 	}
 	if snap.Skills == nil {
-		return VerifyResult{Problems: []string{"the shelf backup has no skills"}}
+		return errors.New("the shelf backup has no skills")
 	}
-	return VerifyResult{OK: true, Problems: []string{}}
+	return nil
 }
 
 // RestoreUser puts one person's shelf back. It never touches another person's.
 func (s *Service) RestoreUser(ctx context.Context, userID int64, id string) (int, error) {
-	m, payload, err := s.Download(ctx, userID, id)
+	return s.RestoreUserWithPassword(ctx, userID, id, "")
+}
+
+// RestoreUserWithPassword restores a shelf from a copy whose password is
+// typed by the person.
+func (s *Service) RestoreUserWithPassword(ctx context.Context, userID int64, id, password string) (int, error) {
+	m, payload, err := s.DownloadWithPassword(ctx, userID, id, password)
 	if err != nil {
 		return 0, err
 	}
@@ -913,7 +1250,7 @@ func (s *Service) DeleteLocal(ownerID int64, id string) error {
 	if !validID(id) {
 		return os.ErrNotExist
 	}
-	m, _, err := s.readLocal(id)
+	m, err := s.localManifest(id)
 	if err != nil {
 		return err
 	}

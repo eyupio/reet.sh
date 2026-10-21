@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,22 +22,77 @@ import (
 var ErrNotFound = errors.New("skill not found")
 
 type Skill struct {
-	ID           string  `json:"id"`
-	Source       string  `json:"source"`
-	Slug         string  `json:"slug"`
-	SourceType   string  `json:"sourceType"`
-	URL          string  `json:"url"`
-	Name         string  `json:"name"`
-	Description  string  `json:"description"`
-	Notes        string  `json:"notes"`
-	Installs     int64   `json:"installs"`
-	InstallsWeek int64   `json:"installsWeek"`
-	Trend        []int64 `json:"trend"`
-	Liked        bool    `json:"liked"`
-	Bookmarked   bool    `json:"bookmarked"`
-	Used         bool    `json:"used"`
-	CreatedAt    int64   `json:"createdAt"`
-	UpdatedAt    int64   `json:"updatedAt"`
+	ID           string        `json:"id"`
+	Source       string        `json:"source"`
+	Slug         string        `json:"slug"`
+	SourceType   string        `json:"sourceType"`
+	URL          string        `json:"url"`
+	Name         string        `json:"name"`
+	Description  string        `json:"description"`
+	Notes        string        `json:"notes"`
+	Installs     int64         `json:"installs"`
+	InstallsWeek int64         `json:"installsWeek"`
+	Trend        []int64       `json:"trend"`
+	Liked        bool          `json:"liked"`
+	Bookmarked   bool          `json:"bookmarked"`
+	Used         bool          `json:"used"`
+	CreatedAt    int64         `json:"createdAt"`
+	UpdatedAt    int64         `json:"updatedAt"`
+	Tags         []Tag         `json:"tags,omitempty"`
+	HiddenTags   []Tag         `json:"hiddenTags,omitempty"`
+	Environments []Environment `json:"environments,omitempty"`
+}
+
+// Tag is a label on a skill. Source is "topic" or "user".
+type Tag struct {
+	ID     int64  `json:"id"`
+	Name   string `json:"name"`
+	Source string `json:"source,omitempty"`
+	Hidden bool   `json:"hidden,omitempty"`
+	Count  int    `json:"count,omitempty"`
+}
+
+// Environment is one (host, agent[, project]) place a skill is installed.
+type Environment struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	Agent      string `json:"agent"`
+	Host       string `json:"host"`
+	Path       string `json:"path,omitempty"`
+	FirstSeen  int64  `json:"firstSeen,omitempty"`
+	LastSeen   int64  `json:"lastSeen"`
+	SourcePath string `json:"sourcePath,omitempty"`
+	SkillCount int    `json:"skillCount,omitempty"`
+}
+
+// Event is one local usage or audit row.
+type Event struct {
+	ID        int64  `json:"id"`
+	At        int64  `json:"at"`
+	Actor     string `json:"actor,omitempty"`
+	Source    string `json:"source"`
+	Action    string `json:"action"`
+	SkillID   string `json:"skillId,omitempty"`
+	SkillName string `json:"skillName,omitempty"`
+	Detail    string `json:"detail,omitempty"`
+}
+
+// Ignored is a skill that scans and imports should skip.
+type Ignored struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Reason string `json:"reason,omitempty"`
+	At     int64  `json:"at"`
+}
+
+// Snapshot is the export format. Version 1 backups have skills only.
+type Snapshot struct {
+	Version    int       `json:"version"`
+	ExportedAt int64     `json:"exportedAt"`
+	Skills     []Skill   `json:"skills"`
+	Ignored    []Ignored `json:"ignored,omitempty"`
+	Events     []Event   `json:"events,omitempty"`
 }
 
 // Patch holds optional changes; nil fields are left alone.
@@ -48,7 +104,12 @@ type Patch struct {
 }
 
 // Filter selects and orders List results. Tab: all|liked|bookmarked|used. Sort: recent|name|installs.
-type Filter struct{ Tab, Query, Sort string }
+type Filter struct {
+	Tab, Query, Sort string
+	Tags             []int64
+	Env              string
+	Only             string
+}
 
 type Counts struct {
 	All        int `json:"all"`
@@ -69,12 +130,46 @@ const schema = `CREATE TABLE IF NOT EXISTS skills (
 	liked INTEGER NOT NULL DEFAULT 0, bookmarked INTEGER NOT NULL DEFAULT 0, used INTEGER NOT NULL DEFAULT 0,
 	created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`
 
+var schemaV12 = []string{
+	`CREATE TABLE IF NOT EXISTS environments (
+		id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'machine',
+		agent TEXT NOT NULL DEFAULT '', host TEXT NOT NULL DEFAULT '', path TEXT NOT NULL DEFAULT '',
+		first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL)`,
+	`CREATE TABLE IF NOT EXISTS skill_envs (
+		skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+		env_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
+		installed_at INTEGER NOT NULL, last_seen INTEGER NOT NULL, source_path TEXT NOT NULL DEFAULT '',
+		PRIMARY KEY (skill_id, env_id))`,
+	`CREATE TABLE IF NOT EXISTS tags (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE UNIQUE)`,
+	`CREATE TABLE IF NOT EXISTS skill_tags (
+		skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+		tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+		source TEXT NOT NULL DEFAULT 'user', hidden INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (skill_id, tag_id))`,
+	`CREATE TABLE IF NOT EXISTS topic_skills (
+		tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+		skill_id TEXT NOT NULL, PRIMARY KEY (tag_id, skill_id))`,
+	`CREATE TABLE IF NOT EXISTS events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, actor TEXT NOT NULL DEFAULT '',
+		source TEXT NOT NULL DEFAULT 'ui', action TEXT NOT NULL, skill_id TEXT NOT NULL DEFAULT '',
+		detail TEXT NOT NULL DEFAULT '')`,
+	`CREATE TABLE IF NOT EXISTS ignored (
+		id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', at INTEGER NOT NULL)`,
+	`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`,
+	`CREATE INDEX IF NOT EXISTS idx_skill_envs_env ON skill_envs(env_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_skill_tags_tag ON skill_tags(tag_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_topic_skills_skill ON topic_skills(skill_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_events_at ON events(at)`,
+	`CREATE INDEX IF NOT EXISTS idx_events_skill ON events(skill_id)`,
+}
+
 // Open opens (creating if needed) the database in dir.
 func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", filepath.Join(dir, "reet.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+	db, err := sql.Open("sqlite", filepath.Join(dir, "reet.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, err
 	}
@@ -82,6 +177,12 @@ func Open(dir string) (*Store, error) {
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, err
+	}
+	for _, stmt := range schemaV12 {
+		if _, err := db.Exec(stmt); err != nil {
+			db.Close()
+			return nil, err
+		}
 	}
 	for _, c := range []struct{ name, ddl string }{
 		{"installs_week", "installs_week INTEGER NOT NULL DEFAULT 0"},
@@ -193,6 +294,7 @@ func (s *Store) upsert(id, source, slug, typ, url, name string, f Patch) (Skill,
 			return Skill{}, err
 		}
 	}
+	_ = s.applyTopics(id)
 	sk, _, err := s.Get(id)
 	return sk, err
 }
@@ -215,7 +317,14 @@ func (s *Store) Get(id string) (Skill, bool, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return Skill{}, false, nil
 	}
-	return k, err == nil, err
+	if err != nil {
+		return Skill{}, false, err
+	}
+	one := []Skill{k}
+	if err := s.attachMeta(one); err != nil {
+		return Skill{}, false, err
+	}
+	return one[0], true, nil
 }
 
 func (s *Store) List(f Filter) ([]Skill, Counts, error) {
@@ -230,7 +339,23 @@ func (s *Store) List(f Filter) ([]Skill, Counts, error) {
 	case "liked", "bookmarked", "used":
 		q += ` AND ` + f.Tab + `=1`
 	}
-	if term := strings.TrimSpace(f.Query); term != "" {
+	for _, id := range f.Tags {
+		q += ` AND EXISTS (SELECT 1 FROM skill_tags st WHERE st.skill_id=skills.id AND st.tag_id=? AND st.hidden=0)`
+		args = append(args, id)
+	}
+	term, tagNames := splitQuery(f.Query)
+	for _, name := range tagNames {
+		q += ` AND EXISTS (SELECT 1 FROM skill_tags st JOIN tags t ON t.id=st.tag_id WHERE st.skill_id=skills.id AND st.hidden=0 AND lower(t.name)=?)`
+		args = append(args, name)
+	}
+	if f.Env != "" {
+		q += ` AND EXISTS (SELECT 1 FROM skill_envs se WHERE se.skill_id=skills.id AND se.env_id=?)`
+		args = append(args, f.Env)
+	}
+	if f.Only == "one-machine" {
+		q += ` AND (SELECT COUNT(DISTINCT e.host) FROM skill_envs se JOIN environments e ON e.id=se.env_id WHERE se.skill_id=skills.id)=1`
+	}
+	if term != "" {
 		like := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.ToLower(term)) + "%"
 		q += ` AND (lower(name) LIKE ? ESCAPE '\' OR lower(id) LIKE ? ESCAPE '\' OR lower(description) LIKE ? ESCAPE '\' OR lower(notes) LIKE ? ESCAPE '\')`
 		args = append(args, like, like, like, like)
@@ -247,16 +372,140 @@ func (s *Store) List(f Filter) ([]Skill, Counts, error) {
 	if err != nil {
 		return nil, c, err
 	}
-	defer rows.Close()
 	out := []Skill{}
 	for rows.Next() {
 		k, err := scan(rows)
 		if err != nil {
+			rows.Close()
 			return nil, c, err
 		}
 		out = append(out, k)
 	}
-	return out, c, rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, c, err
+	}
+	rows.Close()
+	if err := s.attachMeta(out); err != nil {
+		return nil, c, err
+	}
+	return out, c, nil
+}
+
+func (s *Store) attachHiddenTags(skills []Skill) error {
+	if len(skills) == 0 {
+		return nil
+	}
+	index := make(map[string]int, len(skills))
+	for i := range skills {
+		index[skills[i].ID] = i
+	}
+	rows, err := s.db.Query(`SELECT st.skill_id,t.id,t.name,st.source
+		FROM skill_tags st JOIN tags t ON t.id=st.tag_id
+		WHERE st.hidden=1 ORDER BY lower(t.name)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var skillID string
+		var tag Tag
+		if err := rows.Scan(&skillID, &tag.ID, &tag.Name, &tag.Source); err != nil {
+			return err
+		}
+		tag.Hidden = true
+		if i, ok := index[skillID]; ok {
+			skills[i].HiddenTags = append(skills[i].HiddenTags, tag)
+		}
+	}
+	return rows.Err()
+}
+
+func splitQuery(q string) (string, []string) {
+	var words, tags []string
+	for i := 0; i < len(q); {
+		for i < len(q) && q[i] == ' ' {
+			i++
+		}
+		if i >= len(q) {
+			break
+		}
+		if strings.HasPrefix(q[i:], `tag:"`) {
+			rest := q[i+5:]
+			if end := strings.IndexByte(rest, '"'); end >= 0 {
+				if name := strings.TrimSpace(rest[:end]); name != "" {
+					tags = append(tags, strings.ToLower(name))
+				}
+				i += 5 + end + 1
+				continue
+			}
+		}
+		j := i
+		for j < len(q) && q[j] != ' ' {
+			j++
+		}
+		word := q[i:j]
+		if name, ok := strings.CutPrefix(word, "tag:"); ok && name != "" {
+			tags = append(tags, strings.ToLower(name))
+		} else {
+			words = append(words, word)
+		}
+		i = j
+	}
+	return strings.Join(words, " "), tags
+}
+
+func (s *Store) attachMeta(skills []Skill) error {
+	if len(skills) == 0 {
+		return nil
+	}
+	index := make(map[string]int, len(skills))
+	for i := range skills {
+		index[skills[i].ID] = i
+	}
+	tagRows, err := s.db.Query(`SELECT st.skill_id,t.id,t.name,st.source,st.hidden
+		FROM skill_tags st JOIN tags t ON t.id=st.tag_id
+		WHERE st.hidden=0 ORDER BY lower(t.name)`)
+	if err != nil {
+		return err
+	}
+	for tagRows.Next() {
+		var skillID string
+		var tag Tag
+		var hidden int
+		if err := tagRows.Scan(&skillID, &tag.ID, &tag.Name, &tag.Source, &hidden); err != nil {
+			tagRows.Close()
+			return err
+		}
+		tag.Hidden = hidden != 0
+		if i, ok := index[skillID]; ok {
+			skills[i].Tags = append(skills[i].Tags, tag)
+		}
+	}
+	if err := tagRows.Err(); err != nil {
+		tagRows.Close()
+		return err
+	}
+	tagRows.Close()
+
+	envRows, err := s.db.Query(`SELECT se.skill_id,e.id,e.name,e.kind,e.agent,e.host,e.path,e.first_seen,se.last_seen,se.source_path
+		FROM skill_envs se JOIN environments e ON e.id=se.env_id ORDER BY lower(e.name)`)
+	if err != nil {
+		return err
+	}
+	defer envRows.Close()
+	for envRows.Next() {
+		var skillID string
+		var env Environment
+		if err := envRows.Scan(&skillID, &env.ID, &env.Name, &env.Kind, &env.Agent, &env.Host, &env.Path,
+			&env.FirstSeen, &env.LastSeen, &env.SourcePath); err != nil {
+			return err
+		}
+		if i, ok := index[skillID]; ok {
+			skills[i].Environments = append(skills[i].Environments, env)
+		}
+	}
+	return envRows.Err()
 }
 
 // Patch applies explicit changes (which may clear flags) to an existing skill.
@@ -320,6 +569,14 @@ func (s *Store) Resolve(oldID string, r ref.Ref) (Skill, error) {
 		}
 	}
 	if oldID != nk.ID {
+		if _, err := s.db.Exec(`INSERT OR IGNORE INTO skill_tags(skill_id,tag_id,source,hidden)
+			SELECT ?,tag_id,source,hidden FROM skill_tags WHERE skill_id=?`, nk.ID, oldID); err != nil {
+			return Skill{}, err
+		}
+		if _, err := s.db.Exec(`INSERT OR IGNORE INTO skill_envs(skill_id,env_id,installed_at,last_seen,source_path)
+			SELECT ?,env_id,installed_at,last_seen,source_path FROM skill_envs WHERE skill_id=?`, nk.ID, oldID); err != nil {
+			return Skill{}, err
+		}
 		if err := s.Delete(oldID); err != nil {
 			return Skill{}, err
 		}
@@ -332,16 +589,464 @@ func (s *Store) Export() ([]Skill, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	out := []Skill{}
 	for rows.Next() {
 		k, err := scan(rows)
 		if err != nil {
+			rows.Close()
 			return nil, err
 		}
 		out = append(out, k)
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if err := s.attachMeta(out); err != nil {
+		return nil, err
+	}
+	if err := s.attachHiddenTags(out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ExportSnapshot returns skills, ignored ids and optionally the local event history.
+func (s *Store) ExportSnapshot(includeEvents bool) (Snapshot, error) {
+	skills, err := s.Export()
+	if err != nil {
+		return Snapshot{}, err
+	}
+	ignored, err := s.ListIgnored()
+	if err != nil {
+		return Snapshot{}, err
+	}
+	snap := Snapshot{Version: 2, ExportedAt: now(), Skills: skills, Ignored: ignored}
+	if includeEvents {
+		events, err := s.ListEvents(0, "")
+		if err != nil {
+			return Snapshot{}, err
+		}
+		snap.Events = events
+	}
+	return snap, nil
+}
+
+func (s *Store) RecordEnvironment(skillID, host, agent, project, path, sourcePath string) error {
+	if strings.TrimSpace(host) == "" || strings.TrimSpace(agent) == "" {
+		return nil
+	}
+	t := now()
+	id := EnvironmentID(host, agent, project)
+	if err := s.TouchEnvironment(host, agent, project, path); err != nil {
+		return err
+	}
+	if sourcePath == "" {
+		sourcePath = path
+	}
+	_, err := s.db.Exec(`INSERT INTO skill_envs(skill_id,env_id,installed_at,last_seen,source_path)
+		VALUES(?,?,?,?,?)
+		ON CONFLICT(skill_id,env_id) DO UPDATE SET last_seen=excluded.last_seen, source_path=excluded.source_path`,
+		skillID, id, t, t, sourcePath)
+	return err
+}
+
+func (s *Store) TouchEnvironment(host, agent, project, path string) error {
+	if strings.TrimSpace(host) == "" || strings.TrimSpace(agent) == "" {
+		return nil
+	}
+	t := now()
+	id := EnvironmentID(host, agent, project)
+	name := EnvironmentName(host, agent, project)
+	kind := "machine"
+	if strings.TrimSpace(project) != "" {
+		kind = "project"
+	}
+	_, err := s.db.Exec(`INSERT INTO environments(id,name,kind,agent,host,path,first_seen,last_seen)
+		VALUES(?,?,?,?,?,?,?,?)
+		ON CONFLICT(id) DO UPDATE SET
+			name=excluded.name, last_seen=excluded.last_seen,
+			path=CASE WHEN environments.path='' THEN excluded.path ELSE environments.path END`,
+		id, name, kind, agent, host, path, t, t)
+	return err
+}
+
+// EnvironmentID is stable for a host, agent and optional project.
+func EnvironmentID(host, agent, project string) string {
+	host = strings.ToLower(strings.TrimSpace(host))
+	agent = strings.ToLower(strings.TrimSpace(agent))
+	id := host + "/" + agent
+	if project = strings.TrimSpace(project); project != "" {
+		id += "/" + strings.ToLower(strings.ReplaceAll(project, "/", "-"))
+	}
+	return id
+}
+
+// EnvironmentName is what a person sees on a card.
+func EnvironmentName(host, agent, project string) string {
+	if strings.TrimSpace(host) == "" {
+		host = "unknown"
+	}
+	name := strings.TrimSpace(host) + " · " + AgentLabel(agent)
+	if project = strings.TrimSpace(project); project != "" {
+		name += " · " + project
+	}
+	return name
+}
+
+func AgentLabel(agent string) string {
+	switch strings.ToLower(agent) {
+	case "claude":
+		return "Claude Code"
+	case "cursor":
+		return "Cursor"
+	case "codex":
+		return "Codex"
+	case "opencode":
+		return "OpenCode"
+	case "agents":
+		return "Agents"
+	case "other":
+		return "Other"
+	}
+	if agent == "" {
+		return "Other"
+	}
+	return agent
+}
+
+func (s *Store) ListEnvironments() ([]Environment, error) {
+	rows, err := s.db.Query(`SELECT e.id,e.name,e.kind,e.agent,e.host,e.path,e.first_seen,e.last_seen,COUNT(se.skill_id)
+		FROM environments e LEFT JOIN skill_envs se ON se.env_id=e.id
+		GROUP BY e.id ORDER BY lower(e.name)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Environment{}
+	for rows.Next() {
+		var e Environment
+		if err := rows.Scan(&e.ID, &e.Name, &e.Kind, &e.Agent, &e.Host, &e.Path, &e.FirstSeen, &e.LastSeen, &e.SkillCount); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
 	return out, rows.Err()
+}
+
+func (s *Store) PruneEnvironment(envID string, keep []string) (int64, error) {
+	if len(keep) == 0 {
+		res, err := s.db.Exec(`DELETE FROM skill_envs WHERE env_id=?`, envID)
+		if err != nil {
+			return 0, err
+		}
+		return res.RowsAffected()
+	}
+	args := []any{envID}
+	for _, id := range keep {
+		args = append(args, id)
+	}
+	res, err := s.db.Exec(`DELETE FROM skill_envs WHERE env_id=? AND skill_id NOT IN (`+placeholders(len(keep))+`)`, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+func (s *Store) ListTags() ([]Tag, error) {
+	rows, err := s.db.Query(`SELECT t.id,t.name,COUNT(st.skill_id)
+		FROM tags t LEFT JOIN skill_tags st ON st.tag_id=t.id AND st.hidden=0
+		GROUP BY t.id ORDER BY lower(t.name)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Tag{}
+	for rows.Next() {
+		var t Tag
+		if err := rows.Scan(&t.ID, &t.Name, &t.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) AddSkillTags(skillID string, names []string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		tagID, err := upsertTagTx(tx, name)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO skill_tags(skill_id,tag_id,source,hidden) VALUES(?,?,'user',0)
+			ON CONFLICT(skill_id,tag_id) DO UPDATE SET source='user', hidden=0`, skillID, tagID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) RemoveSkillTag(skillID string, tagID int64) error {
+	return s.withTx(func(tx *sql.Tx) error {
+		var source string
+		err := tx.QueryRow(`SELECT source FROM skill_tags WHERE skill_id=? AND tag_id=?`, skillID, tagID).Scan(&source)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if source == "topic" {
+			_, err = tx.Exec(`UPDATE skill_tags SET hidden=1 WHERE skill_id=? AND tag_id=?`, skillID, tagID)
+			return err
+		}
+		_, err = tx.Exec(`DELETE FROM skill_tags WHERE skill_id=? AND tag_id=?`, skillID, tagID)
+		return err
+	})
+}
+
+func (s *Store) RenameTag(id int64, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("tag name is required")
+	}
+	res, err := s.db.Exec(`UPDATE tags SET name=? WHERE id=?`, name, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) MergeTags(fromID, intoID int64) error {
+	if fromID == intoID {
+		return nil
+	}
+	return s.withTx(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO skill_tags(skill_id,tag_id,source,hidden)
+			SELECT skill_id,?,source,hidden FROM skill_tags WHERE tag_id=?`, intoID, fromID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM skill_tags WHERE tag_id=?`, fromID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO topic_skills(tag_id,skill_id)
+			SELECT ?,skill_id FROM topic_skills WHERE tag_id=?`, intoID, fromID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM topic_skills WHERE tag_id=?`, fromID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`DELETE FROM tags WHERE id=?`, fromID)
+		return err
+	})
+}
+
+// Topic is one skills.sh curated topic and its current skill ids.
+type Topic struct {
+	Slug   string
+	Name   string
+	Skills []string
+}
+
+func (s *Store) ReplaceTopics(topics []Topic) error {
+	return s.withTx(func(tx *sql.Tx) error {
+		for _, topic := range topics {
+			tagID, err := upsertTagTx(tx, topic.Name)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`DELETE FROM topic_skills WHERE tag_id=?`, tagID); err != nil {
+				return err
+			}
+			for _, id := range topic.Skills {
+				if _, err := tx.Exec(`INSERT OR IGNORE INTO topic_skills(tag_id,skill_id) VALUES(?,?)`, tagID, id); err != nil {
+					return err
+				}
+			}
+			if len(topic.Skills) == 0 {
+				if _, err := tx.Exec(`DELETE FROM skill_tags WHERE tag_id=? AND source='topic'`, tagID); err != nil {
+					return err
+				}
+				continue
+			}
+			args := []any{tagID}
+			for _, id := range topic.Skills {
+				args = append(args, id)
+			}
+			if _, err := tx.Exec(`DELETE FROM skill_tags WHERE tag_id=? AND source='topic' AND skill_id NOT IN (`+placeholders(len(topic.Skills))+`)`, args...); err != nil {
+				return err
+			}
+			args = []any{tagID}
+			for _, id := range topic.Skills {
+				args = append(args, id)
+			}
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO skill_tags(skill_id,tag_id,source,hidden)
+				SELECT id,?,'topic',0 FROM skills WHERE id IN (`+placeholders(len(topic.Skills))+`)`, args...); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Exec(`INSERT INTO settings(key,value) VALUES('topics_last_synced',?)
+			ON CONFLICT(key) DO UPDATE SET value=excluded.value`, strconv.FormatInt(now(), 10))
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(`INSERT INTO settings(key,value) VALUES('topics_last_error','')
+			ON CONFLICT(key) DO UPDATE SET value=''`)
+		return err
+	})
+}
+
+func (s *Store) applyTopics(id string) error {
+	_, err := s.db.Exec(`INSERT OR IGNORE INTO skill_tags(skill_id,tag_id,source,hidden)
+		SELECT ?,tag_id,'topic',0 FROM topic_skills WHERE skill_id=?`, id, id)
+	return err
+}
+
+func (s *Store) ListIgnored() ([]Ignored, error) {
+	rows, err := s.db.Query(`SELECT id,name,reason,at FROM ignored ORDER BY at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Ignored{}
+	for rows.Next() {
+		var i Ignored
+		if err := rows.Scan(&i.ID, &i.Name, &i.Reason, &i.At); err != nil {
+			return nil, err
+		}
+		out = append(out, i)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) IsIgnored(id string) (bool, error) {
+	var one int
+	err := s.db.QueryRow(`SELECT 1 FROM ignored WHERE id=?`, id).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func (s *Store) Ignore(id, name, reason string) error {
+	return s.withTx(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`INSERT INTO ignored(id,name,reason,at) VALUES(?,?,?,?)
+			ON CONFLICT(id) DO UPDATE SET name=excluded.name, reason=excluded.reason, at=excluded.at`, id, name, reason, now()); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`DELETE FROM skills WHERE id=?`, id)
+		return err
+	})
+}
+
+func (s *Store) Unignore(id string) error {
+	_, err := s.db.Exec(`DELETE FROM ignored WHERE id=?`, id)
+	return err
+}
+
+func (s *Store) AddEvent(source, action, skillID string, detail any) error {
+	detailJSON := ""
+	if detail != nil {
+		if b, err := json.Marshal(detail); err == nil {
+			detailJSON = string(b)
+		}
+	}
+	_, err := s.db.Exec(`INSERT INTO events(at,actor,source,action,skill_id,detail) VALUES(?,?,?,?,?,?)`,
+		now(), "", source, action, skillID, detailJSON)
+	return err
+}
+
+func (s *Store) ListEvents(limit int, skillID string) ([]Event, error) {
+	q := `SELECT ev.id,ev.at,ev.actor,ev.source,ev.action,ev.skill_id,COALESCE(s.name,''),ev.detail
+		FROM events ev LEFT JOIN skills s ON s.id=ev.skill_id`
+	var args []any
+	if skillID != "" {
+		q += ` WHERE ev.skill_id=?`
+		args = append(args, skillID)
+	}
+	q += ` ORDER BY ev.at DESC, ev.id DESC`
+	if limit > 0 {
+		q += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Event{}
+	for rows.Next() {
+		var ev Event
+		if err := rows.Scan(&ev.ID, &ev.At, &ev.Actor, &ev.Source, &ev.Action, &ev.SkillID, &ev.SkillName, &ev.Detail); err != nil {
+			return nil, err
+		}
+		out = append(out, ev)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) PruneEvents(cutoff int64) error {
+	_, err := s.db.Exec(`DELETE FROM events WHERE at<?`, cutoff)
+	return err
+}
+
+func (s *Store) SetSetting(key, value string) error {
+	_, err := s.db.Exec(`INSERT INTO settings(key,value) VALUES(?,?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
+	return err
+}
+
+func (s *Store) GetSetting(key string) (string, error) {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM settings WHERE key=?`, key).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return value, err
+}
+
+func (s *Store) withTx(fn func(*sql.Tx) error) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func upsertTagTx(tx *sql.Tx, name string) (int64, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return 0, errors.New("tag name is required")
+	}
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO tags(name) VALUES(?)`, name); err != nil {
+		return 0, err
+	}
+	var id int64
+	if err := tx.QueryRow(`SELECT id FROM tags WHERE name=? COLLATE NOCASE`, name).Scan(&id); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+func placeholders(n int) string {
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
 }
 
 // rederive rebuilds the identity fields of a restored skill from its id, so a crafted
@@ -364,11 +1069,30 @@ func rederive(k *Skill) error {
 
 // Restore inserts or replaces every skill given, in one transaction.
 func (s *Store) Restore(all []Skill) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+	return s.withTx(func(tx *sql.Tx) error { return restoreSkills(tx, all) })
+}
+
+// RestoreSnapshot restores skills and ignored ids; local history is not rewritten.
+func (s *Store) RestoreSnapshot(snapshot Snapshot) error {
+	return s.withTx(func(tx *sql.Tx) error {
+		if err := restoreSkills(tx, snapshot.Skills); err != nil {
+			return err
+		}
+		for _, i := range snapshot.Ignored {
+			if i.ID == "" {
+				continue
+			}
+			if _, err := tx.Exec(`INSERT INTO ignored(id,name,reason,at) VALUES(?,?,?,?)
+				ON CONFLICT(id) DO UPDATE SET name=excluded.name, reason=excluded.reason, at=excluded.at`,
+				i.ID, i.Name, i.Reason, i.At); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func restoreSkills(tx *sql.Tx, all []Skill) error {
 	for _, k := range all {
 		if err := rederive(&k); err != nil {
 			return err
@@ -392,6 +1116,85 @@ func (s *Store) Restore(all []Skill) error {
 			b2i(&l), b2i(&b), b2i(&u), k.CreatedAt, k.UpdatedAt); err != nil {
 			return err
 		}
+		for _, tag := range k.Tags {
+			tagID, err := upsertTagTx(tx, tag.Name)
+			if err != nil {
+				return err
+			}
+			source := tag.Source
+			if source == "" {
+				source = "user"
+			}
+			if _, err := tx.Exec(`INSERT OR REPLACE INTO skill_tags(skill_id,tag_id,source,hidden) VALUES(?,?,?,?)`,
+				k.ID, tagID, source, b2i(&tag.Hidden)); err != nil {
+				return err
+			}
+			if source == "topic" {
+				if _, err := tx.Exec(`INSERT OR IGNORE INTO topic_skills(tag_id,skill_id) VALUES(?,?)`, tagID, k.ID); err != nil {
+					return err
+				}
+			}
+		}
+		for _, tag := range k.HiddenTags {
+			tagID, err := upsertTagTx(tx, tag.Name)
+			if err != nil {
+				return err
+			}
+			source := tag.Source
+			if source == "" {
+				source = "topic"
+			}
+			if _, err := tx.Exec(`INSERT OR REPLACE INTO skill_tags(skill_id,tag_id,source,hidden) VALUES(?,?,?,1)`,
+				k.ID, tagID, source); err != nil {
+				return err
+			}
+			if source == "topic" {
+				if _, err := tx.Exec(`INSERT OR IGNORE INTO topic_skills(tag_id,skill_id) VALUES(?,?)`, tagID, k.ID); err != nil {
+					return err
+				}
+			}
+		}
+		for _, env := range k.Environments {
+			if env.Host == "" || env.Agent == "" {
+				continue
+			}
+			id := env.ID
+			if id == "" {
+				id = EnvironmentID(env.Host, env.Agent, "")
+			}
+			name := env.Name
+			if name == "" {
+				name = EnvironmentName(env.Host, env.Agent, "")
+			}
+			kind := env.Kind
+			if kind == "" {
+				kind = "machine"
+			}
+			first, last := env.FirstSeen, env.LastSeen
+			if first == 0 {
+				first = t
+			}
+			if last == 0 {
+				last = t
+			}
+			if _, err := tx.Exec(`INSERT INTO environments(id,name,kind,agent,host,path,first_seen,last_seen)
+				VALUES(?,?,?,?,?,?,?,?)
+				ON CONFLICT(id) DO UPDATE SET name=excluded.name, agent=excluded.agent, host=excluded.host,
+					path=CASE WHEN environments.path='' THEN excluded.path ELSE environments.path END,
+					last_seen=MAX(environments.last_seen, excluded.last_seen)`,
+				id, name, kind, env.Agent, env.Host, env.Path, first, last); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`INSERT INTO skill_envs(skill_id,env_id,installed_at,last_seen,source_path)
+				VALUES(?,?,?,?,?)
+				ON CONFLICT(skill_id,env_id) DO UPDATE SET last_seen=excluded.last_seen, source_path=excluded.source_path`,
+				k.ID, id, first, last, env.SourcePath); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(`DELETE FROM ignored WHERE id=?`, k.ID); err != nil {
+			return err
+		}
 	}
-	return tx.Commit()
+	return nil
 }

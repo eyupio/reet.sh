@@ -116,3 +116,64 @@ func TestRunDryRunDoesNotPost(t *testing.T) {
 		t.Fatalf("err=%v called=%v", err, called)
 	}
 }
+
+func TestCollectScanEnvironments(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	mkSkill(t, filepath.Join(home, ".claude", "skills"), "alpha", true)
+	mkSkill(t, filepath.Join(home, ".cursor", "skills"), "alpha", true)
+	mkSkill(t, filepath.Join(home, ".agents", "skills"), "beta", true)
+	scan := CollectScan(home, cwd, nil, "laptop")
+	if len(scan.Found) != 3 {
+		t.Fatalf("found: %+v", scan.Found)
+	}
+	if len(scan.Envs) != 3 {
+		t.Fatalf("envs: %+v", scan.Envs)
+	}
+	byAgent := map[string]ScannedEnv{}
+	for _, env := range scan.Envs {
+		byAgent[env.Agent] = env
+	}
+	if byAgent["claude"].Host != "laptop" || len(byAgent["claude"].Skills) != 1 || byAgent["claude"].Skills[0] != "alpha" {
+		t.Fatalf("claude: %+v", byAgent["claude"])
+	}
+	if len(byAgent["cursor"].Skills) != 1 || len(byAgent["agents"].Skills) != 1 {
+		t.Fatalf("envs: %+v", byAgent)
+	}
+}
+
+func TestRunPostsEnvironmentsAndPrune(t *testing.T) {
+	var body struct {
+		Items []struct {
+			Name  string
+			Host  string
+			Agent string
+		}
+		Prune        bool
+		Environments []struct {
+			Host, Agent string
+			Skills      []string
+		}
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		json.Unmarshal(b, &body)
+		w.Write([]byte(`{"imported":1,"created":1,"ignored":0,"pruned":2,"errors":[]}`))
+	}))
+	defer srv.Close()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mkSkill(t, filepath.Join(home, ".claude", "skills"), "alpha", true)
+	var out bytes.Buffer
+	if err := Run([]string{"--server", srv.URL, "--env", "laptop", "--prune"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Items) != 1 || body.Items[0].Host != "laptop" || body.Items[0].Agent != "claude" {
+		t.Fatalf("items: %+v", body.Items)
+	}
+	if !body.Prune || len(body.Environments) != 1 || body.Environments[0].Host != "laptop" || len(body.Environments[0].Skills) != 1 {
+		t.Fatalf("payload: %+v", body)
+	}
+	if !strings.Contains(out.String(), "1 new") || !strings.Contains(out.String(), "2 pruned") {
+		t.Fatalf("output: %s", out.String())
+	}
+}

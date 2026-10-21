@@ -37,3 +37,7 @@ export function sinceLabel(stage: Stage, ts: number): string {
 export function isStale(ts: number): boolean {
   return Date.now() - ts >= 30 * DAY
 }
+
+export function isOldEnvironment(ts: number): boolean {
+  return Date.now() - ts >= 90 * DAY
+}

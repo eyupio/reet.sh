@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { exportAll, importText, listSkills, restoreAll, type Skill } from './api'
+  import { exportAll, importText, listIgnored, listSkills, restoreAll, unignore, type Backup, type Ignored } from './api'
   import Bookmarklets from './Bookmarklets.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
+  import ManageTags from './ManageTags.svelte'
 
   let { onchange, ok, fail, token, startOpen = false, hideBookmarklets = false }: {
     onchange: () => Promise<void>
@@ -15,31 +16,56 @@
 
   let open = $state(false)
   let importBox = $state('')
-  let pending = $state<{ skills: Skill[]; overwrite: number } | null>(null)
-  const title = $derived(hideBookmarklets ? 'import and backup' : 'bookmarklets, import and backup')
+  let pending = $state<{ data: Backup; overwrite: number } | null>(null)
+  let includeHistory = $state(true)
+  let ignored = $state<Ignored[]>([])
+  let showTags = $state(false)
+  const title = $derived(hideBookmarklets ? 'tools' : 'bookmarklets and tools')
 
   onMount(() => {
     open = startOpen
+    void loadIgnored()
   })
 
   async function runImport() {
     try {
       const r = await importText(importBox)
       importBox = ''
-      ok(`Imported ${r.imported} as in use` + (r.errors.length ? `, skipped ${r.errors.length}: ${r.errors.join('; ')}` : ''))
+      const ignored = r.ignored ? `, skipped ${r.ignored} ignored` : ''
+      ok(`Imported ${r.imported} as in use${ignored}` + (r.errors.length ? `, skipped ${r.errors.length}: ${r.errors.join('; ')}` : ''))
       await onchange()
     } catch (e) {
       fail(e)
     }
   }
+  async function loadIgnored() {
+    try {
+      const r = await listIgnored()
+      ignored = r.ignored
+    } catch (e) {
+      fail(e)
+    }
+  }
+
+  async function allowAgain(id: string) {
+    try {
+      await unignore(id)
+      await loadIgnored()
+      await onchange()
+    } catch (e) {
+      fail(e)
+    }
+  }
+
   async function backup() {
     try {
-      const blob = await exportAll()
+      const blob = await exportAll(includeHistory)
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
       a.download = 'reet-export.json'
       a.click()
       URL.revokeObjectURL(a.href)
+      await onchange()
     } catch (e) {
       fail(e)
     }
@@ -50,12 +76,12 @@
     input.value = ''
     if (!file) return
     try {
-      const data = JSON.parse(await file.text()) as { skills?: Skill[] }
+      const data = JSON.parse(await file.text()) as Backup
       if (!Array.isArray(data.skills)) throw new Error('That file is not a reet backup.')
-      const current = await listSkills('all', '', 'recent')
+      const current = await listSkills({ tab: 'all', q: '', sort: 'recent' })
       const ids = new Set(current.skills.map((s) => s.id))
       const overwrite = data.skills.filter((s) => ids.has(s.id)).length
-      pending = { skills: data.skills, overwrite }
+      pending = { data, overwrite }
     } catch (err) {
       fail(err)
     }
@@ -66,7 +92,7 @@
     if (!p) return
     pending = null
     try {
-      const r = await restoreAll({ version: 1, exportedAt: Date.now(), skills: p.skills })
+      const r = await restoreAll(p.data)
       ok(`Restored ${r.restored} ${r.restored === 1 ? 'skill' : 'skills'}`)
       await onchange()
     } catch (err) {
@@ -76,7 +102,7 @@
 </script>
 
 <section class="tools">
-  <button type="button" class="btn quiet" onclick={() => (open = !open)} aria-expanded={open} aria-controls="tools-panel">
+  <button type="button" class="btn quiet" onclick={() => { open = !open; if (open) void loadIgnored() }} aria-expanded={open} aria-controls="tools-panel">
     {open ? 'Hide' : 'Show'} {title}
   </button>
   {#if open}
@@ -101,13 +127,39 @@
         <button type="button" class="btn" onclick={backup}>Download JSON</button>
         <label class="btn file">Restore from JSON<input type="file" accept="application/json" onchange={pickRestore} hidden /></label>
       </p>
+      <label class="check">
+        <input type="checkbox" bind:checked={includeHistory} />
+        Include local history in the backup
+      </label>
+
+      <h2>Tags</h2>
+      <p>Rename or merge tags across the whole shelf.</p>
+      <button type="button" class="btn" onclick={() => (showTags = true)}>Manage tags</button>
+
+      <h2>Ignored skills</h2>
+      {#if ignored.length === 0}
+        <p>Nothing ignored. Removing an installed skill can ignore it in future scans.</p>
+      {:else}
+        <ul class="ignored">
+          {#each ignored as item}
+            <li>
+              <span>{item.name || item.id}</span>
+              <button type="button" class="btn quiet" onclick={() => allowAgain(item.id)}>Allow again</button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
     </div>
+  {/if}
+
+  {#if showTags}
+    <ManageTags onclose={() => (showTags = false)} onchanged={onchange} onerror={fail} />
   {/if}
 
   {#if pending}
     <ConfirmDialog
       title="Restore this backup?"
-      body={`Restore ${pending.skills.length} ${pending.skills.length === 1 ? 'skill' : 'skills'}? ${
+      body={`Restore ${pending.data.skills.length} ${pending.data.skills.length === 1 ? 'skill' : 'skills'}? ${
         pending.overwrite === 0
           ? 'Nothing on the shelf will be overwritten.'
           : `${pending.overwrite} ${pending.overwrite === 1 ? 'skill' : 'skills'} already on the shelf will be overwritten.`
@@ -129,4 +181,10 @@
   .links { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
   .file { display: inline-flex; align-items: center; }
   .panel textarea { margin: 6px 0; }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 0.9rem; }
+  .check input { min-height: 0; }
+  .ignored { list-style: none; margin: 8px 0 0; padding: 0; }
+  .ignored li { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); min-height: 44px; }
+  .ignored li:last-child { border-bottom: 0; }
+  .ignored span { min-width: 0; overflow-wrap: anywhere; }
 </style>

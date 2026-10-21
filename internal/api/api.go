@@ -10,6 +10,7 @@ import (
 	"html"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ type server struct {
 	version string
 	commit  string
 	debug   bool
+	topics  bool
 	queue   chan ref.Ref
 }
 
@@ -48,6 +50,11 @@ func WithDebug(debug bool) Option {
 	return func(s *server) { s.debug = debug }
 }
 
+// WithTopics enables the daily skills.sh topic seed.
+func WithTopics(enabled bool) Option {
+	return func(s *server) { s.topics = enabled }
+}
+
 // New returns the API handler. An empty token disables authentication.
 func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Handler {
 	s := &server{st: st, f: f, token: token, version: "dev", commit: "unknown", queue: make(chan ref.Ref, 256)}
@@ -55,6 +62,9 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 		opt(s)
 	}
 	go s.worker()
+	if s.topics {
+		go s.topicWorker()
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /api/version", s.buildInfo)
@@ -64,7 +74,16 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	mux.HandleFunc("DELETE /api/skill", s.remove)
 	mux.HandleFunc("POST /api/skill/refresh", s.refresh)
 	mux.HandleFunc("POST /api/skill/resolve", s.resolve)
+	mux.HandleFunc("POST /api/skill/tags", s.skillTags)
+	mux.HandleFunc("POST /api/skill/install-copy", s.installCopy)
+	mux.HandleFunc("DELETE /api/skill/ignore", s.unignore)
 	mux.HandleFunc("POST /api/import", s.importSkills)
+	mux.HandleFunc("GET /api/environments", s.environments)
+	mux.HandleFunc("GET /api/tags", s.tags)
+	mux.HandleFunc("PATCH /api/tag", s.renameTag)
+	mux.HandleFunc("POST /api/tags/merge", s.mergeTags)
+	mux.HandleFunc("GET /api/events", s.events)
+	mux.HandleFunc("GET /api/ignored", s.ignored)
 	mux.HandleFunc("GET /api/export", s.export)
 	mux.HandleFunc("POST /api/restore", s.restore)
 	mux.HandleFunc("GET /quick", s.quick)
@@ -197,6 +216,58 @@ func (s *server) enqueue(r ref.Ref) {
 	}
 }
 
+func (s *server) topicWorker() {
+	s.syncTopics()
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		s.syncTopics()
+	}
+}
+
+func (s *server) syncTopics() {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	topics, err := s.f.Topics(ctx)
+	if err != nil {
+		_ = s.st.SetSetting("topics_last_error", err.Error())
+		if s.debug {
+			log.Printf("topics fetch error=%v", err)
+		}
+		return
+	}
+	converted := make([]store.Topic, len(topics))
+	for i, t := range topics {
+		converted[i] = store.Topic{Slug: t.Slug, Name: t.Name, Skills: t.Skills}
+	}
+	if err := s.st.ReplaceTopics(converted); err != nil {
+		_ = s.st.SetSetting("topics_last_error", err.Error())
+		if s.debug {
+			log.Printf("topics sync error=%v", err)
+		}
+		return
+	}
+	if s.debug {
+		log.Printf("topics synced count=%d", len(converted))
+	}
+}
+
+func (s *server) event(source, action, skillID string, detail any) {
+	if err := s.st.AddEvent(source, action, skillID, detail); err != nil && s.debug {
+		log.Printf("event store action=%s error=%v", action, err)
+	}
+}
+
+func stageLabel(sk store.Skill) string {
+	if sk.Used {
+		return "In use"
+	}
+	if sk.Bookmarked {
+		return "To test"
+	}
+	return "On the shelf"
+}
+
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
@@ -218,7 +289,21 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 
 func (s *server) list(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	skills, counts, err := s.st.List(store.Filter{Tab: q.Get("tab"), Query: q.Get("q"), Sort: q.Get("sort")})
+	f := store.Filter{
+		Tab:   q.Get("tab"),
+		Query: q.Get("q"),
+		Sort:  q.Get("sort"),
+		Env:   q.Get("env"),
+		Only:  q.Get("only"),
+	}
+	for _, raw := range q["tag"] {
+		for _, part := range strings.Split(raw, ",") {
+			if id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64); err == nil {
+				f.Tags = append(f.Tags, id)
+			}
+		}
+	}
+	skills, counts, err := s.st.List(f)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -244,12 +329,14 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	_ = s.st.Unignore(rf.ID)
 	sk, err := s.st.Upsert(rf, in.Patch)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	s.enqueue(rf)
+	s.event("ui", "add", sk.ID, map[string]any{"name": sk.Name, "created": !existed})
 	writeJSON(w, 200, struct {
 		store.Skill
 		Created bool `json:"created"`
@@ -264,6 +351,7 @@ func (s *server) patch(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	old, _, _ := s.st.Get(in.ID)
 	sk, err := s.st.Patch(in.ID, in.Patch)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, 404, "skill not found")
@@ -272,7 +360,27 @@ func (s *server) patch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	action, detail := patchEvent(old, sk, in.Patch)
+	s.event("ui", action, sk.ID, detail)
 	writeJSON(w, 200, sk)
+}
+
+func patchEvent(old, updated store.Skill, p store.Patch) (string, map[string]any) {
+	detail := map[string]any{"name": updated.Name}
+	switch {
+	case p.Notes != nil && p.Liked == nil && p.Bookmarked == nil && p.Used == nil:
+		return "notes", detail
+	case p.Liked != nil && p.Bookmarked == nil && p.Used == nil:
+		if *p.Liked {
+			return "like", detail
+		}
+		return "unlike", detail
+	case p.Bookmarked != nil || p.Used != nil:
+		detail["from"] = stageLabel(old)
+		detail["to"] = stageLabel(updated)
+		return "stage", detail
+	}
+	return "patch", detail
 }
 
 func (s *server) remove(w http.ResponseWriter, r *http.Request) {
@@ -281,10 +389,21 @@ func (s *server) remove(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "id required")
 		return
 	}
+	sk, _, _ := s.st.Get(id)
+	if r.URL.Query().Get("ignore") == "1" {
+		if err := s.st.Ignore(id, sk.Name, "removed"); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		s.event("ui", "ignore", id, map[string]any{"name": sk.Name})
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if err := s.st.Delete(id); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.event("ui", "remove", id, map[string]any{"name": sk.Name})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -306,6 +425,7 @@ func (s *server) refresh(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "skill not found")
 		return
 	}
+	s.event("ui", "refresh", sk.ID, map[string]any{"name": sk.Name})
 	writeJSON(w, 200, sk)
 }
 
@@ -328,58 +448,122 @@ func (s *server) resolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.enqueue(rf)
+	s.event("ui", "link", sk.ID, map[string]any{"name": sk.Name, "from": in.ID})
 	writeJSON(w, 200, sk)
 }
 
-// importEntry marks one installed skill as used, keeping any existing flags and notes.
-func (s *server) importEntry(name, source string) error {
-	name, source = strings.TrimSpace(name), strings.TrimSpace(source)
+type importItem struct {
+	Name    string `json:"name"`
+	Source  string `json:"source"`
+	Host    string `json:"host"`
+	Agent   string `json:"agent"`
+	Project string `json:"project"`
+	Path    string `json:"path"`
+}
+
+// importEntry marks one installed skill as used, keeping existing flags and notes.
+func (s *server) importEntry(item importItem) (string, bool, bool, error) {
+	name, source := strings.TrimSpace(item.Name), strings.TrimSpace(item.Source)
 	if name == "" {
-		return errors.New("empty name")
+		return "", false, false, errors.New("empty name")
 	}
-	used := true
-	flags := store.Patch{Used: &used}
-	up := func(r ref.Ref) error {
-		_, err := s.st.Upsert(r, flags)
-		if err == nil {
-			s.enqueue(r)
-		}
-		return err
-	}
+	var rf ref.Ref
+	local := false
 	if source != "" {
 		source = strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(source, "https://github.com/"), "http://github.com/"), ".git")
 		if r, err := ref.Parse(source + "/" + name); err == nil {
-			return up(r)
+			rf = r
 		}
 	}
-	if r, err := ref.Parse(name); err == nil {
-		return up(r)
+	if rf.ID == "" {
+		if r, err := ref.Parse(name); err == nil {
+			rf = r
+		} else if strings.ContainsAny(name, "/\\ \t") {
+			return "", false, false, fmt.Errorf("can't tell what %q is", name)
+		} else {
+			local = true
+		}
 	}
-	if strings.ContainsAny(name, "/\\ \t") {
-		return fmt.Errorf("can't tell what %q is", name)
+	id := rf.ID
+	if local {
+		id = "local/" + name
 	}
-	_, err := s.st.UpsertLocal(name, flags)
-	return err
+	if ignored, err := s.st.IsIgnored(id); err != nil || ignored {
+		return id, false, ignored, err
+	}
+	_, existed, err := s.st.Get(id)
+	if err != nil {
+		return id, false, false, err
+	}
+	used := true
+	flags := store.Patch{Used: &used}
+	var sk store.Skill
+	if local {
+		sk, err = s.st.UpsertLocal(name, flags)
+	} else {
+		sk, err = s.st.Upsert(rf, flags)
+	}
+	if err != nil {
+		return id, false, false, err
+	}
+	if !local {
+		s.enqueue(rf)
+	}
+	if item.Host != "" && item.Agent != "" {
+		sourcePath := item.Path
+		if sourcePath != "" {
+			sourcePath = strings.TrimRight(sourcePath, "/") + "/" + name
+		}
+		if err := s.st.RecordEnvironment(sk.ID, item.Host, item.Agent, item.Project, item.Path, sourcePath); err != nil {
+			return id, false, false, err
+		}
+	}
+	return sk.ID, !existed, false, nil
 }
 
 func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Items []struct{ Name, Source string } `json:"items"`
-		Text  string                          `json:"text"`
+		Items        []importItem `json:"items"`
+		Text         string       `json:"text"`
+		Prune        bool         `json:"prune"`
+		Environments []struct {
+			Host    string   `json:"host"`
+			Agent   string   `json:"agent"`
+			Project string   `json:"project"`
+			Path    string   `json:"path"`
+			Skills  []string `json:"skills"`
+		} `json:"environments"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	imported, errs := 0, []string{}
-	handle := func(name, source string) {
-		if err := s.importEntry(name, source); err != nil {
+	imported, created, ignoredCount := 0, 0, 0
+	errs := []string{}
+	seen := map[string]bool{}
+	itemIDs := map[string]string{}
+	handle := func(item importItem) {
+		id, wasCreated, wasIgnored, err := s.importEntry(item)
+		switch {
+		case err != nil:
 			errs = append(errs, err.Error())
-		} else {
-			imported++
+		case wasIgnored:
+			ignoredCount++
+		default:
+			if !seen[id] {
+				seen[id] = true
+				imported++
+				if wasCreated {
+					created++
+				}
+			}
+		}
+		if id != "" && err == nil && !wasIgnored {
+			key := store.EnvironmentID(item.Host, item.Agent, item.Project) + "\x00" + item.Name
+			itemIDs[key] = id
 		}
 	}
-	for _, it := range in.Items {
-		handle(it.Name, it.Source)
+	for _, item := range in.Items {
+		handle(item)
 	}
 	for _, line := range strings.Split(in.Text, "\n") {
 		line = strings.TrimSpace(line)
@@ -387,32 +571,222 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		handle(line, "")
+		handle(importItem{Name: line})
 	}
-	writeJSON(w, 200, map[string]any{"imported": imported, "errors": errs})
+	pruned := 0
+	if in.Prune {
+		for _, env := range in.Environments {
+			if err := s.st.TouchEnvironment(env.Host, env.Agent, env.Project, env.Path); err != nil {
+				errs = append(errs, err.Error())
+				continue
+			}
+			envID := store.EnvironmentID(env.Host, env.Agent, env.Project)
+			keep := []string{}
+			for _, name := range env.Skills {
+				if id, ok := itemIDs[envID+"\x00"+name]; ok {
+					keep = append(keep, id)
+				}
+			}
+			n, err := s.st.PruneEnvironment(envID, keep)
+			if err != nil {
+				errs = append(errs, err.Error())
+				continue
+			}
+			pruned += int(n)
+		}
+	}
+	source, action := "import", "import"
+	if r.Header.Get("X-Reet-Source") == "scan" {
+		source, action = "scan", "scan"
+	}
+	s.event(source, action, "", map[string]any{"imported": imported, "created": created, "ignored": ignoredCount, "pruned": pruned})
+	writeJSON(w, 200, map[string]any{"imported": imported, "created": created, "ignored": ignoredCount, "pruned": pruned, "errors": errs})
 }
 
-func (s *server) export(w http.ResponseWriter, r *http.Request) {
-	all, err := s.st.Export()
+func (s *server) environments(w http.ResponseWriter, r *http.Request) {
+	envs, err := s.st.ListEnvironments()
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	w.Header().Set("Content-Disposition", `attachment; filename="reet-export.json"`)
-	writeJSON(w, 200, map[string]any{"version": 1, "exportedAt": time.Now().UnixMilli(), "skills": all})
+	writeJSON(w, 200, map[string]any{"environments": envs})
 }
 
-func (s *server) restore(w http.ResponseWriter, r *http.Request) {
+func (s *server) tags(w http.ResponseWriter, r *http.Request) {
+	tags, err := s.st.ListTags()
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"tags": tags})
+}
+
+func (s *server) skillTags(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Skills []store.Skill `json:"skills"`
+		ID     string   `json:"id"`
+		Add    []string `json:"add"`
+		Remove []int64  `json:"remove"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	if err := s.st.Restore(in.Skills); err != nil {
+	if in.ID == "" {
+		writeErr(w, 400, "id required")
+		return
+	}
+	if len(in.Add) > 0 {
+		if err := s.st.AddSkillTags(in.ID, in.Add); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+	}
+	for _, id := range in.Remove {
+		if err := s.st.RemoveSkillTag(in.ID, id); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+	}
+	sk, ok, err := s.st.Get(in.ID)
+	if err != nil || !ok {
+		writeErr(w, 404, "skill not found")
+		return
+	}
+	s.event("ui", "tag", sk.ID, map[string]any{"name": sk.Name, "added": in.Add, "removed": in.Remove})
+	writeJSON(w, 200, sk)
+}
+
+func (s *server) installCopy(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	sk, ok, err := s.st.Get(in.ID)
+	if err != nil || !ok {
+		writeErr(w, 404, "skill not found")
+		return
+	}
+	s.event("ui", "install-copy", sk.ID, map[string]any{"name": sk.Name})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) renameTag(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ID   int64  `json:"id"`
+		Name string `json:"name"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := s.st.RenameTag(in.ID, in.Name); errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "tag not found")
+		return
+	} else if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			writeErr(w, 409, "that tag already exists")
+			return
+		}
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.event("ui", "tag-rename", "", map[string]any{"name": in.Name})
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (s *server) mergeTags(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		From int64 `json:"from"`
+		Into int64 `json:"into"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := s.st.MergeTags(in.From, in.Into); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.event("ui", "tag-merge", "", map[string]any{"from": in.From, "into": in.Into})
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (s *server) events(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit := 20
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	events, err := s.st.ListEvents(limit, q.Get("skill"))
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"events": events})
+}
+
+func (s *server) ignored(w http.ResponseWriter, r *http.Request) {
+	items, err := s.st.ListIgnored()
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ignored": items})
+}
+
+func (s *server) unignore(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		writeErr(w, 400, "id required")
+		return
+	}
+	name := id
+	if items, err := s.st.ListIgnored(); err == nil {
+		for _, item := range items {
+			if item.ID == id {
+				name = item.Name
+				break
+			}
+		}
+	}
+	if err := s.st.Unignore(id); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.event("ui", "unignore", id, map[string]any{"name": name})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) export(w http.ResponseWriter, r *http.Request) {
+	includeEvents := r.URL.Query().Get("events") != "0"
+	snap, err := s.st.ExportSnapshot(includeEvents)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.event("ui", "export", "", map[string]any{"events": includeEvents})
+	w.Header().Set("Content-Disposition", `attachment; filename="reet-export.json"`)
+	writeJSON(w, 200, snap)
+}
+
+func (s *server) restore(w http.ResponseWriter, r *http.Request) {
+	var in store.Snapshot
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.Skills == nil {
+		writeErr(w, 400, "backup has no skills")
+		return
+	}
+	if err := s.st.RestoreSnapshot(in); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	s.event("ui", "restore", "", map[string]any{"restored": len(in.Skills), "ignored": len(in.Ignored)})
 	writeJSON(w, 200, map[string]int{"restored": len(in.Skills)})
 }
 
@@ -420,14 +794,14 @@ func (s *server) quick(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	yes := true
 	var p store.Patch
-	var verb, alreadyVerb string
+	var verb, alreadyVerb, actionName string
 	switch q.Get("action") {
 	case "like":
-		p.Liked, verb, alreadyVerb = &yes, "Liked", "Already liked"
+		p.Liked, verb, alreadyVerb, actionName = &yes, "Liked", "Already liked", "like"
 	case "save":
-		p.Bookmarked, verb, alreadyVerb = &yes, "Saved", "Already saved"
+		p.Bookmarked, verb, alreadyVerb, actionName = &yes, "Saved", "Already saved", "stage"
 	case "used":
-		p.Used, verb, alreadyVerb = &yes, "Marked as used", "Already marked as used"
+		p.Used, verb, alreadyVerb, actionName = &yes, "Marked as used", "Already marked as used", "stage"
 	default:
 		quickPage(w, 400, "Unknown action")
 		return
@@ -444,12 +818,19 @@ func (s *server) quick(w http.ResponseWriter, r *http.Request) {
 	}
 	already := found &&
 		((p.Liked != nil && old.Liked) || (p.Bookmarked != nil && old.Bookmarked) || (p.Used != nil && old.Used))
+	_ = s.st.Unignore(rf.ID)
 	sk, err := s.st.Upsert(rf, p)
 	if err != nil {
 		quickPage(w, 500, "Could not save")
 		return
 	}
 	s.enqueue(rf)
+	detail := map[string]any{"name": sk.Name, "already": already}
+	if actionName == "stage" {
+		detail["from"] = stageLabel(old)
+		detail["to"] = stageLabel(sk)
+	}
+	s.event("quick", actionName, sk.ID, detail)
 	msg := verb + ": " + sk.Name
 	if already {
 		msg = alreadyVerb + ": " + sk.Name

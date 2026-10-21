@@ -30,7 +30,7 @@ permissions: {}
 
 concurrency:
   group: cleanup-packages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   cleanup:

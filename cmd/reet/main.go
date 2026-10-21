@@ -16,6 +16,7 @@ import (
 
 	"flag"
 	"github.com/eyupio/reet.sh/internal/api"
+	"github.com/eyupio/reet.sh/internal/backup"
 	"github.com/eyupio/reet.sh/internal/lifecycle"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/scan"
@@ -46,7 +47,7 @@ func main() {
 	case "version", "--version", "-v":
 		fmt.Printf("reet %s (%s)\n", version, commit)
 	case "help", "--help", "-h":
-		fmt.Println("usage: reet serve | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet sync | reet version")
+		fmt.Println("usage: reet serve | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet sync | reet backup | reet version")
 		fmt.Println("Run reet <command> --help for options. init/update are aliases for install/upgrade.")
 	case "install", "init", "upgrade", "update", "doctor":
 		if err := lifecycle.New(version, commit, os.Stdin, os.Stdout).Run(cmd, args); err != nil {
@@ -81,8 +82,13 @@ func main() {
 		if err := scan.RunVersion(args, os.Stdout, version); err != nil {
 			log.Fatal(err)
 		}
+	case "backup":
+		if err := runBackup(args, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	default:
-		fmt.Fprintln(os.Stderr, "usage: reet serve | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet sync | reet version")
+		fmt.Fprintln(os.Stderr, "usage: reet serve | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet sync | reet backup | reet version")
 		os.Exit(2)
 	}
 }
@@ -107,18 +113,24 @@ func serve() error {
 	if mode == api.AuthAccounts && os.Getenv("REET_TOKEN") != "" {
 		log.Printf("accounts enabled; REET_TOKEN is the setup bootstrap and scan token")
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	bcfg, berr := backup.FromEnv(os.Getenv)
+	if berr != nil {
+		log.Printf("backups: %v", berr)
+	}
+	backups := backup.New(st, bcfg)
+	backups.Start(ctx)
 	h := api.New(st, meta.Default(os.Getenv("SKILLS_SH_TOKEN")), os.Getenv("REET_TOKEN"),
 		api.WithAuthMode(mode), api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"),
 		api.WithTopics(os.Getenv("REET_TOPICS") != "off"),
-		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"))
+		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"), api.WithBackups(backups))
 	mux := http.NewServeMux()
 	mux.Handle("/api/", h)
 	mux.Handle("/quick", h)
 	mux.Handle("/healthz", h)
 	mux.Handle("/", web.Handler())
 	srv := &http.Server{Addr: env("REET_ADDR", ":8080"), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	go reportServer(ctx, st)
 	go func() {
 		<-ctx.Done()

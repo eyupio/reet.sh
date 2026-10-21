@@ -1238,6 +1238,10 @@ func (s *Store) DeleteUser(id int64) error {
 			`DELETE FROM api_tokens WHERE user_id=?`,
 			`DELETE FROM sessions WHERE user_id=?`,
 			`DELETE FROM invites WHERE created_by=?`,
+			`DELETE FROM backup_remotes WHERE owner_id=?`,
+			`DELETE FROM backup_settings WHERE owner_id=?`,
+			`DELETE FROM backup_runs WHERE owner_id=?`,
+			`DELETE FROM user_profiles WHERE user_id=?`,
 			`DELETE FROM users WHERE id=?`,
 		} {
 			if _, err := tx.Exec(stmt, id); err != nil {

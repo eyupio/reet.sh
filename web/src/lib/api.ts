@@ -409,3 +409,143 @@ export async function getCommunity(): Promise<{ lists: SharedList[]; skills: Lis
 export function audienceLabel(visibility: string): string { return ({ personal: 'Personal', private: 'Selected people', team: 'Team / organisation', public: 'Public community', members: 'Legacy instance audience', link: 'Unlisted link' } as Record<string, string>)[visibility] ?? visibility }
 
 export async function updateGroup(id: number, name: string, remove = false): Promise<{ groups: Group[] }> { return (await req(`/api/v2/groups/${id}`, { method: 'PATCH', body: json({ name, remove }) })).json() }
+
+// --- backups ---------------------------------------------------------------
+
+export type BackupRemote = {
+  name: string
+  source: 'environment' | 'database'
+  endpoint: string
+  region: string
+  bucket: string
+  prefix: string
+  accessKey: string
+  pathStyle: boolean | null
+  keep: number
+  disabled: boolean
+  hasSecret: boolean
+  where: string
+  problem?: string
+  uploading: boolean
+  lastUploadAt?: number
+  lastError?: string
+  lastErrorAt?: number
+}
+export type BackupItem = {
+  id: string
+  kind: 'instance' | 'user'
+  target: string
+  takenAt: number
+  bytes: number
+  version?: string
+  local: boolean
+  remotes: string[]
+}
+export type BackupRun = {
+  id: number
+  scope: string
+  trigger: string
+  state: 'running' | 'succeeded' | 'failed'
+  startedAt: number
+  finishedAt: number
+  bytes: number
+  object: string
+  offsite: string
+  error: string
+}
+export type BackupFinding = { severity: 'error' | 'warning' | 'info'; code: string; message: string }
+export type BackupStatus = {
+  scope: 'instance' | 'user'
+  enabled: boolean
+  dir: string
+  key: { fingerprint: string; source: string; path?: string }
+  settings: { everySeconds: number; keep: number; nextAt: number; lastAt: number; lastState: string; lastError: string; updatedAt: number }
+  defaults: { everySeconds: number; keep: number; userEverySeconds: number; userKeep: number }
+  remotes: BackupRemote[]
+  runs: BackupRun[]
+  items: BackupItem[]
+  unreachable?: string[]
+  findings: BackupFinding[]
+}
+export type BackupRemoteInput = {
+  name?: string
+  endpoint?: string
+  region?: string
+  bucket?: string
+  prefix?: string
+  accessKey?: string
+  secretKey?: string
+  pathStyle?: boolean | null
+  keep?: number
+  enabled?: boolean
+}
+export type BackupCheck = { name: string; ok: boolean; error?: string; steps: { step: string; ok: boolean; detail: string }[] }
+
+const bpath = (admin: boolean) => (admin ? '/api/v2/admin/backups' : '/api/v2/backups')
+
+export async function getBackupStatus(admin = false): Promise<BackupStatus> {
+  return (await req(bpath(admin))).json()
+}
+export async function saveBackupSettings(admin: boolean, everySeconds: number, keep: number): Promise<void> {
+  await req(bpath(admin), { method: 'PATCH', body: json({ everySeconds, keep }) })
+}
+export async function runBackupNow(admin = false): Promise<BackupItem> {
+  return (await req(`${bpath(admin)}/run`, { method: 'POST', body: json({}) })).json()
+}
+export async function createBackupRemote(admin: boolean, input: BackupRemoteInput): Promise<BackupRemote> {
+  return (await req(`${bpath(admin)}/remotes`, { method: 'POST', body: json(input) })).json()
+}
+export async function updateBackupRemote(admin: boolean, name: string, input: BackupRemoteInput): Promise<BackupRemote> {
+  return (await req(`${bpath(admin)}/remotes/${encodeURIComponent(name)}`, { method: 'PATCH', body: json(input) })).json()
+}
+export async function deleteBackupRemote(admin: boolean, name: string): Promise<void> {
+  await req(`${bpath(admin)}/remotes/${encodeURIComponent(name)}`, { method: 'DELETE' })
+}
+export async function testBackupRemote(admin: boolean, name: string): Promise<BackupCheck> {
+  return (await req(`${bpath(admin)}/remotes/${encodeURIComponent(name)}/test`, { method: 'POST', body: json({}) })).json()
+}
+export async function listBackupRemoteCopies(admin: boolean, name: string): Promise<{ items: BackupItem[] }> {
+  return (await req(`${bpath(admin)}/remotes/${encodeURIComponent(name)}/copies`)).json()
+}
+export async function verifyBackup(admin: boolean, id: string): Promise<{ ok: boolean; problems: string[] }> {
+  return (await req(`${bpath(admin)}/items/${encodeURIComponent(id)}/verify`, { method: 'POST', body: json({}) })).json()
+}
+export async function deleteBackup(admin: boolean, id: string): Promise<void> {
+  await req(`${bpath(admin)}/items/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+export async function restoreUserBackup(id: string): Promise<{ restored: number }> {
+  return (await req(`/api/v2/backups/items/${encodeURIComponent(id)}/restore`, { method: 'POST', body: json({}) })).json()
+}
+export function backupDownloadUrl(admin: boolean, id: string): string {
+  return `${bpath(admin)}/items/${encodeURIComponent(id)}/download`
+}
+
+// --- profile ---------------------------------------------------------------
+
+export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; updatedAt: number }
+export type ProfileInfo = { user: User; profile: Profile; sessionCount: number; accounts: boolean }
+export type ProfileSession = { id: string; device: string; createdAt: number; lastSeen: number; expiresAt: number; current: boolean }
+
+export function applyTheme(theme: string) {
+  const root = document.documentElement
+  if (theme === 'light' || theme === 'dark') root.dataset.theme = theme
+  else delete root.dataset.theme
+}
+export async function getProfile(): Promise<ProfileInfo> {
+  return (await req('/api/v2/profile')).json()
+}
+export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string }): Promise<ProfileInfo> {
+  return (await req('/api/v2/profile', { method: 'PATCH', body: json(input) })).json()
+}
+export async function changePassword(current: string, password: string): Promise<void> {
+  await req('/api/v2/profile/password', { method: 'POST', body: json({ current, password }) })
+}
+export async function listProfileSessions(): Promise<{ sessions: ProfileSession[] }> {
+  return (await req('/api/v2/profile/sessions')).json()
+}
+export async function endProfileSession(id: string): Promise<void> {
+  await req(`/api/v2/profile/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+export async function endOtherProfileSessions(): Promise<{ ended: number }> {
+  return (await req('/api/v2/profile/sessions/end-others', { method: 'POST', body: json({}) })).json()
+}

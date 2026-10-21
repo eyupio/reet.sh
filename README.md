@@ -45,8 +45,9 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 - **Copy missing installs.** Pick an environment and copy the install commands for everything on your shelf that is not there yet.
 - **Metadata that stays fresh.** Description, install count and a weekly sparkline, refreshed every six hours, politely.
 - **Tags and notes.** Skills.sh topics are seeded as tags; add your own and filter by several at once.
-- **Accounts.** Owner setup, argon2id passwords, HttpOnly SameSite sessions, rate-limited sign-in. Or token mode, or no auth on a trusted LAN.
+- **Accounts and profiles.** Owner setup, argon2id passwords, HttpOnly SameSite sessions, rate-limited sign-in. Each person's Account has their profile, password, sessions, personal API tokens, activity and backups. Or token mode, or no auth on a trusted LAN.
 - **Yours to take away.** Export JSON, Markdown or CSV, and restore from JSON. The database is one file.
+- **Sealed backups, here and off-site.** The owner backs up the whole instance; every person can back up their own shelf. Copies are encrypted before they are written or shipped, verified after every take, pruned by a count you choose, and sent to any S3-compatible destination.
 - **Pleasant to use.** Light and dark themes, works on a phone, keyboard friendly, respects reduced motion.
 
 <details>
@@ -87,7 +88,7 @@ Use **Lists** to browse My lists, Shared with me and Teams & organisations. **Co
 
 The default `REET_AUTH=accounts` creates one owner through the setup page on first visit, then signs people in with email and password. Each account has its own shelf. Roles are owner, admin, member and viewer; viewers are read-only. Shared lists are where people work together without sharing a shelf. Sessions are HttpOnly, SameSite=Lax cookies; passwords are stored with argon2id; sign-in is rate-limited.
 
-Click your name in the footer to open **Account**, where you can create and revoke personal API tokens (shown once). Admins get **Admin → Users** to invite people by link, reset passwords, disable accounts, change roles, revoke tokens and transfer ownership. If `REET_TOKEN` is set it is required once on the setup page and works for `reet scan` only until a personal API token exists.
+Click your name in the footer to open **Account**. Its sections are **Profile** (name, theme, time zone and date order), **Password** (which ends every other session), **Sessions**, **API tokens** (shown once), **Backups** for your own shelf, and **Activity**. Admins get **Admin → Users** to invite people by link, reset passwords, disable accounts, change roles, revoke tokens and transfer ownership, and **Admin → Backups** for the instance. If `REET_TOKEN` is set it is required once on the setup page and works for `reet scan` only until a personal API token exists.
 
 - **Solo or trusted LAN:** `REET_AUTH=none` removes sign-in and maps everything to an implicit owner. Use it only on a network you trust.
 - **Legacy single token:** `REET_AUTH=token` keeps the single `REET_TOKEN` login card and requires it for the UI, API and bookmarklets.
@@ -108,6 +109,12 @@ Click your name in the footer to open **Account**, where you can create and revo
 | `REET_CONTROLLER_URL` | empty | Optional remote controller to receive a server process's scans every minute. |
 | `REET_CONTROLLER_TOKEN` | empty | Personal token from the remote controller account; separate from this instance's bootstrap token. |
 | `REET_REFRESH` | empty | Set to `off` to stop the six-hourly metadata refresh (the 50 oldest skills, two seconds apart). |
+| `REET_BACKUP_KEY` | generated | Passphrase that seals every backup and every stored destination secret. Use `reet backup keygen`, and keep a copy away from this machine. Empty generates `data/backup.key` on first start. |
+| `REET_BACKUP_DIR` | `<data>/backups` | Where this machine keeps copies. |
+| `REET_BACKUP_EVERY`, `REET_BACKUP_KEEP` | `24h`, `48` | Instance backup schedule and the count kept here. `0` turns the schedule off; `0` kept means every copy. |
+| `REET_BACKUP_USER_EVERY`, `REET_BACKUP_USER_KEEP` | `0`, `14` | Defaults for a person's own backups; they can change them under Account → Backups. |
+| `REET_BACKUP_S3_*` | empty | One destination from the environment (`ENDPOINT`, `REGION`, `BUCKET`, `PREFIX`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `PATH_STYLE`, `NAME`), readable by a machine rebuilt from nothing. More destinations are added in the UI. |
+| `REET_BACKUP_ALLOW_LOCAL` | empty | Set `1` to allow an `http://` destination on another machine. Backups are sealed, but the access key id would travel in the clear. |
 
 ### Commands for keys and settings
 
@@ -173,7 +180,20 @@ See [environment sync](docs/environment-sync.md) for account setup, confirmed in
 
 ## Backup
 
-Use **Download JSON** and **Restore from JSON** in the UI, or call `GET /api/export` and `POST /api/restore`. The backup includes skills, notes, tags, environments and the ignored list; tick **Include local history** to add the event log. **Markdown** and **CSV** downloads follow the current search, stage, tag and environment filters, so you can hand someone exactly what is on screen. The database is a single file, `reet.db`, in your data folder.
+There are two kinds: a one-off export, and sealed copies taken on a schedule.
+
+**Export and restore (any person).** Use **Download JSON** and **Restore from JSON** in the UI, or call `GET /api/export` and `POST /api/restore`. The export includes skills, notes, tags, environments and the ignored list; tick **Include local history** to add the event log. **Markdown** and **CSV** downloads follow the current search, stage, tag and environment filters.
+
+**Sealed, scheduled backups.** The instance owner configures the schedule, retention and off-site destinations under **Admin → Backups**; each person can back up their own shelf under **Account → Backups**, to their own destination. Every copy is verified after it is taken, kept on this machine, and copied to each enabled S3-compatible destination. **Download** hands over the sealed `.reetbackup` file; **Export JSON** is the unsealed snapshot. The key is separate from the database: keep a copy of `data/backup.key` (or `REET_BACKUP_KEY`) somewhere else, or an off-site copy cannot be opened after the machine is lost.
+
+```sh
+reet backup keygen                     # print a key for REET_BACKUP_KEY
+reet backup list                      # instance copies on this machine
+reet backup run                       # take one now, and ship it
+reet backup restore --yes <id>        # with the server stopped
+```
+
+An instance restore replaces the live database, so the admin page tells you the command rather than doing it behind a running server; the database in place is moved aside, not deleted. A person's restore runs from their own page and only ever touches their own shelf. See [backups](docs/backups.md) for the full runbook, including a machine rebuilt from nothing.
 
 ## Shelf tools and admin
 
@@ -202,9 +222,10 @@ The `Dockerfile` builds the UI and the binary and cross-compiles for `linux/amd6
 
 | Path | What is there |
 | --- | --- |
-| `cmd/reet` | The one binary: `serve` runs the server, `scan` imports installed skills. |
+| `cmd/reet` | The one binary: `serve` runs the server, `scan` imports installed skills, `backup` takes and restores copies. |
 | `internal/api` | HTTP API and the embedded UI handler. |
 | `internal/auth` | Accounts, sessions, passwords and tokens. |
+| `internal/backup` | Sealed copies, S3 destinations, schedules, retention and restores. |
 | `internal/store` | SQLite storage and migrations. |
 | `internal/meta` | Fetches skills.sh metadata. |
 | `internal/ref` | Parses skills.sh URLs and slugs. |

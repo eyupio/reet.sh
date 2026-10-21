@@ -1,8 +1,61 @@
-# reet.sh
+<div align="center">
 
-A self-hosted shelf for the skills on [skills.sh](https://www.skills.sh). skills.sh has no accounts, likes or bookmarks, so reet.sh keeps your own list: like skills, save them for later, and track which ones you actually use.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="brand/logo/horizontal-color-dark.svg">
+  <img src="brand/logo/horizontal-color-light.svg" alt="reet.sh" width="340">
+</picture>
 
-It is a single Go binary with an embedded web UI and a SQLite file. Nothing is sent to skills.sh except read-only page fetches for names and descriptions.
+### Your own shelf for the AI skills on [skills.sh](https://www.skills.sh)
+
+Like them, save them for later, and keep track of the ones you actually use.<br>
+One Go binary. One SQLite file. No telemetry.
+
+[![CI](https://github.com/eyupio/reet.sh/actions/workflows/image.yml/badge.svg)](https://github.com/eyupio/reet.sh/actions/workflows/image.yml)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-c2410c.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/go-1.26-1d1c1a.svg)](go.mod)
+[![Container](https://img.shields.io/badge/ghcr.io-eyupio%2Freet.sh-1d1c1a.svg)](https://github.com/eyupio/reet.sh/pkgs/container/reet.sh)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-c2410c.svg)](CONTRIBUTING.md)
+
+[Quick start](#quick-start) · [Features](#features) · [Adding skills](#adding-skills) · [Configuration](#settings-env) · [Contributing](CONTRIBUTING.md)
+
+<br>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/shelf-dark.png">
+  <img src="docs/images/shelf-light.png" alt="The reet.sh shelf: skills grouped by In use, To test and On the shelf, with install counts and weekly trend" width="860">
+</picture>
+
+</div>
+
+## Why
+
+[skills.sh](https://www.skills.sh) is a great directory of agent skills, but it has no accounts, likes or bookmarks. You find a skill, close the tab, and a month later cannot remember which one it was or whether you ever installed it.
+
+reet.sh is the missing personal layer. Capture a skill in two seconds, move it through **On the shelf → To test → In use**, and run a scanner on any machine to see what is really installed in Claude Code, Cursor, Codex, OpenCode and the `skills` CLI. Setting up a new laptop becomes one click: **Copy missing installs**.
+
+Nothing is sent to skills.sh except read-only page fetches for names and descriptions.
+
+## Features
+
+- **Three-stage shelf.** On the shelf, To test, In use. Stage is derived from your flags, never stored out of step.
+- **Capture anywhere.** Paste a skills.sh URL or `owner/repo/skill`, or use the bookmarklets (Like, Save, In use) on any skill page.
+- **Know what is installed.** `reet scan` reads the skills folders for your tools and marks each skill "in use", per machine and per tool.
+- **Copy missing installs.** Pick an environment and copy the install commands for everything on your shelf that is not there yet.
+- **Metadata that stays fresh.** Description, install count and a weekly sparkline, refreshed every six hours, politely.
+- **Tags and notes.** Skills.sh topics are seeded as tags; add your own and filter by several at once.
+- **Accounts.** Owner setup, argon2id passwords, HttpOnly SameSite sessions, rate-limited sign-in. Or token mode, or no auth on a trusted LAN.
+- **Yours to take away.** Export JSON, Markdown or CSV, and restore from JSON. The database is one file.
+- **Pleasant to use.** Light and dark themes, works on a phone, keyboard friendly, respects reduced motion.
+
+<details>
+<summary>Dark mode and phone</summary>
+
+<p align="center">
+  <img src="docs/images/shelf-dark.png" alt="reet.sh in dark mode" width="560">
+  <img src="docs/images/shelf-phone.png" alt="reet.sh on a phone" width="190">
+</p>
+
+</details>
 
 ## Quick start
 
@@ -16,7 +69,7 @@ Open http://localhost:8080. On a new instance, create the owner account; if `REE
 
 The compose file uses the prebuilt image `ghcr.io/eyupio/reet.sh` (no local build). The database lives in a host folder, `./data` by default, bind-mounted at `/data`, so you can back it up or move it like any other folder. The container runs as `REET_UID:REET_GID` (your user, set by the script), so that folder stays owned by you.
 
-### Settings (`.env`)
+### Settings (`.env`) <a id="settings-env"></a>
 
 `docker compose` reads `.env` automatically. `.env.example` lists every setting with comments.
 
@@ -105,6 +158,31 @@ cd .. && go test ./... && go run ./cmd/reet serve
 For UI work, run `npm run dev` in `web/` (it proxies the API to `localhost:8080`).
 
 The `Dockerfile` builds the UI and the binary and cross-compiles for `linux/amd64` and `linux/arm64`. The GitHub Actions workflow tests every push and publishes `ghcr.io/eyupio/reet.sh` (`latest`, `vX.Y.Z` and `sha-<short>` tags) from `main` and version tags.
+
+
+## Project layout
+
+| Path | What is there |
+| --- | --- |
+| `cmd/reet` | The one binary: `serve` runs the server, `scan` imports installed skills. |
+| `internal/api` | HTTP API and the embedded UI handler. |
+| `internal/auth` | Accounts, sessions, passwords and tokens. |
+| `internal/store` | SQLite storage and migrations. |
+| `internal/meta` | Fetches skills.sh metadata. |
+| `internal/ref` | Parses skills.sh URLs and slugs. |
+| `internal/scan` | Finds skills installed on a machine. |
+| `web/` | The Svelte UI, built into `web/dist` and embedded in the binary. |
+| `brand/` | Logo set, colours and usage rules. |
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first; it covers the dev loop, tests and what makes a good change. Please follow the [Code of Conduct](CODE_OF_CONDUCT.md). Found a vulnerability? See [SECURITY.md](SECURITY.md) and do not open a public issue.
+
+## Licence
+
+reet.sh is free software under the [GNU Affero General Public License v3.0](LICENSE). In short: use it, change it, run it for yourself or your team; if you offer a modified version to others over a network, share your changes under the same licence.
+
+reet.sh is an independent project and is not affiliated with or endorsed by skills.sh or Vercel.
 
 ---
 

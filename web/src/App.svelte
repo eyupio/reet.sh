@@ -248,8 +248,9 @@
       margin-top: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--card);
       box-shadow: 0 16px 40px -12px rgb(0 0 0 / 0.28);
     }
-    .select option { padding: 8px 12px; border-radius: 8px; cursor: pointer; }
-    .select option:hover, .select option:focus { background: var(--tint); outline: none; }
+    .select option { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+    .select option + option { margin-top: 4px; }
+    .select option:hover, .select option:focus { background: var(--tint); border-color: var(--accent); outline: none; }
     .select option:checked { font-weight: 650; }
     .select option::checkmark { color: var(--accent); }
   }

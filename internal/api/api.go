@@ -198,6 +198,7 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	mux.HandleFunc("POST /api/restore", s.requireWriter(s.restore))
 	s.registerBackupRoutes(mux)
 	s.registerProfileRoutes(mux)
+	s.registerHostedRoutes(mux)
 	mux.HandleFunc("GET /quick", s.requireWriter(s.quick))
 	return s.logRequests(s.auth(mux))
 }
@@ -476,6 +477,11 @@ func (s *server) worker() {
 }
 
 func (s *server) fetchInto(r ref.Ref) bool {
+	if r.SourceType == "hosted" {
+		_, username, _ := strings.Cut(r.Source, "/")
+		sk, err := s.st.PublishedHostedSkill(username, r.Slug)
+		return err == nil && s.st.SetMeta(r.ID, sk.Slug, sk.Description, 0, 0, nil) == nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	m := s.f.Fetch(ctx, r)
@@ -664,7 +670,7 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	rf, err := ref.Parse(in.Input)
+	rf, err := s.parseSkillInput(r, in.Input)
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -759,12 +765,15 @@ func (s *server) refresh(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	before, _, _ := s.st.GetFor(s.uid(r), in.ID)
 	rf, err := ref.Parse(in.ID)
+	if before.SourceType == "hosted" {
+		rf, err = ref.ParseAt(before.URL, r.Host)
+	}
 	if err != nil {
 		writeErr(w, 400, "skill has no skills.sh source to refresh from")
 		return
 	}
-	before, _, _ := s.st.GetFor(s.uid(r), in.ID)
 	refreshed := s.fetchInto(rf)
 	sk, ok, err := s.st.GetFor(s.uid(r), in.ID)
 	if err != nil || !ok {
@@ -800,7 +809,7 @@ func (s *server) resolve(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	rf, err := ref.Parse(in.Input)
+	rf, err := s.parseSkillInput(r, in.Input)
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -828,7 +837,7 @@ type importItem struct {
 }
 
 // importEntry marks one installed skill as used, keeping existing flags and notes.
-func (s *server) importEntry(userID int64, item importItem) (string, bool, bool, error) {
+func (s *server) importEntry(userID int64, item importItem, request *http.Request) (string, bool, bool, error) {
 	name, source := strings.TrimSpace(item.Name), strings.TrimSpace(item.Source)
 	if name == "" {
 		return "", false, false, errors.New("empty name")
@@ -842,7 +851,7 @@ func (s *server) importEntry(userID int64, item importItem) (string, bool, bool,
 		}
 	}
 	if rf.ID == "" {
-		if r, err := ref.Parse(name); err == nil {
+		if r, err := s.parseSkillInput(request, name); err == nil {
 			rf = r
 		} else if strings.ContainsAny(name, "/\\ \t") {
 			return "", false, false, fmt.Errorf("can't tell what %q is", name)
@@ -953,7 +962,7 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 	seen := map[string]bool{}
 	itemIDs := map[string]string{}
 	handle := func(item importItem) {
-		id, wasCreated, wasIgnored, err := s.importEntry(s.uid(r), item)
+		id, wasCreated, wasIgnored, err := s.importEntry(s.uid(r), item, r)
 		switch {
 		case err != nil:
 			errs = append(errs, err.Error())
@@ -2035,6 +2044,8 @@ func installCommand(s store.Skill) string {
 	switch s.SourceType {
 	case "github":
 		source = "https://github.com/" + s.Source
+	case "hosted":
+		source = s.URL
 	case "well-known":
 		source = "https://" + s.Source
 	default:
@@ -2144,7 +2155,7 @@ func (s *server) quick(w http.ResponseWriter, r *http.Request) {
 		quickPage(w, 400, "Unknown action")
 		return
 	}
-	rf, err := ref.Parse(q.Get("url"))
+	rf, err := s.parseSkillInput(r, q.Get("url"))
 	if err != nil {
 		quickPage(w, 400, "Not a skills.sh skill page")
 		return

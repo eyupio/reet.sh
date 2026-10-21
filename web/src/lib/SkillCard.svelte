@@ -387,9 +387,9 @@
 
       {#if canWrite && linking}
         <form class="edit link" onsubmit={link}>
-          <label class="vh" for="link-{skill.id}">skills.sh URL for {skill.name}</label>
+          <label class="vh" for="link-{skill.id}">Install command or skills.sh URL for {skill.name}</label>
           <div>
-            <input id="link-{skill.id}" bind:value={linkInput} placeholder="skills.sh URL for {skill.name}" />
+            <input id="link-{skill.id}" bind:value={linkInput} placeholder="Install command or skills.sh URL for {skill.name}" />
             <button type="submit" class="btn primary">Link</button>
           </div>
         </form>

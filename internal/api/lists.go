@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -195,9 +194,9 @@ func (s *server) addListSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	skillID := strings.TrimSpace(in.ID)
 	if input := strings.TrimSpace(in.Input); input != "" {
-		rf, err := ref.Parse(input)
+		rf, err := s.parseSkillInput(r, input)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "use owner/repo/skill or a skills.sh URL")
+			writeErr(w, http.StatusBadRequest, "use an npx skills add command, owner/repo/skill or a skills.sh URL")
 			return
 		}
 		if err := s.st.EnsureSkill(rf); err != nil {

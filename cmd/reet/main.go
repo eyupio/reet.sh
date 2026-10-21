@@ -173,7 +173,7 @@ func serve() error {
 	mux.Handle("/api/", h)
 	mux.Handle("/quick", h)
 	mux.Handle("/healthz", h)
-	mux.Handle("/", web.Handler())
+	mux.Handle("/", api.WithHostedPages(h, web.Handler()))
 	srv := &http.Server{Addr: env("REET_ADDR", ":8080"), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go reportServer(ctx, st)
 	go func() {

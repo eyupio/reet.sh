@@ -12,6 +12,7 @@
     type Counts, type Environment, type Event, type Flags, type ListRef, type SharedList, type Skill, type Sort, type Tag, type User,
   } from './lib/api'
   import Account from './lib/Account.svelte'
+  import Hosting from './lib/Hosting.svelte'
   import AccountSignIn from './lib/AccountSignIn.svelte'
   import Admin from './lib/Admin.svelte'
   import BulkBar from './lib/BulkBar.svelte'
@@ -84,6 +85,7 @@
   let bulkRemoving = $state<Skill[]>([])
 
   const origin = location.origin
+  const isHosting = location.pathname === '/hosting'
   const isCommunity = location.pathname === '/community'
   const isShared = location.pathname === '/shared'
   const isSpaces = location.pathname === '/spaces'
@@ -106,10 +108,11 @@
   const accountPages = [['profile', 'Profile'], ['security', 'Password'], ['sessions', 'Sessions'], ['machines', 'Machines'], ['sync', 'Compare & sync'], ['tokens', 'API tokens'], ['backups', 'Backups'], ['activity', 'Activity']]
   const adminPages = [['overview', 'Overview'], ['environments', 'Environments'], ['users', 'Users'], ['team', 'Team usage'], ['backups', 'Backups'], ['settings', 'Settings'], ['activity', 'Activity']]
   const mainNavigation = $derived([
-    { href: '/', label: 'Personal shelf', current: !isAdmin && !isAccount && !isList && !isCommunity && !isShared && !isSpaces },
+    { href: '/', label: 'Personal shelf', current: !isHosting && !isAdmin && !isAccount && !isList && !isCommunity && !isShared && !isSpaces },
     { href: '/shared', label: 'Lists', current: isShared || isList },
     { href: '/spaces', label: 'Teams', current: isSpaces },
     { href: '/community', label: 'Community', current: isCommunity },
+    ...(canWrite ? [{ href: '/hosting', label: 'Host skills', current: isHosting }] : []),
     ...(authMode === 'accounts' ? [{ href: '/account/profile', label: 'Account', current: isAccount,
       children: accountPages.filter(([key]) => key !== 'tokens' || canWrite).map(([key, label]) => ({ label, href: `/account/${key}`, current: isAccount && (location.pathname === `/account/${key}` || (key === 'profile' && location.pathname === '/account')) })),
     }] : []),
@@ -632,7 +635,7 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : authChecked && !authenticated ? 'Sign in' : isAdmin ? 'Admin' : isAccount ? 'Your account' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isAdmin ? 'Admin' : isAccount ? 'Your account' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
   {/if}
 </svelte:head>
 
@@ -668,6 +671,8 @@
   {:else if !authMode}
     <PageHeader eyebrow="Connection problem" title="The shelf is out of reach." />
     <p class="notice bad" role="alert">Could not check how this instance signs in. Reload the page to try again.</p>
+  {:else if isHosting}
+    <Hosting {canWrite} />
   {:else if isShared}
     <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
   {:else if isSpaces}
@@ -689,8 +694,8 @@
     </PageHeader>
     {#if canWrite}
       <form class="add" onsubmit={add}>
-        <label class="vh" for="add-input">Skill URL or slug</label>
-        <input id="add-input" bind:this={addEl} placeholder="Paste a skills.sh URL or owner/repo/skill" autocomplete="off" bind:value={addInput} />
+        <label class="vh" for="add-input">Skill install command, URL or slug</label>
+        <input id="add-input" bind:this={addEl} placeholder="Paste an install command, skills.sh URL or owner/repo/skill" autocomplete="off" bind:value={addInput} />
         <button class="btn primary" type="submit">Add to shelf</button>
       </form>
     {/if}
@@ -820,7 +825,7 @@
           <p class="eyebrow">Ey up. Start here.</p>
           <h2 id="start-title">Put the first skill on your shelf.</h2>
           <p class="lede">Capture it now, sort it later. Everything stays on this instance.</p>
-          <p>Paste a skills.sh URL or <code>owner/repo/skill</code> into the box above. Your first find starts On the shelf; save it To test, then mark it In use when it earns its place.</p>
+          <p>Paste an <code>npx skills add</code> command, skills.sh URL or <code>owner/repo/skill</code> into the box above. Your first find starts On the shelf; save it To test, then mark it In use when it earns its place.</p>
           <div class="start-options">
             {#if authMode === 'accounts'}<a class="btn" href="/account/machines#connect-machine">Scan this machine</a>{/if}
             <a class="btn" href="/community">Explore community</a>

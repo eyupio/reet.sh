@@ -3,6 +3,8 @@ import type { Event } from './api'
 type Detail = {
   host?: string
   name?: string
+  username?: string
+  published?: boolean
   from?: string
   to?: string
   imported?: number
@@ -118,6 +120,12 @@ export function eventLabel(e: Event): string {
       return `${d.name || 'Someone'} signed in`
     case 'sign-out':
       return `${d.name || 'Someone'} signed out`
+    case 'publishing-username':
+      return `Claimed publishing username ${d.username || ''}`.trim()
+    case 'hosted-save':
+      return `${d.published ? 'Published' : 'Saved a draft of'} ${name}`
+    case 'hosted-delete':
+      return `Deleted hosted skill ${name}`
     case 'profile':
       return 'Updated your profile'
     case 'password-change':

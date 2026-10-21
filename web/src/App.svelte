@@ -547,7 +547,7 @@
 {#if !needsAuth && !isAdmin && !isAccount && !isJoin}<a class="skip" href="#sections">Skip to your skills</a>{/if}
 <main>
   <header>
-    <h1><Logo /></h1>
+    <h1><a class="home" href="/"><Logo /></a></h1>
     {#if !isAdmin}<p class="tag">Keep the reet good AI skills from skills.sh, all in one place.</p>{/if}
   </header>
 
@@ -787,6 +787,7 @@
   main { max-width: 760px; margin: 0 auto; padding: clamp(24px, 6vw, 56px) 16px 48px; }
 
   h1 { margin: 0; line-height: 1; }
+  .home { display: inline-block; color: inherit; text-decoration: none; }
   .tag { margin: 12px 0 0; color: var(--muted); font: italic 1.1rem/1.4 var(--serif); max-width: 36ch; }
 
   .add { display: flex; gap: 8px; margin: 28px 0 8px; }

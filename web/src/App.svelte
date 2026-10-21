@@ -11,6 +11,8 @@
     type Counts, type Environment, type Event, type Flags, type ListRef, type SharedList, type Skill, type Sort, type Tag, type User,
   } from './lib/api'
   import Account from './lib/Account.svelte'
+  import MCPConsent from './lib/MCPConsent.svelte'
+  import WebMCP from './lib/WebMCP.svelte'
   import AccountSignIn from './lib/AccountSignIn.svelte'
   import Admin from './lib/Admin.svelte'
   import Bookmarklets from './lib/Bookmarklets.svelte'
@@ -82,6 +84,7 @@
   const isSpaces = location.pathname === '/spaces'
   const isAdmin = location.pathname.startsWith('/admin')
   const isAccount = location.pathname.startsWith('/account')
+  const isMCPConsent = location.pathname === '/account/mcp/authorize'
   const isJoin = location.pathname.startsWith('/join')
   const listMatch = location.pathname.match(/^\/lists\/(\d+)\/?$/)
   const isList = listMatch !== null
@@ -207,6 +210,9 @@
 
   onMount(() => {
     void initAuth()
+    const changed = () => { if (authenticated) void reloadAll() }
+    window.addEventListener('reet-shelf-changed', changed)
+    return () => window.removeEventListener('reet-shelf-changed', changed)
   })
 
   async function initAuth() {
@@ -634,6 +640,8 @@
     <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
   {:else if isSpaces}
     <Spaces {canWrite} />
+  {:else if isMCPConsent && authMode === 'accounts'}
+    <MCPConsent />
   {:else if isAccount && authMode === 'accounts'}
     <Account user={currentUser!} onsignout={signOut} onerror={fail} onuserchange={(u) => (currentUser = u)} />
   {:else if isList}
@@ -837,6 +845,8 @@
     {/if}
   {/if}
 </main>
+
+{#if authMode === 'accounts' && currentUser && !needsAuth && !isMCPConsent}<WebMCP />{/if}
 <Footer
   signedIn={!isPublicList && authMode !== 'none' && authenticated && !needsAuth}
   showAdmin={!isPublicList && authenticated && !needsAuth && isAdminUser}

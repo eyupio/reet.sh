@@ -91,6 +91,10 @@ export type AuthStatus = {
   user: User | null
 }
 export type APIToken = { id: number; name: string; createdAt: number; lastUsedAt?: number }
+export type MCPConnection = { id: number; name: string; scope: 'read' | 'write'; enabled: boolean; kind: 'bearer' | 'oauth'; createdAt: number; expiresAt: number; lastUsedAt: number }
+export type MCPAccess = { enabled: boolean; browserEnabled: boolean; browserScope: 'read' | 'write'; canWrite: boolean; endpoint: string; connections: MCPConnection[] }
+export type MCPTool = { name: string; title?: string; description: string; inputSchema: Record<string, unknown>; annotations: { readOnlyHint: boolean; destructiveHint?: boolean } }
+export type MCPConsent = { clientName: string; callbackHost: string; scope: 'read' | 'write'; enabled: boolean; canWrite: boolean; account: string }
 export type UserMeta = User & { createdAt: number; disabledAt?: number; lastActive?: number; tokens: number }
 export type Invite = { email: string; role: string; expiresAt: number }
 export type Tag = { id: number; name: string; source?: 'topic' | 'user'; hidden?: boolean; count?: number }
@@ -257,6 +261,36 @@ export async function restoreAll(data: unknown): Promise<{ restored: number }> {
 }
 export async function listTokens(): Promise<{ tokens: APIToken[] }> {
   return (await req('/api/v2/tokens')).json()
+}
+export async function getMCPAccess(): Promise<MCPAccess> {
+  return (await req('/api/v2/mcp')).json()
+}
+export async function saveMCPAccess(settings: Partial<Pick<MCPAccess, 'enabled' | 'browserEnabled' | 'browserScope'>>): Promise<MCPAccess> {
+  return (await req('/api/v2/mcp', { method: 'PATCH', body: json(settings) })).json()
+}
+export async function createMCPConnection(name: string, scope: string, expiresInDays: number): Promise<{ connection: MCPConnection; token: string }> {
+  return (await req('/api/v2/mcp/connections', { method: 'POST', body: json({ name, scope, expiresInDays }) })).json()
+}
+export async function updateMCPConnection(id: number, data: { name?: string; scope?: string; enabled?: boolean; expiresInDays?: number }): Promise<MCPAccess> {
+  return (await req(`/api/v2/mcp/connections/${id}`, { method: 'PATCH', body: json(data) })).json()
+}
+export async function rotateMCPConnection(id: number): Promise<{ connection: MCPConnection; token: string }> {
+  return (await req(`/api/v2/mcp/connections/${id}/rotate`, { method: 'POST', body: '{}' })).json()
+}
+export async function revokeMCPConnection(id?: number): Promise<void> {
+  await req(`/api/v2/mcp/connections${id === undefined ? '' : `/${id}`}`, { method: 'DELETE' })
+}
+export async function getMCPConsent(query: string): Promise<MCPConsent> {
+  return (await req(`/api/v2/mcp/authorization?${query}`)).json()
+}
+export async function answerMCPConsent(query: string, approve: boolean, scope: string): Promise<{ redirect: string }> {
+  return (await req('/api/v2/mcp/authorization', { method: 'POST', body: json({ query, approve, scope }) })).json()
+}
+export async function getBrowserMCPTools(): Promise<{ tools: MCPTool[] }> {
+  return (await req('/api/v2/mcp/browser/tools')).json()
+}
+export async function callBrowserMCP(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return (await req('/api/v2/mcp/browser/call', { method: 'POST', body: json({ name, arguments: args }) })).json()
 }
 export async function createToken(name: string): Promise<{ id: number; name: string; token: string; createdAt: number }> {
   return (await req('/api/v2/tokens', { method: 'POST', body: json({ name }) })).json()

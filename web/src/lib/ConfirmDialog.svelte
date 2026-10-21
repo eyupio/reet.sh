@@ -4,6 +4,7 @@
   let {
     title,
     body,
+    details,
     confirmLabel = 'Confirm',
     secondaryLabel,
     danger = false,
@@ -13,6 +14,7 @@
   }: {
     title: string
     body: string
+    details?: string
     confirmLabel?: string
     secondaryLabel?: string
     danger?: boolean
@@ -22,6 +24,7 @@
   } = $props()
 
   let dialog = $state<HTMLDialogElement>()
+  const titleId = $props.id()
   let cancelBtn = $state<HTMLButtonElement>()
 
   onMount(() => {
@@ -46,10 +49,11 @@
   }
 </script>
 
-<dialog bind:this={dialog} aria-labelledby="confirm-title" oncancel={(e) => { e.preventDefault(); cancel() }}>
+<dialog bind:this={dialog} aria-labelledby={titleId} oncancel={(e) => { e.preventDefault(); cancel() }}>
   <div class="box">
-    <h2 id="confirm-title">{title}</h2>
+    <h2 id={titleId}>{title}</h2>
     <p>{body}</p>
+    {#if details}<textarea class="details" readonly rows="8" aria-label="Proposed changes" value={details}></textarea>{/if}
     <div class="actions">
       <button type="button" class="btn quiet" bind:this={cancelBtn} onclick={cancel}>Cancel</button>
       {#if secondaryLabel && onsecondary}
@@ -72,6 +76,7 @@
   }
   h2 { margin: 0; font: 600 1.5rem/1.15 var(--serif); letter-spacing: -0.02em; }
   p { margin: 10px 0 0; color: var(--muted); }
+  .details { width:100%; box-sizing:border-box; margin:16px 0 0; padding:12px; max-height:240px; overflow:auto; resize:vertical; white-space:pre-wrap; overflow-wrap:anywhere; font:.76rem/1.5 ui-monospace,monospace; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); }
   .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; flex-wrap: wrap; }
   .danger { background: var(--bad); border-color: var(--bad); color: var(--bg); }
   .secondary { color: var(--bad); }

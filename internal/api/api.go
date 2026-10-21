@@ -28,21 +28,23 @@ import (
 )
 
 type server struct {
-	importMu    sync.Mutex
-	st          *store.Store
-	f           meta.Fetcher
-	token       string
-	version     string
-	commit      string
-	debug       bool
-	topics      bool
-	refreshJob  bool
-	authMode    AuthMode
-	limiter     *auth.Limiter
-	dummyHash   string
-	defaultUser store.User
-	queue       chan ref.Ref
-	backups     *backup.Service
+	importMu     sync.Mutex
+	st           *store.Store
+	f            meta.Fetcher
+	token        string
+	version      string
+	commit       string
+	debug        bool
+	topics       bool
+	refreshJob   bool
+	authMode     AuthMode
+	limiter      *auth.Limiter
+	dummyHash    string
+	oauthLimiter *auth.Limiter
+	publicURL    string
+	defaultUser  store.User
+	queue        chan ref.Ref
+	backups      *backup.Service
 }
 
 // AuthMode selects how the instance authenticates requests.
@@ -63,6 +65,11 @@ type userContextKey struct{}
 
 // Option configures the server.
 type Option func(*server)
+
+// WithPublicURL sets the canonical origin used by MCP OAuth discovery behind a proxy.
+func WithPublicURL(origin string) Option {
+	return func(s *server) { s.publicURL = strings.TrimRight(origin, "/") }
+}
 
 // WithVersion sets the build version and commit reported by /api/version and /healthz.
 func WithVersion(version, commit string) Option {
@@ -107,7 +114,7 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	dummy, _ := auth.HashPassword("not-a-real-password")
 	s := &server{
 		st: st, f: f, token: token, version: "dev", commit: "unknown",
-		authMode: AuthToken, limiter: auth.NewLimiter(5, time.Minute), dummyHash: dummy,
+		authMode: AuthToken, limiter: auth.NewLimiter(5, time.Minute), oauthLimiter: auth.NewLimiter(30, time.Minute), dummyHash: dummy,
 		queue: make(chan ref.Ref, 256),
 	}
 	for _, opt := range opts {
@@ -196,6 +203,7 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	mux.HandleFunc("POST /api/restore", s.requireWriter(s.restore))
 	s.registerBackupRoutes(mux)
 	s.registerProfileRoutes(mux)
+	s.registerMCPRoutes(mux)
 	mux.HandleFunc("GET /quick", s.requireWriter(s.quick))
 	return s.logRequests(s.auth(mux))
 }
@@ -382,6 +390,19 @@ func (s *server) auth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey{}, s.defaultUser)))
 			return
 		case AuthAccounts:
+			if tok := requestToken(r); guardedPath(r.URL.Path) && strings.HasPrefix(tok, "reet_mcp_") {
+				if r.Header.Get("Authorization") != "Bearer "+tok {
+					writeErr(w, 401, "MCP credentials require a bearer authorization header")
+					return
+				}
+				_, ok := s.mcpCredential(tok, s.oauthBase(r)+"/mcp")
+				if !ok {
+					writeErr(w, 401, "MCP credential is paused, expired, revoked or invalid")
+					return
+				}
+				writeErr(w, 403, "MCP credentials are valid only at the /mcp endpoint; use a browser session to maintain access")
+				return
+			}
 			if openAuthPath(r.URL.Path) || !guardedPath(r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return

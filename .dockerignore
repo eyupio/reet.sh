@@ -6,4 +6,6 @@ data
 docs
 web/node_modules
 web/dist
+mcp/node_modules
+mcp/dist
 *.md

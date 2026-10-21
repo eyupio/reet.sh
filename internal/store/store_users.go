@@ -1080,8 +1080,14 @@ func (s *Store) RevokeAPIToken(userID, id int64) error {
 }
 
 func (s *Store) RevokeUserTokens(userID int64) error {
-	_, err := s.db.Exec(`UPDATE api_tokens SET revoked_at=? WHERE user_id=? AND revoked_at=0`, now(), userID)
-	return err
+	return s.withTx(func(tx *sql.Tx) error {
+		for _, table := range []string{"api_tokens", "mcp_connections"} {
+			if _, err := tx.Exec(`UPDATE `+table+` SET revoked_at=? WHERE user_id=? AND revoked_at=0`, now(), userID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (s *Store) HasActiveAPITokens(userID int64) (bool, error) {
@@ -1236,6 +1242,8 @@ func (s *Store) DeleteUser(id int64) error {
 			`DELETE FROM ignored WHERE user_id=?`,
 			`DELETE FROM events WHERE user_id=?`,
 			`DELETE FROM api_tokens WHERE user_id=?`,
+			`DELETE FROM mcp_connections WHERE user_id=?`,
+			`DELETE FROM mcp_access WHERE user_id=?`,
 			`DELETE FROM sessions WHERE user_id=?`,
 			`DELETE FROM invites WHERE created_by=?`,
 			`DELETE FROM backup_remotes WHERE owner_id=?`,

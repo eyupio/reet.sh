@@ -3,6 +3,7 @@
   import Backups from './Backups.svelte'
   import CopyButton from './CopyButton.svelte'
   import EnvironmentSync from './EnvironmentSync.svelte'
+  import MCPAccess from './MCPAccess.svelte'
   import PageHeader from './PageHeader.svelte'
   import {
     applyTheme, changePassword, createToken, endOtherProfileSessions, endProfileSession, getProfile, listEvents,
@@ -16,7 +17,7 @@
     user, onsignout, onerror, onuserchange,
   }: { user: User; onsignout: () => void; onerror?: (e: unknown) => void; onuserchange?: (u: User) => void } = $props()
 
-  type Section = 'profile' | 'security' | 'sessions' | 'tokens' | 'backups' | 'activity'
+  type Section = 'profile' | 'security' | 'sessions' | 'tokens' | 'mcp' | 'backups' | 'activity'
   // svelte-ignore state_referenced_locally
   let who = $state<User>(user)
   const canWrite = $derived(who.role !== 'viewer')
@@ -24,6 +25,7 @@
     { key: 'profile', label: 'Profile' },
     { key: 'security', label: 'Password' },
     { key: 'sessions', label: 'Sessions' },
+    { key: 'mcp', label: 'MCP access' },
     ...(canWrite ? [{ key: 'tokens' as const, label: 'API tokens' }] : []),
     { key: 'backups', label: 'Backups' },
     { key: 'activity', label: 'Activity' },
@@ -46,7 +48,7 @@
 
   function sectionFromHash(): Section {
     const h = location.hash.replace('#', '') as Section
-    return ['profile', 'security', 'sessions', 'tokens', 'backups', 'activity'].includes(h) ? h : 'profile'
+    return ['profile', 'security', 'sessions', 'tokens', 'mcp', 'backups', 'activity'].includes(h) ? h : 'profile'
   }
 
   function go(s: Section) {
@@ -388,6 +390,8 @@
         </form>
       </section>
     {/if}
+  {:else if section === 'mcp'}
+    <MCPAccess timeZone={profile.timezone} dateFormat={profile.dateFormat} />
   {:else if section === 'backups'}
     <Backups {onerror} role={who.role} admin={false} {canWrite} timeZone={profile.timezone} dateFormat={profile.dateFormat} />
   {:else if section === 'activity'}

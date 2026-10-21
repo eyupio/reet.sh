@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"runtime"
@@ -94,6 +95,13 @@ func main() {
 }
 
 func serve() error {
+	publicURL := os.Getenv("REET_PUBLIC_URL")
+	if publicURL != "" {
+		u, err := url.Parse(publicURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+			return fmt.Errorf("REET_PUBLIC_URL must be an HTTP(S) origin without credentials, path, query or fragment")
+		}
+	}
 	st, err := store.Open(env("REET_DATA_DIR", "./data"))
 	if err != nil {
 		return err
@@ -123,12 +131,15 @@ func serve() error {
 	backups.Start(ctx)
 	h := api.New(st, meta.Default(os.Getenv("SKILLS_SH_TOKEN")), os.Getenv("REET_TOKEN"),
 		api.WithAuthMode(mode), api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"),
-		api.WithTopics(os.Getenv("REET_TOPICS") != "off"),
+		api.WithTopics(os.Getenv("REET_TOPICS") != "off"), api.WithPublicURL(os.Getenv("REET_PUBLIC_URL")),
 		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"), api.WithBackups(backups))
 	mux := http.NewServeMux()
 	mux.Handle("/api/", h)
 	mux.Handle("/quick", h)
 	mux.Handle("/healthz", h)
+	mux.Handle("/mcp", h)
+	mux.Handle("/oauth/", h)
+	mux.Handle("/.well-known/", h)
 	mux.Handle("/", web.Handler())
 	srv := &http.Server{Addr: env("REET_ADDR", ":8080"), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go reportServer(ctx, st)

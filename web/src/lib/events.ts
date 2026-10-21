@@ -15,6 +15,8 @@ type Detail = {
   role?: string
   email?: string
   disabled?: boolean
+  enabled?: boolean
+  connection?: string
 }
 
 function detail(e: Event): Detail {
@@ -93,6 +95,22 @@ export function eventLabel(e: Event): string {
       return 'Created an API token'
     case 'token-revoke':
       return 'Revoked an API token'
+    case 'mcp-access':
+      return typeof d.enabled === 'boolean' ? (d.enabled ? 'Enabled MCP access' : 'Paused MCP access') : 'Updated browser WebMCP permissions'
+    case 'mcp-create':
+      return `Created the MCP connection ${d.name || ''}`.trim()
+    case 'mcp-authorize':
+      return `Authorized ${d.name || 'an MCP client'}`
+    case 'mcp-update':
+      return `Updated the MCP connection ${d.name || ''}`.trim()
+    case 'mcp-rotate':
+      return `Replaced the bearer token for ${d.name || 'an MCP connection'}`
+    case 'mcp-revoke':
+      return `Revoked ${d.name || 'an MCP connection'}`
+    case 'mcp-revoke-all':
+      return 'Revoked all MCP connections'
+    case 'mcp-call':
+      return `Made a change through ${d.connection || 'an MCP client'}`
     case 'user-role':
       return `Changed ${d.name || 'a user'}'s role to ${d.role}`
     case 'user-disable':
@@ -100,7 +118,7 @@ export function eventLabel(e: Event): string {
     case 'user-reset':
       return `Reset the password for ${d.name || 'a user'}`
     case 'user-revoke':
-      return `Revoked ${d.name || 'a user'}'s API tokens`
+      return `Revoked ${d.name || 'a user'}'s API and MCP tokens`
     case 'user-transfer':
       return `${d.name || 'A user'} is the new owner`
     case 'user-delete':

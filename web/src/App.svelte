@@ -142,7 +142,10 @@
     toast = null
   }
 
+  let loadVersion = 0
+
   async function load(): Promise<boolean> {
+    const version = ++loadVersion
     try {
       const r = await listSkills({
         tab: onlyLiked ? 'liked' : 'all',
@@ -152,6 +155,7 @@
         env: selectedEnv,
         only: onlyOne ? 'one-machine' : '',
       })
+      if (version !== loadVersion) return false
       skills = r.skills
       counts = r.counts
       error = ''
@@ -159,10 +163,11 @@
       if (!metaLoaded) void loadMeta().then((ok) => (metaLoaded = ok))
       return true
     } catch (e) {
+      if (version !== loadVersion) return false
       fail(e)
       return false
     } finally {
-      loading = false
+      if (version === loadVersion) loading = false
     }
   }
 
@@ -506,7 +511,10 @@
 
   async function tags(s: Skill, add: string[], remove: number[]): Promise<boolean> {
     try {
-      await addSkillTags(s.id, add, remove)
+      const updated = await addSkillTags(s.id, add, remove)
+      // Older list requests must not overwrite the tag mutation response.
+      ++loadVersion
+      skills = skills.map((skill) => skill.id === updated.id ? updated : skill)
       await reloadAll()
       return true
     } catch (e) {

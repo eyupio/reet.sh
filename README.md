@@ -144,7 +144,7 @@ The installer downloads a GitHub release, verifies its SHA-256 checksum, and ins
 
 - **Paste a link.** Paste a skills.sh URL or `owner/repo/skill` into the box at the top.
 - **Bookmarklets.** Open "Show bookmarklets and tools" in the UI and drag the Like, Save and In use links to your bookmarks bar. On any skills.sh skill page, click one to send that skill to reet.sh. In accounts mode the links use your session cookie and carry no secret; in token mode they contain `REET_TOKEN`, so keep them private.
-- **Tags.** The daily skills.sh topic seed adds tags like Design & UI or Testing to matching skills. Add your own from a card, then filter the shelf by one or more tags. Rename or merge tags under Show bookmarklets and tools → Manage tags.
+- **Tags.** The daily skills.sh topic seed adds tags like Design & UI or Testing to matching skills. Use **Edit tags** on a skill to add tags or remove them with ×; changes save immediately. Removed tags stay removed through topic refreshes until you explicitly add them again. Outside edit mode, click a tag to filter the shelf, or combine several tag filters. Rename or merge tags under Show bookmarklets and tools → Manage tags.
 - **Import what you have installed.** Run the scanner on the machine that has your skills:
 
   ```sh

@@ -592,19 +592,9 @@ func (s *Store) TagManyFor(userID int64, ids []string, add []string, remove []in
 				}
 			}
 			for _, tagID := range remove {
-				var source string
-				err := tx.QueryRow(`SELECT source FROM skill_tags WHERE user_id=? AND skill_id=? AND tag_id=?`, userID, skillID, tagID).Scan(&source)
-				if errors.Is(err, sql.ErrNoRows) {
-					continue
-				}
-				if err != nil {
-					return err
-				}
-				if source == "topic" {
-					if _, err := tx.Exec(`UPDATE skill_tags SET hidden=1 WHERE user_id=? AND skill_id=? AND tag_id=?`, userID, skillID, tagID); err != nil {
-						return err
-					}
-				} else if _, err := tx.Exec(`DELETE FROM skill_tags WHERE user_id=? AND skill_id=? AND tag_id=?`, userID, skillID, tagID); err != nil {
+				// Keep a tombstone even for user tags: a later topic sync must
+				// not undo an explicit removal. Adding the tag clears hidden.
+				if _, err := tx.Exec(`UPDATE skill_tags SET hidden=1 WHERE user_id=? AND skill_id=? AND tag_id=?`, userID, skillID, tagID); err != nil {
 					return err
 				}
 			}
@@ -657,22 +647,8 @@ func (s *Store) AddSkillTagsFor(userID int64, skillID string, names []string) er
 }
 
 func (s *Store) RemoveSkillTagFor(userID int64, skillID string, tagID int64) error {
-	return s.withTx(func(tx *sql.Tx) error {
-		var source string
-		err := tx.QueryRow(`SELECT source FROM skill_tags WHERE user_id=? AND skill_id=? AND tag_id=?`, userID, skillID, tagID).Scan(&source)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if source == "topic" {
-			_, err = tx.Exec(`UPDATE skill_tags SET hidden=1 WHERE user_id=? AND skill_id=? AND tag_id=?`, userID, skillID, tagID)
-			return err
-		}
-		_, err = tx.Exec(`DELETE FROM skill_tags WHERE user_id=? AND skill_id=? AND tag_id=?`, userID, skillID, tagID)
-		return err
-	})
+	_, err := s.TagManyFor(userID, []string{skillID}, nil, []int64{tagID})
+	return err
 }
 
 func (s *Store) ListTagsFor(userID int64) ([]Tag, error) {
@@ -721,7 +697,7 @@ func (s *Store) ReplaceTopicsForAll(topics []Topic) error {
 			}
 			for _, user := range users {
 				if len(topic.Skills) == 0 {
-					if _, err := tx.Exec(`DELETE FROM skill_tags WHERE user_id=? AND tag_id=? AND source='topic'`, user.ID, tagID); err != nil {
+					if _, err := tx.Exec(`DELETE FROM skill_tags WHERE user_id=? AND tag_id=? AND source='topic' AND hidden=0`, user.ID, tagID); err != nil {
 						return err
 					}
 					continue
@@ -730,7 +706,7 @@ func (s *Store) ReplaceTopicsForAll(topics []Topic) error {
 				for _, id := range topic.Skills {
 					args = append(args, id)
 				}
-				if _, err := tx.Exec(`DELETE FROM skill_tags WHERE user_id=? AND tag_id=? AND source='topic' AND (
+				if _, err := tx.Exec(`DELETE FROM skill_tags WHERE user_id=? AND tag_id=? AND source='topic' AND hidden=0 AND (
 					skill_id NOT IN (`+placeholders(len(topic.Skills))+`) OR NOT EXISTS (
 						SELECT 1 FROM shelf sh WHERE sh.user_id=? AND sh.skill_id=skill_tags.skill_id))`, args...); err != nil {
 					return err

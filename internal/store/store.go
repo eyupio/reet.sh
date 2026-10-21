@@ -664,47 +664,7 @@ func (s *Store) PatchMany(ids []string, p Patch) (int, error) {
 
 // TagMany adds and removes tags across many skills in one transaction.
 func (s *Store) TagMany(ids []string, add []string, remove []int64) (int, error) {
-	err := s.withTx(func(tx *sql.Tx) error {
-		var addIDs []int64
-		for _, name := range add {
-			name = strings.TrimSpace(name)
-			if name == "" {
-				continue
-			}
-			tagID, err := upsertTagTx(tx, name)
-			if err != nil {
-				return err
-			}
-			addIDs = append(addIDs, tagID)
-		}
-		for _, skillID := range ids {
-			for _, tagID := range addIDs {
-				if _, err := tx.Exec(`INSERT INTO skill_tags(user_id,skill_id,tag_id,source,hidden) VALUES(0,?,?,'user',0)
-					ON CONFLICT(user_id,skill_id,tag_id) DO UPDATE SET source='user', hidden=0`, skillID, tagID); err != nil {
-					return err
-				}
-			}
-			for _, tagID := range remove {
-				var source string
-				err := tx.QueryRow(`SELECT source FROM skill_tags WHERE user_id=0 AND skill_id=? AND tag_id=?`, skillID, tagID).Scan(&source)
-				if errors.Is(err, sql.ErrNoRows) {
-					continue
-				}
-				if err != nil {
-					return err
-				}
-				if source == "topic" {
-					if _, err := tx.Exec(`UPDATE skill_tags SET hidden=1 WHERE skill_id=? AND tag_id=?`, skillID, tagID); err != nil {
-						return err
-					}
-				} else if _, err := tx.Exec(`DELETE FROM skill_tags WHERE skill_id=? AND tag_id=?`, skillID, tagID); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	})
-	return len(ids), err
+	return s.TagManyFor(0, ids, add, remove)
 }
 
 // RemoveMany deletes many skills, optionally recording each as ignored.
@@ -1033,22 +993,7 @@ func (s *Store) AddSkillTags(skillID string, names []string) error {
 }
 
 func (s *Store) RemoveSkillTag(skillID string, tagID int64) error {
-	return s.withTx(func(tx *sql.Tx) error {
-		var source string
-		err := tx.QueryRow(`SELECT source FROM skill_tags WHERE user_id=0 AND skill_id=? AND tag_id=?`, skillID, tagID).Scan(&source)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if source == "topic" {
-			_, err = tx.Exec(`UPDATE skill_tags SET hidden=1 WHERE user_id=0 AND skill_id=? AND tag_id=?`, skillID, tagID)
-			return err
-		}
-		_, err = tx.Exec(`DELETE FROM skill_tags WHERE user_id=0 AND skill_id=? AND tag_id=?`, skillID, tagID)
-		return err
-	})
+	return s.RemoveSkillTagFor(0, skillID, tagID)
 }
 
 func (s *Store) RenameTag(id int64, name string) error {
@@ -1113,7 +1058,7 @@ func (s *Store) ReplaceTopics(topics []Topic) error {
 				}
 			}
 			if len(topic.Skills) == 0 {
-				if _, err := tx.Exec(`DELETE FROM skill_tags WHERE tag_id=? AND source='topic'`, tagID); err != nil {
+				if _, err := tx.Exec(`DELETE FROM skill_tags WHERE tag_id=? AND source='topic' AND hidden=0`, tagID); err != nil {
 					return err
 				}
 				continue
@@ -1122,7 +1067,7 @@ func (s *Store) ReplaceTopics(topics []Topic) error {
 			for _, id := range topic.Skills {
 				args = append(args, id)
 			}
-			if _, err := tx.Exec(`DELETE FROM skill_tags WHERE tag_id=? AND source='topic' AND skill_id NOT IN (`+placeholders(len(topic.Skills))+`)`, args...); err != nil {
+			if _, err := tx.Exec(`DELETE FROM skill_tags WHERE tag_id=? AND source='topic' AND hidden=0 AND skill_id NOT IN (`+placeholders(len(topic.Skills))+`)`, args...); err != nil {
 				return err
 			}
 			args = []any{tagID}

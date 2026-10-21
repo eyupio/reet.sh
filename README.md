@@ -36,7 +36,7 @@ REET_TOKEN=choose-something docker compose up -d
   reet scan --server http://your-host:8080 --token "$REET_TOKEN"
   ```
 
-  It reads the skills folders for your tools (`~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills`, `~/.codex/skills`, `~/.config/opencode/skills`, plus `.claude/skills` and `.agents/skills` in the current directory) and the skills CLI lock file at `~/.agents/.skill-lock.json` if present, then marks each skill as "in use". Existing likes, saves and notes are kept. Add `--dir PATH` for other folders and `--dry-run` to preview. You can also run it from the container: `docker exec reet /reet scan` only sees the container's own files, so run the binary on the host instead (download it from the releases page or `go install github.com/eyupio/reet.sh/cmd/reet@latest`).
+  It reads the skills folders for your tools (`~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills`, `~/.codex/skills`, `~/.config/opencode/skills`, plus `.claude/skills` and `.agents/skills` in the current directory) and the skills CLI lock file at `~/.agents/.skill-lock.json` if present, then marks each skill as "in use". Existing likes, saves and notes are kept. Add `--dir PATH` for other folders and `--dry-run` to preview. The scanner needs to see your skills folders, so run it on the machine that has them, not inside the container. Build it with `go install github.com/eyupio/reet.sh/cmd/reet@latest` (the scanner does not need the web UI).
 
   Skills found only by folder name show as "unlinked". Use **Link** on the card to attach the skills.sh URL.
 

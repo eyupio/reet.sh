@@ -19,6 +19,7 @@ func (s *server) registerBackupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/admin/backups/run", s.requireOwner(s.adminBackupRun))
 	mux.HandleFunc("GET /api/v2/admin/backups/remotes", s.requireAdmin(s.adminBackupRemotes))
 	mux.HandleFunc("POST /api/v2/admin/backups/remotes", s.requireOwner(s.adminBackupRemoteCreate))
+	mux.HandleFunc("POST /api/v2/admin/backups/remotes/test", s.requireOwner(s.adminBackupRemoteTestDraft))
 	mux.HandleFunc("PATCH /api/v2/admin/backups/remotes/{name}", s.requireOwner(s.adminBackupRemoteUpdate))
 	mux.HandleFunc("DELETE /api/v2/admin/backups/remotes/{name}", s.requireOwner(s.adminBackupRemoteDelete))
 	mux.HandleFunc("POST /api/v2/admin/backups/remotes/{name}/test", s.requireOwner(s.adminBackupRemoteTest))
@@ -33,6 +34,7 @@ func (s *server) registerBackupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/backups/run", s.requireWriter(s.userBackupRun))
 	mux.HandleFunc("GET /api/v2/backups/remotes", s.userBackupRemotes)
 	mux.HandleFunc("POST /api/v2/backups/remotes", s.requireWriter(s.userBackupRemoteCreate))
+	mux.HandleFunc("POST /api/v2/backups/remotes/test", s.requireWriter(s.userBackupRemoteTestDraft))
 	mux.HandleFunc("PATCH /api/v2/backups/remotes/{name}", s.requireWriter(s.userBackupRemoteUpdate))
 	mux.HandleFunc("DELETE /api/v2/backups/remotes/{name}", s.requireWriter(s.userBackupRemoteDelete))
 	mux.HandleFunc("POST /api/v2/backups/remotes/{name}/test", s.requireWriter(s.userBackupRemoteTest))
@@ -123,6 +125,14 @@ func (s *server) adminBackupRemoteDelete(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.deleteBackupRemote(w, r, svc, adminOwner())
+}
+
+func (s *server) adminBackupRemoteTestDraft(w http.ResponseWriter, r *http.Request) {
+	svc := s.backupsOr(w)
+	if svc == nil {
+		return
+	}
+	s.testBackupRemoteDraft(w, r, svc, adminOwner())
 }
 
 func (s *server) adminBackupRemoteTest(w http.ResponseWriter, r *http.Request) {
@@ -237,6 +247,14 @@ func (s *server) userBackupRemoteDelete(w http.ResponseWriter, r *http.Request) 
 	s.deleteBackupRemote(w, r, svc, s.uid(r))
 }
 
+func (s *server) userBackupRemoteTestDraft(w http.ResponseWriter, r *http.Request) {
+	svc := s.backupsOr(w)
+	if svc == nil {
+		return
+	}
+	s.testBackupRemoteDraft(w, r, svc, s.uid(r))
+}
+
 func (s *server) userBackupRemoteTest(w http.ResponseWriter, r *http.Request) {
 	svc := s.backupsOr(w)
 	if svc == nil {
@@ -296,8 +314,9 @@ func (s *server) userBackupDelete(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) saveBackupSettings(w http.ResponseWriter, r *http.Request, svc *backup.Service, ownerID int64) {
 	var in struct {
-		EverySeconds *int64 `json:"everySeconds"`
-		Keep         *int   `json:"keep"`
+		EverySeconds *int64  `json:"everySeconds"`
+		Keep         *int    `json:"keep"`
+		Destination  *string `json:"destination"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -308,13 +327,17 @@ func (s *server) saveBackupSettings(w http.ResponseWriter, r *http.Request, svc 
 		return
 	}
 	every, keep := current.EverySeconds, current.Keep
+	destination := current.Destination
 	if in.EverySeconds != nil {
 		every = *in.EverySeconds
 	}
 	if in.Keep != nil {
 		keep = *in.Keep
 	}
-	saved, err := svc.SaveSettings(ownerID, every, keep)
+	if in.Destination != nil {
+		destination = *in.Destination
+	}
+	saved, err := svc.SaveSettings(ownerID, every, keep, destination)
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -323,7 +346,7 @@ func (s *server) saveBackupSettings(w http.ResponseWriter, r *http.Request, svc 
 	if strings.HasPrefix(r.URL.Path, "/api/v2/admin/") {
 		scope = "instance"
 	}
-	s.event(s.uid(r), "backup", "backup-settings", "", map[string]any{"scope": scope, "everySeconds": saved.EverySeconds, "keep": saved.Keep})
+	s.event(s.uid(r), "backup", "backup-settings", "", map[string]any{"scope": scope, "everySeconds": saved.EverySeconds, "keep": saved.Keep, "destination": saved.Destination})
 	writeJSON(w, 200, saved)
 }
 
@@ -369,6 +392,26 @@ func (s *server) deleteBackupRemote(w http.ResponseWriter, r *http.Request, svc 
 	}
 	s.event(s.uid(r), "backup", "backup-remote-remove", "", map[string]any{"name": name})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) testBackupRemoteDraft(w http.ResponseWriter, r *http.Request, svc *backup.Service, ownerID int64) {
+	var in backup.RemoteInput
+	if !decode(w, r, &in) {
+		return
+	}
+	steps, err := svc.TestRemoteDraft(r.Context(), ownerID, in)
+	out := map[string]any{"name": valueOr(in.Name, ""), "ok": err == nil, "steps": steps}
+	if err != nil {
+		out["error"] = err.Error()
+	}
+	writeJSON(w, 200, out)
+}
+
+func valueOr(v *string, fallback string) string {
+	if v == nil {
+		return fallback
+	}
+	return *v
 }
 
 func (s *server) testBackupRemote(w http.ResponseWriter, r *http.Request, svc *backup.Service, ownerID int64) {

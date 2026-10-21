@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import {
-    addSkill, addSkillTags, clearToken, getAuthStatus, getToken, listEnvironments, listEvents, listSkills, listTags,
+    addSkill, addSkillTags, clearToken, getAuthStatus, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
     patchSkill, patchSkills, refreshSkill, removeSkill, removeSkills, resolveSkill, restoreAll, signOutAccount, tagSkills, UnauthorizedError,
-    type Counts, type Environment, type Event, type Flags, type Skill, type Sort, type Tag, type User,
+    type Counts, type Environment, type Event, type Flags, type ListRef, type SharedList, type Skill, type Sort, type Tag, type User,
   } from './lib/api'
   import Account from './lib/Account.svelte'
   import AccountSignIn from './lib/AccountSignIn.svelte'
@@ -14,7 +14,10 @@
   import CopyButton from './lib/CopyButton.svelte'
   import Footer from './lib/Footer.svelte'
   import Join from './lib/Join.svelte'
+  import ListView from './lib/ListView.svelte'
   import Logo from './lib/Logo.svelte'
+  import NewList from './lib/NewList.svelte'
+  import PublicList from './lib/PublicList.svelte'
   import Setup from './lib/Setup.svelte'
   import SignIn from './lib/SignIn.svelte'
   import SkillCard from './lib/SkillCard.svelte'
@@ -49,6 +52,9 @@
   let toastId = 0
   let environments = $state<Environment[]>([])
   let allTags = $state<Tag[]>([])
+  let lists = $state<SharedList[]>([])
+  let linkEnabled = $state(true)
+  let newListOpen = $state(false)
   let selectedTags = $state<number[]>([])
   let selectedEnv = $state('')
   let onlyOne = $state(false)
@@ -66,6 +72,12 @@
   const isAdmin = location.pathname.startsWith('/admin')
   const isAccount = location.pathname.startsWith('/account')
   const isJoin = location.pathname.startsWith('/join')
+  const listMatch = location.pathname.match(/^\/lists\/(\d+)\/?$/)
+  const isList = listMatch !== null
+  const listId = listMatch ? Number(listMatch[1]) : 0
+  const publicMatch = location.pathname.match(/^\/l\/([^/]+)\/?$/)
+  const isPublicList = publicMatch !== null
+  const publicSlug = publicMatch ? decodeURIComponent(publicMatch[1]) : ''
   const joinToken = new URLSearchParams(location.search).get('token') ?? ''
   const signedIn = $derived(token !== '')
   const authenticated = $derived(authMode === 'none' || (authMode === 'token' && token !== '') || (authMode === 'accounts' && currentUser !== null))
@@ -155,14 +167,20 @@
 
   async function loadMeta(): Promise<boolean> {
     try {
-      const [envs, tags] = await Promise.all([listEnvironments(), listTags()])
+      const [envs, tags, shared] = await Promise.all([listEnvironments(), listTags(), listLists()])
       environments = envs.environments
       allTags = tags.tags
+      lists = shared.lists
+      linkEnabled = shared.linkEnabled
       return true
     } catch (e) {
       fail(e)
       return false
     }
+  }
+
+  function openList(list: SharedList | ListRef) {
+    location.assign(`/lists/${list.id}`)
   }
 
   async function reloadAll() {
@@ -544,14 +562,16 @@
   }
 </script>
 
-{#if !needsAuth && !isAdmin && !isAccount && !isJoin}<a class="skip" href="#sections">Skip to your skills</a>{/if}
+{#if !needsAuth && !isAdmin && !isAccount && !isJoin && !isList && !isPublicList}<a class="skip" href="#sections">Skip to your skills</a>{/if}
 <main>
   <header>
     <h1><Logo /></h1>
     {#if !isAdmin}<p class="tag">Keep the reet good AI skills from skills.sh, all in one place.</p>{/if}
   </header>
 
-  {#if isJoin}
+  {#if isPublicList}
+    <PublicList slug={publicSlug} />
+  {:else if isJoin}
     <Join token={joinToken} onsuccess={afterJoin} />
   {:else if !authChecked}
     <p class="empty" role="status">Loading…</p>
@@ -565,6 +585,8 @@
     <p class="notice bad" role="alert">Could not check how this instance signs in. Reload the page to try again.</p>
   {:else if isAccount && authMode === 'accounts'}
     <Account user={currentUser!} onsignout={signOut} onerror={fail} />
+  {:else if isList}
+    <ListView id={listId} {canWrite} userRole={role} onerror={fail} />
   {:else if isAccount}
     <p class="notice bad" role="alert">Accounts are not enabled on this instance.</p>
   {:else if isAdmin && !isAdminUser}
@@ -611,6 +633,20 @@
             </select>
           </span>
         </div>
+      </div>
+    {/if}
+
+    {#if lists.length > 0 || canWrite}
+      <div class="filterbar" role="group" aria-label="Shared lists">
+        <span class="bar-label">Lists</span>
+        {#each lists as list (list.id)}
+          <button type="button" class="chip" onclick={() => openList(list)} title={`${list.skillCount} skills · ${list.visibility}`}>
+            {list.name}<small>{list.skillCount}</small>
+          </button>
+        {/each}
+        {#if canWrite}
+          <button type="button" class="chip action" onclick={() => (newListOpen = true)}>+ New list</button>
+        {/if}
       </div>
     {/if}
 
@@ -711,6 +747,7 @@
                 selecting={selecting} selectedIDs={selected} onselect={select} {canWrite}
                 onpatch={patch} onrefresh={refreshOne} onlink={link} onremove={remove}
                 onfiltertag={filterTag} onfilterenv={filterEnv} ontags={tags} onhistory={history}
+                onopenlist={openList}
               />
               {:else}
                 <li class="none">{g.empty}</li>
@@ -733,11 +770,19 @@
   {/if}
 </main>
 <Footer
-  signedIn={authMode !== 'none' && authenticated && !needsAuth}
-  showAdmin={authenticated && !needsAuth && isAdminUser}
+  signedIn={!isPublicList && authMode !== 'none' && authenticated && !needsAuth}
+  showAdmin={!isPublicList && authenticated && !needsAuth && isAdminUser}
   userName={currentUser?.name ?? ''}
   onsignout={signOut}
 />
+{#if newListOpen}
+  <NewList
+    {linkEnabled}
+    oncreated={(list) => { newListOpen = false; location.assign(`/lists/${list.id}`) }}
+    oncancel={() => (newListOpen = false)}
+  />
+{/if}
+
 {#if removePending}
   <ConfirmDialog
     title={`Remove ${removePending.name}?`}

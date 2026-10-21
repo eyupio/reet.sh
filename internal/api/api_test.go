@@ -792,3 +792,146 @@ func TestInviteJoinRoleChangesAndTransfer(t *testing.T) {
 		t.Fatalf("old owner admin after transfer: %d", code)
 	}
 }
+
+func TestSharedListsRolesAndPublicLink(t *testing.T) {
+	srv, st := newAccountsSrvStore(t, "bootstrap")
+	owner := &http.Client{Jar: mustJar(t)}
+	if code, _ := doClient(t, owner, srv, "POST", "/api/v2/auth/setup", `{"name":"Owner","email":"owner@example.com","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 200 {
+		t.Fatalf("setup: %d", code)
+	}
+	hash, _ := auth.HashPassword("long-enough-password")
+	for _, u := range []struct{ email, name, role string }{
+		{"editor@example.com", "Editor", "member"},
+		{"viewer@example.com", "Viewer", "viewer"},
+	} {
+		if _, err := st.CreateUser(u.email, u.name, u.role, hash); err != nil {
+			t.Fatal(err)
+		}
+	}
+	editor := &http.Client{Jar: mustJar(t)}
+	viewer := &http.Client{Jar: mustJar(t)}
+	if code, _ := doClient(t, editor, srv, "POST", "/api/v2/auth/sign-in", `{"email":"editor@example.com","password":"long-enough-password"}`); code != 200 {
+		t.Fatalf("editor sign-in: %d", code)
+	}
+	if code, _ := doClient(t, viewer, srv, "POST", "/api/v2/auth/sign-in", `{"email":"viewer@example.com","password":"long-enough-password"}`); code != 200 {
+		t.Fatalf("viewer sign-in: %d", code)
+	}
+
+	code, body := doClient(t, owner, srv, "POST", "/api/v2/lists", `{"name":"Launch pack","description":"Before launch","visibility":"private"}`)
+	var list store.ListDetail
+	if code != 200 || json.Unmarshal([]byte(body), &list) != nil || list.ID == 0 {
+		t.Fatalf("create list: %d %s", code, body)
+	}
+	if code, body := doClient(t, owner, srv, "POST", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10)+"/skills", `{"input":"a/b/list-skill","note":"start here"}`); code != 200 || !strings.Contains(body, `"note":"start here"`) {
+		t.Fatalf("add list skill: %d %s", code, body)
+	}
+	if code, _ := doClient(t, editor, srv, "GET", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10), ""); code != 404 {
+		t.Fatalf("non-member read private list: %d", code)
+	}
+	if code, body := doClient(t, owner, srv, "POST", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10)+"/members", `{"email":"editor@example.com","role":"editor"}`); code != 200 || !strings.Contains(body, `"canEdit":true`) {
+		t.Fatalf("add editor: %d %s", code, body)
+	}
+	if code, body := doClient(t, owner, srv, "POST", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10)+"/members", `{"email":"viewer@example.com","role":"viewer"}`); code != 200 {
+		t.Fatalf("add viewer: %d %s", code, body)
+	}
+	if code, body := doClient(t, editor, srv, "POST", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10)+"/skills", `{"input":"a/b/editor-skill"}`); code != 200 || !strings.Contains(body, "editor-skill") {
+		t.Fatalf("editor add: %d %s", code, body)
+	}
+	if code, _ := doClient(t, viewer, srv, "POST", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10)+"/skills", `{"input":"a/b/nope"}`); code != 403 {
+		t.Fatalf("viewer add: %d", code)
+	}
+	if code, body := doClient(t, viewer, srv, "GET", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10), ""); code != 200 || !strings.Contains(body, "list-skill") {
+		t.Fatalf("viewer read: %d %s", code, body)
+	}
+	if code, body := doClient(t, viewer, srv, "POST", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10)+"/add-to-shelf", `{}`); code != 403 {
+		t.Fatalf("viewer add all: %d %s", code, body)
+	}
+	if code, body := doClient(t, editor, srv, "POST", "/api/skills", `{"input":"a/b/list-skill","used":true}`); code != 200 {
+		t.Fatalf("editor seeded shelf: %d %s", code, body)
+	}
+	if code, body := doClient(t, editor, srv, "POST", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10)+"/add-to-shelf", `{}`); code != 200 || !strings.Contains(body, `"added":1`) {
+		t.Fatalf("editor add all: %d %s", code, body)
+	}
+	if code, body := doClient(t, editor, srv, "GET", "/api/skills", ""); code != 200 || !strings.Contains(body, "list-skill") {
+		t.Fatalf("editor shelf: %d %s", code, body)
+	}
+	if code, body := doClient(t, editor, srv, "GET", "/api/skills", ""); code != 200 || !strings.Contains(body, `"id":"a/b/list-skill","source"`) || !strings.Contains(body, `"used":true`) {
+		t.Fatalf("existing shelf row changed: %d %s", code, body)
+	}
+	if code, body := doClient(t, editor, srv, "GET", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10), ""); code != 200 || !strings.Contains(body, `"useCount":1`) {
+		t.Fatalf("adoption badge: %d %s", code, body)
+	}
+	editorUser, _, _ := st.UserByEmail("editor@example.com")
+	if code, body := doClient(t, owner, srv, "POST", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10)+"/transfer", `{"userId":`+strconv.FormatInt(editorUser.ID, 10)+`}`); code != 200 {
+		t.Fatalf("transfer: %d %s", code, body)
+	}
+	if code, body := doClient(t, editor, srv, "GET", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10), ""); code != 200 || !strings.Contains(body, `"canManage":true`) || !strings.Contains(body, `"role":"owner"`) {
+		t.Fatalf("new owner: %d %s", code, body)
+	}
+	if code, body := doClient(t, viewer, srv, "GET", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10), ""); code != 200 || !strings.Contains(body, `"ownerName":"Editor"`) {
+		t.Fatalf("transfer visible to member: %d %s", code, body)
+	}
+
+	if code, _ := doClient(t, owner, srv, "POST", "/api/v2/lists", `{"name":"Public pack","visibility":"link"}`); code != 403 {
+		t.Fatalf("link list should be off by default: %d", code)
+	}
+	if code, _ := doClient(t, owner, srv, "PATCH", "/api/admin/settings", `{"linkListsEnabled":true}`); code != 200 {
+		t.Fatalf("turn on links: %d", code)
+	}
+	code, body = doClient(t, owner, srv, "POST", "/api/v2/lists", `{"name":"Public pack","visibility":"link"}`)
+	var public store.ListDetail
+	if code != 200 || json.Unmarshal([]byte(body), &public) != nil || public.Slug == "" {
+		t.Fatalf("create public list: %d %s", code, body)
+	}
+	if code, body := doClient(t, owner, srv, "POST", "/api/v2/lists/"+strconv.FormatInt(public.ID, 10)+"/skills", `{"input":"a/b/public-skill","note":"read me"}`); code != 200 {
+		t.Fatalf("public add: %d %s", code, body)
+	}
+	code, body = do(t, srv, "GET", "/api/v2/public/lists/"+public.Slug, "")
+	if code != 200 || !strings.Contains(body, "public-skill") || !strings.Contains(body, "read me") {
+		t.Fatalf("public read: %d %s", code, body)
+	}
+	if strings.Contains(body, "owner@example.com") || strings.Contains(body, "editor@example.com") || strings.Contains(body, `"members"`) {
+		t.Fatalf("public list leaked people: %s", body)
+	}
+	if code, _ := doClient(t, owner, srv, "PATCH", "/api/admin/settings", `{"linkListsEnabled":false}`); code != 200 {
+		t.Fatalf("turn off links: %d", code)
+	}
+	if code, _ := do(t, srv, "GET", "/api/v2/public/lists/"+public.Slug, ""); code != 404 {
+		t.Fatalf("public read after off: %d", code)
+	}
+	if code, body := doClient(t, owner, srv, "PATCH", "/api/v2/lists/"+strconv.FormatInt(public.ID, 10), `{"name":"Public pack renamed"}`); code != 200 || !strings.Contains(body, "Public pack renamed") {
+		t.Fatalf("rename while links off: %d %s", code, body)
+	}
+}
+
+func TestSharedListCardsAndMembersVisibility(t *testing.T) {
+	srv, st := newAccountsSrvStore(t, "bootstrap")
+	owner := &http.Client{Jar: mustJar(t)}
+	if code, _ := doClient(t, owner, srv, "POST", "/api/v2/auth/setup", `{"name":"Owner","email":"owner@example.com","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 200 {
+		t.Fatalf("setup: %d", code)
+	}
+	hash, _ := auth.HashPassword("long-enough-password")
+	other, _ := st.CreateUser("other@example.com", "Other", "member", hash)
+	otherClient := &http.Client{Jar: mustJar(t)}
+	if code, _ := doClient(t, otherClient, srv, "POST", "/api/v2/auth/sign-in", `{"email":"other@example.com","password":"long-enough-password"}`); code != 200 {
+		t.Fatalf("other sign-in: %d", code)
+	}
+	code, body := doClient(t, owner, srv, "POST", "/api/v2/lists", `{"name":"Team picks","visibility":"members"}`)
+	var list store.ListDetail
+	if code != 200 || json.Unmarshal([]byte(body), &list) != nil {
+		t.Fatalf("create: %d %s", code, body)
+	}
+	if code, body := doClient(t, owner, srv, "POST", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10)+"/skills", `{"input":"a/b/team-skill"}`); code != 200 {
+		t.Fatalf("add: %d %s", code, body)
+	}
+	if code, body := doClient(t, otherClient, srv, "GET", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10), ""); code != 200 || !strings.Contains(body, "team-skill") || strings.Contains(body, "owner@example.com") {
+		t.Fatalf("members read: %d %s", code, body)
+	}
+	if code, _ := doClient(t, otherClient, srv, "POST", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10)+"/add-to-shelf", `{}`); code != 200 {
+		t.Fatalf("other add all: %d", code)
+	}
+	if code, body := doClient(t, otherClient, srv, "GET", "/api/skills", ""); code != 200 || !strings.Contains(body, "team-skill") || !strings.Contains(body, "Team picks") {
+		t.Fatalf("card list label: %d %s", code, body)
+	}
+	_ = other
+}

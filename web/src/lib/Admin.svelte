@@ -20,7 +20,7 @@
   let loading = $state(true)
   let saving = $state(false)
   let saved = $state('')
-  let form = $state({ refreshEnabled: true, topicsEnabled: true, instanceName: '' })
+  let form = $state({ refreshEnabled: true, topicsEnabled: true, linkListsEnabled: false, instanceName: '' })
   let users = $state<UserMeta[]>([])
   let usersError = $state('')
   let inviteEmail = $state('')
@@ -356,6 +356,7 @@
         <form onsubmit={save}>
           <label class="check"><input type="checkbox" bind:checked={form.refreshEnabled} /> Six-hourly metadata refresh</label>
           <label class="check"><input type="checkbox" bind:checked={form.topicsEnabled} /> Daily skills.sh topic seed</label>
+          <label class="check"><input type="checkbox" bind:checked={form.linkListsEnabled} /> Let list owners share read-only links</label>
           <label class="field">
             <span>Instance name</span>
             <input bind:value={form.instanceName} placeholder="Team shelf" autocomplete="off" />
@@ -366,7 +367,7 @@
           </div>
         </form>
       {:else}
-        <p class="muted">Only the owner can change these settings. Refresh is {form.refreshEnabled ? 'on' : 'off'}; the topic seed is {form.topicsEnabled ? 'on' : 'off'}.</p>
+        <p class="muted">Only the owner can change these settings. Refresh is {form.refreshEnabled ? 'on' : 'off'}; the topic seed is {form.topicsEnabled ? 'on' : 'off'}; link sharing is {form.linkListsEnabled ? 'on' : 'off'}.</p>
       {/if}
     </section>
 

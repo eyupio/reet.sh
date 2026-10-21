@@ -148,6 +148,7 @@ func Run(args []string, out io.Writer) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Reet-Source", "scan")
 	if *token != "" {
 		req.Header.Set("X-Reet-Token", *token)
 	}

@@ -2,7 +2,9 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -19,20 +21,22 @@ import (
 var ErrNotFound = errors.New("skill not found")
 
 type Skill struct {
-	ID          string `json:"id"`
-	Source      string `json:"source"`
-	Slug        string `json:"slug"`
-	SourceType  string `json:"sourceType"`
-	URL         string `json:"url"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Notes       string `json:"notes"`
-	Installs    int64  `json:"installs"`
-	Liked       bool   `json:"liked"`
-	Bookmarked  bool   `json:"bookmarked"`
-	Used        bool   `json:"used"`
-	CreatedAt   int64  `json:"createdAt"`
-	UpdatedAt   int64  `json:"updatedAt"`
+	ID           string  `json:"id"`
+	Source       string  `json:"source"`
+	Slug         string  `json:"slug"`
+	SourceType   string  `json:"sourceType"`
+	URL          string  `json:"url"`
+	Name         string  `json:"name"`
+	Description  string  `json:"description"`
+	Notes        string  `json:"notes"`
+	Installs     int64   `json:"installs"`
+	InstallsWeek int64   `json:"installsWeek"`
+	Trend        []int64 `json:"trend"`
+	Liked        bool    `json:"liked"`
+	Bookmarked   bool    `json:"bookmarked"`
+	Used         bool    `json:"used"`
+	CreatedAt    int64   `json:"createdAt"`
+	UpdatedAt    int64   `json:"updatedAt"`
 }
 
 // Patch holds optional changes; nil fields are left alone.
@@ -55,13 +59,13 @@ type Counts struct {
 
 type Store struct{ db *sql.DB }
 
-const cols = `id,source,slug,source_type,url,name,description,notes,installs,liked,bookmarked,used,created_at,updated_at`
+const cols = `id,source,slug,source_type,url,name,description,notes,installs,installs_week,trend,liked,bookmarked,used,created_at,updated_at`
 
 const schema = `CREATE TABLE IF NOT EXISTS skills (
 	id TEXT PRIMARY KEY, source TEXT NOT NULL DEFAULT '', slug TEXT NOT NULL DEFAULT '',
 	source_type TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '',
 	name TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
-	installs INTEGER NOT NULL DEFAULT 0,
+	installs INTEGER NOT NULL DEFAULT 0, installs_week INTEGER NOT NULL DEFAULT 0, trend TEXT NOT NULL DEFAULT '',
 	liked INTEGER NOT NULL DEFAULT 0, bookmarked INTEGER NOT NULL DEFAULT 0, used INTEGER NOT NULL DEFAULT 0,
 	created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`
 
@@ -79,10 +83,70 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	for _, c := range []struct{ name, ddl string }{
+		{"installs_week", "installs_week INTEGER NOT NULL DEFAULT 0"},
+		{"trend", "trend TEXT NOT NULL DEFAULT ''"},
+	} {
+		if err := ensureColumn(db, c.name, c.ddl); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	return &Store{db: db}, nil
 }
 
+func ensureColumn(db *sql.DB, name, ddl string) error {
+	rows, err := db.Query(`PRAGMA table_info(skills)`)
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var cid, notnull, pk int
+		var col, typ string
+		var def sql.NullString
+		if err := rows.Scan(&cid, &col, &typ, &notnull, &def, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if col == name {
+			found = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if found {
+		return nil
+	}
+	_, err = db.Exec(`ALTER TABLE skills ADD COLUMN ` + ddl)
+	return err
+}
+
 func (s *Store) Close() error { return s.db.Close() }
+
+// Health proves the database can take a write lock, then counts the shelf.
+// A read-only data directory fails the lock rather than reporting a false all-clear.
+func (s *Store) Health(ctx context.Context) (int, error) {
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return 0, err
+	}
+	if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
+		return 0, err
+	}
+	var n int
+	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM skills").Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
 
 func b2i(b *bool) int {
 	if b != nil && *b {
@@ -116,7 +180,7 @@ func (s *Store) upsert(id, source, slug, typ, url, name string, f Patch) (Skill,
 	if f.Notes != nil {
 		notes = *f.Notes
 	}
-	_, err := s.db.Exec(`INSERT INTO skills(`+cols+`) VALUES(?,?,?,?,?,?,'',?,0,?,?,?,?,?)
+	_, err := s.db.Exec(`INSERT INTO skills(`+cols+`) VALUES(?,?,?,?,?,?,'',?,0,0,'',?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			updated_at=CASE WHEN (liked=0 AND excluded.liked=1) OR (bookmarked=0 AND excluded.bookmarked=1) OR (used=0 AND excluded.used=1) THEN excluded.updated_at ELSE updated_at END,
 			liked=liked OR excluded.liked, bookmarked=bookmarked OR excluded.bookmarked, used=used OR excluded.used`,
@@ -136,8 +200,12 @@ func (s *Store) upsert(id, source, slug, typ, url, name string, f Patch) (Skill,
 func scan(r interface{ Scan(...any) error }) (Skill, error) {
 	var k Skill
 	var l, b, u int
+	var trend string
 	err := r.Scan(&k.ID, &k.Source, &k.Slug, &k.SourceType, &k.URL, &k.Name, &k.Description, &k.Notes,
-		&k.Installs, &l, &b, &u, &k.CreatedAt, &k.UpdatedAt)
+		&k.Installs, &k.InstallsWeek, &trend, &l, &b, &u, &k.CreatedAt, &k.UpdatedAt)
+	if trend != "" {
+		_ = json.Unmarshal([]byte(trend), &k.Trend)
+	}
 	k.Liked, k.Bookmarked, k.Used = l != 0, b != 0, u != 0
 	return k, err
 }
@@ -209,10 +277,22 @@ func (s *Store) Patch(id string, p Patch) (Skill, error) {
 	return k, err
 }
 
-// SetMeta stores fetched metadata; empty name or description leave the stored value alone.
-func (s *Store) SetMeta(id, name, description string, installs int64) error {
-	_, err := s.db.Exec(`UPDATE skills SET name=CASE WHEN ?='' THEN name ELSE ? END, description=CASE WHEN ?='' THEN description ELSE ? END, installs=CASE WHEN ?>0 THEN ? ELSE installs END WHERE id=?`,
-		name, name, description, description, installs, installs, id)
+// SetMeta stores fetched metadata; empty values leave the stored value alone.
+func (s *Store) SetMeta(id, name, description string, installs, installsWeek int64, trend []int64) error {
+	trendJSON := ""
+	if len(trend) > 0 {
+		if b, err := json.Marshal(trend); err == nil {
+			trendJSON = string(b)
+		}
+	}
+	_, err := s.db.Exec(`UPDATE skills SET
+		name=CASE WHEN ?='' THEN name ELSE ? END,
+		description=CASE WHEN ?='' THEN description ELSE ? END,
+		installs=CASE WHEN ?>0 THEN ? ELSE installs END,
+		installs_week=CASE WHEN ?>0 THEN ? ELSE installs_week END,
+		trend=CASE WHEN ?='' THEN trend ELSE ? END
+		WHERE id=?`,
+		name, name, description, description, installs, installs, installsWeek, installsWeek, trendJSON, trendJSON, id)
 	return err
 }
 
@@ -301,8 +381,14 @@ func (s *Store) Restore(all []Skill) error {
 			k.UpdatedAt = t
 		}
 		l, b, u := k.Liked, k.Bookmarked, k.Used
-		if _, err := tx.Exec(`INSERT OR REPLACE INTO skills(`+cols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			k.ID, k.Source, k.Slug, k.SourceType, k.URL, k.Name, k.Description, k.Notes, k.Installs,
+		trend := ""
+		if len(k.Trend) > 0 {
+			if tb, err := json.Marshal(k.Trend); err == nil {
+				trend = string(tb)
+			}
+		}
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO skills(`+cols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			k.ID, k.Source, k.Slug, k.SourceType, k.URL, k.Name, k.Description, k.Notes, k.Installs, k.InstallsWeek, trend,
 			b2i(&l), b2i(&b), b2i(&u), k.CreatedAt, k.UpdatedAt); err != nil {
 			return err
 		}

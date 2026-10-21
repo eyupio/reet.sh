@@ -3,6 +3,7 @@
   --accent: #c2410c; --accent-ink: #fff; --tint: #fde8d8; --heart: #be1f4a; --good: #15803d; --bad: #b91c1c;
   --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
   --sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -27,5 +28,9 @@ textarea { width: 100%; resize: vertical; }
 .btn.danger:hover { color: var(--bad); }
 .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (prefers-reduced-motion: no-preference) {
-  .btn { transition: background-color 0.15s, border-color 0.15s, color 0.15s; }
+  .btn { transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 160ms var(--ease-out); }
+  .btn:active:not(:disabled) { transform: scale(0.97); }
+}
+@media (pointer: coarse) {
+  .btn, input, select, textarea, .filters button { min-height: 44px; }
 }

@@ -1,6 +1,8 @@
 package store
 
 import (
+	"database/sql"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -101,9 +103,50 @@ func TestResolveMovesFlags(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesOlderSchema(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(dir, "reet.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`CREATE TABLE skills (
+		id TEXT PRIMARY KEY, source TEXT NOT NULL DEFAULT '', slug TEXT NOT NULL DEFAULT '',
+		source_type TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '',
+		name TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
+		installs INTEGER NOT NULL DEFAULT 0,
+		liked INTEGER NOT NULL DEFAULT 0, bookmarked INTEGER NOT NULL DEFAULT 0, used INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO skills(id,created_at,updated_at) VALUES('a/b/old',1,1)`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	sk, ok, err := s.Get("a/b/old")
+	if err != nil || !ok || sk.InstallsWeek != 0 || len(sk.Trend) != 0 {
+		t.Fatalf("old row: %+v %v %v", sk, ok, err)
+	}
+	if err := s.SetMeta("a/b/old", "Old", "desc", 10, 3, []int64{1, 3}); err != nil {
+		t.Fatal(err)
+	}
+	sk, _, _ = s.Get("a/b/old")
+	if sk.InstallsWeek != 3 || len(sk.Trend) != 2 {
+		t.Fatalf("migrated row: %+v", sk)
+	}
+}
+
 func TestExportRestoreRoundTrip(t *testing.T) {
 	a := newStore(t)
-	a.Upsert(mustRef(t, "a/b/one"), Patch{Liked: bp(true), Notes: sp("n")})
+	r := mustRef(t, "a/b/one")
+	a.Upsert(r, Patch{Liked: bp(true), Notes: sp("n")})
+	a.SetMeta(r.ID, "One", "desc", 42, 7, []int64{1, 2, 7})
 	a.UpsertLocal("two", Patch{Used: bp(true)})
 	out, err := a.Export()
 	if err != nil || len(out) != 2 {
@@ -116,6 +159,11 @@ func TestExportRestoreRoundTrip(t *testing.T) {
 	got, counts, _ := b.List(Filter{})
 	if len(got) != 2 || counts.Liked != 1 || counts.Used != 1 {
 		t.Fatalf("restored: %+v %+v", got, counts)
+	}
+	for _, sk := range got {
+		if sk.ID == r.ID && (sk.Installs != 42 || sk.InstallsWeek != 7 || len(sk.Trend) != 3) {
+			t.Fatalf("metadata did not round-trip: %+v", sk)
+		}
 	}
 }
 
@@ -134,11 +182,11 @@ func TestSetMetaAndDelete(t *testing.T) {
 	s := newStore(t)
 	r := mustRef(t, "a/b/one")
 	s.Upsert(r, Patch{})
-	if err := s.SetMeta(r.ID, "One", "desc", 42); err != nil {
+	if err := s.SetMeta(r.ID, "One", "desc", 42, 7, []int64{1, 2, 7}); err != nil {
 		t.Fatal(err)
 	}
 	sk, _, _ := s.Get(r.ID)
-	if sk.Name != "One" || sk.Description != "desc" || sk.Installs != 42 {
+	if sk.Name != "One" || sk.Description != "desc" || sk.Installs != 42 || sk.InstallsWeek != 7 || len(sk.Trend) != 3 {
 		t.Fatalf("%+v", sk)
 	}
 	if err := s.Delete(r.ID); err != nil {

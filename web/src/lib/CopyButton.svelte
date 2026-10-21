@@ -1,0 +1,64 @@
+<script lang="ts">
+  import { onDestroy } from 'svelte'
+
+  let { text, label = 'Copy', copiedLabel = 'Copied', compact = false }: {
+    text: string
+    label?: string
+    copiedLabel?: string
+    compact?: boolean
+  } = $props()
+
+  let copied = $state(false)
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  async function copy() {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
+      await navigator.clipboard.writeText(text)
+    } catch {
+      const field = document.createElement('textarea')
+      field.value = text
+      field.setAttribute('readonly', '')
+      field.style.position = 'fixed'
+      field.style.opacity = '0'
+      document.body.appendChild(field)
+      field.select()
+      try {
+        document.execCommand('copy')
+      } catch {
+        /* best effort: some browsers block clipboard writes */
+      } finally {
+        document.body.removeChild(field)
+      }
+    }
+    copied = true
+    clearTimeout(timer)
+    timer = setTimeout(() => (copied = false), 1800)
+  }
+
+  onDestroy(() => clearTimeout(timer))
+</script>
+
+<button type="button" class="btn copy" class:compact onclick={copy}>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    {#if copied}
+      <path d="m5 12 4 4L19 6"></path>
+    {:else}
+      <rect x="8" y="8" width="11" height="11" rx="2"></rect>
+      <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+    {/if}
+  </svg>
+  <span>{copied ? copiedLabel : label}</span>
+  <span class="vh" role="status">{copied ? 'Copied to clipboard' : ''}</span>
+</button>
+
+<style>
+  .copy { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .copy svg { width: 15px; height: 15px; flex: none; }
+  .copy.compact { min-height: 32px; padding: 5px 10px; border-radius: 8px; font-size: 0.82rem; }
+  @media (pointer: coarse) { .copy.compact { min-height: 44px; } }
+  @media (prefers-reduced-motion: no-preference) {
+    .copy svg { transition: transform 160ms var(--ease-out); }
+    .copy:active svg { transform: scale(0.9); }
+  }
+</style>

@@ -1,14 +1,39 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
+  import { getBuildInfo } from './api'
   import { DEVELOPER_NAME, DEVELOPER_URL } from './links'
+
+  let { signedIn = false, onsignout }: { signedIn?: boolean; onsignout?: () => void } = $props()
+
+  let build = $state<{ version: string; commit: string } | null>(null)
+
+  onMount(async () => {
+    try {
+      build = await getBuildInfo()
+    } catch {
+      /* the footer stays quiet when the build info cannot be read */
+    }
+  })
 </script>
 
 <footer>
   <div class="inner">
-    <span class="brand"><span class="name">reet.sh</span><span class="descriptor">Your shelf for AI skills</span></span>
-    <!-- The credit leaves the app, so it opens in a new tab and the list the person was on is not lost. -->
-    <span class="credit">
-      Developed by
-      <a href={DEVELOPER_URL} target="_blank" rel="noopener noreferrer">{DEVELOPER_NAME}<span class="vh"> (opens in a new tab)</span></a>
+    <span class="brand">
+      <span class="name">reet.sh</span>
+      {#if build}
+        <span class="version" title={build.commit !== 'unknown' ? `commit ${build.commit}` : undefined}>{build.version}</span>
+      {/if}
+      <span class="descriptor">Your shelf for AI skills</span>
+    </span>
+    <span class="end">
+      {#if signedIn}
+        <button type="button" class="signout" onclick={() => onsignout?.()}>Sign out</button>
+      {/if}
+      <!-- The credit leaves the app, so it opens in a new tab and the list the person was on is not lost. -->
+      <span class="credit">
+        Developed by
+        <a href={DEVELOPER_URL} target="_blank" rel="noopener noreferrer">{DEVELOPER_NAME}<span class="vh"> (opens in a new tab)</span></a>
+      </span>
     </span>
   </div>
 </footer>
@@ -22,9 +47,17 @@
   }
   .brand { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
   .name { font-weight: 600; color: var(--ink); }
+  .version { color: var(--muted); font-size: 0.72rem; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
   .descriptor { letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.75rem; }
+  .end { display: inline-flex; align-items: center; gap: 16px; flex-wrap: wrap; }
   .credit { white-space: nowrap; }
   .credit a { color: var(--muted); font-weight: 500; text-underline-offset: 3px; }
   .credit a:hover, .credit a:focus-visible { color: var(--ink); text-decoration: underline; }
+  .signout {
+    background: none; border: 0; padding: 4px 0; min-height: 32px; cursor: pointer;
+    color: var(--muted); font-size: 0.85rem; text-underline-offset: 3px;
+  }
+  .signout:hover, .signout:focus-visible { color: var(--ink); text-decoration: underline; }
+  @media (pointer: coarse) { .signout { min-height: 44px; } }
   @media (max-width: 560px) { .descriptor { display: none; } }
 </style>

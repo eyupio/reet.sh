@@ -19,6 +19,11 @@ import (
 	"github.com/eyupio/reet.sh/web"
 )
 
+var (
+	version = "dev"
+	commit  = "unknown"
+)
+
 func env(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
@@ -57,7 +62,8 @@ func serve() error {
 		return err
 	}
 	defer st.Close()
-	h := api.New(st, meta.Default(os.Getenv("SKILLS_SH_TOKEN")), os.Getenv("REET_TOKEN"))
+	h := api.New(st, meta.Default(os.Getenv("SKILLS_SH_TOKEN")), os.Getenv("REET_TOKEN"),
+		api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"))
 	mux := http.NewServeMux()
 	mux.Handle("/api/", h)
 	mux.Handle("/quick", h)
@@ -72,7 +78,7 @@ func serve() error {
 		defer cancel()
 		srv.Shutdown(shutdown)
 	}()
-	log.Printf("reet listening on %s", srv.Addr)
+	log.Printf("reet %s (%s) listening on %s", version, commit, srv.Addr)
 	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

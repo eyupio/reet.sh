@@ -42,11 +42,16 @@ type BackupSettings struct {
 	EverySeconds int64  `json:"everySeconds"`
 	Keep         int    `json:"keep"`
 	Destination  string `json:"destination"`
+	Compression  string `json:"compression"`
 	NextAt       int64  `json:"nextAt"`
 	LastAt       int64  `json:"lastAt"`
 	LastState    string `json:"lastState"`
 	LastError    string `json:"lastError"`
 	UpdatedAt    int64  `json:"updatedAt"`
+	// PasswordSealed is the copy password, sealed under the instance key.
+	// It never leaves the server; HasPassword is what a page reads.
+	PasswordSealed string `json:"-"`
+	HasPassword    bool   `json:"hasPassword"`
 }
 
 // Backup destinations. "both" is the behaviour every instance had before the
@@ -127,6 +132,8 @@ func (s *Store) migrateBackups() error {
 			every_seconds INTEGER NOT NULL DEFAULT 0,
 			keep INTEGER NOT NULL DEFAULT 0,
 			destination TEXT NOT NULL DEFAULT 'both',
+			compression TEXT NOT NULL DEFAULT 'gzip',
+			password_sealed TEXT NOT NULL DEFAULT '',
 			next_at INTEGER NOT NULL DEFAULT 0,
 			last_at INTEGER NOT NULL DEFAULT 0,
 			last_state TEXT NOT NULL DEFAULT '',
@@ -164,6 +171,8 @@ func (s *Store) migrateBackups() error {
 		{"backup_remotes", "last_error", "last_error TEXT NOT NULL DEFAULT ''"},
 		{"backup_remotes", "last_error_at", "last_error_at INTEGER NOT NULL DEFAULT 0"},
 		{"backup_settings", "destination", "destination TEXT NOT NULL DEFAULT 'both'"},
+		{"backup_settings", "compression", "compression TEXT NOT NULL DEFAULT 'gzip'"},
+		{"backup_settings", "password_sealed", "password_sealed TEXT NOT NULL DEFAULT ''"},
 	} {
 		ok, err := hasColumn(s.db, c.table, c.name)
 		if err != nil {
@@ -180,7 +189,7 @@ func (s *Store) migrateBackups() error {
 
 // EnsureBackupSettings gives an owner the defaults once, and never overwrites
 // a choice already made.
-func (s *Store) EnsureBackupSettings(ownerID, every int64, keep int, destination string) (BackupSettings, error) {
+func (s *Store) EnsureBackupSettings(ownerID, every int64, keep int, destination, compression string) (BackupSettings, error) {
 	next := int64(0)
 	if every > 0 {
 		next = now() + every*1000
@@ -188,8 +197,11 @@ func (s *Store) EnsureBackupSettings(ownerID, every int64, keep int, destination
 	if !ValidBackupDestination(destination) {
 		destination = DestinationBoth
 	}
-	if _, err := s.db.Exec(`INSERT OR IGNORE INTO backup_settings(owner_id,every_seconds,keep,destination,next_at,updated_at)
-		VALUES(?,?,?,?,?,?)`, ownerID, every, keep, destination, next, now()); err != nil {
+	if compression != "gzip" && compression != "none" {
+		compression = "gzip"
+	}
+	if _, err := s.db.Exec(`INSERT OR IGNORE INTO backup_settings(owner_id,every_seconds,keep,destination,compression,next_at,updated_at)
+		VALUES(?,?,?,?,?,?,?)`, ownerID, every, keep, destination, compression, next, now()); err != nil {
 		return BackupSettings{}, err
 	}
 	return s.BackupSettingsFor(ownerID)
@@ -217,20 +229,26 @@ func (s *Store) SetBackupRemoteResult(ownerID int64, name string, at int64, errT
 // first time so a page always has figures to draw.
 func (s *Store) BackupSettingsFor(ownerID int64) (BackupSettings, error) {
 	var b BackupSettings
-	err := s.db.QueryRow(`SELECT owner_id,every_seconds,keep,destination,next_at,last_at,last_state,last_error,updated_at
+	err := s.db.QueryRow(`SELECT owner_id,every_seconds,keep,destination,compression,password_sealed,
+		next_at,last_at,last_state,last_error,updated_at
 		FROM backup_settings WHERE owner_id=?`, ownerID).
-		Scan(&b.OwnerID, &b.EverySeconds, &b.Keep, &b.Destination, &b.NextAt, &b.LastAt, &b.LastState, &b.LastError, &b.UpdatedAt)
+		Scan(&b.OwnerID, &b.EverySeconds, &b.Keep, &b.Destination, &b.Compression, &b.PasswordSealed,
+			&b.NextAt, &b.LastAt, &b.LastState, &b.LastError, &b.UpdatedAt)
 	if err == nil {
 		if !ValidBackupDestination(b.Destination) {
 			b.Destination = DestinationBoth
 		}
+		if b.Compression != "gzip" && b.Compression != "none" {
+			b.Compression = "gzip"
+		}
+		b.HasPassword = b.PasswordSealed != ""
 		return b, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return b, err
 	}
-	b = BackupSettings{OwnerID: ownerID, Destination: DestinationBoth}
-	if _, err := s.db.Exec(`INSERT OR IGNORE INTO backup_settings(owner_id,destination,updated_at) VALUES(?,?,?)`, ownerID, b.Destination, now()); err != nil {
+	b = BackupSettings{OwnerID: ownerID, Destination: DestinationBoth, Compression: "gzip"}
+	if _, err := s.db.Exec(`INSERT OR IGNORE INTO backup_settings(owner_id,destination,compression,updated_at) VALUES(?,?,?,?)`, ownerID, b.Destination, b.Compression, now()); err != nil {
 		return b, err
 	}
 	return b, nil
@@ -242,14 +260,16 @@ func (s *Store) SaveBackupSettingsFor(b BackupSettings) error {
 	if !ValidBackupDestination(b.Destination) {
 		b.Destination = DestinationBoth
 	}
-	_, err := s.db.Exec(`INSERT INTO backup_settings(owner_id,every_seconds,keep,destination,next_at,last_at,last_state,last_error,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?)
+	_, err := s.db.Exec(`INSERT INTO backup_settings(owner_id,every_seconds,keep,destination,compression,password_sealed,next_at,last_at,last_state,last_error,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(owner_id) DO UPDATE SET
 			every_seconds=excluded.every_seconds, keep=excluded.keep, destination=excluded.destination,
+			compression=excluded.compression, password_sealed=excluded.password_sealed,
 			next_at=excluded.next_at,
 			last_at=excluded.last_at, last_state=excluded.last_state, last_error=excluded.last_error,
 			updated_at=excluded.updated_at`,
-		b.OwnerID, b.EverySeconds, b.Keep, b.Destination, b.NextAt, b.LastAt, b.LastState, b.LastError, now())
+		b.OwnerID, b.EverySeconds, b.Keep, b.Destination, b.Compression, b.PasswordSealed,
+		b.NextAt, b.LastAt, b.LastState, b.LastError, now())
 	return err
 }
 

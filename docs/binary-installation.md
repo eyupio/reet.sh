@@ -62,6 +62,10 @@ Here `VERSION` includes the release tag's `v` prefix. Each archive contains `ree
 
 The `binary release` workflow tests and cross-compiles all four targets on pull requests. On a version tag such as `v1.2.3`, it also publishes the archives and checksums to GitHub Releases. Tags containing a prerelease suffix are marked as prereleases; the installer's default `latest` follows GitHub's latest stable release.
 
-The workflow builds the Svelte app once and embeds that output into every binary. It includes the version tag and source commit in `reet --version`. It does not overwrite an existing GitHub release; use a new version tag for a new release. Docker images continue through the existing image workflow.
+The workflow builds the Svelte app once and embeds that output into every binary. It includes the version tag and source commit in `reet --version`. If a release already exists, it uploads missing binary assets and checksums after verifying that any matching published files are identical.
+
+It never overwrites published assets; use a new version tag when files differ. To recover an existing empty release, open **Actions → binary release → Run workflow**, select the default branch, and enter the existing tag (for example `v1.0.0`). This builds and tests that tag, then fills its release assets without changing its notes. Re-running an older failed job still uses its original workflow; use the manual run for this recovery.
+
+Archive metadata uses the source commit timestamp so repeated builds do not differ only because of packaging time. Docker images continue through the existing image workflow. Newer runs cancel older runs of the same workflow for the same branch, pull request, or release tag; package cleanup also cancels its older active run.
 
 The installer is ready when this change is merged, and downloads become available after the first version tag runs the new release workflow. No release is published by opening or merging the pull request alone.

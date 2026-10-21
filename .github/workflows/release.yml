@@ -3,11 +3,19 @@ name: binary release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag to build and publish (for example v1.0.0)'
+        required: true
+        type: string
   pull_request:
     paths:
       - '.github/workflows/release.yml'
       - 'scripts/install.sh'
       - 'scripts/install_test.go'
+      - 'scripts/publish-release.sh'
+      - 'scripts/publish_release_test.go'
       - 'cmd/**'
       - 'internal/**'
       - 'web/**'
@@ -18,11 +26,17 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || inputs.tag || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   web:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -41,6 +55,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -61,6 +77,8 @@ jobs:
         arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -74,26 +92,28 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: '0'
-          REET_REF: ${{ github.ref_name }}
-          REET_SHA: ${{ github.sha }}
-          REET_REF_TYPE: ${{ github.ref_type }}
+          REET_REF: ${{ inputs.tag || github.ref_name }}
+          REET_REF_TYPE: ${{ inputs.tag && 'tag' || github.ref_type }}
         run: |
           version=dev
           if [ "$REET_REF_TYPE" = tag ]; then
             [[ "$REET_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] || { echo 'Expected a version tag such as v1.2.3' >&2; exit 1; }
             version=$REET_REF
           fi
+          REET_SHA=$(git rev-parse HEAD)
           mkdir -p staging artifacts
           go build -trimpath -ldflags="-s -w -X main.version=$version -X main.commit=$REET_SHA" -o staging/reet ./cmd/reet
           cp LICENSE README.md staging/
-          tar -czf "artifacts/reet_${version}_${GOOS}_${GOARCH}.tar.gz" -C staging reet LICENSE README.md
+          REET_EPOCH=$(git show -s --format=%ct HEAD)
+          tar --sort=name --mtime="@$REET_EPOCH" --owner=0 --group=0 --numeric-owner \
+            -cf - -C staging reet LICENSE README.md | gzip -n > "artifacts/reet_${version}_${GOOS}_${GOARCH}.tar.gz"
       - uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.os }}-${{ matrix.arch }}
           path: artifacts/*
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -108,9 +128,5 @@ jobs:
       - name: Publish checksummed binaries
         env:
           GH_TOKEN: ${{ github.token }}
-          REET_TAG: ${{ github.ref_name }}
-        run: |
-          (cd artifacts && sha256sum reet_*.tar.gz > checksums.txt)
-          flags=()
-          case "$REET_TAG" in *-*) flags+=(--prerelease) ;; esac
-          gh release create "$REET_TAG" artifacts/* --verify-tag --generate-notes --title "$REET_TAG" "${flags[@]}"
+          REET_TAG: ${{ inputs.tag || github.ref_name }}
+        run: bash scripts/publish-release.sh artifacts

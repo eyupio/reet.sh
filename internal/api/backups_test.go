@@ -131,13 +131,31 @@ func TestBackupAndProfileAPI(t *testing.T) {
 	if probe["accounts"] != false {
 		t.Fatalf("profile: %+v", probe)
 	}
-	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/v2/profile", bytes.NewReader([]byte(`{"name":"Owner","theme":"dark"}`)))
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/v2/profile", bytes.NewReader([]byte(`{"name":"Owner","theme":"dark","shelfView":"board","cardsExpanded":true}`)))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil || resp.StatusCode != 200 {
 		t.Fatalf("save profile: %v %v", err, resp)
 	}
 	resp.Body.Close()
+	profile, err := st.ProfileFor(user.ID)
+	if err != nil || profile.ShelfView != "board" || !profile.CardsExpanded {
+		t.Fatalf("shelf defaults not saved: %+v %v", profile, err)
+	}
+	invalid, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/v2/profile", bytes.NewBufferString(`{"shelfView":"invalid","cardsExpanded":false}`))
+	invalid.Header.Set("Content-Type", "application/json")
+	bad, err := http.DefaultClient.Do(invalid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad.Body.Close()
+	if bad.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid layout: %s", bad.Status)
+	}
+	profile, _ = st.ProfileFor(user.ID)
+	if profile.ShelfView != "board" || !profile.CardsExpanded {
+		t.Fatal("invalid request changed defaults")
+	}
 	if u, ok, _ := st.UserByID(user.ID); !ok || u.Name != "Owner" {
 		t.Fatalf("name not saved: %+v", u)
 	}

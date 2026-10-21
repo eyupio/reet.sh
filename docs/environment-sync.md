@@ -1,6 +1,6 @@
 # Environments and confirmed sync
 
-The **Your account** page is the starting point. It includes this instance's URL in copyable install, connection, scan and sync commands. Create a personal token there; use a separate token per machine or server so access can be revoked independently. Tokens are not embedded in the generated scan/sync command lines: set `REET_TOKEN` in that machine's terminal.
+The **Your account → Connect a machine** flow is the starting point: install the binary, create a named personal token in the connection step, then copy the connection command into that machine's terminal. It includes this instance's URL and the newly created token. Copy it before leaving the page; tokens are not saved to browser storage or shown again after a reload. Existing token holders can set `REET_URL` and `REET_TOKEN` directly in their terminal. Use a separate token per machine or server so access can be revoked independently. Generated scan/sync commands use the environment rather than embedding the token. After running the scan, use **Check for my scan** to confirm a complete, recent inventory for the selected machine name.
 
 ## Connect a machine
 

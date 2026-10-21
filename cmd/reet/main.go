@@ -47,8 +47,31 @@ func main() {
 	case "version", "--version", "-v":
 		fmt.Printf("reet %s (%s)\n", version, commit)
 	case "help", "--help", "-h":
-		fmt.Println("usage: reet serve | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet sync | reet backup | reet version")
-		fmt.Println("Run reet <command> --help for options. init/update are aliases for install/upgrade.")
+		fmt.Print(`reet — your own shelf for AI skills. Get your toolkit reet.
+
+Usage: reet <command> [options]
+
+  serve        Run the web app (also the default when no command is given)
+  scan         Report installed skills to your account
+  sync         Preview a saved skill set; --apply asks before changing files
+  install      Install this binary or set up a managed server
+  upgrade      Update a managed deployment with backup and recovery
+  backup       Take, verify and restore sealed backups
+  doctor       Check your installation and suggest next steps
+  healthcheck  Check whether the configured local server responds
+  version      Show the binary version and source commit
+
+Connect to an existing site:
+  Open Account on your site, then Connect a machine.
+  Paste its connection command into your terminal, then run:
+    reet scan --env my-laptop --prune
+
+Host your own site:
+  reet install --mode native
+  Or use reet install --mode compose for Docker Compose.
+
+Run reet <command> --help for options. init/update alias install/upgrade.
+`)
 	case "install", "init", "upgrade", "update", "doctor":
 		if err := lifecycle.New(version, commit, os.Stdin, os.Stdout).Run(cmd, args); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -57,6 +80,27 @@ func main() {
 	case "serve":
 		f := flag.NewFlagSet("reet serve", flag.ExitOnError)
 		config := f.String("config", "", "managed deployment.json path")
+		f.Usage = func() {
+			fmt.Fprintln(f.Output(), "Usage: reet serve [--config PATH]\n\nRun the web app. Open the listening address in your browser to create the owner account.\n\nOptions:")
+			f.PrintDefaults()
+			fmt.Fprint(f.Output(), `
+Configuration (environment variables):
+  REET_ADDR       Listening HOST:PORT (default :8080, all interfaces)
+  REET_DATA_DIR   SQLite data directory (default ./data)
+  REET_AUTH       accounts (default), token or none
+  REET_TOKEN      Optional owner-setup bootstrap / legacy access token
+  REET_TOPICS     off to disable topic seeding
+  REET_REFRESH    off to disable background metadata refresh
+
+Local example:
+  REET_ADDR=127.0.0.1:8080 REET_DATA_DIR=./data reet serve
+  Open http://127.0.0.1:8080 and create the owner account.
+
+For a managed background server, use reet install --mode native or --mode compose.
+Keep the data directory when updating. Stop the server or use a consistent SQLite
+backup to preserve accounts, lists, teams and sync references.
+`)
+		}
 		f.Parse(args)
 		if f.NArg() != 0 {
 			log.Fatal("unexpected serve arguments")

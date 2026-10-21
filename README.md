@@ -38,6 +38,10 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 ## Features
 
 - **Three-stage shelf.** On the shelf, To test, In use. Stage is derived from your flags, never stored out of step.
+- **List or board.** Choose Board for On the shelf → To test → In use columns on desktop, stacked on smaller screens. Move skills with the same keyboard- and touch-accessible buttons; the layout choice is saved to your account (or this browser without accounts). Moving a card changes shelf status, not installed files.
+- **Compact skill cards.** Cards start collapsed by default, with a link to their source, stage, available install/trend data, machine/tag/list counts and a personal-note indicator. Move stages, like, copy an install command or copy a ready-to-run prompt without opening the card. Expand an individual card for descriptions, tags, machine details, notes and history, or use Expand all / Collapse all. Expansion choices survive filtering, stage moves and layout changes during your visit.
+- **Your defaults.** In Account → Profile, choose List/Board and collapsed/expanded cards across browsers. Individual expansion choices remain temporary for the current visit.
+- **Environment badges.** Each card shows Installed (green), Missing (amber) or Not confirmed (neutral) for each known machine. Missing requires complete agent scans from the last 14 days; stale, incomplete and heartbeat-only reports cannot confirm absence. These are reported inventories, not live filesystem checks.
 - **Capture anywhere.** Paste a skills.sh URL or `owner/repo/skill`, or use the bookmarklets (Like, Save, In use) on any skill page.
 - **Know what is installed.** `reet scan` reads the skills folders for your tools and marks each skill "in use", per machine and per tool.
 - **Copy feedback.** Copy buttons confirm success with a brief checkmark reveal; reduced-motion preferences use a gentle fade.
@@ -183,7 +187,7 @@ See [environment sync](docs/environment-sync.md) for account setup, confirmed in
 
 There are two kinds: a one-off export, and sealed copies taken on a schedule.
 
-**Export and restore (any person).** Use **Download JSON** and **Restore from JSON** in the UI, or call `GET /api/export` and `POST /api/restore`. The export includes skills, notes, tags, environments and the ignored list; tick **Include local history** to add the event log. **Markdown** and **CSV** downloads follow the current search, stage, tag and environment filters.
+**Personal shelf export and restore.** Use **JSON (personal shelf backup) → Download** and **Restore from JSON** in Shelf tools, or call `GET /api/export` and `POST /api/restore`. The export includes personal skills, flags, notes, tags, attached environment reports and the ignored list; tick **Include local history** to add the event log. It does not include accounts, shared lists, teams, sync references or standalone machine heartbeats; use an instance backup for those. **Markdown** and **CSV** downloads follow the current search, stage, tag and environment filters.
 
 **Sealed, scheduled backups.** The instance owner configures the schedule, retention and off-site destinations under **Admin → Backups**; each person can back up their own shelf under **Account → Backups**, to their own destination. Every copy is verified after it is taken, then kept on this machine, copied to each enabled S3-compatible destination, or both, as the owner chooses. **Download** hands over the sealed `.reetbackup` file; **Export JSON** is the unsealed snapshot. The key is separate from the database: keep a copy of `data/backup.key` (or `REET_BACKUP_KEY`) somewhere else, or an off-site copy cannot be opened after the machine is lost.
 

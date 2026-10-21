@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import type { Snippet } from 'svelte'
   import { getSyncState, saveSyncTarget, deleteSyncTarget, forgetEnvironment, type SyncState, type SyncEnvironment, type SyncTarget } from './api'
   import CopyButton from './CopyButton.svelte'
   import MachineComparison from './MachineComparison.svelte'
   import { groupLabel, agentGroups } from './machines'
   import ConfirmDialog from './ConfirmDialog.svelte'
 
-  let { canWrite, token = '' }: { canWrite: boolean; token?: string } = $props()
+  let { canWrite, token = '', tokenSetup }: { canWrite: boolean; token?: string; tokenSetup?: Snippet } = $props()
   let syncState = $state<SyncState>({ environments: [], targets: [] })
   let loading = $state(true)
   let busy = $state(false)
@@ -19,7 +20,10 @@
   let target = $state('')
   let forgetting = $state<SyncEnvironment | null>(null)
   let now = $state(Date.now())
+  let connectOpen = $state(location.hash === '#connect-machine')
+  let loadedOnce = false
   const machines = $derived(syncState.machines ?? [])
+  const connectedMachine = $derived(machines.find(machine => machine.host === host.trim() && agentGroups(machine).some(group => group.complete && fresh(group))))
   const site = location.origin
   function quote(value: string): string { return "'" + value.replaceAll("'", "'\\''") + "'" }
   const install = $derived(`curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh${channel === 'dev' ? ' -s -- --version dev' : ''}`)
@@ -45,7 +49,13 @@
   }
   async function load() {
     loading = true; error = ''
-    try { syncState = await getSyncState() } catch (e) { error = e instanceof Error ? e.message : String(e) } finally { loading = false }
+    try {
+      syncState = await getSyncState()
+      if (!loadedOnce) {
+        connectOpen = (syncState.machines?.length ?? 0) === 0 || location.hash === '#connect-machine'
+        loadedOnce = true
+      }
+    } catch (e) { error = e instanceof Error ? e.message : String(e) } finally { loading = false }
   }
   onMount(() => { void load(); const timer = setInterval(() => now = Date.now(), 30000); return () => clearInterval(timer) })
   async function save(e: SubmitEvent) {
@@ -72,16 +82,23 @@
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
 
   {#if canWrite}
-    <details class="connect" open={machines.length === 0}><summary>{machines.length ? 'Connect another machine' : 'Connect your first machine'}</summary>
+    <details id="connect-machine" class="connect" bind:open={connectOpen}><summary>{machines.length ? 'Connect another machine' : 'Connect your first machine'}</summary>
+    <p class="hint">Ey up. Three steps to connect this account to your machine.</p>
     <ol class="setup">
       <li><h3>Install the binary on each machine</h3>
         <label class="channel">Release <select aria-label="Release" bind:value={channel}><option value="stable">Stable — recommended</option><option value="dev">Dev — latest main build</option></select></label>
         {#if channel === 'dev'}<p class="hint">Dev updates after each merge to main. It may contain unfinished changes and does not replace the latest stable release.</p>{/if}
         <div class="command"><pre>{install}</pre><CopyButton text={install} label="Copy install" /></div>
       </li>
-      <li><h3>Connect to this account</h3>
-        <p class="hint">Create a personal token <a href="#tokens-title">below</a>, then set it in your terminal. Give each server its own token so you can revoke access separately.</p>
-        <div class="command"><pre>{credentials}</pre><CopyButton text={credentials} label="Copy connection" /></div>
+      <li><h3>Create a token and connect</h3>
+        <p class="hint">Give each machine its own token so you can revoke access separately. The token is shown once and is not saved to browser storage.</p>
+        {#if tokenSetup}{@render tokenSetup()}{/if}
+        {#if token}
+          <div class="command"><pre>{credentials}</pre><CopyButton text={credentials} label="Copy connection" /></div>
+          <p class="hint">Paste this into the same terminal you will use for the scan. Keep it private: the command contains your token.</p>
+        {:else}
+          <details class="existing-token"><summary>Already have a token?</summary><p class="hint">Set <code>REET_URL</code> to <code>{site}</code> and <code>REET_TOKEN</code> to your existing token in your terminal, then continue to the scan below. Existing tokens cannot be displayed again.</p></details>
+        {/if}
       </li>
       <li><h3>Report what is installed</h3>
         <label>Machine name <input bind:value={host} placeholder="my-laptop" autocomplete="off" /></label>
@@ -89,6 +106,11 @@
         <p class="hint">Run this in each project you want to track. <code>--prune</code> updates this machine's inventory; it does not uninstall skills or remove them from your shelf. Keep the name stable between scans.</p>
       </li>
     </ol>
+    <div class="connection-status" role="status">
+      <strong>{connectedMachine ? `Reet, ${connectedMachine.host} is connected.` : 'Check your connection'}</strong>
+      <p class="hint">{connectedMachine ? 'A complete, recent skill scan has been received. Your machine is ready to compare.' : 'After running the scan, check for a complete report from this machine.'}</p>
+      <button class="btn" type="button" onclick={load} disabled={loading || busy}>{loading ? 'Checking…' : 'Check for my scan'}</button>
+    </div>
     <details class="server"><summary>Install a server, upgrade or diagnose problems</summary>
       <p class="hint">After downloading reet, choose a user service or Docker Compose. Installation and upgrades show a plan and ask for confirmation. Docker Compose needs Docker with the Compose plugin. Run these commands on the host, outside containers.</p>
       <div class="command"><pre>reet install --mode native
@@ -164,6 +186,7 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
  .command { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:10px 0; padding:12px; background:var(--bg); border:1px solid var(--line); border-radius:8px; }
  pre { flex:1 1 260px; min-width:0; margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font: .78rem/1.6 var(--mono); }
  .connect { margin:18px 0; } .connect>summary { padding:12px 0; }
+ .existing-token { margin-top:12px; } .connection-status { margin:20px 0; padding:16px; border:1px solid var(--line); border-radius:10px; background:var(--bg); }
  .server { padding:14px; border:1px solid var(--line); border-radius:8px; } summary { cursor:pointer; font-weight:600; } .server .command { margin-bottom:0; }
  .sectionhead { margin-top:28px; } .sectionhead span { color:var(--muted); font-size:.8rem; }
  .environments,.policies { list-style:none; padding:0; display:grid; gap:10px; } .environments>li,.policies>li { border:1px solid var(--line); border-radius:10px; padding:14px; min-width:0; }

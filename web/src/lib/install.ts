@@ -20,7 +20,7 @@ export function writeInstallKind(kind: InstallKind) {
   }
 }
 
-function sourceURL(skill: Skill): string | null {
+export function sourceURL(skill: Skill): string | null {
   if (skill.sourceType === 'github') return `https://github.com/${skill.source}`
   if (skill.sourceType === 'well-known') return `https://${skill.source}`
   return null

@@ -12,6 +12,28 @@ export function inventory(groups: SyncEnvironment[]): SyncSkill[] {
 export function recentComplete(groups: SyncEnvironment[], now: number): boolean {
   return groups.length > 0 && groups.every(g => g.complete && g.scannedAt > now - 14 * 86400000)
 }
+
+export type InstallationReport = { host: string; installed: Set<string>; complete: boolean; groupCount: number }
+export type InstallationStatus = 'installed' | 'missing' | 'unknown'
+
+// Index each scan once for the whole shelf, rather than searching every inventory for every card.
+export function installationReports(machines: Machine[], now: number): InstallationReport[] {
+  return machines.map(machine => {
+    const groups = agentGroups(machine)
+    const confirmedGroups = groups.filter(group => recentComplete([group], now))
+    return {
+      host: machine.host,
+      installed: new Set(confirmedGroups.flatMap(group => (group.skills ?? []).map(skill => skill.id))),
+      complete: recentComplete(groups, now),
+      groupCount: groups.length,
+    }
+  })
+}
+
+export function installationStatus(report: InstallationReport, skillId: string): InstallationStatus {
+  if (report.installed.has(skillId)) return 'installed'
+  return report.complete ? 'missing' : 'unknown'
+}
 export function compareInventories(left: SyncEnvironment[], right: SyncEnvironment[], now: number) {
   const a = inventory(left), b = inventory(right)
   const aIDs = new Set(a.map(s => s.id)), bIDs = new Set(b.map(s => s.id))

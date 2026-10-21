@@ -218,7 +218,7 @@ func RunVersion(args []string, out io.Writer, version string) error {
 	server := fs.String("server", def, "reet server URL (env REET_URL)")
 	token := fs.String("token", "", "access token (env REET_TOKEN)")
 	dry := fs.Bool("dry-run", false, "list what would be imported without sending it")
-	prune := fs.Bool("prune", false, "remove skills no longer found in each scanned environment")
+	prune := fs.Bool("prune", false, "remove stale inventory reports for scanned environments; keeps installed files and shelf entries")
 	serverHost := fs.Bool("server-host", false, "register this process as a reet server")
 	envName := fs.String("env", os.Getenv("REET_ENV"), "environment name for this machine (default hostname)")
 	var dirs multi

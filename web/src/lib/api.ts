@@ -527,7 +527,7 @@ export function backupDownloadUrl(admin: boolean, id: string): string {
 
 // --- profile ---------------------------------------------------------------
 
-export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; updatedAt: number }
+export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; shelfView: 'list' | 'board'; cardsExpanded: boolean; updatedAt: number }
 export type ProfileInfo = { user: User; profile: Profile; sessionCount: number; accounts: boolean }
 export type ProfileSession = { id: string; device: string; createdAt: number; lastSeen: number; expiresAt: number; current: boolean }
 
@@ -539,7 +539,7 @@ export function applyTheme(theme: string) {
 export async function getProfile(): Promise<ProfileInfo> {
   return (await req('/api/v2/profile')).json()
 }
-export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string }): Promise<ProfileInfo> {
+export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean }): Promise<ProfileInfo> {
   return (await req('/api/v2/profile', { method: 'PATCH', body: json(input) })).json()
 }
 export async function changePassword(current: string, password: string): Promise<void> {

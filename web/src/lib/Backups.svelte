@@ -7,6 +7,7 @@
     type BackupCheck, type BackupDestination, type BackupItem, type BackupRemote, type BackupRemoteInput, type BackupStatus,
   } from './api'
   import CopyButton from './CopyButton.svelte'
+  import ConfirmDialog from './ConfirmDialog.svelte'
 
   let {
     onerror, role = 'owner', admin = false, canWrite = true, timeZone = '', dateFormat = 'locale',
@@ -28,6 +29,8 @@
   let copiesLoading = $state(false)
   let formOpen = $state(false)
   let editing = $state<BackupRemote | null>(null)
+  let deleteFor = $state<BackupItem | null>(null)
+  let deleteRemoteFor = $state<BackupRemote | null>(null)
   let restoreFor = $state<BackupItem | null>(null)
   let remoteError = $state('')
   let remoteCheck = $state<BackupCheck | null>(null)
@@ -135,7 +138,7 @@
   }
 
   async function removeItem(item: BackupItem) {
-    if (!confirm(`Delete ${item.id} from this machine? Copies at destinations are left alone.`)) return
+    deleteFor = null
     busy = `delete:${item.id}`
     try {
       await deleteBackup(admin, item.id)
@@ -241,7 +244,7 @@
   }
 
   async function removeRemote(r: BackupRemote) {
-    if (!confirm(`Remove ${r.name}? What its bucket already holds is left alone.`)) return
+    deleteRemoteFor = null
     busy = `remote:${r.name}`
     try {
       await deleteBackupRemote(admin, r.name)
@@ -485,7 +488,7 @@
                   </button>
                   {#if r.source === 'database'}
                     <button type="button" class="btn quiet" onclick={() => editRemote(r)}>Edit</button>
-                    <button type="button" class="btn quiet danger" onclick={() => removeRemote(r)} disabled={busy === `remote:${r.name}`}>Remove</button>
+                    <button type="button" class="btn quiet danger" onclick={() => (deleteRemoteFor = r)} disabled={busy === `remote:${r.name}`}>Remove</button>
                   {/if}
                 {/if}
                 <button type="button" class="btn quiet" onclick={() => showCopies(r.name)} disabled={!!r.problem}>
@@ -579,7 +582,8 @@
       {#if status.items.length === 0}
         <p class="empty">No copy has been taken yet.</p>
       {:else}
-        <div class="tablewrap">
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users must be able to scroll this overflow region.) -->
+        <div class="tablewrap" tabindex="0" role="region" aria-label="Backup copies">
           <table>
             <thead><tr><th>Backup</th><th>Taken</th><th>Size</th><th>Where</th><th></th></tr></thead>
             <tbody>
@@ -606,7 +610,7 @@
                       <button type="button" class="btn quiet" onclick={() => (restoreFor = item)}>Restore…</button>
                     {/if}
                     {#if item.local && canEdit}
-                      <button type="button" class="btn quiet danger" onclick={() => removeItem(item)} disabled={busy === `delete:${item.id}`}>Delete</button>
+                      <button type="button" class="btn quiet danger" onclick={() => (deleteFor = item)} disabled={busy === `delete:${item.id}`}>Delete</button>
                     {/if}
                   </td>
                 </tr>
@@ -628,7 +632,7 @@
             <div class="cmdline"><code>reet backup restore --yes {restoreFor.id}</code><CopyButton text={`reet backup restore --yes ${restoreFor.id}`} compact /></div>
             The database in place is moved aside, not deleted.
           {:else}
-            <strong>Restore {restoreFor.id}?</strong> Your shelf goes back to what it held when that copy was taken.
+            <strong>Restore {restoreFor.id}?</strong> Matching skills have their saved flags, notes and tags replaced. Skills added since this copy remain on your shelf. Lists, teams and account settings are not restored.
             Copies taken since then are not deleted.
             <div class="formacts">
               <button type="button" class="btn" onclick={() => (restoreFor = null)}>Cancel</button>
@@ -659,7 +663,8 @@
       {#if status.runs.length === 0}
         <p class="empty">Nothing has run yet.</p>
       {:else}
-        <div class="tablewrap">
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users must be able to scroll this overflow region.) -->
+        <div class="tablewrap" tabindex="0" role="region" aria-label="Recent backup runs">
           <table>
             <thead><tr><th>Started</th><th>By</th><th>Outcome</th><th>Size</th><th>Off-site</th></tr></thead>
             <tbody>
@@ -680,6 +685,13 @@
     </section>
   {/if}
 </section>
+
+{#if deleteFor}
+  <ConfirmDialog title="Delete this local backup?" body={`Delete ${deleteFor.id} from this machine? Copies at destinations are left alone.`} confirmLabel="Delete backup" danger oncancel={() => (deleteFor = null)} onconfirm={() => { if (deleteFor) void removeItem(deleteFor) }} />
+{/if}
+{#if deleteRemoteFor}
+  <ConfirmDialog title="Remove this destination?" body={`Remove ${deleteRemoteFor.name}? Existing copies in its bucket are left alone.`} confirmLabel="Remove destination" danger oncancel={() => (deleteRemoteFor = null)} onconfirm={() => { if (deleteRemoteFor) void removeRemote(deleteRemoteFor) }} />
+{/if}
 
 <style>
   .backups { padding-top: 4px; }

@@ -1,6 +1,6 @@
 :root {
   --bg: #f7f6f2; --card: #fffdf9; --ink: #1d1c1a; --muted: #5f5c54; --line: #dedbd2;
-  --accent: #c2410c; --accent-ink: #fff; --tint: #fde8d8; --heart: #be1f4a; --good: #15703b; --bad: #b91c1c;
+  --accent: #c2410c; --accent-ink: #fff; --tint: #fde8d8; --heart: #be1f4a; --good: #15703b; --warn: #92400e; --bad: #b91c1c;
   --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
   --sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
@@ -13,7 +13,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     --bg: #151413; --card: #1d1c1a; --ink: #efece6; --muted: #b2aca2; --line: #49453e;
-    --accent: #fb923c; --accent-ink: #1a1208; --tint: #3a2615; --heart: #ff7a9c; --good: #4ade80; --bad: #f87171;
+    --accent: #fb923c; --accent-ink: #1a1208; --tint: #3a2615; --heart: #ff7a9c; --good: #4ade80; --warn: #fbbf24; --bad: #f87171;
   }
 }
 :root[data-theme='light'] { color-scheme: light; }

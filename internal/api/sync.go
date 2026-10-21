@@ -1,6 +1,9 @@
 package api
 
-import "net/http"
+import (
+	"github.com/eyupio/reet.sh/internal/store"
+	"net/http"
+)
 
 func (s *server) syncState(w http.ResponseWriter, r *http.Request) {
 	envs, err := s.st.SyncEnvironmentsFor(s.uid(r))
@@ -13,7 +16,7 @@ func (s *server) syncState(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"environments": envs, "targets": targets, "canWrite": s.currentUser(r).Role != "viewer"})
+	writeJSON(w, 200, map[string]any{"environments": envs, "machines": store.GroupMachines(envs), "targets": targets, "canWrite": s.currentUser(r).Role != "viewer"})
 }
 func (s *server) saveSync(w http.ResponseWriter, r *http.Request) {
 	var in struct {

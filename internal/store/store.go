@@ -130,6 +130,7 @@ type Filter struct {
 	Tab, Query, Sort string
 	Tags             []int64
 	Env              string
+	Machine          string
 	Only             string
 	Stage            string
 }
@@ -474,6 +475,10 @@ func (s *Store) List(f Filter) ([]Skill, Counts, error) {
 	if f.Env != "" {
 		q += ` AND EXISTS (SELECT 1 FROM skill_envs se WHERE se.skill_id=skills.id AND se.env_id=?)`
 		args = append(args, f.Env)
+	}
+	if f.Machine != "" {
+		q += ` AND EXISTS (SELECT 1 FROM skill_envs se JOIN environments e ON e.id=se.env_id WHERE se.skill_id=skills.id AND e.host=?)`
+		args = append(args, f.Machine)
 	}
 	if f.Only == "one-machine" {
 		q += ` AND (SELECT COUNT(DISTINCT e.host) FROM skill_envs se JOIN environments e ON e.id=se.env_id WHERE se.skill_id=skills.id)=1`

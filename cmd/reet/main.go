@@ -14,7 +14,9 @@ import (
 	"syscall"
 	"time"
 
+	"flag"
 	"github.com/eyupio/reet.sh/internal/api"
+	"github.com/eyupio/reet.sh/internal/lifecycle"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/scan"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -35,16 +37,34 @@ func env(k, def string) string {
 
 func main() {
 	cmd := "serve"
-	if len(os.Args) > 1 {
-		cmd = os.Args[1]
+	args := os.Args[1:]
+	if len(args) > 0 {
+		cmd = args[0]
+		args = args[1:]
 	}
 	switch cmd {
 	case "version", "--version", "-v":
 		fmt.Printf("reet %s (%s)\n", version, commit)
 	case "help", "--help", "-h":
-		fmt.Println("usage: reet serve | reet healthcheck | reet scan [options] | reet sync [options] | reet version")
-		fmt.Println("Run reet scan --help or reet sync --help for options.")
+		fmt.Println("usage: reet serve | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet sync | reet version")
+		fmt.Println("Run reet <command> --help for options. init/update are aliases for install/upgrade.")
+	case "install", "init", "upgrade", "update", "doctor":
+		if err := lifecycle.New(version, commit, os.Stdin, os.Stdout).Run(cmd, args); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case "serve":
+		f := flag.NewFlagSet("reet serve", flag.ExitOnError)
+		config := f.String("config", "", "managed deployment.json path")
+		f.Parse(args)
+		if f.NArg() != 0 {
+			log.Fatal("unexpected serve arguments")
+		}
+		if *config != "" {
+			if err := lifecycle.LoadServerConfig(*config); err != nil {
+				log.Fatal(err)
+			}
+		}
 		if err := serve(); err != nil {
 			log.Fatal(err)
 		}
@@ -54,15 +74,15 @@ func main() {
 			os.Exit(1)
 		}
 	case "sync":
-		if err := scan.RunSyncVersion(os.Args[2:], os.Stdin, os.Stdout, version); err != nil {
+		if err := scan.RunSyncVersion(args, os.Stdin, os.Stdout, version); err != nil {
 			log.Fatal(err)
 		}
 	case "scan":
-		if err := scan.RunVersion(os.Args[2:], os.Stdout, version); err != nil {
+		if err := scan.RunVersion(args, os.Stdout, version); err != nil {
 			log.Fatal(err)
 		}
 	default:
-		fmt.Fprintln(os.Stderr, "usage: reet serve | reet healthcheck | reet scan [options] | reet sync [options] | reet version")
+		fmt.Fprintln(os.Stderr, "usage: reet serve | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet sync | reet version")
 		os.Exit(2)
 	}
 }

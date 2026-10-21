@@ -22,11 +22,12 @@ type MachineInfo struct {
 
 type SyncEnvironment struct {
 	Environment
-	ScannedAt int64  `json:"scannedAt"`
-	Complete  bool   `json:"complete"`
-	OS        string `json:"os"`
-	Arch      string `json:"arch"`
-	Version   string `json:"version"`
+	ScannedAt int64       `json:"scannedAt"`
+	Complete  bool        `json:"complete"`
+	OS        string      `json:"os"`
+	Arch      string      `json:"arch"`
+	Version   string      `json:"version"`
+	Skills    []SyncSkill `json:"skills"`
 }
 
 type SyncSkill struct {
@@ -76,6 +77,10 @@ func (s *Store) SyncEnvironmentsFor(userID int64) ([]SyncEnvironment, error) {
 		item := SyncEnvironment{Environment: env}
 		err := s.db.QueryRow(`SELECT scanned_at,complete,os,arch,version FROM environment_scans WHERE env_id=?`, env.ID).Scan(&item.ScannedAt, &item.Complete, &item.OS, &item.Arch, &item.Version)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		item.Skills, err = s.EnvironmentSkillsFor(userID, env.ID)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, item)
@@ -238,4 +243,33 @@ func (s *Store) DeleteSyncTargetFor(userID int64, targetID string) error {
 func (s *Store) ForgetEnvironmentFor(userID int64, id string) error {
 	_, err := s.db.Exec(`DELETE FROM environments WHERE user_id=? AND id=?`, userID, id)
 	return err
+}
+
+// Machine groups agent/project inventories under their user-scoped host alias.
+// Existing environment IDs remain valid subgroup IDs for the scanner and sync CLI.
+type Machine struct {
+	Host       string            `json:"host"`
+	Groups     []SyncEnvironment `json:"groups"`
+	SkillCount int               `json:"skillCount"`
+}
+
+func GroupMachines(envs []SyncEnvironment) []Machine {
+	out := []Machine{}
+	index := map[string]int{}
+	seen := map[string]map[string]bool{}
+	for _, env := range envs {
+		i, ok := index[env.Host]
+		if !ok {
+			i = len(out)
+			index[env.Host] = i
+			out = append(out, Machine{Host: env.Host, Groups: []SyncEnvironment{}})
+			seen[env.Host] = map[string]bool{}
+		}
+		out[i].Groups = append(out[i].Groups, env)
+		for _, skill := range env.Skills {
+			seen[env.Host][skill.ID] = true
+		}
+		out[i].SkillCount = len(seen[env.Host])
+	}
+	return out
 }

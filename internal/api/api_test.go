@@ -40,6 +40,9 @@ func deadFetcher(t *testing.T) meta.Fetcher {
 func do(t *testing.T, srv *httptest.Server, method, path, body string, hdr ...string) (int, string) {
 	t.Helper()
 	req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	for i := 0; i+1 < len(hdr); i += 2 {
 		req.Header.Set(hdr[i], hdr[i+1])
 	}
@@ -226,5 +229,33 @@ func TestExportRestoreRoundTrip(t *testing.T) {
 	}
 	if l := list(t, b, "?tab=liked"); len(l.Skills) != 1 {
 		t.Fatalf("%+v", l)
+	}
+}
+
+func TestCrossSiteWriteRejected(t *testing.T) {
+	srv := newSrv(t, deadFetcher(t), "")
+	code, _ := do(t, srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`, "Sec-Fetch-Site", "cross-site")
+	if code != 403 {
+		t.Fatalf("cross-site POST: %d", code)
+	}
+	if code, _ := do(t, srv, "DELETE", "/api/skill?id=a/b/c", "", "Sec-Fetch-Site", "cross-site"); code != 403 {
+		t.Fatalf("cross-site DELETE: %d", code)
+	}
+	if code, _ := do(t, srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`, "Sec-Fetch-Site", "same-origin"); code != 200 {
+		t.Fatalf("same-origin POST: %d", code)
+	}
+	if l := list(t, srv, ""); len(l.Skills) != 1 {
+		t.Fatalf("only the same-origin write should have landed: %+v", l)
+	}
+}
+
+func TestWriteRequiresJSONContentType(t *testing.T) {
+	srv := newSrv(t, deadFetcher(t), "")
+	code, _ := do(t, srv, "POST", "/api/restore", `{"skills":[{"id":"a/b/c"}]}`, "Content-Type", "text/plain")
+	if code != 415 {
+		t.Fatalf("text/plain POST: %d", code)
+	}
+	if l := list(t, srv, ""); len(l.Skills) != 0 {
+		t.Fatalf("nothing should be saved: %+v", l)
 	}
 }

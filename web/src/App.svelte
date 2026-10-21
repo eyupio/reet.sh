@@ -208,7 +208,7 @@
         <li class="card">
           <div class="head">
             <div class="title">
-              {#if s.url}
+              {#if s.url.startsWith('https://www.skills.sh/')}
                 <a href={s.url} target="_blank" rel="noopener noreferrer">{s.name}</a>
               {:else}
                 <span>{s.name}</span>

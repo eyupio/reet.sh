@@ -45,6 +45,18 @@ func New(st *store.Store, f meta.Fetcher, token string) http.Handler {
 
 func (s *server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") && r.Method != http.MethodGet && r.Method != http.MethodHead {
+			// Stops other websites from writing to a token-less instance through the visitor's browser.
+			if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+				writeErr(w, http.StatusForbidden, "cross-site requests are not allowed")
+				return
+			}
+			if (r.Method == http.MethodPost || r.Method == http.MethodPatch) &&
+				!strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
+				writeErr(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+				return
+			}
+		}
 		if s.token != "" && (strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/quick") {
 			got := r.Header.Get("X-Reet-Token")
 			if b, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {

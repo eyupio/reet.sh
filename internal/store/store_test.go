@@ -2,6 +2,7 @@ package store
 
 import (
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/ref"
 )
@@ -145,5 +146,55 @@ func TestSetMetaAndDelete(t *testing.T) {
 	}
 	if _, ok, _ := s.Get(r.ID); ok {
 		t.Fatal("still present")
+	}
+}
+
+func TestRestoreRederivesLinkAndRejectsBadIDs(t *testing.T) {
+	s := newStore(t)
+	err := s.Restore([]Skill{
+		{ID: "a/b/c", URL: "javascript:alert(1)", Source: "evil", SourceType: "github", Name: "C", Liked: true},
+		{ID: "local/mine", URL: "https://evil.example/x", Source: "x", SourceType: "github", Name: "mine"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _, _ := s.Get("a/b/c")
+	if c.URL != "https://www.skills.sh/a/b/c" || c.Source != "a/b" || c.SourceType != "github" || !c.Liked || c.Name != "C" {
+		t.Fatalf("github skill not re-derived: %+v", c)
+	}
+	m, _, _ := s.Get("local/mine")
+	if m.URL != "" || m.SourceType != "local" || m.Source != "local" || m.Slug != "mine" {
+		t.Fatalf("local skill not re-derived: %+v", m)
+	}
+	for _, bad := range []string{"", "nonsense", "a/b/c/d", "local/", "local/x/y"} {
+		if err := s.Restore([]Skill{{ID: bad}}); err == nil {
+			t.Errorf("Restore accepted id %q", bad)
+		}
+	}
+}
+
+func TestFlagChangeBumpsRecencyButReimportDoesNot(t *testing.T) {
+	s := newStore(t)
+	a, b := mustRef(t, "o/r/aaa"), mustRef(t, "o/r/bbb")
+	s.Upsert(a, Patch{})
+	time.Sleep(3 * time.Millisecond)
+	s.Upsert(b, Patch{})
+	time.Sleep(3 * time.Millisecond)
+	first := func() string {
+		got, _, _ := s.List(Filter{})
+		return got[0].Slug
+	}
+	if first() != "bbb" {
+		t.Fatalf("newest first expected, got %s", first())
+	}
+	s.Upsert(a, Patch{Liked: bp(true)})
+	if first() != "aaa" {
+		t.Fatal("liking an old skill should move it to the top of Recent")
+	}
+	time.Sleep(3 * time.Millisecond)
+	s.Upsert(b, Patch{})
+	s.Upsert(a, Patch{Liked: bp(true)})
+	if first() != "aaa" {
+		t.Fatal("re-importing with no change must not reorder")
 	}
 }

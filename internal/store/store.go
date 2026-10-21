@@ -4,6 +4,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -116,7 +117,9 @@ func (s *Store) upsert(id, source, slug, typ, url, name string, f Patch) (Skill,
 		notes = *f.Notes
 	}
 	_, err := s.db.Exec(`INSERT INTO skills(`+cols+`) VALUES(?,?,?,?,?,?,'',?,0,?,?,?,?,?)
-		ON CONFLICT(id) DO UPDATE SET liked=liked OR excluded.liked, bookmarked=bookmarked OR excluded.bookmarked, used=used OR excluded.used`,
+		ON CONFLICT(id) DO UPDATE SET
+			updated_at=CASE WHEN (liked=0 AND excluded.liked=1) OR (bookmarked=0 AND excluded.bookmarked=1) OR (used=0 AND excluded.used=1) THEN excluded.updated_at ELSE updated_at END,
+			liked=liked OR excluded.liked, bookmarked=bookmarked OR excluded.bookmarked, used=used OR excluded.used`,
 		id, source, slug, typ, url, name, notes, b2i(f.Liked), b2i(f.Bookmarked), b2i(f.Used), t, t)
 	if err != nil {
 		return Skill{}, err
@@ -261,6 +264,24 @@ func (s *Store) Export() ([]Skill, error) {
 	return out, rows.Err()
 }
 
+// rederive rebuilds the identity fields of a restored skill from its id, so a crafted
+// backup cannot plant a foreign link or a mismatched source.
+func rederive(k *Skill) error {
+	if name, ok := strings.CutPrefix(k.ID, "local/"); ok {
+		if name == "" || strings.Contains(name, "/") {
+			return fmt.Errorf("invalid skill id %q", k.ID)
+		}
+		k.Source, k.Slug, k.SourceType, k.URL = "local", name, "local", ""
+		return nil
+	}
+	r, err := ref.Parse(k.ID)
+	if err != nil || r.ID != k.ID {
+		return fmt.Errorf("invalid skill id %q", k.ID)
+	}
+	k.Source, k.Slug, k.SourceType, k.URL = r.Source, r.Slug, r.SourceType, r.URL
+	return nil
+}
+
 // Restore inserts or replaces every skill given, in one transaction.
 func (s *Store) Restore(all []Skill) error {
 	tx, err := s.db.Begin()
@@ -269,8 +290,8 @@ func (s *Store) Restore(all []Skill) error {
 	}
 	defer tx.Rollback()
 	for _, k := range all {
-		if k.ID == "" {
-			return errors.New("skill without id")
+		if err := rederive(&k); err != nil {
+			return err
 		}
 		t := now()
 		if k.CreatedAt == 0 {

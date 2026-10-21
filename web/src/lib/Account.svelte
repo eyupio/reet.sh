@@ -280,7 +280,7 @@
   {#if section === 'profile'}
     <section class="block" aria-labelledby="profile-title">
       <h2 id="profile-title">Profile</h2>
-      <p class="muted">How your name appears to your team and to admins, and how reet shows you dates.</p>
+      <p class="muted">Get your shelf just reet. Set your name, shelf defaults, theme and date preferences.</p>
       <form onsubmit={save}>
         <div class="grid2">
           <label class="wide"><span>Name</span>

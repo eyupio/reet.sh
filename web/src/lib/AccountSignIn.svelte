@@ -38,7 +38,7 @@
   }
 </script>
 
-<AuthCard title="Sign in to your shelf" lede="Welcome back. Pick up where you left off.">
+<AuthCard title="Sign in to your shelf" lede="Ey up. Pick up where you left off.">
   <form onsubmit={submit} aria-busy={busy} aria-describedby={error ? "signin-error" : undefined}>
     <label for="signin-email">Email</label>
     <input id="signin-email" bind:this={emailInput} bind:value={email} type="email" required autocomplete="username" placeholder="you@example.com" />

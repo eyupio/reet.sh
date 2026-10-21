@@ -5,9 +5,9 @@ export type Stage = 'use' | 'try' | 'shelf'
 export type Move = { label: string; flags: Flags; primary?: boolean }
 
 export const stages: { id: Stage; title: string; hint: string; empty: string }[] = [
-  { id: 'use', title: 'In use', hint: 'The ones you actually reach for.', empty: 'Nowt in use yet. Move something from To test when you start using it.' },
-  { id: 'try', title: 'To test', hint: 'Saved to give a go.', empty: 'Nowt waiting. Save something from the shelf below.' },
-  { id: 'shelf', title: 'On the shelf', hint: 'Spotted, not sorted yet.', empty: 'Nowt else on the shelf. Paste a link above to add one.' },
+  { id: 'use', title: 'In use', hint: 'Earning their keep.', empty: 'Nowt in use yet. Mark a skill In use when it earns its place.' },
+  { id: 'try', title: 'To test', hint: 'Give these a proper go.', empty: 'Nowt waiting for a go. Save a skill To test when it catches your eye.' },
+  { id: 'shelf', title: 'On the shelf', hint: 'Good finds, saved for later.', empty: 'Nowt on the shelf yet. Paste a skill link above to get cracking.' },
 ]
 
 export const stageOf = (s: Skill): Stage => (s.used ? 'use' : s.bookmarked ? 'try' : 'shelf')

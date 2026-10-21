@@ -16,6 +16,18 @@ only after the downloaded archive's SHA-256 checksum has been verified.
 EOF
 }
 fail() { printf 'reet: %s\n' "$*" >&2; exit 1; }
+# Quote copyable shell commands without interpreting characters in a custom path.
+quote() {
+  remaining=$1
+  printf "'"
+  while :; do
+    case "$remaining" in
+      *"'"*) printf '%s' "${remaining%%\'*}"; printf '%s' "'\\''"; remaining=${remaining#*\'} ;;
+      *) printf '%s' "$remaining"; break ;;
+    esac
+  done
+  printf "'"
+}
 
 version=latest
 install_dir=${REET_INSTALL_DIR:-"${HOME:?HOME is not set}/.local/bin"}
@@ -91,5 +103,11 @@ staged_binary=$(mktemp "$install_dir/.reet-install.XXXXXX") || fail "cannot writ
 install -m 0755 "$work_dir/reet" "$staged_binary"
 mv -f "$staged_binary" "$install_dir/reet"
 staged_binary=
-printf 'Installed reet %s to %s/reet\n' "$version" "$install_dir"
-case ":${PATH:-}:" in *":$install_dir:"*) ;; *) printf 'Add %s to your PATH to run reet from any directory.\n' "$install_dir" ;; esac
+printf 'Reet, installed %s to %s/reet\n' "$version" "$install_dir"
+case ":${PATH:-}:" in
+  *":$install_dir:"*) ;;
+  *) printf '\nRun this in your terminal, and add it to your shell profile for future sessions:\n'; printf 'export PATH='; quote "$install_dir"; printf ':"$PATH"\n' ;;
+esac
+printf '\nCheck your installation:\n'
+quote "$install_dir/reet"
+printf ' --version\n\nConnect to an existing site: open Account on that site, then Connect a machine.\nHost your own site: run reet install --mode native (user service), or --mode compose (Docker).\nFor an existing managed server, use reet upgrade for future updates.\n'

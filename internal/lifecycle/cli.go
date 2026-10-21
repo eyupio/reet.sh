@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -264,12 +265,27 @@ func (a *App) install(args []string) error {
 			return err
 		}
 	}
-	fmt.Fprintln(a.Out, "Installed. Add the binary directory to PATH, then run reet doctor.")
+	fmt.Fprintf(a.Out, "Reet, installed. Binary: %s\n", target)
+	fmt.Fprintf(a.Out, "Check this deployment: %s doctor --state-dir %s\n", shellQuote(target), shellQuote(state))
+	if d.Mode == "binary" {
+		fmt.Fprintln(a.Out, "Connect to an existing site: open Account on that site, then Connect a machine.")
+	} else {
+		fmt.Fprintf(a.Out, "Open %s after the server starts. Create the owner account on a new instance.\nData: %s (keep this directory when updating)\n", strings.TrimSuffix(localHealth(d.Addr), "/healthz"), data)
+		if d.Mode == "native" && runtime.GOOS == "linux" {
+			fmt.Fprintln(a.Out, "Status: systemctl --user status reet\nLogs: journalctl --user -u reet")
+		} else if d.Mode == "native" {
+			fmt.Fprintf(a.Out, "Logs: %s\n", filepath.Join(state, "server.log"))
+		} else {
+			fmt.Fprintf(a.Out, "Compose configuration: %s\n", filepath.Join(state, "compose.json"))
+		}
+	}
 	if *noStart && d.Mode == "native" {
 		fmt.Fprintln(a.Out, "Start manually: systemctl --user daemon-reload && systemctl --user enable --now reet.service (Linux); launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/sh.reet.server.plist (macOS).")
 	}
 	return nil
 }
+
+func shellQuote(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'" }
 
 func (a *App) upgrade(args []string) error {
 	f := flags("upgrade", a.Out)

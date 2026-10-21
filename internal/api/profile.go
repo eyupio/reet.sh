@@ -13,7 +13,7 @@ import (
 
 func (s *server) registerProfileRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/profile", s.profileGet)
-	mux.HandleFunc("PATCH /api/v2/profile", s.requireWriter(s.profileSave))
+	mux.HandleFunc("PATCH /api/v2/profile", s.profileSave)
 	mux.HandleFunc("POST /api/v2/profile/password", s.requireWriter(s.profilePassword))
 	mux.HandleFunc("GET /api/v2/profile/sessions", s.profileSessions)
 	mux.HandleFunc("DELETE /api/v2/profile/sessions/{id}", s.requireWriter(s.profileEndSession))
@@ -43,15 +43,26 @@ func (s *server) profileGet(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name       *string `json:"name"`
-		Theme      *string `json:"theme"`
-		Timezone   *string `json:"timezone"`
-		DateFormat *string `json:"dateFormat"`
+		Name          *string `json:"name"`
+		Theme         *string `json:"theme"`
+		Timezone      *string `json:"timezone"`
+		DateFormat    *string `json:"dateFormat"`
+		ShelfView     *string `json:"shelfView"`
+		CardsExpanded *bool   `json:"cardsExpanded"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
 	user := s.currentUser(r)
+	if user.Role == "viewer" && in.Name != nil {
+		writeErr(w, http.StatusForbidden, "read-only accounts can change their display preferences, but not their name")
+		return
+	}
+	// Validate all new defaults before applying any profile changes.
+	if in.ShelfView != nil && *in.ShelfView != "list" && *in.ShelfView != "board" {
+		writeErr(w, http.StatusBadRequest, "shelfView must be list or board")
+		return
+	}
 	profile, err := s.st.ProfileFor(user.ID)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -105,6 +116,14 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, "dateFormat must be locale, dmy, mdy or ymd")
 			return
 		}
+	}
+	if in.ShelfView != nil {
+		profile.ShelfView = *in.ShelfView
+		detail["shelfView"] = *in.ShelfView
+	}
+	if in.CardsExpanded != nil {
+		profile.CardsExpanded = *in.CardsExpanded
+		detail["cardsExpanded"] = *in.CardsExpanded
 	}
 	if err := s.st.SaveProfileFor(user.ID, profile); err != nil {
 		writeErr(w, 500, err.Error())

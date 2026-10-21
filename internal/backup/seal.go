@@ -1,6 +1,8 @@
 package backup
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -11,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -27,20 +30,43 @@ const (
 	nonceLen     = 12
 )
 
+// What protects a copy's payload, and how it is stored.
+const (
+	ProtectionKey      = "key"
+	ProtectionPassword = "password"
+
+	CompressionNone = "none"
+	CompressionGzip = "gzip"
+)
+
+// MinPassword is the shortest password accepted for a copy, matching the
+// shortest a Zoomies export takes.
+const MinPassword = 12
+
 // Manifest is the unsealed header of a copy: what it is, when it was taken,
 // and the digest of the payload inside. It is readable before the copy is
 // opened, which is what lets a listing say what each file holds.
 type Manifest struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind"`
-	OwnerID   int64  `json:"ownerId"`
-	Target    string `json:"target"`
-	TakenAt   int64  `json:"takenAt"`
-	Version   string `json:"version,omitempty"`
-	Size      int64  `json:"size"`
-	SHA256    string `json:"sha256"`
-	Encrypted bool   `json:"encrypted"`
-	Cipher    string `json:"cipher,omitempty"`
+	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	OwnerID     int64  `json:"ownerId"`
+	Target      string `json:"target"`
+	TakenAt     int64  `json:"takenAt"`
+	Version     string `json:"version,omitempty"`
+	Size        int64  `json:"size"`
+	SHA256      string `json:"sha256"`
+	Encrypted   bool   `json:"encrypted"`
+	Cipher      string `json:"cipher,omitempty"`
+	Protection  string `json:"protection,omitempty"`
+	Compression string `json:"compression,omitempty"`
+}
+
+// SealOptions chooses how a copy is stored. A password replaces the
+// instance key for that copy, so it opens with the password alone; Compress
+// gzips the payload before it is sealed.
+type SealOptions struct {
+	Compress bool
+	Password string
 }
 
 // Sealer seals every archive and every stored destination secret with one key.
@@ -75,9 +101,14 @@ func derive(passphrase, salt []byte) []byte {
 	return argon2.IDKey(passphrase, salt, argonTime, argonMemory, argonThreads, keyLen)
 }
 
-// Seal wraps a payload with its manifest. The manifest is readable without
-// the key; the payload is not.
+// Seal wraps a payload with its manifest under the instance key.
 func (s *Sealer) Seal(m Manifest, payload []byte) ([]byte, error) {
+	return s.SealArchive(m, payload, SealOptions{})
+}
+
+// SealArchive wraps a payload with its manifest, optionally compressed and
+// optionally sealed under a password instead of the instance key.
+func (s *Sealer) SealArchive(m Manifest, payload []byte, opts SealOptions) ([]byte, error) {
 	if m.TakenAt == 0 {
 		m.TakenAt = time.Now().UnixMilli()
 	}
@@ -86,6 +117,27 @@ func (s *Sealer) Seal(m Manifest, payload []byte) ([]byte, error) {
 	m.SHA256 = hex.EncodeToString(sum[:])
 	m.Encrypted = true
 	m.Cipher = "AES-256-GCM/Argon2id"
+	m.Protection = ProtectionKey
+	m.Compression = ""
+
+	stored := payload
+	if opts.Compress {
+		var buf bytes.Buffer
+		gz := gzip.NewWriter(&buf)
+		if _, err := gz.Write(payload); err != nil {
+			return nil, err
+		}
+		if err := gz.Close(); err != nil {
+			return nil, err
+		}
+		stored = buf.Bytes()
+		m.Compression = CompressionGzip
+	}
+	key := s.passphrase
+	if opts.Password != "" {
+		key = []byte(opts.Password)
+		m.Protection = ProtectionPassword
+	}
 
 	salt := make([]byte, saltLen)
 	nonce := make([]byte, nonceLen)
@@ -95,7 +147,7 @@ func (s *Sealer) Seal(m Manifest, payload []byte) ([]byte, error) {
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, err
 	}
-	block, err := aes.NewCipher(derive(s.passphrase, salt))
+	block, err := aes.NewCipher(derive(key, salt))
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +155,7 @@ func (s *Sealer) Seal(m Manifest, payload []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	sealed := aead.Seal(nil, nonce, payload, []byte(m.ID))
+	sealed := aead.Seal(nil, nonce, stored, []byte(m.ID))
 	head, err := json.Marshal(m)
 	if err != nil {
 		return nil, err
@@ -118,10 +170,99 @@ func (s *Sealer) Seal(m Manifest, payload []byte) ([]byte, error) {
 	return out, nil
 }
 
-// Open reads a copy, checks its digest, and gives back the manifest and the
-// bytes inside. A wrong key, a damaged file and a file that is not a reet
-// backup each fail with words that say which.
+// Open reads a copy sealed under the instance key, checks its digest and
+// decompresses it when it was stored compressed.
 func (s *Sealer) Open(data []byte) (Manifest, []byte, error) {
+	m, body, err := parseArchive(data)
+	if err != nil {
+		return m, nil, err
+	}
+	if m.Protection == ProtectionPassword {
+		return m, nil, errors.New("this copy is protected with a password; enter it to open it")
+	}
+	return s.openBody(m, body, s.passphrase, "this backup cannot be opened with this key, or it is damaged")
+}
+
+// OpenArchive opens a downloaded copy with the password or the instance
+// key it needs, for a machine that may have no database.
+func OpenArchive(data []byte, password, key string) (Manifest, []byte, error) {
+	m, err := ManifestOf(data)
+	if err != nil {
+		return m, nil, err
+	}
+	if m.Protection == ProtectionPassword {
+		if password == "" {
+			return m, nil, errors.New("this copy is protected with a password; give it with --password or --password-file")
+		}
+		sealer, _ := NewSealer(strings.Repeat("0", 32), "cli")
+		return sealer.OpenWithPassword(data, password)
+	}
+	if strings.TrimSpace(key) == "" {
+		return m, nil, errors.New("this copy is sealed under the instance key; set REET_BACKUP_KEY (or give a password-protected copy its password)")
+	}
+	sealer, err := NewSealer(key, "cli")
+	if err != nil {
+		return m, nil, err
+	}
+	return sealer.Open(data)
+}
+
+// OpenWithPassword opens a copy sealed under a password. A copy sealed under
+// the instance key opens as Open would, with the password ignored, so a
+// caller that has both never has to choose.
+func (s *Sealer) OpenWithPassword(data []byte, password string) (Manifest, []byte, error) {
+	m, body, err := parseArchive(data)
+	if err != nil {
+		return m, nil, err
+	}
+	if m.Protection != ProtectionPassword {
+		return s.openBody(m, body, s.passphrase, "this backup cannot be opened with this key, or it is damaged")
+	}
+	if password == "" {
+		return m, nil, errors.New("this copy is protected with a password; enter it to open it")
+	}
+	return s.openBody(m, body, []byte(password), "the password does not open this copy, or it is damaged")
+}
+
+func (s *Sealer) openBody(m Manifest, body, key []byte, wrong string) (Manifest, []byte, error) {
+	if len(body) < saltLen+nonceLen {
+		return m, nil, errors.New("this backup is truncated")
+	}
+	block, err := aes.NewCipher(derive(key, body[:saltLen]))
+	if err != nil {
+		return m, nil, err
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return m, nil, err
+	}
+	plain, err := aead.Open(nil, body[saltLen:saltLen+nonceLen], body[saltLen+nonceLen:], []byte(m.ID))
+	if err != nil {
+		return m, nil, errors.New(wrong)
+	}
+	if m.Compression == CompressionGzip {
+		gz, err := gzip.NewReader(bytes.NewReader(plain))
+		if err != nil {
+			return m, nil, fmt.Errorf("this backup's compressed payload is damaged: %w", err)
+		}
+		defer gz.Close()
+		out, err := io.ReadAll(io.LimitReader(gz, maxObjectBytes+1))
+		if err != nil {
+			return m, nil, fmt.Errorf("reading this backup's compressed payload: %w", err)
+		}
+		if int64(len(out)) > maxObjectBytes {
+			return m, nil, errors.New("this backup opens to more than this build can hold in memory")
+		}
+		plain = out
+	}
+	if err := verifyPayload(m, plain); err != nil {
+		return m, nil, err
+	}
+	return m, plain, nil
+}
+
+// parseArchive reads the header and returns the body after it.
+func parseArchive(data []byte) (Manifest, []byte, error) {
 	var m Manifest
 	if len(data) < len(archiveMagic)+4 || string(data[:len(archiveMagic)]) != archiveMagic {
 		return m, nil, errors.New("this is not a reet backup")
@@ -135,33 +276,7 @@ func (s *Sealer) Open(data []byte) (Manifest, []byte, error) {
 	if err := json.Unmarshal(data[at:at+n], &m); err != nil {
 		return m, nil, errors.New("this backup's header is damaged")
 	}
-	at += n
-	body := data[at:]
-	if !m.Encrypted {
-		if err := verifyPayload(m, body); err != nil {
-			return m, nil, err
-		}
-		return m, body, nil
-	}
-	if len(body) < saltLen+nonceLen {
-		return m, nil, errors.New("this backup is truncated")
-	}
-	block, err := aes.NewCipher(derive(s.passphrase, body[:saltLen]))
-	if err != nil {
-		return m, nil, err
-	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return m, nil, err
-	}
-	plain, err := aead.Open(nil, body[saltLen:saltLen+nonceLen], body[saltLen+nonceLen:], []byte(m.ID))
-	if err != nil {
-		return m, nil, errors.New("this backup cannot be opened with this key, or it is damaged")
-	}
-	if err := verifyPayload(m, plain); err != nil {
-		return m, nil, err
-	}
-	return m, plain, nil
+	return m, data[at+n:], nil
 }
 
 func verifyPayload(m Manifest, payload []byte) error {
@@ -175,20 +290,8 @@ func verifyPayload(m Manifest, payload []byte) error {
 // ManifestOf reads only the header, for a listing that must not open every
 // copy with the key.
 func ManifestOf(data []byte) (Manifest, error) {
-	var m Manifest
-	if len(data) < len(archiveMagic)+4 || string(data[:len(archiveMagic)]) != archiveMagic {
-		return m, errors.New("this is not a reet backup")
-	}
-	at := len(archiveMagic)
-	n := int(binary.BigEndian.Uint32(data[at : at+4]))
-	at += 4
-	if n < 0 || n > 1<<20 || len(data) < at+n {
-		return m, errors.New("this backup's header is damaged")
-	}
-	if err := json.Unmarshal(data[at:at+n], &m); err != nil {
-		return m, errors.New("this backup's header is damaged")
-	}
-	return m, nil
+	m, _, err := parseArchive(data)
+	return m, err
 }
 
 // SealSecret keeps a destination's secret access key unreadable in the

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { groupLabel } from './lib/machines'
+  import NavigationMenu from './lib/NavigationMenu.svelte'
+  import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
   import Community from './lib/Community.svelte'
   import SharedLists from './lib/SharedLists.svelte'
   import Spaces from './lib/Spaces.svelte'
@@ -7,15 +8,15 @@
   import { onMount, tick } from 'svelte'
   import {
     addSkill, addSkillTags, applyTheme, clearToken, getAuthStatus, getProfile, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
-    patchSkill, patchSkills, refreshSkill, removeSkill, removeSkills, resolveSkill, restoreAll, signOutAccount, tagSkills, UnauthorizedError,
+    patchSkill, patchSkills, refreshSkill, removeSkill, removeSkills, resolveSkill, restoreAll, saveProfile, signOutAccount, tagSkills, UnauthorizedError,
     type Counts, type Environment, type Event, type Flags, type ListRef, type SharedList, type Skill, type Sort, type Tag, type User,
   } from './lib/api'
   import Account from './lib/Account.svelte'
   import MCPConsent from './lib/MCPConsent.svelte'
   import WebMCP from './lib/WebMCP.svelte'
+  import Hosting from './lib/Hosting.svelte'
   import AccountSignIn from './lib/AccountSignIn.svelte'
   import Admin from './lib/Admin.svelte'
-  import Bookmarklets from './lib/Bookmarklets.svelte'
   import BulkBar from './lib/BulkBar.svelte'
   import ConfirmDialog from './lib/ConfirmDialog.svelte'
   import CopyButton from './lib/CopyButton.svelte'
@@ -42,6 +43,10 @@
   let onlyLiked = $state(false)
   let q = $state('')
   let sort = $state<Sort>('recent')
+  let view = $state<'list' | 'board'>('list')
+  let expandedSkills = $state<Record<string, boolean>>({})
+  let defaultExpanded = $state(false)
+  let viewSave = Promise.resolve()
   let addInput = $state('')
   let message = $state('')
   let error = $state('')
@@ -67,6 +72,9 @@
   let selectedEnv = $state('')
   let selectedMachine = $state('')
   let machines = $state<import('./lib/api').Machine[]>([])
+  let inventoryNow = $state(Date.now())
+  const shelfMachines = $derived(inventoryMachines(machines))
+  const machineReports = $derived(installationReports(shelfMachines, inventoryNow))
   let onlyOne = $state(false)
   let copying = $state(false)
   let removePending = $state<Skill | null>(null)
@@ -79,6 +87,7 @@
   let bulkRemoving = $state<Skill[]>([])
 
   const origin = location.origin
+  const isHosting = location.pathname === '/hosting'
   const isCommunity = location.pathname === '/community'
   const isShared = location.pathname === '/shared'
   const isSpaces = location.pathname === '/spaces'
@@ -99,13 +108,30 @@
   const role = $derived(currentUser?.role ?? (authMode === 'accounts' ? 'viewer' : 'owner'))
   const canWrite = $derived(authMode !== 'accounts' || role !== 'viewer')
   const isAdminUser = $derived(authMode !== 'accounts' || role === 'owner' || role === 'admin')
+  const accountPages = [['profile', 'Profile'], ['security', 'Password'], ['sessions', 'Sessions'], ['machines', 'Machines'], ['sync', 'Compare & sync'], ['tokens', 'API tokens'], ['mcp', 'MCP access'], ['backups', 'Backups'], ['activity', 'Activity']]
+  const adminPages = [['overview', 'Overview'], ['environments', 'Environments'], ['users', 'Users'], ['team', 'Team usage'], ['backups', 'Backups'], ['settings', 'Settings'], ['activity', 'Activity']]
+  const mainNavigation = $derived([
+    { href: '/', label: 'Personal shelf', current: !isHosting && !isAdmin && !isAccount && !isList && !isCommunity && !isShared && !isSpaces },
+    { href: '/shared', label: 'Lists', current: isShared || isList },
+    { href: '/spaces', label: 'Teams', current: isSpaces },
+    { href: '/community', label: 'Community', current: isCommunity },
+    ...(canWrite ? [{ href: '/hosting', label: 'Host skills', current: isHosting }] : []),
+    ...(authMode === 'accounts' ? [{ href: '/account/profile', label: 'Account', current: isAccount,
+      children: accountPages.filter(([key]) => key !== 'tokens' || canWrite).map(([key, label]) => ({ label, href: `/account/${key}`, current: isAccount && (location.pathname === `/account/${key}` || (key === 'profile' && location.pathname === '/account')) })),
+    }] : []),
+    ...(isAdminUser ? [{ href: '/admin/overview', label: 'Admin', current: isAdmin,
+      children: adminPages.filter(([key]) => authMode === 'accounts' || !['users', 'team'].includes(key)).map(([key, label]) => ({ label, href: `/admin/${key}`, current: isAdmin && (location.pathname === `/admin/${key}` || (key === 'overview' && location.pathname === '/admin')) })),
+    }] : []),
+  ])
   const scanCommand = $derived(`reet scan --prune --server ${origin}${authMode === 'none' ? '' : ' --token "$REET_TOKEN"'}`)
 
   const filtering = $derived(q.trim() !== '' || onlyLiked || selectedTags.length > 0 || selectedEnv !== '' || selectedMachine !== '' || onlyOne)
   const grouped = $derived(stages.map((st) => ({ ...st, items: skills.filter((k) => stageOf(k) === st.id) })))
   // While searching or filtering, hide sections with nothing to show; otherwise keep them so the shelf reads as a pipeline.
-  const visible = $derived(grouped.filter((g) => (show === 'all' || show === g.id) && (g.items.length > 0 || !filtering)))
+  const orderedGroups = $derived(view === 'board' ? [grouped[2], grouped[1], grouped[0]] : grouped)
+  const visible = $derived(orderedGroups.filter((g) => (show === 'all' || show === g.id) && (view === 'board' || g.items.length > 0 || !filtering)))
   const total = $derived(visible.reduce((n, g) => n + g.items.length, 0))
+  const anyExpanded = $derived(visible.some(g => g.items.some(skill => expandedSkills[skill.id] ?? defaultExpanded)))
   const likedCount = $derived(skills.filter((s) => s.liked).length)
   const tagOptions = $derived(allTags.map((t) => t.name))
   const filterKey = $derived(`${q}|${sort}|${onlyLiked}|${selectedTags.join(',')}|${selectedMachine}|${selectedEnv}|${onlyOne}|${show}`)
@@ -209,11 +235,25 @@
   }
 
   onMount(() => {
+    try { view = localStorage.getItem('reet-shelf-view') === 'board' ? 'board' : 'list' } catch { /* use the default when storage is unavailable */ }
     void initAuth()
     const changed = () => { if (authenticated) void reloadAll() }
     window.addEventListener('reet-shelf-changed', changed)
-    return () => window.removeEventListener('reet-shelf-changed', changed)
+    const timer = setInterval(() => (inventoryNow = Date.now()), 60000)
+    return () => { clearInterval(timer); window.removeEventListener('reet-shelf-changed', changed) }
   })
+
+  function chooseView(next: 'list' | 'board') {
+    view = next
+    try { localStorage.setItem('reet-shelf-view', next) } catch { /* the choice still works for this visit */ }
+    const actor = currentUser?.id
+    if (authMode === 'accounts' && actor) {
+      // Serialize rapid switches so an older request cannot overwrite the last choice.
+      viewSave = viewSave.catch(() => {}).then(async () => {
+        if (currentUser?.id === actor) await saveProfile({ shelfView: next })
+      }).catch(e => { if (currentUser?.id === actor) fail(e) })
+    }
+  }
 
   async function initAuth() {
     try {
@@ -222,7 +262,6 @@
       setupRequired = status.setupRequired
       bootstrapRequired = status.bootstrapRequired
       currentUser = status.user
-      if (status.user) void loadTheme()
       if (status.mode === 'token') {
         token = getToken()
         needsAuth = token === ''
@@ -231,6 +270,7 @@
         token = ''
         needsAuth = status.mode === 'accounts' ? !status.user : false
       }
+      if (status.user) await loadPreferences()
     } catch {
       authMode = ''
     } finally {
@@ -238,9 +278,14 @@
     }
   }
 
-  async function loadTheme() {
+  async function loadPreferences() {
     try {
-      applyTheme((await getProfile()).profile.theme)
+      const actor = currentUser?.id
+      const { profile } = await getProfile()
+      if (actor !== currentUser?.id) return
+      applyTheme(profile.theme)
+      view = profile.shelfView
+      defaultExpanded = profile.cardsExpanded
     } catch {
       /* the shelf still works without a stored preference */
     }
@@ -249,11 +294,11 @@
   async function afterAuth(user: User) {
     authMode = 'accounts'
     currentUser = user
-    void loadTheme()
     setupRequired = false
     needsAuth = false
     token = ''
     clearToken()
+    await loadPreferences()
     loading = true
     await load()
     await loadMeta()
@@ -298,6 +343,8 @@
       removePending = null
       selecting = false
       selected = []
+      expandedSkills = {}
+      defaultExpanded = false
       lastPicked = null
       return
     }
@@ -335,7 +382,7 @@
   async function refocus(id: string, act: string) {
     await tick()
     const card = document.querySelector(`[data-skill="${CSS.escape(id)}"]`)
-    const el = card?.querySelector(`[data-act="${act}"]`) ?? card?.querySelector('[data-act="m0"]')
+    const el = card?.querySelector(`[data-act="${act}"]`) ?? card?.querySelector('[data-act="m0"]') ?? document.querySelector('.filters button[aria-pressed="true"]')
     ;(el as HTMLElement | null)?.focus()
   }
 
@@ -372,7 +419,7 @@
     try {
       const updated = await patchSkill(s.id, flags)
       const to = stageOf(updated)
-      if (to !== stageOf(s)) ok(`Moved ${s.name} to ${stageTitle(to)}.`)
+      if (to !== stageOf(s)) ok(`Sorted. ${s.name} is now ${stageTitle(to)}.`)
       await reloadAll()
       await refocus(s.id, act)
       return true
@@ -386,7 +433,7 @@
       const r = await refreshSkill(s.id)
       if (!r.refreshed) fail(new Error(`Could not refresh ${s.name}.`))
       else if (!r.changed) ok(`No change for ${s.name}.`)
-      else ok(`Refreshed ${s.name}.`)
+      else ok(`Sorted. Refreshed ${s.name}.`)
       await reloadAll()
     } catch (e) {
       fail(e)
@@ -593,7 +640,7 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : authChecked && !authenticated ? 'Sign in' : isAdmin ? 'Admin' : isAccount ? 'Your account' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isAdmin ? 'Admin' : isAccount ? 'Your account' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
   {/if}
 </svelte:head>
 
@@ -604,14 +651,7 @@
       <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
     </div>
     {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-      <nav class="site-nav" aria-label="Main navigation">
-        <a href="/" aria-current={!isAdmin && !isAccount && !isList && !isCommunity && !isShared && !isSpaces ? 'page' : undefined}>Personal shelf</a>
-        <a href="/shared" aria-current={isShared ? 'page' : undefined}>Lists</a>
-        <a href="/spaces" aria-current={isSpaces ? 'page' : undefined}>Teams</a>
-        <a href="/community" aria-current={isCommunity ? 'page' : undefined}>Community</a>
-        {#if authMode === 'accounts'}<a href="/account" aria-current={isAccount ? 'page' : undefined}>Account</a>{/if}
-        {#if isAdminUser}<a href="/admin" aria-current={isAdmin ? 'page' : undefined}>Admin</a>{/if}
-      </nav>
+      <NavigationMenu label="Main navigation" primary items={mainNavigation} />
     {:else if isPublicList || isCommunity || isJoin}
       <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a class="entry-link" href="/">Open your shelf →</a></nav>
     {/if}
@@ -636,6 +676,8 @@
   {:else if !authMode}
     <PageHeader eyebrow="Connection problem" title="The shelf is out of reach." />
     <p class="notice bad" role="alert">Could not check how this instance signs in. Reload the page to try again.</p>
+  {:else if isHosting}
+    <Hosting {canWrite} />
   {:else if isShared}
     <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
   {:else if isSpaces}
@@ -655,13 +697,12 @@
   {:else if isAdmin}
     <Admin onerror={fail} {role} accounts={authMode === 'accounts'} currentEmail={currentUser?.email ?? ''} />
   {:else}
-    <PageHeader eyebrow="Your personal library" title="Your shelf. Your toolkit." lede="The good finds, the next experiments, and the skills you use every day.">
-      {#snippet actions()}<span class="badge">{counts.all} {counts.all === 1 ? 'skill' : 'skills'} · on this instance</span>{/snippet}
+    <PageHeader eyebrow="Ey up. Your skill shelf." title="A reet good toolkit." lede="Keep the good finds, give new skills a go, and put the best to work.">
     </PageHeader>
     {#if canWrite}
       <form class="add" onsubmit={add}>
-        <label class="vh" for="add-input">Skill URL or slug</label>
-        <input id="add-input" bind:this={addEl} placeholder="Paste a skills.sh URL or owner/repo/skill" autocomplete="off" bind:value={addInput} />
+        <label class="vh" for="add-input">Skill install command, URL or slug</label>
+        <input id="add-input" bind:this={addEl} placeholder="Paste an install command, skills.sh URL or owner/repo/skill" autocomplete="off" bind:value={addInput} />
         <button class="btn primary" type="submit">Add to shelf</button>
       </form>
     {/if}
@@ -686,6 +727,10 @@
           {/if}
         </div>
         <div class="controls">
+          <div class="view-switch" role="group" aria-label="Shelf layout">
+            <button type="button" aria-pressed={view === 'list'} onclick={() => chooseView('list')}>List</button>
+            <button type="button" aria-pressed={view === 'board'} onclick={() => chooseView('board')}>Board</button>
+          </div>
           <label class="vh" for="search">Search skills</label>
           <input id="search" type="search" placeholder="Search" bind:value={q} bind:this={search} />
           <label class="vh" for="sort">Sort by</label>
@@ -700,6 +745,9 @@
       </div>
     {/if}
 
+    <details class="shelf-filters">
+      <summary>Filters & lists <span>{selectedTags.length + Number(!!selectedMachine) + Number(!!selectedEnv) + Number(onlyOne) ? `${selectedTags.length + Number(!!selectedMachine) + Number(!!selectedEnv) + Number(onlyOne)} active` : `${tagCounts.length} tags · ${shelfMachines.length} environments`}</span></summary>
+      <div class="filter-panel">
     {#if lists.length > 0 || canWrite}
       <div class="filterbar" role="group" aria-label="Shared lists">
         <span class="bar-label">Your lists</span>
@@ -730,10 +778,10 @@
       </div>
     {/if}
 
-    {#if environments.length > 0 || selectedEnv !== '' || selectedMachine !== '' || onlyOne}
+    {#if shelfMachines.length > 0 || selectedEnv !== '' || selectedMachine !== '' || onlyOne}
       <div class="filterbar" role="group" aria-label="Environments">
         <span class="bar-label">Environments</span>
-        {#each machines as machine (machine.host)}
+        {#each shelfMachines as machine (machine.host)}
           <button type="button" class="chip" aria-pressed={selectedMachine === machine.host}
             onclick={() => { selectedMachine = selectedMachine === machine.host ? '' : machine.host; selectedEnv = '' }}
             title={`${machine.groups.filter(g => !g.agent.startsWith('reet')).length} agent groups · ${machine.skillCount} unique skills`}>
@@ -759,9 +807,18 @@
       {/if}
     {/if}
 
-    {#if !loading && (counts.all > 0 || filtering)}<p class="count" role="status">{total === 1 ? '1 skill' : `${total} skills`}</p>{/if}
+      </div>
+    </details>
 
-    <div id="sections">
+    {#if !loading && (counts.all > 0 || filtering)}
+      <div class="shelf-summary">
+        <p class="count" role="status">{total === 1 ? '1 skill' : `${total} skills`}</p>
+        {#if total > 0}<button type="button" class="btn quiet" onclick={() => { expandedSkills = { ...expandedSkills, ...Object.fromEntries(visible.flatMap(g => g.items.map(skill => [skill.id, !anyExpanded]))) } }}>{anyExpanded ? 'Collapse all' : 'Expand all'}</button>{/if}
+      </div>
+    {/if}
+
+
+    <div id="sections" class:board={view === 'board' && !loading && counts.all > 0 && total > 0} class:single-stage={show !== 'all'}>
       {#if loading}
         <p class="empty" role="status">Loading…</p>
       {:else if counts.all === 0 && !filtering && !canWrite}
@@ -772,61 +829,43 @@
         </section>
       {:else if counts.all === 0 && !filtering}
         <section class="start" aria-labelledby="start-title">
-          <p class="eyebrow">Start here</p>
+          <p class="eyebrow">Ey up. Start here.</p>
           <h2 id="start-title">Put the first skill on your shelf.</h2>
           <p class="lede">Capture it now, sort it later. Everything stays on this instance.</p>
-          <ol class="steps">
-            <li>
-              <span class="num" aria-hidden="true">1</span>
-              <div>
-                <h3>Paste a link</h3>
-                <p>Drop a skills.sh URL or <code>owner/repo/skill</code> into the box above.</p>
-              </div>
-            </li>
-            <li>
-              <span class="num" aria-hidden="true">2</span>
-              <div>
-                <h3>Drag a bookmarklet</h3>
-                <p>Put Like, To test or In use on your bookmarks bar. Click one on any skills.sh page.</p>
-                <Bookmarklets {token} />
-              </div>
-            </li>
-            <li>
-              <span class="num" aria-hidden="true">3</span>
-              <div>
-                <h3>Scan a machine</h3>
-                <p>Run this where your skills live. It marks what is installed as in use.</p>
-                <div class="command">
-                  <code>{scanCommand}</code>
-                  <CopyButton text={scanCommand} compact />
-                </div>
-              </div>
-            </li>
-          </ol>
-          <p class="browse"><a href="https://www.skills.sh/topic" target="_blank" rel="noopener noreferrer">Browse skills.sh topics<span class="vh"> (opens in a new tab)</span></a></p>
+          <p>Paste an <code>npx skills add</code> command, skills.sh URL or <code>owner/repo/skill</code> into the box above. Your first find starts On the shelf; save it To test, then mark it In use when it earns its place.</p>
+          <div class="start-options">
+            {#if authMode === 'accounts'}<a class="btn" href="/account/machines#connect-machine">Scan this machine</a>{/if}
+            <a class="btn" href="/community">Explore community</a>
+            <a href="https://www.skills.sh/topic" target="_blank" rel="noopener noreferrer">Browse skills.sh<span class="vh"> (opens in a new tab)</span></a>
+          </div>
+          {#if authMode !== 'accounts'}
+            <details class="scan-help"><summary>Already have skills installed?</summary><p>Run this on your machine. It reports installed skills as in use.</p><div class="command"><code>{scanCommand}</code><CopyButton text={scanCommand} compact /></div></details>
+          {/if}
         </section>
-      {:else if visible.length === 0}
+      {:else if total === 0}
         <div class="no-matches">
-          <h2>No skills match that.</h2>
+          <h2>Nowt matches just yet.</h2>
           <p>Try another search or clear your filters.</p>
           <button type="button" class="btn" onclick={() => { q = ''; show = 'all'; onlyLiked = false; selectedTags = []; selectedEnv = ''; selectedMachine = ''; onlyOne = false }}>Clear filters</button>
         </div>
       {:else}
         {#each visible as g (g.id)}
-          <section class={g.id} aria-labelledby="h-{g.id}">
+          <section class={g.id} class:empty-stage={g.items.length === 0} aria-labelledby="h-{g.id}">
             <h2 id="h-{g.id}">{g.title}<small>{g.items.length}</small></h2>
             <p class="hint">{g.hint}</p>
             <ul>
               {#each g.items as s (s.id)}
                 <SkillCard
-                skill={s} stage={g.id} tagOptions={tagOptions}
+                skill={s} stage={g.id} tagOptions={tagOptions} compact={view === 'board'}
+                expanded={expandedSkills[s.id] ?? defaultExpanded} onexpand={expanded => (expandedSkills[s.id] = expanded)}
+                installationReports={machineReports}
                 selecting={selecting} selectedIDs={selected} onselect={select} {canWrite}
                 onpatch={patch} onrefresh={refreshOne} onlink={link} onremove={remove}
                 onfiltertag={filterTag} onfilterenv={filterEnv} ontags={tags} onhistory={history}
                 onopenlist={openList}
               />
               {:else}
-                <li class="none">{g.empty}</li>
+                <li class="none">{filtering ? 'Nowt matches these filters in this stage.' : g.empty}</li>
               {/each}
             </ul>
           </section>
@@ -839,7 +878,7 @@
         <Tools
           onchange={reloadAll} {ok} {fail} {token} canManageTags={isAdminUser}
           filters={{ tab: onlyLiked ? 'liked' : 'all', q, sort, tags: selectedTags, env: selectedEnv, machine: selectedMachine, only: onlyOne ? 'one-machine' : '', stage: show === 'all' ? '' : show }}
-          startOpen={counts.all === 0} hideBookmarklets={counts.all === 0}
+          startOpen={false}
         />
       {/key}
     {/if}
@@ -915,7 +954,6 @@
   .site-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
   .site-nav a, .entry-link { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--muted); font-size: 0.8rem; font-weight: 600; text-decoration: none; border-radius: 8px; }
   .site-nav a:hover, .entry-link:hover { color: var(--ink); background: var(--card); }
-  .site-nav a[aria-current='page'] { color: var(--ink); background: var(--tint); }
   .home { display: inline-block; color: inherit; text-decoration: none; }
   .tag { color: var(--muted); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em; }
 
@@ -938,9 +976,12 @@
   .filters button:hover { color: var(--ink); }
   .filters button[aria-pressed='true'] { background: var(--tint); color: var(--ink); font-weight: 650; }
   .filters .liked[aria-pressed='true'] { background: var(--heart); color: #fff; }
-  .filters small { margin-left: 4px; font-variant-numeric: tabular-nums; opacity: 0.8; }
+  .filters small { margin-left: 4px; font-variant-numeric: tabular-nums; }
   .sep { width: 1px; height: 20px; background: var(--line); margin: 0 6px; }
   .controls { display: flex; gap: 8px; }
+  .view-switch { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); }
+  .view-switch button { min-height: 34px; padding: 4px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+  .view-switch button[aria-pressed='true'] { color: var(--ink); background: var(--tint); font-weight: 600; }
   .controls input { width: 10rem; }
 
   .filterbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 0 2px; }
@@ -955,7 +996,7 @@
   }
   .filterbar .chip:hover { border-color: var(--muted); color: var(--ink); }
   .filterbar .chip[aria-pressed='true'] { background: var(--tint); color: var(--ink); border-color: var(--accent); }
-  .filterbar .chip small { font-variant-numeric: tabular-nums; opacity: 0.8; }
+  .filterbar .chip small { font-variant-numeric: tabular-nums; font-size: 0.75rem; }
   .filterbar .chip.old { opacity: 0.55; }
   .filterbar .chip.action { border-style: dashed; border-color: var(--accent); color: var(--accent); }
   .filterbar .chip.clear { border-style: dashed; }
@@ -990,7 +1031,15 @@
   }
 
   .count { margin: 14px 0 0; color: var(--muted); font-size: 0.9rem; }
+  .shelf-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
+  .shelf-summary .count { margin: 0; }
   #sections { scroll-margin-top: 140px; }
+
+  #sections.board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; margin-top: 22px; }
+  #sections.board.single-stage { grid-template-columns: minmax(0, 1fr); max-width: 620px; }
+  .board > section { margin: 0; min-width: 0; padding: 14px; background: color-mix(in srgb, var(--card) 42%, var(--bg)); border: 1px solid var(--line); border-radius: var(--radius); }
+  .board > section > h2 { font-size: 1.35rem; }
+  .board .none { padding: 22px 4px; font-size: 0.95rem; }
   section { margin-top: 28px; }
   h2 { margin: 0; display: flex; align-items: baseline; gap: 10px; font: 500 1.65rem/1.2 var(--serif); letter-spacing: -0.02em; }
   h2 small { font: 500 0.9rem var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -1010,24 +1059,16 @@
   .eyebrow { margin: 0; color: var(--accent); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
   .start h2 { display: block; margin: 8px 0 0; font: 600 clamp(1.5rem, 4vw, 1.9rem)/1.1 var(--serif); letter-spacing: -0.02em; }
   .lede { margin: 8px 0 0; color: var(--muted); max-width: 48ch; }
-  .steps { list-style: none; margin: 24px 0 0; padding: 0; display: grid; gap: 22px; }
-  .steps li { display: grid; grid-template-columns: 30px 1fr; gap: 14px; align-items: start; }
-  .num {
-    display: grid; place-items: center; width: 30px; height: 30px; border-radius: 999px;
-    border: 1px solid var(--line); color: var(--muted); font-size: 0.82rem; font-weight: 650;
-    font-variant-numeric: tabular-nums;
-  }
-  .steps h3 { margin: 2px 0 0; font: 650 1rem/1.3 var(--sans); }
-  .steps p { margin: 4px 0 0; color: var(--muted); max-width: 52ch; }
-  .steps code { font-size: 0.88em; color: var(--ink); }
+  .start > p { max-width: 64ch; }
+  .start-options { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+  .start-options > a:not(.btn) { color: var(--accent); padding: 10px 0; }
+  .scan-help { margin-top: 20px; }
+  .scan-help summary { cursor: pointer; font-weight: 600; }
   .command { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
   .command code {
     flex: 1 1 240px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
     background: var(--bg); font-size: 0.8rem; overflow-wrap: anywhere;
   }
-  .browse { margin: 24px 0 0; padding-top: 18px; border-top: 1px solid var(--line); }
-  .browse a { color: var(--accent); font-weight: 600; text-underline-offset: 3px; }
-  .browse a:hover { text-decoration-thickness: 2px; }
 
   :global([data-skill]) { scroll-margin-top: 92px; }
   :global([data-skill].flash) { background: var(--tint); border-radius: 8px; }
@@ -1053,13 +1094,41 @@
     .tag { margin-left: auto; max-width: 18ch; text-align: right; }
     .site-nav { width: 100%; }
     .site-nav a { flex: 1; justify-content: center; border: 1px solid var(--line); }
-    .add { flex-direction: column; }
-    .controls { width: 100%; }
+    .add input { min-width: 0; width: 0; }
+    .add .btn { flex: none; padding-left: 12px; padding-right: 12px; font-size: 0.82rem; }
+    .controls { width: 100%; flex-wrap: wrap; }
     .controls input { flex: 1; width: auto; }
     .sep { display: none; }
     .start { margin-top: 24px; padding: 20px; border-radius: 14px; }
-    .steps li { grid-template-columns: 26px 1fr; gap: 12px; }
-    .num { width: 26px; height: 26px; }
   }
-  @media (pointer: coarse) { .filters button { min-height: 44px; } }
+  .shelf-filters { border-bottom: 1px solid var(--line); }
+  .shelf-filters > summary { display: flex; align-items: center; gap: 12px; padding: 12px 2px; min-height: 44px; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
+  .shelf-filters > summary::before { content: '+'; color: var(--accent); font-size: 1.1rem; width: 12px; }
+  .shelf-filters[open] > summary::before { content: '−'; }
+  .shelf-filters > summary span { margin-left: auto; color: var(--muted); font-size: 0.75rem; font-weight: 400; }
+  .filter-panel { display: grid; gap: 8px; padding: 4px 0 16px; }
+  @media (max-width: 1000px) {
+    main { padding: 24px 24px 40px; }
+    .header-inner { display: flex; gap: 16px; padding: 16px 24px; }
+    .site-nav { flex-wrap: nowrap; width: 100%; min-width: 0; overflow-x: auto; padding-bottom: 8px; }
+    .site-nav a { flex: none; justify-content: center; white-space: nowrap; border: 0; }
+    .toolbar { position: static; padding: 10px 0; gap: 8px; }
+    .filters { flex-wrap: nowrap; overflow-x: auto; width: 100%; min-width: 0; }
+    .filters button { flex: none; white-space: nowrap; }
+    .controls { display: flex; width: 100%; flex-wrap: nowrap; min-width: 0; }
+    .controls input { flex: 1; width: 0; min-width: 50px; }
+    .view-switch { flex: none; }
+    .add { margin-top: 16px; }
+  }
+  @media (max-width: 900px) {
+    #sections.board { grid-template-columns: minmax(0, 1fr); margin-top: 14px; }
+    .board > section.empty-stage { display: none; }
+  }
+  @media (max-width: 560px) {
+    main { padding: 20px 16px 36px; }
+    .header-inner { padding-left: 16px; padding-right: 16px; }
+    .controls { gap: 6px; }
+    .controls select { padding-left: 8px; padding-right: 26px; }
+  }
+  @media (pointer: coarse) { .filters button, .view-switch button { min-height: 44px; } }
 </style>

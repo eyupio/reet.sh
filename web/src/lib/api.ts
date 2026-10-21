@@ -2,7 +2,7 @@ export type Skill = {
   id: string
   source: string
   slug: string
-  sourceType: 'github' | 'well-known' | 'local'
+  sourceType: 'github' | 'well-known' | 'hosted' | 'local'
   url: string
   name: string
   description: string
@@ -425,12 +425,14 @@ export async function getRollup(): Promise<Rollup> {
 
 export type SyncEnvironment = Environment & { project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string; skills: SyncSkill[] }
 export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source' | 'sourceType'>
-export type SyncTarget = { target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
-export type Machine = { host: string; groups: SyncEnvironment[]; skillCount: number }
+export type SyncTarget = { hostAliases?: string[]; targetAliases?: string[]; target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
+export type Machine = { aliases?: string[]; host: string; groups: SyncEnvironment[]; skillCount: number }
 export type SyncState = { machines?: Machine[]; environments: SyncEnvironment[]; targets: SyncTarget[] }
 export async function getSyncState(): Promise<SyncState> { return (await req('/api/v2/sync')).json() }
 export async function saveSyncTarget(sourceId: string, targetId: string): Promise<SyncState> { return (await req('/api/v2/sync', { method: 'PUT', body: json({ sourceId, targetId }) })).json() }
 export async function deleteSyncTarget(targetId: string): Promise<SyncState> { return (await req(`/api/v2/sync?target=${encodeURIComponent(targetId)}`, { method: 'DELETE' })).json() }
+export async function mergeMachines(from: string, to: string): Promise<SyncState> { return (await req('/api/v2/machines/merge', { method: 'POST', body: json({ from, to }) })).json() }
+export async function forgetMachine(host: string): Promise<SyncState> { return (await req(`/api/v2/machines?host=${encodeURIComponent(host)}`, { method: 'DELETE' })).json() }
 export async function forgetEnvironment(id: string): Promise<SyncState> { return (await req(`/api/v2/environments?id=${encodeURIComponent(id)}`, { method: 'DELETE' })).json() }
 
 export type Audience = { groupId?: number; groupRole?: string; people: { email: string; role: string }[]; excluded: string[] }
@@ -493,8 +495,8 @@ export type BackupStatus = {
   enabled: boolean
   dir: string
   key: { fingerprint: string; source: string; path?: string }
-  settings: { everySeconds: number; keep: number; nextAt: number; lastAt: number; lastState: string; lastError: string; updatedAt: number }
-  defaults: { everySeconds: number; keep: number; userEverySeconds: number; userKeep: number }
+  settings: { everySeconds: number; keep: number; destination: BackupDestination; compression: BackupCompression; hasPassword: boolean; nextAt: number; lastAt: number; lastState: string; lastError: string; updatedAt: number }
+  defaults: { everySeconds: number; keep: number; userEverySeconds: number; userKeep: number; destination: BackupDestination; compression: BackupCompression }
   remotes: BackupRemote[]
   runs: BackupRun[]
   items: BackupItem[]
@@ -503,6 +505,7 @@ export type BackupStatus = {
 }
 export type BackupRemoteInput = {
   name?: string
+  originalName?: string
   endpoint?: string
   region?: string
   bucket?: string
@@ -514,14 +517,21 @@ export type BackupRemoteInput = {
   enabled?: boolean
 }
 export type BackupCheck = { name: string; ok: boolean; error?: string; steps: { step: string; ok: boolean; detail: string }[] }
+export type BackupDestination = 'local' | 'remote' | 'both'
+export type BackupCompression = 'gzip' | 'none'
 
 const bpath = (admin: boolean) => (admin ? '/api/v2/admin/backups' : '/api/v2/backups')
 
 export async function getBackupStatus(admin = false): Promise<BackupStatus> {
   return (await req(bpath(admin))).json()
 }
-export async function saveBackupSettings(admin: boolean, everySeconds: number, keep: number): Promise<void> {
-  await req(bpath(admin), { method: 'PATCH', body: json({ everySeconds, keep }) })
+export async function saveBackupSettings(
+  admin: boolean, everySeconds: number, keep: number, destination: BackupDestination,
+  compression: BackupCompression, password?: string,
+): Promise<void> {
+  const body: Record<string, unknown> = { everySeconds, keep, destination, compression }
+  if (password !== undefined) body.password = password
+  await req(bpath(admin), { method: 'PATCH', body: json(body) })
 }
 export async function runBackupNow(admin = false): Promise<BackupItem> {
   return (await req(`${bpath(admin)}/run`, { method: 'POST', body: json({}) })).json()
@@ -535,20 +545,36 @@ export async function updateBackupRemote(admin: boolean, name: string, input: Ba
 export async function deleteBackupRemote(admin: boolean, name: string): Promise<void> {
   await req(`${bpath(admin)}/remotes/${encodeURIComponent(name)}`, { method: 'DELETE' })
 }
+export async function testBackupRemoteDraft(admin: boolean, input: BackupRemoteInput): Promise<BackupCheck> {
+  return (await req(`${bpath(admin)}/remotes/test`, { method: 'POST', body: json(input) })).json()
+}
 export async function testBackupRemote(admin: boolean, name: string): Promise<BackupCheck> {
   return (await req(`${bpath(admin)}/remotes/${encodeURIComponent(name)}/test`, { method: 'POST', body: json({}) })).json()
 }
 export async function listBackupRemoteCopies(admin: boolean, name: string): Promise<{ items: BackupItem[] }> {
   return (await req(`${bpath(admin)}/remotes/${encodeURIComponent(name)}/copies`)).json()
 }
-export async function verifyBackup(admin: boolean, id: string): Promise<{ ok: boolean; problems: string[] }> {
-  return (await req(`${bpath(admin)}/items/${encodeURIComponent(id)}/verify`, { method: 'POST', body: json({}) })).json()
+export type BackupShipment = { sent: { remote: string; id: string; bytes: number }[]; errors: Record<string, string> }
+export type BackupPrune = { removed: string[]; remotes: { name: string; removed: string[]; error?: string }[] }
+export async function shipBackupCopies(admin: boolean): Promise<BackupShipment> {
+  return (await req(`${bpath(admin)}/offsite`, { method: 'POST', body: json({}) })).json()
+}
+export async function pruneBackupCopies(admin: boolean): Promise<BackupPrune> {
+  return (await req(`${bpath(admin)}/prune`, { method: 'POST', body: json({}) })).json()
+}
+export async function deleteBackupRemoteCopy(admin: boolean, name: string, id: string): Promise<void> {
+  await req(`${bpath(admin)}/remotes/${encodeURIComponent(name)}/copies/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+export async function verifyBackup(admin: boolean, id: string, password?: string): Promise<{ ok: boolean; problems: string[] }> {
+  const body = password ? { password } : {}
+  return (await req(`${bpath(admin)}/items/${encodeURIComponent(id)}/verify`, { method: 'POST', body: json(body) })).json()
 }
 export async function deleteBackup(admin: boolean, id: string): Promise<void> {
   await req(`${bpath(admin)}/items/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
-export async function restoreUserBackup(id: string): Promise<{ restored: number }> {
-  return (await req(`/api/v2/backups/items/${encodeURIComponent(id)}/restore`, { method: 'POST', body: json({}) })).json()
+export async function restoreUserBackup(id: string, password?: string): Promise<{ restored: number }> {
+  const body = password ? { password } : {}
+  return (await req(`/api/v2/backups/items/${encodeURIComponent(id)}/restore`, { method: 'POST', body: json(body) })).json()
 }
 export function backupDownloadUrl(admin: boolean, id: string): string {
   return `${bpath(admin)}/items/${encodeURIComponent(id)}/download`
@@ -556,7 +582,7 @@ export function backupDownloadUrl(admin: boolean, id: string): string {
 
 // --- profile ---------------------------------------------------------------
 
-export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; updatedAt: number }
+export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; shelfView: 'list' | 'board'; cardsExpanded: boolean; updatedAt: number }
 export type ProfileInfo = { user: User; profile: Profile; sessionCount: number; accounts: boolean }
 export type ProfileSession = { id: string; device: string; createdAt: number; lastSeen: number; expiresAt: number; current: boolean }
 
@@ -568,7 +594,7 @@ export function applyTheme(theme: string) {
 export async function getProfile(): Promise<ProfileInfo> {
   return (await req('/api/v2/profile')).json()
 }
-export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string }): Promise<ProfileInfo> {
+export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean }): Promise<ProfileInfo> {
   return (await req('/api/v2/profile', { method: 'PATCH', body: json(input) })).json()
 }
 export async function changePassword(current: string, password: string): Promise<void> {
@@ -582,4 +608,17 @@ export async function endProfileSession(id: string): Promise<void> {
 }
 export async function endOtherProfileSessions(): Promise<{ ended: number }> {
   return (await req('/api/v2/profile/sessions/end-others', { method: 'POST', body: json({}) })).json()
+}
+
+export type HostedSkill = { slug: string; description: string; content: string; files: Record<string, string>; published: boolean; createdAt: number; updatedAt: number }
+export type Hosting = { username: string; skills: HostedSkill[] }
+export async function getHosting(): Promise<Hosting> { return (await req('/api/v2/hosting')).json() }
+export async function claimPublishingUsername(username: string): Promise<Hosting> {
+  return (await req('/api/v2/hosting/username', { method: 'POST', body: json({ username }) })).json()
+}
+export async function saveHostedSkill(skill: HostedSkill): Promise<HostedSkill> {
+  return (await req(`/api/v2/hosting/skills/${encodeURIComponent(skill.slug)}`, { method: 'PUT', body: json(skill) })).json()
+}
+export async function deleteHostedSkill(slug: string): Promise<void> {
+  await req(`/api/v2/hosting/skills/${encodeURIComponent(slug)}`, { method: 'DELETE' })
 }

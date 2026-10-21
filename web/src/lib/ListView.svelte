@@ -39,6 +39,7 @@
   let transferTo = $state(0)
   let confirmDelete = $state(false)
   let confirmTransfer = $state<ListMember | null>(null)
+  let reviewingPublication = $state(false)
 
   const link = $derived(detail?.slug ? `${location.origin}/l/${detail.slug}` : '')
   const available = $derived(shelf.filter((s) => !(detail?.skills ?? []).some((x) => x.id === s.id)))
@@ -61,10 +62,28 @@
   function apply(d: ListDetail) {
     detail = d
     document.title = `${d.name} · reet.sh`
-    form = { name: d.name, description: d.description, visibility: d.visibility }
-    audience = d.audience ?? { people: [], excluded: [], groupRole: 'viewer' }
+    resetSettings()
     noteDrafts = Object.fromEntries(d.skills.map((s) => [s.id, s.note ?? '']))
     if (!d.members?.some((m) => m.id === transferTo)) transferTo = d.members?.find((m) => m.role !== 'owner')?.id ?? 0
+  }
+
+  function resetSettings() {
+    if (!detail) return
+    form = { name: detail.name, description: detail.description, visibility: detail.visibility }
+    // Keep the draft independent of the saved audience, including nested collaborators.
+    audience = structuredClone($state.snapshot(detail.audience ?? { people: [], excluded: [], groupRole: 'viewer' }))
+    reviewingPublication = false
+  }
+
+  function toggleSettings() {
+    resetSettings()
+    settingsOpen = !settingsOpen
+    peopleOpen = false
+  }
+
+  function cancelSettings() {
+    resetSettings()
+    settingsOpen = false
   }
 
   async function load() {
@@ -145,7 +164,7 @@
     try {
       apply(await updateListSkill(id, skill.id, noteDrafts[skill.id] ?? ''))
       editingNote = ''
-      say('Note saved.')
+      say('Sorted. Note saved.')
     } catch (e) {
       fail(e)
     } finally {
@@ -176,11 +195,21 @@
 
   async function saveSettings(e: SubmitEvent) {
     e.preventDefault()
+    if (form.visibility === 'public' && detail?.visibility !== 'public') {
+      reviewingPublication = true
+      return
+    }
+    await persistSettings()
+  }
+
+  async function persistSettings() {
+    reviewingPublication = false
+    if (busy) return
     busy = true
     try {
       apply(await updateList(id, { ...form, audience }))
       settingsOpen = false
-      say('List settings saved.')
+      say('Sorted. List settings saved.')
     } catch (e) {
       fail(e)
     } finally {
@@ -293,8 +322,8 @@
       {/if}
       <button type="button" class="btn" onclick={copyAll} disabled={!commands.length}>Copy install commands</button>
       {#if detail.canManage}
-        <button type="button" class="btn quiet" aria-expanded={settingsOpen} onclick={() => { settingsOpen = !settingsOpen; if (settingsOpen) peopleOpen = false }}>Settings</button>
-        {#if detail.visibility !== 'personal'}<button type="button" class="btn quiet" aria-expanded={peopleOpen} onclick={() => { peopleOpen = !peopleOpen; if (peopleOpen) settingsOpen = false }}>People</button>{/if}
+        <button type="button" class="btn quiet" aria-expanded={settingsOpen} onclick={toggleSettings} disabled={busy}>Settings</button>
+        {#if detail.visibility !== 'personal'}<button type="button" class="btn quiet" aria-expanded={peopleOpen} onclick={() => { peopleOpen = !peopleOpen; cancelSettings() }} disabled={busy}>People</button>{/if}
       {/if}
     </div>
 
@@ -315,7 +344,7 @@
           <AudiencePicker bind:visibility={form.visibility} bind:audience linkEnabled={detail.linkEnabled} legacyAllowed={detail.visibility === 'members'} />
           <div class="row">
             <button type="submit" class="btn primary" disabled={busy}>{busy ? 'Saving…' : form.visibility === 'public' && detail.visibility !== 'public' ? 'Publish to public community' : 'Save settings'}</button>
-            <button type="button" class="btn quiet" onclick={() => (settingsOpen = false)}>Cancel</button>
+            <button type="button" class="btn quiet" onclick={cancelSettings} disabled={busy}>Cancel</button>
           </div>
         </form>
         {#if detail.visibility === 'link' || detail.visibility === 'public'}
@@ -398,8 +427,8 @@
             </select>
             <span class="or">or</span>
           {/if}
-          <label class="vh" for="list-input">skills.sh URL or owner/repo/skill</label>
-          <input id="list-input" bind:value={addInput} placeholder="Paste a skills.sh URL or owner/repo/skill" autocomplete="off" />
+          <label class="vh" for="list-input">Skill install command, skills.sh URL or owner/repo/skill</label>
+          <input id="list-input" bind:value={addInput} placeholder="Paste an install command, skills.sh URL or owner/repo/skill" autocomplete="off" />
         </div>
         <div class="addrow second">
           <label class="vh" for="list-note">Why it belongs on this list</label>
@@ -410,7 +439,7 @@
     {/if}
 
     {#if detail.skills.length === 0}
-      <p class="empty">{detail.canEdit ? 'No skills yet. Add the first one above.' : 'This list is empty.'}</p>
+      <p class="empty">{detail.canEdit ? 'Nowt here yet. Add the first skill above.' : 'This list is empty.'}</p>
     {:else}
       <ol class="entries">
         {#each detail.skills as skill (skill.id)}
@@ -471,6 +500,24 @@
     oncancel={() => (confirmDelete = false)}
   />
 {/if}
+{#if reviewingPublication}
+  <ConfirmDialog
+    title="Publish this list to everyone?"
+    body="Anyone, including people without an account, will be able to discover and read the content below. Your personal shelf notes, people and machine reports stay private. Copies others make may remain after you unpublish."
+    confirmLabel="Publish to public community"
+    onconfirm={persistSettings}
+    oncancel={() => (reviewingPublication = false)}
+  >
+    {#snippet children()}
+      <div class="publication-preview">
+        <h3>{form.name}</h3>
+        {#if form.description}<p>{form.description}</p>{/if}
+        <p><strong>{detail?.skillCount ?? 0} skills and their shared list notes</strong></p>
+        <ul>{#each detail?.skills ?? [] as skill (skill.id)}<li><strong>{skill.name}</strong><p>{skill.description}</p><code>{skill.source}</code><p class="public-note">{skill.note || 'No shared note.'}</p></li>{/each}</ul>
+      </div>
+    {/snippet}
+  </ConfirmDialog>
+{/if}
 {#if confirmTransfer}
   <ConfirmDialog
     title={`Hand this list to ${confirmTransfer.name}?`}
@@ -483,6 +530,12 @@
 
 <style>
   .listpage { margin-top: 0; }
+  .publication-preview { margin-top: 18px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow-wrap: anywhere; font-size: 0.85rem; }
+  .publication-preview h3 { margin: 0; font: 500 1.3rem/1.3 var(--serif); }
+  .publication-preview ul { list-style: none; padding: 0; }
+  .publication-preview li { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 10px; }
+  .publication-preview p { margin: 6px 0; }
+  .public-note { white-space: pre-wrap; border-left: 2px solid var(--accent); padding-left: 8px; }
   .back { color: var(--muted); font-size: 0.85rem; text-decoration: none; }
   .back:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
   .eyebrow { margin: 0; color: var(--accent); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }

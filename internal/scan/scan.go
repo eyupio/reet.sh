@@ -218,7 +218,8 @@ func RunVersion(args []string, out io.Writer, version string) error {
 	server := fs.String("server", def, "reet server URL (env REET_URL)")
 	token := fs.String("token", "", "access token (env REET_TOKEN)")
 	dry := fs.Bool("dry-run", false, "list what would be imported without sending it")
-	prune := fs.Bool("prune", false, "remove skills no longer found in each scanned environment")
+	reconcile := fs.Bool("reconcile", false, "repair hostname/--env aliases before refreshing inventories; never changes installed skills")
+	prune := fs.Bool("prune", false, "remove stale inventory reports for scanned environments; keeps installed files and shelf entries")
 	serverHost := fs.Bool("server-host", false, "register this process as a reet server")
 	envName := fs.String("env", os.Getenv("REET_ENV"), "environment name for this machine (default hostname)")
 	var dirs multi
@@ -264,6 +265,37 @@ func RunVersion(args []string, out io.Writer, version string) error {
 		fmt.Fprintf(out, "%d skills found in %d environments (dry run, nothing sent)\n", len(scan.Found), len(scan.Envs))
 		return nil
 	}
+	if *reconcile {
+		hostname, err := os.Hostname()
+		if err != nil || hostname == "" {
+			return errors.New("cannot reconcile this machine without a hostname")
+		}
+		if strings.TrimSpace(*envName) == "" {
+			return errors.New("--reconcile requires --env NAME (or REET_ENV) so the preferred machine name is explicit")
+		}
+		body, _ := json.Marshal(map[string]string{"from": hostname, "to": host})
+		req, err := http.NewRequest(http.MethodPost, strings.TrimRight(*server, "/")+"/api/v2/machines/merge", bytes.NewReader(body))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Reet-Token", *token)
+		resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+		if err != nil {
+			return err
+		}
+		if resp.StatusCode != http.StatusOK {
+			var result struct {
+				Error string `json:"error"`
+			}
+			_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result)
+			resp.Body.Close()
+			return fmt.Errorf("machine reconciliation failed (%s): %s", resp.Status, result.Error)
+		}
+		resp.Body.Close()
+		fmt.Fprintf(out, "Reet, hostname %s now reports as %s. Refreshing inventories.\n", hostname, host)
+	}
+
 	type item struct {
 		Name    string `json:"name"`
 		Source  string `json:"source,omitempty"`

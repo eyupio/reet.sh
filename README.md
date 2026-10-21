@@ -38,9 +38,15 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 ## Features
 
 - **Three-stage shelf.** On the shelf, To test, In use. Stage is derived from your flags, never stored out of step.
-- **Capture anywhere.** Paste a skills.sh URL or `owner/repo/skill`, or use the bookmarklets (Like, Save, In use) on any skill page.
+- **List or board.** Choose Board for On the shelf → To test → In use columns on desktop, stacked on smaller screens. Move skills with the same keyboard- and touch-accessible buttons; the layout choice is saved to your account (or this browser without accounts). Moving a card changes shelf status, not installed files.
+- **Compact skill cards.** Cards start collapsed by default, with a link to their source, stage, available install/trend data, machine/tag/list counts and a personal-note indicator. Move stages, like, copy an install command or copy a ready-to-run prompt without opening the card. Expand an individual card for descriptions, tags, machine details, notes and history, or use Expand all / Collapse all. Expansion choices survive filtering, stage moves and layout changes during your visit.
+- **Focused navigation.** Account and Admin dropdowns lead to individual pages with a section menu. Mobile/tablet navigation folds into Menu; team usage becomes compact cards with expandable report details. Server-only heartbeats stay in diagnostics, outside shelf filters and status badges.
+- **Your defaults.** In Account → Profile, choose List/Board and collapsed/expanded cards across browsers. Individual expansion choices remain temporary for the current visit.
+- **Environment badges.** Each card shows Installed (green), Missing (amber) or Not confirmed (neutral) for each known machine. Missing requires complete agent scans from the last 14 days; stale, incomplete and heartbeat-only reports cannot confirm absence. These are reported inventories, not live filesystem checks.
+- **Capture anywhere.** Paste an `npx skills add` command, skills.sh URL or `owner/repo/skill`, or use the bookmarklets (Like, Save, In use) on any skill page.
 - **Know what is installed.** `reet scan` reads the skills folders for your tools and marks each skill "in use", per machine and per tool.
 - **Copy feedback.** Copy buttons confirm success with a brief checkmark reveal; reduced-motion preferences use a gentle fade.
+- **Machine maintenance.** Merge hostname/`--env` duplicates, rename or forget machines in Account → Machines. Old names remain aliases, preventing duplicate reports on later scans. `reet scan --prune --reconcile --env NAME` repairs the local hostname and refreshes inventories; fleet commands never install/remove skills.
 - **Environment sync.** Account includes site-aware scanner setup, machine/server status and saved reference skill sets. Preview differences and run `reet sync --apply` locally to confirm installs/removals. [Setup and limits](docs/environment-sync.md).
 - **Copy missing installs.** Pick an environment and copy the install commands for everything on your shelf that is not there yet.
 - **Metadata that stays fresh.** Description, install count and a weekly sparkline, refreshed every six hours, politely.
@@ -48,6 +54,7 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 - **Accounts and profiles.** Owner setup, argon2id passwords, HttpOnly SameSite sessions, rate-limited sign-in. Each person's Account has their profile, password, sessions, personal API tokens, activity and backups. Or token mode, or no auth on a trusted LAN.
 - **Yours to take away.** Export JSON, Markdown or CSV, and restore from JSON. The database is one file.
 - **Sealed backups, here and off-site.** The owner backs up the whole instance; every person can back up their own shelf. Copies are encrypted before they are written or shipped, verified after every take, pruned by a count you choose, and sent to any S3-compatible destination.
+- **Yorkshire at heart.** A reet good toolkit, with a white-rose bookmark and a practical, quietly quirky voice. See [voice and copy](docs/voice-and-copy.md) when changing user-facing text.
 - **Pleasant to use.** Light and dark themes, works on a phone, keyboard friendly, respects reduced motion.
 
 <details>
@@ -88,7 +95,7 @@ Use **Lists** to browse My lists, Shared with me and Teams & organisations. **Co
 
 The default `REET_AUTH=accounts` creates one owner through the setup page on first visit, then signs people in with email and password. Each account has its own shelf. Roles are owner, admin, member and viewer; viewers are read-only. Shared lists are where people work together without sharing a shelf. Sessions are HttpOnly, SameSite=Lax cookies; passwords are stored with argon2id; sign-in is rate-limited.
 
-Click your name in the footer to open **Account**. Its sections are **Profile** (name, theme, time zone and date order), **Password** (which ends every other session), **Sessions**, **API tokens** (shown once), **Backups** for your own shelf, and **Activity**. Admins get **Admin → Users** to invite people by link, reset passwords, disable accounts, change roles, revoke tokens and transfer ownership, and **Admin → Backups** for the instance. If `REET_TOKEN` is set it is required once on the setup page and works for `reet scan` only until a personal API token exists.
+Use the navbar’s **Account** menu (inside **Menu** on smaller screens). Its sections are **Profile** (name, theme, time zone and date order), **Password** (which ends every other session), **Sessions**, **Machines** (connect and inspect agent inventories), **Compare & sync** (comparison and reference snapshots), **API tokens** (shown once), **Backups** for your own shelf, and **Activity**. Admins get **Admin → Users** to invite people by link, reset passwords, disable accounts, change roles, revoke tokens and transfer ownership, and **Admin → Backups** for the instance. If `REET_TOKEN` is set it is required once on the setup page and works for `reet scan` only until a personal API token exists.
 
 - **Solo or trusted LAN:** `REET_AUTH=none` removes sign-in and maps everything to an implicit owner. Use it only on a network you trust.
 - **Legacy single token:** `REET_AUTH=token` keeps the single `REET_TOKEN` login card and requires it for the UI, API and bookmarklets.
@@ -113,6 +120,8 @@ Click your name in the footer to open **Account**. Its sections are **Profile** 
 | `REET_BACKUP_DIR` | `<data>/backups` | Where this machine keeps copies. |
 | `REET_BACKUP_EVERY`, `REET_BACKUP_KEEP` | `24h`, `48` | Instance backup schedule and the count kept here. `0` turns the schedule off; `0` kept means every copy. |
 | `REET_BACKUP_USER_EVERY`, `REET_BACKUP_USER_KEEP` | `0`, `14` | Defaults for a person's own backups; they can change them under Account → Backups. |
+| `REET_BACKUP_DESTINATION` | `both` | Where copies go by default: `local` (this machine only), `remote` (an enabled destination only, kept here when none took it) or `both`. Each owner can change it on the Backups page. |
+| `REET_BACKUP_COMPRESSION` | `gzip` | Compress copies before sealing by default: `gzip` or `none`. Each owner can change it, and give copies a password, on the Backups page. |
 | `REET_BACKUP_S3_*` | empty | One destination from the environment (`ENDPOINT`, `REGION`, `BUCKET`, `PREFIX`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `PATH_STYLE`, `NAME`), readable by a machine rebuilt from nothing. More destinations are added in the UI. |
 | `REET_BACKUP_ALLOW_LOCAL` | empty | Set `1` to allow an `http://` destination on another machine. Backups are sealed, but the access key id would travel in the clear. |
 
@@ -153,6 +162,20 @@ reet --version
 
 The installer downloads a GitHub release, verifies its SHA-256 checksum, and installs to `~/.local/bin`. The binary includes the Library web UI (`reet serve`) and the scanner (`reet scan`). See [binary installation](docs/binary-installation.md) for pinned versions, custom destinations, manual installation, and publishing releases. Binaries become available after the first version tag runs the release workflow.
 
+## Hosting your own skills
+
+Open **Host skills** in the navigation and claim a permanent publishing username. Create a skill using the editor or upload an existing `SKILL.md`. Its YAML frontmatter must contain a `name` matching the skill's URL name and a `description` (up to 1024 bytes). Add instructions below the frontmatter. Supporting files are optional; paths can be edited to preserve folders such as `scripts/` and `references/`. Each bundle can contain up to 100 supporting files and 2 MiB total.
+
+Skills are private drafts until you select **Publish publicly** and save. A published skill has a public page at `https://reet.sh/username/skill-name`, with this install command:
+
+```sh
+npx skills add https://reet.sh/username/skill-name
+```
+
+Use `npx skills add` before the URL; `npx https://…` alone is not a skills CLI command. Self-hosted instances use their own hostname. Scoped Agent Skills discovery endpoints below the public URL let the CLI download `SKILL.md` and all supporting files. You can also paste the URL or its install command into the shelf.
+
+Uncheck **Publish publicly** and save to unpublish, or delete the skill to remove its files. Both stop future downloads immediately; existing installations remain on users' machines. Disabled author accounts stop serving public skills. Publishing usernames cannot change or be reused after account deletion, so old links cannot be claimed by another account. Skill hosting follows the instance's normal write permissions; viewers cannot publish. Bundles live in `reet.db` and are covered by whole-instance database backups. Shelf JSON exports and personal shelf backups contain skill references, not authored bundles.
+
 ## Adding skills
 
 ### MCP integration
@@ -165,7 +188,7 @@ Go server hosts `/mcp`; no sidecar is needed. See [MCP setup and access](docs/mc
 
 ### Capture and scan
 
-- **Paste a link.** Paste a skills.sh URL or `owner/repo/skill` into the box at the top.
+- **Paste a command or link.** Paste an install command such as `npx skills add https://github.com/anthropics/skills --skill mcp-builder`, a skills.sh URL or `owner/repo/skill` into the box at the top. reet extracts the repository and skill name and fetches the details from skills.sh without running the command.
 - **Bookmarklets.** Open "Show bookmarklets and tools" in the UI and drag the Like, Save and In use links to your bookmarks bar. On any skills.sh skill page, click one to send that skill to reet.sh. In accounts mode the links use your session cookie and carry no secret; in token mode they contain `REET_TOKEN`, so keep them private.
 - **Tags.** The daily skills.sh topic seed adds tags like Design & UI or Testing to matching skills. Use **Edit tags** on a skill to add tags or remove them with ×; changes save immediately. Removed tags stay removed through topic refreshes until you explicitly add them again. Outside edit mode, click a tag to filter the shelf, or combine several tag filters. Rename or merge tags under Show bookmarklets and tools → Manage tags.
 - **Import what you have installed.** Run the scanner on the machine that has your skills:
@@ -184,7 +207,7 @@ Go server hosts `/mcp`; no sidecar is needed. See [MCP setup and access](docs/mc
 
 Manage the binary or a server with `reet install --mode binary|native|compose`, inspect updates with `reet upgrade --check`, apply a verified update with `reet upgrade` (or `--version dev`), and diagnose problems with `reet doctor [--json]`. Managed server upgrades preserve configuration, back up SQLite and restore the previous deployment on a failed restart. Commands preview their intent and require confirmation before applying; see [managed installation and upgrades](docs/binary-installation.md#managed-install-upgrade-and-doctor).
 
-Account groups agents under machines and offers a two-machine comparison with shared/missing skills and explicit stale/incomplete scan warnings. Library filters follow the same machine → agent hierarchy.
+**Account → Machines** groups agents under machines; **Account → Compare & sync** offers a two-machine comparison with shared/missing skills and explicit stale/incomplete scan warnings. Library filters follow the same machine → agent hierarchy.
 
 See [environment sync](docs/environment-sync.md) for account setup, confirmed installs/removals, server reporting and freshness advice. The rolling `dev` binary release and Docker `:dev` tag update from main after every merge; stable binary releases remain immutable.
 
@@ -192,14 +215,16 @@ See [environment sync](docs/environment-sync.md) for account setup, confirmed in
 
 There are two kinds: a one-off export, and sealed copies taken on a schedule.
 
-**Export and restore (any person).** Use **Download JSON** and **Restore from JSON** in the UI, or call `GET /api/export` and `POST /api/restore`. The export includes skills, notes, tags, environments and the ignored list; tick **Include local history** to add the event log. **Markdown** and **CSV** downloads follow the current search, stage, tag and environment filters.
+**Personal shelf export and restore.** Use **JSON (personal shelf backup) → Download** and **Restore from JSON** in Shelf tools, or call `GET /api/export` and `POST /api/restore`. The export includes personal skills, flags, notes, tags, attached environment reports and the ignored list; tick **Include local history** to add the event log. It does not include accounts, shared lists, teams, sync references or standalone machine heartbeats; use an instance backup for those. **Markdown** and **CSV** downloads follow the current search, stage, tag and environment filters.
 
-**Sealed, scheduled backups.** The instance owner configures the schedule, retention and off-site destinations under **Admin → Backups**; each person can back up their own shelf under **Account → Backups**, to their own destination. Every copy is verified after it is taken, kept on this machine, and copied to each enabled S3-compatible destination. **Download** hands over the sealed `.reetbackup` file; **Export JSON** is the unsealed snapshot. The key is separate from the database: keep a copy of `data/backup.key` (or `REET_BACKUP_KEY`) somewhere else, or an off-site copy cannot be opened after the machine is lost.
+**Sealed, scheduled backups.** The instance owner configures the schedule, retention and off-site destinations under **Admin → Backups**; each person can back up their own shelf under **Account → Backups**, to their own destination. Every copy is verified after it is taken, then kept on this machine, copied to each enabled S3-compatible destination, or both, as the owner chooses. Copies are gzip-compressed by default; an owner can protect them with a password instead of the instance key and open a downloaded copy with `reet backup open`. **Download** hands over the sealed `.reetbackup` file; **Export JSON** is the unsealed snapshot. The key is separate from the database: keep a copy of `data/backup.key` (or `REET_BACKUP_KEY`) somewhere else, or an off-site copy cannot be opened after the machine is lost.
 
 ```sh
 reet backup keygen                     # print a key for REET_BACKUP_KEY
 reet backup list                      # instance copies on this machine
 reet backup run                       # take one now, and ship it
+reet backup open --password-file p f  # open a downloaded copy to stdout
+reet backup escrow --out f --passphrase-file p   # key and destinations, sealed
 reet backup restore --yes <id>        # with the server stopped
 ```
 
@@ -238,7 +263,7 @@ The `Dockerfile` builds the UI and the binary and cross-compiles for `linux/amd6
 | `internal/backup` | Sealed copies, S3 destinations, schedules, retention and restores. |
 | `internal/store` | SQLite storage and migrations. |
 | `internal/meta` | Fetches skills.sh metadata. |
-| `internal/ref` | Parses skills.sh URLs and slugs. |
+| `internal/ref` | Parses skill install commands, skills.sh URLs and slugs. |
 | `internal/scan` | Finds skills installed on a machine. |
 | `web/` | The Svelte UI, built into `web/dist` and embedded in the binary. |
 | `brand/` | Logo set, colours and usage rules. |

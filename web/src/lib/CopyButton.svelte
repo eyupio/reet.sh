@@ -2,12 +2,13 @@
   import { onDestroy } from 'svelte'
   import { copyText } from './clipboard'
 
-  let { text, label = 'Copy', copiedLabel = 'Copied', compact = false, oncopy }: {
+  let { text, label = 'Copy', copiedLabel = 'Copied', compact = false, oncopy, ariaLabel }: {
     text: string
     label?: string
     copiedLabel?: string
     compact?: boolean
     oncopy?: () => void
+    ariaLabel?: string
   } = $props()
 
   let copied = $state(false)
@@ -24,7 +25,7 @@
   onDestroy(() => clearTimeout(timer))
 </script>
 
-<button type="button" class="btn copy" class:compact onclick={copy}>
+<button type="button" class="btn copy" class:compact aria-label={ariaLabel ? (copied ? `${copiedLabel}: ${ariaLabel}` : ariaLabel) : undefined} onclick={copy}>
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     {#if copied}
       <g class="success"><path d="m5 12 4 4L19 6"></path></g>

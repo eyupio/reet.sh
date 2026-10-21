@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"github.com/eyupio/reet.sh/internal/store"
 	"net/http"
 )
@@ -16,7 +17,12 @@ func (s *server) syncState(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"environments": envs, "machines": store.GroupMachines(envs), "targets": targets, "canWrite": s.currentUser(r).Role != "viewer"})
+	machines, err := s.st.GroupMachinesFor(s.uid(r), envs)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"environments": envs, "machines": machines, "targets": targets, "canWrite": s.currentUser(r).Role != "viewer"})
 }
 func (s *server) saveSync(w http.ResponseWriter, r *http.Request) {
 	var in struct {
@@ -48,5 +54,41 @@ func (s *server) forgetEnvironment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.event(s.uid(r), "ui", "forget-environment", "", map[string]string{"environment": id})
+	s.syncState(w, r)
+}
+
+func (s *server) mergeMachines(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	s.importMu.Lock()
+	defer s.importMu.Unlock()
+	if err := s.st.MergeMachinesFor(s.uid(r), in.From, in.To); err != nil {
+		code := http.StatusInternalServerError
+		if errors.Is(err, store.ErrMachineName) {
+			code = http.StatusBadRequest
+		}
+		if errors.Is(err, store.ErrMachineConflict) {
+			code = http.StatusConflict
+		}
+		writeErr(w, code, err.Error())
+		return
+	}
+	s.event(s.uid(r), "ui", "merge-machines", "", map[string]string{"from": in.From, "to": in.To})
+	s.syncState(w, r)
+}
+func (s *server) forgetMachine(w http.ResponseWriter, r *http.Request) {
+	s.importMu.Lock()
+	defer s.importMu.Unlock()
+	host := r.URL.Query().Get("host")
+	if err := s.st.ForgetMachineFor(s.uid(r), host); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	s.event(s.uid(r), "ui", "forget-machine", "", map[string]string{"host": host})
 	s.syncState(w, r)
 }

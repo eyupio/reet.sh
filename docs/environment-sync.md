@@ -1,6 +1,6 @@
 # Environments and confirmed sync
 
-The **Your account** page is the starting point. It includes this instance's URL in copyable install, connection, scan and sync commands. Create a personal token there; use a separate token per machine or server so access can be revoked independently. Tokens are not embedded in the generated scan/sync command lines: set `REET_TOKEN` in that machine's terminal.
+The **Account → Machines → Connect a machine** flow is the starting point: install the binary, create a named personal token in the connection step, then copy the connection command into that machine's terminal. It includes this instance's URL and the newly created token. Copy it before leaving the page; tokens are not saved to browser storage or shown again after a reload. Existing token holders can set `REET_URL` and `REET_TOKEN` directly in their terminal. Use a separate token per machine or server so access can be revoked independently. Generated scan/sync commands use the environment rather than embedding the token. After running the scan, use **Check for my scan** to confirm a complete, recent inventory for the selected machine name.
 
 ## Connect a machine
 
@@ -17,17 +17,17 @@ Choose a stable, distinct `--env` name for each machine. It defaults to the host
 
 `--prune` updates reported inventory: it does not uninstall skills or delete shelf entries. Empty scans register the machine too. Missing skills folders under an existing agent configuration report an empty inventory; unreadable folders are not treated as empty. An import with errors does not prune old inventory or qualify as a complete reference scan.
 
-If a machine has no skills yet, expand **Connecting an empty machine?** on Account. Create the selected agent's empty skills folder and run the generated scan. This does not install the agent itself.
+If a machine has no skills yet, expand **Connecting an empty machine?** on **Account → Machines**. Create the selected agent's empty skills folder and run the generated scan. This does not install the agent itself.
 
 ## Choose a desired skill set
 
-On Account, choose a recently scanned **Reference** and **Target**, then **Save reference snapshot**. Both must belong to your account and have complete scans from the last 14 days. A target can be the shared `.agents/skills` environment used by current Codex, Claude Code, Cursor or OpenCode global environments, or a supported project environment. Legacy `.codex/skills` folders remain scan-only: the current skills CLI installs Codex into `.agents/skills`. Other/custom directories remain visible but require manual installation.
+On **Account → Compare & sync**, choose a recently scanned **Reference** and **Target**, then **Save reference snapshot**. Both must belong to your account and have complete scans from the last 14 days. A target can be the shared `.agents/skills` environment used by current Codex, Claude Code, Cursor or OpenCode global environments, or a supported project environment. Legacy `.codex/skills` folders remain scan-only: the current skills CLI installs Codex into `.agents/skills`. Other/custom directories remain visible but require manual installation.
 
 The controller persists the desired snapshot and its revision in SQLite. A later change to the reference machine does not silently change your target: save another reference snapshot when you want those changes. The page shows missing skills, extra skills, last report time and concrete commands for each target. Stale/incomplete reports say to rescan rather than declaring the machine up to date. Counts reflect reports, not live remote filesystem access.
 
 ## Preview and apply locally
 
-Copy the target's command from Account and run it on that machine. For a project target, run it from that exact project directory:
+Copy the target's command from **Account → Compare & sync** and run it on that machine. For a project target, run it from that exact project directory:
 
 ```sh
 reet sync --server "$REET_URL" --env my-laptop --target 'account/environment/id'
@@ -67,6 +67,24 @@ An environment is a machine, identified within your account by its stable `--env
 
 The Library filters first by machine, then optionally by agent/project group. Machine skill counts deduplicate skills installed in several agent folders. **Only on one machine** counts machine identities, not agents. Existing scan and sync target IDs continue to identify individual agent/project groups, so saved references and older binaries keep working.
 
-On Account, **Compare machines** shows unique skills shared by the selected machines and skills present on only one side. Select individual agent groups to compare placement rather than combined inventories. A match compares reported skill identities/sources, not installed file contents or versions. Stale/incomplete agent reports and machines with only a server heartbeat cannot confirm a match; unknown/local sources require review. Rescan both machines with `--prune`, then refresh before deciding what to apply.
+On **Account → Compare & sync**, **Compare machines** shows unique skills shared by the selected machines and skills present on only one side. Select individual agent groups to compare placement rather than combined inventories. A match compares reported skill identities/sources, not installed file contents or versions. Stale/incomplete agent reports and machines with only a server heartbeat cannot confirm a match; unknown/local sources require review. Rescan both machines with `--prune`, then refresh before deciding what to apply.
 
 For a confirmed, source-linked comparison between individual groups, **Use these groups for a sync reference** prepares the snapshot form. Review it and explicitly save the desired reference. The target CLI still previews and confirms installs/removals locally; comparison alone never changes any machine.
+
+## Repair duplicate machine names and refresh a fleet
+
+A legacy scan under a hostname and another under `--env NAME` can create two machine reports. On **Account → Machines → Manage machine names & duplicate reports**, select the hostname report and enter the preferred name (for example `PROD_Snicket`). Review and confirm. Enter an existing machine name to merge or a new name to rename. Only combine reports you know belong to the same physical machine; equal skill counts are not proof.
+
+Matching agent/project groups keep the newest reported inventory, rather than unioning old and new skill lists. Distinct groups, shelf entries and reference snapshots remain. Conflicting references for the same group block the entire change: stop tracking one conflicting reference under **Compare & sync**, then retry. Old names become account-scoped aliases, so subsequent hostname-based scans and personal shelf restores use the preferred machine. Aliases persist across server restarts. Updated binaries also accept old host/target aliases in copied sync commands.
+
+To repair the current hostname and refresh inventories from the binary, update reet and run on that machine:
+
+```sh
+reet scan --server https://reet.sh --env PROD_Snicket --prune --reconcile
+```
+
+Set `REET_TOKEN` to that account's personal token first. `--reconcile` requires an explicit preferred name through `--env` or `REET_ENV`; it binds the actual hostname to that name before reporting. It works on existing installations and does not install/remove skills. `--dry-run` sends neither a merge nor a report. A reference conflict stops reconciliation before the scan is imported. Ordinary older scanners still benefit from aliases already recorded on the controller.
+
+**Full fleet inventory refresh** provides the command for each scanned machine. Choose one preferred name per physical machine, run there, and repeat from each tracked project. This refreshes detected agent groups; it cannot assert the state of offline machines, unrelated projects or unreadable/unscanned folders. The web controller cannot execute a remote rescan. Open the refresh check before running the commands, then use **Refresh status** after each command completes. Progress counts only complete agent reports received since that check started, not cached scans. Start a new check to reset the progress window.
+
+Expand a machine card to **Forget machine** when retiring its reports, or forget an individual agent group. Whole-machine removal clears reports and target references without deleting installed files or shelf entries. Reference snapshots used by other targets and name aliases remain; a later active scan/heartbeat can register the machine again. Viewer accounts cannot merge, rename, forget or run writes through these endpoints.

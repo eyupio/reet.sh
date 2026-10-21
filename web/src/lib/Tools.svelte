@@ -116,7 +116,7 @@
     <div class="panel" id="tools-panel">
       <section class="tool-card import" aria-labelledby="import-title">
         <h3 id="import-title">Import what you have installed</h3>
-        <p>Run <code>reet scan</code> on the machine with your skills, or paste names, <code>owner/repo/skill</code> slugs or skills.sh URLs below, one per line. They are marked as in use; existing likes and notes are kept.</p>
+        <p>Run <code>reet scan</code> on the machine with your skills, or paste install commands, names, <code>owner/repo/skill</code> slugs or skills.sh URLs below, one per line. They are marked as in use; existing likes and notes are kept.</p>
         <label class="vh" for="import-box">Skills to import</label>
         <textarea id="import-box" rows="4" bind:value={importBox} placeholder="find-skills&#10;anthropics/skills/pptx"></textarea>
         <button type="button" class="btn primary" onclick={runImport} disabled={!importBox.trim()}>Import as in use</button>
@@ -130,11 +130,12 @@
       {/if}
       <section class="tool-card" aria-labelledby="backup-title">
         <h3 id="backup-title">Backup and export</h3>
-        <p>Take your shelf with you. JSON keeps a full backup; Markdown and CSV follow your current filters.</p>
+        <p>Take your shelf with you. JSON backs up your personal skills, flags, tags, notes and optional history. Markdown and CSV follow your current filters.</p>
+        <p>Lists, teams, accounts and sync references are not included. For encrypted, scheduled copies, open <a href="/account/backups">Account → Backups</a>. Instance backups are managed in <a href="/admin/backups">Admin → Backups</a>.</p>
         <div class="export-row">
           <label for="export-format">Format</label>
           <select id="export-format" bind:value={format}>
-            <option value="json">JSON (full backup)</option>
+            <option value="json">JSON (personal shelf backup)</option>
             <option value="md">Markdown (current filter)</option>
             <option value="csv">CSV (current filter)</option>
           </select>

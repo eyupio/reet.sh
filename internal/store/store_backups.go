@@ -33,17 +33,43 @@ type BackupRemote struct {
 	UpdatedAt    int64  `json:"updatedAt"`
 }
 
-// BackupSettings is one owner's schedule and retention. NextAt is when the
-// scheduler may take the next copy; 0 means manual only.
+// BackupSettings is one owner's schedule, retention and where copies go.
+// NextAt is when the scheduler may take the next copy; 0 means manual only.
+// Destination is "local" (this machine only), "remote" (an enabled
+// destination only, kept here only when none took it) or "both".
 type BackupSettings struct {
 	OwnerID      int64  `json:"-"`
 	EverySeconds int64  `json:"everySeconds"`
 	Keep         int    `json:"keep"`
+	Destination  string `json:"destination"`
+	Compression  string `json:"compression"`
 	NextAt       int64  `json:"nextAt"`
 	LastAt       int64  `json:"lastAt"`
 	LastState    string `json:"lastState"`
 	LastError    string `json:"lastError"`
 	UpdatedAt    int64  `json:"updatedAt"`
+	// PasswordSealed is the copy password, sealed under the instance key.
+	// It never leaves the server; HasPassword is what a page reads.
+	PasswordSealed string `json:"-"`
+	HasPassword    bool   `json:"hasPassword"`
+}
+
+// Backup destinations. "both" is the behaviour every instance had before the
+// choice existed, and what an unset or unknown value falls back to, so an
+// upgrade keeps copying both ways.
+const (
+	DestinationBoth   = "both"
+	DestinationLocal  = "local"
+	DestinationRemote = "remote"
+)
+
+// ValidBackupDestination reports whether destination is one of the three.
+func ValidBackupDestination(destination string) bool {
+	switch destination {
+	case DestinationBoth, DestinationLocal, DestinationRemote:
+		return true
+	}
+	return false
 }
 
 // BackupRun is one attempt to take a copy, kept for the pages that show what
@@ -64,10 +90,12 @@ type BackupRun struct {
 
 // Profile is the part of a person's account the UI reads back.
 type Profile struct {
-	Theme      string `json:"theme"`
-	Timezone   string `json:"timezone"`
-	DateFormat string `json:"dateFormat"`
-	UpdatedAt  int64  `json:"updatedAt"`
+	Theme         string `json:"theme"`
+	Timezone      string `json:"timezone"`
+	DateFormat    string `json:"dateFormat"`
+	ShelfView     string `json:"shelfView"`
+	CardsExpanded bool   `json:"cardsExpanded"`
+	UpdatedAt     int64  `json:"updatedAt"`
 }
 
 // SessionInfo is one signed-in browser.
@@ -105,6 +133,9 @@ func (s *Store) migrateBackups() error {
 			owner_id INTEGER PRIMARY KEY,
 			every_seconds INTEGER NOT NULL DEFAULT 0,
 			keep INTEGER NOT NULL DEFAULT 0,
+			destination TEXT NOT NULL DEFAULT 'both',
+			compression TEXT NOT NULL DEFAULT 'gzip',
+			password_sealed TEXT NOT NULL DEFAULT '',
 			next_at INTEGER NOT NULL DEFAULT 0,
 			last_at INTEGER NOT NULL DEFAULT 0,
 			last_state TEXT NOT NULL DEFAULT '',
@@ -136,18 +167,35 @@ func (s *Store) migrateBackups() error {
 			return err
 		}
 	}
-	for _, c := range []struct{ name, ddl string }{
-		{"uploading", "uploading INTEGER NOT NULL DEFAULT 0"},
-		{"last_upload_at", "last_upload_at INTEGER NOT NULL DEFAULT 0"},
-		{"last_error", "last_error TEXT NOT NULL DEFAULT ''"},
-		{"last_error_at", "last_error_at INTEGER NOT NULL DEFAULT 0"},
+	for _, column := range []struct{ name, ddl string }{
+		{"shelf_view", "shelf_view TEXT NOT NULL DEFAULT 'list'"},
+		{"cards_expanded", "cards_expanded INTEGER NOT NULL DEFAULT 0"},
 	} {
-		ok, err := hasColumn(s.db, "backup_remotes", c.name)
+		ok, err := hasColumn(s.db, "user_profiles", column.name)
 		if err != nil {
 			return err
 		}
 		if !ok {
-			if _, err := s.db.Exec(`ALTER TABLE backup_remotes ADD COLUMN ` + c.ddl); err != nil {
+			if _, err := s.db.Exec(`ALTER TABLE user_profiles ADD COLUMN ` + column.ddl); err != nil {
+				return err
+			}
+		}
+	}
+	for _, c := range []struct{ table, name, ddl string }{
+		{"backup_remotes", "uploading", "uploading INTEGER NOT NULL DEFAULT 0"},
+		{"backup_remotes", "last_upload_at", "last_upload_at INTEGER NOT NULL DEFAULT 0"},
+		{"backup_remotes", "last_error", "last_error TEXT NOT NULL DEFAULT ''"},
+		{"backup_remotes", "last_error_at", "last_error_at INTEGER NOT NULL DEFAULT 0"},
+		{"backup_settings", "destination", "destination TEXT NOT NULL DEFAULT 'both'"},
+		{"backup_settings", "compression", "compression TEXT NOT NULL DEFAULT 'gzip'"},
+		{"backup_settings", "password_sealed", "password_sealed TEXT NOT NULL DEFAULT ''"},
+	} {
+		ok, err := hasColumn(s.db, c.table, c.name)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			if _, err := s.db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.ddl); err != nil {
 				return err
 			}
 		}
@@ -157,13 +205,19 @@ func (s *Store) migrateBackups() error {
 
 // EnsureBackupSettings gives an owner the defaults once, and never overwrites
 // a choice already made.
-func (s *Store) EnsureBackupSettings(ownerID, every int64, keep int) (BackupSettings, error) {
+func (s *Store) EnsureBackupSettings(ownerID, every int64, keep int, destination, compression string) (BackupSettings, error) {
 	next := int64(0)
 	if every > 0 {
 		next = now() + every*1000
 	}
-	if _, err := s.db.Exec(`INSERT OR IGNORE INTO backup_settings(owner_id,every_seconds,keep,next_at,updated_at)
-		VALUES(?,?,?,?,?)`, ownerID, every, keep, next, now()); err != nil {
+	if !ValidBackupDestination(destination) {
+		destination = DestinationBoth
+	}
+	if compression != "gzip" && compression != "none" {
+		compression = "gzip"
+	}
+	if _, err := s.db.Exec(`INSERT OR IGNORE INTO backup_settings(owner_id,every_seconds,keep,destination,compression,next_at,updated_at)
+		VALUES(?,?,?,?,?,?,?)`, ownerID, every, keep, destination, compression, next, now()); err != nil {
 		return BackupSettings{}, err
 	}
 	return s.BackupSettingsFor(ownerID)
@@ -191,32 +245,47 @@ func (s *Store) SetBackupRemoteResult(ownerID int64, name string, at int64, errT
 // first time so a page always has figures to draw.
 func (s *Store) BackupSettingsFor(ownerID int64) (BackupSettings, error) {
 	var b BackupSettings
-	err := s.db.QueryRow(`SELECT owner_id,every_seconds,keep,next_at,last_at,last_state,last_error,updated_at
+	err := s.db.QueryRow(`SELECT owner_id,every_seconds,keep,destination,compression,password_sealed,
+		next_at,last_at,last_state,last_error,updated_at
 		FROM backup_settings WHERE owner_id=?`, ownerID).
-		Scan(&b.OwnerID, &b.EverySeconds, &b.Keep, &b.NextAt, &b.LastAt, &b.LastState, &b.LastError, &b.UpdatedAt)
+		Scan(&b.OwnerID, &b.EverySeconds, &b.Keep, &b.Destination, &b.Compression, &b.PasswordSealed,
+			&b.NextAt, &b.LastAt, &b.LastState, &b.LastError, &b.UpdatedAt)
 	if err == nil {
+		if !ValidBackupDestination(b.Destination) {
+			b.Destination = DestinationBoth
+		}
+		if b.Compression != "gzip" && b.Compression != "none" {
+			b.Compression = "gzip"
+		}
+		b.HasPassword = b.PasswordSealed != ""
 		return b, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return b, err
 	}
-	b = BackupSettings{OwnerID: ownerID}
-	if _, err := s.db.Exec(`INSERT OR IGNORE INTO backup_settings(owner_id,updated_at) VALUES(?,?)`, ownerID, now()); err != nil {
+	b = BackupSettings{OwnerID: ownerID, Destination: DestinationBoth, Compression: "gzip"}
+	if _, err := s.db.Exec(`INSERT OR IGNORE INTO backup_settings(owner_id,destination,compression,updated_at) VALUES(?,?,?,?)`, ownerID, b.Destination, b.Compression, now()); err != nil {
 		return b, err
 	}
 	return b, nil
 }
 
-// SaveBackupSettingsFor stores a schedule and retention, leaving the run
-// cursor to the scheduler unless it was set explicitly.
+// SaveBackupSettingsFor stores a schedule, retention and where copies go,
+// leaving the run cursor to the scheduler unless it was set explicitly.
 func (s *Store) SaveBackupSettingsFor(b BackupSettings) error {
-	_, err := s.db.Exec(`INSERT INTO backup_settings(owner_id,every_seconds,keep,next_at,last_at,last_state,last_error,updated_at)
-		VALUES(?,?,?,?,?,?,?,?)
+	if !ValidBackupDestination(b.Destination) {
+		b.Destination = DestinationBoth
+	}
+	_, err := s.db.Exec(`INSERT INTO backup_settings(owner_id,every_seconds,keep,destination,compression,password_sealed,next_at,last_at,last_state,last_error,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(owner_id) DO UPDATE SET
-			every_seconds=excluded.every_seconds, keep=excluded.keep, next_at=excluded.next_at,
+			every_seconds=excluded.every_seconds, keep=excluded.keep, destination=excluded.destination,
+			compression=excluded.compression, password_sealed=excluded.password_sealed,
+			next_at=excluded.next_at,
 			last_at=excluded.last_at, last_state=excluded.last_state, last_error=excluded.last_error,
 			updated_at=excluded.updated_at`,
-		b.OwnerID, b.EverySeconds, b.Keep, b.NextAt, b.LastAt, b.LastState, b.LastError, now())
+		b.OwnerID, b.EverySeconds, b.Keep, b.Destination, b.Compression, b.PasswordSealed,
+		b.NextAt, b.LastAt, b.LastState, b.LastError, now())
 	return err
 }
 
@@ -379,15 +448,15 @@ func (s *Store) DeleteBackupRemote(ownerID int64, name string) error {
 // time so the page has something to show.
 func (s *Store) ProfileFor(userID int64) (Profile, error) {
 	var p Profile
-	err := s.db.QueryRow(`SELECT theme,timezone,date_format,updated_at FROM user_profiles WHERE user_id=?`, userID).
-		Scan(&p.Theme, &p.Timezone, &p.DateFormat, &p.UpdatedAt)
+	err := s.db.QueryRow(`SELECT theme,timezone,date_format,shelf_view,cards_expanded,updated_at FROM user_profiles WHERE user_id=?`, userID).
+		Scan(&p.Theme, &p.Timezone, &p.DateFormat, &p.ShelfView, &p.CardsExpanded, &p.UpdatedAt)
 	if err == nil {
 		return p, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return p, err
 	}
-	p = Profile{Theme: "system", DateFormat: "locale"}
+	p = Profile{Theme: "system", DateFormat: "locale", ShelfView: "list"}
 	if _, err := s.db.Exec(`INSERT OR IGNORE INTO user_profiles(user_id,theme,timezone,date_format,updated_at) VALUES(?,?,?,?,?)`,
 		userID, p.Theme, p.Timezone, p.DateFormat, now()); err != nil {
 		return p, err
@@ -396,10 +465,13 @@ func (s *Store) ProfileFor(userID int64) (Profile, error) {
 }
 
 func (s *Store) SaveProfileFor(userID int64, p Profile) error {
-	_, err := s.db.Exec(`INSERT INTO user_profiles(user_id,theme,timezone,date_format,updated_at) VALUES(?,?,?,?,?)
+	if p.ShelfView == "" {
+		p.ShelfView = "list"
+	}
+	_, err := s.db.Exec(`INSERT INTO user_profiles(user_id,theme,timezone,date_format,shelf_view,cards_expanded,updated_at) VALUES(?,?,?,?,?,?,?)
 		ON CONFLICT(user_id) DO UPDATE SET theme=excluded.theme, timezone=excluded.timezone,
-			date_format=excluded.date_format, updated_at=excluded.updated_at`,
-		userID, p.Theme, p.Timezone, p.DateFormat, now())
+			date_format=excluded.date_format, shelf_view=excluded.shelf_view, cards_expanded=excluded.cards_expanded, updated_at=excluded.updated_at`,
+		userID, p.Theme, p.Timezone, p.DateFormat, p.ShelfView, p.CardsExpanded, now())
 	return err
 }
 

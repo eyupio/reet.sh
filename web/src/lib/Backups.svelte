@@ -1,11 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import {
-    backupDownloadUrl, createBackupRemote, deleteBackup, deleteBackupRemote, getBackupStatus, listBackupRemoteCopies,
-    runBackupNow, restoreUserBackup, saveBackupSettings, testBackupRemote, updateBackupRemote, verifyBackup,
-    type BackupCheck, type BackupItem, type BackupRemote, type BackupRemoteInput, type BackupStatus,
+    backupDownloadUrl, createBackupRemote, deleteBackup, deleteBackupRemote, deleteBackupRemoteCopy, getBackupStatus,
+    listBackupRemoteCopies, pruneBackupCopies, runBackupNow, restoreUserBackup, saveBackupSettings, shipBackupCopies,
+    testBackupRemote, testBackupRemoteDraft, updateBackupRemote, verifyBackup,
+    type BackupCheck, type BackupCompression, type BackupDestination, type BackupItem, type BackupRemote,
+    type BackupRemoteInput, type BackupStatus,
   } from './api'
   import CopyButton from './CopyButton.svelte'
+  import ConfirmDialog from './ConfirmDialog.svelte'
 
   let {
     onerror, role = 'owner', admin = false, canWrite = true, timeZone = '', dateFormat = 'locale',
@@ -18,7 +21,10 @@
   let error = $state('')
   let saved = $state('')
   let busy = $state('')
-  let form = $state({ every: '24h', keep: '48' })
+  let form = $state({
+    every: '24h', keep: '48', destination: 'both' as BackupDestination,
+    compression: 'gzip' as BackupCompression, password: '', removePassword: false,
+  })
   let checks = $state<Record<string, BackupCheck>>({})
   let verified = $state<Record<string, { ok: boolean; problems: string[] }>>({})
   let openCopies = $state<string | null>(null)
@@ -27,7 +33,11 @@
   let copiesLoading = $state(false)
   let formOpen = $state(false)
   let editing = $state<BackupRemote | null>(null)
+  let deleteFor = $state<BackupItem | null>(null)
+  let deleteRemoteFor = $state<BackupRemote | null>(null)
   let restoreFor = $state<BackupItem | null>(null)
+  let remoteError = $state('')
+  let remoteCheck = $state<BackupCheck | null>(null)
 
   const emptyRemote = () => ({
     name: '', endpoint: '', region: '', bucket: '', prefix: 'reet/', accessKey: '', secretKey: '',
@@ -44,7 +54,10 @@
     try {
       status = await getBackupStatus(admin)
       const every = status.settings.everySeconds
-      form = { every: everyText(every), keep: String(status.settings.keep) }
+      form = {
+        every: everyText(every), keep: String(status.settings.keep), destination: status.settings.destination || 'both',
+        compression: status.settings.compression || 'gzip', password: '', removePassword: false,
+      }
       error = ''
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
@@ -78,12 +91,22 @@
 
   async function saveSettings(e: SubmitEvent) {
     e.preventDefault()
-    if (everyBad || keepBad || !canEdit) return
+    if (!canEdit) return
+    if (everyBad || keepBad) {
+      error = 'Fix the schedule or retention before saving.'
+      return
+    }
+    if (!form.removePassword && form.password !== '' && form.password.trim().length < 12) {
+      error = 'A copy password needs at least 12 characters, or leave it empty.'
+      return
+    }
     busy = 'settings'
     saved = ''
+    error = ''
     try {
-      await saveBackupSettings(admin, everySeconds(form.every), Number(form.keep))
-      saved = 'Saved. It applies to the next scheduled copy.'
+      const password = form.removePassword ? '' : form.password.trim() ? form.password : undefined
+      await saveBackupSettings(admin, everySeconds(form.every), Number(form.keep), form.destination, form.compression, password)
+      saved = 'Saved. It applies to the next copy.'
       await load()
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
@@ -91,6 +114,17 @@
     } finally {
       busy = ''
     }
+  }
+
+  function protectionText(): string {
+    const compression = form.compression === 'gzip' ? 'gzip' : 'no compression'
+    return `${status?.settings.hasPassword ? 'Password' : 'Instance key'} + ${compression}`
+  }
+
+  function destinationText(destination: BackupDestination): string {
+    if (destination === 'local') return 'This machine only'
+    if (destination === 'remote') return 'Off-site only'
+    return 'This machine and off-site'
   }
 
   async function runNow() {
@@ -111,7 +145,12 @@
   async function verify(item: BackupItem) {
     busy = `verify:${item.id}`
     try {
-      verified = { ...verified, [item.id]: await verifyBackup(admin, item.id) }
+      let result = await verifyBackup(admin, item.id)
+      if (!result.ok && result.problems.join(' ').toLowerCase().includes('password')) {
+        const password = prompt('This copy is protected with a password. Enter it to verify the copy:')
+        if (password) result = await verifyBackup(admin, item.id, password)
+      }
+      verified = { ...verified, [item.id]: result }
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
       onerror?.(e)
@@ -121,7 +160,7 @@
   }
 
   async function removeItem(item: BackupItem) {
-    if (!confirm(`Delete ${item.id} from this machine? Copies at destinations are left alone.`)) return
+    deleteFor = null
     busy = `delete:${item.id}`
     try {
       await deleteBackup(admin, item.id)
@@ -136,6 +175,8 @@
 
   function editRemote(r?: BackupRemote) {
     editing = r ?? null
+    remoteError = ''
+    remoteCheck = null
     if (r) {
       remoteForm = {
         name: r.name, endpoint: r.endpoint, region: r.region, bucket: r.bucket, prefix: r.prefix,
@@ -148,13 +189,7 @@
     formOpen = true
   }
 
-  async function saveRemote(e: SubmitEvent) {
-    e.preventDefault()
-    if (!remoteForm.name.trim() || !remoteForm.endpoint.trim() || !remoteForm.bucket.trim() || !remoteForm.accessKey.trim()) return
-    if (!editing && !remoteForm.secretKey.trim()) {
-      error = 'Enter the secret access key for a new destination.'
-      return
-    }
+  function remoteInput(): BackupRemoteInput {
     const input: BackupRemoteInput = {
       name: remoteForm.name.trim(),
       endpoint: remoteForm.endpoint.trim(),
@@ -166,17 +201,64 @@
       keep: Number(remoteForm.keep),
       enabled: remoteForm.enabled,
     }
+    if (editing) input.originalName = editing.name
     if (remoteForm.secretKey.trim()) input.secretKey = remoteForm.secretKey.trim()
+    return input
+  }
+
+  const remoteNeedsSecret = $derived(
+    !!editing && remoteForm.endpoint.trim().replace(/\/$/, '').toLowerCase() !== editing.endpoint.replace(/\/$/, '').toLowerCase() && !remoteForm.secretKey.trim(),
+  )
+  function remoteProblem(): string {
+    if (!remoteForm.name.trim()) return 'Give the destination a name.'
+    if (!remoteForm.endpoint.trim()) return 'Give the endpoint URL.'
+    if (!remoteForm.bucket.trim()) return 'Name the bucket.'
+    if (!remoteForm.accessKey.trim()) return 'Enter the access key id.'
+    if (!editing && !remoteForm.secretKey.trim()) return 'Enter the secret access key.'
+    if (remoteNeedsSecret) return 'The stored secret is for the old endpoint. Enter it again to use it with the new one.'
+    return ''
+  }
+
+  async function testDraft() {
+    const problem = remoteProblem()
+    if (problem) {
+      remoteError = problem
+      return
+    }
+    remoteError = ''
+    remoteCheck = null
+    busy = 'remote-test'
+    try {
+      remoteCheck = await testBackupRemoteDraft(admin, remoteInput())
+    } catch (e) {
+      remoteError = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      busy = ''
+    }
+  }
+
+  async function saveRemote(e: SubmitEvent) {
+    e.preventDefault()
+    const problem = remoteProblem()
+    if (problem) {
+      remoteError = problem
+      return
+    }
+    remoteError = ''
     busy = 'remote'
     try {
-      if (editing) await updateBackupRemote(admin, editing.name, input)
-      else await createBackupRemote(admin, input)
+      if (editing) await updateBackupRemote(admin, editing.name, remoteInput())
+      else await createBackupRemote(admin, remoteInput())
       formOpen = false
       editing = null
+      remoteCheck = null
       saved = 'Destination saved.'
       await load()
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      const message = e instanceof Error ? e.message : String(e)
+      remoteError = message
+      error = message
       onerror?.(e)
     } finally {
       busy = ''
@@ -184,7 +266,7 @@
   }
 
   async function removeRemote(r: BackupRemote) {
-    if (!confirm(`Remove ${r.name}? What its bucket already holds is left alone.`)) return
+    deleteRemoteFor = null
     busy = `remote:${r.name}`
     try {
       await deleteBackupRemote(admin, r.name)
@@ -201,6 +283,60 @@
     busy = `test:${r.name}`
     try {
       checks = { ...checks, [r.name]: await testBackupRemote(admin, r.name) }
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      busy = ''
+    }
+  }
+
+  async function copyOffsite() {
+    busy = 'offsite'
+    saved = ''
+    try {
+      const out = await shipBackupCopies(admin)
+      const failed = Object.keys(out.errors).length
+      saved = out.sent.length
+        ? `Copied ${out.sent.length} ${out.sent.length === 1 ? 'copy' : 'copies'} off-site.${failed ? ` ${failed} destination(s) refused: ${Object.values(out.errors).join('; ')}` : ''}`
+        : failed
+          ? `Nothing was copied. ${Object.values(out.errors).join('; ')}`
+          : 'Every destination already holds every copy.'
+      await load()
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      busy = ''
+    }
+  }
+
+  async function applyRetention() {
+    if (!confirm('Apply retention now? This deletes copies older than the counts set here and at each destination.')) return
+    busy = 'prune'
+    saved = ''
+    try {
+      const out = await pruneBackupCopies(admin)
+      const remote = out.remotes.reduce((n, r) => n + r.removed.length, 0)
+      const failed = out.remotes.filter((r) => r.error)
+      saved = `Removed ${out.removed.length + remote} ${out.removed.length + remote === 1 ? 'copy' : 'copies'}.${failed.length ? ` ${failed.map((r) => `${r.name}: ${r.error}`).join('; ')}` : ''}`
+      await load()
+      if (openCopies) copies = (await listBackupRemoteCopies(admin, openCopies)).items
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      busy = ''
+    }
+  }
+
+  async function removeRemoteCopy(name: string, item: BackupItem) {
+    if (!confirm(`Remove ${item.id} from ${name}? What this machine holds is left alone.`)) return
+    busy = `remote-copy:${item.id}`
+    try {
+      await deleteBackupRemoteCopy(admin, name, item.id)
+      copies = (await listBackupRemoteCopies(admin, name)).items
+      await load()
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
       onerror?.(e)
@@ -319,6 +455,24 @@
         <small>{status.items.length} {status.items.length === 1 ? 'copy' : 'copies'} on this machine</small>
       </article>
       <article>
+        <h3>Where copies go</h3>
+        <p>{destinationText(status.settings.destination)}</p>
+        <small>{status.settings.destination === 'local'
+          ? 'They are lost with this machine.'
+          : status.settings.destination === 'remote'
+            ? (status.remotes.filter((r) => !r.disabled && !r.problem).length
+              ? 'Kept here only when no destination took one.'
+              : 'No usable destination is configured.')
+            : 'On this machine and at every enabled destination.'}</small>
+      </article>
+      <article>
+        <h3>Protection</h3>
+        <p>{protectionText()}</p>
+        <small>{status.settings.hasPassword
+          ? 'A copy opens with its password alone; it is stored sealed here for the schedule.'
+          : 'A copy opens with the instance backup key.'}</small>
+      </article>
+      <article>
         <h3>Off-site</h3>
         <p>{status.remotes.filter((r) => !r.disabled && !r.problem).length || 'None'}</p>
         <small>{status.remotes.length ? 'Every copy is sealed before it leaves' : 'Copies are on this machine only'}</small>
@@ -353,6 +507,49 @@
           <input bind:value={form.keep} inputmode="numeric" disabled={!canEdit} aria-invalid={keepBad || undefined} />
           <small class:bad={keepBad}>{keepBad ? 'A whole number, 0 or more.' : '0 keeps every copy on this machine.'}</small>
         </label>
+        <label>
+          <span>Where copies go</span>
+          <select bind:value={form.destination} disabled={!canEdit}>
+            <option value="both">This machine and off-site</option>
+            <option value="local">This machine only</option>
+            <option value="remote">Off-site only</option>
+          </select>
+          <small class:bad={form.destination === 'remote' && !status.remotes.some((r) => !r.disabled && !r.problem)}>
+            {form.destination === 'local'
+              ? 'Lost with this machine. Not recommended.'
+              : form.destination === 'remote'
+                ? (status.remotes.some((r) => !r.disabled && !r.problem)
+                  ? 'A copy stays here only if no destination took it.'
+                  : 'Add and test an enabled destination below, or every copy will fail.')
+                : 'Every copy is on this machine and at each enabled destination.'}
+          </small>
+        </label>
+        <label>
+          <span>Compression</span>
+          <select bind:value={form.compression} disabled={!canEdit}>
+            <option value="gzip">gzip</option>
+            <option value="none">No compression</option>
+          </select>
+          <small>Compressed before the copy is sealed.</small>
+        </label>
+        <label>
+          <span>Copy password</span>
+          <input type="password" bind:value={form.password} autocomplete="new-password" disabled={!canEdit}
+            placeholder={status.settings.hasPassword ? 'stored; leave blank to keep' : 'optional, at least 12 characters'} />
+          <small class:bad={form.password !== '' && form.password.trim().length < 12}>
+            {form.password !== '' && form.password.trim().length < 12
+              ? 'At least 12 characters, or leave it empty.'
+              : status.settings.hasPassword
+                ? 'A password is stored. With one, a copy opens with that password instead of the instance key.'
+                : 'Optional. With one, a copy opens with that password alone.'}
+          </small>
+        </label>
+        {#if status.settings.hasPassword && canEdit}
+          <label class="check">
+            <input type="checkbox" bind:checked={form.removePassword} />
+            Remove the stored password
+          </label>
+        {/if}
         {#if canEdit}
           <button type="submit" class="btn primary" disabled={busy === 'settings' || everyBad || keepBad}>
             {busy === 'settings' ? 'Saving…' : 'Save'}
@@ -370,6 +567,14 @@
           <p class="muted">Any S3-compatible service: AWS S3, Cloudflare R2, Backblaze B2, MinIO, Garage. The secret is sealed in the database.</p>
         </div>
         {#if canEdit}
+          {#if status.remotes.length > 0 && status.settings.destination !== 'local'}
+            <button type="button" class="btn" onclick={copyOffsite} disabled={busy === 'offsite'}>
+              {busy === 'offsite' ? 'Copying…' : 'Copy offsite now'}
+            </button>
+            <button type="button" class="btn" onclick={applyRetention} disabled={busy === 'prune'}>
+              {busy === 'prune' ? 'Applying…' : 'Apply retention now'}
+            </button>
+          {/if}
           <button type="button" class="btn" onclick={() => editRemote()}>Add destination</button>
         {/if}
       </div>
@@ -400,7 +605,7 @@
                   </button>
                   {#if r.source === 'database'}
                     <button type="button" class="btn quiet" onclick={() => editRemote(r)}>Edit</button>
-                    <button type="button" class="btn quiet danger" onclick={() => removeRemote(r)} disabled={busy === `remote:${r.name}`}>Remove</button>
+                    <button type="button" class="btn quiet danger" onclick={() => (deleteRemoteFor = r)} disabled={busy === `remote:${r.name}`}>Remove</button>
                   {/if}
                 {/if}
                 <button type="button" class="btn quiet" onclick={() => showCopies(r.name)} disabled={!!r.problem}>
@@ -430,7 +635,13 @@
                   {:else}
                     <ul>
                       {#each copies as c (c.id)}
-                        <li><code>{c.id}</code><span>{when(c.takenAt)} · {bytes(c.bytes)}</span></li>
+                        <li>
+                          <code>{c.id}</code><span>{when(c.takenAt)} · {bytes(c.bytes)}</span>
+                          {#if canEdit}
+                            <button type="button" class="btn quiet danger" onclick={() => removeRemoteCopy(r.name, c)}
+                              disabled={busy === `remote-copy:${c.id}`}>Remove</button>
+                          {/if}
+                        </li>
                       {/each}
                     </ul>
                   {/if}
@@ -444,11 +655,12 @@
       {#if formOpen}
         <form class="remoteform" onsubmit={saveRemote}>
           <h4>{editing ? `Edit ${editing.name}` : 'Add a destination'}</h4>
+          <p class="muted">Test the destination here before saving it. The test writes a small object under the prefix, reads it back and deletes it again.</p>
           <div class="grid2">
-            <label><span>Name</span><input bind:value={remoteForm.name} placeholder="offsite" autocomplete="off" /></label>
-            <label><span>Endpoint</span><input bind:value={remoteForm.endpoint} placeholder="https://s3.eu-west-2.amazonaws.com" autocomplete="off" /></label>
+            <label><span>Name</span><input bind:value={remoteForm.name} placeholder="offsite" autocomplete="off" required /></label>
+            <label><span>Endpoint</span><input bind:value={remoteForm.endpoint} placeholder="https://s3.eu-west-2.amazonaws.com" autocomplete="off" required /></label>
             <label><span>Region</span><input bind:value={remoteForm.region} placeholder="eu-west-2" autocomplete="off" /></label>
-            <label><span>Bucket</span><input bind:value={remoteForm.bucket} placeholder="my-reet-backups" autocomplete="off" /></label>
+            <label><span>Bucket</span><input bind:value={remoteForm.bucket} placeholder="my-reet-backups" autocomplete="off" required /></label>
             <label><span>Prefix</span><input bind:value={remoteForm.prefix} placeholder="reet/" autocomplete="off" /></label>
             <label><span>Path style</span>
               <select bind:value={remoteForm.pathStyle}>
@@ -457,14 +669,32 @@
                 <option value="virtual">Virtual-hosted (AWS)</option>
               </select>
             </label>
-            <label><span>Access key id</span><input bind:value={remoteForm.accessKey} autocomplete="off" /></label>
-            <label><span>Secret access key</span><input type="password" bind:value={remoteForm.secretKey} autocomplete="new-password" placeholder={editing ? 'leave blank to keep the stored secret' : ''} /></label>
+            <label><span>Access key id</span><input bind:value={remoteForm.accessKey} autocomplete="off" required /></label>
+            <label><span>Secret access key</span><input type="password" bind:value={remoteForm.secretKey} autocomplete="new-password" placeholder={editing ? 'leave blank to keep the stored secret' : ''} aria-invalid={remoteNeedsSecret || undefined} />
+              <small class:bad={remoteNeedsSecret}>{remoteNeedsSecret ? 'The endpoint changed; enter the secret again.' : editing ? 'Stored already. Type a new one to replace it.' : 'Required. Sealed with the backup key and never shown again.'}</small>
+            </label>
             <label><span>Keep</span><input bind:value={remoteForm.keep} inputmode="numeric" /></label>
             <label class="check"><input type="checkbox" bind:checked={remoteForm.enabled} /> Send copies here</label>
           </div>
+          {#if remoteCheck}
+            <div class="check" aria-live="polite">
+              <p class:good={remoteCheck.ok} class:bad={!remoteCheck.ok}>
+                {remoteCheck.ok ? 'The destination can be written, read and cleaned up.' : remoteCheck.error}
+              </p>
+              <ul>
+                {#each remoteCheck.steps as st (st.step)}
+                  <li><strong>{st.step}</strong> {st.ok ? 'ok' : 'failed'} — {st.detail}</li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+          {#if remoteError}<p class="notice bad" role="alert">{remoteError}</p>{/if}
           <div class="formacts">
-            <button type="button" class="btn" onclick={() => { formOpen = false; editing = null }}>Cancel</button>
-            <button type="submit" class="btn primary" disabled={busy === 'remote'}>{busy === 'remote' ? 'Saving…' : 'Save destination'}</button>
+            <button type="button" class="btn" onclick={() => { formOpen = false; editing = null; remoteError = ''; remoteCheck = null }}>Cancel</button>
+            <button type="button" class="btn" onclick={testDraft} disabled={busy === 'remote-test' || busy === 'remote'}>
+              {busy === 'remote-test' ? 'Testing…' : 'Test'}
+            </button>
+            <button type="submit" class="btn primary" disabled={busy === 'remote' || busy === 'remote-test'}>{busy === 'remote' ? 'Saving…' : 'Save destination'}</button>
           </div>
         </form>
       {/if}
@@ -475,7 +705,8 @@
       {#if status.items.length === 0}
         <p class="empty">No copy has been taken yet.</p>
       {:else}
-        <div class="tablewrap">
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users must be able to scroll this overflow region.) -->
+        <div class="tablewrap" tabindex="0" role="region" aria-label="Backup copies">
           <table>
             <thead><tr><th>Backup</th><th>Taken</th><th>Size</th><th>Where</th><th></th></tr></thead>
             <tbody>
@@ -502,7 +733,7 @@
                       <button type="button" class="btn quiet" onclick={() => (restoreFor = item)}>Restore…</button>
                     {/if}
                     {#if item.local && canEdit}
-                      <button type="button" class="btn quiet danger" onclick={() => removeItem(item)} disabled={busy === `delete:${item.id}`}>Delete</button>
+                      <button type="button" class="btn quiet danger" onclick={() => (deleteFor = item)} disabled={busy === `delete:${item.id}`}>Delete</button>
                     {/if}
                   </td>
                 </tr>
@@ -524,7 +755,7 @@
             <div class="cmdline"><code>reet backup restore --yes {restoreFor.id}</code><CopyButton text={`reet backup restore --yes ${restoreFor.id}`} compact /></div>
             The database in place is moved aside, not deleted.
           {:else}
-            <strong>Restore {restoreFor.id}?</strong> Your shelf goes back to what it held when that copy was taken.
+            <strong>Restore {restoreFor.id}?</strong> Matching skills have their saved flags, notes and tags replaced. Skills added since this copy remain on your shelf. Lists, teams and account settings are not restored.
             Copies taken since then are not deleted.
             <div class="formacts">
               <button type="button" class="btn" onclick={() => (restoreFor = null)}>Cancel</button>
@@ -532,7 +763,16 @@
                 if (!restoreFor) return
                 busy = 'restore'
                 try {
-                  const r = await restoreUserBackup(restoreFor!.id)
+                  let r
+                  try {
+                    r = await restoreUserBackup(restoreFor!.id)
+                  } catch (e) {
+                    const message = e instanceof Error ? e.message : String(e)
+                    if (!message.toLowerCase().includes('password')) throw e
+                    const password = prompt('This copy is protected with a password. Enter it to restore your shelf:')
+                    if (!password) throw e
+                    r = await restoreUserBackup(restoreFor!.id, password)
+                  }
                   saved = `Restored ${r.restored} skills from ${restoreFor!.id}.`
                   restoreFor = null
                   await load()
@@ -555,7 +795,8 @@
       {#if status.runs.length === 0}
         <p class="empty">Nothing has run yet.</p>
       {:else}
-        <div class="tablewrap">
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users must be able to scroll this overflow region.) -->
+        <div class="tablewrap" tabindex="0" role="region" aria-label="Recent backup runs">
           <table>
             <thead><tr><th>Started</th><th>By</th><th>Outcome</th><th>Size</th><th>Off-site</th></tr></thead>
             <tbody>
@@ -576,6 +817,13 @@
     </section>
   {/if}
 </section>
+
+{#if deleteFor}
+  <ConfirmDialog title="Delete this local backup?" body={`Delete ${deleteFor.id} from this machine? Copies at destinations are left alone.`} confirmLabel="Delete backup" danger oncancel={() => (deleteFor = null)} onconfirm={() => { if (deleteFor) void removeItem(deleteFor) }} />
+{/if}
+{#if deleteRemoteFor}
+  <ConfirmDialog title="Remove this destination?" body={`Remove ${deleteRemoteFor.name}? Existing copies in its bucket are left alone.`} confirmLabel="Remove destination" danger oncancel={() => (deleteRemoteFor = null)} onconfirm={() => { if (deleteRemoteFor) void removeRemote(deleteRemoteFor) }} />
+{/if}
 
 <style>
   .backups { padding-top: 4px; }

@@ -55,7 +55,7 @@
   }
 </script>
 
-<AuthCard eyebrow="A fresh start" title="Set up reet.sh" lede="Create the owner account for this instance. Everything already on the shelf stays where it is.">
+<AuthCard eyebrow="Ey up. Start here." title="Set up reet.sh" lede="Create the owner account for this instance. Everything already on the shelf stays where it is.">
   <form onsubmit={submit} aria-busy={busy} aria-describedby={error ? "setup-error" : undefined}>
     <label for="setup-name">Your name</label>
     <input id="setup-name" bind:this={nameInput} bind:value={name} autocomplete="name" placeholder="Sam" />

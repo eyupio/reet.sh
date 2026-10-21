@@ -317,6 +317,13 @@ func (s *Store) GetFor(userID int64, id string) (Skill, bool, error) {
 }
 
 func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
+	if f.Machine != "" {
+		host, err := s.ResolveMachineHostFor(userID, f.Machine)
+		if err != nil {
+			return nil, Counts{}, err
+		}
+		f.Machine = host
+	}
 	var c Counts
 	if err := s.db.QueryRow(`SELECT COUNT(*),COALESCE(SUM(liked),0),COALESCE(SUM(bookmarked),0),COALESCE(SUM(used),0)
 		FROM shelf WHERE user_id=?`, userID).Scan(&c.All, &c.Liked, &c.Bookmarked, &c.Used); err != nil {
@@ -766,6 +773,10 @@ func EnvironmentIDFor(userID int64, host, agent, project string) string {
 }
 
 func (s *Store) RecordEnvironmentFor(userID int64, skillID, host, agent, project, path, sourcePath string) error {
+	host, err := s.ResolveMachineHostFor(userID, host)
+	if err != nil {
+		return err
+	}
 	if strings.TrimSpace(host) == "" || strings.TrimSpace(agent) == "" {
 		return nil
 	}
@@ -777,7 +788,7 @@ func (s *Store) RecordEnvironmentFor(userID int64, skillID, host, agent, project
 	if sourcePath == "" {
 		sourcePath = path
 	}
-	_, err := s.db.Exec(`INSERT INTO skill_envs(skill_id,env_id,installed_at,last_seen,source_path)
+	_, err = s.db.Exec(`INSERT INTO skill_envs(skill_id,env_id,installed_at,last_seen,source_path)
 		VALUES(?,?,?,?,?)
 		ON CONFLICT(skill_id,env_id) DO UPDATE SET last_seen=excluded.last_seen, source_path=excluded.source_path`,
 		skillID, id, t, t, sourcePath)
@@ -785,6 +796,10 @@ func (s *Store) RecordEnvironmentFor(userID int64, skillID, host, agent, project
 }
 
 func (s *Store) TouchEnvironmentFor(userID int64, host, agent, project, path string) error {
+	host, err := s.ResolveMachineHostFor(userID, host)
+	if err != nil {
+		return err
+	}
 	if strings.TrimSpace(host) == "" || strings.TrimSpace(agent) == "" {
 		return nil
 	}
@@ -795,7 +810,7 @@ func (s *Store) TouchEnvironmentFor(userID int64, host, agent, project, path str
 	if strings.TrimSpace(project) != "" {
 		kind = "project"
 	}
-	_, err := s.db.Exec(`INSERT INTO environments(id,user_id,name,kind,agent,host,path,project,first_seen,last_seen)
+	_, err = s.db.Exec(`INSERT INTO environments(id,user_id,name,kind,agent,host,path,project,first_seen,last_seen)
 		VALUES(?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET last_seen=excluded.last_seen, name=excluded.name,
 			path=CASE WHEN environments.path='' THEN excluded.path ELSE environments.path END`,
@@ -979,6 +994,14 @@ func (s *Store) RestoreSnapshotFor(userID int64, snapshot Snapshot) error {
 			for _, env := range k.Environments {
 				if env.Host == "" || env.Agent == "" {
 					continue
+				}
+				canonical, err := resolveMachineHost(tx, userID, env.Host)
+				if err != nil {
+					return err
+				}
+				if canonical != env.Host {
+					env.Host = canonical
+					env.Name = EnvironmentName(canonical, env.Agent, env.Project)
 				}
 				id := EnvironmentIDFor(userID, env.Host, env.Agent, env.Project)
 				name := env.Name

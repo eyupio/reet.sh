@@ -41,6 +41,7 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 - **Capture anywhere.** Paste a skills.sh URL or `owner/repo/skill`, or use the bookmarklets (Like, Save, In use) on any skill page.
 - **Know what is installed.** `reet scan` reads the skills folders for your tools and marks each skill "in use", per machine and per tool.
 - **Copy feedback.** Copy buttons confirm success with a brief checkmark reveal; reduced-motion preferences use a gentle fade.
+- **Environment sync.** Account includes site-aware scanner setup, machine/server status and saved reference skill sets. Preview differences and run `reet sync --apply` locally to confirm installs/removals. [Setup and limits](docs/environment-sync.md).
 - **Copy missing installs.** Pick an environment and copy the install commands for everything on your shelf that is not there yet.
 - **Metadata that stays fresh.** Description, install count and a weekly sparkline, refreshed every six hours, politely.
 - **Tags and notes.** Skills.sh topics are seeded as tags; add your own and filter by several at once.
@@ -95,12 +96,15 @@ Click your name in the footer to open **Account**, where you can create and revo
 | `REET_DATA_PATH` | `./data` | Host folder for the database. Must exist and be writable by `REET_UID:REET_GID`. |
 | `REET_UID`, `REET_GID` | `1000` | User the container runs as. `init-env.sh` sets these to `id -u` / `id -g`. |
 | `REET_PORT` | `8080` | Host port for the UI. |
-| `REET_VERSION` | `latest` | Image tag (`latest`, `v1.0.0`, `sha-<short>`). |
+| `REET_VERSION` | `latest` | Image tag (`latest`, `dev`, `v1.0.0`, `sha-<short>`). |
 | `REET_AUTH` | `accounts` | `accounts` (owner setup and sessions), `token` (the single `REET_TOKEN`) or `none` (trusted LAN, no sign-in). |
 | `REET_TOKEN` | empty | Accounts mode: setup bootstrap and fallback scan token until a personal token exists. Token mode: the only credential. Empty means no token. |
 | `SKILLS_SH_TOKEN` | empty | Optional skills.sh API token (needs a Vercel OIDC token, so it can't be generated). Without it, reet reads the public skills.sh pages. |
 | `REET_LOG` | empty | Set to `debug` for one line per metadata fetch; writes are always logged without tokens. |
 | `REET_TOPICS` | empty | Set to `off` to stop the daily skills.sh topic seed (nine read-only page fetches a day). |
+| `REET_ENV` | hostname | Stable name for this machine in scan/sync/server reports. |
+| `REET_CONTROLLER_URL` | empty | Optional remote controller to receive a server process's scans every minute. |
+| `REET_CONTROLLER_TOKEN` | empty | Personal token from the remote controller account; separate from this instance's bootstrap token. |
 | `REET_REFRESH` | empty | Set to `off` to stop the six-hourly metadata refresh (the 50 oldest skills, two seconds apart). |
 
 ### Commands for keys and settings
@@ -148,7 +152,7 @@ The installer downloads a GitHub release, verifies its SHA-256 checksum, and ins
 - **Import what you have installed.** Run the scanner on the machine that has your skills:
 
   ```sh
-  reet scan --server http://your-host:8080 --token "$REET_TOKEN" --env sam-mbp
+  reet scan --server http://your-host:8080 --token "$REET_TOKEN" --env sam-mbp --prune
   ```
 
   It reads the skills folders for your tools (`~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills`, `~/.codex/skills`, `~/.config/opencode/skills`, plus `.claude/skills` and `.agents/skills` in the current directory) and the skills CLI lock file at `~/.agents/.skill-lock.json` if present, then marks each skill as "in use". Existing likes, saves and notes are kept.
@@ -158,6 +162,8 @@ The installer downloads a GitHub release, verifies its SHA-256 checksum, and ins
   Skills found only by folder name show as "unlinked". Use **Link** on the card to attach the skills.sh URL.
 
   Once environments exist, the shelf gets an environment filter and a **Copy missing installs** action that copies the install commands for everything on the shelf that is not on that machine yet.
+
+See [environment sync](docs/environment-sync.md) for account setup, confirmed installs/removals, server reporting and freshness advice. The rolling `dev` binary release and Docker `:dev` tag update from main after every merge; stable binary releases remain immutable.
 
 ## Backup
 

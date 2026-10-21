@@ -1,7 +1,9 @@
 package store
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -749,7 +751,12 @@ func EnvironmentIDFor(userID int64, host, agent, project string) string {
 	agent = strings.ToLower(strings.TrimSpace(agent))
 	id := strconv.FormatInt(userID, 10) + "/" + host + "/" + agent
 	if project = strings.TrimSpace(project); project != "" {
-		id += "/" + strings.ToLower(strings.ReplaceAll(project, "/", "-"))
+		if strings.HasPrefix(project, "/") {
+			sum := sha256.Sum256([]byte(project))
+			id += "/project-" + hex.EncodeToString(sum[:])
+		} else {
+			id += "/" + strings.ToLower(strings.ReplaceAll(project, "/", "-"))
+		}
 	}
 	return id
 }

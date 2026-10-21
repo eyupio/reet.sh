@@ -385,3 +385,12 @@ export async function addListToShelf(id: number): Promise<{ added: number }> {
 export async function getRollup(): Promise<Rollup> {
   return (await req('/api/admin/rollup')).json()
 }
+
+export type SyncEnvironment = Environment & { project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string }
+export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source' | 'sourceType'>
+export type SyncTarget = { target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
+export type SyncState = { environments: SyncEnvironment[]; targets: SyncTarget[] }
+export async function getSyncState(): Promise<SyncState> { return (await req('/api/v2/sync')).json() }
+export async function saveSyncTarget(sourceId: string, targetId: string): Promise<SyncState> { return (await req('/api/v2/sync', { method: 'PUT', body: json({ sourceId, targetId }) })).json() }
+export async function deleteSyncTarget(targetId: string): Promise<SyncState> { return (await req(`/api/v2/sync?target=${encodeURIComponent(targetId)}`, { method: 'DELETE' })).json() }
+export async function forgetEnvironment(id: string): Promise<SyncState> { return (await req(`/api/v2/environments?id=${encodeURIComponent(id)}`, { method: 'DELETE' })).json() }

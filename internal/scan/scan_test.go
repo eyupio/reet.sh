@@ -177,3 +177,36 @@ func TestRunPostsEnvironmentsAndPrune(t *testing.T) {
 		t.Fatalf("output: %s", out.String())
 	}
 }
+
+func TestScanKeepsGlobalAndProjectSourcesSeparate(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	mkSkill(t, filepath.Join(home, ".claude", "skills"), "alpha", true)
+	mkSkill(t, filepath.Join(cwd, ".claude", "skills"), "alpha", true)
+	os.MkdirAll(filepath.Join(home, ".agents"), 0755)
+	os.WriteFile(filepath.Join(home, ".agents", ".skill-lock.json"), []byte(`{"skills":{"alpha":{"source":"global/repo"}}}`), 0600)
+	os.WriteFile(filepath.Join(cwd, "skills-lock.json"), []byte(`{"skills":{"alpha":{"source":"project/repo"}}}`), 0600)
+	result := CollectScan(home, cwd, nil, "machine")
+	foundGlobal, foundProject := false, false
+	for _, found := range result.Found {
+		if found.Name != "alpha" {
+			continue
+		}
+		if found.Project == "" {
+			foundGlobal = found.Source == "global/repo"
+		} else {
+			foundProject = found.Source == "project/repo" && filepath.IsAbs(found.Project)
+		}
+	}
+	if !foundGlobal || !foundProject {
+		t.Fatalf("sources/scopes mixed: %+v", result.Found)
+	}
+}
+
+func TestMissingSkillsFolderUnderKnownAgentIsEmpty(t *testing.T) {
+	home := t.TempDir()
+	os.MkdirAll(filepath.Join(home, ".claude"), 0755)
+	result := CollectScan(home, t.TempDir(), nil, "machine")
+	if len(result.Envs) != 1 || result.Envs[0].Agent != "claude" || len(result.Envs[0].Skills) != 0 {
+		t.Fatalf("missing directory not reported empty: %+v", result)
+	}
+}

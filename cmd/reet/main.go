@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -40,8 +42,8 @@ func main() {
 	case "version", "--version", "-v":
 		fmt.Printf("reet %s (%s)\n", version, commit)
 	case "help", "--help", "-h":
-		fmt.Println("usage: reet serve | reet healthcheck | reet scan [options] | reet version")
-		fmt.Println("Run reet scan --help for scanner options.")
+		fmt.Println("usage: reet serve | reet healthcheck | reet scan [options] | reet sync [options] | reet version")
+		fmt.Println("Run reet scan --help or reet sync --help for options.")
 	case "serve":
 		if err := serve(); err != nil {
 			log.Fatal(err)
@@ -51,12 +53,16 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+	case "sync":
+		if err := scan.RunSyncVersion(os.Args[2:], os.Stdin, os.Stdout, version); err != nil {
+			log.Fatal(err)
+		}
 	case "scan":
-		if err := scan.Run(os.Args[2:], os.Stdout); err != nil {
+		if err := scan.RunVersion(os.Args[2:], os.Stdout, version); err != nil {
 			log.Fatal(err)
 		}
 	default:
-		fmt.Fprintln(os.Stderr, "usage: reet serve | reet healthcheck | reet scan [options] | reet version")
+		fmt.Fprintln(os.Stderr, "usage: reet serve | reet healthcheck | reet scan [options] | reet sync [options] | reet version")
 		os.Exit(2)
 	}
 }
@@ -93,6 +99,7 @@ func serve() error {
 	srv := &http.Server{Addr: env("REET_ADDR", ":8080"), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	go reportServer(ctx, st)
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -104,4 +111,42 @@ func serve() error {
 		return err
 	}
 	return nil
+}
+
+// Server identity belongs to the configured controller account, or the local
+// instance owner. A container reports only its own visible filesystem.
+func reportServer(ctx context.Context, st *store.Store) {
+	report := func() {
+		host := env("REET_ENV", "")
+		if host == "" {
+			host, _ = os.Hostname()
+		}
+		if host == "" {
+			return
+		}
+		if controller := os.Getenv("REET_CONTROLLER_URL"); controller != "" {
+			if err := scan.RunVersion([]string{"--server", controller, "--token", os.Getenv("REET_CONTROLLER_TOKEN"), "--env", host, "--prune", "--server-host"}, io.Discard, version); err != nil {
+				log.Printf("controller scan failed: %v", err)
+			}
+			return
+		}
+		owner, ok, err := st.OwnerUser()
+		if err != nil || !ok {
+			return
+		}
+		if err := st.RegisterMachineFor(owner.ID, store.MachineInfo{Host: host, OS: runtime.GOOS, Arch: runtime.GOARCH, Version: version, Server: true}); err != nil {
+			log.Printf("server registration failed: %v", err)
+		}
+	}
+	report()
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			report()
+		}
+	}
 }

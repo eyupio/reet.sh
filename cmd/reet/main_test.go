@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"github.com/eyupio/reet.sh/internal/store"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -31,5 +33,26 @@ func TestHealthURLFromAddr(t *testing.T) {
 		if got := healthURL(in); got != want {
 			t.Errorf("healthURL(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestServerRegistersOwnerEnvironment(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	owner, err := st.DefaultOwner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("REET_CONTROLLER_URL", "")
+	t.Setenv("REET_ENV", "test-server")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	reportServer(ctx, st)
+	envs, err := st.SyncEnvironmentsFor(owner)
+	if err != nil || len(envs) != 1 || envs[0].Agent != "reet-server" || envs[0].Host != "test-server" || envs[0].OS == "" {
+		t.Fatalf("missing server identity: %+v %v", envs, err)
 	}
 }

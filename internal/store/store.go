@@ -243,6 +243,15 @@ var schemaV12 = []string{
 	`CREATE INDEX IF NOT EXISTS idx_topic_skills_skill ON topic_skills(skill_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_events_at ON events(at)`,
 	`CREATE INDEX IF NOT EXISTS idx_events_skill ON events(skill_id)`,
+	`CREATE TABLE IF NOT EXISTS environment_scans (
+ env_id TEXT PRIMARY KEY REFERENCES environments(id) ON DELETE CASCADE,
+ scanned_at INTEGER NOT NULL, complete INTEGER NOT NULL DEFAULT 0,
+ os TEXT NOT NULL DEFAULT '', arch TEXT NOT NULL DEFAULT '', version TEXT NOT NULL DEFAULT '')`,
+	`CREATE TABLE IF NOT EXISTS sync_targets (
+ user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ target_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
+ source_id TEXT NOT NULL, source_name TEXT NOT NULL, desired TEXT NOT NULL,
+ revision TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(user_id,target_id))`,
 }
 
 // Open opens (creating if needed) the database in dir.
@@ -902,7 +911,7 @@ func AgentLabel(agent string) string {
 	case "opencode":
 		return "OpenCode"
 	case "agents":
-		return "Agents"
+		return "Shared agents / Codex"
 	case "other":
 		return "Other"
 	}

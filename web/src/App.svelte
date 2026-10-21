@@ -1,18 +1,24 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import {
-    addSkill, clearToken, getToken, listSkills, patchSkill, refreshSkill, removeSkill, resolveSkill, restoreAll,
-    UnauthorizedError, type Counts, type Flags, type Skill, type Sort,
+    addSkill, addSkillTags, clearToken, getToken, listEnvironments, listEvents, listSkills, listTags,
+    patchSkill, refreshSkill, removeSkill, resolveSkill, restoreAll, UnauthorizedError,
+    type Counts, type Environment, type Event, type Flags, type Skill, type Sort, type Tag,
   } from './lib/api'
   import Bookmarklets from './lib/Bookmarklets.svelte'
+  import ConfirmDialog from './lib/ConfirmDialog.svelte'
   import CopyButton from './lib/CopyButton.svelte'
   import Footer from './lib/Footer.svelte'
   import Logo from './lib/Logo.svelte'
+  import Recently from './lib/Recently.svelte'
   import SignIn from './lib/SignIn.svelte'
   import SkillCard from './lib/SkillCard.svelte'
   import Toast from './lib/Toast.svelte'
   import Tools from './lib/Tools.svelte'
+  import { copyText } from './lib/clipboard'
+  import { installCommand } from './lib/install'
   import { stageOf, stages, stageTitle, type Stage } from './lib/shelf'
+  import { isOldEnvironment } from './lib/time'
 
   let skills = $state<Skill[]>([])
   let counts = $state<Counts>({ all: 0, liked: 0, bookmarked: 0, used: 0 })
@@ -31,17 +37,44 @@
   type ToastState = { id: number; message: string; actionLabel?: string; onaction?: () => void | Promise<void> }
   let toast = $state<ToastState | null>(null)
   let toastId = 0
+  let environments = $state<Environment[]>([])
+  let allTags = $state<Tag[]>([])
+  let events = $state<Event[]>([])
+  let selectedTags = $state<number[]>([])
+  let selectedEnv = $state('')
+  let onlyOne = $state(false)
+  let copying = $state(false)
+  let removePending = $state<Skill | null>(null)
+  let metaLoaded = $state(false)
 
   const origin = location.origin
   const signedIn = $derived(token !== '')
   const scanCommand = $derived(`reet scan --server ${origin}${signedIn ? ' --token "$REET_TOKEN"' : ''}`)
 
-  const filtering = $derived(q.trim() !== '' || onlyLiked)
+  const filtering = $derived(q.trim() !== '' || onlyLiked || selectedTags.length > 0 || selectedEnv !== '' || onlyOne)
   const grouped = $derived(stages.map((st) => ({ ...st, items: skills.filter((k) => stageOf(k) === st.id) })))
   // While searching or filtering, hide sections with nothing to show; otherwise keep them so the shelf reads as a pipeline.
   const visible = $derived(grouped.filter((g) => (show === 'all' || show === g.id) && (g.items.length > 0 || !filtering)))
   const total = $derived(visible.reduce((n, g) => n + g.items.length, 0))
   const likedCount = $derived(skills.filter((s) => s.liked).length)
+  const tagOptions = $derived(allTags.map((t) => t.name))
+  const tagCounts = $derived.by(() => {
+    const map = new Map<number, { tag: Tag; count: number }>()
+    for (const skill of skills) {
+      for (const tag of skill.tags ?? []) {
+        const current = map.get(tag.id)
+        if (current) current.count++
+        else map.set(tag.id, { tag, count: 1 })
+      }
+    }
+    for (const id of selectedTags) {
+      if (!map.has(id)) {
+        const tag = allTags.find((t) => t.id === id)
+        if (tag) map.set(id, { tag, count: 0 })
+      }
+    }
+    return [...map.values()].sort((a, b) => a.tag.name.localeCompare(b.tag.name))
+  })
 
   let clearTimer: ReturnType<typeof setTimeout> | undefined
   function fail(e: unknown) {
@@ -51,6 +84,7 @@
       needsAuth = true
       message = ''
       toast = null
+      removePending = null
       return
     }
     error = e instanceof Error ? e.message : String(e)
@@ -71,11 +105,19 @@
 
   async function load(): Promise<boolean> {
     try {
-      const r = await listSkills(onlyLiked ? 'liked' : 'all', q, sort)
+      const r = await listSkills({
+        tab: onlyLiked ? 'liked' : 'all',
+        q,
+        sort,
+        tags: selectedTags,
+        env: selectedEnv,
+        only: onlyOne ? 'one-machine' : '',
+      })
       skills = r.skills
       counts = r.counts
       error = ''
       needsAuth = false
+      if (!metaLoaded) void loadMeta().then((ok) => (metaLoaded = ok))
       return true
     } catch (e) {
       fail(e)
@@ -85,8 +127,22 @@
     }
   }
 
-  async function reload() {
+  async function loadMeta(): Promise<boolean> {
+    try {
+      const [envs, tags, evs] = await Promise.all([listEnvironments(), listTags(), listEvents(10)])
+      environments = envs.environments
+      allTags = tags.tags
+      events = evs.events
+      return true
+    } catch (e) {
+      fail(e)
+      return false
+    }
+  }
+
+  async function reloadAll() {
     await load()
+    metaLoaded = await loadMeta()
   }
 
   async function attemptSignIn(): Promise<string | null> {
@@ -109,18 +165,24 @@
     message = ''
     error = ''
     toast = null
+    removePending = null
     loading = true
     await load()
   }
 
   $effect(() => {
-    void [onlyLiked, q, sort]
+    void [onlyLiked, q, sort, selectedTags, selectedEnv, onlyOne]
     const t = setTimeout(load, 150)
     return () => clearTimeout(t)
   })
 
   $effect(() => {
-    if (counts.all === 0) show = 'all'
+    if (counts.all === 0) {
+      show = 'all'
+      selectedTags = []
+      selectedEnv = ''
+      onlyOne = false
+    }
   })
 
   // A moved skill is re-rendered in another section, so put keyboard focus back on the control that was used.
@@ -153,7 +215,7 @@
       onlyLiked = false
       q = ''
       ok(s.created ? `Reet, added ${s.name} to the shelf.` : `Already on the shelf, in ${stageTitle(stageOf(s))}.`)
-      await load()
+      await reloadAll()
       if (!s.created) await flash(s.id)
       setTimeout(load, 2500) // pick up fetched metadata
     } catch (e) {
@@ -165,7 +227,7 @@
       const updated = await patchSkill(s.id, flags)
       const to = stageOf(updated)
       if (to !== stageOf(s)) ok(`Moved ${s.name} to ${stageTitle(to)}.`)
-      await load()
+      await reloadAll()
       await refocus(s.id, act)
       return true
     } catch (e) {
@@ -173,24 +235,96 @@
       return false
     }
   }
-  async function refresh(s: Skill) {
+  async function refreshOne(s: Skill) {
     try {
       await refreshSkill(s.id)
       ok(`Refreshed ${s.name}`)
-      await load()
+      await reloadAll()
     } catch (e) {
       fail(e)
     }
   }
-  async function remove(s: Skill) {
+  function envTitle(env: Environment): string {
+    const when = new Date(env.lastSeen).toLocaleString()
+    return `${env.path ? env.path + ' · ' : ''}last seen ${when}`
+  }
+
+  function toggleTag(id: number) {
+    selectedTags = selectedTags.includes(id) ? selectedTags.filter((x) => x !== id) : [...selectedTags, id]
+  }
+  function toggleEnv(id: string) {
+    selectedEnv = selectedEnv === id ? '' : id
+  }
+  function filterTag(tag: Tag) {
+    toggleTag(tag.id)
+  }
+  function filterEnv(env: Environment) {
+    toggleEnv(env.id)
+  }
+
+  async function copyMissing() {
+    if (!selectedEnv) return
+    copying = true
     try {
-      await removeSkill(s.id)
-      await load()
+      const all = await listSkills({ tab: 'all', q: '', sort: 'recent' })
+      const missing = all.skills.filter((s) => {
+        const command = installCommand(s)
+        return command !== null && !(s.environments ?? []).some((e) => e.id === selectedEnv)
+      })
+      const text = missing.map((s) => installCommand(s)).filter((x): x is string => Boolean(x)).join('\n')
+      if (!text) {
+        ok('Everything on the shelf is already installed there.')
+        return
+      }
+      if (await copyText(text)) {
+        ok(`Copied ${missing.length} install ${missing.length === 1 ? 'command' : 'commands'}.`)
+      } else {
+        fail(new Error('Could not copy to the clipboard.'))
+      }
+    } catch (e) {
+      fail(e)
+    } finally {
+      copying = false
+    }
+  }
+
+  async function tags(s: Skill, add: string[], remove: number[]): Promise<boolean> {
+    try {
+      await addSkillTags(s.id, add, remove)
+      await reloadAll()
+      return true
+    } catch (e) {
+      fail(e)
+      return false
+    }
+  }
+
+  async function history(s: Skill): Promise<Event[]> {
+    try {
+      return (await listEvents(20, s.id)).events
+    } catch (e) {
+      fail(e)
+      return []
+    }
+  }
+
+  function remove(s: Skill) {
+    if (s.sourceType === 'local' || (s.environments?.length ?? 0) > 0) {
+      removePending = s
+      return
+    }
+    void doRemove(s, false)
+  }
+
+  async function doRemove(s: Skill, ignore: boolean) {
+    try {
+      await removeSkill(s.id, ignore)
+      await reloadAll()
       search?.focus()
-      showToast(`Removed ${s.name}`, 'Undo', async () => {
+      showToast(ignore ? `Removed ${s.name} and ignored future scans` : `Removed ${s.name}`, 'Undo', async () => {
         try {
-          await restoreAll({ version: 1, exportedAt: Date.now(), skills: [s] })
-          await load()
+          await restoreAll({ version: 2, exportedAt: Date.now(), skills: [s] })
+          await reloadAll()
           ok(`Restored ${s.name}.`)
         } catch (e) {
           fail(e)
@@ -204,7 +338,7 @@
     try {
       const r = await resolveSkill(s.id, input)
       ok(`Linked to ${r.id}`)
-      await load()
+      await reloadAll()
       return true
     } catch (e) {
       fail(e)
@@ -234,6 +368,8 @@
       <p class="notice good" role="status" hidden={!message}>{message}</p>
     </div>
 
+    <Recently {events} />
+
     {#if counts.all > 0 || filtering}
       <div class="toolbar" role="group" aria-label="Filter and sort">
         <div class="filters">
@@ -256,6 +392,41 @@
             </select>
           </span>
         </div>
+      </div>
+    {/if}
+
+    {#if tagCounts.length > 0 || selectedTags.length > 0}
+      <div class="filterbar" role="group" aria-label="Tags">
+        <span class="bar-label">Tags</span>
+        {#each tagCounts as item (item.tag.id)}
+          <button type="button" class="chip" aria-pressed={selectedTags.includes(item.tag.id)} onclick={() => toggleTag(item.tag.id)}>
+            {item.tag.name}<small>{item.count}</small>
+          </button>
+        {/each}
+        {#if selectedTags.length > 0}
+          <button type="button" class="chip clear" onclick={() => (selectedTags = [])}>Clear</button>
+        {/if}
+      </div>
+    {/if}
+
+    {#if environments.length > 0 || selectedEnv !== '' || onlyOne}
+      <div class="filterbar" role="group" aria-label="Environments">
+        <span class="bar-label">Environments</span>
+        {#each environments as env (env.id)}
+          <button
+            type="button" class="chip" class:old={isOldEnvironment(env.lastSeen)}
+            aria-pressed={selectedEnv === env.id} onclick={() => toggleEnv(env.id)} title={envTitle(env)}
+          >
+            {env.name}<small>{env.skillCount ?? 0}</small>
+          </button>
+        {/each}
+        <span class="sep" aria-hidden="true"></span>
+        <button type="button" class="chip" aria-pressed={onlyOne} onclick={() => (onlyOne = !onlyOne)}>Only on one machine</button>
+        {#if selectedEnv}
+          <button type="button" class="chip action" onclick={copyMissing} disabled={copying}>
+            {copying ? 'Copying…' : 'Copy missing installs'}
+          </button>
+        {/if}
       </div>
     {/if}
 
@@ -310,7 +481,11 @@
             <p class="hint">{g.hint}</p>
             <ul>
               {#each g.items as s (s.id)}
-                <SkillCard skill={s} stage={g.id} onpatch={patch} onrefresh={refresh} onlink={link} onremove={remove} />
+                <SkillCard
+                skill={s} stage={g.id} tagOptions={tagOptions}
+                onpatch={patch} onrefresh={refreshOne} onlink={link} onremove={remove}
+                onfiltertag={filterTag} onfilterenv={filterEnv} ontags={tags} onhistory={history}
+              />
               {:else}
                 <li class="none">{g.empty}</li>
               {/each}
@@ -322,12 +497,25 @@
 
     {#if !loading}
       {#key counts.all === 0}
-        <Tools onchange={reload} {ok} {fail} {token} startOpen={counts.all === 0} hideBookmarklets={counts.all === 0} />
+        <Tools onchange={reloadAll} {ok} {fail} {token} startOpen={counts.all === 0} hideBookmarklets={counts.all === 0} />
       {/key}
     {/if}
   {/if}
 </main>
 <Footer signedIn={signedIn && !needsAuth} onsignout={signOut} />
+{#if removePending}
+  <ConfirmDialog
+    title={`Remove ${removePending.name}?`}
+    body="This skill is on your scanner's list. It will come back on the next scan unless you ignore it."
+    confirmLabel="Remove"
+    secondaryLabel="Remove and ignore"
+    danger
+    onconfirm={() => { const skill = removePending!; removePending = null; void doRemove(skill, false) }}
+    onsecondary={() => { const skill = removePending!; removePending = null; void doRemove(skill, true) }}
+    oncancel={() => (removePending = null)}
+  />
+{/if}
+
 {#if toast && !needsAuth}
   {#key toast.id}
     <Toast
@@ -370,6 +558,25 @@
   .sep { width: 1px; height: 20px; background: var(--line); margin: 0 6px; }
   .controls { display: flex; gap: 8px; }
   .controls input { width: 10rem; }
+
+  .filterbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 0 2px; }
+  .bar-label {
+    color: var(--muted); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; margin-right: 4px;
+  }
+  .filterbar .chip {
+    display: inline-flex; align-items: center; gap: 5px; max-width: 260px; min-height: 32px;
+    padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px;
+    background: transparent; color: var(--muted); font-size: 0.8rem; text-align: left; cursor: pointer;
+  }
+  .filterbar .chip:hover { border-color: var(--muted); color: var(--ink); }
+  .filterbar .chip[aria-pressed='true'] { background: var(--tint); color: var(--ink); border-color: var(--accent); }
+  .filterbar .chip small { font-variant-numeric: tabular-nums; opacity: 0.8; }
+  .filterbar .chip.old { opacity: 0.55; }
+  .filterbar .chip.action { border-style: dashed; border-color: var(--accent); color: var(--accent); }
+  .filterbar .chip.clear { border-style: dashed; }
+  .filterbar .sep { height: 18px; }
+  @media (pointer: coarse) { .filterbar .chip { min-height: 44px; } }
 
   .select { position: relative; display: inline-flex; }
   .select select { appearance: none; padding-right: 38px; cursor: pointer; }

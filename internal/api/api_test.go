@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -297,5 +298,81 @@ func TestWriteRequiresJSONContentType(t *testing.T) {
 	}
 	if l := list(t, srv, ""); len(l.Skills) != 0 {
 		t.Fatalf("nothing should be saved: %+v", l)
+	}
+}
+
+func TestImportEnvironmentAndPrune(t *testing.T) {
+	srv := newSrv(t, deadFetcher(t), "")
+	body := `{"items":[{"name":"alpha","host":"laptop","agent":"claude","path":".claude/skills"}],"environments":[{"host":"laptop","agent":"claude","path":".claude/skills","skills":["alpha"]}],"prune":true}`
+	if code, b := do(t, srv, "POST", "/api/import", body); code != 200 {
+		t.Fatalf("%d %s", code, b)
+	}
+	code, b := do(t, srv, "GET", "/api/skills?env=laptop%2Fclaude", "")
+	if code != 200 || !strings.Contains(b, `"name":"alpha"`) {
+		t.Fatalf("env filter: %d %s", code, b)
+	}
+	body = `{"items":[],"environments":[{"host":"laptop","agent":"claude","path":".claude/skills","skills":[]}],"prune":true}`
+	code, b = do(t, srv, "POST", "/api/import", body)
+	if code != 200 || !strings.Contains(b, `"pruned":1`) {
+		t.Fatalf("prune: %d %s", code, b)
+	}
+	if code, b := do(t, srv, "GET", "/api/skills?env=laptop%2Fclaude", ""); code != 200 || !strings.Contains(b, `"skills":[]`) {
+		t.Fatalf("after prune: %d %s", code, b)
+	}
+}
+
+func TestTagsEventsAndIgnore(t *testing.T) {
+	srv := newSrv(t, deadFetcher(t), "")
+	do(t, srv, "POST", "/api/skills", `{"input":"anthropics/skills/frontend-design"}`)
+	code, b := do(t, srv, "POST", "/api/skill/tags", `{"id":"anthropics/skills/frontend-design","add":["client work"],"remove":[]}`)
+	if code != 200 || !strings.Contains(b, "client work") {
+		t.Fatalf("tags: %d %s", code, b)
+	}
+	if code, b := do(t, srv, "GET", `/api/skills?q=tag%3A%22client%20work%22`, ""); code != 200 || !strings.Contains(b, "frontend-design") {
+		t.Fatalf("tag search: %d %s", code, b)
+	}
+	if code, b := do(t, srv, "GET", "/api/events?skill=anthropics%2Fskills%2Ffrontend-design", ""); code != 200 || !strings.Contains(b, `"action":"tag"`) {
+		t.Fatalf("events: %d %s", code, b)
+	}
+	if code, _ := do(t, srv, "POST", "/api/skill/install-copy", `{"id":"anthropics/skills/frontend-design"}`); code != 204 {
+		t.Fatalf("install copy event: %d", code)
+	}
+	if code, _ := do(t, srv, "DELETE", "/api/skill?id=anthropics%2Fskills%2Ffrontend-design&ignore=1", ""); code != 204 {
+		t.Fatalf("ignore: %d", code)
+	}
+	if code, b := do(t, srv, "GET", "/api/ignored", ""); code != 200 || !strings.Contains(b, "frontend-design") {
+		t.Fatalf("ignored: %d %s", code, b)
+	}
+	code, b = do(t, srv, "POST", "/api/import", `{"items":[{"name":"frontend-design","source":"anthropics/skills"}]}`)
+	if code != 200 || !strings.Contains(b, `"ignored":1`) {
+		t.Fatalf("import ignored: %d %s", code, b)
+	}
+}
+
+func TestRenameAndMergeTags(t *testing.T) {
+	srv := newSrv(t, deadFetcher(t), "")
+	do(t, srv, "POST", "/api/skills", `{"input":"a/b/one"}`)
+	do(t, srv, "POST", "/api/skills", `{"input":"a/b/two"}`)
+	do(t, srv, "POST", "/api/skill/tags", `{"id":"a/b/one","add":["first"],"remove":[]}`)
+	do(t, srv, "POST", "/api/skill/tags", `{"id":"a/b/two","add":["second"],"remove":[]}`)
+	code, b := do(t, srv, "GET", "/api/tags", "")
+	var tags struct {
+		Tags []store.Tag `json:"tags"`
+	}
+	if code != 200 || json.Unmarshal([]byte(b), &tags) != nil {
+		t.Fatalf("tags: %d %s", code, b)
+	}
+	ids := map[string]int64{}
+	for _, tag := range tags.Tags {
+		ids[tag.Name] = tag.ID
+	}
+	if code, b := do(t, srv, "PATCH", "/api/tag", `{"id":`+strconv.FormatInt(ids["first"], 10)+`,"name":"renamed"}`); code != 200 {
+		t.Fatalf("rename: %d %s", code, b)
+	}
+	if code, b := do(t, srv, "POST", "/api/tags/merge", `{"from":`+strconv.FormatInt(ids["first"], 10)+`,"into":`+strconv.FormatInt(ids["second"], 10)+`}`); code != 200 {
+		t.Fatalf("merge: %d %s", code, b)
+	}
+	if code, b := do(t, srv, "GET", `/api/skills?q=tag%3Asecond`, ""); code != 200 || !strings.Contains(b, `"name":"one"`) || !strings.Contains(b, `"name":"two"`) {
+		t.Fatalf("merged filter: %d %s", code, b)
 	}
 }

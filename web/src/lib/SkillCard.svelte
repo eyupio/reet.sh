@@ -1,17 +1,25 @@
 <script lang="ts">
-  import type { Flags, Skill } from './api'
+  import { recordInstallCopy, type Environment, type Event, type Flags, type Skill, type Tag } from './api'
   import CopyButton from './CopyButton.svelte'
+  import { eventLabel, eventTitle } from './events'
   import { installCommand, installPrompt, readInstallKind, writeInstallKind, type InstallKind } from './install'
   import { fmt, moves, type Stage } from './shelf'
-  import { isStale, sinceLabel } from './time'
+  import { elapsed, isOldEnvironment, isStale, sinceLabel } from './time'
 
-  let { skill, stage, onpatch, onrefresh, onlink, onremove }: {
+  let {
+    skill, stage, tagOptions, onpatch, onrefresh, onlink, onremove, onfiltertag, onfilterenv, ontags, onhistory,
+  }: {
     skill: Skill
     stage: Stage
+    tagOptions: string[]
     onpatch: (s: Skill, flags: Flags, act: string) => Promise<boolean>
     onrefresh: (s: Skill) => void
     onlink: (s: Skill, input: string) => Promise<boolean>
     onremove: (s: Skill) => void
+    onfiltertag: (tag: Tag) => void
+    onfilterenv: (env: Environment) => void
+    ontags: (s: Skill, add: string[], remove: number[]) => Promise<boolean>
+    onhistory: (s: Skill) => Promise<Event[]>
   } = $props()
 
   let editing = $state(false)
@@ -23,6 +31,16 @@
   let descOpen = $state(false)
   let descEl = $state<HTMLParagraphElement>()
   let descLong = $state(false)
+  let tagging = $state(false)
+  let tagDraft = $state('')
+  let tagBusy = $state(false)
+  let tagInput = $state<HTMLInputElement>()
+  let historyOpen = $state(false)
+  let historyLoading = $state(false)
+  let history = $state<Event[]>([])
+
+  const tags = $derived(skill.tags ?? [])
+  const environments = $derived(skill.environments ?? [])
 
   const command = $derived(installCommand(skill))
   const prompt = $derived(installPrompt(skill))
@@ -32,6 +50,42 @@
     if (!descEl || descOpen) return
     descLong = descEl.scrollHeight > descEl.clientHeight + 1
   })
+
+  $effect(() => {
+    if (tagging) tagInput?.focus()
+  })
+
+  function toggleTagging() {
+    tagging = !tagging
+  }
+
+  async function addTag(e: SubmitEvent) {
+    e.preventDefault()
+    const name = tagDraft.trim()
+    if (!name) return
+    tagBusy = true
+    if (await ontags(skill, [name], [])) tagDraft = ''
+    tagBusy = false
+  }
+
+  async function removeTag(tag: Tag) {
+    tagBusy = true
+    await ontags(skill, [], [tag.id])
+    tagBusy = false
+  }
+
+  async function toggleHistory() {
+    historyOpen = !historyOpen
+    if (!historyOpen) return
+    historyLoading = true
+    history = await onhistory(skill)
+    historyLoading = false
+  }
+
+  function envTitle(env: Environment): string {
+    const when = new Date(env.lastSeen).toLocaleString()
+    return `${env.path ? env.path + ' · ' : ''}last seen ${when}`
+  }
 
   function toggleInstall() {
     installOpen = !installOpen
@@ -89,6 +143,46 @@
     {/if}
   {/if}
 
+  <div class="tagrow">
+    {#each tags as tag (tag.id)}
+      <button type="button" class="tag" onclick={() => onfiltertag(tag)} title="Filter by {tag.name}">{tag.name}</button>
+    {/each}
+    <button type="button" class="tag add" aria-expanded={tagging} onclick={toggleTagging}>+ Tag</button>
+  </div>
+  {#if tagging}
+    <div class="tag-edit">
+      {#if tags.length}
+        <div class="tag-current">
+          {#each tags as tag (tag.id)}
+            <button
+              type="button" class="tag remove" onclick={() => removeTag(tag)} disabled={tagBusy}
+              aria-label="Remove tag {tag.name} from {skill.name}"
+            >
+              {tag.name}<span aria-hidden="true">×</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+      <form onsubmit={addTag}>
+        <label class="vh" for="tag-{skill.id}">Add a tag to {skill.name}</label>
+        <input id="tag-{skill.id}" bind:this={tagInput} list="tag-options-{skill.id}" bind:value={tagDraft} placeholder="Add or create a tag" autocomplete="off" />
+        <datalist id="tag-options-{skill.id}">
+          {#each tagOptions as name}<option value={name}></option>{/each}
+        </datalist>
+        <button type="submit" class="btn primary" disabled={tagBusy || !tagDraft.trim()}>Add</button>
+      </form>
+    </div>
+  {/if}
+  {#if environments.length}
+    <div class="envrow">
+      {#each environments as env (env.id)}
+        <button type="button" class="envchip" class:old={isOldEnvironment(env.lastSeen)} onclick={() => onfilterenv(env)} title={envTitle(env)}>
+          <span class="envdot" aria-hidden="true"></span>{env.name}
+        </button>
+      {/each}
+    </div>
+  {/if}
+
   <div class="actions">
     {#each moves(stage) as m, i}
       <button type="button" class="chip" class:move={m.primary} data-act={'m' + i} onclick={() => onpatch(skill, m.flags, 'm' + i)}>
@@ -103,6 +197,7 @@
     </button>
     <span class="spacer"></span>
     <button type="button" class="btn quiet" data-act="notes" aria-expanded={editing} aria-label="Notes for {skill.name}" onclick={toggleNotes}>Notes</button>
+    <button type="button" class="btn quiet" aria-expanded={historyOpen} aria-label="History for {skill.name}" onclick={toggleHistory}>History</button>
     {#if skill.sourceType === 'local'}
       <button type="button" class="btn quiet" aria-expanded={linking} aria-label="Link {skill.name} to skills.sh" onclick={() => (linking = !linking)}>Link</button>
     {:else}
@@ -110,6 +205,25 @@
     {/if}
     <button type="button" class="btn quiet danger" aria-label="Remove {skill.name}" onclick={() => onremove(skill)}>Remove</button>
   </div>
+
+  {#if historyOpen}
+    <div class="history">
+      {#if historyLoading}
+        <p>Loading…</p>
+      {:else if history.length === 0}
+        <p>Nothing recorded yet.</p>
+      {:else}
+        <ul>
+          {#each history as event (event.id)}
+            <li title={eventTitle(event)}>
+              <span>{eventLabel(event)}</span>
+              <time datetime={new Date(event.at).toISOString()}>{elapsed(event.at)}</time>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
+  {/if}
 
   {#if command}
     <div class="install">
@@ -131,7 +245,7 @@
           {#if installText}
             <div class="install-line">
               <code>{installText}</code>
-              <CopyButton text={installText} compact />
+              <CopyButton text={installText} compact oncopy={() => void recordInstallCopy(skill.id).catch(() => {})} />
             </div>
           {/if}
         </div>
@@ -183,6 +297,35 @@
     background: none; border: 0; color: var(--muted); font-size: 0.85rem; font-weight: 600; cursor: pointer;
   }
   .more:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+  .tagrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
+  .tag {
+    display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; min-height: 28px;
+    border: 1px solid var(--line); border-radius: 999px; background: transparent;
+    color: var(--muted); font-size: 0.78rem; cursor: pointer;
+  }
+  .tag:hover { color: var(--ink); border-color: var(--muted); }
+  .tag.add { border-style: dashed; border-color: var(--accent); color: var(--accent); }
+  .tag.add[aria-expanded='true'] { background: var(--tint); color: var(--ink); }
+  .tag.remove span { color: var(--bad); font-weight: 700; }
+  .tag-edit { margin-top: 8px; display: grid; gap: 8px; }
+  .tag-current { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag-edit form { display: flex; gap: 8px; }
+  .tag-edit input { flex: 1; min-width: 0; }
+  .envrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .envchip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; min-height: 28px;
+    border: 1px solid var(--line); border-radius: 6px; background: color-mix(in srgb, var(--bg) 55%, var(--card));
+    color: var(--muted); font-size: 0.75rem; cursor: pointer;
+  }
+  .envchip:hover { color: var(--ink); border-color: var(--muted); }
+  .envchip.old { opacity: 0.5; }
+  .envdot { width: 6px; height: 6px; border-radius: 999px; background: var(--accent); opacity: 0.75; flex: none; }
+  .history { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
+  .history p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+  .history ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .history li { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 0.82rem; }
+  .history li span { min-width: 0; overflow-wrap: anywhere; }
+  .history time { flex: none; font-variant-numeric: tabular-nums; }
   .notes { margin: 12px 0 0; padding: 4px 0 4px 14px; border-left: 2px solid var(--accent); font: italic 1rem/1.5 var(--serif); white-space: pre-wrap; }
   .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; align-items: center; }
   .chip { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 4px 14px; cursor: pointer; min-height: 36px; color: var(--ink); }
@@ -192,6 +335,7 @@
   .chip.heart { color: var(--muted); padding: 4px 12px; }
   .chip.heart[aria-pressed='true'] { color: var(--heart); border-color: var(--heart); font-weight: 600; }
   .spacer { flex: 1; }
+  .actions .btn.quiet { padding-left: 7px; padding-right: 7px; }
   .install { margin-top: 6px; }
   .install-toggle {
     display: inline-flex; align-items: center; gap: 6px; padding: 6px 0; min-height: 36px;
@@ -224,9 +368,10 @@
     .edit.link div { flex-direction: column; }
     .install-line { flex-direction: column; align-items: stretch; }
     .install-line :global(.copy) { align-self: flex-start; }
+    .tag-edit form { flex-direction: column; align-items: stretch; }
   }
   @media (pointer: coarse) {
-    .chip, .install-toggle, .seg button, .more { min-height: 44px; }
+    .chip, .install-toggle, .seg button, .more, .tag, .envchip { min-height: 44px; }
   }
   @media (prefers-reduced-motion: no-preference) {
     .chip { transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 160ms var(--ease-out); }

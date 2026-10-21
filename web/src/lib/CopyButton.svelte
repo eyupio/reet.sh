@@ -1,36 +1,21 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
+  import { copyText } from './clipboard'
 
-  let { text, label = 'Copy', copiedLabel = 'Copied', compact = false }: {
+  let { text, label = 'Copy', copiedLabel = 'Copied', compact = false, oncopy }: {
     text: string
     label?: string
     copiedLabel?: string
     compact?: boolean
+    oncopy?: () => void
   } = $props()
 
   let copied = $state(false)
   let timer: ReturnType<typeof setTimeout> | undefined
 
   async function copy() {
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
-      await navigator.clipboard.writeText(text)
-    } catch {
-      const field = document.createElement('textarea')
-      field.value = text
-      field.setAttribute('readonly', '')
-      field.style.position = 'fixed'
-      field.style.opacity = '0'
-      document.body.appendChild(field)
-      field.select()
-      try {
-        document.execCommand('copy')
-      } catch {
-        /* best effort: some browsers block clipboard writes */
-      } finally {
-        document.body.removeChild(field)
-      }
-    }
+    if (!(await copyText(text))) return
+    oncopy?.()
     copied = true
     clearTimeout(timer)
     timer = setTimeout(() => (copied = false), 1800)

@@ -246,3 +246,206 @@ func TestFlagChangeBumpsRecencyButReimportDoesNot(t *testing.T) {
 		t.Fatal("re-importing with no change must not reorder")
 	}
 }
+
+func TestEnvironmentsAndFilters(t *testing.T) {
+	s := newStore(t)
+	a := mustRef(t, "a/b/alpha")
+	b := mustRef(t, "a/b/beta")
+	c := mustRef(t, "a/b/gamma")
+	for _, r := range []ref.Ref{a, b, c} {
+		if _, err := s.Upsert(r, Patch{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, e := range []struct{ id, host, agent, project string }{
+		{a.ID, "laptop", "claude", ""},
+		{a.ID, "desktop", "cursor", ""},
+		{b.ID, "laptop", "cursor", ""},
+		{c.ID, "laptop", "claude", ""},
+		{c.ID, "laptop", "cursor", ""},
+	} {
+		if err := s.RecordEnvironment(e.id, e.host, e.agent, e.project, ".skills", ".skills/"+e.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	envs, err := s.ListEnvironments()
+	if err != nil || len(envs) != 3 {
+		t.Fatalf("envs: %+v %v", envs, err)
+	}
+	if got := map[string]int{}; true {
+		for _, e := range envs {
+			got[e.ID] = e.SkillCount
+		}
+		if got["laptop/claude"] != 2 || got["laptop/cursor"] != 2 || got["desktop/cursor"] != 1 {
+			t.Fatalf("counts: %+v", got)
+		}
+	}
+	got, _, err := s.List(Filter{Env: "laptop/claude"})
+	if err != nil || len(got) != 2 {
+		t.Fatalf("env filter: %+v %v", got, err)
+	}
+	got, _, err = s.List(Filter{Only: "one-machine"})
+	if err != nil || len(got) != 2 {
+		t.Fatalf("one machine: %+v %v", got, err)
+	}
+	sk, ok, _ := s.Get(a.ID)
+	if !ok || len(sk.Environments) != 2 {
+		t.Fatalf("attached envs: %+v", sk)
+	}
+	if n, err := s.PruneEnvironment("laptop/cursor", []string{b.ID}); err != nil || n != 1 {
+		t.Fatalf("prune: %d %v", n, err)
+	}
+}
+
+func TestTagsTopicsAndFilters(t *testing.T) {
+	s := newStore(t)
+	a := mustRef(t, "a/b/alpha")
+	b := mustRef(t, "a/b/beta")
+	s.Upsert(a, Patch{})
+	s.Upsert(b, Patch{})
+	if err := s.AddSkillTags(a.ID, []string{"client work", "testing"}); err != nil {
+		t.Fatal(err)
+	}
+	tags, err := s.ListTags()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]Tag{}
+	for _, tag := range tags {
+		byName[tag.Name] = tag
+	}
+	if byName["client work"].Count != 1 || byName["testing"].Count != 1 {
+		t.Fatalf("tags: %+v", tags)
+	}
+	got, _, err := s.List(Filter{Tags: []int64{byName["client work"].ID}})
+	if err != nil || len(got) != 1 || got[0].ID != a.ID {
+		t.Fatalf("tag filter: %+v %v", got, err)
+	}
+	got, _, err = s.List(Filter{Query: `tag:"client work"`})
+	if err != nil || len(got) != 1 || got[0].ID != a.ID {
+		t.Fatalf("tag query: %+v %v", got, err)
+	}
+	if err := s.RemoveSkillTag(a.ID, byName["client work"].ID); err != nil {
+		t.Fatal(err)
+	}
+	sk, _, _ := s.Get(a.ID)
+	for _, tag := range sk.Tags {
+		if tag.Name == "client work" {
+			t.Fatal("user tag was not removed")
+		}
+	}
+
+	if err := s.ReplaceTopics([]Topic{{Slug: "design", Name: "Design & UI", Skills: []string{a.ID}}}); err != nil {
+		t.Fatal(err)
+	}
+	sk, _, _ = s.Get(a.ID)
+	found := false
+	for _, tag := range sk.Tags {
+		if tag.Name == "Design & UI" && tag.Source == "topic" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("topic tag not attached: %+v", sk.Tags)
+	}
+	if _, err := s.Upsert(b, Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	sk, _, _ = s.Get(b.ID)
+	for _, tag := range sk.Tags {
+		if tag.Name == "Design & UI" {
+			t.Fatal("topic tag leaked to a skill outside the topic")
+		}
+	}
+	tags, _ = s.ListTags()
+	byName = map[string]Tag{}
+	for _, tag := range tags {
+		byName[tag.Name] = tag
+	}
+	if err := s.RenameTag(byName["testing"].ID, "quality"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MergeTags(byName["quality"].ID, byName["Design & UI"].ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEventsAndIgnored(t *testing.T) {
+	s := newStore(t)
+	r := mustRef(t, "a/b/alpha")
+	s.Upsert(r, Patch{})
+	if err := s.AddEvent("ui", "add", r.ID, map[string]string{"name": "Alpha"}); err != nil {
+		t.Fatal(err)
+	}
+	events, err := s.ListEvents(10, r.ID)
+	if err != nil || len(events) != 1 || events[0].Action != "add" || events[0].SkillName != "alpha" {
+		t.Fatalf("events: %+v %v", events, err)
+	}
+	if err := s.Ignore(r.ID, "alpha", "removed"); err != nil {
+		t.Fatal(err)
+	}
+	if ignored, err := s.IsIgnored(r.ID); err != nil || !ignored {
+		t.Fatalf("ignored: %v %v", ignored, err)
+	}
+	if _, ok, _ := s.Get(r.ID); ok {
+		t.Fatal("ignored skill still exists")
+	}
+	if err := s.Unignore(r.ID); err != nil {
+		t.Fatal(err)
+	}
+	if ignored, _ := s.IsIgnored(r.ID); ignored {
+		t.Fatal("still ignored")
+	}
+}
+
+func TestExportRestoreSnapshot(t *testing.T) {
+	a := newStore(t)
+	r := mustRef(t, "a/b/alpha")
+	a.Upsert(r, Patch{})
+	if err := a.RecordEnvironment(r.ID, "laptop", "claude", "", ".claude/skills", ".claude/skills/alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.AddSkillTags(r.ID, []string{"client"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.ReplaceTopics([]Topic{{Slug: "design", Name: "Design & UI", Skills: []string{r.ID}}}); err != nil {
+		t.Fatal(err)
+	}
+	tags, _ := a.ListTags()
+	var designID int64
+	for _, tag := range tags {
+		if tag.Name == "Design & UI" {
+			designID = tag.ID
+		}
+	}
+	if err := a.RemoveSkillTag(r.ID, designID); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Ignore("local/old", "old", "removed"); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := a.ExportSnapshot(true)
+	if err != nil || len(snap.Skills) != 1 || len(snap.Ignored) != 1 || len(snap.Skills[0].HiddenTags) != 1 {
+		t.Fatalf("snapshot: %+v %v", snap, err)
+	}
+	b := newStore(t)
+	if err := b.RestoreSnapshot(snap); err != nil {
+		t.Fatal(err)
+	}
+	sk, ok, _ := b.Get(r.ID)
+	if !ok || len(sk.Tags) != 1 || len(sk.Environments) != 1 {
+		t.Fatalf("restored: %+v %v", sk, ok)
+	}
+	if ignored, _ := b.IsIgnored("local/old"); !ignored {
+		t.Fatal("ignored id not restored")
+	}
+	if err := b.ReplaceTopics([]Topic{{Slug: "design", Name: "Design & UI", Skills: []string{r.ID}}}); err != nil {
+		t.Fatal(err)
+	}
+	sk, _, _ = b.Get(r.ID)
+	for _, tag := range sk.Tags {
+		if tag.Name == "Design & UI" {
+			t.Fatal("hidden topic tag was re-added visibly")
+		}
+	}
+}

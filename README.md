@@ -29,6 +29,7 @@ The compose file uses the prebuilt image `ghcr.io/eyupio/reet.sh` (no local buil
 | `REET_TOKEN` | empty | Access token for the UI, API and bookmarklets. Empty means no auth; only do that on a network you fully trust. |
 | `SKILLS_SH_TOKEN` | empty | Optional skills.sh API token (needs a Vercel OIDC token, so it can't be generated). Without it, reet reads the public skills.sh pages. |
 | `REET_LOG` | empty | Set to `debug` for one line per metadata fetch; writes are always logged without tokens. |
+| `REET_TOPICS` | empty | Set to `off` to stop the daily skills.sh topic seed (nine read-only page fetches a day). |
 
 ### Commands for keys and settings
 
@@ -58,20 +59,25 @@ If the container exits with "unable to open database file", the data folder isn'
 ## Adding skills
 
 - **Paste a link.** Paste a skills.sh URL or `owner/repo/skill` into the box at the top.
-- **Bookmarklets.** Open "Show bookmarklets, import and backup" in the UI and drag the Like, Save and In use links to your bookmarks bar. On any skills.sh skill page, click one to send that skill to reet.sh. If you set `REET_TOKEN`, the links contain it, so keep them private.
+- **Bookmarklets.** Open "Show bookmarklets and tools" in the UI and drag the Like, Save and In use links to your bookmarks bar. On any skills.sh skill page, click one to send that skill to reet.sh. If you set `REET_TOKEN`, the links contain it, so keep them private.
+- **Tags.** The daily skills.sh topic seed adds tags like Design & UI or Testing to matching skills. Add your own from a card, then filter the shelf by one or more tags. Rename or merge tags under Show bookmarklets and tools → Manage tags.
 - **Import what you have installed.** Run the scanner on the machine that has your skills:
 
   ```sh
-  reet scan --server http://your-host:8080 --token "$REET_TOKEN"
+  reet scan --server http://your-host:8080 --token "$REET_TOKEN" --env sam-mbp
   ```
 
-  It reads the skills folders for your tools (`~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills`, `~/.codex/skills`, `~/.config/opencode/skills`, plus `.claude/skills` and `.agents/skills` in the current directory) and the skills CLI lock file at `~/.agents/.skill-lock.json` if present, then marks each skill as "in use". Existing likes, saves and notes are kept. Add `--dir PATH` for other folders and `--dry-run` to preview. The scanner needs to see your skills folders, so run it on the machine that has them, not inside the container. Build it with `go install github.com/eyupio/reet.sh/cmd/reet@latest` (the scanner does not need the web UI).
+  It reads the skills folders for your tools (`~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills`, `~/.codex/skills`, `~/.config/opencode/skills`, plus `.claude/skills` and `.agents/skills` in the current directory) and the skills CLI lock file at `~/.agents/.skill-lock.json` if present, then marks each skill as "in use". Existing likes, saves and notes are kept.
+
+  `--env NAME` names this machine (the hostname is the default) and turns each folder into an environment on the card, such as `sam-mbp · Claude Code`. `--prune` removes the environment link for skills that are no longer in a scanned folder; the skill and its notes stay. Add `--dir PATH` for other folders and `--dry-run` to preview. The scanner needs to see your skills folders, so run it on the machine that has them, not inside the container. Build it with `go install github.com/eyupio/reet.sh/cmd/reet@latest` (the scanner does not need the web UI).
 
   Skills found only by folder name show as "unlinked". Use **Link** on the card to attach the skills.sh URL.
 
+  Once environments exist, the shelf gets an environment filter and a **Copy missing installs** action that copies the install commands for everything on the shelf that is not on that machine yet.
+
 ## Backup
 
-Use **Download JSON** and **Restore from JSON** in the UI, or call `GET /api/export` and `POST /api/restore`. The database is a single file, `reet.db`, in your data folder.
+Use **Download JSON** and **Restore from JSON** in the UI, or call `GET /api/export` and `POST /api/restore`. The backup includes skills, notes, tags, environments and the ignored list; tick **Include local history** to add the event log. The database is a single file, `reet.db`, in your data folder.
 
 ## Development
 

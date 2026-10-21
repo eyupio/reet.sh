@@ -411,7 +411,7 @@
     try {
       const updated = await patchSkill(s.id, flags)
       const to = stageOf(updated)
-      if (to !== stageOf(s)) ok(`Moved ${s.name} to ${stageTitle(to)}.`)
+      if (to !== stageOf(s)) ok(`Sorted. ${s.name} is now ${stageTitle(to)}.`)
       await reloadAll()
       await refocus(s.id, act)
       return true
@@ -425,7 +425,7 @@
       const r = await refreshSkill(s.id)
       if (!r.refreshed) fail(new Error(`Could not refresh ${s.name}.`))
       else if (!r.changed) ok(`No change for ${s.name}.`)
-      else ok(`Refreshed ${s.name}.`)
+      else ok(`Sorted. Refreshed ${s.name}.`)
       await reloadAll()
     } catch (e) {
       fail(e)
@@ -685,7 +685,7 @@
   {:else if isAdmin}
     <Admin onerror={fail} {role} accounts={authMode === 'accounts'} currentEmail={currentUser?.email ?? ''} />
   {:else}
-    <PageHeader eyebrow="Your personal library" title="Your shelf. Your toolkit." lede="The good finds, the next experiments, and the skills you use every day.">
+    <PageHeader eyebrow="Ey up. Your skill shelf." title="A reet good toolkit." lede="Keep the good finds, give new skills a go, and put the best to work.">
     </PageHeader>
     {#if canWrite}
       <form class="add" onsubmit={add}>
@@ -832,7 +832,7 @@
         </section>
       {:else if total === 0}
         <div class="no-matches">
-          <h2>No skills match that.</h2>
+          <h2>Nowt matches just yet.</h2>
           <p>Try another search or clear your filters.</p>
           <button type="button" class="btn" onclick={() => { q = ''; show = 'all'; onlyLiked = false; selectedTags = []; selectedEnv = ''; selectedMachine = ''; onlyOne = false }}>Clear filters</button>
         </div>

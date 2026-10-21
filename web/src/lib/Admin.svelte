@@ -28,10 +28,10 @@
   const section = sections.some(s => s.key === requested) ? requested : 'overview'
   const sectionTitle = sections.find(s => s.key === section)!.label
   const descriptions: Record<string, string> = {
-    overview: 'Health, jobs and storage for your instance.',
+    overview: 'Keep the place running reet. Check health, jobs and storage.',
     environments: 'Inspect scanned machines and agent reports, with server heartbeats kept separate.',
     users: 'Invite people and manage their access.',
-    team: 'See which skills your team uses and where shared lists need attention.',
+    team: 'See which skills are earning their keep and where shared lists need attention.',
     backups: 'Protect the whole instance with encrypted backups.',
     settings: 'Configure background jobs, sharing and usage privacy.',
     activity: 'Recent changes across the instance.',
@@ -297,7 +297,7 @@
       await saveAdminSettings(form)
       if (status) status = { ...status, settings: { ...form } }
       await loadRollup()
-      saved = 'Saved.'
+      saved = 'Sorted. Settings saved.'
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
       onerror?.(e)

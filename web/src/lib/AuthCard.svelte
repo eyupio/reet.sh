@@ -1,18 +1,18 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
 
-  let { title, lede, eyebrow = 'Your personal library', children }: { title: string; lede: string; eyebrow?: string; children: Snippet } = $props()
+  let { title, lede, eyebrow = 'Your personal skill shelf', children }: { title: string; lede: string; eyebrow?: string; children: Snippet } = $props()
 </script>
 
 <section class="auth" aria-labelledby="auth-title">
   <aside class="intro" aria-label="About your shelf">
     <p class="eyebrow">{eyebrow}</p>
-    <p class="headline">A home for the skills<br />worth keeping.</p>
-    <p class="intro-copy">Find it. Try it. Make it part of your toolkit.</p>
+    <p class="headline">A reet good home<br />for your skills.</p>
+    <p class="intro-copy">Find it. Give it a go. Keep what earns its place.</p>
     <ol class="stages" aria-label="How the shelf works">
       <li><span aria-hidden="true">01</span><div><strong>On the shelf</strong><small>Keep a good find for later.</small></div></li>
       <li><span aria-hidden="true">02</span><div><strong>To test</strong><small>Give something new a go.</small></div></li>
-      <li><span aria-hidden="true">03</span><div><strong>In use</strong><small>Know what you reach for.</small></div></li>
+      <li><span aria-hidden="true">03</span><div><strong>In use</strong><small>The ones earning their keep.</small></div></li>
     </ol>
     <p class="local">Self-hosted. Yours to keep.</p>
   </aside>

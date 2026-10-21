@@ -166,6 +166,39 @@ func TestMetaAppliedInBackground(t *testing.T) {
 	t.Fatal("metadata never arrived")
 }
 
+func TestAddInstallCommandFetchesDetailsAndDeduplicates(t *testing.T) {
+	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/anthropics/skills/mcp-builder" {
+			t.Errorf("unexpected metadata path: %s", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(`<meta name="description" content="Build MCP servers">
+			<script type="application/ld+json">{"@type":"SoftwareApplication","name":"MCP Builder","interactionStatistic":{"userInteractionCount":123}}</script>`))
+	}))
+	defer page.Close()
+	srv := newSrv(t, meta.Fetcher{Client: page.Client(), PageBase: page.URL + "/"}, "")
+	code, body := do(t, srv, "POST", "/api/skills", `{"input":"npx skills add https://github.com/anthropics/skills --skill mcp-builder","liked":true}`)
+	if code != 200 || !strings.Contains(body, `"created":true`) {
+		t.Fatalf("add command: %d %s", code, body)
+	}
+	code, body = do(t, srv, "POST", "/api/skills", `{"input":"https://skills.sh/anthropics/skills/mcp-builder"}`)
+	if code != 200 || !strings.Contains(body, `"created":false`) {
+		t.Fatalf("add URL: %d %s", code, body)
+	}
+	for i := 0; i < 40; i++ {
+		l := list(t, srv, "")
+		if len(l.Skills) == 1 {
+			s := l.Skills[0]
+			if s.ID == "anthropics/skills/mcp-builder" && s.Source == "anthropics/skills" && s.Slug == "mcp-builder" && s.Liked && s.Name == "MCP Builder" && s.Description == "Build MCP servers" && s.Installs == 123 {
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("command did not resolve to one skill with metadata")
+}
+
 func TestPatchFlagsAndNotes(t *testing.T) {
 	srv := newSrv(t, deadFetcher(t), "")
 	do(t, srv, "POST", "/api/skills", `{"input":"`+findSkills+`","liked":true}`)

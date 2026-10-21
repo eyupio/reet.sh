@@ -2,7 +2,7 @@ export type Skill = {
   id: string
   source: string
   slug: string
-  sourceType: 'github' | 'well-known' | 'local'
+  sourceType: 'github' | 'well-known' | 'hosted' | 'local'
   url: string
   name: string
   description: string
@@ -574,4 +574,17 @@ export async function endProfileSession(id: string): Promise<void> {
 }
 export async function endOtherProfileSessions(): Promise<{ ended: number }> {
   return (await req('/api/v2/profile/sessions/end-others', { method: 'POST', body: json({}) })).json()
+}
+
+export type HostedSkill = { slug: string; description: string; content: string; files: Record<string, string>; published: boolean; createdAt: number; updatedAt: number }
+export type Hosting = { username: string; skills: HostedSkill[] }
+export async function getHosting(): Promise<Hosting> { return (await req('/api/v2/hosting')).json() }
+export async function claimPublishingUsername(username: string): Promise<Hosting> {
+  return (await req('/api/v2/hosting/username', { method: 'POST', body: json({ username }) })).json()
+}
+export async function saveHostedSkill(skill: HostedSkill): Promise<HostedSkill> {
+  return (await req(`/api/v2/hosting/skills/${encodeURIComponent(skill.slug)}`, { method: 'PUT', body: json(skill) })).json()
+}
+export async function deleteHostedSkill(slug: string): Promise<void> {
+  await req(`/api/v2/hosting/skills/${encodeURIComponent(slug)}`, { method: 'DELETE' })
 }

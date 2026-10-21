@@ -427,8 +427,8 @@
             </select>
             <span class="or">or</span>
           {/if}
-          <label class="vh" for="list-input">skills.sh URL or owner/repo/skill</label>
-          <input id="list-input" bind:value={addInput} placeholder="Paste a skills.sh URL or owner/repo/skill" autocomplete="off" />
+          <label class="vh" for="list-input">Skill install command, skills.sh URL or owner/repo/skill</label>
+          <input id="list-input" bind:value={addInput} placeholder="Paste an install command, skills.sh URL or owner/repo/skill" autocomplete="off" />
         </div>
         <div class="addrow second">
           <label class="vh" for="list-note">Why it belongs on this list</label>

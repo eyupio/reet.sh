@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -196,6 +197,13 @@ var schemaV12 = []string{
 		password_hash TEXT NOT NULL,
 		created_at INTEGER NOT NULL,
 		disabled_at INTEGER NOT NULL DEFAULT 0)`,
+	`CREATE TABLE IF NOT EXISTS publishers (
+        username TEXT PRIMARY KEY, user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE SET NULL)`,
+	`CREATE TABLE IF NOT EXISTS hosted_skills (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        slug TEXT NOT NULL, description TEXT NOT NULL, content TEXT NOT NULL, files TEXT NOT NULL DEFAULT '{}',
+        published INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        PRIMARY KEY(user_id,slug))`,
 	`CREATE TABLE IF NOT EXISTS sessions (
 		id TEXT PRIMARY KEY,
 		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1416,6 +1424,18 @@ func rederive(k *Skill) error {
 			return fmt.Errorf("invalid skill id %q", k.ID)
 		}
 		k.Source, k.Slug, k.SourceType, k.URL = "local", name, "local", ""
+		return nil
+	}
+	if strings.HasPrefix(k.ID, "hosted/") {
+		u, err := url.Parse(k.URL)
+		if err != nil {
+			return fmt.Errorf("invalid hosted skill URL")
+		}
+		r, err := ref.ParseAt(k.URL, u.Host)
+		if err != nil || r.SourceType != "hosted" || r.ID != k.ID {
+			return fmt.Errorf("invalid hosted skill id %q", k.ID)
+		}
+		k.Source, k.Slug, k.SourceType, k.URL = r.Source, r.Slug, r.SourceType, r.URL
 		return nil
 	}
 	r, err := ref.Parse(k.ID)

@@ -43,7 +43,7 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 - **Focused navigation.** Account and Admin dropdowns lead to individual pages with a section menu. Mobile/tablet navigation folds into Menu; team usage becomes compact cards with expandable report details. Server-only heartbeats stay in diagnostics, outside shelf filters and status badges.
 - **Your defaults.** In Account → Profile, choose List/Board and collapsed/expanded cards across browsers. Individual expansion choices remain temporary for the current visit.
 - **Environment badges.** Each card shows Installed (green), Missing (amber) or Not confirmed (neutral) for each known machine. Missing requires complete agent scans from the last 14 days; stale, incomplete and heartbeat-only reports cannot confirm absence. These are reported inventories, not live filesystem checks.
-- **Capture anywhere.** Paste a skills.sh URL or `owner/repo/skill`, or use the bookmarklets (Like, Save, In use) on any skill page.
+- **Capture anywhere.** Paste an `npx skills add` command, skills.sh URL or `owner/repo/skill`, or use the bookmarklets (Like, Save, In use) on any skill page.
 - **Know what is installed.** `reet scan` reads the skills folders for your tools and marks each skill "in use", per machine and per tool.
 - **Copy feedback.** Copy buttons confirm success with a brief checkmark reveal; reduced-motion preferences use a gentle fade.
 - **Machine maintenance.** Merge hostname/`--env` duplicates, rename or forget machines in Account → Machines. Old names remain aliases, preventing duplicate reports on later scans. `reet scan --prune --reconcile --env NAME` repairs the local hostname and refreshes inventories; fleet commands never install/remove skills.
@@ -162,9 +162,23 @@ reet --version
 
 The installer downloads a GitHub release, verifies its SHA-256 checksum, and installs to `~/.local/bin`. The binary includes the Library web UI (`reet serve`) and the scanner (`reet scan`). See [binary installation](docs/binary-installation.md) for pinned versions, custom destinations, manual installation, and publishing releases. Binaries become available after the first version tag runs the release workflow.
 
+## Hosting your own skills
+
+Open **Host skills** in the navigation and claim a permanent publishing username. Create a skill using the editor or upload an existing `SKILL.md`. Its YAML frontmatter must contain a `name` matching the skill's URL name and a `description` (up to 1024 bytes). Add instructions below the frontmatter. Supporting files are optional; paths can be edited to preserve folders such as `scripts/` and `references/`. Each bundle can contain up to 100 supporting files and 2 MiB total.
+
+Skills are private drafts until you select **Publish publicly** and save. A published skill has a public page at `https://reet.sh/username/skill-name`, with this install command:
+
+```sh
+npx skills add https://reet.sh/username/skill-name
+```
+
+Use `npx skills add` before the URL; `npx https://…` alone is not a skills CLI command. Self-hosted instances use their own hostname. Scoped Agent Skills discovery endpoints below the public URL let the CLI download `SKILL.md` and all supporting files. You can also paste the URL or its install command into the shelf.
+
+Uncheck **Publish publicly** and save to unpublish, or delete the skill to remove its files. Both stop future downloads immediately; existing installations remain on users' machines. Disabled author accounts stop serving public skills. Publishing usernames cannot change or be reused after account deletion, so old links cannot be claimed by another account. Skill hosting follows the instance's normal write permissions; viewers cannot publish. Bundles live in `reet.db` and are covered by whole-instance database backups. Shelf JSON exports and personal shelf backups contain skill references, not authored bundles.
+
 ## Adding skills
 
-- **Paste a link.** Paste a skills.sh URL or `owner/repo/skill` into the box at the top.
+- **Paste a command or link.** Paste an install command such as `npx skills add https://github.com/anthropics/skills --skill mcp-builder`, a skills.sh URL or `owner/repo/skill` into the box at the top. reet extracts the repository and skill name and fetches the details from skills.sh without running the command.
 - **Bookmarklets.** Open "Show bookmarklets and tools" in the UI and drag the Like, Save and In use links to your bookmarks bar. On any skills.sh skill page, click one to send that skill to reet.sh. In accounts mode the links use your session cookie and carry no secret; in token mode they contain `REET_TOKEN`, so keep them private.
 - **Tags.** The daily skills.sh topic seed adds tags like Design & UI or Testing to matching skills. Use **Edit tags** on a skill to add tags or remove them with ×; changes save immediately. Removed tags stay removed through topic refreshes until you explicitly add them again. Outside edit mode, click a tag to filter the shelf, or combine several tag filters. Rename or merge tags under Show bookmarklets and tools → Manage tags.
 - **Import what you have installed.** Run the scanner on the machine that has your skills:
@@ -239,7 +253,7 @@ The `Dockerfile` builds the UI and the binary and cross-compiles for `linux/amd6
 | `internal/backup` | Sealed copies, S3 destinations, schedules, retention and restores. |
 | `internal/store` | SQLite storage and migrations. |
 | `internal/meta` | Fetches skills.sh metadata. |
-| `internal/ref` | Parses skills.sh URLs and slugs. |
+| `internal/ref` | Parses skill install commands, skills.sh URLs and slugs. |
 | `internal/scan` | Finds skills installed on a machine. |
 | `web/` | The Svelte UI, built into `web/dist` and embedded in the binary. |
 | `brand/` | Logo set, colours and usage rules. |

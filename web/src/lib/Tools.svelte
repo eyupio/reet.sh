@@ -116,7 +116,7 @@
     <div class="panel" id="tools-panel">
       <section class="tool-card import" aria-labelledby="import-title">
         <h3 id="import-title">Import what you have installed</h3>
-        <p>Run <code>reet scan</code> on the machine with your skills, or paste names, <code>owner/repo/skill</code> slugs or skills.sh URLs below, one per line. They are marked as in use; existing likes and notes are kept.</p>
+        <p>Run <code>reet scan</code> on the machine with your skills, or paste install commands, names, <code>owner/repo/skill</code> slugs or skills.sh URLs below, one per line. They are marked as in use; existing likes and notes are kept.</p>
         <label class="vh" for="import-box">Skills to import</label>
         <textarea id="import-box" rows="4" bind:value={importBox} placeholder="find-skills&#10;anthropics/skills/pptx"></textarea>
         <button type="button" class="btn primary" onclick={runImport} disabled={!importBox.trim()}>Import as in use</button>

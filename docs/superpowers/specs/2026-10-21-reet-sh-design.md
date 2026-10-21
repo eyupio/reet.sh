@@ -19,7 +19,8 @@ Multi-user accounts, public sharing, cross-instance sync, any write-back to skil
 - Svelte 5 SPA (Vite, TypeScript) embedded in the binary with `go:embed`.
 - SQLite via `modernc.org/sqlite` (pure Go, no CGO) so the result is one static binary.
 - Single binary `reet` with subcommands `reet serve` and `reet scan`.
-- Docker image (distroless or scratch) with a `/data` volume.
+- Docker image (distroless or scratch, non-root) with a `/data` volume, published to GHCR as `ghcr.io/eyupio/reet.sh` (tags `latest`, `vX.Y.Z`, `sha-<short>`; `linux/amd64` and `linux/arm64`) by a GitHub Actions workflow on pushes to `main` and version tags.
+- `docker-compose.yml` references that image only: an `image:` line, no `build:` section. It sets the `/data` volume, port, `REET_TOKEN` and `SKILLS_SH_TOKEN` as environment variables, and a healthcheck against `/healthz`.
 
 ## Architecture
 

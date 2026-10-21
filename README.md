@@ -40,6 +40,7 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 - **Three-stage shelf.** On the shelf, To test, In use. Stage is derived from your flags, never stored out of step.
 - **Capture anywhere.** Paste a skills.sh URL or `owner/repo/skill`, or use the bookmarklets (Like, Save, In use) on any skill page.
 - **Know what is installed.** `reet scan` reads the skills folders for your tools and marks each skill "in use", per machine and per tool.
+- **Copy feedback.** Copy buttons confirm success with a brief checkmark reveal; reduced-motion preferences use a gentle fade.
 - **Copy missing installs.** Pick an environment and copy the install commands for everything on your shelf that is not there yet.
 - **Metadata that stays fresh.** Description, install count and a weekly sparkline, refreshed every six hours, politely.
 - **Tags and notes.** Skills.sh topics are seeded as tags; add your own and filter by several at once.

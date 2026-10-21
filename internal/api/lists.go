@@ -183,6 +183,7 @@ func (s *server) addListSkill(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		s.enqueue(rf)
 		skillID = rf.ID
 	}
 	if skillID == "" {
@@ -287,6 +288,10 @@ func (s *server) addListMember(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "that account is disabled")
 		return
 	}
+	if user.Role == "viewer" && strings.TrimSpace(in.Role) == "editor" {
+		writeErr(w, http.StatusBadRequest, "viewers are read-only; add them as a viewer")
+		return
+	}
 	if err := s.st.AddListMember(access.List.ID, user.ID, in.Role); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -309,6 +314,19 @@ func (s *server) updateListMember(w http.ResponseWriter, r *http.Request) {
 		Role   string `json:"role"`
 	}
 	if !decode(w, r, &in) {
+		return
+	}
+	user, ok, err := s.st.UserByID(in.UserID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusNotFound, "that person does not have an account here yet")
+		return
+	}
+	if user.Role == "viewer" && strings.TrimSpace(in.Role) == "editor" {
+		writeErr(w, http.StatusBadRequest, "viewers are read-only; keep them as a viewer")
 		return
 	}
 	if err := s.st.AddListMember(access.List.ID, in.UserID, in.Role); err != nil {
@@ -354,6 +372,19 @@ func (s *server) transferList(w http.ResponseWriter, r *http.Request) {
 		UserID int64 `json:"userId"`
 	}
 	if !decode(w, r, &in) {
+		return
+	}
+	user, ok, err := s.st.UserByID(in.UserID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusNotFound, "that person does not have an account here yet")
+		return
+	}
+	if user.Role == "viewer" {
+		writeErr(w, http.StatusBadRequest, "a viewer cannot own a list")
 		return
 	}
 	if err := s.st.TransferList(access.List.ID, in.UserID); err != nil {

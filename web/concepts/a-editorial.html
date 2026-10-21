@@ -8,7 +8,7 @@
   <style>
     :root {
       --bg: #f7f6f2; --card: #fffdf9; --ink: #1d1c1a; --muted: #5f5c54; --line: #e4e1d8;
-      --accent: #b83a08; --accent-ink: #fff; --tint: #fde8d8; --good: #15803d; --bad: #b91c1c;
+      --accent: #c2410c; --accent-ink: #fff; --tint: #fde8d8; --good: #15803d; --bad: #b91c1c;
       --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
       --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
     }
@@ -80,8 +80,7 @@
   <a class="skip" href="#list">Skip to your skills</a>
   <main>
     <header>
-      <!-- LOGO SLOT: placeholder wordmark, swap for the real logo -->
-      <h1>reet<span>.sh</span></h1>
+      <h1><span data-logo style="--logo-h: clamp(44px, 12vw, 68px)"></span></h1>
       <p>Keep the reet good AI skills from skills.sh, all in one place.</p>
     </header>
 
@@ -107,6 +106,7 @@
   </main>
 
   <script src="data.js"></script>
+  <script src="logo.js"></script>
   <script src="shelf.js"></script>
   <script>
     (function () {

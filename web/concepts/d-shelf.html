@@ -8,7 +8,7 @@
   <style>
     :root {
       --bg: #f7f6f2; --card: #fffdf9; --ink: #1d1c1a; --muted: #5f5c54; --line: #e4e1d8;
-      --accent: #b83a08; --accent-ink: #fff; --tint: #fde8d8; --heart: #be1f4a; --good: #15803d; --bad: #b91c1c;
+      --accent: #c2410c; --accent-ink: #fff; --tint: #fde8d8; --heart: #be1f4a; --good: #15803d; --bad: #b91c1c;
       --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
       --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
     }
@@ -73,7 +73,7 @@
     .chip { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 4px 14px; cursor: pointer; min-height: 36px; color: var(--ink); }
     .chip:hover { border-color: var(--muted); }
     .chip.move { border-color: var(--accent); color: var(--accent); font-weight: 600; }
-    .chip.move:hover { background: var(--tint); }
+    .chip.move:hover { background: color-mix(in srgb, var(--tint) 55%, var(--card)); }
     .chip.heart { color: var(--muted); padding: 4px 12px; }
     .chip.heart[aria-pressed="true"] { color: var(--heart); border-color: var(--heart); font-weight: 600; }
     .spacer { flex: 1; }
@@ -90,8 +90,7 @@
   <a class="skip" href="#sections">Skip to your skills</a>
   <main>
     <header>
-      <!-- LOGO SLOT: placeholder wordmark, swap for the real logo -->
-      <h1>reet<span>.sh</span></h1>
+      <h1><span data-logo style="--logo-h: clamp(44px, 12vw, 68px)"></span></h1>
       <p>Keep the reet good AI skills from skills.sh, all in one place.</p>
     </header>
 
@@ -117,6 +116,7 @@
   </main>
 
   <script src="data.js"></script>
+  <script src="logo.js"></script>
   <script src="shelf.js"></script>
   <script>
     (function () {

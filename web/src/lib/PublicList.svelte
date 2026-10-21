@@ -49,8 +49,8 @@
   </section>
 {:else}
   <article class="public">
-    <PageHeader eyebrow="Read-only shared list" title={detail.name} lede={detail.description}>
-      {#snippet meta()}{#if detail}<span class="badge">{detail.skillCount} {detail.skillCount === 1 ? 'skill' : 'skills'} · {detail.memberCount} {detail.memberCount === 1 ? 'person' : 'people'}</span>{/if}{/snippet}
+    <PageHeader eyebrow={detail.visibility === 'public' ? 'Public community list' : 'Unlisted read-only list'} title={detail.name} lede={detail.description}>
+      {#snippet meta()}{#if detail}<span class="badge">{detail.skillCount} {detail.skillCount === 1 ? 'skill' : 'skills'}</span>{/if}{/snippet}
     </PageHeader>
 
     <div class="actions">

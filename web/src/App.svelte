@@ -1,5 +1,9 @@
 <script lang="ts">
   import { groupLabel } from './lib/machines'
+  import Community from './lib/Community.svelte'
+  import SharedLists from './lib/SharedLists.svelte'
+  import Spaces from './lib/Spaces.svelte'
+  import { audienceLabel } from './lib/api'
   import { onMount, tick } from 'svelte'
   import {
     addSkill, addSkillTags, clearToken, getAuthStatus, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
@@ -73,6 +77,9 @@
   let bulkRemoving = $state<Skill[]>([])
 
   const origin = location.origin
+  const isCommunity = location.pathname === '/community'
+  const isShared = location.pathname === '/shared'
+  const isSpaces = location.pathname === '/spaces'
   const isAdmin = location.pathname.startsWith('/admin')
   const isAccount = location.pathname.startsWith('/account')
   const isJoin = location.pathname.startsWith('/join')
@@ -85,7 +92,7 @@
   const joinToken = new URLSearchParams(location.search).get('token') ?? ''
   const signedIn = $derived(token !== '')
   const authenticated = $derived(authMode === 'none' || (authMode === 'token' && token !== '') || (authMode === 'accounts' && currentUser !== null))
-  const canLoad = $derived(authChecked && authenticated && !needsAuth)
+  const canLoad = $derived(authChecked && authenticated && !needsAuth && !isCommunity && !isPublicList)
   const role = $derived(currentUser?.role ?? (authMode === 'accounts' ? 'viewer' : 'owner'))
   const canWrite = $derived(authMode !== 'accounts' || role !== 'viewer')
   const isAdminUser = $derived(authMode !== 'accounts' || role === 'owner' || role === 'admin')
@@ -569,7 +576,7 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isJoin ? 'Join reet.sh' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : authChecked && !authenticated ? 'Sign in' : isAdmin ? 'Admin' : isAccount ? 'Your account' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : authChecked && !authenticated ? 'Sign in' : isAdmin ? 'Admin' : isAccount ? 'Your account' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
   {/if}
 </svelte:head>
 
@@ -581,18 +588,23 @@
     </div>
     {#if authenticated && !needsAuth && !isPublicList && !isJoin}
       <nav class="site-nav" aria-label="Main navigation">
-        <a href="/" aria-current={!isAdmin && !isAccount && !isList ? 'page' : undefined}>Your shelf</a>
+        <a href="/" aria-current={!isAdmin && !isAccount && !isList && !isCommunity && !isShared && !isSpaces ? 'page' : undefined}>Personal shelf</a>
+        <a href="/shared" aria-current={isShared ? 'page' : undefined}>Lists</a>
+        <a href="/spaces" aria-current={isSpaces ? 'page' : undefined}>Teams</a>
+        <a href="/community" aria-current={isCommunity ? 'page' : undefined}>Community</a>
         {#if authMode === 'accounts'}<a href="/account" aria-current={isAccount ? 'page' : undefined}>Account</a>{/if}
         {#if isAdminUser}<a href="/admin" aria-current={isAdmin ? 'page' : undefined}>Admin</a>{/if}
       </nav>
-    {:else if isPublicList || isJoin}
-      <a class="entry-link" href="/">Open your shelf →</a>
+    {:else if isPublicList || isCommunity || isJoin}
+      <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a class="entry-link" href="/">Open your shelf →</a></nav>
     {/if}
-    {#if (!authenticated || needsAuth) && !isPublicList && !isJoin}<span class="tag">Your shelf for AI skills</span>{/if}
+    {#if (!authenticated || needsAuth) && !isPublicList && !isCommunity && !isJoin}<span class="tag">Your shelf for AI skills</span>{/if}
   </div>
 </header>
-<main id="main-content" tabindex="-1" class:auth-page={!isPublicList && (!authenticated || needsAuth || isJoin)}>
-  {#if isPublicList}
+<main id="main-content" tabindex="-1" class:auth-page={!isPublicList && !isCommunity && (!authenticated || needsAuth || isJoin)}>
+  {#if isCommunity}
+    <Community />
+  {:else if isPublicList}
     <PublicList slug={publicSlug} />
   {:else if isJoin}
     <Join token={joinToken} onsuccess={afterJoin} />
@@ -607,6 +619,10 @@
   {:else if !authMode}
     <PageHeader eyebrow="Connection problem" title="The shelf is out of reach." />
     <p class="notice bad" role="alert">Could not check how this instance signs in. Reload the page to try again.</p>
+  {:else if isShared}
+    <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
+  {:else if isSpaces}
+    <Spaces {canWrite} />
   {:else if isAccount && authMode === 'accounts'}
     <Account user={currentUser!} onsignout={signOut} onerror={fail} />
   {:else if isList}
@@ -667,10 +683,12 @@
 
     {#if lists.length > 0 || canWrite}
       <div class="filterbar" role="group" aria-label="Shared lists">
-        <span class="bar-label">Lists</span>
-        {#each lists as list (list.id)}
+        <span class="bar-label">Your lists</span>
+        <a class="chip" href="/shared">Browse & manage lists</a>
+        <a class="chip" href="/community">Public community ↗</a>
+        {#each lists.filter(l => l.ownerId === currentUser?.id || (authMode !== 'accounts' && l.role === 'owner')) as list (list.id)}
           <button type="button" class="chip" onclick={() => openList(list)} title={`${list.skillCount} skills · ${list.visibility}`}>
-            {list.name}<small>{list.skillCount}</small>
+            {list.name}<small>{audienceLabel(list.visibility)} · {list.skillCount}</small>
           </button>
         {/each}
         {#if canWrite}

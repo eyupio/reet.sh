@@ -61,28 +61,30 @@ func (s *server) listLists(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"lists":       lists,
+		"userId":      s.uid(r),
 		"linkEnabled": s.linkListsEnabled(),
 	})
 }
 
 func (s *server) createList(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Visibility  string `json:"visibility"`
+		Name        string         `json:"name"`
+		Description string         `json:"description"`
+		Visibility  string         `json:"visibility"`
+		Audience    store.Audience `json:"audience"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
 	visibility := strings.TrimSpace(in.Visibility)
 	if visibility == "" {
-		visibility = "members"
+		visibility = "personal"
 	}
 	if visibility == "link" && !s.linkListsEnabled() {
 		writeErr(w, http.StatusForbidden, "link sharing is turned off by the owner")
 		return
 	}
-	list, err := s.st.CreateList(s.uid(r), in.Name, in.Description, visibility)
+	list, err := s.st.SaveAudienceList(s.uid(r), s.role(r), 0, in.Name, in.Description, visibility, in.Audience)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -109,9 +111,10 @@ func (s *server) updateList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Name        *string `json:"name"`
-		Description *string `json:"description"`
-		Visibility  *string `json:"visibility"`
+		Name        *string         `json:"name"`
+		Description *string         `json:"description"`
+		Visibility  *string         `json:"visibility"`
+		Audience    *store.Audience `json:"audience"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -130,7 +133,25 @@ func (s *server) updateList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "link sharing is turned off by the owner")
 		return
 	}
-	if _, err := s.st.UpdateList(access.List.ID, name, description, visibility); err != nil {
+	audience, err := s.st.AudienceFor(access.List.ID)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if in.Audience != nil {
+		audience = *in.Audience
+	} else if visibility != access.List.Visibility {
+		if visibility != "team" {
+			audience.GroupID = 0
+		}
+		if visibility != "private" && visibility != "team" {
+			audience.Excluded = nil
+		}
+		if visibility == "personal" {
+			audience.People = nil
+		}
+	}
+	if _, err := s.st.SaveAudienceList(s.uid(r), s.role(r), access.List.ID, name, description, visibility, audience); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -410,10 +431,7 @@ func (s *server) addListToShelf(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) publicList(w http.ResponseWriter, r *http.Request) {
-	if !s.linkListsEnabled() {
-		writeErr(w, http.StatusNotFound, "list not found")
-		return
-	}
+
 	slug := strings.TrimSpace(r.PathValue("slug"))
 	if slug == "" {
 		writeErr(w, http.StatusNotFound, "list not found")
@@ -428,6 +446,11 @@ func (s *server) publicList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if d.Visibility == "link" && !s.linkListsEnabled() {
+		writeErr(w, 404, "list not found")
+		return
+	}
 	d.LinkEnabled = true
+	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, d)
 }

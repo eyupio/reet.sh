@@ -26,7 +26,7 @@ export type SharedList = {
   ownerName?: string
   name: string
   description: string
-  visibility: 'private' | 'members' | 'link'
+  visibility: 'personal' | 'private' | 'team' | 'public' | 'members' | 'link'
   slug?: string
   role?: string
   skillCount: number
@@ -49,6 +49,7 @@ export type ListDetail = SharedList & {
   canEdit: boolean
   canManage: boolean
   canTransfer: boolean
+  audience?: Audience
 }
 export type RollupMember = { id: number; name: string; email: string; role: string; used: number; installed: number }
 export type RollupMemberUse = { id: number; name: string; used: boolean; environments?: string[] }
@@ -342,7 +343,7 @@ export async function unignore(id: string): Promise<void> {
 export async function getBuildInfo(): Promise<{ version: string; commit: string }> {
   return (await req('/api/version')).json()
 }
-export async function listLists(): Promise<{ lists: SharedList[]; linkEnabled: boolean }> {
+export async function listLists(): Promise<{ lists: SharedList[]; linkEnabled: boolean; userId?: number }> {
   return (await req('/api/v2/lists')).json()
 }
 export async function getList(id: number): Promise<ListDetail> {
@@ -351,10 +352,10 @@ export async function getList(id: number): Promise<ListDetail> {
 export async function getPublicList(slug: string): Promise<ListDetail> {
   return (await req(`/api/v2/public/lists/${encodeURIComponent(slug)}`)).json()
 }
-export async function createList(data: { name: string; description: string; visibility: string }): Promise<ListDetail> {
+export async function createList(data: { name: string; description: string; visibility: string; audience?: Audience }): Promise<ListDetail> {
   return (await req('/api/v2/lists', { method: 'POST', body: json(data) })).json()
 }
-export async function updateList(id: number, data: { name?: string; description?: string; visibility?: string }): Promise<ListDetail> {
+export async function updateList(id: number, data: { name?: string; description?: string; visibility?: string; audience?: Audience }): Promise<ListDetail> {
   return (await req(`/api/v2/lists/${id}`, { method: 'PATCH', body: json(data) })).json()
 }
 export async function deleteList(id: number): Promise<void> {
@@ -397,3 +398,14 @@ export async function getSyncState(): Promise<SyncState> { return (await req('/a
 export async function saveSyncTarget(sourceId: string, targetId: string): Promise<SyncState> { return (await req('/api/v2/sync', { method: 'PUT', body: json({ sourceId, targetId }) })).json() }
 export async function deleteSyncTarget(targetId: string): Promise<SyncState> { return (await req(`/api/v2/sync?target=${encodeURIComponent(targetId)}`, { method: 'DELETE' })).json() }
 export async function forgetEnvironment(id: string): Promise<SyncState> { return (await req(`/api/v2/environments?id=${encodeURIComponent(id)}`, { method: 'DELETE' })).json() }
+
+export type Audience = { groupId?: number; groupRole?: string; people: { email: string; role: string }[]; excluded: string[] }
+export type GroupMember = { id: number; name: string; email: string; role: string }
+export type Group = { id: number; name: string; kind: 'team' | 'organisation'; parentId?: number; ownerId: number; role: string; members?: GroupMember[] }
+export async function getGroups(): Promise<{ groups: Group[] }> { return (await req('/api/v2/groups')).json() }
+export async function createGroup(data: { name: string; kind: string; parentId?: number }): Promise<{ groups: Group[] }> { return (await req('/api/v2/groups', { method: 'POST', body: json(data) })).json() }
+export async function setGroupMember(id: number, email: string, role: string, remove = false): Promise<{ groups: Group[] }> { return (await req(`/api/v2/groups/${id}/members`, { method: 'POST', body: json({ email, role, remove }) })).json() }
+export async function getCommunity(): Promise<{ lists: SharedList[]; skills: ListSkill[] }> { return (await req('/api/community')).json() }
+export function audienceLabel(visibility: string): string { return ({ personal: 'Personal', private: 'Selected people', team: 'Team / organisation', public: 'Public community', members: 'Legacy instance audience', link: 'Unlisted link' } as Record<string, string>)[visibility] ?? visibility }
+
+export async function updateGroup(id: number, name: string, remove = false): Promise<{ groups: Group[] }> { return (await req(`/api/v2/groups/${id}`, { method: 'PATCH', body: json({ name, remove }) })).json() }

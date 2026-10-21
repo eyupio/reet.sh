@@ -178,6 +178,11 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	mux.HandleFunc("POST /api/v2/lists/{id}/transfer", s.transferList)
 	mux.HandleFunc("POST /api/v2/lists/{id}/add-to-shelf", s.requireWriter(s.addListToShelf))
 	mux.HandleFunc("GET /api/v2/public/lists/{slug}", s.publicList)
+	mux.HandleFunc("GET /api/community", s.community)
+	mux.HandleFunc("GET /api/v2/groups", s.groups)
+	mux.HandleFunc("POST /api/v2/groups", s.requireWriter(s.createGroup))
+	mux.HandleFunc("PATCH /api/v2/groups/{id}", s.requireWriter(s.updateGroup))
+	mux.HandleFunc("POST /api/v2/groups/{id}/members", s.requireWriter(s.groupMember))
 	mux.HandleFunc("PATCH /api/admin/settings", s.requireOwner(s.adminSettings))
 	mux.HandleFunc("GET /api/export", s.requireWriter(s.export))
 	mux.HandleFunc("POST /api/restore", s.requireWriter(s.restore))
@@ -255,7 +260,7 @@ func openAuthPath(path string) bool {
 	case "/api/version", "/api/v2/auth/status", "/api/v2/auth/setup", "/api/v2/auth/sign-in", "/api/v2/auth/sign-out", "/api/v2/auth/invite", "/api/v2/auth/join":
 		return true
 	}
-	return strings.HasPrefix(path, "/api/v2/public/lists/")
+	return path == "/api/community" || strings.HasPrefix(path, "/api/v2/public/lists/")
 }
 
 func bootstrapPath(path string) bool {

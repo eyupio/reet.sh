@@ -43,6 +43,7 @@
   onMount(() => {
     document.title = 'List · reet.sh'
     void load()
+    void loadShelf()
     return () => {
       document.title = 'reet.sh – your shelf for AI skills'
     }

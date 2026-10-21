@@ -5,6 +5,10 @@ export function groupLabel(env: Environment & { project?: string }): string {
   return `${names[env.agent] ?? env.agent}${env.project ? ` · ${env.project}` : ''}`
 }
 export function agentGroups(machine?: Machine): SyncEnvironment[] { return machine?.groups.filter(g => !g.agent.startsWith('reet')) ?? [] }
+// Heartbeats identify running servers; only agent inventories belong in shelf filters.
+export function inventoryMachines(machines: Machine[]): Machine[] {
+  return machines.filter(machine => agentGroups(machine).length > 0)
+}
 export function inventoryGroups(machine?: Machine, group = ''): SyncEnvironment[] { return agentGroups(machine).filter(g => !group || g.id === group) }
 export function inventory(groups: SyncEnvironment[]): SyncSkill[] {
   return [...new Map(groups.flatMap(g => g.skills ?? []).map(s => [s.id, s])).values()].sort((a, b) => a.name.localeCompare(b.name))

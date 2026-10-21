@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { groupLabel, installationReports } from './lib/machines'
+  import NavigationMenu from './lib/NavigationMenu.svelte'
+  import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
   import Community from './lib/Community.svelte'
   import SharedLists from './lib/SharedLists.svelte'
   import Spaces from './lib/Spaces.svelte'
@@ -69,7 +70,8 @@
   let selectedMachine = $state('')
   let machines = $state<import('./lib/api').Machine[]>([])
   let inventoryNow = $state(Date.now())
-  const machineReports = $derived(installationReports(machines, inventoryNow))
+  const shelfMachines = $derived(inventoryMachines(machines))
+  const machineReports = $derived(installationReports(shelfMachines, inventoryNow))
   let onlyOne = $state(false)
   let copying = $state(false)
   let removePending = $state<Skill | null>(null)
@@ -101,6 +103,20 @@
   const role = $derived(currentUser?.role ?? (authMode === 'accounts' ? 'viewer' : 'owner'))
   const canWrite = $derived(authMode !== 'accounts' || role !== 'viewer')
   const isAdminUser = $derived(authMode !== 'accounts' || role === 'owner' || role === 'admin')
+  const accountPages = [['profile', 'Profile'], ['security', 'Password'], ['sessions', 'Sessions'], ['machines', 'Machines'], ['sync', 'Compare & sync'], ['tokens', 'API tokens'], ['backups', 'Backups'], ['activity', 'Activity']]
+  const adminPages = [['overview', 'Overview'], ['environments', 'Environments'], ['users', 'Users'], ['team', 'Team usage'], ['backups', 'Backups'], ['settings', 'Settings'], ['activity', 'Activity']]
+  const mainNavigation = $derived([
+    { href: '/', label: 'Personal shelf', current: !isAdmin && !isAccount && !isList && !isCommunity && !isShared && !isSpaces },
+    { href: '/shared', label: 'Lists', current: isShared || isList },
+    { href: '/spaces', label: 'Teams', current: isSpaces },
+    { href: '/community', label: 'Community', current: isCommunity },
+    ...(authMode === 'accounts' ? [{ href: '/account/profile', label: 'Account', current: isAccount,
+      children: accountPages.filter(([key]) => key !== 'tokens' || canWrite).map(([key, label]) => ({ label, href: `/account/${key}`, current: isAccount && (location.pathname === `/account/${key}` || (key === 'profile' && location.pathname === '/account')) })),
+    }] : []),
+    ...(isAdminUser ? [{ href: '/admin/overview', label: 'Admin', current: isAdmin,
+      children: adminPages.filter(([key]) => authMode === 'accounts' || !['users', 'team'].includes(key)).map(([key, label]) => ({ label, href: `/admin/${key}`, current: isAdmin && (location.pathname === `/admin/${key}` || (key === 'overview' && location.pathname === '/admin')) })),
+    }] : []),
+  ])
   const scanCommand = $derived(`reet scan --prune --server ${origin}${authMode === 'none' ? '' : ' --token "$REET_TOKEN"'}`)
 
   const filtering = $derived(q.trim() !== '' || onlyLiked || selectedTags.length > 0 || selectedEnv !== '' || selectedMachine !== '' || onlyOne)
@@ -627,14 +643,7 @@
       <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
     </div>
     {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-      <nav class="site-nav" aria-label="Main navigation">
-        <a href="/" aria-current={!isAdmin && !isAccount && !isList && !isCommunity && !isShared && !isSpaces ? 'page' : undefined}>Personal shelf</a>
-        <a href="/shared" aria-current={isShared ? 'page' : undefined}>Lists</a>
-        <a href="/spaces" aria-current={isSpaces ? 'page' : undefined}>Teams</a>
-        <a href="/community" aria-current={isCommunity ? 'page' : undefined}>Community</a>
-        {#if authMode === 'accounts'}<a href="/account" aria-current={isAccount ? 'page' : undefined}>Account</a>{/if}
-        {#if isAdminUser}<a href="/admin" aria-current={isAdmin ? 'page' : undefined}>Admin</a>{/if}
-      </nav>
+      <NavigationMenu label="Main navigation" primary items={mainNavigation} />
     {:else if isPublicList || isCommunity || isJoin}
       <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a class="entry-link" href="/">Open your shelf →</a></nav>
     {/if}
@@ -677,7 +686,6 @@
     <Admin onerror={fail} {role} accounts={authMode === 'accounts'} currentEmail={currentUser?.email ?? ''} />
   {:else}
     <PageHeader eyebrow="Your personal library" title="Your shelf. Your toolkit." lede="The good finds, the next experiments, and the skills you use every day.">
-      {#snippet actions()}<span class="badge">{counts.all} {counts.all === 1 ? 'skill' : 'skills'} · on this instance</span>{/snippet}
     </PageHeader>
     {#if canWrite}
       <form class="add" onsubmit={add}>
@@ -725,6 +733,9 @@
       </div>
     {/if}
 
+    <details class="shelf-filters">
+      <summary>Filters & lists <span>{selectedTags.length + Number(!!selectedMachine) + Number(!!selectedEnv) + Number(onlyOne) ? `${selectedTags.length + Number(!!selectedMachine) + Number(!!selectedEnv) + Number(onlyOne)} active` : `${tagCounts.length} tags · ${shelfMachines.length} environments`}</span></summary>
+      <div class="filter-panel">
     {#if lists.length > 0 || canWrite}
       <div class="filterbar" role="group" aria-label="Shared lists">
         <span class="bar-label">Your lists</span>
@@ -755,10 +766,10 @@
       </div>
     {/if}
 
-    {#if environments.length > 0 || selectedEnv !== '' || selectedMachine !== '' || onlyOne}
+    {#if shelfMachines.length > 0 || selectedEnv !== '' || selectedMachine !== '' || onlyOne}
       <div class="filterbar" role="group" aria-label="Environments">
         <span class="bar-label">Environments</span>
-        {#each machines as machine (machine.host)}
+        {#each shelfMachines as machine (machine.host)}
           <button type="button" class="chip" aria-pressed={selectedMachine === machine.host}
             onclick={() => { selectedMachine = selectedMachine === machine.host ? '' : machine.host; selectedEnv = '' }}
             title={`${machine.groups.filter(g => !g.agent.startsWith('reet')).length} agent groups · ${machine.skillCount} unique skills`}>
@@ -784,6 +795,9 @@
       {/if}
     {/if}
 
+      </div>
+    </details>
+
     {#if !loading && (counts.all > 0 || filtering)}
       <div class="shelf-summary">
         <p class="count" role="status">{total === 1 ? '1 skill' : `${total} skills`}</p>
@@ -791,7 +805,7 @@
       </div>
     {/if}
 
-    {#if view === 'board' && counts.all > 0}<p class="board-help">From a good find to daily use. Move skills with the buttons on each card; this changes your shelf status, not what is installed.</p>{/if}
+
     <div id="sections" class:board={view === 'board' && !loading && counts.all > 0 && total > 0} class:single-stage={show !== 'all'}>
       {#if loading}
         <p class="empty" role="status">Loading…</p>
@@ -808,7 +822,7 @@
           <p class="lede">Capture it now, sort it later. Everything stays on this instance.</p>
           <p>Paste a skills.sh URL or <code>owner/repo/skill</code> into the box above. Your first find starts On the shelf; save it To test, then mark it In use when it earns its place.</p>
           <div class="start-options">
-            {#if authMode === 'accounts'}<a class="btn" href="/account#connect-machine">Scan this machine</a>{/if}
+            {#if authMode === 'accounts'}<a class="btn" href="/account/machines#connect-machine">Scan this machine</a>{/if}
             <a class="btn" href="/community">Explore community</a>
             <a href="https://www.skills.sh/topic" target="_blank" rel="noopener noreferrer">Browse skills.sh<span class="vh"> (opens in a new tab)</span></a>
           </div>
@@ -824,7 +838,7 @@
         </div>
       {:else}
         {#each visible as g (g.id)}
-          <section class={g.id} aria-labelledby="h-{g.id}">
+          <section class={g.id} class:empty-stage={g.items.length === 0} aria-labelledby="h-{g.id}">
             <h2 id="h-{g.id}">{g.title}<small>{g.items.length}</small></h2>
             <p class="hint">{g.hint}</p>
             <ul>
@@ -926,7 +940,6 @@
   .site-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
   .site-nav a, .entry-link { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--muted); font-size: 0.8rem; font-weight: 600; text-decoration: none; border-radius: 8px; }
   .site-nav a:hover, .entry-link:hover { color: var(--ink); background: var(--card); }
-  .site-nav a[aria-current='page'] { color: var(--ink); background: var(--tint); }
   .home { display: inline-block; color: inherit; text-decoration: none; }
   .tag { color: var(--muted); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em; }
 
@@ -1007,7 +1020,7 @@
   .shelf-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
   .shelf-summary .count { margin: 0; }
   #sections { scroll-margin-top: 140px; }
-  .board-help { margin: 16px 0 0; font-size: 0.85rem; color: var(--muted); max-width: 76ch; }
+
   #sections.board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; margin-top: 22px; }
   #sections.board.single-stage { grid-template-columns: minmax(0, 1fr); max-width: 620px; }
   .board > section { margin: 0; min-width: 0; padding: 14px; background: color-mix(in srgb, var(--card) 42%, var(--bg)); border: 1px solid var(--line); border-radius: var(--radius); }
@@ -1067,12 +1080,41 @@
     .tag { margin-left: auto; max-width: 18ch; text-align: right; }
     .site-nav { width: 100%; }
     .site-nav a { flex: 1; justify-content: center; border: 1px solid var(--line); }
-    .add { flex-direction: column; }
+    .add input { min-width: 0; width: 0; }
+    .add .btn { flex: none; padding-left: 12px; padding-right: 12px; font-size: 0.82rem; }
     .controls { width: 100%; flex-wrap: wrap; }
     .controls input { flex: 1; width: auto; }
     .sep { display: none; }
     .start { margin-top: 24px; padding: 20px; border-radius: 14px; }
   }
-  @media (max-width: 900px) { #sections.board { grid-template-columns: minmax(0, 1fr); } }
+  .shelf-filters { border-bottom: 1px solid var(--line); }
+  .shelf-filters > summary { display: flex; align-items: center; gap: 12px; padding: 12px 2px; min-height: 44px; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
+  .shelf-filters > summary::before { content: '+'; color: var(--accent); font-size: 1.1rem; width: 12px; }
+  .shelf-filters[open] > summary::before { content: '−'; }
+  .shelf-filters > summary span { margin-left: auto; color: var(--muted); font-size: 0.75rem; font-weight: 400; }
+  .filter-panel { display: grid; gap: 8px; padding: 4px 0 16px; }
+  @media (max-width: 1000px) {
+    main { padding: 24px 24px 40px; }
+    .header-inner { display: flex; gap: 16px; padding: 16px 24px; }
+    .site-nav { flex-wrap: nowrap; width: 100%; min-width: 0; overflow-x: auto; padding-bottom: 8px; }
+    .site-nav a { flex: none; justify-content: center; white-space: nowrap; border: 0; }
+    .toolbar { position: static; padding: 10px 0; gap: 8px; }
+    .filters { flex-wrap: nowrap; overflow-x: auto; width: 100%; min-width: 0; }
+    .filters button { flex: none; white-space: nowrap; }
+    .controls { display: flex; width: 100%; flex-wrap: nowrap; min-width: 0; }
+    .controls input { flex: 1; width: 0; min-width: 50px; }
+    .view-switch { flex: none; }
+    .add { margin-top: 16px; }
+  }
+  @media (max-width: 900px) {
+    #sections.board { grid-template-columns: minmax(0, 1fr); margin-top: 14px; }
+    .board > section.empty-stage { display: none; }
+  }
+  @media (max-width: 560px) {
+    main { padding: 20px 16px 36px; }
+    .header-inner { padding-left: 16px; padding-right: 16px; }
+    .controls { gap: 6px; }
+    .controls select { padding-left: 8px; padding-right: 26px; }
+  }
   @media (pointer: coarse) { .filters button, .view-switch button { min-height: 44px; } }
 </style>

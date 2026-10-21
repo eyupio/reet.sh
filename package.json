@@ -1,0 +1,18 @@
+{
+  "name": "skillshelf",
+  "version": "1.0.0",
+  "description": "Self-hosted likes, bookmarks and 'in use' tracking for skills listed on skills.sh",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "scan": "node scripts/scan-installed.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.5.0",
+    "express": "^4.21.0"
+  }
+}

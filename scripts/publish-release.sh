@@ -2,7 +2,7 @@
 set -euo pipefail
 
 : "${REET_TAG:?REET_TAG is required}"
-[[ "$REET_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] || { echo 'Expected a version tag such as v1.2.3' >&2; exit 1; }
+[[ "$REET_TAG" = dev || "$REET_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] || { echo 'Expected a version tag such as v1.2.3' >&2; exit 1; }
 cd "${1:-artifacts}"
 files=()
 for os in darwin linux; do
@@ -14,6 +14,26 @@ for os in darwin linux; do
 done
 sha256sum "${files[@]}" > checksums.txt
 files+=(checksums.txt)
+
+# Only the explicitly rolling dev channel may replace published assets.
+if [ "$REET_TAG" = dev ]; then
+  : "${REET_SHA:?REET_SHA is required for dev releases}"
+  [[ "$REET_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'Expected a full source commit' >&2; exit 1; }
+  repo=${GITHUB_REPOSITORY:-eyupio/reet.sh}
+  if gh api "repos/$repo/git/ref/tags/dev" >/dev/null 2>&1; then
+    gh api --method PATCH "repos/$repo/git/refs/tags/dev" -f sha="$REET_SHA" -F force=true >/dev/null
+  else
+    gh api --method POST "repos/$repo/git/refs" -f ref=refs/tags/dev -f sha="$REET_SHA" >/dev/null
+  fi
+  notes="Rolling development build from main at $REET_SHA. This prerelease is replaced after each merge; use a stable version for production."
+  if gh release view dev >/dev/null 2>&1; then
+    gh release upload dev "${files[@]}" --clobber
+    gh release edit dev --prerelease --latest=false --title 'Development (main)' --notes "$notes"
+  else
+    gh release create dev "${files[@]}" --verify-tag --prerelease --latest=false --title 'Development (main)' --notes "$notes"
+  fi
+  exit 0
+fi
 
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT

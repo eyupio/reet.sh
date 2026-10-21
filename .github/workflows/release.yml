@@ -3,10 +3,11 @@ name: binary release
 on:
   push:
     tags: ['v*']
+    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing version tag to build and publish (for example v1.0.0)'
+        description: 'Existing version tag or dev (latest main) to build and publish'
         required: true
         type: string
   pull_request:
@@ -27,16 +28,39 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || inputs.tag || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || inputs.tag || (github.ref == 'refs/heads/main' && 'dev') || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
+  source:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      tag: ${{ steps.source.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag == 'dev' && 'refs/heads/main' || inputs.tag && format('refs/tags/{0}', inputs.tag) || github.sha }}
+      - id: source
+        env:
+          REET_REF: ${{ inputs.tag || (github.ref == 'refs/heads/main' && 'dev') || github.ref_name }}
+          REET_REF_TYPE: ${{ inputs.tag && 'tag' || github.ref_type }}
+        run: |
+          version=dev
+          if [ "$REET_REF_TYPE" = tag ]; then
+            [[ "$REET_REF" = dev || "$REET_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] || { echo 'Expected dev or a version tag such as v1.2.3' >&2; exit 1; }
+            version=$REET_REF
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "tag=$version" >> "$GITHUB_OUTPUT"
+
   web:
+    needs: source
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          ref: ${{ needs.source.outputs.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -51,12 +75,12 @@ jobs:
           include-hidden-files: true
 
   verify:
-    needs: web
+    needs: [source, web]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          ref: ${{ needs.source.outputs.sha }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -68,7 +92,7 @@ jobs:
       - run: go vet ./... && go test -race ./...
 
   build:
-    needs: [web, verify]
+    needs: [source, web, verify]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -78,7 +102,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          ref: ${{ needs.source.outputs.sha }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -92,14 +116,9 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: '0'
-          REET_REF: ${{ inputs.tag || github.ref_name }}
-          REET_REF_TYPE: ${{ inputs.tag && 'tag' || github.ref_type }}
+          REET_REF: ${{ needs.source.outputs.tag }}
         run: |
-          version=dev
-          if [ "$REET_REF_TYPE" = tag ]; then
-            [[ "$REET_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] || { echo 'Expected a version tag such as v1.2.3' >&2; exit 1; }
-            version=$REET_REF
-          fi
+          version=$REET_REF
           REET_SHA=$(git rev-parse HEAD)
           mkdir -p staging artifacts
           go build -trimpath -ldflags="-s -w -X main.version=$version -X main.commit=$REET_SHA" -o staging/reet ./cmd/reet
@@ -113,8 +132,8 @@ jobs:
           path: artifacts/*
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-    needs: build
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    needs: [source, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -128,5 +147,6 @@ jobs:
       - name: Publish checksummed binaries
         env:
           GH_TOKEN: ${{ github.token }}
-          REET_TAG: ${{ inputs.tag || github.ref_name }}
+          REET_TAG: ${{ needs.source.outputs.tag }}
+          REET_SHA: ${{ needs.source.outputs.sha }}
         run: bash scripts/publish-release.sh artifacts

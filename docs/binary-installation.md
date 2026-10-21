@@ -58,13 +58,23 @@ Each GitHub release contains:
 
 Here `VERSION` includes the release tag's `v` prefix. Each archive contains `reet`, `LICENSE`, and `README.md`. Compare the archive's SHA-256 digest with `checksums.txt`, extract it, then put `reet` on your PATH.
 
+## Rolling development builds
+
+Each merge/push to main publishes a prerelease named `dev`, with four checksummed binaries, and a Docker `:dev` tag. To install it:
+
+```sh
+sh scripts/install.sh --version dev
+```
+
+The `dev` tag and assets move to the tested main commit on each successful build. It is explicitly excluded from GitHub's latest stable release. Only this rolling channel may replace assets; stable `v*` releases retain their existing verification and no-overwrite rules. During a dev update, a checksum mismatch means retry after publication finishes; the installer keeps the old binary on any verification failure. Every build job uses one resolved source commit, including manual `dev` runs.
+
 ## Publishing a binary release
 
 The `binary release` workflow tests and cross-compiles all four targets on pull requests. On a version tag such as `v1.2.3`, it also publishes the archives and checksums to GitHub Releases. Tags containing a prerelease suffix are marked as prereleases; the installer's default `latest` follows GitHub's latest stable release.
 
 The workflow builds the Svelte app once and embeds that output into every binary. It includes the version tag and source commit in `reet --version`. If a release already exists, it uploads missing binary assets and checksums after verifying that any matching published files are identical.
 
-It never overwrites published assets; use a new version tag when files differ. To recover an existing empty release, open **Actions → binary release → Run workflow**, select the default branch, and enter the existing tag (for example `v1.0.0`). This builds and tests that tag, then fills its release assets without changing its notes. Re-running an older failed job still uses its original workflow; use the manual run for this recovery.
+Stable publishing never overwrites published assets; use a new version tag when files differ. To recover an existing empty release, open **Actions → binary release → Run workflow**, select the default branch, and enter the existing tag (for example `v1.0.0`). This builds and tests that tag, then fills its release assets without changing its notes. Re-running an older failed job still uses its original workflow; use the manual run for this recovery.
 
 Archive metadata uses the source commit timestamp so repeated builds do not differ only because of packaging time. Docker images continue through the existing image workflow. Newer runs cancel older runs of the same workflow for the same branch, pull request, or release tag; package cleanup also cancels its older active run.
 

@@ -98,8 +98,7 @@
 
   const rollupSkillByID = $derived(new Map((rollup?.skills ?? []).map((skill) => [skill.id, skill] as const)))
   const unlistedSkills = $derived((rollup?.drift.unlisted ?? []).map((id) => rollupSkillByID.get(id)).filter((skill): skill is RollupSkill => Boolean(skill)))
-  const majorityCount = $derived((rollup?.skills ?? []).filter((skill) => (rollup?.members.length ?? 0) > 0 && skill.usedBy * 2 > (rollup?.members.length ?? 0)).length)
-  const nothingInstalledCount = $derived((rollup?.members ?? []).filter((member) => member.installed === 0).length)
+  const majorityCount = $derived((rollup?.skills ?? []).filter((skill) => (rollup?.teamSize ?? 0) > 0 && skill.usedBy * 2 > (rollup?.teamSize ?? 0)).length)
 
   function usedMembers(skill: RollupSkill) {
     return (skill.members ?? []).filter((member) => member.used)
@@ -125,10 +124,9 @@
         skill.source,
         (skill.lists ?? []).map((list) => list.name).join('; '),
         skill.usedBy,
-        data.members.length,
+        data.teamSize,
         skill.onShelf,
         skill.environmentLinks,
-        data.members.length,
         usedMembers(skill).map((member) => member.name).join('; '),
         envs,
       ]
@@ -446,7 +444,7 @@
           <p class="muted">Loading rollup…</p>
         {:else if rollup}
           <div class="rollup-summary">
-            <span><strong>{rollup.members.length}</strong> people</span>
+            <span><strong>{rollup.teamSize}</strong> people</span>
             <span><strong>{rollup.skills.length}</strong> skills</span>
             <span><strong>{majorityCount}</strong> used by more than half</span>
             <span><strong>{unlistedSkills.length}</strong> in use, on no list</span>
@@ -498,8 +496,8 @@
                       </td>
                       <td class="num">
                         <div class="adoption">
-                          <span>{skill.usedBy} / {rollup.members.length}</span>
-                          <span class="bar" aria-hidden="true"><i style={`width:${rollup.members.length ? Math.round((skill.usedBy / rollup.members.length) * 100) : 0}%`}></i></span>
+                          <span>{skill.usedBy} / {rollup.teamSize}</span>
+                          <span class="bar" aria-hidden="true"><i style={`width:${rollup.teamSize ? Math.round((skill.usedBy / rollup.teamSize) * 100) : 0}%`}></i></span>
                         </div>
                       </td>
                       <td class="num">{skill.onShelf}</td>
@@ -529,7 +527,7 @@
               {:else}
                 <ul>
                   {#each unlistedSkills as skill (skill.id)}
-                    <li><strong>{skill.name}</strong><small>{skill.usedBy} of {rollup.members.length} use it</small>{#if rollup.individual && usedMembers(skill).length}<span>{usedMembers(skill).map((member) => member.name).join(', ')}</span>{/if}</li>
+                    <li><strong>{skill.name}</strong><small>{skill.usedBy} of {rollup.teamSize} use it</small>{#if rollup.individual && usedMembers(skill).length}<span>{usedMembers(skill).map((member) => member.name).join(', ')}</span>{/if}</li>
                   {/each}
                 </ul>
               {/if}
@@ -549,7 +547,7 @@
           </div>
 
           <div class="people-summary">
-            <h4>People <small>{rollup.members.length}</small></h4>
+            <h4>People <small>{rollup.teamSize}</small></h4>
             {#if rollup.individual}
               <div class="peoplegrid">
                 {#each rollup.members as member (member.id)}
@@ -561,7 +559,7 @@
                 {/each}
               </div>
             {:else}
-              <p class="muted">{rollup.members.length} active people; {nothingInstalledCount === 1 ? '1 has' : `${nothingInstalledCount} have`} nothing installed.</p>
+              <p class="muted">{rollup.teamSize} active people; {rollup.nothingInstalled === 1 ? '1 has' : `${rollup.nothingInstalled} have`} nothing installed.</p>
             {/if}
           </div>
         {:else}

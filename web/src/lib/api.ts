@@ -68,6 +68,8 @@ export type RollupUnused = { listId: number; listName: string; skillId: string; 
 export type Rollup = {
   generatedAt: number
   individual: boolean
+  teamSize: number
+  nothingInstalled: number
   members: RollupMember[]
   lists: ListRef[]
   skills: RollupSkill[]

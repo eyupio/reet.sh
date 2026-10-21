@@ -54,12 +54,14 @@ type RollupDrift struct {
 
 // Rollup is the team view: adoption by skill, member totals and list drift.
 type Rollup struct {
-	GeneratedAt int64          `json:"generatedAt"`
-	Individual  bool           `json:"individual"`
-	Members     []RollupMember `json:"members"`
-	Lists       []ListRef      `json:"lists"`
-	Skills      []RollupSkill  `json:"skills"`
-	Drift       RollupDrift    `json:"drift"`
+	GeneratedAt      int64          `json:"generatedAt"`
+	Individual       bool           `json:"individual"`
+	TeamSize         int            `json:"teamSize"`
+	NothingInstalled int            `json:"nothingInstalled"`
+	Members          []RollupMember `json:"members"`
+	Lists            []ListRef      `json:"lists"`
+	Skills           []RollupSkill  `json:"skills"`
+	Drift            RollupDrift    `json:"drift"`
 }
 
 // RollupFor builds the team rollup. includeIndividual leaves member names and
@@ -289,9 +291,17 @@ func (s *Store) RollupFor(includeIndividual bool) (Rollup, error) {
 	}
 	skillRows.Close()
 
+	out.TeamSize = len(out.Members)
 	for i := range out.Members {
 		out.Members[i].Used = len(memberUsed[i])
 		out.Members[i].Installed = len(memberInstalled[i])
+		if out.Members[i].Installed == 0 {
+			out.NothingInstalled++
+		}
+	}
+	// Counts-only mode must not leave identifiable totals in the response.
+	if !includeIndividual {
+		out.Members = []RollupMember{}
 	}
 	return out, nil
 }

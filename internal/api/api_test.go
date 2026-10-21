@@ -1010,7 +1010,7 @@ func TestAdminRollupAndPrivacy(t *testing.T) {
 	if code != 200 || json.Unmarshal([]byte(body), &rollup) != nil {
 		t.Fatalf("rollup: %d %s", code, body)
 	}
-	if !rollup.Individual || len(rollup.Members) != 3 || len(rollup.Skills) != 3 {
+	if !rollup.Individual || rollup.TeamSize != 3 || rollup.NothingInstalled != 1 || len(rollup.Members) != 3 || len(rollup.Skills) != 3 {
 		t.Fatalf("rollup shape: %+v", rollup)
 	}
 	byID := map[string]store.RollupSkill{}
@@ -1045,9 +1045,15 @@ func TestAdminRollupAndPrivacy(t *testing.T) {
 	if code != 200 || json.Unmarshal([]byte(body), &rollup) != nil || rollup.Individual {
 		t.Fatalf("private rollup: %d %s", code, body)
 	}
+	if rollup.TeamSize != 3 || rollup.NothingInstalled != 1 || len(rollup.Members) != 0 {
+		t.Fatalf("private totals: %+v", rollup)
+	}
 	for _, sk := range rollup.Skills {
 		if len(sk.Members) != 0 {
 			t.Fatalf("individual rows leaked: %+v", sk)
 		}
+	}
+	if strings.Contains(body, "member@example.com") || strings.Contains(body, "viewer@example.com") {
+		t.Fatalf("private rollup leaked people: %s", body)
 	}
 }

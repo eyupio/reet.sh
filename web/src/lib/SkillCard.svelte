@@ -41,6 +41,8 @@
   let tagging = $state(false)
   let tagDraft = $state('')
   let tagBusy = $state(false)
+  let tagStatus = $state('')
+  let tagError = $state('')
   let tagInput = $state<HTMLInputElement>()
   let historyOpen = $state(false)
   let historyLoading = $state(false)
@@ -48,6 +50,9 @@
 
   const isSelected = $derived(selectedIDs.includes(skill.id))
   const tags = $derived(skill.tags ?? [])
+  const tagName = $derived(tagDraft.trim())
+  const tagExists = $derived(tags.some((tag) => tag.name.toLowerCase() === tagName.toLowerCase()))
+  const availableTags = $derived(tagOptions.filter((name) => !tags.some((tag) => tag.name.toLowerCase() === name.toLowerCase())))
   const environments = $derived(skill.environments ?? [])
   const lists = $derived(skill.lists ?? [])
   const trend = $derived(skill.trend ?? [])
@@ -77,19 +82,34 @@
     tagging = !tagging
   }
 
+  async function updateTags(add: string[], remove: number[], success: string) {
+    if (tagBusy) return
+    tagBusy = true
+    tagError = ''
+    tagStatus = ''
+    try {
+      if (await ontags(skill, add, remove)) {
+        if (add.length) tagDraft = ''
+        tagStatus = success
+      } else {
+        tagError = 'Could not save tags. Try again.'
+      }
+    } catch {
+      tagError = 'Could not save tags. Try again.'
+    } finally {
+      tagBusy = false
+      tagInput?.focus()
+    }
+  }
+
   async function addTag(e: SubmitEvent) {
     e.preventDefault()
-    const name = tagDraft.trim()
-    if (!name) return
-    tagBusy = true
-    if (await ontags(skill, [name], [])) tagDraft = ''
-    tagBusy = false
+    if (!tagName || tagExists || tagBusy) return
+    await updateTags([tagName], [], `Added ${tagName}.`)
   }
 
   async function removeTag(tag: Tag) {
-    tagBusy = true
-    await ontags(skill, [], [tag.id])
-    tagBusy = false
+    await updateTags([], [tag.id], `Removed ${tag.name} from this skill.`)
   }
 
   async function toggleHistory() {
@@ -186,37 +206,42 @@
   {/if}
 
   {#if canWrite || tags.length}
-    <div class="tagrow">
+    <div class="tagrow" aria-label="Tags for {skill.name}">
       {#each tags as tag (tag.id)}
-        <button type="button" class="tag" onclick={() => onfiltertag(tag)} title="Filter by {tag.name}">{tag.name}</button>
+        {#if tagging && canWrite}
+          <button type="button" class="tag remove" onclick={() => removeTag(tag)} disabled={tagBusy}
+            aria-label="Remove tag {tag.name} from {skill.name}" title="Remove from this skill">
+            {tag.name}<span aria-hidden="true">×</span>
+          </button>
+        {:else}
+          <button type="button" class="tag" onclick={() => onfiltertag(tag)} title="Filter by {tag.name}">{tag.name}</button>
+        {/if}
       {/each}
-      {#if canWrite}<button type="button" class="tag add" aria-expanded={tagging} onclick={toggleTagging}>+ Tag</button>{/if}
+      {#if canWrite}
+        <button type="button" class="tag add" aria-expanded={tagging} aria-controls="tag-editor-{skill.id}"
+          onclick={toggleTagging} disabled={tagBusy}>{tagging ? 'Done' : tags.length ? 'Edit tags' : '+ Add tags'}</button>
+      {/if}
     </div>
   {/if}
+
   {#if canWrite && tagging}
-    <div class="tag-edit">
-      {#if tags.length}
-        <div class="tag-current">
-          {#each tags as tag (tag.id)}
-            <button
-              type="button" class="tag remove" onclick={() => removeTag(tag)} disabled={tagBusy}
-              aria-label="Remove tag {tag.name} from {skill.name}"
-            >
-              {tag.name}<span aria-hidden="true">×</span>
-            </button>
-          {/each}
-        </div>
-      {/if}
+    <div class="tag-edit" id="tag-editor-{skill.id}" aria-busy={tagBusy}>
+      <p class="tag-help" id="tag-help-{skill.id}">Tags save automatically. Use × to remove a tag from this skill; topic sync will not add it back.</p>
+      {#if tags.length === 0}<p class="tag-help">No tags on this skill yet.</p>{/if}
       <form onsubmit={addTag}>
         <label class="vh" for="tag-{skill.id}">Add a tag to {skill.name}</label>
-        <input id="tag-{skill.id}" bind:this={tagInput} list="tag-options-{skill.id}" bind:value={tagDraft} placeholder="Add or create a tag" autocomplete="off" />
+        <input id="tag-{skill.id}" bind:this={tagInput} list="tag-options-{skill.id}" bind:value={tagDraft}
+          placeholder="Choose or create a tag" autocomplete="off" disabled={tagBusy} aria-describedby="tag-help-{skill.id}" />
         <datalist id="tag-options-{skill.id}">
-          {#each tagOptions as name}<option value={name}></option>{/each}
+          {#each availableTags as name}<option value={name}></option>{/each}
         </datalist>
-        <button type="submit" class="btn primary" disabled={tagBusy || !tagDraft.trim()}>Add</button>
+        <button type="submit" class="btn primary" disabled={tagBusy || !tagName || tagExists}>{tagBusy ? 'Saving…' : 'Add tag'}</button>
       </form>
+      {#if tagExists}<p class="tag-help">This skill already has that tag.</p>{/if}
+      {#if tagError}<p class="tag-error" role="alert">{tagError}</p>{/if}
     </div>
   {/if}
+  {#if canWrite}<p class="tag-status vh" role="status">{tagStatus}</p>{/if}
   {#if environments.length}
     <div class="envrow">
       {#each environments as env (env.id)}
@@ -379,8 +404,10 @@
   .tag.add { border-style: dashed; border-color: var(--accent); color: var(--accent); }
   .tag.add[aria-expanded='true'] { background: var(--tint); color: var(--ink); }
   .tag.remove span { color: var(--bad); font-weight: 700; }
-  .tag-edit { margin-top: 8px; display: grid; gap: 8px; }
-  .tag-current { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag-edit { margin-top: 8px; padding: 12px; display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  .tag-help, .tag-error { margin: 0; font-size: 0.8rem; color: var(--muted); }
+  .tag-error { color: var(--bad); }
+  .tag:disabled { opacity: 0.55; cursor: wait; }
   .tag-edit form { display: flex; gap: 8px; }
   .tag-edit input { flex: 1; min-width: 0; }
   .envrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }

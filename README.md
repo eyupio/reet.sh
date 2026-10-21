@@ -12,7 +12,7 @@ sh scripts/init-env.sh          # creates .env, generates REET_TOKEN, sets your 
 docker compose up -d
 ```
 
-Open http://localhost:8080 and sign in with the token from `.env` (`grep REET_TOKEN .env`).
+Open http://localhost:8080. On a new instance, create the owner account; if `REET_TOKEN` is set, the setup page asks for it as the bootstrap token (`grep REET_TOKEN .env`). Later visits sign in with email and password.
 
 The compose file uses the prebuilt image `ghcr.io/eyupio/reet.sh` (no local build). The database lives in a host folder, `./data` by default, bind-mounted at `/data`, so you can back it up or move it like any other folder. The container runs as `REET_UID:REET_GID` (your user, set by the script), so that folder stays owned by you.
 
@@ -20,13 +20,22 @@ The compose file uses the prebuilt image `ghcr.io/eyupio/reet.sh` (no local buil
 
 `docker compose` reads `.env` automatically. `.env.example` lists every setting with comments.
 
+### Accounts
+
+The default `REET_AUTH=accounts` creates one owner through the setup page on first visit, then signs people in with email and password. Sessions are HttpOnly, SameSite=Lax cookies; passwords are stored with argon2id; sign-in is rate-limited. If `REET_TOKEN` is set it is required once on the setup page and keeps working for `reet scan` until personal tokens arrive.
+
+- **Solo or trusted LAN:** `REET_AUTH=none` removes sign-in and maps everything to an implicit owner. Use it only on a network you trust.
+- **Legacy single token:** `REET_AUTH=token` keeps the single `REET_TOKEN` login card and requires it for the UI, API and bookmarklets.
+- **Upgrading:** an existing shelf is kept; the first visit asks for the owner account. Nothing is moved or deleted.
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `REET_DATA_PATH` | `./data` | Host folder for the database. Must exist and be writable by `REET_UID:REET_GID`. |
 | `REET_UID`, `REET_GID` | `1000` | User the container runs as. `init-env.sh` sets these to `id -u` / `id -g`. |
 | `REET_PORT` | `8080` | Host port for the UI. |
 | `REET_VERSION` | `latest` | Image tag (`latest`, `v1.0.0`, `sha-<short>`). |
-| `REET_TOKEN` | empty | Access token for the UI, API and bookmarklets. Empty means no auth; only do that on a network you fully trust. |
+| `REET_AUTH` | `accounts` | `accounts` (owner setup and sessions), `token` (the single `REET_TOKEN`) or `none` (trusted LAN, no sign-in). |
+| `REET_TOKEN` | empty | Accounts mode: setup bootstrap and scanner token. Token mode: the only credential. Empty means no token. |
 | `SKILLS_SH_TOKEN` | empty | Optional skills.sh API token (needs a Vercel OIDC token, so it can't be generated). Without it, reet reads the public skills.sh pages. |
 | `REET_LOG` | empty | Set to `debug` for one line per metadata fetch; writes are always logged without tokens. |
 | `REET_TOPICS` | empty | Set to `off` to stop the daily skills.sh topic seed (nine read-only page fetches a day). |
@@ -60,7 +69,7 @@ If the container exits with "unable to open database file", the data folder isn'
 ## Adding skills
 
 - **Paste a link.** Paste a skills.sh URL or `owner/repo/skill` into the box at the top.
-- **Bookmarklets.** Open "Show bookmarklets and tools" in the UI and drag the Like, Save and In use links to your bookmarks bar. On any skills.sh skill page, click one to send that skill to reet.sh. If you set `REET_TOKEN`, the links contain it, so keep them private.
+- **Bookmarklets.** Open "Show bookmarklets and tools" in the UI and drag the Like, Save and In use links to your bookmarks bar. On any skills.sh skill page, click one to send that skill to reet.sh. In accounts mode the links use your session cookie and carry no secret; in token mode they contain `REET_TOKEN`, so keep them private.
 - **Tags.** The daily skills.sh topic seed adds tags like Design & UI or Testing to matching skills. Add your own from a card, then filter the shelf by one or more tags. Rename or merge tags under Show bookmarklets and tools → Manage tags.
 - **Import what you have installed.** Run the scanner on the machine that has your skills:
 
@@ -70,7 +79,7 @@ If the container exits with "unable to open database file", the data folder isn'
 
   It reads the skills folders for your tools (`~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills`, `~/.codex/skills`, `~/.config/opencode/skills`, plus `.claude/skills` and `.agents/skills` in the current directory) and the skills CLI lock file at `~/.agents/.skill-lock.json` if present, then marks each skill as "in use". Existing likes, saves and notes are kept.
 
-  `--env NAME` names this machine (the hostname is the default) and turns each folder into an environment on the card, such as `sam-mbp · Claude Code`. `--prune` removes the environment link for skills that are no longer in a scanned folder; the skill and its notes stay. Add `--dir PATH` for other folders and `--dry-run` to preview. The scanner needs to see your skills folders, so run it on the machine that has them, not inside the container. Build it with `go install github.com/eyupio/reet.sh/cmd/reet@latest` (the scanner does not need the web UI).
+  In accounts mode, `--token` is the bootstrap `REET_TOKEN`; personal API tokens arrive with the account work. `--env NAME` names this machine (the hostname is the default) and turns each folder into an environment on the card, such as `sam-mbp · Claude Code`. `--prune` removes the environment link for skills that are no longer in a scanned folder; the skill and its notes stay. Add `--dir PATH` for other folders and `--dry-run` to preview. The scanner needs to see your skills folders, so run it on the machine that has them, not inside the container. Build it with `go install github.com/eyupio/reet.sh/cmd/reet@latest` (the scanner does not need the web UI).
 
   Skills found only by folder name show as "unlinked". Use **Link** on the card to attach the skills.sh URL.
 
@@ -84,7 +93,7 @@ Use **Download JSON** and **Restore from JSON** in the UI, or call `GET /api/exp
 
 - **Select** in the toolbar turns cards into checkboxes. Shift-click selects a range; the floating bar can tag, move, like or remove the selection, and a bulk remove gets the same Undo toast as a single remove.
 - Metadata for the 50 oldest skills is refreshed every six hours (two seconds apart) and the card shows the weekly install sparkline and change. **Refresh** on a card checks immediately and says when nothing changed.
-- **Admin** in the footer opens `/admin`: version, database size, skills.sh reachability, topic seed status, counts, environments, the refresh/topic switches, instance name and recent activity. The admin surface is available to anyone with the instance token until accounts arrive.
+- **Admin** in the footer opens `/admin`: version, database size, skills.sh reachability, topic seed status, counts, environments, the refresh/topic switches, instance name and recent activity. The admin surface is available to any signed-in account until per-role access arrives.
 
 ## Development
 

@@ -86,6 +86,12 @@ export function eventLabel(e: Event): string {
       return `Updated ${d.count ?? 0} skills`
     case 'settings':
       return 'Changed instance settings'
+    case 'setup':
+      return 'Created the owner account'
+    case 'sign-in':
+      return `${d.name || 'Someone'} signed in`
+    case 'sign-out':
+      return `${d.name || 'Someone'} signed out`
   }
   return `${e.action.replace(/-/g, ' ')} ${name}`.trim()
 }

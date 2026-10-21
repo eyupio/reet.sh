@@ -12,12 +12,14 @@ import (
 	"html"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -32,8 +34,27 @@ type server struct {
 	debug      bool
 	topics     bool
 	refreshJob bool
+	authMode   AuthMode
+	limiter    *auth.Limiter
+	dummyHash  string
 	queue      chan ref.Ref
 }
+
+// AuthMode selects how the instance authenticates requests.
+type AuthMode string
+
+const (
+	AuthToken    AuthMode = "token"
+	AuthAccounts AuthMode = "accounts"
+	AuthNone     AuthMode = "none"
+)
+
+const (
+	sessionCookie = "reet_session"
+	sessionTTL    = 30 * 24 * time.Hour
+)
+
+type userContextKey struct{}
 
 // Option configures the server.
 type Option func(*server)
@@ -65,9 +86,19 @@ func WithRefresh(enabled bool) Option {
 	return func(s *server) { s.refreshJob = enabled }
 }
 
+// WithAuthMode selects token, accounts or no authentication.
+func WithAuthMode(mode AuthMode) Option {
+	return func(s *server) { s.authMode = mode }
+}
+
 // New returns the API handler. An empty token disables authentication.
 func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Handler {
-	s := &server{st: st, f: f, token: token, version: "dev", commit: "unknown", queue: make(chan ref.Ref, 256)}
+	dummy, _ := auth.HashPassword("not-a-real-password")
+	s := &server{
+		st: st, f: f, token: token, version: "dev", commit: "unknown",
+		authMode: AuthToken, limiter: auth.NewLimiter(5, time.Minute), dummyHash: dummy,
+		queue: make(chan ref.Ref, 256),
+	}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -101,6 +132,11 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	mux.HandleFunc("GET /api/events", s.events)
 	mux.HandleFunc("GET /api/ignored", s.ignored)
 	mux.HandleFunc("GET /api/admin/status", s.adminStatus)
+	mux.HandleFunc("GET /api/v2/auth/status", s.authStatus)
+	mux.HandleFunc("POST /api/v2/auth/setup", s.setup)
+	mux.HandleFunc("POST /api/v2/auth/sign-in", s.signIn)
+	mux.HandleFunc("POST /api/v2/auth/sign-out", s.signOut)
+	mux.HandleFunc("GET /api/v2/auth/me", s.me)
 	mux.HandleFunc("PATCH /api/admin/settings", s.adminSettings)
 	mux.HandleFunc("GET /api/export", s.export)
 	mux.HandleFunc("POST /api/restore", s.restore)
@@ -169,6 +205,54 @@ func (s *server) buildInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"version": s.version, "commit": s.commit})
 }
 
+func guardedPath(path string) bool {
+	return strings.HasPrefix(path, "/api/") || path == "/quick"
+}
+
+func openAuthPath(path string) bool {
+	switch path {
+	case "/api/version", "/api/v2/auth/status", "/api/v2/auth/setup", "/api/v2/auth/sign-in", "/api/v2/auth/sign-out":
+		return true
+	}
+	return false
+}
+
+func bootstrapPath(path string) bool {
+	return path == "/api/import"
+}
+
+func requestToken(r *http.Request) string {
+	got := r.Header.Get("X-Reet-Token")
+	if b, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
+		got = b
+	}
+	if got == "" {
+		got = r.URL.Query().Get("t")
+	}
+	return got
+}
+
+func (s *server) hasBootstrap(r *http.Request) bool {
+	return s.token != "" && subtle.ConstantTimeCompare([]byte(requestToken(r)), []byte(s.token)) == 1
+}
+
+func (s *server) sessionUser(r *http.Request) (store.User, bool) {
+	c, err := r.Cookie(sessionCookie)
+	if err != nil || c.Value == "" {
+		return store.User{}, false
+	}
+	u, ok, err := s.st.SessionUser(auth.HashToken(c.Value), time.Now().UnixMilli())
+	if err != nil {
+		return store.User{}, false
+	}
+	return u, ok
+}
+
+func userFrom(r *http.Request) (store.User, bool) {
+	u, ok := r.Context().Value(userContextKey{}).(store.User)
+	return u, ok
+}
+
 func (s *server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") && r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -183,21 +267,81 @@ func (s *server) auth(next http.Handler) http.Handler {
 				return
 			}
 		}
-		if s.token != "" && r.URL.Path != "/api/version" && (strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/quick") {
-			got := r.Header.Get("X-Reet-Token")
-			if b, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
-				got = b
-			}
-			if got == "" {
-				got = r.URL.Query().Get("t")
-			}
-			if subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) != 1 {
+		switch s.authMode {
+		case AuthNone:
+			next.ServeHTTP(w, r)
+			return
+		case AuthToken:
+			if s.token != "" && !openAuthPath(r.URL.Path) && guardedPath(r.URL.Path) && !s.hasBootstrap(r) {
 				writeErr(w, http.StatusUnauthorized, "missing or wrong token")
 				return
 			}
+			next.ServeHTTP(w, r)
+			return
+		case AuthAccounts:
+			if openAuthPath(r.URL.Path) || !guardedPath(r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if s.hasBootstrap(r) && bootstrapPath(r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if u, ok := s.sessionUser(r); ok {
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey{}, u)))
+				return
+			}
+			users, err := s.st.UserCount()
+			if err != nil {
+				writeErr(w, http.StatusInternalServerError, "could not check accounts")
+				return
+			}
+			if users == 0 {
+				writeErr(w, http.StatusUnauthorized, "setup required")
+				return
+			}
+			writeErr(w, http.StatusUnauthorized, "sign in required")
+			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *server) setSession(w http.ResponseWriter, r *http.Request, token string, expires time.Time) {
+	http.SetCookie(w, &http.Cookie{
+		Name: sessionCookie, Value: token, Path: "/", HttpOnly: true,
+		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		SameSite: http.SameSiteLaxMode, Expires: expires, MaxAge: int(time.Until(expires).Seconds()),
+	})
+}
+
+func (s *server) clearSession(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name: sessionCookie, Value: "", Path: "/", HttpOnly: true,
+		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		SameSite: http.SameSiteLaxMode, MaxAge: -1,
+	})
+}
+
+func (s *server) newSession(w http.ResponseWriter, r *http.Request, user store.User) (store.User, error) {
+	token, err := auth.NewToken()
+	if err != nil {
+		return user, err
+	}
+	expires := time.Now().Add(sessionTTL)
+	if err := s.st.CreateSession(auth.HashToken(token), user.ID, expires.UnixMilli(), r.UserAgent()); err != nil {
+		return user, err
+	}
+	s.setSession(w, r, token, expires)
+	return user, nil
+}
+
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 func (s *server) worker() {
@@ -958,6 +1102,170 @@ func (s *server) unignore(w http.ResponseWriter, r *http.Request) {
 	}
 	s.event("ui", "unignore", id, map[string]any{"name": name})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) authStatus(w http.ResponseWriter, r *http.Request) {
+	mode := string(s.authMode)
+	setupRequired, bootstrapRequired := false, false
+	var user *store.User
+	switch s.authMode {
+	case AuthToken:
+		if s.token == "" {
+			mode = string(AuthNone)
+		}
+	case AuthAccounts:
+		n, err := s.st.UserCount()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "could not check accounts")
+			return
+		}
+		setupRequired = n == 0
+		bootstrapRequired = setupRequired && s.token != ""
+		if u, ok := s.sessionUser(r); ok {
+			user = &u
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"mode":              mode,
+		"setupRequired":     setupRequired,
+		"bootstrapRequired": bootstrapRequired,
+		"user":              user,
+	})
+}
+
+func (s *server) setup(w http.ResponseWriter, r *http.Request) {
+	if s.authMode != AuthAccounts {
+		writeErr(w, http.StatusNotFound, "accounts are not enabled")
+		return
+	}
+	n, err := s.st.UserCount()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not check accounts")
+		return
+	}
+	if n > 0 {
+		writeErr(w, http.StatusConflict, "this instance is already set up")
+		return
+	}
+	if s.token != "" && !s.hasBootstrap(r) {
+		writeErr(w, http.StatusUnauthorized, "the bootstrap token is required")
+		return
+	}
+	var in struct {
+		Name     string `json:"name"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(in.Email))
+	if !strings.Contains(email, "@") || len(email) > 254 {
+		writeErr(w, http.StatusBadRequest, "enter a valid email address")
+		return
+	}
+	name := strings.TrimSpace(in.Name)
+	if name == "" {
+		name = strings.Split(email, "@")[0]
+	}
+	if len(name) > 100 {
+		writeErr(w, http.StatusBadRequest, "name is too long")
+		return
+	}
+	if len(in.Password) < 8 {
+		writeErr(w, http.StatusBadRequest, "password must be at least 8 characters")
+		return
+	}
+	if len(in.Password) > 1024 {
+		writeErr(w, http.StatusBadRequest, "password is too long")
+		return
+	}
+	hash, err := auth.HashPassword(in.Password)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not create the account")
+		return
+	}
+	user, created, err := s.st.CreateFirstOwner(email, name, "owner", hash)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !created {
+		writeErr(w, http.StatusConflict, "this instance is already set up")
+		return
+	}
+	if _, err := s.newSession(w, r, user); err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not start a session")
+		return
+	}
+	s.event("ui", "setup", "", map[string]any{"name": user.Name, "email": user.Email})
+	writeJSON(w, http.StatusOK, user)
+}
+
+func (s *server) signIn(w http.ResponseWriter, r *http.Request) {
+	if s.authMode != AuthAccounts {
+		writeErr(w, http.StatusNotFound, "accounts are not enabled")
+		return
+	}
+	var in struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(in.Email))
+	keys := []string{clientIP(r), email}
+	if !s.limiter.Allow(keys...) {
+		w.Header().Set("Retry-After", "60")
+		writeErr(w, http.StatusTooManyRequests, "too many attempts, try again in a minute")
+		return
+	}
+	s.limiter.Hit(keys...)
+	user, ok, err := s.st.UserByEmail(email)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !ok {
+		_ = auth.VerifyPassword(s.dummyHash, in.Password)
+		writeErr(w, http.StatusUnauthorized, "email or password is not correct")
+		return
+	}
+	if user.DisabledAt != 0 || !auth.VerifyPassword(user.PasswordHash, in.Password) {
+		writeErr(w, http.StatusUnauthorized, "email or password is not correct")
+		return
+	}
+	if _, err := s.newSession(w, r, user); err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not start a session")
+		return
+	}
+	s.event("ui", "sign-in", "", map[string]any{"name": user.Name, "email": user.Email})
+	writeJSON(w, http.StatusOK, user)
+}
+
+func (s *server) signOut(w http.ResponseWriter, r *http.Request) {
+	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
+		hash := auth.HashToken(c.Value)
+		if user, ok, _ := s.st.SessionUser(hash, time.Now().UnixMilli()); ok {
+			s.event("ui", "sign-out", "", map[string]any{"name": user.Name, "email": user.Email})
+		}
+		_ = s.st.DeleteSession(hash)
+	}
+	s.clearSession(w, r)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) me(w http.ResponseWriter, r *http.Request) {
+	if user, ok := userFrom(r); ok {
+		writeJSON(w, http.StatusOK, user)
+		return
+	}
+	if s.authMode == AuthNone {
+		writeJSON(w, http.StatusOK, map[string]any{"name": "", "role": "owner", "implicit": true})
+		return
+	}
+	writeErr(w, http.StatusUnauthorized, "sign in required")
 }
 
 func settingEnabled(st *store.Store, key string) bool {

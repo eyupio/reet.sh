@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import {
-    addSkill, addSkillTags, clearToken, getToken, listEnvironments, listEvents, listSkills, listTags,
-    patchSkill, patchSkills, refreshSkill, removeSkill, removeSkills, resolveSkill, restoreAll, tagSkills, UnauthorizedError,
-    type Counts, type Environment, type Event, type Flags, type Skill, type Sort, type Tag,
+    addSkill, addSkillTags, clearToken, getAuthStatus, getToken, listEnvironments, listEvents, listSkills, listTags,
+    patchSkill, patchSkills, refreshSkill, removeSkill, removeSkills, resolveSkill, restoreAll, signOutAccount, tagSkills, UnauthorizedError,
+    type Counts, type Environment, type Event, type Flags, type Skill, type Sort, type Tag, type User,
   } from './lib/api'
+  import AccountSignIn from './lib/AccountSignIn.svelte'
   import Admin from './lib/Admin.svelte'
   import Bookmarklets from './lib/Bookmarklets.svelte'
   import BulkBar from './lib/BulkBar.svelte'
@@ -13,6 +14,7 @@
   import Footer from './lib/Footer.svelte'
   import Logo from './lib/Logo.svelte'
   import Recently from './lib/Recently.svelte'
+  import Setup from './lib/Setup.svelte'
   import SignIn from './lib/SignIn.svelte'
   import SkillCard from './lib/SkillCard.svelte'
   import Toast from './lib/Toast.svelte'
@@ -34,6 +36,11 @@
   let loading = $state(true)
   let needsAuth = $state(false)
   let token = $state(getToken())
+  let authMode = $state<'accounts' | 'token' | 'none' | ''>('')
+  let authChecked = $state(false)
+  let setupRequired = $state(false)
+  let bootstrapRequired = $state(false)
+  let currentUser = $state<User | null>(null)
   let search = $state<HTMLInputElement>()
   let addEl = $state<HTMLInputElement>()
   type ToastState = { id: number; message: string; actionLabel?: string; onaction?: () => void | Promise<void> }
@@ -58,7 +65,9 @@
   const origin = location.origin
   const isAdmin = location.pathname.startsWith('/admin')
   const signedIn = $derived(token !== '')
-  const scanCommand = $derived(`reet scan --server ${origin}${signedIn ? ' --token "$REET_TOKEN"' : ''}`)
+  const authenticated = $derived(authMode === 'none' || (authMode === 'token' && token !== '') || (authMode === 'accounts' && currentUser !== null))
+  const canLoad = $derived(authChecked && authenticated && !needsAuth)
+  const scanCommand = $derived(`reet scan --server ${origin}${authMode === 'none' ? '' : ' --token "$REET_TOKEN"'}`)
 
   const filtering = $derived(q.trim() !== '' || onlyLiked || selectedTags.length > 0 || selectedEnv !== '' || onlyOne)
   const grouped = $derived(stages.map((st) => ({ ...st, items: skills.filter((k) => stageOf(k) === st.id) })))
@@ -91,6 +100,7 @@
     if (e instanceof UnauthorizedError) {
       clearToken()
       token = ''
+      if (authMode === 'accounts') currentUser = null
       needsAuth = true
       message = ''
       toast = null
@@ -155,6 +165,46 @@
     metaLoaded = await loadMeta()
   }
 
+  onMount(() => {
+    void initAuth()
+  })
+
+  async function initAuth() {
+    try {
+      const status = await getAuthStatus()
+      authMode = status.mode
+      setupRequired = status.setupRequired
+      bootstrapRequired = status.bootstrapRequired
+      currentUser = status.user
+      if (status.mode === 'token') {
+        token = getToken()
+        needsAuth = token === ''
+      } else {
+        clearToken()
+        token = ''
+        needsAuth = status.mode === 'accounts' ? !status.user : false
+      }
+    } catch {
+      authMode = ''
+    } finally {
+      authChecked = true
+    }
+  }
+
+  async function afterAuth(user: User) {
+    authMode = 'accounts'
+    currentUser = user
+    setupRequired = false
+    needsAuth = false
+    token = ''
+    clearToken()
+    loading = true
+    await load()
+    await loadMeta()
+    await tick()
+    addEl?.focus()
+  }
+
   async function attemptSignIn(): Promise<string | null> {
     loading = true
     const accepted = await load()
@@ -170,6 +220,25 @@
   }
 
   async function signOut() {
+    if (authMode === 'accounts') {
+      try {
+        await signOutAccount()
+      } catch {
+        /* the local session is cleared even if the server call cannot be made */
+      }
+      currentUser = null
+      needsAuth = true
+      token = ''
+      clearToken()
+      message = ''
+      error = ''
+      toast = null
+      removePending = null
+      selecting = false
+      selected = []
+      lastPicked = null
+      return
+    }
     clearToken()
     token = ''
     message = ''
@@ -181,7 +250,8 @@
   }
 
   $effect(() => {
-    void [onlyLiked, q, sort, selectedTags, selectedEnv, onlyOne]
+    void [onlyLiked, q, sort, selectedTags, selectedEnv, onlyOne, canLoad]
+    if (!canLoad) return
     const t = setTimeout(load, 150)
     return () => clearTimeout(t)
   })
@@ -471,8 +541,16 @@
     {#if !isAdmin}<p class="tag">Keep the reet good AI skills from skills.sh, all in one place.</p>{/if}
   </header>
 
-  {#if needsAuth}
+  {#if !authChecked}
+    <p class="empty" role="status">Loading…</p>
+  {:else if authMode === 'accounts' && setupRequired}
+    <Setup {bootstrapRequired} onsuccess={afterAuth} />
+  {:else if authMode === 'accounts' && !currentUser}
+    <AccountSignIn onsuccess={afterAuth} />
+  {:else if authMode === 'token' && needsAuth}
     <SignIn onattempt={attemptSignIn} />
+  {:else if !authMode}
+    <p class="notice bad" role="alert">Could not check how this instance signs in. Reload the page to try again.</p>
   {:else if isAdmin}
     <Admin onerror={fail} />
   {:else}
@@ -628,7 +706,12 @@
     {/if}
   {/if}
 </main>
-<Footer signedIn={signedIn && !needsAuth} onsignout={signOut} />
+<Footer
+  signedIn={authMode !== 'none' && authenticated && !needsAuth}
+  showAdmin={authenticated && !needsAuth}
+  userName={currentUser?.name ?? ''}
+  onsignout={signOut}
+/>
 {#if removePending}
   <ConfirmDialog
     title={`Remove ${removePending.name}?`}

@@ -21,6 +21,9 @@ import (
 // ErrNotFound is returned when a skill id does not exist.
 var ErrNotFound = errors.New("skill not found")
 
+// ErrUserExists is returned when an email is already registered.
+var ErrUserExists = errors.New("user already exists")
+
 type Skill struct {
 	ID           string        `json:"id"`
 	Source       string        `json:"source"`
@@ -95,6 +98,17 @@ type Snapshot struct {
 	Events     []Event   `json:"events,omitempty"`
 }
 
+// User is an account. PasswordHash is never written to JSON.
+type User struct {
+	ID           int64  `json:"id"`
+	Email        string `json:"email"`
+	Name         string `json:"name"`
+	Role         string `json:"role"`
+	PasswordHash string `json:"-"`
+	CreatedAt    int64  `json:"createdAt"`
+	DisabledAt   int64  `json:"disabledAt,omitempty"`
+}
+
 // Patch holds optional changes; nil fields are left alone.
 type Patch struct {
 	Liked      *bool   `json:"liked,omitempty"`
@@ -161,6 +175,23 @@ var schemaV12 = []string{
 	`CREATE TABLE IF NOT EXISTS ignored (
 		id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', at INTEGER NOT NULL)`,
 	`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`,
+	`CREATE TABLE IF NOT EXISTS users (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		email TEXT NOT NULL COLLATE NOCASE UNIQUE,
+		name TEXT NOT NULL,
+		role TEXT NOT NULL DEFAULT 'member',
+		password_hash TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		disabled_at INTEGER NOT NULL DEFAULT 0)`,
+	`CREATE TABLE IF NOT EXISTS sessions (
+		id TEXT PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		expires_at INTEGER NOT NULL,
+		ua TEXT NOT NULL DEFAULT '',
+		created_at INTEGER NOT NULL,
+		last_seen INTEGER NOT NULL)`,
+	`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_skill_envs_env ON skill_envs(env_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_skill_tags_tag ON skill_tags(tag_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_topic_skills_skill ON topic_skills(skill_id)`,
@@ -1194,6 +1225,158 @@ func upsertTagTx(tx *sql.Tx, name string) (int64, error) {
 
 func placeholders(n int) string {
 	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+}
+
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+// UserCount is the number of accounts, used to decide whether setup is needed.
+func (s *Store) UserCount() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)
+	return n, err
+}
+
+func (s *Store) CreateUser(email, name, role, passwordHash string) (User, error) {
+	email = normalizeEmail(email)
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = strings.Split(email, "@")[0]
+	}
+	if role == "" {
+		role = "member"
+	}
+	res, err := s.db.Exec(`INSERT INTO users(email,name,role,password_hash,created_at) VALUES(?,?,?,?,?)`,
+		email, name, role, passwordHash, now())
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			return User{}, ErrUserExists
+		}
+		return User{}, err
+	}
+	id, _ := res.LastInsertId()
+	u, _, err := s.UserByID(id)
+	return u, err
+}
+
+// CreateFirstOwner creates the only account if the users table is still empty.
+func (s *Store) CreateFirstOwner(email, name, role, passwordHash string) (User, bool, error) {
+	var user User
+	created := false
+	err := s.withTx(func(tx *sql.Tx) error {
+		var n int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n); err != nil {
+			return err
+		}
+		if n > 0 {
+			return nil
+		}
+		email = normalizeEmail(email)
+		name = strings.TrimSpace(name)
+		if name == "" {
+			name = strings.Split(email, "@")[0]
+		}
+		res, err := tx.Exec(`INSERT INTO users(email,name,role,password_hash,created_at) VALUES(?,?,?,?,?)`,
+			email, name, role, passwordHash, now())
+		if err != nil {
+			return err
+		}
+		id, _ := res.LastInsertId()
+		if err := tx.QueryRow(`SELECT id,email,name,role,password_hash,created_at,disabled_at FROM users WHERE id=?`, id).
+			Scan(&user.ID, &user.Email, &user.Name, &user.Role, &user.PasswordHash, &user.CreatedAt, &user.DisabledAt); err != nil {
+			return err
+		}
+		created = true
+		return nil
+	})
+	return user, created, err
+}
+
+func (s *Store) UserByEmail(email string) (User, bool, error) {
+	return s.scanUser(s.db.QueryRow(`SELECT id,email,name,role,password_hash,created_at,disabled_at FROM users WHERE email=?`, normalizeEmail(email)))
+}
+
+func (s *Store) UserByID(id int64) (User, bool, error) {
+	return s.scanUser(s.db.QueryRow(`SELECT id,email,name,role,password_hash,created_at,disabled_at FROM users WHERE id=?`, id))
+}
+
+func (s *Store) scanUser(row interface{ Scan(...any) error }) (User, bool, error) {
+	var u User
+	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.PasswordHash, &u.CreatedAt, &u.DisabledAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return User{}, false, nil
+	}
+	return u, err == nil, err
+}
+
+func (s *Store) ListUsers() ([]User, error) {
+	rows, err := s.db.Query(`SELECT id,email,name,role,password_hash,created_at,disabled_at FROM users ORDER BY lower(name), lower(email)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []User{}
+	for rows.Next() {
+		u, _, err := s.scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) SetUserDisabled(id int64, disabled bool) error {
+	at := int64(0)
+	if disabled {
+		at = now()
+	}
+	res, err := s.db.Exec(`UPDATE users SET disabled_at=? WHERE id=?`, at, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) CreateSession(id string, userID, expiresAt int64, ua string) error {
+	_, err := s.db.Exec(`INSERT INTO sessions(id,user_id,expires_at,ua,created_at,last_seen) VALUES(?,?,?,?,?,?)`,
+		id, userID, expiresAt, ua, now(), now())
+	return err
+}
+
+func (s *Store) SessionUser(id string, at int64) (User, bool, error) {
+	var u User
+	err := s.db.QueryRow(`SELECT u.id,u.email,u.name,u.role,u.password_hash,u.created_at,u.disabled_at
+		FROM sessions s JOIN users u ON u.id=s.user_id
+		WHERE s.id=? AND s.expires_at>? AND u.disabled_at=0`, id, at).
+		Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.PasswordHash, &u.CreatedAt, &u.DisabledAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return User{}, false, nil
+	}
+	if err != nil {
+		return User{}, false, err
+	}
+	_, _ = s.db.Exec(`UPDATE sessions SET last_seen=? WHERE id=?`, at, id)
+	return u, true, nil
+}
+
+func (s *Store) DeleteSession(id string) error {
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE id=?`, id)
+	return err
+}
+
+func (s *Store) DeleteUserSessions(userID int64) error {
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE user_id=?`, userID)
+	return err
+}
+
+func (s *Store) PruneSessions(at int64) error {
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE expires_at<=?`, at)
+	return err
 }
 
 // rederive rebuilds the identity fields of a restored skill from its id, so a crafted

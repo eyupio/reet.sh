@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"strconv"
 	"strings"
@@ -31,6 +32,35 @@ func newSrv(t *testing.T, f meta.Fetcher, token string) *httptest.Server {
 	srv := httptest.NewServer(New(s, f, token))
 	t.Cleanup(func() { srv.Close(); s.Close() })
 	return srv
+}
+
+func newAccountsSrv(t *testing.T, token string) *httptest.Server {
+	t.Helper()
+	s, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(New(s, deadFetcher(t), token, WithAuthMode(AuthAccounts)))
+	t.Cleanup(func() { srv.Close(); s.Close() })
+	return srv
+}
+
+func doClient(t *testing.T, client *http.Client, srv *httptest.Server, method, path, body string, hdr ...string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for i := 0; i+1 < len(hdr); i += 2 {
+		req.Header.Set(hdr[i], hdr[i+1])
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
 }
 
 func deadFetcher(t *testing.T) meta.Fetcher {
@@ -484,5 +514,92 @@ func TestFilteredMarkdownAndCSV(t *testing.T) {
 	code, csvOut := do(t, srv, "GET", "/api/export?format=csv&q=tag%3Abulk", "")
 	if code != 200 || !strings.Contains(csvOut, "id,name,stage") || !strings.Contains(csvOut, "a/b/one") || !strings.Contains(csvOut, "bulk") {
 		t.Fatalf("csv: %d %s", code, csvOut)
+	}
+}
+
+func TestAccountsSetupSignInAndSessions(t *testing.T) {
+	srv := newAccountsSrv(t, "bootstrap")
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	code, body := doClient(t, client, srv, "GET", "/api/v2/auth/status", "")
+	if code != 200 || !strings.Contains(body, `"setupRequired":true`) || !strings.Contains(body, `"bootstrapRequired":true`) {
+		t.Fatalf("status: %d %s", code, body)
+	}
+	if code, _ := doClient(t, client, srv, "GET", "/api/skills", ""); code != 401 {
+		t.Fatalf("pre-setup shelf: %d", code)
+	}
+	if code, _ := doClient(t, client, srv, "POST", "/api/v2/auth/setup", `{"name":"Sam","email":"sam@example.com","password":"long-enough-password"}`); code != 401 {
+		t.Fatalf("setup without bootstrap: %d", code)
+	}
+	code, body = doClient(t, client, srv, "POST", "/api/v2/auth/setup", `{"name":"Sam","email":"sam@example.com","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap")
+	if code != 200 || !strings.Contains(body, `"role":"owner"`) || strings.Contains(body, "password") {
+		t.Fatalf("setup: %d %s", code, body)
+	}
+	if code, body := doClient(t, client, srv, "GET", "/api/skills", ""); code != 200 || !strings.Contains(body, `"skills"`) {
+		t.Fatalf("session shelf: %d %s", code, body)
+	}
+	if code, body := doClient(t, client, srv, "GET", "/api/v2/auth/status", ""); code != 200 || !strings.Contains(body, `"email":"sam@example.com"`) {
+		t.Fatalf("status with session: %d %s", code, body)
+	}
+	if code, _ := doClient(t, client, srv, "POST", "/api/v2/auth/setup", `{"name":"Other","email":"other@example.com","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 409 {
+		t.Fatalf("second setup: %d", code)
+	}
+	if code, _ := doClient(t, client, srv, "POST", "/api/v2/auth/sign-out", `{}`); code != 204 {
+		t.Fatalf("sign out: %d", code)
+	}
+	if code, _ := doClient(t, client, srv, "GET", "/api/skills", ""); code != 401 {
+		t.Fatalf("signed-out shelf: %d", code)
+	}
+	if code, _ := doClient(t, client, srv, "POST", "/api/v2/auth/sign-in", `{"email":"sam@example.com","password":"wrong"}`); code != 401 {
+		t.Fatalf("wrong password: %d", code)
+	}
+	if code, _ := doClient(t, client, srv, "POST", "/api/v2/auth/sign-in", `{"email":"sam@example.com","password":"long-enough-password"}`); code != 200 {
+		t.Fatalf("sign in: %d", code)
+	}
+	if code, body := doClient(t, client, srv, "GET", "/api/skills", ""); code != 200 || !strings.Contains(body, `"skills"`) {
+		t.Fatalf("signed-in shelf: %d %s", code, body)
+	}
+	if code, body := doClient(t, client, srv, "GET", "/api/events?limit=20", ""); code != 200 || !strings.Contains(body, "sign-in") || !strings.Contains(body, "setup") {
+		t.Fatalf("auth events: %d %s", code, body)
+	}
+	if code, _ := doClient(t, client, srv, "GET", "/api/admin/status", ""); code != 200 {
+		t.Fatalf("admin with session: %d", code)
+	}
+}
+
+func TestAccountsSetupWithoutBootstrap(t *testing.T) {
+	srv := newAccountsSrv(t, "")
+	code, body := do(t, srv, "POST", "/api/v2/auth/setup", `{"email":"sam@example.com","password":"long-enough-password"}`)
+	if code != 200 || !strings.Contains(body, `"role":"owner"`) {
+		t.Fatalf("open setup: %d %s", code, body)
+	}
+}
+
+func TestAuthNoneAllowsRequests(t *testing.T) {
+	s, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	srv := httptest.NewServer(New(s, deadFetcher(t), "", WithAuthMode(AuthNone)))
+	defer srv.Close()
+	if code, _ := do(t, srv, "GET", "/api/skills", ""); code != 200 {
+		t.Fatalf("none mode shelf: %d", code)
+	}
+	if code, body := do(t, srv, "GET", "/api/v2/auth/status", ""); code != 200 || !strings.Contains(body, `"mode":"none"`) {
+		t.Fatalf("none status: %d %s", code, body)
+	}
+}
+
+func TestBootstrapTokenOnlyImports(t *testing.T) {
+	srv := newAccountsSrv(t, "bootstrap")
+	if code, _ := do(t, srv, "POST", "/api/v2/auth/setup", `{"email":"sam@example.com","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 200 {
+		t.Fatalf("setup: %d", code)
+	}
+	if code, _ := do(t, srv, "GET", "/api/skills", "", "X-Reet-Token", "bootstrap"); code != 401 {
+		t.Fatalf("bootstrap should not read the shelf: %d", code)
+	}
+	if code, body := do(t, srv, "POST", "/api/import", `{"items":[{"name":"alpha"}]}`, "X-Reet-Token", "bootstrap"); code != 200 || !strings.Contains(body, `"imported":1`) {
+		t.Fatalf("bootstrap import: %d %s", code, body)
 	}
 }

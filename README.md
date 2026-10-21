@@ -75,7 +75,9 @@ The compose file uses the prebuilt image `ghcr.io/eyupio/reet.sh` (no local buil
 
 ### Accounts
 
-The default `REET_AUTH=accounts` creates one owner through the setup page on first visit, then signs people in with email and password. Each account has its own shelf. Roles are owner, admin, member and viewer; viewers are read-only until shared lists arrive. Sessions are HttpOnly, SameSite=Lax cookies; passwords are stored with argon2id; sign-in is rate-limited. If `REET_TOKEN` is set it is required once on the setup page and keeps working for `reet scan` until personal tokens arrive.
+The default `REET_AUTH=accounts` creates one owner through the setup page on first visit, then signs people in with email and password. Each account has its own shelf. Roles are owner, admin, member and viewer; viewers are read-only until shared lists arrive. Sessions are HttpOnly, SameSite=Lax cookies; passwords are stored with argon2id; sign-in is rate-limited.
+
+Click your name in the footer to open **Account**, where you can create and revoke personal API tokens (shown once). Admins get **Admin → Users** to invite people by link, reset passwords, disable accounts, change roles, revoke tokens and transfer ownership. If `REET_TOKEN` is set it is required once on the setup page and works for `reet scan` only until a personal API token exists.
 
 - **Solo or trusted LAN:** `REET_AUTH=none` removes sign-in and maps everything to an implicit owner. Use it only on a network you trust.
 - **Legacy single token:** `REET_AUTH=token` keeps the single `REET_TOKEN` login card and requires it for the UI, API and bookmarklets.
@@ -88,7 +90,7 @@ The default `REET_AUTH=accounts` creates one owner through the setup page on fir
 | `REET_PORT` | `8080` | Host port for the UI. |
 | `REET_VERSION` | `latest` | Image tag (`latest`, `v1.0.0`, `sha-<short>`). |
 | `REET_AUTH` | `accounts` | `accounts` (owner setup and sessions), `token` (the single `REET_TOKEN`) or `none` (trusted LAN, no sign-in). |
-| `REET_TOKEN` | empty | Accounts mode: setup bootstrap and scanner token. Token mode: the only credential. Empty means no token. |
+| `REET_TOKEN` | empty | Accounts mode: setup bootstrap and fallback scan token until a personal token exists. Token mode: the only credential. Empty means no token. |
 | `SKILLS_SH_TOKEN` | empty | Optional skills.sh API token (needs a Vercel OIDC token, so it can't be generated). Without it, reet reads the public skills.sh pages. |
 | `REET_LOG` | empty | Set to `debug` for one line per metadata fetch; writes are always logged without tokens. |
 | `REET_TOPICS` | empty | Set to `off` to stop the daily skills.sh topic seed (nine read-only page fetches a day). |
@@ -132,7 +134,7 @@ If the container exits with "unable to open database file", the data folder isn'
 
   It reads the skills folders for your tools (`~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills`, `~/.codex/skills`, `~/.config/opencode/skills`, plus `.claude/skills` and `.agents/skills` in the current directory) and the skills CLI lock file at `~/.agents/.skill-lock.json` if present, then marks each skill as "in use". Existing likes, saves and notes are kept.
 
-  In accounts mode, `--token` is the bootstrap `REET_TOKEN`; personal API tokens arrive in the next account step. `--env NAME` names this machine (the hostname is the default) and turns each folder into an environment on the card, such as `sam-mbp · Claude Code`. `--prune` removes the environment link for skills that are no longer in a scanned folder; the skill and its notes stay. Add `--dir PATH` for other folders and `--dry-run` to preview. The scanner needs to see your skills folders, so run it on the machine that has them, not inside the container. Build it with `go install github.com/eyupio/reet.sh/cmd/reet@latest` (the scanner does not need the web UI).
+  In accounts mode, `--token` is a personal API token from Account; the bootstrap `REET_TOKEN` works only until the first personal token is created. `--env NAME` names this machine (the hostname is the default) and turns each folder into an environment on the card, such as `sam-mbp · Claude Code`. `--prune` removes the environment link for skills that are no longer in a scanned folder; the skill and its notes stay. Add `--dir PATH` for other folders and `--dry-run` to preview. The scanner needs to see your skills folders, so run it on the machine that has them, not inside the container. Build it with `go install github.com/eyupio/reet.sh/cmd/reet@latest` (the scanner does not need the web UI).
 
   Skills found only by folder name show as "unlinked". Use **Link** on the card to attach the skills.sh URL.
 
@@ -146,7 +148,7 @@ Use **Download JSON** and **Restore from JSON** in the UI, or call `GET /api/exp
 
 - **Select** in the toolbar turns cards into checkboxes. Shift-click selects a range; the floating bar can tag, move, like or remove the selection, and a bulk remove gets the same Undo toast as a single remove.
 - Metadata for the 50 oldest skills is refreshed every six hours (two seconds apart) and the card shows the weekly install sparkline and change. **Refresh** on a card checks immediately and says when nothing changed.
-- **Admin** in the footer opens `/admin`: version, database size, skills.sh reachability, topic seed status, counts, environments, the refresh/topic switches, instance name and recent activity. The admin surface is available to the owner and admins; only the owner can change instance settings.
+- **Admin** in the footer opens `/admin` for the owner and admins: version, database size, skills.sh reachability, topic seed status, counts, environments, users and invites, the refresh/topic switches, instance name and recent activity. Only the owner can change instance settings or transfer ownership.
 
 ## Development
 

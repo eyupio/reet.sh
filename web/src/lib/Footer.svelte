@@ -28,7 +28,7 @@
       <span class="descriptor">Your shelf for AI skills</span>
     </span>
     <span class="end">
-      {#if signedIn && userName}<span class="user">{userName}</span>{/if}
+      {#if signedIn && userName}<a class="user" href="/account">{userName}</a>{/if}
       {#if showAdmin}<a class="admin" href="/admin">Admin</a>{/if}
       {#if signedIn}<button type="button" class="signout" onclick={() => onsignout?.()}>Sign out</button>{/if}
       <!-- The credit leaves the app, so it opens in a new tab and the list the person was on is not lost. -->
@@ -60,7 +60,8 @@
     color: var(--muted); font-size: 0.85rem; text-underline-offset: 3px; text-decoration: none;
   }
   .admin { display: inline-flex; align-items: center; }
-  .user { color: var(--muted); font-size: 0.85rem; max-width: 180px; overflow-wrap: anywhere; }
+  .user { color: var(--muted); font-size: 0.85rem; max-width: 180px; overflow-wrap: anywhere; text-decoration: none; }
+  .user:hover, .user:focus-visible { color: var(--ink); text-decoration: underline; }
   .signout:hover, .signout:focus-visible, .admin:hover, .admin:focus-visible { color: var(--ink); text-decoration: underline; }
   @media (pointer: coarse) { .signout, .admin { min-height: 44px; } }
   @media (max-width: 560px) { .descriptor { display: none; } }

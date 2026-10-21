@@ -12,6 +12,9 @@ type Detail = {
   already?: boolean
   count?: number
   liked?: boolean
+  role?: string
+  email?: string
+  disabled?: boolean
 }
 
 function detail(e: Event): Detail {
@@ -86,6 +89,26 @@ export function eventLabel(e: Event): string {
       return `Updated ${d.count ?? 0} skills`
     case 'settings':
       return 'Changed instance settings'
+    case 'token-create':
+      return 'Created an API token'
+    case 'token-revoke':
+      return 'Revoked an API token'
+    case 'user-role':
+      return `Changed ${d.name || 'a user'}'s role to ${d.role}`
+    case 'user-disable':
+      return `${d.name || 'A user'} ${d.disabled ? 'disabled' : 'enabled'}`
+    case 'user-reset':
+      return `Reset the password for ${d.name || 'a user'}`
+    case 'user-revoke':
+      return `Revoked ${d.name || 'a user'}'s API tokens`
+    case 'user-transfer':
+      return `${d.name || 'A user'} is the new owner`
+    case 'user-delete':
+      return `Deleted ${d.name || 'a user'}`
+    case 'invite':
+      return `Invited ${d.email || 'someone'}`
+    case 'join':
+      return `${d.name || 'Someone'} joined`
     case 'setup':
       return 'Created the owner account'
     case 'sign-in':

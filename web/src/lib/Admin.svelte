@@ -1,10 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { getAdminStatus, saveAdminSettings, type AdminStatus } from './api'
+  import {
+    createInvite, deleteAdminUser, getAdminStatus, listAdminUsers, resetUserPassword, revokeUserTokens,
+    saveAdminSettings, transferOwner, updateAdminUser, type AdminStatus, type UserMeta,
+  } from './api'
+  import ConfirmDialog from './ConfirmDialog.svelte'
+  import CopyButton from './CopyButton.svelte'
   import { eventLabel, eventTitle } from './events'
   import { elapsed, isOldEnvironment } from './time'
 
-  let { onerror, role = 'owner' }: { onerror?: (e: unknown) => void; role?: string } = $props()
+  let {
+    onerror, role = 'owner', accounts = false, currentEmail = '',
+  }: { onerror?: (e: unknown) => void; role?: string; accounts?: boolean; currentEmail?: string } = $props()
 
   const isOwner = $derived(role === 'owner')
 
@@ -14,6 +21,16 @@
   let saving = $state(false)
   let saved = $state('')
   let form = $state({ refreshEnabled: true, topicsEnabled: true, instanceName: '' })
+  let users = $state<UserMeta[]>([])
+  let usersError = $state('')
+  let inviteEmail = $state('')
+  let inviteRole = $state('member')
+  let inviteLink = $state('')
+  let inviteExpires = $state(0)
+  let resetPassword = $state('')
+  let resetName = $state('')
+  let busyID = $state(0)
+  let confirmAction = $state<{ kind: 'delete' | 'transfer'; user: UserMeta } | null>(null)
 
   async function load() {
     loading = true
@@ -30,13 +47,134 @@
     }
   }
 
+  async function loadUsers() {
+    if (!accounts) return
+    try {
+      users = (await listAdminUsers()).users
+      usersError = ''
+    } catch (e) {
+      usersError = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    }
+  }
+
   onMount(() => {
     document.title = 'Admin · reet.sh'
     void load()
+    void loadUsers()
     return () => {
       document.title = 'reet.sh – your shelf for AI skills'
     }
   })
+
+  function canManage(user: UserMeta): boolean {
+    if (!accounts || user.email === currentEmail || user.role === 'owner') return false
+    if (role === 'admin' && user.role === 'admin') return false
+    return true
+  }
+
+  function roleOptions(user: UserMeta): string[] {
+    const options = ['member', 'viewer']
+    if (role === 'owner' && user.role !== 'owner') options.push('admin')
+    return options
+  }
+
+  async function saveRole(user: UserMeta, newRole: string) {
+    if (newRole === user.role) return
+    busyID = user.id
+    try {
+      users = (await updateAdminUser({ id: user.id, role: newRole })).users
+      usersError = ''
+    } catch (e) {
+      usersError = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      busyID = 0
+    }
+  }
+
+  async function toggleDisabled(user: UserMeta) {
+    busyID = user.id
+    try {
+      users = (await updateAdminUser({ id: user.id, disabled: user.disabledAt === undefined || user.disabledAt === 0 })).users
+      usersError = ''
+    } catch (e) {
+      usersError = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      busyID = 0
+    }
+  }
+
+  async function resetPasswordFor(user: UserMeta) {
+    busyID = user.id
+    resetPassword = ''
+    try {
+      const r = await resetUserPassword(user.id)
+      resetPassword = r.password
+      resetName = user.name
+      usersError = ''
+    } catch (e) {
+      usersError = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      busyID = 0
+    }
+  }
+
+  async function revokeTokensFor(user: UserMeta) {
+    busyID = user.id
+    try {
+      await revokeUserTokens(user.id)
+      await loadUsers()
+    } catch (e) {
+      usersError = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      busyID = 0
+    }
+  }
+
+  async function invite() {
+    if (!inviteEmail.trim()) return
+    busyID = -1
+    inviteLink = ''
+    try {
+      const r = await createInvite(inviteEmail.trim(), inviteRole)
+      inviteLink = location.origin + r.url
+      inviteExpires = r.expiresAt
+      inviteEmail = ''
+      usersError = ''
+    } catch (e) {
+      usersError = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      busyID = 0
+    }
+  }
+
+  async function runConfirmed() {
+    const action = confirmAction
+    confirmAction = null
+    if (!action) return
+    busyID = action.user.id
+    try {
+      if (action.kind === 'delete') {
+        await deleteAdminUser(action.user.id)
+        await loadUsers()
+      } else {
+        users = (await transferOwner(action.user.id)).users
+        location.reload()
+        return
+      }
+      usersError = ''
+    } catch (e) {
+      usersError = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      busyID = 0
+    }
+  }
 
   async function save(e: SubmitEvent) {
     e.preventDefault()
@@ -131,6 +269,87 @@
       {/if}
     </section>
 
+    {#if accounts}
+      <section class="block" aria-labelledby="admin-users">
+        <h3 id="admin-users">Users</h3>
+        {#if usersError}<p class="error" role="alert">{usersError}</p>{/if}
+        <div class="invite">
+          <label for="invite-email">Invite by email</label>
+          <div class="invite-row">
+            <input id="invite-email" bind:value={inviteEmail} type="email" placeholder="sam@example.com" />
+            <label class="vh" for="invite-role">Invite role</label>
+            <select id="invite-role" bind:value={inviteRole}>
+              <option value="member">Member</option>
+              <option value="viewer">Viewer</option>
+              {#if role === 'owner'}<option value="admin">Admin</option>{/if}
+            </select>
+            <button type="button" class="btn" onclick={invite} disabled={busyID !== 0 || !inviteEmail.trim()}>Create invite</button>
+          </div>
+          {#if inviteLink}
+            <div class="fresh">
+              <p>Send this link. It expires {new Date(inviteExpires).toLocaleString()}.</p>
+              <div class="tokenline">
+                <code>{inviteLink}</code>
+                <CopyButton text={inviteLink} />
+              </div>
+            </div>
+          {/if}
+        </div>
+
+        {#if resetPassword}
+          <div class="fresh">
+            <p>Temporary password for {resetName}. Copy it now.</p>
+            <div class="tokenline">
+              <code>{resetPassword}</code>
+              <CopyButton text={resetPassword} />
+            </div>
+          </div>
+        {/if}
+
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>User</th><th>Role</th><th>Last active</th><th>Tokens</th><th></th></tr></thead>
+            <tbody>
+              {#each users as user (user.id)}
+                <tr class:disabled={user.disabledAt}>
+                  <td>
+                    <strong>{user.name}</strong>{#if user.email === currentEmail} <span class="you">you</span>{/if}
+                    <small>{user.email}</small>
+                  </td>
+                  <td>
+                    {#if canManage(user) && role === 'owner'}
+                      <select value={user.role} onchange={(e) => saveRole(user, e.currentTarget.value)} disabled={busyID === user.id}>
+                        {#each roleOptions(user) as option}
+                          <option value={option} selected={option === user.role}>{option}</option>
+                        {/each}
+                      </select>
+                    {:else}
+                      <span>{user.role}</span>
+                    {/if}
+                  </td>
+                  <td>{user.lastActive ? new Date(user.lastActive).toLocaleString() : 'never'}</td>
+                  <td>{user.tokens}</td>
+                  <td class="actions">
+                    {#if canManage(user)}
+                      <button type="button" class="btn quiet" onclick={() => toggleDisabled(user)} disabled={busyID === user.id}>
+                        {user.disabledAt ? 'Enable' : 'Disable'}
+                      </button>
+                      <button type="button" class="btn quiet" onclick={() => resetPasswordFor(user)} disabled={busyID === user.id}>Reset password</button>
+                      <button type="button" class="btn quiet" onclick={() => revokeTokensFor(user)} disabled={busyID === user.id}>Revoke tokens</button>
+                      {#if role === 'owner'}
+                        <button type="button" class="btn quiet" onclick={() => (confirmAction = { kind: 'transfer', user })} disabled={busyID === user.id}>Make owner</button>
+                        <button type="button" class="btn quiet danger" onclick={() => (confirmAction = { kind: 'delete', user })} disabled={busyID === user.id}>Delete</button>
+                      {/if}
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {/if}
+
     <section class="block" aria-labelledby="admin-settings">
       <h3 id="admin-settings">Jobs and instance</h3>
       {#if isOwner}
@@ -166,6 +385,18 @@
         </ul>
       {/if}
     </section>
+    {#if confirmAction}
+      <ConfirmDialog
+        title={confirmAction.kind === 'delete' ? `Delete ${confirmAction.user.name}?` : `Make ${confirmAction.user.name} the owner?`}
+        body={confirmAction.kind === 'delete'
+          ? 'Their shelf, tokens and sessions are deleted. Transfer ownership first if this is the owner.'
+          : 'You become an admin and they become the owner. You can transfer it back later.'}
+        confirmLabel={confirmAction.kind === 'delete' ? 'Delete' : 'Transfer'}
+        danger={confirmAction.kind === 'delete'}
+        onconfirm={runConfirmed}
+        oncancel={() => (confirmAction = null)}
+      />
+    {/if}
   {/if}
 </section>
 
@@ -212,6 +443,22 @@
   .events li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 0.85rem; }
   .events li span { min-width: 0; overflow-wrap: anywhere; }
   .events time { flex: none; font-variant-numeric: tabular-nums; }
+  .error { margin: 8px 0 0; color: var(--bad); font-size: 0.85rem; }
+  .invite { margin-top: 12px; }
+  .invite > label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 0.85rem; }
+  .invite-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .invite-row input { flex: 1; min-width: 180px; }
+  .fresh { margin-top: 12px; padding: 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--tint); }
+  .fresh p { margin: 0 0 8px; font-size: 0.85rem; }
+  .tokenline { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+  .tokenline code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 0.8rem; }
+  td small { display: block; color: var(--muted); font-size: 0.75rem; }
+  .you { color: var(--muted); font-size: 0.75rem; font-weight: 500; }
+  tr.disabled td { opacity: 0.55; }
+  td.actions { white-space: nowrap; }
+  td.actions .btn { padding-left: 6px; padding-right: 6px; margin-left: 2px; }
+  td select { padding: 4px 8px; min-height: 32px; }
+  @media (pointer: coarse) { td select { min-height: 44px; } }
   @media (max-width: 560px) {
     h2 { font-size: 1.7rem; }
     .cards { grid-template-columns: 1fr 1fr; }

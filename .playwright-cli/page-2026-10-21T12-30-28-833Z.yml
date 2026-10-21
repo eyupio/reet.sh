@@ -1,0 +1,29 @@
+- generic [ref=e2]:
+  - main [ref=e3]:
+    - generic [ref=e4]:
+      - heading "reet.sh" [level=1] [ref=e5]:
+        - img "reet.sh" [ref=e6]
+      - paragraph [ref=e15]: Keep the reet good AI skills from skills.sh, all in one place.
+    - region [ref=e16]:
+      - heading "Sign in to your shelf" [level=2] [ref=e21]
+      - paragraph [ref=e22]: Use your reet.sh account to open the shelf.
+      - generic [ref=e23]:
+        - generic [ref=e24]: Email
+        - textbox "Email" [active] [ref=e25]:
+          - /placeholder: you@example.com
+        - generic [ref=e26]: Password
+        - textbox "Password" [ref=e27]:
+          - /placeholder: Your password
+        - button "Sign in" [ref=e28] [cursor=pointer]
+  - contentinfo [ref=e29]:
+    - generic [ref=e30]:
+      - generic [ref=e31]:
+        - generic [ref=e32]: reet.sh
+        - generic [ref=e33]: dev
+        - generic [ref=e34]: Your shelf for AI skills
+      - generic [ref=e36]:
+        - text: Developed by
+        - link "EyUp.io (opens in a new tab)" [ref=e37] [cursor=pointer]:
+          - /url: https://eyup.io
+          - text: EyUp.io
+          - generic [ref=e38]: (opens in a new tab)

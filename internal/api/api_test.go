@@ -681,3 +681,114 @@ func mustJar(t *testing.T) *cookiejar.Jar {
 	}
 	return jar
 }
+
+func TestPersonalTokenAndBootstrapDisable(t *testing.T) {
+	srv, _ := newAccountsSrvStore(t, "bootstrap")
+	owner := &http.Client{Jar: mustJar(t)}
+	if code, _ := doClient(t, owner, srv, "POST", "/api/v2/auth/setup", `{"name":"Owner","email":"owner@example.com","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 200 {
+		t.Fatalf("setup: %d", code)
+	}
+	code, body := doClient(t, owner, srv, "POST", "/api/v2/tokens", `{"name":"scan"}`)
+	var created struct {
+		ID    int64  `json:"id"`
+		Token string `json:"token"`
+	}
+	if code != 200 || json.Unmarshal([]byte(body), &created) != nil || created.Token == "" {
+		t.Fatalf("create token: %d %s", code, body)
+	}
+	if code, body := doClient(t, owner, srv, "GET", "/api/v2/tokens", ""); code != 200 || strings.Contains(body, created.Token) {
+		t.Fatalf("token list leaked the secret: %d %s", code, body)
+	}
+	if code, body := doClient(t, owner, srv, "POST", "/api/import", `{"items":[{"name":"alpha"}]}`, "X-Reet-Token", created.Token); code != 200 || !strings.Contains(body, `"user":"Owner"`) {
+		t.Fatalf("personal token import: %d %s", code, body)
+	}
+	if code, _ := doClient(t, owner, srv, "POST", "/api/import", `{"items":[{"name":"beta"}]}`, "X-Reet-Token", "bootstrap"); code != 401 {
+		t.Fatalf("bootstrap should be disabled after a personal token: %d", code)
+	}
+	if code, _ := doClient(t, owner, srv, "DELETE", "/api/v2/tokens?id="+strconv.FormatInt(created.ID, 10), ""); code != 204 {
+		t.Fatalf("revoke: %d", code)
+	}
+	if code, _ := doClient(t, owner, srv, "POST", "/api/import", `{"items":[{"name":"beta"}]}`, "X-Reet-Token", "bootstrap"); code != 200 {
+		t.Fatalf("bootstrap should work again after revoke: %d", code)
+	}
+}
+
+func TestInviteJoinRoleChangesAndTransfer(t *testing.T) {
+	srv, _ := newAccountsSrvStore(t, "bootstrap")
+	owner := &http.Client{Jar: mustJar(t)}
+	if code, _ := doClient(t, owner, srv, "POST", "/api/v2/auth/setup", `{"name":"Owner","email":"owner@example.com","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 200 {
+		t.Fatalf("setup: %d", code)
+	}
+	code, body := doClient(t, owner, srv, "POST", "/api/v2/admin/invites", `{"email":"viewer@example.com","role":"viewer"}`)
+	var invite struct {
+		Token string `json:"token"`
+		URL   string `json:"url"`
+	}
+	if code != 200 || json.Unmarshal([]byte(body), &invite) != nil || invite.Token == "" {
+		t.Fatalf("invite: %d %s", code, body)
+	}
+	if code, body := do(t, srv, "GET", "/api/v2/auth/invite?token="+url.QueryEscape(invite.Token), ""); code != 200 || !strings.Contains(body, "viewer@example.com") {
+		t.Fatalf("invite info: %d %s", code, body)
+	}
+	viewer := &http.Client{Jar: mustJar(t)}
+	if code, body := doClient(t, viewer, srv, "POST", "/api/v2/auth/join", `{"token":"`+invite.Token+`","name":"Viewer","password":"long-enough-password"}`); code != 200 || !strings.Contains(body, `"role":"viewer"`) {
+		t.Fatalf("join: %d %s", code, body)
+	}
+	code, body = doClient(t, owner, srv, "GET", "/api/v2/admin/users", "")
+	var list struct {
+		Users []store.UserMeta `json:"users"`
+	}
+	if code != 200 || json.Unmarshal([]byte(body), &list) != nil || len(list.Users) != 2 {
+		t.Fatalf("users: %d %s", code, body)
+	}
+	var viewerID int64
+	for _, u := range list.Users {
+		if u.Email == "viewer@example.com" {
+			viewerID = u.ID
+		}
+	}
+	if viewerID == 0 {
+		t.Fatal("viewer missing")
+	}
+	if code, _ := doClient(t, viewer, srv, "POST", "/api/skills", `{"input":"a/b/viewer"}`); code != 403 {
+		t.Fatalf("viewer write: %d", code)
+	}
+	if code, body := doClient(t, owner, srv, "PATCH", "/api/v2/admin/users", `{"id":`+strconv.FormatInt(viewerID, 10)+`,"role":"member"}`); code != 200 || !strings.Contains(body, `"role":"member"`) {
+		t.Fatalf("role change: %d %s", code, body)
+	}
+	if code, _ := doClient(t, viewer, srv, "POST", "/api/skills", `{"input":"a/b/viewer"}`); code != 200 {
+		t.Fatalf("member write: %d", code)
+	}
+	if code, body := doClient(t, owner, srv, "PATCH", "/api/v2/admin/users", `{"id":`+strconv.FormatInt(viewerID, 10)+`,"disabled":true}`); code != 200 {
+		t.Fatalf("disable: %d %s", code, body)
+	}
+	if code, _ := doClient(t, viewer, srv, "GET", "/api/skills", ""); code != 401 {
+		t.Fatalf("disabled session: %d", code)
+	}
+	code, body = doClient(t, owner, srv, "POST", "/api/v2/admin/users/reset", `{"id":`+strconv.FormatInt(viewerID, 10)+`}`)
+	var reset struct {
+		Password string `json:"password"`
+	}
+	if code != 200 || json.Unmarshal([]byte(body), &reset) != nil || reset.Password == "" {
+		t.Fatalf("reset: %d %s", code, body)
+	}
+	newViewer := &http.Client{Jar: mustJar(t)}
+	if code, _ := doClient(t, newViewer, srv, "POST", "/api/v2/auth/sign-in", `{"email":"viewer@example.com","password":"long-enough-password"}`); code != 401 {
+		t.Fatalf("old password after reset: %d", code)
+	}
+	if code, body := doClient(t, owner, srv, "PATCH", "/api/v2/admin/users", `{"id":`+strconv.FormatInt(viewerID, 10)+`,"disabled":false}`); code != 200 {
+		t.Fatalf("re-enable: %d %s", code, body)
+	}
+	if code, _ := doClient(t, newViewer, srv, "POST", "/api/v2/auth/sign-in", `{"email":"viewer@example.com","password":"`+reset.Password+`"}`); code != 200 {
+		t.Fatalf("new password after reset: %d", code)
+	}
+	if code, body := doClient(t, owner, srv, "POST", "/api/v2/admin/users/transfer", `{"id":`+strconv.FormatInt(viewerID, 10)+`}`); code != 200 || !strings.Contains(body, `"role":"owner"`) {
+		t.Fatalf("transfer: %d %s", code, body)
+	}
+	if code, _ := doClient(t, owner, srv, "PATCH", "/api/admin/settings", `{"instanceName":"nope"}`); code != 403 {
+		t.Fatalf("old owner settings after transfer: %d", code)
+	}
+	if code, _ := doClient(t, owner, srv, "GET", "/api/admin/status", ""); code != 200 {
+		t.Fatalf("old owner admin after transfer: %d", code)
+	}
+}

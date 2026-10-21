@@ -166,6 +166,8 @@ cd .. && go test ./... && go run ./cmd/reet serve
 
 For UI work, run `npm run dev` in `web/` (it proxies the API to `localhost:8080`).
 
+The [whole UI design studies](docs/ui-redesign.md) compare Library, Workbench and Focus across the signed-out pages, shelf, lists, account and admin. Open `web/concepts/controller.html` directly, or visit `/concepts/controller.html` on the Vite dev server. The app uses a shared account form, header navigation, and a wider admin layout; the three complete directions remain interactive concepts for review.
+
 The `Dockerfile` builds the UI and the binary and cross-compiles for `linux/amd64` and `linux/arm64`. The GitHub Actions workflow tests every push and publishes `ghcr.io/eyupio/reet.sh` (`latest`, `vX.Y.Z` and `sha-<short>` tags) from `main` and version tags.
 
 

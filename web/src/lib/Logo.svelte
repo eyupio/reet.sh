@@ -10,7 +10,7 @@
 </svg>
 
 <style>
-  .logo { display: block; height: clamp(44px, 12vw, 68px); width: auto; overflow: visible; }
+  .logo { display: block; height: clamp(40px, 9vw, 48px); width: auto; overflow: visible; }
   .ribbon { fill: var(--ink); stroke: var(--ink); }
   .ink-stroke { stroke: var(--ink); }
   .acc-stroke { stroke: var(--accent); }

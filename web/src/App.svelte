@@ -562,11 +562,28 @@
   }
 </script>
 
-{#if !needsAuth && !isAdmin && !isAccount && !isJoin && !isList && !isPublicList}<a class="skip" href="#sections">Skip to your skills</a>{/if}
-<main>
-  <header>
-    <h1><a class="home" href="/"><Logo /></a></h1>
-    {#if !isAdmin}<p class="tag">Keep the reet good AI skills from skills.sh, all in one place.</p>{/if}
+<svelte:head>
+  {#if !isPublicList}
+    <title>{isJoin ? 'Join reet.sh' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : authChecked && !authenticated ? 'Sign in' : isAdmin ? 'Admin' : isAccount ? 'Your account' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
+  {/if}
+</svelte:head>
+
+<a class="skip" href="#main-content">Skip to content</a>
+<main id="main-content" tabindex="-1" class:wide={isAdmin && authenticated && !needsAuth}>
+  <header class="site-header">
+    <div>
+      <h1><a class="home" href="/"><Logo /></a></h1>
+      {#if !isAdmin}<p class="tag">Keep the reet good AI skills from skills.sh, all in one place.</p>{/if}
+    </div>
+    {#if authenticated && !needsAuth && !isPublicList && !isJoin}
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="/" aria-current={!isAdmin && !isAccount && !isList ? 'page' : undefined}>Your shelf</a>
+        {#if authMode === 'accounts'}<a href="/account" aria-current={isAccount ? 'page' : undefined}>Account</a>{/if}
+        {#if isAdminUser}<a href="/admin" aria-current={isAdmin ? 'page' : undefined}>Admin</a>{/if}
+      </nav>
+    {:else if isPublicList || isJoin}
+      <a class="entry-link" href="/">Open your shelf →</a>
+    {/if}
   </header>
 
   {#if isPublicList}
@@ -829,11 +846,18 @@
 <style>
   .skip { position: absolute; left: 8px; top: -48px; background: var(--accent); color: var(--accent-ink); padding: 8px 12px; border-radius: 8px; z-index: 10; }
   .skip:focus { top: 8px; }
-  main { max-width: 760px; margin: 0 auto; padding: clamp(24px, 6vw, 56px) 16px 48px; }
+  main { width: 100%; max-width: var(--content-width); margin: 0 auto; padding: clamp(24px, 5vw, 44px) 24px 56px; flex: 1; }
+  main.wide { max-width: 1160px; }
+  main:focus { outline: none; }
+  .site-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-bottom: 24px; margin-bottom: 24px; border-bottom: 1px solid var(--line); }
+  .site-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: none; }
+  .site-nav a, .entry-link { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--muted); font-size: 0.85rem; font-weight: 600; text-decoration: none; border-radius: 8px; }
+  .site-nav a:hover, .entry-link:hover { color: var(--ink); background: var(--card); }
+  .site-nav a[aria-current='page'] { color: var(--ink); background: var(--tint); }
 
   h1 { margin: 0; line-height: 1; }
   .home { display: inline-block; color: inherit; text-decoration: none; }
-  .tag { margin: 12px 0 0; color: var(--muted); font: italic 1.1rem/1.4 var(--serif); max-width: 36ch; }
+  .tag { margin: 10px 0 0; color: var(--muted); font: 0.86rem/1.5 var(--sans); max-width: 40ch; }
 
   .add { display: flex; gap: 8px; margin: 28px 0 8px; }
   .add input { flex: 1; }
@@ -961,6 +985,10 @@
     }
   }
   @media (max-width: 560px) {
+    main { padding: 24px 16px 40px; }
+    .site-header { align-items: flex-start; flex-direction: column; gap: 16px; padding-bottom: 20px; margin-bottom: 20px; }
+    .site-nav { width: 100%; }
+    .site-nav a { flex: 1; justify-content: center; border: 1px solid var(--line); }
     .add { flex-direction: column; }
     .controls { width: 100%; }
     .controls input { flex: 1; width: auto; }

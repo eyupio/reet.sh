@@ -156,11 +156,13 @@
       <label class="vh" for="search">Search skills</label>
       <input id="search" type="search" placeholder="Search" bind:value={q} bind:this={search} />
       <label class="vh" for="sort">Sort by</label>
-      <select id="sort" bind:value={sort}>
-        <option value="recent">Recent</option>
-        <option value="name">Name</option>
-        <option value="installs">Installs</option>
-      </select>
+      <span class="select">
+        <select id="sort" bind:value={sort}>
+          <option value="recent">Recent</option>
+          <option value="name">Name</option>
+          <option value="installs">Installs</option>
+        </select>
+      </span>
     </div>
   </div>
 
@@ -225,6 +227,32 @@
   .sep { width: 1px; height: 20px; background: var(--line); margin: 0 6px; }
   .controls { display: flex; gap: 8px; }
   .controls input { width: 11rem; }
+
+  .select { position: relative; display: inline-flex; }
+  .select select { appearance: none; padding-right: 38px; cursor: pointer; }
+  .select select:hover { border-color: var(--muted); }
+  .select::after {
+    content: ''; position: absolute; right: 16px; top: 50%; width: 7px; height: 7px; pointer-events: none;
+    border: solid var(--muted); border-width: 0 2px 2px 0; transform: translateY(-70%) rotate(45deg);
+  }
+  .select:has(select:open)::after { transform: translateY(-30%) rotate(225deg); }
+  .select option { background: var(--card); color: var(--ink); }
+  @media (prefers-reduced-motion: no-preference) {
+    .select::after { transition: transform 0.15s; }
+  }
+  /* Chromium can draw the list itself, so it can match the cards instead of the OS menu. */
+  @supports (appearance: base-select) {
+    .select select, .select select::picker(select) { appearance: base-select; }
+    .select select::picker-icon { display: none; }
+    .select select::picker(select) {
+      margin-top: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--card);
+      box-shadow: 0 16px 40px -12px rgb(0 0 0 / 0.28);
+    }
+    .select option { padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+    .select option:hover, .select option:focus { background: var(--tint); outline: none; }
+    .select option:checked { font-weight: 650; }
+    .select option::checkmark { color: var(--accent); }
+  }
 
   .count { margin: 14px 0 0; color: var(--muted); font-size: 0.9rem; }
   section { margin-top: 28px; }

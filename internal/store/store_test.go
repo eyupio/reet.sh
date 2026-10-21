@@ -468,6 +468,7 @@ func TestRefreshQueueUsesOldestFetched(t *testing.T) {
 	if queue[0] != a.ID || queue[1] != c.ID {
 		t.Fatalf("unfetched first: %+v", queue)
 	}
+	time.Sleep(2 * time.Millisecond)
 	if err := s.TouchFetched(a.ID); err != nil {
 		t.Fatal(err)
 	}

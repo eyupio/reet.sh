@@ -25,6 +25,13 @@ export type Flags = { liked?: boolean; bookmarked?: boolean; used?: boolean; not
 export type AddResult = Skill & { created: boolean }
 export type RefreshResult = Skill & { changed: boolean; refreshed: boolean }
 
+export type User = { id: number; email: string; name: string; role: string }
+export type AuthStatus = {
+  mode: 'accounts' | 'token' | 'none'
+  setupRequired: boolean
+  bootstrapRequired: boolean
+  user: User | null
+}
 export type Tag = { id: number; name: string; source?: 'topic' | 'user'; hidden?: boolean; count?: number }
 export type Environment = {
   id: string
@@ -56,8 +63,8 @@ const KEY = 'reet-token'
 
 /** The instance refused the request; the UI shows the sign-in card instead of an error. */
 export class UnauthorizedError extends Error {
-  constructor() {
-    super('missing or wrong token')
+  constructor(message = 'missing or wrong token') {
+    super(message)
     this.name = 'UnauthorizedError'
   }
 }
@@ -92,7 +99,15 @@ async function req(path: string, init: RequestInit = {}): Promise<Response> {
   const token = getToken()
   if (token) headers.set('X-Reet-Token', token)
   const res = await fetch(path, { ...init, headers })
-  if (res.status === 401) throw new UnauthorizedError()
+  if (res.status === 401) {
+    let msg = 'missing or wrong token'
+    try {
+      msg = (await res.json()).error ?? msg
+    } catch {
+      /* keep the generic message */
+    }
+    throw new UnauthorizedError(msg)
+  }
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`
     try {
@@ -107,6 +122,20 @@ async function req(path: string, init: RequestInit = {}): Promise<Response> {
 
 const json = (v: unknown) => JSON.stringify(v)
 
+export async function getAuthStatus(): Promise<AuthStatus> {
+  return (await req('/api/v2/auth/status')).json()
+}
+export async function setupAccount(data: { name: string; email: string; password: string }, bootstrapToken = ''): Promise<User> {
+  const headers: Record<string, string> = {}
+  if (bootstrapToken) headers['X-Reet-Token'] = bootstrapToken
+  return (await req('/api/v2/auth/setup', { method: 'POST', body: json(data), headers })).json()
+}
+export async function signInAccount(email: string, password: string): Promise<User> {
+  return (await req('/api/v2/auth/sign-in', { method: 'POST', body: json({ email, password }) })).json()
+}
+export async function signOutAccount(): Promise<void> {
+  await req('/api/v2/auth/sign-out', { method: 'POST', body: json({}) })
+}
 export async function listSkills({ tab, q, sort, tags, env, only }: SkillQuery): Promise<{ skills: Skill[]; counts: Counts }> {
   const p = new URLSearchParams({ tab, q, sort })
   if (tags?.length) p.set('tag', tags.join(','))

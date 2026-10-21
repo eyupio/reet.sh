@@ -3,7 +3,9 @@
   import { getBuildInfo } from './api'
   import { DEVELOPER_NAME, DEVELOPER_URL } from './links'
 
-  let { signedIn = false, onsignout }: { signedIn?: boolean; onsignout?: () => void } = $props()
+  let {
+    signedIn = false, showAdmin = false, userName = '', onsignout,
+  }: { signedIn?: boolean; showAdmin?: boolean; userName?: string; onsignout?: () => void } = $props()
 
   let build = $state<{ version: string; commit: string } | null>(null)
 
@@ -26,10 +28,9 @@
       <span class="descriptor">Your shelf for AI skills</span>
     </span>
     <span class="end">
-      {#if signedIn}
-        <a class="admin" href="/admin">Admin</a>
-        <button type="button" class="signout" onclick={() => onsignout?.()}>Sign out</button>
-      {/if}
+      {#if signedIn && userName}<span class="user">{userName}</span>{/if}
+      {#if showAdmin}<a class="admin" href="/admin">Admin</a>{/if}
+      {#if signedIn}<button type="button" class="signout" onclick={() => onsignout?.()}>Sign out</button>{/if}
       <!-- The credit leaves the app, so it opens in a new tab and the list the person was on is not lost. -->
       <span class="credit">
         Developed by
@@ -59,6 +60,7 @@
     color: var(--muted); font-size: 0.85rem; text-underline-offset: 3px; text-decoration: none;
   }
   .admin { display: inline-flex; align-items: center; }
+  .user { color: var(--muted); font-size: 0.85rem; max-width: 180px; overflow-wrap: anywhere; }
   .signout:hover, .signout:focus-visible, .admin:hover, .admin:focus-visible { color: var(--ink); text-decoration: underline; }
   @media (pointer: coarse) { .signout, .admin { min-height: 44px; } }
   @media (max-width: 560px) { .descriptor { display: none; } }

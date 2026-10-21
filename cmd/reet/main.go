@@ -63,8 +63,20 @@ func serve() error {
 	}
 	defer st.Close()
 	_ = st.PruneEvents(time.Now().AddDate(-1, 0, 0).UnixMilli())
+	_ = st.PruneSessions(time.Now().UnixMilli())
+	mode := api.AuthMode(os.Getenv("REET_AUTH"))
+	switch mode {
+	case "":
+		mode = api.AuthAccounts
+	case api.AuthAccounts, api.AuthToken, api.AuthNone:
+	default:
+		return fmt.Errorf("REET_AUTH must be accounts, token or none")
+	}
+	if mode == api.AuthAccounts && os.Getenv("REET_TOKEN") != "" {
+		log.Printf("accounts enabled; REET_TOKEN is the setup bootstrap and scan token")
+	}
 	h := api.New(st, meta.Default(os.Getenv("SKILLS_SH_TOKEN")), os.Getenv("REET_TOKEN"),
-		api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"),
+		api.WithAuthMode(mode), api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"),
 		api.WithTopics(os.Getenv("REET_TOPICS") != "off"),
 		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"))
 	mux := http.NewServeMux()
@@ -81,7 +93,7 @@ func serve() error {
 		defer cancel()
 		srv.Shutdown(shutdown)
 	}()
-	log.Printf("reet %s (%s) listening on %s", version, commit, srv.Addr)
+	log.Printf("reet %s (%s) listening on %s auth=%s", version, commit, srv.Addr, mode)
 	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

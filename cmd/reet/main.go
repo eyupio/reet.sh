@@ -36,12 +36,17 @@ func main() {
 		if err := serve(); err != nil {
 			log.Fatal(err)
 		}
+	case "healthcheck":
+		if err := healthcheck(healthURL(env("REET_ADDR", ":8080"))); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case "scan":
 		if err := scan.Run(os.Args[2:], os.Stdout); err != nil {
 			log.Fatal(err)
 		}
 	default:
-		fmt.Fprintf(os.Stderr, "usage: reet serve | reet scan [--server URL] [--token T] [--dir PATH] [--dry-run]\n")
+		fmt.Fprintf(os.Stderr, "usage: reet serve | reet healthcheck | reet scan [--server URL] [--token T] [--dir PATH] [--dry-run]\n")
 		os.Exit(2)
 	}
 }

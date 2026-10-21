@@ -89,3 +89,28 @@ python3 brand/contact-sheet.py   # rebuilds contact-sheet.html
 
 Letterforms, icon geometry and the colour table all live in `generate.py`.
 Change there, not in the SVGs.
+
+## Web icons and social image
+
+The web UI's icons and link-preview image live in `web/public/` and are copied
+to the site root on build.
+
+| File | Source | Use |
+| --- | --- | --- |
+| `favicon.svg` | `icon-color-*.svg` | Browser tab icon; switches between the light and dark colours with the browser theme. |
+| `favicon.ico` | `tile-ink.svg` (16, 32, 48 px) | Fallback for browsers without SVG favicons. |
+| `apple-touch-icon.png` | `tile-ink.svg`, square corners, 180 px | iOS home screen (iOS rounds the corners itself). |
+| `icon-192.png`, `icon-512.png` | `tile-ink.svg` | Installed-app icons. |
+| `icon-maskable-512.png` | `tile-ink.svg`, square corners | Android adaptive icon (the mark sits inside the safe zone). |
+| `og-image.png` | `og-image.html`, 1200 x 630 | `og:image` and `twitter:image` link previews. |
+| `site.webmanifest` | | Names, colours and the icons above for "install app". |
+
+The tile is used for the raster icons so they stay visible on both light and
+dark tab bars. To rebuild the social image after editing `og-image.html`:
+
+```sh
+chromium --headless --screenshot=web/public/og-image.png --window-size=1200,630 brand/og-image.html
+```
+
+The `og:image` and `og:url` tags in `web/index.html` assume the public origin
+`https://reet.sh`; change them there if the site is served elsewhere.

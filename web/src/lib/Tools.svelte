@@ -23,6 +23,7 @@
   let format = $state<'json' | 'md' | 'csv'>('json')
   let ignored = $state<Ignored[]>([])
   let showTags = $state(false)
+  let restoreInput = $state<HTMLInputElement>()
   const title = $derived(hideBookmarklets ? 'tools' : 'bookmarklets and tools')
 
   onMount(() => {
@@ -144,7 +145,8 @@
         <p class="export-hint">Markdown and CSV follow the current search, stage, tag and environment filters.</p>
       {/if}
       <p class="links">
-        <label class="btn file">Restore from JSON<input type="file" accept="application/json" onchange={pickRestore} hidden /></label>
+        <button type="button" class="btn" onclick={() => restoreInput?.click()}>Restore from JSON</button>
+        <input bind:this={restoreInput} type="file" accept="application/json" aria-label="Choose a JSON backup" onchange={pickRestore} hidden />
       </p>
 
       {#if canManageTags}
@@ -196,7 +198,6 @@
   p { margin: 4px 0; color: var(--muted); }
   code { font-size: 0.85rem; overflow-wrap: anywhere; }
   .links { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
-  .file { display: inline-flex; align-items: center; }
   .panel textarea { margin: 6px 0; }
   .check { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 0.9rem; }
   .export-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }

@@ -2,6 +2,7 @@
   import { tick } from 'svelte'
   import { setupAccount, type User } from './api'
   import AuthCard from './AuthCard.svelte'
+  import PasswordInput from './PasswordInput.svelte'
 
   let { bootstrapRequired = false, onsuccess }: {
     bootstrapRequired?: boolean
@@ -54,22 +55,22 @@
   }
 </script>
 
-<AuthCard title="Set up reet.sh" lede="Create the owner account for this instance. Everything already on the shelf stays where it is.">
-  <form onsubmit={submit}>
+<AuthCard eyebrow="A fresh start" title="Set up reet.sh" lede="Create the owner account for this instance. Everything already on the shelf stays where it is.">
+  <form onsubmit={submit} aria-busy={busy} aria-describedby={error ? "setup-error" : undefined}>
     <label for="setup-name">Your name</label>
     <input id="setup-name" bind:this={nameInput} bind:value={name} autocomplete="name" placeholder="Sam" />
     <label for="setup-email">Email</label>
-    <input id="setup-email" bind:value={email} type="email" autocomplete="username" placeholder="you@example.com" />
+    <input id="setup-email" bind:value={email} type="email" required autocomplete="username" placeholder="you@example.com" />
     <label for="setup-password">Password</label>
-    <input id="setup-password" bind:value={password} type="password" autocomplete="new-password" placeholder="At least 8 characters" />
+    <PasswordInput id="setup-password" bind:value={password} autocomplete="new-password" placeholder="At least 8 characters" minlength={8} />
     <label for="setup-confirm">Confirm password</label>
-    <input id="setup-confirm" bind:value={confirm} type="password" autocomplete="new-password" placeholder="Repeat the password" />
+    <PasswordInput id="setup-confirm" bind:value={confirm} autocomplete="new-password" placeholder="Repeat the password" minlength={8} />
     {#if bootstrapRequired}
       <label for="setup-token">Access token</label>
       <input id="setup-token" bind:value={bootstrap} type="password" autocomplete="off" spellcheck="false" placeholder="From your .env file" />
       <p class="hint">This is the bootstrap credential. Find it on the server: <code>grep REET_TOKEN .env</code></p>
     {/if}
-    {#if error}<p class="error" role="alert">{error}</p>{/if}
+    {#if error}<p class="error" id="setup-error" role="alert">{error}</p>{/if}
     <button type="submit" class="btn primary submit" disabled={busy}>{busy ? 'Creating…' : 'Create owner'}</button>
   </form>
 </AuthCard>

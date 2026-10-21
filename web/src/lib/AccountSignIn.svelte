@@ -2,6 +2,7 @@
   import { tick } from 'svelte'
   import { signInAccount, type User } from './api'
   import AuthCard from './AuthCard.svelte'
+  import PasswordInput from './PasswordInput.svelte'
 
   let { onsuccess }: { onsuccess: (user: User) => Promise<void> | void } = $props()
 
@@ -37,15 +38,16 @@
   }
 </script>
 
-<AuthCard title="Sign in to your shelf" lede="Use your reet.sh account to open the shelf.">
-  <form onsubmit={submit}>
+<AuthCard title="Sign in to your shelf" lede="Welcome back. Pick up where you left off.">
+  <form onsubmit={submit} aria-busy={busy} aria-describedby={error ? "signin-error" : undefined}>
     <label for="signin-email">Email</label>
-    <input id="signin-email" bind:this={emailInput} bind:value={email} type="email" autocomplete="username" placeholder="you@example.com" />
+    <input id="signin-email" bind:this={emailInput} bind:value={email} type="email" required autocomplete="username" placeholder="you@example.com" />
     <label for="signin-password">Password</label>
-    <input id="signin-password" bind:value={password} type="password" autocomplete="current-password" placeholder="Your password" />
-    {#if error}<p class="error" role="alert">{error}</p>{/if}
+    <PasswordInput id="signin-password" bind:value={password} autocomplete="current-password" placeholder="Your password" />
+    {#if error}<p class="error" id="signin-error" role="alert">{error}</p>{/if}
     <button type="submit" class="btn primary submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
   </form>
+  <p class="help">Need an account or a password reset? Ask your instance admin for an invitation.</p>
 </AuthCard>
 
 <style>
@@ -53,5 +55,6 @@
   label { font-weight: 600; font-size: 0.9rem; }
   input { width: 100%; }
   .submit { width: 100%; margin-top: 4px; }
+  .help { margin: 20px 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.8rem; }
   .error { margin: 0; color: var(--bad); font-size: 0.9rem; }
 </style>

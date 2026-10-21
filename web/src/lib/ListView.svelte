@@ -529,7 +529,7 @@
   .who { flex: 1 1 200px; display: grid; gap: 1px; min-width: 0; }
   .who strong { font-size: 0.9rem; overflow-wrap: anywhere; }
   .who small { color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }
-  .tag-owner { margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: var(--tint); color: var(--accent); font-size: 0.65rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+  .tag-owner { margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: var(--tint); color: var(--ink); font-size: 0.65rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
   .role { color: var(--muted); font-size: 0.82rem; }
   .people select { width: auto; padding: 6px 10px; }
   .addperson { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }

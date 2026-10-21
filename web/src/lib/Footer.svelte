@@ -41,11 +41,10 @@
 </footer>
 
 <style>
-  /* Same 16px gutter and 760px column as <main>, so the hairline lines up with the content above it. */
-  footer { color: var(--muted); font-size: 0.85rem; padding: 0 16px; }
+  footer { color: var(--muted); font-size: 0.85rem; padding: 0 24px; }
   .inner {
     display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px;
-    max-width: 728px; margin: 0 auto; padding: 18px 0 40px; border-top: 1px solid var(--line);
+    max-width: calc(var(--content-width) - 48px); margin: 0 auto; padding: 22px 0 32px; border-top: 1px solid var(--line);
   }
   .brand { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
   .name { font-weight: 600; color: var(--ink); }

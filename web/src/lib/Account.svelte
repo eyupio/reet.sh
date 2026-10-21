@@ -130,7 +130,7 @@
   .who { margin: 6px 0 0; color: var(--muted); }
   .notice { margin: 16px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
   .notice.bad { border-color: var(--bad); }
-  .block { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--line); }
+  .block { margin-top: 24px; padding: clamp(18px, 3vw, 28px); border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
   h3 {
     margin: 0; color: var(--muted); font-size: 0.68rem; font-weight: 700;
     letter-spacing: 0.1em; text-transform: uppercase;

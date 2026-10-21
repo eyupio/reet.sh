@@ -295,6 +295,12 @@
   <a class="back" href="/">← Back to the shelf</a>
   <p class="eyebrow">Operator</p>
   <h2 id="admin-title">Admin</h2>
+  <nav class="section-nav" aria-label="Admin sections">
+    <a href="#admin-overview">Overview</a>
+    <a href="#admin-envs">Environments</a>
+    {#if accounts}<a href="#admin-users">Users</a><a href="#admin-team">Team rollup</a>{/if}
+    <a href="#admin-settings">Jobs and instance</a>
+  </nav>
 
   {#if loading}
     <p class="empty" role="status">Loading…</p>
@@ -302,7 +308,7 @@
     <p class="notice bad" role="alert">{error || 'Could not load the admin status.'}</p>
   {:else}
     {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
-    <div class="cards">
+    <div class="cards" id="admin-overview">
       <article>
         <h3>Version</h3>
         <p>{status.version}</p>
@@ -337,7 +343,8 @@
       {#if status.environments.length === 0}
         <p class="muted">No scans yet. Run <code>reet scan --env NAME</code> on a machine.</p>
       {:else}
-        <div class="tablewrap">
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll wide tables.) -->
+        <div class="tablewrap" tabindex="0" role="region" aria-label="Environments table, scroll horizontally for more">
           <table>
             <thead><tr><th>Environment</th><th>Skills</th><th>Last scan</th><th>Path</th></tr></thead>
             <tbody>
@@ -392,7 +399,8 @@
           </div>
         {/if}
 
-        <div class="tablewrap">
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll wide tables.) -->
+        <div class="tablewrap" tabindex="0" role="region" aria-label="Users table, scroll horizontally for more">
           <table>
             <thead><tr><th>User</th><th>Role</th><th>Last active</th><th>Tokens</th><th></th></tr></thead>
             <tbody>
@@ -404,7 +412,7 @@
                   </td>
                   <td>
                     {#if canManage(user) && role === 'owner'}
-                      <select value={user.role} onchange={(e) => saveRole(user, e.currentTarget.value)} disabled={busyID === user.id}>
+                      <select aria-label={`Instance role for ${user.name}`} value={user.role} onchange={(e) => saveRole(user, e.currentTarget.value)} disabled={busyID === user.id}>
                         {#each roleOptions(user) as option}
                           <option value={option} selected={option === user.role}>{option}</option>
                         {/each}
@@ -480,7 +488,8 @@
           {#if rollupRows.length === 0}
             <p class="muted">Nothing matches those filters.</p>
           {:else}
-            <div class="tablewrap">
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll wide tables.) -->
+            <div class="tablewrap" tabindex="0" role="region" aria-label="Team adoption table, scroll horizontally for more">
               <table class="rollup-table">
                 <thead><tr><th>Skill</th><th>Lists</th><th>In use</th><th>On shelf</th><th>Machines</th><th>Team</th></tr></thead>
                 <tbody>
@@ -621,6 +630,10 @@
 
 <style>
   .admin { padding-top: 4px; }
+  .section-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+  .section-nav a { display: inline-flex; align-items: center; min-height: 40px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 0.82rem; }
+  .section-nav a:hover { background: var(--tint); border-color: var(--accent); color: var(--ink); }
+  h3, #admin-overview { scroll-margin-top: 24px; }
   .back { color: var(--muted); font-size: 0.9rem; text-decoration: none; }
   .back:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
   .eyebrow {
@@ -643,9 +656,9 @@
   .cards small { display: block; margin-top: 4px; color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }
   .stages { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 14px; color: var(--muted); font-size: 0.9rem; }
   .stages strong { color: var(--ink); font-variant-numeric: tabular-nums; }
-  .block { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--line); }
+  .block { margin-top: 24px; padding: clamp(16px, 3vw, 24px); border: 1px solid var(--line); border-radius: 12px; background: var(--card); min-width: 0; }
   .muted { margin: 8px 0 0; color: var(--muted); }
-  .tablewrap { margin-top: 8px; overflow-x: auto; }
+  .tablewrap { margin-top: 14px; overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
   th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
   td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); vertical-align: top; }

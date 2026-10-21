@@ -98,7 +98,8 @@
   .lede { margin: 10px 0 0; color: var(--muted); max-width: 58ch; }
   .meta { margin: 12px 0 0; color: var(--muted); font-size: 0.82rem; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
-  .actions .btn { display: inline-flex; align-items: center; justify-content: center; color: var(--ink); text-decoration: none; }
+  .actions .btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+  .actions a.btn { color: var(--ink); }
   .status { margin: 14px 0 0; color: var(--good); font-size: 0.88rem; }
   .error { margin: 14px 0 0; color: var(--bad); font-size: 0.88rem; }
   .privacy { margin: 18px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--bg) 45%, var(--card)); color: var(--muted); font-size: 0.8rem; }

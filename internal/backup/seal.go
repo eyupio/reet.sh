@@ -108,7 +108,7 @@ func (s *Sealer) Seal(m Manifest, payload []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]byte, 0, len(archiveMagic)+4+len(head)+saltLen+nonceLen+len(sealed))
+	var out []byte
 	out = append(out, archiveMagic...)
 	out = binary.BigEndian.AppendUint32(out, uint32(len(head)))
 	out = append(out, head...)
@@ -191,18 +191,22 @@ func ManifestOf(data []byte) (Manifest, error) {
 	return m, nil
 }
 
-func (s *Sealer) secretKey() []byte {
-	sum := sha256.Sum256(append([]byte("reet-backup-secret-v1\x00"), s.passphrase...))
-	return sum[:]
-}
-
 // SealSecret keeps a destination's secret access key unreadable in the
-// database, under the same key that opens the copies.
+// database, under the same passphrase that opens the copies. Each secret gets
+// its own salt, so the Argon2id work is not shared between them.
 func (s *Sealer) SealSecret(secret string) (string, error) {
 	if secret == "" {
 		return "", nil
 	}
-	block, err := aes.NewCipher(s.secretKey())
+	salt := make([]byte, saltLen)
+	nonce := make([]byte, nonceLen)
+	if _, err := rand.Read(salt); err != nil {
+		return "", err
+	}
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(derive(s.passphrase, salt))
 	if err != nil {
 		return "", err
 	}
@@ -210,20 +214,21 @@ func (s *Sealer) SealSecret(secret string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	nonce := make([]byte, nonceLen)
-	if _, err := rand.Read(nonce); err != nil {
-		return "", err
-	}
-	out := aead.Seal(nonce, nonce, []byte(secret), nil)
+	var out []byte
+	out = append(out, salt...)
+	out = append(out, nonce...)
+	out = aead.Seal(out, nonce, []byte(secret), nil)
 	return base64.RawURLEncoding.EncodeToString(out), nil
 }
 
 func (s *Sealer) OpenSecret(sealed string) (string, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(sealed)
-	if err != nil || len(raw) < nonceLen {
+	if err != nil || len(raw) < saltLen+nonceLen {
 		return "", errors.New("the stored secret is damaged")
 	}
-	block, err := aes.NewCipher(s.secretKey())
+	salt := raw[:saltLen]
+	nonce := raw[saltLen : saltLen+nonceLen]
+	block, err := aes.NewCipher(derive(s.passphrase, salt))
 	if err != nil {
 		return "", err
 	}
@@ -231,7 +236,7 @@ func (s *Sealer) OpenSecret(sealed string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	plain, err := aead.Open(nil, raw[:nonceLen], raw[nonceLen:], nil)
+	plain, err := aead.Open(nil, nonce, raw[saltLen+nonceLen:], nil)
 	if err != nil {
 		return "", fmt.Errorf("the stored secret was sealed under another backup key; enter it again")
 	}

@@ -12,6 +12,8 @@
     type Counts, type Environment, type Event, type Flags, type ListRef, type SharedList, type Skill, type Sort, type Tag, type User,
   } from './lib/api'
   import Account from './lib/Account.svelte'
+  import MCPConsent from './lib/MCPConsent.svelte'
+  import WebMCP from './lib/WebMCP.svelte'
   import Hosting from './lib/Hosting.svelte'
   import AccountSignIn from './lib/AccountSignIn.svelte'
   import Admin from './lib/Admin.svelte'
@@ -91,6 +93,7 @@
   const isSpaces = location.pathname === '/spaces'
   const isAdmin = location.pathname.startsWith('/admin')
   const isAccount = location.pathname.startsWith('/account')
+  const isMCPConsent = location.pathname === '/account/mcp/authorize'
   const isJoin = location.pathname.startsWith('/join')
   const listMatch = location.pathname.match(/^\/lists\/(\d+)\/?$/)
   const isList = listMatch !== null
@@ -105,7 +108,7 @@
   const role = $derived(currentUser?.role ?? (authMode === 'accounts' ? 'viewer' : 'owner'))
   const canWrite = $derived(authMode !== 'accounts' || role !== 'viewer')
   const isAdminUser = $derived(authMode !== 'accounts' || role === 'owner' || role === 'admin')
-  const accountPages = [['profile', 'Profile'], ['security', 'Password'], ['sessions', 'Sessions'], ['machines', 'Machines'], ['sync', 'Compare & sync'], ['tokens', 'API tokens'], ['backups', 'Backups'], ['activity', 'Activity']]
+  const accountPages = [['profile', 'Profile'], ['security', 'Password'], ['sessions', 'Sessions'], ['machines', 'Machines'], ['sync', 'Compare & sync'], ['tokens', 'API tokens'], ['mcp', 'MCP access'], ['backups', 'Backups'], ['activity', 'Activity']]
   const adminPages = [['overview', 'Overview'], ['environments', 'Environments'], ['users', 'Users'], ['team', 'Team usage'], ['backups', 'Backups'], ['settings', 'Settings'], ['activity', 'Activity']]
   const mainNavigation = $derived([
     { href: '/', label: 'Personal shelf', current: !isHosting && !isAdmin && !isAccount && !isList && !isCommunity && !isShared && !isSpaces },
@@ -234,8 +237,10 @@
   onMount(() => {
     try { view = localStorage.getItem('reet-shelf-view') === 'board' ? 'board' : 'list' } catch { /* use the default when storage is unavailable */ }
     void initAuth()
+    const changed = () => { if (authenticated) void reloadAll() }
+    window.addEventListener('reet-shelf-changed', changed)
     const timer = setInterval(() => (inventoryNow = Date.now()), 60000)
-    return () => clearInterval(timer)
+    return () => { clearInterval(timer); window.removeEventListener('reet-shelf-changed', changed) }
   })
 
   function chooseView(next: 'list' | 'board') {
@@ -677,6 +682,8 @@
     <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
   {:else if isSpaces}
     <Spaces {canWrite} />
+  {:else if isMCPConsent && authMode === 'accounts'}
+    <MCPConsent />
   {:else if isAccount && authMode === 'accounts'}
     <Account user={currentUser!} onsignout={signOut} onerror={fail} onuserchange={(u) => (currentUser = u)} />
   {:else if isList}
@@ -877,6 +884,8 @@
     {/if}
   {/if}
 </main>
+
+{#if authMode === 'accounts' && currentUser && !needsAuth && !isMCPConsent}<WebMCP />{/if}
 <Footer
   signedIn={!isPublicList && authMode !== 'none' && authenticated && !needsAuth}
   showAdmin={!isPublicList && authenticated && !needsAuth && isAdminUser}

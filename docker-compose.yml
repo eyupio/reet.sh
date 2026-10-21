@@ -10,6 +10,7 @@ services:
       - "${REET_PORT:-8080}:8080"
     environment:
       REET_AUTH: ${REET_AUTH:-accounts}
+      REET_PUBLIC_URL: ${REET_PUBLIC_URL:-}
       REET_TOKEN: ${REET_TOKEN:-}
       SKILLS_SH_TOKEN: ${SKILLS_SH_TOKEN:-}
       REET_LOG: ${REET_LOG:-}

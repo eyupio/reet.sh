@@ -26,11 +26,17 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: |
+            web/package-lock.json
+            mcp/package-lock.json
       - run: npm ci
         working-directory: web
       - run: npm run check
         working-directory: web
+      - run: npm ci
+        working-directory: mcp
+      - run: npm test
+        working-directory: mcp
       - run: go vet ./...
       - run: go test -race ./...
 

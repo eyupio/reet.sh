@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -374,5 +375,114 @@ func TestRenameAndMergeTags(t *testing.T) {
 	}
 	if code, b := do(t, srv, "GET", `/api/skills?q=tag%3Asecond`, ""); code != 200 || !strings.Contains(b, `"name":"one"`) || !strings.Contains(b, `"name":"two"`) {
 		t.Fatalf("merged filter: %d %s", code, b)
+	}
+}
+
+func TestManualRefreshReportsChange(t *testing.T) {
+	var mu sync.Mutex
+	body := ""
+	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Write([]byte(body))
+	}))
+	defer page.Close()
+	srv := newSrv(t, meta.Fetcher{Client: page.Client(), PageBase: page.URL + "/"}, "")
+	do(t, srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`)
+	time.Sleep(150 * time.Millisecond)
+	mu.Lock()
+	body = `<meta name="description" content="Changed">`
+	mu.Unlock()
+	var res struct {
+		Changed   bool `json:"changed"`
+		Refreshed bool `json:"refreshed"`
+	}
+	code, b := do(t, srv, "POST", "/api/skill/refresh", `{"id":"vercel-labs/skills/find-skills"}`)
+	if code != 200 || json.Unmarshal([]byte(b), &res) != nil || !res.Changed || !res.Refreshed {
+		t.Fatalf("first refresh: %d %s", code, b)
+	}
+	code, b = do(t, srv, "POST", "/api/skill/refresh", `{"id":"vercel-labs/skills/find-skills"}`)
+	if code != 200 || json.Unmarshal([]byte(b), &res) != nil || res.Changed || !res.Refreshed {
+		t.Fatalf("second refresh: %d %s", code, b)
+	}
+}
+
+func TestBulkPatchTagAndRemove(t *testing.T) {
+	srv := newSrv(t, deadFetcher(t), "")
+	ids := []string{"a/b/one", "a/b/two", "a/b/three"}
+	for _, id := range ids {
+		do(t, srv, "POST", "/api/skills", `{"input":"`+id+`"}`)
+	}
+	mkBody := func(extra string) string {
+		return `{"ids":["a/b/one","a/b/two","a/b/three"],` + extra + `}`
+	}
+	if code, b := do(t, srv, "PATCH", "/api/skills", mkBody(`"used":true`)); code != 200 || !strings.Contains(b, `"updated":3`) {
+		t.Fatalf("bulk stage: %d %s", code, b)
+	}
+	if l := list(t, srv, "?tab=used"); len(l.Skills) != 3 {
+		t.Fatalf("used: %+v", l)
+	}
+	if code, b := do(t, srv, "POST", "/api/skills/tags", mkBody(`"add":["bulk"],"remove":[]`)); code != 200 || !strings.Contains(b, `"tagged":3`) {
+		t.Fatalf("bulk tag: %d %s", code, b)
+	}
+	if code, b := do(t, srv, "GET", "/api/skills?q=tag%3Abulk", ""); code != 200 || !strings.Contains(b, "a/b/one") || !strings.Contains(b, "a/b/three") {
+		t.Fatalf("bulk tag filter: %d %s", code, b)
+	}
+	if code, b := do(t, srv, "POST", "/api/skills/remove", mkBody(`"ignore":false`)); code != 200 || !strings.Contains(b, `"removed":3`) {
+		t.Fatalf("bulk remove: %d %s", code, b)
+	}
+	if l := list(t, srv, ""); len(l.Skills) != 0 {
+		t.Fatalf("after remove: %+v", l)
+	}
+	if code, b := do(t, srv, "GET", "/api/events", ""); code != 200 || !strings.Contains(b, "bulk-stage") || !strings.Contains(b, "bulk-tag") || !strings.Contains(b, "bulk-remove") {
+		t.Fatalf("bulk events: %d %s", code, b)
+	}
+}
+
+func TestAdminStatusAndSettings(t *testing.T) {
+	srv := newSrv(t, deadFetcher(t), "")
+	do(t, srv, "POST", "/api/skills", `{"input":"a/b/one"}`)
+	code, b := do(t, srv, "GET", "/api/admin/status", "")
+	var status struct {
+		Version string       `json:"version"`
+		Counts  store.Counts `json:"counts"`
+		DB      struct {
+			Path string
+			Size int64
+		} `json:"db"`
+		Settings struct {
+			RefreshEnabled bool   `json:"refreshEnabled"`
+			TopicsEnabled  bool   `json:"topicsEnabled"`
+			InstanceName   string `json:"instanceName"`
+		} `json:"settings"`
+	}
+	if code != 200 || json.Unmarshal([]byte(b), &status) != nil || status.Counts.All != 1 || status.DB.Path == "" || !status.Settings.RefreshEnabled {
+		t.Fatalf("status: %d %s", code, b)
+	}
+	if code, b := do(t, srv, "PATCH", "/api/admin/settings", `{"refreshEnabled":false,"topicsEnabled":false,"instanceName":"Team shelf"}`); code != 200 {
+		t.Fatalf("settings: %d %s", code, b)
+	}
+	code, b = do(t, srv, "GET", "/api/admin/status", "")
+	if code != 200 || json.Unmarshal([]byte(b), &status) != nil || status.Settings.RefreshEnabled || status.Settings.TopicsEnabled || status.Settings.InstanceName != "Team shelf" {
+		t.Fatalf("updated status: %d %s", code, b)
+	}
+	if code, b := do(t, srv, "GET", "/api/events?limit=20", ""); code != 200 || !strings.Contains(b, `"action":"settings"`) {
+		t.Fatalf("settings event: %d %s", code, b)
+	}
+}
+
+func TestFilteredMarkdownAndCSV(t *testing.T) {
+	srv := newSrv(t, deadFetcher(t), "")
+	do(t, srv, "POST", "/api/skills", `{"input":"a/b/one"}`)
+	do(t, srv, "POST", "/api/skills", `{"input":"a/b/two"}`)
+	do(t, srv, "POST", "/api/skill/tags", `{"id":"a/b/one","add":["bulk"],"remove":[]}`)
+	do(t, srv, "POST", "/api/import", `{"items":[{"name":"one","source":"a/b","host":"laptop","agent":"claude"}]}`)
+	code, md := do(t, srv, "GET", "/api/export?format=md&q=one", "")
+	if code != 200 || !strings.Contains(md, "## In use") || !strings.Contains(md, "npx skills add https://github.com/a/b --skill one") {
+		t.Fatalf("markdown: %d %s", code, md)
+	}
+	code, csvOut := do(t, srv, "GET", "/api/export?format=csv&q=tag%3Abulk", "")
+	if code != 200 || !strings.Contains(csvOut, "id,name,stage") || !strings.Contains(csvOut, "a/b/one") || !strings.Contains(csvOut, "bulk") {
+		t.Fatalf("csv: %d %s", code, csvOut)
 	}
 }

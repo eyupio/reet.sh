@@ -2,14 +2,18 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -20,14 +24,15 @@ import (
 )
 
 type server struct {
-	st      *store.Store
-	f       meta.Fetcher
-	token   string
-	version string
-	commit  string
-	debug   bool
-	topics  bool
-	queue   chan ref.Ref
+	st         *store.Store
+	f          meta.Fetcher
+	token      string
+	version    string
+	commit     string
+	debug      bool
+	topics     bool
+	refreshJob bool
+	queue      chan ref.Ref
 }
 
 // Option configures the server.
@@ -55,6 +60,11 @@ func WithTopics(enabled bool) Option {
 	return func(s *server) { s.topics = enabled }
 }
 
+// WithRefresh enables the six-hourly metadata refresh.
+func WithRefresh(enabled bool) Option {
+	return func(s *server) { s.refreshJob = enabled }
+}
+
 // New returns the API handler. An empty token disables authentication.
 func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Handler {
 	s := &server{st: st, f: f, token: token, version: "dev", commit: "unknown", queue: make(chan ref.Ref, 256)}
@@ -64,6 +74,9 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	go s.worker()
 	if s.topics {
 		go s.topicWorker()
+	}
+	if s.refreshJob {
+		go s.refreshWorker()
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
@@ -75,6 +88,9 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	mux.HandleFunc("POST /api/skill/refresh", s.refresh)
 	mux.HandleFunc("POST /api/skill/resolve", s.resolve)
 	mux.HandleFunc("POST /api/skill/tags", s.skillTags)
+	mux.HandleFunc("PATCH /api/skills", s.patchMany)
+	mux.HandleFunc("POST /api/skills/tags", s.tagMany)
+	mux.HandleFunc("POST /api/skills/remove", s.removeMany)
 	mux.HandleFunc("POST /api/skill/install-copy", s.installCopy)
 	mux.HandleFunc("DELETE /api/skill/ignore", s.unignore)
 	mux.HandleFunc("POST /api/import", s.importSkills)
@@ -84,6 +100,8 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	mux.HandleFunc("POST /api/tags/merge", s.mergeTags)
 	mux.HandleFunc("GET /api/events", s.events)
 	mux.HandleFunc("GET /api/ignored", s.ignored)
+	mux.HandleFunc("GET /api/admin/status", s.adminStatus)
+	mux.HandleFunc("PATCH /api/admin/settings", s.adminSettings)
 	mux.HandleFunc("GET /api/export", s.export)
 	mux.HandleFunc("POST /api/restore", s.restore)
 	mux.HandleFunc("GET /quick", s.quick)
@@ -188,25 +206,30 @@ func (s *server) worker() {
 	}
 }
 
-func (s *server) fetchInto(r ref.Ref) {
+func (s *server) fetchInto(r ref.Ref) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	m := s.f.Fetch(ctx, r)
 	if m.Empty() {
+		_ = s.st.SetSetting("meta_last_error", "metadata unavailable")
 		if s.debug {
 			log.Printf("meta fetch id=%s result=empty", r.ID)
 		}
-		return
+		return false
 	}
 	if err := s.st.SetMeta(r.ID, m.Name, m.Description, m.Installs, m.InstallsWeek, m.Trend); err != nil {
+		_ = s.st.SetSetting("meta_last_error", err.Error())
 		if s.debug {
 			log.Printf("meta store id=%s error=%v", r.ID, err)
 		}
-		return
+		return false
 	}
+	_ = s.st.SetSetting("meta_last_ok_at", strconv.FormatInt(time.Now().UnixMilli(), 10))
+	_ = s.st.SetSetting("meta_last_error", "")
 	if s.debug {
 		log.Printf("meta fetch id=%s name=%q installs=%d", r.ID, m.Name, m.Installs)
 	}
+	return true
 }
 
 func (s *server) enqueue(r ref.Ref) {
@@ -226,6 +249,9 @@ func (s *server) topicWorker() {
 }
 
 func (s *server) syncTopics() {
+	if v, _ := s.st.GetSetting("topics_enabled"); v == "0" {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	topics, err := s.f.Topics(ctx)
@@ -249,6 +275,50 @@ func (s *server) syncTopics() {
 	}
 	if s.debug {
 		log.Printf("topics synced count=%d", len(converted))
+	}
+}
+
+func (s *server) refreshWorker() {
+	time.Sleep(10 * time.Second)
+	s.refreshBatch()
+	ticker := time.NewTicker(6 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		s.refreshBatch()
+	}
+}
+
+func (s *server) refreshBatch() {
+	if v, _ := s.st.GetSetting("refresh_enabled"); v == "0" {
+		return
+	}
+	ids, err := s.st.RefreshQueue(50)
+	if err != nil {
+		if s.debug {
+			log.Printf("refresh queue error=%v", err)
+		}
+		return
+	}
+	failures := 0
+	for _, id := range ids {
+		rf, err := ref.Parse(id)
+		if err != nil {
+			continue
+		}
+		if s.fetchInto(rf) {
+			failures = 0
+		} else {
+			_ = s.st.TouchFetched(id)
+			failures++
+			if failures >= 3 {
+				if s.debug {
+					log.Printf("refresh backing off after %d failures", failures)
+				}
+				time.Sleep(time.Hour)
+				failures = 0
+			}
+		}
+		time.Sleep(2 * time.Second)
 	}
 }
 
@@ -287,7 +357,7 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
-func (s *server) list(w http.ResponseWriter, r *http.Request) {
+func filterFromRequest(r *http.Request) store.Filter {
 	q := r.URL.Query()
 	f := store.Filter{
 		Tab:   q.Get("tab"),
@@ -295,6 +365,7 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 		Sort:  q.Get("sort"),
 		Env:   q.Get("env"),
 		Only:  q.Get("only"),
+		Stage: q.Get("stage"),
 	}
 	for _, raw := range q["tag"] {
 		for _, part := range strings.Split(raw, ",") {
@@ -303,7 +374,11 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	skills, counts, err := s.st.List(f)
+	return f
+}
+
+func (s *server) list(w http.ResponseWriter, r *http.Request) {
+	skills, counts, err := s.st.List(filterFromRequest(r))
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -419,14 +494,35 @@ func (s *server) refresh(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "skill has no skills.sh source to refresh from")
 		return
 	}
-	s.fetchInto(rf)
+	before, _, _ := s.st.Get(in.ID)
+	refreshed := s.fetchInto(rf)
 	sk, ok, err := s.st.Get(in.ID)
 	if err != nil || !ok {
 		writeErr(w, 404, "skill not found")
 		return
 	}
-	s.event("ui", "refresh", sk.ID, map[string]any{"name": sk.Name})
-	writeJSON(w, 200, sk)
+	changed := refreshed && metaChanged(before, sk)
+	s.event("ui", "refresh", sk.ID, map[string]any{"name": sk.Name, "changed": changed, "ok": refreshed})
+	writeJSON(w, 200, struct {
+		store.Skill
+		Changed   bool `json:"changed"`
+		Refreshed bool `json:"refreshed"`
+	}{sk, changed, refreshed})
+}
+
+func metaChanged(a, b store.Skill) bool {
+	if a.Name != b.Name || a.Description != b.Description || a.Installs != b.Installs || a.InstallsWeek != b.InstallsWeek {
+		return true
+	}
+	if len(a.Trend) != len(b.Trend) {
+		return true
+	}
+	for i := range a.Trend {
+		if a.Trend[i] != b.Trend[i] {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *server) resolve(w http.ResponseWriter, r *http.Request) {
@@ -671,6 +767,109 @@ func (s *server) installCopy(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func validIDs(ids []string) bool {
+	if len(ids) == 0 || len(ids) > 500 {
+		return false
+	}
+	for _, id := range ids {
+		if id == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func bulkAction(p store.Patch) (string, map[string]any) {
+	detail := map[string]any{}
+	switch {
+	case p.Notes != nil:
+		return "bulk-patch", detail
+	case p.Liked != nil && p.Bookmarked == nil && p.Used == nil:
+		detail["liked"] = *p.Liked
+		return "bulk-like", detail
+	case p.Bookmarked != nil || p.Used != nil:
+		to := "On the shelf"
+		if p.Used != nil && *p.Used {
+			to = "In use"
+		} else if p.Bookmarked != nil && *p.Bookmarked {
+			to = "To test"
+		}
+		detail["to"] = to
+		return "bulk-stage", detail
+	}
+	return "bulk-patch", detail
+}
+
+func (s *server) patchMany(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		IDs []string `json:"ids"`
+		store.Patch
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if !validIDs(in.IDs) {
+		writeErr(w, 400, "choose between 1 and 500 skills")
+		return
+	}
+	n, err := s.st.PatchMany(in.IDs, in.Patch)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	action, detail := bulkAction(in.Patch)
+	detail["count"] = n
+	s.event("ui", action, "", detail)
+	writeJSON(w, 200, map[string]int{"updated": n})
+}
+
+func (s *server) tagMany(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		IDs    []string `json:"ids"`
+		Add    []string `json:"add"`
+		Remove []int64  `json:"remove"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if !validIDs(in.IDs) {
+		writeErr(w, 400, "choose between 1 and 500 skills")
+		return
+	}
+	n, err := s.st.TagMany(in.IDs, in.Add, in.Remove)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.event("ui", "bulk-tag", "", map[string]any{"count": n, "added": in.Add, "removed": in.Remove})
+	writeJSON(w, 200, map[string]int{"tagged": n})
+}
+
+func (s *server) removeMany(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		IDs    []string `json:"ids"`
+		Ignore bool     `json:"ignore"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if !validIDs(in.IDs) {
+		writeErr(w, 400, "choose between 1 and 500 skills")
+		return
+	}
+	n, err := s.st.RemoveMany(in.IDs, in.Ignore)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	action := "bulk-remove"
+	if in.Ignore {
+		action = "bulk-ignore"
+	}
+	s.event("ui", action, "", map[string]any{"count": n})
+	writeJSON(w, 200, map[string]int{"removed": n})
+}
+
 func (s *server) renameTag(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		ID   int64  `json:"id"`
@@ -761,16 +960,251 @@ func (s *server) unignore(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func settingEnabled(st *store.Store, key string) bool {
+	v, _ := st.GetSetting(key)
+	return v != "0"
+}
+
+func (s *server) probeSkillsSh(ctx context.Context) bool {
+	if s.f.PageBase == "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(s.f.PageBase, "/")+"/", nil)
+	if err != nil {
+		return false
+	}
+	client := s.f.Client
+	if client == nil {
+		client = &http.Client{Timeout: 3 * time.Second}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	return resp.StatusCode == http.StatusOK
+}
+
+func (s *server) adminStatus(w http.ResponseWriter, r *http.Request) {
+	skills, counts, err := s.st.List(store.Filter{})
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	stages := map[string]int{"use": 0, "try": 0, "shelf": 0}
+	for _, sk := range skills {
+		if sk.Used {
+			stages["use"]++
+		} else if sk.Bookmarked {
+			stages["try"]++
+		} else {
+			stages["shelf"]++
+		}
+	}
+	envs, err := s.st.ListEnvironments()
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	events, err := s.st.ListEvents(100, "")
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	size, _ := s.st.Size()
+	topicsSynced, _ := s.st.GetSetting("topics_last_synced")
+	topicsError, _ := s.st.GetSetting("topics_last_error")
+	metaOK, _ := s.st.GetSetting("meta_last_ok_at")
+	metaError, _ := s.st.GetSetting("meta_last_error")
+	instanceName, _ := s.st.GetSetting("instance_name")
+	writeJSON(w, 200, map[string]any{
+		"version": s.version,
+		"commit":  s.commit,
+		"db": map[string]any{
+			"path": filepath.Join(s.st.Path(), "reet.db"),
+			"size": size,
+		},
+		"counts":        counts,
+		"stages":        stages,
+		"environments":  envs,
+		"events":        events,
+		"skillsSh":      s.probeSkillsSh(r.Context()),
+		"metaLastOK":    metaOK,
+		"metaLastError": metaError,
+		"topics": map[string]any{
+			"lastSynced": topicsSynced,
+			"lastError":  topicsError,
+		},
+		"settings": map[string]any{
+			"refreshEnabled": settingEnabled(s.st, "refresh_enabled"),
+			"topicsEnabled":  settingEnabled(s.st, "topics_enabled"),
+			"instanceName":   instanceName,
+		},
+	})
+}
+
+func (s *server) adminSettings(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		RefreshEnabled *bool   `json:"refreshEnabled"`
+		TopicsEnabled  *bool   `json:"topicsEnabled"`
+		InstanceName   *string `json:"instanceName"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	detail := map[string]any{}
+	if in.RefreshEnabled != nil {
+		value := "0"
+		if *in.RefreshEnabled {
+			value = "1"
+		}
+		if err := s.st.SetSetting("refresh_enabled", value); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		detail["refreshEnabled"] = *in.RefreshEnabled
+	}
+	if in.TopicsEnabled != nil {
+		value := "0"
+		if *in.TopicsEnabled {
+			value = "1"
+		}
+		if err := s.st.SetSetting("topics_enabled", value); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		detail["topicsEnabled"] = *in.TopicsEnabled
+	}
+	if in.InstanceName != nil {
+		if err := s.st.SetSetting("instance_name", strings.TrimSpace(*in.InstanceName)); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		detail["instanceName"] = strings.TrimSpace(*in.InstanceName)
+	}
+	s.event("ui", "settings", "", detail)
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
 func (s *server) export(w http.ResponseWriter, r *http.Request) {
+	format := r.URL.Query().Get("format")
+	switch format {
+	case "md", "markdown":
+		skills, _, err := s.st.List(filterFromRequest(r))
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		s.event("ui", "export", "", map[string]any{"format": "markdown"})
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="reet-shelf.md"`)
+		w.Write([]byte(markdown(skills)))
+		return
+	case "csv":
+		skills, _, err := s.st.List(filterFromRequest(r))
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		s.event("ui", "export", "", map[string]any{"format": "csv"})
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="reet-shelf.csv"`)
+		w.Write([]byte(csvExport(skills)))
+		return
+	}
 	includeEvents := r.URL.Query().Get("events") != "0"
 	snap, err := s.st.ExportSnapshot(includeEvents)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.event("ui", "export", "", map[string]any{"events": includeEvents})
+	s.event("ui", "export", "", map[string]any{"format": "json", "events": includeEvents})
 	w.Header().Set("Content-Disposition", `attachment; filename="reet-export.json"`)
 	writeJSON(w, 200, snap)
+}
+
+func installCommand(s store.Skill) string {
+	var source string
+	switch s.SourceType {
+	case "github":
+		source = "https://github.com/" + s.Source
+	case "well-known":
+		source = "https://" + s.Source
+	default:
+		return ""
+	}
+	return fmt.Sprintf("npx skills add %s --skill %s", source, s.Slug)
+}
+
+func markdown(skills []store.Skill) string {
+	var b strings.Builder
+	b.WriteString("# reet.sh shelf\n")
+	groups := []struct {
+		title string
+		match func(store.Skill) bool
+	}{
+		{"In use", func(s store.Skill) bool { return s.Used }},
+		{"To test", func(s store.Skill) bool { return !s.Used && s.Bookmarked }},
+		{"On the shelf", func(s store.Skill) bool { return !s.Used && !s.Bookmarked }},
+	}
+	for _, group := range groups {
+		var items []store.Skill
+		for _, s := range skills {
+			if group.match(s) {
+				items = append(items, s)
+			}
+		}
+		if len(items) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "\n## %s\n\n", group.title)
+		for _, s := range items {
+			name := s.Name
+			if name == "" {
+				name = s.Slug
+			}
+			desc := strings.Join(strings.Fields(s.Description), " ")
+			if s.URL != "" {
+				fmt.Fprintf(&b, "- [%s](%s)", name, s.URL)
+			} else {
+				fmt.Fprintf(&b, "- %s", name)
+			}
+			if desc != "" {
+				fmt.Fprintf(&b, " — %s", desc)
+			}
+			b.WriteString("\n")
+			if cmd := installCommand(s); cmd != "" {
+				fmt.Fprintf(&b, "  ```\n  %s\n  ```\n", cmd)
+			}
+		}
+	}
+	return b.String()
+}
+
+func csvExport(skills []store.Skill) string {
+	var b bytes.Buffer
+	w := csv.NewWriter(&b)
+	_ = w.Write([]string{"id", "name", "stage", "source", "url", "installs", "installs_week", "liked", "bookmarked", "used", "notes", "tags", "environments"})
+	for _, s := range skills {
+		var tags, envs []string
+		for _, t := range s.Tags {
+			tags = append(tags, t.Name)
+		}
+		for _, e := range s.Environments {
+			envs = append(envs, e.Name)
+		}
+		_ = w.Write([]string{
+			s.ID, s.Name, stageLabel(s), s.Source, s.URL,
+			strconv.FormatInt(s.Installs, 10), strconv.FormatInt(s.InstallsWeek, 10),
+			strconv.FormatBool(s.Liked), strconv.FormatBool(s.Bookmarked), strconv.FormatBool(s.Used),
+			s.Notes, strings.Join(tags, "; "), strings.Join(envs, "; "),
+		})
+	}
+	w.Flush()
+	return b.String()
 }
 
 func (s *server) restore(w http.ResponseWriter, r *http.Request) {

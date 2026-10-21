@@ -10,6 +10,8 @@ type Detail = {
   pruned?: number
   restored?: number
   already?: boolean
+  count?: number
+  liked?: boolean
 }
 
 function detail(e: Event): Detail {
@@ -70,6 +72,20 @@ export function eventLabel(e: Event): string {
       return 'Merged two tags'
     case 'patch':
       return `Updated ${name}`
+    case 'bulk-stage':
+      return `Moved ${d.count ?? 0} skills to ${d.to || 'another stage'}`
+    case 'bulk-like':
+      return `${d.liked ? 'Liked' : 'Unliked'} ${d.count ?? 0} skills`
+    case 'bulk-tag':
+      return `Tagged ${d.count ?? 0} skills`
+    case 'bulk-remove':
+      return `Removed ${d.count ?? 0} skills`
+    case 'bulk-ignore':
+      return `Ignored ${d.count ?? 0} skills for future scans`
+    case 'bulk-patch':
+      return `Updated ${d.count ?? 0} skills`
+    case 'settings':
+      return 'Changed instance settings'
   }
   return `${e.action.replace(/-/g, ' ')} ${name}`.trim()
 }

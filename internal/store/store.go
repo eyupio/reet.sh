@@ -109,6 +109,7 @@ type Filter struct {
 	Tags             []int64
 	Env              string
 	Only             string
+	Stage            string
 }
 
 type Counts struct {
@@ -118,7 +119,10 @@ type Counts struct {
 	Used       int `json:"used"`
 }
 
-type Store struct{ db *sql.DB }
+type Store struct {
+	db  *sql.DB
+	dir string
+}
 
 const cols = `id,source,slug,source_type,url,name,description,notes,installs,installs_week,trend,liked,bookmarked,used,created_at,updated_at`
 
@@ -128,7 +132,7 @@ const schema = `CREATE TABLE IF NOT EXISTS skills (
 	name TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
 	installs INTEGER NOT NULL DEFAULT 0, installs_week INTEGER NOT NULL DEFAULT 0, trend TEXT NOT NULL DEFAULT '',
 	liked INTEGER NOT NULL DEFAULT 0, bookmarked INTEGER NOT NULL DEFAULT 0, used INTEGER NOT NULL DEFAULT 0,
-	created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`
+	created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, fetched_at INTEGER NOT NULL DEFAULT 0)`
 
 var schemaV12 = []string{
 	`CREATE TABLE IF NOT EXISTS environments (
@@ -187,13 +191,14 @@ func Open(dir string) (*Store, error) {
 	for _, c := range []struct{ name, ddl string }{
 		{"installs_week", "installs_week INTEGER NOT NULL DEFAULT 0"},
 		{"trend", "trend TEXT NOT NULL DEFAULT ''"},
+		{"fetched_at", "fetched_at INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := ensureColumn(db, c.name, c.ddl); err != nil {
 			db.Close()
 			return nil, err
 		}
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, dir: dir}, nil
 }
 
 func ensureColumn(db *sql.DB, name, ddl string) error {
@@ -227,6 +232,18 @@ func ensureColumn(db *sql.DB, name, ddl string) error {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// Path is the data directory that holds the database.
+func (s *Store) Path() string { return s.dir }
+
+// Size is the database file size in bytes.
+func (s *Store) Size() (int64, error) {
+	st, err := os.Stat(filepath.Join(s.dir, "reet.db"))
+	if err != nil {
+		return 0, err
+	}
+	return st.Size(), nil
+}
 
 // Health proves the database can take a write lock, then counts the shelf.
 // A read-only data directory fails the lock rather than reporting a false all-clear.
@@ -338,6 +355,14 @@ func (s *Store) List(f Filter) ([]Skill, Counts, error) {
 	switch f.Tab {
 	case "liked", "bookmarked", "used":
 		q += ` AND ` + f.Tab + `=1`
+	}
+	switch f.Stage {
+	case "use":
+		q += ` AND used=1`
+	case "try":
+		q += ` AND used=0 AND bookmarked=1`
+	case "shelf":
+		q += ` AND used=0 AND bookmarked=0`
 	}
 	for _, id := range f.Tags {
 		q += ` AND EXISTS (SELECT 1 FROM skill_tags st WHERE st.skill_id=skills.id AND st.tag_id=? AND st.hidden=0)`
@@ -526,6 +551,101 @@ func (s *Store) Patch(id string, p Patch) (Skill, error) {
 	return k, err
 }
 
+// PatchMany applies the same flag changes to many skills in one statement.
+func (s *Store) PatchMany(ids []string, p Patch) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	if p.Notes != nil {
+		return 0, errors.New("bulk notes are not supported")
+	}
+	q := `UPDATE skills SET liked=COALESCE(?,liked), bookmarked=COALESCE(?,bookmarked), used=COALESCE(?,used), updated_at=?
+		WHERE id IN (` + placeholders(len(ids)) + `)`
+	args := []any{nullBool(p.Liked), nullBool(p.Bookmarked), nullBool(p.Used), now()}
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	res, err := s.db.Exec(q, args...)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+// TagMany adds and removes tags across many skills in one transaction.
+func (s *Store) TagMany(ids []string, add []string, remove []int64) (int, error) {
+	err := s.withTx(func(tx *sql.Tx) error {
+		var addIDs []int64
+		for _, name := range add {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			tagID, err := upsertTagTx(tx, name)
+			if err != nil {
+				return err
+			}
+			addIDs = append(addIDs, tagID)
+		}
+		for _, skillID := range ids {
+			for _, tagID := range addIDs {
+				if _, err := tx.Exec(`INSERT INTO skill_tags(skill_id,tag_id,source,hidden) VALUES(?,?,'user',0)
+					ON CONFLICT(skill_id,tag_id) DO UPDATE SET source='user', hidden=0`, skillID, tagID); err != nil {
+					return err
+				}
+			}
+			for _, tagID := range remove {
+				var source string
+				err := tx.QueryRow(`SELECT source FROM skill_tags WHERE skill_id=? AND tag_id=?`, skillID, tagID).Scan(&source)
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				}
+				if err != nil {
+					return err
+				}
+				if source == "topic" {
+					if _, err := tx.Exec(`UPDATE skill_tags SET hidden=1 WHERE skill_id=? AND tag_id=?`, skillID, tagID); err != nil {
+						return err
+					}
+				} else if _, err := tx.Exec(`DELETE FROM skill_tags WHERE skill_id=? AND tag_id=?`, skillID, tagID); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	return len(ids), err
+}
+
+// RemoveMany deletes many skills, optionally recording each as ignored.
+func (s *Store) RemoveMany(ids []string, ignore bool) (int, error) {
+	n := 0
+	err := s.withTx(func(tx *sql.Tx) error {
+		for _, id := range ids {
+			name := id
+			if err := tx.QueryRow(`SELECT name FROM skills WHERE id=?`, id).Scan(&name); err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			if ignore {
+				if _, err := tx.Exec(`INSERT INTO ignored(id,name,reason,at) VALUES(?,?,?,?)
+					ON CONFLICT(id) DO UPDATE SET name=excluded.name, reason=excluded.reason, at=excluded.at`, id, name, "removed", now()); err != nil {
+					return err
+				}
+			}
+			res, err := tx.Exec(`DELETE FROM skills WHERE id=?`, id)
+			if err != nil {
+				return err
+			}
+			if rows, _ := res.RowsAffected(); rows > 0 {
+				n += int(rows)
+			}
+		}
+		return nil
+	})
+	return n, err
+}
+
 // SetMeta stores fetched metadata; empty values leave the stored value alone.
 func (s *Store) SetMeta(id, name, description string, installs, installsWeek int64, trend []int64) error {
 	trendJSON := ""
@@ -539,10 +659,37 @@ func (s *Store) SetMeta(id, name, description string, installs, installsWeek int
 		description=CASE WHEN ?='' THEN description ELSE ? END,
 		installs=CASE WHEN ?>0 THEN ? ELSE installs END,
 		installs_week=CASE WHEN ?>0 THEN ? ELSE installs_week END,
-		trend=CASE WHEN ?='' THEN trend ELSE ? END
+		trend=CASE WHEN ?='' THEN trend ELSE ? END,
+		fetched_at=?
 		WHERE id=?`,
-		name, name, description, description, installs, installs, installsWeek, installsWeek, trendJSON, trendJSON, id)
+		name, name, description, description, installs, installs, installsWeek, installsWeek, trendJSON, trendJSON, now(), id)
 	return err
+}
+
+// TouchFetched records that a refresh was attempted even when it returned nothing.
+func (s *Store) TouchFetched(id string) error {
+	_, err := s.db.Exec(`UPDATE skills SET fetched_at=? WHERE id=?`, now(), id)
+	return err
+}
+
+// RefreshQueue returns the sourced skills with the oldest metadata.
+func (s *Store) RefreshQueue(limit int) ([]string, error) {
+	rows, err := s.db.Query(`SELECT id FROM skills
+		WHERE source_type IN ('github','well-known')
+		ORDER BY COALESCE(fetched_at,0) ASC, id ASC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) Delete(id string) error {

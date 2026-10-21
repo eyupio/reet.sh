@@ -2,10 +2,12 @@
   import { tick } from 'svelte'
   import {
     addSkill, addSkillTags, clearToken, getToken, listEnvironments, listEvents, listSkills, listTags,
-    patchSkill, refreshSkill, removeSkill, resolveSkill, restoreAll, UnauthorizedError,
+    patchSkill, patchSkills, refreshSkill, removeSkill, removeSkills, resolveSkill, restoreAll, tagSkills, UnauthorizedError,
     type Counts, type Environment, type Event, type Flags, type Skill, type Sort, type Tag,
   } from './lib/api'
+  import Admin from './lib/Admin.svelte'
   import Bookmarklets from './lib/Bookmarklets.svelte'
+  import BulkBar from './lib/BulkBar.svelte'
   import ConfirmDialog from './lib/ConfirmDialog.svelte'
   import CopyButton from './lib/CopyButton.svelte'
   import Footer from './lib/Footer.svelte'
@@ -46,8 +48,15 @@
   let copying = $state(false)
   let removePending = $state<Skill | null>(null)
   let metaLoaded = $state(false)
+  let selecting = $state(false)
+  let selected = $state<string[]>([])
+  let lastPicked = $state<number | null>(null)
+  let bulkBusy = $state(false)
+  let bulkRemoveOpen = $state(false)
+  let bulkRemoving = $state<Skill[]>([])
 
   const origin = location.origin
+  const isAdmin = location.pathname.startsWith('/admin')
   const signedIn = $derived(token !== '')
   const scanCommand = $derived(`reet scan --server ${origin}${signedIn ? ' --token "$REET_TOKEN"' : ''}`)
 
@@ -58,6 +67,7 @@
   const total = $derived(visible.reduce((n, g) => n + g.items.length, 0))
   const likedCount = $derived(skills.filter((s) => s.liked).length)
   const tagOptions = $derived(allTags.map((t) => t.name))
+  const filterKey = $derived(`${q}|${sort}|${onlyLiked}|${selectedTags.join(',')}|${selectedEnv}|${onlyOne}|${show}`)
   const tagCounts = $derived.by(() => {
     const map = new Map<number, { tag: Tag; count: number }>()
     for (const skill of skills) {
@@ -185,6 +195,18 @@
     }
   })
 
+  let lastFilterKey = ''
+  $effect(() => {
+    const key = filterKey
+    if (key !== lastFilterKey) {
+      lastFilterKey = key
+      if (selecting) {
+        selected = []
+        lastPicked = null
+      }
+    }
+  })
+
   // A moved skill is re-rendered in another section, so put keyboard focus back on the control that was used.
   async function refocus(id: string, act: string) {
     await tick()
@@ -237,8 +259,10 @@
   }
   async function refreshOne(s: Skill) {
     try {
-      await refreshSkill(s.id)
-      ok(`Refreshed ${s.name}`)
+      const r = await refreshSkill(s.id)
+      if (!r.refreshed) fail(new Error(`Could not refresh ${s.name}.`))
+      else if (!r.changed) ok(`No change for ${s.name}.`)
+      else ok(`Refreshed ${s.name}.`)
       await reloadAll()
     } catch (e) {
       fail(e)
@@ -247,6 +271,99 @@
   function envTitle(env: Environment): string {
     const when = new Date(env.lastSeen).toLocaleString()
     return `${env.path ? env.path + ' · ' : ''}last seen ${when}`
+  }
+
+  function toggleSelecting() {
+    selecting = !selecting
+    if (!selecting) {
+      selected = []
+      lastPicked = null
+    }
+  }
+
+  function select(skill: Skill, e: MouseEvent) {
+    const flat = visible.flatMap((g) => g.items)
+    const index = flat.findIndex((s) => s.id === skill.id)
+    if (index < 0) return
+    if (e.shiftKey && lastPicked !== null) {
+      const [from, to] = [lastPicked, index].sort((a, b) => a - b)
+      const range = flat.slice(from, to + 1).map((s) => s.id)
+      const all = range.every((id) => selected.includes(id))
+      selected = all ? selected.filter((id) => !range.includes(id)) : [...new Set([...selected, ...range])]
+    } else {
+      selected = selected.includes(skill.id) ? selected.filter((id) => id !== skill.id) : [...selected, skill.id]
+    }
+    lastPicked = index
+  }
+
+  async function bulkPatch(flags: Flags) {
+    if (!selected.length) return
+    bulkBusy = true
+    try {
+      await patchSkills(selected, flags)
+      selecting = false
+      selected = []
+      lastPicked = null
+      await reloadAll()
+    } catch (e) {
+      fail(e)
+    } finally {
+      bulkBusy = false
+    }
+  }
+
+  function bulkStage(stage: 'use' | 'try' | 'shelf') {
+    void bulkPatch(stage === 'use' ? { used: true } : stage === 'try' ? { used: false, bookmarked: true } : { used: false, bookmarked: false })
+  }
+
+  async function bulkTag(name: string) {
+    if (!selected.length) return
+    bulkBusy = true
+    try {
+      await tagSkills(selected, [name], [])
+      selecting = false
+      selected = []
+      lastPicked = null
+      await reloadAll()
+    } catch (e) {
+      fail(e)
+    } finally {
+      bulkBusy = false
+    }
+  }
+
+  function bulkRemove() {
+    if (!selected.length) return
+    bulkRemoving = skills.filter((s) => selected.includes(s.id))
+    bulkRemoveOpen = true
+  }
+
+  async function confirmBulkRemove() {
+    const removed = bulkRemoving
+    bulkRemoveOpen = false
+    if (!removed.length) return
+    bulkBusy = true
+    try {
+      await removeSkills(removed.map((s) => s.id))
+      selecting = false
+      selected = []
+      lastPicked = null
+      bulkRemoving = []
+      await reloadAll()
+      showToast(removed.length === 1 ? `Removed ${removed[0].name}` : `Removed ${removed.length} skills`, 'Undo', async () => {
+        try {
+          await restoreAll({ version: 2, exportedAt: Date.now(), skills: removed })
+          await reloadAll()
+          ok(removed.length === 1 ? `Restored ${removed[0].name}.` : `Restored ${removed.length} skills.`)
+        } catch (e) {
+          fail(e)
+        }
+      })
+    } catch (e) {
+      fail(e)
+    } finally {
+      bulkBusy = false
+    }
   }
 
   function toggleTag(id: number) {
@@ -347,15 +464,17 @@
   }
 </script>
 
-{#if !needsAuth}<a class="skip" href="#sections">Skip to your skills</a>{/if}
+{#if !needsAuth && !isAdmin}<a class="skip" href="#sections">Skip to your skills</a>{/if}
 <main>
   <header>
     <h1><Logo /></h1>
-    <p class="tag">Keep the reet good AI skills from skills.sh, all in one place.</p>
+    {#if !isAdmin}<p class="tag">Keep the reet good AI skills from skills.sh, all in one place.</p>{/if}
   </header>
 
   {#if needsAuth}
     <SignIn onattempt={attemptSignIn} />
+  {:else if isAdmin}
+    <Admin onerror={fail} />
   {:else}
     <form class="add" onsubmit={add}>
       <label class="vh" for="add-input">Skill URL or slug</label>
@@ -379,6 +498,8 @@
           {/each}
           <span class="sep" aria-hidden="true"></span>
           <button type="button" class="liked" aria-pressed={onlyLiked} onclick={() => (onlyLiked = !onlyLiked)}>♥ Liked<small>{likedCount}</small></button>
+          <span class="sep" aria-hidden="true"></span>
+          <button type="button" aria-pressed={selecting} onclick={toggleSelecting}>Select</button>
         </div>
         <div class="controls">
           <label class="vh" for="search">Search skills</label>
@@ -483,6 +604,7 @@
               {#each g.items as s (s.id)}
                 <SkillCard
                 skill={s} stage={g.id} tagOptions={tagOptions}
+                selecting={selecting} selectedIDs={selected} onselect={select}
                 onpatch={patch} onrefresh={refreshOne} onlink={link} onremove={remove}
                 onfiltertag={filterTag} onfilterenv={filterEnv} ontags={tags} onhistory={history}
               />
@@ -497,7 +619,11 @@
 
     {#if !loading}
       {#key counts.all === 0}
-        <Tools onchange={reloadAll} {ok} {fail} {token} startOpen={counts.all === 0} hideBookmarklets={counts.all === 0} />
+        <Tools
+          onchange={reloadAll} {ok} {fail} {token}
+          filters={{ tab: onlyLiked ? 'liked' : 'all', q, sort, tags: selectedTags, env: selectedEnv, only: onlyOne ? 'one-machine' : '', stage: show === 'all' ? '' : show }}
+          startOpen={counts.all === 0} hideBookmarklets={counts.all === 0}
+        />
       {/key}
     {/if}
   {/if}
@@ -513,6 +639,25 @@
     onconfirm={() => { const skill = removePending!; removePending = null; void doRemove(skill, false) }}
     onsecondary={() => { const skill = removePending!; removePending = null; void doRemove(skill, true) }}
     oncancel={() => (removePending = null)}
+  />
+{/if}
+
+{#if bulkRemoveOpen}
+  <ConfirmDialog
+    title={`Remove ${bulkRemoving.length} ${bulkRemoving.length === 1 ? 'skill' : 'skills'}?`}
+    body="They will be removed from the shelf. Use Undo in the toast if you change your mind."
+    confirmLabel="Remove"
+    danger
+    onconfirm={confirmBulkRemove}
+    oncancel={() => (bulkRemoveOpen = false)}
+  />
+{/if}
+
+{#if selecting && !needsAuth}
+  <BulkBar
+    count={selected.length} {tagOptions} busy={bulkBusy}
+    onclear={toggleSelecting} ontag={bulkTag} onstage={bulkStage}
+    onlike={() => bulkPatch({ liked: true })} onremove={bulkRemove}
   />
 {/if}
 

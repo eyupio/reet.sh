@@ -449,3 +449,30 @@ func TestExportRestoreSnapshot(t *testing.T) {
 		}
 	}
 }
+
+func TestRefreshQueueUsesOldestFetched(t *testing.T) {
+	s := newStore(t)
+	a := mustRef(t, "a/b/aaa")
+	b := mustRef(t, "a/b/bbb")
+	c := mustRef(t, "a/b/ccc")
+	for _, r := range []ref.Ref{a, b, c} {
+		s.Upsert(r, Patch{})
+	}
+	if err := s.SetMeta(b.ID, "B", "", 1, 0, nil); err != nil {
+		t.Fatal(err)
+	}
+	queue, err := s.RefreshQueue(2)
+	if err != nil || len(queue) != 2 {
+		t.Fatalf("queue: %+v %v", queue, err)
+	}
+	if queue[0] != a.ID || queue[1] != c.ID {
+		t.Fatalf("unfetched first: %+v", queue)
+	}
+	if err := s.TouchFetched(a.ID); err != nil {
+		t.Fatal(err)
+	}
+	queue, _ = s.RefreshQueue(2)
+	if queue[0] != c.ID || queue[1] != b.ID {
+		t.Fatalf("touched order: %+v", queue)
+	}
+}

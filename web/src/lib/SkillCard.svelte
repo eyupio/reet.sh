@@ -2,16 +2,21 @@
   import { recordInstallCopy, type Environment, type Event, type Flags, type Skill, type Tag } from './api'
   import CopyButton from './CopyButton.svelte'
   import { eventLabel, eventTitle } from './events'
+  import TrendSparkline from './TrendSparkline.svelte'
   import { installCommand, installPrompt, readInstallKind, writeInstallKind, type InstallKind } from './install'
   import { fmt, moves, type Stage } from './shelf'
   import { elapsed, isOldEnvironment, isStale, sinceLabel } from './time'
 
   let {
-    skill, stage, tagOptions, onpatch, onrefresh, onlink, onremove, onfiltertag, onfilterenv, ontags, onhistory,
+    skill, stage, tagOptions, selecting, selectedIDs, onselect,
+    onpatch, onrefresh, onlink, onremove, onfiltertag, onfilterenv, ontags, onhistory,
   }: {
     skill: Skill
     stage: Stage
     tagOptions: string[]
+    selecting: boolean
+    selectedIDs: string[]
+    onselect: (s: Skill, e: MouseEvent) => void
     onpatch: (s: Skill, flags: Flags, act: string) => Promise<boolean>
     onrefresh: (s: Skill) => void
     onlink: (s: Skill, input: string) => Promise<boolean>
@@ -39,8 +44,18 @@
   let historyLoading = $state(false)
   let history = $state<Event[]>([])
 
+  const isSelected = $derived(selectedIDs.includes(skill.id))
   const tags = $derived(skill.tags ?? [])
   const environments = $derived(skill.environments ?? [])
+  const trend = $derived(skill.trend ?? [])
+  const weeklyChange = $derived.by(() => {
+    if (trend.length < 2) return null
+    const prev = trend[trend.length - 2]
+    const last = trend[trend.length - 1]
+    if (!prev || !last) return null
+    const pct = Math.round(((last - prev) / prev) * 100)
+    return pct === 0 ? null : pct
+  })
 
   const command = $derived(installCommand(skill))
   const prompt = $derived(installPrompt(skill))
@@ -114,19 +129,43 @@
 
 <li class="skill {stage}" data-skill={skill.id}>
   <div class="row">
-    <h3>
-      {#if skill.url.startsWith('https://www.skills.sh/')}
-        <a href={skill.url} target="_blank" rel="noopener noreferrer">{skill.name}<span class="vh"> (opens skills.sh)</span></a>
-      {:else}
-        {skill.name}
-      {/if}
-    </h3>
-    <div class="meta">
+    {#if selecting}
+      <button
+        type="button" class="pickbox" role="checkbox" aria-checked={isSelected}
+        aria-label="Select {skill.name}" onclick={(e) => onselect(skill, e)}
+      >
+        <span class="box" aria-hidden="true">
+          {#if isSelected}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m5 12 4 4L19 6"></path>
+            </svg>
+          {/if}
+        </span>
+      </button>
+    {/if}
+    <div class="head">
+      <h3>
+        {#if skill.url.startsWith('https://www.skills.sh/')}
+          <a href={skill.url} target="_blank" rel="noopener noreferrer">{skill.name}<span class="vh"> (opens skills.sh)</span></a>
+        {:else}
+          {skill.name}
+        {/if}
+      </h3>
+      <div class="meta">
       <code>{skill.sourceType === 'local' ? 'unlinked' : skill.source}</code>
       {#if skill.installs > 0}<span>{fmt(skill.installs)} installs</span>{/if}
-      {#if skill.installsWeek > 0}<span>{fmt(skill.installsWeek)} this week</span>{/if}
+      {#if skill.installsWeek > 0}
+        <span class="week">
+          {fmt(skill.installsWeek)} this week
+          {#if weeklyChange !== null}
+            <span class="change" class:down={weeklyChange < 0}>{weeklyChange > 0 ? '↑' : '↓'} {Math.abs(weeklyChange)}%</span>
+          {/if}
+        </span>
+      {/if}
+      {#if trend.length > 1}<TrendSparkline values={trend} name={skill.name} />{/if}
       <span class="age" title={new Date(skill.updatedAt).toLocaleString()}>{sinceLabel(stage, skill.updatedAt)}</span>
-      {#if stage === 'try' && isStale(skill.updatedAt)}<span class="stale">still to test?</span>{/if}
+        {#if stage === 'try' && isStale(skill.updatedAt)}<span class="stale">still to test?</span>{/if}
+      </div>
     </div>
   </div>
   {#if skill.description}
@@ -282,12 +321,25 @@
   .skill::before { content: ''; position: absolute; left: 0; top: 22px; bottom: 20px; width: 4px; border-radius: 4px; background: var(--line); }
   .skill.use::before { background: var(--accent); }
   .skill.try::before { background: repeating-linear-gradient(to bottom, var(--accent) 0 6px, transparent 6px 10px); }
-  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-  h3 { margin: 0; font: 600 1.25rem/1.25 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+  .row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .head { flex: 1; min-width: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h3 { flex: 0 0 auto; margin: 0; font: 600 1.25rem/1.25 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+  .pickbox {
+    display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
+    background: none; border: 0; cursor: pointer; flex: none;
+  }
+  .box {
+    display: grid; place-items: center; width: 18px; height: 18px;
+    border: 1px solid var(--muted); border-radius: 4px; background: transparent;
+  }
+  .pickbox[aria-checked='true'] .box { background: var(--accent); border-color: var(--accent); }
+  .box svg { width: 12px; height: 12px; color: var(--accent-ink); }
   h3 a { color: inherit; text-decoration-color: var(--line); text-underline-offset: 4px; }
   h3 a:hover { color: var(--accent); text-decoration-color: currentColor; }
   .meta { color: var(--muted); font-size: 0.85rem; display: flex; gap: 12px; flex-wrap: wrap; }
-  .age, .stale { white-space: nowrap; }
+  .age, .stale, .week { white-space: nowrap; }
+  .change { font-variant-numeric: tabular-nums; color: var(--good); }
+  .change.down { color: var(--bad); }
   .stale { font-style: italic; }
   code { overflow-wrap: anywhere; }
   .desc { margin: 6px 0 0; color: var(--muted); max-width: 62ch; }
@@ -372,6 +424,8 @@
   }
   @media (pointer: coarse) {
     .chip, .install-toggle, .seg button, .more, .tag, .envchip { min-height: 44px; }
+    .pickbox { width: 44px; height: 44px; }
+    .box { width: 22px; height: 22px; }
   }
   @media (prefers-reduced-motion: no-preference) {
     .chip { transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 160ms var(--ease-out); }

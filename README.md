@@ -30,6 +30,7 @@ The compose file uses the prebuilt image `ghcr.io/eyupio/reet.sh` (no local buil
 | `SKILLS_SH_TOKEN` | empty | Optional skills.sh API token (needs a Vercel OIDC token, so it can't be generated). Without it, reet reads the public skills.sh pages. |
 | `REET_LOG` | empty | Set to `debug` for one line per metadata fetch; writes are always logged without tokens. |
 | `REET_TOPICS` | empty | Set to `off` to stop the daily skills.sh topic seed (nine read-only page fetches a day). |
+| `REET_REFRESH` | empty | Set to `off` to stop the six-hourly metadata refresh (the 50 oldest skills, two seconds apart). |
 
 ### Commands for keys and settings
 
@@ -77,7 +78,13 @@ If the container exits with "unable to open database file", the data folder isn'
 
 ## Backup
 
-Use **Download JSON** and **Restore from JSON** in the UI, or call `GET /api/export` and `POST /api/restore`. The backup includes skills, notes, tags, environments and the ignored list; tick **Include local history** to add the event log. The database is a single file, `reet.db`, in your data folder.
+Use **Download JSON** and **Restore from JSON** in the UI, or call `GET /api/export` and `POST /api/restore`. The backup includes skills, notes, tags, environments and the ignored list; tick **Include local history** to add the event log. **Markdown** and **CSV** downloads follow the current search, stage, tag and environment filters, so you can hand someone exactly what is on screen. The database is a single file, `reet.db`, in your data folder.
+
+## Shelf tools and admin
+
+- **Select** in the toolbar turns cards into checkboxes. Shift-click selects a range; the floating bar can tag, move, like or remove the selection, and a bulk remove gets the same Undo toast as a single remove.
+- Metadata for the 50 oldest skills is refreshed every six hours (two seconds apart) and the card shows the weekly install sparkline and change. **Refresh** on a card checks immediately and says when nothing changed.
+- **Admin** in the footer opens `/admin`: version, database size, skills.sh reachability, topic seed status, counts, environments, the refresh/topic switches, instance name and recent activity. The admin surface is available to anyone with the instance token until accounts arrive.
 
 ## Development
 

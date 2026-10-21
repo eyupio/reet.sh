@@ -77,9 +77,11 @@ The compose file uses the prebuilt image `ghcr.io/eyupio/reet.sh` (no local buil
 
 ### Shared lists
 
-A **list** is a named set of skills with a note for each one, kept by one person and shared with others on the instance. Any member with a write role can create one; viewers read. A list is private to the people on it, readable by everyone signed in, or readable by anyone with a read-only link (no account, member names, emails or personal notes). Editors add skills and notes; viewers read; the owner manages people and settings and can hand the list over. List chips appear above the shelf and on every card in a list, and **Add all to my shelf** brings the list across as To test. A card in a list shows how many list members have marked it in use.
+A **list** keeps a set of skills and shared list notes together. New lists default to **Personal**. Choose **Selected people**, a **Team or organisation** (with extra named people and individual exclusions), **Public community**, or an enabled **Unlisted link**. Each choice previews its audience before saving. Editors change skills and list notes; list owners manage audiences. Instance administrators retain administrative access, and read-only accounts stay read-only.
 
-Link sharing is off by default; the owner turns it on under **Admin → Jobs and instance**. The switch affects new and existing link lists; private and instance-wide lists keep working.
+Use **Lists** to browse My lists, Shared with me and Teams & organisations. **Community** is a separate, anonymous directory of deliberately published lists and their skills. Personal shelf notes, people, memberships, exclusions and machine reports are never published with a list. Existing signed-in-only lists keep their previous access under **Legacy instance audience**; they do not become public.
+
+**Teams** manages organisations, teams and their members. Sharing with a group follows its membership automatically; exclusions override group and individual access for ordinary accounts. Existing unlisted links remain controlled by the owner's link-sharing switch. See [sharing and audience rules](docs/sharing.md) for permissions, publication, migration and limitations.
 
 ### Accounts
 

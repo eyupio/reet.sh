@@ -55,6 +55,7 @@ type ListDetail struct {
 	CanEdit     bool         `json:"canEdit"`
 	CanManage   bool         `json:"canManage"`
 	CanTransfer bool         `json:"canTransfer"`
+	Audience    *Audience    `json:"audience,omitempty"`
 }
 
 // ListAccess is the caller's standing on one list.
@@ -69,10 +70,10 @@ func normalVisibility(v string) (string, error) {
 	switch v {
 	case "", "members":
 		return "members", nil
-	case "private", "link":
+	case "private", "link", "personal", "team", "public":
 		return v, nil
 	}
-	return "", errors.New("visibility must be private, members or link")
+	return "", errors.New("choose personal, private, team, public, members (legacy) or link")
 }
 
 func normalMemberRole(r string) (string, error) {
@@ -97,7 +98,7 @@ func listAccessFor(userID int64, userRole string, ownerID int64, memberRole, vis
 		role, read, edit = "editor", true, true
 	case memberRole == "viewer":
 		role, read = "viewer", true
-	case visibility == "members":
+	case visibility == "members" || visibility == "public":
 		role, read = "reader", true
 	}
 	// An instance viewer can be given a list role, but the account itself stays read-only.
@@ -169,35 +170,36 @@ func (s *Store) scanSharedList(row interface{ Scan(...any) error }) (SharedList,
 // ListListsFor returns the lists a person can see in the toolbar: their own, lists
 // they are on, and every members-visible list. Admins see every list.
 func (s *Store) ListListsFor(userID int64, userRole string) ([]SharedList, error) {
-	isAdmin := 0
-	if userRole == "owner" || userRole == "admin" {
-		isAdmin = 1
-	}
-	rows, err := s.db.Query(`SELECT l.id,l.owner_id,u.name,l.name,l.description,l.visibility,l.slug,
-		(SELECT COUNT(*) FROM list_skills ls WHERE ls.list_id=l.id),
-		1+(SELECT COUNT(*) FROM list_members m WHERE m.list_id=l.id),
-		COALESCE((SELECT m.role FROM list_members m WHERE m.list_id=l.id AND m.user_id=?),''),
-		l.created_at,l.updated_at
-		FROM lists l JOIN users u ON u.id=l.owner_id
-		WHERE l.owner_id=? OR EXISTS (SELECT 1 FROM list_members m WHERE m.list_id=l.id AND m.user_id=?)
-			OR l.visibility='members' OR ?
-		ORDER BY l.updated_at DESC, l.id DESC`, userID, userID, userID, isAdmin)
+	rows, err := s.db.Query(`SELECT id FROM lists ORDER BY updated_at DESC,id DESC`)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := []SharedList{}
+	ids := []int64{}
 	for rows.Next() {
-		var l SharedList
-		var memberRole string
-		if err := rows.Scan(&l.ID, &l.OwnerID, &l.OwnerName, &l.Name, &l.Description, &l.Visibility,
-			&l.Slug, &l.SkillCount, &l.MemberCount, &memberRole, &l.CreatedAt, &l.UpdatedAt); err != nil {
+		var id int64
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
 			return nil, err
 		}
-		l.Role, _, _, _, _ = listAccessFor(userID, userRole, l.OwnerID, memberRole, l.Visibility)
-		out = append(out, l)
+		ids = append(ids, id)
 	}
-	return out, rows.Err()
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	out := []SharedList{}
+	for _, id := range ids {
+		access, e := s.ListAccessFor(userID, userRole, id)
+		if errors.Is(e, ErrNotFound) {
+			continue
+		}
+		if e != nil {
+			return nil, e
+		}
+		out = append(out, access.List)
+	}
+	return out, nil
 }
 
 // ListAccessFor checks what a person may do with one list.
@@ -218,7 +220,37 @@ func (s *Store) ListAccessFor(userID int64, userRole string, id int64) (ListAcce
 	if err != nil {
 		return ListAccess{}, err
 	}
+	administrative := userID == l.OwnerID || userRole == "owner" || userRole == "admin"
+	var excluded bool
+	if err = s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM list_exclusions WHERE list_id=? AND user_id=?)`, id, userID).Scan(&excluded); err != nil {
+		return ListAccess{}, err
+	}
+	if !administrative && (excluded || l.Visibility == "personal") {
+		return ListAccess{}, ErrNotFound
+	}
+	inherited := false
+	if l.Visibility == "team" {
+		var groupRole string
+		e := s.db.QueryRow(`SELECT a.role FROM list_group_access a JOIN audience_groups g ON g.id=a.group_id WHERE a.list_id=? AND (g.owner_id=? OR EXISTS(SELECT 1 FROM audience_group_members m WHERE m.group_id=g.id AND m.user_id=?))`, id, userID, userID).Scan(&groupRole)
+		if e != nil && !errors.Is(e, sql.ErrNoRows) {
+			return ListAccess{}, e
+		}
+		if e == nil && memberRole != "editor" {
+			if memberRole == "" || groupRole == "editor" {
+				memberRole = groupRole
+				inherited = true
+			}
+		}
+	}
 	role, read, edit, manage, transfer := listAccessFor(userID, userRole, l.OwnerID, memberRole, l.Visibility)
+	if inherited && role == "viewer" {
+		role = "reader"
+	}
+	audienceIDs, e := s.listAudienceIDs(id, l.OwnerID, l.Visibility)
+	if e != nil {
+		return ListAccess{}, e
+	}
+	l.MemberCount = len(audienceIDs)
 	if !read {
 		return ListAccess{}, ErrNotFound
 	}
@@ -233,6 +265,13 @@ func (s *Store) ListDetailFor(userID int64, userRole string, id int64) (ListDeta
 		return ListDetail{}, err
 	}
 	d := ListDetail{SharedList: access.List, CanEdit: access.CanEdit, CanManage: access.CanManage, CanTransfer: access.CanTransfer}
+	if access.CanManage {
+		a, e := s.AudienceFor(id)
+		if e != nil {
+			return ListDetail{}, e
+		}
+		d.Audience = &a
+	}
 	d.Skills, err = s.listSkills(id)
 	if err != nil {
 		return ListDetail{}, err
@@ -251,22 +290,34 @@ func (s *Store) ListDetailFor(userID int64, userRole string, id int64) (ListDeta
 }
 
 func (s *Store) applyListAdoption(listID, ownerID int64, memberCount int, skills []ListSkill) error {
+	list, err := s.SharedListByID(listID)
+	if err != nil {
+		return err
+	}
+	ids, err := s.listAudienceIDs(listID, ownerID, list.Visibility)
+	if err != nil {
+		return err
+	}
 	for i := range skills {
-		var n int
-		if err := s.db.QueryRow(`SELECT COUNT(DISTINCT sh.user_id) FROM shelf sh
-			WHERE sh.skill_id=? AND sh.used=1 AND sh.user_id IN (
-				SELECT ? UNION SELECT user_id FROM list_members WHERE list_id=?)`,
-			skills[i].ID, ownerID, listID).Scan(&n); err != nil {
-			return err
+		args := []any{skills[i].ID}
+		for _, id := range ids {
+			args = append(args, id)
 		}
-		skills[i].UseCount = n
-		skills[i].MemberCount = memberCount
+		var count int
+		if len(ids) > 0 {
+			if err = s.db.QueryRow(`SELECT COUNT(*) FROM shelf WHERE skill_id=? AND used=1 AND user_id IN (`+placeholders(len(ids))+`)`, args...).Scan(&count); err != nil {
+				return err
+			}
+		}
+		skills[i].UseCount = count
+		skills[i].MemberCount = len(ids)
 	}
 	return nil
 }
 
-func (s *Store) listSkills(listID int64) ([]ListSkill, error) {
-	rows, err := s.db.Query(`SELECT s.id,s.source,s.slug,s.source_type,s.url,s.name,s.description,'',
+func (s *Store) listSkills(listID int64) ([]ListSkill, error) { return listSkillsFrom(s.db, listID) }
+func listSkillsFrom(query environmentQuerier, listID int64) ([]ListSkill, error) {
+	rows, err := query.Query(`SELECT s.id,s.source,s.slug,s.source_type,s.url,s.name,s.description,'',
 		s.installs,s.installs_week,s.trend,0,0,0,s.created_at,s.updated_at,
 		ls.note,COALESCE(ls.added_by,0),COALESCE(u.name,'')
 		FROM list_skills ls JOIN skills s ON s.id=ls.skill_id
@@ -423,6 +474,13 @@ func (s *Store) RemoveListSkill(listID int64, skillID string) error {
 
 // AddListMember adds a person to a list, refusing a duplicate owner row.
 func (s *Store) AddListMember(listID, userID int64, role string) error {
+	list, e := s.SharedListByID(listID)
+	if e != nil {
+		return e
+	}
+	if list.Visibility == "personal" {
+		return errors.New("change the audience to selected people before adding collaborators")
+	}
 	role, err := normalMemberRole(role)
 	if err != nil {
 		return err
@@ -528,34 +586,33 @@ func (s *Store) AddListToShelf(userID, listID int64) (int, error) {
 // PublicListFor reads a link-visible list without an account. It shows no members
 // or emails, and no personal shelf state.
 func (s *Store) PublicListFor(slug string) (ListDetail, error) {
-	var id int64
-	var visibility string
-	err := s.db.QueryRow(`SELECT id,visibility FROM lists WHERE slug=?`, slug).Scan(&id, &visibility)
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && visibility != "link") {
-		return ListDetail{}, ErrNotFound
-	}
-	if err != nil {
-		return ListDetail{}, err
-	}
-	list, err := s.SharedListByID(id)
-	if err != nil {
-		return ListDetail{}, err
-	}
-	list.Role = "reader"
-	list.OwnerName = ""
-	d := ListDetail{SharedList: list}
-	d.Skills, err = s.listSkills(id)
-	if err != nil {
-		return ListDetail{}, err
-	}
-	for i := range d.Skills {
-		d.Skills[i].AddedBy = 0
-		d.Skills[i].AddedByName = ""
-	}
-	if err := s.applyListAdoption(id, list.OwnerID, list.MemberCount, d.Skills); err != nil {
-		return ListDetail{}, err
-	}
-	return d, nil
+	var d ListDetail
+	err := s.withTx(func(tx *sql.Tx) error {
+		list, err := s.scanSharedList(tx.QueryRow(listSummaryQuery+` WHERE l.slug=? AND l.visibility IN ('link','public')`, slug))
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		list.Role = "reader"
+		list.OwnerID = 0
+		list.OwnerName = ""
+		list.MemberCount = 0
+		d = ListDetail{SharedList: list}
+		d.Skills, err = listSkillsFrom(tx, list.ID)
+		if err != nil {
+			return err
+		}
+		for i := range d.Skills {
+			d.Skills[i].AddedBy = 0
+			d.Skills[i].AddedByName = ""
+			d.Skills[i].UseCount = 0
+			d.Skills[i].MemberCount = 0
+		}
+		return nil
+	})
+	return d, err
 }
 
 // attachListsFor labels catalogue cards with the shared lists the person can see.
@@ -567,24 +624,21 @@ func (s *Store) attachListsFor(userID int64, skills []Skill) error {
 	if err := s.db.QueryRow(`SELECT role FROM users WHERE id=?`, userID).Scan(&role); err != nil {
 		return err
 	}
-	isAdmin := 0
-	if role == "owner" || role == "admin" {
-		isAdmin = 1
+	lists, err := s.ListListsFor(userID, role)
+	if err != nil {
+		return err
 	}
-	args := []any{userID, userID, isAdmin}
-	ids := make([]string, 0, len(skills))
-	index := make(map[string][]int, len(skills))
+	allowed := map[int64]bool{}
+	for _, l := range lists {
+		allowed[l.ID] = true
+	}
+	args := []any{}
+	index := map[string][]int{}
 	for i, k := range skills {
-		ids = append(ids, k.ID)
+		args = append(args, k.ID)
 		index[k.ID] = append(index[k.ID], i)
 	}
-	for _, id := range ids {
-		args = append(args, id)
-	}
-	rows, err := s.db.Query(`SELECT ls.skill_id,l.id,l.name FROM list_skills ls JOIN lists l ON l.id=ls.list_id
-		WHERE (l.owner_id=? OR EXISTS (SELECT 1 FROM list_members m WHERE m.list_id=l.id AND m.user_id=?)
-			OR l.visibility='members' OR ?)
-		AND ls.skill_id IN (`+placeholders(len(ids))+`) ORDER BY lower(l.name)`, args...)
+	rows, err := s.db.Query(`SELECT ls.skill_id,l.id,l.name FROM list_skills ls JOIN lists l ON l.id=ls.list_id WHERE ls.skill_id IN (`+placeholders(len(skills))+`) ORDER BY lower(l.name)`, args...)
 	if err != nil {
 		return err
 	}
@@ -592,8 +646,11 @@ func (s *Store) attachListsFor(userID int64, skills []Skill) error {
 	for rows.Next() {
 		var skillID string
 		var item ListRef
-		if err := rows.Scan(&skillID, &item.ID, &item.Name); err != nil {
+		if err = rows.Scan(&skillID, &item.ID, &item.Name); err != nil {
 			return err
+		}
+		if !allowed[item.ID] {
+			continue
 		}
 		for _, i := range index[skillID] {
 			skills[i].Lists = append(skills[i].Lists, item)

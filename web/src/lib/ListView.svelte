@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import AudiencePicker from './AudiencePicker.svelte'
+  import { audienceLabel, type Audience } from './api'
   import PageHeader from './PageHeader.svelte'
   import {
     addListMember, addListSkill, addListToShelf, deleteList, getList, listSkills,
@@ -31,6 +33,7 @@
   let settingsOpen = $state(false)
   let peopleOpen = $state(false)
   let form = $state<{ name: string; description: string; visibility: string }>({ name: '', description: '', visibility: 'members' })
+  let audience = $state<Audience>({ people: [], excluded: [], groupRole: 'viewer' })
   let memberEmail = $state('')
   let memberRole = $state('viewer')
   let transferTo = $state(0)
@@ -59,6 +62,7 @@
     detail = d
     document.title = `${d.name} · reet.sh`
     form = { name: d.name, description: d.description, visibility: d.visibility }
+    audience = d.audience ?? { people: [], excluded: [], groupRole: 'viewer' }
     noteDrafts = Object.fromEntries(d.skills.map((s) => [s.id, s.note ?? '']))
     if (!d.members?.some((m) => m.id === transferTo)) transferTo = d.members?.find((m) => m.role !== 'owner')?.id ?? 0
   }
@@ -174,7 +178,7 @@
     e.preventDefault()
     busy = true
     try {
-      apply(await updateList(id, { ...form }))
+      apply(await updateList(id, { ...form, audience }))
       settingsOpen = false
       say('List settings saved.')
     } catch (e) {
@@ -252,7 +256,7 @@
   }
 
   function visibilityLabel(v: string): string {
-    return v === 'private' ? 'Private list' : v === 'link' ? 'Read-only link' : 'Shared with everyone here'
+    return audienceLabel(v)
   }
 
   function roleLabel(role: string): string {
@@ -290,7 +294,7 @@
       <button type="button" class="btn" onclick={copyAll} disabled={!commands.length}>Copy install commands</button>
       {#if detail.canManage}
         <button type="button" class="btn quiet" aria-expanded={settingsOpen} onclick={() => { settingsOpen = !settingsOpen; if (settingsOpen) peopleOpen = false }}>Settings</button>
-        <button type="button" class="btn quiet" aria-expanded={peopleOpen} onclick={() => { peopleOpen = !peopleOpen; if (peopleOpen) settingsOpen = false }}>People</button>
+        {#if detail.visibility !== 'personal'}<button type="button" class="btn quiet" aria-expanded={peopleOpen} onclick={() => { peopleOpen = !peopleOpen; if (peopleOpen) settingsOpen = false }}>People</button>{/if}
       {/if}
     </div>
 
@@ -308,22 +312,15 @@
         <form onsubmit={saveSettings}>
           <label class="field"><span>Name</span><input bind:value={form.name} maxlength="80" required /></label>
           <label class="field"><span>Description</span><input bind:value={form.description} maxlength="240" placeholder="What is this list for?" /></label>
-          <label class="field">
-            <span>Who can see it</span>
-            <select bind:value={form.visibility}>
-              <option value="private">Only people on the list</option>
-              <option value="members">Everyone signed in</option>
-              {#if detail.linkEnabled || detail.visibility === 'link'}<option value="link">Anyone with the link</option>{/if}
-            </select>
-          </label>
+          <AudiencePicker bind:visibility={form.visibility} bind:audience linkEnabled={detail.linkEnabled} legacyAllowed={detail.visibility === 'members'} />
           <div class="row">
-            <button type="submit" class="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save settings'}</button>
+            <button type="submit" class="btn primary" disabled={busy}>{busy ? 'Saving…' : form.visibility === 'public' && detail.visibility !== 'public' ? 'Publish to public community' : 'Save settings'}</button>
             <button type="button" class="btn quiet" onclick={() => (settingsOpen = false)}>Cancel</button>
           </div>
         </form>
-        {#if detail.visibility === 'link'}
+        {#if detail.visibility === 'link' || detail.visibility === 'public'}
           <div class="linkbox">
-            <p>{detail.linkEnabled ? 'Anyone with this link can read the list. No account, names or emails.' : 'Link sharing is turned off by the instance owner. Existing links stop working until it is turned back on.'}</p>
+            <p>{detail.visibility === 'public' ? 'Published in the public community. Anyone can discover and read the skills and list notes.' : detail.linkEnabled ? 'Anyone with this link can read the list. No account, names or emails.' : 'Link sharing is turned off by the instance owner. Existing links stop working until it is turned back on.'}</p>
             {#if detail.slug}
               <div class="linkline"><code>{link}</code><CopyButton text={link} compact /></div>
             {/if}
@@ -503,7 +500,7 @@
   .panel h2 { margin: 0 0 4px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.01em; }
   .panel-lede { margin: 0 0 12px; color: var(--muted); font-size: 0.86rem; }
   .field { display: grid; gap: 5px; margin-top: 10px; font-size: 0.8rem; font-weight: 600; }
-  .field input, .field select { width: 100%; font-weight: 400; }
+  .field input { width: 100%; font-weight: 400; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
   .linkbox { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line); }
   .linkbox p { margin: 0 0 8px; color: var(--muted); font-size: 0.84rem; }

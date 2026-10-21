@@ -49,13 +49,13 @@
   </section>
 {:else}
   <article class="public">
-    <PageHeader eyebrow="Read-only shared list" title={detail.name} lede={detail.description}>
-      {#snippet meta()}{#if detail}<span class="badge">{detail.skillCount} {detail.skillCount === 1 ? 'skill' : 'skills'} · {detail.memberCount} {detail.memberCount === 1 ? 'person' : 'people'}</span>{/if}{/snippet}
+    <PageHeader eyebrow={detail.visibility === 'public' ? 'Public community list' : 'Unlisted read-only list'} title={detail.name} lede={detail.description}>
+      {#snippet meta()}{#if detail}<span class="badge">{detail.skillCount} {detail.skillCount === 1 ? 'skill' : 'skills'}</span>{/if}{/snippet}
     </PageHeader>
 
     <div class="actions">
       <button type="button" class="btn primary" onclick={copyAll} disabled={!commands.length}>Copy all install commands</button>
-      <a class="btn" href="/">Open your own shelf</a>
+      <a class="btn" href={detail.visibility === 'public' ? `/lists/${detail.id}` : '/'}>{detail.visibility === 'public' ? 'Open in your account' : 'Open your own shelf'}</a>
     </div>
     {#if status}<p class="status" role="status">{status}</p>{/if}
     {#if error}<p class="error" role="alert">{error}</p>{/if}

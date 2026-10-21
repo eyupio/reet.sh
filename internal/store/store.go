@@ -231,6 +231,10 @@ var schemaV12 = []string{
 		list_id INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
 		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		role TEXT NOT NULL DEFAULT 'viewer', PRIMARY KEY (list_id, user_id))`,
+	`CREATE TABLE IF NOT EXISTS audience_groups(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,kind TEXT NOT NULL,parent_id INTEGER REFERENCES audience_groups(id) ON DELETE CASCADE,owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE)`,
+	`CREATE TABLE IF NOT EXISTS audience_group_members(group_id INTEGER NOT NULL REFERENCES audience_groups(id) ON DELETE CASCADE,user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,role TEXT NOT NULL DEFAULT 'member',PRIMARY KEY(group_id,user_id))`,
+	`CREATE TABLE IF NOT EXISTS list_group_access(list_id INTEGER PRIMARY KEY REFERENCES lists(id) ON DELETE CASCADE,group_id INTEGER NOT NULL REFERENCES audience_groups(id) ON DELETE CASCADE,role TEXT NOT NULL DEFAULT 'viewer')`,
+	`CREATE TABLE IF NOT EXISTS list_exclusions(list_id INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,PRIMARY KEY(list_id,user_id))`,
 	`CREATE TABLE IF NOT EXISTS list_skills (
 		list_id INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
 		skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
@@ -253,6 +257,9 @@ var schemaV12 = []string{
  target_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
  source_id TEXT NOT NULL, source_name TEXT NOT NULL, desired TEXT NOT NULL,
  revision TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(user_id,target_id))`,
+	`CREATE TRIGGER IF NOT EXISTS public_lists_require_sources BEFORE UPDATE OF visibility ON lists WHEN NEW.visibility='public' AND EXISTS (SELECT 1 FROM list_skills ls JOIN skills s ON s.id=ls.skill_id WHERE ls.list_id=NEW.id AND s.source_type='local') BEGIN SELECT RAISE(ABORT,'link local skills to an install source before publishing'); END`,
+	`CREATE TRIGGER IF NOT EXISTS public_list_insert_requires_source BEFORE INSERT ON list_skills WHEN (SELECT visibility FROM lists WHERE id=NEW.list_id)='public' AND (SELECT source_type FROM skills WHERE id=NEW.skill_id)='local' BEGIN SELECT RAISE(ABORT,'link local skills to an install source before publishing'); END`,
+	`CREATE TRIGGER IF NOT EXISTS public_list_update_requires_source BEFORE UPDATE OF list_id,skill_id ON list_skills WHEN (SELECT visibility FROM lists WHERE id=NEW.list_id)='public' AND (SELECT source_type FROM skills WHERE id=NEW.skill_id)='local' BEGIN SELECT RAISE(ABORT,'link local skills to an install source before publishing'); END`,
 }
 
 // Open opens (creating if needed) the database in dir.

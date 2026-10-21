@@ -14,6 +14,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/api"
 	"github.com/eyupio/reet.sh/internal/meta"
+	"github.com/eyupio/reet.sh/internal/scan"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/web"
 )
@@ -35,8 +36,12 @@ func main() {
 		if err := serve(); err != nil {
 			log.Fatal(err)
 		}
+	case "scan":
+		if err := scan.Run(os.Args[2:], os.Stdout); err != nil {
+			log.Fatal(err)
+		}
 	default:
-		fmt.Fprintf(os.Stderr, "usage: reet serve\n")
+		fmt.Fprintf(os.Stderr, "usage: reet serve | reet scan [--server URL] [--token T] [--dir PATH] [--dry-run]\n")
 		os.Exit(2)
 	}
 }

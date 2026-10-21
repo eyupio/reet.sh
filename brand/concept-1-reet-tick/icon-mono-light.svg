@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="t d">
+<title id="t">reet.sh: bookmark with a tick</title>
+<desc id="d">Icon only.</desc>
+<g id="icon"><mask id="cut-concept-1-reet-tick-mono-light"><rect width="100" height="100" fill="#fff"/><path d="M36,50L46,61L65,38" fill="none" stroke="#000" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/></mask><path mask="url(#cut-concept-1-reet-tick-mono-light)" fill="#ffffff" stroke="#ffffff" stroke-width="6" stroke-linejoin="round" d="M24,10H76V90L50,70L24,90Z"/></g>
+</svg>

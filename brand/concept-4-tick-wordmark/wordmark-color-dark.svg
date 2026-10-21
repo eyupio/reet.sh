@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 706 186" role="img" aria-labelledby="t d">
+<title id="t">reet.sh: wordmark with a tick for a t</title>
+<desc id="d">Wordmark only.</desc>
+<g transform="translate(12,24)"><g id="wordmark" fill="none" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+<path stroke="#efece6" d="M12,150V86A36,36 0 0 1 48,50H56 M90,100H174A42,42 0 1 0 161.7,129.7 M214,100H298A42,42 0 1 0 285.7,129.7 M338,50H392 M364,22V112"/>
+<circle fill="#fb923c" cx="450" cy="138" r="13"/>
+<path stroke="#fb923c" d="M364,112L379,134L416,66 M528.0,70.1A21,21 0 1 0 509,100A21,21 0 1 1 490.0,129.9 M570,0V150M570,94A44,44 0 0 1 658,94V150"/>
+</g></g>
+</svg>

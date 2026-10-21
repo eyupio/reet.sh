@@ -73,9 +73,15 @@ The compose file uses the prebuilt image `ghcr.io/eyupio/reet.sh` (no local buil
 
 `docker compose` reads `.env` automatically. `.env.example` lists every setting with comments.
 
+### Shared lists
+
+A **list** is a named set of skills with a note for each one, kept by one person and shared with others on the instance. Any member with a write role can create one; viewers read. A list is private to the people on it, readable by everyone signed in, or readable by anyone with a read-only link (no account, member names, emails or personal notes). Editors add skills and notes; viewers read; the owner manages people and settings and can hand the list over. List chips appear above the shelf and on every card in a list, and **Add all to my shelf** brings the list across as To test. A card in a list shows how many list members have marked it in use.
+
+Link sharing is off by default; the owner turns it on under **Admin → Jobs and instance**. The switch affects new and existing link lists; private and instance-wide lists keep working.
+
 ### Accounts
 
-The default `REET_AUTH=accounts` creates one owner through the setup page on first visit, then signs people in with email and password. Each account has its own shelf. Roles are owner, admin, member and viewer; viewers are read-only until shared lists arrive. Sessions are HttpOnly, SameSite=Lax cookies; passwords are stored with argon2id; sign-in is rate-limited.
+The default `REET_AUTH=accounts` creates one owner through the setup page on first visit, then signs people in with email and password. Each account has its own shelf. Roles are owner, admin, member and viewer; viewers are read-only. Shared lists are where people work together without sharing a shelf. Sessions are HttpOnly, SameSite=Lax cookies; passwords are stored with argon2id; sign-in is rate-limited.
 
 Click your name in the footer to open **Account**, where you can create and revoke personal API tokens (shown once). Admins get **Admin → Users** to invite people by link, reset passwords, disable accounts, change roles, revoke tokens and transfer ownership. If `REET_TOKEN` is set it is required once on the setup page and works for `reet scan` only until a personal API token exists.
 
@@ -148,7 +154,7 @@ Use **Download JSON** and **Restore from JSON** in the UI, or call `GET /api/exp
 
 - **Select** in the toolbar turns cards into checkboxes. Shift-click selects a range; the floating bar can tag, move, like or remove the selection, and a bulk remove gets the same Undo toast as a single remove.
 - Metadata for the 50 oldest skills is refreshed every six hours (two seconds apart) and the card shows the weekly install sparkline and change. **Refresh** on a card checks immediately and says when nothing changed.
-- **Admin** in the footer opens `/admin` for the owner and admins: version, database size, skills.sh reachability, topic seed status, counts, environments, users and invites, the refresh/topic switches, instance name and recent activity. Only the owner can change instance settings or transfer ownership.
+- **Admin** in the footer opens `/admin` for the owner and admins: version, database size, skills.sh reachability, topic seed status, counts, environments, users and invites, the refresh/topic/link-sharing switches, instance name and recent activity. Only the owner can change instance settings or transfer ownership.
 
 ## Development
 

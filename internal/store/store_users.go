@@ -266,7 +266,10 @@ func (s *Store) attachMetaFor(userID int64, skills []Skill) error {
 			skills[i].Environments = append(skills[i].Environments, env)
 		}
 	}
-	return envRows.Err()
+	if err := envRows.Err(); err != nil {
+		return err
+	}
+	return s.attachListsFor(userID, skills)
 }
 
 func (s *Store) attachHiddenTagsFor(userID int64, skills []Skill) error {
@@ -457,7 +460,8 @@ func (s *Store) removeShelfTx(tx *sql.Tx, userID int64, id string, keepCatalogue
 		return err
 	}
 	if !keepCatalogue {
-		_, err := tx.Exec(`DELETE FROM skills WHERE id=? AND NOT EXISTS (SELECT 1 FROM shelf WHERE skill_id=?)`, id, id)
+		_, err := tx.Exec(`DELETE FROM skills WHERE id=? AND NOT EXISTS (SELECT 1 FROM shelf WHERE skill_id=?)
+			AND NOT EXISTS (SELECT 1 FROM list_skills WHERE skill_id=?)`, id, id, id)
 		return err
 	}
 	return nil

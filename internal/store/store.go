@@ -44,6 +44,13 @@ type Skill struct {
 	Tags         []Tag         `json:"tags,omitempty"`
 	HiddenTags   []Tag         `json:"hiddenTags,omitempty"`
 	Environments []Environment `json:"environments,omitempty"`
+	Lists        []ListRef     `json:"lists,omitempty"`
+}
+
+// ListRef is a shared list containing a skill, as shown on a card.
+type ListRef struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
 }
 
 // Tag is a label on a skill. Source is "topic" or "user".
@@ -213,6 +220,24 @@ var schemaV12 = []string{
 		notes TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
 		PRIMARY KEY (user_id, skill_id))`,
 	`CREATE INDEX IF NOT EXISTS idx_shelf_skill ON shelf(skill_id)`,
+	`CREATE TABLE IF NOT EXISTS lists (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+		visibility TEXT NOT NULL DEFAULT 'members', slug TEXT NOT NULL UNIQUE,
+		created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+	`CREATE TABLE IF NOT EXISTS list_members (
+		list_id INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		role TEXT NOT NULL DEFAULT 'viewer', PRIMARY KEY (list_id, user_id))`,
+	`CREATE TABLE IF NOT EXISTS list_skills (
+		list_id INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+		skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+		note TEXT NOT NULL DEFAULT '', added_by INTEGER NOT NULL DEFAULT 0,
+		position INTEGER NOT NULL DEFAULT 0, added_at INTEGER NOT NULL,
+		PRIMARY KEY (list_id, skill_id))`,
+	`CREATE INDEX IF NOT EXISTS idx_list_members_user ON list_members(user_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_list_skills_skill ON list_skills(skill_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_skill_envs_env ON skill_envs(env_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_skill_tags_tag ON skill_tags(tag_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_topic_skills_skill ON topic_skills(skill_id)`,

@@ -17,6 +17,38 @@ export type Skill = {
   updatedAt: number
   tags?: Tag[]
   environments?: Environment[]
+  lists?: ListRef[]
+}
+export type ListRef = { id: number; name: string }
+export type SharedList = {
+  id: number
+  ownerId: number
+  ownerName?: string
+  name: string
+  description: string
+  visibility: 'private' | 'members' | 'link'
+  slug?: string
+  role?: string
+  skillCount: number
+  memberCount: number
+  createdAt: number
+  updatedAt: number
+}
+export type ListSkill = Skill & {
+  note?: string
+  addedBy?: number
+  addedByName?: string
+  useCount: number
+  memberCount: number
+}
+export type ListMember = { id: number; name: string; email: string; role: string }
+export type ListDetail = SharedList & {
+  skills: ListSkill[]
+  members?: ListMember[]
+  linkEnabled: boolean
+  canEdit: boolean
+  canManage: boolean
+  canTransfer: boolean
 }
 export type Counts = { all: number; liked: number; bookmarked: number; used: number }
 export type Tab = 'all' | 'liked' | 'bookmarked' | 'used'
@@ -266,12 +298,12 @@ export type AdminStatus = {
   metaLastOK: string
   metaLastError: string
   topics: { lastSynced: string; lastError: string }
-  settings: { refreshEnabled: boolean; topicsEnabled: boolean; instanceName: string }
+  settings: { refreshEnabled: boolean; topicsEnabled: boolean; linkListsEnabled: boolean; instanceName: string }
 }
 export async function getAdminStatus(): Promise<AdminStatus> {
   return (await req('/api/admin/status')).json()
 }
-export async function saveAdminSettings(settings: { refreshEnabled?: boolean; topicsEnabled?: boolean; instanceName?: string }): Promise<void> {
+export async function saveAdminSettings(settings: { refreshEnabled?: boolean; topicsEnabled?: boolean; linkListsEnabled?: boolean; instanceName?: string }): Promise<void> {
   await req('/api/admin/settings', { method: 'PATCH', body: json(settings) })
 }
 export async function listIgnored(): Promise<{ ignored: Ignored[] }> {
@@ -282,4 +314,46 @@ export async function unignore(id: string): Promise<void> {
 }
 export async function getBuildInfo(): Promise<{ version: string; commit: string }> {
   return (await req('/api/version')).json()
+}
+export async function listLists(): Promise<{ lists: SharedList[]; linkEnabled: boolean }> {
+  return (await req('/api/v2/lists')).json()
+}
+export async function getList(id: number): Promise<ListDetail> {
+  return (await req(`/api/v2/lists/${id}`)).json()
+}
+export async function getPublicList(slug: string): Promise<ListDetail> {
+  return (await req(`/api/v2/public/lists/${encodeURIComponent(slug)}`)).json()
+}
+export async function createList(data: { name: string; description: string; visibility: string }): Promise<ListDetail> {
+  return (await req('/api/v2/lists', { method: 'POST', body: json(data) })).json()
+}
+export async function updateList(id: number, data: { name?: string; description?: string; visibility?: string }): Promise<ListDetail> {
+  return (await req(`/api/v2/lists/${id}`, { method: 'PATCH', body: json(data) })).json()
+}
+export async function deleteList(id: number): Promise<void> {
+  await req(`/api/v2/lists/${id}`, { method: 'DELETE' })
+}
+export async function addListSkill(id: number, data: { id?: string; input?: string; note?: string }): Promise<ListDetail> {
+  return (await req(`/api/v2/lists/${id}/skills`, { method: 'POST', body: json(data) })).json()
+}
+export async function updateListSkill(id: number, skillId: string, note: string): Promise<ListDetail> {
+  return (await req(`/api/v2/lists/${id}/skills`, { method: 'PATCH', body: json({ id: skillId, note }) })).json()
+}
+export async function removeListSkill(id: number, skillId: string): Promise<ListDetail> {
+  return (await req(`/api/v2/lists/${id}/skills?id=${encodeURIComponent(skillId)}`, { method: 'DELETE' })).json()
+}
+export async function addListMember(id: number, email: string, role: string): Promise<ListDetail> {
+  return (await req(`/api/v2/lists/${id}/members`, { method: 'POST', body: json({ email, role }) })).json()
+}
+export async function updateListMember(id: number, userId: number, role: string): Promise<ListDetail> {
+  return (await req(`/api/v2/lists/${id}/members`, { method: 'PATCH', body: json({ userId, role }) })).json()
+}
+export async function removeListMember(id: number, userId: number): Promise<ListDetail> {
+  return (await req(`/api/v2/lists/${id}/members?userId=${userId}`, { method: 'DELETE' })).json()
+}
+export async function transferList(id: number, userId: number): Promise<ListDetail> {
+  return (await req(`/api/v2/lists/${id}/transfer`, { method: 'POST', body: json({ userId }) })).json()
+}
+export async function addListToShelf(id: number): Promise<{ added: number }> {
+  return (await req(`/api/v2/lists/${id}/add-to-shelf`, { method: 'POST', body: json({}) })).json()
 }

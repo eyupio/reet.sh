@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { recordInstallCopy, type Environment, type Event, type Flags, type Skill, type Tag } from './api'
+  import { recordInstallCopy, type Environment, type Event, type Flags, type ListRef, type Skill, type Tag } from './api'
   import CopyButton from './CopyButton.svelte'
   import { eventLabel, eventTitle } from './events'
   import TrendSparkline from './TrendSparkline.svelte'
@@ -9,7 +9,7 @@
 
   let {
     skill, stage, tagOptions, selecting, selectedIDs, onselect, canWrite,
-    onpatch, onrefresh, onlink, onremove, onfiltertag, onfilterenv, ontags, onhistory,
+    onpatch, onrefresh, onlink, onremove, onfiltertag, onfilterenv, ontags, onhistory, onopenlist,
   }: {
     skill: Skill
     stage: Stage
@@ -26,6 +26,7 @@
     onfilterenv: (env: Environment) => void
     ontags: (s: Skill, add: string[], remove: number[]) => Promise<boolean>
     onhistory: (s: Skill) => Promise<Event[]>
+    onopenlist: (list: ListRef) => void
   } = $props()
 
   let editing = $state(false)
@@ -48,6 +49,7 @@
   const isSelected = $derived(selectedIDs.includes(skill.id))
   const tags = $derived(skill.tags ?? [])
   const environments = $derived(skill.environments ?? [])
+  const lists = $derived(skill.lists ?? [])
   const trend = $derived(skill.trend ?? [])
   const weeklyChange = $derived.by(() => {
     if (trend.length < 2) return null
@@ -224,6 +226,18 @@
       {/each}
     </div>
   {/if}
+  {#if lists.length}
+    <div class="listrow">
+      {#each lists as list (list.id)}
+        <button type="button" class="listchip" onclick={() => onopenlist(list)} title="Open shared list {list.name}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path>
+          </svg>
+          {list.name}
+        </button>
+      {/each}
+    </div>
+  {/if}
 
   <div class="actions">
     {#if canWrite}
@@ -379,6 +393,15 @@
   .envchip:hover { color: var(--ink); border-color: var(--muted); }
   .envchip.old { opacity: 0.5; }
   .envdot { width: 6px; height: 6px; border-radius: 999px; background: var(--accent); opacity: 0.75; flex: none; }
+  .listrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .listchip {
+    display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; min-height: 28px;
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); border-radius: 6px;
+    background: color-mix(in srgb, var(--tint) 28%, var(--card)); color: var(--accent);
+    font-size: 0.75rem; font-weight: 600; cursor: pointer;
+  }
+  .listchip:hover { border-color: var(--accent); background: color-mix(in srgb, var(--tint) 55%, var(--card)); }
+  .listchip svg { width: 13px; height: 13px; flex: none; }
   .history { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
   .history p { margin: 0; color: var(--muted); font-size: 0.85rem; }
   .history ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
@@ -430,7 +453,7 @@
     .tag-edit form { flex-direction: column; align-items: stretch; }
   }
   @media (pointer: coarse) {
-    .chip, .install-toggle, .seg button, .more, .tag, .envchip { min-height: 44px; }
+    .chip, .install-toggle, .seg button, .more, .tag, .envchip, .listchip { min-height: 44px; }
     .pickbox { width: 44px; height: 44px; }
     .box { width: 22px; height: 22px; }
   }

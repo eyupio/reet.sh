@@ -157,6 +157,20 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	mux.HandleFunc("POST /api/v2/admin/users/revoke", s.requireAdmin(s.adminUserRevoke))
 	mux.HandleFunc("POST /api/v2/admin/users/transfer", s.requireOwner(s.adminUserTransfer))
 	mux.HandleFunc("POST /api/v2/admin/invites", s.requireAdmin(s.adminInvite))
+	mux.HandleFunc("GET /api/v2/lists", s.listLists)
+	mux.HandleFunc("POST /api/v2/lists", s.requireWriter(s.createList))
+	mux.HandleFunc("GET /api/v2/lists/{id}", s.listDetail)
+	mux.HandleFunc("PATCH /api/v2/lists/{id}", s.updateList)
+	mux.HandleFunc("DELETE /api/v2/lists/{id}", s.deleteList)
+	mux.HandleFunc("POST /api/v2/lists/{id}/skills", s.addListSkill)
+	mux.HandleFunc("PATCH /api/v2/lists/{id}/skills", s.updateListSkill)
+	mux.HandleFunc("DELETE /api/v2/lists/{id}/skills", s.removeListSkill)
+	mux.HandleFunc("POST /api/v2/lists/{id}/members", s.addListMember)
+	mux.HandleFunc("PATCH /api/v2/lists/{id}/members", s.updateListMember)
+	mux.HandleFunc("DELETE /api/v2/lists/{id}/members", s.removeListMember)
+	mux.HandleFunc("POST /api/v2/lists/{id}/transfer", s.transferList)
+	mux.HandleFunc("POST /api/v2/lists/{id}/add-to-shelf", s.requireWriter(s.addListToShelf))
+	mux.HandleFunc("GET /api/v2/public/lists/{slug}", s.publicList)
 	mux.HandleFunc("PATCH /api/admin/settings", s.requireOwner(s.adminSettings))
 	mux.HandleFunc("GET /api/export", s.requireWriter(s.export))
 	mux.HandleFunc("POST /api/restore", s.requireWriter(s.restore))
@@ -234,7 +248,7 @@ func openAuthPath(path string) bool {
 	case "/api/version", "/api/v2/auth/status", "/api/v2/auth/setup", "/api/v2/auth/sign-in", "/api/v2/auth/sign-out", "/api/v2/auth/invite", "/api/v2/auth/join":
 		return true
 	}
-	return false
+	return strings.HasPrefix(path, "/api/v2/public/lists/")
 }
 
 func bootstrapPath(path string) bool {
@@ -1814,18 +1828,20 @@ func (s *server) adminStatus(w http.ResponseWriter, r *http.Request) {
 			"lastError":  topicsError,
 		},
 		"settings": map[string]any{
-			"refreshEnabled": settingEnabled(s.st, "refresh_enabled"),
-			"topicsEnabled":  settingEnabled(s.st, "topics_enabled"),
-			"instanceName":   instanceName,
+			"refreshEnabled":   settingEnabled(s.st, "refresh_enabled"),
+			"topicsEnabled":    settingEnabled(s.st, "topics_enabled"),
+			"linkListsEnabled": s.linkListsEnabled(),
+			"instanceName":     instanceName,
 		},
 	})
 }
 
 func (s *server) adminSettings(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		RefreshEnabled *bool   `json:"refreshEnabled"`
-		TopicsEnabled  *bool   `json:"topicsEnabled"`
-		InstanceName   *string `json:"instanceName"`
+		RefreshEnabled   *bool   `json:"refreshEnabled"`
+		TopicsEnabled    *bool   `json:"topicsEnabled"`
+		LinkListsEnabled *bool   `json:"linkListsEnabled"`
+		InstanceName     *string `json:"instanceName"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -1852,6 +1868,17 @@ func (s *server) adminSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		detail["topicsEnabled"] = *in.TopicsEnabled
+	}
+	if in.LinkListsEnabled != nil {
+		value := "0"
+		if *in.LinkListsEnabled {
+			value = "1"
+		}
+		if err := s.st.SetSetting("link_lists_enabled", value); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		detail["linkListsEnabled"] = *in.LinkListsEnabled
 	}
 	if in.InstanceName != nil {
 		if err := s.st.SetSetting("instance_name", strings.TrimSpace(*in.InstanceName)); err != nil {

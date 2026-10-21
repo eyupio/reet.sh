@@ -603,7 +603,7 @@
 </header>
 <main id="main-content" tabindex="-1" class:auth-page={!isPublicList && !isCommunity && (!authenticated || needsAuth || isJoin)}>
   {#if isCommunity}
-    <Community />
+    <Community canSave={authenticated && !needsAuth && canWrite} />
   {:else if isPublicList}
     <PublicList slug={publicSlug} />
   {:else if isJoin}

@@ -10,7 +10,7 @@ Reet keeps your personal shelf separate from lists. Adding a skill to a list doe
 - **Lists → Teams & organisations** shows accessible group collections.
 - **Community** is a public directory of deliberately published lists and their unique skills. It can be browsed without signing in. It covers this reet site, not a federated search across other installations.
 
-New lists default to **Personal**. The creation form and list settings include an audience preview before you save.
+New lists default to **Personal**. The creation form and list settings include an audience preview before you save. Signed-in writers can save a community skill directly to their personal shelf, or open a public list in their account to add all its skills.
 
 | Audience | Who can read | Discovery |
 | --- | --- | --- |

@@ -55,7 +55,7 @@
 
     <div class="actions">
       <button type="button" class="btn primary" onclick={copyAll} disabled={!commands.length}>Copy all install commands</button>
-      <a class="btn" href="/">Open your own shelf</a>
+      <a class="btn" href={detail.visibility === 'public' ? `/lists/${detail.id}` : '/'}>{detail.visibility === 'public' ? 'Open in your account' : 'Open your own shelf'}</a>
     </div>
     {#if status}<p class="status" role="status">{status}</p>{/if}
     {#if error}<p class="error" role="alert">{error}</p>{/if}

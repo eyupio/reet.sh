@@ -13,7 +13,6 @@
   import CopyButton from './lib/CopyButton.svelte'
   import Footer from './lib/Footer.svelte'
   import Logo from './lib/Logo.svelte'
-  import Recently from './lib/Recently.svelte'
   import Setup from './lib/Setup.svelte'
   import SignIn from './lib/SignIn.svelte'
   import SkillCard from './lib/SkillCard.svelte'
@@ -48,7 +47,6 @@
   let toastId = 0
   let environments = $state<Environment[]>([])
   let allTags = $state<Tag[]>([])
-  let events = $state<Event[]>([])
   let selectedTags = $state<number[]>([])
   let selectedEnv = $state('')
   let onlyOne = $state(false)
@@ -149,10 +147,9 @@
 
   async function loadMeta(): Promise<boolean> {
     try {
-      const [envs, tags, evs] = await Promise.all([listEnvironments(), listTags(), listEvents(10)])
+      const [envs, tags] = await Promise.all([listEnvironments(), listTags()])
       environments = envs.environments
       allTags = tags.tags
-      events = evs.events
       return true
     } catch (e) {
       fail(e)
@@ -564,8 +561,6 @@
       {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
       <p class="notice good" role="status" hidden={!message}>{message}</p>
     </div>
-
-    <Recently {events} />
 
     {#if counts.all > 0 || filtering}
       <div class="toolbar" role="group" aria-label="Filter and sort">

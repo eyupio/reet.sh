@@ -5,12 +5,13 @@
   import ConfirmDialog from './ConfirmDialog.svelte'
   import ManageTags from './ManageTags.svelte'
 
-  let { onchange, ok, fail, token, filters, startOpen = false, hideBookmarklets = false }: {
+  let { onchange, ok, fail, token, filters, canManageTags = true, startOpen = false, hideBookmarklets = false }: {
     onchange: () => Promise<void>
     ok: (message: string) => void
     fail: (e: unknown) => void
     token: string
     filters: SkillQuery
+    canManageTags?: boolean
     startOpen?: boolean
     hideBookmarklets?: boolean
   } = $props()
@@ -146,9 +147,11 @@
         <label class="btn file">Restore from JSON<input type="file" accept="application/json" onchange={pickRestore} hidden /></label>
       </p>
 
-      <h2>Tags</h2>
-      <p>Rename or merge tags across the whole shelf.</p>
-      <button type="button" class="btn" onclick={() => (showTags = true)}>Manage tags</button>
+      {#if canManageTags}
+        <h2>Tags</h2>
+        <p>Rename or merge tags across the whole shelf.</p>
+        <button type="button" class="btn" onclick={() => (showTags = true)}>Manage tags</button>
+      {/if}
 
       <h2>Ignored skills</h2>
       {#if ignored.length === 0}

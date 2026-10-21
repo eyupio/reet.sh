@@ -477,3 +477,131 @@ func TestRefreshQueueUsesOldestFetched(t *testing.T) {
 		t.Fatalf("touched order: %+v", queue)
 	}
 }
+
+func TestPerUserShelvesAndScoping(t *testing.T) {
+	s := newStore(t)
+	owner, err := s.DefaultOwner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	memberUser, err := s.CreateUser("member@example.com", "Member", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	member := memberUser.ID
+	a := mustRef(t, "a/b/alpha")
+	b := mustRef(t, "a/b/beta")
+	if _, err := s.UpsertFor(owner, a, Patch{Liked: bp(true), Notes: sp("owner note")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertFor(member, a, Patch{Used: bp(true), Notes: sp("member note")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertFor(owner, b, Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	ownerList, _, err := s.ListFor(owner, Filter{})
+	if err != nil || len(ownerList) != 2 {
+		t.Fatalf("owner list: %+v %v", ownerList, err)
+	}
+	memberList, _, err := s.ListFor(member, Filter{})
+	if err != nil || len(memberList) != 1 {
+		t.Fatalf("member list: %+v %v", memberList, err)
+	}
+	sk, ok, _ := s.GetFor(member, a.ID)
+	if !ok || !sk.Used || sk.Liked || sk.Notes != "member note" {
+		t.Fatalf("member skill: %+v", sk)
+	}
+	if err := s.AddSkillTagsFor(owner, a.ID, []string{"owner-tag"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddSkillTagsFor(member, a.ID, []string{"member-tag"}); err != nil {
+		t.Fatal(err)
+	}
+	ownerTags, _ := s.ListTagsFor(owner)
+	memberTags, _ := s.ListTagsFor(member)
+	ownerCounts, memberCounts := map[string]int{}, map[string]int{}
+	for _, tag := range ownerTags {
+		ownerCounts[tag.Name] = tag.Count
+	}
+	for _, tag := range memberTags {
+		memberCounts[tag.Name] = tag.Count
+	}
+	if ownerCounts["owner-tag"] != 1 || ownerCounts["member-tag"] != 0 || memberCounts["member-tag"] != 1 || memberCounts["owner-tag"] != 0 {
+		t.Fatalf("tags: %+v %+v", ownerCounts, memberCounts)
+	}
+	if err := s.RecordEnvironmentFor(owner, a.ID, "laptop", "claude", "", ".claude", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordEnvironmentFor(member, a.ID, "desktop", "cursor", "", ".cursor", ""); err != nil {
+		t.Fatal(err)
+	}
+	ownerEnvs, _ := s.ListEnvironmentsFor(owner)
+	memberEnvs, _ := s.ListEnvironmentsFor(member)
+	if len(ownerEnvs) != 1 || len(memberEnvs) != 1 || ownerEnvs[0].Host != "laptop" || memberEnvs[0].Host != "desktop" {
+		t.Fatalf("envs: %+v %+v", ownerEnvs, memberEnvs)
+	}
+	if err := s.IgnoreFor(member, b.ID, "beta", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if ignored, _ := s.IsIgnoredFor(owner, b.ID); ignored {
+		t.Fatal("owner ignored by member")
+	}
+	if err := s.AddEventFor(member, "ui", "test", a.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	ownerEvents, _ := s.ListEventsFor(owner, 10, "")
+	memberEvents, _ := s.ListEventsFor(member, 10, "")
+	if len(ownerEvents) != 0 || len(memberEvents) != 1 {
+		t.Fatalf("events: %+v %+v", ownerEvents, memberEvents)
+	}
+	if err := s.RemoveFor(member, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := s.GetFor(owner, a.ID); !ok {
+		t.Fatal("owner lost a skill when member removed it")
+	}
+}
+
+func TestMigrateLegacyShelfToOwner(t *testing.T) {
+	s := newStore(t)
+	r := mustRef(t, "a/b/legacy")
+	if _, err := s.Upsert(r, Patch{Liked: bp(true), Notes: sp("legacy note")}); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := s.DefaultOwner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sk, ok, err := s.GetFor(owner, r.ID)
+	if err != nil || !ok || !sk.Liked || sk.Notes != "legacy note" {
+		t.Fatalf("migration: %+v %v %v", sk, ok, err)
+	}
+}
+
+func TestMigrateLegacyEnvironment(t *testing.T) {
+	s := newStore(t)
+	r := mustRef(t, "a/b/with-env")
+	if _, err := s.Upsert(r, Patch{Used: bp(true)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO environments(id,user_id,name,kind,agent,host,path,project,first_seen,last_seen)
+		VALUES('laptop/claude',0,'laptop · Claude Code','machine','claude','laptop','.claude/skills','',1,1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO skill_envs(skill_id,env_id,installed_at,last_seen,source_path)
+		VALUES(?,'laptop/claude',1,1,'.claude/skills/with-env')`, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := s.DefaultOwner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sk, ok, err := s.GetFor(owner, r.ID)
+	if err != nil || !ok || len(sk.Environments) != 1 {
+		t.Fatalf("migrated envs: %+v %v %v", sk, ok, err)
+	}
+	if sk.Environments[0].ID != EnvironmentIDFor(owner, "laptop", "claude", "") {
+		t.Fatalf("env id: %s", sk.Environments[0].ID)
+	}
+}

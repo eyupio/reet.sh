@@ -63,6 +63,7 @@ type Environment struct {
 	Agent      string `json:"agent"`
 	Host       string `json:"host"`
 	Path       string `json:"path,omitempty"`
+	Project    string `json:"project,omitempty"`
 	FirstSeen  int64  `json:"firstSeen,omitempty"`
 	LastSeen   int64  `json:"lastSeen"`
 	SourcePath string `json:"sourcePath,omitempty"`
@@ -150,8 +151,9 @@ const schema = `CREATE TABLE IF NOT EXISTS skills (
 
 var schemaV12 = []string{
 	`CREATE TABLE IF NOT EXISTS environments (
-		id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'machine',
-		agent TEXT NOT NULL DEFAULT '', host TEXT NOT NULL DEFAULT '', path TEXT NOT NULL DEFAULT '',
+		id TEXT PRIMARY KEY, user_id INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL,
+		kind TEXT NOT NULL DEFAULT 'machine', agent TEXT NOT NULL DEFAULT '', host TEXT NOT NULL DEFAULT '',
+		path TEXT NOT NULL DEFAULT '', project TEXT NOT NULL DEFAULT '',
 		first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL)`,
 	`CREATE TABLE IF NOT EXISTS skill_envs (
 		skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
@@ -161,19 +163,21 @@ var schemaV12 = []string{
 	`CREATE TABLE IF NOT EXISTS tags (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE UNIQUE)`,
 	`CREATE TABLE IF NOT EXISTS skill_tags (
+		user_id INTEGER NOT NULL DEFAULT 0,
 		skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
 		tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
 		source TEXT NOT NULL DEFAULT 'user', hidden INTEGER NOT NULL DEFAULT 0,
-		PRIMARY KEY (skill_id, tag_id))`,
+		PRIMARY KEY (user_id, skill_id, tag_id))`,
 	`CREATE TABLE IF NOT EXISTS topic_skills (
 		tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
 		skill_id TEXT NOT NULL, PRIMARY KEY (tag_id, skill_id))`,
 	`CREATE TABLE IF NOT EXISTS events (
-		id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, actor TEXT NOT NULL DEFAULT '',
-		source TEXT NOT NULL DEFAULT 'ui', action TEXT NOT NULL, skill_id TEXT NOT NULL DEFAULT '',
-		detail TEXT NOT NULL DEFAULT '')`,
+		id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, user_id INTEGER NOT NULL DEFAULT 0,
+		actor TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT 'ui', action TEXT NOT NULL,
+		skill_id TEXT NOT NULL DEFAULT '', detail TEXT NOT NULL DEFAULT '')`,
 	`CREATE TABLE IF NOT EXISTS ignored (
-		id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', at INTEGER NOT NULL)`,
+		user_id INTEGER NOT NULL DEFAULT 0, id TEXT NOT NULL, name TEXT NOT NULL DEFAULT '',
+		reason TEXT NOT NULL DEFAULT '', at INTEGER NOT NULL, PRIMARY KEY (user_id, id))`,
 	`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`,
 	`CREATE TABLE IF NOT EXISTS users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -192,6 +196,13 @@ var schemaV12 = []string{
 		last_seen INTEGER NOT NULL)`,
 	`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
+	`CREATE TABLE IF NOT EXISTS shelf (
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+		liked INTEGER NOT NULL DEFAULT 0, bookmarked INTEGER NOT NULL DEFAULT 0, used INTEGER NOT NULL DEFAULT 0,
+		notes TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+		PRIMARY KEY (user_id, skill_id))`,
+	`CREATE INDEX IF NOT EXISTS idx_shelf_skill ON shelf(skill_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_skill_envs_env ON skill_envs(env_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_skill_tags_tag ON skill_tags(tag_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_topic_skills_skill ON topic_skills(skill_id)`,
@@ -219,6 +230,18 @@ func Open(dir string) (*Store, error) {
 			return nil, err
 		}
 	}
+	if err := migrateMultiUser(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	st := &Store{db: db, dir: dir}
+	var ownerID int64
+	if err := db.QueryRow(`SELECT id FROM users WHERE role='owner' ORDER BY id LIMIT 1`).Scan(&ownerID); err == nil {
+		if err := st.MigrateToOwner(ownerID); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	for _, c := range []struct{ name, ddl string }{
 		{"installs_week", "installs_week INTEGER NOT NULL DEFAULT 0"},
 		{"trend", "trend TEXT NOT NULL DEFAULT ''"},
@@ -229,7 +252,7 @@ func Open(dir string) (*Store, error) {
 			return nil, err
 		}
 	}
-	return &Store{db: db, dir: dir}, nil
+	return st, nil
 }
 
 func ensureColumn(db *sql.DB, name, ddl string) error {
@@ -621,14 +644,14 @@ func (s *Store) TagMany(ids []string, add []string, remove []int64) (int, error)
 		}
 		for _, skillID := range ids {
 			for _, tagID := range addIDs {
-				if _, err := tx.Exec(`INSERT INTO skill_tags(skill_id,tag_id,source,hidden) VALUES(?,?,'user',0)
-					ON CONFLICT(skill_id,tag_id) DO UPDATE SET source='user', hidden=0`, skillID, tagID); err != nil {
+				if _, err := tx.Exec(`INSERT INTO skill_tags(user_id,skill_id,tag_id,source,hidden) VALUES(0,?,?,'user',0)
+					ON CONFLICT(user_id,skill_id,tag_id) DO UPDATE SET source='user', hidden=0`, skillID, tagID); err != nil {
 					return err
 				}
 			}
 			for _, tagID := range remove {
 				var source string
-				err := tx.QueryRow(`SELECT source FROM skill_tags WHERE skill_id=? AND tag_id=?`, skillID, tagID).Scan(&source)
+				err := tx.QueryRow(`SELECT source FROM skill_tags WHERE user_id=0 AND skill_id=? AND tag_id=?`, skillID, tagID).Scan(&source)
 				if errors.Is(err, sql.ErrNoRows) {
 					continue
 				}
@@ -966,8 +989,8 @@ func (s *Store) AddSkillTags(skillID string, names []string) error {
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`INSERT INTO skill_tags(skill_id,tag_id,source,hidden) VALUES(?,?,'user',0)
-			ON CONFLICT(skill_id,tag_id) DO UPDATE SET source='user', hidden=0`, skillID, tagID); err != nil {
+		if _, err := tx.Exec(`INSERT INTO skill_tags(user_id,skill_id,tag_id,source,hidden) VALUES(0,?,?,'user',0)
+			ON CONFLICT(user_id,skill_id,tag_id) DO UPDATE SET source='user', hidden=0`, skillID, tagID); err != nil {
 			return err
 		}
 	}
@@ -977,7 +1000,7 @@ func (s *Store) AddSkillTags(skillID string, names []string) error {
 func (s *Store) RemoveSkillTag(skillID string, tagID int64) error {
 	return s.withTx(func(tx *sql.Tx) error {
 		var source string
-		err := tx.QueryRow(`SELECT source FROM skill_tags WHERE skill_id=? AND tag_id=?`, skillID, tagID).Scan(&source)
+		err := tx.QueryRow(`SELECT source FROM skill_tags WHERE user_id=0 AND skill_id=? AND tag_id=?`, skillID, tagID).Scan(&source)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
@@ -985,10 +1008,10 @@ func (s *Store) RemoveSkillTag(skillID string, tagID int64) error {
 			return err
 		}
 		if source == "topic" {
-			_, err = tx.Exec(`UPDATE skill_tags SET hidden=1 WHERE skill_id=? AND tag_id=?`, skillID, tagID)
+			_, err = tx.Exec(`UPDATE skill_tags SET hidden=1 WHERE user_id=0 AND skill_id=? AND tag_id=?`, skillID, tagID)
 			return err
 		}
-		_, err = tx.Exec(`DELETE FROM skill_tags WHERE skill_id=? AND tag_id=?`, skillID, tagID)
+		_, err = tx.Exec(`DELETE FROM skill_tags WHERE user_id=0 AND skill_id=? AND tag_id=?`, skillID, tagID)
 		return err
 	})
 }
@@ -1013,8 +1036,8 @@ func (s *Store) MergeTags(fromID, intoID int64) error {
 		return nil
 	}
 	return s.withTx(func(tx *sql.Tx) error {
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO skill_tags(skill_id,tag_id,source,hidden)
-			SELECT skill_id,?,source,hidden FROM skill_tags WHERE tag_id=?`, intoID, fromID); err != nil {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO skill_tags(user_id,skill_id,tag_id,source,hidden)
+			SELECT user_id,skill_id,?,source,hidden FROM skill_tags WHERE tag_id=?`, intoID, fromID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM skill_tags WHERE tag_id=?`, fromID); err != nil {
@@ -1121,8 +1144,8 @@ func (s *Store) IsIgnored(id string) (bool, error) {
 
 func (s *Store) Ignore(id, name, reason string) error {
 	return s.withTx(func(tx *sql.Tx) error {
-		if _, err := tx.Exec(`INSERT INTO ignored(id,name,reason,at) VALUES(?,?,?,?)
-			ON CONFLICT(id) DO UPDATE SET name=excluded.name, reason=excluded.reason, at=excluded.at`, id, name, reason, now()); err != nil {
+		if _, err := tx.Exec(`INSERT INTO ignored(user_id,id,name,reason,at) VALUES(0,?,?,?,?)
+			ON CONFLICT(user_id,id) DO UPDATE SET name=excluded.name, reason=excluded.reason, at=excluded.at`, id, name, reason, now()); err != nil {
 			return err
 		}
 		_, err := tx.Exec(`DELETE FROM skills WHERE id=?`, id)
@@ -1412,8 +1435,8 @@ func (s *Store) RestoreSnapshot(snapshot Snapshot) error {
 			if i.ID == "" {
 				continue
 			}
-			if _, err := tx.Exec(`INSERT INTO ignored(id,name,reason,at) VALUES(?,?,?,?)
-				ON CONFLICT(id) DO UPDATE SET name=excluded.name, reason=excluded.reason, at=excluded.at`,
+			if _, err := tx.Exec(`INSERT INTO ignored(user_id,id,name,reason,at) VALUES(0,?,?,?,?)
+				ON CONFLICT(user_id,id) DO UPDATE SET name=excluded.name, reason=excluded.reason, at=excluded.at`,
 				i.ID, i.Name, i.Reason, i.At); err != nil {
 				return err
 			}

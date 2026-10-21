@@ -67,6 +67,9 @@
   const signedIn = $derived(token !== '')
   const authenticated = $derived(authMode === 'none' || (authMode === 'token' && token !== '') || (authMode === 'accounts' && currentUser !== null))
   const canLoad = $derived(authChecked && authenticated && !needsAuth)
+  const role = $derived(currentUser?.role ?? (authMode === 'accounts' ? 'viewer' : 'owner'))
+  const canWrite = $derived(authMode !== 'accounts' || role !== 'viewer')
+  const isAdminUser = $derived(authMode !== 'accounts' || role === 'owner' || role === 'admin')
   const scanCommand = $derived(`reet scan --server ${origin}${authMode === 'none' ? '' : ' --token "$REET_TOKEN"'}`)
 
   const filtering = $derived(q.trim() !== '' || onlyLiked || selectedTags.length > 0 || selectedEnv !== '' || onlyOne)
@@ -551,14 +554,18 @@
     <SignIn onattempt={attemptSignIn} />
   {:else if !authMode}
     <p class="notice bad" role="alert">Could not check how this instance signs in. Reload the page to try again.</p>
+  {:else if isAdmin && !isAdminUser}
+    <p class="notice bad" role="alert">Admins only. Your account does not have access to this page.</p>
   {:else if isAdmin}
-    <Admin onerror={fail} />
+    <Admin onerror={fail} {role} />
   {:else}
-    <form class="add" onsubmit={add}>
-      <label class="vh" for="add-input">Skill URL or slug</label>
-      <input id="add-input" bind:this={addEl} placeholder="Paste a skills.sh URL or owner/repo/skill" autocomplete="off" bind:value={addInput} />
-      <button class="btn primary" type="submit">Add to shelf</button>
-    </form>
+    {#if canWrite}
+      <form class="add" onsubmit={add}>
+        <label class="vh" for="add-input">Skill URL or slug</label>
+        <input id="add-input" bind:this={addEl} placeholder="Paste a skills.sh URL or owner/repo/skill" autocomplete="off" bind:value={addInput} />
+        <button class="btn primary" type="submit">Add to shelf</button>
+      </form>
+    {/if}
 
     <div class="notices">
       {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
@@ -576,8 +583,10 @@
           {/each}
           <span class="sep" aria-hidden="true"></span>
           <button type="button" class="liked" aria-pressed={onlyLiked} onclick={() => (onlyLiked = !onlyLiked)}>♥ Liked<small>{likedCount}</small></button>
-          <span class="sep" aria-hidden="true"></span>
-          <button type="button" aria-pressed={selecting} onclick={toggleSelecting}>Select</button>
+          {#if canWrite}
+            <span class="sep" aria-hidden="true"></span>
+            <button type="button" aria-pressed={selecting} onclick={toggleSelecting}>Select</button>
+          {/if}
         </div>
         <div class="controls">
           <label class="vh" for="search">Search skills</label>
@@ -634,6 +643,12 @@
     <div id="sections">
       {#if loading}
         <p class="empty" role="status">Loading…</p>
+      {:else if counts.all === 0 && !filtering && !canWrite}
+        <section class="start" aria-labelledby="start-title">
+          <p class="eyebrow">Read-only</p>
+          <h2 id="start-title">Your account can browse, but not edit the shelf.</h2>
+          <p class="lede">Ask the owner for a shared list or a member role.</p>
+        </section>
       {:else if counts.all === 0 && !filtering}
         <section class="start" aria-labelledby="start-title">
           <p class="eyebrow">Start here</p>
@@ -682,7 +697,7 @@
               {#each g.items as s (s.id)}
                 <SkillCard
                 skill={s} stage={g.id} tagOptions={tagOptions}
-                selecting={selecting} selectedIDs={selected} onselect={select}
+                selecting={selecting} selectedIDs={selected} onselect={select} {canWrite}
                 onpatch={patch} onrefresh={refreshOne} onlink={link} onremove={remove}
                 onfiltertag={filterTag} onfilterenv={filterEnv} ontags={tags} onhistory={history}
               />
@@ -695,10 +710,10 @@
       {/if}
     </div>
 
-    {#if !loading}
+    {#if !loading && canWrite}
       {#key counts.all === 0}
         <Tools
-          onchange={reloadAll} {ok} {fail} {token}
+          onchange={reloadAll} {ok} {fail} {token} canManageTags={isAdminUser}
           filters={{ tab: onlyLiked ? 'liked' : 'all', q, sort, tags: selectedTags, env: selectedEnv, only: onlyOne ? 'one-machine' : '', stage: show === 'all' ? '' : show }}
           startOpen={counts.all === 0} hideBookmarklets={counts.all === 0}
         />
@@ -708,7 +723,7 @@
 </main>
 <Footer
   signedIn={authMode !== 'none' && authenticated && !needsAuth}
-  showAdmin={authenticated && !needsAuth}
+  showAdmin={authenticated && !needsAuth && isAdminUser}
   userName={currentUser?.name ?? ''}
   onsignout={signOut}
 />

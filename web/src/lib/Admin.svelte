@@ -4,7 +4,9 @@
   import { eventLabel, eventTitle } from './events'
   import { elapsed, isOldEnvironment } from './time'
 
-  let { onerror }: { onerror?: (e: unknown) => void } = $props()
+  let { onerror, role = 'owner' }: { onerror?: (e: unknown) => void; role?: string } = $props()
+
+  const isOwner = $derived(role === 'owner')
 
   let status = $state<AdminStatus | null>(null)
   let error = $state('')
@@ -131,18 +133,22 @@
 
     <section class="block" aria-labelledby="admin-settings">
       <h3 id="admin-settings">Jobs and instance</h3>
-      <form onsubmit={save}>
-        <label class="check"><input type="checkbox" bind:checked={form.refreshEnabled} /> Six-hourly metadata refresh</label>
-        <label class="check"><input type="checkbox" bind:checked={form.topicsEnabled} /> Daily skills.sh topic seed</label>
-        <label class="field">
-          <span>Instance name</span>
-          <input bind:value={form.instanceName} placeholder="Team shelf" autocomplete="off" />
-        </label>
-        <div class="save">
-          <button type="submit" class="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
-          {#if saved}<span class="saved" role="status">{saved}</span>{/if}
-        </div>
-      </form>
+      {#if isOwner}
+        <form onsubmit={save}>
+          <label class="check"><input type="checkbox" bind:checked={form.refreshEnabled} /> Six-hourly metadata refresh</label>
+          <label class="check"><input type="checkbox" bind:checked={form.topicsEnabled} /> Daily skills.sh topic seed</label>
+          <label class="field">
+            <span>Instance name</span>
+            <input bind:value={form.instanceName} placeholder="Team shelf" autocomplete="off" />
+          </label>
+          <div class="save">
+            <button type="submit" class="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
+            {#if saved}<span class="saved" role="status">{saved}</span>{/if}
+          </div>
+        </form>
+      {:else}
+        <p class="muted">Only the owner can change these settings. Refresh is {form.refreshEnabled ? 'on' : 'off'}; the topic seed is {form.topicsEnabled ? 'on' : 'off'}.</p>
+      {/if}
     </section>
 
     <section class="block" aria-labelledby="admin-events">

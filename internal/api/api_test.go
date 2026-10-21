@@ -2,10 +2,12 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/eyupio/reet.sh/internal/auth"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,7 +36,7 @@ func newSrv(t *testing.T, f meta.Fetcher, token string) *httptest.Server {
 	return srv
 }
 
-func newAccountsSrv(t *testing.T, token string) *httptest.Server {
+func newAccountsSrvStore(t *testing.T, token string) (*httptest.Server, *store.Store) {
 	t.Helper()
 	s, err := store.Open(t.TempDir())
 	if err != nil {
@@ -42,6 +44,12 @@ func newAccountsSrv(t *testing.T, token string) *httptest.Server {
 	}
 	srv := httptest.NewServer(New(s, deadFetcher(t), token, WithAuthMode(AuthAccounts)))
 	t.Cleanup(func() { srv.Close(); s.Close() })
+	return srv, s
+}
+
+func newAccountsSrv(t *testing.T, token string) *httptest.Server {
+	t.Helper()
+	srv, _ := newAccountsSrvStore(t, token)
 	return srv
 }
 
@@ -338,7 +346,15 @@ func TestImportEnvironmentAndPrune(t *testing.T) {
 	if code, b := do(t, srv, "POST", "/api/import", body); code != 200 {
 		t.Fatalf("%d %s", code, b)
 	}
-	code, b := do(t, srv, "GET", "/api/skills?env=laptop%2Fclaude", "")
+	code, b := do(t, srv, "GET", "/api/environments", "")
+	var envs struct {
+		Environments []store.Environment `json:"environments"`
+	}
+	if code != 200 || json.Unmarshal([]byte(b), &envs) != nil || len(envs.Environments) != 1 {
+		t.Fatalf("environments: %d %s", code, b)
+	}
+	envPath := "/api/skills?env=" + url.QueryEscape(envs.Environments[0].ID)
+	code, b = do(t, srv, "GET", envPath, "")
 	if code != 200 || !strings.Contains(b, `"name":"alpha"`) {
 		t.Fatalf("env filter: %d %s", code, b)
 	}
@@ -347,7 +363,7 @@ func TestImportEnvironmentAndPrune(t *testing.T) {
 	if code != 200 || !strings.Contains(b, `"pruned":1`) {
 		t.Fatalf("prune: %d %s", code, b)
 	}
-	if code, b := do(t, srv, "GET", "/api/skills?env=laptop%2Fclaude", ""); code != 200 || !strings.Contains(b, `"skills":[]`) {
+	if code, b := do(t, srv, "GET", envPath, ""); code != 200 || !strings.Contains(b, `"skills":[]`) {
 		t.Fatalf("after prune: %d %s", code, b)
 	}
 }
@@ -602,4 +618,66 @@ func TestBootstrapTokenOnlyImports(t *testing.T) {
 	if code, body := do(t, srv, "POST", "/api/import", `{"items":[{"name":"alpha"}]}`, "X-Reet-Token", "bootstrap"); code != 200 || !strings.Contains(body, `"imported":1`) {
 		t.Fatalf("bootstrap import: %d %s", code, body)
 	}
+}
+
+func TestPerUserIsolationAndRoles(t *testing.T) {
+	srv, st := newAccountsSrvStore(t, "bootstrap")
+	ownerClient := &http.Client{Jar: mustJar(t)}
+	if code, _ := doClient(t, ownerClient, srv, "POST", "/api/v2/auth/setup", `{"name":"Owner","email":"owner@example.com","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 200 {
+		t.Fatalf("setup: %d", code)
+	}
+	hash, _ := auth.HashPassword("long-enough-password")
+	if _, err := st.CreateUser("member@example.com", "Member", "member", hash); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateUser("viewer@example.com", "Viewer", "viewer", hash); err != nil {
+		t.Fatal(err)
+	}
+	memberClient := &http.Client{Jar: mustJar(t)}
+	viewerClient := &http.Client{Jar: mustJar(t)}
+	if code, body := doClient(t, memberClient, srv, "POST", "/api/v2/auth/sign-in", `{"email":"member@example.com","password":"long-enough-password"}`); code != 200 {
+		t.Fatalf("member sign-in: %d %s", code, body)
+	}
+	if code, body := doClient(t, viewerClient, srv, "POST", "/api/v2/auth/sign-in", `{"email":"viewer@example.com","password":"long-enough-password"}`); code != 200 {
+		t.Fatalf("viewer sign-in: %d %s", code, body)
+	}
+	if code, body := doClient(t, memberClient, srv, "POST", "/api/skills", `{"input":"a/b/member-skill"}`); code != 200 {
+		t.Fatalf("member add: %d %s", code, body)
+	}
+	if _, body := doClient(t, memberClient, srv, "GET", "/api/skills", ""); !strings.Contains(body, "member-skill") {
+		t.Fatalf("member shelf: %s", body)
+	}
+	if _, body := doClient(t, viewerClient, srv, "GET", "/api/skills", ""); strings.Contains(body, "member-skill") {
+		t.Fatalf("viewer saw member shelf: %s", body)
+	}
+	if _, body := doClient(t, ownerClient, srv, "GET", "/api/skills", ""); strings.Contains(body, "member-skill") {
+		t.Fatalf("owner saw member shelf: %s", body)
+	}
+	if code, _ := doClient(t, viewerClient, srv, "POST", "/api/skills", `{"input":"a/b/viewer-skill"}`); code != 403 {
+		t.Fatalf("viewer write: %d", code)
+	}
+	if code, _ := doClient(t, viewerClient, srv, "GET", "/api/export", ""); code != 403 {
+		t.Fatalf("viewer export: %d", code)
+	}
+	if code, _ := doClient(t, viewerClient, srv, "GET", "/api/admin/status", ""); code != 403 {
+		t.Fatalf("viewer admin: %d", code)
+	}
+	if code, _ := doClient(t, memberClient, srv, "GET", "/api/admin/status", ""); code != 403 {
+		t.Fatalf("member admin: %d", code)
+	}
+	if code, _ := doClient(t, ownerClient, srv, "GET", "/api/admin/status", ""); code != 200 {
+		t.Fatalf("owner admin: %d", code)
+	}
+	if code, _ := doClient(t, memberClient, srv, "PATCH", "/api/tag", `{"id":1,"name":"nope"}`); code != 403 {
+		t.Fatalf("member tag admin: %d", code)
+	}
+}
+
+func mustJar(t *testing.T) *cookiejar.Jar {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return jar
 }

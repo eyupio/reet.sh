@@ -1,21 +1,27 @@
 # reet.sh design
 
-Date: 2026-10-21
+Date: 2026-10-21 (revised the same day: stack aligned with zoomies.sh)
 
 ## Purpose
 
-A self-hosted web app that lets one person like, bookmark and mark as "used" the skills listed on https://www.skills.sh. skills.sh has no accounts, likes or bookmarks, so this is a separate personal layer. Success: the user can see their liked, bookmarked and in-use skills in one place and add to them with minimal effort.
+A self-hosted app that lets one person like, bookmark and mark as "used" the skills listed on https://www.skills.sh. skills.sh has no accounts, likes or bookmarks, so this is a separate personal layer. Success: the user can see their liked, bookmarked and in-use skills in one place and add to them with minimal effort.
 
-Stated by the user: self-hosted web app; skills added by URL plus a bookmarklet; import of installed skills.
+Stated by the user: self-hosted web app; skills added by URL plus a bookmarklet; import of installed skills; name reet.sh, repo eyupio/reet.sh; tech choices similar to zoomies.sh.
 Assumptions: single user, own homelab; "like" is a private favourite; "used" means installed or in regular use.
 
 ## Non-goals
 
-Multi-user accounts, public sharing, cross-instance sync, any write-back to skills.sh.
+Multi-user accounts, public sharing, cross-instance sync, any write-back to skills.sh, an interactive installer (v1).
+
+## Stack (mirrors zoomies.sh)
+
+- Go backend on the stdlib `net/http` mux (Go 1.22+ pattern routing), no web framework.
+- Svelte 5 SPA (Vite, TypeScript) embedded in the binary with `go:embed`.
+- SQLite via `modernc.org/sqlite` (pure Go, no CGO) so the result is one static binary.
+- Single binary `reet` with subcommands `reet serve` and `reet scan`.
+- Docker image (distroless or scratch) with a `/data` volume.
 
 ## Architecture
-
-One Node 22 service (Express) with a SQLite file (better-sqlite3), a static single-page UI, and a CLI scanner script. Ships as a Docker image with a `/data` volume.
 
 ### Data model
 
@@ -27,18 +33,22 @@ One Node 22 service (Express) with a SQLite file (better-sqlite3), a static sing
 - `liked`, `bookmarked`, `used` (0/1), `notes`
 - `created_at`, `updated_at`
 
-### Components
+### Go packages
 
-1. **Ref parser**: turns a skills.sh URL or slug into an id; rejects other hosts.
-2. **Metadata fetcher**: optional official API (`SKILLS_SH_TOKEN`, which needs a Vercel OIDC token); otherwise scrapes the public page title and description; on any failure keeps the slug only. Never blocks saving.
-3. **HTTP API** (`/api/*`): list with filter/search/sort, add, patch flags and notes, delete, refresh metadata, resolve a local entry to a real id, bulk import, JSON export and restore.
-4. **Quick endpoint** (`/quick?action=like|save|used&url=`): used by the bookmarklets; returns a small self-closing confirmation page.
-5. **UI**: add box, tabs (All, Liked, Bookmarked, Used), search, sort, per-card toggles and notes, import panel, bookmarklets, backup/restore.
-6. **Scanner** (`scripts/scan-installed.mjs`): reads the skills CLI lock file if present and skill folders (`~/.claude/skills`, `~/.agents/skills`, and others), then posts them to `/api/import` as used. Supports `--dry-run`.
+1. `internal/ref`: parses a skills.sh URL or slug into an id; rejects other hosts.
+2. `internal/meta`: optional official API (`SKILLS_SH_TOKEN`, which needs a Vercel OIDC token); otherwise reads the public page title and description; on any failure keeps the slug only. Never blocks saving.
+3. `internal/store`: SQLite access (migrate, list with filter/search/sort, upsert, patch flags and notes, delete, export, restore).
+4. `internal/api`: handlers under `/api/*`, the `/quick` endpoint for bookmarklets, optional `REET_TOKEN` auth middleware, `/healthz`, and serving the embedded SPA.
+5. `internal/scan`: reads the skills CLI lock file if present and skill folders (`~/.claude/skills`, `~/.agents/skills`, and others) into `(name, source?)` pairs; `reet scan` posts them to `/api/import` as used, with `--dry-run`.
+6. `web/`: Svelte 5 SPA with add box, tabs (All, Liked, Bookmarked, Used), search, sort, per-card toggles and notes, import panel, bookmarklets, backup/restore.
+
+### API surface
+
+`GET /api/skills`, `POST /api/skills`, `PATCH /api/skill`, `DELETE /api/skill`, `POST /api/skill/refresh`, `POST /api/skill/resolve`, `POST /api/import`, `GET /api/export`, `POST /api/restore`, `GET /quick?action=like|save|used&url=`.
 
 ### Safety
 
-Optional `APP_TOKEN` required for `/api/*` and `/quick`. UI renders scraped text with `textContent` only. Fetches have an 8 second timeout.
+Optional `REET_TOKEN` required for `/api/*` and `/quick`. The SPA renders scraped text as text, never HTML. Outbound fetches have an 8 second timeout.
 
 ### Error handling
 
@@ -46,7 +56,7 @@ Unparseable input returns 400 with a message. Metadata failure is silent. Unknow
 
 ### Testing
 
-Run the server locally and exercise add, toggle, filter, import, quick, export and restore with curl; run the scanner in dry-run mode against a fake home directory. Live skills.sh fetching can't be verified from the build sandbox, so the fallback path is what gets tested there.
+`go test` for `ref`, `meta`, `store`, `api` (using `httptest`) and `scan` (using a temp fake home directory). Live skills.sh fetching can't be verified from the build sandbox, so the fallback path is what gets tested there. The SPA is type-checked with `svelte-check` and built with Vite.
 
 ## Known risks
 

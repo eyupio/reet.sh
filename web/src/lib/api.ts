@@ -23,6 +23,7 @@ export type Tab = 'all' | 'liked' | 'bookmarked' | 'used'
 export type Sort = 'recent' | 'name' | 'installs'
 export type Flags = { liked?: boolean; bookmarked?: boolean; used?: boolean; notes?: string }
 export type AddResult = Skill & { created: boolean }
+export type RefreshResult = Skill & { changed: boolean; refreshed: boolean }
 
 export type Tag = { id: number; name: string; source?: 'topic' | 'user'; hidden?: boolean; count?: number }
 export type Environment = {
@@ -48,7 +49,7 @@ export type Event = {
   detail?: string
 }
 export type Ignored = { id: string; name: string; reason?: string; at: number }
-export type SkillQuery = { tab: Tab; q: string; sort: Sort; tags?: number[]; env?: string; only?: string }
+export type SkillQuery = { tab: Tab; q: string; sort: Sort; tags?: number[]; env?: string; only?: string; stage?: string }
 export type Backup = { version?: number; exportedAt?: number; skills: Skill[]; ignored?: Ignored[]; events?: Event[] }
 
 const KEY = 'reet-token'
@@ -122,7 +123,16 @@ export async function patchSkill(id: string, flags: Flags): Promise<Skill> {
 export async function removeSkill(id: string, ignore = false): Promise<void> {
   await req(`/api/skill?id=${encodeURIComponent(id)}${ignore ? '&ignore=1' : ''}`, { method: 'DELETE' })
 }
-export async function refreshSkill(id: string): Promise<Skill> {
+export async function patchSkills(ids: string[], flags: Flags): Promise<{ updated: number }> {
+  return (await req('/api/skills', { method: 'PATCH', body: json({ ids, ...flags }) })).json()
+}
+export async function tagSkills(ids: string[], add: string[], remove: number[]): Promise<{ tagged: number }> {
+  return (await req('/api/skills/tags', { method: 'POST', body: json({ ids, add, remove }) })).json()
+}
+export async function removeSkills(ids: string[], ignore = false): Promise<{ removed: number }> {
+  return (await req('/api/skills/remove', { method: 'POST', body: json({ ids, ignore }) })).json()
+}
+export async function refreshSkill(id: string): Promise<RefreshResult> {
   return (await req('/api/skill/refresh', { method: 'POST', body: json({ id }) })).json()
 }
 export async function resolveSkill(id: string, input: string): Promise<Skill> {
@@ -131,8 +141,24 @@ export async function resolveSkill(id: string, input: string): Promise<Skill> {
 export async function importText(text: string): Promise<{ imported: number; ignored: number; errors: string[] }> {
   return (await req('/api/import', { method: 'POST', body: json({ text }) })).json()
 }
-export async function exportAll(includeEvents = true): Promise<Blob> {
-  return (await req(`/api/export${includeEvents ? '' : '?events=0'}`)).blob()
+export async function exportAll(includeEvents = true, format: 'json' | 'md' | 'csv' = 'json', filters?: SkillQuery): Promise<Blob> {
+  const p = new URLSearchParams()
+  if (format === 'json') {
+    if (!includeEvents) p.set('events', '0')
+  } else {
+    p.set('format', format)
+    if (filters) {
+      p.set('tab', filters.tab)
+      p.set('q', filters.q)
+      p.set('sort', filters.sort)
+      if (filters.stage) p.set('stage', filters.stage)
+      if (filters.tags?.length) p.set('tag', filters.tags.join(','))
+      if (filters.env) p.set('env', filters.env)
+      if (filters.only) p.set('only', filters.only)
+    }
+  }
+  const qs = p.toString()
+  return (await req(`/api/export${qs ? `?${qs}` : ''}`)).blob()
 }
 export async function restoreAll(data: unknown): Promise<{ restored: number }> {
   return (await req('/api/restore', { method: 'POST', body: json(data) })).json()
@@ -159,6 +185,26 @@ export async function listEvents(limit = 20, skill?: string): Promise<{ events: 
 }
 export async function recordInstallCopy(id: string): Promise<void> {
   await req('/api/skill/install-copy', { method: 'POST', body: json({ id }) })
+}
+export type AdminStatus = {
+  version: string
+  commit: string
+  db: { path: string; size: number }
+  counts: Counts
+  stages: { use: number; try: number; shelf: number }
+  environments: Environment[]
+  events: Event[]
+  skillsSh: boolean
+  metaLastOK: string
+  metaLastError: string
+  topics: { lastSynced: string; lastError: string }
+  settings: { refreshEnabled: boolean; topicsEnabled: boolean; instanceName: string }
+}
+export async function getAdminStatus(): Promise<AdminStatus> {
+  return (await req('/api/admin/status')).json()
+}
+export async function saveAdminSettings(settings: { refreshEnabled?: boolean; topicsEnabled?: boolean; instanceName?: string }): Promise<void> {
+  await req('/api/admin/settings', { method: 'PATCH', body: json(settings) })
 }
 export async function listIgnored(): Promise<{ ignored: Ignored[] }> {
   return (await req('/api/ignored')).json()

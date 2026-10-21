@@ -27,6 +27,7 @@
     </span>
     <span class="end">
       {#if signedIn}
+        <a class="admin" href="/admin">Admin</a>
         <button type="button" class="signout" onclick={() => onsignout?.()}>Sign out</button>
       {/if}
       <!-- The credit leaves the app, so it opens in a new tab and the list the person was on is not lost. -->
@@ -53,11 +54,12 @@
   .credit { white-space: nowrap; }
   .credit a { color: var(--muted); font-weight: 500; text-underline-offset: 3px; }
   .credit a:hover, .credit a:focus-visible { color: var(--ink); text-decoration: underline; }
-  .signout {
+  .signout, .admin {
     background: none; border: 0; padding: 4px 0; min-height: 32px; cursor: pointer;
-    color: var(--muted); font-size: 0.85rem; text-underline-offset: 3px;
+    color: var(--muted); font-size: 0.85rem; text-underline-offset: 3px; text-decoration: none;
   }
-  .signout:hover, .signout:focus-visible { color: var(--ink); text-decoration: underline; }
-  @media (pointer: coarse) { .signout { min-height: 44px; } }
+  .admin { display: inline-flex; align-items: center; }
+  .signout:hover, .signout:focus-visible, .admin:hover, .admin:focus-visible { color: var(--ink); text-decoration: underline; }
+  @media (pointer: coarse) { .signout, .admin { min-height: 44px; } }
   @media (max-width: 560px) { .descriptor { display: none; } }
 </style>

@@ -1,15 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { exportAll, importText, listIgnored, listSkills, restoreAll, unignore, type Backup, type Ignored } from './api'
+  import { exportAll, importText, listIgnored, listSkills, restoreAll, unignore, type Backup, type Ignored, type SkillQuery } from './api'
   import Bookmarklets from './Bookmarklets.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import ManageTags from './ManageTags.svelte'
 
-  let { onchange, ok, fail, token, startOpen = false, hideBookmarklets = false }: {
+  let { onchange, ok, fail, token, filters, startOpen = false, hideBookmarklets = false }: {
     onchange: () => Promise<void>
     ok: (message: string) => void
     fail: (e: unknown) => void
     token: string
+    filters: SkillQuery
     startOpen?: boolean
     hideBookmarklets?: boolean
   } = $props()
@@ -18,6 +19,7 @@
   let importBox = $state('')
   let pending = $state<{ data: Backup; overwrite: number } | null>(null)
   let includeHistory = $state(true)
+  let format = $state<'json' | 'md' | 'csv'>('json')
   let ignored = $state<Ignored[]>([])
   let showTags = $state(false)
   const title = $derived(hideBookmarklets ? 'tools' : 'bookmarklets and tools')
@@ -59,10 +61,10 @@
 
   async function backup() {
     try {
-      const blob = await exportAll(includeHistory)
+      const blob = await exportAll(includeHistory, format, filters)
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
-      a.download = 'reet-export.json'
+      a.download = format === 'json' ? 'reet-export.json' : `reet-shelf.${format}`
       a.click()
       URL.revokeObjectURL(a.href)
       await onchange()
@@ -122,15 +124,27 @@
       <textarea id="import-box" rows="4" bind:value={importBox} placeholder="find-skills&#10;anthropics/skills/pptx"></textarea>
       <button type="button" class="btn primary" onclick={runImport} disabled={!importBox.trim()}>Import as in use</button>
 
-      <h2>Backup</h2>
+      <h2>Backup and export</h2>
+      <div class="export-row">
+        <label for="export-format">Format</label>
+        <select id="export-format" bind:value={format}>
+          <option value="json">JSON (full backup)</option>
+          <option value="md">Markdown (current filter)</option>
+          <option value="csv">CSV (current filter)</option>
+        </select>
+        <button type="button" class="btn" onclick={backup}>Download</button>
+      </div>
+      {#if format === 'json'}
+        <label class="check">
+          <input type="checkbox" bind:checked={includeHistory} />
+          Include local history in the backup
+        </label>
+      {:else}
+        <p class="export-hint">Markdown and CSV follow the current search, stage, tag and environment filters.</p>
+      {/if}
       <p class="links">
-        <button type="button" class="btn" onclick={backup}>Download JSON</button>
         <label class="btn file">Restore from JSON<input type="file" accept="application/json" onchange={pickRestore} hidden /></label>
       </p>
-      <label class="check">
-        <input type="checkbox" bind:checked={includeHistory} />
-        Include local history in the backup
-      </label>
 
       <h2>Tags</h2>
       <p>Rename or merge tags across the whole shelf.</p>
@@ -182,6 +196,10 @@
   .file { display: inline-flex; align-items: center; }
   .panel textarea { margin: 6px 0; }
   .check { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 0.9rem; }
+  .export-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  .export-row label { color: var(--muted); font-size: 0.9rem; }
+  .export-row select { max-width: 230px; }
+  .export-hint { margin: 6px 0 0; font-size: 0.85rem; }
   .check input { min-height: 0; }
   .ignored { list-style: none; margin: 8px 0 0; padding: 0; }
   .ignored li { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); min-height: 44px; }

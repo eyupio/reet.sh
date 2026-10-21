@@ -65,7 +65,8 @@ func serve() error {
 	_ = st.PruneEvents(time.Now().AddDate(-1, 0, 0).UnixMilli())
 	h := api.New(st, meta.Default(os.Getenv("SKILLS_SH_TOKEN")), os.Getenv("REET_TOKEN"),
 		api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"),
-		api.WithTopics(os.Getenv("REET_TOPICS") != "off"))
+		api.WithTopics(os.Getenv("REET_TOPICS") != "off"),
+		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"))
 	mux := http.NewServeMux()
 	mux.Handle("/api/", h)
 	mux.Handle("/quick", h)

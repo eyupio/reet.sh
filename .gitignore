@@ -1,5 +1,6 @@
 .superpowers/
 data/
+.env
 web/node_modules/
 web/dist/*
 !web/dist/.gitkeep

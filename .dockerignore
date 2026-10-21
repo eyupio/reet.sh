@@ -1,6 +1,7 @@
 .git
 .github
 .superpowers
+.env
 data
 docs
 web/node_modules

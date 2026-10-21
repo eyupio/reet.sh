@@ -1,23 +1,22 @@
+# Reads settings from ./.env (see .env.example). Run `sh scripts/init-env.sh` to create it.
 services:
   reet:
-    image: ghcr.io/eyupio/reet.sh:latest
+    image: ghcr.io/eyupio/reet.sh:${REET_VERSION:-latest}
     container_name: reet
     restart: unless-stopped
+    # Run as your own user so the bind-mounted data folder stays yours.
+    user: "${REET_UID:-1000}:${REET_GID:-1000}"
     ports:
-      - "8080:8080"
+      - "${REET_PORT:-8080}:8080"
     environment:
-      # Optional: require this token for the UI's API and the bookmarklets.
       REET_TOKEN: ${REET_TOKEN:-}
-      # Optional: skills.sh API token (needs a Vercel OIDC token). Without it, reet reads the public pages.
       SKILLS_SH_TOKEN: ${SKILLS_SH_TOKEN:-}
     volumes:
-      - reet-data:/data
+      # Bind mount to a host folder (not a Docker volume).
+      - ${REET_DATA_PATH:-./data}:/data
     healthcheck:
       test: ["CMD", "/reet", "healthcheck"]
       interval: 30s
       timeout: 5s
       start_period: 5s
       retries: 3
-
-volumes:
-  reet-data:

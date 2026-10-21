@@ -612,12 +612,13 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 func filterFromRequest(r *http.Request) store.Filter {
 	q := r.URL.Query()
 	f := store.Filter{
-		Tab:   q.Get("tab"),
-		Query: q.Get("q"),
-		Sort:  q.Get("sort"),
-		Env:   q.Get("env"),
-		Only:  q.Get("only"),
-		Stage: q.Get("stage"),
+		Tab:     q.Get("tab"),
+		Query:   q.Get("q"),
+		Sort:    q.Get("sort"),
+		Env:     q.Get("env"),
+		Machine: q.Get("machine"),
+		Only:    q.Get("only"),
+		Stage:   q.Get("stage"),
 	}
 	for _, raw := range q["tag"] {
 		for _, part := range strings.Split(raw, ",") {
@@ -991,12 +992,12 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) environments(w http.ResponseWriter, r *http.Request) {
-	envs, err := s.st.ListEnvironmentsFor(s.uid(r))
+	envs, err := s.st.SyncEnvironmentsFor(s.uid(r))
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"environments": envs})
+	writeJSON(w, 200, map[string]any{"environments": envs, "machines": store.GroupMachines(envs)})
 }
 
 func (s *server) tags(w http.ResponseWriter, r *http.Request) {

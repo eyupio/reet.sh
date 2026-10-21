@@ -60,3 +60,13 @@ These settings are also available in `.env`/Docker Compose. Remote reports use t
 ## Persistence and backup
 
 Inventory, scan completeness, runtime details and desired reference snapshots survive server restarts in the controller's SQLite database. Back up the data directory with a consistent SQLite backup or while the server is stopped to retain all of this state. Shelf JSON exports do not yet include sync reference configurations or standalone host heartbeat records.
+
+## Machines and agent groups
+
+An environment is a machine, identified within your account by its stable `--env` / `REET_ENV` name. Claude Code, shared agents/Codex, Cursor and project installations are subgroups of that machine. Use the same name for its scanner and server heartbeat. Use distinct names for different machines. Containers report only the files they can see; explicitly configure the host alias when a container's random hostname is not the identity you want.
+
+The Library filters first by machine, then optionally by agent/project group. Machine skill counts deduplicate skills installed in several agent folders. **Only on one machine** counts machine identities, not agents. Existing scan and sync target IDs continue to identify individual agent/project groups, so saved references and older binaries keep working.
+
+On Account, **Compare machines** shows unique skills shared by the selected machines and skills present on only one side. Select individual agent groups to compare placement rather than combined inventories. A match compares reported skill identities/sources, not installed file contents or versions. Stale/incomplete agent reports and machines with only a server heartbeat cannot confirm a match; unknown/local sources require review. Rescan both machines with `--prune`, then refresh before deciding what to apply.
+
+For a confirmed, source-linked comparison between individual groups, **Use these groups for a sync reference** prepares the snapshot form. Review it and explicitly save the desired reference. The target CLI still previews and confirms installs/removals locally; comparison alone never changes any machine.

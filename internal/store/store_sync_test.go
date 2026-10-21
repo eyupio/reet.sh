@@ -148,3 +148,46 @@ func TestProjectEnvironmentIDsDoNotCollide(t *testing.T) {
 		t.Fatal("project ID is unstable")
 	}
 }
+
+func TestMachinesGroupAgentsDeduplicateSkillsAndScopeFilters(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	owner, _ := s.DefaultOwner()
+	other, err := s.CreateUser("machine-other@example.com", "Other", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := mustRef(t, "a/b/common")
+	s.UpsertFor(owner, r, Patch{})
+	s.UpsertFor(other.ID, r, Patch{})
+	for _, agent := range []string{"claude", "agents"} {
+		if err = s.RecordEnvironmentFor(owner, r.ID, "laptop", agent, "", "", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.RegisterMachineFor(owner, MachineInfo{Host: "laptop", Server: true})
+	s.RecordEnvironmentFor(other.ID, r.ID, "server", "claude", "", "", "")
+	envs, err := s.SyncEnvironmentsFor(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	machines := GroupMachines(envs)
+	if len(machines) != 1 || machines[0].Host != "laptop" || len(machines[0].Groups) != 3 || machines[0].SkillCount != 1 {
+		t.Fatalf("groups %+v", machines)
+	}
+	skills, _, err := s.ListFor(owner, Filter{Machine: "laptop"})
+	if err != nil || len(skills) != 1 {
+		t.Fatalf("machine filter %v %v", skills, err)
+	}
+	skills, _, err = s.ListFor(owner, Filter{Machine: "server"})
+	if err != nil || len(skills) != 0 {
+		t.Fatal("another account's machine leaked")
+	}
+	skills, _, err = s.ListFor(owner, Filter{Machine: "laptop", Only: "one-machine"})
+	if err != nil || len(skills) != 1 {
+		t.Fatal("agent groups counted as different machines")
+	}
+}

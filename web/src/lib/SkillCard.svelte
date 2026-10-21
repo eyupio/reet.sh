@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { groupLabel } from './machines'
   import { recordInstallCopy, type Environment, type Event, type Flags, type ListRef, type Skill, type Tag } from './api'
   import CopyButton from './CopyButton.svelte'
   import { eventLabel, eventTitle } from './events'
@@ -54,6 +55,7 @@
   const tagExists = $derived(tags.some((tag) => tag.name.toLowerCase() === tagName.toLowerCase()))
   const availableTags = $derived(tagOptions.filter((name) => !tags.some((tag) => tag.name.toLowerCase() === name.toLowerCase())))
   const environments = $derived(skill.environments ?? [])
+  const machines = $derived([...new Set(environments.map(e => e.host))].map(host => ({ host, groups: environments.filter(e => e.host === host) })))
   const lists = $derived(skill.lists ?? [])
   const trend = $derived(skill.trend ?? [])
   const weeklyChange = $derived.by(() => {
@@ -244,10 +246,14 @@
   {#if canWrite}<p class="tag-status vh" role="status">{tagStatus}</p>{/if}
   {#if environments.length}
     <div class="envrow">
-      {#each environments as env (env.id)}
-        <button type="button" class="envchip" class:old={isOldEnvironment(env.lastSeen)} onclick={() => onfilterenv(env)} title={envTitle(env)}>
-          <span class="envdot" aria-hidden="true"></span>{env.name}
-        </button>
+      {#each machines as machine (machine.host)}
+        <div class="envmachine"><strong>{machine.host}</strong>
+          {#each machine.groups as env (env.id)}
+            <button type="button" class="envchip" class:old={isOldEnvironment(env.lastSeen)} onclick={() => onfilterenv(env)} title={envTitle(env)}>
+              <span class="envdot" aria-hidden="true"></span>{groupLabel(env)}
+            </button>
+          {/each}
+        </div>
       {/each}
     </div>
   {/if}
@@ -363,6 +369,7 @@
 </li>
 
 <style>
+  .envmachine { display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:5px 8px; border:1px solid var(--line); border-radius:8px; min-width:0; } .envmachine>strong { font-size:.7rem; font-weight:600; overflow-wrap:anywhere; }
   .skill { position: relative; padding: 20px 22px; border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: var(--radius); background: var(--card); min-width: 0; }
   .skill.use { border-left-color: var(--accent); }
   .skill.try { border-left-color: var(--accent); border-left-style: dashed; }

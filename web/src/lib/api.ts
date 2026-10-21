@@ -116,7 +116,7 @@ export type Event = {
   detail?: string
 }
 export type Ignored = { id: string; name: string; reason?: string; at: number }
-export type SkillQuery = { tab: Tab; q: string; sort: Sort; tags?: number[]; env?: string; only?: string; stage?: string }
+export type SkillQuery = { tab: Tab; q: string; sort: Sort; tags?: number[]; env?: string; machine?: string; only?: string; stage?: string }
 export type Backup = { version?: number; exportedAt?: number; skills: Skill[]; ignored?: Ignored[]; events?: Event[] }
 
 const KEY = 'reet-token'
@@ -196,10 +196,11 @@ export async function signInAccount(email: string, password: string): Promise<Us
 export async function signOutAccount(): Promise<void> {
   await req('/api/v2/auth/sign-out', { method: 'POST', body: json({}) })
 }
-export async function listSkills({ tab, q, sort, tags, env, only }: SkillQuery): Promise<{ skills: Skill[]; counts: Counts }> {
+export async function listSkills({ tab, q, sort, tags, env, machine, only }: SkillQuery): Promise<{ skills: Skill[]; counts: Counts }> {
   const p = new URLSearchParams({ tab, q, sort })
   if (tags?.length) p.set('tag', tags.join(','))
   if (env) p.set('env', env)
+  if (machine) p.set('machine', machine)
   if (only) p.set('only', only)
   return (await req(`/api/skills?${p}`)).json()
 }
@@ -243,6 +244,7 @@ export async function exportAll(includeEvents = true, format: 'json' | 'md' | 'c
       if (filters.stage) p.set('stage', filters.stage)
       if (filters.tags?.length) p.set('tag', filters.tags.join(','))
       if (filters.env) p.set('env', filters.env)
+      if (filters.machine) p.set('machine', filters.machine)
       if (filters.only) p.set('only', filters.only)
     }
   }
@@ -288,7 +290,7 @@ export async function getInvite(token: string): Promise<Invite> {
 export async function joinAccount(data: { token: string; name: string; password: string }): Promise<User> {
   return (await req('/api/v2/auth/join', { method: 'POST', body: json(data) })).json()
 }
-export async function listEnvironments(): Promise<{ environments: Environment[] }> {
+export async function listEnvironments(): Promise<{ environments: Environment[]; machines: Machine[] }> {
   return (await req('/api/environments')).json()
 }
 export async function listTags(): Promise<{ tags: Tag[] }> {
@@ -386,10 +388,11 @@ export async function getRollup(): Promise<Rollup> {
   return (await req('/api/admin/rollup')).json()
 }
 
-export type SyncEnvironment = Environment & { project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string }
+export type SyncEnvironment = Environment & { project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string; skills: SyncSkill[] }
 export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source' | 'sourceType'>
 export type SyncTarget = { target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
-export type SyncState = { environments: SyncEnvironment[]; targets: SyncTarget[] }
+export type Machine = { host: string; groups: SyncEnvironment[]; skillCount: number }
+export type SyncState = { machines?: Machine[]; environments: SyncEnvironment[]; targets: SyncTarget[] }
 export async function getSyncState(): Promise<SyncState> { return (await req('/api/v2/sync')).json() }
 export async function saveSyncTarget(sourceId: string, targetId: string): Promise<SyncState> { return (await req('/api/v2/sync', { method: 'PUT', body: json({ sourceId, targetId }) })).json() }
 export async function deleteSyncTarget(targetId: string): Promise<SyncState> { return (await req(`/api/v2/sync?target=${encodeURIComponent(targetId)}`, { method: 'DELETE' })).json() }

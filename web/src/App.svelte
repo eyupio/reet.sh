@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { groupLabel } from './lib/machines'
   import { onMount, tick } from 'svelte'
   import {
     addSkill, addSkillTags, clearToken, getAuthStatus, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
@@ -58,6 +59,8 @@
   let newListOpen = $state(false)
   let selectedTags = $state<number[]>([])
   let selectedEnv = $state('')
+  let selectedMachine = $state('')
+  let machines = $state<import('./lib/api').Machine[]>([])
   let onlyOne = $state(false)
   let copying = $state(false)
   let removePending = $state<Skill | null>(null)
@@ -88,14 +91,14 @@
   const isAdminUser = $derived(authMode !== 'accounts' || role === 'owner' || role === 'admin')
   const scanCommand = $derived(`reet scan --prune --server ${origin}${authMode === 'none' ? '' : ' --token "$REET_TOKEN"'}`)
 
-  const filtering = $derived(q.trim() !== '' || onlyLiked || selectedTags.length > 0 || selectedEnv !== '' || onlyOne)
+  const filtering = $derived(q.trim() !== '' || onlyLiked || selectedTags.length > 0 || selectedEnv !== '' || selectedMachine !== '' || onlyOne)
   const grouped = $derived(stages.map((st) => ({ ...st, items: skills.filter((k) => stageOf(k) === st.id) })))
   // While searching or filtering, hide sections with nothing to show; otherwise keep them so the shelf reads as a pipeline.
   const visible = $derived(grouped.filter((g) => (show === 'all' || show === g.id) && (g.items.length > 0 || !filtering)))
   const total = $derived(visible.reduce((n, g) => n + g.items.length, 0))
   const likedCount = $derived(skills.filter((s) => s.liked).length)
   const tagOptions = $derived(allTags.map((t) => t.name))
-  const filterKey = $derived(`${q}|${sort}|${onlyLiked}|${selectedTags.join(',')}|${selectedEnv}|${onlyOne}|${show}`)
+  const filterKey = $derived(`${q}|${sort}|${onlyLiked}|${selectedTags.join(',')}|${selectedMachine}|${selectedEnv}|${onlyOne}|${show}`)
   const tagCounts = $derived.by(() => {
     const map = new Map<number, { tag: Tag; count: number }>()
     for (const skill of skills) {
@@ -152,7 +155,7 @@
         q,
         sort,
         tags: selectedTags,
-        env: selectedEnv,
+        env: selectedEnv, machine: selectedMachine,
         only: onlyOne ? 'one-machine' : '',
       })
       if (version !== loadVersion) return false
@@ -175,6 +178,7 @@
     try {
       const [envs, tags, shared] = await Promise.all([listEnvironments(), listTags(), listLists()])
       environments = envs.environments
+      machines = envs.machines
       allTags = tags.tags
       lists = shared.lists
       linkEnabled = shared.linkEnabled
@@ -284,20 +288,12 @@
   }
 
   $effect(() => {
-    void [onlyLiked, q, sort, selectedTags, selectedEnv, onlyOne, canLoad]
+    void [onlyLiked, q, sort, selectedTags, selectedEnv, selectedMachine, onlyOne, canLoad]
     if (!canLoad) return
     const t = setTimeout(load, 150)
     return () => clearTimeout(t)
   })
 
-  $effect(() => {
-    if (counts.all === 0) {
-      show = 'all'
-      selectedTags = []
-      selectedEnv = ''
-      onlyOne = false
-    }
-  })
 
   let lastFilterKey = ''
   $effect(() => {
@@ -480,17 +476,17 @@
     toggleTag(tag.id)
   }
   function filterEnv(env: Environment) {
-    toggleEnv(env.id)
+    selectedMachine = env.host; toggleEnv(env.id)
   }
 
   async function copyMissing() {
-    if (!selectedEnv) return
+    if (!selectedEnv && !selectedMachine) return
     copying = true
     try {
       const all = await listSkills({ tab: 'all', q: '', sort: 'recent' })
       const missing = all.skills.filter((s) => {
         const command = installCommand(s)
-        return command !== null && !(s.environments ?? []).some((e) => e.id === selectedEnv)
+        return command !== null && !(s.environments ?? []).some((e) => (selectedEnv ? e.id === selectedEnv : e.host === selectedMachine))
       })
       const text = missing.map((s) => installCommand(s)).filter((x): x is string => Boolean(x)).join('\n')
       if (!text) {
@@ -697,25 +693,33 @@
       </div>
     {/if}
 
-    {#if environments.length > 0 || selectedEnv !== '' || onlyOne}
+    {#if environments.length > 0 || selectedEnv !== '' || selectedMachine !== '' || onlyOne}
       <div class="filterbar" role="group" aria-label="Environments">
         <span class="bar-label">Environments</span>
-        {#each environments as env (env.id)}
-          <button
-            type="button" class="chip" class:old={isOldEnvironment(env.lastSeen)}
-            aria-pressed={selectedEnv === env.id} onclick={() => toggleEnv(env.id)} title={envTitle(env)}
-          >
-            {env.name}<small>{env.skillCount ?? 0}</small>
+        {#each machines as machine (machine.host)}
+          <button type="button" class="chip" aria-pressed={selectedMachine === machine.host}
+            onclick={() => { selectedMachine = selectedMachine === machine.host ? '' : machine.host; selectedEnv = '' }}
+            title={`${machine.groups.filter(g => !g.agent.startsWith('reet')).length} agent groups · ${machine.skillCount} unique skills`}>
+            {machine.host}<small>{machine.skillCount}</small>
           </button>
         {/each}
         <span class="sep" aria-hidden="true"></span>
         <button type="button" class="chip" aria-pressed={onlyOne} onclick={() => (onlyOne = !onlyOne)}>Only on one machine</button>
-        {#if selectedEnv}
+        {#if selectedMachine}
           <button type="button" class="chip action" onclick={copyMissing} disabled={copying}>
             {copying ? 'Copying…' : 'Copy missing installs'}
           </button>
         {/if}
       </div>
+      {#if selectedMachine}
+        <div class="filterbar" role="group" aria-label="Agent groups on selected machine">
+          <span class="bar-label">Agent groups</span>
+          <button type="button" class="chip" aria-pressed={!selectedEnv} onclick={() => selectedEnv = ''}>All agents</button>
+          {#each environments.filter(e => e.host === selectedMachine && !e.agent.startsWith('reet')) as env (env.id)}
+            <button type="button" class="chip" class:old={isOldEnvironment(env.lastSeen)} aria-pressed={selectedEnv === env.id} onclick={() => toggleEnv(env.id)} title={envTitle(env)}>{groupLabel(env)}<small>{env.skillCount ?? 0}</small></button>
+          {/each}
+        </div>
+      {/if}
     {/if}
 
     {#if !loading && (counts.all > 0 || filtering)}<p class="count" role="status">{total === 1 ? '1 skill' : `${total} skills`}</p>{/if}
@@ -768,7 +772,7 @@
         <div class="no-matches">
           <h2>No skills match that.</h2>
           <p>Try another search or clear your filters.</p>
-          <button type="button" class="btn" onclick={() => { q = ''; show = 'all'; onlyLiked = false; selectedTags = []; selectedEnv = ''; onlyOne = false }}>Clear filters</button>
+          <button type="button" class="btn" onclick={() => { q = ''; show = 'all'; onlyLiked = false; selectedTags = []; selectedEnv = ''; selectedMachine = ''; onlyOne = false }}>Clear filters</button>
         </div>
       {:else}
         {#each visible as g (g.id)}
@@ -797,7 +801,7 @@
       {#key counts.all === 0}
         <Tools
           onchange={reloadAll} {ok} {fail} {token} canManageTags={isAdminUser}
-          filters={{ tab: onlyLiked ? 'liked' : 'all', q, sort, tags: selectedTags, env: selectedEnv, only: onlyOne ? 'one-machine' : '', stage: show === 'all' ? '' : show }}
+          filters={{ tab: onlyLiked ? 'liked' : 'all', q, sort, tags: selectedTags, env: selectedEnv, machine: selectedMachine, only: onlyOne ? 'one-machine' : '', stage: show === 'all' ? '' : show }}
           startOpen={counts.all === 0} hideBookmarklets={counts.all === 0}
         />
       {/key}

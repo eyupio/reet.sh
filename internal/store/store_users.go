@@ -355,6 +355,10 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 			WHERE se.skill_id=sh.skill_id AND e.user_id=? AND e.id=?)`
 		args = append(args, userID, f.Env)
 	}
+	if f.Machine != "" {
+		q += ` AND EXISTS (SELECT 1 FROM skill_envs se JOIN environments e ON e.id=se.env_id WHERE se.skill_id=sh.skill_id AND e.user_id=? AND e.host=?)`
+		args = append(args, userID, f.Machine)
+	}
 	if f.Only == "one-machine" {
 		q += ` AND (SELECT COUNT(DISTINCT e.host) FROM skill_envs se JOIN environments e ON e.id=se.env_id
 			WHERE se.skill_id=sh.skill_id AND e.user_id=?)=1`

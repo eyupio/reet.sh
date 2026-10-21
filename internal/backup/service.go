@@ -100,10 +100,11 @@ type KeyView struct {
 }
 
 type Defaults struct {
-	EverySeconds int64 `json:"everySeconds"`
-	Keep         int   `json:"keep"`
-	UserEvery    int64 `json:"userEverySeconds"`
-	UserKeep     int   `json:"userKeep"`
+	EverySeconds int64  `json:"everySeconds"`
+	Keep         int    `json:"keep"`
+	UserEvery    int64  `json:"userEverySeconds"`
+	UserKeep     int    `json:"userKeep"`
+	Destination  string `json:"destination"`
 }
 
 type runtimeRemote struct {
@@ -111,6 +112,22 @@ type runtimeRemote struct {
 	Source  string
 	Problem string
 	S3      S3
+}
+
+func anyUsableRemote(remotes []RemoteView) bool {
+	for _, r := range remotes {
+		if !r.Disabled && r.Problem == "" && r.HasSecret && r.Endpoint != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func effectiveDestination(destination string) string {
+	if store.ValidBackupDestination(destination) {
+		return destination
+	}
+	return store.DestinationBoth
 }
 
 func scopeOf(ownerID int64) string {
@@ -127,7 +144,11 @@ func (s *Service) settingsFor(ownerID int64) (store.BackupSettings, error) {
 	} else {
 		every, keep = int64(s.cfg.UserEvery/time.Second), s.cfg.UserKeep
 	}
-	return s.st.EnsureBackupSettings(ownerID, every, keep)
+	destination := s.cfg.Destination
+	if !store.ValidBackupDestination(destination) {
+		destination = store.DestinationBoth
+	}
+	return s.st.EnsureBackupSettings(ownerID, every, keep, destination)
 }
 
 func (s *Service) loadRemotes(ownerID int64) ([]runtimeRemote, error) {
@@ -228,6 +249,7 @@ func (s *Service) Status(ctx context.Context, ownerID int64) (StatusView, error)
 		Defaults: Defaults{
 			EverySeconds: int64(s.cfg.Every / time.Second), Keep: s.cfg.Keep,
 			UserEvery: int64(s.cfg.UserEvery / time.Second), UserKeep: s.cfg.UserKeep,
+			Destination: effectiveDestination(s.cfg.Destination),
 		},
 		Findings: append([]Finding(nil), s.cfg.Findings...),
 	}
@@ -243,6 +265,10 @@ func (s *Service) Status(ctx context.Context, ownerID int64) (StatusView, error)
 			view.Findings = append(view.Findings, Finding{Severity: "error", Code: "backup.remote_upload_failed",
 				Message: r.Name + ": " + r.LastError})
 		}
+	}
+	if settings.Destination == store.DestinationRemote && !anyUsableRemote(remotes) {
+		view.Findings = append(view.Findings, Finding{Severity: "error", Code: "backup.no_offsite",
+			Message: "Copies are set to go off-site only, but no destination is enabled and usable; every copy will fail until one is added and tested."})
 	}
 	if ownerID != 0 {
 		// A person's page is not the place to disclose the server's key path or
@@ -273,13 +299,21 @@ func (s *Service) Status(ctx context.Context, ownerID int64) (StatusView, error)
 	return view, nil
 }
 
-// SaveSettings stores a schedule and retention for one owner.
-func (s *Service) SaveSettings(ownerID int64, everySeconds int64, keep int) (store.BackupSettings, error) {
+// SaveSettings stores a schedule, retention and where copies go for one
+// owner.
+func (s *Service) SaveSettings(ownerID int64, everySeconds int64, keep int, destination string) (store.BackupSettings, error) {
 	if everySeconds < 0 || (everySeconds > 0 && everySeconds < 60) {
 		return store.BackupSettings{}, errors.New("the shortest schedule is a minute; 0 turns it off")
 	}
 	if keep < 0 || keep > MaxKeep {
 		return store.BackupSettings{}, fmt.Errorf("keep a number of copies from 0 to %d; 0 keeps every one", MaxKeep)
+	}
+	destination = strings.ToLower(strings.TrimSpace(destination))
+	if destination == "" {
+		destination = store.DestinationBoth
+	}
+	if !store.ValidBackupDestination(destination) {
+		return store.BackupSettings{}, errors.New("copies go to local, remote or both")
 	}
 	current, err := s.settingsFor(ownerID)
 	if err != nil {
@@ -287,6 +321,7 @@ func (s *Service) SaveSettings(ownerID int64, everySeconds int64, keep int) (sto
 	}
 	current.EverySeconds = everySeconds
 	current.Keep = keep
+	current.Destination = destination
 	current.NextAt = 0
 	if everySeconds > 0 {
 		current.NextAt = time.Now().Add(time.Duration(everySeconds) * time.Second).UnixMilli()
@@ -453,6 +488,11 @@ func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) 
 	if !s.Usable() {
 		return Item{}, errors.New("backups are not enabled: no usable backup key")
 	}
+	settings, err := s.settingsFor(ownerID)
+	if err != nil {
+		return Item{}, err
+	}
+	destination := effectiveDestination(settings.Destination)
 	scope := scopeOf(ownerID)
 	started := time.Now().UnixMilli()
 	run, err := s.st.AddBackupRun(store.BackupRun{OwnerID: ownerID, Scope: scope, Trigger: trigger, State: "running", StartedAt: started})
@@ -464,6 +504,15 @@ func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) 
 		_ = s.st.FinishBackupRun(run.ID, "failed", finished, 0, "", "", cause.Error())
 		s.finish(ownerID, started, "failed", cause.Error())
 		return Item{}, cause
+	}
+	if destination == store.DestinationRemote {
+		remotes, err := s.enabledRemotes(ownerID)
+		if err != nil {
+			return fail(err)
+		}
+		if len(remotes) == 0 {
+			return fail(errors.New("copies go to a destination only, but no enabled destination is configured and usable; add one, test it, and try again"))
+		}
 	}
 	if err := os.MkdirAll(s.cfg.Dir, 0o700); err != nil {
 		return fail(err)
@@ -514,7 +563,10 @@ func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) 
 	if err := writeAtomic(path, sealed, 0o600); err != nil {
 		return fail(err)
 	}
-	offsite, shipErr := s.ship(ctx, ownerID, id, sealed)
+	offsite, shipErr := "skipped", error(nil)
+	if destination != store.DestinationLocal {
+		offsite, shipErr = s.ship(ctx, ownerID, id, sealed)
+	}
 	finished := time.Now().UnixMilli()
 	item := Item{ID: id, Kind: scope, OwnerID: ownerID, Target: m.Target, TakenAt: started,
 		Bytes: int64(len(sealed)), Version: s.cfg.Version, Local: true, Remotes: []string{}}
@@ -527,6 +579,18 @@ func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) 
 		}
 		sort.Strings(item.Remotes)
 	}
+	if destination == store.DestinationRemote && len(item.Remotes) > 0 {
+		// The destination has it; keep this machine holding only what no
+		// destination took. A copy kept solely at a destination is still
+		// listed, downloaded and restored through the destination.
+		if err := os.Remove(path); err == nil {
+			path = ""
+			item.Local = false
+		}
+	}
+	if destination == store.DestinationRemote && len(item.Remotes) == 0 && shipErr == nil {
+		shipErr = errors.New("no enabled destination took the copy, so it was kept on this machine")
+	}
 	if shipErr != nil {
 		s.log.Error("backup shipped nowhere", "owner", ownerID, "id", id, "error", shipErr)
 	}
@@ -538,6 +602,26 @@ func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) 
 	}
 	_ = s.st.PruneBackupRuns(ownerID, 200)
 	return item, nil
+}
+
+// enabledRemotes is every destination that could take a copy now: enabled,
+// with a secret, and naming a service the client accepts.
+func (s *Service) enabledRemotes(ownerID int64) ([]runtimeRemote, error) {
+	remotes, err := s.loadRemotes(ownerID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]runtimeRemote, 0, len(remotes))
+	for _, r := range remotes {
+		if r.Disabled || r.Problem != "" || !r.S3.Configured() {
+			continue
+		}
+		if _, err := newS3Client(r.S3); err != nil {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out, nil
 }
 
 // ship copies one archive to every enabled destination. It returns the
@@ -840,18 +924,21 @@ func (s *Service) DeleteLocal(ownerID int64, id string) error {
 }
 
 // RemoteInput is a destination as the page sends it. Every field is optional
-// so a change carries only what somebody changed.
+// so a change carries only what somebody changed. OriginalName is the name
+// an edit started from, so a draft test can find the stored secret across a
+// rename; saving ignores it.
 type RemoteInput struct {
-	Name      *string         `json:"name"`
-	Endpoint  *string         `json:"endpoint"`
-	Region    *string         `json:"region"`
-	Bucket    *string         `json:"bucket"`
-	Prefix    *string         `json:"prefix"`
-	AccessKey *string         `json:"accessKey"`
-	SecretKey *string         `json:"secretKey"`
-	PathStyle json.RawMessage `json:"pathStyle"`
-	Keep      *int            `json:"keep"`
-	Enabled   *bool           `json:"enabled"`
+	Name         *string         `json:"name"`
+	OriginalName *string         `json:"originalName,omitempty"`
+	Endpoint     *string         `json:"endpoint"`
+	Region       *string         `json:"region"`
+	Bucket       *string         `json:"bucket"`
+	Prefix       *string         `json:"prefix"`
+	AccessKey    *string         `json:"accessKey"`
+	SecretKey    *string         `json:"secretKey"`
+	PathStyle    json.RawMessage `json:"pathStyle"`
+	Keep         *int            `json:"keep"`
+	Enabled      *bool           `json:"enabled"`
 }
 
 var remoteNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
@@ -863,12 +950,39 @@ func (s *Service) applyRemote(in RemoteInput, r store.BackupRemote, creating boo
 	if s.cfg.Sealer == nil {
 		return r, errors.New("backups are not enabled: no usable backup key")
 	}
+	oldEndpoint := r.Endpoint
+	r, err := s.mergeRemote(in, r, creating, true)
+	if err != nil {
+		return r, err
+	}
+	secretGiven := in.SecretKey != nil && strings.TrimSpace(*in.SecretKey) != ""
+	if in.SecretKey != nil && !secretGiven {
+		return r, errors.New("enter the secret access key; a destination without one is refused")
+	}
+	if secretGiven {
+		sealed, err := s.cfg.Sealer.SealSecret(strings.TrimSpace(*in.SecretKey))
+		if err != nil {
+			return r, err
+		}
+		r.SecretSealed = sealed
+	} else if creating {
+		return r, errors.New("enter the secret access key")
+	} else if !strings.EqualFold(strings.TrimRight(oldEndpoint, "/"), r.Endpoint) && r.SecretSealed != "" {
+		return r, fmt.Errorf("the stored secret is for %s; enter it again to use it with %s", oldEndpoint, r.Endpoint)
+	}
+	return r, nil
+}
+
+// mergeRemote applies the fields of a form to a destination and checks them.
+// The secret is handled separately: saving seals it; testing uses it as it
+// was typed, or the one already stored. checkEnv refuses a stored
+// destination that would share the environment's name.
+func (s *Service) mergeRemote(in RemoteInput, r store.BackupRemote, creating, checkEnv bool) (store.BackupRemote, error) {
 	set := func(dst *string, v *string) {
 		if v != nil {
 			*dst = strings.TrimSpace(*v)
 		}
 	}
-	oldEndpoint := r.Endpoint
 	set(&r.Name, in.Name)
 	set(&r.Endpoint, in.Endpoint)
 	set(&r.Region, in.Region)
@@ -896,31 +1010,13 @@ func (s *Service) applyRemote(in RemoteInput, r store.BackupRemote, creating boo
 	if in.Enabled != nil {
 		r.Disabled = !*in.Enabled
 	}
-	secretGiven := in.SecretKey != nil && strings.TrimSpace(*in.SecretKey) != ""
-	if in.SecretKey != nil && !secretGiven {
-		if !creating {
-			return r, errors.New("enter the secret access key; a destination without one is refused")
-		}
-		return r, errors.New("enter the secret access key")
-	}
-	if secretGiven {
-		sealed, err := s.cfg.Sealer.SealSecret(strings.TrimSpace(*in.SecretKey))
-		if err != nil {
-			return r, err
-		}
-		r.SecretSealed = sealed
-	} else if creating {
-		return r, errors.New("enter the secret access key")
-	} else if !strings.EqualFold(oldEndpoint, r.Endpoint) && r.SecretSealed != "" {
-		return r, fmt.Errorf("the stored secret is for %s; enter it again to use it with %s", oldEndpoint, r.Endpoint)
-	}
 	if r.Name == "" {
 		r.Name = DefaultName
 	}
 	if !remoteNamePattern.MatchString(r.Name) {
 		return r, fmt.Errorf("the name %q is not one a destination can have; use lower-case letters, digits and dashes", r.Name)
 	}
-	if s.cfg.S3.Configured() && r.Name == s.cfg.RemoteName {
+	if checkEnv && s.cfg.S3.Configured() && r.Name == s.cfg.RemoteName {
 		return r, errors.New("the environment already describes a destination with that name; choose another")
 	}
 	u, err := url.Parse(r.Endpoint)
@@ -946,6 +1042,69 @@ func (s *Service) applyRemote(in RemoteInput, r store.BackupRemote, creating boo
 		return r, fmt.Errorf("keep a number of copies from 0 to %d; 0 keeps every one", MaxKeep)
 	}
 	return r, nil
+}
+
+// TestRemoteDraft checks a destination as it stands in the form, before it
+// is saved. With no secret typed, the one already stored for that name is
+// used, but only while the endpoint is unchanged.
+func (s *Service) TestRemoteDraft(ctx context.Context, ownerID int64, in RemoteInput) ([]CheckStep, error) {
+	if s.cfg.Sealer == nil {
+		return nil, errors.New("backups are not enabled: no usable backup key")
+	}
+	base, storedSecret, found, err := s.draftRemote(ownerID, in)
+	if err != nil {
+		return nil, err
+	}
+	merged, err := s.mergeRemote(in, base, !found, false)
+	if err != nil {
+		return nil, err
+	}
+	secret := ""
+	if in.SecretKey != nil {
+		secret = strings.TrimSpace(*in.SecretKey)
+	}
+	if secret == "" {
+		if !found {
+			return nil, errors.New("enter the secret access key")
+		}
+		if !strings.EqualFold(strings.TrimRight(base.Endpoint, "/"), merged.Endpoint) {
+			return nil, fmt.Errorf("the stored secret is for %s; enter it again to use it with %s", base.Endpoint, merged.Endpoint)
+		}
+		secret = storedSecret
+		if secret == "" {
+			return nil, errors.New("no secret access key is stored; enter it")
+		}
+	}
+	return Test(ctx, S3{
+		Endpoint: merged.Endpoint, Region: merged.Region, Bucket: merged.Bucket, Prefix: merged.Prefix,
+		AccessKey: merged.AccessKey, SecretKey: secret, PathStyle: pathStylePtr(merged.PathStyle),
+	})
+}
+
+// draftRemote finds the destination a form is editing by name, and the
+// secret already stored for it, whether it comes from the environment or the
+// database.
+func (s *Service) draftRemote(ownerID int64, in RemoteInput) (store.BackupRemote, string, bool, error) {
+	name := DefaultName
+	if in.OriginalName != nil && strings.TrimSpace(*in.OriginalName) != "" {
+		name = strings.ToLower(strings.TrimSpace(*in.OriginalName))
+	} else if in.Name != nil && strings.TrimSpace(*in.Name) != "" {
+		name = strings.ToLower(strings.TrimSpace(*in.Name))
+	}
+	remotes, err := s.loadRemotes(ownerID)
+	if err != nil {
+		return store.BackupRemote{}, "", false, err
+	}
+	for _, r := range remotes {
+		if r.Name != name {
+			continue
+		}
+		if r.Problem != "" {
+			return store.BackupRemote{}, "", true, errors.New(r.Problem)
+		}
+		return r.BackupRemote, r.S3.SecretKey, true, nil
+	}
+	return store.BackupRemote{OwnerID: ownerID}, "", false, nil
 }
 
 // CreateRemote stores a destination for one owner.

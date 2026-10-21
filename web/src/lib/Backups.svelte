@@ -2,8 +2,9 @@
   import { onMount } from 'svelte'
   import {
     backupDownloadUrl, createBackupRemote, deleteBackup, deleteBackupRemote, getBackupStatus, listBackupRemoteCopies,
-    runBackupNow, restoreUserBackup, saveBackupSettings, testBackupRemote, updateBackupRemote, verifyBackup,
-    type BackupCheck, type BackupItem, type BackupRemote, type BackupRemoteInput, type BackupStatus,
+    runBackupNow, restoreUserBackup, saveBackupSettings, testBackupRemote, testBackupRemoteDraft, updateBackupRemote,
+    verifyBackup,
+    type BackupCheck, type BackupDestination, type BackupItem, type BackupRemote, type BackupRemoteInput, type BackupStatus,
   } from './api'
   import CopyButton from './CopyButton.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -19,7 +20,7 @@
   let error = $state('')
   let saved = $state('')
   let busy = $state('')
-  let form = $state({ every: '24h', keep: '48' })
+  let form = $state({ every: '24h', keep: '48', destination: 'both' as BackupDestination })
   let checks = $state<Record<string, BackupCheck>>({})
   let verified = $state<Record<string, { ok: boolean; problems: string[] }>>({})
   let openCopies = $state<string | null>(null)
@@ -31,6 +32,8 @@
   let deleteFor = $state<BackupItem | null>(null)
   let deleteRemoteFor = $state<BackupRemote | null>(null)
   let restoreFor = $state<BackupItem | null>(null)
+  let remoteError = $state('')
+  let remoteCheck = $state<BackupCheck | null>(null)
 
   const emptyRemote = () => ({
     name: '', endpoint: '', region: '', bucket: '', prefix: 'reet/', accessKey: '', secretKey: '',
@@ -47,7 +50,7 @@
     try {
       status = await getBackupStatus(admin)
       const every = status.settings.everySeconds
-      form = { every: everyText(every), keep: String(status.settings.keep) }
+      form = { every: everyText(every), keep: String(status.settings.keep), destination: status.settings.destination || 'both' }
       error = ''
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
@@ -81,12 +84,17 @@
 
   async function saveSettings(e: SubmitEvent) {
     e.preventDefault()
-    if (everyBad || keepBad || !canEdit) return
+    if (!canEdit) return
+    if (everyBad || keepBad) {
+      error = 'Fix the schedule or retention before saving.'
+      return
+    }
     busy = 'settings'
     saved = ''
+    error = ''
     try {
-      await saveBackupSettings(admin, everySeconds(form.every), Number(form.keep))
-      saved = 'Saved. It applies to the next scheduled copy.'
+      await saveBackupSettings(admin, everySeconds(form.every), Number(form.keep), form.destination)
+      saved = 'Saved. It applies to the next copy.'
       await load()
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
@@ -94,6 +102,12 @@
     } finally {
       busy = ''
     }
+  }
+
+  function destinationText(destination: BackupDestination): string {
+    if (destination === 'local') return 'This machine only'
+    if (destination === 'remote') return 'Off-site only'
+    return 'This machine and off-site'
   }
 
   async function runNow() {
@@ -139,6 +153,8 @@
 
   function editRemote(r?: BackupRemote) {
     editing = r ?? null
+    remoteError = ''
+    remoteCheck = null
     if (r) {
       remoteForm = {
         name: r.name, endpoint: r.endpoint, region: r.region, bucket: r.bucket, prefix: r.prefix,
@@ -151,13 +167,7 @@
     formOpen = true
   }
 
-  async function saveRemote(e: SubmitEvent) {
-    e.preventDefault()
-    if (!remoteForm.name.trim() || !remoteForm.endpoint.trim() || !remoteForm.bucket.trim() || !remoteForm.accessKey.trim()) return
-    if (!editing && !remoteForm.secretKey.trim()) {
-      error = 'Enter the secret access key for a new destination.'
-      return
-    }
+  function remoteInput(): BackupRemoteInput {
     const input: BackupRemoteInput = {
       name: remoteForm.name.trim(),
       endpoint: remoteForm.endpoint.trim(),
@@ -169,17 +179,64 @@
       keep: Number(remoteForm.keep),
       enabled: remoteForm.enabled,
     }
+    if (editing) input.originalName = editing.name
     if (remoteForm.secretKey.trim()) input.secretKey = remoteForm.secretKey.trim()
+    return input
+  }
+
+  const remoteNeedsSecret = $derived(
+    !!editing && remoteForm.endpoint.trim().replace(/\/$/, '').toLowerCase() !== editing.endpoint.replace(/\/$/, '').toLowerCase() && !remoteForm.secretKey.trim(),
+  )
+  function remoteProblem(): string {
+    if (!remoteForm.name.trim()) return 'Give the destination a name.'
+    if (!remoteForm.endpoint.trim()) return 'Give the endpoint URL.'
+    if (!remoteForm.bucket.trim()) return 'Name the bucket.'
+    if (!remoteForm.accessKey.trim()) return 'Enter the access key id.'
+    if (!editing && !remoteForm.secretKey.trim()) return 'Enter the secret access key.'
+    if (remoteNeedsSecret) return 'The stored secret is for the old endpoint. Enter it again to use it with the new one.'
+    return ''
+  }
+
+  async function testDraft() {
+    const problem = remoteProblem()
+    if (problem) {
+      remoteError = problem
+      return
+    }
+    remoteError = ''
+    remoteCheck = null
+    busy = 'remote-test'
+    try {
+      remoteCheck = await testBackupRemoteDraft(admin, remoteInput())
+    } catch (e) {
+      remoteError = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      busy = ''
+    }
+  }
+
+  async function saveRemote(e: SubmitEvent) {
+    e.preventDefault()
+    const problem = remoteProblem()
+    if (problem) {
+      remoteError = problem
+      return
+    }
+    remoteError = ''
     busy = 'remote'
     try {
-      if (editing) await updateBackupRemote(admin, editing.name, input)
-      else await createBackupRemote(admin, input)
+      if (editing) await updateBackupRemote(admin, editing.name, remoteInput())
+      else await createBackupRemote(admin, remoteInput())
       formOpen = false
       editing = null
+      remoteCheck = null
       saved = 'Destination saved.'
       await load()
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      const message = e instanceof Error ? e.message : String(e)
+      remoteError = message
+      error = message
       onerror?.(e)
     } finally {
       busy = ''
@@ -322,6 +379,17 @@
         <small>{status.items.length} {status.items.length === 1 ? 'copy' : 'copies'} on this machine</small>
       </article>
       <article>
+        <h3>Where copies go</h3>
+        <p>{destinationText(status.settings.destination)}</p>
+        <small>{status.settings.destination === 'local'
+          ? 'They are lost with this machine.'
+          : status.settings.destination === 'remote'
+            ? (status.remotes.filter((r) => !r.disabled && !r.problem).length
+              ? 'Kept here only when no destination took one.'
+              : 'No usable destination is configured.')
+            : 'On this machine and at every enabled destination.'}</small>
+      </article>
+      <article>
         <h3>Off-site</h3>
         <p>{status.remotes.filter((r) => !r.disabled && !r.problem).length || 'None'}</p>
         <small>{status.remotes.length ? 'Every copy is sealed before it leaves' : 'Copies are on this machine only'}</small>
@@ -355,6 +423,23 @@
           <span>Keep</span>
           <input bind:value={form.keep} inputmode="numeric" disabled={!canEdit} aria-invalid={keepBad || undefined} />
           <small class:bad={keepBad}>{keepBad ? 'A whole number, 0 or more.' : '0 keeps every copy on this machine.'}</small>
+        </label>
+        <label>
+          <span>Where copies go</span>
+          <select bind:value={form.destination} disabled={!canEdit}>
+            <option value="both">This machine and off-site</option>
+            <option value="local">This machine only</option>
+            <option value="remote">Off-site only</option>
+          </select>
+          <small class:bad={form.destination === 'remote' && !status.remotes.some((r) => !r.disabled && !r.problem)}>
+            {form.destination === 'local'
+              ? 'Lost with this machine. Not recommended.'
+              : form.destination === 'remote'
+                ? (status.remotes.some((r) => !r.disabled && !r.problem)
+                  ? 'A copy stays here only if no destination took it.'
+                  : 'Add and test an enabled destination below, or every copy will fail.')
+                : 'Every copy is on this machine and at each enabled destination.'}
+          </small>
         </label>
         {#if canEdit}
           <button type="submit" class="btn primary" disabled={busy === 'settings' || everyBad || keepBad}>
@@ -447,11 +532,12 @@
       {#if formOpen}
         <form class="remoteform" onsubmit={saveRemote}>
           <h4>{editing ? `Edit ${editing.name}` : 'Add a destination'}</h4>
+          <p class="muted">Test the destination here before saving it. The test writes a small object under the prefix, reads it back and deletes it again.</p>
           <div class="grid2">
-            <label><span>Name</span><input bind:value={remoteForm.name} placeholder="offsite" autocomplete="off" /></label>
-            <label><span>Endpoint</span><input bind:value={remoteForm.endpoint} placeholder="https://s3.eu-west-2.amazonaws.com" autocomplete="off" /></label>
+            <label><span>Name</span><input bind:value={remoteForm.name} placeholder="offsite" autocomplete="off" required /></label>
+            <label><span>Endpoint</span><input bind:value={remoteForm.endpoint} placeholder="https://s3.eu-west-2.amazonaws.com" autocomplete="off" required /></label>
             <label><span>Region</span><input bind:value={remoteForm.region} placeholder="eu-west-2" autocomplete="off" /></label>
-            <label><span>Bucket</span><input bind:value={remoteForm.bucket} placeholder="my-reet-backups" autocomplete="off" /></label>
+            <label><span>Bucket</span><input bind:value={remoteForm.bucket} placeholder="my-reet-backups" autocomplete="off" required /></label>
             <label><span>Prefix</span><input bind:value={remoteForm.prefix} placeholder="reet/" autocomplete="off" /></label>
             <label><span>Path style</span>
               <select bind:value={remoteForm.pathStyle}>
@@ -460,14 +546,32 @@
                 <option value="virtual">Virtual-hosted (AWS)</option>
               </select>
             </label>
-            <label><span>Access key id</span><input bind:value={remoteForm.accessKey} autocomplete="off" /></label>
-            <label><span>Secret access key</span><input type="password" bind:value={remoteForm.secretKey} autocomplete="new-password" placeholder={editing ? 'leave blank to keep the stored secret' : ''} /></label>
+            <label><span>Access key id</span><input bind:value={remoteForm.accessKey} autocomplete="off" required /></label>
+            <label><span>Secret access key</span><input type="password" bind:value={remoteForm.secretKey} autocomplete="new-password" placeholder={editing ? 'leave blank to keep the stored secret' : ''} aria-invalid={remoteNeedsSecret || undefined} />
+              <small class:bad={remoteNeedsSecret}>{remoteNeedsSecret ? 'The endpoint changed; enter the secret again.' : editing ? 'Stored already. Type a new one to replace it.' : 'Required. Sealed with the backup key and never shown again.'}</small>
+            </label>
             <label><span>Keep</span><input bind:value={remoteForm.keep} inputmode="numeric" /></label>
             <label class="check"><input type="checkbox" bind:checked={remoteForm.enabled} /> Send copies here</label>
           </div>
+          {#if remoteCheck}
+            <div class="check" aria-live="polite">
+              <p class:good={remoteCheck.ok} class:bad={!remoteCheck.ok}>
+                {remoteCheck.ok ? 'The destination can be written, read and cleaned up.' : remoteCheck.error}
+              </p>
+              <ul>
+                {#each remoteCheck.steps as st (st.step)}
+                  <li><strong>{st.step}</strong> {st.ok ? 'ok' : 'failed'} — {st.detail}</li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+          {#if remoteError}<p class="notice bad" role="alert">{remoteError}</p>{/if}
           <div class="formacts">
-            <button type="button" class="btn" onclick={() => { formOpen = false; editing = null }}>Cancel</button>
-            <button type="submit" class="btn primary" disabled={busy === 'remote'}>{busy === 'remote' ? 'Saving…' : 'Save destination'}</button>
+            <button type="button" class="btn" onclick={() => { formOpen = false; editing = null; remoteError = ''; remoteCheck = null }}>Cancel</button>
+            <button type="button" class="btn" onclick={testDraft} disabled={busy === 'remote-test' || busy === 'remote'}>
+              {busy === 'remote-test' ? 'Testing…' : 'Test'}
+            </button>
+            <button type="submit" class="btn primary" disabled={busy === 'remote' || busy === 'remote-test'}>{busy === 'remote' ? 'Saving…' : 'Save destination'}</button>
           </div>
         </form>
       {/if}

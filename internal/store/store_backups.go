@@ -33,17 +33,38 @@ type BackupRemote struct {
 	UpdatedAt    int64  `json:"updatedAt"`
 }
 
-// BackupSettings is one owner's schedule and retention. NextAt is when the
-// scheduler may take the next copy; 0 means manual only.
+// BackupSettings is one owner's schedule, retention and where copies go.
+// NextAt is when the scheduler may take the next copy; 0 means manual only.
+// Destination is "local" (this machine only), "remote" (an enabled
+// destination only, kept here only when none took it) or "both".
 type BackupSettings struct {
 	OwnerID      int64  `json:"-"`
 	EverySeconds int64  `json:"everySeconds"`
 	Keep         int    `json:"keep"`
+	Destination  string `json:"destination"`
 	NextAt       int64  `json:"nextAt"`
 	LastAt       int64  `json:"lastAt"`
 	LastState    string `json:"lastState"`
 	LastError    string `json:"lastError"`
 	UpdatedAt    int64  `json:"updatedAt"`
+}
+
+// Backup destinations. "both" is the behaviour every instance had before the
+// choice existed, and what an unset or unknown value falls back to, so an
+// upgrade keeps copying both ways.
+const (
+	DestinationBoth   = "both"
+	DestinationLocal  = "local"
+	DestinationRemote = "remote"
+)
+
+// ValidBackupDestination reports whether destination is one of the three.
+func ValidBackupDestination(destination string) bool {
+	switch destination {
+	case DestinationBoth, DestinationLocal, DestinationRemote:
+		return true
+	}
+	return false
 }
 
 // BackupRun is one attempt to take a copy, kept for the pages that show what
@@ -107,6 +128,7 @@ func (s *Store) migrateBackups() error {
 			owner_id INTEGER PRIMARY KEY,
 			every_seconds INTEGER NOT NULL DEFAULT 0,
 			keep INTEGER NOT NULL DEFAULT 0,
+			destination TEXT NOT NULL DEFAULT 'both',
 			next_at INTEGER NOT NULL DEFAULT 0,
 			last_at INTEGER NOT NULL DEFAULT 0,
 			last_state TEXT NOT NULL DEFAULT '',
@@ -152,18 +174,19 @@ func (s *Store) migrateBackups() error {
 			}
 		}
 	}
-	for _, c := range []struct{ name, ddl string }{
-		{"uploading", "uploading INTEGER NOT NULL DEFAULT 0"},
-		{"last_upload_at", "last_upload_at INTEGER NOT NULL DEFAULT 0"},
-		{"last_error", "last_error TEXT NOT NULL DEFAULT ''"},
-		{"last_error_at", "last_error_at INTEGER NOT NULL DEFAULT 0"},
+	for _, c := range []struct{ table, name, ddl string }{
+		{"backup_remotes", "uploading", "uploading INTEGER NOT NULL DEFAULT 0"},
+		{"backup_remotes", "last_upload_at", "last_upload_at INTEGER NOT NULL DEFAULT 0"},
+		{"backup_remotes", "last_error", "last_error TEXT NOT NULL DEFAULT ''"},
+		{"backup_remotes", "last_error_at", "last_error_at INTEGER NOT NULL DEFAULT 0"},
+		{"backup_settings", "destination", "destination TEXT NOT NULL DEFAULT 'both'"},
 	} {
-		ok, err := hasColumn(s.db, "backup_remotes", c.name)
+		ok, err := hasColumn(s.db, c.table, c.name)
 		if err != nil {
 			return err
 		}
 		if !ok {
-			if _, err := s.db.Exec(`ALTER TABLE backup_remotes ADD COLUMN ` + c.ddl); err != nil {
+			if _, err := s.db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.ddl); err != nil {
 				return err
 			}
 		}
@@ -173,13 +196,16 @@ func (s *Store) migrateBackups() error {
 
 // EnsureBackupSettings gives an owner the defaults once, and never overwrites
 // a choice already made.
-func (s *Store) EnsureBackupSettings(ownerID, every int64, keep int) (BackupSettings, error) {
+func (s *Store) EnsureBackupSettings(ownerID, every int64, keep int, destination string) (BackupSettings, error) {
 	next := int64(0)
 	if every > 0 {
 		next = now() + every*1000
 	}
-	if _, err := s.db.Exec(`INSERT OR IGNORE INTO backup_settings(owner_id,every_seconds,keep,next_at,updated_at)
-		VALUES(?,?,?,?,?)`, ownerID, every, keep, next, now()); err != nil {
+	if !ValidBackupDestination(destination) {
+		destination = DestinationBoth
+	}
+	if _, err := s.db.Exec(`INSERT OR IGNORE INTO backup_settings(owner_id,every_seconds,keep,destination,next_at,updated_at)
+		VALUES(?,?,?,?,?,?)`, ownerID, every, keep, destination, next, now()); err != nil {
 		return BackupSettings{}, err
 	}
 	return s.BackupSettingsFor(ownerID)
@@ -207,32 +233,39 @@ func (s *Store) SetBackupRemoteResult(ownerID int64, name string, at int64, errT
 // first time so a page always has figures to draw.
 func (s *Store) BackupSettingsFor(ownerID int64) (BackupSettings, error) {
 	var b BackupSettings
-	err := s.db.QueryRow(`SELECT owner_id,every_seconds,keep,next_at,last_at,last_state,last_error,updated_at
+	err := s.db.QueryRow(`SELECT owner_id,every_seconds,keep,destination,next_at,last_at,last_state,last_error,updated_at
 		FROM backup_settings WHERE owner_id=?`, ownerID).
-		Scan(&b.OwnerID, &b.EverySeconds, &b.Keep, &b.NextAt, &b.LastAt, &b.LastState, &b.LastError, &b.UpdatedAt)
+		Scan(&b.OwnerID, &b.EverySeconds, &b.Keep, &b.Destination, &b.NextAt, &b.LastAt, &b.LastState, &b.LastError, &b.UpdatedAt)
 	if err == nil {
+		if !ValidBackupDestination(b.Destination) {
+			b.Destination = DestinationBoth
+		}
 		return b, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return b, err
 	}
-	b = BackupSettings{OwnerID: ownerID}
-	if _, err := s.db.Exec(`INSERT OR IGNORE INTO backup_settings(owner_id,updated_at) VALUES(?,?)`, ownerID, now()); err != nil {
+	b = BackupSettings{OwnerID: ownerID, Destination: DestinationBoth}
+	if _, err := s.db.Exec(`INSERT OR IGNORE INTO backup_settings(owner_id,destination,updated_at) VALUES(?,?,?)`, ownerID, b.Destination, now()); err != nil {
 		return b, err
 	}
 	return b, nil
 }
 
-// SaveBackupSettingsFor stores a schedule and retention, leaving the run
-// cursor to the scheduler unless it was set explicitly.
+// SaveBackupSettingsFor stores a schedule, retention and where copies go,
+// leaving the run cursor to the scheduler unless it was set explicitly.
 func (s *Store) SaveBackupSettingsFor(b BackupSettings) error {
-	_, err := s.db.Exec(`INSERT INTO backup_settings(owner_id,every_seconds,keep,next_at,last_at,last_state,last_error,updated_at)
-		VALUES(?,?,?,?,?,?,?,?)
+	if !ValidBackupDestination(b.Destination) {
+		b.Destination = DestinationBoth
+	}
+	_, err := s.db.Exec(`INSERT INTO backup_settings(owner_id,every_seconds,keep,destination,next_at,last_at,last_state,last_error,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(owner_id) DO UPDATE SET
-			every_seconds=excluded.every_seconds, keep=excluded.keep, next_at=excluded.next_at,
+			every_seconds=excluded.every_seconds, keep=excluded.keep, destination=excluded.destination,
+			next_at=excluded.next_at,
 			last_at=excluded.last_at, last_state=excluded.last_state, last_error=excluded.last_error,
 			updated_at=excluded.updated_at`,
-		b.OwnerID, b.EverySeconds, b.Keep, b.NextAt, b.LastAt, b.LastState, b.LastError, now())
+		b.OwnerID, b.EverySeconds, b.Keep, b.Destination, b.NextAt, b.LastAt, b.LastState, b.LastError, now())
 	return err
 }
 

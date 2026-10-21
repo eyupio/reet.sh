@@ -459,8 +459,8 @@ export type BackupStatus = {
   enabled: boolean
   dir: string
   key: { fingerprint: string; source: string; path?: string }
-  settings: { everySeconds: number; keep: number; nextAt: number; lastAt: number; lastState: string; lastError: string; updatedAt: number }
-  defaults: { everySeconds: number; keep: number; userEverySeconds: number; userKeep: number }
+  settings: { everySeconds: number; keep: number; destination: BackupDestination; nextAt: number; lastAt: number; lastState: string; lastError: string; updatedAt: number }
+  defaults: { everySeconds: number; keep: number; userEverySeconds: number; userKeep: number; destination: BackupDestination }
   remotes: BackupRemote[]
   runs: BackupRun[]
   items: BackupItem[]
@@ -469,6 +469,7 @@ export type BackupStatus = {
 }
 export type BackupRemoteInput = {
   name?: string
+  originalName?: string
   endpoint?: string
   region?: string
   bucket?: string
@@ -480,14 +481,15 @@ export type BackupRemoteInput = {
   enabled?: boolean
 }
 export type BackupCheck = { name: string; ok: boolean; error?: string; steps: { step: string; ok: boolean; detail: string }[] }
+export type BackupDestination = 'local' | 'remote' | 'both'
 
 const bpath = (admin: boolean) => (admin ? '/api/v2/admin/backups' : '/api/v2/backups')
 
 export async function getBackupStatus(admin = false): Promise<BackupStatus> {
   return (await req(bpath(admin))).json()
 }
-export async function saveBackupSettings(admin: boolean, everySeconds: number, keep: number): Promise<void> {
-  await req(bpath(admin), { method: 'PATCH', body: json({ everySeconds, keep }) })
+export async function saveBackupSettings(admin: boolean, everySeconds: number, keep: number, destination: BackupDestination): Promise<void> {
+  await req(bpath(admin), { method: 'PATCH', body: json({ everySeconds, keep, destination }) })
 }
 export async function runBackupNow(admin = false): Promise<BackupItem> {
   return (await req(`${bpath(admin)}/run`, { method: 'POST', body: json({}) })).json()
@@ -500,6 +502,9 @@ export async function updateBackupRemote(admin: boolean, name: string, input: Ba
 }
 export async function deleteBackupRemote(admin: boolean, name: string): Promise<void> {
   await req(`${bpath(admin)}/remotes/${encodeURIComponent(name)}`, { method: 'DELETE' })
+}
+export async function testBackupRemoteDraft(admin: boolean, input: BackupRemoteInput): Promise<BackupCheck> {
+  return (await req(`${bpath(admin)}/remotes/test`, { method: 'POST', body: json(input) })).json()
 }
 export async function testBackupRemote(admin: boolean, name: string): Promise<BackupCheck> {
   return (await req(`${bpath(admin)}/remotes/${encodeURIComponent(name)}/test`, { method: 'POST', body: json({}) })).json()

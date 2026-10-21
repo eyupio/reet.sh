@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -125,7 +126,7 @@ func fetchTarget(server, token, id string) (store.SyncTarget, error) {
 		return store.SyncTarget{}, errors.New("this account cannot apply sync targets")
 	}
 	for _, target := range state.Targets {
-		if target.Target.ID == id {
+		if target.Target.ID == id || slices.Contains(target.TargetAliases, id) {
 			return target, nil
 		}
 	}
@@ -177,9 +178,11 @@ func runSync(args []string, in io.Reader, out io.Writer, execute func([]string, 
 	if err != nil {
 		return err
 	}
-	if !strings.EqualFold(*host, target.Target.Host) {
+	if !strings.EqualFold(*host, target.Target.Host) && !slices.ContainsFunc(target.HostAliases, func(alias string) bool { return strings.EqualFold(alias, *host) }) {
 		return fmt.Errorf("this command is for %s, not %s; run it on the target machine", target.Target.Host, *host)
 	}
+	*host = target.Target.Host
+
 	agent := syncAgent(target.Target.Agent)
 	if agent == "" {
 		return errors.New("this environment needs manual sync; supported targets are shared .agents (Codex), Claude Code, Cursor and OpenCode")

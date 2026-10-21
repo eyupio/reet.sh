@@ -1,14 +1,36 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import type { Snippet } from 'svelte'
-  import { getSyncState, saveSyncTarget, deleteSyncTarget, forgetEnvironment, type SyncState, type SyncEnvironment, type SyncTarget } from './api'
+  import { getSyncState, mergeMachines, forgetMachine, saveSyncTarget, deleteSyncTarget, forgetEnvironment, type SyncState, type SyncEnvironment, type SyncTarget } from './api'
   import CopyButton from './CopyButton.svelte'
   import MachineComparison from './MachineComparison.svelte'
   import { groupLabel, agentGroups, inventoryMachines } from './machines'
   import ConfirmDialog from './ConfirmDialog.svelte'
 
   let { canWrite, token = '', tokenSetup, view = 'machines', startConnect = false }: { canWrite: boolean; token?: string; tokenSetup?: Snippet; view?: 'machines' | 'compare'; startConnect?: boolean } = $props()
+  let fleetSince = $state(0)
+  function refreshedGroups(machine: import('./api').Machine): number { return fleetSince ? agentGroups(machine).filter(group => group.complete && group.scannedAt >= fleetSince).length : 0 }
+  let maintenanceFrom = $state('')
+  let maintenanceTo = $state('')
+  let machineChange = $state<{ from: string; to?: string } | null>(null)
+  function refreshCommand(host: string): string { return `reet scan --server ${quote(site)} --env ${quote(host)} --prune --reconcile` }
+  function previewMachine(e: SubmitEvent) {
+    e.preventDefault()
+    if (busy || !maintenanceFrom || !maintenanceTo.trim()) return
+    machineChange = { from: maintenanceFrom, to: maintenanceTo.trim() }
+  }
+  async function changeMachine() {
+    if (!machineChange || busy) return
+    const change=machineChange; machineChange=null; busy=true; error=''; notice=''
+    try {
+      syncState=change.to ? await mergeMachines(change.from,change.to) : await forgetMachine(change.from)
+      notice=change.to ? `Reet, reports now belong to ${change.to}. Old names remain aliases; future scans update this machine.` : `Forgot ${change.from}. Installed files and shelf entries are unchanged; a future scan can report it again.`
+      maintenanceFrom='';maintenanceTo=''
+      await tick(); document.getElementById('machine-list-title')?.focus()
+    } catch(e) { error=e instanceof Error ? e.message : String(e) } finally { busy=false }
+  }
   let syncState = $state<SyncState>({ environments: [], targets: [] })
+  const reportedMachines = $derived(syncState.machines ?? [])
   let loading = $state(true)
   let busy = $state(false)
   let error = $state('')
@@ -130,11 +152,30 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
   <MachineComparison {machines} {canWrite} onreference={(from, to) => { source = from; target = to; notice = 'Groups selected. Review the reference and target below, then save the snapshot.'; document.getElementById('reference-title')?.focus() }} />
   {/if}
   {#if view === 'machines'}
-  <div class="sectionhead"><h3>Known machines</h3><span>{machines.length} machines · {syncState.environments.filter(e => !e.agent.startsWith('reet')).length} agent groups</span></div>
+  {#if canWrite && reportedMachines.length}
+    <details class="maintenance"><summary>Manage machine names & duplicate reports</summary>
+      <p class="hint">Hostname and --env names can be reports from one machine. Choose the report to move, then keep an existing name to merge duplicates or enter a new name to rename it. Only combine reports you know are the same machine.</p>
+      <form class="machine-form" onsubmit={previewMachine}>
+        <label>Report to move<select aria-label="Report to move" bind:value={maintenanceFrom} required><option value="">Choose a machine</option>{#each reportedMachines as machine (machine.host)}<option value={machine.host}>{machine.host}</option>{/each}</select></label>
+        <label>Preferred machine name<input aria-label="Preferred machine name" list="machine-names" bind:value={maintenanceTo} maxlength="200" required placeholder="e.g. PROD_Snicket" /></label>
+        <datalist id="machine-names">{#each reportedMachines as machine (machine.host)}<option value={machine.host}></option>{/each}</datalist>
+        <button class="btn" type="submit" disabled={busy || !maintenanceFrom || !maintenanceTo.trim()}>Review change</button>
+      </form>
+    </details>
+    <details class="maintenance" ontoggle={event => { if (event.currentTarget.open && !fleetSince) fleetSince=Date.now() }}><summary>Full fleet inventory refresh</summary>
+      <p class="hint">Run one command per physical machine, using the name you want to keep. If both a hostname and a friendly name appear, choose the friendly-name command only, or merge them above first. It reconciles the current hostname with the preferred name and rescans detected agents. Run again from each tracked project. Set REET_TOKEN to that account's token first. These commands never install or remove skills.</p>
+      <button class="btn quiet" onclick={() => (fleetSince=Date.now())}>Start a new refresh check</button>
+      {#each machines as machine (machine.host)}<div class="fleet-command"><strong>{machine.host}</strong><p class="hint" role="status">{refreshedGroups(machine)} of {agentGroups(machine).length} agent groups refreshed since this check started.</p><div class="command"><pre>{refreshCommand(machine.host)}</pre><CopyButton text={refreshCommand(machine.host)} label={`Copy refresh for ${machine.host}`} /></div></div>{/each}
+      <p class="hint">The controller cannot rescan machines remotely. After each command finishes, use Refresh status to see the reports received.</p>
+    </details>
+  {/if}
+  <div class="sectionhead"><h3 id="machine-list-title" tabindex="-1">Known machines</h3><span>{machines.length} machines · {syncState.environments.filter(e => !e.agent.startsWith('reet')).length} agent groups</span></div>
   {#if !loading && !machines.length}<p class="empty">No machines have reported yet.{canWrite ? ' Run the scan command above, then refresh status.' : ''}</p>{/if}
   <ul class="environments">
     {#each machines as machine (machine.host)}
-      <li><details class="machine-inventory"><summary class="envhead"><strong>{machine.host}</strong><span class="badge">{machine.skillCount} unique skills · {agentGroups(machine).length} agent groups</span></summary>
+      <li><details class="machine-inventory"><summary class="envhead"><div><strong>{machine.host}</strong>{#if machine.aliases?.length}<small class="machine-alias">Also known as {machine.aliases.join(', ')}</small>{/if}</div><span class="badge">{machine.skillCount} unique skills · {agentGroups(machine).length} agent groups</span></summary>
+        {#if machine.aliases?.length}<p class="hint">Also known as: {machine.aliases.join(', ')}</p>{/if}
+        {#if canWrite}<button class="btn quiet" disabled={busy} onclick={() => (machineChange={from:machine.host})}>Forget machine {machine.host}</button>{/if}
         <p class="hint">One machine environment. Each agent / project below is a subgroup; shared skills count once above.</p>
         {#each machine.groups.filter(g => g.agent.startsWith('reet')) as heartbeat (heartbeat.id)}
           <p class="hint">{groupLabel(heartbeat)}: {status(heartbeat)} · {heartbeat.os || 'OS unknown'}/{heartbeat.arch || '?'} · {heartbeat.version || 'Version unknown'} · {when(heartbeat.scannedAt || heartbeat.lastSeen)}</p>
@@ -154,7 +195,7 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
   </ul>
   {#if serverMachines.length}
     <details class="server"><summary>Server-only reports ({serverMachines.length})</summary><p class="hint">These machines have reported a heartbeat but no agent inventory. Container restarts may create new host IDs.</p>
-      <ul>{#each serverMachines as machine (machine.host)}{#each machine.groups as heartbeat (heartbeat.id)}<li><strong>{machine.host}</strong><p class="hint">{status(heartbeat)} · {when(heartbeat.scannedAt || heartbeat.lastSeen)}</p>{#if canWrite}<button class="btn quiet" onclick={() => forgetting = heartbeat} disabled={busy}>Forget report for {machine.host}</button>{/if}</li>{/each}{/each}</ul>
+      <ul>{#each serverMachines as machine (machine.host)}{#each machine.groups as heartbeat (heartbeat.id)}<li><strong>{machine.host}</strong><p class="hint">{status(heartbeat)} · {when(heartbeat.scannedAt || heartbeat.lastSeen)}</p>{#if canWrite}<button class="btn quiet" onclick={() => (machineChange={from:machine.host})} disabled={busy}>Forget machine {machine.host}</button>{/if}</li>{/each}{/each}</ul>
     </details>
   {/if}
   {/if}
@@ -184,11 +225,23 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
   {/if}
 </section>
 
+{#if machineChange}
+  <ConfirmDialog title={machineChange.to ? 'Combine or rename these reports?' : `Forget ${machineChange.from}?`}
+    body={machineChange.to ? `Move ${machineChange.from} into ${machineChange.to}. For matching agent/project groups, the most recent report is kept; distinct groups and saved references are preserved. Old names become aliases. Installed files and shelf entries are unchanged. Conflicting saved references block the whole change.` : 'Remove this machine’s reports and target references. Installed files and shelf entries stay. Snapshots used by other machines remain, and a future scan can report this machine again.'}
+    confirmLabel={machineChange.to ? 'Save machine identity' : 'Forget machine'} danger={!machineChange.to} onconfirm={changeMachine} oncancel={() => (machineChange=null)} />
+{/if}
+
 {#if forgetting}
   <ConfirmDialog title={`Forget ${forgetting.name}?`} body="This removes its reports and target reference, without uninstalling any files. Saved reference snapshots used by other targets remain. An active server or future scan will register it again." confirmLabel="Forget report" onconfirm={forget} oncancel={() => (forgetting = null)} />
 {/if}
 
 <style>
+ .machine-alias { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 4px; overflow-wrap: anywhere; }
+ .maintenance { margin: 16px 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+ .maintenance > summary { cursor: pointer; min-height: 24px; font-weight: 600; }
+ .machine-form { display: grid; gap: 12px; margin-top: 16px; }
+ .machine-form label { display: grid; gap: 4px; }
+ .fleet-command { margin-top: 16px; }
  .machine-inventory > summary { cursor: pointer; min-height: 44px; }
  .sync { margin-top:24px; padding:clamp(18px,3vw,28px); border:1px solid var(--line); border-radius:12px; background:var(--card); }
  header,.envhead,.sectionhead,.policy-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }

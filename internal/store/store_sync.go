@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 )
@@ -39,14 +40,16 @@ type SyncSkill struct {
 }
 
 type SyncTarget struct {
-	Target     Environment `json:"target"`
-	SourceID   string      `json:"sourceId"`
-	SourceName string      `json:"sourceName"`
-	Desired    []SyncSkill `json:"desired"`
-	Missing    []SyncSkill `json:"missing"`
-	Extra      []SyncSkill `json:"extra"`
-	Revision   string      `json:"revision"`
-	UpdatedAt  int64       `json:"updatedAt"`
+	HostAliases   []string    `json:"hostAliases,omitempty"`
+	TargetAliases []string    `json:"targetAliases,omitempty"`
+	Target        Environment `json:"target"`
+	SourceID      string      `json:"sourceId"`
+	SourceName    string      `json:"sourceName"`
+	Desired       []SyncSkill `json:"desired"`
+	Missing       []SyncSkill `json:"missing"`
+	Extra         []SyncSkill `json:"extra"`
+	Revision      string      `json:"revision"`
+	UpdatedAt     int64       `json:"updatedAt"`
 }
 
 func (s *Store) RecordInventoryFor(userID int64, envID string, complete bool, machine MachineInfo) error {
@@ -57,6 +60,11 @@ func (s *Store) RecordInventoryFor(userID int64, envID string, complete bool, ma
 }
 
 func (s *Store) RegisterMachineFor(userID int64, info MachineInfo) error {
+	canonical, err := s.ResolveMachineHostFor(userID, info.Host)
+	if err != nil {
+		return err
+	}
+	info.Host = canonical
 	agent := "reet"
 	if info.Server {
 		agent = "reet-server"
@@ -202,12 +210,24 @@ func (s *Store) SyncTargetsFor(userID int64) ([]SyncTarget, error) {
 	if err != nil {
 		return nil, err
 	}
+	aliases, err := s.MachineAliasesFor(userID)
+	if err != nil {
+		return nil, err
+	}
 	for i := range out {
 		for _, env := range envs {
 			if env.ID == out[i].Target.ID {
 				out[i].Target = env
 			}
 		}
+		for alias, host := range aliases {
+			if strings.EqualFold(host, out[i].Target.Host) {
+				out[i].HostAliases = append(out[i].HostAliases, alias)
+				out[i].TargetAliases = append(out[i].TargetAliases, EnvironmentIDFor(userID, alias, out[i].Target.Agent, out[i].Target.Project))
+			}
+		}
+		sort.Strings(out[i].HostAliases)
+		sort.Strings(out[i].TargetAliases)
 		actual, err := s.EnvironmentSkillsFor(userID, out[i].Target.ID)
 		if err != nil {
 			return nil, err
@@ -248,6 +268,7 @@ func (s *Store) ForgetEnvironmentFor(userID int64, id string) error {
 // Machine groups agent/project inventories under their user-scoped host alias.
 // Existing environment IDs remain valid subgroup IDs for the scanner and sync CLI.
 type Machine struct {
+	Aliases    []string          `json:"aliases,omitempty"`
 	Host       string            `json:"host"`
 	Groups     []SyncEnvironment `json:"groups"`
 	SkillCount int               `json:"skillCount"`

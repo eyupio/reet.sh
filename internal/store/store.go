@@ -158,6 +158,7 @@ const schema = `CREATE TABLE IF NOT EXISTS skills (
 	created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, fetched_at INTEGER NOT NULL DEFAULT 0)`
 
 var schemaV12 = []string{
+	`CREATE TABLE IF NOT EXISTS machine_aliases (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, alias TEXT NOT NULL, host TEXT NOT NULL, PRIMARY KEY(user_id,alias))`,
 	`CREATE TABLE IF NOT EXISTS environments (
 		id TEXT PRIMARY KEY, user_id INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL,
 		kind TEXT NOT NULL DEFAULT 'machine', agent TEXT NOT NULL DEFAULT '', host TEXT NOT NULL DEFAULT '',

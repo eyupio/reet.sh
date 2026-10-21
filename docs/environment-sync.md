@@ -70,3 +70,21 @@ The Library filters first by machine, then optionally by agent/project group. Ma
 On **Account → Compare & sync**, **Compare machines** shows unique skills shared by the selected machines and skills present on only one side. Select individual agent groups to compare placement rather than combined inventories. A match compares reported skill identities/sources, not installed file contents or versions. Stale/incomplete agent reports and machines with only a server heartbeat cannot confirm a match; unknown/local sources require review. Rescan both machines with `--prune`, then refresh before deciding what to apply.
 
 For a confirmed, source-linked comparison between individual groups, **Use these groups for a sync reference** prepares the snapshot form. Review it and explicitly save the desired reference. The target CLI still previews and confirms installs/removals locally; comparison alone never changes any machine.
+
+## Repair duplicate machine names and refresh a fleet
+
+A legacy scan under a hostname and another under `--env NAME` can create two machine reports. On **Account → Machines → Manage machine names & duplicate reports**, select the hostname report and enter the preferred name (for example `PROD_Snicket`). Review and confirm. Enter an existing machine name to merge or a new name to rename. Only combine reports you know belong to the same physical machine; equal skill counts are not proof.
+
+Matching agent/project groups keep the newest reported inventory, rather than unioning old and new skill lists. Distinct groups, shelf entries and reference snapshots remain. Conflicting references for the same group block the entire change: stop tracking one conflicting reference under **Compare & sync**, then retry. Old names become account-scoped aliases, so subsequent hostname-based scans and personal shelf restores use the preferred machine. Aliases persist across server restarts. Updated binaries also accept old host/target aliases in copied sync commands.
+
+To repair the current hostname and refresh inventories from the binary, update reet and run on that machine:
+
+```sh
+reet scan --server https://reet.sh --env PROD_Snicket --prune --reconcile
+```
+
+Set `REET_TOKEN` to that account's personal token first. `--reconcile` requires an explicit preferred name through `--env` or `REET_ENV`; it binds the actual hostname to that name before reporting. It works on existing installations and does not install/remove skills. `--dry-run` sends neither a merge nor a report. A reference conflict stops reconciliation before the scan is imported. Ordinary older scanners still benefit from aliases already recorded on the controller.
+
+**Full fleet inventory refresh** provides the command for each scanned machine. Choose one preferred name per physical machine, run there, and repeat from each tracked project. This refreshes detected agent groups; it cannot assert the state of offline machines, unrelated projects or unreadable/unscanned folders. The web controller cannot execute a remote rescan. Open the refresh check before running the commands, then use **Refresh status** after each command completes. Progress counts only complete agent reports received since that check started, not cached scans. Start a new check to reset the progress window.
+
+Expand a machine card to **Forget machine** when retiring its reports, or forget an individual agent group. Whole-machine removal clears reports and target references without deleting installed files or shelf entries. Reference snapshots used by other targets and name aliases remain; a later active scan/heartbeat can register the machine again. Viewer accounts cannot merge, rename, forget or run writes through these endpoints.

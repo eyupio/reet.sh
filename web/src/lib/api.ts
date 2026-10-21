@@ -391,12 +391,14 @@ export async function getRollup(): Promise<Rollup> {
 
 export type SyncEnvironment = Environment & { project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string; skills: SyncSkill[] }
 export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source' | 'sourceType'>
-export type SyncTarget = { target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
-export type Machine = { host: string; groups: SyncEnvironment[]; skillCount: number }
+export type SyncTarget = { hostAliases?: string[]; targetAliases?: string[]; target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
+export type Machine = { aliases?: string[]; host: string; groups: SyncEnvironment[]; skillCount: number }
 export type SyncState = { machines?: Machine[]; environments: SyncEnvironment[]; targets: SyncTarget[] }
 export async function getSyncState(): Promise<SyncState> { return (await req('/api/v2/sync')).json() }
 export async function saveSyncTarget(sourceId: string, targetId: string): Promise<SyncState> { return (await req('/api/v2/sync', { method: 'PUT', body: json({ sourceId, targetId }) })).json() }
 export async function deleteSyncTarget(targetId: string): Promise<SyncState> { return (await req(`/api/v2/sync?target=${encodeURIComponent(targetId)}`, { method: 'DELETE' })).json() }
+export async function mergeMachines(from: string, to: string): Promise<SyncState> { return (await req('/api/v2/machines/merge', { method: 'POST', body: json({ from, to }) })).json() }
+export async function forgetMachine(host: string): Promise<SyncState> { return (await req(`/api/v2/machines?host=${encodeURIComponent(host)}`, { method: 'DELETE' })).json() }
 export async function forgetEnvironment(id: string): Promise<SyncState> { return (await req(`/api/v2/environments?id=${encodeURIComponent(id)}`, { method: 'DELETE' })).json() }
 
 export type Audience = { groupId?: number; groupRole?: string; people: { email: string; role: string }[]; excluded: string[] }

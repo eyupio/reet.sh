@@ -7,24 +7,52 @@ It is a single Go binary with an embedded web UI and a SQLite file. Nothing is s
 ## Quick start
 
 ```sh
-curl -O https://raw.githubusercontent.com/eyupio/reet.sh/main/docker-compose.yml
+git clone https://github.com/eyupio/reet.sh && cd reet.sh   # or just download docker-compose.yml, .env.example and scripts/init-env.sh
+sh scripts/init-env.sh          # creates .env, generates REET_TOKEN, sets your UID/GID, creates ./data
 docker compose up -d
 ```
 
-Open http://localhost:8080. The compose file uses the prebuilt image `ghcr.io/eyupio/reet.sh` (no local build) and stores data in the `reet-data` volume.
+Open http://localhost:8080 and enter the token from `.env` when asked (`grep REET_TOKEN .env`).
 
-### Settings
+The compose file uses the prebuilt image `ghcr.io/eyupio/reet.sh` (no local build). The database lives in a host folder, `./data` by default, bind-mounted at `/data`, so you can back it up or move it like any other folder. The container runs as `REET_UID:REET_GID` (your user, set by the script), so that folder stays owned by you.
+
+### Settings (`.env`)
+
+`docker compose` reads `.env` automatically. `.env.example` lists every setting with comments.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `REET_TOKEN` | empty | If set, the API and bookmarklets need this token. The UI asks for it once and remembers it. Set it if the app is reachable by anyone else. |
-| `SKILLS_SH_TOKEN` | empty | Optional token for the official skills.sh API (it needs a Vercel OIDC token). Without it, reet reads the public skill pages instead. |
-| `REET_ADDR` | `:8080` | Listen address. |
-| `REET_DATA_DIR` | `./data` (`/data` in the image) | Where the database lives. |
+| `REET_DATA_PATH` | `./data` | Host folder for the database. Must exist and be writable by `REET_UID:REET_GID`. |
+| `REET_UID`, `REET_GID` | `1000` | User the container runs as. `init-env.sh` sets these to `id -u` / `id -g`. |
+| `REET_PORT` | `8080` | Host port for the UI. |
+| `REET_VERSION` | `latest` | Image tag (`latest`, `v1.0.0`, `sha-<short>`). |
+| `REET_TOKEN` | empty | Access token for the UI, API and bookmarklets. Empty means no auth; only do that on a network you fully trust. |
+| `SKILLS_SH_TOKEN` | empty | Optional skills.sh API token (needs a Vercel OIDC token, so it can't be generated). Without it, reet reads the public skills.sh pages. |
+
+### Commands for keys and settings
+
+All of these edit the same `.env`, then `docker compose up -d` applies them:
 
 ```sh
-REET_TOKEN=choose-something docker compose up -d
+sh scripts/init-env.sh                                  # first-time setup; keeps values already set
+sh scripts/init-env.sh --rotate                         # new REET_TOKEN (old bookmarklets stop working)
+sh scripts/init-env.sh --set SKILLS_SH_TOKEN=your-token # set or change any KEY=value
+sh scripts/init-env.sh --set REET_PORT=9090
+docker compose up -d                                    # apply changes
 ```
+
+Without the script, the equivalent manual steps are:
+
+```sh
+cp .env.example .env
+openssl rand -hex 32            # paste the output after REET_TOKEN= in .env
+id -u; id -g                    # paste after REET_UID= and REET_GID=
+mkdir -p data
+```
+
+If the container exits with "unable to open database file", the data folder isn't writable by `REET_UID:REET_GID`; fix it with `chown -R "$(id -u):$(id -g)" data` and restart.
+
+(The `reet` server itself reads `REET_ADDR` (default `:8080`), `REET_DATA_DIR`, `REET_TOKEN` and `SKILLS_SH_TOKEN`; compose maps the settings above onto them.)
 
 ## Adding skills
 
@@ -42,7 +70,7 @@ REET_TOKEN=choose-something docker compose up -d
 
 ## Backup
 
-Use **Download JSON** and **Restore from JSON** in the UI, or call `GET /api/export` and `POST /api/restore`. The database is also a single file in the data volume.
+Use **Download JSON** and **Restore from JSON** in the UI, or call `GET /api/export` and `POST /api/restore`. The database is a single file, `reet.db`, in your data folder.
 
 ## Development
 

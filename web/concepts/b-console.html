@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>reet.sh – Concept B, Console</title>
+  <style>
+    :root {
+      --bg: #f4f4f1; --panel: #fff; --ink: #191a1a; --muted: #585a58; --line: #d9dbd6; --row: #eeefeb;
+      --accent: #0b6b4f; --accent-ink: #fff; --bad: #b42318; --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0e1110; --panel: #151918; --ink: #dfe6e2; --muted: #93a09a; --line: #26302c; --row: #1b221f; --accent: #5eead4; --accent-ink: #04201a; --bad: #fca5a5; }
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--mono); }
+    .skip { position: absolute; left: 8px; top: -48px; background: var(--accent); color: var(--accent-ink); padding: 8px 12px; z-index: 10; }
+    .skip:focus { top: 8px; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    main { max-width: 1040px; margin: 0 auto; padding: 20px 16px 64px; }
+    a { color: var(--accent); text-underline-offset: 3px; }
+
+    .top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+    h1 { margin: 0; font-size: 1.1rem; font-weight: 700; }
+    h1 span { color: var(--accent); }
+    .stats { color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; }
+    .stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+    .cmd { display: flex; align-items: center; gap: 10px; margin: 16px 0 10px; background: var(--panel); border: 1px solid var(--line); padding: 0 12px; }
+    .cmd:focus-within { border-color: var(--accent); }
+    .cmd .p { color: var(--accent); font-weight: 700; }
+    .cmd input { flex: 1; min-width: 0; background: none; border: 0; padding: 11px 0; outline: none; }
+    .cmd input::placeholder { color: var(--muted); opacity: 1; }
+    .cmd button { background: none; border: 1px solid var(--line); padding: 3px 10px; cursor: pointer; }
+    .cmd button:hover { border-color: var(--accent); color: var(--accent); }
+    .notice { margin: 0 0 8px; color: var(--accent); min-height: 1.5em; }
+
+    .bar { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .tabs { display: flex; gap: 2px; flex-wrap: wrap; }
+    .tabs button { background: none; border: 1px solid transparent; padding: 3px 10px; cursor: pointer; color: var(--muted); }
+    .tabs button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+    .tabs button:hover { color: var(--ink); }
+    .ctl { display: flex; gap: 8px; }
+    .ctl input, .ctl select { background: var(--panel); border: 1px solid var(--line); padding: 4px 8px; }
+
+    .tablewrap { background: var(--panel); border: 1px solid var(--line); overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    caption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    th { text-align: left; font-weight: 500; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    td { padding: 7px 10px; vertical-align: top; border-bottom: 1px solid var(--line); }
+    tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: var(--row); }
+    tr[aria-current="true"] { background: var(--row); box-shadow: inset 3px 0 0 var(--accent); }
+    .flags { white-space: nowrap; }
+    .f { background: none; border: 1px solid var(--line); width: 30px; height: 28px; cursor: pointer; color: var(--muted); }
+    .f + .f { margin-left: 3px; }
+    .f[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+    .f:not([aria-pressed="true"]):hover { border-color: var(--accent); color: var(--accent); }
+    .name { font-weight: 700; overflow-wrap: anywhere; }
+    .name a { color: var(--ink); }
+    .name a:hover { color: var(--accent); }
+    .src { color: var(--muted); font-size: .85em; }
+    .d { color: var(--muted); display: block; font-weight: 400; max-width: 70ch; }
+    .n { display: block; color: var(--accent); max-width: 70ch; white-space: pre-wrap; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
+    .rm { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 2px 6px; }
+    .rm:hover { color: var(--bad); }
+    .empty { padding: 28px; text-align: center; color: var(--muted); }
+    .keys { margin-top: 14px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 16px; }
+    kbd { border: 1px solid var(--line); background: var(--panel); padding: 0 6px; font: inherit; color: var(--ink); }
+    .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    @media (max-width: 640px) { .hide-sm { display: none; } .keys { display: none; } }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#skills">Skip to skills table</a>
+  <main>
+    <header class="top">
+      <h1 style="display:flex;align-items:center;gap:10px"><span data-logo style="--logo-h: 32px"></span> <span aria-hidden="true">›</span> shelf</h1>
+      <p class="stats" id="stats" style="margin:0"></p>
+    </header>
+
+    <form class="cmd" id="add">
+      <span class="p" aria-hidden="true">+</span>
+      <label class="vh" for="add-in">Skill URL or slug</label>
+      <input id="add-in" placeholder="owner/repo/skill or skills.sh URL, then Enter" autocomplete="off" spellcheck="false" />
+      <button type="submit">add</button>
+    </form>
+    <p class="notice" id="notice" role="status"></p>
+
+    <div class="bar">
+      <div class="tabs" id="tabs" role="group" aria-label="Filter"></div>
+      <div class="ctl">
+        <label class="vh" for="q">Search skills</label>
+        <input id="q" type="search" placeholder="/ search" />
+        <label class="vh" for="sort">Sort by</label>
+        <select id="sort"><option value="recent">recent</option><option value="name">name</option><option value="installs">installs</option></select>
+      </div>
+    </div>
+
+    <div class="tablewrap">
+      <table id="skills">
+        <caption>Your skills</caption>
+        <thead><tr><th scope="col">Flags</th><th scope="col">Skill</th><th scope="col" class="num hide-sm">Installs</th><th scope="col"><span class="vh">Actions</span></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <p class="keys" aria-label="Keyboard shortcuts">
+      <span><kbd>/</kbd> search</span><span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>l</kbd> like</span><span><kbd>s</kbd> save</span><span><kbd>u</kbd> in use</span><span><kbd>Esc</kbd> leave field</span>
+    </p>
+  </main>
+
+  <script src="data.js"></script>
+  <script src="logo.js"></script>
+  <script src="shelf.js"></script>
+  <script>
+    (function () {
+      'use strict'
+      const { esc, fmt, state } = Shelf
+      const $ = (id) => document.getElementById(id)
+      const TABS = [['all', 'all'], ['liked', 'liked'], ['bookmarked', 'saved'], ['used', 'in use']]
+      const FLAGS = [['liked', '♥', 'Like'], ['bookmarked', '★', 'Save'], ['used', '✔', 'In use']]
+      let sel = null
+
+      function render() {
+        const c = Shelf.counts(), rows = Shelf.view()
+        if (!rows.some((s) => s.id === sel)) sel = rows.length ? rows[0].id : null
+        $('stats').innerHTML = `<span><b>${c.all}</b> total</span><span><b>${c.liked}</b> liked</span><span><b>${c.bookmarked}</b> saved</span><span><b>${c.used}</b> in use</span>`
+        $('tabs').innerHTML = TABS.map(([id, l]) => `<button type="button" data-fk="tab-${id}" data-tab="${id}" aria-pressed="${state.tab === id}">${l} ${c[id]}</button>`).join('')
+        $('rows').innerHTML = rows.length ? rows.map(row).join('') : `<tr><td colspan="4" class="empty">nowt found</td></tr>`
+      }
+      function row(s) {
+        const flags = FLAGS.map(([k, g, label]) =>
+          `<button type="button" class="f" data-fk="${k}-${esc(s.id)}" data-id="${esc(s.id)}" data-flag="${k}" aria-pressed="${s[k]}" aria-label="${label}: ${esc(s.name)}" title="${label}">${g}</button>`).join('')
+        const name = s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.name)}</a>` : esc(s.name)
+        return `<tr data-row="${esc(s.id)}"${sel === s.id ? ' aria-current="true"' : ''}>
+          <td class="flags">${flags}</td>
+          <td><span class="name">${name}</span> <span class="src">${s.sourceType === 'local' ? 'unlinked' : esc(s.source)}</span>
+            ${s.description ? `<span class="d">${esc(s.description)}</span>` : ''}${s.notes ? `<span class="n"><span aria-hidden="true"># </span>${esc(s.notes)}</span>` : ''}</td>
+          <td class="num hide-sm">${s.installs ? fmt(s.installs) : '–'}</td>
+          <td><button type="button" class="rm" data-fk="rm-${esc(s.id)}" data-remove="${esc(s.id)}" aria-label="Remove ${esc(s.name)}">✕</button></td></tr>`
+      }
+      function say(msg) { $('notice').textContent = msg; clearTimeout(say.t); say.t = setTimeout(() => ($('notice').textContent = ''), 4000) }
+      const redraw = () => Shelf.keepFocus(render)
+      Shelf.onChange(redraw)
+
+      document.addEventListener('click', (e) => {
+        const tr = e.target.closest('tr[data-row]'); if (tr) { sel = tr.dataset.row; }
+        const t = e.target.closest('button'); if (!t) { if (tr) redraw(); return }
+        if (t.dataset.tab) Shelf.set({ tab: t.dataset.tab })
+        else if (t.dataset.flag) { sel = t.dataset.id; Shelf.toggle(t.dataset.id, t.dataset.flag) }
+        else if (t.dataset.remove) {
+          const i = Shelf.skills.findIndex((x) => x.id === t.dataset.remove)
+          if (i > -1 && confirm(`Remove ${Shelf.skills[i].name}?`)) { Shelf.skills.splice(i, 1); say('removed'); $('q').focus(); redraw() }
+        }
+      })
+      $('q').addEventListener('input', (e) => Shelf.set({ q: e.target.value }))
+      $('sort').addEventListener('change', (e) => Shelf.set({ sort: e.target.value }))
+      $('add').addEventListener('submit', (e) => {
+        e.preventDefault()
+        const s = Shelf.add($('add-in').value)
+        if (s) { $('add-in').value = ''; sel = s.id; say('added ' + s.name); redraw() }
+      })
+
+      document.addEventListener('keydown', (e) => {
+        if (e.metaKey || e.ctrlKey || e.altKey) return
+        const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)
+        if (e.key === 'Escape' && typing) { e.target.blur(); return }
+        if (typing) return
+        const rows = Shelf.view(), i = rows.findIndex((s) => s.id === sel)
+        const go = (n) => {
+          if (!rows.length) return
+          sel = rows[Math.max(0, Math.min(rows.length - 1, n))].id
+          redraw()
+          const el = document.querySelector(`tr[data-row="${CSS.escape(sel)}"]`)
+          if (el) el.scrollIntoView({ block: 'nearest' })
+        }
+        if (e.key === '/') { e.preventDefault(); $('q').focus() }
+        else if (e.key === 'j') go(i + 1)
+        else if (e.key === 'k') go(i - 1)
+        else if (sel && 'lsu'.includes(e.key) && e.key.length === 1) Shelf.toggle(sel, { l: 'liked', s: 'bookmarked', u: 'used' }[e.key])
+      })
+      render()
+    })()
+  </script>
+</body>
+</html>

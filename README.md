@@ -82,3 +82,14 @@ cd .. && go test ./... && go run ./cmd/reet serve
 For UI work, run `npm run dev` in `web/` (it proxies the API to `localhost:8080`).
 
 The `Dockerfile` builds the UI and the binary and cross-compiles for `linux/amd64` and `linux/arm64`. The GitHub Actions workflow tests every push and publishes `ghcr.io/eyupio/reet.sh` (`latest`, `vX.Y.Z` and `sha-<short>` tags) from `main` and version tags.
+
+---
+
+<div align="center">
+
+<img src="brand/logo/tile-ink.svg" alt="" width="28" height="28">
+
+**reet.sh** · Your shelf for AI skills<br>
+Developed by [EyUp.io](https://eyup.io)
+
+</div>

@@ -106,11 +106,11 @@ Direct competitor: the skills.sh directory itself (what it lacks is the whole re
 - **Type:** UX tweak · **Serves:** both (Priya first run, Jordan support) · **Pass:** Walkthrough · **Where:** `web/src/lib/api.ts` `req()`, `web/src/App.svelte`
 - **Problem:** With a token set, the first visit shows the full empty UI, a red "missing or wrong token" banner and a native `prompt()`. Dismiss it and you are stuck on an error page with no way to try again except reload. There is no way to sign out, switch token or see that you are signed in.
 - **Evidence:** First-run screenshot during the audit; `req()` only prompts once per request and stores the token in `localStorage` for ever.
-- **Proposal:** On a 401, render a small sign-in card in place of the shelf (logo, one password-type field, "Where do I find this?" pointing at `grep REET_TOKEN .env`, paste-friendly). Keep the token in `localStorage` as today. Add a "Sign out" link in the footer that clears it. This is the shell that FEAT-019 later swaps for email and password.
+- **Proposal:** On a 401, render a small sign-in card in place of the shelf (logo, one password-type field, "Where do I find this?" pointing at `grep REET_TOKEN .env`, paste-friendly). Keep the token in `localStorage` as today. Add a "Sign out" link in the footer that clears it. This is the shell that FEAT-018 later swaps for email and password.
 - **Acceptance:** fresh browser with a token-protected instance shows the sign-in card and no error banner; wrong token shows an inline error and keeps the field; sign out returns to the card; token-less instances never show it.
 - **Value:** first impression and support load. Confidence high.
 - **Effort & risk:** S. None.
-- **Dependencies:** none; replaced by FEAT-019.
+- **Dependencies:** none; replaced by FEAT-018.
 
 ### FEAT-004 — Install block on every card: Command / Prompt toggle with copy
 - **Type:** Core feature gap · **Serves:** user (Sam, Priya) · **Pass:** Competitor comparison, owner request · **Where:** `web/src/lib/SkillCard.svelte`, new `web/src/lib/install.ts`
@@ -187,7 +187,7 @@ Direct competitor: the skills.sh directory itself (what it lacks is the whole re
 - **Acceptance:** two scans from different hostnames yield two environments on the same skill; `--prune` removes a link and leaves the skill and notes intact; the environment filter shows only skills on that environment; export round-trips environments; `used` stays true for a paste-imported skill with no environment.
 - **Value:** turns "In use" from a guess into a fact and makes new-machine setup a copy-paste. The strongest differentiator available. Confidence high.
 - **Effort & risk:** M. Scanner protocol changes; keep the old `{name, source}` shape accepted for older binaries. Scan output must not include home paths beyond the skills folder (privacy on shared instances).
-- **Dependencies:** FEAT-004 for the "install everything missing" action. Required by FEAT-021.
+- **Dependencies:** FEAT-004 for the "install everything missing" action. Required by FEAT-020.
 
 ### FEAT-011 — Tags, seeded from skills.sh topics, with user overrides
 - **Type:** Core feature gap · **Serves:** user (all), admin (shared tag list) · **Pass:** Competitor comparison, owner request · **Where:** `internal/store`, `internal/meta` (new `topics.go`), `internal/api`, `web/src/App.svelte` toolbar, `web/src/lib/SkillCard.svelte`
@@ -198,7 +198,7 @@ Direct competitor: the skills.sh directory itself (what it lacks is the whole re
   - Seed: a background job on start-up and every 24 h fetches `/topic` and the eight topic pages (nine small requests, same 8 s timeout and size cap as today), builds `topic → [skill ids]`, and attaches `source=topic` tags to matching skills on the shelf and on every future add. Names come from the page ("Design & UI"). If a skill drops out of a topic, the tag is removed unless the user has also added it.
   - Overrides: user removes a topic tag → row kept with `hidden=1` so the seed does not re-add it; user adds any tag by typing, with autocomplete over existing tags; rename and merge tags from a small "Manage tags" dialog in the tools panel.
   - UI: tag chips on cards, a tag row in the toolbar (appears when any tag exists, with counts, multi-select AND), `tag:` syntax in search, and the publisher (`anthropics/skills`) clickable as an implicit filter without being a tag.
-  - Under FEAT-019, tags are per shelf; shared lists may carry their own.
+  - Under FEAT-018, tags are per shelf; shared lists may carry their own.
 - **Acceptance:** adding `anthropics/skills/frontend-design` auto-tags it "Design & UI" within a day of the seed run (or immediately if the map is warm); removing that tag survives the next seed; a user tag filters the shelf; `tag:testing` works in search; export and restore round-trip tags; the seed failing leaves the app fully usable.
 - **Value:** the main organisation primitive the product is missing; every bookmark competitor has it. Confidence high.
 - **Effort & risk:** M. Nine extra outbound fetches per day to skills.sh (flag in docs; honour a `REET_TOPICS=off` switch). Topic markup can change; the job is best-effort like metadata.
@@ -238,11 +238,11 @@ Direct competitor: the skills.sh directory itself (what it lacks is the whole re
 - **Type:** Admin tooling · **Serves:** admin (Jordan, Alex) · **Pass:** Product review · **Where:** new `web/src/lib/Admin.svelte`, `GET /api/admin/status`, `cmd/reet/main.go`
 - **Problem:** Everything an operator wants to know needs `docker logs`, `sqlite3` or `.env`. Rotating the token means a shell and a container restart; nobody can see whether the scanner has ever run.
 - **Evidence:** Only `init-env.sh --rotate` and `--set` exist; no settings surface in the app.
-- **Proposal:** A `/admin` route (owner/admin only once FEAT-019 lands; token holders before that) showing: version and update available (compare against GHCR tags, optional), DB path and size, counts per stage and per environment, last scan per environment with the scanner version, skills.sh reachability and last successful fetch, the topic seed status, the last 100 audit rows from FEAT-016, and switches for the refresh and topic jobs. Settings that are safe to change at runtime (job toggles, instance name) live in a `settings` table; env-only settings are shown read-only with their source.
+- **Proposal:** A `/admin` route (owner/admin only once FEAT-018 lands; token holders before that) showing: version and update available (compare against GHCR tags, optional), DB path and size, counts per stage and per environment, last scan per environment with the scanner version, skills.sh reachability and last successful fetch, the topic seed status, the last 100 audit rows from FEAT-016, and switches for the refresh and topic jobs. Settings that are safe to change at runtime (job toggles, instance name) live in a `settings` table; env-only settings are shown read-only with their source.
 - **Acceptance:** an admin can answer "which version, how many skills, when did sam-mbp last scan, is skills.sh reachable" without leaving the browser; non-admins get 403.
 - **Value:** support burden and operator confidence. Confidence high.
 - **Effort & risk:** M. Do not expose tokens or env values that are secrets.
-- **Dependencies:** FEAT-006, FEAT-016; gated by FEAT-019 roles when present.
+- **Dependencies:** FEAT-006, FEAT-016; gated by FEAT-018 roles when present.
 
 ### FEAT-016 — Minimal local usage events and audit log
 - **Type:** Usage & engagement · **Serves:** both · **Pass:** Product review · **Where:** `internal/store` (new `events` table), every write handler in `internal/api`
@@ -252,13 +252,13 @@ Direct competitor: the skills.sh directory itself (what it lacks is the whole re
 - **Acceptance:** every write produces one event with the actor; the recently strip updates after each action; events are included in export and can be excluded with a checkbox; no event is sent anywhere off-box.
 - **Value:** makes every later product decision measurable, and gives the shared instance an audit trail. Confidence high.
 - **Effort & risk:** M. Privacy: events contain who did what on a team instance; show this in the docs and keep the table owner-exportable and deletable. Small DB growth.
-- **Dependencies:** none. Feeds FEAT-015, FEAT-021.
+- **Dependencies:** none. Feeds FEAT-015, FEAT-020.
 
 ### FEAT-017 — "Copy as Markdown" and shelf views you can hand to someone
 - **Type:** Feature improvement · **Serves:** user (Sam), admin (Alex onboarding) · **Pass:** Walkthrough · **Where:** `web/src/lib/Tools.svelte`, `GET /api/export?format=md`
 - **Problem:** The only way to show a colleague "the skills I use" is a JSON dump. Sam currently retypes a list into Slack.
 - **Evidence:** `export` only emits JSON; no sharing of any kind.
-- **Proposal:** Export menu: JSON (as now), Markdown (one section per stage or per tag, each line `- [name](skills.sh url) — description` plus the install command in a fenced block), CSV. Respect the current filters so "In use, tag:testing" exports exactly what is on screen. Later, shared lists (FEAT-020) replace most of this with a link.
+- **Proposal:** Export menu: JSON (as now), Markdown (one section per stage or per tag, each line `- [name](skills.sh url) — description` plus the install command in a fenced block), CSV. Respect the current filters so "In use, tag:testing" exports exactly what is on screen. Later, shared lists (FEAT-019) replace most of this with a link.
 - **Acceptance:** Markdown export of the current filter pastes into GitHub cleanly; CSV opens in a spreadsheet with one row per skill including tags and environments.
 - **Value:** cheap word-of-mouth lever: the exported list advertises the product. Confidence medium.
 - **Effort & risk:** S-M. None.
@@ -342,9 +342,71 @@ The escalation rule is met: the owner asked for multi-user and RBAC, the competi
 9. **FEAT-016** local events and audit (M, makes everything after measurable)
 10. **FEAT-018** accounts, roles, per-user tokens (L, unlocks the team)
 
-### Suggested small releases
+## PR plan — how this ships
 
-- **v1.1 "Make it true"** (one week): FEAT-001, FEAT-002, FEAT-003, FEAT-004, FEAT-005, FEAT-006, FEAT-007, FEAT-008, FEAT-009. No data model change beyond three metadata columns. Ship as one minor release.
-- **v1.2 "Where and what"** (two weeks): FEAT-010 environments, FEAT-011 tags, FEAT-013 ignore list, FEAT-016 events. Scanner gets `--env` and `--prune`; old scanners keep working.
-- **v1.3 "Tidy and share"** (one to two weeks): FEAT-012 bulk actions, FEAT-014 scheduled refresh, FEAT-017 Markdown/CSV export, FEAT-015 admin page.
-- **v2.0 "Together"** (four to six weeks): FEAT-018 accounts and RBAC, FEAT-019 shared lists, FEAT-020 team rollup. Setup page migrates existing data to the owner; API moves to `/api/v2`.
+Every PR below is independently reviewable, deployable and reversible. A PR carries its own tests, docs (`README.md`, `.env.example`) and UI polish; it never ships a half-migrated data model. Where a later PR needs an earlier one, the dependency is named and the branch is stacked rather than squashed together.
+
+### PR groups
+
+| PR | Branch | Features | What ships | Depends on | Size |
+| --- | --- | --- | --- | --- | --- |
+| 01 | `feat/first-run` | FEAT-003, FEAT-007 | Sign-in card and sign-out in place of `prompt()`; getting-started card on an empty shelf; one verb per stage empty; tools open on first run | — | S |
+| 02 | `feat/shelf-feedback` | FEAT-002, FEAT-005, FEAT-008, FEAT-009 | "Already on the shelf" response with scroll/highlight; toast with Undo for remove; restore preview with counts; relative age; consistent chip counts | — | S–M |
+| 03 | `feat/rich-cards` | FEAT-001, FEAT-004 | JSON-LD name/description/installs plus weekly series; install block with Command / Prompt and copy | — | S–M |
+| 04 | `feat/operator-truth` | FEAT-006 | One structured log line per write, version in binary and footer, DB-backed `/healthz` | — | S |
+| 05 | `feat/environments` | FEAT-010 | Environment schema, scanner `--env`/`--prune`, env chips/filter/view, "install everything missing", export/restore | 03 | M |
+| 06 | `feat/tags` | FEAT-011 | Tag schema, skills.sh topic seed, user add/remove/rename/merge, tag row, `tag:` search | — | M |
+| 07 | `feat/events` | FEAT-016 | Events table, write instrumentation, Recently strip, per-skill history, retention and export | — | M |
+| 08 | `feat/ignore-list` | FEAT-013 | Ignore table, "Remove and ignore", scan skip report, Manage ignored | 05 | S–M |
+| 09 | `feat/shelf-tools` | FEAT-012, FEAT-017 | Bulk select and actions with batch API; Markdown/CSV export respecting current filters | 03, 05, 06 | M |
+| 10 | `feat/freshness` | FEAT-014 | Scheduled refresh, `fetched_at`, sparkline, "No change" refresh, backoff | 03 | M |
+| 11 | `feat/admin` | FEAT-015 | `/admin` status, job switches, audit rows, counts, last scan per environment | 04, 07 | M |
+| 12 | `feat/accounts` | FEAT-018a | Users, sessions, setup, migration, sign-in; `/api/v2` skeleton; `REET_AUTH=none`; bootstrap token | 04, 07 | L |
+| 13 | `feat/roles-shelves` | FEAT-018b | Per-user shelf rows, role middleware, personal tokens, admin Users tab, cookie bookmarklets, scan token | 12 | L |
+| 14 | `feat/shared-lists` | FEAT-019 | Lists, members and entries; list chips; link visibility; add-all/install-all; adoption badge | 13, 05, 03 | L |
+| 15 | `feat/team-rollup` | FEAT-020 | Skill × member adoption table, drift view, CSV | 14, 07, 05 | M |
+
+FEAT-018 is deliberately two PRs. PR 12 gives the instance identity and a safe way to sign in without changing who owns which row; PR 13 moves per-person state and turns on the role matrix. Each has a different security review and rollback story, and neither is reviewable as one three-week diff.
+
+### Release mapping
+
+| Release | PRs | Outcome |
+| --- | --- | --- |
+| v1.1 "Make it true" | 01–04 | The shelf tells the truth about names, installs, age and what just happened; first run is not a `prompt()`. |
+| v1.2 "Where and what" | 05–08 | Every skill knows where it is installed, what it is, and what happened to it; scans stop re-adding what you removed. |
+| v1.3 "Tidy and share" | 09–11 | A large shelf is manageable, fresh, exportable and observable by its operator. |
+| v2.0 "Together" | 12–15 | Accounts, per-user shelves, shared lists and a team rollup, without breaking an existing single-user install. |
+
+### Merge order and parallelism
+
+- **Start now:** 01, 02, 03, 04, 06, 07. They touch different layers and can merge in any order; 01/02 are the fastest user-visible wins, 03 fixes the dead install sort, 04 gives operators a reason to trust upgrades.
+- **Then:** 05 (after 03), 08 (after 05), 10 (after 03), 11 (after 04 and 07).
+- **Then:** 09 (after 03, 05 and 06).
+- **v2:** 12 → 13 → 14 → 15. Do not start 14 before 13 has settled the per-user data model.
+
+### UX and UI bar for every PR
+
+The product's voice is already set: warm paper, serif display, rust accent, hairline rules, quiet secondary text. Polish means extending that language, not replacing it.
+
+- **Extend, don't restyle.** Reuse the tokens in `web/src/app.css`; no new palette, font or component library. A new component must look like it was always part of the shelf.
+- **Answer every action.** A write shows its result in the same interaction — optimistic where safe, busy/disabled where not. Never leave a card or button in an unknown state.
+- **Press and focus.** `:active` gets a subtle `scale(0.97)`; every control has a visible `:focus-visible`; targets are at least 44×44 on coarse pointers; nothing is hover-only.
+- **Motion with a job.** 150–250 ms, `--ease-out: cubic-bezier(0.23, 1, 0.32, 1)`, transform and opacity only, never `transition: all`. Exit faster than enter. Reduced motion removes movement but keeps fades.
+- **Feedback, not noise.** Single-item destructive actions use a toast with Undo; only bulk or irreversible restore gets a confirmation dialog. Toasts are `aria-live="polite"`, pause on hover/focus, and are interruptible. No native `confirm()` or `prompt()`.
+- **Empty states lead.** One sentence, one verb, one action. First run shows the real origin and the real scan command. No blank section.
+- **Numbers and time.** Tabular figures; relative time with an absolute local-time `title`; `Intl.NumberFormat` for installs; never colour alone to carry status.
+- **Layout.** Works at 360 px, no horizontal scroll, toolbar wraps, sticky surfaces never cover the focused control, and metadata arriving late does not shift the card.
+- **Dark mode.** Text at least 4.5:1 and UI at least 3:1; check both schemes, not just the one in the screenshot.
+- **Performance.** No blocking spinner; reserve card space; the sparkline is a small inline SVG, not a chart library; no heavy blur; no animation on keyboard-repeat actions.
+- **Verification per PR.** `go test ./...`, `cd web && npm run check && npm run build`, then a manual pass at desktop, 360 px, dark mode and reduced motion, plus a keyboard-only path through the new interaction.
+
+### PR checklist
+
+- [ ] One concern; no unrelated refactors or drive-by reformatting.
+- [ ] Schema changes are forward-only and covered by an export/restore round-trip test.
+- [ ] API changes are backward-compatible, or live under `/api/v2`.
+- [ ] No token in a URL, log line or DOM attribute.
+- [ ] `README.md` and `.env.example` updated for any new setting or command.
+- [ ] New UI has empty, loading, error and long-content states.
+- [ ] Screenshot or short recording in the PR body for visual changes.
+- [ ] "How to test" steps in the PR body.

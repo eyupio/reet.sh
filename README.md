@@ -12,7 +12,7 @@ sh scripts/init-env.sh          # creates .env, generates REET_TOKEN, sets your 
 docker compose up -d
 ```
 
-Open http://localhost:8080 and enter the token from `.env` when asked (`grep REET_TOKEN .env`).
+Open http://localhost:8080 and sign in with the token from `.env` (`grep REET_TOKEN .env`).
 
 The compose file uses the prebuilt image `ghcr.io/eyupio/reet.sh` (no local build). The database lives in a host folder, `./data` by default, bind-mounted at `/data`, so you can back it up or move it like any other folder. The container runs as `REET_UID:REET_GID` (your user, set by the script), so that folder stays owned by you.
 
@@ -28,6 +28,7 @@ The compose file uses the prebuilt image `ghcr.io/eyupio/reet.sh` (no local buil
 | `REET_VERSION` | `latest` | Image tag (`latest`, `v1.0.0`, `sha-<short>`). |
 | `REET_TOKEN` | empty | Access token for the UI, API and bookmarklets. Empty means no auth; only do that on a network you fully trust. |
 | `SKILLS_SH_TOKEN` | empty | Optional skills.sh API token (needs a Vercel OIDC token, so it can't be generated). Without it, reet reads the public skills.sh pages. |
+| `REET_LOG` | empty | Set to `debug` for one line per metadata fetch; writes are always logged without tokens. |
 
 ### Commands for keys and settings
 

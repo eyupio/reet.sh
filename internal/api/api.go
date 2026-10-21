@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -18,18 +19,45 @@ import (
 )
 
 type server struct {
-	st    *store.Store
-	f     meta.Fetcher
-	token string
-	queue chan ref.Ref
+	st      *store.Store
+	f       meta.Fetcher
+	token   string
+	version string
+	commit  string
+	debug   bool
+	queue   chan ref.Ref
+}
+
+// Option configures the server.
+type Option func(*server)
+
+// WithVersion sets the build version and commit reported by /api/version and /healthz.
+func WithVersion(version, commit string) Option {
+	return func(s *server) {
+		if version != "" {
+			s.version = version
+		}
+		if commit != "" {
+			s.commit = commit
+		}
+	}
+}
+
+// WithDebug enables per-fetch debug logging.
+func WithDebug(debug bool) Option {
+	return func(s *server) { s.debug = debug }
 }
 
 // New returns the API handler. An empty token disables authentication.
-func New(st *store.Store, f meta.Fetcher, token string) http.Handler {
-	s := &server{st: st, f: f, token: token, queue: make(chan ref.Ref, 256)}
+func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Handler {
+	s := &server{st: st, f: f, token: token, version: "dev", commit: "unknown", queue: make(chan ref.Ref, 256)}
+	for _, opt := range opts {
+		opt(s)
+	}
 	go s.worker()
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
+	mux.HandleFunc("GET /healthz", s.health)
+	mux.HandleFunc("GET /api/version", s.buildInfo)
 	mux.HandleFunc("GET /api/skills", s.list)
 	mux.HandleFunc("POST /api/skills", s.add)
 	mux.HandleFunc("PATCH /api/skill", s.patch)
@@ -40,7 +68,68 @@ func New(st *store.Store, f meta.Fetcher, token string) http.Handler {
 	mux.HandleFunc("GET /api/export", s.export)
 	mux.HandleFunc("POST /api/restore", s.restore)
 	mux.HandleFunc("GET /quick", s.quick)
-	return s.auth(mux)
+	return s.logRequests(s.auth(mux))
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	if w.status == 0 {
+		w.status = code
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusWriter) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+// logRequests records one line per write, never the query string (which can carry a token).
+func (s *server) logRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && r.URL.Path != "/quick" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		start := time.Now()
+		rec := &statusWriter{ResponseWriter: w}
+		next.ServeHTTP(rec, r)
+		status := rec.status
+		if status == 0 {
+			status = http.StatusOK
+		}
+		source := "ui"
+		switch {
+		case r.URL.Path == "/quick":
+			source = "quick"
+		case r.Header.Get("X-Reet-Source") == "scan":
+			source = "scan"
+		}
+		log.Printf("request method=%s path=%q status=%d duration=%s source=%s",
+			r.Method, r.URL.Path, status, time.Since(start).Round(time.Millisecond), source)
+	})
+}
+
+func (s *server) health(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	n, err := s.st.Health(ctx)
+	if err != nil {
+		log.Printf("health: %v", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "version": s.version, "skills": n})
+}
+
+func (s *server) buildInfo(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]string{"version": s.version, "commit": s.commit})
 }
 
 func (s *server) auth(next http.Handler) http.Handler {
@@ -57,7 +146,7 @@ func (s *server) auth(next http.Handler) http.Handler {
 				return
 			}
 		}
-		if s.token != "" && (strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/quick") {
+		if s.token != "" && r.URL.Path != "/api/version" && (strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/quick") {
 			got := r.Header.Get("X-Reet-Token")
 			if b, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
 				got = b
@@ -83,8 +172,21 @@ func (s *server) worker() {
 func (s *server) fetchInto(r ref.Ref) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if m := s.f.Fetch(ctx, r); m != (meta.Meta{}) {
-		_ = s.st.SetMeta(r.ID, m.Name, m.Description, m.Installs)
+	m := s.f.Fetch(ctx, r)
+	if m.Empty() {
+		if s.debug {
+			log.Printf("meta fetch id=%s result=empty", r.ID)
+		}
+		return
+	}
+	if err := s.st.SetMeta(r.ID, m.Name, m.Description, m.Installs, m.InstallsWeek, m.Trend); err != nil {
+		if s.debug {
+			log.Printf("meta store id=%s error=%v", r.ID, err)
+		}
+		return
+	}
+	if s.debug {
+		log.Printf("meta fetch id=%s name=%q installs=%d", r.ID, m.Name, m.Installs)
 	}
 }
 
@@ -137,13 +239,21 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	_, existed, err := s.st.Get(rf.ID)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
 	sk, err := s.st.Upsert(rf, in.Patch)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	s.enqueue(rf)
-	writeJSON(w, 200, sk)
+	writeJSON(w, 200, struct {
+		store.Skill
+		Created bool `json:"created"`
+	}{sk, !existed})
 }
 
 func (s *server) patch(w http.ResponseWriter, r *http.Request) {
@@ -310,14 +420,14 @@ func (s *server) quick(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	yes := true
 	var p store.Patch
-	var verb string
+	var verb, alreadyVerb string
 	switch q.Get("action") {
 	case "like":
-		p.Liked, verb = &yes, "Liked"
+		p.Liked, verb, alreadyVerb = &yes, "Liked", "Already liked"
 	case "save":
-		p.Bookmarked, verb = &yes, "Saved"
+		p.Bookmarked, verb, alreadyVerb = &yes, "Saved", "Already saved"
 	case "used":
-		p.Used, verb = &yes, "Marked as used"
+		p.Used, verb, alreadyVerb = &yes, "Marked as used", "Already marked as used"
 	default:
 		quickPage(w, 400, "Unknown action")
 		return
@@ -327,13 +437,24 @@ func (s *server) quick(w http.ResponseWriter, r *http.Request) {
 		quickPage(w, 400, "Not a skills.sh skill page")
 		return
 	}
+	old, found, err := s.st.Get(rf.ID)
+	if err != nil {
+		quickPage(w, 500, "Could not save")
+		return
+	}
+	already := found &&
+		((p.Liked != nil && old.Liked) || (p.Bookmarked != nil && old.Bookmarked) || (p.Used != nil && old.Used))
 	sk, err := s.st.Upsert(rf, p)
 	if err != nil {
 		quickPage(w, 500, "Could not save")
 		return
 	}
 	s.enqueue(rf)
-	quickPage(w, 200, verb+": "+sk.Name)
+	msg := verb + ": " + sk.Name
+	if already {
+		msg = alreadyVerb + ": " + sk.Name
+	}
+	quickPage(w, 200, msg)
 }
 
 func quickPage(w http.ResponseWriter, code int, msg string) {

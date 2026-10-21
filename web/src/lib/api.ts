@@ -8,6 +8,8 @@ export type Skill = {
   description: string
   notes: string
   installs: number
+  installsWeek: number
+  trend: number[]
   liked: boolean
   bookmarked: boolean
   used: boolean
@@ -18,8 +20,17 @@ export type Counts = { all: number; liked: number; bookmarked: number; used: num
 export type Tab = 'all' | 'liked' | 'bookmarked' | 'used'
 export type Sort = 'recent' | 'name' | 'installs'
 export type Flags = { liked?: boolean; bookmarked?: boolean; used?: boolean; notes?: string }
+export type AddResult = Skill & { created: boolean }
 
 const KEY = 'reet-token'
+
+/** The instance refused the request; the UI shows the sign-in card instead of an error. */
+export class UnauthorizedError extends Error {
+  constructor() {
+    super('missing or wrong token')
+    this.name = 'UnauthorizedError'
+  }
+}
 
 export function getToken(): string {
   try {
@@ -29,7 +40,7 @@ export function getToken(): string {
   }
 }
 
-function setToken(t: string) {
+export function setToken(t: string) {
   try {
     localStorage.setItem(KEY, t)
   } catch {
@@ -37,19 +48,21 @@ function setToken(t: string) {
   }
 }
 
-async function req(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
+export function clearToken() {
+  try {
+    localStorage.removeItem(KEY)
+  } catch {
+    /* storage unavailable: nothing was stored */
+  }
+}
+
+async function req(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers)
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   const token = getToken()
   if (token) headers.set('X-Reet-Token', token)
   const res = await fetch(path, { ...init, headers })
-  if (res.status === 401 && !retried) {
-    const t = window.prompt('This reet.sh instance needs an access token:')
-    if (t) {
-      setToken(t.trim())
-      return req(path, init, true)
-    }
-  }
+  if (res.status === 401) throw new UnauthorizedError()
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`
     try {
@@ -68,7 +81,7 @@ export async function listSkills(tab: Tab, q: string, sort: Sort): Promise<{ ski
   const p = new URLSearchParams({ tab, q, sort })
   return (await req(`/api/skills?${p}`)).json()
 }
-export async function addSkill(input: string, flags: Flags = {}): Promise<Skill> {
+export async function addSkill(input: string, flags: Flags = {}): Promise<AddResult> {
   return (await req('/api/skills', { method: 'POST', body: json({ input, ...flags }) })).json()
 }
 export async function patchSkill(id: string, flags: Flags): Promise<Skill> {
@@ -91,4 +104,7 @@ export async function exportAll(): Promise<Blob> {
 }
 export async function restoreAll(data: unknown): Promise<{ restored: number }> {
   return (await req('/api/restore', { method: 'POST', body: json(data) })).json()
+}
+export async function getBuildInfo(): Promise<{ version: string; commit: string }> {
+  return (await req('/api/version')).json()
 }

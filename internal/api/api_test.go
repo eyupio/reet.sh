@@ -77,6 +77,16 @@ func TestAddByURLAndList(t *testing.T) {
 	}
 }
 
+func TestAddSaysWhetherCreated(t *testing.T) {
+	srv := newSrv(t, deadFetcher(t), "")
+	if _, body := do(t, srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); !strings.Contains(body, `"created":true`) {
+		t.Fatalf("first add: %s", body)
+	}
+	if _, body := do(t, srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); !strings.Contains(body, `"created":false`) {
+		t.Fatalf("second add: %s", body)
+	}
+}
+
 func TestAddRejectsForeignURL(t *testing.T) {
 	srv := newSrv(t, deadFetcher(t), "")
 	code, body := do(t, srv, "POST", "/api/skills", `{"input":"https://github.com/a/b/c"}`)
@@ -99,18 +109,20 @@ func TestAddSurvivesMetaFailure(t *testing.T) {
 
 func TestMetaAppliedInBackground(t *testing.T) {
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<meta name="description" content="Find skills fast">`))
+		w.Write([]byte(`<meta name="description" content="Find skills fast">
+			<script type="application/ld+json">{"@type":"SoftwareApplication","name":"Find Skills","interactionStatistic":{"userInteractionCount":1234}}</script>`))
 	}))
 	defer page.Close()
 	srv := newSrv(t, meta.Fetcher{Client: page.Client(), PageBase: page.URL + "/"}, "")
 	do(t, srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`)
 	for i := 0; i < 40; i++ {
-		if l := list(t, srv, ""); l.Skills[0].Description == "Find skills fast" {
+		l := list(t, srv, "")
+		if l.Skills[0].Name == "Find Skills" && l.Skills[0].Description == "Find skills fast" && l.Skills[0].Installs == 1234 {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatal("description never arrived")
+	t.Fatal("metadata never arrived")
 }
 
 func TestPatchFlagsAndNotes(t *testing.T) {
@@ -186,8 +198,33 @@ func TestQuickLike(t *testing.T) {
 	if l := list(t, srv, "?tab=liked"); len(l.Skills) != 1 {
 		t.Fatalf("%+v", l)
 	}
+	if _, body := do(t, srv, "GET", "/quick?action=like&url="+findSkills, ""); !strings.Contains(body, "Already liked") {
+		t.Fatalf("second like: %s", body)
+	}
 	if code, _ := do(t, srv, "GET", "/quick?action=like&url=https://example.com/a/b/c", ""); code != 400 {
 		t.Fatalf("foreign url: %d", code)
+	}
+}
+
+func TestHealthAndVersion(t *testing.T) {
+	srv := newSrv(t, deadFetcher(t), "")
+	do(t, srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`)
+	code, body := do(t, srv, "GET", "/healthz", "")
+	var h struct {
+		OK      bool   `json:"ok"`
+		Version string `json:"version"`
+		Skills  int    `json:"skills"`
+	}
+	if code != 200 || json.Unmarshal([]byte(body), &h) != nil || !h.OK || h.Version == "" || h.Skills != 1 {
+		t.Fatalf("healthz: %d %s", code, body)
+	}
+	code, body = do(t, srv, "GET", "/api/version", "")
+	var v struct {
+		Version string `json:"version"`
+		Commit  string `json:"commit"`
+	}
+	if code != 200 || json.Unmarshal([]byte(body), &v) != nil || v.Version == "" || v.Commit == "" {
+		t.Fatalf("version: %d %s", code, body)
 	}
 }
 
@@ -213,6 +250,9 @@ func TestAuthRequired(t *testing.T) {
 	}
 	if code, _ := do(t, srv, "GET", "/healthz", ""); code != 200 {
 		t.Fatalf("healthz: %d", code)
+	}
+	if code, _ := do(t, srv, "GET", "/api/version", ""); code != 200 {
+		t.Fatalf("version should be open: %d", code)
 	}
 }
 

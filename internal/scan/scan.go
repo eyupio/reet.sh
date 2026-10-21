@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -51,14 +52,20 @@ var projectDirs = []struct{ Dir, Agent string }{
 
 // CollectScan gathers installed skills and the environments they live in.
 func CollectScan(home, cwd string, extraDirs []string, host string) Scan {
-	sources := map[string]string{}
-	for _, lock := range []string{filepath.Join(home, ".agents", ".skill-lock.json"), filepath.Join(cwd, "skills-lock.json")} {
-		readLock(lock, func(name, source string) {
-			if source != "" {
-				sources[name] = source
-			}
-		})
-	}
+
+	sources, globalSources, projectSources := map[string]string{}, map[string]string{}, map[string]string{}
+	readLock(filepath.Join(home, ".agents", ".skill-lock.json"), func(name, source string) {
+		if source != "" {
+			globalSources[name] = source
+			sources[name] = source
+		}
+	})
+	readLock(filepath.Join(cwd, "skills-lock.json"), func(name, source string) {
+		if source != "" {
+			projectSources[name] = source
+			sources[name] = source
+		}
+	})
 	found := map[string]Found{}
 	envs := map[string]*ScannedEnv{}
 	addEnv := func(agent, project, path string) *ScannedEnv {
@@ -73,6 +80,13 @@ func CollectScan(home, cwd string, extraDirs []string, host string) Scan {
 	read := func(dir, agent, project, label string) {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
+			// A missing skills folder under an existing agent configuration is an
+			// empty inventory, not evidence that its old skills are still installed.
+			if os.IsNotExist(err) {
+				if parent, e := os.Stat(filepath.Dir(dir)); e == nil && parent.IsDir() {
+					addEnv(agent, project, label)
+				}
+			}
 			return
 		}
 		env := addEnv(agent, project, label)
@@ -81,7 +95,7 @@ func CollectScan(home, cwd string, extraDirs []string, host string) Scan {
 			if st, err := os.Stat(filepath.Join(dir, e.Name(), "SKILL.md")); err == nil && !st.IsDir() {
 				name := e.Name()
 				found[host+"\x00"+agent+"\x00"+project+"\x00"+name] = Found{
-					Name: name, Source: sources[name], Host: host, Agent: agent, Project: project, Path: label,
+					Name: name, Source: sourceForScope(globalSources, projectSources, project, name), Host: host, Agent: agent, Project: project, Path: label,
 				}
 				if !seen[name] {
 					seen[name] = true
@@ -93,7 +107,10 @@ func CollectScan(home, cwd string, extraDirs []string, host string) Scan {
 	for _, d := range homeDirs {
 		read(filepath.Join(home, d.Dir), d.Agent, "", d.Dir)
 	}
-	project := filepath.Base(cwd)
+	project := filepath.Clean(cwd)
+	if resolved, err := filepath.EvalSymlinks(project); err == nil {
+		project = resolved
+	}
 	for _, d := range projectDirs {
 		read(filepath.Join(cwd, d.Dir), d.Agent, project, filepath.Join(project, d.Dir))
 	}
@@ -189,7 +206,9 @@ func (m *multi) String() string     { return strings.Join(*m, ",") }
 func (m *multi) Set(s string) error { *m = append(*m, s); return nil }
 
 // Run implements `reet scan`.
-func Run(args []string, out io.Writer) error {
+func Run(args []string, out io.Writer) error { return RunVersion(args, out, "dev") }
+
+func RunVersion(args []string, out io.Writer, version string) error {
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
 	fs.SetOutput(out)
 	def := os.Getenv("REET_URL")
@@ -197,14 +216,24 @@ func Run(args []string, out io.Writer) error {
 		def = "http://localhost:8080"
 	}
 	server := fs.String("server", def, "reet server URL (env REET_URL)")
-	token := fs.String("token", os.Getenv("REET_TOKEN"), "access token (env REET_TOKEN)")
+	token := fs.String("token", "", "access token (env REET_TOKEN)")
 	dry := fs.Bool("dry-run", false, "list what would be imported without sending it")
 	prune := fs.Bool("prune", false, "remove skills no longer found in each scanned environment")
-	envName := fs.String("env", "", "environment name for this machine (default hostname)")
+	serverHost := fs.Bool("server-host", false, "register this process as a reet server")
+	envName := fs.String("env", os.Getenv("REET_ENV"), "environment name for this machine (default hostname)")
 	var dirs multi
 	fs.Var(&dirs, "dir", "extra skills folder to scan (repeatable)")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New("unexpected positional arguments; use --help")
+	}
+	if *token == "" {
+		*token = os.Getenv("REET_TOKEN")
 	}
 	host := strings.TrimSpace(*envName)
 	if host == "" {
@@ -216,10 +245,7 @@ func Run(args []string, out io.Writer) error {
 	home, _ := os.UserHomeDir()
 	cwd, _ := os.Getwd()
 	scan := CollectScan(home, cwd, dirs, host)
-	if len(scan.Found) == 0 && !*dry && !*prune {
-		fmt.Fprintln(out, "no installed skills found")
-		return nil
-	}
+
 	for _, f := range scan.Found {
 		src := f.Source
 		if src == "" {
@@ -250,7 +276,7 @@ func Run(args []string, out io.Writer) error {
 	for i, f := range scan.Found {
 		items[i] = item{f.Name, f.Source, f.Host, f.Agent, f.Project, f.Path}
 	}
-	body, _ := json.Marshal(map[string]any{"items": items, "environments": scan.Envs, "prune": *prune})
+	body, _ := json.Marshal(map[string]any{"items": items, "environments": scan.Envs, "prune": *prune, "machine": map[string]any{"host": host, "os": runtime.GOOS, "arch": runtime.GOARCH, "version": version, "server": *serverHost}})
 	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(*server, "/")+"/api/import", bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -287,5 +313,15 @@ func Run(args []string, out io.Writer) error {
 	for _, e := range res.Errors {
 		fmt.Fprintf(out, "  skipped: %s\n", e)
 	}
+	if len(res.Errors) > 0 {
+		return fmt.Errorf("scan reported %d errors; inventory is incomplete", len(res.Errors))
+	}
 	return nil
+}
+
+func sourceForScope(global, project map[string]string, scope, name string) string {
+	if scope != "" {
+		return project[name]
+	}
+	return global[name]
 }

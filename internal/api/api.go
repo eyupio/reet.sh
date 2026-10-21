@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/auth"
@@ -26,6 +27,7 @@ import (
 )
 
 type server struct {
+	importMu    sync.Mutex
 	st          *store.Store
 	f           meta.Fetcher
 	token       string
@@ -134,6 +136,10 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	mux.HandleFunc("DELETE /api/skill/ignore", s.requireWriter(s.unignore))
 	mux.HandleFunc("POST /api/import", s.requireWriter(s.importSkills))
 	mux.HandleFunc("GET /api/environments", s.environments)
+	mux.HandleFunc("GET /api/v2/sync", s.syncState)
+	mux.HandleFunc("PUT /api/v2/sync", s.requireWriter(s.saveSync))
+	mux.HandleFunc("DELETE /api/v2/sync", s.requireWriter(s.deleteSync))
+	mux.HandleFunc("DELETE /api/v2/environments", s.requireWriter(s.forgetEnvironment))
 	mux.HandleFunc("GET /api/tags", s.tags)
 	mux.HandleFunc("PATCH /api/tag", s.requireAdmin(s.renameTag))
 	mux.HandleFunc("POST /api/tags/merge", s.requireAdmin(s.mergeTags))
@@ -864,10 +870,13 @@ func (s *server) importEntry(userID int64, item importItem) (string, bool, bool,
 }
 
 func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
+	s.importMu.Lock()
+	defer s.importMu.Unlock()
 	var in struct {
-		Items        []importItem `json:"items"`
-		Text         string       `json:"text"`
-		Prune        bool         `json:"prune"`
+		Machine      store.MachineInfo `json:"machine"`
+		Items        []importItem      `json:"items"`
+		Text         string            `json:"text"`
+		Prune        bool              `json:"prune"`
 		Environments []struct {
 			Host    string   `json:"host"`
 			Agent   string   `json:"agent"`
@@ -881,6 +890,28 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 	}
 	imported, created, ignoredCount := 0, 0, 0
 	errs := []string{}
+	// A reference snapshot must never capture a scan midway through its writes.
+	for _, env := range in.Environments {
+		if err := s.st.TouchEnvironmentFor(s.uid(r), env.Host, env.Agent, env.Project, env.Path); err != nil {
+			errs = append(errs, err.Error())
+			continue
+		}
+		if err := s.st.RecordInventoryFor(s.uid(r), store.EnvironmentIDFor(s.uid(r), env.Host, env.Agent, env.Project), false, in.Machine); err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
+
+	for _, item := range in.Items {
+		if item.Host != "" && item.Agent != "" {
+			if err := s.st.TouchEnvironmentFor(s.uid(r), item.Host, item.Agent, item.Project, item.Path); err != nil {
+				errs = append(errs, err.Error())
+				continue
+			}
+			if err := s.st.RecordInventoryFor(s.uid(r), store.EnvironmentIDFor(s.uid(r), item.Host, item.Agent, item.Project), false, in.Machine); err != nil {
+				errs = append(errs, err.Error())
+			}
+		}
+	}
 	seen := map[string]bool{}
 	itemIDs := map[string]string{}
 	handle := func(item importItem) {
@@ -916,7 +947,7 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 		handle(importItem{Name: line})
 	}
 	pruned := 0
-	if in.Prune {
+	if in.Prune && len(errs) == 0 {
 		for _, env := range in.Environments {
 			if err := s.st.TouchEnvironmentFor(s.uid(r), env.Host, env.Agent, env.Project, env.Path); err != nil {
 				errs = append(errs, err.Error())
@@ -935,6 +966,20 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			pruned += int(n)
+		}
+	}
+	if in.Machine.Host != "" {
+		if err := s.st.RegisterMachineFor(s.uid(r), in.Machine); err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
+	for _, env := range in.Environments {
+		if err := s.st.TouchEnvironmentFor(s.uid(r), env.Host, env.Agent, env.Project, env.Path); err != nil {
+			errs = append(errs, err.Error())
+			continue
+		}
+		if err := s.st.RecordInventoryFor(s.uid(r), store.EnvironmentIDFor(s.uid(r), env.Host, env.Agent, env.Project), in.Prune && len(errs) == 0, in.Machine); err != nil {
+			errs = append(errs, err.Error())
 		}
 	}
 	source, action := "import", "import"

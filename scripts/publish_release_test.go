@@ -19,6 +19,8 @@ func TestPublishRelease(t *testing.T) {
 		name, tag, existing, problem string
 		missing                      bool
 	}{
+		{name: "new dev", tag: "dev"},
+		{name: "replace rolling dev", tag: "dev", existing: "conflict"},
 		{name: "new stable", tag: "v1.2.3"},
 		{name: "new prerelease", tag: "v1.2.3-rc.1"},
 		{name: "build metadata is not prerelease", tag: "v1.2.3+build-with-hyphens"},
@@ -88,16 +90,20 @@ func TestPublishRelease(t *testing.T) {
 set -euo pipefail
 printf '%s\n' "$*" >> "$MOCK_LOG"
 case "$1 $2" in
+ 'api '*)
+  case "$*" in *git/ref/tags/dev*) test -f "$MOCK_REMOTE/.exists" ;; *) exit 0 ;; esac ;;
+ 'release edit') exit 0 ;;
  'release view')
   test -f "$MOCK_REMOTE/.exists" || exit 1
   for file in "$MOCK_REMOTE"/*; do test -f "$file" && basename "$file"; done ;;
  'release download') cp "$MOCK_REMOTE/$5" "$7/$5" ;;
  'release create'|'release upload')
+  clobber=false; case "$*" in *--clobber*) clobber=true ;; esac
   if [ "$2" = create ]; then test ! -f "$MOCK_REMOTE/.exists"; touch "$MOCK_REMOTE/.exists"; fi
   shift 3
   for file in "$@"; do
    if test -f "$file"; then
-    test ! -f "$MOCK_REMOTE/$file" || { echo 'would overwrite published asset' >&2; exit 1; }
+    $clobber || test ! -f "$MOCK_REMOTE/$file" || { echo 'would overwrite published asset' >&2; exit 1; }
     cp "$file" "$MOCK_REMOTE/$file"
    fi
   done ;;
@@ -108,7 +114,7 @@ esac
 				t.Fatal(err)
 			}
 			cmd := exec.Command("bash", script, artifacts)
-			cmd.Env = append(os.Environ(), "PATH="+mock+string(os.PathListSeparator)+os.Getenv("PATH"), "REET_TAG="+tc.tag, "MOCK_REMOTE="+remote, "MOCK_LOG="+log)
+			cmd.Env = append(os.Environ(), "PATH="+mock+string(os.PathListSeparator)+os.Getenv("PATH"), "REET_TAG="+tc.tag, "MOCK_REMOTE="+remote, "MOCK_LOG="+log, "REET_SHA="+strings.Repeat("a", 40))
 			out, err := cmd.CombinedOutput()
 			calls, _ := os.ReadFile(log)
 			if tc.problem != "" {
@@ -137,13 +143,20 @@ esac
 			if err != nil || string(sum) != manifest.String() {
 				t.Fatalf("checksums differ: %q, %v", sum, err)
 			}
-			if strings.Contains(string(calls), "--clobber") {
+			if tc.tag != "dev" && strings.Contains(string(calls), "--clobber") {
 				t.Fatal("must never overwrite published files")
 			}
 			if tc.existing == "complete" && strings.Contains(string(calls), "release upload") {
 				t.Fatal("complete releases must be a no-op")
 			}
-			if tc.existing == "" {
+			if tc.tag == "dev" {
+				if !strings.Contains(string(calls), "--prerelease") || !strings.Contains(string(calls), "--latest=false") {
+					t.Fatalf("dev must not become latest stable: %s", calls)
+				}
+				if !strings.Contains(string(calls), "git/refs") || !strings.Contains(string(calls), "sha="+strings.Repeat("a", 40)) {
+					t.Fatalf("dev tag must point at tested source: %s", calls)
+				}
+			} else if tc.existing == "" {
 				prerelease := strings.Contains(strings.SplitN(tc.tag, "+", 2)[0], "-")
 				if strings.Contains(string(calls), "--prerelease") != prerelease {
 					t.Fatalf("incorrect prerelease handling: %s", calls)

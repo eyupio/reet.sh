@@ -15,6 +15,9 @@ services:
       REET_LOG: ${REET_LOG:-}
       REET_TOPICS: ${REET_TOPICS:-}
       REET_REFRESH: ${REET_REFRESH:-}
+      REET_CONTROLLER_URL: ${REET_CONTROLLER_URL:-}
+      REET_CONTROLLER_TOKEN: ${REET_CONTROLLER_TOKEN:-}
+      REET_ENV: ${REET_ENV:-}
     volumes:
       # Bind mount to a host folder (not a Docker volume).
       - ${REET_DATA_PATH:-./data}:/data

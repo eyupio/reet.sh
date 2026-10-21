@@ -33,6 +33,7 @@ func TestInstallRelease(t *testing.T) {
 		name, system, arch, version, problem string
 		tamper, duplicate, omitBinary        bool
 	}{
+		{name: "rolling dev", system: "Linux", arch: "x86_64", version: "dev"},
 		{name: "linux latest", system: "Linux", arch: "x86_64", version: "latest"},
 		{name: "linux arm64", system: "Linux", arch: "aarch64", version: "9.8.7"},
 		{name: "macOS arm64", system: "Darwin", arch: "arm64", version: "v9.8.7"},
@@ -110,7 +111,11 @@ esac
 			if tc.arch == "arm64" || tc.arch == "aarch64" {
 				arch = "arm64"
 			}
-			asset := fmt.Sprintf("reet_v9.8.7_%s_%s.tar.gz", osName, arch)
+			releaseVersion := "v9.8.7"
+			if tc.version == "dev" {
+				releaseVersion = "dev"
+			}
+			asset := fmt.Sprintf("reet_%s_%s_%s.tar.gz", releaseVersion, osName, arch)
 			digest := fmt.Sprintf("%x", sha256.Sum256(archive.Bytes()))
 			manifest := digest + "  " + asset + "\n"
 			if tc.duplicate {

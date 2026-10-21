@@ -7,7 +7,7 @@ usage() {
 Usage: install.sh [--version VERSION] [--dir DIRECTORY]
 
 Install reet for Linux or macOS (amd64 or arm64) from GitHub Releases.
-  --version VERSION  Install a specific release, e.g. v1.2.3 (default: latest)
+  --version VERSION  Install a specific release, e.g. v1.2.3 or dev (default: latest)
   --dir DIRECTORY    Install directory (default: REET_INSTALL_DIR or ~/.local/bin)
   -h, --help         Show this help
 
@@ -60,8 +60,8 @@ if [ "$version" = latest ]; then
   latest_url=$(fetch --head --output /dev/null --write-out '%{url_effective}' "$release_root/latest") || fail 'could not find the latest release; check that a binary release has been published'
   version=${latest_url##*/}
 fi
-case "$version" in v*) ;; *) version=v$version ;; esac
-printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$' || fail 'version must be a release tag such as v1.2.3'
+case "$version" in dev|v*) ;; *) version=v$version ;; esac
+[ "$version" = dev ] || printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$' || fail 'version must be a release tag such as v1.2.3'
 asset=reet_${version}_${os}_${arch}.tar.gz
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/reet-install.XXXXXX") || fail 'could not create a temporary directory'
 staged_binary=

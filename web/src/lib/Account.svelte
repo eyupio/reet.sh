@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import EnvironmentSync from './EnvironmentSync.svelte'
   import PageHeader from './PageHeader.svelte'
   import { createToken, listTokens, revokeToken, type APIToken, type User } from './api'
   import CopyButton from './CopyButton.svelte'
@@ -69,6 +70,8 @@
   <PageHeader eyebrow="Your account" title={user.name || user.email} titleId="account-title" lede={`${user.email} · ${user.role}`} />
 
   {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
+
+  <EnvironmentSync canWrite={canTokens} token={freshToken} />
 
   {#if canTokens}
     <section class="block" aria-labelledby="tokens-title">

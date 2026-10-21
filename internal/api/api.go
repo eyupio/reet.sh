@@ -111,7 +111,7 @@ func (s *server) logRequests(next http.Handler) http.Handler {
 		case r.Header.Get("X-Reet-Source") == "scan":
 			source = "scan"
 		}
-		log.Printf("request method=%s path=%s status=%d duration=%s source=%s",
+		log.Printf("request method=%s path=%q status=%d duration=%s source=%s",
 			r.Method, r.URL.Path, status, time.Since(start).Round(time.Millisecond), source)
 	})
 }

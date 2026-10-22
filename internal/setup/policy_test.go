@@ -3,6 +3,7 @@ package setup
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -266,5 +267,22 @@ func TestExportPolicyCLIIsOptInAndOmitsValues(t *testing.T) {
 		if strings.Contains(out.String()+text.String(), secret) {
 			t.Fatal("secret leaked through policy scan")
 		}
+	}
+}
+
+func TestExportPolicyDoesNotInspectSymlinkedLocations(t *testing.T) {
+	e := fixture(t)
+	target := t.TempDir()
+	writeConfig(t, filepath.Join(target, "settings.json"), `{}`)
+	if err := os.Symlink(target, filepath.Join(e.home, ".claude")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	r, err := discover(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ApplyExportPolicies(&r)
+	if source := findPolicySource(t, r, "claude", "settings.json"); source.Observed != "symlink" {
+		t.Fatalf("policy inspected a symlinked location: %+v", source)
 	}
 }

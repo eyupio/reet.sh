@@ -81,11 +81,15 @@ func ApplyExportPolicies(r *Report) {
 				if len(components) == 0 {
 					continue
 				}
+				observed := loc.State
+				if observed == "present" {
+					observed = observeSource(path)
+				}
 				p.Sources = append(p.Sources, SourceExportPolicy{
 					Path:       path,
 					Scope:      loc.Scope,
 					Format:     strings.TrimPrefix(filepath.Ext(path), "."),
-					Observed:   observeSource(path),
+					Observed:   observed,
 					Components: components,
 				})
 			}

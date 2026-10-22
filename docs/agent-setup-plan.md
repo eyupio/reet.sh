@@ -276,8 +276,8 @@ hooks and caches. It reads no configuration values and implements no export.
 - Add revisioned profiles, machine/project overrides, migration/API/UI work and
   selective plan application. Preserve existing skill-sync APIs and references.
   An interactive setup-profile wizard creates/chooses a snapshot, optionally opens it for
-  preview evidence and saves a named revision; the CLI also saves directly from the newest
-  snapshot. Profiles support optional component/source overrides for restore/verify, let
+  preview evidence, saves a named revision and offers to push it using saved/.env server
+  and token settings; the CLI also saves directly from the newest snapshot. Profiles support optional component/source overrides for restore/verify, let
   inspect/rollback/fetch select a revision, keep
   explicit revision history and supports local rename/remove plus server push/pull;
   a read-only web Profiles page lists server copies. Exclusions can be scoped to named

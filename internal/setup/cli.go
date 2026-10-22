@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"golang.org/x/term"
 )
 
@@ -597,10 +598,10 @@ type setupProfileSaveResult struct {
 
 func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 	if len(args) == 0 && interactive() {
-		return runProfileWizard("", out)
+		return runProfileWizard("", out, remote...)
 	}
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "Usage: reet setup profile (interactive wizard when run without a subcommand)\n       reet setup profile save [--exclude-kind KIND] [--exclude-source PATH] [--machine NAME] [--project PATH] [--json] [--dir DIR] [--password-file FILE] NAME [SNAPSHOT]\n       reet setup profile list [--json] [--dir DIR]\n       reet setup profile show [--json] [--dir DIR] [--revision N] NAME\n       reet setup profile remove [--yes] [--dir DIR] NAME\n       reet setup profile rename [--dir DIR] OLD NEW\n       reet setup profile push [--server URL] [--token TOKEN] NAME\n       reet setup profile pull [--server URL] [--token TOKEN] NAME")
+		_, err := fmt.Fprintln(out, "Usage: reet setup profile (interactive wizard when run without a subcommand)\n       reet setup profile save [--exclude-kind KIND] [--exclude-source PATH] [--machine NAME] [--project PATH] [--json] [--dir DIR] [--password-file FILE] NAME [SNAPSHOT]\n       reet setup profile list [--json] [--dir DIR]\n       reet setup profile show [--json] [--dir DIR] [--revision N] NAME\n       reet setup profile remove [--yes] [--dir DIR] NAME\n       reet setup profile rename [--dir DIR] OLD NEW\n       reet setup profile push [--server URL] [--token TOKEN] [--env-file FILE] NAME\n       reet setup profile pull [--server URL] [--token TOKEN] [--env-file FILE] NAME")
 		return err
 	}
 	switch args[0] {
@@ -625,7 +626,7 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 			return err
 		}
 		if f.NArg() == 0 && interactive() && !*asJSON {
-			return runProfileWizard(*dir, out)
+			return runProfileWizard(*dir, out, remote...)
 		}
 		if f.NArg() < 1 || f.NArg() > 2 {
 			return fmt.Errorf("usage: reet setup profile save [--exclude-kind KIND] [--exclude-source PATH] [--machine NAME] [--project PATH] [--json] [--dir DIR] [--password-file FILE] NAME [SNAPSHOT]")
@@ -669,6 +670,11 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		}
 		if revision.Preview.SchemaVersion == 0 {
 			if _, err := fmt.Fprintln(out, "Header only; pass --password-file to record preview and software evidence."); err != nil {
+				return err
+			}
+		}
+		if !*asJSON {
+			if err := offerProfileSync(profile, out, remote...); err != nil {
 				return err
 			}
 		}
@@ -722,7 +728,8 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		f := flag.NewFlagSet("reet setup profile push", flag.ContinueOnError)
 		f.SetOutput(out)
 		server := f.String("server", os.Getenv("REET_URL"), "reet server URL (env REET_URL)")
-		token := f.String("token", os.Getenv("REET_TOKEN"), "personal token (env REET_TOKEN)")
+		token := f.String("token", "", "personal token (env REET_TOKEN)")
+		envFile := f.String("env-file", profileEnvFile(""), "read REET_URL/REET_TOKEN from this env file (default: .env or REET_ENV_FILE)")
 		dir := f.String("dir", "", "read profiles here (default REET_SETUP_DIR or the user config directory)")
 		if err := f.Parse(reorderFlags(f, args[1:])); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -737,7 +744,21 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		if err != nil {
 			return err
 		}
-		if err := remote[0].Push(*server, *token, profile); err != nil {
+		if *server == "" && *envFile != "" {
+			*server = envFileValue(*envFile, "REET_URL")
+		}
+		if *server == "" && interactive() {
+			prompted, err := wizardPrompt(out, "Server URL", "")
+			if err != nil {
+				return err
+			}
+			*server = prompted
+		}
+		resolved, err := clientconfig.ResolveToken(*token, *envFile, os.Stdin, os.Stderr)
+		if err != nil {
+			return err
+		}
+		if err := remote[0].Push(*server, resolved, profile); err != nil {
 			return err
 		}
 		_, err = fmt.Fprintf(out, "Pushed profile %s.\n", profile.Name)
@@ -746,7 +767,8 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		f := flag.NewFlagSet("reet setup profile pull", flag.ContinueOnError)
 		f.SetOutput(out)
 		server := f.String("server", os.Getenv("REET_URL"), "reet server URL (env REET_URL)")
-		token := f.String("token", os.Getenv("REET_TOKEN"), "personal token (env REET_TOKEN)")
+		token := f.String("token", "", "personal token (env REET_TOKEN)")
+		envFile := f.String("env-file", profileEnvFile(""), "read REET_URL/REET_TOKEN from this env file (default: .env or REET_ENV_FILE)")
 		dir := f.String("dir", "", "write profiles here (default REET_SETUP_DIR or the user config directory)")
 		if err := f.Parse(reorderFlags(f, args[1:])); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -757,7 +779,21 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		if f.NArg() != 1 || len(remote) == 0 {
 			return fmt.Errorf("profile pull needs a server remote and exactly one NAME")
 		}
-		profile, err := remote[0].Pull(*server, *token, f.Arg(0))
+		if *server == "" && *envFile != "" {
+			*server = envFileValue(*envFile, "REET_URL")
+		}
+		if *server == "" && interactive() {
+			prompted, err := wizardPrompt(out, "Server URL", "")
+			if err != nil {
+				return err
+			}
+			*server = prompted
+		}
+		resolved, err := clientconfig.ResolveToken(*token, *envFile, os.Stdin, os.Stderr)
+		if err != nil {
+			return err
+		}
+		profile, err := remote[0].Pull(*server, resolved, f.Arg(0))
 		if err != nil {
 			return err
 		}

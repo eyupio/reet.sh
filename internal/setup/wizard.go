@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"golang.org/x/term"
 )
 
@@ -63,7 +64,7 @@ func wizardYesNo(out io.Writer, label string, fallback bool) (bool, error) {
 	}
 }
 
-func runProfileWizard(dir string, out io.Writer) error {
+func runProfileWizard(dir string, out io.Writer, remote ...ProfileRemote) error {
 	snapshots, err := ListSetupSnapshots(dir)
 	if err != nil {
 		return err
@@ -149,6 +150,76 @@ func runProfileWizard(dir string, out io.Writer) error {
 	if _, err := fmt.Fprintf(out, "Saved profile %s revision %d for snapshot %s.\n", profile.Name, revision.Revision, revision.SnapshotID); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(out, "Preview: %s. Next: reet setup profile push %s (optional), or reet setup restore --profile %s.\n", map[bool]string{true: "recorded", false: "header only"}[revision.Preview.SchemaVersion != 0], profile.Name, profile.Name)
+	if _, err := fmt.Fprintf(out, "Preview: %s. Next: reet setup restore --profile %s.\n", map[bool]string{true: "recorded", false: "header only"}[revision.Preview.SchemaVersion != 0], profile.Name); err != nil {
+		return err
+	}
+	return offerProfileSync(profile, out, remote...)
+}
+
+func offerProfileSync(profile SetupProfile, out io.Writer, remote ...ProfileRemote) error {
+	if len(remote) == 0 || !interactive() {
+		return nil
+	}
+	syncNow, err := wizardYesNo(out, "Push this profile to your reet server now?", false)
+	if err != nil || !syncNow {
+		return err
+	}
+	envFile := profileEnvFile("")
+	server := os.Getenv("REET_URL")
+	if server == "" && envFile != "" {
+		server = envFileValue(envFile, "REET_URL")
+	}
+	if server == "" {
+		server, err = wizardPrompt(out, "Server URL", "")
+		if err != nil {
+			return err
+		}
+	}
+	token, err := clientconfig.ResolveToken("", envFile, os.Stdin, out)
+	if err != nil {
+		return err
+	}
+	if err := remote[0].Push(server, token, profile); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(out, "Pushed profile %s to %s.\n", profile.Name, server)
 	return err
+}
+
+// profileEnvFile selects an explicit env file, REET_ENV_FILE, or a .env in
+// the current directory. Only REET_URL and REET_TOKEN are read.
+func profileEnvFile(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if value := strings.TrimSpace(os.Getenv("REET_ENV_FILE")); value != "" {
+		return value
+	}
+	if info, err := os.Stat(".env"); err == nil && info.Mode().IsRegular() {
+		return ".env"
+	}
+	return ""
+}
+
+func envFileValue(path, key string) string {
+	data, err := os.ReadFile(path)
+	if err != nil || len(data) > 1<<20 {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "export ") {
+			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		}
+		name, value, ok := strings.Cut(line, "=")
+		if !ok || strings.TrimSpace(name) != key {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if len(value) >= 2 && (value[0] == '\'' && value[len(value)-1] == '\'' || value[0] == '"' && value[len(value)-1] == '"') {
+			value = value[1 : len(value)-1]
+		}
+		return value
+	}
+	return ""
 }

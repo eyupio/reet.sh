@@ -68,10 +68,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Machine/project-scoped profile overrides merged in [PR #87](https://github.com/eyupio/reet.sh/pull/87), `c8fa9ee`.
 - Passphrase-free profile saving merged in [PR #88](https://github.com/eyupio/reet.sh/pull/88), `42e88c8`.
 - Interactive backup passphrase prompting merged in [PR #89](https://github.com/eyupio/reet.sh/pull/89), `e8a0ec8`.
-- Latest verified source baseline: `origin/main` at `e8a0ec8` (2026-10-22).
-- The interactive setup-profile wizard is in [PR #90](https://github.com/eyupio/reet.sh/pull/90)
-  on `feat/setup-profile-wizard`; fetch remote status before continuing and preserve any
-  uncommitted work.
+- Interactive setup-profile wizard merged in [PR #90](https://github.com/eyupio/reet.sh/pull/90), `39c3091`.
+- Latest verified source baseline: `origin/main` at `39c3091` (2026-10-22).
+- Wizard profile sync and env-file defaults are in [PR #91](https://github.com/eyupio/reet.sh/pull/91)
+  on `feat/setup-profile-sync-wizard`; fetch remote status before continuing and preserve
+  any uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -124,6 +125,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Make `profile save NAME` use the newest snapshot without a passphrase.
 - [x] Prompt for a new snapshot passphrase in a terminal and accept `backup -`.
 - [x] Add an interactive `reet setup profile` wizard.
+- [x] Offer profile sync in the wizard and read server/token from saved/default/env settings.
 
 ## Implemented slice
 
@@ -370,6 +372,12 @@ flow: `reet setup backup` then `reet setup profile save NAME`.
 it offers to create a snapshot if none exists, chooses one, optionally opens it for
 preview/software evidence, prompts for a name (default `work`) and saves the profile.
 Advanced flags remain for scripts.
+
+The wizard now offers to push the saved profile. It resolves the server from `REET_URL`,
+saved `reet configure` defaults, `REET_ENV_FILE` or `.env`, and the token from
+`REET_TOKEN`, a saved token, the env file or a hidden prompt. `profile push/pull` also
+support `--env-file` and auto-detect `.env`/`REET_ENV_FILE`. Setup now loads saved client
+defaults like upgrade/scan.
 
 Next implementation slice: broadening memory/history components or web profile editing,
 depending on owner priority. Do not claim cross-OS restore or a complete working-setup
@@ -1244,6 +1252,23 @@ present).
 Broader memory/history components, web profile editing and verified cross-OS restore
 remain unimplemented.
 
+## Wizard sync and env-file defaults
+
+The current branch offers sync after saving a profile. The server comes from `REET_URL`,
+saved `reet configure` defaults, `REET_ENV_FILE` or `.env`; the token comes from
+`REET_TOKEN`, a saved token, the env file or a hidden prompt. `profile push/pull` also
+support `--env-file`. Setup now loads saved client defaults like upgrade/scan.
+
+Validation: focused tests cover `.env` URL/token resolution, push/pull token handling
+and the existing profile flows. A PTY smoke test created a snapshot, saved a profile and
+pushed it to a local fake server using `.env`. Full `go vet ./...` and
+`go test -race ./...` passed; web checks passed (8 tests; zero Svelte diagnostics) and
+all 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and macOS arm64.
+`git diff --check` passed. No dependency changed.
+
+Broader memory/history components, web profile editing and verified cross-OS restore
+remain unimplemented.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -1263,12 +1288,13 @@ remain unimplemented.
    global/project instruction export, explicit portable credential inclusion, optional
    S3 upload/fetch/listing/testing/prune/delete, named local profiles with global and
    machine/project-scoped overrides, passphrase-free profile saving, interactive backup
-   passphrases, revision selection, rename/remove, server push/pull, a read-only Profiles
-   web page and local pruning are now implemented. The next slice is broader
-   memory/history adapters or web profile editing, depending on owner priority. Keep
-   values encrypted and unknown formats unsupported. Do not claim cross-OS restore or
-   working-setup verification before their acceptance gates. Consult the detailed plan
-   for encryption, key handling, restore and compatibility requirements.
+   passphrases, the interactive profile wizard with sync, revision selection,
+   rename/remove, server push/pull, a read-only Profiles web page and local pruning are
+   now implemented. The next slice is broader memory/history adapters or web profile
+   editing, depending on owner priority. Keep values encrypted and unknown formats
+   unsupported. Do not claim cross-OS restore or working-setup verification before their
+   acceptance gates. Consult the detailed plan for encryption, key handling, restore and
+   compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current

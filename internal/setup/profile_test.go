@@ -322,12 +322,13 @@ func TestProfileRenameAndRemoveCLI(t *testing.T) {
 }
 
 type fakeProfileRemote struct {
-	pushed *SetupProfile
-	pulled SetupProfile
+	pushed      *SetupProfile
+	server, tok string
+	pulled      SetupProfile
 }
 
 func (f *fakeProfileRemote) Push(server, token string, profile SetupProfile) error {
-	f.pushed = &profile
+	f.pushed, f.server, f.tok = &profile, server, token
 	return nil
 }
 
@@ -456,5 +457,30 @@ func TestProfileSaveFlagsAfterArguments(t *testing.T) {
 	}
 	if err := Run([]string{"profile", "save", "--dir", dir, "bad", snapshot.ID, "--password-file", snapshot.Path}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "not the snapshot") {
 		t.Fatalf("snapshot as passphrase file: %v", err)
+	}
+}
+
+func TestProfilePushUsesDotEnv(t *testing.T) {
+	dir, snapshot := profileFixture(t)
+	passFile := writePassphrase(t, t.TempDir(), testSetupPassphrase)
+	if err := Run([]string{"profile", "save", "--dir", dir, "--password-file", passFile, "work", snapshot.ID}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	envDir := t.TempDir()
+	writeConfig(t, filepath.Join(envDir, ".env"), "REET_URL=https://reet.example\nREET_TOKEN='secret-token'\n")
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(envDir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(previous)
+	remote := &fakeProfileRemote{}
+	if err := Run([]string{"profile", "push", "--dir", dir, "work"}, &bytes.Buffer{}, remote); err != nil {
+		t.Fatal(err)
+	}
+	if remote.server != "https://reet.example" || remote.tok != "secret-token" {
+		t.Fatalf("env file not used: server=%q token=%q", remote.server, remote.tok)
 	}
 }

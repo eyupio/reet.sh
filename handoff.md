@@ -38,10 +38,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Conflict policies and rollback copies merged in [PR #58](https://github.com/eyupio/reet.sh/pull/58), `b505377`.
 - Destination verification merged in [PR #59](https://github.com/eyupio/reet.sh/pull/59), `f313ff1ce70d652f45ac418a65b4577f696e04ce`.
 - Final handoff documentation merged in [PR #60](https://github.com/eyupio/reet.sh/pull/60), `9c9593b`.
-- Latest verified source baseline: `origin/main` at `9c9593b` (2026-10-22; code from `f313ff1`).
-- Rollback of completed apply journals is in [PR #61](https://github.com/eyupio/reet.sh/pull/61)
-  on `feat/setup-rollback`; fetch remote status before continuing and preserve any
-  uncommitted work.
+- Rollback of completed apply journals merged in [PR #61](https://github.com/eyupio/reet.sh/pull/61), `c2b129a`.
+- Latest verified source baseline: `origin/main` at `c2b129a` (2026-10-22).
+- Per-destination conflict choices are in [PR #62](https://github.com/eyupio/reet.sh/pull/62)
+  on `feat/setup-per-file-conflicts`; fetch remote status before continuing and preserve
+  any uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -66,6 +67,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Verify selected destination fields without repairing or running agents.
 - [x] Verify the latest `dev` binary contains the complete setup command family.
 - [x] Add rollback of completed apply journals with snapshot and digest checks.
+- [x] Add per-destination conflict skip/replace choices.
 
 ## Implemented slice
 
@@ -172,9 +174,13 @@ files the apply created, restores replaced files from their rollback copies, mar
 journal `rolled_back` and is idempotent when rerun. It refuses changed destinations,
 failed journals, mismatched snapshots and unsafe backup paths.
 
-Next implementation slice: add per-file conflict choices, then runtime health guidance.
-Do not claim cross-OS restore or a complete working-setup restore before their
-acceptance gates.
+S4d now accepts repeatable `--conflict PATH=skip|replace` choices that override
+`--on-conflict` for exact plan destinations. Choices that do not match a conflict, or
+that target unknown paths, are refused before writing.
+
+Next implementation slice: add runtime health guidance after restore/verify without
+silently repairing or executing arbitrary hooks. Do not claim cross-OS restore or a
+complete working-setup restore before their acceptance gates.
 
 ## Validation and continuation
 
@@ -556,6 +562,26 @@ installers, authentication, S3 delivery and cross-OS translation remain unimplem
 A rollback interrupted by an OS error is best-effort and records `rollback_failed`; it is
 not a filesystem transaction. This is not the complete backup/restore milestone.
 
+## Per-destination conflict choices
+
+The current stage on `feat/setup-per-file-conflicts` adds repeatable
+`--conflict PATH=skip|replace` options to `reet setup restore --apply`. The path must
+match a destination shown in the plan and must be a conflict; unknown paths, non-conflict
+actions, invalid policies and duplicate choices are refused before writing. A per-path
+choice overrides `--on-conflict`, so different conflicts can be skipped or replaced in
+one run. Journal and rollback behaviour are unchanged.
+
+Validation: focused setup tests cover mixed replace/skip choices, unknown and
+non-conflict paths, invalid policies, CLI repeatable flags and destination
+non-mutation on refusal. Full `go vet ./...` and `go test -race ./...` passed. Web
+checks passed (8 tests; zero Svelte diagnostics) and all 16 MCP tests passed. A
+compiled-binary smoke test verified mixed per-file replace/skip choices and refusal of an
+unknown destination choice; setup tests cross-compile for Windows amd64 and macOS arm64. `git diff --check` passed. No
+dependency changed.
+
+Runtime health checks, merge, dependency/version resolution, installers, authentication,
+S3 delivery and cross-OS translation remain unimplemented.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -570,11 +596,11 @@ not a filesystem transaction. This is not the complete backup/restore milestone.
 4. Explicit component export policies, the policy-driven preview, the shared sealed
    archive, encrypted local setup snapshot writing, listing/inspection, restore
    planning, create-only apply, conflict skip/replace with rollback copies, destination
-   verification and rollback are now implemented. The next small slice is per-file
-   conflict choices, then runtime health guidance. Keep values encrypted and unknown
-   formats unsupported. Do not claim cross-OS restore or working-setup verification
-   before their acceptance gates. Consult the detailed plan for encryption, key
-   handling, restore and compatibility requirements.
+   verification, rollback and per-destination conflict choices are now implemented. The
+   next small slice is runtime health guidance. Keep values encrypted and unknown formats
+   unsupported. Do not claim cross-OS restore or working-setup verification before their
+   acceptance gates. Consult the detailed plan for encryption, key handling, restore and
+   compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current
@@ -583,8 +609,9 @@ not a filesystem transaction. This is not the complete backup/restore milestone.
 
 Important boundaries: no complete AI setup backup/restore has shipped. Setup backup
 now writes a partial encrypted local snapshot and can list, inspect, plan, create or
-replace supported files, verify selected destination fields and roll back a completed
-apply, but per-file choices, runtime health and cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
+replace supported files, verify selected destination fields, roll back a completed apply
+and apply per-destination conflict choices, but runtime health and cross-OS recovery are
+not implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
 manage that server. No production host was upgraded by this session. Do not copy

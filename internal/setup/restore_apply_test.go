@@ -444,3 +444,101 @@ func TestApplyRestorePlanRejectsUnknownConflictPolicy(t *testing.T) {
 		t.Fatal("unknown conflict policy accepted")
 	}
 }
+
+func TestApplyRestorePlanPerFileConflictChoices(t *testing.T) {
+	selection, _, home, claude := rollbackFixture(t)
+	codex := filepath.Join(home, ".codex", "config.toml")
+	writeConfig(t, codex, "model = 'KEEP-CODEX'\n")
+	updated, err := discover(fixtureWithHome(t, home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := planForSelection(t, selection, updated)
+	result, err := ApplyRestorePlan(plan, RestoreApplyOptions{
+		JournalDir: t.TempDir(),
+		Conflicts:  map[string]string{claude: "replace", codex: "skip"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Replaced) != 1 || result.Replaced[0] != claude || len(result.Skipped) != 1 || result.Skipped[0] != codex {
+		t.Fatalf("per-file choices not applied: %+v", result)
+	}
+	claudeData, err := os.ReadFile(claude)
+	var claudeObject map[string]any
+	if err != nil || json.Unmarshal(claudeData, &claudeObject) != nil || claudeObject["model"] != "SOURCE-CLAUDE" {
+		t.Fatalf("replaced file content wrong: %q %v", claudeData, err)
+	}
+	codexData, err := os.ReadFile(codex)
+	if err != nil || string(codexData) != "model = 'KEEP-CODEX'\n" {
+		t.Fatalf("skipped file changed: %q %v", codexData, err)
+	}
+}
+
+func TestApplyRestorePlanRejectsBadPerFileChoices(t *testing.T) {
+	selection, report, home := applyFixture(t)
+	path := filepath.Join(home, ".claude.json")
+	writeConfig(t, path, `{"model":"KEEP"}`)
+	updated, err := discover(fixtureWithHome(t, home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := planForSelection(t, selection, updated)
+	for _, choices := range []map[string]string{
+		{filepath.Join(home, "unknown.json"): "skip"},
+		{path: "merge"},
+		{filepath.Join(home, ".codex", "config.toml"): "skip"},
+	} {
+		if _, err := ApplyRestorePlan(plan, RestoreApplyOptions{JournalDir: t.TempDir(), Conflicts: choices}); err == nil {
+			t.Fatalf("bad per-file choice accepted: %+v", choices)
+		}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != `{"model":"KEEP"}` {
+		t.Fatal("refused choices changed the destination")
+	}
+	_ = report
+}
+
+func TestApplyRestorePlanPerFileChoicesCLI(t *testing.T) {
+	sourceHome := isolatedCLI(t)
+	writeConfig(t, filepath.Join(sourceHome, ".claude.json"), `{"model":"SOURCE-CLAUDE"}`)
+	writeConfig(t, filepath.Join(sourceHome, ".codex", "config.toml"), "model = 'SOURCE-CODEX'\n")
+	dir := t.TempDir()
+	passFile := writePassphrase(t, t.TempDir(), testSetupPassphrase)
+	var written bytes.Buffer
+	if err := Run([]string{"backup", "--password-file", passFile, "--dir", dir, "--json"}, &written); err != nil {
+		t.Fatal(err)
+	}
+	var snapshot SetupWriteResult
+	if err := json.Unmarshal(written.Bytes(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	destination := t.TempDir()
+	claude := filepath.Join(destination, ".claude.json")
+	codex := filepath.Join(destination, ".codex", "config.toml")
+	writeConfig(t, claude, `{"model":"KEEP-CLAUDE"}`)
+	writeConfig(t, codex, "model = 'KEEP-CODEX'\n")
+	t.Setenv("HOME", destination)
+	t.Setenv("USERPROFILE", destination)
+	var applied bytes.Buffer
+	if err := Run([]string{"restore", "--apply", "--on-conflict", "skip", "--conflict", claude + "=replace", "--password-file", passFile, "--dir", dir, "--json", snapshot.ID}, &applied); err != nil {
+		t.Fatal(err)
+	}
+	var result RestoreApplyResult
+	if err := json.Unmarshal(applied.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Replaced) != 1 || result.Replaced[0] != claude || len(result.Skipped) != 1 || result.Skipped[0] != codex {
+		t.Fatalf("per-file CLI choices wrong: %+v", result)
+	}
+	for _, args := range [][]string{
+		{"restore", "--apply", "--conflict", "bad", "--password-file", passFile, "--dir", dir, snapshot.ID},
+		{"restore", "--apply", "--conflict", claude + "=merge", "--password-file", passFile, "--dir", dir, snapshot.ID},
+		{"restore", "--conflict", claude + "=skip", "--password-file", passFile, "--dir", dir, snapshot.ID},
+	} {
+		if err := Run(args, &bytes.Buffer{}); err == nil {
+			t.Fatalf("accepted %v", args)
+		}
+	}
+}

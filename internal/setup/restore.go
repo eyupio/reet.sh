@@ -165,6 +165,7 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 		}
 	}
 	addSkillRestoreActions(&plan, snapshot, destination, actions, files)
+	addSkillLockRestoreActions(&plan, snapshot, destination, actions, files)
 	for _, action := range actions {
 		sort.Strings(action.Components)
 		sort.Strings(action.Sources)
@@ -236,6 +237,82 @@ func addSkillRestoreActions(plan *RestorePlan, snapshot SetupSnapshot, destinati
 			action.Components = appendUnique(action.Components, "skills")
 			action.Sources = appendUnique(action.Sources, source)
 			files[dest] = restoreFile{agentID: skill.AgentID, format: "skill", data: file.Data, mode: os.FileMode(file.Mode)}
+		}
+	}
+}
+
+func addSkillLockRestoreActions(plan *RestorePlan, snapshot SetupSnapshot, destination Report, actions map[string]*RestoreAction, files map[string]restoreFile) {
+	type lockTarget struct {
+		path, scope string
+		entries     map[string]any
+	}
+	targets := map[string]*lockTarget{}
+	for _, skill := range snapshot.Skills {
+		if skill.Origin == "" {
+			continue
+		}
+		path, scope := "", ""
+		switch skill.Scope {
+		case "global":
+			if destination.Home == "" {
+				continue
+			}
+			path, scope = filepath.Join(destination.Home, ".agents", ".skill-lock.json"), "global"
+		case "project":
+			if destination.Project == "" {
+				continue
+			}
+			path, scope = filepath.Join(destination.Project, "skills-lock.json"), "project"
+		default:
+			continue
+		}
+		target := targets[path]
+		if target == nil {
+			target = &lockTarget{path: path, scope: scope, entries: map[string]any{}}
+			targets[path] = target
+		}
+		if _, exists := target.entries[skill.Name]; exists {
+			continue
+		}
+		entry := map[string]any{"source": skill.Origin, "skillPath": skill.OriginPath}
+		if skill.OriginType != "" {
+			entry["sourceType"] = skill.OriginType
+		}
+		target.entries[skill.Name] = entry
+	}
+	paths := make([]string, 0, len(targets))
+	for path := range targets {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		target := targets[path]
+		info, err := os.Lstat(path)
+		switch {
+		case os.IsNotExist(err):
+		case err != nil:
+			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skill_lock", Source: path, Reason: "skill_lock_unavailable"})
+			continue
+		case info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular():
+			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skill_lock", Source: path, Reason: "skill_lock_unsafe"})
+			continue
+		default:
+			files[path] = restoreFile{
+				agentID: "agents", format: "json",
+				settings: map[string]any{"version": json.Number("3"), "skills": target.entries},
+			}
+			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skill_lock", Source: path, Reason: "existing_lock_not_merged"})
+			continue
+		}
+		key := "agents\x00" + path
+		action := &RestoreAction{
+			AgentID: "agents", Components: []string{"skill_lock"}, Sources: []string{path},
+			Destination: path, Scope: target.scope, Format: "json", State: "create",
+		}
+		actions[key] = action
+		files[path] = restoreFile{
+			agentID: "agents", format: "json",
+			settings: map[string]any{"version": json.Number("3"), "skills": target.entries},
 		}
 	}
 }

@@ -318,3 +318,88 @@ func TestSkillProvenanceFromLockFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestSkillLockIsRestoredOnlyWhenMissing(t *testing.T) {
+	e, _ := skillFixture(t)
+	mkdir(t, filepath.Join(e.home, ".agents"))
+	writeConfig(t, filepath.Join(e.home, ".agents", ".skill-lock.json"), `{"version":3,"skills":{"alpha":{"source":"owner/repo","sourceType":"github","skillPath":"skills/alpha/SKILL.md"}}}`)
+	source, err := discover(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := BuildSnapshotSelection(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination := fixture(t)
+	report, err := discover(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := planForSelection(t, selection, report)
+	lockPath := filepath.Join(destination.home, ".agents", ".skill-lock.json")
+	action := findRestoreAction(t, plan, lockPath)
+	if action.State != "create" || action.Format != "json" {
+		t.Fatalf("missing lock action: %+v", action)
+	}
+	applied, err := ApplyRestorePlan(plan, RestoreApplyOptions{JournalDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lock struct {
+		Version int `json:"version"`
+		Skills  map[string]struct {
+			Source     string `json:"source"`
+			SourceType string `json:"sourceType"`
+			SkillPath  string `json:"skillPath"`
+		} `json:"skills"`
+	}
+	if err := json.Unmarshal(data, &lock); err != nil {
+		t.Fatal(err)
+	}
+	entry := lock.Skills["alpha"]
+	if lock.Version != 3 || entry.Source != "owner/repo" || entry.SourceType != "github" || entry.SkillPath != "skills/alpha/SKILL.md" {
+		t.Fatalf("wrong restored lock: %+v", lock)
+	}
+	updated, err := discover(fixtureWithHome(t, destination.home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RollbackRestore(applied.JournalPath, BuildSetupSnapshot(selection), testManifest("setup-plan"), updated, RestoreRollbackOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
+		t.Fatal("rollback kept the restored lock")
+	}
+
+	existing := fixture(t)
+	mkdir(t, filepath.Join(existing.home, ".agents"))
+	writeConfig(t, filepath.Join(existing.home, ".agents", ".skill-lock.json"), `{"version":3,"skills":{"other":{"source":"other/repo"}}}`)
+	existingReport, err := discover(existing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	existingPlan := planForSelection(t, selection, existingReport)
+	lockPath = filepath.Join(existing.home, ".agents", ".skill-lock.json")
+	for _, action := range existingPlan.Actions {
+		if action.Destination == lockPath {
+			t.Fatalf("existing lock was replaced: %+v", action)
+		}
+	}
+	found := false
+	for _, unsupported := range existingPlan.Unsupported {
+		if unsupported.Kind == "skill_lock" && unsupported.Reason == "existing_lock_not_merged" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("existing lock omission missing: %+v", existingPlan.Unsupported)
+	}
+	if data, err := os.ReadFile(lockPath); err != nil || !strings.Contains(string(data), "other/repo") {
+		t.Fatal("planning changed the existing lock")
+	}
+}

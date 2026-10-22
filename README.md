@@ -323,7 +323,8 @@ payload. Skill folders are limited to 256 files and 8 MiB each, with a 64 MiB sn
 budget; a symlinked or special file makes that skill an explicit omission rather than
 a partial copy. Source provenance is read from the skills CLI lock files when present,
 sanitised and recorded. Restore creates a missing global or project lock file from those
-entries; an existing lock file is left untouched and reported instead of being merged.
+entries and merges missing entries into an existing one; an existing source conflict is
+left unchanged and reported.
 `--include-credentials` explicitly includes literal credential values from URLs,
 environment and header fields; it is rejected with `--preview`. Optional
 `--probe-versions` and `--inspect-installation` record application/package evidence.
@@ -365,8 +366,7 @@ snapshot deletion and `--apply` removes old unprotected snapshots; profile and j
 references are protected.
 
 This is still not complete setup backup/restore: memory databases, conversation/session
-history, skill dependency resolution and merging into existing lock files are not
-implemented; runtime health
+history and skill dependency resolution are not implemented; runtime health
 verification and verified cross-OS restore remain unproven. Discovered global and
 project instruction files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `GEMINI.md`) are
 included as encrypted text; other instruction locations are not inventoried. Existing

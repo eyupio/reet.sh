@@ -101,6 +101,9 @@ The 17 tool definitions are shared with the optional stdio package. Read-only
 connections discover ten tools; management connections discover seventeen.
 Collections support bounded pages and filters. Responses are capped at 25,000
 characters; use smaller pages or more specific filters for large shelves.
+If a change succeeds but its response exceeds the limit, the error explicitly
+says the change succeeded. Read the saved state before making another change;
+do not retry the write just to retrieve its response.
 Recent activity has a 100-event window rather than historical pagination.
 Inventories include scan time and completeness: an old or incomplete scan does
 not prove what is installed today.

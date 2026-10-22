@@ -62,8 +62,9 @@ type SnapshotOmission struct {
 // SnapshotSelection keeps the selected content in memory for a future archive
 // writer. It is deliberately not serialised by the preview command.
 type SnapshotSelection struct {
-	Preview SnapshotPreview
-	sources []selectedSnapshotSource
+	Preview  SnapshotPreview
+	sources  []selectedSnapshotSource
+	software []SetupSoftware
 }
 
 type selectedSnapshotSource struct {
@@ -94,7 +95,7 @@ func BuildSnapshotSelection(r Report) (SnapshotSelection, error) {
 			"This is a preview, not a backup: archive writing, encryption, key management, restore and cross-OS translation are not implemented.",
 		},
 	}
-	selection := SnapshotSelection{Preview: preview}
+	selection := SnapshotSelection{Preview: preview, software: snapshotSoftware(cp.Agents)}
 	for i := range cp.Agents {
 		a := &cp.Agents[i]
 		sa := SnapshotAgent{ID: a.ID, Name: a.Name, State: a.State, Components: []SnapshotComponent{}, Omitted: []SnapshotOmission{}}

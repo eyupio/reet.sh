@@ -236,7 +236,9 @@ hooks and caches. It reads no configuration values and implements no export.
   A verify command now compares selected fields and reports missing/changed/blocked
   components without repairing. A rollback command reverses a completed apply journal
   after checking it against the snapshot and current files. Apply supports global and
-  per-destination skip/replace choices. Runtime health checks remain a later slice.
+  per-destination skip/replace choices. Snapshots can now record bounded application
+  and package evidence, and verify can compare it with opt-in probes; runtime health
+  checks remain a later slice.
 - Verify every completed archive, write privately and atomically, and produce an
   omissions report. Add local listing/inspection and optional S3 delivery.
 - Keep local recovery usable after complete loss of the controller database.

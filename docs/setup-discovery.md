@@ -527,6 +527,8 @@ reet setup profile list
 reet setup profile show work
 reet setup profile rename work personal
 reet setup profile remove --yes personal
+reet setup profile push --server https://reet.example work
+reet setup profile pull --server https://reet.example work
 reet setup restore --profile work --password-file FILE
 reet setup verify --profile work --password-file FILE
 ```
@@ -538,7 +540,10 @@ never stores selected values. Repeat `--exclude-kind settings|mcp|instructions` 
 Saving the same name again creates a new revision; taking a new backup does not change an
 existing profile. `profile list` and `profile show` are local and need no passphrase. `profile rename`
 keeps revision history; `profile remove --yes` deletes only the profile file and keeps
-snapshots.
+snapshots. `profile push`/`pull` store the profile on a reet server using `REET_URL`,
+`REET_TOKEN` or `--server`/`--token`; the payload contains no selected values. Pull writes
+a mode-0600 local profile and does not download the snapshot. Profiles are not exposed
+in the web UI yet.
 `restore --profile`, `verify --profile`, `inspect --profile`, `rollback --profile` and
 `fetch --s3 --profile` use the newest revision's snapshot unless `--revision N` selects
 an older one; restore/verify apply its overrides.

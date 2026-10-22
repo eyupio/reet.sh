@@ -208,6 +208,13 @@ var schemaV12 = []string{
 		disabled_at INTEGER NOT NULL DEFAULT 0)`,
 	`CREATE TABLE IF NOT EXISTS publishers (
         username TEXT PRIMARY KEY, user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE SET NULL)`,
+	`CREATE TABLE IF NOT EXISTS setup_profiles (
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		name TEXT NOT NULL, revision INTEGER NOT NULL,
+		snapshot_id TEXT NOT NULL, snapshot_digest TEXT NOT NULL,
+		updated_at INTEGER NOT NULL, payload TEXT NOT NULL,
+		PRIMARY KEY(user_id,name))`,
+	`CREATE INDEX IF NOT EXISTS idx_setup_profiles_user ON setup_profiles(user_id)`,
 	`CREATE TABLE IF NOT EXISTS hosted_skills (
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         slug TEXT NOT NULL, description TEXT NOT NULL, content TEXT NOT NULL, files TEXT NOT NULL DEFAULT '{}',

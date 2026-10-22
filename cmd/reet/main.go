@@ -148,7 +148,7 @@ backup to preserve accounts, lists, teams and sync references.
 			log.Fatal(err)
 		}
 	case "setup":
-		if err := setup.Run(args, os.Stdout); err != nil {
+		if err := setup.Run(args, os.Stdout, profileRemote{}); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

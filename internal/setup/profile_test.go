@@ -320,3 +320,48 @@ func TestProfileRenameAndRemoveCLI(t *testing.T) {
 		t.Fatal("missing profile renamed")
 	}
 }
+
+type fakeProfileRemote struct {
+	pushed *SetupProfile
+	pulled SetupProfile
+}
+
+func (f *fakeProfileRemote) Push(server, token string, profile SetupProfile) error {
+	f.pushed = &profile
+	return nil
+}
+
+func (f *fakeProfileRemote) Pull(server, token, name string) (SetupProfile, error) {
+	return f.pulled, nil
+}
+
+func TestProfilePushPullCLI(t *testing.T) {
+	dir, snapshot := profileFixture(t)
+	passFile := writePassphrase(t, t.TempDir(), testSetupPassphrase)
+	if err := Run([]string{"profile", "save", "--dir", dir, "--password-file", passFile, "work", snapshot.ID}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	remote := &fakeProfileRemote{}
+	if err := Run([]string{"profile", "push", "--dir", dir, "work"}, &bytes.Buffer{}, remote); err != nil {
+		t.Fatal(err)
+	}
+	if remote.pushed == nil || remote.pushed.Name != "work" || remote.pushed.Revisions[0].SnapshotID != snapshot.ID {
+		t.Fatalf("push payload wrong: %+v", remote.pushed)
+	}
+	remote.pulled = *remote.pushed
+	remote.pulled.Name = "personal"
+	for i := range remote.pulled.Revisions {
+		remote.pulled.Revisions[i].Revision = i + 1
+	}
+	dst := t.TempDir()
+	if err := Run([]string{"profile", "pull", "--dir", dst, "personal"}, &bytes.Buffer{}, remote); err != nil {
+		t.Fatal(err)
+	}
+	profile, revision, err := LoadProfile("personal", dst, 0)
+	if err != nil || profile.Name != "personal" || revision.SnapshotID != snapshot.ID {
+		t.Fatalf("pulled profile wrong: %+v %+v %v", profile, revision, err)
+	}
+	if err := Run([]string{"profile", "push", "--dir", dir, "work"}, &bytes.Buffer{}); err == nil {
+		t.Fatal("push without a remote accepted")
+	}
+}

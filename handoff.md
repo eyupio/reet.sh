@@ -35,7 +35,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Snapshot listing/inspection merged in [PR #54](https://github.com/eyupio/reet.sh/pull/54), `cf10a02`.
 - Restore planning merged in [PR #55](https://github.com/eyupio/reet.sh/pull/55), `36cead3`.
 - Latest verified source baseline: `origin/main` at `36cead3` (2026-10-22).
-- Create-only restore apply is in [PR #56](https://github.com/eyupio/reet.sh/pull/56) on
+- Create-only restore apply is in [PR #57](https://github.com/eyupio/reet.sh/pull/57) on
   `feat/setup-restore-apply`; fetch remote status before continuing and preserve any
   uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain

@@ -204,3 +204,32 @@ func TestRestorePlanCLI(t *testing.T) {
 		}
 	}
 }
+
+func TestRestorePlanIncludesSoftwareCompatibilityWarnings(t *testing.T) {
+	selection := fixtureSelection(t)
+	snapshot := BuildSetupSnapshot(selection)
+	snapshot.Software = []SetupSoftware{{AgentID: "claude", Name: "Claude Code", Version: "1.2.3", VersionState: "reported", InstallState: "matched", Package: "@anthropic-ai/claude-code"}}
+	destination := fixture(t)
+	destinationReport, err := discover(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destinationReport.Agents = append(destinationReport.Agents, Agent{
+		ID: "claude", ApplicationVersion: &VersionObservation{State: "reported", Version: "2.0.0"},
+		Installation: &InstallationObservation{State: "matched", Package: "@anthropic-ai/claude-code"},
+	})
+	plan := BuildRestorePlan(snapshot, testManifest("setup-compat"), destinationReport)
+	if len(plan.Software) != 1 || plan.Software[0].State != "version_mismatch" {
+		t.Fatalf("software comparison missing: %+v", plan.Software)
+	}
+	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "Claude Code") {
+		t.Fatalf("compatibility warning missing: %+v", plan.Warnings)
+	}
+	var text bytes.Buffer
+	if err := renderRestorePlan(&text, plan); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text.String(), "Application compatibility") || !strings.Contains(text.String(), "warning:") {
+		t.Fatalf("compatibility text missing: %s", text.String())
+	}
+}

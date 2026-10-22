@@ -50,6 +50,8 @@ type RestorePlan struct {
 	Destination     RestoreDestination   `json:"destination"`
 	Actions         []RestoreAction      `json:"actions"`
 	Unsupported     []RestoreUnsupported `json:"unsupported"`
+	Software        []VerifySoftware     `json:"software,omitempty"`
+	Warnings        []string             `json:"warnings,omitempty"`
 	Fingerprint     string               `json:"fingerprint"`
 	Limitations     []string             `json:"limitations"`
 
@@ -173,6 +175,13 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 		return plan.Unsupported[i].Reason < plan.Unsupported[j].Reason
 	})
 	plan.files = files
+	plan.Software = verifySoftware(snapshot.Software, destination.Agents)
+	for _, software := range plan.Software {
+		switch software.State {
+		case "version_mismatch", "package_mismatch", "agent_not_detected", "destination_version_unknown", "installation_unknown":
+			plan.Warnings = append(plan.Warnings, software.Name+": "+software.Guidance)
+		}
+	}
 	plan.Fingerprint = restoreFingerprint(plan)
 	return plan
 }
@@ -350,6 +359,29 @@ func renderRestorePlan(out io.Writer, plan RestorePlan) error {
 			}
 		}
 		if _, err := fmt.Fprintln(out); err != nil {
+			return err
+		}
+	}
+	if len(plan.Software) > 0 {
+		if _, err := fmt.Fprintln(out, "Application compatibility:"); err != nil {
+			return err
+		}
+	}
+	for _, software := range plan.Software {
+		if _, err := fmt.Fprintf(out, "  %s: %s", software.Name, software.State); err != nil {
+			return err
+		}
+		if software.Guidance != "" {
+			if _, err := fmt.Fprintf(out, " (%s)", software.Guidance); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintln(out); err != nil {
+			return err
+		}
+	}
+	for _, warning := range plan.Warnings {
+		if _, err := fmt.Fprintf(out, "  warning: %s\n", warning); err != nil {
 			return err
 		}
 	}

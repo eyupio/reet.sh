@@ -523,6 +523,19 @@ Profiles are local named snapshot revisions. Account sync, machine/project overr
 selective plan application, conflict profiles and cross-machine profile sharing remain
 unimplemented.
 
+## Pruning local snapshots (S2f)
+
+```sh
+reet setup prune --keep 10
+reet setup prune --keep 10 --apply
+```
+
+`prune` is a dry run unless `--apply` is given. It keeps the newest `--keep` local
+`reetsetup` files and never removes a snapshot referenced by any profile revision or
+restore journal. Journals, profiles, rollback copies and remote objects are left in
+place. The result lists planned/removed paths and protected snapshots. It does not prune
+S3 objects.
+
 ## Opt-in application version probes
 
 ```sh

@@ -37,9 +37,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Create-only restore apply merged in [PR #57](https://github.com/eyupio/reet.sh/pull/57), `ff453c3`.
 - Conflict policies and rollback copies merged in [PR #58](https://github.com/eyupio/reet.sh/pull/58), `b505377`.
 - Destination verification merged in [PR #59](https://github.com/eyupio/reet.sh/pull/59), `f313ff1ce70d652f45ac418a65b4577f696e04ce`.
-- Latest verified source baseline: `origin/main` at `f313ff1` (2026-10-22).
-- This handoff refresh is documentation-only; fetch remote status before continuing and
-  preserve any uncommitted work.
+- Final handoff documentation merged in [PR #60](https://github.com/eyupio/reet.sh/pull/60), `9c9593b`.
+- Latest verified source baseline: `origin/main` at `9c9593b` (2026-10-22; code from `f313ff1`).
+- Rollback of completed apply journals is in [PR #61](https://github.com/eyupio/reet.sh/pull/61)
+  on `feat/setup-rollback`; fetch remote status before continuing and preserve any
+  uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -63,6 +65,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Add conflict skip/replace policies and replacement rollback copies.
 - [x] Verify selected destination fields without repairing or running agents.
 - [x] Verify the latest `dev` binary contains the complete setup command family.
+- [x] Add rollback of completed apply journals with snapshot and digest checks.
 
 ## Implemented slice
 
@@ -162,9 +165,16 @@ declarations with mapped destination files and reports `verified`, `missing`,
 values. It does not repair, rewrite, roll back or run agents. Project sources need
 `--project`.
 
-Next implementation slice: add a rollback command for retained replacement copies and
-per-file conflict choices, then health guidance. Do not claim cross-OS restore or a
-complete working-setup restore before their acceptance gates.
+S4c now adds `reet setup rollback --journal FILE --password-file FILE SNAPSHOT`. It
+requires the snapshot, verifies the journal's snapshot identity, applied digests,
+current destination hashes and rollback-copy paths before changing anything. It removes
+files the apply created, restores replaced files from their rollback copies, marks the
+journal `rolled_back` and is idempotent when rerun. It refuses changed destinations,
+failed journals, mismatched snapshots and unsafe backup paths.
+
+Next implementation slice: add per-file conflict choices, then runtime health guidance.
+Do not claim cross-OS restore or a complete working-setup restore before their
+acceptance gates.
 
 ## Validation and continuation
 
@@ -522,6 +532,30 @@ isolated temporary home and reported `reet dev
 `--export-policy`, passphrase files, conflict policies and `--apply`. No production host
 was upgraded and no live configuration was used or modified.
 
+## Rollback of applied setup changes
+
+The current stage on `feat/setup-rollback` adds `reet setup rollback --journal FILE
+--password-file FILE SNAPSHOT`. The journal schema now records applied and rollback-copy
+SHA-256 values. Before changing anything, rollback checks that the journal belongs to
+the snapshot, each applied digest matches the snapshot content and current destination,
+and each rollback copy is a regular file inside the journal directory with the recorded
+digest. Created files are removed and replaced files are restored; skipped conflicts are
+left alone. The journal becomes `rolled_back` (rerunning is a no-op), and rollback copies
+are retained.
+
+Validation: focused setup tests cover create/replace reversal, original-content
+restoration, created-file removal, idempotent rerun, changed-destination refusal,
+wrong-snapshot and malformed-journal refusal, CLI JSON/text output and secret absence.
+Full `go vet ./...` and `go test -race ./...` passed. Web checks passed (8 tests; zero
+Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary smoke test verified
+apply-then-rollback, original-content restoration, journal digests/state and idempotent
+rerun; setup tests cross-compile for Windows amd64 and macOS arm64. `git diff --check` passed. No dependency changed.
+
+Per-file conflict choices, runtime health checks, dependency/version resolution,
+installers, authentication, S3 delivery and cross-OS translation remain unimplemented.
+A rollback interrupted by an OS error is best-effort and records `rollback_failed`; it is
+not a filesystem transaction. This is not the complete backup/restore milestone.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -535,12 +569,12 @@ was upgraded and no live configuration was used or modified.
    automated approval.
 4. Explicit component export policies, the policy-driven preview, the shared sealed
    archive, encrypted local setup snapshot writing, listing/inspection, restore
-   planning, create-only apply, conflict skip/replace with rollback copies and
-   destination verification are now implemented. The next small slice is a rollback
-   command and per-file conflict choices, then health guidance. Keep values encrypted
-   and unknown formats unsupported. Do not claim cross-OS restore or working-setup
-   verification before their acceptance gates. Consult the detailed plan for
-   encryption, key handling, restore and compatibility requirements.
+   planning, create-only apply, conflict skip/replace with rollback copies, destination
+   verification and rollback are now implemented. The next small slice is per-file
+   conflict choices, then runtime health guidance. Keep values encrypted and unknown
+   formats unsupported. Do not claim cross-OS restore or working-setup verification
+   before their acceptance gates. Consult the detailed plan for encryption, key
+   handling, restore and compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current
@@ -549,8 +583,8 @@ was upgraded and no live configuration was used or modified.
 
 Important boundaries: no complete AI setup backup/restore has shipped. Setup backup
 now writes a partial encrypted local snapshot and can list, inspect, plan, create or
-replace supported files, and verify selected destination fields, but per-file choices,
-runtime health, a rollback command and cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
+replace supported files, verify selected destination fields and roll back a completed
+apply, but per-file choices, runtime health and cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
 manage that server. No production host was upgraded by this session. Do not copy

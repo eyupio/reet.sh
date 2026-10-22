@@ -179,6 +179,8 @@ agents/components with observed state, report age and capability limitations.
 Backup selection distinguishes configuration, reusable memory, optional history
 and optional portable credentials. Restore UI prepares a plan/command; execution
 and confirmation remain local. Do not expose credential values in web previews.
+`reet setup support` publishes the conservative component/restore matrix; runtime
+verification and cross-OS claims remain separate evidence gates.
 
 ## Delivery plan and acceptance gates
 

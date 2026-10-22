@@ -279,7 +279,7 @@ smoke scan verified default schema v1, opt-in policy output and no secret leakag
 
 ## Policy-driven backup preview
 
-The current stage on `feat/setup-snapshot-manifest` adds
+[PR #51](https://github.com/eyupio/reet.sh/pull/51) adds
 `reet setup backup --preview [--json] [--project PATH]`. It applies the declared
 policies to bounded known sources and reports included, credential-only, reference
 and excluded field names, MCP declaration counts, unknown-field counts,

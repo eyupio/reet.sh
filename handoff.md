@@ -36,10 +36,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Restore planning merged in [PR #55](https://github.com/eyupio/reet.sh/pull/55), `36cead3`.
 - Create-only restore apply merged in [PR #57](https://github.com/eyupio/reet.sh/pull/57), `ff453c3`.
 - Conflict policies and rollback copies merged in [PR #58](https://github.com/eyupio/reet.sh/pull/58), `b505377`.
-- Latest verified source baseline: `origin/main` at `b505377` (2026-10-22).
-- Destination verification is in [PR #59](https://github.com/eyupio/reet.sh/pull/59) on
-  `feat/setup-verify`; fetch remote status before continuing and preserve any
-  uncommitted work.
+- Destination verification merged in [PR #59](https://github.com/eyupio/reet.sh/pull/59), `f313ff1ce70d652f45ac418a65b4577f696e04ce`.
+- Latest verified source baseline: `origin/main` at `f313ff1` (2026-10-22).
+- This handoff refresh is documentation-only; fetch remote status before continuing and
+  preserve any uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -62,6 +62,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Apply create-only plans with verification, a journal and rollback of that run.
 - [x] Add conflict skip/replace policies and replacement rollback copies.
 - [x] Verify selected destination fields without repairing or running agents.
+- [x] Verify the latest `dev` binary contains the complete setup command family.
 
 ## Implemented slice
 
@@ -488,9 +489,9 @@ is not the complete backup/restore milestone.
 
 ## Destination verification
 
-The current stage on `feat/setup-verify` adds `reet setup verify`. It opens and verifies
-the snapshot, discovers the destination and compares the selected settings fields and
-MCP declarations with mapped files. Extra destination fields are ignored. Components
+`reet setup verify` merged in [PR #59](https://github.com/eyupio/reet.sh/pull/59). It
+opens and verifies the snapshot, discovers the destination and compares the selected
+settings fields and MCP declarations with mapped files. Extra destination fields are ignored. Components
 are `verified`, `missing`, `changed`, `blocked` or `unsupported`; `changed` reports
 field/declaration names only. Project sources need `--project`. Policy omissions and
 unsupported classes remain listed.
@@ -511,6 +512,16 @@ A rollback command, per-file conflict choices, runtime health checks, dependency
 resolution, installers, authentication, S3 delivery and cross-OS translation remain
 unimplemented.
 
+## Final dev release verification
+
+The main-push binary release for `f313ff1` completed successfully and refreshed the
+rolling `dev` release. The published Linux amd64 artifact was downloaded into an
+isolated temporary home and reported `reet dev
+(f313ff1ce70d652f45ac418a65b4577f696e04ce)`. Its help lists `setup scan`, `backup`,
+`list`, `inspect`, `restore` and `verify` with the current flags, including
+`--export-policy`, passphrase files, conflict policies and `--apply`. No production host
+was upgraded and no live configuration was used or modified.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -518,10 +529,10 @@ unimplemented.
    not a guarantee that CI or release state remains unchanged.
 2. PR #47's final checks and published `dev` artifact were verified at `9fb3575`
    as recorded above. Recheck live CI/release state before relying on it.
-3. Automated Codex review for PR #47 and PR #48 failed to run because the account
-   review quota was exhausted. This is not a completed review or a validated code
-   finding. Inspect actual review threads and perform code review independently;
-   do not claim automated approval.
+3. Automated Codex review for PR #47 onward failed to run because the account review
+   quota was exhausted. This is not a completed review or a validated code finding.
+   Inspect actual review threads and perform code review independently; do not claim
+   automated approval.
 4. Explicit component export policies, the policy-driven preview, the shared sealed
    archive, encrypted local setup snapshot writing, listing/inspection, restore
    planning, create-only apply, conflict skip/replace with rollback copies and

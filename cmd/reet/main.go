@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -15,9 +16,10 @@ import (
 	"syscall"
 	"time"
 
-	"flag"
 	"github.com/eyupio/reet.sh/internal/api"
 	"github.com/eyupio/reet.sh/internal/backup"
+	"github.com/eyupio/reet.sh/internal/clientconfig"
+	"github.com/eyupio/reet.sh/internal/cliui"
 	"github.com/eyupio/reet.sh/internal/lifecycle"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/scan"
@@ -45,11 +47,20 @@ func main() {
 		cmd = args[0]
 		args = args[1:]
 	}
+	if usesClientDefaults(cmd, args) {
+		if err := clientconfig.Apply(); err != nil {
+			fmt.Fprintln(os.Stderr, "Client defaults:", err)
+			os.Exit(1)
+		}
+	}
+	if cmd == "configure" || cmd == "install" || cmd == "init" || cmd == "upgrade" || cmd == "update" || cmd == "help" || cmd == "--help" || cmd == "-h" {
+		cliui.Banner(os.Stderr)
+	}
 	switch cmd {
 	case "version", "--version", "-v":
 		fmt.Printf("reet %s (%s)\n", version, commit)
 	case "help", "--help", "-h":
-		fmt.Print(`reet — your own shelf for AI skills. Get your toolkit reet.
+		fmt.Print(`reet.sh — your AI agent toolkit. Get your toolkit reet.
 
 Usage: reet <command> [options]
 
@@ -58,11 +69,12 @@ Usage: reet <command> [options]
   scan         Report installed skills to your account
   setup        Discover local AI agent setups and support limitations
   sync         Preview a saved skill set; --apply asks before changing files
+  configure    Save your release channel and target server
   install      Install this binary or set up a managed server
   upgrade      Update a managed deployment with backup and recovery
   backup       Take, verify and restore sealed backups
   doctor       Check your installation and suggest next steps
-  healthcheck  Check the local server or an explicit --url
+  healthcheck  Check your saved server, --url, or --local
   version      Show the binary version and source commit
 
 Connect to an existing site:
@@ -76,6 +88,11 @@ Host your own site:
 
 Run reet <command> --help for options. init/update alias install/upgrade.
 `)
+	case "configure":
+		if err := runConfigure(args, os.Stdin, os.Stderr); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case "install", "init", "upgrade", "update", "doctor":
 		if err := lifecycle.New(version, commit, os.Stdin, os.Stdout).Run(cmd, args); err != nil {
 			fmt.Fprintln(os.Stderr, err)

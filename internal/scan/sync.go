@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -218,6 +219,13 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		if *host == "" {
 			*host = c.Host
 		}
+	}
+	if *server == "" && *targetID != "" {
+		value, err := clientconfig.ResolveURL("", in, os.Stderr)
+		if err != nil {
+			return err
+		}
+		*server = value
 	}
 	if *server == "" || *targetID == "" {
 		return errors.New("--server and --target are required; copy the command from Your account")

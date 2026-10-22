@@ -183,3 +183,29 @@ Regression validation: targeted lifecycle/CLI race tests, full `go vet ./...` an
 `go test -race ./...`, web checks (8 tests, zero Svelte diagnostics) and all 16 MCP
 tests passed. Compiled CLI smoke tests verified explicit health base paths,
 unknown-flag rejection and the current setup scan options. No new dependencies.
+
+## CLI defaults and branding follow-up
+
+PR #46 merged as `5373885` and its published dev binary was downloaded through
+the installer and verified for version, explicit health URL and setup scan flags.
+The user then requested REET_VERSION, target URL persistence, missing-value prompts,
+and terminal branding/animation. Current branch: `fix/reet-version-environment`,
+based on that merge.
+
+Implemented locally: explicit flag > exported REET_VERSION/REET_URL > saved
+`reet/client.env` defaults; fallback to the installed upgrade channel. The shell
+installer and managed Compose install also honour exported REET_VERSION. New
+`reet configure` saves both values, with TTY-only prompts. Missing required URL
+prompts are integrated into healthcheck, scan, sync, enrollment and text doctor;
+unknown upgrade versions can prompt. No token storage or project .env sourcing.
+Local setup scans remain independent. Container checks explicitly use --local.
+
+Terminal branding follows the existing burnt-orange palette; status animations
+cover real update checks/downloads and remote health checks. JSON/redirected output
+is untouched. NO_COLOR, TERM=dumb and REET_NO_ANIMATION disable animation.
+The existing transitive go-isatty dependency is promoted to direct use; no new
+module or version is introduced. Full Go vet/race checks, web checks (8 tests,
+zero Svelte diagnostics), and all 16 MCP tests pass. A compiled-binary PTY smoke
+test verified branding, interactive prompts, private saved defaults, later health
+checks, animation and all disable controls, plus clean redirected output.
+Resume component export policies after this follow-up.

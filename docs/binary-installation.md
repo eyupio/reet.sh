@@ -8,7 +8,7 @@ A release binary contains both the web UI and the local scanner. It runs on Linu
 curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh
 ```
 
-The installer resolves the latest stable GitHub release, detects the operating system and CPU, downloads the matching archive and its SHA-256 manifest, and checks the archive before replacing `reet`. The default destination is `~/.local/bin`, with no sudo. Add that directory to your shell's PATH if needed:
+The installer uses `--version`, then exported `REET_VERSION`, and otherwise resolves the latest stable GitHub release. It detects the operating system and CPU, downloads the matching archive and its SHA-256 manifest, and checks the archive before replacing `reet`. The default destination is `~/.local/bin`, with no sudo. Add that directory to your shell's PATH if needed:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
@@ -110,7 +110,8 @@ reet upgrade --version latest        # explicitly switch to latest stable
 reet upgrade --version v1.2.3         # explicitly select a version, including a downgrade
 reet doctor                          # readable checks and advice
 reet doctor --json                   # structured results, exit 1 if any check fails
-reet healthcheck                     # local REET_ADDR (default port 8080)
+reet healthcheck                     # saved target / REET_URL; prompt when missing
+reet healthcheck --local             # local REET_ADDR (default port 8080)
 reet healthcheck --url https://reet.sh # explicitly check this server at /healthz
 ```
 
@@ -122,9 +123,9 @@ Managed files belong to this CLI. Existing system-level services, custom Compose
 
 ## Upgrade channel selection and recovery
 
-Plain `reet upgrade` keeps a dev target on the rolling `dev` channel. Other
-versions follow latest stable. An explicit `--version dev`, `--version latest`
-or version tag takes precedence. For a binary/native deployment, when the running
+An explicit `--version` takes precedence over `REET_VERSION`, which takes
+precedence over saved defaults. Without any of those, plain `reet upgrade` keeps
+a dev target on `dev`; other versions follow latest stable. For a binary/native deployment, when the running
 CLI is the target executable, its actual build version takes precedence over a
 stale deployment record left by a manual reinstall. A different target uses its
 recorded version. Compose follows its recorded image version, independently of
@@ -144,7 +145,8 @@ hash -r
 ```
 
 The latest fixed dev binary preserves its channel on subsequent plain upgrades.
-The installer still defaults to latest stable unless `--version dev` is supplied.
+The shell installer uses explicit `--version`, then exported `REET_VERSION`, and
+otherwise latest stable. It does not read the CLI defaults file.
 Reinstalling a CLI does not restart a manually launched server.
 
 `healthcheck --url` accepts an HTTP(S) server base URL or its `/healthz` endpoint,
@@ -152,3 +154,68 @@ preserving a base path such as `/reet`. It rejects unknown flags and positional
 arguments. Older binaries ignored those arguments and always contacted the local
 port; connection reset/EOF from `127.0.0.1` does not establish remote-site health.
 Use `curl -fsS https://your-site.example/healthz` until the CLI is updated.
+
+## Saved CLI defaults
+
+```sh
+reet configure
+# Or supply both without prompting:
+reet configure --version dev --url https://reet.sh
+
+# Exported values override saved defaults for this shell:
+export REET_VERSION=dev
+export REET_URL=https://reet.sh
+reet upgrade --check
+reet healthcheck
+```
+
+`configure` previews current values in its interactive prompts; Enter keeps a
+suggested value. Valid answers are saved together after both values pass validation.
+The file is `reet/client.env` under the platform user configuration directory:
+`$XDG_CONFIG_HOME/reet/client.env` or `~/.config/reet/client.env` on Linux, and
+`~/Library/Application Support/reet/client.env` on macOS. Files are written with
+private permissions and atomically replaced. The file contains only `REET_VERSION`
+and `REET_URL`, quoted as env assignments; the CLI parses it as data and never
+executes it. Tokens and credentials must not be put in this file. Concurrent writes
+are locked; if a process dies during a write, confirm it has stopped before removing
+`client.env.lock` beside the defaults file.
+
+Precedence is **explicit command flag → exported environment → saved default →
+installed version where relevant**. Supported CLI versions are `latest`, `dev` or
+release tags such as `v1.2.3`. The server is an HTTP(S) base URL without embedded
+credentials, query or fragment. `--url` selects it for healthcheck, while scanner,
+sync, enrollment and doctor use their existing `--server` flag. An enrolled sync
+configuration remains a fallback when no server default was supplied.
+
+Commands ask only for missing values they need. An interactive scan, sync with a
+target, enrollment, doctor in text mode, or healthcheck can ask for an absent URL
+and save it for next time. Upgrade infers its channel from the installed version;
+only an unknown build without another channel needs a prompt. Prompts do not read
+from redirected stdin. Noninteractive commands requiring a missing value fail
+with setup instructions; doctor JSON retains its diagnostic report instead of
+prompting. Local `setup scan` and `scan --dry-run` do not ask for a server.
+
+`healthcheck` uses `REET_URL`/saved defaults first, and an explicit `REET_ADDR` as
+a local fallback. `--local` ignores remote defaults and checks local `REET_ADDR`
+(or port 8080). Container health checks use this explicit local mode. `serve`,
+`version`, help and local setup discovery do not load client defaults.
+
+These settings apply to future reet CLI processes; they cannot export variables
+into the parent shell. A project `.env` is not loaded or changed automatically.
+Docker Compose still reads its project `.env` using its own behaviour. For the
+shell download installer, export `REET_VERSION` before the pipeline, or pass
+`--version` to `sh`; assigning it only to `curl` does not configure the shell on
+the other side of the pipe.
+
+## Terminal presentation
+
+Interactive help, configuration and lifecycle commands show a compact reet.sh
+banner using the existing burnt-orange brand palette. Checking a release,
+downloading/verifying a binary and remote health checks animate only while work
+is running. Status output goes to the terminal on stderr and is cleared before
+subsequent command output; no sleeps are added to make work appear longer.
+
+`REET_NO_ANIMATION=1` disables motion. `NO_COLOR` (even empty) or `TERM=dumb`
+disables colour and motion. Redirected output gets no escape sequences or banner,
+and JSON output remains machine-readable. Version output retains the exact
+`reet VERSION (COMMIT)` contract used to verify release binaries.

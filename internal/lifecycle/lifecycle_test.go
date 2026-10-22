@@ -88,6 +88,7 @@ func contents(t *testing.T, path string) string {
 }
 func testApp(t *testing.T) (*App, string, string) {
 	t.Helper()
+	t.Setenv("REET_VERSION", "")
 	root := t.TempDir()
 	binary := filepath.Join(root, "bin", "reet")
 	file(t, binary, "old binary")
@@ -554,5 +555,80 @@ func TestDevUpgradeAppliesDespiteStaleStableRecord(t *testing.T) {
 	got, err := load(state)
 	if err != nil || got.Version != "dev" || contents(t, binary) != "new binary" || contents(t, binary+".previous") != "old binary" {
 		t.Fatalf("upgrade failed: %+v %v", got, err)
+	}
+}
+
+func TestUpgradeVersionEnvironmentPrecedence(t *testing.T) {
+	for _, tc := range []struct{ name, env, flag, want string }{
+		{"environment dev", "dev", "", "dev"},
+		{"environment stable", "latest", "", "latest"},
+		{"environment pinned", "v2.3.4", "", "v2.3.4"},
+		{"flag overrides dev", "dev", "latest", "latest"},
+		{"flag overrides stable", "latest", "dev", "dev"},
+		{"flag overrides invalid environment", "invalid", "dev", "dev"},
+		{"unset preserves dev", "", "", "dev"},
+		{"invalid environment", "../../invalid", "", "error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, state, binary := testApp(t)
+			a.Version = "dev"
+			t.Setenv("REET_VERSION", tc.env)
+			requests := 0
+			a.client = &http.Client{Transport: transport(func(r *http.Request) (*http.Response, error) {
+				requests++
+				if tc.want == "error" {
+					t.Fatal("invalid environment reached network")
+				}
+				endpoint := "/tags/" + tc.want
+				resolved := tc.want
+				if tc.want == "latest" {
+					endpoint = "/latest"
+					resolved = "v9.0.0"
+				}
+				if !strings.HasSuffix(r.URL.Path, endpoint) {
+					t.Fatalf("wrong request: %s", r.URL.Path)
+				}
+				return response(200, `{"tag_name":"`+resolved+`"}`), nil
+			})}
+			args := []string{"--state-dir", state, "--check"}
+			if tc.flag != "" {
+				args = append(args, "--version", tc.flag)
+			}
+			err := a.Run("upgrade", args)
+			if tc.want == "error" {
+				if err == nil || requests != 0 {
+					t.Fatalf("invalid environment accepted: %v", err)
+				}
+			} else if err != nil || requests != 1 {
+				t.Fatalf("upgrade: %v requests=%d", err, requests)
+			}
+			if contents(t, binary) != "old binary" {
+				t.Fatal("check changed installation")
+			}
+		})
+	}
+}
+
+func TestComposeInstallUsesVersionEnvironment(t *testing.T) {
+	for _, explicit := range []string{"", "latest"} {
+		t.Run("flag="+explicit, func(t *testing.T) {
+			a, state, _ := testApp(t)
+			t.Setenv("REET_VERSION", "dev")
+			args := []string{"--mode", "compose", "--state-dir", state, "--dir", t.TempDir(), "--data-dir", t.TempDir(), "--dry-run"}
+			want := "dev"
+			if explicit != "" {
+				args = append(args, "--version", explicit)
+				want = explicit
+			}
+			if err := a.Run("install", args); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(a.Out.(*bytes.Buffer).String(), "Image channel: "+want) {
+				t.Fatal("environment precedence ignored")
+			}
+			if _, err := os.Stat(state); !os.IsNotExist(err) {
+				t.Fatal("preview changed state")
+			}
+		})
 	}
 }

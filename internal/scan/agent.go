@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -154,6 +155,13 @@ func RunAgent(args []string, out io.Writer, version string) error {
 	case "enroll":
 		if _, err := os.Stat(*config); err == nil {
 			return errors.New("configuration already exists; keep it or revoke the enrollment before replacing it")
+		}
+		if *server == "" {
+			value, err := clientconfig.ResolveURL("", os.Stdin, os.Stderr)
+			if err != nil {
+				return err
+			}
+			*server = value
 		}
 		u, err := url.Parse(*server)
 		if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" {

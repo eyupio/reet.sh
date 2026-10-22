@@ -121,7 +121,7 @@ func composeConfig(d *deployment) ([]byte, error) {
 	for k, v := range d.Environment {
 		env[k] = strings.ReplaceAll(v, "$", "$$")
 	}
-	service := map[string]any{"image": d.Image, "restart": "unless-stopped", "user": fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()), "ports": []any{map[string]any{"target": 8080, "published": port, "host_ip": host}}, "environment": env, "volumes": []any{map[string]any{"type": "bind", "source": strings.ReplaceAll(d.Data, "$", "$$"), "target": "/data"}}, "healthcheck": map[string]any{"test": []string{"CMD", "/reet", "healthcheck"}, "interval": "5s", "timeout": "3s", "retries": 12}}
+	service := map[string]any{"image": d.Image, "restart": "unless-stopped", "user": fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()), "ports": []any{map[string]any{"target": 8080, "published": port, "host_ip": host}}, "environment": env, "volumes": []any{map[string]any{"type": "bind", "source": strings.ReplaceAll(d.Data, "$", "$$"), "target": "/data"}}, "healthcheck": map[string]any{"test": []string{"CMD", "/reet", "healthcheck", "--local"}, "interval": "5s", "timeout": "3s", "retries": 12}}
 	return json.MarshalIndent(map[string]any{"services": map[string]any{"reet": service}}, "", "  ")
 }
 func (a *App) writeCompose(d *deployment, state string) error {

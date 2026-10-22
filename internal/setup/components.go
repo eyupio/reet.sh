@@ -130,33 +130,9 @@ func configPaths(agent string, loc Location) []string {
 }
 
 func inspectConfig(source *ConfigSource, agent string) {
-	info, err := os.Lstat(source.Path)
-	switch {
-	case os.IsNotExist(err):
-		source.State = "missing"
-		return
-	case err != nil:
-		source.State, source.Issue = "error", "metadata_unavailable"
-		return
-	case info.Mode()&os.ModeSymlink != 0:
-		source.State, source.Issue = "symlink", "target_not_inspected"
-		return
-	case !info.Mode().IsRegular():
-		source.State, source.Issue = "unsupported", "unexpected_file_type"
-		return
-	case !supportedFormat(source.Format, agent):
-		source.State, source.Issue = "unsupported", "format_not_supported"
-		return
-	}
-	data, issue := readConfig(source.Path, info)
-	if issue != "" {
-		source.State, source.Issue = "error", issue
-		return
-	}
-	object, err := parseSource(data, source.Format)
-	if err != nil {
-		// Parser errors can quote credentials from the input. Emit a fixed code.
-		source.State, source.Issue = "error", "invalid_or_complex_"+source.Format
+	object, state, issue := readConfigObject(source.Path, source.Format, agent)
+	if state != "parsed" {
+		source.State, source.Issue = state, issue
 		return
 	}
 	source.State = "parsed"
@@ -200,6 +176,32 @@ func inspectConfig(source *ConfigSource, agent string) {
 		}
 		source.MCP = append(source.MCP, m)
 	}
+}
+
+func readConfigObject(path, format, agent string) (map[string]any, string, string) {
+	info, err := os.Lstat(path)
+	switch {
+	case os.IsNotExist(err):
+		return nil, "missing", ""
+	case err != nil:
+		return nil, "error", "metadata_unavailable"
+	case info.Mode()&os.ModeSymlink != 0:
+		return nil, "symlink", "target_not_inspected"
+	case !info.Mode().IsRegular():
+		return nil, "unsupported", "unexpected_file_type"
+	case !supportedFormat(format, agent):
+		return nil, "unsupported", "format_not_supported"
+	}
+	data, issue := readConfig(path, info)
+	if issue != "" {
+		return nil, "error", issue
+	}
+	object, err := parseSource(data, format)
+	if err != nil {
+		// Parser errors can quote credentials from the input. Emit a fixed code.
+		return nil, "error", "invalid_or_complex_" + format
+	}
+	return object, "parsed", ""
 }
 
 func readConfig(path string, before os.FileInfo) ([]byte, string) {

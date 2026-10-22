@@ -15,6 +15,7 @@ import (
 // Report describes only known locations and executable availability. It does not
 // assert that configuration is readable, valid or sufficient for recovery.
 type Report struct {
+	Home                   string    `json:"-"`
 	SchemaVersion          int       `json:"schema_version"`
 	CapturedAt             time.Time `json:"captured_at"`
 	OS                     string    `json:"os"`
@@ -93,6 +94,7 @@ func discover(e environment) (Report, error) {
 		}
 	}
 	r := Report{
+		Home:          e.home,
 		SchemaVersion: 1, CapturedAt: time.Now().UTC(), OS: runtime.GOOS,
 		Architecture: runtime.GOARCH, Project: e.project,
 		Agents: []Agent{},

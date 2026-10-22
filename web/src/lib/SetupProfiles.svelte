@@ -256,6 +256,7 @@ reet setup profile push work</code></pre>
                     <li>
                       <strong>{skill.name}</strong>
                       <span class="tag">{skill.agent_id} · {skill.scope}</span>
+                      {#if skill.origin}<span class="tag">{skill.origin}</span>{/if}
                       <span class="muted small">{skill.files} file{skill.files === 1 ? '' : 's'}, {skill.bytes} bytes</span>
                     </li>
                   {/each}

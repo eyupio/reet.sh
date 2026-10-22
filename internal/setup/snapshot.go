@@ -126,7 +126,7 @@ func BuildSnapshotSelectionWithOptions(r Report, opts SnapshotBuildOptions) (Sna
 		}
 		preview.Agents = append(preview.Agents, sa)
 	}
-	selectSkillContent(cp.Agents, &preview, &selection)
+	selectSkillContent(cp, &preview, &selection)
 	selection.Preview = preview
 	return selection, nil
 }

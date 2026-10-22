@@ -321,7 +321,8 @@ writing an archive. Without `--preview`,
 values, discovered instruction text and whole skill folders stay inside the encrypted
 payload. Skill folders are limited to 256 files and 8 MiB each, with a 64 MiB snapshot
 budget; a symlinked or special file makes that skill an explicit omission rather than
-a partial copy.
+a partial copy. Source provenance is read from the skills CLI lock files when present,
+sanitised and recorded, but lock files are not rewritten on restore.
 `--include-credentials` explicitly includes literal credential values from URLs,
 environment and header fields; it is rejected with `--preview`. Optional
 `--probe-versions` and `--inspect-installation` record application/package evidence.
@@ -355,14 +356,14 @@ for named machines/projects, selected with `--machine NAME`/`--project PATH`. `p
 **Profiles** page lists synced profiles, their latest revision, overrides and revision
 history, and can delete the server copy. For revisions with a recorded preview it also
 shows each agent's stored components: settings field names, MCP server names, instruction
-sources, installed skill folders with file counts, encrypted-field names, omissions and
-software evidence. Credential values and skill file contents are never shown. Profiles are
+sources, installed skill folders with file counts and recorded source, encrypted-field
+names, omissions and software evidence. Credential values and skill file contents are never shown. Profiles are
 not synced to an account or another machine. `reet setup prune --keep N` previews local
 snapshot deletion and `--apply` removes old unprotected snapshots; profile and journal
 references are protected.
 
 This is still not complete setup backup/restore: memory databases, conversation/session
-history and skill dependency/provenance resolution are not implemented; runtime health
+history, skill dependency resolution and lock-file restoration are not implemented; runtime health
 verification and verified cross-OS restore remain unproven. Discovered global and
 project instruction files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `GEMINI.md`) are
 included as encrypted text; other instruction locations are not inventoried. Existing

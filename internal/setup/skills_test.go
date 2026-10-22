@@ -279,3 +279,42 @@ func TestSkillReplaceRollbackKeepsBackupMode(t *testing.T) {
 		t.Fatalf("rollback lost the original mode: %+v %v", info, err)
 	}
 }
+
+func TestSkillProvenanceFromLockFiles(t *testing.T) {
+	e, _ := skillFixture(t)
+	mkdir(t, filepath.Join(e.home, ".agents"))
+	writeConfig(t, filepath.Join(e.home, ".agents", ".skill-lock.json"), `{"version":3,"skills":{"Display Name":{"source":"owner/repo","sourceType":"github","skillPath":"alpha/SKILL.md"}}}`)
+	e.project = t.TempDir()
+	mkdir(t, filepath.Join(e.project, ".claude", "skills", "project-skill"))
+	writeConfig(t, filepath.Join(e.project, ".claude", "skills", "project-skill", "SKILL.md"), "---\nname: project-skill\n---\n")
+	writeConfig(t, filepath.Join(e.project, "skills-lock.json"), `{"skills":[{"name":"project-skill","source":"publisher.example","sourceType":"well-known"}]}`)
+	r, err := discover(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := BuildSnapshotSelection(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	origins := map[string]SnapshotSkill{}
+	for _, skill := range selection.Preview.Skills {
+		origins[skill.Name] = skill
+	}
+	if origins["alpha"].Origin != "owner/repo" || origins["alpha"].OriginType != "github" {
+		t.Fatalf("global skill provenance missing: %+v", origins["alpha"])
+	}
+	if origins["project-skill"].Origin != "publisher.example" || origins["project-skill"].OriginType != "well-known" {
+		t.Fatalf("project skill provenance missing: %+v", origins["project-skill"])
+	}
+	for _, output := range []string{string(mustJSON(t, selection.Preview)), string(mustJSON(t, BuildSetupSnapshot(selection)))} {
+		if strings.Contains(output, "?token=") {
+			t.Fatal("unsafe provenance was retained")
+		}
+	}
+	unsafe := []string{"https://example.test/x?token=secret", "owner/repo?token=secret", "owner/repo#secret"}
+	for _, source := range unsafe {
+		if origin, _ := safeSkillOrigin(source, "github"); origin != "" {
+			t.Fatalf("unsafe origin accepted: %q", source)
+		}
+	}
+}

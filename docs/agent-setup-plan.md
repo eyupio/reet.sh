@@ -289,7 +289,9 @@ hooks and caches. It reads no configuration values and implements no export.
   and software evidence) but never credential values or skill file contents. Installed
   skill folders are captured as whole bounded directories in the encrypted snapshot and
   restored file-by-file; symlinked or special files make that skill an explicit
-  omission. Exclusions can be scoped to named
+  omission. Sanitised source provenance from skills CLI lock files is recorded in the
+  snapshot, while lock files are not rewritten on restore. Exclusions can be scoped to
+  named
   machines/projects; web editing remains later work.
 - Record drift from observations; stale/incomplete inventory stays unknown.
 - Gate: intentional machine differences survive sync; profile revisions are

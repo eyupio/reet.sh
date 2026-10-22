@@ -2,9 +2,11 @@ package setup
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -22,13 +24,15 @@ const (
 // SnapshotSkill is credential-free preview metadata for one installed skill
 // folder. File contents stay inside the sealed snapshot.
 type SnapshotSkill struct {
-	Name    string `json:"name"`
-	AgentID string `json:"agent_id"`
-	Scope   string `json:"scope"`
-	Source  string `json:"source"`
-	Files   int    `json:"files"`
-	Bytes   int64  `json:"bytes"`
-	Digest  string `json:"digest"`
+	Name       string `json:"name"`
+	AgentID    string `json:"agent_id"`
+	Scope      string `json:"scope"`
+	Source     string `json:"source"`
+	Origin     string `json:"origin,omitempty"`
+	OriginType string `json:"origin_type,omitempty"`
+	Files      int    `json:"files"`
+	Bytes      int64  `json:"bytes"`
+	Digest     string `json:"digest"`
 }
 
 // SetupSkill is one whole skill folder in the encrypted payload.
@@ -39,6 +43,8 @@ type SetupSkill struct {
 	Root           string           `json:"root"`
 	LocationKind   string           `json:"location_kind,omitempty"`
 	LocationSource string           `json:"location_source,omitempty"`
+	Origin         string           `json:"origin,omitempty"`
+	OriginType     string           `json:"origin_type,omitempty"`
 	Files          []SetupSkillFile `json:"files"`
 	Digest         string           `json:"digest"`
 }
@@ -51,11 +57,16 @@ type SetupSkillFile struct {
 
 func isSkillLocation(kind string) bool { return kind == "skills" || kind == "shared_skills" }
 
-func selectSkillContent(agents []Agent, preview *SnapshotPreview, selection *SnapshotSelection) {
+func selectSkillContent(report Report, preview *SnapshotPreview, selection *SnapshotSelection) {
 	seenRoots := map[string]bool{}
 	totalFiles, totalBytes := 0, int64(0)
-	for i := range agents {
-		for _, loc := range agents[i].Locations {
+	globalLock := readSkillLock(filepath.Join(report.Home, ".agents", ".skill-lock.json"))
+	var projectLock map[string]skillLockEntry
+	if report.Project != "" {
+		projectLock = readSkillLock(filepath.Join(report.Project, "skills-lock.json"))
+	}
+	for i := range report.Agents {
+		for _, loc := range report.Agents[i].Locations {
 			if !isSkillLocation(loc.Kind) || loc.Path == "" {
 				continue
 			}
@@ -70,7 +81,7 @@ func selectSkillContent(agents []Agent, preview *SnapshotPreview, selection *Sna
 				continue
 			}
 			seenRoots[root] = true
-			skills, omissions := collectSetupSkills(root, agents[i].ID, loc.Scope, loc.Kind, loc.Source)
+			skills, omissions := collectSetupSkills(root, report.Agents[i].ID, loc.Scope, loc.Kind, loc.Source)
 			preview.Agents[i].Omitted = append(preview.Agents[i].Omitted, omissions...)
 			for _, skill := range skills {
 				if totalFiles+len(skill.Files) > maxSetupSkillFiles || totalBytes+skillBytes(skill.Files) > maxSetupSkillBytes {
@@ -79,6 +90,7 @@ func selectSkillContent(agents []Agent, preview *SnapshotPreview, selection *Sna
 				}
 				totalFiles += len(skill.Files)
 				totalBytes += skillBytes(skill.Files)
+				attachSkillOrigin(&skill, loc.Scope, globalLock, projectLock)
 				preview.Skills = append(preview.Skills, snapshotSkill(skill, root))
 				selection.skills = append(selection.skills, skill)
 			}
@@ -232,8 +244,8 @@ func validSkillName(name string) bool {
 func snapshotSkill(skill SetupSkill, root string) SnapshotSkill {
 	return SnapshotSkill{
 		Name: skill.Name, AgentID: skill.AgentID, Scope: skill.Scope,
-		Source: filepath.Join(root, skill.Name), Files: len(skill.Files),
-		Bytes: skillBytes(skill.Files), Digest: skill.Digest,
+		Source: filepath.Join(root, skill.Name), Origin: skill.Origin, OriginType: skill.OriginType,
+		Files: len(skill.Files), Bytes: skillBytes(skill.Files), Digest: skill.Digest,
 	}
 }
 
@@ -254,4 +266,97 @@ func setupSkillDigest(files []SetupSkillFile) string {
 	}
 	sum := blake2b.Sum256(manifest)
 	return hex.EncodeToString(sum[:])
+}
+
+type skillLockEntry struct {
+	Source     string
+	SourceType string
+}
+
+func readSkillLock(path string) map[string]skillLockEntry {
+	entries := map[string]skillLockEntry{}
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+		return entries
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return entries
+	}
+	var value struct {
+		Skills json.RawMessage `json:"skills"`
+	}
+	if json.Unmarshal(data, &value) != nil {
+		return entries
+	}
+	var asMap map[string]struct {
+		Source     string `json:"source"`
+		SourceType string `json:"sourceType"`
+		SkillPath  string `json:"skillPath"`
+	}
+	if json.Unmarshal(value.Skills, &asMap) == nil {
+		for key, entry := range asMap {
+			name := lockSkillName(key, entry.SkillPath)
+			if entry.Source != "" {
+				entries[name] = skillLockEntry{Source: entry.Source, SourceType: entry.SourceType}
+			}
+		}
+		return entries
+	}
+	var asList []struct {
+		Name       string `json:"name"`
+		Source     string `json:"source"`
+		SourceType string `json:"sourceType"`
+	}
+	if json.Unmarshal(value.Skills, &asList) == nil {
+		for _, entry := range asList {
+			if entry.Name != "" && entry.Source != "" {
+				entries[entry.Name] = skillLockEntry{Source: entry.Source, SourceType: entry.SourceType}
+			}
+		}
+	}
+	return entries
+}
+
+func lockSkillName(key, skillPath string) string {
+	if skillPath == "" {
+		return key
+	}
+	base := pathpkg.Base(pathpkg.Dir(strings.ReplaceAll(skillPath, `\`, "/")))
+	if base == "." || base == "/" || base == "" {
+		return key
+	}
+	return base
+}
+
+func attachSkillOrigin(skill *SetupSkill, scope string, global, project map[string]skillLockEntry) {
+	entry, ok := global[skill.Name]
+	if scope == "project" && project != nil {
+		if projectEntry, exists := project[skill.Name]; exists {
+			entry, ok = projectEntry, true
+		}
+	}
+	if !ok {
+		return
+	}
+	origin, originType := safeSkillOrigin(entry.Source, entry.SourceType)
+	skill.Origin, skill.OriginType = origin, originType
+}
+
+func safeSkillOrigin(source, sourceType string) (string, string) {
+	source = strings.TrimSpace(source)
+	if source == "" || len(source) > 512 {
+		return "", ""
+	}
+	for _, char := range source {
+		if !(char == '-' || char == '_' || char == '.' || char == '/' || char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9') {
+			return "", ""
+		}
+	}
+	switch sourceType {
+	case "github", "well-known", "hosted":
+	default:
+		sourceType = ""
+	}
+	return source, sourceType
 }

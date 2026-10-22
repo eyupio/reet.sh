@@ -60,10 +60,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Remote S3 prune/delete merged in [PR #79](https://github.com/eyupio/reet.sh/pull/79), `1d97f47`.
 - Final handoff refresh merged in [PR #80](https://github.com/eyupio/reet.sh/pull/80), `8af31bc`.
 - Profile rename/remove merged in [PR #81](https://github.com/eyupio/reet.sh/pull/81), `0967082`.
-- Latest verified source baseline: `origin/main` at `0967082` (2026-10-22).
-- S3 destination testing is in [PR #82](https://github.com/eyupio/reet.sh/pull/82) on
-  `feat/setup-s3-test`; fetch remote status before continuing and preserve any
-  uncommitted work.
+- S3 destination testing merged in [PR #82](https://github.com/eyupio/reet.sh/pull/82), `0ba3d28`.
+- Latest verified source baseline: `origin/main` at `0ba3d28` (2026-10-22).
+- This handoff refresh is documentation-only; fetch remote status before continuing and
+  preserve any uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -109,6 +109,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Verify the `1d97f47` dev binary exposes the complete setup command family.
 - [x] Add local profile rename/remove without deleting snapshots.
 - [x] Test the configured S3 destination with put/get/delete.
+- [x] Verify remote listing/deletion, profile revisions and final commands on the dev binary.
 
 ## Implemented slice
 
@@ -269,8 +270,8 @@ happens after the atomic local write and reads the object back to verify bytes; 
 checks the clear header and snapshot identity, writes mode 0600 and refuses to overwrite
 a local file. Configuration is environment-only
 (`REET_SETUP_S3_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY`, optional region, prefix and
-path-style). Remote listing, deletion, retention, destination testing and UI are not
-implemented.
+path-style). Later slices added remote listing, testing, profile-protected prune/delete
+and local fetch by profile; UI and credential escrow remain unimplemented.
 
 S5a now adds `reet setup profile save/list/show`. A profile save opens and verifies the
 snapshot, then records an explicit revision with its ID, digest, policy preview and
@@ -884,8 +885,8 @@ atomic local write and reads the object back to verify identical bytes. Fetch ch
 clear header and snapshot identity, writes mode 0600 and refuses to overwrite an
 existing local file. Configuration is environment-only for this slice
 (`REET_SETUP_S3_ENDPOINT`, `_BUCKET`, `_ACCESS_KEY`, `_SECRET_KEY`, optional `_REGION`,
-`_PREFIX`, `_PATH_STYLE`). No remote listing, deletion, retention, destination test,
-credential escrow or UI is implemented.
+`_PREFIX`, `_PATH_STYLE`). Later slices added remote listing, destination testing and
+profile-protected prune/delete; credential escrow and UI remain unimplemented.
 
 Validation: focused tests cover signed fake-store upload/read-back, fetch/header
 identity, existing-file refusal, missing configuration, CLI JSON output and encrypted
@@ -957,8 +958,8 @@ retention and verified cross-OS restore remain unimplemented.
 The current stage on `feat/setup-s3-list` adds `reet setup remote list` and
 `reet setup fetch --s3 --profile NAME`. Remote listing reads object metadata under the
 configured prefix without downloading or opening snapshots; fetch resolves the newest
-local profile revision and still checks the clear header and snapshot identity. Remote
-deletion, retention and destination testing remain unimplemented.
+local profile revision and still checks the clear header and snapshot identity. Later
+slices added destination testing and profile-protected remote prune/delete.
 
 Validation: focused tests cover fake-store listing, profile resolution, fetch and remote
 listing CLI output. Full `go vet ./...` and `go test -race ./...` passed. Web checks
@@ -1084,8 +1085,8 @@ snapshots and never prints credentials.
 Validation: focused tests cover all three steps, cleanup and CLI JSON output against a
 fake store. Full `go vet ./...` and `go test -race ./...` passed. Web checks passed (8
 tests; zero Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary smoke test
-will verify the destination test before merge; setup tests cross-compile for Windows
-amd64 and macOS arm64. `git diff --check` passed. No dependency changed.
+verified put/get/delete destination testing; setup tests cross-compile for Windows amd64
+and macOS arm64. `git diff --check` passed. No dependency changed.
 
 Account-synced profiles, machine/project-specific overrides, memory/history adapters and
 verified cross-OS restore remain unimplemented.

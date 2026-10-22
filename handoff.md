@@ -64,9 +64,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Handoff baseline refresh merged in [PR #83](https://github.com/eyupio/reet.sh/pull/83), `8354f57`.
 - Server-synced profiles merged in [PR #84](https://github.com/eyupio/reet.sh/pull/84), `1ba287a`.
 - The read-only Profiles web page merged in [PR #85](https://github.com/eyupio/reet.sh/pull/85), `8d60f1b`.
-- Latest verified source baseline: `origin/main` at `8d60f1b` (2026-10-22).
-- This handoff refresh is documentation-only; fetch remote status before continuing and
-  preserve any uncommitted work.
+- Profiles UI handoff refresh merged in [PR #86](https://github.com/eyupio/reet.sh/pull/86), `3040fc0`.
+- Latest verified source baseline: `origin/main` at `3040fc0` (2026-10-22).
+- Machine/project-scoped profile overrides are in [PR #87](https://github.com/eyupio/reet.sh/pull/87)
+  on `feat/setup-profile-scopes`; fetch remote status before continuing and preserve any
+  uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -115,6 +117,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Verify remote listing/deletion, profile revisions and final commands on the dev binary.
 - [x] Store and sync named setup profiles through the server API.
 - [x] Add a read-only Profiles web page with revision/override details and delete.
+- [x] Scope profile exclusions to named machines and projects.
 
 ## Implemented slice
 
@@ -342,9 +345,14 @@ profiles, latest revision metadata, selected/omitted counts, overrides and revis
 history, and lets writers delete the server copy. Creation, push/pull and restore stay in
 the CLI.
 
-Next implementation slice: machine/project-specific profile overrides or broader
-memory/history adapters, depending on owner priority. Do not claim cross-OS restore or a
-complete working-setup restore before their acceptance gates.
+S5h now scopes profile exclusions to named machines/projects:
+`profile save --exclude-kind/--exclude-source --machine NAME` and `--project PATH`.
+Restore/verify apply a machine scope with `--machine` and a project scope with
+`--project`; the Profiles page shows both. Unscoped save still stores global exclusions.
+
+Next implementation slice: broadening memory/history components or web profile editing,
+depending on owner priority. Do not claim cross-OS restore or a complete working-setup
+restore before their acceptance gates.
 
 ## Validation and continuation
 
@@ -1142,6 +1150,24 @@ control. Full `go vet ./...` and `go test -race ./...` passed; all 16 MCP tests 
 Machine/project-specific profile overrides, memory/history adapters and verified cross-OS
 restore remain unimplemented.
 
+## Machine/project-scoped profile overrides
+
+The current stage on `feat/setup-profile-scopes` adds scoped profile exclusions.
+`profile save --exclude-kind/--exclude-source --machine NAME` and `--project PATH` store
+the exclusions under that machine/project instead of globally. Restore/verify apply them
+with `--machine NAME`/`--project PATH`; the Profiles page lists them. Invalid/empty
+scopes are refused.
+
+Validation: focused tests cover scoped storage, unscoped versus machine application,
+empty-scope refusal and text/UI rendering. Full `go vet ./...` and
+`go test -race ./...` passed. Web checks passed (8 tests; zero Svelte diagnostics) and
+all 16 MCP tests passed. A compiled-binary smoke test verified machine-scoped restore and
+profile display; setup tests cross-compile for Windows amd64 and macOS arm64. `git diff --check`
+passed. No dependency changed.
+
+Broader memory/history adapters, web profile editing and verified cross-OS restore remain
+unimplemented.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -1159,14 +1185,13 @@ restore remain unimplemented.
    with rollback copies, destination verification, rollback, journal listing, local
    health guidance, per-destination conflict choices, optional software evidence,
    global/project instruction export, explicit portable credential inclusion, optional
-   S3 upload/fetch/listing/testing/prune/delete, named local profiles with
-   component/source overrides, revision selection, rename/remove, server push/pull, a
+   S3 upload/fetch/listing/testing/prune/delete, named local profiles with global and
+   machine/project-scoped overrides, revision selection, rename/remove, server push/pull, a
    read-only Profiles web page and local pruning are now implemented. The next slice is
-   machine/project-specific overrides or broader memory/history adapters, depending on
-   owner priority. Keep values encrypted and unknown formats unsupported. Do not claim
-   cross-OS restore or working-setup verification before their acceptance gates. Consult
-   the detailed plan for encryption, key handling, restore and compatibility
-   requirements.
+   broader memory/history adapters or web profile editing, depending on owner priority.
+   Keep values encrypted and unknown formats unsupported. Do not claim cross-OS restore
+   or working-setup verification before their acceptance gates. Consult the detailed
+   plan for encryption, key handling, restore and compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current
@@ -1181,8 +1206,9 @@ list journals, report local health guidance, apply per-destination conflict choi
 record/compare optional software evidence, export global/project instructions, optionally
 include portable literal credentials, save/use/manage named local profiles with
 overrides and revision selection, sync profiles to an account, view them in the web
-Profiles page, and prune old local snapshots, but machine/project-specific overrides,
-memory/history and verified cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
+Profiles page, apply machine/project-scoped profile exclusions, and prune old local
+snapshots, but broader memory/history, web profile editing and verified cross-OS recovery
+are not implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
 manage that server. No production host was upgraded by this session. Do not copy

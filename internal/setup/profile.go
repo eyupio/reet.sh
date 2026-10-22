@@ -17,9 +17,16 @@ const (
 	maxProfileBytes           = 4 << 20
 )
 
-type SetupProfileOverrides struct {
+type SetupProfileScope struct {
 	ExcludeKinds   []string `json:"exclude_kinds,omitempty"`
 	ExcludeSources []string `json:"exclude_sources,omitempty"`
+}
+
+type SetupProfileOverrides struct {
+	ExcludeKinds   []string                     `json:"exclude_kinds,omitempty"`
+	ExcludeSources []string                     `json:"exclude_sources,omitempty"`
+	Machines       map[string]SetupProfileScope `json:"machines,omitempty"`
+	Projects       map[string]SetupProfileScope `json:"projects,omitempty"`
 }
 
 type SetupProfileRevision struct {
@@ -36,6 +43,8 @@ type SetupProfileRevision struct {
 type SaveSetupProfileOptions struct {
 	ExcludeKinds   []string
 	ExcludeSources []string
+	Machines       []string
+	Projects       []string
 }
 
 type SetupProfile struct {
@@ -314,6 +323,16 @@ func renderProfile(out io.Writer, profile SetupProfile, revision SetupProfileRev
 				return err
 			}
 		}
+		for machine, scope := range revision.Overrides.Machines {
+			if _, err := fmt.Fprintf(out, "  machine %q excludes: kinds=%s sources=%s\n", machine, strings.Join(scope.ExcludeKinds, ", "), strings.Join(scope.ExcludeSources, ", ")); err != nil {
+				return err
+			}
+		}
+		for project, scope := range revision.Overrides.Projects {
+			if _, err := fmt.Fprintf(out, "  project %q excludes: kinds=%s sources=%s\n", project, strings.Join(scope.ExcludeKinds, ", "), strings.Join(scope.ExcludeSources, ", ")); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -337,6 +356,35 @@ func normalizeProfileOverrides(opts SaveSetupProfileOptions) (*SetupProfileOverr
 	}
 	sort.Strings(overrides.ExcludeKinds)
 	sort.Strings(overrides.ExcludeSources)
+	scoped := len(opts.Machines) > 0 || len(opts.Projects) > 0
+	if scoped {
+		if len(overrides.ExcludeKinds) == 0 && len(overrides.ExcludeSources) == 0 {
+			return nil, errors.New("machine/project overrides need at least one excluded kind or source")
+		}
+		scope := SetupProfileScope{ExcludeKinds: append([]string(nil), overrides.ExcludeKinds...), ExcludeSources: append([]string(nil), overrides.ExcludeSources...)}
+		overrides.ExcludeKinds, overrides.ExcludeSources = nil, nil
+		for _, machine := range opts.Machines {
+			machine = strings.TrimSpace(machine)
+			if machine == "" || len(machine) > 128 {
+				return nil, errors.New("machine overrides need a name of 1-128 characters")
+			}
+			if overrides.Machines == nil {
+				overrides.Machines = map[string]SetupProfileScope{}
+			}
+			overrides.Machines[machine] = scope
+		}
+		for _, project := range opts.Projects {
+			project = strings.TrimSpace(project)
+			if project == "" || len(project) > 1024 {
+				return nil, errors.New("project overrides need a path of 1-1024 characters")
+			}
+			if overrides.Projects == nil {
+				overrides.Projects = map[string]SetupProfileScope{}
+			}
+			overrides.Projects[project] = scope
+		}
+		return overrides, nil
+	}
 	if len(overrides.ExcludeKinds) == 0 && len(overrides.ExcludeSources) == 0 {
 		return nil, nil
 	}
@@ -345,17 +393,26 @@ func normalizeProfileOverrides(opts SaveSetupProfileOptions) (*SetupProfileOverr
 
 // ApplyProfileOverrides removes explicitly excluded sources/components before
 // planning or verification. It never adds or rewrites snapshot content.
-func ApplyProfileOverrides(snapshot SetupSnapshot, overrides *SetupProfileOverrides) SetupSnapshot {
+func ApplyProfileOverrides(snapshot SetupSnapshot, overrides *SetupProfileOverrides, machine, project string) SetupSnapshot {
 	if overrides == nil {
 		return snapshot
 	}
 	kinds := map[string]bool{}
-	for _, kind := range overrides.ExcludeKinds {
-		kinds[kind] = true
-	}
 	sources := map[string]bool{}
-	for _, source := range overrides.ExcludeSources {
-		sources[source] = true
+	addScope := func(scope SetupProfileScope) {
+		for _, kind := range scope.ExcludeKinds {
+			kinds[kind] = true
+		}
+		for _, source := range scope.ExcludeSources {
+			sources[source] = true
+		}
+	}
+	addScope(SetupProfileScope{ExcludeKinds: overrides.ExcludeKinds, ExcludeSources: overrides.ExcludeSources})
+	if machine != "" {
+		addScope(overrides.Machines[machine])
+	}
+	if project != "" {
+		addScope(overrides.Projects[project])
 	}
 	filtered := snapshot
 	filtered.Sources = []SetupSnapshotSource{}

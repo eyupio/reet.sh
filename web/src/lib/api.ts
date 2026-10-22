@@ -441,7 +441,11 @@ export type SetupProfileRevision = {
   snapshot_taken_at: string
   preview?: SetupProfilePreview
   software?: { agent_id: string; name: string; application_version?: string; installation_package?: string }[]
-  overrides?: { exclude_kinds?: string[]; exclude_sources?: string[] }
+  overrides?: {
+    exclude_kinds?: string[]; exclude_sources?: string[]
+    machines?: Record<string, { exclude_kinds?: string[]; exclude_sources?: string[] }>
+    projects?: Record<string, { exclude_kinds?: string[]; exclude_sources?: string[] }>
+  }
 }
 export type SetupProfileRecord = { schema_version: number; name: string; revisions: SetupProfileRevision[] }
 export type Machine = { aliases?: string[]; host: string; groups: SyncEnvironment[]; skillCount: number }

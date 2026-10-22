@@ -196,6 +196,11 @@ and confirmation remain local. Do not expose credential values in web previews.
 
 ### S1 — Typed component inventory and export policy
 
+Deliver S1 as separately tested slices: S1a adds opt-in bounded strict-JSON
+settings/MCP summaries and credential hints; S1b adds TOML/JSONC format adapters;
+S1c covers version/provenance capture and component export policies. S1a must not
+claim that the complete S1 acceptance gate or any restore capability has landed.
+
 - Parse agent-specific config formats and MCP declarations with bounded reads.
 - Record versions, installation provenance, dependencies, global/project scope,
   custom files and local modifications. Add opt-in bounded version probes.

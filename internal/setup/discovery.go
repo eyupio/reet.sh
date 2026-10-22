@@ -25,12 +25,13 @@ type Report struct {
 }
 
 type Agent struct {
-	ID           string       `json:"id"`
-	Name         string       `json:"name"`
-	State        string       `json:"state"` // detected, not_detected, unknown
-	Executable   Executable   `json:"executable"`
-	Locations    []Location   `json:"locations"`
-	Capabilities Capabilities `json:"capabilities"`
+	ID           string              `json:"id"`
+	Name         string              `json:"name"`
+	State        string              `json:"state"` // detected, not_detected, unknown
+	Executable   Executable          `json:"executable"`
+	Locations    []Location          `json:"locations"`
+	Capabilities Capabilities        `json:"capabilities"`
+	Components   *ComponentInventory `json:"components,omitempty"`
 }
 
 type Executable struct {

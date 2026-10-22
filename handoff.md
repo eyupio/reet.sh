@@ -20,8 +20,9 @@ storage plus optional S3; named profiles with machine/project overrides.
 
 ## Branch and baseline
 
-- Branch: `feat/agent-setup-backup-plan`.
-- Base: `origin/main` at `3fd9e2c` (includes controller skill sync, PR #38).
+- S0 merged in [PR #39](https://github.com/eyupio/reet.sh/pull/39) after both CI workflows passed.
+- Current branch: `feat/setup-component-inventory`.
+- Base: `origin/main` at `d8bf10c` (PR #39 merge).
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -47,16 +48,18 @@ covered by tests. Details: [setup discovery](docs/setup-discovery.md).
 
 ## Next implementation task
 
-No setup backup/restore command is implemented in this slice. The next task after
-S0 is typed component inventory and secret classification (S1), before collecting
-file contents into archives. Do not generically copy agent configuration trees:
-they may mix secrets, session history, caches and executable hooks.
+S1a is implemented locally: `reet setup scan --components` opts into bounded
+strict-JSON settings/MCP summaries with schema v2. Default schema v1 remains
+metadata-only. Per-source partial/error/unsupported states, credential/reference
+counts, parser limits and inode checks are tested. TOML/JSONC remain explicitly
+unsupported; no config values are returned. See the discovery guide for exact
+coverage and limitations. S1a is not the complete S1 acceptance gate.
 
-Start S1 with fixture-backed parsing of the named agents' settings and MCP
-declarations. Add bounded file reads, component provenance, secret-reference
-classification and explicit partial-read diagnostics. Keep raw secret values out
-of inventory JSON. Document formats/versions actually tested and unsupported
-fields. Only then define archive selection and collection contracts for S2.
+Next: S1b format adapters for Codex TOML and OpenCode JSONC, with fixtures,
+bounded parsing and the same no-values output contract. Then S1c adds
+version/provenance capture and explicit component export policies. Do not copy
+configuration trees generically: they may mix secrets, history, caches and hooks.
+No setup backup/restore command is implemented yet.
 
 ## Validation and continuation
 
@@ -88,4 +91,16 @@ Validation completed on Linux on 22 October 2026:
 Initial checks needed the existing Go/MCP dependencies downloaded with sandbox
 network access; reruns then passed. No dependency or lockfile changes were made.
 No macOS/Windows runtime or cross-OS restore verification has been performed.
-The PR remains a draft for the broader initiative; S0 is implemented and tested.
+S0 merged after image and binary-release CI passed for `2d99832`.
+
+## Current-stage validation
+
+S1a validation on Linux: focused setup race tests, `go vet ./...`, full
+`go test -race ./...`, web checks (8 tests; zero Svelte diagnostics) and MCP tests
+(14 tests) all passed. Compiled CLI smoke tests verified schema v1/v2 opt-in,
+credential-value omission, literal/reference counts, text output and explicit
+unsupported TOML reporting. `git diff --check` passed. No new dependencies.
+
+Merge each stage only after its PR CI passes; the owner has authorised merging
+green stages and continuing on fresh branches. Preserve this rule in subsequent
+handoffs. Do not equate fixture-backed format parsing with verified restoration.

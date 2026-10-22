@@ -224,12 +224,15 @@ CLI. It does not require a reet account or server:
 reet setup scan
 reet setup scan --json
 reet setup scan --project /path/to/project
+reet setup scan --components --json
 ```
 
-This first step towards complete setup backup/restore checks path metadata and
-executable availability only. It does not read configuration contents, run agents,
-collect credentials, upload reports or change files. It reports setup backup and
-restore as **not implemented**. Existing instance and shelf backups below remain
+The default checks path metadata and executable availability only. Opt into
+`--components` to read bounded, known JSON configuration files and summarise
+settings, MCP declarations and credential requirements without returning values.
+Unsupported formats and incomplete reads are explicit. Neither mode runs agents,
+uploads reports or changes files. Setup backup and restore are **not implemented**.
+Existing instance and shelf backups below remain
 separate. See [setup discovery and limits](docs/setup-discovery.md), the
 [implementation plan](docs/agent-setup-plan.md) and [handoff](handoff.md).
 

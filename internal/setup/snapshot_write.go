@@ -73,6 +73,7 @@ type SetupWriteResult struct {
 	CredentialsIncluded bool            `json:"credentials_included,omitempty"`
 	Preview             SnapshotPreview `json:"preview"`
 	Software            []SetupSoftware `json:"software,omitempty"`
+	S3                  *SetupS3Result  `json:"s3,omitempty"`
 }
 
 func validateSetupPassphrase(passphrase string) error {

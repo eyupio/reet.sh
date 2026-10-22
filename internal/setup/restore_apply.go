@@ -24,11 +24,12 @@ const (
 )
 
 type RestoreApplyOptions struct {
-	JournalDir  string
-	Now         func() time.Time
-	Conflict    string            // "", "skip" or "replace"
-	Conflicts   map[string]string // destination path -> skip or replace
-	beforeWrite func(string) error
+	JournalDir    string
+	Now           func() time.Time
+	Conflict      string            // "", "skip" or "replace"
+	Conflicts     map[string]string // destination path -> skip or replace
+	ResumeJournal string
+	beforeWrite   func(string) error
 }
 
 type RestoreApplyResult struct {
@@ -40,6 +41,7 @@ type RestoreApplyResult struct {
 	Skipped         []string  `json:"skipped"`
 	Backups         []string  `json:"backups"`
 	JournalPath     string    `json:"journal_path"`
+	Resumed         bool      `json:"resumed,omitempty"`
 	CompletedAt     time.Time `json:"completed_at"`
 }
 
@@ -98,9 +100,54 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 		}
 		choices[path] = policy
 	}
+	resuming := opts.ResumeJournal != ""
+	var journal restoreJournal
+	var journalPath string
+	journalIndex := map[string]int{}
+	if resuming {
+		loaded, _, err := loadRestoreJournal(opts.ResumeJournal)
+		if err != nil {
+			return RestoreApplyResult{}, err
+		}
+		if loaded.State != "running" {
+			return RestoreApplyResult{}, fmt.Errorf("restore journal is %s, not running", loaded.State)
+		}
+		if loaded.SnapshotID != plan.SnapshotID {
+			return RestoreApplyResult{}, errors.New("the restore journal belongs to a different snapshot")
+		}
+		journal, journalPath = loaded, opts.ResumeJournal
+		for i, entry := range journal.Actions {
+			dest := filepath.Clean(entry.Destination)
+			if _, exists := journalIndex[dest]; exists {
+				return RestoreApplyResult{}, errors.New("the restore journal has duplicate destinations")
+			}
+			journalIndex[dest] = i
+		}
+		for _, action := range plan.Actions {
+			if _, ok := journalIndex[filepath.Clean(action.Destination)]; !ok {
+				return RestoreApplyResult{}, fmt.Errorf("the restore journal has no entry for %q", action.Destination)
+			}
+		}
+	}
 	for _, action := range plan.Actions {
+		dest := filepath.Clean(action.Destination)
+		if resuming {
+			entry := journal.Actions[journalIndex[dest]]
+			switch entry.State {
+			case "created", "replaced":
+				if err := verifyAppliedAction(plan, dest, entry); err != nil {
+					return RestoreApplyResult{}, err
+				}
+				continue
+			case "skipped":
+				continue
+			case "pending":
+			default:
+				return RestoreApplyResult{}, fmt.Errorf("restore journal action %q is %s and cannot be resumed", action.Destination, entry.State)
+			}
+		}
 		policy := opts.Conflict
-		if choice, ok := choices[filepath.Clean(action.Destination)]; ok {
+		if choice, ok := choices[dest]; ok {
 			policy = choice
 		}
 		switch action.State {
@@ -145,35 +192,56 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 			return RestoreApplyResult{}, fmt.Errorf("the restore plan has an unknown %s action for %q", action.State, action.Destination)
 		}
 	}
-	now := time.Now().UTC()
-	if opts.Now != nil {
-		now = opts.Now().UTC()
-	}
-	journalDir := opts.JournalDir
-	if journalDir == "" {
+	if resuming {
+		for dest, index := range journalIndex {
+			entry := journal.Actions[index]
+			if _, planned := actionsByDestination[dest]; planned {
+				continue
+			}
+			switch entry.State {
+			case "created", "replaced":
+				if err := verifyAppliedAction(plan, dest, entry); err != nil {
+					return RestoreApplyResult{}, err
+				}
+			case "skipped":
+			case "pending":
+				return RestoreApplyResult{}, fmt.Errorf("the restore journal has a pending action for %q that is not in the plan", dest)
+			default:
+				return RestoreApplyResult{}, fmt.Errorf("restore journal action %q is %s and cannot be resumed", dest, entry.State)
+			}
+		}
+	} else {
+		now := time.Now().UTC()
+		if opts.Now != nil {
+			now = opts.Now().UTC()
+		}
+		journalDir := opts.JournalDir
+		if journalDir == "" {
+			var err error
+			journalDir, err = SnapshotDir()
+			if err != nil {
+				return RestoreApplyResult{}, err
+			}
+		}
+		if err := prepareSnapshotDir(journalDir); err != nil {
+			return RestoreApplyResult{}, err
+		}
 		var err error
-		journalDir, err = SnapshotDir()
+		journalPath, err = newRestoreJournalPath(journalDir, plan.SnapshotID, now)
 		if err != nil {
 			return RestoreApplyResult{}, err
 		}
-	}
-	if err := prepareSnapshotDir(journalDir); err != nil {
-		return RestoreApplyResult{}, err
-	}
-	journalPath, err := newRestoreJournalPath(journalDir, plan.SnapshotID, now)
-	if err != nil {
-		return RestoreApplyResult{}, err
-	}
-	journal := restoreJournal{
-		SchemaVersion: restoreJournalSchemaVersion, SnapshotID: plan.SnapshotID,
-		PlanFingerprint: plan.Fingerprint, State: "running", StartedAt: now,
-		Actions: make([]restoreJournalAction, len(plan.Actions)),
-	}
-	for i, action := range plan.Actions {
-		journal.Actions[i] = restoreJournalAction{Destination: action.Destination, State: "pending"}
-	}
-	if err := writeRestoreJournal(journalPath, journal); err != nil {
-		return RestoreApplyResult{}, err
+		journal = restoreJournal{
+			SchemaVersion: restoreJournalSchemaVersion, SnapshotID: plan.SnapshotID,
+			PlanFingerprint: plan.Fingerprint, State: "running", StartedAt: now,
+			Actions: make([]restoreJournalAction, len(plan.Actions)),
+		}
+		for i, action := range plan.Actions {
+			journal.Actions[i] = restoreJournalAction{Destination: action.Destination, State: "pending"}
+		}
+		if err := writeRestoreJournal(journalPath, journal); err != nil {
+			return RestoreApplyResult{}, err
+		}
 	}
 	created := []string{}
 	replaced := []string{}
@@ -227,46 +295,63 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 		return RestoreApplyResult{}, cause
 	}
 	for i, action := range plan.Actions {
+		dest := filepath.Clean(action.Destination)
+		journalIndexForAction := i
+		if resuming {
+			journalIndexForAction = journalIndex[dest]
+			switch journal.Actions[journalIndexForAction].State {
+			case "created":
+				created = append(created, action.Destination)
+				continue
+			case "replaced":
+				replaced = append(replaced, action.Destination)
+				backups = append(backups, journal.Actions[journalIndexForAction].Backup)
+				continue
+			case "skipped":
+				skipped = append(skipped, action.Destination)
+				continue
+			}
+		}
 		policy := opts.Conflict
-		if choice, ok := choices[filepath.Clean(action.Destination)]; ok {
+		if choice, ok := choices[dest]; ok {
 			policy = choice
 		}
 		if action.State == "conflict" && policy == "skip" {
-			journal.Actions[i].State = "skipped"
+			journal.Actions[journalIndexForAction].State = "skipped"
 			skipped = append(skipped, action.Destination)
 			if err := writeRestoreJournal(journalPath, journal); err != nil {
-				return fail(i, fmt.Errorf("update the restore journal: %w", err))
+				return fail(journalIndexForAction, fmt.Errorf("update the restore journal: %w", err))
 			}
 			continue
 		}
 		file, ok := plan.files[action.Destination]
 		if !ok {
-			return fail(i, fmt.Errorf("the plan has no selected content for %q", action.Destination))
+			return fail(journalIndexForAction, fmt.Errorf("the plan has no selected content for %q", action.Destination))
 		}
 		data, err := restoreContent(file)
 		if err != nil {
-			return fail(i, err)
+			return fail(journalIndexForAction, err)
 		}
 		if action.State == "merge" || action.State == "conflict" && policy == "replace" {
-			backup := restoreBackupPath(journalPath, i)
+			backup := restoreBackupPath(journalPath, journalIndexForAction)
 			if err := copyRestoreBackup(action.Destination, backup); err != nil {
-				return fail(i, err)
+				return fail(journalIndexForAction, err)
 			}
-			journal.Actions[i].Backup = backup
+			journal.Actions[journalIndexForAction].Backup = backup
 			if info, err := os.Lstat(action.Destination); err == nil {
-				journal.Actions[i].BackupMode = uint32(info.Mode().Perm())
+				journal.Actions[journalIndexForAction].BackupMode = uint32(info.Mode().Perm())
 			}
-			journal.Actions[i].BackupSHA256 = fileSHA256(backup)
-			if journal.Actions[i].BackupSHA256 == "" {
-				return fail(i, fmt.Errorf("read the rollback copy for %q", action.Destination))
+			journal.Actions[journalIndexForAction].BackupSHA256 = fileSHA256(backup)
+			if journal.Actions[journalIndexForAction].BackupSHA256 == "" {
+				return fail(journalIndexForAction, fmt.Errorf("read the rollback copy for %q", action.Destination))
 			}
 			if err := writeRestoreJournal(journalPath, journal); err != nil {
-				return fail(i, fmt.Errorf("record the rollback copy: %w", err))
+				return fail(journalIndexForAction, fmt.Errorf("record the rollback copy: %w", err))
 			}
 		}
 		if opts.beforeWrite != nil {
 			if err := opts.beforeWrite(action.Destination); err != nil {
-				return fail(i, err)
+				return fail(journalIndexForAction, err)
 			}
 		}
 		mode := os.FileMode(0o600)
@@ -274,24 +359,24 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 			mode = file.mode
 		}
 		if err := writeRestoreFile(action.Destination, data, action.State == "merge" || action.State == "conflict" && policy == "replace", mode); err != nil {
-			return fail(i, err)
+			return fail(journalIndexForAction, err)
 		}
 		if err := verifyRestoreFile(action.Destination, file); err != nil {
 			_ = os.Remove(action.Destination)
-			return fail(i, err)
+			return fail(journalIndexForAction, err)
 		}
-		journal.Actions[i].AppliedSHA256 = sha256Bytes(data)
+		journal.Actions[journalIndexForAction].AppliedSHA256 = sha256Bytes(data)
 		switch action.State {
 		case "create":
 			created = append(created, action.Destination)
-			journal.Actions[i].State = "created"
+			journal.Actions[journalIndexForAction].State = "created"
 		case "merge", "conflict":
 			replaced = append(replaced, action.Destination)
-			backups = append(backups, journal.Actions[i].Backup)
-			journal.Actions[i].State = "replaced"
+			backups = append(backups, journal.Actions[journalIndexForAction].Backup)
+			journal.Actions[journalIndexForAction].State = "replaced"
 		}
 		if err := writeRestoreJournal(journalPath, journal); err != nil {
-			return fail(i, fmt.Errorf("update the restore journal: %w", err))
+			return fail(journalIndexForAction, fmt.Errorf("update the restore journal: %w", err))
 		}
 	}
 	finished := time.Now().UTC()
@@ -299,10 +384,14 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 	if err := writeRestoreJournal(journalPath, journal); err != nil {
 		return fail(-1, fmt.Errorf("finish the restore journal: %w", err))
 	}
+	fingerprint := plan.Fingerprint
+	if resuming {
+		fingerprint = journal.PlanFingerprint
+	}
 	return RestoreApplyResult{
 		SchemaVersion: restoreApplySchemaVersion, SnapshotID: plan.SnapshotID,
-		PlanFingerprint: plan.Fingerprint, Created: created, Replaced: replaced,
-		Skipped: skipped, Backups: backups, JournalPath: journalPath, CompletedAt: finished,
+		PlanFingerprint: fingerprint, Created: created, Replaced: replaced,
+		Skipped: skipped, Backups: backups, JournalPath: journalPath, Resumed: resuming, CompletedAt: finished,
 	}, nil
 }
 
@@ -482,6 +571,29 @@ func verifyRestoreFile(path string, file restoreFile) error {
 	return nil
 }
 
+func verifyAppliedAction(plan RestorePlan, destination string, entry restoreJournalAction) error {
+	file, ok := plan.files[destination]
+	if !ok {
+		return fmt.Errorf("the plan has no content for applied destination %q", destination)
+	}
+	expected, err := restoreContent(file)
+	if err != nil {
+		return err
+	}
+	expectedHash := sha256Bytes(expected)
+	if entry.AppliedSHA256 == "" || entry.AppliedSHA256 != expectedHash {
+		return fmt.Errorf("restore journal for %q does not match the snapshot content", destination)
+	}
+	info, err := os.Lstat(destination)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("applied destination %q is not a regular file", destination)
+	}
+	if fileSHA256(destination) != expectedHash {
+		return fmt.Errorf("applied destination %q changed after the partial restore", destination)
+	}
+	return nil
+}
+
 func newRestoreJournalPath(dir, snapshotID string, now time.Time) (string, error) {
 	safe := strings.Map(func(r rune) rune {
 		if r == '-' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
@@ -533,6 +645,11 @@ func writeRestoreJournal(path string, journal restoreJournal) error {
 func renderRestoreApply(out io.Writer, result RestoreApplyResult) error {
 	if _, err := fmt.Fprintf(out, "Restored %d files from setup snapshot %s.\n", len(result.Created), result.SnapshotID); err != nil {
 		return err
+	}
+	if result.Resumed {
+		if _, err := fmt.Fprintln(out, "Resumed a partially applied restore journal."); err != nil {
+			return err
+		}
 	}
 	for _, path := range result.Created {
 		if _, err := fmt.Fprintf(out, "  %q\n", path); err != nil {

@@ -145,6 +145,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Create missing skills CLI lock files from recorded provenance.
 - [x] Merge missing skill provenance into existing lock files safely.
 - [x] Publish the conservative per-agent component and restore support matrix.
+- [x] Resume an interrupted apply journal after rechecking applied actions.
 
 ## Implemented slice
 
@@ -1240,8 +1241,8 @@ zero Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary smoke te
 verify the simplified command before merge; setup tests cross-compile for Windows amd64
 and macOS arm64. `git diff --check` passed. No dependency changed.
 
-Skill dependency resolution, memory/history adapters, interrupted-restore resumption,
-broader web profile editing and verified cross-OS restore remain unimplemented.
+Skill dependency resolution, memory/history adapters, broader web profile editing and
+verified cross-OS restore remain unimplemented.
 
 ## Interactive backup passphrase
 
@@ -1258,8 +1259,8 @@ diagnostics) and all 16 MCP tests passed. A PTY smoke test verified the two-prom
 macOS arm64.
 `git diff --check` passed. No dependency changed (x/term was already present).
 
-Skill dependency resolution, memory/history adapters, interrupted-restore resumption,
-broader web profile editing and verified cross-OS restore remain unimplemented.
+Skill dependency resolution, memory/history adapters, broader web profile editing and
+verified cross-OS restore remain unimplemented.
 
 ## Interactive setup-profile wizard
 
@@ -1277,8 +1278,8 @@ diagnostics) and all 16 MCP tests passed. Setup tests cross-compile for Windows 
 macOS arm64. `git diff --check` passed. No dependency changed (x/term was already
 present).
 
-Skill dependency resolution, memory/history adapters, interrupted-restore resumption,
-broader web profile editing and verified cross-OS restore remain unimplemented.
+Skill dependency resolution, memory/history adapters, broader web profile editing and
+verified cross-OS restore remain unimplemented.
 
 ## Wizard sync and env-file defaults
 
@@ -1294,8 +1295,8 @@ pushed it to a local fake server using `.env`. Full `go vet ./...` and
 all 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and macOS arm64.
 `git diff --check` passed. No dependency changed.
 
-Skill dependency resolution, memory/history adapters, interrupted-restore resumption,
-broader web profile editing and verified cross-OS restore remain unimplemented.
+Skill dependency resolution, memory/history adapters, broader web profile editing and
+verified cross-OS restore remain unimplemented.
 
 ## Rejected profile-sync token retry
 
@@ -1309,8 +1310,8 @@ Validation: focused tests cover the unauthorized sentinel; a PTY smoke test used
 diagnostics) and all 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and
 macOS arm64. `git diff --check` passed. No dependency changed.
 
-Skill dependency resolution, memory/history adapters, interrupted-restore resumption,
-broader web profile editing and verified cross-OS restore remain unimplemented.
+Skill dependency resolution, memory/history adapters, broader web profile editing and
+verified cross-OS restore remain unimplemented.
 
 ## Profile preview defaults and saved-token retry
 
@@ -1326,8 +1327,8 @@ capture and silent saved-token retry with a stale `.env` token. Full `go vet ./.
 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and macOS arm64.
 `git diff --check` passed. No dependency changed.
 
-Skill dependency resolution, memory/history adapters, interrupted-restore resumption,
-broader web profile editing and verified cross-OS restore remain unimplemented.
+Skill dependency resolution, memory/history adapters, broader web profile editing and
+verified cross-OS restore remain unimplemented.
 
 ## Skills in setup snapshots
 
@@ -1352,6 +1353,21 @@ verify and rollback mode preservation. A manual end-to-end run backed up two ski
 folders, restored them into a fresh home and verified both. Web checks pass with zero
 Svelte diagnostics; a seeded profile rendered both skill names. Full Go, MCP and web
 checks pass.
+
+## Restore resume
+
+A running apply journal can now be resumed with `reet setup restore --resume JOURNAL
+SNAPSHOT` (also with a profile). The command rebuilds the plan, verifies every
+already-applied action against the snapshot hash, skips them, and applies only pending
+actions. A changed applied file, a completed/failed journal, a snapshot mismatch or a
+pending action missing from the rebuilt plan refuses the resume. A failure while
+resuming uses the same rollback path as a normal apply.
+
+Validation: tests cover continuing pending actions, completed journal state and refusing
+a changed applied file. Full Go, web and MCP checks pass.
+
+Interrupted restoration now has an explicit recovery path; runtime/health verification
+and cross-OS claims remain separate gates.
 
 ## Support matrix
 
@@ -1429,8 +1445,8 @@ checks passed (8 tests; zero Svelte diagnostics) and all 16 MCP tests passed. Se
 cross-compile for Windows amd64 and macOS arm64. `git diff --check` passed. No dependency
 changed.
 
-Skill dependency resolution, memory/history adapters, interrupted-restore resumption,
-broader web profile editing and verified cross-OS restore remain unimplemented.
+Skill dependency resolution, memory/history adapters, broader web profile editing and
+verified cross-OS restore remain unimplemented.
 
 ## Resume checklist (2026-10-22)
 

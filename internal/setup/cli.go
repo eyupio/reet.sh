@@ -30,7 +30,7 @@ func Run(args []string, out io.Writer, remote ...ProfileRemote) error {
        reet setup backup [--password-file FILE] [--dir DIR] [--json] [--project PATH] [--probe-versions] [--inspect-installation] [--include-credentials] [--s3]
        reet setup list [--json] [--dir DIR]
        reet setup inspect [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE]
-       reet setup restore [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] [--apply] [--on-conflict skip|replace] [--conflict PATH=skip|replace]...
+       reet setup restore [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] [--apply] [--resume JOURNAL] [--on-conflict skip|replace] [--conflict PATH=skip|replace]...
        reet setup verify [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation]
        reet setup rollback (--journal FILE | --last) [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH]
        reet setup journals [--json] [--dir DIR]
@@ -307,6 +307,7 @@ func runRestore(args []string, out io.Writer) error {
 	probeVersions := f.Bool("probe-versions", false, "compare application --version reports before planning")
 	inspectInstallation := f.Bool("inspect-installation", false, "compare bounded local Node package evidence before planning")
 	apply := f.Bool("apply", false, "apply the plan; conflicts need --on-conflict")
+	resume := f.String("resume", "", "resume this running restore journal; implies --apply")
 	onConflict := f.String("on-conflict", "", "for conflicting destinations: skip or replace; default refuses the run")
 	conflicts := conflictChoicesFlag{}
 	f.Var(conflicts, "conflict", "per-destination conflict policy PATH=skip|replace; repeat for several")
@@ -320,7 +321,10 @@ func runRestore(args []string, out io.Writer) error {
 		return runRestoreWizard(out, *dir, *project, *machine)
 	}
 	if (*profile == "") == (f.NArg() != 1) {
-		return fmt.Errorf("usage: reet setup restore [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] [--apply] [--on-conflict skip|replace] [--conflict PATH=skip|replace]...")
+		return fmt.Errorf("usage: reet setup restore [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] [--apply] [--resume JOURNAL] [--on-conflict skip|replace] [--conflict PATH=skip|replace]...")
+	}
+	if *resume != "" {
+		*apply = true
 	}
 	if !*apply && (*onConflict != "" || len(conflicts) > 0) {
 		return fmt.Errorf("--on-conflict and --conflict are only used with --apply")
@@ -370,7 +374,7 @@ func runRestore(args []string, out io.Writer) error {
 	}
 	plan := BuildRestorePlan(snapshot, manifest, destination)
 	if *apply {
-		result, err := ApplyRestorePlan(plan, RestoreApplyOptions{JournalDir: *dir, Conflict: *onConflict, Conflicts: conflicts})
+		result, err := ApplyRestorePlan(plan, RestoreApplyOptions{JournalDir: *dir, Conflict: *onConflict, Conflicts: conflicts, ResumeJournal: *resume})
 		if err != nil {
 			return err
 		}

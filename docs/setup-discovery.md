@@ -406,6 +406,31 @@ runtime behaviour, and it is not proof that the setup works on this machine or a
 OS. It also reports the snapshot's omitted/unsupported classes so they are not silently
 treated as verified.
 
+## Rolling back an applied setup (S4c)
+
+```sh
+reet setup rollback --journal FILE --password-file FILE SNAPSHOT
+reet setup rollback --journal FILE --password-file FILE --json SNAPSHOT
+```
+
+`reet setup rollback` reverses a completed apply journal. It requires the snapshot and
+its passphrase so the journal can be checked against the snapshot content. Before
+changing anything it verifies the snapshot ID, each recorded applied digest and every
+current destination; it refuses if a destination changed after the apply. Rollback
+copies must be regular files in the journal's directory with the expected digest.
+
+Created files are removed and replaced files are restored from their rollback copies.
+Skipped conflicts are left alone. The journal becomes `rolled_back`; running the same
+rollback again is a no-op. A failed or already failed apply journal is refused. If an
+operating-system error interrupts rollback, the journal records `rollback_failed` and
+the operation is best-effort rather than a filesystem transaction. Rollback copies are
+left in place for inspection.
+
+Rollback does not run installers, hooks, package managers or authentication and does
+not verify runtime health. Per-file conflict choices, runtime health checks,
+dependency/version resolution, S3 delivery and cross-OS translation remain
+unimplemented.
+
 ## Opt-in application version probes
 
 ```sh

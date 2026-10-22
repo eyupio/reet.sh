@@ -2,6 +2,7 @@ package setup
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -19,7 +20,7 @@ import (
 
 const (
 	restoreApplySchemaVersion   = 1
-	restoreJournalSchemaVersion = 1
+	restoreJournalSchemaVersion = 2
 )
 
 type RestoreApplyOptions struct {
@@ -52,10 +53,12 @@ type restoreJournal struct {
 }
 
 type restoreJournalAction struct {
-	Destination string `json:"destination"`
-	State       string `json:"state"`
-	Backup      string `json:"backup,omitempty"`
-	Error       string `json:"error,omitempty"`
+	Destination   string `json:"destination"`
+	State         string `json:"state"`
+	Backup        string `json:"backup,omitempty"`
+	AppliedSHA256 string `json:"applied_sha256,omitempty"`
+	BackupSHA256  string `json:"backup_sha256,omitempty"`
+	Error         string `json:"error,omitempty"`
 }
 
 // ApplyRestorePlan creates new files or replaces conflicts according to the
@@ -201,6 +204,10 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 				return fail(i, err)
 			}
 			journal.Actions[i].Backup = backup
+			journal.Actions[i].BackupSHA256 = fileSHA256(backup)
+			if journal.Actions[i].BackupSHA256 == "" {
+				return fail(i, fmt.Errorf("read the rollback copy for %q", action.Destination))
+			}
 			if err := writeRestoreJournal(journalPath, journal); err != nil {
 				return fail(i, fmt.Errorf("record the rollback copy: %w", err))
 			}
@@ -217,6 +224,7 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 			_ = os.Remove(action.Destination)
 			return fail(i, err)
 		}
+		journal.Actions[i].AppliedSHA256 = sha256Bytes(data)
 		switch action.State {
 		case "create":
 			created = append(created, action.Destination)
@@ -458,4 +466,17 @@ func renderRestoreApply(out io.Writer, result RestoreApplyResult) error {
 		return err
 	}
 	return nil
+}
+
+func sha256Bytes(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func fileSHA256(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return sha256Bytes(data)
 }

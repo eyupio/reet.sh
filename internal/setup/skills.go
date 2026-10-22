@@ -45,6 +45,7 @@ type SetupSkill struct {
 	LocationSource string           `json:"location_source,omitempty"`
 	Origin         string           `json:"origin,omitempty"`
 	OriginType     string           `json:"origin_type,omitempty"`
+	OriginPath     string           `json:"origin_path,omitempty"`
 	Files          []SetupSkillFile `json:"files"`
 	Digest         string           `json:"digest"`
 }
@@ -271,6 +272,7 @@ func setupSkillDigest(files []SetupSkillFile) string {
 type skillLockEntry struct {
 	Source     string
 	SourceType string
+	SkillPath  string
 }
 
 func readSkillLock(path string) map[string]skillLockEntry {
@@ -298,7 +300,7 @@ func readSkillLock(path string) map[string]skillLockEntry {
 		for key, entry := range asMap {
 			name := lockSkillName(key, entry.SkillPath)
 			if entry.Source != "" {
-				entries[name] = skillLockEntry{Source: entry.Source, SourceType: entry.SourceType}
+				entries[name] = skillLockEntry{Source: entry.Source, SourceType: entry.SourceType, SkillPath: entry.SkillPath}
 			}
 		}
 		return entries
@@ -341,6 +343,20 @@ func attachSkillOrigin(skill *SetupSkill, scope string, global, project map[stri
 	}
 	origin, originType := safeSkillOrigin(entry.Source, entry.SourceType)
 	skill.Origin, skill.OriginType = origin, originType
+	skill.OriginPath = safeSkillPath(skill.Name, entry.SkillPath)
+}
+
+func safeSkillPath(name, path string) string {
+	path = strings.ReplaceAll(strings.TrimSpace(path), `\`, "/")
+	if path == "" || strings.HasPrefix(path, "/") || len(path) > 1024 {
+		return name + "/SKILL.md"
+	}
+	for _, segment := range strings.Split(path, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return name + "/SKILL.md"
+		}
+	}
+	return path
 }
 
 func safeSkillOrigin(source, sourceType string) (string, string) {

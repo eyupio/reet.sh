@@ -290,8 +290,8 @@ hooks and caches. It reads no configuration values and implements no export.
   skill folders are captured as whole bounded directories in the encrypted snapshot and
   restored file-by-file; symlinked or special files make that skill an explicit
   omission. Sanitised source provenance from skills CLI lock files is recorded in the
-  snapshot, while lock files are not rewritten on restore. Exclusions can be scoped to
-  named
+  snapshot. Restore creates a missing lock file from those entries but leaves an existing
+  lock file untouched. Exclusions can be scoped to named
   machines/projects. The web page can rename or delete a server copy, while local
   profile creation and edits remain CLI commands; broader web editing remains later
   work.

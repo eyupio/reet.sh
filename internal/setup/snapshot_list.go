@@ -196,16 +196,18 @@ func InspectSetupSnapshot(path, password, dir string) (SetupSnapshotInspection, 
 	inspection.Software = snapshot.Software
 	for _, source := range snapshot.Sources {
 		summary := SetupSnapshotSourceSummary{
-			Path: source.Path, Component: source.Component, Fields: len(source.Content),
+			Path: source.Path, Component: source.Component, Fields: len(source.Content), Digest: source.Digest,
 		}
 		if source.Component == "mcp" {
 			summary.Declarations = len(source.Content)
 			summary.Fields = 0
 		}
-		for _, agent := range preview.Agents {
-			for _, component := range agent.Components {
-				if component.Source == source.Path && component.Kind == source.Component {
-					summary.Digest = component.Digest
+		if summary.Digest == "" {
+			for _, agent := range preview.Agents {
+				for _, component := range agent.Components {
+					if component.Source == source.Path && component.Kind == source.Component {
+						summary.Digest = component.Digest
+					}
 				}
 			}
 		}

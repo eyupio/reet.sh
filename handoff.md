@@ -42,10 +42,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Per-destination conflict choices merged in [PR #62](https://github.com/eyupio/reet.sh/pull/62), `2abd67f`.
 - Snapshot software evidence merged in [PR #63](https://github.com/eyupio/reet.sh/pull/63), `3b19a69`.
 - Project instruction export merged in [PR #64](https://github.com/eyupio/reet.sh/pull/64), `f47e3df`.
-- Latest verified source baseline: `origin/main` at `f47e3df` (2026-10-22).
-- Global instruction discovery/export is in [PR #65](https://github.com/eyupio/reet.sh/pull/65)
-  on `feat/setup-global-instructions`; fetch remote status before continuing and preserve
-  any uncommitted work.
+- Global instruction discovery merged in [PR #65](https://github.com/eyupio/reet.sh/pull/65), `2df4b44`.
+- Latest verified source baseline: `origin/main` at `2df4b44` (2026-10-22).
+- Explicit portable credential inclusion is in [PR #66](https://github.com/eyupio/reet.sh/pull/66)
+  on `feat/setup-portable-credentials`; fetch remote status before continuing and
+  preserve any uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -74,6 +75,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Record optional application/package evidence and compare it during verify.
 - [x] Export, restore and verify discovered project instruction files as encrypted text.
 - [x] Discover global instruction files under the supported config locations.
+- [x] Add explicit encrypted inclusion of portable literal credential values.
 
 ## Implemented slice
 
@@ -202,6 +204,14 @@ Gemini CLI (for example `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`), honouri
 existing config-directory overrides. They use the same encrypted text export, restore,
 verify and conflict handling as project instructions; other or unlisted instruction
 locations remain uninventoried.
+
+S2d now adds `reet setup backup --include-credentials`, explicitly selecting literal
+values from policy `encrypted_only` fields (URL, environment and header values) inside
+the encrypted payload. Preview rejects the flag and still contains names/counts only;
+inspection, verify, restore results and journals never print values. OS keychains,
+device-bound sessions and unlisted credential stores remain excluded and need fresh
+authentication. Credential-bearing preview digests are redacted; payload source digests
+stay inside the encrypted payload.
 
 Next implementation slice: add destination runtime health checks without repairing or
 running arbitrary hooks, then move to named profiles/S5. Do not claim cross-OS restore
@@ -676,6 +686,28 @@ macOS arm64. `git diff --check` passed. No dependency changed.
 Memory databases, history, hooks, credentials, runtime health, dependency/version
 resolution, S3 delivery and cross-OS translation remain unimplemented.
 
+## Portable credential inclusion
+
+The current stage on `feat/setup-portable-credentials` adds
+`reet setup backup --include-credentials`. It selects literal values from the policy's
+`encrypted_only` fields (URL, environment and header values) and keeps them inside the
+encrypted payload. `--preview` rejects the flag; preview, inspection, verify, restore
+results and journals never print the values. OS keychains, device-bound sessions and
+unlisted credential stores remain excluded and require fresh authentication. Credential
+previews redact component digests; source digests stay inside the encrypted payload.
+
+Validation: focused tests cover explicit-only selection, sealing, result/inspection
+redaction, encrypted source digests, restore content and verify, CLI preview rejection,
+missing/short passphrases and tamper rejection. Full `go vet ./...` and
+`go test -race ./...` passed. Web checks passed (8 tests; zero Svelte diagnostics) and
+all 16 MCP tests passed. A compiled-binary smoke test verified include-credentials
+backup/restore/verify, sealed ciphertext and preview rejection; setup tests cross-compile
+for Windows amd64 and macOS arm64. `git diff --check` passed. No dependency changed.
+
+Runtime health checks, memory/history adapters, S3 delivery and cross-OS translation
+remain unimplemented. Restoring credential literals does not prove they work or that the
+agent will authenticate successfully.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -691,11 +723,12 @@ resolution, S3 delivery and cross-OS translation remain unimplemented.
    archive, encrypted local setup snapshot writing, listing/inspection, restore
    planning, create-only apply, conflict skip/replace with rollback copies, destination
    verification, rollback, per-destination conflict choices, optional software evidence,
-   project instruction export and global instruction discovery are now implemented. The
-   next small slice is destination runtime health checks, then named profiles/S5. Keep
-   values encrypted and unknown formats unsupported. Do not claim cross-OS restore or
-   working-setup verification before their acceptance gates. Consult the detailed plan
-   for encryption, key handling, restore and compatibility requirements.
+   global/project instruction export and explicit portable credential inclusion are now
+   implemented. The next small slice is destination runtime health checks, then named
+   profiles/S5. Keep values encrypted and unknown formats unsupported. Do not claim
+   cross-OS restore or working-setup verification before their acceptance gates. Consult
+   the detailed plan for encryption, key handling, restore and compatibility
+   requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current
@@ -705,9 +738,9 @@ resolution, S3 delivery and cross-OS translation remain unimplemented.
 Important boundaries: no complete AI setup backup/restore has shipped. Setup backup
 now writes a partial encrypted local snapshot and can list, inspect, plan, create or
 replace supported files, verify selected destination fields, roll back a completed apply,
-apply per-destination conflict choices, record/compare optional software evidence and
-export global/project instructions, but runtime health, memory databases and cross-OS
-recovery are not implemented. Existing `reet backup` is not evidence that
+apply per-destination conflict choices, record/compare optional software evidence,
+export global/project instructions and optionally include portable literal credentials,
+but runtime health, memory/history and cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
 manage that server. No production host was upgraded by this session. Do not copy

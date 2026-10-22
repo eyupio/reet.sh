@@ -51,6 +51,7 @@ type SetupSnapshotSource struct {
 	Component string         `json:"component"`
 	Content   map[string]any `json:"content,omitempty"`
 	Text      string         `json:"text,omitempty"`
+	Digest    string         `json:"digest,omitempty"`
 }
 
 type SetupWriteOptions struct {
@@ -60,17 +61,18 @@ type SetupWriteOptions struct {
 }
 
 type SetupWriteResult struct {
-	ID          string          `json:"id"`
-	Path        string          `json:"path"`
-	Bytes       int64           `json:"bytes"`
-	TakenAt     time.Time       `json:"taken_at"`
-	SHA256      string          `json:"sha256"`
-	Protection  string          `json:"protection"`
-	Compression string          `json:"compression"`
-	Components  int             `json:"components"`
-	Omissions   int             `json:"omissions"`
-	Preview     SnapshotPreview `json:"preview"`
-	Software    []SetupSoftware `json:"software,omitempty"`
+	ID                  string          `json:"id"`
+	Path                string          `json:"path"`
+	Bytes               int64           `json:"bytes"`
+	TakenAt             time.Time       `json:"taken_at"`
+	SHA256              string          `json:"sha256"`
+	Protection          string          `json:"protection"`
+	Compression         string          `json:"compression"`
+	Components          int             `json:"components"`
+	Omissions           int             `json:"omissions"`
+	CredentialsIncluded bool            `json:"credentials_included,omitempty"`
+	Preview             SnapshotPreview `json:"preview"`
+	Software            []SetupSoftware `json:"software,omitempty"`
 }
 
 func validateSetupPassphrase(passphrase string) error {
@@ -103,9 +105,16 @@ func BuildSetupSnapshot(selection SnapshotSelection) SetupSnapshot {
 		Software:      selection.software,
 	}
 	for _, source := range selection.sources {
+		digest := contentDigest(source.Content)
+		if source.Component == "instructions" {
+			digest = textDigest(source.Text)
+		}
 		snapshot.Sources = append(snapshot.Sources, SetupSnapshotSource{
-			Path: source.Path, Component: source.Component, Content: source.Content, Text: source.Text,
+			Path: source.Path, Component: source.Component, Content: source.Content, Text: source.Text, Digest: digest,
 		})
+	}
+	if snapshot.Preview.CredentialsIncluded {
+		redactPreviewDigests(&snapshot.Preview)
 	}
 	return snapshot
 }
@@ -183,7 +192,8 @@ func WriteSetupSnapshot(selection SnapshotSelection, opts SetupWriteOptions) (Se
 		TakenAt: time.UnixMilli(written.TakenAt).UTC(),
 		SHA256:  written.SHA256, Protection: written.Protection, Compression: written.Compression,
 		Components: len(snapshot.Sources), Omissions: omissionCount(snapshot.Preview),
-		Preview: snapshot.Preview, Software: snapshot.Software,
+		CredentialsIncluded: snapshot.Preview.CredentialsIncluded,
+		Preview:             snapshot.Preview, Software: snapshot.Software,
 	}, nil
 }
 
@@ -232,11 +242,15 @@ func verifySetupSnapshot(snapshot SetupSnapshot) error {
 		if !ok || component.Selection != "include" {
 			return errors.New("setup snapshot content is not in the selected preview")
 		}
-		digest := contentDigest(source.Content)
+		computed := contentDigest(source.Content)
 		if source.Component == "instructions" {
-			digest = textDigest(source.Text)
+			computed = textDigest(source.Text)
 		}
-		if component.Digest == "" || digest != component.Digest {
+		recorded := source.Digest
+		if recorded == "" {
+			recorded = component.Digest
+		}
+		if recorded == "" || computed != recorded {
 			return errors.New("setup snapshot content does not match its recorded digest")
 		}
 	}
@@ -316,4 +330,12 @@ func snapshotSoftware(agents []Agent) []SetupSoftware {
 		}
 	}
 	return out
+}
+
+func redactPreviewDigests(preview *SnapshotPreview) {
+	for i := range preview.Agents {
+		for j := range preview.Agents[i].Components {
+			preview.Agents[i].Components[j].Digest = ""
+		}
+	}
 }

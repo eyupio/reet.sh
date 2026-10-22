@@ -318,6 +318,26 @@ restore. The writer still emits no values; `inspect`, `verify`, restore results 
 journals contain names, counts and digests only. Treat the passphrase and rollback copies
 as sensitive.
 
+## Optional S3 delivery and fetch (S2e)
+
+```sh
+reet setup backup --s3 --password-file FILE
+reet setup fetch --s3 SNAPSHOT
+```
+
+`--s3` uploads the sealed snapshot after the local write and reads it back to verify
+the bytes. `reet setup fetch --s3` downloads a snapshot to the local snapshot directory
+after checking its clear header and snapshot identity; it writes mode 0600 and refuses
+to overwrite an existing local file. The object key is
+`REET_SETUP_S3_PREFIX/<snapshot-id>.reetsetup` (default prefix `reet/setup/`).
+
+Configuration is environment-only for this slice: `REET_SETUP_S3_ENDPOINT`,
+`REET_SETUP_S3_BUCKET`, `REET_SETUP_S3_ACCESS_KEY`, `REET_SETUP_S3_SECRET_KEY`, optional
+`REET_SETUP_S3_REGION`, `REET_SETUP_S3_PREFIX` and `REET_SETUP_S3_PATH_STYLE`. Keep those
+values out of shell history and logs. Remote listing, deletion, retention/pruning,
+destination testing, credential escrow and UI are not implemented. A successful upload
+or fetch is not proof that a setup can be restored.
+
 ## Listing and inspecting local snapshots (S2c)
 
 ```sh

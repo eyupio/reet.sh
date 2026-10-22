@@ -46,9 +46,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Explicit portable credential inclusion merged in [PR #66](https://github.com/eyupio/reet.sh/pull/66), `f22cac2`.
 - Journal listing and `rollback --last` merged in [PR #67](https://github.com/eyupio/reet.sh/pull/67), `16a4ee3`.
 - Local setup health guidance merged in [PR #68](https://github.com/eyupio/reet.sh/pull/68), `b29ee7f`.
-- Latest verified source baseline: `origin/main` at `b29ee7f` (2026-10-22).
-- The shared S3 object-store client is in [PR #69](https://github.com/eyupio/reet.sh/pull/69)
-  on `feat/objectstore-s3`; fetch remote status before continuing and preserve any
+- The shared S3 object-store client merged in [PR #69](https://github.com/eyupio/reet.sh/pull/69), `848536b`.
+- Latest verified source baseline: `origin/main` at `848536b` (2026-10-22).
+- Optional setup S3 delivery/fetch is in [PR #70](https://github.com/eyupio/reet.sh/pull/70)
+  on `feat/setup-s3-delivery`; fetch remote status before continuing and preserve any
   uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
@@ -82,6 +83,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] List local restore journals and roll back the newest completed one by default.
 - [x] Add conservative local setup health guidance without authenticating or repairing.
 - [x] Extract the S3 object-store client for reuse by setup delivery.
+- [x] Add optional setup snapshot upload and fetch with read-back verification.
 
 ## Implemented slice
 
@@ -237,9 +239,17 @@ connection-test and remote-path behaviour through thin wrappers, so backup forma
 callers are unchanged. This prepares optional setup snapshot delivery without making
 `internal/setup` depend on the backup service or SQLite.
 
-Next implementation slice: add optional S3 delivery/fetch for setup snapshots using
-`internal/objectstore`, with explicit credential configuration and verification. Do not
-claim cross-OS restore or a complete working-setup restore before their acceptance gates.
+S2e now adds `reet setup backup --s3` and `reet setup fetch --s3 SNAPSHOT`. Upload
+happens after the atomic local write and reads the object back to verify bytes; fetch
+checks the clear header and snapshot identity, writes mode 0600 and refuses to overwrite
+a local file. Configuration is environment-only
+(`REET_SETUP_S3_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY`, optional region, prefix and
+path-style). Remote listing, deletion, retention, destination testing and UI are not
+implemented.
+
+Next implementation slice: named profiles/S5 or broader memory/history adapters,
+depending on owner priority. Do not claim cross-OS restore or a complete working-setup
+restore before their acceptance gates.
 
 ## Validation and continuation
 
@@ -786,6 +796,27 @@ backup format changed.
 Optional setup S3 delivery/fetch, named profiles/S5, memory/history and verified cross-OS
 restore remain unimplemented.
 
+## Optional setup S3 delivery
+
+The current stage on `feat/setup-s3-delivery` adds `reet setup backup --s3` and
+`reet setup fetch --s3 SNAPSHOT`, using `internal/objectstore`. Upload runs after the
+atomic local write and reads the object back to verify identical bytes. Fetch checks the
+clear header and snapshot identity, writes mode 0600 and refuses to overwrite an
+existing local file. Configuration is environment-only for this slice
+(`REET_SETUP_S3_ENDPOINT`, `_BUCKET`, `_ACCESS_KEY`, `_SECRET_KEY`, optional `_REGION`,
+`_PREFIX`, `_PATH_STYLE`). No remote listing, deletion, retention, destination test,
+credential escrow or UI is implemented.
+
+Validation: focused tests cover signed fake-store upload/read-back, fetch/header
+identity, existing-file refusal, missing configuration, CLI JSON output and encrypted
+round trips. Full `go vet ./...` and `go test -race ./...` passed. Web checks passed (8
+tests; zero Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary smoke test verified signed
+upload/read-back, fetch identity and mode-0600 local fetch output; setup tests
+cross-compile for Windows amd64 and macOS arm64. `git diff --check` passed. No dependency changed.
+
+Named profiles/S5, broader memory/history adapters, remote retention and verified
+cross-OS restore remain unimplemented.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -801,12 +832,13 @@ restore remain unimplemented.
    archive, encrypted local setup snapshot writing, listing/inspection, restore
    planning, create-only apply, conflict skip/replace with rollback copies, destination
    verification, rollback, journal listing, local health guidance, per-destination
-   conflict choices, optional software evidence, global/project instruction export and
-   explicit portable credential inclusion are now implemented. The next slice is named
-   profiles/S5 or optional S3 delivery, depending on owner priority. Keep values
-   encrypted and unknown formats unsupported. Do not claim cross-OS restore or
-   working-setup verification before their acceptance gates. Consult the detailed plan
-   for encryption, key handling, restore and compatibility requirements.
+   conflict choices, optional software evidence, global/project instruction export,
+   explicit portable credential inclusion and optional S3 upload/fetch are now
+   implemented. The next slice is named profiles/S5 or broader memory/history adapters,
+   depending on owner priority. Keep values encrypted and unknown formats unsupported.
+   Do not claim cross-OS restore or working-setup verification before their acceptance
+   gates. Consult the detailed plan for encryption, key handling, restore and
+   compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current
@@ -814,12 +846,12 @@ restore remain unimplemented.
    should use clickable options with a recommendation when the UI supports them.
 
 Important boundaries: no complete AI setup backup/restore has shipped. Setup backup
-now writes a partial encrypted local snapshot and can list, inspect, plan, create or
-replace supported files, verify selected destination fields, roll back a completed apply,
-list journals, report local health guidance, apply per-destination conflict choices,
-record/compare optional software evidence, export global/project instructions and
-optionally include portable literal credentials, but memory/history, S3 delivery and
-cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
+now writes a partial encrypted local snapshot, can optionally upload/fetch it through S3,
+list, inspect, plan, create or replace supported files, verify selected destination
+fields, roll back a completed apply, list journals, report local health guidance, apply
+per-destination conflict choices, record/compare optional software evidence, export
+global/project instructions and optionally include portable literal credentials, but
+memory/history, remote retention and cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
 manage that server. No production host was upgraded by this session. Do not copy

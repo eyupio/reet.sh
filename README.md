@@ -264,6 +264,8 @@ reet setup backup --preview --json
 reet setup backup --password-file ~/.config/reet/setup.pass
 reet setup backup --probe-versions --inspect-installation --password-file ~/.config/reet/setup.pass
 reet setup backup --include-credentials --password-file ~/.config/reet/setup.pass
+reet setup backup --s3 --password-file ~/.config/reet/setup.pass
+reet setup fetch --s3 SNAPSHOT
 reet setup list
 reet setup inspect --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --password-file ~/.config/reet/setup.pass SNAPSHOT
@@ -299,7 +301,9 @@ snapshot under `REET_SETUP_DIR` or the user config `reet/setup` directory; sourc
 paths, selected values and discovered instruction text stay inside the encrypted
 payload. `--include-credentials` explicitly includes literal credential values from
 URLs, environment and header fields; it is rejected with `--preview`. OS keychains,
-device-bound sessions and unlisted credential stores remain excluded. `reet setup list` reads
+device-bound sessions and unlisted credential stores remain excluded. `--s3` uploads
+the sealed snapshot to the configured `REET_SETUP_S3_*` destination and verifies the
+read-back; `reet setup fetch --s3` downloads it into the local snapshot directory. `reet setup list` reads
 clear headers without a passphrase; `reet setup inspect` opens the encrypted preview
 and source summaries only with a passphrase and never prints values. `reet setup
 restore` previews a destination plan. `--apply` creates new files or handles conflicts

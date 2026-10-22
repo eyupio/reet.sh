@@ -5,6 +5,7 @@ import (
 
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -38,6 +39,9 @@ func TestTokenEnvFile(t *testing.T) {
 	}
 }
 func TestScanTokenPrecedenceAndNoninteractive(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("APPDATA", t.TempDir())
 	p := filepath.Join(t.TempDir(), ".env")
 	os.WriteFile(p, []byte("REET_TOKEN=file-token\n"), 0600)
 	in, err := os.Open(os.DevNull)
@@ -54,5 +58,59 @@ func TestScanTokenPrecedenceAndNoninteractive(t *testing.T) {
 		if err != nil || got != tc.want || out.Len() != 0 {
 			t.Fatalf("resolution failed: %v", err)
 		}
+	}
+}
+
+func TestSavedTokenRoundTripAndForget(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("APPDATA", dir)
+	t.Setenv("REET_TOKEN", "")
+	path, err := SaveToken("saved-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path); err != nil {
+		t.Fatal(err)
+	} else if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
+		t.Fatalf("saved token permissions: %o", info.Mode().Perm())
+	}
+	var out bytes.Buffer
+	got, err := ResolveToken("", "", strings.NewReader(""), &out)
+	if err != nil || got != "saved-token" {
+		t.Fatalf("saved token not used: %q %v", got, err)
+	}
+	t.Setenv("REET_TOKEN", "env-token")
+	if got, err := ResolveToken("", "", strings.NewReader(""), &out); err != nil || got != "env-token" {
+		t.Fatalf("environment did not override saved token: %q %v", got, err)
+	}
+	t.Setenv("REET_TOKEN", "")
+	if _, err := ForgetToken(); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ResolveToken("", "", strings.NewReader(""), &out); err != nil || got != "" {
+		t.Fatalf("forgotten token still used: %q %v", got, err)
+	}
+}
+
+func TestSavedTokenRejectsOtherUserReadableFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows does not expose unix permissions")
+	}
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("APPDATA", dir)
+	t.Setenv("REET_TOKEN", "")
+	path, err := SaveToken("saved-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveToken("", "", strings.NewReader(""), &bytes.Buffer{}); err == nil {
+		t.Fatal("accepted a saved token readable by other users")
 	}
 }

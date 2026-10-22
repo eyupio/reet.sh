@@ -15,6 +15,7 @@ func runConfigure(args []string, in io.Reader, out io.Writer) error {
 	f.SetOutput(out)
 	channel := f.String("version", "", "save release channel/version (REET_VERSION)")
 	server := f.String("url", "", "save target server URL (REET_URL)")
+	forgetToken := f.Bool("forget-token", false, "delete the saved personal API token")
 	if err := f.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -26,6 +27,17 @@ func runConfigure(args []string, in io.Reader, out io.Writer) error {
 	}
 	set := map[string]bool{}
 	f.Visit(func(v *flag.Flag) { set[v.Name] = true })
+	if *forgetToken {
+		if set["version"] || set["url"] {
+			return errors.New("--forget-token cannot be combined with other settings")
+		}
+		path, err := clientconfig.ForgetToken()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "Forgot any saved personal API token at %s\n", path)
+		return nil
+	}
 	values := map[string]string{"REET_VERSION": *channel, "REET_URL": *server}
 	for _, item := range []struct{ key, flag string }{{"REET_VERSION", "version"}, {"REET_URL", "url"}} {
 		if !set[item.flag] {

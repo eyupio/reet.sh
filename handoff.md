@@ -24,8 +24,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - S1a merged in [PR #40](https://github.com/eyupio/reet.sh/pull/40) after both CI workflows passed.
 - S1b merged in [PR #41](https://github.com/eyupio/reet.sh/pull/41) after both CI workflows passed.
 - Version probes merged in [PR #44](https://github.com/eyupio/reet.sh/pull/44) after both CI workflows passed.
-- Current branch: `feat/setup-installation-evidence`.
-- Base: `origin/main` at `cb3e88d`.
+- Installation evidence merged in [PR #45](https://github.com/eyupio/reet.sh/pull/45).
+- Upgrade/health regression fixes merged in [PR #46](https://github.com/eyupio/reet.sh/pull/46), `5373885`.
+- CLI defaults and branding merged in [PR #47](https://github.com/eyupio/reet.sh/pull/47), `666964a1ab44d2e16853b93d26115805c7e9a36a`.
+- Latest verified source baseline: `origin/main` at `666964a` (2026-10-22).
+- This documentation refresh is on `docs/refresh-agent-setup-handoff`; fetch remote status before continuing and preserve any uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -69,7 +72,7 @@ bounded stdout, discarded stderr, recognised-version-only output and cancellatio
 are covered by tests. `application_version` is separate from the existing
 controller reporter `version`; installation method remains explicitly unknown.
 
-The next S1c slice adds `--inspect-installation`: bounded local Node package
+The merged installation-evidence S1c slice adds `--inspect-installation`: bounded local Node package
 metadata inspection for Claude Code, Codex, OpenCode, Pi and Gemini CLI. It checks
 the known package name and declared executable against the discovered file, with
 nearest-package boundaries and confined bin paths. This is local association
@@ -189,10 +192,10 @@ unknown-flag rejection and the current setup scan options. No new dependencies.
 PR #46 merged as `5373885` and its published dev binary was downloaded through
 the installer and verified for version, explicit health URL and setup scan flags.
 The user then requested REET_VERSION, target URL persistence, missing-value prompts,
-and terminal branding/animation. Current branch: `fix/reet-version-environment`,
-based on that merge.
+and terminal branding/animation. This work merged in PR #47 as `666964a`;
+its implementation branch was `fix/reet-version-environment`.
 
-Implemented locally: explicit flag > exported REET_VERSION/REET_URL > saved
+Implemented and merged: explicit flag > exported REET_VERSION/REET_URL > saved
 `reet/client.env` defaults; fallback to the installed upgrade channel. The shell
 installer and managed Compose install also honour exported REET_VERSION. New
 `reet configure` saves both values, with TTY-only prompts. Missing required URL
@@ -209,3 +212,56 @@ zero Svelte diagnostics), and all 16 MCP tests pass. A compiled-binary PTY smoke
 test verified branding, interactive prompts, private saved defaults, later health
 checks, animation and all disable controls, plus clean redirected output.
 Resume component export policies after this follow-up.
+
+## Resume checklist (2026-10-22)
+
+1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
+   repository instructions. Fetch GitHub state; this document records observations,
+   not a guarantee that CI or release state remains unchanged.
+2. Finish release verification for PR #47 before claiming the new CLI is published.
+   At handoff, PR #47 was already merged by another actor. Its image PR workflow
+   passed; binary PR workflow run `39769421719` was still in progress. Check both
+   final PR results and the main push/release workflows for merge `666964a`.
+   Download the published dev artifact into an isolated temporary directory and
+   verify its commit, configure/default persistence, health targeting and help.
+   Last downloaded release actually verified by this session was PR #46's
+   `5373885`; PR #47's published artifact has not yet been verified.
+3. Automated Codex review for PR #47 failed to run because the account review quota
+   was exhausted. This is not a completed review or a validated code finding.
+   Inspect any actual review threads and perform code review independently;
+   do not claim automated approval. Local Go/web/MCP/PTY verification passed as
+   recorded above. Fix any confirmed regression in a separate tested PR.
+4. Resume explicit component export policies as the next small implementation
+   slice. Classify supported settings, MCP definitions, reusable memory,
+   credential references/portable secrets, opt-in history, and excluded caches,
+   hooks or unsupported data. Keep unknown formats explicitly unsupported; avoid
+   generic recursive copying and avoid exposing configuration values in scan output.
+   Add fixture-based policy and secret-exclusion tests, document real coverage,
+   and maintain the existing default scan schema/behaviour. Consult the detailed
+   plan for the full backup, encryption, restore and cross-OS acceptance gates.
+5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
+   merge only when checks are green, then continue on a fresh branch. The owner
+   already authorised this workflow; do not ask again. Keep this handoff current
+   with actual commits, tests, limitations and next work. New product decisions
+   should use clickable options with a recommendation when the UI supports them.
+
+Important boundaries: no complete AI setup backup/restore has shipped. Existing
+`reet backup` is not evidence that the planned setup milestone is complete.
+Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
+manage that server. No production host was upgraded by this session. Do not copy
+live MCP inventory or credentials into fixtures, logs or documentation.
+
+After the new dev release is verified, a user with the old stable CLI can recover
+with the installer, then save their preferences:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh -s -- --version dev
+hash -r
+reet --version
+reet configure --version dev --url https://reet.sh
+reet upgrade --check
+reet healthcheck
+```
+
+Installing the CLI does not restart a separately running server. Inspect its
+actual managed deployment before applying any host upgrade.

@@ -3,6 +3,7 @@ package setup
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -21,11 +22,12 @@ type InstallationObservation struct {
 	Issue        string `json:"issue,omitempty"`
 }
 
-func nodePackageName(agent string) string {
-	return map[string]string{
-		"claude": "@anthropic-ai/claude-code", "codex": "@openai/codex",
-		"opencode": "opencode-ai", "pi": "@mariozechner/pi-coding-agent",
-		"gemini": "@google/gemini-cli",
+func nodePackageNames(agent string) []string {
+	return map[string][]string{
+		"claude": {"@anthropic-ai/claude-code"}, "codex": {"@openai/codex"},
+		"opencode": {"@opencode/cli", "opencode-ai"},
+		"pi":       {"@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"},
+		"gemini":   {"@google/gemini-cli"},
 	}[agent]
 }
 
@@ -41,7 +43,7 @@ func InspectInstallations(r *Report) {
 	for i := range r.Agents {
 		a := &r.Agents[i]
 		a.Capabilities.Installation = "local_node_package_evidence"
-		if nodePackageName(a.ID) == "" {
+		if len(nodePackageNames(a.ID)) == 0 {
 			a.Capabilities.Installation = "not_supported"
 		}
 		a.Installation = inspectInstallation(*a)
@@ -58,7 +60,7 @@ func inspectInstallation(a Agent) *InstallationObservation {
 		v.Issue = "executable_unavailable"
 		return v
 	}
-	if nodePackageName(a.ID) == "" {
+	if len(nodePackageNames(a.ID)) == 0 {
 		v.Issue = "installation_adapter_not_supported"
 		return v
 	}
@@ -105,7 +107,7 @@ func inspectInstallation(a Agent) *InstallationObservation {
 			return v
 		}
 		name, _ := object["name"].(string)
-		if name != nodePackageName(a.ID) {
+		if !slices.Contains(nodePackageNames(a.ID), name) {
 			v.Issue = "unrecognised_package"
 			return v
 		}

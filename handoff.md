@@ -161,3 +161,8 @@ and all 16 MCP tests passed. Compiled CLI fixtures verified default/combined fla
 and distinct package/command versions. Setup tests cross-compiled for Windows
 amd64 and macOS arm64; runtime verification remains Linux-only.
 `git diff --check` passed. No new dependencies. Package identity is not cryptographically authenticated.
+
+PR review identified renamed OpenCode/Pi packages. Registry metadata confirmed
+`@opencode/cli` and `@earendil-works/pi-coding-agent`; the latter was also checked
+against the upstream package manifest. Both current names and legacy aliases are
+recognised, with fixtures asserting the actual observed identity is preserved.

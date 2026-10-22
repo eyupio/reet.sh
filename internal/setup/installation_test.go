@@ -18,7 +18,7 @@ func packageFixture(t *testing.T, agent, command, bin string) (Agent, string) {
 	if err := os.WriteFile(path, []byte("not executable code"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	writePackage(t, dir, map[string]any{"name": nodePackageName(agent), "version": "1.2.3", "bin": map[string]any{command: bin}, "private": "PRIVATE_SENTINEL"})
+	writePackage(t, dir, map[string]any{"name": nodePackageNames(agent)[0], "version": "1.2.3", "bin": map[string]any{command: bin}, "private": "PRIVATE_SENTINEL"})
 	return Agent{ID: agent, Executable: Executable{Command: command, State: "present", Path: path}}, dir
 }
 
@@ -42,7 +42,7 @@ func TestInstallationMatchesDeclaredBinAcrossKnownPackages(t *testing.T) {
 		t.Run(tc.agent+tc.bin, func(t *testing.T) {
 			a, dir := packageFixture(t, tc.agent, tc.command, tc.bin)
 			v := inspectInstallation(a)
-			if v.State != "matched" || v.Package != nodePackageName(a.ID) || v.Version != "1.2.3" || v.Kind != "node_package" || v.Manager != "unknown" || v.MetadataPath != filepath.Join(dir, "package.json") {
+			if v.State != "matched" || v.Package != nodePackageNames(a.ID)[0] || v.Version != "1.2.3" || v.Kind != "node_package" || v.Manager != "unknown" || v.MetadataPath != filepath.Join(dir, "package.json") {
 				t.Fatalf("incorrect association: %+v", v)
 			}
 		})
@@ -68,7 +68,7 @@ func TestInstallationRejectsUnrelatedOrUnsafeMetadata(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a, dir := packageFixture(t, "codex", "codex", "cli.js")
-			p := map[string]any{"name": nodePackageName("codex"), "version": "1.2.3", "bin": map[string]any{"codex": "cli.js"}}
+			p := map[string]any{"name": nodePackageNames("codex")[0], "version": "1.2.3", "bin": map[string]any{"codex": "cli.js"}}
 			tc.edit(p)
 			writePackage(t, dir, p)
 			v := inspectInstallation(a)
@@ -144,7 +144,7 @@ func TestInstallationRejectsEscapingBinSymlink(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(dir, "escaped.js")); err != nil {
 		t.Fatal(err)
 	}
-	writePackage(t, dir, map[string]any{"name": nodePackageName(a.ID), "version": "1.2.3", "bin": map[string]any{"codex": "escaped.js"}})
+	writePackage(t, dir, map[string]any{"name": nodePackageNames(a.ID)[0], "version": "1.2.3", "bin": map[string]any{"codex": "escaped.js"}})
 	if v := inspectInstallation(a); v.Issue != "package_bin_mismatch" {
 		t.Fatalf("accepted escaping symlink to same inode: %+v", v)
 	}
@@ -175,7 +175,7 @@ func TestInstallationCLIOptInDoesNotExecuteOrExposeMetadata(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "codex"), []byte("#!/bin/sh\nprintf yes > '"+marker+"'\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	writePackage(t, dir, map[string]any{"name": nodePackageName("codex"), "version": "1.2.3", "bin": map[string]any{"codex": "codex"}, "private": "PRIVATE_SENTINEL"})
+	writePackage(t, dir, map[string]any{"name": nodePackageNames("codex")[0], "version": "1.2.3", "bin": map[string]any{"codex": "codex"}, "private": "PRIVATE_SENTINEL"})
 	for _, flags := range [][]string{{}, {"--inspect-installation"}, {"--components", "--inspect-installation"}} {
 		var out bytes.Buffer
 		if err := Run(append([]string{"scan", "--json"}, flags...), &out); err != nil {
@@ -202,5 +202,23 @@ func TestInstallationCLIOptInDoesNotExecuteOrExposeMetadata(t *testing.T) {
 		if _, err := os.Stat(marker); !os.IsNotExist(err) {
 			t.Fatal("inspection executed a command")
 		}
+	}
+}
+
+func TestInstallationRecognisesCurrentAndLegacyPackageNames(t *testing.T) {
+	for _, tc := range []struct{ agent, name, command, bin string }{
+		{"opencode", "@opencode/cli", "opencode", "bin/opencode.exe"},
+		{"opencode", "opencode-ai", "opencode", "bin/opencode"},
+		{"pi", "@earendil-works/pi-coding-agent", "pi", "dist/bundle/cli.js"},
+		{"pi", "@mariozechner/pi-coding-agent", "pi", "dist/cli.js"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, dir := packageFixture(t, tc.agent, tc.command, tc.bin)
+			writePackage(t, dir, map[string]any{"name": tc.name, "version": "1.2.3", "bin": map[string]any{tc.command: tc.bin}})
+			v := inspectInstallation(a)
+			if v.State != "matched" || v.Package != tc.name {
+				t.Fatalf("incorrect package identity: %+v", v)
+			}
+		})
 	}
 }

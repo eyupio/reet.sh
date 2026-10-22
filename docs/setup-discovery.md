@@ -208,8 +208,8 @@ for the five supported adapters and `not_supported` for Cursor.
 | --- | --- |
 | Claude Code | `@anthropic-ai/claude-code` |
 | Codex | `@openai/codex` |
-| OpenCode | `opencode-ai` |
-| Pi | `@mariozechner/pi-coding-agent` |
+| OpenCode | `@opencode/cli`, legacy `opencode-ai` |
+| Pi | `@earendil-works/pi-coding-agent`, legacy `@mariozechner/pi-coding-agent` |
 | Gemini CLI | `@google/gemini-cli` |
 
 Inspection resolves the executable's symlinks, then checks up to six directories,

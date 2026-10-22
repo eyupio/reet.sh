@@ -740,9 +740,26 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		if f.NArg() != 1 || len(remote) == 0 {
 			return fmt.Errorf("profile push needs a server remote and exactly one NAME")
 		}
-		profile, _, err := LoadProfile(f.Arg(0), *dir, 0)
+		profile, revision, err := LoadProfile(f.Arg(0), *dir, 0)
 		if err != nil {
 			return err
+		}
+		if revision.Preview.SchemaVersion == 0 && interactive() {
+			record, err := wizardYesNo(out, "This profile has no preview. Open its snapshot now to record it?", true)
+			if err != nil {
+				return err
+			}
+			if record {
+				passphrase, err := readSetupPassphrase("", false, out)
+				if err != nil {
+					return err
+				}
+				profile, revision, err = SaveSetupProfileWithOptions(profile.Name, passphrase, revision.SnapshotID, *dir, time.Now().UTC(), SaveSetupProfileOptions{Overrides: revision.Overrides})
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(out, "Recorded preview for profile %s revision %d.\n", profile.Name, revision.Revision)
+			}
 		}
 		if *server == "" && *envFile != "" {
 			*server = envFileValue(*envFile, "REET_URL")

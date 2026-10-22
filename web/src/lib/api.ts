@@ -429,6 +429,7 @@ export type SyncTarget = { mode?: string; baseline?: SyncSkill[]; appliedRevisio
 export type SetupProfileSummary = { name: string; revision: number; snapshotId: string; snapshotDigest: string; updatedAt: number }
 export type SetupProfileComponent = { kind: string; source: string; scope: string; state?: string }
 export type SetupProfilePreview = {
+  schema_version?: number
   agents?: { id: string; name: string; state?: string; components?: SetupProfileComponent[]; omitted?: { kind: string; reason: string }[] }[]
   credentials_included?: boolean
   limitations?: string[]

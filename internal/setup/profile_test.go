@@ -3,11 +3,14 @@ package setup
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/eyupio/reet.sh/internal/clientconfig"
 )
 
 func profileFixture(t *testing.T) (string, SetupWriteResult) {
@@ -482,5 +485,39 @@ func TestProfilePushUsesDotEnv(t *testing.T) {
 	}
 	if remote.server != "https://reet.example" || remote.tok != "secret-token" {
 		t.Fatalf("env file not used: server=%q token=%q", remote.server, remote.tok)
+	}
+}
+
+type tokenRemote struct {
+	calls int
+}
+
+func (r *tokenRemote) Push(server, token string, profile SetupProfile) error {
+	r.calls++
+	if token == "good-token" {
+		return nil
+	}
+	return ErrProfileUnauthorized
+}
+
+func (r *tokenRemote) Pull(server, token, name string) (SetupProfile, error) {
+	return SetupProfile{}, nil
+}
+
+func TestProfilePushRetriesSavedToken(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("APPDATA", dir)
+	if _, err := clientconfig.SaveToken("good-token"); err != nil {
+		t.Fatal(err)
+	}
+	remote := &tokenRemote{}
+	profile := SetupProfile{SchemaVersion: 1, Name: "work", Revisions: []SetupProfileRevision{{Revision: 1, SnapshotID: "setup-20261022T120000Z-abcdef01", SnapshotDigest: "digest"}}}
+	if err := pushProfile(remote, "https://reet.example", "bad-token", profile, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if remote.calls != 2 {
+		t.Fatalf("saved token not retried: %d calls", remote.calls)
 	}
 }

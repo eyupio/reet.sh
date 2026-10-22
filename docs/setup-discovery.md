@@ -537,7 +537,9 @@ reet setup verify --profile work --password-file FILE
 
 `reet setup profile` with no subcommand runs an interactive wizard: it offers to create a
 snapshot if none exists, lets you choose one, asks whether to record preview/software
-evidence, saves a named profile and offers to push it to the server. The sync prompt uses
+evidence (default yes for an existing snapshot), saves a named profile and offers to push
+it to the server. If the env-file token is rejected, a previously saved token is tried
+before prompting for a replacement. The sync prompt uses
 `REET_URL`/`REET_TOKEN`, saved `reet configure` defaults, a saved token, `REET_ENV_FILE`
 or a `.env` in the current directory (only `REET_URL` and `REET_TOKEN` are read). If the
 server rejects the token, the wizard asks for a personal API token, saves it and retries

@@ -47,6 +47,7 @@ type SaveSetupProfileOptions struct {
 	ExcludeSources []string
 	Machines       []string
 	Projects       []string
+	Overrides      *SetupProfileOverrides
 }
 
 type SetupProfile struct {
@@ -374,6 +375,10 @@ func renderProfile(out io.Writer, profile SetupProfile, revision SetupProfileRev
 }
 
 func normalizeProfileOverrides(opts SaveSetupProfileOptions) (*SetupProfileOverrides, error) {
+	if opts.Overrides != nil {
+		copy := *opts.Overrides
+		return &copy, nil
+	}
 	overrides := &SetupProfileOverrides{}
 	allowed := map[string]bool{"settings": true, "mcp": true, "instructions": true}
 	for _, kind := range opts.ExcludeKinds {

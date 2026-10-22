@@ -127,7 +127,7 @@ func runProfileWizard(dir string, out io.Writer, remote ...ProfileRemote) error 
 			chosen = snapshots.Snapshots[index-1]
 		}
 		snapshotID = chosen.ID
-		preview, err := wizardYesNo(out, "Open the snapshot to record preview and software evidence?", false)
+		preview, err := wizardYesNo(out, "Open the snapshot to record preview and software evidence?", true)
 		if err != nil {
 			return err
 		}
@@ -191,7 +191,15 @@ func offerProfileSync(profile SetupProfile, out io.Writer, remote ...ProfileRemo
 
 func pushProfile(remote ProfileRemote, server, token string, profile SetupProfile, out io.Writer) error {
 	err := remote.Push(server, token, profile)
-	if err == nil || !errors.Is(err, ErrProfileUnauthorized) || !interactive() {
+	if err == nil || !errors.Is(err, ErrProfileUnauthorized) {
+		return err
+	}
+	if saved, savedErr := clientconfig.SavedToken(); savedErr == nil && saved != "" && saved != token {
+		if retryErr := remote.Push(server, saved, profile); retryErr == nil {
+			return nil
+		}
+	}
+	if !interactive() {
 		return err
 	}
 	fmt.Fprintf(out, "The server rejected the token. Enter a personal API token from Account on %s (hidden, Enter to cancel): ", server)

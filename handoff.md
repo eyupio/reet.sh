@@ -45,9 +45,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Global instruction discovery merged in [PR #65](https://github.com/eyupio/reet.sh/pull/65), `2df4b44`.
 - Explicit portable credential inclusion merged in [PR #66](https://github.com/eyupio/reet.sh/pull/66), `f22cac2`.
 - Journal listing and `rollback --last` merged in [PR #67](https://github.com/eyupio/reet.sh/pull/67), `16a4ee3`.
-- Latest verified source baseline: `origin/main` at `16a4ee3` (2026-10-22).
-- Local setup health guidance is in [PR #68](https://github.com/eyupio/reet.sh/pull/68) on
-  `feat/setup-health`; fetch remote status before continuing and preserve any
+- Local setup health guidance merged in [PR #68](https://github.com/eyupio/reet.sh/pull/68), `b29ee7f`.
+- Latest verified source baseline: `origin/main` at `b29ee7f` (2026-10-22).
+- The shared S3 object-store client is in [PR #69](https://github.com/eyupio/reet.sh/pull/69)
+  on `feat/objectstore-s3`; fetch remote status before continuing and preserve any
   uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
@@ -80,6 +81,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Add explicit encrypted inclusion of portable literal credential values.
 - [x] List local restore journals and roll back the newest completed one by default.
 - [x] Add conservative local setup health guidance without authenticating or repairing.
+- [x] Extract the S3 object-store client for reuse by setup delivery.
 
 ## Implemented slice
 
@@ -229,9 +231,15 @@ optional package evidence with pass/warn/fail/info checks. It does not authentic
 install, repair, run hooks or contact a service; credential stores, memory and history
 remain unchecked.
 
-Next implementation slice: move to named profiles/S5 or optional S3 delivery, depending
-on the owner's next priority. Do not claim cross-OS restore or a complete working-setup
-restore before their acceptance gates.
+The S3 object-store client now lives in `internal/objectstore`, with exported
+put/get/delete/list operations and a direct fake-store test. `internal/backup` keeps its
+connection-test and remote-path behaviour through thin wrappers, so backup formats and
+callers are unchanged. This prepares optional setup snapshot delivery without making
+`internal/setup` depend on the backup service or SQLite.
+
+Next implementation slice: add optional S3 delivery/fetch for setup snapshots using
+`internal/objectstore`, with explicit credential configuration and verification. Do not
+claim cross-OS restore or a complete working-setup restore before their acceptance gates.
 
 ## Validation and continuation
 
@@ -760,6 +768,22 @@ output and limitations; setup tests cross-compile for Windows amd64 and macOS ar
 `git diff --check` passed. No dependency changed.
 
 Named profiles/S5, optional S3 delivery, memory/history adapters and verified cross-OS
+restore remain unimplemented.
+
+## Shared S3 object-store client
+
+The current stage on `feat/objectstore-s3` moves the existing S3-compatible client to
+`internal/objectstore` with exported config, put/get/delete/list operations and the
+512 MiB object-read bound. `internal/backup` aliases the client and keeps its connection
+test, remote path and service behaviour. A direct fake-store test covers signed
+put/get/delete and incomplete config rejection; existing backup tests pass unchanged.
+
+Validation: `go test ./internal/objectstore ./internal/backup` passed, followed by full
+`go vet ./...` and `go test -race ./...`. Web checks passed (8 tests; zero Svelte
+diagnostics) and all 16 MCP tests passed. `git diff --check` passed. No dependency or
+backup format changed.
+
+Optional setup S3 delivery/fetch, named profiles/S5, memory/history and verified cross-OS
 restore remain unimplemented.
 
 ## Resume checklist (2026-10-22)

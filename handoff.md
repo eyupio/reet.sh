@@ -52,9 +52,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Named local profiles merged in [PR #71](https://github.com/eyupio/reet.sh/pull/71), `bcfb218`.
 - Profile-based inspect/rollback merged in [PR #72](https://github.com/eyupio/reet.sh/pull/72), `1b28fa1`.
 - Local snapshot pruning merged in [PR #73](https://github.com/eyupio/reet.sh/pull/73), `f4f70a7`.
-- Latest verified source baseline: `origin/main` at `f4f70a7` (2026-10-22).
-- S3 remote listing and profile-based fetch are in [PR #74](https://github.com/eyupio/reet.sh/pull/74)
-  on `feat/setup-s3-list`; fetch remote status before continuing and preserve any
+- S3 remote listing and profile-based fetch merged in [PR #74](https://github.com/eyupio/reet.sh/pull/74), `ef1ecd2`.
+- Latest verified source baseline: `origin/main` at `ef1ecd2` (2026-10-22).
+- Restore-plan software compatibility warnings are in [PR #75](https://github.com/eyupio/reet.sh/pull/75)
+  on `feat/setup-restore-compat`; fetch remote status before continuing and preserve any
   uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
@@ -93,6 +94,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Let inspect and rollback resolve the newest profile revision.
 - [x] Add dry-run/apply local snapshot pruning with profile and journal protection.
 - [x] List S3 snapshots by metadata and fetch by profile revision.
+- [x] Compare recorded software evidence during restore planning with opt-in probes.
 
 ## Implemented slice
 
@@ -275,6 +277,12 @@ S2g now adds `reet setup remote list` (object metadata under the configured pref
 without downloading) and `reet setup fetch --s3 --profile NAME` (resolve the newest
 profile revision, then fetch). Remote listing does not open snapshots; fetch still checks
 the clear header and snapshot identity.
+
+S6a now lets `setup restore --probe-versions --inspect-installation` compare the
+snapshot's recorded application/package evidence with the destination before writing.
+The plan lists compatibility states and warnings; warnings are advisory and do not block
+apply. This surfaces version/package mismatches without installing or substituting
+anything automatically.
 
 Next implementation slice: account-synced profiles with machine/project overrides, or
 broader memory/history adapters, depending on owner priority. Do not claim cross-OS
@@ -919,6 +927,23 @@ changed.
 Account-synced profiles, machine/project overrides, memory/history adapters, remote S3
 retention and verified cross-OS restore remain unimplemented.
 
+## Restore compatibility warnings
+
+The current stage on `feat/setup-restore-compat` lets `setup restore` accept
+`--probe-versions` and `--inspect-installation`. It compares snapshot software evidence
+with the destination before planning and adds application compatibility states and
+warnings (version/package mismatch, missing agent, unknown version). Warnings are
+advisory and do not block apply; no installer or substitution runs.
+
+Validation: focused tests cover version-mismatch comparison, plan warnings and text.
+Full `go vet ./...` and `go test -race ./...` passed. Web checks passed (8 tests; zero
+Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary smoke test verified version-mismatch
+warnings without value leakage; setup tests cross-compile for Windows amd64 and macOS
+arm64. `git diff --check` passed. No dependency changed.
+
+Account-synced profiles, machine/project overrides, memory/history adapters, remote S3
+retention and verified cross-OS restore remain unimplemented.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -932,16 +957,16 @@ retention and verified cross-OS restore remain unimplemented.
    automated approval.
 4. Explicit component export policies, the policy-driven preview, the shared sealed
    archive, encrypted local setup snapshot writing, listing/inspection, restore
-   planning, create-only apply, conflict skip/replace with rollback copies, destination
-   verification, rollback, journal listing, local health guidance, per-destination
-   conflict choices, optional software evidence, global/project instruction export,
-   explicit portable credential inclusion, optional S3 upload/fetch/listing, named local
-   profiles (including inspect/rollback) and local pruning are now implemented. The next
-   slice is account-synced profiles/overrides or broader memory/history adapters,
-   depending on owner priority. Keep values encrypted and unknown formats unsupported.
-   Do not claim cross-OS restore or working-setup verification before their acceptance
-   gates. Consult the detailed plan for encryption, key handling, restore and
-   compatibility requirements.
+   planning and compatibility warnings, create-only apply, conflict skip/replace with
+   rollback copies, destination verification, rollback, journal listing, local health
+   guidance, per-destination conflict choices, optional software evidence,
+   global/project instruction export, explicit portable credential inclusion, optional
+   S3 upload/fetch/listing, named local profiles (including inspect/rollback) and local
+   pruning are now implemented. The next slice is account-synced profiles/overrides or
+   broader memory/history adapters, depending on owner priority. Keep values encrypted
+   and unknown formats unsupported. Do not claim cross-OS restore or working-setup
+   verification before their acceptance gates. Consult the detailed plan for encryption,
+   key handling, restore and compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current
@@ -950,12 +975,13 @@ retention and verified cross-OS restore remain unimplemented.
 
 Important boundaries: no complete AI setup backup/restore has shipped. Setup backup
 now writes a partial encrypted local snapshot, can optionally upload/fetch/list it through
-S3, list, inspect, plan, create or replace supported files, verify selected destination
-fields, roll back a completed apply, list journals, report local health guidance, apply
-per-destination conflict choices, record/compare optional software evidence, export
-global/project instructions, optionally include portable literal credentials, save/use
-named local profiles and prune old local snapshots, but account-synced profiles,
-memory/history, remote retention and cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
+S3, list, inspect, plan with optional compatibility warnings, create or replace supported
+files, verify selected destination fields, roll back a completed apply, list journals,
+report local health guidance, apply per-destination conflict choices, record/compare
+optional software evidence, export global/project instructions, optionally include
+portable literal credentials, save/use named local profiles and prune old local
+snapshots, but account-synced profiles, memory/history, remote retention and cross-OS
+recovery are not implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
 manage that server. No production host was upgraded by this session. Do not copy

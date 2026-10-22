@@ -378,8 +378,10 @@ reet setup restore --password-file FILE --project /path/to/project --json SNAPSH
 ```
 
 `reet setup restore` opens and verifies the snapshot with the passphrase, discovers
-the destination metadata-only, and prints a plan. It writes nothing and refuses
-`--apply` with an explicit not-implemented error.
+the destination metadata-only, and prints a plan. It writes nothing without `--apply`.
+With `--probe-versions` and/or `--inspect-installation`, it compares the snapshot's
+recorded application/package evidence with the destination and adds compatibility
+warnings; warnings do not block apply.
 
 Global sources are mapped to the destination's known agent locations by agent,
 scope and file name. Project sources require `--project`; without it they are listed

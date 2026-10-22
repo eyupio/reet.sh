@@ -276,6 +276,7 @@ reet setup inspect --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --apply --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --apply --on-conflict replace --password-file ~/.config/reet/setup.pass SNAPSHOT
+reet setup restore --probe-versions --inspect-installation --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --apply --on-conflict skip --conflict ~/.claude.json=replace --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup verify --probe-versions --inspect-installation --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup rollback --journal FILE --password-file ~/.config/reet/setup.pass SNAPSHOT

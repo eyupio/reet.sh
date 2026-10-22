@@ -73,9 +73,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Rejected-token retry merged in [PR #93](https://github.com/eyupio/reet.sh/pull/93), `d11638e`.
 - Preview defaults and saved-token retry merged in [PR #94](https://github.com/eyupio/reet.sh/pull/94), `4057583`.
 - Interactive restore wizard merged in [PR #95](https://github.com/eyupio/reet.sh/pull/95), `a7fbb04`.
-- Latest verified source baseline: `origin/main` at `a7fbb04` (2026-10-22).
-- Detailed profile contents in the web page are in [PR #96](https://github.com/eyupio/reet.sh/pull/96)
-  on `feat/profiles-web-detail`; fetch remote status before continuing and preserve any
+- Detailed profile contents in the web page merged in [PR #96](https://github.com/eyupio/reet.sh/pull/96), `426e57d`.
+- Latest verified source baseline: `origin/main` at `426e57d` (2026-10-22).
+- Whole installed skill folders in setup snapshots are in [PR #97](https://github.com/eyupio/reet.sh/pull/97)
+  on `feat/setup-skills`; fetch remote status before continuing and preserve any
   uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
@@ -134,6 +135,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Default to recording profile preview and retry a saved token silently.
 - [x] Add an interactive local restore wizard with plan confirmation and verification.
 - [x] Show stored profile components, MCP names and credential-free metadata in the web page.
+- [x] Include whole installed skill folders in encrypted snapshots, restore and verify.
 
 ## Implemented slice
 
@@ -329,7 +331,7 @@ stating that mapping uses known locations only and cross-OS restore is unverifie
 does not claim translation.
 
 S5c now stores optional profile overrides: repeatable
-`profile save --exclude-kind settings|mcp|instructions` and
+`profile save --exclude-kind settings|mcp|instructions|skills` and
 `--exclude-source PATH`. Restore/verify by profile apply those exclusions; inspect and
 rollback still use the original snapshot. Excluded components are reported as
 profile omissions, not silently dropped.
@@ -1076,7 +1078,7 @@ retention and actual verified cross-OS restore remain unimplemented.
 ## Profile overrides
 
 The current stage on `feat/setup-profile-overrides` adds optional profile overrides.
-Repeatable `profile save --exclude-kind settings|mcp|instructions` and
+Repeatable `profile save --exclude-kind settings|mcp|instructions|skills` and
 `--exclude-source PATH` are stored on the explicit revision. Restore and verify by
 profile apply them; excluded components become `profile_excluded` omissions. Inspect and
 rollback use the original snapshot. Unknown kinds, empty paths and invalid revisions are
@@ -1229,8 +1231,8 @@ zero Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary smoke te
 verify the simplified command before merge; setup tests cross-compile for Windows amd64
 and macOS arm64. `git diff --check` passed. No dependency changed.
 
-Skills content capture, broader memory/history components, web profile editing and
-verified cross-OS restore remain unimplemented.
+Skill dependency/provenance resolution, broader memory/history components, web profile
+editing and verified cross-OS restore remain unimplemented.
 
 ## Interactive backup passphrase
 
@@ -1247,8 +1249,8 @@ diagnostics) and all 16 MCP tests passed. A PTY smoke test verified the two-prom
 macOS arm64.
 `git diff --check` passed. No dependency changed (x/term was already present).
 
-Skills content capture, broader memory/history components, web profile editing and
-verified cross-OS restore remain unimplemented.
+Skill dependency/provenance resolution, broader memory/history components, web profile
+editing and verified cross-OS restore remain unimplemented.
 
 ## Interactive setup-profile wizard
 
@@ -1266,8 +1268,8 @@ diagnostics) and all 16 MCP tests passed. Setup tests cross-compile for Windows 
 macOS arm64. `git diff --check` passed. No dependency changed (x/term was already
 present).
 
-Skills content capture, broader memory/history components, web profile editing and
-verified cross-OS restore remain unimplemented.
+Skill dependency/provenance resolution, broader memory/history components, web profile
+editing and verified cross-OS restore remain unimplemented.
 
 ## Wizard sync and env-file defaults
 
@@ -1283,8 +1285,8 @@ pushed it to a local fake server using `.env`. Full `go vet ./...` and
 all 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and macOS arm64.
 `git diff --check` passed. No dependency changed.
 
-Skills content capture, broader memory/history components, web profile editing and
-verified cross-OS restore remain unimplemented.
+Skill dependency/provenance resolution, broader memory/history components, web profile
+editing and verified cross-OS restore remain unimplemented.
 
 ## Rejected profile-sync token retry
 
@@ -1298,8 +1300,8 @@ Validation: focused tests cover the unauthorized sentinel; a PTY smoke test used
 diagnostics) and all 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and
 macOS arm64. `git diff --check` passed. No dependency changed.
 
-Skills content capture, broader memory/history components, web profile editing and
-verified cross-OS restore remain unimplemented.
+Skill dependency/provenance resolution, broader memory/history components, web profile
+editing and verified cross-OS restore remain unimplemented.
 
 ## Profile preview defaults and saved-token retry
 
@@ -1315,18 +1317,42 @@ capture and silent saved-token retry with a stale `.env` token. Full `go vet ./.
 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and macOS arm64.
 `git diff --check` passed. No dependency changed.
 
-Skills content capture, broader memory/history components, web profile editing and
-verified cross-OS restore remain unimplemented.
+Skill dependency/provenance resolution, broader memory/history components, web profile
+editing and verified cross-OS restore remain unimplemented.
+
+## Skills in setup snapshots
+
+Setup snapshots now capture installed skill folders from known agent locations:
+`~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills`, `~/.codex/skills`,
+`~/.config/opencode/skills`, `~/.pi/agent/skills` and their known project equivalents.
+Each skill is copied whole, with relative paths and executable bits, into the encrypted
+payload. Limits are 256 files and 8 MiB per skill and 256 total files / 64 MiB per
+snapshot; a symlinked or special file, an invalid name, or a skill over a limit is an
+explicit omission rather than a partial copy. Restore maps skill roots by agent, scope,
+location kind and env-override source, then writes each file with the journalled conflict,
+rollback and verification path. Profile previews and the web page list skill names,
+agents, scopes, file counts and bytes, never file contents. `--exclude-kind skills` and
+source overrides remove skill folders before restore/verify.
+
+The snapshot schema is now version 2; readers still accept version 1 snapshots, and a
+version 1 payload with skills is refused. The clear manifest version is `setup-v2`.
+
+Validation: Go tests cover selection, digests, sealed payloads, preview redaction,
+profile overrides, codex shared/agent-specific root mapping, restore, executable modes,
+verify and rollback mode preservation. A manual end-to-end run backed up two skill
+folders, restored them into a fresh home and verified both. Web checks pass with zero
+Svelte diagnostics; a seeded profile rendered both skill names. Full Go, MCP and web
+checks pass.
 
 ## Profiles web detail
 
-The current branch expands the read-only Profiles page. A revision with preview data now
-shows each agent with selected components, included/excluded field names, MCP server
-names, encrypted-field names, instruction sources, omission counts and software evidence.
-The page never receives selected values, and credential values are never displayed.
-Older revisions without MCP names fall back to declaration counts. Empty agents are
-summarised rather than expanded, and unsupported classes explain what the profile does
-not store. Skills remain in Library/sync and are not copied into setup profiles.
+The read-only Profiles page now shows each agent with selected components,
+included/excluded field names, MCP server names, encrypted-field names, instruction
+sources, omission counts and software evidence, plus installed skill folders by name,
+agent, scope, file count and bytes. The page never receives selected values, credential
+values or skill file contents. Older revisions without MCP names fall back to declaration
+counts. Empty agents are summarised rather than expanded, and unsupported classes explain
+what the profile does not store.
 
 Validation: a local server was seeded with a profile containing synthetic credential
 values; the page rendered settings fields, MCP server names (`local-tools`, `remote-api`),
@@ -1347,8 +1373,8 @@ checks passed (8 tests; zero Svelte diagnostics) and all 16 MCP tests passed. Se
 cross-compile for Windows amd64 and macOS arm64. `git diff --check` passed. No dependency
 changed.
 
-Skills content capture, broader memory/history components, web profile editing and
-verified cross-OS restore remain unimplemented.
+Skill dependency/provenance resolution, broader memory/history components, web profile
+editing and verified cross-OS restore remain unimplemented.
 
 ## Resume checklist (2026-10-22)
 

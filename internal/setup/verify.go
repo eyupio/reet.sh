@@ -72,10 +72,12 @@ func VerifySetupSnapshot(snapshot SetupSnapshot, manifest sealed.Manifest, desti
 			"No agent executable is run; application versions, authentication, MCP health and runtime behaviour are not verified.",
 			"Verification never repairs, rewrites or rolls back anything.",
 			"This is not proof that the setup works on this machine or that it is portable to another OS.",
+			skillVerificationNote(),
 		},
 	}
 	components := snapshotRestoreComponents(snapshot)
 	candidates := destinationCandidates(destination)
+	verifySetupSkills(snapshot, destination, &result)
 	for _, source := range snapshot.Sources {
 		var component restoreComponent
 		found := false

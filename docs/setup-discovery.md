@@ -22,14 +22,15 @@ inspected implicitly just because the command runs inside one.
 
 | Agent | Command on PATH | Default global locations | Project locations |
 | --- | --- | --- | --- |
-| Claude Code | `claude` | `~/.claude`, `~/.claude.json`, `~/.claude/CLAUDE.md` | `.claude`, `CLAUDE.md`, `.mcp.json` |
-| Codex | `codex` | `~/.codex`, `~/.codex/AGENTS.md`, shared `~/.agents/skills` | `.codex`, shared `.agents/skills`, shared `AGENTS.md` |
-| OpenCode | `opencode` | `~/.config/opencode`, `~/.config/opencode/AGENTS.md` | `.opencode`, `opencode.json`, `opencode.jsonc` |
-| Pi | `pi` | `~/.pi/agent`, `~/.pi/agent/AGENTS.md` | `.pi` |
-| Cursor | `cursor` | `~/.cursor` | `.cursor`, `.cursorrules` |
+| Claude Code | `claude` | `~/.claude`, `~/.claude.json`, `~/.claude/CLAUDE.md`, `~/.claude/skills` | `.claude`, `CLAUDE.md`, `.mcp.json`, `.claude/skills` |
+| Codex | `codex` | `~/.codex`, `~/.codex/AGENTS.md`, shared `~/.agents/skills`, `~/.codex/skills` | `.codex`, shared `.agents/skills`, shared `AGENTS.md`, `.codex/skills` |
+| OpenCode | `opencode` | `~/.config/opencode`, `~/.config/opencode/AGENTS.md`, `~/.config/opencode/skills` | `.opencode`, `opencode.json`, `opencode.jsonc`, `.opencode/skills` |
+| Pi | `pi` | `~/.pi/agent`, `~/.pi/agent/AGENTS.md`, `~/.pi/agent/skills` | `.pi`, `.pi/skills` |
+| Cursor | `cursor` | `~/.cursor`, `~/.cursor/skills` | `.cursor`, `.cursorrules`, `.cursor/skills` |
 | Gemini CLI | `gemini` | `~/.gemini`, `~/.gemini/GEMINI.md` | `.gemini`, `GEMINI.md` |
 
-`CLAUDE_CONFIG_DIR`, `CODEX_HOME` and `PI_CODING_AGENT_DIR` override the corresponding
+`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `PI_CODING_AGENT_DIR`, `OPENCODE_CONFIG_DIR` and
+`XDG_CONFIG_HOME` also move the corresponding skills folders. They override the corresponding
 global directory, including its instruction file. OpenCode honours `XDG_CONFIG_HOME` (with `/opencode` appended)
 and additionally reports `OPENCODE_CONFIG_DIR` and `OPENCODE_CONFIG` when set.
 Overrides must be absolute paths; a relative override is reported as an error
@@ -211,6 +212,7 @@ agent:
 | Class | Selection | Handling |
 | --- | --- | --- |
 | instructions | include | portable |
+| skills | include | portable |
 | behaviour | unsupported | not_implemented |
 | memory | unsupported | not_implemented |
 | history | opt_in | not_implemented |
@@ -249,11 +251,12 @@ reet setup backup --preview --project /path/to/project
 selection without writing an archive. It emits schema v1 with a policy version,
 captured OS/architecture, per-agent selected components, included field names,
 credential-bearing field names, preserved reference names, excluded field names,
-unknown-field counts, MCP declaration counts and a SHA-256 digest of each selected
-component. It also lists omissions with fixed reasons such as `source_opt_in`,
+unknown-field counts, MCP declaration counts, installed skill folder names with file
+counts and a SHA-256 digest of each selected component. It also lists omissions with fixed reasons such as `source_opt_in`,
 `source_symlink`, `file_too_large`, `credentials_not_selected`,
-`excluded_by_policy`, `unlisted_fields`, `declarations_without_selected_fields` and
-`invalid_mcp_declarations`.
+`excluded_by_policy`, `unlisted_fields`, `declarations_without_selected_fields`,
+`invalid_mcp_declarations`, `skill_symlink`, `skill_manifest_missing`,
+`skill_too_large` and `skill_too_many_files`.
 
 The preview reads only present, regular, supported files and keeps selected values
 in memory. It never prints selected values. Opt-in sources such as
@@ -298,17 +301,19 @@ payload. The writer opens the sealed bytes before writing and opens the file on
 disk again afterwards; a mismatch fails and removes the file.
 
 The encrypted payload includes the policy preview, selected settings/MCP content,
-selected project instruction text, the omissions report and optional software
-evidence. `--probe-versions` records bounded
+selected project instruction text, whole installed skill folders, the omissions report
+and optional software evidence. A skill is copied as a bounded directory (256 files and
+8 MiB each, 64 MiB per snapshot); symlinked skills or special files are omitted as a
+whole rather than silently copied in part. `--probe-versions` records bounded
 application `--version` reports and `--inspect-installation` records local Node package
 associations; both are opt-in because probing executes the discovered executable.
 Software evidence deliberately omits executable and metadata paths, and it is not
 authenticated provenance.
 
 Credential-bearing values, opt-in sources, memory, history, hooks and caches remain
-excluded by default. The snapshot is not a complete AI setup: S3 delivery,
-dependency/version resolution, cross-OS translation and runtime health verification
-remain unimplemented. `--preview` remains read-only.
+excluded by default. The snapshot is not a complete AI setup: skill dependency and
+provenance resolution, cross-OS translation and runtime health verification remain
+unimplemented. `--preview` remains read-only.
 
 `--include-credentials` explicitly includes literal values from the policy's
 `encrypted_only` fields in the encrypted payload. It is rejected with `--preview`
@@ -529,6 +534,7 @@ reet setup profile            # interactive wizard
 reet setup profile save work
 reet setup profile save --password-file FILE work SNAPSHOT
 reet setup profile save --exclude-kind instructions --machine laptop work2
+reet setup profile save --exclude-kind skills work3
 reet setup profile list
 reet setup profile show work
 reet setup profile rename work personal
@@ -550,7 +556,7 @@ server rejects the token, the wizard asks for a personal API token, saves it and
 once. `profile save NAME` uses the newest local snapshot
 and records its clear header (ID, digest and time) without needing a passphrase. Pass `SNAPSHOT` to choose one explicitly,
 or `--password-file` to open the encrypted payload and also record the policy preview and
-software evidence. It appends an explicit revision and never stores selected values. Repeat `--exclude-kind settings|mcp|instructions` or
+software evidence. It appends an explicit revision and never stores selected values. Repeat `--exclude-kind settings|mcp|instructions|skills` or
 `--exclude-source PATH` to omit components when a profile is used by restore or verify.
 Add `--machine NAME` or `--project PATH` to scope those exclusions to a machine or
 project; restore/verify apply a machine scope with `--machine NAME` and a project scope
@@ -563,18 +569,21 @@ snapshots. `profile push`/`pull` store the profile on a reet server using `REET_
 `--server`/`--token`; the payload contains no selected values. Pull writes
 a mode-0600 local profile and does not download the snapshot. The web **Profiles** page
 shows each agent's stored components for revisions with a recorded preview: settings
-field names, MCP server names, instruction sources, encrypted-field names, omissions and
-software evidence. Credential values are never shown; newer previews record MCP server
-names, while older revisions show counts. The page also lists revision metadata,
+field names, MCP server names, instruction sources, installed skill folders with file
+counts, encrypted-field names, omissions and software evidence. Credential values and
+skill file contents are never shown; newer previews record MCP server names, while older
+revisions show counts. The page also lists revision metadata,
 overrides and history, and can delete the server copy; profile creation, push and pull
 remain CLI-only.
 `restore --profile`, `verify --profile`, `inspect --profile`, `rollback --profile` and
 `fetch --s3 --profile` use the newest revision's snapshot unless `--revision N` selects
 an older one; restore/verify apply its overrides.
 
-Profiles are local named snapshot revisions. Skill contents are kept in Library and synced
-separately rather than copied into setup profiles. Memory/history adapters, web profile
-editing and verified cross-OS restore remain unimplemented.
+Profiles are local named snapshot revisions and can now include whole installed skill
+folders. Library/sync remains the live skill inventory and install/update path; setup
+profiles copy the selected folders into the encrypted snapshot for restore. Skill
+dependency resolution, memory/history adapters, web profile editing and verified cross-OS
+restore remain unimplemented.
 
 ## Pruning local snapshots (S2f)
 

@@ -49,7 +49,7 @@ func TestCLITextAndProject(t *testing.T) {
 	if err := Run([]string{"scan", "--project", project}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Gemini CLI: detected", "project configuration: present", "backup and restore are not implemented"} {
+	for _, want := range []string{"Gemini CLI: detected", "project configuration: present", "no values are read by this inventory"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("missing %q in output: %s", want, out.String())
 		}

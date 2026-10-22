@@ -380,11 +380,11 @@ func normalizeProfileOverrides(opts SaveSetupProfileOptions) (*SetupProfileOverr
 		return &copy, nil
 	}
 	overrides := &SetupProfileOverrides{}
-	allowed := map[string]bool{"settings": true, "mcp": true, "instructions": true}
+	allowed := map[string]bool{"settings": true, "mcp": true, "instructions": true, "skills": true}
 	for _, kind := range opts.ExcludeKinds {
 		kind = strings.ToLower(strings.TrimSpace(kind))
 		if !allowed[kind] {
-			return nil, fmt.Errorf("excluded kind %q must be settings, mcp or instructions", kind)
+			return nil, fmt.Errorf("excluded kind %q must be settings, mcp, instructions or skills", kind)
 		}
 		overrides.ExcludeKinds = appendUnique(overrides.ExcludeKinds, kind)
 	}
@@ -463,10 +463,30 @@ func ApplyProfileOverrides(snapshot SetupSnapshot, overrides *SetupProfileOverri
 		}
 		filtered.Sources = append(filtered.Sources, source)
 	}
+	filtered.Skills = []SetupSkill{}
+	for _, skill := range snapshot.Skills {
+		source := filepath.Join(skill.Root, skill.Name)
+		if sources[source] || sources[skill.Root] || kinds["skills"] {
+			continue
+		}
+		filtered.Skills = append(filtered.Skills, skill)
+	}
 	filtered.Preview = snapshot.Preview
 	filtered.Preview.Agents = append([]SnapshotAgent(nil), snapshot.Preview.Agents...)
+	filtered.Preview.Skills = []SnapshotSkill{}
+	for _, skill := range snapshot.Preview.Skills {
+		if sources[skill.Source] || sources[filepath.Dir(skill.Source)] || kinds["skills"] {
+			for i := range filtered.Preview.Agents {
+				if filtered.Preview.Agents[i].ID == skill.AgentID {
+					filtered.Preview.Agents[i].Omitted = append(filtered.Preview.Agents[i].Omitted, SnapshotOmission{Kind: "skills", Source: skill.Source, Reason: "profile_excluded", Count: 1})
+				}
+			}
+			continue
+		}
+		filtered.Preview.Skills = append(filtered.Preview.Skills, skill)
+	}
 	for i := range filtered.Preview.Agents {
-		agent := snapshot.Preview.Agents[i]
+		agent := filtered.Preview.Agents[i]
 		filtered.Preview.Agents[i] = agent
 		filtered.Preview.Agents[i].Components = []SnapshotComponent{}
 		for _, component := range agent.Components {

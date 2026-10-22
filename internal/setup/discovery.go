@@ -100,7 +100,7 @@ func discover(e environment) (Report, error) {
 			"Metadata-only discovery of known paths; configuration contents and nested files are not read.",
 			noVersionProbeNote,
 			"Configuration may remain after uninstalling an agent; a detected setup is not proof of a working installation.",
-			"MCP definitions, credentials, memory and history are not collected; setup backup and restore are not implemented.",
+			"Configuration contents are not read by discovery; MCP definitions, credentials, memory and history are collected only by explicit snapshot commands or remain unsupported.",
 			"Symlink locations are reported without inspecting their targets; missing known paths do not prove an agent is absent.",
 		},
 	}
@@ -131,7 +131,7 @@ func discover(e environment) (Report, error) {
 		uncertain := a.Executable.State == "error"
 		detected := a.Executable.State == "present"
 		for _, loc := range a.Locations {
-			detected = detected || (loc.State == "present" && loc.Kind != "shared_skills" && loc.Kind != "shared_instructions")
+			detected = detected || (loc.State == "present" && loc.Kind != "skills" && loc.Kind != "shared_skills" && loc.Kind != "shared_instructions")
 			uncertain = uncertain || (loc.State != "present" && loc.State != "missing")
 		}
 		if detected {

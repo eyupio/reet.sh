@@ -618,7 +618,7 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		excludeSources := stringListFlag{}
 		machines := stringListFlag{}
 		projects := stringListFlag{}
-		f.Var(&excludeKinds, "exclude-kind", "exclude this component kind (settings, mcp, instructions); repeat for several")
+		f.Var(&excludeKinds, "exclude-kind", "exclude this component kind (settings, mcp, instructions, skills); repeat for several")
 		f.Var(&excludeSources, "exclude-source", "exclude this exact snapshot source path; repeat for several")
 		f.Var(&machines, "machine", "apply the exclusions only to this machine name; repeat for several")
 		f.Var(&projects, "project", "apply the exclusions only to this project path; repeat for several")
@@ -1101,7 +1101,7 @@ func render(out io.Writer, r Report) error {
 	if r.ExportPolicies {
 		mode += "; export policy declared, no export implemented"
 	}
-	if _, err := fmt.Fprintf(out, "AI agent setup inventory (%s/%s)\n%s; setup backup and restore are not implemented.\n", r.OS, r.Architecture, mode); err != nil {
+	if _, err := fmt.Fprintf(out, "AI agent setup inventory (%s/%s)\n%s; no values are read by this inventory.\n", r.OS, r.Architecture, mode); err != nil {
 		return err
 	}
 	for _, agent := range r.Agents {
@@ -1228,7 +1228,7 @@ func renderSnapshotWrite(out io.Writer, result SetupWriteResult) error {
 	if _, err := fmt.Fprintf(out, "Took setup snapshot %s (%d bytes) at %q.\n", result.ID, result.Bytes, result.Path); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(out, "Selected %d components; %d omissions recorded; %d agents with software evidence.\n", result.Components, result.Omissions, len(result.Software)); err != nil {
+	if _, err := fmt.Fprintf(out, "Selected %d components and %d skill folders (%d files); %d omissions recorded; %d agents with software evidence.\n", result.Components, result.Skills, result.SkillFiles, result.Omissions, len(result.Software)); err != nil {
 		return err
 	}
 	if result.CredentialsIncluded {

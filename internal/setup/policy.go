@@ -55,7 +55,7 @@ func ApplyExportPolicies(r *Report) {
 	r.SchemaVersion = 2
 	r.ExportPolicies = true
 	r.Limitations = append(r.Limitations,
-		"Export policies declare intended selection only; no setup export, backup or restore command is implemented.",
+		"Export policies describe the selection used by setup snapshot and restore commands.",
 		"Policy reports contain known paths and field names, never configuration values; unlisted fields are excluded, not copied generically.",
 	)
 	for i := range r.Agents {
@@ -325,6 +325,10 @@ func classExportPolicies() []ClassExportPolicy {
 		{
 			Kind: "instructions", Selection: "include", Handling: "portable",
 			Reason: "Discovered project instruction files are selected as whole bounded text; global or unlisted instruction locations are not inventoried.",
+		},
+		{
+			Kind: "skills", Selection: "include", Handling: "portable",
+			Reason: "Installed skill folders are selected as whole bounded directories; files are copied into the encrypted snapshot and restored deliberately.",
 		},
 		{
 			Kind: "behavior", Selection: "unsupported", Handling: "not_implemented",

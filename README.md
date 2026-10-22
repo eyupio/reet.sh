@@ -272,6 +272,7 @@ reet setup remote list
 reet setup remote test
 reet setup remote prune --keep 10 --apply
 reet setup remote delete --yes SNAPSHOT
+reet setup profile
 reet setup profile save work
 reet setup profile save --exclude-kind instructions --machine laptop work2
 reet setup profile rename work2 personal
@@ -333,7 +334,9 @@ after snapshot, digest and current-file checks; `reet setup journals` lists reco
 `--last` picks the newest completed one. `reet setup health` gives conservative local
 evidence and reauthentication guidance without repairing anything.
 
-`reet setup profile save NAME` uses the newest local snapshot without a passphrase, or
+`reet setup profile` runs an interactive wizard (create/choose snapshot, optional
+preview, profile name). `reet setup profile save NAME` uses the newest local snapshot
+without a passphrase, or
 add `--password-file` to record preview/software evidence; it keeps a named local revision
 pointing at an immutable snapshot. `reet setup profile save` continues to accept an
 explicit snapshot ID.

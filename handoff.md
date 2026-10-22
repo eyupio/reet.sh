@@ -67,9 +67,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Profiles UI handoff refresh merged in [PR #86](https://github.com/eyupio/reet.sh/pull/86), `3040fc0`.
 - Machine/project-scoped profile overrides merged in [PR #87](https://github.com/eyupio/reet.sh/pull/87), `c8fa9ee`.
 - Passphrase-free profile saving merged in [PR #88](https://github.com/eyupio/reet.sh/pull/88), `42e88c8`.
-- Latest verified source baseline: `origin/main` at `42e88c8` (2026-10-22).
-- Interactive backup passphrase prompting is in [PR #89](https://github.com/eyupio/reet.sh/pull/89)
-  on `fix/setup-backup-prompt`; fetch remote status before continuing and preserve any
+- Interactive backup passphrase prompting merged in [PR #89](https://github.com/eyupio/reet.sh/pull/89), `e8a0ec8`.
+- Latest verified source baseline: `origin/main` at `e8a0ec8` (2026-10-22).
+- The interactive setup-profile wizard is in [PR #90](https://github.com/eyupio/reet.sh/pull/90)
+  on `feat/setup-profile-wizard`; fetch remote status before continuing and preserve any
   uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
@@ -122,6 +123,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Scope profile exclusions to named machines and projects.
 - [x] Make `profile save NAME` use the newest snapshot without a passphrase.
 - [x] Prompt for a new snapshot passphrase in a terminal and accept `backup -`.
+- [x] Add an interactive `reet setup profile` wizard.
 
 ## Implemented slice
 
@@ -363,6 +365,11 @@ snapshot and records its clear header without a passphrase. An explicit snapshot
 `--password-file` is given; `--password-file -` and a bare trailing `-` use standard
 input. Non-interactive callers still get explicit guidance. This closes the empty-machine
 flow: `reet setup backup` then `reet setup profile save NAME`.
+
+`reet setup profile` (or `profile save` with no name) now runs an interactive wizard:
+it offers to create a snapshot if none exists, chooses one, optionally opens it for
+preview/software evidence, prompts for a name (default `work`) and saves the profile.
+Advanced flags remain for scripts.
 
 Next implementation slice: broadening memory/history components or web profile editing,
 depending on owner priority. Do not claim cross-OS restore or a complete working-setup
@@ -1214,6 +1221,25 @@ diagnostics) and all 16 MCP tests passed. A PTY smoke test verified the two-prom
 `profile save NAME` and `setup list`; setup tests cross-compile for Windows amd64 and
 macOS arm64.
 `git diff --check` passed. No dependency changed (x/term was already present).
+
+Broader memory/history components, web profile editing and verified cross-OS restore
+remain unimplemented.
+
+## Interactive setup-profile wizard
+
+The current branch adds an interactive wizard for `reet setup profile` and for
+`profile save` with no name. It offers to create a snapshot when none exists, lists
+snapshots to choose from, asks whether to open one for preview/software evidence, and
+prompts for a profile name (default `work`) before saving. Scripted/flag-driven commands
+remain unchanged.
+
+Validation: focused tests cover header-only/profile restore paths, trailing flags,
+snapshot-as-password rejection and placeholder/missing-file guidance; a PTY smoke test
+verified snapshot creation, passphrase prompts, profile save and `setup list`. Full
+`go vet ./...` and `go test -race ./...` passed. Web checks passed (8 tests; zero Svelte
+diagnostics) and all 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and
+macOS arm64. `git diff --check` passed. No dependency changed (x/term was already
+present).
 
 Broader memory/history components, web profile editing and verified cross-OS restore
 remain unimplemented.

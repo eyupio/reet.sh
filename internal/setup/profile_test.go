@@ -442,3 +442,19 @@ func TestProfileSaveJustWorksWithoutPassphraseOrSnapshot(t *testing.T) {
 		t.Fatalf("missing passphrase guidance: %v", err)
 	}
 }
+
+func TestProfileSaveFlagsAfterArguments(t *testing.T) {
+	dir, snapshot := profileFixture(t)
+	passFile := writePassphrase(t, t.TempDir(), testSetupPassphrase)
+	var out bytes.Buffer
+	if err := Run([]string{"profile", "save", "--dir", dir, "work", snapshot.ID, "--password-file", passFile}, &out); err != nil {
+		t.Fatal(err)
+	}
+	_, revision, err := LoadProfile("work", dir, 0)
+	if err != nil || revision.Preview.SchemaVersion == 0 {
+		t.Fatalf("trailing flags did not record preview: %+v %v", revision, err)
+	}
+	if err := Run([]string{"profile", "save", "--dir", dir, "bad", snapshot.ID, "--password-file", snapshot.Path}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "not the snapshot") {
+		t.Fatalf("snapshot as passphrase file: %v", err)
+	}
+}

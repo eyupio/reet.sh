@@ -23,8 +23,9 @@ storage plus optional S3; named profiles with machine/project overrides.
 - S0 merged in [PR #39](https://github.com/eyupio/reet.sh/pull/39) after both CI workflows passed.
 - S1a merged in [PR #40](https://github.com/eyupio/reet.sh/pull/40) after both CI workflows passed.
 - S1b merged in [PR #41](https://github.com/eyupio/reet.sh/pull/41) after both CI workflows passed.
-- Current branch: `feat/setup-agent-versions`.
-- Base: `origin/main` at `770d102` (includes concurrent MCP PRs #42/#43).
+- Version probes merged in [PR #44](https://github.com/eyupio/reet.sh/pull/44) after both CI workflows passed.
+- Current branch: `feat/setup-installation-evidence`.
+- Base: `origin/main` at `cb3e88d`.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -62,14 +63,23 @@ settings are recognised. TOML uses pinned `go-toml/v2 v2.4.3` rather than a part
 home-grown decoder. JSONC comments/trailing commas are normalised before strict
 JSON validation. Format-specific failures remain constant diagnostic codes.
 
-The first S1c slice is implemented locally: `--probe-versions` invokes discovered
+The first S1c slice is merged: `--probe-versions` invokes discovered
 absolute executables with a fixed `--version` argument. Per-command timeout,
 bounded stdout, discarded stderr, recognised-version-only output and cancellation
 are covered by tests. `application_version` is separate from the existing
 controller reporter `version`; installation method remains explicitly unknown.
 
-Next: complete S1c with verified installation provenance and explicit component
-export policies, before implementing setup archives. Current slices do not meet
+The next S1c slice adds `--inspect-installation`: bounded local Node package
+metadata inspection for Claude Code, Codex, OpenCode, Pi and Gemini CLI. It checks
+the known package name and declared executable against the discovered file, with
+nearest-package boundaries and confined bin paths. This is local association
+evidence only; package manager and authenticity remain unknown. Native installers,
+Cursor packaging and Windows shims remain unsupported. No commands or registry
+requests run during inspection.
+
+Next: implement explicit component export policies; authenticated provenance,
+package-manager receipts and install resolution still need dedicated support
+before their restore paths can be enabled. Current slices do not meet
 the complete S1 acceptance gate. Do not copy
 configuration trees generically: they may mix secrets, history, caches and hooks.
 No setup backup/restore command is implemented yet.
@@ -124,7 +134,7 @@ no failures. Compiled CLI smoke tests parsed both formats without exposing value
 `git diff --check` passed. Dependency change: `go-toml/v2 v2.4.3`, pinned for correct
 TOML decoding; `go mod tidy` also recorded an existing test dependency checksum.
 
-## Current-stage validation and connected sources
+## Version-probe validation and connected sources
 
 Version-probe focused race tests, `go vet ./...`, and full `go test -race ./...`
 passed. Web checks passed (8 tests; zero Svelte diagnostics), as did all 16 MCP
@@ -140,3 +150,14 @@ this repository, and no live MCP data was modified.
 Merge each stage only after its PR CI passes; the owner has authorised merging
 green stages and continuing on fresh branches. Preserve this rule in subsequent
 handoffs. Do not equate fixture-backed format parsing with verified restoration.
+
+## Installation-evidence validation
+
+Focused setup race tests passed, covering recognised packages, false associations,
+ancestor/read bounds, malformed metadata, symlinks, path escapes, unavailable
+executables, opt-in behaviour and output omission. `go vet ./...` and full
+`go test -race ./...` passed. Web checks passed (8 tests; zero Svelte diagnostics)
+and all 16 MCP tests passed. Compiled CLI fixtures verified default/combined flags
+and distinct package/command versions. Setup tests cross-compiled for Windows
+amd64 and macOS arm64; runtime verification remains Linux-only.
+`git diff --check` passed. No new dependencies. Package identity is not cryptographically authenticated.

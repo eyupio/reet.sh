@@ -189,3 +189,55 @@ are not verified provenance. Do not interpret them as a signature, package-manag
 record or guarantee of a reproducible installation. Existing controller environment
 `version` fields describe the reet reporter; they are not repurposed for agent
 application versions. These local observations are not yet uploaded through MCP.
+
+## Opt-in installation evidence
+
+```sh
+reet setup scan --inspect-installation --json
+reet setup scan --components --inspect-installation --probe-versions --json
+```
+
+`--inspect-installation` reads local Node package metadata without invoking agents,
+package managers, lifecycle scripts or network requests. It is independent of
+configuration reads and version probes; the default metadata-only scan is unchanged.
+Reports use schema v2, `installation_inspection: true`, and a separate `installation`
+observation per agent. The installation capability is `local_node_package_evidence`
+for the five supported adapters and `not_supported` for Cursor.
+
+| Agent | Recognised package name |
+| --- | --- |
+| Claude Code | `@anthropic-ai/claude-code` |
+| Codex | `@openai/codex` |
+| OpenCode | `opencode-ai` |
+| Pi | `@mariozechner/pi-coding-agent` |
+| Gemini CLI | `@google/gemini-cli` |
+
+Inspection resolves the executable's symlinks, then checks up to six directories,
+starting with its containing directory, for the nearest `package.json`. It stops
+at that boundary even if the package is unrelated or malformed. Metadata must be
+a regular non-symlink file, at most 1 MiB, and valid bounded JSON without duplicate
+keys. Its package name must match the adapter, its version must be a recognised
+three-part token, and its explicit `bin` map entry for the discovered command must
+identify the same regular file. The declared path must remain within the package
+root, including through symlinks. Inspection rechecks executable identity, size
+and modification time before returning a match; this is an observation, not an
+atomic snapshot or proof that executable bytes are unmodified.
+
+`matched` records `kind: node_package`, the recognised package/version, metadata
+path and `evidence: package_bin_matches_executable`. Other results are
+`not_detected`, `unknown` or `error` with fixed diagnostic codes. Unknown package
+names, other metadata values and raw filesystem/parser errors are never returned.
+Reported paths and prerelease/build version identifiers may still be private.
+
+Local metadata can be edited or forged. `manager` always remains `unknown` because
+npm, pnpm, Yarn, Bun and manual copies can share these layouts. A package version
+is distinct from the application's `--version` report; neither overwrites the
+other. Matching a wrapper does not inspect its native payload or dependencies.
+Native installers, OS package receipts, Windows command shims, string-form `bin`
+entries, Cursor packaging, signatures and registry authenticity are not verified.
+Failure to find supported metadata does not imply the agent is uninstalled.
+These observations must not automatically select an installer or authorise restore.
+
+Package names and bin-map conventions were checked against the public npm registry
+metadata on 22 October 2026. Tests use synthetic local fixtures; no installed
+package code or registry payload is executed by the inspector or those tests.

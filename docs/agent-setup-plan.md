@@ -203,6 +203,10 @@ claim that the complete S1 acceptance gate or any restore capability has landed.
 The first S1c slice adds explicit `--probe-versions` command reports; verified
 installation provenance and export policies remain separate work. Keep application
 versions distinct from existing controller/scanner version fields.
+The next S1c slice adds opt-in local Node package evidence by checking declared
+executables against observed files. This verifies a local association only;
+package-manager receipts, publisher authenticity and install resolution remain
+unverified. Do not treat editable metadata as permission to reinstall a package.
 
 - Parse agent-specific config formats and MCP declarations with bounded reads.
 - Record versions, installation provenance, dependencies, global/project scope,

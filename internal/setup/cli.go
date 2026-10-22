@@ -13,7 +13,7 @@ import (
 // Run implements the standalone setup command. No server credentials are needed.
 func Run(args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nSetup backup and restore are not yet available.")
+		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nSetup backup and restore are not yet available.")
 		return err
 	}
 	if args[0] != "scan" {
@@ -24,6 +24,7 @@ func Run(args []string, out io.Writer) error {
 	asJSON := f.Bool("json", false, "write a versioned JSON inventory")
 	project := f.String("project", "", "also inspect known locations in this project (no recursive search)")
 	components := f.Bool("components", false, "read known configuration files and summarise settings/MCP without values")
+	installation := f.Bool("inspect-installation", false, "read bounded local Node package metadata associated with executables")
 	versions := f.Bool("probe-versions", false, "invoke discovered executables with --version; timeout 3s each, output bounded")
 	if err := f.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -51,6 +52,9 @@ func Run(args []string, out io.Writer) error {
 	if *components {
 		InspectComponents(&r)
 	}
+	if *installation {
+		InspectInstallations(&r)
+	}
 	if *versions {
 		if err := ProbeVersions(&r); err != nil {
 			return err
@@ -68,6 +72,9 @@ func render(out io.Writer, r Report) error {
 	mode := "Metadata only"
 	if len(r.Agents) > 0 && r.Agents[0].Components != nil {
 		mode = "Configuration summaries; values omitted"
+	}
+	if r.InstallationInspection {
+		mode += "; local package inspection enabled"
 	}
 	if r.VersionProbes {
 		mode += "; application version probes enabled"
@@ -89,6 +96,11 @@ func render(out io.Writer, r Report) error {
 		}
 		if agent.Executable.Issue != "" {
 			if _, err := fmt.Fprintf(out, "  %s\n", agent.Executable.Issue); err != nil {
+				return err
+			}
+		}
+		if v := agent.Installation; v != nil {
+			if _, err := fmt.Fprintf(out, "  Installation: %s %s %s (kind: %s; manager: %s) %s\n", v.State, v.Package, v.Version, v.Kind, v.Manager, v.Issue); err != nil {
 				return err
 			}
 		}

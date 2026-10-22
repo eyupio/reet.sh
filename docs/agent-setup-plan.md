@@ -292,7 +292,9 @@ hooks and caches. It reads no configuration values and implements no export.
   omission. Sanitised source provenance from skills CLI lock files is recorded in the
   snapshot, while lock files are not rewritten on restore. Exclusions can be scoped to
   named
-  machines/projects; web editing remains later work.
+  machines/projects. The web page can rename or delete a server copy, while local
+  profile creation and edits remain CLI commands; broader web editing remains later
+  work.
 - Record drift from observations; stale/incomplete inventory stays unknown.
 - Gate: intentional machine differences survive sync; profile revisions are
   explicit; no implicit remote execution or credential sharing.

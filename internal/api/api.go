@@ -154,6 +154,7 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	mux.HandleFunc("GET /api/environments", s.environments)
 	mux.HandleFunc("GET /api/v2/setup/profiles", s.setupProfileList)
 	mux.HandleFunc("PUT /api/v2/setup/profiles/{name}", s.requireWriter(s.saveSetupProfile))
+	mux.HandleFunc("PATCH /api/v2/setup/profiles/{name}", s.requireWriter(s.renameSetupProfile))
 	mux.HandleFunc("GET /api/v2/setup/profiles/{name}", s.getSetupProfile)
 	mux.HandleFunc("DELETE /api/v2/setup/profiles/{name}", s.requireWriter(s.deleteSetupProfile))
 	mux.HandleFunc("GET /api/v2/sync", s.syncState)

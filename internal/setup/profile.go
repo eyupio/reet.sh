@@ -380,11 +380,11 @@ func normalizeProfileOverrides(opts SaveSetupProfileOptions) (*SetupProfileOverr
 		return &copy, nil
 	}
 	overrides := &SetupProfileOverrides{}
-	allowed := map[string]bool{"settings": true, "mcp": true, "instructions": true, "skills": true}
+	allowed := map[string]bool{"settings": true, "mcp": true, "instructions": true, "skills": true, "memory": true}
 	for _, kind := range opts.ExcludeKinds {
 		kind = strings.ToLower(strings.TrimSpace(kind))
 		if !allowed[kind] {
-			return nil, fmt.Errorf("excluded kind %q must be settings, mcp, instructions or skills", kind)
+			return nil, fmt.Errorf("excluded kind %q must be settings, mcp, instructions, skills or memory", kind)
 		}
 		overrides.ExcludeKinds = appendUnique(overrides.ExcludeKinds, kind)
 	}
@@ -473,6 +473,13 @@ func ApplyProfileOverrides(snapshot SetupSnapshot, overrides *SetupProfileOverri
 	}
 	filtered.Preview = snapshot.Preview
 	filtered.Preview.Agents = append([]SnapshotAgent(nil), snapshot.Preview.Agents...)
+	filtered.Memories = []SetupMemory{}
+	for _, memory := range snapshot.Memories {
+		if sources[memory.Source] || kinds["memory"] {
+			continue
+		}
+		filtered.Memories = append(filtered.Memories, memory)
+	}
 	filtered.Preview.Skills = []SnapshotSkill{}
 	for _, skill := range snapshot.Preview.Skills {
 		if sources[skill.Source] || sources[filepath.Dir(skill.Source)] || kinds["skills"] {
@@ -484,6 +491,18 @@ func ApplyProfileOverrides(snapshot SetupSnapshot, overrides *SetupProfileOverri
 			continue
 		}
 		filtered.Preview.Skills = append(filtered.Preview.Skills, skill)
+	}
+	filtered.Preview.Memories = []SnapshotMemory{}
+	for _, memory := range snapshot.Preview.Memories {
+		if sources[memory.Source] || kinds["memory"] {
+			for i := range filtered.Preview.Agents {
+				if filtered.Preview.Agents[i].ID == memory.AgentID {
+					filtered.Preview.Agents[i].Omitted = append(filtered.Preview.Agents[i].Omitted, SnapshotOmission{Kind: "memory", Source: memory.Source, Reason: "profile_excluded", Count: 1})
+				}
+			}
+			continue
+		}
+		filtered.Preview.Memories = append(filtered.Preview.Memories, memory)
 	}
 	for i := range filtered.Preview.Agents {
 		agent := filtered.Preview.Agents[i]

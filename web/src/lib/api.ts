@@ -438,6 +438,7 @@ export type SetupProfilePreview = {
   schema_version?: number
   agents?: { id: string; name: string; state?: string; components?: SetupProfileComponent[]; omitted?: { kind: string; reason: string; count?: number }[] }[]
   skills?: { name: string; agent_id: string; scope: string; source: string; origin?: string; origin_type?: string; files: number; bytes: number; digest: string }[]
+  memories?: { name: string; agent_id: string; scope: string; source: string; bytes: number; digest: string }[]
   classes?: { kind: string; selection: string; handling: string; reason: string }[]
   credentials_included?: boolean
   limitations?: string[]

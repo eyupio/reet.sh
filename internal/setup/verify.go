@@ -78,6 +78,7 @@ func VerifySetupSnapshot(snapshot SetupSnapshot, manifest sealed.Manifest, desti
 	components := snapshotRestoreComponents(snapshot)
 	candidates := destinationCandidates(destination)
 	verifySetupSkills(snapshot, destination, &result)
+	verifySetupMemories(snapshot, destination, &result)
 	for _, source := range snapshot.Sources {
 		var component restoreComponent
 		found := false

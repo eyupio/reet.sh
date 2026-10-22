@@ -136,6 +136,7 @@ func discover(e environment) (Report, error) {
 			detected = detected || (loc.State == "present" && loc.Kind != "skills" && loc.Kind != "shared_skills" && loc.Kind != "shared_instructions")
 			uncertain = uncertain || (loc.State != "present" && loc.State != "missing")
 		}
+		memoryLocations(e, &a)
 		if detected {
 			a.State = "detected"
 		} else if uncertain {

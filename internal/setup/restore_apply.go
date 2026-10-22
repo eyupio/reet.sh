@@ -449,7 +449,7 @@ func restoreContent(file restoreFile) ([]byte, error) {
 	if file.format == "text" {
 		return []byte(file.text), nil
 	}
-	if file.format == "skill" {
+	if file.format == "skill" || file.format == "sqlite" {
 		return file.data, nil
 	}
 	content := map[string]any{}
@@ -542,9 +542,9 @@ func verifyRestoreFile(path string, file restoreFile) error {
 		}
 		return nil
 	}
-	if file.format == "skill" {
+	if file.format == "skill" || file.format == "sqlite" {
 		if !reflect.DeepEqual(data, file.data) {
-			return fmt.Errorf("verify restored file %q: skill content does not match", path)
+			return fmt.Errorf("verify restored file %q: content does not match", path)
 		}
 		return nil
 	}

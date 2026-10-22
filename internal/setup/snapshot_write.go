@@ -33,6 +33,7 @@ type SetupSnapshot struct {
 	Preview       SnapshotPreview       `json:"preview"`
 	Sources       []SetupSnapshotSource `json:"sources"`
 	Skills        []SetupSkill          `json:"skills,omitempty"`
+	Memories      []SetupMemory         `json:"memories,omitempty"`
 	Software      []SetupSoftware       `json:"software,omitempty"`
 }
 
@@ -73,6 +74,7 @@ type SetupWriteResult struct {
 	Components          int             `json:"components"`
 	Skills              int             `json:"skills,omitempty"`
 	SkillFiles          int             `json:"skill_files,omitempty"`
+	Memories            int             `json:"memories,omitempty"`
 	Omissions           int             `json:"omissions"`
 	CredentialsIncluded bool            `json:"credentials_included,omitempty"`
 	Preview             SnapshotPreview `json:"preview"`
@@ -108,6 +110,7 @@ func BuildSetupSnapshot(selection SnapshotSelection) SetupSnapshot {
 		Preview:       selection.Preview,
 		Sources:       []SetupSnapshotSource{},
 		Skills:        append([]SetupSkill(nil), selection.skills...),
+		Memories:      append([]SetupMemory(nil), selection.memories...),
 		Software:      selection.software,
 	}
 	for _, source := range selection.sources {
@@ -197,7 +200,7 @@ func WriteSetupSnapshot(selection SnapshotSelection, opts SetupWriteOptions) (Se
 		ID: id, Path: path, Bytes: int64(len(onDisk)),
 		TakenAt: time.UnixMilli(written.TakenAt).UTC(),
 		SHA256:  written.SHA256, Protection: written.Protection, Compression: written.Compression,
-		Components: len(snapshot.Sources), Skills: len(snapshot.Skills), SkillFiles: skillFileCount(snapshot.Skills), Omissions: omissionCount(snapshot.Preview),
+		Components: len(snapshot.Sources), Skills: len(snapshot.Skills), SkillFiles: skillFileCount(snapshot.Skills), Memories: len(snapshot.Memories), Omissions: omissionCount(snapshot.Preview),
 		CredentialsIncluded: snapshot.Preview.CredentialsIncluded,
 		Preview:             snapshot.Preview, Software: snapshot.Software,
 	}, nil
@@ -291,6 +294,24 @@ func verifySetupSnapshot(snapshot SetupSnapshot) error {
 		}
 		if preview.Files != len(skill.Files) || preview.Bytes != skillBytes(skill.Files) {
 			return errors.New("setup snapshot skill metadata does not match its content")
+		}
+	}
+	memories := map[string]SnapshotMemory{}
+	for _, memory := range snapshot.Preview.Memories {
+		memories[memory.AgentID+"\x00"+memory.Source] = memory
+	}
+	seenMemories := map[string]bool{}
+	for _, memory := range snapshot.Memories {
+		if seenMemories[memory.Source] {
+			return errors.New("duplicate setup snapshot memory")
+		}
+		seenMemories[memory.Source] = true
+		preview, ok := memories[memory.AgentID+"\x00"+memory.Source]
+		if !ok || preview.Digest == "" {
+			return errors.New("setup snapshot memory is not in the selected preview")
+		}
+		if preview.Name != memory.Name || preview.Bytes != int64(len(memory.Data)) || preview.Digest != memory.Digest || memory.sha256() != memory.Digest {
+			return errors.New("setup snapshot memory content does not match its recorded digest")
 		}
 	}
 	return nil

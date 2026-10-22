@@ -23,7 +23,7 @@ func TestSupportMatrixCLI(t *testing.T) {
 	for _, row := range matrix.Agents {
 		byID[row.AgentID] = row
 	}
-	if byID["claude"].Settings != "supported" || byID["pi"].MCP != "unsupported" || byID["cursor"].Settings != "unsupported" || byID["gemini"].Skills != "unsupported" {
+	if byID["claude"].Settings != "supported" || byID["pi"].MCP != "unsupported" || byID["cursor"].Settings != "unsupported" || byID["gemini"].Skills != "unsupported" || byID["codex"].Memory != "supported" {
 		t.Fatalf("wrong support rows: %+v", byID)
 	}
 	if len(matrix.Limitations) == 0 || !strings.Contains(strings.Join(matrix.Limitations, " "), "not runtime verification") {

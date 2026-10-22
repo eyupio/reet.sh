@@ -25,6 +25,7 @@ type SnapshotPreview struct {
 	Project             string              `json:"project,omitempty"`
 	Agents              []SnapshotAgent     `json:"agents"`
 	Skills              []SnapshotSkill     `json:"skills,omitempty"`
+	Memories            []SnapshotMemory    `json:"memories,omitempty"`
 	Classes             []ClassExportPolicy `json:"classes"`
 	CredentialsIncluded bool                `json:"credentials_included,omitempty"`
 	Limitations         []string            `json:"limitations"`
@@ -69,6 +70,7 @@ type SnapshotSelection struct {
 	Preview             SnapshotPreview
 	sources             []selectedSnapshotSource
 	skills              []SetupSkill
+	memories            []SetupMemory
 	software            []SetupSoftware
 	credentialsIncluded bool
 }
@@ -127,6 +129,7 @@ func BuildSnapshotSelectionWithOptions(r Report, opts SnapshotBuildOptions) (Sna
 		preview.Agents = append(preview.Agents, sa)
 	}
 	selectSkillContent(cp, &preview, &selection)
+	selectMemoryContent(cp, &preview, &selection)
 	selection.Preview = preview
 	return selection, nil
 }
@@ -464,6 +467,11 @@ func renderSnapshotPreview(out io.Writer, preview SnapshotPreview) error {
 			if _, err := fmt.Fprintln(out); err != nil {
 				return err
 			}
+		}
+	}
+	for _, memory := range preview.Memories {
+		if _, err := fmt.Fprintf(out, "  memory %q (%s/%s): %d bytes, digest %s\n", memory.Name, memory.AgentID, memory.Scope, memory.Bytes, memory.Digest); err != nil {
+			return err
 		}
 	}
 	for _, skill := range preview.Skills {

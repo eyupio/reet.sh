@@ -194,7 +194,7 @@ func TestExportPolicyClassifiesMemoryHistoryCredentialsHooksAndCaches(t *testing
 		"instructions": {"include", "portable"},
 		"skills":       {"include", "portable"},
 		"behavior":     {"unsupported", "not_implemented"},
-		"memory":       {"unsupported", "not_implemented"},
+		"memory":       {"include", "portable"},
 		"history":      {"opt_in", "not_implemented"},
 		"credentials":  {"include", "references_only"},
 		"hooks":        {"exclude", "never"},

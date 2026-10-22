@@ -53,6 +53,7 @@ func main() {
 Usage: reet <command> [options]
 
   serve        Run the web app (also the default when no command is given)
+  agent        Enroll a machine and process approved sync jobs
   scan         Report installed skills to your account
   sync         Preview a saved skill set; --apply asks before changing files
   install      Install this binary or set up a managed server
@@ -118,6 +119,10 @@ backup to preserve accounts, lists, teams and sync references.
 		if err := healthcheck(healthURL(env("REET_ADDR", ":8080"))); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
+		}
+	case "agent":
+		if err := scan.RunAgent(args, os.Stdout, version); err != nil {
+			log.Fatal(err)
 		}
 	case "sync":
 		if err := scan.RunSyncVersion(args, os.Stdin, os.Stdout, version); err != nil {

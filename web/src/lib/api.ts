@@ -423,11 +423,11 @@ export async function getRollup(): Promise<Rollup> {
   return (await req('/api/admin/rollup')).json()
 }
 
-export type SyncEnvironment = Environment & { project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string; skills: SyncSkill[] }
+export type SyncEnvironment = Environment & { error?: string; project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string; skills: SyncSkill[] }
 export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source' | 'sourceType'>
-export type SyncTarget = { hostAliases?: string[]; targetAliases?: string[]; target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
+export type SyncTarget = { mode?: string; baseline?: SyncSkill[]; appliedRevision?: string; hostAliases?: string[]; targetAliases?: string[]; target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
 export type Machine = { aliases?: string[]; host: string; groups: SyncEnvironment[]; skillCount: number }
-export type SyncState = { machines?: Machine[]; environments: SyncEnvironment[]; targets: SyncTarget[] }
+export type SyncState = { agents?: SyncAgent[]; jobs?: SyncJob[]; machines?: Machine[]; environments: SyncEnvironment[]; targets: SyncTarget[] }
 export async function getSyncState(): Promise<SyncState> { return (await req('/api/v2/sync')).json() }
 export async function saveSyncTarget(sourceId: string, targetId: string): Promise<SyncState> { return (await req('/api/v2/sync', { method: 'PUT', body: json({ sourceId, targetId }) })).json() }
 export async function deleteSyncTarget(targetId: string): Promise<SyncState> { return (await req(`/api/v2/sync?target=${encodeURIComponent(targetId)}`, { method: 'DELETE' })).json() }
@@ -622,3 +622,14 @@ export async function saveHostedSkill(skill: HostedSkill): Promise<HostedSkill> 
 export async function deleteHostedSkill(slug: string): Promise<void> {
   await req(`/api/v2/hosting/skills/${encodeURIComponent(slug)}`, { method: 'DELETE' })
 }
+
+export type SyncAgent = { id: string; host: string; version: string; lastSeen: number; paused: boolean }
+export type SyncPlan = { backups?: string[]; target: string; directory: string; revision: string; actions: { add: boolean; skill: SyncSkill }[] }
+export type SyncJob = { id: string; agentId: string; targetId: string; kind: string; status: string; revision: string; hash: string; plan: Partial<SyncPlan>; message: string; createdAt: number; updatedAt: number }
+export async function syncCandidates(listId = 0, collection = 'shelf'): Promise<{ skills: SyncSkill[] }> { return (await req(`/api/v2/sync/candidates?list=${listId}&collection=${encodeURIComponent(collection)}`)).json() }
+export async function saveDesired(data: { targetId: string; sourceId: string; listId: number; skillIds: string[]; mode: string; revision: string }): Promise<SyncState> { return (await req('/api/v2/sync/desired', { method: 'PUT', body: json(data) })).json() }
+export async function reconcileDesired(targetId: string): Promise<{ skills: SyncSkill[]; conflicts: string[]; revision: string }> { return (await req('/api/v2/sync/reconcile', { method: 'POST', body: json({ targetId }) })).json() }
+export async function adoptSyncSkills(targetId: string, skillIds: string[], listId = 0): Promise<void> { await req('/api/v2/sync/adopt', { method: 'POST', body: json({ targetId, skillIds, listId }) }) }
+export async function queueSyncJob(agentId: string, targetId: string, kind: string): Promise<SyncState> { return (await req('/api/v2/sync/jobs', { method: 'POST', body: json({ agentId, targetId, kind }) })).json() }
+export async function controlSyncJob(id: string, action: string, hash = ''): Promise<SyncState> { return (await req('/api/v2/sync/jobs', { method: 'PATCH', body: json({ id, action, hash }) })).json() }
+export async function controlSyncAgent(id: string, action: string): Promise<SyncState> { return (await req('/api/v2/sync/agents', { method: 'PATCH', body: json({ id, action }) })).json() }

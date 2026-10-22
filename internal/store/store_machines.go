@@ -67,6 +67,20 @@ func (s *Store) MergeMachinesFor(userID int64, from, to string) error {
 		if strings.EqualFold(destination, source) {
 			destination = to
 		}
+		// Enrolled identities may be renamed, but two installations cannot be merged.
+		var enrollments, running int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_agents WHERE user_id=? AND (host=? COLLATE NOCASE OR host=? COLLATE NOCASE)`, userID, source, destination).Scan(&enrollments); err != nil {
+			return err
+		}
+		if enrollments > 1 {
+			return errors.New("revoke one enrollment before merging two installed agents")
+		}
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs j JOIN sync_agents a ON a.id=j.agent_id WHERE a.user_id=? AND (a.host=? COLLATE NOCASE OR a.host=? COLLATE NOCASE) AND j.status='running'`, userID, source, destination).Scan(&running); err != nil {
+			return err
+		}
+		if running > 0 {
+			return errors.New("wait for the machine's running job before renaming its reports")
+		}
 		// An alias belonging to another report selects that report’s preferred name.
 		to = destination
 		rows, err := tx.Query(`SELECT e.id,e.agent,e.project,e.path,e.first_seen,e.last_seen,COALESCE(sc.scanned_at,e.last_seen) FROM environments e LEFT JOIN environment_scans sc ON sc.env_id=e.id WHERE e.user_id=? AND e.host=? COLLATE NOCASE`, userID, source)
@@ -161,7 +175,29 @@ func (s *Store) MergeMachinesFor(userID int64, from, to string) error {
 			if _, err := tx.Exec(`UPDATE sync_targets SET source_id=?,source_name=? WHERE user_id=? AND source_id=?`, id, name, userID, e.id); err != nil {
 				return err
 			}
+			var oldMode, newMode, oldBase, newBase string
+			oldErr := tx.QueryRow(`SELECT mode,baseline FROM sync_options WHERE target_id=?`, e.id).Scan(&oldMode, &oldBase)
+			newErr := tx.QueryRow(`SELECT mode,baseline FROM sync_options WHERE target_id=?`, id).Scan(&newMode, &newBase)
+			if oldErr == nil && newErr == nil && (oldMode != newMode || oldMode == "bidirectional" && oldBase != newBase) {
+				return ErrMachineConflict
+			}
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO sync_options(target_id,mode,baseline,applied_revision) SELECT ?,mode,baseline,applied_revision FROM sync_options WHERE target_id=?`, id, e.id); err != nil {
+				return err
+			}
+			if !exists || e.scanned > scanned {
+				if _, err := tx.Exec(`INSERT INTO scan_errors(env_id,error) SELECT ?,error FROM scan_errors WHERE env_id=? ON CONFLICT(env_id) DO UPDATE SET error=excluded.error`, id, e.id); err != nil {
+					return err
+				}
+			}
 			if _, err := tx.Exec(`DELETE FROM environments WHERE id=? AND user_id=?`, e.id, userID); err != nil {
+				return err
+			}
+		}
+		if !strings.EqualFold(source, to) {
+			if _, err := tx.Exec(`UPDATE sync_jobs SET status='cancelled',message='Machine renamed; preview again.',updated_at=? WHERE agent_id IN (SELECT id FROM sync_agents WHERE user_id=? AND host=? COLLATE NOCASE) AND status IN ('queued','awaiting-approval')`, now(), userID, source); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`UPDATE sync_agents SET host=? WHERE user_id=? AND host=? COLLATE NOCASE`, to, userID, source); err != nil {
 				return err
 			}
 		}

@@ -76,3 +76,30 @@ func TestSyncAPIAndIncompleteScan(t *testing.T) {
 		t.Fatalf("incomplete reference accepted: %d", code)
 	}
 }
+
+func TestLocalScanErrorPreservesInventoryAndShelfIntent(t *testing.T) {
+	srv := newSrv(t, deadFetcher(t), "")
+	good := `{"prune":true,"machine":{"host":"laptop"},"items":[{"name":"one","source":"a/b","host":"laptop","agent":"agents"}],"environments":[{"host":"laptop","agent":"agents","skills":["one"]}]}`
+	if code, b := do(t, srv, "POST", "/api/import", good); code != 200 {
+		t.Fatal(b)
+	}
+	do(t, srv, "PATCH", "/api/skill", `{"id":"a/b/one","used":false,"notes":"keep"}`)
+	do(t, srv, "POST", "/api/import", good)
+	sk := list(t, srv, "").Skills[0]
+	if sk.Used || sk.Notes != "keep" {
+		t.Fatal("scan overwrote user intent")
+	}
+	bad := `{"prune":true,"machine":{"host":"laptop"},"items":[],"environments":[{"host":"laptop","agent":"agents","skills":[],"errors":["permission denied"]}]}`
+	code, body := do(t, srv, "POST", "/api/import", bad)
+	if code != 200 || !strings.Contains(body, "permission denied") {
+		t.Fatal(body)
+	}
+	_, body = do(t, srv, "GET", "/api/v2/sync", "")
+	var state struct{ Environments []store.SyncEnvironment }
+	json.Unmarshal([]byte(body), &state)
+	for _, env := range state.Environments {
+		if env.Agent == "agents" && (env.Complete || len(env.Skills) != 1 || env.Error == "") {
+			t.Fatalf("bad scan pruned or confirmed inventory: %+v", env)
+		}
+	}
+}

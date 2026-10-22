@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -29,6 +30,7 @@ type ScannedEnv struct {
 	Project string   `json:"project"`
 	Path    string   `json:"path"`
 	Skills  []string `json:"skills"`
+	Errors  []string `json:"errors,omitempty"`
 }
 
 // Scan is everything a run found and every environment it looked at.
@@ -87,12 +89,25 @@ func CollectScan(home, cwd string, extraDirs []string, host string) Scan {
 					addEnv(agent, project, label)
 				}
 			}
+			if !os.IsNotExist(err) {
+				addEnv(agent, project, label).Errors = append(addEnv(agent, project, label).Errors, err.Error())
+			}
 			return
 		}
 		env := addEnv(agent, project, label)
 		seen := map[string]bool{}
 		for _, e := range entries {
-			if st, err := os.Stat(filepath.Join(dir, e.Name(), "SKILL.md")); err == nil && !st.IsDir() {
+			if !e.IsDir() && e.Type()&os.ModeSymlink == 0 {
+				continue
+			}
+			st, err := os.Stat(filepath.Join(dir, e.Name(), "SKILL.md"))
+			if err != nil {
+				if !os.IsNotExist(err) || e.Type()&os.ModeSymlink != 0 {
+					env.Errors = append(env.Errors, fmt.Sprintf("%s: %v", e.Name(), err))
+				}
+				continue
+			}
+			if !st.IsDir() {
 				name := e.Name()
 				found[host+"\x00"+agent+"\x00"+project+"\x00"+name] = Found{
 					Name: name, Source: sourceForScope(globalSources, projectSources, project, name), Host: host, Agent: agent, Project: project, Path: label,
@@ -181,11 +196,27 @@ func readLock(path string, add func(name, source string)) {
 		return
 	}
 	var asMap map[string]struct {
-		Source string `json:"source"`
+		Source        string `json:"source"`
+		SourceType    string `json:"sourceType"`
+		SourceBaseURL string `json:"sourceBaseUrl"`
+		SourceURL     string `json:"sourceUrl"`
 	}
 	if json.Unmarshal(v.Skills, &asMap) == nil {
 		for name, e := range asMap {
-			add(name, e.Source)
+			source := e.Source
+			if e.SourceType == "well-known" {
+				base := e.SourceBaseURL
+				if base == "" {
+					base = e.SourceURL
+				}
+				if u, err := url.Parse(base); err == nil && u.Host != "" && u.User == nil {
+					parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+					if len(parts) == 2 && parts[1] == name {
+						source = u.Scheme + "://" + u.Host + "/" + parts[0]
+					}
+				}
+			}
+			add(name, source)
 		}
 		return
 	}
@@ -263,7 +294,7 @@ func RunVersion(args []string, out io.Writer, version string) error {
 	}
 	if *dry {
 		fmt.Fprintf(out, "%d skills found in %d environments (dry run, nothing sent)\n", len(scan.Found), len(scan.Envs))
-		return nil
+		return scan.Err()
 	}
 	if *reconcile {
 		hostname, err := os.Hostname()
@@ -341,7 +372,7 @@ func RunVersion(args []string, out io.Writer, version string) error {
 	if res.User != "" {
 		fmt.Fprintf(out, "reported as %s\n", res.User)
 	}
-	fmt.Fprintf(out, "imported %d skills as used\n", res.Imported)
+	fmt.Fprintf(out, "reported %d skills; existing shelf choices preserved\n", res.Imported)
 	for _, e := range res.Errors {
 		fmt.Fprintf(out, "  skipped: %s\n", e)
 	}
@@ -356,4 +387,18 @@ func sourceForScope(global, project map[string]string, scope, name string) strin
 		return project[name]
 	}
 	return global[name]
+}
+
+// Err reports incomplete scopes without converting unreadable files to absence.
+func (s Scan) Err() error {
+	var problems []string
+	for _, env := range s.Envs {
+		for _, problem := range env.Errors {
+			problems = append(problems, env.Path+": "+problem)
+		}
+	}
+	if len(problems) > 0 {
+		return errors.New(strings.Join(problems, "; "))
+	}
+	return nil
 }

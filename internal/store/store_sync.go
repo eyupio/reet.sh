@@ -22,6 +22,7 @@ type MachineInfo struct {
 }
 
 type SyncEnvironment struct {
+	Error string `json:"error,omitempty"`
 	Environment
 	ScannedAt int64       `json:"scannedAt"`
 	Complete  bool        `json:"complete"`
@@ -32,6 +33,7 @@ type SyncEnvironment struct {
 }
 
 type SyncSkill struct {
+	URL        string `json:"url,omitempty"`
 	ID         string `json:"id"`
 	Name       string `json:"name"`
 	Slug       string `json:"slug"`
@@ -40,16 +42,19 @@ type SyncSkill struct {
 }
 
 type SyncTarget struct {
-	HostAliases   []string    `json:"hostAliases,omitempty"`
-	TargetAliases []string    `json:"targetAliases,omitempty"`
-	Target        Environment `json:"target"`
-	SourceID      string      `json:"sourceId"`
-	SourceName    string      `json:"sourceName"`
-	Desired       []SyncSkill `json:"desired"`
-	Missing       []SyncSkill `json:"missing"`
-	Extra         []SyncSkill `json:"extra"`
-	Revision      string      `json:"revision"`
-	UpdatedAt     int64       `json:"updatedAt"`
+	Mode            string      `json:"mode"`
+	Baseline        []SyncSkill `json:"baseline"`
+	AppliedRevision string      `json:"appliedRevision"`
+	HostAliases     []string    `json:"hostAliases,omitempty"`
+	TargetAliases   []string    `json:"targetAliases,omitempty"`
+	Target          Environment `json:"target"`
+	SourceID        string      `json:"sourceId"`
+	SourceName      string      `json:"sourceName"`
+	Desired         []SyncSkill `json:"desired"`
+	Missing         []SyncSkill `json:"missing"`
+	Extra           []SyncSkill `json:"extra"`
+	Revision        string      `json:"revision"`
+	UpdatedAt       int64       `json:"updatedAt"`
 }
 
 func (s *Store) RecordInventoryFor(userID int64, envID string, complete bool, machine MachineInfo) error {
@@ -87,6 +92,7 @@ func (s *Store) SyncEnvironmentsFor(userID int64) ([]SyncEnvironment, error) {
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
+		_ = s.db.QueryRow(`SELECT error FROM scan_errors WHERE env_id=?`, env.ID).Scan(&item.Error)
 		item.Skills, err = s.EnvironmentSkillsFor(userID, env.ID)
 		if err != nil {
 			return nil, err
@@ -104,7 +110,7 @@ func (s *Store) EnvironmentSkillsFor(userID int64, envID string) ([]SyncSkill, e
 	return environmentSkills(s.db, userID, envID)
 }
 func environmentSkills(query environmentQuerier, userID int64, envID string) ([]SyncSkill, error) {
-	rows, err := query.Query(`SELECT s.id,s.name,s.slug,s.source,s.source_type FROM skills s JOIN skill_envs se ON se.skill_id=s.id JOIN environments e ON e.id=se.env_id WHERE e.id=? AND e.user_id=? ORDER BY s.id`, envID, userID)
+	rows, err := query.Query(`SELECT s.id,s.name,s.slug,s.source,s.source_type,s.url FROM skills s JOIN skill_envs se ON se.skill_id=s.id JOIN environments e ON e.id=se.env_id WHERE e.id=? AND e.user_id=? ORDER BY s.id`, envID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +118,7 @@ func environmentSkills(query environmentQuerier, userID int64, envID string) ([]
 	out := []SyncSkill{}
 	for rows.Next() {
 		var item SyncSkill
-		if err := rows.Scan(&item.ID, &item.Name, &item.Slug, &item.Source, &item.SourceType); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Slug, &item.Source, &item.SourceType, &item.URL); err != nil {
 			return nil, err
 		}
 		out = append(out, item)
@@ -178,6 +184,18 @@ func (s *Store) SaveSyncTargetFor(userID int64, sourceID, targetID string) error
 		}
 		_, err = tx.Exec(`INSERT INTO sync_targets(user_id,target_id,source_id,source_name,desired,revision,updated_at) VALUES(?,?,?,?,?,?,?)
   ON CONFLICT(user_id,target_id) DO UPDATE SET source_id=excluded.source_id,source_name=excluded.source_name,desired=excluded.desired,revision=excluded.revision,updated_at=excluded.updated_at`, userID, targetID, sourceID, source.name, string(data), hex.EncodeToString(random[:]), now())
+		if err != nil {
+			return err
+		}
+		actual, err := environmentSkills(tx, userID, targetID)
+		if err != nil {
+			return err
+		}
+		baseline, err := json.Marshal(actual)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(`INSERT INTO sync_options(target_id,mode,baseline) VALUES(?,'mirror',?) ON CONFLICT(target_id) DO UPDATE SET mode='mirror',baseline=excluded.baseline`, targetID, string(baseline))
 		return err
 	})
 }
@@ -215,6 +233,17 @@ func (s *Store) SyncTargetsFor(userID int64) ([]SyncTarget, error) {
 		return nil, err
 	}
 	for i := range out {
+		out[i].Mode = "mirror"
+		var baseline string
+		err := s.db.QueryRow(`SELECT mode,baseline,applied_revision FROM sync_options WHERE target_id=?`, out[i].Target.ID).Scan(&out[i].Mode, &baseline, &out[i].AppliedRevision)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		if baseline != "" {
+			if err := json.Unmarshal([]byte(baseline), &out[i].Baseline); err != nil {
+				return nil, err
+			}
+		}
 		for _, env := range envs {
 			if env.ID == out[i].Target.ID {
 				out[i].Target = env
@@ -256,8 +285,23 @@ func (s *Store) SyncTargetsFor(userID int64) ([]SyncTarget, error) {
 }
 
 func (s *Store) DeleteSyncTargetFor(userID int64, targetID string) error {
-	_, err := s.db.Exec(`DELETE FROM sync_targets WHERE user_id=? AND target_id=?`, userID, targetID)
-	return err
+	return s.withTx(func(tx *sql.Tx) error {
+		var running int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND target_id=? AND status='running'`, userID, targetID).Scan(&running); err != nil {
+			return err
+		}
+		if running > 0 {
+			return errors.New("wait for the running sync before removing its desired set")
+		}
+		if _, err := tx.Exec(`UPDATE sync_jobs SET status='cancelled',message='Desired set removed.',updated_at=? WHERE user_id=? AND target_id=? AND status IN ('queued','awaiting-approval')`, now(), userID, targetID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM sync_options WHERE target_id IN (SELECT target_id FROM sync_targets WHERE user_id=? AND target_id=?)`, userID, targetID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`DELETE FROM sync_targets WHERE user_id=? AND target_id=?`, userID, targetID)
+		return err
+	})
 }
 
 func (s *Store) ForgetEnvironmentFor(userID int64, id string) error {
@@ -293,4 +337,9 @@ func GroupMachines(envs []SyncEnvironment) []Machine {
 		out[i].SkillCount = len(seen[env.Host])
 	}
 	return out
+}
+
+func (s *Store) RecordScanErrorFor(userID int64, id, message string) error {
+	_, err := s.db.Exec(`INSERT INTO scan_errors(env_id,error) SELECT id,? FROM environments WHERE id=? AND user_id=? ON CONFLICT(env_id) DO UPDATE SET error=excluded.error`, message, id, userID)
+	return err
 }

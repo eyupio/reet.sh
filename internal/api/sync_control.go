@@ -1,0 +1,191 @@
+package api
+
+import (
+	"encoding/json"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/eyupio/reet.sh/internal/store"
+)
+
+func (s *server) registerSyncControl(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v2/sync/candidates", s.syncCandidates)
+	mux.HandleFunc("PUT /api/v2/sync/desired", s.requireWriter(s.saveDesired))
+	mux.HandleFunc("POST /api/v2/sync/reconcile", s.requireWriter(s.reconcileDesired))
+	mux.HandleFunc("POST /api/v2/sync/adopt", s.requireWriter(s.adoptSyncSkills))
+	mux.HandleFunc("POST /api/v2/sync/agents", s.requireWriter(s.enrollSyncAgent))
+	mux.HandleFunc("PATCH /api/v2/sync/agents", s.requireWriter(s.controlSyncAgent))
+	mux.HandleFunc("POST /api/v2/sync/jobs", s.requireWriter(s.queueSyncJob))
+	mux.HandleFunc("PATCH /api/v2/sync/jobs", s.requireWriter(s.controlSyncJob))
+	mux.HandleFunc("POST /api/v2/sync/poll", s.requireWriter(s.pollSyncAgent))
+	mux.HandleFunc("POST /api/v2/sync/result", s.requireWriter(s.finishSyncJob))
+	mux.HandleFunc("POST /api/v2/sync/identity", s.requireWriter(s.syncIdentity))
+}
+func (s *server) syncCandidates(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(r.URL.Query().Get("list"), 10, 64)
+	skills, err := s.st.SyncCandidatesFor(s.uid(r), s.role(r), id)
+	if r.URL.Query().Get("collection") == "hosted" {
+		skills, err = s.st.SyncHostedFor(s.uid(r), requestOrigin(r))
+	}
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"skills": skills})
+}
+func (s *server) saveDesired(w http.ResponseWriter, r *http.Request) {
+	var in store.DesiredSelection
+	if !decode(w, r, &in) {
+		return
+	}
+	s.importMu.Lock()
+	defer s.importMu.Unlock()
+	in.Origin = requestOrigin(r)
+	if err := s.st.SaveDesiredFor(s.uid(r), s.role(r), in); err != nil {
+		writeErr(w, 409, err.Error())
+		return
+	}
+	s.event(s.uid(r), "ui", "sync-desired", "", map[string]string{"target": in.TargetID, "mode": in.Mode})
+	s.syncState(w, r)
+}
+func (s *server) reconcileDesired(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		TargetID string `json:"targetId"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	targets, err := s.st.SyncTargetsFor(s.uid(r))
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	envs, err := s.st.SyncEnvironmentsFor(s.uid(r))
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	for _, target := range targets {
+		if target.Target.ID != in.TargetID {
+			continue
+		}
+		for _, env := range envs {
+			if env.ID == in.TargetID && env.Complete && env.ScannedAt > time.Now().Add(-14*24*time.Hour).UnixMilli() {
+				skills, conflicts := store.ReconcileSkills(target.Baseline, target.Desired, env.Skills)
+				writeJSON(w, 200, map[string]any{"skills": skills, "conflicts": conflicts, "revision": target.Revision})
+				return
+			}
+		}
+	}
+	writeErr(w, 409, "target needs a complete recent scan")
+}
+func (s *server) adoptSyncSkills(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		TargetID string   `json:"targetId"`
+		SkillIDs []string `json:"skillIds"`
+		ListID   int64    `json:"listId"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	s.importMu.Lock()
+	defer s.importMu.Unlock()
+	if err := s.st.AdoptSyncSkillsFor(s.uid(r), s.role(r), in.TargetID, in.SkillIDs, in.ListID); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+func (s *server) enrollSyncAgent(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Host    string `json:"host"`
+		Version string `json:"version"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	a, secret, err := s.st.EnrollSyncAgent(s.uid(r), in.Host, in.Version)
+	if err != nil {
+		writeErr(w, 409, err.Error())
+		return
+	}
+	writeJSON(w, 201, map[string]any{"agent": a, "secret": secret})
+}
+func (s *server) controlSyncAgent(w http.ResponseWriter, r *http.Request) {
+	var in struct{ ID, Action string }
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := s.st.ControlSyncAgent(s.uid(r), in.ID, in.Action); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	s.syncState(w, r)
+}
+func (s *server) queueSyncJob(w http.ResponseWriter, r *http.Request) {
+	var in struct{ AgentID, TargetID, Kind string }
+	if !decode(w, r, &in) {
+		return
+	}
+	if _, err := s.st.QueueSyncJob(s.uid(r), in.AgentID, in.TargetID, in.Kind); err != nil {
+		writeErr(w, 409, err.Error())
+		return
+	}
+	s.syncState(w, r)
+}
+func (s *server) controlSyncJob(w http.ResponseWriter, r *http.Request) {
+	var in struct{ ID, Action, Hash string }
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := s.st.ControlSyncJob(s.uid(r), in.ID, in.Action, in.Hash); err != nil {
+		writeErr(w, 409, err.Error())
+		return
+	}
+	s.syncState(w, r)
+}
+func (s *server) agentIdentity(w http.ResponseWriter, r *http.Request) (store.SyncAgent, bool) {
+	a, err := s.st.AuthenticateSyncAgent(s.uid(r), r.Header.Get("X-Reet-Agent"), r.Header.Get("X-Reet-Agent-Key"), r.Header.Get("X-Reet-Version"))
+	if err != nil {
+		writeErr(w, 403, err.Error())
+		return a, false
+	}
+	return a, true
+}
+func (s *server) syncIdentity(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.agentIdentity(w, r)
+	if ok {
+		writeJSON(w, 200, a)
+	}
+}
+func (s *server) pollSyncAgent(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.agentIdentity(w, r)
+	if !ok {
+		return
+	}
+	job, err := s.st.ClaimSyncJob(s.uid(r), a)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"agent": a, "job": job})
+}
+func (s *server) finishSyncJob(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.agentIdentity(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		ID, Status, Hash, Message string
+		Plan                      json.RawMessage
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := s.st.FinishSyncJob(s.uid(r), a.ID, in.ID, in.Status, in.Hash, in.Message, in.Plan); err != nil {
+		writeErr(w, 409, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}

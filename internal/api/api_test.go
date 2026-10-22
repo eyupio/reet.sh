@@ -239,7 +239,7 @@ func TestImportKeepsLikes(t *testing.T) {
 	do(t, srv, "PATCH", "/api/skill", `{"id":"vercel-labs/skills/find-skills","notes":"keep me"}`)
 	do(t, srv, "POST", "/api/import", `{"items":[{"name":"find-skills","source":"vercel-labs/skills"}]}`)
 	s := list(t, srv, "").Skills[0]
-	if !s.Liked || !s.Bookmarked || !s.Used || s.Notes != "keep me" {
+	if !s.Liked || !s.Bookmarked || s.Used || s.Notes != "keep me" {
 		t.Fatalf("%+v", s)
 	}
 }
@@ -558,7 +558,7 @@ func TestFilteredMarkdownAndCSV(t *testing.T) {
 	do(t, srv, "POST", "/api/skill/tags", `{"id":"a/b/one","add":["bulk"],"remove":[]}`)
 	do(t, srv, "POST", "/api/import", `{"items":[{"name":"one","source":"a/b","host":"laptop","agent":"claude"}]}`)
 	code, md := do(t, srv, "GET", "/api/export?format=md&q=one", "")
-	if code != 200 || !strings.Contains(md, "## In use") || !strings.Contains(md, "npx skills add https://github.com/a/b --skill one") {
+	if code != 200 || !strings.Contains(md, "## On the shelf") || !strings.Contains(md, "npx skills add https://github.com/a/b --skill one") {
 		t.Fatalf("markdown: %d %s", code, md)
 	}
 	code, csvOut := do(t, srv, "GET", "/api/export?format=csv&q=tag%3Abulk", "")

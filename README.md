@@ -44,9 +44,10 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 - **Your defaults.** In Account → Profile, choose List/Board and collapsed/expanded cards across browsers. Individual expansion choices remain temporary for the current visit.
 - **Environment badges.** Each card shows Installed (green), Missing (amber) or Not confirmed (neutral) for each known machine. Missing requires complete agent scans from the last 14 days; stale, incomplete and heartbeat-only reports cannot confirm absence. These are reported inventories, not live filesystem checks.
 - **Capture anywhere.** Paste an `npx skills add` command, skills.sh URL or `owner/repo/skill`, or use the bookmarklets (Like, Save, In use) on any skill page.
-- **Know what is installed.** `reet scan` reads the skills folders for your tools and marks each skill "in use", per machine and per tool.
+- **Know what is installed.** `reet scan` reads the skills folders for your tools, per machine and per tool. New discoveries start In use; later scans preserve your existing shelf choices.
 - **Copy feedback.** Copy buttons confirm success with a brief checkmark reveal; reduced-motion preferences use a gentle fade.
 - **Machine maintenance.** Merge hostname/`--env` duplicates, rename or forget machines in Account → Machines. Old names remain aliases, preventing duplicate reports on later scans. `reet scan --prune --reconcile --env NAME` repairs the local hostname and refreshes inventories; fleet commands never install/remove skills.
+- **Controller sync.** Compare selected reet.sh shelf/list/published skills with machine scopes. Enroll a scanner-only agent for scan, preview, approval, pause/resume and recovery controls. Additive mode preserves extras; exact and bidirectional modes require reviewed changes. [Setup and controls](docs/controller-sync.md).
 - **Environment sync.** Account includes site-aware scanner setup, machine/server status and saved reference skill sets. Preview differences and run `reet sync --apply` locally to confirm installs/removals. [Setup and limits](docs/environment-sync.md).
 - **Copy missing installs.** Pick an environment and copy the install commands for everything on your shelf that is not there yet.
 - **Metadata that stays fresh.** Description, install count and a weekly sparkline, refreshed every six hours, politely.

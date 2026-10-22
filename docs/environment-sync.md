@@ -1,5 +1,7 @@
 # Environments and confirmed sync
 
+For reet.sh shelf/list/published-skill comparison, bidirectional review, enrolled agents and remotely approved jobs, see [Controller sync](controller-sync.md). The legacy reference-snapshot and manual flows below remain supported. Manual apply now requires enrollment.
+
 The **Account → Machines → Connect a machine** flow is the starting point: install the binary, create a named personal token in the connection step, then copy the connection command into that machine's terminal. It includes this instance's URL and the newly created token. Copy it before leaving the page; tokens are not saved to browser storage or shown again after a reload. Existing token holders can set `REET_URL` and `REET_TOKEN` directly in their terminal. Use a separate token per machine or server so access can be revoked independently. Generated scan/sync commands use the environment rather than embedding the token. After running the scan, use **Check for my scan** to confirm a complete, recent inventory for the selected machine name.
 
 ## Connect a machine
@@ -38,7 +40,7 @@ The first command previews installs and removals. `--apply` prints the plan and 
 
 Commands run sequentially; this is not a filesystem transaction. If a command fails, sync stops and reports the current inventory so the controller can show remaining differences. Successful apply rescans with pruning and checks the local result. If a process is killed while applying, its `.reet-sync.lock` may remain in the skills folder; check that no sync is running before removing that stale lock and previewing again. A viewer account cannot apply a saved target. Custom `CLAUDE_CONFIG_DIR` or OpenCode `XDG_CONFIG_HOME` locations require manual syncing.
 
-This sync matches installed skill sets and their sources. It does not compare file contents, pin upstream commits, copy local notes/files, SSH into machines, or install the agent applications themselves. Review third-party skills before confirming installation. The browser stores the plan on the controller and never runs commands on your machines.
+This sync matches installed skill sets and their sources. It does not compare file contents, pin upstream commits, copy local notes/files, SSH into machines, or install the agent applications themselves. Review third-party skills before confirming installation. The browser stores plans on the controller. Enrolled agents can pull typed scan/preview/apply jobs; remote apply requires local opt-in and approval of the exact preview. The browser does not execute shell commands directly.
 
 ## Servers
 

@@ -8,9 +8,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 type fakeSetupS3 struct {
@@ -36,6 +38,16 @@ func newFakeSetupS3(t *testing.T) *fakeSetupS3 {
 			f.objects[key] = body
 			w.WriteHeader(http.StatusOK)
 		case http.MethodGet:
+			if r.URL.Query().Get("list-type") == "2" {
+				var b strings.Builder
+				b.WriteString("<ListBucketResult>")
+				for objectKey, body := range f.objects {
+					b.WriteString("<Contents><Key>" + objectKey + "</Key><Size>" + strconv.Itoa(len(body)) + "</Size><LastModified>2026-10-22T12:00:00Z</LastModified></Contents>")
+				}
+				b.WriteString("</ListBucketResult>")
+				_, _ = w.Write([]byte(b.String()))
+				return
+			}
 			body, ok := f.objects[key]
 			if !ok {
 				http.NotFound(w, r)
@@ -157,6 +169,25 @@ func TestSetupS3CLI(t *testing.T) {
 	if err := Run([]string{"fetch", "--dir", fetchDir, result.ID}, &bytes.Buffer{}); err == nil {
 		t.Fatal("fetch without --s3 accepted")
 	}
+	if err := Run([]string{"profile", "save", "--dir", dir, "--password-file", passFile, "work", result.ID}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	profileFetchDir := t.TempDir()
+	profileSource := filepath.Join(dir, "profiles", "work.json")
+	profileTarget := filepath.Join(profileFetchDir, "profiles", "work.json")
+	if err := os.MkdirAll(filepath.Dir(profileTarget), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	profileData, err := os.ReadFile(profileSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(profileTarget, profileData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run([]string{"fetch", "--s3", "--profile", "work", "--dir", profileFetchDir, "--json"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func mustRead(t *testing.T, path string) []byte {
@@ -166,4 +197,46 @@ func mustRead(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func TestSetupRemoteListAndFetchByProfile(t *testing.T) {
+	fake := newFakeSetupS3(t)
+	local := writeLocalSnapshot(t)
+	if _, err := uploadSetupSnapshotFile(local.Path, local.ID); err != nil {
+		t.Fatal(err)
+	}
+	list, err := ListRemoteSetupSnapshots()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Snapshots) != 1 || list.Snapshots[0].ID != local.ID || list.Snapshots[0].Bytes != local.Bytes {
+		t.Fatalf("wrong remote list: %+v", list)
+	}
+	profileDir := filepath.Dir(local.Path)
+	if _, _, err := SaveSetupProfile("work", testSetupPassphrase, local.ID, profileDir, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	id, err := ResolveProfileSnapshot("work", profileDir)
+	if err != nil || id != local.ID {
+		t.Fatalf("resolve profile: %q %v", id, err)
+	}
+	dir := t.TempDir()
+	fetched, err := FetchSetupSnapshot(id, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fetched.ID != local.ID {
+		t.Fatalf("wrong fetch: %+v", fetched)
+	}
+	fake.mu.Lock()
+	delete(fake.objects, "prefix/"+local.ID+setupSnapshotExtension)
+	fake.mu.Unlock()
+	var out bytes.Buffer
+	if err := Run([]string{"remote", "list", "--json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var empty SetupRemoteList
+	if err := json.Unmarshal(out.Bytes(), &empty); err != nil || len(empty.Snapshots) != 0 {
+		t.Fatalf("remote list after delete: %+v %v", empty, err)
+	}
 }

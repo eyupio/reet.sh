@@ -266,6 +266,8 @@ reet setup backup --probe-versions --inspect-installation --password-file ~/.con
 reet setup backup --include-credentials --password-file ~/.config/reet/setup.pass
 reet setup backup --s3 --password-file ~/.config/reet/setup.pass
 reet setup fetch --s3 SNAPSHOT
+reet setup fetch --s3 --profile work
+reet setup remote list
 reet setup profile save --password-file ~/.config/reet/setup.pass work SNAPSHOT
 reet setup prune --keep 10 --apply
 reet setup restore --profile work --password-file ~/.config/reet/setup.pass
@@ -306,7 +308,8 @@ payload. `--include-credentials` explicitly includes literal credential values f
 URLs, environment and header fields; it is rejected with `--preview`. OS keychains,
 device-bound sessions and unlisted credential stores remain excluded. `--s3` uploads
 the sealed snapshot to the configured `REET_SETUP_S3_*` destination and verifies the
-read-back; `reet setup fetch --s3` downloads it into the local snapshot directory.
+read-back; `reet setup fetch --s3` downloads it into the local snapshot directory, optionally by
+profile; `reet setup remote list` reads the configured remote prefix metadata.
 `reet setup profile save` keeps a named local revision pointing at an immutable snapshot;
 `restore`, `verify`, `inspect` and `rollback` accept `--profile NAME`.
 `reet setup prune --keep N` previews local snapshot deletion and `--apply` removes old

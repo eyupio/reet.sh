@@ -304,16 +304,19 @@ The encrypted payload includes the policy preview, selected settings/MCP content
 selected project instruction text, whole installed skill folders, the omissions report
 and optional software evidence. A skill is copied as a bounded directory (256 files and
 8 MiB each, 64 MiB per snapshot); symlinked skills or special files are omitted as a
-whole rather than silently copied in part. `--probe-versions` records bounded
+whole rather than silently copied in part. When the skills CLI lock files are present,
+each skill's sanitised source and source type are recorded from the lock entry; lock
+files themselves are not rewritten on restore, so a restored skill may still need
+linking in Library. `--probe-versions` records bounded
 application `--version` reports and `--inspect-installation` records local Node package
 associations; both are opt-in because probing executes the discovered executable.
 Software evidence deliberately omits executable and metadata paths, and it is not
 authenticated provenance.
 
 Credential-bearing values, opt-in sources, memory, history, hooks and caches remain
-excluded by default. The snapshot is not a complete AI setup: skill dependency and
-provenance resolution, cross-OS translation and runtime health verification remain
-unimplemented. `--preview` remains read-only.
+excluded by default. The snapshot is not a complete AI setup: skill dependency
+resolution, lock-file restoration, cross-OS translation and runtime health verification
+remain unimplemented. `--preview` remains read-only.
 
 `--include-credentials` explicitly includes literal values from the policy's
 `encrypted_only` fields in the encrypted payload. It is rejected with `--preview`
@@ -570,7 +573,7 @@ snapshots. `profile push`/`pull` store the profile on a reet server using `REET_
 a mode-0600 local profile and does not download the snapshot. The web **Profiles** page
 shows each agent's stored components for revisions with a recorded preview: settings
 field names, MCP server names, instruction sources, installed skill folders with file
-counts, encrypted-field names, omissions and software evidence. Credential values and
+counts and recorded source, encrypted-field names, omissions and software evidence. Credential values and
 skill file contents are never shown; newer previews record MCP server names, while older
 revisions show counts. The page also lists revision metadata,
 overrides and history, and can delete the server copy; profile creation, push and pull

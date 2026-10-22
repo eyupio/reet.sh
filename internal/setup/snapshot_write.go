@@ -279,7 +279,8 @@ func verifySetupSnapshot(snapshot SetupSnapshot) error {
 		if !ok {
 			return errors.New("setup snapshot skill is not in the selected preview")
 		}
-		if preview.Name != skill.Name || preview.AgentID != skill.AgentID || preview.Scope != skill.Scope {
+		if preview.Name != skill.Name || preview.AgentID != skill.AgentID || preview.Scope != skill.Scope ||
+			preview.Origin != skill.Origin || preview.OriginType != skill.OriginType {
 			return errors.New("setup snapshot skill identity does not match its preview")
 		}
 		if preview.Digest != "" && preview.Digest != skill.Digest {

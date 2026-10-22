@@ -296,7 +296,7 @@ smoke scan verified default schema v1, opt-in policy output and no secret leakag
 
 ## Policy-driven backup preview
 
-[PR #51](https://github.com/eyupio/reet.sh/pull/51) adds
+[PR #51](https://github.com/eyupio/reet.sh/pull/51) added
 `reet setup backup --preview [--json] [--project PATH]`. It applies the declared
 policies to bounded known sources and reports included, credential-only, reference
 and excluded field names, MCP declaration counts, unknown-field counts,
@@ -304,8 +304,8 @@ per-component SHA-256 digests and fixed omission reasons. Selected values stay i
 unexported in-memory content only; the preview never prints them and writes nothing.
 Opt-in sources such as `settings.local.json` are not read. Credential-bearing fields
 are counted but not selected, references retain names without resolution, and
-unsupported classes remain explicit. `reet setup backup` without `--preview` returns
-an explicit not-implemented error.
+unsupported classes remain explicit. The preview itself is read-only; writing was
+added in the next slice.
 
 Preview validation: focused setup tests cover policy application, settings/MCP field
 selection, omitted credentials and unknown fields, opt-in sources not being read,

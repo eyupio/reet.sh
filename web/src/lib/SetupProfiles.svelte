@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import {
-    deleteSetupProfile, getSetupProfile, listSetupProfiles,
+    deleteSetupProfile, getSetupProfile, listSetupProfiles, renameSetupProfile,
     type SetupProfileRecord, type SetupProfileRevision, type SetupProfileSummary,
   } from './api'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -18,6 +18,8 @@
   let busy = $state('')
   let error = $state('')
   let deleteFor = $state<SetupProfileSummary | null>(null)
+  let renaming = $state(false)
+  let renameName = $state('')
 
   const latest = $derived(selected?.revisions.at(-1) ?? null)
   const hasPreview = $derived((latest?.preview?.schema_version ?? 0) > 0)
@@ -56,8 +58,39 @@
 
   async function choose(name: string) {
     busy = name
+    renaming = false
     try {
       selected = await getSetupProfile(name)
+      error = ''
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      busy = ''
+    }
+  }
+
+  function startRename() {
+    if (!selected) return
+    renameName = selected.name
+    renaming = true
+  }
+
+  async function renameProfile() {
+    if (!selected) return
+    const oldName = selected.name
+    const newName = renameName.trim()
+    if (!newName || newName === oldName) {
+      renaming = false
+      return
+    }
+    busy = oldName
+    try {
+      const updated = await renameSetupProfile(oldName, newName)
+      const result = await listSetupProfiles()
+      profiles = result.profiles ?? []
+      selected = updated
+      renaming = false
       error = ''
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
@@ -157,9 +190,24 @@ reet setup profile push work</code></pre>
             <p class="muted">Latest revision {latest.revision} of {selected.revisions.length}</p>
           </div>
           {#if canWrite}
-            <button type="button" class="btn quiet danger" onclick={() => (deleteFor = profiles.find((profile) => profile.name === selected?.name) ?? null)} disabled={busy !== ''}>Delete</button>
+            <div class="detail-actions">
+              <button type="button" class="btn quiet" onclick={startRename} disabled={busy !== ''}>Rename</button>
+              <button type="button" class="btn quiet danger" onclick={() => (deleteFor = profiles.find((profile) => profile.name === selected?.name) ?? null)} disabled={busy !== ''}>Delete</button>
+            </div>
           {/if}
         </header>
+
+        {#if renaming}
+          <form class="rename-form" onsubmit={(event) => { event.preventDefault(); void renameProfile() }}>
+            <label for="profile-rename">New server copy name</label>
+            <div class="rename-row">
+              <input id="profile-rename" bind:value={renameName} maxlength="64" pattern="[A-Za-z0-9_-]+" required autocomplete="off" />
+              <button type="submit" class="btn" disabled={busy !== '' || !renameName.trim() || renameName.trim() === selected.name}>Save</button>
+              <button type="button" class="btn quiet" onclick={() => (renaming = false)} disabled={busy !== ''}>Cancel</button>
+            </div>
+            <p class="muted small">Renames the server copy only. Your local profile keeps its name until you run <code>reet setup profile rename</code>.</p>
+          </form>
+        {/if}
 
         <dl class="facts">
           <div><dt>Snapshot</dt><dd><code>{latest.snapshot_id}</code></dd></div>
@@ -356,6 +404,12 @@ reet setup profile push work</code></pre>
   .snapshot, .updated { grid-column: 1 / -1; color: var(--muted); font-size: 0.75rem; overflow-wrap: anywhere; }
   .profile-detail { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 20px; min-width: 0; }
   .detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .detail-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .rename-form { margin-top: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+  .rename-form label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 6px; }
+  .rename-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .rename-row input { flex: 1 1 180px; min-width: 0; }
+  .rename-form p { margin: 8px 0 0; }
   .eyebrow { margin: 0; color: var(--accent); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
   h2 { margin: 4px 0 6px; font: 500 1.7rem/1.1 var(--serif); letter-spacing: -0.02em; overflow-wrap: anywhere; }
   h3 { margin: 22px 0 8px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }

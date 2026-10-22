@@ -59,11 +59,45 @@ func TestSetupProfileAPI(t *testing.T) {
 			t.Fatalf("%s %s: %d %s", tc.method, tc.path, code, response)
 		}
 	}
-	code, response = doClient(t, srv.Client(), srv, "DELETE", "/api/v2/setup/profiles/work", "", "X-Reet-Token", "tok")
+	other := profile
+	other.Name = "other"
+	otherBody, err := json.Marshal(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, response = doClient(t, srv.Client(), srv, "PUT", "/api/v2/setup/profiles/other", string(otherBody), "X-Reet-Token", "tok")
+	if code != 200 {
+		t.Fatalf("save other: %d %s", code, response)
+	}
+	code, response = doClient(t, srv.Client(), srv, "PATCH", "/api/v2/setup/profiles/work", `{"name":"personal"}`, "X-Reet-Token", "tok")
+	if code != 200 || !containsAll(response, `"name":"personal"`) {
+		t.Fatalf("rename: %d %s", code, response)
+	}
+	code, response = doClient(t, srv.Client(), srv, "GET", "/api/v2/setup/profiles/personal", "", "X-Reet-Token", "tok")
+	if code != 200 || !containsAll(response, `"name":"personal"`) {
+		t.Fatalf("get renamed: %d %s", code, response)
+	}
+	code, response = doClient(t, srv.Client(), srv, "GET", "/api/v2/setup/profiles/work", "", "X-Reet-Token", "tok")
+	if code != 404 {
+		t.Fatalf("old name still exists: %d %s", code, response)
+	}
+	code, response = doClient(t, srv.Client(), srv, "PATCH", "/api/v2/setup/profiles/personal", `{"name":"other"}`, "X-Reet-Token", "tok")
+	if code != 409 || !containsAll(response, "already exists") {
+		t.Fatalf("rename conflict: %d %s", code, response)
+	}
+	code, response = doClient(t, srv.Client(), srv, "PATCH", "/api/v2/setup/profiles/personal", `{"name":"bad name"}`, "X-Reet-Token", "tok")
+	if code != 400 || !containsAll(response, "profile names") {
+		t.Fatalf("rename invalid name: %d %s", code, response)
+	}
+	code, response = doClient(t, srv.Client(), srv, "DELETE", "/api/v2/setup/profiles/personal", "", "X-Reet-Token", "tok")
 	if code != 200 {
 		t.Fatalf("delete: %d %s", code, response)
 	}
-	code, response = doClient(t, srv.Client(), srv, "GET", "/api/v2/setup/profiles/work", "", "X-Reet-Token", "tok")
+	code, response = doClient(t, srv.Client(), srv, "DELETE", "/api/v2/setup/profiles/other", "", "X-Reet-Token", "tok")
+	if code != 200 {
+		t.Fatalf("delete other: %d %s", code, response)
+	}
+	code, response = doClient(t, srv.Client(), srv, "GET", "/api/v2/setup/profiles/personal", "", "X-Reet-Token", "tok")
 	if code != 404 {
 		t.Fatalf("get after delete: %d %s", code, response)
 	}

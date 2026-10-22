@@ -78,8 +78,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - The CodeQL integrity-digest follow-up merged in [PR #98](https://github.com/eyupio/reet.sh/pull/98), `3ae9e40`.
 - Profiles disclosure merged in [PR #100](https://github.com/eyupio/reet.sh/pull/100), `d87c4fe`.
 - Latest verified source baseline: `origin/main` at `d87c4fe` (2026-10-22).
-- Skill source provenance is in [PR #101](https://github.com/eyupio/reet.sh/pull/101)
-  on `feat/skill-provenance`; fetch remote status before continuing and preserve any
+- Skill source provenance merged in [PR #101](https://github.com/eyupio/reet.sh/pull/101), `5b97f1d`.
+- Latest verified source baseline: `origin/main` at `5b97f1d` (2026-10-22).
+- Server-copy profile rename is in [PR #102](https://github.com/eyupio/reet.sh/pull/102)
+  on `feat/profile-rename`; fetch remote status before continuing and preserve any
   uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
@@ -140,6 +142,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Show stored profile components, MCP names and credential-free metadata in the web page.
 - [x] Include whole installed skill folders in encrypted snapshots, restore and verify.
 - [x] Record sanitised skill source provenance from skills CLI lock files.
+- [x] Rename server profile copies from the Profiles page.
 
 ## Implemented slice
 
@@ -1347,6 +1350,19 @@ verify and rollback mode preservation. A manual end-to-end run backed up two ski
 folders, restored them into a fresh home and verified both. Web checks pass with zero
 Svelte diagnostics; a seeded profile rendered both skill names. Full Go, MCP and web
 checks pass.
+
+## Profile rename in the web page
+
+The current branch adds `PATCH /api/v2/setup/profiles/{name}` and a Rename control on the
+Profiles page. The server validates the new profile name and revision history, refuses a
+name already in use, and updates the stored payload and row together. It changes only
+the server copy; the local profile keeps its old name until `reet setup profile rename`
+is run. Same-name requests are idempotent.
+
+Validation: API tests cover a successful rename, old-name removal, conflict, invalid
+name and same-name request. Web checks pass with zero Svelte diagnostics.
+
+Broader web profile editing remains unimplemented.
 
 ## Skill provenance
 

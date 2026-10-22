@@ -78,6 +78,56 @@ func (s *server) saveSetupProfile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, profile)
 }
 
+func (s *server) renameSetupProfile(w http.ResponseWriter, r *http.Request) {
+	record, ok, err := s.st.SetupProfileFor(s.uid(r), r.PathValue("name"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusNotFound, "setup profile not found")
+		return
+	}
+	var request struct {
+		Name string `json:"name"`
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1024))
+	if err != nil || json.Unmarshal(body, &request) != nil {
+		writeErr(w, http.StatusBadRequest, "the rename request is invalid")
+		return
+	}
+	var profile setup.SetupProfile
+	if err := json.Unmarshal([]byte(record.Payload), &profile); err != nil {
+		writeErr(w, http.StatusInternalServerError, "stored setup profile is invalid")
+		return
+	}
+	if request.Name == record.Name {
+		writeJSON(w, http.StatusOK, profile)
+		return
+	}
+	profile.Name = request.Name
+	payload, err := json.Marshal(profile)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if _, err := setup.ParseSetupProfile(payload, request.Name); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	renamed, err := s.st.RenameSetupProfileFor(s.uid(r), record.Name, request.Name, string(payload))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !renamed {
+		writeErr(w, http.StatusConflict, "a setup profile with that name already exists")
+		return
+	}
+	s.eventRequest(r, "setup-profile-rename", "", map[string]string{"from": record.Name, "to": request.Name})
+	writeJSON(w, http.StatusOK, profile)
+}
+
 func (s *server) deleteSetupProfile(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if _, ok, err := s.st.SetupProfileFor(s.uid(r), name); err != nil {

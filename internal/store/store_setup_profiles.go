@@ -60,6 +60,36 @@ func (s *Store) SetupProfilesFor(userID int64) ([]SetupProfileRecord, error) {
 	return out, rows.Err()
 }
 
+// RenameSetupProfileFor moves one server copy to a new name and replaces its payload.
+// It returns false when the new name already exists.
+func (s *Store) RenameSetupProfileFor(userID int64, oldName, newName, payload string) (bool, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	var exists int
+	err = tx.QueryRow(`SELECT 1 FROM setup_profiles WHERE user_id=? AND name=?`, userID, newName).Scan(&exists)
+	if err == nil {
+		return false, nil
+	}
+	if err != sql.ErrNoRows {
+		return false, err
+	}
+	result, err := tx.Exec(`UPDATE setup_profiles SET name=?, payload=? WHERE user_id=? AND name=?`, newName, payload, userID, oldName)
+	if err != nil {
+		return false, err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if changed == 0 {
+		return false, nil
+	}
+	return true, tx.Commit()
+}
+
 func (s *Store) DeleteSetupProfileFor(userID int64, name string) error {
 	_, err := s.db.Exec(`DELETE FROM setup_profiles WHERE user_id=? AND name=?`, userID, name)
 	return err

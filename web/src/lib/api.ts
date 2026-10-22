@@ -671,6 +671,9 @@ export async function listSetupProfiles(): Promise<{ profiles: SetupProfileSumma
 export async function getSetupProfile(name: string): Promise<SetupProfileRecord> {
   return (await req(`/api/v2/setup/profiles/${encodeURIComponent(name)}`)).json()
 }
+export async function renameSetupProfile(name: string, newName: string): Promise<SetupProfileRecord> {
+  return (await req(`/api/v2/setup/profiles/${encodeURIComponent(name)}`, { method: 'PATCH', body: json({ name: newName }) })).json()
+}
 export async function deleteSetupProfile(name: string): Promise<void> {
   await req(`/api/v2/setup/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' })
 }

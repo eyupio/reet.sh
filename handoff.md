@@ -41,10 +41,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Rollback of completed apply journals merged in [PR #61](https://github.com/eyupio/reet.sh/pull/61), `c2b129a`.
 - Per-destination conflict choices merged in [PR #62](https://github.com/eyupio/reet.sh/pull/62), `2abd67f`.
 - Snapshot software evidence merged in [PR #63](https://github.com/eyupio/reet.sh/pull/63), `3b19a69`.
-- Latest verified source baseline: `origin/main` at `3b19a69` (2026-10-22).
-- Project instruction export is in [PR #64](https://github.com/eyupio/reet.sh/pull/64) on
-  `feat/setup-instructions`; fetch remote status before continuing and preserve any
-  uncommitted work.
+- Project instruction export merged in [PR #64](https://github.com/eyupio/reet.sh/pull/64), `f47e3df`.
+- Latest verified source baseline: `origin/main` at `f47e3df` (2026-10-22).
+- Global instruction discovery/export is in [PR #65](https://github.com/eyupio/reet.sh/pull/65)
+  on `feat/setup-global-instructions`; fetch remote status before continuing and preserve
+  any uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -72,6 +73,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Add per-destination conflict skip/replace choices.
 - [x] Record optional application/package evidence and compare it during verify.
 - [x] Export, restore and verify discovered project instruction files as encrypted text.
+- [x] Discover global instruction files under the supported config locations.
 
 ## Implemented slice
 
@@ -194,6 +196,12 @@ S4f now exports discovered project instruction files (`CLAUDE.md`, `.cursorrules
 snapshots. Preview/list/inspect never print the text; restore writes it as a mode-0600
 file and verify compares exact text. Shared `AGENTS.md` is called out because other
 agents may use it, and global or unlisted instruction locations remain uninventoried.
+
+S4g now adds global instruction locations for Claude Code, Codex, OpenCode, Pi and
+Gemini CLI (for example `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`), honouring the
+existing config-directory overrides. They use the same encrypted text export, restore,
+verify and conflict handling as project instructions; other or unlisted instruction
+locations remain uninventoried.
 
 Next implementation slice: add destination runtime health checks without repairing or
 running arbitrary hooks, then move to named profiles/S5. Do not claim cross-OS restore
@@ -649,6 +657,25 @@ Memory databases, global instructions, history, hooks, credentials, runtime heal
 dependency/version resolution, S3 delivery and cross-OS translation remain
 unimplemented.
 
+## Global instruction discovery
+
+The current stage on `feat/setup-global-instructions` adds discovered global instruction
+files: Claude Code `CLAUDE.md`, Codex `AGENTS.md`, OpenCode `AGENTS.md`, Pi `AGENTS.md`
+and Gemini CLI `GEMINI.md` under their existing config directories and overrides. They
+use the same encrypted whole-text export, restore, verify, rollback and conflict handling
+as project instructions. Shared project `AGENTS.md` remains called out because other
+agents may use it. Other or unlisted instruction locations remain uninventoried.
+
+Validation: focused tests cover discovery, overrides, empty destinations, encrypted
+snapshot/preview/inspection text omission, restore permissions/content and verify. Full
+`go vet ./...` and `go test -race ./...` passed. Web checks passed (8 tests; zero Svelte
+diagnostics) and all 16 MCP tests passed. A compiled-binary smoke test verified global
+instruction backup, restore and verify; setup tests cross-compile for Windows amd64 and
+macOS arm64. `git diff --check` passed. No dependency changed.
+
+Memory databases, history, hooks, credentials, runtime health, dependency/version
+resolution, S3 delivery and cross-OS translation remain unimplemented.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -663,12 +690,12 @@ unimplemented.
 4. Explicit component export policies, the policy-driven preview, the shared sealed
    archive, encrypted local setup snapshot writing, listing/inspection, restore
    planning, create-only apply, conflict skip/replace with rollback copies, destination
-   verification, rollback, per-destination conflict choices, optional software evidence
-   and project instruction export are now implemented. The next small slice is
-   destination runtime health checks, then named profiles/S5. Keep values encrypted and
-   unknown formats unsupported. Do not claim cross-OS restore or working-setup
-   verification before their acceptance gates. Consult the detailed plan for encryption,
-   key handling, restore and compatibility requirements.
+   verification, rollback, per-destination conflict choices, optional software evidence,
+   project instruction export and global instruction discovery are now implemented. The
+   next small slice is destination runtime health checks, then named profiles/S5. Keep
+   values encrypted and unknown formats unsupported. Do not claim cross-OS restore or
+   working-setup verification before their acceptance gates. Consult the detailed plan
+   for encryption, key handling, restore and compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current
@@ -679,7 +706,7 @@ Important boundaries: no complete AI setup backup/restore has shipped. Setup bac
 now writes a partial encrypted local snapshot and can list, inspect, plan, create or
 replace supported files, verify selected destination fields, roll back a completed apply,
 apply per-destination conflict choices, record/compare optional software evidence and
-export selected project instructions, but runtime health, broader memory and cross-OS
+export global/project instructions, but runtime health, memory databases and cross-OS
 recovery are not implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely

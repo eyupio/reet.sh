@@ -304,9 +304,9 @@ fields without repairing or running agents; opt-in `--probe-versions` and
 software evidence. `reet setup rollback` reverses a completed
 apply journal after snapshot, digest and current-file checks. This is still not complete
 setup backup/restore: memory/history/credentials, runtime health, S3 delivery and
-verified cross-OS restore are not implemented. Discovered project instruction files
-(`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `GEMINI.md`) are included as encrypted text;
-global instruction locations are not inventoried. Existing instance and shelf backups
+verified cross-OS restore are not implemented. Discovered global and project
+instruction files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `GEMINI.md`) are included as
+encrypted text; other instruction locations are not inventoried. Existing instance and shelf backups
 below remain separate.
 See [setup discovery and limits](docs/setup-discovery.md), the
 [implementation plan](docs/agent-setup-plan.md) and [handoff](handoff.md).

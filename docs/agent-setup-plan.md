@@ -237,9 +237,9 @@ hooks and caches. It reads no configuration values and implements no export.
   components without repairing. A rollback command reverses a completed apply journal
   after checking it against the snapshot and current files. Apply supports global and
   per-destination skip/replace choices. Snapshots can now record bounded application
-  and package evidence and selected project instruction text; verify compares software
-  evidence with opt-in probes. Runtime health checks and broader memory adapters remain
-  later slices.
+  and package evidence and selected global/project instruction text; verify compares
+  software evidence with opt-in probes. Runtime health checks and broader memory
+  adapters remain later slices.
 - Verify every completed archive, write privately and atomically, and produce an
   omissions report. Add local listing/inspection and optional S3 delivery.
 - Keep local recovery usable after complete loss of the controller database.

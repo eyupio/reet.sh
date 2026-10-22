@@ -527,8 +527,9 @@ never stores selected values. Repeat `--exclude-kind settings|mcp|instructions` 
 `--exclude-source PATH` to omit components when a profile is used by restore or verify.
 Saving the same name again creates a new revision; taking a new backup does not change an
 existing profile. `profile list` and `profile show` are local and need no passphrase.
-`restore --profile`, `verify --profile`, `inspect --profile` and `rollback --profile` use
-the newest revision's snapshot; restore/verify apply its overrides.
+`restore --profile`, `verify --profile`, `inspect --profile`, `rollback --profile` and
+`fetch --s3 --profile` use the newest revision's snapshot unless `--revision N` selects
+an older one; restore/verify apply its overrides.
 
 Profiles are local named snapshot revisions. Account sync, machine/project overrides,
 selective plan application, conflict profiles and cross-machine profile sharing remain

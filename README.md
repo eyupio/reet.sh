@@ -325,8 +325,9 @@ after snapshot, digest and current-file checks; `reet setup journals` lists reco
 evidence and reauthentication guidance without repairing anything.
 
 `reet setup profile save` keeps a named local revision pointing at an immutable snapshot;
-`restore`, `verify`, `inspect` and `rollback` accept `--profile NAME`; profiles can
-exclude component kinds or exact source paths for restore/verify. Profiles are not
+`restore`, `verify`, `inspect` and `rollback` accept `--profile NAME` and optional
+`--revision N`; profiles can exclude component kinds or exact source paths for
+restore/verify. Profiles are not
 synced to an account or another machine. `reet setup prune --keep N` previews local
 snapshot deletion and `--apply` removes old unprotected snapshots; profile and journal
 references are protected.

@@ -2,12 +2,20 @@ package setup
 
 import "strings"
 
-func summariseSettings(object map[string]any) *SettingsSummary {
+func summariseSettings(object map[string]any, agent string) *SettingsSummary {
 	_, model := object["model"]
 	_, defaultModel := object["defaultModel"]
 	_, hooks := object["hooks"]
 	_, permissions := object["permissions"]
 	_, packages := object["packages"]
+	if agent == "codex" {
+		_, approval := object["approval_policy"]
+		_, sandbox := object["sandbox_mode"]
+		permissions = permissions || approval || sandbox
+	} else if agent == "opencode" {
+		_, permission := object["permission"]
+		permissions = permissions || permission
+	}
 	summary := &SettingsSummary{
 		ModelConfigured: model || defaultModel, HooksConfigured: hooks,
 		PermissionsConfigured: permissions, PackagesConfigured: packages,
@@ -42,6 +50,10 @@ func summariseMCP(name string, value any, agent string) MCPSummary {
 	}
 	typeName, _ := object["type"].(string)
 	envKey := "env"
+	headerKey := "headers"
+	if agent == "codex" {
+		headerKey = "http_headers"
+	}
 	if agent == "opencode" {
 		envKey = "environment"
 		commands, ok := object["command"].([]any)
@@ -70,10 +82,13 @@ func summariseMCP(name string, value any, agent string) MCPSummary {
 		if agent == "gemini" && nonemptyString(object["httpUrl"]) {
 			m.URLConfigured, m.Transport = true, "http"
 		}
+		if agent == "codex" && m.URLConfigured && typeName == "" {
+			m.Transport = "http"
+		}
 	}
 	m.EnvironmentFields = objectSize(object[envKey])
-	m.HeaderFields = objectSize(object["headers"])
-	for _, key := range []string{envKey, "headers"} {
+	m.HeaderFields = objectSize(object[headerKey])
+	for _, key := range []string{envKey, headerKey} {
 		if fields, ok := object[key].(map[string]any); ok {
 			for _, value := range fields {
 				if pureReference(value) {
@@ -95,7 +110,7 @@ func summariseMCP(name string, value any, agent string) MCPSummary {
 		_, ok := value.(string)
 		valid = valid && ok
 	}
-	for _, key := range []string{envKey, "headers"} {
+	for _, key := range []string{envKey, headerKey} {
 		if value, exists := object[key]; exists {
 			fields, ok := value.(map[string]any)
 			valid = valid && ok
@@ -112,12 +127,54 @@ func summariseMCP(name string, value any, agent string) MCPSummary {
 	if agent == "opencode" && m.CommandConfigured {
 		valid = valid && stringList(object["command"].([]any))
 	}
+	if agent == "codex" {
+		valid = codexReferences(object, &m) && valid
+	}
 	if valid {
 		m.State = "summarised"
 	} else {
 		m.Issue = "unsupported_or_incomplete_mcp_declaration"
 	}
 	return m
+}
+
+func codexReferences(object map[string]any, m *MCPSummary) bool {
+	valid := true
+	if value, exists := object["env_vars"]; exists {
+		vars, ok := value.([]any)
+		valid = valid && ok
+		m.EnvironmentFields += len(vars)
+		for _, value := range vars {
+			name, ok := value.(string)
+			if ok && validEnvName(name) {
+				m.ReferenceFields++
+			} else {
+				valid = false
+			}
+		}
+	}
+	if value, exists := object["env_http_headers"]; exists {
+		headers, ok := value.(map[string]any)
+		valid = valid && ok
+		m.HeaderFields += len(headers)
+		for _, value := range headers {
+			name, ok := value.(string)
+			if ok && validEnvName(name) {
+				m.ReferenceFields++
+			} else {
+				valid = false
+			}
+		}
+	}
+	if value, exists := object["bearer_token_env_var"]; exists {
+		name, ok := value.(string)
+		if ok && validEnvName(name) {
+			m.ReferenceFields++
+		} else {
+			valid = false
+		}
+	}
+	return valid
 }
 
 func objectSize(value any) int {
@@ -157,6 +214,10 @@ func pureReference(value any) bool {
 	default:
 		return false
 	}
+	return validEnvName(name)
+}
+
+func validEnvName(name string) bool {
 	if name == "" {
 		return false
 	}

@@ -73,7 +73,7 @@ func InspectComponents(r *Report) {
 		a.Components = &ComponentInventory{
 			Sources: []ConfigSource{},
 			Limitations: []string{
-				"Strict JSON only in this stage; TOML and JSONC sources are reported as unsupported without parsing.",
+				"Supported formats: strict JSON, OpenCode JSONC and Codex TOML; other source formats remain unsupported.",
 				"Only selected settings and MCP declarations are summarised; other fields, nested project settings, memory, history and credential stores are not inventoried.",
 				"Credential-bearing values are counted, never returned; literal fields may be secrets and require explicit encrypted-backup selection later.",
 				"Each file is limited to 1 MiB; symlink files and non-regular files are not read.",
@@ -144,7 +144,7 @@ func inspectConfig(source *ConfigSource, agent string) {
 	case !info.Mode().IsRegular():
 		source.State, source.Issue = "unsupported", "unexpected_file_type"
 		return
-	case source.Format != "json":
+	case !supportedFormat(source.Format, agent):
 		source.State, source.Issue = "unsupported", "format_not_supported"
 		return
 	}
@@ -153,17 +153,20 @@ func inspectConfig(source *ConfigSource, agent string) {
 		source.State, source.Issue = "error", issue
 		return
 	}
-	object, err := parseConfig(data)
+	object, err := parseSource(data, source.Format)
 	if err != nil {
 		// Parser errors can quote credentials from the input. Emit a fixed code.
-		source.State, source.Issue = "error", "invalid_or_complex_json"
+		source.State, source.Issue = "error", "invalid_or_complex_"+source.Format
 		return
 	}
 	source.State = "parsed"
-	source.Settings = summariseSettings(object)
+	source.Settings = summariseSettings(object, agent)
 	key := "mcpServers"
 	if agent == "opencode" {
 		key = "mcp"
+	}
+	if agent == "codex" {
+		key = "mcp_servers"
 	}
 	if agent == "pi" {
 		source.MCPState = "not_supported_by_adapter"

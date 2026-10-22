@@ -83,8 +83,8 @@ func TestComponentSummariesOmitAllValues(t *testing.T) {
 func TestComponentFormatsAndAgentSpecificMCP(t *testing.T) {
 	e := fixture(t)
 	e.project = t.TempDir()
-	writeConfig(t, filepath.Join(e.home, ".codex", "config.toml"), "[mcp_servers.secret]\ncommand = 'DO-NOT-PARSE'")
-	writeConfig(t, filepath.Join(e.home, ".config", "opencode", "opencode.jsonc"), "// pending support\n{}")
+	writeConfig(t, filepath.Join(e.home, ".codex", "config.toml"), "[mcp_servers.local]\ncommand = 'server'")
+	writeConfig(t, filepath.Join(e.home, ".config", "opencode", "opencode.jsonc"), "// configuration\n{}")
 	writeConfig(t, filepath.Join(e.project, "opencode.json"), `{"mcp":{"remote":{"type":"remote","url":"https://example.test","headers":{"Authorization":"{env:TOKEN}"}},"local":{"type":"local","command":["npx","server"],"environment":{"TOKEN":"literal"}}}}`)
 	writeConfig(t, filepath.Join(e.home, ".pi", "agent", "settings.json"), `{"defaultModel":"model","packages":["npm:package"],"mcpServers":{"ignored":{}}}`)
 	writeConfig(t, filepath.Join(e.home, ".gemini", "settings.json"), `{"mcpServers":{"remote":{"httpUrl":"https://example.test"}}}`)
@@ -92,8 +92,8 @@ func TestComponentFormatsAndAgentSpecificMCP(t *testing.T) {
 	r := inspectFixture(t, e)
 	for _, tc := range []struct{ agent, suffix string }{{"codex", "config.toml"}, {"opencode", "opencode.jsonc"}} {
 		source := findSource(t, r, tc.agent, tc.suffix)
-		if source.State != "unsupported" || source.Issue != "format_not_supported" || source.Settings != nil || len(source.MCP) != 0 {
-			t.Fatalf("unsupported format claimed as parsed: %+v", source)
+		if source.State != "parsed" || source.Settings == nil {
+			t.Fatalf("supported format not parsed: %+v", source)
 		}
 	}
 	var opencode ConfigSource

@@ -21,8 +21,9 @@ storage plus optional S3; named profiles with machine/project overrides.
 ## Branch and baseline
 
 - S0 merged in [PR #39](https://github.com/eyupio/reet.sh/pull/39) after both CI workflows passed.
-- Current branch: `feat/setup-component-inventory`.
-- Base: `origin/main` at `d8bf10c` (PR #39 merge).
+- S1a merged in [PR #40](https://github.com/eyupio/reet.sh/pull/40) after both CI workflows passed.
+- Current branch: `feat/setup-toml-jsonc`.
+- Base: `origin/main` at `d3bf204` (PR #40 merge).
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -48,16 +49,20 @@ covered by tests. Details: [setup discovery](docs/setup-discovery.md).
 
 ## Next implementation task
 
-S1a is implemented locally: `reet setup scan --components` opts into bounded
+S1a is merged: `reet setup scan --components` opts into bounded
 strict-JSON settings/MCP summaries with schema v2. Default schema v1 remains
 metadata-only. Per-source partial/error/unsupported states, credential/reference
-counts, parser limits and inode checks are tested. TOML/JSONC remain explicitly
-unsupported; no config values are returned. See the discovery guide for exact
-coverage and limitations. S1a is not the complete S1 acceptance gate.
+counts, parser limits and inode checks are tested. No config values are returned.
+See the discovery guide for exact coverage and limitations.
 
-Next: S1b format adapters for Codex TOML and OpenCode JSONC, with fixtures,
-bounded parsing and the same no-values output contract. Then S1c adds
-version/provenance capture and explicit component export policies. Do not copy
+S1b is implemented locally: Codex TOML and OpenCode JSONC parsers use the same
+summary/output contract. Codex authentication references and its permission
+settings are recognised. TOML uses pinned `go-toml/v2 v2.4.3` rather than a partial
+home-grown decoder. JSONC comments/trailing commas are normalised before strict
+JSON validation. Format-specific failures remain constant diagnostic codes.
+
+Next: S1c adds version/provenance capture and explicit component export policies.
+S1a/S1b are not the complete S1 acceptance gate. Do not copy
 configuration trees generically: they may mix secrets, history, caches and hooks.
 No setup backup/restore command is implemented yet.
 
@@ -93,13 +98,23 @@ network access; reruns then passed. No dependency or lockfile changes were made.
 No macOS/Windows runtime or cross-OS restore verification has been performed.
 S0 merged after image and binary-release CI passed for `2d99832`.
 
-## Current-stage validation
+## S1a validation
 
 S1a validation on Linux: focused setup race tests, `go vet ./...`, full
 `go test -race ./...`, web checks (8 tests; zero Svelte diagnostics) and MCP tests
 (14 tests) all passed. Compiled CLI smoke tests verified schema v1/v2 opt-in,
 credential-value omission, literal/reference counts, text output and explicit
 unsupported TOML reporting. `git diff --check` passed. No new dependencies.
+
+## Current-stage validation
+
+S1b focused race tests passed, including TOML/JSONC parsing, credentials omitted
+from JSON/text, malformed/duplicate/oversized trees and invalid auth references.
+`go vet ./...`, `go test -race ./...`, web checks (8 tests; zero Svelte diagnostics),
+and MCP tests (14) passed. A short JSONC fuzz run passed 51,557 executions with
+no failures. Compiled CLI smoke tests parsed both formats without exposing values.
+`git diff --check` passed. Dependency change: `go-toml/v2 v2.4.3`, pinned for correct
+TOML decoding; `go mod tidy` also recorded an existing test dependency checksum.
 
 Merge each stage only after its PR CI passes; the owner has authorised merging
 green stages and continuing on fresh branches. Preserve this rule in subsequent

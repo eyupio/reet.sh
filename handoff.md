@@ -30,10 +30,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Handoff refresh merged in [PR #48](https://github.com/eyupio/reet.sh/pull/48), `9fb357598aba062838249db10d1f76a92bbda2c7`.
 - Export policy declarations merged in [PR #49](https://github.com/eyupio/reet.sh/pull/49), `bf77b247b8a75903c8d7eab2fe1f82eb30c96d8b`.
 - Policy-driven backup preview merged in [PR #51](https://github.com/eyupio/reet.sh/pull/51), `e309a6f`.
-- Latest verified source baseline: `origin/main` at `e309a6f` (2026-10-22).
-- Shared sealed archive primitive is in [PR #52](https://github.com/eyupio/reet.sh/pull/52)
-  on `feat/sealed-archive`; fetch remote status before continuing and preserve any
-  uncommitted work.
+- Shared sealed archive primitive merged in [PR #52](https://github.com/eyupio/reet.sh/pull/52), `2e9cfb6`.
+- Latest verified source baseline: `origin/main` at `2e9cfb6` (2026-10-22).
+- Encrypted local setup snapshot writing is in [PR #53](https://github.com/eyupio/reet.sh/pull/53)
+  on `feat/setup-snapshot-write`; fetch remote status before continuing and preserve
+  any uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.

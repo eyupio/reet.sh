@@ -1,4 +1,4 @@
-package backup
+package sealed
 
 import (
 	"bytes"
@@ -21,6 +21,9 @@ import (
 )
 
 const (
+	// MaxObjectBytes bounds an archive this build will open in memory.
+	MaxObjectBytes = 512 << 20
+
 	archiveMagic = "REETBK1\n"
 	argonTime    = 2
 	argonMemory  = 32 * 1024
@@ -246,11 +249,11 @@ func (s *Sealer) openBody(m Manifest, body, key []byte, wrong string) (Manifest,
 			return m, nil, fmt.Errorf("this backup's compressed payload is damaged: %w", err)
 		}
 		defer gz.Close()
-		out, err := io.ReadAll(io.LimitReader(gz, maxObjectBytes+1))
+		out, err := io.ReadAll(io.LimitReader(gz, MaxObjectBytes+1))
 		if err != nil {
 			return m, nil, fmt.Errorf("reading this backup's compressed payload: %w", err)
 		}
-		if int64(len(out)) > maxObjectBytes {
+		if int64(len(out)) > MaxObjectBytes {
 			return m, nil, errors.New("this backup opens to more than this build can hold in memory")
 		}
 		plain = out

@@ -48,7 +48,6 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Local setup health guidance merged in [PR #68](https://github.com/eyupio/reet.sh/pull/68), `b29ee7f`.
 - The shared S3 object-store client merged in [PR #69](https://github.com/eyupio/reet.sh/pull/69), `848536b`.
 - Optional setup S3 delivery/fetch merged in [PR #70](https://github.com/eyupio/reet.sh/pull/70), `f75b388`.
-- Latest verified source baseline: `origin/main` at `f75b388` (2026-10-22).
 - Named local profiles merged in [PR #71](https://github.com/eyupio/reet.sh/pull/71), `bcfb218`.
 - Profile-based inspect/rollback merged in [PR #72](https://github.com/eyupio/reet.sh/pull/72), `1b28fa1`.
 - Local snapshot pruning merged in [PR #73](https://github.com/eyupio/reet.sh/pull/73), `f4f70a7`.
@@ -73,9 +72,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Profiles empty-state refresh merged in [PR #92](https://github.com/eyupio/reet.sh/pull/92), `af36a77`.
 - Rejected-token retry merged in [PR #93](https://github.com/eyupio/reet.sh/pull/93), `d11638e`.
 - Preview defaults and saved-token retry merged in [PR #94](https://github.com/eyupio/reet.sh/pull/94), `4057583`.
-- Latest verified source baseline: `origin/main` at `4057583` (2026-10-22).
-- The interactive restore wizard is in [PR #95](https://github.com/eyupio/reet.sh/pull/95)
-  on `feat/setup-restore-wizard`; fetch remote status before continuing and preserve any
+- Interactive restore wizard merged in [PR #95](https://github.com/eyupio/reet.sh/pull/95), `a7fbb04`.
+- Latest verified source baseline: `origin/main` at `a7fbb04` (2026-10-22).
+- Detailed profile contents in the web page are in [PR #96](https://github.com/eyupio/reet.sh/pull/96)
+  on `feat/profiles-web-detail`; fetch remote status before continuing and preserve any
   uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
@@ -133,6 +133,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Prompt for a replacement personal token and retry when sync is rejected.
 - [x] Default to recording profile preview and retry a saved token silently.
 - [x] Add an interactive local restore wizard with plan confirmation and verification.
+- [x] Show stored profile components, MCP names and credential-free metadata in the web page.
 
 ## Implemented slice
 
@@ -1228,8 +1229,8 @@ zero Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary smoke te
 verify the simplified command before merge; setup tests cross-compile for Windows amd64
 and macOS arm64. `git diff --check` passed. No dependency changed.
 
-Broader memory/history components, web profile editing and verified cross-OS restore
-remain unimplemented.
+Skills content capture, broader memory/history components, web profile editing and
+verified cross-OS restore remain unimplemented.
 
 ## Interactive backup passphrase
 
@@ -1246,8 +1247,8 @@ diagnostics) and all 16 MCP tests passed. A PTY smoke test verified the two-prom
 macOS arm64.
 `git diff --check` passed. No dependency changed (x/term was already present).
 
-Broader memory/history components, web profile editing and verified cross-OS restore
-remain unimplemented.
+Skills content capture, broader memory/history components, web profile editing and
+verified cross-OS restore remain unimplemented.
 
 ## Interactive setup-profile wizard
 
@@ -1265,8 +1266,8 @@ diagnostics) and all 16 MCP tests passed. Setup tests cross-compile for Windows 
 macOS arm64. `git diff --check` passed. No dependency changed (x/term was already
 present).
 
-Broader memory/history components, web profile editing and verified cross-OS restore
-remain unimplemented.
+Skills content capture, broader memory/history components, web profile editing and
+verified cross-OS restore remain unimplemented.
 
 ## Wizard sync and env-file defaults
 
@@ -1282,8 +1283,8 @@ pushed it to a local fake server using `.env`. Full `go vet ./...` and
 all 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and macOS arm64.
 `git diff --check` passed. No dependency changed.
 
-Broader memory/history components, web profile editing and verified cross-OS restore
-remain unimplemented.
+Skills content capture, broader memory/history components, web profile editing and
+verified cross-OS restore remain unimplemented.
 
 ## Rejected profile-sync token retry
 
@@ -1297,8 +1298,8 @@ Validation: focused tests cover the unauthorized sentinel; a PTY smoke test used
 diagnostics) and all 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and
 macOS arm64. `git diff --check` passed. No dependency changed.
 
-Broader memory/history components, web profile editing and verified cross-OS restore
-remain unimplemented.
+Skills content capture, broader memory/history components, web profile editing and
+verified cross-OS restore remain unimplemented.
 
 ## Profile preview defaults and saved-token retry
 
@@ -1314,13 +1315,28 @@ capture and silent saved-token retry with a stale `.env` token. Full `go vet ./.
 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and macOS arm64.
 `git diff --check` passed. No dependency changed.
 
-Broader memory/history components, web profile editing and verified cross-OS restore
-remain unimplemented.
+Skills content capture, broader memory/history components, web profile editing and
+verified cross-OS restore remain unimplemented.
+
+## Profiles web detail
+
+The current branch expands the read-only Profiles page. A revision with preview data now
+shows each agent with selected components, included/excluded field names, MCP server
+names, encrypted-field names, instruction sources, omission counts and software evidence.
+The page never receives selected values, and credential values are never displayed.
+Older revisions without MCP names fall back to declaration counts. Empty agents are
+summarised rather than expanded, and unsupported classes explain what the profile does
+not store. Skills remain in Library/sync and are not copied into setup profiles.
+
+Validation: a local server was seeded with a profile containing synthetic credential
+values; the page rendered settings fields, MCP server names (`local-tools`, `remote-api`),
+encrypted field names (`env`, `url`) and no synthetic value. Web checks pass with zero
+Svelte diagnostics and a production build. Full Go and MCP checks pass.
 
 ## Interactive restore wizard
 
-The current branch adds an interactive local restore wizard for `reet setup restore`
-with no arguments. It chooses a local profile, fetches the snapshot from S3 if missing
+The interactive local restore wizard for `reet setup restore` with no arguments merged in
+PR #95. It chooses a local profile, fetches the snapshot from S3 if missing
 and configured, prompts for the passphrase, prints a plan summary, asks for confirmation,
 offers skip/replace for conflicts, applies through the journalled path and then verifies
 the selected fields. Flag-driven restore is unchanged.
@@ -1331,8 +1347,8 @@ checks passed (8 tests; zero Svelte diagnostics) and all 16 MCP tests passed. Se
 cross-compile for Windows amd64 and macOS arm64. `git diff --check` passed. No dependency
 changed.
 
-Broader memory/history components, web profile editing and verified cross-OS restore
-remain unimplemented.
+Skills content capture, broader memory/history components, web profile editing and
+verified cross-OS restore remain unimplemented.
 
 ## Resume checklist (2026-10-22)
 

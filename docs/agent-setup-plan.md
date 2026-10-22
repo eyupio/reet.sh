@@ -283,7 +283,9 @@ hooks and caches. It reads no configuration values and implements no export.
   the wizard. Profiles support optional component/source overrides for restore/verify, let
   inspect/rollback/fetch select a revision, keep
   explicit revision history and supports local rename/remove plus server push/pull;
-  a read-only web Profiles page lists server copies. Exclusions can be scoped to named
+  a read-only web Profiles page lists server copies with stored component metadata
+  (settings fields, MCP names, instruction sources, omissions and software evidence) but
+  never credential values. Exclusions can be scoped to named
   machines/projects; web editing remains later work.
 - Record drift from observations; stale/incomplete inventory stays unknown.
 - Gate: intentional machine differences survive sync; profile revisions are

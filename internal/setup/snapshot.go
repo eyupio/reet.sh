@@ -46,6 +46,7 @@ type SnapshotComponent struct {
 	Selection            string   `json:"selection"`
 	Declarations         int      `json:"declarations,omitempty"`
 	SelectedDeclarations int      `json:"selected_declarations,omitempty"`
+	DeclarationNames     []string `json:"declaration_names,omitempty"`
 	IncludedFields       []string `json:"included_fields,omitempty"`
 	EncryptedFields      []string `json:"encrypted_fields,omitempty"`
 	ReferenceFields      []string `json:"reference_fields,omitempty"`
@@ -229,6 +230,10 @@ func addIncludedComponent(agent *SnapshotAgent, selection *SnapshotSelection, so
 		var mcp snapshotMCPSelection
 		mcp = selectMCPContent(object, component, agent.ID, opts.IncludeCredentials)
 		content, stats, preview.Declarations, preview.SelectedDeclarations = mcp.content, mcp.stats, mcp.declarations, mcp.selected
+		for name := range mcp.content {
+			preview.DeclarationNames = append(preview.DeclarationNames, name)
+		}
+		sort.Strings(preview.DeclarationNames)
 		if !mcp.valid {
 			agent.Omitted = append(agent.Omitted, SnapshotOmission{Kind: component.Kind, Source: source.Path, Reason: "invalid_mcp_declarations", Count: 1})
 		}

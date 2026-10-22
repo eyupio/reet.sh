@@ -427,10 +427,17 @@ export type SyncEnvironment = Environment & { error?: string; project?: string; 
 export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source' | 'sourceType'>
 export type SyncTarget = { mode?: string; baseline?: SyncSkill[]; appliedRevision?: string; hostAliases?: string[]; targetAliases?: string[]; target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
 export type SetupProfileSummary = { name: string; revision: number; snapshotId: string; snapshotDigest: string; updatedAt: number }
-export type SetupProfileComponent = { kind: string; source: string; scope: string; state?: string }
+export type SetupProfileComponent = {
+  kind: string; source: string; scope: string; state?: string
+  format?: string; observed?: string; selection?: string
+  declarations?: number; selected_declarations?: number; declaration_names?: string[]
+  included_fields?: string[]; encrypted_fields?: string[]; reference_fields?: string[]
+  excluded_fields?: string[]; unknown_fields?: number; digest?: string
+}
 export type SetupProfilePreview = {
   schema_version?: number
-  agents?: { id: string; name: string; state?: string; components?: SetupProfileComponent[]; omitted?: { kind: string; reason: string }[] }[]
+  agents?: { id: string; name: string; state?: string; components?: SetupProfileComponent[]; omitted?: { kind: string; reason: string; count?: number }[] }[]
+  classes?: { kind: string; selection: string; handling: string; reason: string }[]
   credentials_included?: boolean
   limitations?: string[]
 }

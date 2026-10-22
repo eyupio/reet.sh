@@ -82,7 +82,8 @@ func TestSnapshotSelectionAppliesPolicyWithoutLeakingValues(t *testing.T) {
 	}
 	mcp := findSnapshotComponent(t, selection.Preview, "claude", "mcp")
 	if mcp.Declarations != 2 || mcp.SelectedDeclarations != 2 || !hasString(mcp.IncludedFields, "command") ||
-		!hasString(mcp.EncryptedFields, "env") || !hasString(mcp.EncryptedFields, "url") {
+		!hasString(mcp.EncryptedFields, "env") || !hasString(mcp.EncryptedFields, "url") ||
+		!hasString(mcp.DeclarationNames, "local") || !hasString(mcp.DeclarationNames, "remote") {
 		t.Fatalf("MCP selection wrong: %+v", mcp)
 	}
 

@@ -347,9 +347,11 @@ explicit snapshot ID.
 `--revision N`; profiles can exclude component kinds or exact source paths globally or
 for named machines/projects, selected with `--machine NAME`/`--project PATH`. `profile rename` keeps history and `profile remove --yes` keeps snapshots;
 `profile push`/`pull` sync the profile (not the snapshot) with a reet server. The
-**Profiles** page lists synced profiles, their latest revision, selected/omitted component
-counts, overrides and revision history, and can delete the server copy. Profiles are not
-synced to an account or another machine. `reet setup prune --keep N` previews local
+**Profiles** page lists synced profiles, their latest revision, overrides and revision
+history, and can delete the server copy. For revisions with a recorded preview it also
+shows each agent's stored components: settings field names, MCP server names, instruction
+sources, encrypted-field names, omissions and software evidence. Credential values are
+never shown. Profiles are not synced to an account or another machine. `reet setup prune --keep N` previews local
 snapshot deletion and `--apply` removes old unprotected snapshots; profile and journal
 references are protected.
 

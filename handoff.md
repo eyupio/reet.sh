@@ -54,10 +54,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Local snapshot pruning merged in [PR #73](https://github.com/eyupio/reet.sh/pull/73), `f4f70a7`.
 - S3 remote listing and profile-based fetch merged in [PR #74](https://github.com/eyupio/reet.sh/pull/74), `ef1ecd2`.
 - Restore-plan software compatibility warnings merged in [PR #75](https://github.com/eyupio/reet.sh/pull/75), `b10efaa`.
-- Latest verified source baseline: `origin/main` at `b10efaa` (2026-10-22).
-- Cross-OS plan/verify warnings are in [PR #76](https://github.com/eyupio/reet.sh/pull/76)
-  on `feat/setup-cross-os-warning`; fetch remote status before continuing and preserve any
-  uncommitted work.
+- Cross-OS plan/verify warnings merged in [PR #76](https://github.com/eyupio/reet.sh/pull/76), `faa92c7`.
+- Latest verified source baseline: `origin/main` at `faa92c7` (2026-10-22).
+- Profile component/source overrides are in [PR #77](https://github.com/eyupio/reet.sh/pull/77)
+  on `feat/setup-profile-overrides`; fetch remote status before continuing and preserve
+  any uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -97,6 +98,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] List S3 snapshots by metadata and fetch by profile revision.
 - [x] Compare recorded software evidence during restore planning with opt-in probes.
 - [x] Mark differing source/destination OS as unverified in plans and verification.
+- [x] Add profile overrides that exclude component kinds or source paths.
 
 ## Implemented slice
 
@@ -290,6 +292,12 @@ S6b now records source OS/architecture in restore plans and verification. When t
 differ from the destination, the plan adds a warning and verification adds a limitation
 stating that mapping uses known locations only and cross-OS restore is unverified. It
 does not claim translation.
+
+S5c now stores optional profile overrides: repeatable
+`profile save --exclude-kind settings|mcp|instructions` and
+`--exclude-source PATH`. Restore/verify by profile apply those exclusions; inspect and
+rollback still use the original snapshot. Excluded components are reported as
+profile omissions, not silently dropped.
 
 Next implementation slice: account-synced profiles with machine/project overrides, or
 broader memory/history adapters, depending on owner priority. Do not claim cross-OS
@@ -967,6 +975,26 @@ Windows amd64 and macOS arm64. `git diff --check` passed. No dependency changed.
 Account-synced profiles, machine/project overrides, memory/history adapters, remote S3
 retention and actual verified cross-OS restore remain unimplemented.
 
+## Profile overrides
+
+The current stage on `feat/setup-profile-overrides` adds optional profile overrides.
+Repeatable `profile save --exclude-kind settings|mcp|instructions` and
+`--exclude-source PATH` are stored on the explicit revision. Restore and verify by
+profile apply them; excluded components become `profile_excluded` omissions. Inspect and
+rollback use the original snapshot. Unknown kinds, empty paths and invalid revisions are
+refused.
+
+Validation: focused tests cover saved overrides, unknown-kind refusal, filtered preview
+and omissions, planning exclusions and CLI restore by profile. Full `go vet ./...` and
+`go test -race ./...` passed. Web checks passed (8 tests; zero Svelte diagnostics) and
+all 16 MCP tests passed. A compiled-binary smoke test verified profile overrides (settings
+restored, instructions excluded); setup tests cross-compile for Windows amd64 and macOS
+arm64. `git diff --check`
+passed. No dependency changed.
+
+Account-synced profiles, machine/project-specific overrides, memory/history adapters,
+remote S3 retention and verified cross-OS restore remain unimplemented.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -984,12 +1012,13 @@ retention and actual verified cross-OS restore remain unimplemented.
    with rollback copies, destination verification, rollback, journal listing, local
    health guidance, per-destination conflict choices, optional software evidence,
    global/project instruction export, explicit portable credential inclusion, optional
-   S3 upload/fetch/listing, named local profiles (including inspect/rollback) and local
-   pruning are now implemented. The next slice is account-synced profiles/overrides or
-   broader memory/history adapters, depending on owner priority. Keep values encrypted
-   and unknown formats unsupported. Do not claim cross-OS restore or working-setup
-   verification before their acceptance gates. Consult the detailed plan for encryption,
-   key handling, restore and compatibility requirements.
+   S3 upload/fetch/listing, named local profiles with component/source overrides
+   (including inspect/rollback) and local pruning are now implemented. The next slice is
+   account-synced profiles/overrides or broader memory/history adapters, depending on
+   owner priority. Keep values encrypted and unknown formats unsupported. Do not claim
+   cross-OS restore or working-setup verification before their acceptance gates. Consult
+   the detailed plan for encryption, key handling, restore and compatibility
+   requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current
@@ -1002,7 +1031,7 @@ S3, list, inspect, plan with compatibility/cross-OS warnings, create or replace 
 files, verify selected destination fields, roll back a completed apply, list journals,
 report local health guidance, apply per-destination conflict choices, record/compare
 optional software evidence, export global/project instructions, optionally include
-portable literal credentials, save/use named local profiles and prune old local
+portable literal credentials, save/use named local profiles with overrides and prune old local
 snapshots, but account-synced profiles, memory/history, remote retention and verified
 cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.

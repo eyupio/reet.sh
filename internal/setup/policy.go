@@ -68,7 +68,7 @@ func ApplyExportPolicies(r *Report) {
 		}
 		seen := map[string]bool{}
 		for _, loc := range a.Locations {
-			if loc.Kind != "configuration" && loc.Kind != "mcp_configuration" {
+			if loc.Kind != "configuration" && loc.Kind != "mcp_configuration" && loc.Kind != "instructions" && loc.Kind != "shared_instructions" {
 				continue
 			}
 			for _, path := range configPaths(a.ID, loc) {
@@ -116,6 +116,16 @@ func observeSource(path string) string {
 
 func componentExportPolicies(agent, kind, path string) []ComponentExportPolicy {
 	format := strings.TrimPrefix(filepath.Ext(path), ".")
+	if kind == "instructions" || kind == "shared_instructions" {
+		reason := "The whole discovered instruction file is selected as bounded text; it may contain private context and is only written inside an encrypted snapshot."
+		if kind == "shared_instructions" {
+			reason = "The discovered shared instruction file is selected as bounded text; other agents may use the same file, so restore it deliberately."
+		}
+		return []ComponentExportPolicy{{
+			Kind: "instructions", Selection: "include", Handling: "portable",
+			Fields: []FieldExportPolicy{}, UnlistedFields: "exclude", Reason: reason,
+		}}
+	}
 	if kind == "mcp_configuration" {
 		if agent == "pi" || !supportedFormat(format, agent) {
 			return []ComponentExportPolicy{unsupportedMCPPolicy()}
@@ -313,8 +323,8 @@ func settingsExportPolicy(agent, base string) ComponentExportPolicy {
 func classExportPolicies() []ClassExportPolicy {
 	return []ClassExportPolicy{
 		{
-			Kind: "instructions", Selection: "unsupported", Handling: "not_implemented",
-			Reason: "Instruction files are discovered but no verified portable adapter is implemented; they are not exported.",
+			Kind: "instructions", Selection: "include", Handling: "portable",
+			Reason: "Discovered project instruction files are selected as whole bounded text; global or unlisted instruction locations are not inventoried.",
 		},
 		{
 			Kind: "behavior", Selection: "unsupported", Handling: "not_implemented",

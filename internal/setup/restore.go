@@ -59,6 +59,7 @@ type RestorePlan struct {
 type restoreFile struct {
 	agentID, format, container string
 	settings, mcp              map[string]any
+	text                       string
 }
 
 type restoreComponent struct {
@@ -139,6 +140,8 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 			for name, declaration := range source.Content {
 				file.mcp[name] = declaration
 			}
+		case "instructions":
+			file.text, file.format = source.Text, "text"
 		}
 		files[candidate.path] = file
 		action.Components = appendUnique(action.Components, component.kind)
@@ -223,7 +226,7 @@ func destinationCandidates(report Report) []destinationCandidate {
 	var out []destinationCandidate
 	for _, agent := range report.Agents {
 		for _, loc := range agent.Locations {
-			if loc.Kind != "configuration" && loc.Kind != "mcp_configuration" {
+			if loc.Kind != "configuration" && loc.Kind != "mcp_configuration" && loc.Kind != "instructions" && loc.Kind != "shared_instructions" {
 				continue
 			}
 			for _, path := range configPaths(agent.ID, loc) {

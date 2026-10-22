@@ -210,7 +210,7 @@ agent:
 
 | Class | Selection | Handling |
 | --- | --- | --- |
-| instructions | unsupported | not_implemented |
+| instructions | include | portable |
 | behaviour | unsupported | not_implemented |
 | memory | unsupported | not_implemented |
 | history | opt_in | not_implemented |
@@ -218,11 +218,16 @@ agent:
 | hooks | exclude | never |
 | caches | exclude | never |
 
-These classes make the current gaps explicit rather than implying that memory,
-history, hooks or portable credentials can already be exported. `history` is an
-intended opt-in; `credentials` means reference names only, and device-bound
-keychains or sessions still require fresh authentication. No class policy is a
-claim that its adapter or restore path exists.
+Project instruction files discovered by the adapters (`CLAUDE.md`, `.cursorrules`,
+`GEMINI.md` and Codex's shared project `AGENTS.md`) are selected as whole bounded text.
+They stay inside the encrypted payload, can be restored or verified, and are never
+printed by preview, list or inspect. Shared `AGENTS.md` may be used by more than one
+agent, so restore it deliberately. Global or unlisted instruction locations are not
+inventoried. These classes make the other gaps explicit rather than implying that
+memory, history, hooks or portable credentials can already be exported. `history` is
+an intended opt-in; `credentials` means reference names only, and device-bound
+keychains or sessions still require fresh authentication. No class policy is a claim
+that its adapter or restore path exists.
 
 Policy paths and field names may identify private projects, services or settings,
 so review a report before sharing it. No configuration values, commands, URLs,
@@ -292,8 +297,9 @@ settings values, MCP declarations and omission details stay inside the encrypted
 payload. The writer opens the sealed bytes before writing and opens the file on
 disk again afterwards; a mismatch fails and removes the file.
 
-The encrypted payload includes the policy preview, selected source content, the
-omissions report and optional software evidence. `--probe-versions` records bounded
+The encrypted payload includes the policy preview, selected settings/MCP content,
+selected project instruction text, the omissions report and optional software
+evidence. `--probe-versions` records bounded
 application `--version` reports and `--inspect-installation` records local Node package
 associations; both are opt-in because probing executes the discovered executable.
 Software evidence deliberately omits executable and metadata paths, and it is not

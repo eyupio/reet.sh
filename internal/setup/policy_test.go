@@ -191,7 +191,7 @@ func TestExportPolicyClassifiesMemoryHistoryCredentialsHooksAndCaches(t *testing
 	ApplyExportPolicies(&r)
 	policies := findAgent(t, r, "claude").ExportPolicy
 	want := map[string]struct{ selection, handling string }{
-		"instructions": {"unsupported", "not_implemented"},
+		"instructions": {"include", "portable"},
 		"behavior":     {"unsupported", "not_implemented"},
 		"memory":       {"unsupported", "not_implemented"},
 		"history":      {"opt_in", "not_implemented"},

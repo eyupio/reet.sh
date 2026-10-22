@@ -7,8 +7,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/objectstore"
 	"github.com/eyupio/reet.sh/internal/sealed"
@@ -35,6 +37,20 @@ type SetupFetchResult struct {
 	Path  string `json:"path"`
 	Bytes int64  `json:"bytes"`
 	Key   string `json:"key"`
+}
+
+type SetupRemoteSnapshot struct {
+	ID       string    `json:"id"`
+	Key      string    `json:"key"`
+	Bytes    int64     `json:"bytes"`
+	Modified time.Time `json:"modified,omitempty"`
+}
+
+type SetupRemoteList struct {
+	SchemaVersion int                   `json:"schema_version"`
+	Prefix        string                `json:"prefix"`
+	Snapshots     []SetupRemoteSnapshot `json:"snapshots"`
+	Limitations   []string              `json:"limitations"`
 }
 
 func SetupS3FromEnv() (objectstore.Config, string, error) {
@@ -146,4 +162,67 @@ func FetchSetupSnapshot(id, dir string) (SetupFetchResult, error) {
 func renderSetupFetch(out io.Writer, result SetupFetchResult) error {
 	_, err := fmt.Fprintf(out, "Fetched setup snapshot %s (%d bytes) to %q from %q.\n", result.ID, result.Bytes, result.Path, result.Key)
 	return err
+}
+
+// ListRemoteSetupSnapshots reads the configured S3 prefix without downloading
+// snapshot payloads.
+func ListRemoteSetupSnapshots() (SetupRemoteList, error) {
+	config, prefix, err := SetupS3FromEnv()
+	if err != nil {
+		return SetupRemoteList{}, err
+	}
+	client, err := objectstore.New(config)
+	if err != nil {
+		return SetupRemoteList{}, err
+	}
+	objects, err := client.List(context.Background(), prefix)
+	if err != nil {
+		return SetupRemoteList{}, err
+	}
+	list := SetupRemoteList{
+		SchemaVersion: 1, Prefix: prefix, Snapshots: []SetupRemoteSnapshot{},
+		Limitations: []string{
+			"Remote listing reads object metadata only; snapshots are not downloaded or opened.",
+			"Remote deletion, retention and destination testing are not implemented.",
+		},
+	}
+	for _, object := range objects {
+		if !strings.HasSuffix(object.Key, setupSnapshotExtension) {
+			continue
+		}
+		id := strings.TrimSuffix(filepath.Base(object.Key), setupSnapshotExtension)
+		if !validSetupSnapshotID(id) {
+			continue
+		}
+		list.Snapshots = append(list.Snapshots, SetupRemoteSnapshot{ID: id, Key: object.Key, Bytes: object.Size, Modified: object.LastModified})
+	}
+	sort.Slice(list.Snapshots, func(i, j int) bool {
+		if list.Snapshots[i].Modified.Equal(list.Snapshots[j].Modified) {
+			return list.Snapshots[i].ID > list.Snapshots[j].ID
+		}
+		return list.Snapshots[i].Modified.After(list.Snapshots[j].Modified)
+	})
+	return list, nil
+}
+
+func renderRemoteSetupList(out io.Writer, list SetupRemoteList) error {
+	if _, err := fmt.Fprintf(out, "Remote setup snapshots under %q\n", list.Prefix); err != nil {
+		return err
+	}
+	if len(list.Snapshots) == 0 {
+		if _, err := fmt.Fprintln(out, "No remote setup snapshots found."); err != nil {
+			return err
+		}
+	}
+	for _, snapshot := range list.Snapshots {
+		if _, err := fmt.Fprintf(out, "  %s  %d bytes  %s\n", snapshot.ID, snapshot.Bytes, snapshot.Modified.Format(time.RFC3339)); err != nil {
+			return err
+		}
+	}
+	for _, note := range list.Limitations {
+		if _, err := fmt.Fprintf(out, "\n%s\n", note); err != nil {
+			return err
+		}
+	}
+	return nil
 }

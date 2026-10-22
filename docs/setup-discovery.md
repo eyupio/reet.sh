@@ -323,12 +323,16 @@ as sensitive.
 ```sh
 reet setup backup --s3 --password-file FILE
 reet setup fetch --s3 SNAPSHOT
+reet setup fetch --s3 --profile NAME
+reet setup remote list
 ```
 
 `--s3` uploads the sealed snapshot after the local write and reads it back to verify
 the bytes. `reet setup fetch --s3` downloads a snapshot to the local snapshot directory
 after checking its clear header and snapshot identity; it writes mode 0600 and refuses
-to overwrite an existing local file. The object key is
+to overwrite an existing local file. `--profile NAME` resolves the snapshot ID from the
+newest local profile revision. `reet setup remote list` reads object metadata under the
+configured prefix without downloading or opening snapshots. The object key is
 `REET_SETUP_S3_PREFIX/<snapshot-id>.reetsetup` (default prefix `reet/setup/`).
 
 Configuration is environment-only for this slice: `REET_SETUP_S3_ENDPOINT`,

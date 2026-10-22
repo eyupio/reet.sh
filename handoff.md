@@ -50,10 +50,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Optional setup S3 delivery/fetch merged in [PR #70](https://github.com/eyupio/reet.sh/pull/70), `f75b388`.
 - Latest verified source baseline: `origin/main` at `f75b388` (2026-10-22).
 - Named local profiles merged in [PR #71](https://github.com/eyupio/reet.sh/pull/71), `bcfb218`.
-- Latest verified source baseline: `origin/main` at `bcfb218` (2026-10-22).
-- Profile-based inspect/rollback are in [PR #72](https://github.com/eyupio/reet.sh/pull/72)
-  on `feat/setup-profile-commands`; fetch remote status before continuing and preserve
-  any uncommitted work.
+- Profile-based inspect/rollback merged in [PR #72](https://github.com/eyupio/reet.sh/pull/72), `1b28fa1`.
+- Latest verified source baseline: `origin/main` at `1b28fa1` (2026-10-22).
+- Local snapshot pruning is in [PR #73](https://github.com/eyupio/reet.sh/pull/73) on
+  `feat/setup-prune`; fetch remote status before continuing and preserve any uncommitted
+  work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -89,6 +90,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Add optional setup snapshot upload and fetch with read-back verification.
 - [x] Add explicit local named profile revisions and profile-based restore/verify.
 - [x] Let inspect and rollback resolve the newest profile revision.
+- [x] Add dry-run/apply local snapshot pruning with profile and journal protection.
 
 ## Implemented slice
 
@@ -261,6 +263,11 @@ the newest revision. Profiles are local only.
 S5b now lets `inspect --profile` and `rollback --profile` use the newest profile revision.
 Together with restore/verify, profiles are usable across all snapshot commands while
 remaining local-only and explicitly revisioned.
+
+S2f now adds `reet setup prune --keep N [--apply]`. It is a dry run by default,
+keeps the newest snapshots and protects every snapshot referenced by a profile revision
+or restore journal. It removes only local `.reetsetup` files; journals, profiles,
+rollback copies and S3 objects are untouched.
 
 Next implementation slice: account-synced profiles with machine/project overrides, or
 broader memory/history adapters, depending on owner priority. Do not claim cross-OS
@@ -869,6 +876,24 @@ inspect and rollback; setup tests cross-compile for Windows amd64 and macOS arm6
 Account-synced profiles, machine/project overrides, memory/history adapters, remote
 retention and verified cross-OS restore remain unimplemented.
 
+## Local snapshot pruning
+
+The current stage on `feat/setup-prune` adds `reet setup prune --keep N [--apply]`. It is
+a dry run unless `--apply` is given, keeps the newest snapshots and protects every
+snapshot referenced by a profile revision or restore journal. Journals, profiles,
+rollback copies and remote S3 objects are left in place. The result lists planned and
+removed paths and protected snapshots.
+
+Validation: focused tests cover dry run, applied removal, profile/journal protection,
+zero-keep rejection and CLI JSON output. Full `go vet ./...` and `go test -race ./...`
+passed. Web checks passed (8 tests; zero Svelte diagnostics) and all 16 MCP tests passed.
+A compiled-binary smoke test verified protected dry-run planning and apply removal;
+setup tests cross-compile for Windows amd64 and macOS arm64. `git diff --check` passed. No dependency
+changed.
+
+Account-synced profiles, machine/project overrides, memory/history adapters, remote S3
+retention and verified cross-OS restore remain unimplemented.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -885,13 +910,13 @@ retention and verified cross-OS restore remain unimplemented.
    planning, create-only apply, conflict skip/replace with rollback copies, destination
    verification, rollback, journal listing, local health guidance, per-destination
    conflict choices, optional software evidence, global/project instruction export,
-   explicit portable credential inclusion, optional S3 upload/fetch and named local
-   profiles (including inspect/rollback) are now implemented. The next slice is
-   account-synced profiles/overrides or broader memory/history adapters, depending on
-   owner priority. Keep values encrypted and unknown formats unsupported. Do not claim
-   cross-OS restore or working-setup verification before their acceptance gates. Consult
-   the detailed plan for encryption, key handling, restore and compatibility
-   requirements.
+   explicit portable credential inclusion, optional S3 upload/fetch, named local
+   profiles (including inspect/rollback) and local pruning are now implemented. The next
+   slice is account-synced profiles/overrides or broader memory/history adapters,
+   depending on owner priority. Keep values encrypted and unknown formats unsupported.
+   Do not claim cross-OS restore or working-setup verification before their acceptance
+   gates. Consult the detailed plan for encryption, key handling, restore and
+   compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current
@@ -903,9 +928,9 @@ now writes a partial encrypted local snapshot, can optionally upload/fetch it th
 list, inspect, plan, create or replace supported files, verify selected destination
 fields, roll back a completed apply, list journals, report local health guidance, apply
 per-destination conflict choices, record/compare optional software evidence, export
-global/project instructions, optionally include portable literal credentials and save/use
-named local profiles, but account-synced profiles, memory/history, remote retention and
-cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
+global/project instructions, optionally include portable literal credentials, save/use
+named local profiles and prune old local snapshots, but account-synced profiles,
+memory/history, remote retention and cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
 manage that server. No production host was upgraded by this session. Do not copy

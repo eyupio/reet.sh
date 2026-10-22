@@ -42,18 +42,20 @@ type RestoreUnsupported struct {
 }
 
 type RestorePlan struct {
-	SchemaVersion   int                  `json:"schema_version"`
-	SnapshotID      string               `json:"snapshot_id"`
-	SnapshotVersion string               `json:"snapshot_version,omitempty"`
-	SnapshotTakenAt time.Time            `json:"snapshot_taken_at"`
-	SnapshotDigest  string               `json:"snapshot_digest"`
-	Destination     RestoreDestination   `json:"destination"`
-	Actions         []RestoreAction      `json:"actions"`
-	Unsupported     []RestoreUnsupported `json:"unsupported"`
-	Software        []VerifySoftware     `json:"software,omitempty"`
-	Warnings        []string             `json:"warnings,omitempty"`
-	Fingerprint     string               `json:"fingerprint"`
-	Limitations     []string             `json:"limitations"`
+	SchemaVersion      int                  `json:"schema_version"`
+	SnapshotID         string               `json:"snapshot_id"`
+	SnapshotVersion    string               `json:"snapshot_version,omitempty"`
+	SnapshotTakenAt    time.Time            `json:"snapshot_taken_at"`
+	SnapshotDigest     string               `json:"snapshot_digest"`
+	SourceOS           string               `json:"source_os"`
+	SourceArchitecture string               `json:"source_architecture"`
+	Destination        RestoreDestination   `json:"destination"`
+	Actions            []RestoreAction      `json:"actions"`
+	Unsupported        []RestoreUnsupported `json:"unsupported"`
+	Software           []VerifySoftware     `json:"software,omitempty"`
+	Warnings           []string             `json:"warnings,omitempty"`
+	Fingerprint        string               `json:"fingerprint"`
+	Limitations        []string             `json:"limitations"`
 
 	files map[string]restoreFile
 }
@@ -79,8 +81,9 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 		SchemaVersion: restorePlanSchemaVersion, SnapshotID: manifest.ID,
 		SnapshotVersion: manifest.Version, SnapshotTakenAt: time.UnixMilli(manifest.TakenAt).UTC(),
 		SnapshotDigest: manifest.SHA256,
-		Destination:    RestoreDestination{OS: destination.OS, Architecture: destination.Architecture, Project: destination.Project},
-		Actions:        []RestoreAction{}, Unsupported: []RestoreUnsupported{},
+		SourceOS:       snapshot.Preview.OS, SourceArchitecture: snapshot.Preview.Architecture,
+		Destination: RestoreDestination{OS: destination.OS, Architecture: destination.Architecture, Project: destination.Project},
+		Actions:     []RestoreAction{}, Unsupported: []RestoreUnsupported{},
 		Limitations: []string{
 			"Preview only: no files are written and no installers or hooks run.",
 			"Destination discovery is metadata-only; an existing source is a conflict even when selected content looks similar.",
@@ -174,6 +177,9 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 		}
 		return plan.Unsupported[i].Reason < plan.Unsupported[j].Reason
 	})
+	if snapshot.Preview.OS != "" && destination.OS != "" && (snapshot.Preview.OS != destination.OS || snapshot.Preview.Architecture != destination.Architecture) {
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf("Source setup was captured on %s/%s; this destination is %s/%s. Path mapping uses known locations only and cross-OS restore is not verified.", snapshot.Preview.OS, snapshot.Preview.Architecture, destination.OS, destination.Architecture))
+	}
 	plan.files = files
 	plan.Software = verifySoftware(snapshot.Software, destination.Agents)
 	for _, software := range plan.Software {
@@ -333,7 +339,7 @@ func loadSetupSnapshot(path, password, dir string) (SetupSnapshot, sealed.Manife
 }
 
 func renderRestorePlan(out io.Writer, plan RestorePlan) error {
-	if _, err := fmt.Fprintf(out, "Setup restore plan for %s\nDestination: %s/%s", plan.SnapshotID, plan.Destination.OS, plan.Destination.Architecture); err != nil {
+	if _, err := fmt.Fprintf(out, "Setup restore plan for %s\nSource: %s/%s; destination: %s/%s", plan.SnapshotID, plan.SourceOS, plan.SourceArchitecture, plan.Destination.OS, plan.Destination.Architecture); err != nil {
 		return err
 	}
 	if plan.Destination.Project != "" {

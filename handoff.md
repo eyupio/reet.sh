@@ -53,9 +53,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Profile-based inspect/rollback merged in [PR #72](https://github.com/eyupio/reet.sh/pull/72), `1b28fa1`.
 - Local snapshot pruning merged in [PR #73](https://github.com/eyupio/reet.sh/pull/73), `f4f70a7`.
 - S3 remote listing and profile-based fetch merged in [PR #74](https://github.com/eyupio/reet.sh/pull/74), `ef1ecd2`.
-- Latest verified source baseline: `origin/main` at `ef1ecd2` (2026-10-22).
-- Restore-plan software compatibility warnings are in [PR #75](https://github.com/eyupio/reet.sh/pull/75)
-  on `feat/setup-restore-compat`; fetch remote status before continuing and preserve any
+- Restore-plan software compatibility warnings merged in [PR #75](https://github.com/eyupio/reet.sh/pull/75), `b10efaa`.
+- Latest verified source baseline: `origin/main` at `b10efaa` (2026-10-22).
+- Cross-OS plan/verify warnings are in [PR #76](https://github.com/eyupio/reet.sh/pull/76)
+  on `feat/setup-cross-os-warning`; fetch remote status before continuing and preserve any
   uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
@@ -95,6 +96,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Add dry-run/apply local snapshot pruning with profile and journal protection.
 - [x] List S3 snapshots by metadata and fetch by profile revision.
 - [x] Compare recorded software evidence during restore planning with opt-in probes.
+- [x] Mark differing source/destination OS as unverified in plans and verification.
 
 ## Implemented slice
 
@@ -283,6 +285,11 @@ snapshot's recorded application/package evidence with the destination before wri
 The plan lists compatibility states and warnings; warnings are advisory and do not block
 apply. This surfaces version/package mismatches without installing or substituting
 anything automatically.
+
+S6b now records source OS/architecture in restore plans and verification. When they
+differ from the destination, the plan adds a warning and verification adds a limitation
+stating that mapping uses known locations only and cross-OS restore is unverified. It
+does not claim translation.
 
 Next implementation slice: account-synced profiles with machine/project overrides, or
 broader memory/history adapters, depending on owner priority. Do not claim cross-OS
@@ -944,6 +951,22 @@ arm64. `git diff --check` passed. No dependency changed.
 Account-synced profiles, machine/project overrides, memory/history adapters, remote S3
 retention and verified cross-OS restore remain unimplemented.
 
+## Cross-OS warning
+
+The current stage on `feat/setup-cross-os-warning` records the snapshot source
+OS/architecture in restore plans and verification. A differing destination gets an
+explicit warning/limitation: mapping uses known locations only and cross-OS restore is
+not verified. Actions are not blocked and no translation is claimed.
+
+Validation: focused tests cover source fields, plan warnings, text and verify
+limitations. Full `go vet ./...` and `go test -race ./...` passed. Web checks passed (8
+tests; zero Svelte diagnostics) and all 16 MCP tests passed. Cross-OS warning behaviour is covered by fixture tests;
+compiled-binary runtime verification remains Linux-only. Setup tests cross-compile for
+Windows amd64 and macOS arm64. `git diff --check` passed. No dependency changed.
+
+Account-synced profiles, machine/project overrides, memory/history adapters, remote S3
+retention and actual verified cross-OS restore remain unimplemented.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -957,9 +980,9 @@ retention and verified cross-OS restore remain unimplemented.
    automated approval.
 4. Explicit component export policies, the policy-driven preview, the shared sealed
    archive, encrypted local setup snapshot writing, listing/inspection, restore
-   planning and compatibility warnings, create-only apply, conflict skip/replace with
-   rollback copies, destination verification, rollback, journal listing, local health
-   guidance, per-destination conflict choices, optional software evidence,
+   planning and compatibility/cross-OS warnings, create-only apply, conflict skip/replace
+   with rollback copies, destination verification, rollback, journal listing, local
+   health guidance, per-destination conflict choices, optional software evidence,
    global/project instruction export, explicit portable credential inclusion, optional
    S3 upload/fetch/listing, named local profiles (including inspect/rollback) and local
    pruning are now implemented. The next slice is account-synced profiles/overrides or
@@ -975,13 +998,13 @@ retention and verified cross-OS restore remain unimplemented.
 
 Important boundaries: no complete AI setup backup/restore has shipped. Setup backup
 now writes a partial encrypted local snapshot, can optionally upload/fetch/list it through
-S3, list, inspect, plan with optional compatibility warnings, create or replace supported
+S3, list, inspect, plan with compatibility/cross-OS warnings, create or replace supported
 files, verify selected destination fields, roll back a completed apply, list journals,
 report local health guidance, apply per-destination conflict choices, record/compare
 optional software evidence, export global/project instructions, optionally include
 portable literal credentials, save/use named local profiles and prune old local
-snapshots, but account-synced profiles, memory/history, remote retention and cross-OS
-recovery are not implemented. Existing `reet backup` is not evidence that
+snapshots, but account-synced profiles, memory/history, remote retention and verified
+cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
 manage that server. No production host was upgraded by this session. Do not copy

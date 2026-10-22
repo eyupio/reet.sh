@@ -35,6 +35,7 @@ func mcpAPIPath(method, path string) bool {
 	}
 	switch method + " " + path {
 	case "POST /api/skills", "PATCH /api/skill", "DELETE /api/skill", "POST /api/skill/tags", "POST /api/v2/lists", "DELETE /api/skill/ignore",
+		"DELETE /api/v2/machines", "POST /api/v2/machines/merge",
 		"POST /api/v2/environments/delete", "POST /api/v2/environments/merge", "POST /api/v2/skills/bulk",
 		"POST /api/v2/tags", "PATCH /api/tag":
 		return true

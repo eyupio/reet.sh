@@ -78,8 +78,9 @@ defaults, mutation hints and return information. Successful calls return
 | `list_sync_targets` | Inspect saved desired/missing/extra plans without applying changes. |
 | `list_lists`, `get_list` | Find accessible lists and read skills, list notes and permissions. |
 | `create_list`, `update_list`, `delete_list` | Create a personal list, rename/describe it, or delete it after a dry run and confirmation. |
-| `add_list_skill`, `add_list_skills`, `remove_list_skill` | Add one or many skills (including `local/...` on personal lists) and remove one. |
+| `add_list_skill`, `add_list_skills`, `remove_list_skill` | Add one or many skills (including `local/...` on personal lists) and remove one. Pass `id` for a shelf skill or `input` for an `owner/repo/skill` reference; `add_list_skill` requires exactly one. |
 | `bulk_update_skills` | Apply flags, a stage, tags and a list membership to up to 500 skills by ID or filter, with an optional dry run. |
+| `forget_machine`, `merge_machines` | Remove a machine's scanned environments, or merge a renamed host into another. Dry run unless `confirm=true`; `forget_machine` refuses machines that still list skills unless `force=true`. Shelf skills, lists and tags are never touched. |
 | `list_events` | Read audit activity with `skill`, `action`, `source` and `before`/`after` cursors. MCP changes carry the client name. |
 | `list_ignored`, `unignore_skill` | Inspect scanner exclusions and allow future imports. |
 

@@ -33,6 +33,8 @@ export const outputs: Record<string, z.ZodType> = {
   get_environment: page(inventorySkill).extend({ environment: jsonObject({ ...named, complete: z.boolean(), scannedAt: z.number() }) }),
   delete_environment: jsonObject({ dry_run: z.boolean(), deleted: z.number().int().optional(), would_delete: z.array(jsonObject(named)).optional(), environments: z.array(jsonObject(named)).optional(), blocked: z.array(jsonObject({ id: z.string() })).optional() }),
   merge_environments: jsonObject({ dry_run: z.boolean(), from: z.any(), to: z.any(), skills_moved: z.number().int() }),
+  forget_machine: jsonObject({ dry_run: z.boolean(), host: z.string(), environments: z.array(jsonObject(named)), skillCount: z.number().int(), applied: z.boolean() }),
+  merge_machines: z.object({ dry_run: z.boolean(), from: z.string(), to: z.string(), applied: z.boolean() }),
   list_sync_targets: page(jsonObject({ target: jsonObject(named), sourceId: z.string(), desired: z.array(inventorySkill), missing: z.array(inventorySkill), extra: z.array(inventorySkill) })),
   list_lists: page(list),
   get_list: page(skill).extend({ list }),

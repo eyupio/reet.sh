@@ -97,8 +97,8 @@ already consented OAuth grant. Clients with other OAuth grant types, private
 client secrets or client-ID metadata documents must use the supported public
 dynamic-registration flow or manual bearer authentication.
 
-The 28 tool definitions are shared with the optional stdio package. Read-only
-connections discover eleven tools; management connections discover twenty-eight.
+The 30 tool definitions are shared with the optional stdio package. Read-only
+connections discover eleven tools; management connections discover thirty.
 Collections support bounded pages and filters. Responses are capped at 25,000
 characters; use smaller pages or more specific filters for large shelves.
 `reet_list_skills` has `compact: true` (or `fields`) for large shelves; it

@@ -162,6 +162,35 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     from_id: environmentId, to_id: environmentId, dry_run: dryRun, confirm,
   }, async body => client.request('/api/v2/environments/merge', 'POST', body), { write: true, destructive: true });
 
+
+  tool('forget_machine', 'Forget a machine', 'Delete a machine’s scanned environments by exact host name (see reet_list_environments). Dry run by default: returns what would be removed and changes nothing. Set confirm=true to apply. Refuses machines that still list skills unless force=true. Never touches shelf skills, lists or tags; the host name stays aliased so scans cannot resurrect duplicates.', {
+    host: z.string().trim().min(1).max(255).describe('Exact host name from reet_list_environments.'),
+    confirm: z.boolean().default(false).describe('Apply the change. false returns a preview only.'),
+    force: z.boolean().default(false).describe('Allow forgetting a machine whose environments still list skills.'),
+  }, async ({ host, confirm, force }) => {
+    const environments = collection(await client.request('/api/environments'), 'environments').filter(env => env.host === host);
+    if (!environments.length) throw new Error('No environments for that host. Use reet_list_environments to find its exact host name.');
+    const summary = environments.map(({ skills, ...env }) => ({ id: env.id, name: env.name, agent: env.agent, skillCount: Array.isArray(skills) ? skills.length : 0 }));
+    const skillCount = summary.reduce((total, env) => total + env.skillCount, 0);
+    if (!confirm) return { dry_run: true, host, environments: summary, skillCount, applied: false };
+    if (skillCount > 0 && !force) throw new Error(`That machine still lists ${skillCount} skills. Pass force=true to forget it anyway.`);
+    await client.request('/api/v2/machines', 'DELETE', undefined, new URLSearchParams({ host }));
+    return { dry_run: false, host, environments: summary, skillCount, applied: true };
+  }, { write: true, destructive: true, idempotent: true });
+
+  tool('merge_machines', 'Merge two machines', 'Merge one machine name into another so a renamed host is not counted twice. Dry run by default; set confirm=true to apply. Moves environments, sync plans and aliases from the source host to the target host; shelf skills, lists and tags are unchanged.', {
+    from: z.string().trim().min(1).max(255).describe('Host name to merge away.'),
+    to: z.string().trim().min(1).max(255).describe('Host name to keep.'),
+    confirm: z.boolean().default(false).describe('Apply the change. false returns a preview only.'),
+  }, async ({ from, to, confirm }) => {
+    const hosts = new Set(collection(await client.request('/api/environments'), 'environments').map(env => env.host));
+    if (!hosts.has(from) || !hosts.has(to)) throw new Error('Both hosts must exist. Use reet_list_environments to find exact host names.');
+    if (from === to) throw new Error('from and to must be different hosts.');
+    if (!confirm) return { dry_run: true, from, to, applied: false };
+    await client.request('/api/v2/machines/merge', 'POST', { from, to });
+    return { dry_run: false, from, to, applied: true };
+  }, { write: true, destructive: true });
+
   tool('list_sync_targets', 'Inspect saved sync plans', 'Read saved sync targets and desired/missing/extra inventories. Does not create a plan or apply installs/removals; use reet sync locally to preview and confirm changes. Returns a page of sync target objects.', pagination, async args => {
     return page(collection(await client.request('/api/v2/sync'), 'targets'), args);
   });
@@ -204,7 +233,7 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     input: z.string().trim().min(1).max(1000).optional().describe('owner/repo/skill or skills.sh URL.'),
     note: z.string().max(20_000).default('').describe('Shared list note; separate from personal notes.'),
   }, async ({ list_id, ...body }) => {
-    if (!body.id && !body.input) throw new Error('Supply id or input.');
+    if ((!body.id) === (!body.input)) throw new Error('Supply exactly one of id (a shelf skill ID) or input (an owner/repo/skill reference).');
     const data = await client.request(`/api/v2/lists/${list_id}/skills`, 'POST', body);
     return { id: data.id, name: data.name, skillCount: data.skillCount };
   }, { write: true, destructive: true });

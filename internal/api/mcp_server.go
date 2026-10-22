@@ -179,7 +179,135 @@ func mcpPage(items []any, args, meta map[string]any) (map[string]any, error) {
 	}
 }
 
+// mcpDo sends one internal API request as the MCP caller.
+func (s *server) mcpDo(ctx context.Context, api http.Handler, access mcpAccess, origin, method, path string, query url.Values, body map[string]any) (*mcpBuffer, error) {
+	if !mcpAPIPath(method, path) || (method != "GET" && !access.canWrite()) {
+		return nil, errors.New("this MCP connection is read-only")
+	}
+	raw, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(context.WithValue(ctx, userContextKey{}, access.User), method, origin+path+"?"+query.Encode(), bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Reet-Source", "mcp")
+	if access.Connection.Name != "" {
+		req.Header.Set("X-Reet-Client", access.Connection.Name)
+	}
+	w := &mcpBuffer{header: make(http.Header)}
+	api.ServeHTTP(w, req)
+	if w.err != nil {
+		return nil, w.err
+	}
+	if w.status >= 400 {
+		var detail struct {
+			Code, Field, Message, Hint, Error string
+		}
+		_ = json.Unmarshal(w.body.Bytes(), &detail)
+		if detail.Code != "" {
+			text := fmt.Sprintf("reet.sh returned HTTP %d [%s]", w.status, detail.Code)
+			if detail.Field != "" {
+				text += " field=" + detail.Field
+			}
+			msg := detail.Message
+			if msg == "" {
+				msg = detail.Error
+			}
+			if msg != "" {
+				text += ": " + msg
+			}
+			if detail.Hint != "" {
+				text += ". " + detail.Hint
+			}
+			return nil, errors.New(text)
+		}
+		return nil, fmt.Errorf("reet.sh returned HTTP %d; check resource IDs, account role and list permissions", w.status)
+	}
+	return w, nil
+}
+
+// mcpMachineEnvironments returns the scanned environments for each host, without their skill lists.
+func (s *server) mcpMachineEnvironments(ctx context.Context, api http.Handler, access mcpAccess, origin string) (map[string][]map[string]any, error) {
+	w, err := s.mcpDo(ctx, api, access, origin, "GET", "/api/environments", url.Values{}, nil)
+	if err != nil {
+		return nil, err
+	}
+	data := map[string]any{}
+	if json.Unmarshal(w.body.Bytes(), &data) != nil {
+		return nil, errors.New("unexpected API response")
+	}
+	items, err := mcpItems(data, "environments")
+	if err != nil {
+		return nil, err
+	}
+	byHost := map[string][]map[string]any{}
+	for _, item := range items {
+		env, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		skills, _ := mcpItems(env, "skills")
+		host, _ := env["host"].(string)
+		byHost[host] = append(byHost[host], map[string]any{"id": env["id"], "name": env["name"], "agent": env["agent"], "skillCount": len(skills)})
+	}
+	return byHost, nil
+}
+
+func (s *server) executeMCPMachines(ctx context.Context, api http.Handler, access mcpAccess, origin, name string, args map[string]any) (map[string]any, error) {
+	str := func(key string) string { v, _ := args[key].(string); return strings.TrimSpace(v) }
+	byHost, err := s.mcpMachineEnvironments(ctx, api, access, origin)
+	if err != nil {
+		return nil, err
+	}
+	confirm := args["confirm"] == true
+	if name == "reet_merge_machines" {
+		from, to := str("from"), str("to")
+		if _, ok := byHost[from]; !ok {
+			return nil, errors.New("Both hosts must exist. Use reet_list_environments to find exact host names.")
+		}
+		if _, ok := byHost[to]; !ok {
+			return nil, errors.New("Both hosts must exist. Use reet_list_environments to find exact host names.")
+		}
+		if from == to {
+			return nil, errors.New("from and to must be different hosts.")
+		}
+		if !confirm {
+			return map[string]any{"dry_run": true, "from": from, "to": to, "applied": false}, nil
+		}
+		if _, err = s.mcpDo(ctx, api, access, origin, "POST", "/api/v2/machines/merge", url.Values{}, map[string]any{"from": from, "to": to}); err != nil {
+			return nil, err
+		}
+		s.event(access.User.ID, "mcp", "mcp-call", "", map[string]any{"connection": access.Connection.Name, "tool": name})
+		return map[string]any{"dry_run": false, "from": from, "to": to, "applied": true}, nil
+	}
+	host := str("host")
+	envs, ok := byHost[host]
+	if !ok {
+		return nil, errors.New("No environments for that host. Use reet_list_environments to find its exact host name.")
+	}
+	skillCount := 0
+	for _, env := range envs {
+		skillCount += env["skillCount"].(int)
+	}
+	result := map[string]any{"dry_run": !confirm, "host": host, "environments": envs, "skillCount": skillCount, "applied": false}
+	if !confirm {
+		return result, nil
+	}
+	if skillCount > 0 && args["force"] != true {
+		return nil, fmt.Errorf("That machine still lists %d skills. Pass force=true to forget it anyway.", skillCount)
+	}
+	if _, err = s.mcpDo(ctx, api, access, origin, "DELETE", "/api/v2/machines", url.Values{"host": {host}}, nil); err != nil {
+		return nil, err
+	}
+	s.event(access.User.ID, "mcp", "mcp-call", "", map[string]any{"connection": access.Connection.Name, "tool": name})
+	result["applied"] = true
+	return result, nil
+}
+
 func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAccess, origin, name string, args map[string]any) (map[string]any, error) {
+	if name == "reet_forget_machine" || name == "reet_merge_machines" {
+		return s.executeMCPMachines(ctx, api, access, origin, name, args)
+	}
 	str := func(key string) string { v, _ := args[key].(string); return v }
 	method, path := "GET", ""
 	query := url.Values{}
@@ -270,6 +398,9 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 	case "reet_add_list_skill":
 		method, path = "POST", listPath+"/skills"
 		delete(body, "list_id")
+		if (str("id") == "") == (str("input") == "") {
+			return nil, errors.New("Supply exactly one of id (a skill already on the shelf) or input (an owner/repo/skill reference or skills.sh URL).")
+		}
 	case "reet_add_list_skills":
 		method, path = "POST", listPath+"/skills/bulk"
 		delete(body, "list_id")
@@ -306,47 +437,9 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 	default:
 		return nil, errors.New("unknown tool")
 	}
-	if !mcpAPIPath(method, path) || (method != "GET" && !access.canWrite()) {
-		return nil, errors.New("this MCP connection is read-only")
-	}
-	raw, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(context.WithValue(ctx, userContextKey{}, access.User), method, origin+path+"?"+query.Encode(), bytes.NewReader(raw))
+	w, err := s.mcpDo(ctx, api, access, origin, method, path, query, body)
 	if err != nil {
 		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Reet-Source", "mcp")
-	if access.Connection.Name != "" {
-		req.Header.Set("X-Reet-Client", access.Connection.Name)
-	}
-	w := &mcpBuffer{header: make(http.Header)}
-	api.ServeHTTP(w, req)
-	if w.err != nil {
-		return nil, w.err
-	}
-	if w.status >= 400 {
-		var detail struct {
-			Code, Field, Message, Hint, Error string
-		}
-		_ = json.Unmarshal(w.body.Bytes(), &detail)
-		if detail.Code != "" {
-			text := fmt.Sprintf("reet.sh returned HTTP %d [%s]", w.status, detail.Code)
-			if detail.Field != "" {
-				text += " field=" + detail.Field
-			}
-			msg := detail.Message
-			if msg == "" {
-				msg = detail.Error
-			}
-			if msg != "" {
-				text += ": " + msg
-			}
-			if detail.Hint != "" {
-				text += ". " + detail.Hint
-			}
-			return nil, errors.New(text)
-		}
-		return nil, fmt.Errorf("reet.sh returned HTTP %d; check resource IDs, account role and list permissions", w.status)
 	}
 	if method != "GET" {
 		s.event(access.User.ID, "mcp", "mcp-call", "", map[string]any{"connection": access.Connection.Name, "tool": name})

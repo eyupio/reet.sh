@@ -14,7 +14,7 @@ import (
 // Run implements the standalone setup command. No server credentials are needed.
 func Run(args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n       reet setup backup --preview [--json] [--project PATH]\n       reet setup backup --password-file FILE [--dir DIR] [--json] [--project PATH] [--probe-versions] [--inspect-installation]\n       reet setup list [--json] [--dir DIR]\n       reet setup inspect [--json] [--dir DIR] [--password-file FILE] SNAPSHOT\n       reet setup restore [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--apply] [--on-conflict skip|replace] [--conflict PATH=skip|replace]... SNAPSHOT\n       reet setup verify [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] SNAPSHOT\n       reet setup rollback --journal FILE [--json] [--dir DIR] [--password-file FILE] [--project PATH] SNAPSHOT\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\n--preview shows the policy-driven selection without writing an archive.\nWithout --preview, write a passphrase-encrypted local setup snapshot.\nlist and inspect read clear headers; inspect opens the payload only with a passphrase.\nrestore previews a mapped plan; --apply creates or replaces conflicts when chosen, with optional per-path choices.\nverify compares the selected fields in the destination without repairing them.\nrollback reverses a completed create/replace journal after checking it against the snapshot.")
+		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n       reet setup backup --preview [--json] [--project PATH]\n       reet setup backup --password-file FILE [--dir DIR] [--json] [--project PATH] [--probe-versions] [--inspect-installation] [--include-credentials]\n       reet setup list [--json] [--dir DIR]\n       reet setup inspect [--json] [--dir DIR] [--password-file FILE] SNAPSHOT\n       reet setup restore [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--apply] [--on-conflict skip|replace] [--conflict PATH=skip|replace]... SNAPSHOT\n       reet setup verify [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] SNAPSHOT\n       reet setup rollback --journal FILE [--json] [--dir DIR] [--password-file FILE] [--project PATH] SNAPSHOT\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\n--preview shows the policy-driven selection without writing an archive.\nWithout --preview, write a passphrase-encrypted local setup snapshot.\nlist and inspect read clear headers; inspect opens the payload only with a passphrase.\nrestore previews a mapped plan; --apply creates or replaces conflicts when chosen, with optional per-path choices.\nverify compares the selected fields in the destination without repairing them.\nrollback reverses a completed create/replace journal after checking it against the snapshot.")
 		return err
 	}
 	switch args[0] {
@@ -97,6 +97,7 @@ func runBackup(args []string, out io.Writer) error {
 	project := f.String("project", "", "also consider known locations in this project (no recursive search)")
 	probeVersions := f.Bool("probe-versions", false, "record application --version reports; timeout 3s each, output bounded")
 	inspectInstallation := f.Bool("inspect-installation", false, "record bounded local Node package evidence")
+	includeCredentials := f.Bool("include-credentials", false, "include literal credential values inside the encrypted snapshot; explicit opt-in")
 	if err := f.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -108,6 +109,9 @@ func runBackup(args []string, out io.Writer) error {
 	}
 	passphrase := ""
 	var err error
+	if *includeCredentials && *preview {
+		return fmt.Errorf("--include-credentials only applies when writing a snapshot; preview never contains credential values")
+	}
 	if !*preview {
 		passphrase, err = readSetupPassphrase(*passwordFile)
 		if err != nil {
@@ -134,7 +138,7 @@ func runBackup(args []string, out io.Writer) error {
 			return err
 		}
 	}
-	selection, err := BuildSnapshotSelection(r)
+	selection, err := BuildSnapshotSelectionWithOptions(r, SnapshotBuildOptions{IncludeCredentials: *includeCredentials})
 	if err != nil {
 		return err
 	}
@@ -573,6 +577,11 @@ func renderSnapshotWrite(out io.Writer, result SetupWriteResult) error {
 	}
 	if _, err := fmt.Fprintf(out, "Selected %d components; %d omissions recorded; %d agents with software evidence.\n", result.Components, result.Omissions, len(result.Software)); err != nil {
 		return err
+	}
+	if result.CredentialsIncluded {
+		if _, err := fmt.Fprintln(out, "Literal credential values were included inside the encrypted payload."); err != nil {
+			return err
+		}
 	}
 	_, err := fmt.Fprintln(out, "It is passphrase-encrypted on this machine. Setup restore is not implemented.")
 	return err

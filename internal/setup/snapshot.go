@@ -17,15 +17,16 @@ const snapshotPreviewSchemaVersion = 1
 // SnapshotPreview describes a policy-driven selection without writing an
 // archive. It contains names and counts only, never selected values.
 type SnapshotPreview struct {
-	SchemaVersion int                 `json:"schema_version"`
-	PolicyVersion int                 `json:"policy_version"`
-	CapturedAt    time.Time           `json:"captured_at"`
-	OS            string              `json:"os"`
-	Architecture  string              `json:"architecture"`
-	Project       string              `json:"project,omitempty"`
-	Agents        []SnapshotAgent     `json:"agents"`
-	Classes       []ClassExportPolicy `json:"classes"`
-	Limitations   []string            `json:"limitations"`
+	SchemaVersion       int                 `json:"schema_version"`
+	PolicyVersion       int                 `json:"policy_version"`
+	CapturedAt          time.Time           `json:"captured_at"`
+	OS                  string              `json:"os"`
+	Architecture        string              `json:"architecture"`
+	Project             string              `json:"project,omitempty"`
+	Agents              []SnapshotAgent     `json:"agents"`
+	Classes             []ClassExportPolicy `json:"classes"`
+	CredentialsIncluded bool                `json:"credentials_included,omitempty"`
+	Limitations         []string            `json:"limitations"`
 }
 
 type SnapshotAgent struct {
@@ -63,9 +64,15 @@ type SnapshotOmission struct {
 // SnapshotSelection keeps the selected content in memory for a future archive
 // writer. It is deliberately not serialised by the preview command.
 type SnapshotSelection struct {
-	Preview  SnapshotPreview
-	sources  []selectedSnapshotSource
-	software []SetupSoftware
+	Preview             SnapshotPreview
+	sources             []selectedSnapshotSource
+	software            []SetupSoftware
+	credentialsIncluded bool
+}
+
+// SnapshotBuildOptions controls explicit snapshot selections.
+type SnapshotBuildOptions struct {
+	IncludeCredentials bool
 }
 
 type selectedSnapshotSource struct {
@@ -78,6 +85,12 @@ type selectedSnapshotSource struct {
 // BuildSnapshotSelection applies the declared export policies to supported
 // sources. It reads bounded known files but returns no values in the preview.
 func BuildSnapshotSelection(r Report) (SnapshotSelection, error) {
+	return BuildSnapshotSelectionWithOptions(r, SnapshotBuildOptions{})
+}
+
+// BuildSnapshotSelectionWithOptions allows literal credential values to be
+// selected explicitly. The preview still contains names and counts only.
+func BuildSnapshotSelectionWithOptions(r Report, opts SnapshotBuildOptions) (SnapshotSelection, error) {
 	cp := r
 	cp.Agents = append([]Agent(nil), r.Agents...)
 	ApplyExportPolicies(&cp)
@@ -97,13 +110,14 @@ func BuildSnapshotSelection(r Report) (SnapshotSelection, error) {
 			"This is a preview, not a backup: archive writing, encryption, key management, restore and cross-OS translation are not implemented.",
 		},
 	}
-	selection := SnapshotSelection{Preview: preview, software: snapshotSoftware(cp.Agents)}
+	preview.CredentialsIncluded = opts.IncludeCredentials
+	selection := SnapshotSelection{Preview: preview, software: snapshotSoftware(cp.Agents), credentialsIncluded: opts.IncludeCredentials}
 	for i := range cp.Agents {
 		a := &cp.Agents[i]
 		sa := SnapshotAgent{ID: a.ID, Name: a.Name, State: a.State, Components: []SnapshotComponent{}, Omitted: []SnapshotOmission{}}
 		if a.ExportPolicy != nil {
 			for _, source := range a.ExportPolicy.Sources {
-				addSourceSelection(&sa, &selection, a.ID, source)
+				addSourceSelection(&sa, &selection, a.ID, source, opts)
 			}
 		}
 		preview.Agents = append(preview.Agents, sa)
@@ -112,7 +126,7 @@ func BuildSnapshotSelection(r Report) (SnapshotSelection, error) {
 	return selection, nil
 }
 
-func addSourceSelection(agent *SnapshotAgent, selection *SnapshotSelection, agentID string, source SourceExportPolicy) {
+func addSourceSelection(agent *SnapshotAgent, selection *SnapshotSelection, agentID string, source SourceExportPolicy, opts SnapshotBuildOptions) {
 	if source.Observed != "present" {
 		agent.Omitted = append(agent.Omitted, SnapshotOmission{Kind: "source", Source: source.Path, Reason: "source_" + source.Observed})
 		return
@@ -146,7 +160,7 @@ func addSourceSelection(agent *SnapshotAgent, selection *SnapshotSelection, agen
 	for _, component := range source.Components {
 		switch component.Selection {
 		case "include":
-			addIncludedComponent(agent, selection, source, component, object)
+			addIncludedComponent(agent, selection, source, component, object, opts)
 		case "opt_in":
 			agent.Omitted = append(agent.Omitted, SnapshotOmission{Kind: component.Kind, Source: source.Path, Reason: "source_opt_in", Count: 1})
 		case "unsupported":
@@ -201,7 +215,7 @@ func textDigest(text string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func addIncludedComponent(agent *SnapshotAgent, selection *SnapshotSelection, source SourceExportPolicy, component ComponentExportPolicy, object map[string]any) {
+func addIncludedComponent(agent *SnapshotAgent, selection *SnapshotSelection, source SourceExportPolicy, component ComponentExportPolicy, object map[string]any, opts SnapshotBuildOptions) {
 	preview := SnapshotComponent{
 		Kind: component.Kind, Source: source.Path, Scope: source.Scope, Format: source.Format,
 		Observed: source.Observed, Selection: component.Selection,
@@ -210,10 +224,10 @@ func addIncludedComponent(agent *SnapshotAgent, selection *SnapshotSelection, so
 	var stats snapshotFieldStats
 	switch component.Kind {
 	case "settings":
-		content, stats = selectSettingsContent(object, component)
+		content, stats = selectSettingsContent(object, component, opts.IncludeCredentials)
 	case "mcp":
 		var mcp snapshotMCPSelection
-		mcp = selectMCPContent(object, component, agent.ID)
+		mcp = selectMCPContent(object, component, agent.ID, opts.IncludeCredentials)
 		content, stats, preview.Declarations, preview.SelectedDeclarations = mcp.content, mcp.stats, mcp.declarations, mcp.selected
 		if !mcp.valid {
 			agent.Omitted = append(agent.Omitted, SnapshotOmission{Kind: component.Kind, Source: source.Path, Reason: "invalid_mcp_declarations", Count: 1})
@@ -270,7 +284,7 @@ func appendUnique(values []string, value string) []string {
 	return append(values, value)
 }
 
-func selectSettingsContent(object map[string]any, policy ComponentExportPolicy) (map[string]any, snapshotFieldStats) {
+func selectSettingsContent(object map[string]any, policy ComponentExportPolicy, includeCredentials bool) (map[string]any, snapshotFieldStats) {
 	selected := map[string]any{}
 	stats := snapshotFieldStats{}
 	known := map[string]bool{}
@@ -284,7 +298,7 @@ func selectSettingsContent(object map[string]any, policy ComponentExportPolicy) 
 			continue
 		}
 		stats.add(field.State, field.Path)
-		if field.State == "include" || field.State == "reference_only" {
+		if field.State == "include" || field.State == "reference_only" || field.State == "encrypted_only" && includeCredentials {
 			selected[field.Path] = value
 		}
 	}
@@ -304,7 +318,7 @@ type snapshotMCPSelection struct {
 	valid                  bool
 }
 
-func selectMCPContent(object map[string]any, policy ComponentExportPolicy, agent string) snapshotMCPSelection {
+func selectMCPContent(object map[string]any, policy ComponentExportPolicy, agent string, includeCredentials bool) snapshotMCPSelection {
 	container := mcpContainer(agent)
 	result := snapshotMCPSelection{content: map[string]any{}, valid: true}
 	raw, exists := object[container]
@@ -337,7 +351,7 @@ func selectMCPContent(object map[string]any, policy ComponentExportPolicy, agent
 				continue
 			}
 			result.stats.add(state, field)
-			if state == "include" || state == "reference_only" {
+			if state == "include" || state == "reference_only" || state == "encrypted_only" && includeCredentials {
 				selected[field] = value
 			}
 		}

@@ -225,7 +225,9 @@ hooks and caches. It reads no configuration values and implements no export.
 - Add immutable manifest/content storage, local key/passphrase management,
   selection previews, optional portable credentials and optional history.
   An opt-in preview now applies the S1 policies in memory and reports selected
-  fields, omissions and per-component digests without writing any archive. A first
+  fields, omissions and per-component digests without writing any archive.
+  Encrypted writing now supports explicit `--include-credentials` literal values;
+  OS keychains/device-bound stores and optional history remain later work. A first
   writing slice seals that selection into a passphrase-encrypted local snapshot and
   verifies it before and after the atomic private write. A listing/inspection slice
   reads clear headers without a passphrase and opens the encrypted preview only on

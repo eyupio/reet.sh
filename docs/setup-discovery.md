@@ -223,9 +223,10 @@ Discovered global and project instruction files (`CLAUDE.md`, `AGENTS.md`,
 encrypted payload, can be restored or verified, and are never printed by preview, list
 or inspect. Shared project `AGENTS.md` may be used by more than one agent, so restore it
 deliberately. Other or unlisted instruction locations are not inventoried. These classes make the other gaps explicit rather than implying that
-memory, history, hooks or portable credentials can already be exported. `history` is
-an intended opt-in; `credentials` means reference names only, and device-bound
-keychains or sessions still require fresh authentication. No class policy is a claim
+memory, history or hooks can already be exported. `history` is an intended opt-in;
+`credentials` covers preserved references plus explicit literal values when
+`--include-credentials` is chosen. Device-bound keychains or sessions still require
+fresh authentication. No class policy is a claim
 that its adapter or restore path exists.
 
 Policy paths and field names may identify private projects, services or settings,
@@ -305,9 +306,17 @@ Software evidence deliberately omits executable and metadata paths, and it is no
 authenticated provenance.
 
 Credential-bearing values, opt-in sources, memory, history, hooks and caches remain
-excluded. The snapshot is not a complete AI setup: S3 delivery, dependency/version
-resolution, cross-OS translation and runtime health verification remain
-unimplemented. `--preview` remains read-only.
+excluded by default. The snapshot is not a complete AI setup: S3 delivery,
+dependency/version resolution, cross-OS translation and runtime health verification
+remain unimplemented. `--preview` remains read-only.
+
+`--include-credentials` explicitly includes literal values from the policy's
+`encrypted_only` fields in the encrypted payload. It is rejected with `--preview`
+because preview never contains credential values. OS keychains, device-bound sessions
+and unlisted credential stores remain excluded and require fresh authentication after a
+restore. The writer still emits no values; `inspect`, `verify`, restore results and
+journals contain names, counts and digests only. Treat the passphrase and rollback copies
+as sensitive.
 
 ## Listing and inspecting local snapshots (S2c)
 

@@ -46,6 +46,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Run required checks and record results below.
 - [x] Verify PR #47's final CI and published dev artifact.
 - [x] Implement explicit component export policies and document their limits.
+- [x] Implement policy-driven backup preview without writing an archive.
 
 ## Implemented slice
 
@@ -98,9 +99,17 @@ paths can be enabled. Current slices do not meet the complete S1 acceptance gate
 Do not copy configuration trees generically: they may mix secrets, history, caches
 and hooks. No setup backup/restore command is implemented yet.
 
-Next implementation slice: apply these policies to a bounded local snapshot manifest
-(S2), keeping values inside an encrypted payload and preserving the explicit
-omissions report. Do not start with restore execution or claim cross-OS recovery.
+S2a now applies those policies in memory through
+`reet setup backup --preview [--json] [--project PATH]`. It reports included,
+credential-only, reference and excluded field names, MCP declaration counts, unknown
+fields, per-component digests and fixed omission reasons. Opt-in sources are not
+read; selected values never appear in the preview; nothing is written. `reet setup
+backup` without `--preview` returns an explicit not-implemented error.
+
+Next implementation slice: create an encrypted local snapshot from the selected
+content, with user-held key/passphrase handling, atomic private writes, verification,
+listing/inspection and an omissions report. Keep values inside the encrypted payload.
+Do not start with restore execution or claim cross-OS recovery.
 
 ## Validation and continuation
 
@@ -268,6 +277,33 @@ in JSON/text. Full `go vet ./...` and `go test -race ./...` passed. Web checks p
 smoke scan verified default schema v1, opt-in policy output and no secret leakage.
 `git diff --check` passed. No dependency changed.
 
+## Policy-driven backup preview
+
+The current stage on `feat/setup-snapshot-manifest` adds
+`reet setup backup --preview [--json] [--project PATH]`. It applies the declared
+policies to bounded known sources and reports included, credential-only, reference
+and excluded field names, MCP declaration counts, unknown-field counts,
+per-component SHA-256 digests and fixed omission reasons. Selected values stay in
+unexported in-memory content only; the preview never prints them and writes nothing.
+Opt-in sources such as `settings.local.json` are not read. Credential-bearing fields
+are counted but not selected, references retain names without resolution, and
+unsupported classes remain explicit. `reet setup backup` without `--preview` returns
+an explicit not-implemented error.
+
+Preview validation: focused setup tests cover policy application, settings/MCP field
+selection, omitted credentials and unknown fields, opt-in sources not being read,
+symlinked and oversized sources, invalid MCP declarations, stable preview identity,
+CLI preview-only behaviour, no writes and secret absence in JSON/text. Full
+`go vet ./...` and `go test -race ./...` passed. Web checks passed (8 tests; zero
+Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary smoke test verified
+preview output, secret absence and refusal of backup writing; setup tests cross-compile
+for Windows amd64 and macOS arm64. `git diff --check` passed. No dependency changed.
+
+This is still not a backup: encryption, key/passphrase handling, archive writing,
+listing/inspection, S3 delivery, restore planning/execution/verification and
+cross-OS translation are not implemented. Digests cover selected component content,
+not complete files or provenance.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -279,10 +315,11 @@ smoke scan verified default schema v1, opt-in policy output and no secret leakag
    review quota was exhausted. This is not a completed review or a validated code
    finding. Inspect actual review threads and perform code review independently;
    do not claim automated approval.
-4. Explicit component export policies are now declared. The next small slice is
-   policy-driven bounded snapshot manifest/content collection (S2), with values only
-   inside an encrypted payload and an explicit omissions report. Keep unknown formats
-   unsupported, avoid generic recursive copying, and do not enable restore execution
+4. Explicit component export policies and the policy-driven backup preview are now
+   implemented. The next small slice is encrypted local snapshot writing from the
+   selected content, with user-held key/passphrase handling, atomic private writes,
+   verification, listing/inspection and an omissions report. Keep values inside the
+   encrypted payload and unknown formats unsupported. Do not enable restore execution
    or cross-OS claims before their acceptance gates. Consult the detailed plan for
    encryption, key handling, restore and compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,

@@ -205,6 +205,7 @@ func settingsExportPolicy(agent, base string) ComponentExportPolicy {
 				{"defaultModel", "include"},
 				{"permissions", "include"},
 				{"env", "encrypted_only"},
+				{"hooks", "exclude"},
 				{"projects", "exclude"},
 				{"oauthAccount", "exclude"},
 				{"userID", "exclude"},

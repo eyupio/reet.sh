@@ -256,6 +256,7 @@ reet setup scan --components --json
 reet setup scan --export-policy --json
 reet setup scan --probe-versions --json
 reet setup scan --inspect-installation --json
+reet setup backup --preview --json
 ```
 
 The default checks path metadata and executable availability only. Opt into
@@ -271,9 +272,12 @@ file. It runs no commands; a match is local evidence, not authenticated provenan
 or proof of which package manager was used. `--export-policy` declares the
 selection rules for configuration sources, settings fields, MCP declarations,
 credential references and excluded classes in a future encrypted snapshot. It reads
-no configuration contents and is a policy declaration, not an export. No reports
-are uploaded. Setup backup and restore are **not implemented**. Existing instance
-and shelf backups below remain separate.
+no configuration contents and is a policy declaration, not an export.
+`reet setup backup --preview` applies those policies in memory and reports included,
+encrypted-only, reference and excluded fields, MCP declaration counts, unknown fields
+and omissions without printing values or writing an archive. No reports are uploaded.
+Setup backup writing and restore are **not implemented**. Existing instance and shelf
+backups below remain separate.
 See [setup discovery and limits](docs/setup-discovery.md), the
 [implementation plan](docs/agent-setup-plan.md) and [handoff](handoff.md).
 

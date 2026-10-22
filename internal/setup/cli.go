@@ -14,12 +14,20 @@ import (
 // Run implements the standalone setup command. No server credentials are needed.
 func Run(args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\nSetup backup and restore are not yet available.")
+		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n       reet setup backup --preview [--json] [--project PATH]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\n--preview shows the policy-driven selection without writing an archive.\nSetup backup writing and restore are not yet available.")
 		return err
 	}
-	if args[0] != "scan" {
+	switch args[0] {
+	case "scan":
+		return runScan(args[1:], out)
+	case "backup":
+		return runBackup(args[1:], out)
+	default:
 		return fmt.Errorf("unknown setup command %q; use reet setup --help", args[0])
 	}
+}
+
+func runScan(args []string, out io.Writer) error {
 	f := flag.NewFlagSet("reet setup scan", flag.ContinueOnError)
 	f.SetOutput(out)
 	asJSON := f.Bool("json", false, "write a versioned JSON inventory")
@@ -28,7 +36,7 @@ func Run(args []string, out io.Writer) error {
 	installation := f.Bool("inspect-installation", false, "read bounded local Node package metadata associated with executables")
 	versions := f.Bool("probe-versions", false, "invoke discovered executables with --version; timeout 3s each, output bounded")
 	exportPolicy := f.Bool("export-policy", false, "declare component and field selection for future encrypted snapshots; reads no configuration values")
-	if err := f.Parse(args[1:]); err != nil {
+	if err := f.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
@@ -37,15 +45,13 @@ func Run(args []string, out io.Writer) error {
 	if f.NArg() != 0 {
 		return fmt.Errorf("unexpected setup scan arguments")
 	}
-	home, err := os.UserHomeDir()
+	home, err := setupHome()
 	if err != nil {
-		return fmt.Errorf("find home directory: %w", err)
+		return err
 	}
-	if *project != "" {
-		*project, err = filepath.Abs(*project)
-		if err != nil {
-			return fmt.Errorf("resolve project directory: %w", err)
-		}
+	*project, err = setupProject(*project)
+	if err != nil {
+		return err
 	}
 	r, err := Discover(home, *project)
 	if err != nil {
@@ -66,11 +72,74 @@ func Run(args []string, out io.Writer) error {
 		}
 	}
 	if *asJSON {
-		encoder := json.NewEncoder(out)
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(r)
+		return writeJSON(out, r)
 	}
 	return render(out, r)
+}
+
+func runBackup(args []string, out io.Writer) error {
+	f := flag.NewFlagSet("reet setup backup", flag.ContinueOnError)
+	f.SetOutput(out)
+	asJSON := f.Bool("json", false, "write a versioned JSON preview")
+	preview := f.Bool("preview", false, "show policy-driven selection without writing an archive")
+	project := f.String("project", "", "also consider known locations in this project (no recursive search)")
+	if err := f.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if f.NArg() != 0 {
+		return fmt.Errorf("unexpected setup backup arguments")
+	}
+	if !*preview {
+		return fmt.Errorf("setup backup writing is not implemented; use --preview")
+	}
+	home, err := setupHome()
+	if err != nil {
+		return err
+	}
+	*project, err = setupProject(*project)
+	if err != nil {
+		return err
+	}
+	r, err := Discover(home, *project)
+	if err != nil {
+		return err
+	}
+	selection, err := BuildSnapshotSelection(r)
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		return writeJSON(out, selection.Preview)
+	}
+	return renderSnapshotPreview(out, selection.Preview)
+}
+
+func setupHome() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("find home directory: %w", err)
+	}
+	return home, nil
+}
+
+func setupProject(project string) (string, error) {
+	if project == "" {
+		return "", nil
+	}
+	resolved, err := filepath.Abs(project)
+	if err != nil {
+		return "", fmt.Errorf("resolve project directory: %w", err)
+	}
+	return resolved, nil
+}
+
+func writeJSON(out io.Writer, value any) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(value)
 }
 
 func render(out io.Writer, r Report) error {

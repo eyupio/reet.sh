@@ -232,6 +232,37 @@ configuration export, a backup manifest or evidence that restoration is supporte
 See the [implementation plan](agent-setup-plan.md) for the snapshot, encryption and
 restore acceptance gates.
 
+## Backup preview (S2a)
+
+```sh
+reet setup backup --preview
+reet setup backup --preview --json
+reet setup backup --preview --project /path/to/project
+```
+
+`--preview` applies the export policies to the discovered sources and reports the
+selection without writing an archive. It emits schema v1 with a policy version,
+captured OS/architecture, per-agent selected components, included field names,
+credential-bearing field names, preserved reference names, excluded field names,
+unknown-field counts, MCP declaration counts and a SHA-256 digest of each selected
+component. It also lists omissions with fixed reasons such as `source_opt_in`,
+`source_symlink`, `file_too_large`, `credentials_not_selected`,
+`excluded_by_policy`, `unlisted_fields`, `declarations_without_selected_fields` and
+`invalid_mcp_declarations`.
+
+The preview reads only present, regular, supported files and keeps selected values
+in memory. It never prints selected values. Opt-in sources such as
+`settings.local.json` are not read. Credential-bearing fields are counted but not
+selected; reference names are kept without resolving their values. Component
+classes not yet implemented are listed with their policy, not collected.
+
+This is not a backup or a manifest. Writing snapshots, encryption, key/passphrase
+management, S3 delivery, restore planning, execution, verification and cross-OS
+translation remain unimplemented. Digests cover selected component content only;
+they are not file digests, repository provenance or proof that a setup can be
+restored. Run `reet setup backup --preview` before `reet setup backup` writes
+anything; writing still returns an explicit not-implemented error.
+
 ## Opt-in application version probes
 
 ```sh

@@ -33,9 +33,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Shared sealed archive primitive merged in [PR #52](https://github.com/eyupio/reet.sh/pull/52), `2e9cfb6`.
 - Encrypted local setup snapshot writing merged in [PR #53](https://github.com/eyupio/reet.sh/pull/53), `fd9cdf5`.
 - Snapshot listing/inspection merged in [PR #54](https://github.com/eyupio/reet.sh/pull/54), `cf10a02`.
-- Latest verified source baseline: `origin/main` at `cf10a02` (2026-10-22).
-- Restore planning is in [PR #55](https://github.com/eyupio/reet.sh/pull/55) on
-  `feat/setup-restore-plan`; fetch remote status before continuing and preserve any
+- Restore planning merged in [PR #55](https://github.com/eyupio/reet.sh/pull/55), `36cead3`.
+- Latest verified source baseline: `origin/main` at `36cead3` (2026-10-22).
+- Create-only restore apply is in [PR #56](https://github.com/eyupio/reet.sh/pull/56) on
+  `feat/setup-restore-apply`; fetch remote status before continuing and preserve any
   uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
@@ -56,6 +57,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Write and verify encrypted local setup snapshots from the policy selection.
 - [x] List clear snapshot headers and inspect payload summaries with a passphrase.
 - [x] Preview a destination restore plan with conflicts and unsupported items.
+- [x] Apply create-only plans with verification, a journal and rollback of that run.
 
 ## Implemented slice
 
@@ -134,16 +136,23 @@ reads clear headers only and never needs a passphrase; inspection shows the head
 then opens and verifies the encrypted preview and source summaries only when a
 passphrase is supplied. Neither prints selected values.
 
-S3 now adds `reet setup restore [--json] [--dir DIR] [--password-file FILE]
-[--project PATH] SNAPSHOT`. It opens and verifies the snapshot, discovers the
-destination metadata-only, maps global sources by agent/scope/name, requires
-`--project` for project sources, and reports `create`, `conflict` or `blocked` per
-destination file plus unsupported/omitted items. It writes nothing, produces a stable
-plan fingerprint and refuses `--apply`.
+S3 restore planning opens and verifies a snapshot, discovers the destination
+metadata-only, maps global sources by agent/scope/name, requires `--project` for
+project sources, and reports `create`, `conflict` or `blocked` per destination file
+plus unsupported/omitted items. It produces a stable plan fingerprint and writes
+nothing without `--apply`.
 
-Next implementation slice: add explicit per-conflict choices and a confirmed local
-apply path with journalled writes and rollback copies. Do not claim cross-OS restore or
-working-setup verification before their acceptance gates.
+S4a now adds `reet setup restore --apply`. It writes only when every action is
+`create`; any conflict or blocked action refuses the whole run before writing. New
+settings/MCP files are written atomically with mode 0600, rechecked, parsed again and
+compared with the selected content. A value-free journal records destinations and
+states, and files created by a failed run are removed. Per-conflict choices,
+replacement/merge, rollback copies, a rollback command, installers, authentication and
+runtime verification remain unimplemented.
+
+Next implementation slice: add explicit per-conflict skip/replace choices and rollback
+copies, then a verify command and health guidance. Do not claim cross-OS restore or a
+complete working-setup restore before their acceptance gates.
 
 ## Validation and continuation
 
@@ -407,9 +416,10 @@ passed. A compiled-binary smoke test verified backup, list, locked inspection an
 opened inspection without value leakage. `git diff --check` passed. No dependency
 changed.
 
-Restore planning/execution/verification, S3 delivery, dependency resolution and
-cross-OS translation remain unimplemented. Listing or inspection success is not proof
-of a complete or restorable setup.
+Restore execution was added after this slice; conflict choices, rollback copies,
+runtime verification, S3 delivery, dependency resolution and cross-OS translation
+remain unimplemented. Listing or inspection success is not proof of a complete or
+restorable setup.
 
 ## Restore planning
 
@@ -421,22 +431,49 @@ name and maps project sources only with `--project`. Each destination file is
 destination locations and project sources without a project are unsupported rather
 than guessed. Omitted policy records and unsupported classes remain listed, and a
 stable SHA-256 fingerprint covers snapshot identity, destination facts, actions and
-unsupported entries. No values are printed and nothing is written. `--apply` is
-refused.
+unsupported entries. No values are printed and nothing is written; create-only apply
+is the next slice.
 
 Validation: focused setup tests cover source mapping, create/conflict/blocked states,
 symlinked destinations, project opt-in, unsupported/omitted reporting, stable and
-changed fingerprints, CLI JSON/text output, missing/wrong passphrases, `--apply`
-refusal and secret absence. Full `go vet ./...` and `go test -race ./...` passed. Web
+changed fingerprints, CLI JSON/text output, missing/wrong passphrases, plan-only
+behaviour and secret absence. Full `go vet ./...` and `go test -race ./...` passed. Web
 checks passed (8 tests; zero Svelte diagnostics) and all 16 MCP tests passed. A
-compiled-binary smoke test verified create and conflict plans, a stable fingerprint,
-destination non-mutation and `--apply` refusal; setup tests cross-compile for Windows
-amd64 and macOS arm64. `git diff --check` passed. No
+compiled-binary smoke test verified create and conflict plans, a stable fingerprint
+and destination non-mutation; setup tests cross-compile for Windows amd64 and macOS
+arm64. `git diff --check` passed. No
 dependency changed.
 
 Restore execution, per-conflict choices, rollback copies, dependency/version
 resolution, installers, hooks, authentication and post-restore verification remain
 unimplemented. A plan is not proof that a working setup can be restored.
+
+## Create-only restore apply
+
+The current stage on `feat/setup-restore-apply` enables `reet setup restore --apply`.
+It creates only new files: the whole run is refused before writing if any action is
+`conflict` or `blocked`. Destinations and their immediate parents are rechecked, and
+a changed destination invalidates the plan. Settings and MCP content is written as a
+new JSON, JSONC or TOML file with mode 0600; missing parent directories use mode 0700.
+Each file is parsed again and compared with the selected content, and a mismatch
+removes it. A journal under the snapshot directory records destinations, states and
+errors, never selected values; files created by a failed run are removed in reverse
+order.
+
+Validation: focused setup tests cover create-only apply, settings/MCP round trips,
+TOML output, verification and permission checks, conflict refusal, destination change
+invalidation, injected mid-run failure with rollback and journal states, CLI JSON/text
+output and secret absence. Full `go vet ./...` and `go test -race ./...` passed. Web
+checks passed (8 tests; zero Svelte diagnostics) and all 16 MCP tests passed. A
+compiled-binary smoke test verified create-only apply, mode-0600 output, clean JSON and
+journal output, conflict refusal and destination non-mutation; setup tests cross-compile
+for Windows amd64 and macOS arm64. `git diff --check` passed. No
+dependency changed.
+
+Per-conflict choices, replacement/merge, rollback copies, a rollback command,
+installers, hooks, package managers, authentication, dependency/version resolution,
+cross-OS translation and post-restore health verification remain unimplemented. This
+is not the complete backup/restore milestone.
 
 ## Resume checklist (2026-10-22)
 
@@ -450,10 +487,10 @@ unimplemented. A plan is not proof that a working setup can be restored.
    finding. Inspect actual review threads and perform code review independently;
    do not claim automated approval.
 4. Explicit component export policies, the policy-driven preview, the shared sealed
-   archive, encrypted local setup snapshot writing, listing/inspection and read-only
-   restore planning are now implemented. The next small slice is explicit
-   per-conflict choices and a confirmed local apply path with journalled writes and
-   rollback copies. Keep values encrypted and unknown formats unsupported. Do not
+   archive, encrypted local setup snapshot writing, listing/inspection, read-only
+   restore planning and create-only apply are now implemented. The next small slice is
+   explicit per-conflict skip/replace choices and rollback copies, then verification
+   and health guidance. Keep values encrypted and unknown formats unsupported. Do not
    claim cross-OS restore or working-setup verification before their acceptance gates.
    Consult the detailed plan for encryption, key handling, restore and compatibility
    requirements.
@@ -464,8 +501,9 @@ unimplemented. A plan is not proof that a working setup can be restored.
    should use clickable options with a recommendation when the UI supports them.
 
 Important boundaries: no complete AI setup backup/restore has shipped. Setup backup
-now writes a partial encrypted local snapshot and can list, inspect and plan it, but
-restore execution and verified cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
+now writes a partial encrypted local snapshot and can list, inspect, plan and create
+new supported files, but conflict resolution, runtime verification and cross-OS
+recovery are not implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
 manage that server. No production host was upgraded by this session. Do not copy

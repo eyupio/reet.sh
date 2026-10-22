@@ -254,12 +254,7 @@ type snapshotMCPSelection struct {
 }
 
 func selectMCPContent(object map[string]any, policy ComponentExportPolicy, agent string) snapshotMCPSelection {
-	container := "mcpServers"
-	if agent == "codex" {
-		container = "mcp_servers"
-	} else if agent == "opencode" {
-		container = "mcp"
-	}
+	container := mcpContainer(agent)
 	result := snapshotMCPSelection{content: map[string]any{}, valid: true}
 	raw, exists := object[container]
 	if !exists {

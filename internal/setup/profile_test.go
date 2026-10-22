@@ -177,7 +177,7 @@ func TestProfileOverridesExcludeKindsAndSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filtered := ApplyProfileOverrides(BuildSetupSnapshot(selection), loaded.Revisions[0].Overrides)
+	filtered := ApplyProfileOverrides(BuildSetupSnapshot(selection), loaded.Revisions[0].Overrides, "", "")
 	for _, source := range filtered.Sources {
 		if source.Component == "instructions" {
 			t.Fatalf("instruction source survived override: %+v", source)
@@ -363,5 +363,54 @@ func TestProfilePushPullCLI(t *testing.T) {
 	}
 	if err := Run([]string{"profile", "push", "--dir", dir, "work"}, &bytes.Buffer{}); err == nil {
 		t.Fatal("push without a remote accepted")
+	}
+}
+
+func TestProfileMachineAndProjectOverrides(t *testing.T) {
+	e := fixture(t)
+	e.project = t.TempDir()
+	writeConfig(t, filepath.Join(e.home, ".claude.json"), `{"model":"SCOPED"}`)
+	writeConfig(t, filepath.Join(e.project, "CLAUDE.md"), "instructions")
+	r, err := discover(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := BuildSnapshotSelection(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	snapshot, err := WriteSetupSnapshot(selection, SetupWriteOptions{Dir: dir, Password: testSetupPassphrase})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, revision, err := SaveSetupProfileWithOptions("work", testSetupPassphrase, snapshot.ID, dir, time.Now(), SaveSetupProfileOptions{
+		ExcludeKinds: []string{"instructions"}, Machines: []string{"laptop"}, Projects: []string{e.project},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revision.Overrides.ExcludeKinds) != 0 || revision.Overrides.Machines["laptop"].ExcludeKinds[0] != "instructions" || revision.Overrides.Projects[e.project].ExcludeKinds[0] != "instructions" {
+		t.Fatalf("scoped overrides wrong: %+v", revision.Overrides)
+	}
+	payload := BuildSetupSnapshot(selection)
+	unscoped := ApplyProfileOverrides(payload, revision.Overrides, "", "")
+	scoped := ApplyProfileOverrides(payload, revision.Overrides, "laptop", "")
+	foundUnscoped := false
+	for _, source := range unscoped.Sources {
+		if source.Component == "instructions" {
+			foundUnscoped = true
+		}
+	}
+	if !foundUnscoped {
+		t.Fatal("unscoped application lost instructions")
+	}
+	for _, source := range scoped.Sources {
+		if source.Component == "instructions" {
+			t.Fatal("machine override did not exclude instructions")
+		}
+	}
+	if _, _, err := SaveSetupProfileWithOptions("bad", testSetupPassphrase, snapshot.ID, dir, time.Now(), SaveSetupProfileOptions{Machines: []string{"laptop"}}); err == nil {
+		t.Fatal("empty scoped override accepted")
 	}
 }

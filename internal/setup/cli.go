@@ -261,6 +261,7 @@ func runRestore(args []string, out io.Writer) error {
 	dir := f.String("dir", "", "read snapshots here (default REET_SETUP_DIR or the user config directory)")
 	passwordFile := f.String("password-file", "", "read the snapshot passphrase from this file, or - for standard input")
 	project := f.String("project", "", "map project-scoped sources into this destination project")
+	machine := f.String("machine", "", "apply this machine's profile overrides")
 	profile := f.String("profile", "", "use this local profile")
 	revision := f.Int("revision", 0, "profile revision; default is the newest")
 	probeVersions := f.Bool("probe-versions", false, "compare application --version reports before planning")
@@ -314,7 +315,7 @@ func runRestore(args []string, out io.Writer) error {
 		return err
 	}
 	if profileRevision != nil {
-		snapshot = ApplyProfileOverrides(snapshot, profileRevision.Overrides)
+		snapshot = ApplyProfileOverrides(snapshot, profileRevision.Overrides, *machine, *project)
 	}
 	if *inspectInstallation {
 		InspectInstallations(&destination)
@@ -348,6 +349,7 @@ func runVerify(args []string, out io.Writer) error {
 	dir := f.String("dir", "", "read snapshots here (default REET_SETUP_DIR or the user config directory)")
 	passwordFile := f.String("password-file", "", "read the snapshot passphrase from this file, or - for standard input")
 	project := f.String("project", "", "check project-scoped sources in this destination project")
+	machine := f.String("machine", "", "apply this machine's profile overrides")
 	profile := f.String("profile", "", "use this local profile")
 	revision := f.Int("revision", 0, "profile revision; default is the newest")
 	probeVersions := f.Bool("probe-versions", false, "compare application --version reports; timeout 3s each")
@@ -390,7 +392,7 @@ func runVerify(args []string, out io.Writer) error {
 		return err
 	}
 	if profileRevision != nil {
-		snapshot = ApplyProfileOverrides(snapshot, profileRevision.Overrides)
+		snapshot = ApplyProfileOverrides(snapshot, profileRevision.Overrides, *machine, *project)
 	}
 	destination, err := Discover(home, *project)
 	if err != nil {
@@ -591,7 +593,7 @@ type setupProfileSaveResult struct {
 
 func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "Usage: reet setup profile save [--exclude-kind KIND] [--exclude-source PATH] [--json] [--dir DIR] [--password-file FILE] NAME SNAPSHOT\n       reet setup profile list [--json] [--dir DIR]\n       reet setup profile show [--json] [--dir DIR] [--revision N] NAME\n       reet setup profile remove [--yes] [--dir DIR] NAME\n       reet setup profile rename [--dir DIR] OLD NEW\n       reet setup profile push [--server URL] [--token TOKEN] NAME\n       reet setup profile pull [--server URL] [--token TOKEN] NAME")
+		_, err := fmt.Fprintln(out, "Usage: reet setup profile save [--exclude-kind KIND] [--exclude-source PATH] [--machine NAME] [--project PATH] [--json] [--dir DIR] [--password-file FILE] NAME SNAPSHOT\n       reet setup profile list [--json] [--dir DIR]\n       reet setup profile show [--json] [--dir DIR] [--revision N] NAME\n       reet setup profile remove [--yes] [--dir DIR] NAME\n       reet setup profile rename [--dir DIR] OLD NEW\n       reet setup profile push [--server URL] [--token TOKEN] NAME\n       reet setup profile pull [--server URL] [--token TOKEN] NAME")
 		return err
 	}
 	switch args[0] {
@@ -603,8 +605,12 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		passwordFile := f.String("password-file", "", "read the snapshot passphrase from this file, or - for standard input")
 		excludeKinds := stringListFlag{}
 		excludeSources := stringListFlag{}
+		machines := stringListFlag{}
+		projects := stringListFlag{}
 		f.Var(&excludeKinds, "exclude-kind", "exclude this component kind (settings, mcp, instructions); repeat for several")
 		f.Var(&excludeSources, "exclude-source", "exclude this exact snapshot source path; repeat for several")
+		f.Var(&machines, "machine", "apply the exclusions only to this machine name; repeat for several")
+		f.Var(&projects, "project", "apply the exclusions only to this project path; repeat for several")
 		if err := f.Parse(args[1:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
@@ -612,13 +618,13 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 			return err
 		}
 		if f.NArg() != 2 {
-			return fmt.Errorf("usage: reet setup profile save [--exclude-kind KIND] [--exclude-source PATH] [--json] [--dir DIR] [--password-file FILE] NAME SNAPSHOT")
+			return fmt.Errorf("usage: reet setup profile save [--exclude-kind KIND] [--exclude-source PATH] [--machine NAME] [--project PATH] [--json] [--dir DIR] [--password-file FILE] NAME SNAPSHOT")
 		}
 		passphrase, err := readSetupPassphrase(*passwordFile)
 		if err != nil {
 			return err
 		}
-		profile, revision, err := SaveSetupProfileWithOptions(f.Arg(0), passphrase, f.Arg(1), *dir, time.Now().UTC(), SaveSetupProfileOptions{ExcludeKinds: excludeKinds, ExcludeSources: excludeSources})
+		profile, revision, err := SaveSetupProfileWithOptions(f.Arg(0), passphrase, f.Arg(1), *dir, time.Now().UTC(), SaveSetupProfileOptions{ExcludeKinds: excludeKinds, ExcludeSources: excludeSources, Machines: machines, Projects: projects})
 		if err != nil {
 			return err
 		}

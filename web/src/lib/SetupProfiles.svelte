@@ -162,7 +162,7 @@ reet setup profile push NAME</code></pre>
           <p class="notice good">Literal credentials were included inside the encrypted snapshot. They are not shown here.</p>
         {/if}
 
-        {#if latest.overrides && ((latest.overrides.exclude_kinds?.length ?? 0) > 0 || (latest.overrides.exclude_sources?.length ?? 0) > 0)}
+        {#if latest.overrides && ((latest.overrides.exclude_kinds?.length ?? 0) > 0 || (latest.overrides.exclude_sources?.length ?? 0) > 0 || Object.keys(latest.overrides.machines ?? {}).length > 0 || Object.keys(latest.overrides.projects ?? {}).length > 0)}
           <div class="overrides">
             <h3>Overrides</h3>
             {#if latest.overrides.exclude_kinds?.length}
@@ -171,6 +171,12 @@ reet setup profile push NAME</code></pre>
             {#if latest.overrides.exclude_sources?.length}
               <p><span class="tag">excluded sources</span> {latest.overrides.exclude_sources.join(', ')}</p>
             {/if}
+            {#each Object.entries(latest.overrides.machines ?? {}) as [machine, scope] (machine)}
+              <p><span class="tag">machine {machine}</span> kinds {scope.exclude_kinds?.join(', ') || '—'}; sources {scope.exclude_sources?.join(', ') || '—'}</p>
+            {/each}
+            {#each Object.entries(latest.overrides.projects ?? {}) as [project, scope] (project)}
+              <p><span class="tag">project {project}</span> kinds {scope.exclude_kinds?.join(', ') || '—'}; sources {scope.exclude_sources?.join(', ') || '—'}</p>
+            {/each}
           </div>
         {/if}
 

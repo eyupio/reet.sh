@@ -522,7 +522,7 @@ runtime health and does not prove that an agent or MCP server works.
 
 ```sh
 reet setup profile save --password-file FILE work SNAPSHOT
-reet setup profile save --exclude-kind instructions --password-file FILE work2 SNAPSHOT
+reet setup profile save --exclude-kind instructions --machine laptop --password-file FILE work2 SNAPSHOT
 reet setup profile list
 reet setup profile show work
 reet setup profile rename work personal
@@ -537,6 +537,9 @@ reet setup verify --profile work --password-file FILE
 records its ID, digest, policy preview, software evidence and optional overrides. It
 never stores selected values. Repeat `--exclude-kind settings|mcp|instructions` or
 `--exclude-source PATH` to omit components when a profile is used by restore or verify.
+Add `--machine NAME` or `--project PATH` to scope those exclusions to a machine or
+project; restore/verify apply a machine scope with `--machine NAME` and a project scope
+with `--project PATH`.
 Saving the same name again creates a new revision; taking a new backup does not change an
 existing profile. `profile list` and `profile show` are local and need no passphrase. `profile rename`
 keeps revision history; `profile remove --yes` deletes only the profile file and keeps

@@ -335,8 +335,8 @@ func classExportPolicies() []ClassExportPolicy {
 			Reason: "Rules, custom commands, agent definitions, workflows and plugins need format-specific review; they are not exported.",
 		},
 		{
-			Kind: "memory", Selection: "unsupported", Handling: "not_implemented",
-			Reason: "No verified reusable-memory adapter is implemented; memory databases and session state are not exported.",
+			Kind: "memory", Selection: "include", Handling: "portable",
+			Reason: "Codex memory databases are copied through SQLite's VACUUM INTO; other agents' memory and session state remain unsupported.",
 		},
 		{
 			Kind: "history", Selection: "opt_in", Handling: "not_implemented",

@@ -87,7 +87,8 @@ should inspect location/executable states in JSON for incomplete observations.
 
 Without `--components`, MCP definitions and configuration contents are not read.
 Without `--probe-versions`, application versions are not collected and agents are
-never executed. Package provenance, memory and conversation history are not collected.
+never executed. Package provenance and conversation history are not collected; the
+Codex memory database is captured only by an explicit snapshot.
 The scanner installs nothing and sends no reports to a server. The report
 is inventory metadata, not a recoverable backup. Existing `reet scan`, `reet sync`
 and `reet backup` retain their existing meanings.
@@ -214,7 +215,7 @@ agent:
 | instructions | include | portable |
 | skills | include | portable |
 | behaviour | unsupported | not_implemented |
-| memory | unsupported | not_implemented |
+| memory | include | portable |
 | history | opt_in | not_implemented |
 | credentials | include | references_only |
 | hooks | exclude | never |
@@ -225,7 +226,8 @@ Discovered global and project instruction files (`CLAUDE.md`, `AGENTS.md`,
 encrypted payload, can be restored or verified, and are never printed by preview, list
 or inspect. Shared project `AGENTS.md` may be used by more than one agent, so restore it
 deliberately. Other or unlisted instruction locations are not inventoried. These classes make the other gaps explicit rather than implying that
-memory, history or hooks can already be exported. `history` is an intended opt-in;
+reusable memory, history or hooks can already be exported. The Codex memory database is
+copied consistently; other memory stores remain unsupported. `history` is an intended opt-in;
 `credentials` covers preserved references plus explicit literal values when
 `--include-credentials` is chosen. Device-bound keychains or sessions still require
 fresh authentication. No class policy is a claim
@@ -315,8 +317,8 @@ associations; both are opt-in because probing executes the discovered executable
 Software evidence deliberately omits executable and metadata paths, and it is not
 authenticated provenance.
 
-Credential-bearing values, opt-in sources, memory, history, hooks and caches remain
-excluded by default. The snapshot is not a complete AI setup: skill dependency
+Credential-bearing values, opt-in sources, memory other than the Codex database,
+history, hooks and caches remain excluded by default. The snapshot is not a complete AI setup: skill dependency
 resolution, cross-OS translation and runtime health verification remain unimplemented. `--preview` remains read-only.
 
 `--include-credentials` explicitly includes literal values from the policy's
@@ -532,8 +534,8 @@ optional bounded version reports and optional local package evidence. Checks are
 repairs, runs hooks or contacts a service; `--probe-versions` executes the discovered
 executable exactly as the scan probe does.
 
-Credential stores, OS keychains, device-bound sessions, memory, history and hooks are not
-checked. After restoring on another machine, authenticate again. Health guidance is not
+Credential stores, OS keychains, device-bound sessions, memory other than the Codex
+database, history and hooks are not checked. After restoring on another machine, authenticate again. Health guidance is not
 runtime health and does not prove that an agent or MCP server works.
 
 ## Support matrix
@@ -546,7 +548,8 @@ reet setup support --json
 `support` reports what this build can discover, select and restore for each agent:
 settings, MCP, instructions, skills, memory, history, credential references and file/field
 restore. It is deliberately conservative: a file copy is not runtime verification, and
-memory, history, hooks, caches, keychains and device-bound sessions remain unsupported.
+memory outside the Codex database, history, hooks, caches, keychains and device-bound
+sessions remain unsupported.
 The JSON form is versioned for scripts.
 
 ## Named local profiles (S5a)
@@ -604,8 +607,8 @@ an older one; restore/verify apply its overrides.
 Profiles are local named snapshot revisions and can now include whole installed skill
 folders. Library/sync remains the live skill inventory and install/update path; setup
 profiles copy the selected folders into the encrypted snapshot for restore. Skill
-dependency resolution, memory/history adapters, web profile editing and verified cross-OS
-restore remain unimplemented.
+dependency resolution, broader memory/history adapters, web profile editing and verified
+cross-OS restore remain unimplemented.
 
 ## Pruning local snapshots (S2f)
 

@@ -251,8 +251,9 @@ hooks and caches. It reads no configuration values and implements no export.
   probes are requested, and marks differing source/destination OS as unverified. A local health command reports executable,
   optional version and optional package evidence without authenticating or repairing. Snapshots can now record bounded application
   and package evidence and selected global/project instruction text; verify compares
-  software evidence with opt-in probes. Runtime health checks and broader memory
-  adapters remain later slices.
+  software evidence with opt-in probes. The Codex memory database is copied through
+  SQLite's VACUUM INTO; runtime health checks and other memory/history adapters remain
+  later slices.
 - Verify every completed archive, write privately and atomically, and produce an
   omissions report. Add local listing/inspection and optional S3 delivery.
 - Keep local recovery usable after complete loss of the controller database.

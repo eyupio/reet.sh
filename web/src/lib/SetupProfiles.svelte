@@ -33,6 +33,7 @@
   })
   const unavailable = $derived((latest?.preview?.classes ?? []).filter((item) => item.selection !== 'include'))
   const skillCount = $derived(latest?.preview?.skills?.length ?? 0)
+  const memoryCount = $derived(latest?.preview?.memories?.length ?? 0)
   const storedAgents = $derived((latest?.preview?.agents ?? []).filter((agent) => (agent.components?.length ?? 0) > 0))
   const emptyAgents = $derived((latest?.preview?.agents ?? []).filter((agent) => (agent.components?.length ?? 0) === 0))
 
@@ -213,7 +214,7 @@ reet setup profile push work</code></pre>
           <div><dt>Snapshot</dt><dd><code>{latest.snapshot_id}</code></dd></div>
           <div><dt>Taken</dt><dd>{when(latest.snapshot_taken_at)}</dd></div>
           <div><dt>Recorded</dt><dd>{when(latest.created_at)}</dd></div>
-          <div><dt>Selected</dt><dd>{hasPreview ? `${componentCount} components, ${skillCount} skills` : '—'}</dd></div>
+          <div><dt>Selected</dt><dd>{hasPreview ? `${componentCount} components, ${skillCount} skills, ${memoryCount} memory database${memoryCount === 1 ? '' : 's'}` : '—'}</dd></div>
           <div><dt>Omitted</dt><dd>{hasPreview ? `${omissionCount} records` : '—'}</dd></div>
           <div><dt>Software evidence</dt><dd>{hasPreview ? (latest.software?.length ? `${latest.software.length} agents` : 'None recorded') : '—'}</dd></div>
         </dl>
@@ -296,6 +297,20 @@ reet setup profile push work</code></pre>
             {#if emptyAgents.length}
               <p class="muted small">No selected components for {emptyAgents.map((agent) => agent.name).join(', ')}.</p>
             {/if}
+            {#if latest.preview?.memories?.length}
+              <div class="skills">
+                <h3>Memory databases</h3>
+                <ul>
+                  {#each latest.preview.memories as memory}
+                    <li>
+                      <strong>{memory.name}</strong>
+                      <span class="tag">{memory.agent_id} · {memory.scope}</span>
+                      <span class="muted small">{memory.bytes} bytes</span>
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
             <div class="skills">
               <h3>Skills</h3>
               {#if latest.preview?.skills?.length}
@@ -323,7 +338,7 @@ reet setup profile push work</code></pre>
                 </ul>
               </div>
             {/if}
-            <p class="notice small">Skill files stay inside the encrypted snapshot; this page shows their names, counts and digests only. Credential values are never displayed; encrypted fields are listed by name only.</p>
+            <p class="notice small">Skill and memory contents stay inside the encrypted snapshot; this page shows their names, sizes and digests only. Credential values are never displayed; encrypted fields are listed by name only.</p>
             </div>
           </details>
         {/if}

@@ -1300,7 +1300,7 @@ func renderSnapshotWrite(out io.Writer, result SetupWriteResult) error {
 	if _, err := fmt.Fprintf(out, "Took setup snapshot %s (%d bytes) at %q.\n", result.ID, result.Bytes, result.Path); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(out, "Selected %d components and %d skill folders (%d files); %d omissions recorded; %d agents with software evidence.\n", result.Components, result.Skills, result.SkillFiles, result.Omissions, len(result.Software)); err != nil {
+	if _, err := fmt.Fprintf(out, "Selected %d components, %d skill folders (%d files) and %d memory databases; %d omissions recorded; %d agents with software evidence.\n", result.Components, result.Skills, result.SkillFiles, result.Memories, result.Omissions, len(result.Software)); err != nil {
 		return err
 	}
 	if result.CredentialsIncluded {

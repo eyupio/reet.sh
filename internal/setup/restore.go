@@ -98,6 +98,7 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 			"Unsupported and omitted components are listed; they are not restore actions.",
 			"Skill folders are mapped by known location and restored file-by-file; symlinked skills and special files are omitted during snapshot capture.",
 			"Existing skills CLI lock files are merged for missing entries only; conflicting sources are left unchanged and reported.",
+			"Codex memory databases are copied through SQLite's VACUUM INTO. Restore is blocked while a destination WAL or shared-memory sidecar exists.",
 			"No cross-OS translation, dependency resolution or runtime verification has been performed.",
 		},
 	}
@@ -168,6 +169,7 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 	}
 	addSkillRestoreActions(&plan, snapshot, destination, actions, files)
 	addSkillLockRestoreActions(&plan, snapshot, destination, actions, files)
+	addMemoryRestoreActions(&plan, snapshot, destination, actions, files)
 	for _, action := range actions {
 		sort.Strings(action.Components)
 		sort.Strings(action.Sources)

@@ -322,6 +322,11 @@ func renderSnapshotInspection(out io.Writer, inspection SetupSnapshotInspection)
 				return err
 			}
 		}
+		for _, memory := range inspection.Preview.Memories {
+			if _, err := fmt.Fprintf(out, "  memory %q (%s/%s): bytes=%d digest=%s\n", memory.Name, memory.AgentID, memory.Scope, memory.Bytes, memory.Digest); err != nil {
+				return err
+			}
+		}
 	}
 	for _, software := range inspection.Software {
 		if _, err := fmt.Fprintf(out, "  software %s: version=%s state=%s package=%s install_version=%s manager=%s\n", software.Name, software.Version, software.VersionState, software.Package, software.InstallVersion, software.Manager); err != nil {
@@ -344,7 +349,7 @@ func renderSnapshotInspection(out io.Writer, inspection SetupSnapshotInspection)
 }
 
 func snapshotComponentCount(preview SnapshotPreview) int {
-	total := len(preview.Skills)
+	total := len(preview.Skills) + len(preview.Memories)
 	for _, agent := range preview.Agents {
 		total += len(agent.Components)
 	}

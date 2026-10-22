@@ -46,15 +46,17 @@ type VerifyComponent struct {
 }
 
 type SetupVerifyResult struct {
-	SchemaVersion  int                  `json:"schema_version"`
-	SnapshotID     string               `json:"snapshot_id"`
-	SnapshotDigest string               `json:"snapshot_digest"`
-	Destination    RestoreDestination   `json:"destination"`
-	Summary        SetupVerifySummary   `json:"summary"`
-	Components     []VerifyComponent    `json:"components"`
-	Software       []VerifySoftware     `json:"software,omitempty"`
-	Unsupported    []RestoreUnsupported `json:"unsupported"`
-	Limitations    []string             `json:"limitations"`
+	SchemaVersion      int                  `json:"schema_version"`
+	SnapshotID         string               `json:"snapshot_id"`
+	SnapshotDigest     string               `json:"snapshot_digest"`
+	SourceOS           string               `json:"source_os"`
+	SourceArchitecture string               `json:"source_architecture"`
+	Destination        RestoreDestination   `json:"destination"`
+	Summary            SetupVerifySummary   `json:"summary"`
+	Components         []VerifyComponent    `json:"components"`
+	Software           []VerifySoftware     `json:"software,omitempty"`
+	Unsupported        []RestoreUnsupported `json:"unsupported"`
+	Limitations        []string             `json:"limitations"`
 }
 
 // VerifySetupSnapshot checks the selected fields in the destination without
@@ -63,7 +65,8 @@ func VerifySetupSnapshot(snapshot SetupSnapshot, manifest sealed.Manifest, desti
 	result := SetupVerifyResult{
 		SchemaVersion: setupVerifySchemaVersion, SnapshotID: manifest.ID, SnapshotDigest: manifest.SHA256,
 		Destination: RestoreDestination{OS: destination.OS, Architecture: destination.Architecture, Project: destination.Project},
-		Components:  []VerifyComponent{}, Unsupported: policyUnsupported(snapshot),
+		SourceOS:    snapshot.Preview.OS, SourceArchitecture: snapshot.Preview.Architecture,
+		Components: []VerifyComponent{}, Unsupported: policyUnsupported(snapshot),
 		Limitations: []string{
 			"File-level verification only: selected fields and MCP declarations are compared; extra destination fields are ignored.",
 			"No agent executable is run; application versions, authentication, MCP health and runtime behaviour are not verified.",
@@ -152,6 +155,9 @@ func VerifySetupSnapshot(snapshot SetupSnapshot, manifest sealed.Manifest, desti
 		}
 		return result.Components[i].Source < result.Components[j].Source
 	})
+	if snapshot.Preview.OS != "" && destination.OS != "" && (snapshot.Preview.OS != destination.OS || snapshot.Preview.Architecture != destination.Architecture) {
+		result.Limitations = append(result.Limitations, fmt.Sprintf("The snapshot was captured on %s/%s and this destination is %s/%s; cross-OS restore is not verified.", snapshot.Preview.OS, snapshot.Preview.Architecture, destination.OS, destination.Architecture))
+	}
 	result.Software = verifySoftware(snapshot.Software, destination.Agents)
 	for _, software := range result.Software {
 		if software.State == "matches" {
@@ -258,7 +264,7 @@ func verifySelectedContent(object map[string]any, agentID string, source SetupSn
 }
 
 func renderSetupVerify(out io.Writer, result SetupVerifyResult) error {
-	if _, err := fmt.Fprintf(out, "Setup verification for %s\nDestination: %s/%s", result.SnapshotID, result.Destination.OS, result.Destination.Architecture); err != nil {
+	if _, err := fmt.Fprintf(out, "Setup verification for %s\nSource: %s/%s; destination: %s/%s", result.SnapshotID, result.SourceOS, result.SourceArchitecture, result.Destination.OS, result.Destination.Architecture); err != nil {
 		return err
 	}
 	if result.Destination.Project != "" {

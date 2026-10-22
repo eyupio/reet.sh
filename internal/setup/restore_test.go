@@ -233,3 +233,36 @@ func TestRestorePlanIncludesSoftwareCompatibilityWarnings(t *testing.T) {
 		t.Fatalf("compatibility text missing: %s", text.String())
 	}
 }
+
+func TestRestoreAndVerifyWarnAboutCrossOS(t *testing.T) {
+	selection := fixtureSelection(t)
+	snapshot := BuildSetupSnapshot(selection)
+	snapshot.Preview.OS, snapshot.Preview.Architecture = "windows", "amd64"
+	destination := fixture(t)
+	report, err := discover(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report.OS, report.Architecture = "linux", "amd64"
+	plan := BuildRestorePlan(snapshot, testManifest("setup-cross-os"), report)
+	if plan.SourceOS != "windows" || plan.SourceArchitecture != "amd64" || len(plan.Warnings) == 0 || !strings.Contains(plan.Warnings[0], "cross-OS") {
+		t.Fatalf("cross-OS plan warning missing: %+v", plan)
+	}
+	var text bytes.Buffer
+	if err := renderRestorePlan(&text, plan); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text.String(), "Source: windows/amd64") || !strings.Contains(text.String(), "cross-OS") {
+		t.Fatalf("cross-OS text missing: %s", text.String())
+	}
+	verified := VerifySetupSnapshot(snapshot, testManifest("setup-cross-os"), report)
+	found := false
+	for _, limitation := range verified.Limitations {
+		if strings.Contains(limitation, "cross-OS") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("cross-OS verify limitation missing: %+v", verified.Limitations)
+	}
+}

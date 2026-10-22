@@ -302,34 +302,39 @@ no configuration contents and is a policy declaration, not an export.
 `reet setup backup --preview` applies those policies in memory and reports included,
 encrypted-only, reference and excluded fields, MCP declaration counts, unknown fields
 and omissions without printing values or writing an archive. Without `--preview`,
-`reet setup backup --password-file FILE` writes one passphrase-encrypted local
-snapshot under `REET_SETUP_DIR` or the user config `reet/setup` directory; source
-paths, selected values and discovered instruction text stay inside the encrypted
-payload. `--include-credentials` explicitly includes literal credential values from
-URLs, environment and header fields; it is rejected with `--preview`. OS keychains,
-device-bound sessions and unlisted credential stores remain excluded. `--s3` uploads
-the sealed snapshot to the configured `REET_SETUP_S3_*` destination and verifies the
-read-back; `reet setup fetch --s3` downloads it into the local snapshot directory, optionally by
-profile; `reet setup remote list` reads the configured remote prefix metadata.
+`reet setup backup --password-file FILE` writes one passphrase-encrypted local snapshot
+under `REET_SETUP_DIR` or the user config `reet/setup` directory; source paths, selected
+values and discovered instruction text stay inside the encrypted payload.
+`--include-credentials` explicitly includes literal credential values from URLs,
+environment and header fields; it is rejected with `--preview`. Optional
+`--probe-versions` and `--inspect-installation` record application/package evidence.
+`--s3` uploads the sealed snapshot to the configured `REET_SETUP_S3_*` destination and
+verifies the read-back; `reet setup fetch --s3` downloads it, optionally by profile;
+`reet setup remote list` reads remote object metadata.
+
+`reet setup list` reads clear headers without a passphrase; `reet setup inspect` opens
+the encrypted preview and source summaries only with a passphrase and never prints
+values. `reet setup restore` previews a destination plan and can add software and
+cross-OS compatibility warnings. `--apply` creates new files or handles conflicts with
+`--on-conflict skip|replace` and repeatable `--conflict PATH=skip|replace` overrides,
+keeping mode-0600 rollback copies. `reet setup verify` compares selected fields without
+repairing or running agents. `reet setup rollback` reverses a completed apply journal
+after snapshot, digest and current-file checks; `reet setup journals` lists records and
+`--last` picks the newest completed one. `reet setup health` gives conservative local
+evidence and reauthentication guidance without repairing anything.
+
 `reet setup profile save` keeps a named local revision pointing at an immutable snapshot;
-`restore`, `verify`, `inspect` and `rollback` accept `--profile NAME`.
-`reet setup prune --keep N` previews local snapshot deletion and `--apply` removes old
-unprotected snapshots; profile and journal references are protected. Profiles are not synced to an account or
-another machine. `reet setup list` reads
-clear headers without a passphrase; `reet setup inspect` opens the encrypted preview
-and source summaries only with a passphrase and never prints values. `reet setup
-restore` previews a destination plan. `--apply` creates new files or handles conflicts
-with `--on-conflict skip|replace` and repeatable `--conflict PATH=skip|replace`
-overrides, keeping mode-0600 rollback copies. `reet setup verify` compares selected
-fields without repairing or running agents; opt-in `--probe-versions` and
-`--inspect-installation` add application/package guidance when the snapshot recorded
-software evidence. `reet setup rollback` reverses a completed
-apply journal after snapshot, digest and current-file checks. This is still not complete
-setup backup/restore: memory/history/credentials, runtime health, S3 delivery and
-verified cross-OS restore are not implemented. Discovered global and project
-instruction files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `GEMINI.md`) are included as
-encrypted text; other instruction locations are not inventoried. Existing instance and shelf backups
-below remain separate.
+`restore`, `verify`, `inspect` and `rollback` accept `--profile NAME`. Profiles are not
+synced to an account or another machine. `reet setup prune --keep N` previews local
+snapshot deletion and `--apply` removes old unprotected snapshots; profile and journal
+references are protected.
+
+This is still not complete setup backup/restore: memory databases, conversation/session
+history, account-synced profiles with machine/project overrides, remote S3
+retention/deletion, runtime health verification and verified cross-OS restore are not
+implemented. Discovered global and project instruction files (`CLAUDE.md`, `AGENTS.md`,
+`.cursorrules`, `GEMINI.md`) are included as encrypted text; other instruction locations
+are not inventoried. Existing instance and shelf backups below remain separate.
 See [setup discovery and limits](docs/setup-discovery.md), the
 [implementation plan](docs/agent-setup-plan.md) and [handoff](handoff.md).
 

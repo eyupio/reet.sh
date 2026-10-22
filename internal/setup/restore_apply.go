@@ -26,7 +26,8 @@ const (
 type RestoreApplyOptions struct {
 	JournalDir  string
 	Now         func() time.Time
-	Conflict    string // "", "skip" or "replace"
+	Conflict    string            // "", "skip" or "replace"
+	Conflicts   map[string]string // destination path -> skip or replace
 	beforeWrite func(string) error
 }
 
@@ -76,20 +77,44 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 	if opts.Conflict != "" && opts.Conflict != "skip" && opts.Conflict != "replace" {
 		return RestoreApplyResult{}, fmt.Errorf("unknown conflict policy %q; use skip or replace", opts.Conflict)
 	}
+	actionsByDestination := map[string]RestoreAction{}
 	for _, action := range plan.Actions {
+		actionsByDestination[filepath.Clean(action.Destination)] = action
+	}
+	choices := map[string]string{}
+	for path, policy := range opts.Conflicts {
+		path = filepath.Clean(path)
+		policy = strings.ToLower(strings.TrimSpace(policy))
+		if policy != "skip" && policy != "replace" {
+			return RestoreApplyResult{}, fmt.Errorf("unknown conflict policy %q for %q; use skip or replace", policy, path)
+		}
+		action, ok := actionsByDestination[path]
+		if !ok {
+			return RestoreApplyResult{}, fmt.Errorf("conflict choice for %q does not match any planned destination", path)
+		}
+		if action.State != "conflict" {
+			return RestoreApplyResult{}, fmt.Errorf("conflict choice for %q does not match a conflict", path)
+		}
+		choices[path] = policy
+	}
+	for _, action := range plan.Actions {
+		policy := opts.Conflict
+		if choice, ok := choices[filepath.Clean(action.Destination)]; ok {
+			policy = choice
+		}
 		switch action.State {
 		case "blocked":
 			return RestoreApplyResult{}, fmt.Errorf("the restore plan has a blocked action for %q; resolve it before applying", action.Destination)
 		case "conflict":
-			if opts.Conflict == "" {
-				return RestoreApplyResult{}, fmt.Errorf("the restore plan has a conflict for %q; give --on-conflict skip or replace", action.Destination)
+			if policy == "" {
+				return RestoreApplyResult{}, fmt.Errorf("the restore plan has a conflict for %q; give --on-conflict skip or replace, or --conflict %s=skip|replace", action.Destination, action.Destination)
 			}
-			if opts.Conflict == "replace" {
+			if policy == "replace" {
 				info, err := os.Lstat(action.Destination)
 				if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 					return RestoreApplyResult{}, fmt.Errorf("conflicting destination %q must be a regular file before it can be replaced", action.Destination)
 				}
-			} else if opts.Conflict == "skip" {
+			} else if policy == "skip" {
 				if _, err := os.Lstat(action.Destination); err != nil {
 					return RestoreApplyResult{}, fmt.Errorf("conflicting destination %q changed after the plan; preview again", action.Destination)
 				}
@@ -182,7 +207,11 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 		return RestoreApplyResult{}, cause
 	}
 	for i, action := range plan.Actions {
-		if action.State == "conflict" && opts.Conflict == "skip" {
+		policy := opts.Conflict
+		if choice, ok := choices[filepath.Clean(action.Destination)]; ok {
+			policy = choice
+		}
+		if action.State == "conflict" && policy == "skip" {
 			journal.Actions[i].State = "skipped"
 			skipped = append(skipped, action.Destination)
 			if err := writeRestoreJournal(journalPath, journal); err != nil {
@@ -198,7 +227,7 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 		if err != nil {
 			return fail(i, err)
 		}
-		if action.State == "conflict" && opts.Conflict == "replace" {
+		if action.State == "conflict" && policy == "replace" {
 			backup := restoreBackupPath(journalPath, i)
 			if err := copyRestoreBackup(action.Destination, backup); err != nil {
 				return fail(i, err)
@@ -217,7 +246,7 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 				return fail(i, err)
 			}
 		}
-		if err := writeRestoreFile(action.Destination, data, action.State == "conflict"); err != nil {
+		if err := writeRestoreFile(action.Destination, data, action.State == "conflict" && policy == "replace"); err != nil {
 			return fail(i, err)
 		}
 		if err := verifyRestoreFile(action.Destination, file); err != nil {

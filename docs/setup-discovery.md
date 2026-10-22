@@ -360,13 +360,17 @@ No files, installers, hooks, package managers or authentication flows run withou
 reet setup restore --apply --password-file FILE SNAPSHOT
 reet setup restore --apply --on-conflict skip --password-file FILE SNAPSHOT
 reet setup restore --apply --on-conflict replace --password-file FILE SNAPSHOT
+reet setup restore --apply --on-conflict skip \
+  --conflict /home/me/.claude.json=replace --password-file FILE SNAPSHOT
 ```
 
-`--apply` is a local confirmation. Without `--on-conflict`, it writes only when every
+`--apply` is a local confirmation. Without a conflict policy, it writes only when every
 action is `create`; any `conflict` or `blocked` action refuses the whole run before
 writing. `--on-conflict skip` leaves conflicting destinations unchanged and creates
 the other files. `--on-conflict replace` copies each conflicting destination to a
-mode-0600 rollback copy beside the journal, then replaces it. Blocked actions such as
+mode-0600 rollback copy beside the journal, then replaces it. Repeat `--conflict
+PATH=skip|replace` to override the global policy for exact destination paths shown in
+the plan; a choice that does not match a conflict is refused. Blocked actions such as
 symlinks still refuse the run.
 
 Destinations are rechecked after the plan, and a changed destination invalidates the

@@ -229,7 +229,9 @@ hooks and caches. It reads no configuration values and implements no export.
   writing slice seals that selection into a passphrase-encrypted local snapshot and
   verifies it before and after the atomic private write. A listing/inspection slice
   reads clear headers without a passphrase and opens the encrypted preview only on
-  request. Restore remains a later slice.
+  request. A restore-planning slice maps selected sources to destination locations,
+  reports create/conflict/blocked actions and unsupported items, and fingerprints the
+  plan without writing. Restore execution remains a later slice.
 - Verify every completed archive, write privately and atomically, and produce an
   omissions report. Add local listing/inspection and optional S3 delivery.
 - Keep local recovery usable after complete loss of the controller database.

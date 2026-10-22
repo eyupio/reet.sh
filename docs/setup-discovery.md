@@ -327,6 +327,35 @@ snapshot is complete or restorable, and inspection does not verify application h
 or cross-OS compatibility. S3 delivery, restore planning/execution and post-restore
 verification remain unimplemented.
 
+## Restore planning (S3)
+
+```sh
+reet setup restore --password-file FILE SNAPSHOT
+reet setup restore --password-file FILE --project /path/to/project --json SNAPSHOT
+```
+
+`reet setup restore` opens and verifies the snapshot with the passphrase, discovers
+the destination metadata-only, and prints a plan. It writes nothing and refuses
+`--apply` with an explicit not-implemented error.
+
+Global sources are mapped to the destination's known agent locations by agent,
+scope and file name. Project sources require `--project`; without it they are listed
+as `project_not_selected`. A source with no matching destination location is
+`destination_location_not_found` rather than being written to a guessed path. The map
+is based on declared locations and names, not a full cross-OS path translation.
+
+Each planned file is `create` when missing, `conflict` when a destination source
+already exists, or `blocked` when the destination is a symlink, unreadable or an
+unexpected type. Conflicts are not merged or resolved yet. Omitted policy records and
+unsupported classes remain in the plan's unsupported list. The plan fingerprint is a
+SHA-256 of the snapshot identity, destination facts, actions and unsupported entries;
+it contains no selected values.
+
+No files, installers, hooks, package managers or authentication flows run. Restore
+execution, conflict choices, rollback copies, dependency/version resolution,
+cross-OS translation and post-restore verification remain unimplemented. A plan is
+not a promise that a working setup can be restored.
+
 ## Opt-in application version probes
 
 ```sh

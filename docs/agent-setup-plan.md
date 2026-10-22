@@ -237,7 +237,8 @@ hooks and caches. It reads no configuration values and implements no export.
   their content, keeps rollback copies for replacements and rolls back a failed run.
   A verify command now compares selected fields and reports missing/changed/blocked
   components without repairing. A rollback command reverses a completed apply journal
-  after checking it against the snapshot and current files. Apply supports global and
+  after checking it against the snapshot and current files; local journals can be listed
+  and `--last` selects the newest completed one. Apply supports global and
   per-destination skip/replace choices. Snapshots can now record bounded application
   and package evidence and selected global/project instruction text; verify compares
   software evidence with opt-in probes. Runtime health checks and broader memory

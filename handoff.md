@@ -43,10 +43,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Snapshot software evidence merged in [PR #63](https://github.com/eyupio/reet.sh/pull/63), `3b19a69`.
 - Project instruction export merged in [PR #64](https://github.com/eyupio/reet.sh/pull/64), `f47e3df`.
 - Global instruction discovery merged in [PR #65](https://github.com/eyupio/reet.sh/pull/65), `2df4b44`.
-- Latest verified source baseline: `origin/main` at `2df4b44` (2026-10-22).
-- Explicit portable credential inclusion is in [PR #66](https://github.com/eyupio/reet.sh/pull/66)
-  on `feat/setup-portable-credentials`; fetch remote status before continuing and
-  preserve any uncommitted work.
+- Explicit portable credential inclusion merged in [PR #66](https://github.com/eyupio/reet.sh/pull/66), `f22cac2`.
+- Latest verified source baseline: `origin/main` at `f22cac2` (2026-10-22).
+- Journal listing and `rollback --last` are in [PR #67](https://github.com/eyupio/reet.sh/pull/67)
+  on `feat/setup-journal-list`; fetch remote status before continuing and preserve any
+  uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -76,6 +77,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Export, restore and verify discovered project instruction files as encrypted text.
 - [x] Discover global instruction files under the supported config locations.
 - [x] Add explicit encrypted inclusion of portable literal credential values.
+- [x] List local restore journals and roll back the newest completed one by default.
 
 ## Implemented slice
 
@@ -212,6 +214,12 @@ inspection, verify, restore results and journals never print values. OS keychain
 device-bound sessions and unlisted credential stores remain excluded and need fresh
 authentication. Credential-bearing preview digests are redacted; payload source digests
 stay inside the encrypted payload.
+
+S4h now adds `reet setup journals [--json] [--dir DIR]` and
+`reet setup rollback --last`. Journals are listed with snapshot ID, state, timestamps and
+created/replaced/skipped counts; invalid files are skipped. `--last` chooses the newest
+completed journal for the supplied snapshot. Neither opens snapshots or destinations for
+listing.
 
 Next implementation slice: add destination runtime health checks without repairing or
 running arbitrary hooks, then move to named profiles/S5. Do not claim cross-OS restore
@@ -708,6 +716,25 @@ Runtime health checks, memory/history adapters, S3 delivery and cross-OS transla
 remain unimplemented. Restoring credential literals does not prove they work or that the
 agent will authenticate successfully.
 
+## Journal listing and rollback --last
+
+The current stage on `feat/setup-journal-list` adds `reet setup journals` and
+`reet setup rollback --last`. Listing reads local journal files only, reports snapshot
+ID, state, timestamps and created/replaced/skipped counts, and skips invalid journals.
+`--last` picks the newest completed journal for the supplied snapshot; a rolled-back
+journal is not selected again. Neither command opens snapshots or destinations while
+listing.
+
+Validation: focused tests cover completed/invalid journals, state and action counts,
+text/JSON output, rollback `--last`, removal of created files and rejection after a
+rollback. Full `go vet ./...` and `go test -race ./...` passed. Web checks passed (8
+tests; zero Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary smoke test
+verified apply, journals and `--last` rollback; setup tests cross-compile for Windows
+amd64 and macOS arm64. `git diff --check` passed. No dependency changed.
+
+Runtime health checks, memory/history adapters, S3 delivery and cross-OS translation
+remain unimplemented.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -722,13 +749,13 @@ agent will authenticate successfully.
 4. Explicit component export policies, the policy-driven preview, the shared sealed
    archive, encrypted local setup snapshot writing, listing/inspection, restore
    planning, create-only apply, conflict skip/replace with rollback copies, destination
-   verification, rollback, per-destination conflict choices, optional software evidence,
-   global/project instruction export and explicit portable credential inclusion are now
-   implemented. The next small slice is destination runtime health checks, then named
-   profiles/S5. Keep values encrypted and unknown formats unsupported. Do not claim
-   cross-OS restore or working-setup verification before their acceptance gates. Consult
-   the detailed plan for encryption, key handling, restore and compatibility
-   requirements.
+   verification, rollback, journal listing, per-destination conflict choices, optional
+   software evidence, global/project instruction export and explicit portable credential
+   inclusion are now implemented. The next small slice is destination runtime health
+   checks, then named profiles/S5. Keep values encrypted and unknown formats
+   unsupported. Do not claim cross-OS restore or working-setup verification before their
+   acceptance gates. Consult the detailed plan for encryption, key handling, restore and
+   compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current
@@ -738,9 +765,10 @@ agent will authenticate successfully.
 Important boundaries: no complete AI setup backup/restore has shipped. Setup backup
 now writes a partial encrypted local snapshot and can list, inspect, plan, create or
 replace supported files, verify selected destination fields, roll back a completed apply,
-apply per-destination conflict choices, record/compare optional software evidence,
-export global/project instructions and optionally include portable literal credentials,
-but runtime health, memory/history and cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
+list journals, apply per-destination conflict choices, record/compare optional software
+evidence, export global/project instructions and optionally include portable literal
+credentials, but runtime health, memory/history and cross-OS recovery are not
+implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
 manage that server. No production host was upgraded by this session. Do not copy

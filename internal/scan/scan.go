@@ -16,6 +16,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/eyupio/reet.sh/internal/clientconfig"
 )
 
 // Found is one installed skill in one place; Source is "owner/repo" when the skills CLI lock file knows it.
@@ -243,9 +245,6 @@ func RunVersion(args []string, out io.Writer, version string) error {
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
 	fs.SetOutput(out)
 	def := os.Getenv("REET_URL")
-	if def == "" {
-		def = "http://localhost:8080"
-	}
 	server := fs.String("server", def, "reet server URL (env REET_URL)")
 	token := fs.String("token", "", "access token (env REET_TOKEN)")
 	dry := fs.Bool("dry-run", false, "list what would be imported without sending it")
@@ -263,6 +262,13 @@ func RunVersion(args []string, out io.Writer, version string) error {
 	}
 	if fs.NArg() != 0 {
 		return errors.New("unexpected positional arguments; use --help")
+	}
+	if !*dry && *server == "" {
+		value, err := clientconfig.ResolveURL("", os.Stdin, os.Stderr)
+		if err != nil {
+			return err
+		}
+		*server = value
 	}
 	if *token == "" {
 		*token = os.Getenv("REET_TOKEN")

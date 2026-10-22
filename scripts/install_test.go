@@ -32,7 +32,17 @@ func TestInstallRelease(t *testing.T) {
 	for _, tc := range []struct {
 		name, system, arch, version, problem string
 		tamper, duplicate, omitBinary        bool
+		envVersion                           string
+		omitVersion                          bool
 	}{
+		{name: "environment dev", system: "Linux", arch: "x86_64", envVersion: "dev", omitVersion: true},
+		{name: "environment stable", system: "Linux", arch: "x86_64", envVersion: "latest", omitVersion: true},
+		{name: "environment pinned", system: "Linux", arch: "x86_64", envVersion: "v9.8.7", omitVersion: true},
+		{name: "unset defaults stable", system: "Linux", arch: "x86_64", omitVersion: true},
+		{name: "explicit stable overrides env", system: "Linux", arch: "x86_64", version: "latest", envVersion: "dev"},
+		{name: "explicit dev overrides env", system: "Linux", arch: "x86_64", version: "dev", envVersion: "latest"},
+		{name: "explicit overrides invalid env", system: "Linux", arch: "x86_64", version: "dev", envVersion: "invalid"},
+		{name: "reject invalid env", system: "Linux", arch: "x86_64", envVersion: "../../invalid", omitVersion: true, problem: "version must be a release tag"},
 		{name: "rolling dev", system: "Linux", arch: "x86_64", version: "dev"},
 		{name: "linux latest", system: "Linux", arch: "x86_64", version: "latest"},
 		{name: "linux arm64", system: "Linux", arch: "aarch64", version: "9.8.7"},
@@ -111,8 +121,15 @@ esac
 			if tc.arch == "arm64" || tc.arch == "aarch64" {
 				arch = "arm64"
 			}
+			requested := tc.version
+			if tc.omitVersion {
+				requested = tc.envVersion
+				if requested == "" {
+					requested = "latest"
+				}
+			}
 			releaseVersion := "v9.8.7"
-			if tc.version == "dev" {
+			if requested == "dev" {
 				releaseVersion = "dev"
 			}
 			asset := fmt.Sprintf("reet_%s_%s_%s.tar.gz", releaseVersion, osName, arch)
@@ -126,8 +143,12 @@ esac
 			}
 			write(filepath.Join(root, "archive.tar.gz"), archive.String(), 0600)
 			write(filepath.Join(root, "checksums.txt"), manifest, 0600)
-			cmd := exec.Command("sh", script, "--version", tc.version, "--dir", installDir)
-			cmd.Env = append(os.Environ(), "PATH="+mockBin+string(os.PathListSeparator)+os.Getenv("PATH"), "REET_FIXTURE="+root)
+			args := []string{script, "--dir", installDir}
+			if !tc.omitVersion {
+				args = append(args, "--version", tc.version)
+			}
+			cmd := exec.Command("sh", args...)
+			cmd.Env = append(os.Environ(), "PATH="+mockBin+string(os.PathListSeparator)+os.Getenv("PATH"), "REET_FIXTURE="+root, "REET_VERSION="+tc.envVersion)
 			output, installErr := cmd.CombinedOutput()
 			installed, err := os.ReadFile(filepath.Join(installDir, "reet"))
 			if err != nil {
@@ -168,7 +189,7 @@ esac
 				t.Fatal("installed binary is not executable")
 			}
 			requests, _ := os.ReadFile(filepath.Join(root, "requests"))
-			if tc.version != "latest" && strings.Contains(string(requests), "/releases/latest") {
+			if requested != "latest" && strings.Contains(string(requests), "/releases/latest") {
 				t.Fatal("a pinned version requested the latest release")
 			}
 		})

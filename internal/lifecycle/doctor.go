@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/eyupio/reet.sh/internal/clientconfig"
 )
 
 type diagnostic struct {
@@ -127,6 +129,13 @@ func (a *App) doctor(args []string) error {
 	token := os.Getenv("REET_TOKEN")
 	if os.Getenv("REET_URL") == "" && *server == "" && os.Getenv("REET_CONTROLLER_URL") != "" {
 		token = os.Getenv("REET_CONTROLLER_TOKEN")
+	}
+	if controller == "" && !*asJSON && clientconfig.Interactive(a.In) {
+		value, err := clientconfig.ResolveURL("", a.In, a.Out)
+		if err != nil {
+			return err
+		}
+		controller = value
 	}
 	if controller == "" {
 		add("controller", "warn", "No controller URL configured.", "Set REET_URL to the Account page site URL and REET_TOKEN to a personal API token, then run reet scan --prune.")

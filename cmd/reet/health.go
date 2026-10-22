@@ -8,14 +8,19 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
+
+	"github.com/eyupio/reet.sh/internal/clientconfig"
+	"github.com/eyupio/reet.sh/internal/cliui"
 )
 
 func runHealthcheck(args []string, out io.Writer) error {
 	f := flag.NewFlagSet("reet healthcheck", flag.ContinueOnError)
 	f.SetOutput(out)
-	target := f.String("url", "", "server base URL or /healthz URL (default: local REET_ADDR)")
+	target := f.String("url", os.Getenv("REET_URL"), "server base URL or /healthz URL (default: REET_URL/saved target)")
+	local := f.Bool("local", false, "check local REET_ADDR; ignore saved/remote target")
 	if err := f.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -24,6 +29,25 @@ func runHealthcheck(args []string, out io.Writer) error {
 	}
 	if f.NArg() != 0 {
 		return fmt.Errorf("unexpected healthcheck arguments")
+	}
+	if *local {
+		explicitURL := false
+		f.Visit(func(v *flag.Flag) {
+			if v.Name == "url" {
+				explicitURL = true
+			}
+		})
+		if explicitURL {
+			return fmt.Errorf("choose --local or --url")
+		}
+		return healthcheck(healthURL(env("REET_ADDR", ":8080")))
+	}
+	if *target == "" && os.Getenv("REET_ADDR") == "" {
+		value, err := clientconfig.ResolveURL("", os.Stdin, os.Stderr)
+		if err != nil {
+			return err
+		}
+		*target = value
 	}
 	endpoint := healthURL(env("REET_ADDR", ":8080"))
 	if *target != "" {
@@ -42,6 +66,8 @@ func runHealthcheck(args []string, out io.Writer) error {
 			}
 		}
 	}
+	stop := cliui.Start(os.Stderr, "Checking server health")
+	defer stop()
 	return healthcheck(endpoint)
 }
 

@@ -38,7 +38,7 @@ services:
       # Bind mount to a host folder (not a Docker volume).
       - ${REET_DATA_PATH:-./data}:/data
     healthcheck:
-      test: ["CMD", "/reet", "healthcheck"]
+      test: ["CMD", "/reet", "healthcheck", "--local"]
       interval: 30s
       timeout: 5s
       start_period: 5s

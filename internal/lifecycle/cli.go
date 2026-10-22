@@ -14,6 +14,9 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/eyupio/reet.sh/internal/clientconfig"
+	"github.com/eyupio/reet.sh/internal/cliui"
 )
 
 // App keeps host interaction replaceable so tests never install a real service.
@@ -77,7 +80,7 @@ func (a *App) install(args []string) error {
 	dirArg := f.String("dir", binaryDefault(), "binary installation directory")
 	dataArg := f.String("data-dir", dataDefault(), "server database directory (kept across upgrades)")
 	addr := f.String("addr", "127.0.0.1:8080", "server HOST:PORT (loopback by default)")
-	tag := f.String("version", "latest", "Compose image release: latest, dev or vX.Y.Z; native installs this binary")
+	tag := f.String("version", "", "Compose release (default: REET_VERSION or latest); native installs this binary")
 	noStart := f.Bool("no-start", false, "write configuration without starting/enabling the server")
 	yes := f.Bool("yes", false, "apply without prompting")
 	dry := f.Bool("dry-run", false, "show the plan without changing the deployment")
@@ -88,8 +91,21 @@ func (a *App) install(args []string) error {
 	if *mode != "binary" && *mode != "native" && *mode != "compose" {
 		return fmt.Errorf("mode must be binary, native or compose")
 	}
-	if *mode != "compose" && *tag != "latest" {
+	if *mode != "compose" && *tag != "" && *tag != "latest" {
 		return fmt.Errorf("--version selects a Compose image; use reet upgrade --version for a native binary")
+	}
+	if *mode == "compose" {
+		if *tag == "" {
+			*tag = os.Getenv("REET_VERSION")
+			if *tag == "" {
+				*tag = "latest"
+			}
+		}
+		normalised, e := normaliseTag(*tag)
+		if e != nil {
+			return e
+		}
+		*tag = normalised
 	}
 	state, err := absolute(*stateArg)
 	if err != nil {
@@ -290,7 +306,7 @@ func shellQuote(value string) string { return "'" + strings.ReplaceAll(value, "'
 func (a *App) upgrade(args []string) error {
 	f := flags("upgrade", a.Out)
 	stateArg := f.String("state-dir", stateDefault(), "managed deployment configuration directory")
-	tag := f.String("version", "", "latest, dev or vX.Y.Z; default preserves dev, otherwise latest stable (explicit tags allow downgrade)")
+	tag := f.String("version", os.Getenv("REET_VERSION"), "latest, dev or vX.Y.Z; default: REET_VERSION, then installed channel (explicit tags allow downgrade)")
 	check := f.Bool("check", false, "resolve the published tag without downloading or changing the installation")
 	dry := f.Bool("dry-run", false, "download and verify, then show the plan without applying it")
 	yes := f.Bool("yes", false, "apply without prompting")
@@ -338,13 +354,29 @@ func (a *App) upgrade(args []string) error {
 				installed = a.Version
 			}
 		}
-		*tag = "latest"
+		if installed == "" || installed == "unknown" {
+			if !clientconfig.Interactive(a.In) {
+				return fmt.Errorf("release channel is missing; set REET_VERSION, pass --version or run reet configure")
+			}
+			choice, e := clientconfig.Prompt(a.In, a.Out, "REET_VERSION", "")
+			if e != nil {
+				return e
+			}
+			if _, e = clientconfig.Save(map[string]string{"REET_VERSION": choice}); e != nil {
+				return e
+			}
+			*tag = choice
+		} else {
+			*tag = "latest"
+		}
 		if installed == "dev" {
 			*tag = "dev"
 		}
 	}
 	ctx := context.Background()
+	stopStatus := cliui.Start(os.Stderr, "Checking release channel")
 	resolved, err := resolveRelease(ctx, a.client, a.api, *tag)
+	stopStatus()
 	if err != nil {
 		return err
 	}
@@ -358,7 +390,9 @@ func (a *App) upgrade(args []string) error {
 		return err
 	}
 	defer os.RemoveAll(stage)
+	stopStatus = cliui.Start(os.Stderr, "Downloading and verifying update")
 	candidate, err := fetchBinary(ctx, a.client, a.downloads, resolved, stage)
+	stopStatus()
 	if err != nil {
 		return err
 	}

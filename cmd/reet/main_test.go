@@ -175,3 +175,29 @@ func TestHealthcheckCLIUsesExplicitURLAndRejectsIgnoredArguments(t *testing.T) {
 		t.Fatal("default local healthcheck changed")
 	}
 }
+
+func TestHealthcheckTargetEnvironmentAndLocalOverride(t *testing.T) {
+	localRequests, remoteRequests := 0, 0
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { localRequests++; w.WriteHeader(200) }))
+	defer local.Close()
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { remoteRequests++; w.WriteHeader(200) }))
+	defer remote.Close()
+	t.Setenv("REET_ADDR", strings.TrimPrefix(local.URL, "http://"))
+	t.Setenv("REET_URL", remote.URL)
+	for _, args := range [][]string{nil, {"--local"}, {"--url", local.URL}} {
+		if err := runHealthcheck(args, &bytes.Buffer{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if localRequests != 2 || remoteRequests != 1 {
+		t.Fatalf("wrong targets local=%d remote=%d", localRequests, remoteRequests)
+	}
+	if err := runHealthcheck([]string{"--local", "--url", remote.URL}, &bytes.Buffer{}); err == nil {
+		t.Fatal("accepted ambiguous target")
+	}
+	t.Setenv("REET_ADDR", "")
+	t.Setenv("REET_URL", "")
+	if err := runHealthcheck(nil, &bytes.Buffer{}); err == nil {
+		t.Fatal("missing noninteractive target should explain configuration")
+	}
+}

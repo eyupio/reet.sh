@@ -32,6 +32,6 @@ ENV REET_DATA_DIR=/data REET_ADDR=:8080
 VOLUME /data
 EXPOSE 8080
 USER 65532:65532
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 CMD ["/reet", "healthcheck"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 CMD ["/reet", "healthcheck", "--local"]
 ENTRYPOINT ["/reet"]
 CMD ["serve"]

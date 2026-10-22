@@ -107,7 +107,7 @@ Use the navbar’s **Account** menu (inside **Menu** on smaller screens). Its se
 | `REET_DATA_PATH` | `./data` | Host folder for the database. Must exist and be writable by `REET_UID:REET_GID`. |
 | `REET_UID`, `REET_GID` | `1000` | User the container runs as. `init-env.sh` sets these to `id -u` / `id -g`. |
 | `REET_PORT` | `8080` | Host port for the UI. |
-| `REET_VERSION` | `latest` | Image tag (`latest`, `dev`, `v1.0.0`, `sha-<short>`). |
+| `REET_VERSION` | `latest` | Compose image tag; when exported, also selects CLI installs/upgrades (`latest`, `dev`, or a release tag). Compose additionally accepts `sha-<short>`. |
 | `REET_AUTH` | `accounts` | `accounts` (owner setup and sessions), `token` (the single `REET_TOKEN`) or `none` (trusted LAN, no sign-in). |
 | `REET_TOKEN` | empty | Accounts mode: setup bootstrap and fallback scan token until a personal token exists. Token mode: the only credential. Empty means no token. |
 | `SKILLS_SH_TOKEN` | empty | Optional skills.sh API token (needs a Vercel OIDC token, so it can't be generated). Without it, reet reads the public skills.sh pages. |
@@ -209,13 +209,38 @@ or apply environment cleanup. See [MCP setup and access](docs/mcp.md) and the
 
   Once environments exist, the shelf gets an environment filter and a **Copy missing installs** action that copies the install commands for everything on the shelf that is not on that machine yet.
 
-Manage the binary or a server with `reet install --mode binary|native|compose`, inspect updates with `reet upgrade --check`, apply a verified update with `reet upgrade` (keeps dev builds on dev; otherwise latest stable, with `--version` to switch), and diagnose problems with `reet doctor [--json]`. Managed server upgrades preserve configuration, back up SQLite and restore the previous deployment on a failed restart. Use `reet healthcheck --url https://your-site.example` for a remote health check; without `--url` it checks the local server. Commands preview their intent and require confirmation before applying; see [managed installation and upgrades](docs/binary-installation.md#managed-install-upgrade-and-doctor).
+Manage the binary or a server with `reet install --mode binary|native|compose`, inspect updates with `reet upgrade --check`, apply a verified update with `reet upgrade` (`--version` overrides `REET_VERSION`/saved defaults; otherwise dev stays dev), and diagnose problems with `reet doctor [--json]`. Managed server upgrades preserve configuration, back up SQLite and restore the previous deployment on a failed restart. Use `reet healthcheck --url https://your-site.example` for a remote health check; without `--url` it uses `REET_URL`/saved defaults. Use `--local` for the local server. Commands preview their intent and require confirmation before applying; see [managed installation and upgrades](docs/binary-installation.md#managed-install-upgrade-and-doctor).
 
 **Account → Machines** groups agents under machines; **Account → Compare & sync** offers a two-machine comparison with shared/missing skills and explicit stale/incomplete scan warnings. Library filters follow the same machine → agent hierarchy.
 
 See [environment sync](docs/environment-sync.md) for account setup, confirmed installs/removals, server reporting and freshness advice. The rolling `dev` binary release and Docker `:dev` tag update from main after every merge; stable binary releases remain immutable.
 
 ## Backup
+
+### CLI defaults and terminal presentation
+
+Set your release channel and target server once:
+
+```sh
+reet configure --version dev --url https://reet.sh
+# Or run reet configure interactively for prompts.
+reet upgrade --check
+reet healthcheck
+```
+
+Defaults are saved privately in the platform user configuration directory's
+`reet/client.env` (`~/.config/reet/client.env` on Linux). Relevant CLI commands load
+it automatically. Explicit flags override exported environment variables, which
+override saved defaults. `REET_VERSION` selects the release and `REET_URL` selects
+the server. Commands prompt for missing required values in a terminal and save the
+answers. Scripts receive an actionable error; container checks use `--local`.
+The CLI does not modify your parent shell or automatically source a project's
+`.env`; tokens stay in `REET_TOKEN` or the existing enrollment file.
+
+Interactive terminals show the reet wordmark and burnt-orange progress indicators
+for update checks/downloads and remote health checks. Set `REET_NO_ANIMATION=1` to
+stop animation, or `NO_COLOR=1` for plain output. Redirected output and JSON stay
+free of banners and animation. See [CLI defaults](docs/binary-installation.md#saved-cli-defaults).
 
 ### Local AI agent setup discovery
 

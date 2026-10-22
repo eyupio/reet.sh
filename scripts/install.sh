@@ -7,7 +7,7 @@ usage() {
 Usage: install.sh [--version VERSION] [--dir DIRECTORY]
 
 Install reet for Linux or macOS (amd64 or arm64) from GitHub Releases.
-  --version VERSION  Install a specific release, e.g. v1.2.3 or dev (default: latest)
+  --version VERSION  Install a specific release, e.g. v1.2.3 or dev (default: REET_VERSION or latest)
   --dir DIRECTORY    Install directory (default: REET_INSTALL_DIR or ~/.local/bin)
   -h, --help         Show this help
 
@@ -29,7 +29,7 @@ quote() {
   printf "'"
 }
 
-version=latest
+version=${REET_VERSION:-latest}
 install_dir=${REET_INSTALL_DIR:-"${HOME:?HOME is not set}/.local/bin"}
 while [ "$#" -gt 0 ]; do
   case "$1" in

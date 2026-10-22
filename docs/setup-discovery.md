@@ -516,8 +516,8 @@ reet setup verify --profile work --password-file FILE
 records its ID, digest, policy preview and software evidence. It never stores selected
 values. Saving the same name again creates a new revision; taking a new backup does not
 change an existing profile. `profile list` and `profile show` are local and need no
-passphrase. `restore --profile` and `verify --profile` use the newest revision's
-snapshot.
+passphrase. `restore --profile`, `verify --profile`, `inspect --profile` and `rollback --profile` use
+the newest revision's snapshot.
 
 Profiles are local named snapshot revisions. Account sync, machine/project overrides,
 selective plan application, conflict profiles and cross-machine profile sharing remain

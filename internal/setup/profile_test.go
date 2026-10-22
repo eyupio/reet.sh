@@ -126,4 +126,23 @@ func TestSetupProfileRestoreAndVerifyCLI(t *testing.T) {
 	if strings.Contains(shown.String(), "SYNTHETIC-PROFILE-SECRET") {
 		t.Fatal("profile show exposed credentials")
 	}
+	var inspected bytes.Buffer
+	if err := Run([]string{"inspect", "--profile", "work", "--password-file", passFile, "--dir", dir, "--json"}, &inspected); err != nil {
+		t.Fatal(err)
+	}
+	var inspection SetupSnapshotInspection
+	if err := json.Unmarshal(inspected.Bytes(), &inspection); err != nil || !inspection.Opened || inspection.Header.ID != snapshot.ID {
+		t.Fatalf("inspect by profile: %+v %v", inspection, err)
+	}
+	var rolled bytes.Buffer
+	if err := Run([]string{"rollback", "--profile", "work", "--last", "--password-file", passFile, "--dir", dir, "--json"}, &rolled); err != nil {
+		t.Fatal(err)
+	}
+	var rollback RestoreRollbackResult
+	if err := json.Unmarshal(rolled.Bytes(), &rollback); err != nil || len(rollback.Removed) != 1 {
+		t.Fatalf("rollback by profile: %+v %v", rollback, err)
+	}
+	if err := Run([]string{"inspect", "--profile", "work", snapshot.ID, "--password-file", passFile, "--dir", dir}, &bytes.Buffer{}); err == nil {
+		t.Fatal("profile and snapshot together were accepted")
+	}
 }

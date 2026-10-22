@@ -251,6 +251,7 @@ func setupSkillDigest(files []SetupSkillFile) string {
 		manifest = append(manifest, file.Data...)
 		manifest = append(manifest, 0)
 	}
+	// codeql[go/weak-crypto] This is a file-integrity digest over captured skill content, not password hashing.
 	sum := sha256.Sum256(manifest)
 	return hex.EncodeToString(sum[:])
 }

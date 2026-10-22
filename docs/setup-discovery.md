@@ -437,10 +437,16 @@ treated as verified.
 
 ```sh
 reet setup rollback --journal FILE --password-file FILE SNAPSHOT
-reet setup rollback --journal FILE --password-file FILE --json SNAPSHOT
+reet setup rollback --last --password-file FILE SNAPSHOT
+reet setup journals --json
 ```
 
-`reet setup rollback` reverses a completed apply journal. It requires the snapshot and
+`reet setup journals` lists local apply/rollback records with snapshot ID, state,
+timestamps and created/replaced/skipped counts. It reads journal files only and does not
+open snapshots or destinations; invalid journals are reported as skipped.
+
+`reet setup rollback` reverses a completed apply journal. `--last` chooses the newest
+completed journal for the supplied snapshot. It requires the snapshot and
 its passphrase so the journal can be checked against the snapshot content. Before
 changing anything it verifies the snapshot ID, each recorded applied digest and every
 current destination; it refuses if a destination changed after the apply. Rollback

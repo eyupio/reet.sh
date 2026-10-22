@@ -192,6 +192,9 @@ func loadRestoreJournal(path string) (restoreJournal, os.FileInfo, error) {
 	if journal.SchemaVersion != restoreJournalSchemaVersion {
 		return journal, nil, fmt.Errorf("unsupported restore journal schema version %d", journal.SchemaVersion)
 	}
+	if journal.SnapshotID == "" || journal.State == "" || len(journal.Actions) == 0 || journal.StartedAt.IsZero() {
+		return journal, nil, errors.New("the restore journal is incomplete")
+	}
 	return journal, info, nil
 }
 

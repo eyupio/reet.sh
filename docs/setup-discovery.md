@@ -562,15 +562,19 @@ snapshots. `profile push`/`pull` store the profile on a reet server using `REET_
 `REET_TOKEN`, saved defaults/token, `.env`/`REET_ENV_FILE`, `--env-file` or
 `--server`/`--token`; the payload contains no selected values. Pull writes
 a mode-0600 local profile and does not download the snapshot. The web **Profiles** page
-lists synced profiles, latest revision metadata, overrides and revision history, and can
-delete the server copy; profile creation, push and pull remain CLI-only.
+shows each agent's stored components for revisions with a recorded preview: settings
+field names, MCP server names, instruction sources, encrypted-field names, omissions and
+software evidence. Credential values are never shown; newer previews record MCP server
+names, while older revisions show counts. The page also lists revision metadata,
+overrides and history, and can delete the server copy; profile creation, push and pull
+remain CLI-only.
 `restore --profile`, `verify --profile`, `inspect --profile`, `rollback --profile` and
 `fetch --s3 --profile` use the newest revision's snapshot unless `--revision N` selects
 an older one; restore/verify apply its overrides.
 
-Profiles are local named snapshot revisions. Account sync, machine/project overrides,
-selective plan application, conflict profiles and cross-machine profile sharing remain
-unimplemented.
+Profiles are local named snapshot revisions. Skill contents are kept in Library and synced
+separately rather than copied into setup profiles. Memory/history adapters, web profile
+editing and verified cross-OS restore remain unimplemented.
 
 ## Pruning local snapshots (S2f)
 

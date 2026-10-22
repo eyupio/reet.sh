@@ -29,6 +29,9 @@
     if (!latest?.preview?.agents) return 0
     return latest.preview.agents.reduce((n, agent) => n + (agent.omitted?.length ?? 0), 0)
   })
+  const unavailable = $derived((latest?.preview?.classes ?? []).filter((item) => item.selection !== 'include'))
+  const storedAgents = $derived((latest?.preview?.agents ?? []).filter((agent) => (agent.components?.length ?? 0) > 0))
+  const emptyAgents = $derived((latest?.preview?.agents ?? []).filter((agent) => (agent.components?.length ?? 0) === 0))
 
   onMount(() => {
     void load()
@@ -89,6 +92,10 @@
     if (!value) return ''
     const parsed = new Date(value)
     return Number.isNaN(parsed.getTime()) ? '' : parsed.toLocaleString()
+  }
+
+  function kindLabel(kind: string): string {
+    return ({ settings: 'Agent settings', mcp: 'MCP servers', instructions: 'Instructions', credentials: 'Credential references', behavior: 'Rules and commands', memory: 'Memory', history: 'History', hooks: 'Hooks', caches: 'Caches' } as Record<string, string>)[kind] ?? kind
   }
 
   function revisionSummary(revision: SetupProfileRevision): string {
@@ -158,14 +165,104 @@ reet setup profile push work</code></pre>
           <div><dt>Recorded</dt><dd>{when(latest.created_at)}</dd></div>
           <div><dt>Selected</dt><dd>{hasPreview ? `${componentCount} components` : '—'}</dd></div>
           <div><dt>Omitted</dt><dd>{hasPreview ? `${omissionCount} records` : '—'}</dd></div>
-          <div><dt>Software evidence</dt><dd>{hasPreview ? `${latest.software?.length ?? 0} agents` : '—'}</dd></div>
+          <div><dt>Software evidence</dt><dd>{hasPreview ? (latest.software?.length ? `${latest.software.length} agents` : 'None recorded') : '—'}</dd></div>
         </dl>
 
         {#if !hasPreview}
           <p class="notice">Preview not recorded. Run <code>reet setup profile</code> or <code>reet setup profile push</code> and open the snapshot, or save with <code>--password-file</code>, to include selected/omitted counts.</p>
         {/if}
         {#if latest.preview?.credentials_included}
-          <p class="notice good">Literal credentials were included inside the encrypted snapshot. They are not shown here.</p>
+          <p class="notice good">Credential references and any literal credentials are inside the encrypted snapshot. Values are never shown here.</p>
+        {/if}
+
+        {#if hasPreview}
+          <section class="stored" aria-labelledby="stored-heading">
+            <h3 id="stored-heading">What this revision stores</h3>
+            {#if storedAgents.length === 0}
+              <p class="muted small">No components were selected in this revision.</p>
+            {/if}
+            {#each storedAgents as agent}
+              <article class="agent-card">
+                <header class="agent-head">
+                  <strong>{agent.name}</strong>
+                  <span class="tag">{agent.state ?? 'unknown'}</span>
+                </header>
+                {#each agent.components ?? [] as component}
+                  <div class="component">
+                    <div class="component-head">
+                      <strong>{kindLabel(component.kind)}</strong>
+                      <span class="tag">{component.scope || 'global'}</span>
+                    </div>
+                    <code>{component.source}</code>
+                    {#if component.kind === 'mcp'}
+                      {#if component.declaration_names?.length}
+                        <div class="chips">
+                          {#each component.declaration_names as name}
+                            <span class="chip mono">{name}</span>
+                          {/each}
+                        </div>
+                      {:else}
+                        <p class="muted small">{(component.selected_declarations ?? component.declarations ?? 0)} declarations selected; server names were not recorded in this revision.</p>
+                      {/if}
+                    {/if}
+                    {#if component.included_fields?.length}
+                      <p class="fieldline"><span class="tag">fields</span> {component.included_fields.join(', ')}</p>
+                    {/if}
+                    {#if component.encrypted_fields?.length}
+                      <p class="fieldline"><span class="tag warn">encrypted values</span> {component.encrypted_fields.join(', ')} <span class="muted">(names only; values are not shown)</span></p>
+                    {/if}
+                    {#if component.reference_fields?.length}
+                      <p class="fieldline"><span class="tag">references only</span> {component.reference_fields.join(', ')}</p>
+                    {/if}
+                    {#if component.excluded_fields?.length}
+                      <p class="fieldline muted small">Not copied: {component.excluded_fields.join(', ')}</p>
+                    {/if}
+                    {#if component.unknown_fields}
+                      <p class="fieldline muted small">{component.unknown_fields} unrecognised field{component.unknown_fields === 1 ? '' : 's'} not copied.</p>
+                    {/if}
+                    {#if component.kind === 'mcp' && component.declarations}
+                      <p class="fieldline muted small">{component.selected_declarations ?? 0} of {component.declarations} declarations selected.</p>
+                    {/if}
+                  </div>
+                {/each}
+                {#if agent.omitted?.length}
+                  <details class="omitted">
+                    <summary>{agent.omitted.length} omitted record{agent.omitted.length === 1 ? '' : 's'}</summary>
+                    <ul>
+                      {#each agent.omitted as item}
+                        <li><strong>{kindLabel(item.kind)}</strong>: {item.reason}{item.count ? ` (${item.count})` : ''}</li>
+                      {/each}
+                    </ul>
+                  </details>
+                {/if}
+              </article>
+            {/each}
+            {#if emptyAgents.length}
+              <p class="muted small">No selected components for {emptyAgents.map((agent) => agent.name).join(', ')}.</p>
+            {/if}
+            {#if unavailable.length}
+              <div class="not-stored">
+                <h3>Not stored here</h3>
+                <ul>
+                  {#each unavailable as item}
+                    <li><strong>{kindLabel(item.kind)}.</strong> {item.reason}</li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
+            <p class="notice small">Skills are managed by your <a href="/">Library</a> and sync flow and are not copied into setup profiles. Credential values are never displayed; encrypted fields are listed by name only.</p>
+          </section>
+        {/if}
+
+        {#if latest.software?.length}
+          <div class="software">
+            <h3>Software evidence</h3>
+            <ul>
+              {#each latest.software as item}
+                <li><strong>{item.name}</strong>{#if item.application_version} <span class="muted">{item.application_version}</span>{/if}{#if item.installation_package} <span class="muted">({item.installation_package})</span>{/if}</li>
+              {/each}
+            </ul>
+          </div>
         {/if}
 
         {#if latest.overrides && ((latest.overrides.exclude_kinds?.length ?? 0) > 0 || (latest.overrides.exclude_sources?.length ?? 0) > 0 || Object.keys(latest.overrides.machines ?? {}).length > 0 || Object.keys(latest.overrides.projects ?? {}).length > 0)}
@@ -245,6 +342,23 @@ reet setup profile push work</code></pre>
   code { font-size: 0.8em; }
   .notice { margin-top: 16px; }
   .overrides p { margin: 6px 0; font-size: 0.82rem; overflow-wrap: anywhere; }
+  .stored { margin-top: 18px; }
+  .agent-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 10px; }
+  .agent-head, .component-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .component { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; min-width: 0; }
+  .component code { display: block; margin-top: 4px; overflow-wrap: anywhere; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; background: var(--bg); font-size: 0.75rem; overflow-wrap: anywhere; }
+  .mono { font-family: monospace; }
+  .fieldline { margin: 6px 0 0; font-size: 0.78rem; overflow-wrap: anywhere; }
+  .tag.warn { color: var(--muted); border-color: var(--line); }
+  .omitted { margin-top: 10px; font-size: 0.8rem; }
+  .omitted summary { cursor: pointer; color: var(--muted); }
+  .omitted ul, .not-stored ul, .software ul { margin: 6px 0 0; padding-left: 18px; font-size: 0.8rem; }
+  .omitted li, .not-stored li, .software li { margin: 4px 0; overflow-wrap: anywhere; }
+  .not-stored { margin-top: 16px; }
+  .not-stored h3, .software h3 { margin-bottom: 4px; }
+  .software { margin-top: 16px; }
   .history ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
   .history li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: baseline; padding: 6px 8px; border-radius: 6px; font-size: 0.8rem; }
   .history li.current { background: var(--tint); }

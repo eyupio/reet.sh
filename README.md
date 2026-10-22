@@ -228,16 +228,19 @@ reet setup scan
 reet setup scan --json
 reet setup scan --project /path/to/project
 reet setup scan --components --json
+reet setup scan --probe-versions --json
 ```
 
 The default checks path metadata and executable availability only. Opt into
 `--components` to read bounded, known configuration files (JSON, Codex TOML and
-OpenCode JSONC) and summarise
-settings, MCP declarations and credential requirements without returning values.
-Unsupported formats and incomplete reads are explicit. Neither mode runs agents,
-uploads reports or changes files. Setup backup and restore are **not implemented**.
-Existing instance and shelf backups below remain
-separate. See [setup discovery and limits](docs/setup-discovery.md), the
+OpenCode JSONC) and summarise settings, MCP declarations and credential requirements
+without returning values. Unsupported formats and incomplete reads are explicit.
+Neither of these modes runs agents. Separately opt into `--probe-versions` to invoke
+discovered executables with `--version`, with a three-second timeout each. Reported
+application versions are separate from reet's scanner/server version and do not
+verify installation provenance. No reports are uploaded. Setup backup and restore
+are **not implemented**. Existing instance and shelf backups below remain separate.
+See [setup discovery and limits](docs/setup-discovery.md), the
 [implementation plan](docs/agent-setup-plan.md) and [handoff](handoff.md).
 
 ### Instance and personal shelf backups

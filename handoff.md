@@ -22,8 +22,9 @@ storage plus optional S3; named profiles with machine/project overrides.
 
 - S0 merged in [PR #39](https://github.com/eyupio/reet.sh/pull/39) after both CI workflows passed.
 - S1a merged in [PR #40](https://github.com/eyupio/reet.sh/pull/40) after both CI workflows passed.
-- Current branch: `feat/setup-toml-jsonc`.
-- Base: `origin/main` at `d3bf204` (PR #40 merge).
+- S1b merged in [PR #41](https://github.com/eyupio/reet.sh/pull/41) after both CI workflows passed.
+- Current branch: `feat/setup-agent-versions`.
+- Base: `origin/main` at `770d102` (includes concurrent MCP PRs #42/#43).
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -55,14 +56,21 @@ metadata-only. Per-source partial/error/unsupported states, credential/reference
 counts, parser limits and inode checks are tested. No config values are returned.
 See the discovery guide for exact coverage and limitations.
 
-S1b is implemented locally: Codex TOML and OpenCode JSONC parsers use the same
+S1b is merged: Codex TOML and OpenCode JSONC parsers use the same
 summary/output contract. Codex authentication references and its permission
 settings are recognised. TOML uses pinned `go-toml/v2 v2.4.3` rather than a partial
 home-grown decoder. JSONC comments/trailing commas are normalised before strict
 JSON validation. Format-specific failures remain constant diagnostic codes.
 
-Next: S1c adds version/provenance capture and explicit component export policies.
-S1a/S1b are not the complete S1 acceptance gate. Do not copy
+The first S1c slice is implemented locally: `--probe-versions` invokes discovered
+absolute executables with a fixed `--version` argument. Per-command timeout,
+bounded stdout, discarded stderr, recognised-version-only output and cancellation
+are covered by tests. `application_version` is separate from the existing
+controller reporter `version`; installation method remains explicitly unknown.
+
+Next: complete S1c with verified installation provenance and explicit component
+export policies, before implementing setup archives. Current slices do not meet
+the complete S1 acceptance gate. Do not copy
 configuration trees generically: they may mix secrets, history, caches and hooks.
 No setup backup/restore command is implemented yet.
 
@@ -106,7 +114,7 @@ S1a validation on Linux: focused setup race tests, `go vet ./...`, full
 credential-value omission, literal/reference counts, text output and explicit
 unsupported TOML reporting. `git diff --check` passed. No new dependencies.
 
-## Current-stage validation
+## S1b validation
 
 S1b focused race tests passed, including TOML/JSONC parsing, credentials omitted
 from JSON/text, malformed/duplicate/oversized trees and invalid auth references.
@@ -115,6 +123,19 @@ and MCP tests (14) passed. A short JSONC fuzz run passed 51,557 executions with
 no failures. Compiled CLI smoke tests parsed both formats without exposing values.
 `git diff --check` passed. Dependency change: `go-toml/v2 v2.4.3`, pinned for correct
 TOML decoding; `go mod tidy` also recorded an existing test dependency checksum.
+
+## Current-stage validation and connected sources
+
+Version-probe focused race tests, `go vet ./...`, and full `go test -race ./...`
+passed. Web checks passed (8 tests; zero Svelte diagnostics), as did all 16 MCP
+tests. Compiled CLI fixture smoke tests passed for default discovery, opt-in
+probes, and combined component/probe flags. `git diff --check` passed. No new
+dependencies. Runtime verification remains Linux-only.
+The reet MCP connection was verified with read-only environment and sync-target
+queries. Its existing environment `version` is reporter metadata, confirmed by
+the scanner/store code; keep application versions separate. No live inventory,
+host identifiers or personal configuration has been copied into test fixtures or
+this repository, and no live MCP data was modified.
 
 Merge each stage only after its PR CI passes; the owner has authorised merging
 green stages and continuing on fresh branches. Preserve this rule in subsequent

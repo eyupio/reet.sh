@@ -2,6 +2,8 @@ package setup
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -370,6 +372,64 @@ func renderRemotePrune(out io.Writer, result SetupRemotePruneResult) error {
 	}
 	for _, note := range result.Limitations {
 		if _, err := fmt.Fprintf(out, "\n%s\n", note); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type SetupS3Check struct {
+	Step   string `json:"step"`
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail"`
+}
+
+// TestSetupS3Destination writes, reads and deletes a small object under the
+// configured prefix. It does not list or touch snapshots.
+func TestSetupS3Destination() ([]SetupS3Check, error) {
+	config, prefix, err := SetupS3FromEnv()
+	if err != nil {
+		return nil, err
+	}
+	client, err := objectstore.New(config)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, 8)
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	key := prefix + ".connection-test/" + hex.EncodeToString(nonce) + ".txt"
+	body := []byte("A setup connection test from reet.sh\n")
+	var steps []SetupS3Check
+	step := func(name string, err error, detail string) error {
+		if err != nil {
+			steps = append(steps, SetupS3Check{Step: name, Detail: err.Error()})
+			return err
+		}
+		steps = append(steps, SetupS3Check{Step: name, OK: true, Detail: detail})
+		return nil
+	}
+	if err := step("put", client.Put(context.Background(), key, body), "Wrote "+key+"."); err != nil {
+		return steps, err
+	}
+	got, err := client.Get(context.Background(), key)
+	if err == nil && string(got) != string(body) {
+		err = errors.New("the object read back is not the one written")
+	}
+	if err := step("get", err, "Read it back byte for byte."); err != nil {
+		_ = client.Delete(context.Background(), key)
+		return steps, err
+	}
+	if err := step("delete", client.Delete(context.Background(), key), "Deleted it again."); err != nil {
+		return steps, err
+	}
+	return steps, nil
+}
+
+func renderSetupS3Test(out io.Writer, steps []SetupS3Check) error {
+	for _, step := range steps {
+		if _, err := fmt.Fprintf(out, "  [%t] %s: %s\n", step.OK, step.Step, step.Detail); err != nil {
 			return err
 		}
 	}

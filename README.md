@@ -286,6 +286,7 @@ reet setup inspect --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --apply --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --apply --on-conflict replace --password-file ~/.config/reet/setup.pass SNAPSHOT
+reet setup restore
 reet setup restore --probe-versions --inspect-installation --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --apply --on-conflict skip --conflict ~/.claude.json=replace --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup verify --probe-versions --inspect-installation --password-file ~/.config/reet/setup.pass SNAPSHOT
@@ -325,8 +326,9 @@ verifies the read-back; `reet setup fetch --s3` downloads it, optionally by prof
 
 `reet setup list` reads clear headers without a passphrase; `reet setup inspect` opens
 the encrypted preview and source summaries only with a passphrase and never prints
-values. `reet setup restore` previews a destination plan and can add software and
-cross-OS compatibility warnings. `--apply` creates new files or handles conflicts with
+values. `reet setup restore` with no arguments runs a local wizard (profile, optional S3 fetch,
+passphrase, plan, confirmation, conflict choice, verification); the flag form previews a
+destination plan and can add software and cross-OS compatibility warnings. `--apply` creates new files or handles conflicts with
 `--on-conflict skip|replace` and repeatable `--conflict PATH=skip|replace` overrides,
 keeping mode-0600 rollback copies. `reet setup verify` compares selected fields without
 repairing or running agents. `reet setup rollback` reverses a completed apply journal

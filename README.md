@@ -229,6 +229,7 @@ reet setup scan --json
 reet setup scan --project /path/to/project
 reet setup scan --components --json
 reet setup scan --probe-versions --json
+reet setup scan --inspect-installation --json
 ```
 
 The default checks path metadata and executable availability only. Opt into
@@ -238,7 +239,10 @@ without returning values. Unsupported formats and incomplete reads are explicit.
 Neither of these modes runs agents. Separately opt into `--probe-versions` to invoke
 discovered executables with `--version`, with a three-second timeout each. Reported
 application versions are separate from reet's scanner/server version and do not
-verify installation provenance. No reports are uploaded. Setup backup and restore
+verify installation provenance. `--inspect-installation` independently reads bounded
+local Node package metadata and checks its declared executable against the discovered
+file. It runs no commands; a match is local evidence, not authenticated provenance
+or proof of which package manager was used. No reports are uploaded. Setup backup and restore
 are **not implemented**. Existing instance and shelf backups below remain separate.
 See [setup discovery and limits](docs/setup-discovery.md), the
 [implementation plan](docs/agent-setup-plan.md) and [handoff](handoff.md).

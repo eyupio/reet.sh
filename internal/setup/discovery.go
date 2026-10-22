@@ -15,25 +15,27 @@ import (
 // Report describes only known locations and executable availability. It does not
 // assert that configuration is readable, valid or sufficient for recovery.
 type Report struct {
-	SchemaVersion int       `json:"schema_version"`
-	CapturedAt    time.Time `json:"captured_at"`
-	OS            string    `json:"os"`
-	Architecture  string    `json:"architecture"`
-	Project       string    `json:"project,omitempty"`
-	Agents        []Agent   `json:"agents"`
-	Limitations   []string  `json:"limitations"`
-	VersionProbes bool      `json:"version_probes,omitempty"`
+	SchemaVersion          int       `json:"schema_version"`
+	CapturedAt             time.Time `json:"captured_at"`
+	OS                     string    `json:"os"`
+	Architecture           string    `json:"architecture"`
+	Project                string    `json:"project,omitempty"`
+	Agents                 []Agent   `json:"agents"`
+	Limitations            []string  `json:"limitations"`
+	InstallationInspection bool      `json:"installation_inspection,omitempty"`
+	VersionProbes          bool      `json:"version_probes,omitempty"`
 }
 
 type Agent struct {
-	ID                 string              `json:"id"`
-	Name               string              `json:"name"`
-	State              string              `json:"state"` // detected, not_detected, unknown
-	Executable         Executable          `json:"executable"`
-	Locations          []Location          `json:"locations"`
-	Capabilities       Capabilities        `json:"capabilities"`
-	Components         *ComponentInventory `json:"components,omitempty"`
-	ApplicationVersion *VersionObservation `json:"application_version,omitempty"`
+	ID                 string                   `json:"id"`
+	Name               string                   `json:"name"`
+	State              string                   `json:"state"` // detected, not_detected, unknown
+	Executable         Executable               `json:"executable"`
+	Locations          []Location               `json:"locations"`
+	Capabilities       Capabilities             `json:"capabilities"`
+	Components         *ComponentInventory      `json:"components,omitempty"`
+	Installation       *InstallationObservation `json:"installation,omitempty"`
+	ApplicationVersion *VersionObservation      `json:"application_version,omitempty"`
 }
 
 type Executable struct {
@@ -54,10 +56,11 @@ type Location struct {
 }
 
 type Capabilities struct {
-	Discovery string `json:"discovery"`
-	Backup    string `json:"backup"`
-	Restore   string `json:"restore"`
-	Version   string `json:"version,omitempty"`
+	Discovery    string `json:"discovery"`
+	Backup       string `json:"backup"`
+	Restore      string `json:"restore"`
+	Version      string `json:"version,omitempty"`
+	Installation string `json:"installation,omitempty"`
 }
 
 type environment struct {

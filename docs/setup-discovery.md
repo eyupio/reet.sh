@@ -358,25 +358,34 @@ No files, installers, hooks, package managers or authentication flows run withou
 
 ```sh
 reet setup restore --apply --password-file FILE SNAPSHOT
+reet setup restore --apply --on-conflict skip --password-file FILE SNAPSHOT
+reet setup restore --apply --on-conflict replace --password-file FILE SNAPSHOT
 ```
 
-`--apply` is a local confirmation. It writes only when every action is `create`; any
-`conflict` or `blocked` action refuses the whole run before writing. Destinations are
-rechecked after the plan, and a changed destination invalidates the run. It writes the
-selected settings and MCP declarations as a new JSON, JSONC or TOML file with mode
-0600, creating missing parent directories with mode 0700. Existing JSONC comments are
-not preserved because the destination is a new file. Each written file is parsed again
-and compared with the selected content; a mismatch removes it.
+`--apply` is a local confirmation. Without `--on-conflict`, it writes only when every
+action is `create`; any `conflict` or `blocked` action refuses the whole run before
+writing. `--on-conflict skip` leaves conflicting destinations unchanged and creates
+the other files. `--on-conflict replace` copies each conflicting destination to a
+mode-0600 rollback copy beside the journal, then replaces it. Blocked actions such as
+symlinks still refuse the run.
+
+Destinations are rechecked after the plan, and a changed destination invalidates the
+run. It writes the selected settings and MCP declarations as a new JSON, JSONC or TOML
+file with mode 0600, creating missing parent directories with mode 0700. Existing JSONC
+comments are not preserved. Each written file is parsed again and compared with the
+selected content; a mismatch removes it.
 
 A journal is written atomically under the snapshot directory (`--dir`,
-`REET_SETUP_DIR` or the default). It records destinations, states and errors, never
-selected values. If a later write fails, files created by that run are removed and the
-journal records `failed`/`rolled_back`. `--apply` does not run installers, hooks,
-package managers or authentication, and it does not verify runtime health.
+`REET_SETUP_DIR` or the default). It records destinations, states, rollback-copy paths
+and errors, never selected values. If a later write fails, files created by that run
+are removed, replaced files are restored from their rollback copies, and the journal
+records `failed`/`rolled_back` or `rollback_failed`. Successful rollback copies are
+kept for a future rollback command. `--apply` does not run installers, hooks, package
+managers or authentication, and it does not verify runtime health.
 
-Per-conflict choices, replacement, merge, rollback copies, a rollback command,
-dependency/version resolution, cross-OS translation and post-restore verification
-remain unimplemented. Applying a plan is not the complete setup milestone.
+A per-file conflict choice, merge, a rollback command, dependency/version resolution,
+cross-OS translation and post-restore verification remain unimplemented. Applying a
+plan is not the complete setup milestone.
 
 ## Opt-in application version probes
 

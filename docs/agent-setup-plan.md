@@ -231,9 +231,10 @@ hooks and caches. It reads no configuration values and implements no export.
   reads clear headers without a passphrase and opens the encrypted preview only on
   request. A restore-planning slice maps selected sources to destination locations,
   reports create/conflict/blocked actions and unsupported items, and fingerprints the
-  plan without writing. A create-only apply now writes supported new files, verifies
-  their content and rolls back files created by a failed run; conflict choices,
-  rollback copies and post-restore verification remain later slices.
+  plan without writing. Apply now writes supported new or replaced files, verifies
+  their content, keeps rollback copies for replacements and rolls back a failed run.
+  A per-file conflict choice, a rollback command and post-restore verification remain
+  later slices.
 - Verify every completed archive, write privately and atomically, and produce an
   omissions report. Add local listing/inspection and optional S3 delivery.
 - Keep local recovery usable after complete loss of the controller database.

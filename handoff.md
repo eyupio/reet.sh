@@ -34,10 +34,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Encrypted local setup snapshot writing merged in [PR #53](https://github.com/eyupio/reet.sh/pull/53), `fd9cdf5`.
 - Snapshot listing/inspection merged in [PR #54](https://github.com/eyupio/reet.sh/pull/54), `cf10a02`.
 - Restore planning merged in [PR #55](https://github.com/eyupio/reet.sh/pull/55), `36cead3`.
-- Latest verified source baseline: `origin/main` at `36cead3` (2026-10-22).
-- Create-only restore apply is in [PR #57](https://github.com/eyupio/reet.sh/pull/57) on
-  `feat/setup-restore-apply`; fetch remote status before continuing and preserve any
-  uncommitted work.
+- Create-only restore apply merged in [PR #57](https://github.com/eyupio/reet.sh/pull/57), `ff453c3`.
+- Latest verified source baseline: `origin/main` at `ff453c3` (2026-10-22).
+- Conflict policies and rollback copies are in [PR #58](https://github.com/eyupio/reet.sh/pull/58)
+  on `feat/setup-restore-conflicts`; fetch remote status before continuing and preserve
+  any uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -58,6 +59,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] List clear snapshot headers and inspect payload summaries with a passphrase.
 - [x] Preview a destination restore plan with conflicts and unsupported items.
 - [x] Apply create-only plans with verification, a journal and rollback of that run.
+- [x] Add conflict skip/replace policies and replacement rollback copies.
 
 ## Implemented slice
 
@@ -142,17 +144,17 @@ project sources, and reports `create`, `conflict` or `blocked` per destination f
 plus unsupported/omitted items. It produces a stable plan fingerprint and writes
 nothing without `--apply`.
 
-S4a now adds `reet setup restore --apply`. It writes only when every action is
-`create`; any conflict or blocked action refuses the whole run before writing. New
-settings/MCP files are written atomically with mode 0600, rechecked, parsed again and
-compared with the selected content. A value-free journal records destinations and
-states, and files created by a failed run are removed. Per-conflict choices,
-replacement/merge, rollback copies, a rollback command, installers, authentication and
-runtime verification remain unimplemented.
+S4a adds `reet setup restore --apply`. Without `--on-conflict`, it writes only when
+every action is `create`. `--on-conflict skip` leaves conflicts unchanged and creates
+the rest; `--on-conflict replace` keeps a mode-0600 rollback copy and replaces each
+conflicting regular file. Blocked actions still refuse the run. New settings/MCP files
+are written atomically, rechecked, parsed again and compared with the selected content.
+A value-free journal records destinations, states and rollback-copy paths. A failed run
+removes created files and restores replaced ones from their copies.
 
-Next implementation slice: add explicit per-conflict skip/replace choices and rollback
-copies, then a verify command and health guidance. Do not claim cross-OS restore or a
-complete working-setup restore before their acceptance gates.
+Next implementation slice: add a verify command and health guidance, then a rollback
+command for retained replacement copies and per-file conflict choices. Do not claim
+cross-OS restore or a complete working-setup restore before their acceptance gates.
 
 ## Validation and continuation
 
@@ -487,13 +489,13 @@ is not the complete backup/restore milestone.
    finding. Inspect actual review threads and perform code review independently;
    do not claim automated approval.
 4. Explicit component export policies, the policy-driven preview, the shared sealed
-   archive, encrypted local setup snapshot writing, listing/inspection, read-only
-   restore planning and create-only apply are now implemented. The next small slice is
-   explicit per-conflict skip/replace choices and rollback copies, then verification
-   and health guidance. Keep values encrypted and unknown formats unsupported. Do not
-   claim cross-OS restore or working-setup verification before their acceptance gates.
-   Consult the detailed plan for encryption, key handling, restore and compatibility
-   requirements.
+   archive, encrypted local setup snapshot writing, listing/inspection, restore
+   planning, create-only apply and conflict skip/replace with rollback copies are now
+   implemented. The next small slice is verification and health guidance, then a
+   rollback command and per-file conflict choices. Keep values encrypted and unknown
+   formats unsupported. Do not claim cross-OS restore or working-setup verification
+   before their acceptance gates. Consult the detailed plan for encryption, key
+   handling, restore and compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current
@@ -501,9 +503,9 @@ is not the complete backup/restore milestone.
    should use clickable options with a recommendation when the UI supports them.
 
 Important boundaries: no complete AI setup backup/restore has shipped. Setup backup
-now writes a partial encrypted local snapshot and can list, inspect, plan and create
-new supported files, but conflict resolution, runtime verification and cross-OS
-recovery are not implemented. Existing `reet backup` is not evidence that
+now writes a partial encrypted local snapshot and can list, inspect, plan, create new
+supported files and skip/replace conflicts with rollback copies, but per-file choices,
+runtime verification, a rollback command and cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
 manage that server. No production host was upgraded by this session. Do not copy

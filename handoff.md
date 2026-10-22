@@ -69,10 +69,12 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Passphrase-free profile saving merged in [PR #88](https://github.com/eyupio/reet.sh/pull/88), `42e88c8`.
 - Interactive backup passphrase prompting merged in [PR #89](https://github.com/eyupio/reet.sh/pull/89), `e8a0ec8`.
 - Interactive setup-profile wizard merged in [PR #90](https://github.com/eyupio/reet.sh/pull/90), `39c3091`.
-- Latest verified source baseline: `origin/main` at `39c3091` (2026-10-22).
-- Wizard profile sync and env-file defaults are in [PR #91](https://github.com/eyupio/reet.sh/pull/91)
-  on `feat/setup-profile-sync-wizard`; fetch remote status before continuing and preserve
-  any uncommitted work.
+- Wizard profile sync and env-file defaults merged in [PR #91](https://github.com/eyupio/reet.sh/pull/91), `60051f4`.
+- Profiles empty-state refresh merged in [PR #92](https://github.com/eyupio/reet.sh/pull/92), `af36a77`.
+- Latest verified source baseline: `origin/main` at `af36a77` (2026-10-22).
+- Rejected-token retry is in [PR #93](https://github.com/eyupio/reet.sh/pull/93) on
+  `fix/profile-push-unauthorized`; fetch remote status before continuing and preserve any
+  uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -126,6 +128,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Prompt for a new snapshot passphrase in a terminal and accept `backup -`.
 - [x] Add an interactive `reet setup profile` wizard.
 - [x] Offer profile sync in the wizard and read server/token from saved/default/env settings.
+- [x] Prompt for a replacement personal token and retry when sync is rejected.
 
 ## Implemented slice
 
@@ -378,6 +381,10 @@ saved `reet configure` defaults, `REET_ENV_FILE` or `.env`, and the token from
 `REET_TOKEN`, a saved token, the env file or a hidden prompt. `profile push/pull` also
 support `--env-file` and auto-detect `.env`/`REET_ENV_FILE`. Setup now loads saved client
 defaults like upgrade/scan.
+
+If the server rejects the token during wizard sync, the wizard prompts for a personal API
+token from Account, saves it and retries once. Direct `profile push` does the same in a
+terminal.
 
 Next implementation slice: broadening memory/history components or web profile editing,
 depending on owner priority. Do not claim cross-OS restore or a complete working-setup
@@ -1265,6 +1272,21 @@ pushed it to a local fake server using `.env`. Full `go vet ./...` and
 `go test -race ./...` passed; web checks passed (8 tests; zero Svelte diagnostics) and
 all 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and macOS arm64.
 `git diff --check` passed. No dependency changed.
+
+Broader memory/history components, web profile editing and verified cross-OS restore
+remain unimplemented.
+
+## Rejected profile-sync token retry
+
+The current branch prompts for a replacement personal API token when the profile sync
+server returns 401, saves it for later commands and retries once. The wizard prints the
+server target before pushing; direct `profile push` uses the same retry path.
+
+Validation: focused tests cover the unauthorized sentinel; a PTY smoke test used a bad
+`.env` token, entered a valid token at the hidden prompt and pushed successfully. Full
+`go vet ./...` and `go test -race ./...` passed; web checks passed (8 tests; zero Svelte
+diagnostics) and all 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and
+macOS arm64. `git diff --check` passed. No dependency changed.
 
 Broader memory/history components, web profile editing and verified cross-OS restore
 remain unimplemented.

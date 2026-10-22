@@ -539,7 +539,9 @@ reet setup verify --profile work --password-file FILE
 snapshot if none exists, lets you choose one, asks whether to record preview/software
 evidence, saves a named profile and offers to push it to the server. The sync prompt uses
 `REET_URL`/`REET_TOKEN`, saved `reet configure` defaults, a saved token, `REET_ENV_FILE`
-or a `.env` in the current directory (only `REET_URL` and `REET_TOKEN` are read). `profile save NAME` uses the newest local snapshot
+or a `.env` in the current directory (only `REET_URL` and `REET_TOKEN` are read). If the
+server rejects the token, the wizard asks for a personal API token, saves it and retries
+once. `profile save NAME` uses the newest local snapshot
 and records its clear header (ID, digest and time) without needing a passphrase. Pass `SNAPSHOT` to choose one explicitly,
 or `--password-file` to open the encrypted payload and also record the policy preview and
 software evidence. It appends an explicit revision and never stores selected values. Repeat `--exclude-kind settings|mcp|instructions` or

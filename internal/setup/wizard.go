@@ -13,6 +13,8 @@ import (
 	"golang.org/x/term"
 )
 
+var ErrProfileUnauthorized = errors.New("profile server rejected the token")
+
 func interactive() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
 
 func wizardPrompt(out io.Writer, label, fallback string) (string, error) {
@@ -179,11 +181,36 @@ func offerProfileSync(profile SetupProfile, out io.Writer, remote ...ProfileRemo
 	if err != nil {
 		return err
 	}
-	if err := remote[0].Push(server, token, profile); err != nil {
+	fmt.Fprintf(out, "Pushing profile %s to %s...\n", profile.Name, server)
+	if err := pushProfile(remote[0], server, token, profile, out); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(out, "Pushed profile %s to %s.\n", profile.Name, server)
 	return err
+}
+
+func pushProfile(remote ProfileRemote, server, token string, profile SetupProfile, out io.Writer) error {
+	err := remote.Push(server, token, profile)
+	if err == nil || !errors.Is(err, ErrProfileUnauthorized) || !interactive() {
+		return err
+	}
+	fmt.Fprintf(out, "The server rejected the token. Enter a personal API token from Account on %s (hidden, Enter to cancel): ", server)
+	secret, readErr := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(out)
+	if readErr != nil {
+		return errors.New("could not read the personal API token")
+	}
+	replacement := string(secret)
+	for i := range secret {
+		secret[i] = 0
+	}
+	if replacement == "" {
+		return err
+	}
+	if _, saveErr := clientconfig.SaveToken(replacement); saveErr != nil {
+		return saveErr
+	}
+	return remote.Push(server, replacement, profile)
 }
 
 // profileEnvFile selects an explicit env file, REET_ENV_FILE, or a .env in

@@ -287,6 +287,7 @@ reet setup inspect --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --apply --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --apply --on-conflict replace --password-file ~/.config/reet/setup.pass SNAPSHOT
+reet setup restore --resume JOURNAL --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore
 reet setup restore --probe-versions --inspect-installation --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --apply --on-conflict skip --conflict ~/.claude.json=replace --password-file ~/.config/reet/setup.pass SNAPSHOT
@@ -340,7 +341,9 @@ values. `reet setup restore` with no arguments runs a local wizard (profile, opt
 passphrase, plan, confirmation, conflict choice, verification); the flag form previews a
 destination plan and can add software and cross-OS compatibility warnings. `--apply` creates new files or handles conflicts with
 `--on-conflict skip|replace` and repeatable `--conflict PATH=skip|replace` overrides,
-keeping mode-0600 rollback copies. `reet setup verify` compares selected fields without
+keeping mode-0600 rollback copies. A running apply journal can be continued with
+`restore --resume JOURNAL`; already-applied files are checked against the snapshot and
+only pending actions are written. `reet setup verify` compares selected fields without
 repairing or running agents. `reet setup rollback` reverses a completed apply journal
 after snapshot, digest and current-file checks; `reet setup journals` lists records and
 `--last` picks the newest completed one. `reet setup health` gives conservative local

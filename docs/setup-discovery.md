@@ -494,6 +494,11 @@ reet setup journals --json
 timestamps and created/replaced/skipped counts. It reads journal files only and does not
 open snapshots or destinations; invalid journals are reported as skipped.
 
+If an apply is interrupted, `reet setup restore --resume JOURNAL SNAPSHOT` checks the
+already-applied actions against the snapshot and continues only the pending actions.
+It refuses a journal whose applied files changed after the interruption. A failure while
+resuming rolls back the journal's actions.
+
 `reet setup rollback` reverses a completed apply journal. `--last` chooses the newest
 completed journal for the supplied snapshot. It requires the snapshot and
 its passphrase so the journal can be checked against the snapshot content. Before

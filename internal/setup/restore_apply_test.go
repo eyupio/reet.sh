@@ -542,3 +542,89 @@ func TestApplyRestorePlanPerFileChoicesCLI(t *testing.T) {
 		}
 	}
 }
+
+func TestResumeRestorePlanContinuesPendingActions(t *testing.T) {
+	e := fixture(t)
+	writeConfig(t, filepath.Join(e.home, ".claude.json"), `{"model":"MODEL"}`)
+	writeConfig(t, filepath.Join(e.home, ".codex", "config.toml"), "model = 'MODEL'\n")
+	source, err := discover(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := BuildSnapshotSelection(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination := fixture(t)
+	report, err := discover(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := planForSelection(t, selection, report)
+	if len(plan.Actions) != 2 {
+		t.Fatalf("expected two actions: %+v", plan.Actions)
+	}
+	first := plan.Actions[0]
+	data, err := restoreContent(plan.files[first.Destination])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(first.Destination), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(first.Destination, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	journalDir := t.TempDir()
+	journalPath := filepath.Join(journalDir, "restore-running.json")
+	journal := restoreJournal{
+		SchemaVersion: restoreJournalSchemaVersion, SnapshotID: plan.SnapshotID,
+		PlanFingerprint: plan.Fingerprint, State: "running", StartedAt: time.Now().UTC(),
+		Actions: []restoreJournalAction{
+			{Destination: first.Destination, State: "created", AppliedSHA256: sha256Bytes(data)},
+			{Destination: plan.Actions[1].Destination, State: "pending"},
+		},
+	}
+	if err := writeRestoreJournal(journalPath, journal); err != nil {
+		t.Fatal(err)
+	}
+	result, err := ApplyRestorePlan(plan, RestoreApplyOptions{ResumeJournal: journalPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Resumed || len(result.Created) != 2 || len(result.JournalPath) == 0 {
+		t.Fatalf("wrong resume result: %+v", result)
+	}
+	if _, err := os.Stat(plan.Actions[1].Destination); err != nil {
+		t.Fatal("pending action was not applied")
+	}
+	loaded, _, err := loadRestoreJournal(journalPath)
+	if err != nil || loaded.State != "completed" {
+		t.Fatalf("journal was not completed: %+v %v", loaded, err)
+	}
+}
+
+func TestResumeRestorePlanRefusesChangedAppliedAction(t *testing.T) {
+	selection, report, home := applyFixture(t)
+	plan := planForSelection(t, selection, report)
+	if len(plan.Actions) != 1 {
+		t.Fatalf("unexpected actions: %+v", plan.Actions)
+	}
+	action := plan.Actions[0]
+	writeConfig(t, filepath.Join(home, ".claude.json"), `{"model":"CHANGED"}`)
+	journalPath := filepath.Join(t.TempDir(), "restore-running.json")
+	journal := restoreJournal{
+		SchemaVersion: restoreJournalSchemaVersion, SnapshotID: plan.SnapshotID,
+		PlanFingerprint: plan.Fingerprint, State: "running", StartedAt: time.Now().UTC(),
+		Actions: []restoreJournalAction{{Destination: action.Destination, State: "created", AppliedSHA256: strings.Repeat("0", 64)}},
+	}
+	if err := writeRestoreJournal(journalPath, journal); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyRestorePlan(plan, RestoreApplyOptions{ResumeJournal: journalPath}); err == nil {
+		t.Fatal("changed applied action was resumed")
+	}
+	if data, err := os.ReadFile(action.Destination); err != nil || string(data) != `{"model":"CHANGED"}` {
+		t.Fatal("failed resume changed the destination")
+	}
+}

@@ -166,3 +166,20 @@ PR review identified renamed OpenCode/Pi packages. Registry metadata confirmed
 `@opencode/cli` and `@earendil-works/pi-coding-agent`; the latter was also checked
 against the upstream package manifest. Both current names and legacy aliases are
 recognised, with fixtures asserting the actual observed identity is preserved.
+
+## Upgrade regression interruption
+
+User testing exposed that plain upgrade defaulted from dev to latest stable,
+removing new commands. The published dev artifact itself was verified as correctly
+labelled `dev` at `40b7c65`; the misleading version in the preview came from stale
+deployment metadata paired with the current CLI commit. The fix preserves the dev
+channel for the actual target build, keeps Compose selection tied to its image
+record, and labels CLI versus recorded deployment versions separately. Explicit
+version choices still override defaults. `healthcheck --url` now parses and uses
+its requested target instead of silently ignoring arguments. Setup expansion
+continues with component export policies after this regression fix.
+
+Regression validation: targeted lifecycle/CLI race tests, full `go vet ./...` and
+`go test -race ./...`, web checks (8 tests, zero Svelte diagnostics) and all 16 MCP
+tests passed. Compiled CLI smoke tests verified explicit health base paths,
+unknown-flag rejection and the current setup scan options. No new dependencies.

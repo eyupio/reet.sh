@@ -142,3 +142,36 @@ func TestBackupUnescrowPrintsAKeyAndOneDestination(t *testing.T) {
 		t.Fatal("unescrow printed the other destination's secret")
 	}
 }
+
+func TestHealthcheckCLIUsesExplicitURLAndRejectsIgnoredArguments(t *testing.T) {
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { paths = append(paths, r.URL.Path); w.WriteHeader(200) }))
+	defer server.Close()
+	for _, suffix := range []string{"", "/", "/reet", "/healthz", "/reet/healthz", "/healthz/"} {
+		if err := runHealthcheck([]string{"--url", server.URL + suffix}, &bytes.Buffer{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if strings.Join(paths, ",") != "/healthz,/healthz,/reet/healthz,/healthz,/reet/healthz,/healthz" {
+		t.Fatalf("wrong targets: %v", paths)
+	}
+	before := len(paths)
+	for _, args := range [][]string{{"--unknown"}, {"unexpected"}, {"--url", "file:///tmp/healthz"}, {"--url", "reet.sh"}, {"--url", "https://user:secret@example.test"}, {"--url", "https://example.test/?secret=x"}} {
+		if err := runHealthcheck(args, &bytes.Buffer{}); err == nil {
+			t.Fatalf("accepted %v", args)
+		}
+	}
+	if err := runHealthcheck([]string{"--help"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != before {
+		t.Fatal("invalid arguments or help made requests")
+	}
+	t.Setenv("REET_ADDR", strings.TrimPrefix(server.URL, "http://"))
+	if err := runHealthcheck(nil, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != before+1 || paths[len(paths)-1] != "/healthz" {
+		t.Fatal("default local healthcheck changed")
+	}
+}

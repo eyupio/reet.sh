@@ -62,7 +62,7 @@ Usage: reet <command> [options]
   upgrade      Update a managed deployment with backup and recovery
   backup       Take, verify and restore sealed backups
   doctor       Check your installation and suggest next steps
-  healthcheck  Check whether the configured local server responds
+  healthcheck  Check the local server or an explicit --url
   version      Show the binary version and source commit
 
 Connect to an existing site:
@@ -118,7 +118,7 @@ backup to preserve accounts, lists, teams and sync references.
 			log.Fatal(err)
 		}
 	case "healthcheck":
-		if err := healthcheck(healthURL(env("REET_ADDR", ":8080"))); err != nil {
+		if err := runHealthcheck(args, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

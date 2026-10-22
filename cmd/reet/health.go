@@ -1,11 +1,49 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
+
+func runHealthcheck(args []string, out io.Writer) error {
+	f := flag.NewFlagSet("reet healthcheck", flag.ContinueOnError)
+	f.SetOutput(out)
+	target := f.String("url", "", "server base URL or /healthz URL (default: local REET_ADDR)")
+	if err := f.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if f.NArg() != 0 {
+		return fmt.Errorf("unexpected healthcheck arguments")
+	}
+	endpoint := healthURL(env("REET_ADDR", ":8080"))
+	if *target != "" {
+		u, err := url.Parse(*target)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("--url must be an HTTP(S) server URL without credentials, query or fragment")
+		}
+		u.Path = strings.TrimRight(u.Path, "/")
+		u.RawPath = strings.TrimRight(u.RawPath, "/")
+		if strings.HasSuffix(u.Path, "/healthz") {
+			endpoint = u.String()
+		} else {
+			endpoint, err = url.JoinPath(u.String(), "healthz")
+			if err != nil {
+				return fmt.Errorf("invalid healthcheck URL")
+			}
+		}
+	}
+	return healthcheck(endpoint)
+}
 
 // healthURL turns a listen address such as ":8080" into the local /healthz URL.
 func healthURL(addr string) string {

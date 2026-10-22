@@ -468,3 +468,91 @@ func TestComposeUpgradeSuccessAndRollback(t *testing.T) {
 		})
 	}
 }
+
+func TestUpgradePreservesChannelAndSeparatesBuildFromRecord(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode, running, recorded, explicit, want string
+		separate                                      bool
+	}{
+		{"fresh dev", "binary", "dev", "", "", "dev", false},
+		{"reinstalled dev stale stable record", "binary", "dev", "v1.0.0", "", "dev", false},
+		{"native reinstall dev", "native", "dev", "v1.0.0", "", "dev", false},
+		{"stable reinstall stale dev record", "binary", "v2.0.0", "dev", "", "v2.0.0", false},
+		{"explicit stable from dev", "binary", "dev", "dev", "latest", "v2.0.0", false},
+		{"explicit dev from stable", "binary", "v1.0.0", "v1.0.0", "dev", "dev", false},
+		{"pinned release", "binary", "dev", "dev", "v1.0.0", "v1.0.0", false},
+		{"stable CLI manages dev compose", "compose", "v1.0.0", "dev", "", "dev", false},
+		{"dev CLI manages stable compose", "compose", "dev", "v1.0.0", "", "v2.0.0", false},
+		{"separate dev CLI stable target", "native", "dev", "v1.0.0", "", "v2.0.0", true},
+		{"separate stable CLI dev target", "native", "v1.0.0", "dev", "", "dev", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, state, binary := testApp(t)
+			a.Version = tc.running
+			if tc.separate {
+				separate := filepath.Join(t.TempDir(), "reet")
+				file(t, separate, "other binary")
+				a.executable = func() (string, error) { return separate, nil }
+			}
+			if tc.recorded != "" {
+				d := deployment{Mode: tc.mode, Binary: binary, Version: tc.recorded, Data: t.TempDir(), Addr: "127.0.0.1:8080"}
+				b, _ := json.Marshal(d)
+				file(t, filepath.Join(state, "deployment.json"), string(b))
+			}
+			requests := 0
+			a.client = &http.Client{Transport: transport(func(r *http.Request) (*http.Response, error) {
+				requests++
+				endpoint := "/latest"
+				if tc.want == "dev" {
+					endpoint = "/tags/dev"
+				}
+				if tc.explicit == "v1.0.0" {
+					endpoint = "/tags/v1.0.0"
+				}
+				if !strings.HasSuffix(r.URL.Path, endpoint) {
+					t.Fatalf("wrong channel request: %s", r.URL.Path)
+				}
+				return response(200, `{"tag_name":"`+tc.want+`"}`), nil
+			})}
+			args := []string{"--state-dir", state, "--check"}
+			if tc.explicit != "" {
+				args = append(args, "--version", tc.explicit)
+			}
+			if err := a.Run("upgrade", args); err != nil {
+				t.Fatal(err)
+			}
+			out := a.Out.(*bytes.Buffer).String()
+			if requests != 1 || !strings.Contains(out, "Running CLI: "+tc.running+" (old)") || !strings.Contains(out, "Requested: "+tc.want) {
+				t.Fatalf("wrong preview: %s", out)
+			}
+			if tc.recorded != "" && !strings.Contains(out, "Recorded deployment version: "+tc.recorded) {
+				t.Fatalf("record mixed with binary build: %s", out)
+			}
+			if contents(t, binary) != "old binary" {
+				t.Fatal("check modified binary")
+			}
+		})
+	}
+}
+
+func TestDevUpgradeAppliesDespiteStaleStableRecord(t *testing.T) {
+	a, state, binary := testApp(t)
+	a.Version = "dev"
+	d := deployment{Mode: "binary", Binary: binary, Version: "v1.0.0"}
+	b, _ := json.Marshal(d)
+	file(t, filepath.Join(state, "deployment.json"), string(b))
+	a.client = releaseClient(t, "dev", archive(t, []string{"reet"}, tar.TypeReg), nil)
+	a.run = func(_ context.Context, name string, args ...string) (string, error) {
+		if strings.Contains(name, ".reet-download-") {
+			return "reet dev (new)\n", nil
+		}
+		return "", fmt.Errorf("unexpected command %s", name)
+	}
+	if err := a.Run("upgrade", []string{"--state-dir", state, "--yes"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := load(state)
+	if err != nil || got.Version != "dev" || contents(t, binary) != "new binary" || contents(t, binary+".previous") != "old binary" {
+		t.Fatalf("upgrade failed: %+v %v", got, err)
+	}
+}

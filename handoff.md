@@ -80,7 +80,8 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Latest verified source baseline: `origin/main` at `d87c4fe` (2026-10-22).
 - Skill source provenance merged in [PR #101](https://github.com/eyupio/reet.sh/pull/101), `5b97f1d`.
 - Server-copy profile rename merged in [PR #102](https://github.com/eyupio/reet.sh/pull/102), `95ccd79`.
-- Latest verified source baseline: `origin/main` at `95ccd79` (2026-10-22).
+- Missing skill-lock restore merged in [PR #104](https://github.com/eyupio/reet.sh/pull/104), `0d81784`.
+- Latest verified source baseline: `origin/main` at `0d81784` (2026-10-22).
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -1371,7 +1372,7 @@ Broader web profile editing remains unimplemented.
 
 ## Skill provenance
 
-The current branch reads the skills CLI lock files at `~/.agents/.skill-lock.json` and
+Merged in PR #101, with lock-file creation in PR #104. The work reads the skills CLI lock files at `~/.agents/.skill-lock.json` and
 the selected project's `skills-lock.json`. It resolves entries by installed folder name
 and records only a sanitised source (`owner/repo` or domain characters) and source type
 (`github`, `well-known` or `hosted`) in each snapshot skill. URLs with query strings,

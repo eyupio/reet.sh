@@ -542,8 +542,9 @@ existing profile. `profile list` and `profile show` are local and need no passph
 keeps revision history; `profile remove --yes` deletes only the profile file and keeps
 snapshots. `profile push`/`pull` store the profile on a reet server using `REET_URL`,
 `REET_TOKEN` or `--server`/`--token`; the payload contains no selected values. Pull writes
-a mode-0600 local profile and does not download the snapshot. Profiles are not exposed
-in the web UI yet.
+a mode-0600 local profile and does not download the snapshot. The web **Profiles** page
+lists synced profiles, latest revision metadata, overrides and revision history, and can
+delete the server copy; profile creation, push and pull remain CLI-only.
 `restore --profile`, `verify --profile`, `inspect --profile`, `rollback --profile` and
 `fetch --s3 --profile` use the newest revision's snapshot unless `--revision N` selects
 an older one; restore/verify apply its overrides.

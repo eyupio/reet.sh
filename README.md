@@ -96,7 +96,7 @@ Use **Lists** to browse My lists, Shared with me and Teams & organisations. **Co
 
 The default `REET_AUTH=accounts` creates one owner through the setup page on first visit, then signs people in with email and password. Each account has its own shelf. Roles are owner, admin, member and viewer; viewers are read-only. Shared lists are where people work together without sharing a shelf. Sessions are HttpOnly, SameSite=Lax cookies; passwords are stored with argon2id; sign-in is rate-limited.
 
-Use the navbar’s **Account** menu (inside **Menu** on smaller screens). Its sections are **Profile** (name, theme, time zone and date order), **Password** (which ends every other session), **Sessions**, **Machines** (connect and inspect agent inventories), **Compare & sync** (comparison and reference snapshots), **API tokens** (shown once), **Backups** for your own shelf, and **Activity**. Admins get **Admin → Users** to invite people by link, reset passwords, disable accounts, change roles, revoke tokens and transfer ownership, and **Admin → Backups** for the instance. If `REET_TOKEN` is set it is required once on the setup page and works for `reet scan` only until a personal API token exists.
+The navbar also has **Profiles**, where server-synced AI setup profiles are listed and explained; profile creation, push and pull remain CLI commands. Use the **Account** menu (inside **Menu** on smaller screens). Its sections are **Profile** (name, theme, time zone and date order), **Password** (which ends every other session), **Sessions**, **Machines** (connect and inspect agent inventories), **Compare & sync** (comparison and reference snapshots), **API tokens** (shown once), **Backups** for your own shelf, and **Activity**. Admins get **Admin → Users** to invite people by link, reset passwords, disable accounts, change roles, revoke tokens and transfer ownership, and **Admin → Backups** for the instance. If `REET_TOKEN` is set it is required once on the setup page and works for `reet scan` only until a personal API token exists.
 
 - **Solo or trusted LAN:** `REET_AUTH=none` removes sign-in and maps everything to an implicit owner. Use it only on a network you trust.
 - **Legacy single token:** `REET_AUTH=token` keeps the single `REET_TOKEN` login card and requires it for the UI, API and bookmarklets.
@@ -335,7 +335,9 @@ evidence and reauthentication guidance without repairing anything.
 `restore`, `verify`, `inspect` and `rollback` accept `--profile NAME` and optional
 `--revision N`; profiles can exclude component kinds or exact source paths for
 restore/verify. `profile rename` keeps history and `profile remove --yes` keeps snapshots;
-`profile push`/`pull` sync the profile (not the snapshot) with a reet server. Profiles are not
+`profile push`/`pull` sync the profile (not the snapshot) with a reet server. The
+**Profiles** page lists synced profiles, their latest revision, selected/omitted component
+counts, overrides and revision history, and can delete the server copy. Profiles are not
 synced to an account or another machine. `reet setup prune --keep N` previews local
 snapshot deletion and `--apply` removes old unprotected snapshots; profile and journal
 references are protected.

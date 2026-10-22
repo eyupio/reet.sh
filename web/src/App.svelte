@@ -28,6 +28,7 @@
   import PublicList from './lib/PublicList.svelte'
   import PageHeader from './lib/PageHeader.svelte'
   import Setup from './lib/Setup.svelte'
+  import SetupProfiles from './lib/SetupProfiles.svelte'
   import SignIn from './lib/SignIn.svelte'
   import SkillCard from './lib/SkillCard.svelte'
   import Toast from './lib/Toast.svelte'
@@ -91,6 +92,7 @@
   const isCommunity = location.pathname === '/community'
   const isShared = location.pathname === '/shared'
   const isSpaces = location.pathname === '/spaces'
+  const isProfiles = location.pathname === '/profiles'
   const isAdmin = location.pathname.startsWith('/admin')
   const isAccount = location.pathname.startsWith('/account')
   const isMCPConsent = location.pathname === '/account/mcp/authorize'
@@ -111,8 +113,9 @@
   const accountPages = [['profile', 'Profile'], ['security', 'Password'], ['sessions', 'Sessions'], ['machines', 'Machines'], ['sync', 'Compare & sync'], ['tokens', 'API tokens'], ['mcp', 'MCP access'], ['backups', 'Backups'], ['activity', 'Activity']]
   const adminPages = [['overview', 'Overview'], ['environments', 'Environments'], ['users', 'Users'], ['team', 'Team usage'], ['backups', 'Backups'], ['settings', 'Settings'], ['activity', 'Activity']]
   const mainNavigation = $derived([
-    { href: '/', label: 'Personal shelf', current: !isHosting && !isAdmin && !isAccount && !isList && !isCommunity && !isShared && !isSpaces },
+    { href: '/', label: 'Personal shelf', current: !isHosting && !isAdmin && !isAccount && !isList && !isCommunity && !isShared && !isSpaces && !isProfiles },
     { href: '/shared', label: 'Lists', current: isShared || isList },
+    { href: '/profiles', label: 'Profiles', current: isProfiles },
     { href: '/spaces', label: 'Teams', current: isSpaces },
     { href: '/community', label: 'Community', current: isCommunity },
     ...(canWrite ? [{ href: '/hosting', label: 'Host skills', current: isHosting }] : []),
@@ -640,7 +643,7 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isAdmin ? 'Admin' : isAccount ? 'Your account' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isAdmin ? 'Admin' : isAccount ? 'Your account' : isProfiles ? 'Profiles' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
   {/if}
 </svelte:head>
 
@@ -680,6 +683,8 @@
     <Hosting {canWrite} />
   {:else if isShared}
     <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
+  {:else if isProfiles}
+    <SetupProfiles {canWrite} onerror={fail} />
   {:else if isSpaces}
     <Spaces {canWrite} />
   {:else if isMCPConsent && authMode === 'accounts'}

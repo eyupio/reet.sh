@@ -277,7 +277,8 @@ hooks and caches. It reads no configuration values and implements no export.
   A first local slice now saves explicit named snapshot revisions, optional component/source
   overrides for restore/verify, lets inspect/rollback/fetch select a revision, keeps
   explicit revision history and supports local rename/remove plus server push/pull;
-  web UI and machine/project-specific overrides remain later work.
+  a read-only web Profiles page lists server copies. Editing/machine-specific overrides
+  remain later work.
 - Record drift from observations; stale/incomplete inventory stays unknown.
 - Gate: intentional machine differences survive sync; profile revisions are
   explicit; no implicit remote execution or credential sharing.

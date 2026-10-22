@@ -426,6 +426,24 @@ export async function getRollup(): Promise<Rollup> {
 export type SyncEnvironment = Environment & { error?: string; project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string; skills: SyncSkill[] }
 export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source' | 'sourceType'>
 export type SyncTarget = { mode?: string; baseline?: SyncSkill[]; appliedRevision?: string; hostAliases?: string[]; targetAliases?: string[]; target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
+export type SetupProfileSummary = { name: string; revision: number; snapshotId: string; snapshotDigest: string; updatedAt: number }
+export type SetupProfileComponent = { kind: string; source: string; scope: string; state?: string }
+export type SetupProfilePreview = {
+  agents?: { id: string; name: string; state?: string; components?: SetupProfileComponent[]; omitted?: { kind: string; reason: string }[] }[]
+  credentials_included?: boolean
+  limitations?: string[]
+}
+export type SetupProfileRevision = {
+  revision: number
+  created_at: string
+  snapshot_id: string
+  snapshot_digest: string
+  snapshot_taken_at: string
+  preview?: SetupProfilePreview
+  software?: { agent_id: string; name: string; application_version?: string; installation_package?: string }[]
+  overrides?: { exclude_kinds?: string[]; exclude_sources?: string[] }
+}
+export type SetupProfileRecord = { schema_version: number; name: string; revisions: SetupProfileRevision[] }
 export type Machine = { aliases?: string[]; host: string; groups: SyncEnvironment[]; skillCount: number }
 export type SyncState = { agents?: SyncAgent[]; jobs?: SyncJob[]; machines?: Machine[]; environments: SyncEnvironment[]; targets: SyncTarget[] }
 export async function getSyncState(): Promise<SyncState> { return (await req('/api/v2/sync')).json() }
@@ -633,3 +651,13 @@ export async function adoptSyncSkills(targetId: string, skillIds: string[], list
 export async function queueSyncJob(agentId: string, targetId: string, kind: string): Promise<SyncState> { return (await req('/api/v2/sync/jobs', { method: 'POST', body: json({ agentId, targetId, kind }) })).json() }
 export async function controlSyncJob(id: string, action: string, hash = ''): Promise<SyncState> { return (await req('/api/v2/sync/jobs', { method: 'PATCH', body: json({ id, action, hash }) })).json() }
 export async function controlSyncAgent(id: string, action: string): Promise<SyncState> { return (await req('/api/v2/sync/agents', { method: 'PATCH', body: json({ id, action }) })).json() }
+
+export async function listSetupProfiles(): Promise<{ profiles: SetupProfileSummary[] }> {
+  return (await req('/api/v2/setup/profiles')).json()
+}
+export async function getSetupProfile(name: string): Promise<SetupProfileRecord> {
+  return (await req(`/api/v2/setup/profiles/${encodeURIComponent(name)}`)).json()
+}
+export async function deleteSetupProfile(name: string): Promise<void> {
+  await req(`/api/v2/setup/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' })
+}

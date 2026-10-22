@@ -290,7 +290,7 @@ func shellQuote(value string) string { return "'" + strings.ReplaceAll(value, "'
 func (a *App) upgrade(args []string) error {
 	f := flags("upgrade", a.Out)
 	stateArg := f.String("state-dir", stateDefault(), "managed deployment configuration directory")
-	tag := f.String("version", "latest", "latest stable, dev or vX.Y.Z (explicit older tags allow downgrade)")
+	tag := f.String("version", "", "latest, dev or vX.Y.Z; default preserves dev, otherwise latest stable (explicit tags allow downgrade)")
 	check := f.Bool("check", false, "resolve the published tag without downloading or changing the installation")
 	dry := f.Bool("dry-run", false, "download and verify, then show the plan without applying it")
 	yes := f.Bool("yes", false, "apply without prompting")
@@ -319,12 +319,36 @@ func (a *App) upgrade(args []string) error {
 	} else if err != nil {
 		return err
 	}
+	if *tag == "" {
+		// A standalone installer can replace the executable without updating the
+		// deployment record. Prefer this binary's build when it is the target;
+		// Compose instead follows its recorded image, not the managing CLI.
+		installed := d.Version
+		if d.Mode != "compose" {
+			path, err := a.executable()
+			if err != nil {
+				return fmt.Errorf("cannot identify running binary; select --version explicitly")
+			}
+			running, err := os.Stat(path)
+			target, targetErr := os.Stat(d.Binary)
+			if err != nil || targetErr != nil {
+				return fmt.Errorf("cannot inspect upgrade target; select --version explicitly")
+			}
+			if os.SameFile(running, target) {
+				installed = a.Version
+			}
+		}
+		*tag = "latest"
+		if installed == "dev" {
+			*tag = "dev"
+		}
+	}
 	ctx := context.Background()
 	resolved, err := resolveRelease(ctx, a.client, a.api, *tag)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(a.Out, "Installed: %s (%s)\nRequested: %s\nDeployment: %s\nBinary: %s\n", d.Version, a.Commit, resolved, d.Mode, d.Binary)
+	fmt.Fprintf(a.Out, "Running CLI: %s (%s)\nRecorded deployment version: %s\nRequested: %s\nDeployment: %s\nBinary: %s\n", a.Version, a.Commit, d.Version, resolved, d.Mode, d.Binary)
 	if *check {
 		fmt.Fprintln(a.Out, "Tag lookup only. Use --dry-run to verify the binary and detect changes on the rolling dev channel.")
 		return nil

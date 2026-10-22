@@ -104,11 +104,14 @@ Linux uses `systemctl --user` and needs a working user service manager; use `log
 ```sh
 reet upgrade --check                 # look up the current published tag only
 reet upgrade --dry-run               # download, checksum and inspect the candidate
-reet upgrade                         # stable release, confirmation required
-reet upgrade --version dev           # opt into the rolling main build
+reet upgrade                         # preserve dev; otherwise latest stable; confirmation required
+reet upgrade --version dev           # explicitly select the rolling main build
+reet upgrade --version latest        # explicitly switch to latest stable
 reet upgrade --version v1.2.3         # explicitly select a version, including a downgrade
 reet doctor                          # readable checks and advice
 reet doctor --json                   # structured results, exit 1 if any check fails
+reet healthcheck                     # local REET_ADDR (default port 8080)
+reet healthcheck --url https://reet.sh # explicitly check this server at /healthz
 ```
 
 `init` aliases `install`; `update` aliases `upgrade`. Each command accepts `--help`. Warnings alone leave doctor's exit status at zero. It checks the executable/PATH, deployment permissions, SQLite integrity, managed service status, local health, Node/npm availability for skill sync, and configured controller credentials. It never applies fixes or changes server configuration. A server heartbeat does not replace a full agent scan.
@@ -116,3 +119,36 @@ reet doctor --json                   # structured results, exit 1 if any check f
 Upgrade preserves the previous executable as `reet.previous`. For a managed server it records whether the server is running, pulls/verifies releases before downtime, stops the service, makes a consistent SQLite backup under `STATE_DIR/backups`, and restarts only if it was running. A failed start/health check restores the previous executable, pinned Compose configuration and pre-upgrade database before restarting the old service. If stopping the failed service or restoring its files fails, the CLI stops recovery and prints an error rather than writing into a running database. Keep the backup for manual recovery. A previously stopped server remains stopped; its first subsequent start is not health-verified by the upgrade. Standalone binaries cannot restart a manually launched server: restart that process yourself.
 
 Managed files belong to this CLI. Existing system-level services, custom Compose projects and manually launched servers are not automatically adopted. Stop them first, back up their database and explicitly point a new deployment at its absolute data path; do not run two servers against one database. Run lifecycle operations for a deployment with the same `--state-dir`; concurrent operations there are rejected. After an interrupted operation, check its process has exited before removing `lifecycle.lock`. No uninstall, OS tuning, Docker installation or privileged system service changes run automatically.
+
+## Upgrade channel selection and recovery
+
+Plain `reet upgrade` keeps a dev target on the rolling `dev` channel. Other
+versions follow latest stable. An explicit `--version dev`, `--version latest`
+or version tag takes precedence. For a binary/native deployment, when the running
+CLI is the target executable, its actual build version takes precedence over a
+stale deployment record left by a manual reinstall. A different target uses its
+recorded version. Compose follows its recorded image version, independently of
+the CLI build. The preview labels the running CLI build and recorded deployment
+version separately; they may legitimately differ.
+
+Older upgrade implementations always defaulted to latest stable. Running one from
+a dev binary could therefore replace it with an older stable release lacking
+`upgrade`, `doctor` and `setup`. If those commands have disappeared, reinstall the
+dev binary once and verify the actual executable:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh -s -- --version dev
+hash -r
+~/.local/bin/reet --version
+~/.local/bin/reet upgrade --version dev
+```
+
+The latest fixed dev binary preserves its channel on subsequent plain upgrades.
+The installer still defaults to latest stable unless `--version dev` is supplied.
+Reinstalling a CLI does not restart a manually launched server.
+
+`healthcheck --url` accepts an HTTP(S) server base URL or its `/healthz` endpoint,
+preserving a base path such as `/reet`. It rejects unknown flags and positional
+arguments. Older binaries ignored those arguments and always contacted the local
+port; connection reset/EOF from `127.0.0.1` does not establish remote-site health.
+Use `curl -fsS https://your-site.example/healthz` until the CLI is updated.

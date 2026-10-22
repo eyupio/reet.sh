@@ -275,6 +275,8 @@ reet setup profile save --password-file ~/.config/reet/setup.pass work SNAPSHOT
 reet setup profile save --exclude-kind instructions --password-file ~/.config/reet/setup.pass work2 SNAPSHOT
 reet setup profile rename work2 personal
 reet setup profile remove --yes personal
+reet setup profile push --server https://reet.example work
+reet setup profile pull --server https://reet.example work
 reet setup prune --keep 10 --apply
 reet setup restore --profile work --password-file ~/.config/reet/setup.pass
 reet setup list
@@ -332,8 +334,8 @@ evidence and reauthentication guidance without repairing anything.
 `reet setup profile save` keeps a named local revision pointing at an immutable snapshot;
 `restore`, `verify`, `inspect` and `rollback` accept `--profile NAME` and optional
 `--revision N`; profiles can exclude component kinds or exact source paths for
-restore/verify. `profile rename` keeps history and `profile remove --yes` keeps
-snapshots. Profiles are not
+restore/verify. `profile rename` keeps history and `profile remove --yes` keeps snapshots;
+`profile push`/`pull` sync the profile (not the snapshot) with a reet server. Profiles are not
 synced to an account or another machine. `reet setup prune --keep N` previews local
 snapshot deletion and `--apply` removes old unprotected snapshots; profile and journal
 references are protected.

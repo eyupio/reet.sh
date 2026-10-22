@@ -152,6 +152,17 @@ func loadSetupProfile(name, dir string) (SetupProfile, error) {
 	if err != nil {
 		return SetupProfile{}, fmt.Errorf("read profile: %w", err)
 	}
+	return ParseSetupProfile(data, name)
+}
+
+// ParseSetupProfile validates a profile payload without reading local files.
+func ParseSetupProfile(data []byte, name string) (SetupProfile, error) {
+	if !validProfileName(name) {
+		return SetupProfile{}, errors.New("profile names use 1-64 letters, digits, '-' or '_'")
+	}
+	if len(data) > maxProfileBytes {
+		return SetupProfile{}, errors.New("the profile is too large")
+	}
 	var profile SetupProfile
 	if err := json.Unmarshal(data, &profile); err != nil {
 		return SetupProfile{}, errors.New("the profile is invalid")
@@ -165,6 +176,25 @@ func loadSetupProfile(name, dir string) (SetupProfile, error) {
 		}
 	}
 	return profile, nil
+}
+
+// WriteSetupProfile validates and stores a complete profile payload locally.
+func WriteSetupProfile(profile SetupProfile, dir string) error {
+	data, err := json.MarshalIndent(profile, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode profile: %w", err)
+	}
+	if _, err := ParseSetupProfile(data, profile.Name); err != nil {
+		return err
+	}
+	path, err := profilePath(profile.Name, dir)
+	if err != nil {
+		return err
+	}
+	if err := prepareSnapshotDir(filepath.Dir(path)); err != nil {
+		return err
+	}
+	return writeSnapshotFile(path, append(data, '\n'), 0o600)
 }
 
 func profilePath(name, dir string) (string, error) {

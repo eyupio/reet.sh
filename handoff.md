@@ -143,6 +143,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Record sanitised skill source provenance from skills CLI lock files.
 - [x] Rename server profile copies from the Profiles page.
 - [x] Create missing skills CLI lock files from recorded provenance.
+- [x] Merge missing skill provenance into existing lock files safely.
 
 ## Implemented slice
 
@@ -1238,9 +1239,8 @@ zero Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary smoke te
 verify the simplified command before merge; setup tests cross-compile for Windows amd64
 and macOS arm64. `git diff --check` passed. No dependency changed.
 
-Skill dependency resolution, merging into existing lock files, broader memory/history
-components, broader web profile editing and verified cross-OS restore remain
-unimplemented.
+Skill dependency resolution, broader memory/history components, broader web profile
+editing and verified cross-OS restore remain unimplemented.
 
 ## Interactive backup passphrase
 
@@ -1257,9 +1257,8 @@ diagnostics) and all 16 MCP tests passed. A PTY smoke test verified the two-prom
 macOS arm64.
 `git diff --check` passed. No dependency changed (x/term was already present).
 
-Skill dependency resolution, merging into existing lock files, broader memory/history
-components, broader web profile editing and verified cross-OS restore remain
-unimplemented.
+Skill dependency resolution, broader memory/history components, broader web profile
+editing and verified cross-OS restore remain unimplemented.
 
 ## Interactive setup-profile wizard
 
@@ -1277,9 +1276,8 @@ diagnostics) and all 16 MCP tests passed. Setup tests cross-compile for Windows 
 macOS arm64. `git diff --check` passed. No dependency changed (x/term was already
 present).
 
-Skill dependency resolution, merging into existing lock files, broader memory/history
-components, broader web profile editing and verified cross-OS restore remain
-unimplemented.
+Skill dependency resolution, broader memory/history components, broader web profile
+editing and verified cross-OS restore remain unimplemented.
 
 ## Wizard sync and env-file defaults
 
@@ -1295,9 +1293,8 @@ pushed it to a local fake server using `.env`. Full `go vet ./...` and
 all 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and macOS arm64.
 `git diff --check` passed. No dependency changed.
 
-Skill dependency resolution, merging into existing lock files, broader memory/history
-components, broader web profile editing and verified cross-OS restore remain
-unimplemented.
+Skill dependency resolution, broader memory/history components, broader web profile
+editing and verified cross-OS restore remain unimplemented.
 
 ## Rejected profile-sync token retry
 
@@ -1311,9 +1308,8 @@ Validation: focused tests cover the unauthorized sentinel; a PTY smoke test used
 diagnostics) and all 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and
 macOS arm64. `git diff --check` passed. No dependency changed.
 
-Skill dependency resolution, merging into existing lock files, broader memory/history
-components, broader web profile editing and verified cross-OS restore remain
-unimplemented.
+Skill dependency resolution, broader memory/history components, broader web profile
+editing and verified cross-OS restore remain unimplemented.
 
 ## Profile preview defaults and saved-token retry
 
@@ -1329,9 +1325,8 @@ capture and silent saved-token retry with a stale `.env` token. Full `go vet ./.
 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and macOS arm64.
 `git diff --check` passed. No dependency changed.
 
-Skill dependency resolution, merging into existing lock files, broader memory/history
-components, broader web profile editing and verified cross-OS restore remain
-unimplemented.
+Skill dependency resolution, broader memory/history components, broader web profile
+editing and verified cross-OS restore remain unimplemented.
 
 ## Skills in setup snapshots
 
@@ -1380,14 +1375,15 @@ fragments, user info, whitespace or other unsafe characters are dropped. The sou
 shown in the Profiles page next to the skill name; it never contains file contents or
 credential values. Lock files are read with a bounded regular-file check. On restore, a
 missing global `.agents/.skill-lock.json` or project `skills-lock.json` is created from
-the recorded entries; an existing lock file is left untouched and reported as
-`existing_lock_not_merged`, so restored skills may still need linking.
+the recorded entries. An existing lock file gets missing entries merged in; entries that
+are already present keep their source, and a conflicting source is reported rather than
+overwritten. A changed lock file invalidates the plan before any write.
 
 Validation: tests cover map- and list-form lock entries, global/project precedence,
-unsafe-source rejection, snapshot preview output, missing-lock creation, existing-lock
-safety and rollback. Full Go, web and MCP checks pass.
+unsafe-source rejection, snapshot preview output, missing-lock creation, merge,
+changed-lock refusal and rollback. Full Go, web and MCP checks pass.
 
-Skill dependency resolution and merging into an existing lock file remain unimplemented.
+Skill dependency resolution remains unimplemented.
 
 ## Profiles web detail
 
@@ -1418,9 +1414,8 @@ checks passed (8 tests; zero Svelte diagnostics) and all 16 MCP tests passed. Se
 cross-compile for Windows amd64 and macOS arm64. `git diff --check` passed. No dependency
 changed.
 
-Skill dependency resolution, merging into existing lock files, broader memory/history
-components, broader web profile editing and verified cross-OS restore remain
-unimplemented.
+Skill dependency resolution, broader memory/history components, broader web profile
+editing and verified cross-OS restore remain unimplemented.
 
 ## Resume checklist (2026-10-22)
 

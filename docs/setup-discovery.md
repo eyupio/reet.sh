@@ -307,9 +307,9 @@ and optional software evidence. A skill is copied as a bounded directory (256 fi
 whole rather than silently copied in part. When the skills CLI lock files are present,
 each skill's sanitised source, source type and source-in-repository path are recorded
 from the lock entry. Restore creates a missing global `.agents/.skill-lock.json` or project
-`skills-lock.json` from those entries; it leaves an existing lock file untouched and
-reports `existing_lock_not_merged`, so a restored skill may still need linking in Library
-when a lock file was already present. `--probe-versions` records bounded
+`skills-lock.json` and merges missing entries into an existing lock file. Entries already
+present keep their source; a conflicting source is reported as
+`skill_lock_source_conflict` rather than overwritten. `--probe-versions` records bounded
 application `--version` reports and `--inspect-installation` records local Node package
 associations; both are opt-in because probing executes the discovered executable.
 Software evidence deliberately omits executable and metadata paths, and it is not
@@ -317,8 +317,7 @@ authenticated provenance.
 
 Credential-bearing values, opt-in sources, memory, history, hooks and caches remain
 excluded by default. The snapshot is not a complete AI setup: skill dependency
-resolution, merging into existing lock files, cross-OS translation and runtime health
-verification remain unimplemented. `--preview` remains read-only.
+resolution, cross-OS translation and runtime health verification remain unimplemented. `--preview` remains read-only.
 
 `--include-credentials` explicitly includes literal values from the policy's
 `encrypted_only` fields in the encrypted payload. It is rejected with `--preview`

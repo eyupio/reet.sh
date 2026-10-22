@@ -120,6 +120,21 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 					return RestoreApplyResult{}, fmt.Errorf("conflicting destination %q changed after the plan; preview again", action.Destination)
 				}
 			}
+		case "merge":
+			info, err := os.Lstat(action.Destination)
+			if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+				return RestoreApplyResult{}, fmt.Errorf("merge destination %q must be a regular file", action.Destination)
+			}
+			file, ok := plan.files[action.Destination]
+			if !ok {
+				return RestoreApplyResult{}, fmt.Errorf("the plan has no merged content for %q", action.Destination)
+			}
+			if file.baseDigest != "" {
+				current, issue := readConfig(action.Destination, info)
+				if issue != "" || sha256Bytes(current) != file.baseDigest {
+					return RestoreApplyResult{}, fmt.Errorf("merge destination %q changed after the plan; preview again", action.Destination)
+				}
+			}
 		case "create":
 			if _, err := os.Lstat(action.Destination); err == nil {
 				return RestoreApplyResult{}, fmt.Errorf("destination %q changed after the plan; preview again", action.Destination)
@@ -232,7 +247,7 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 		if err != nil {
 			return fail(i, err)
 		}
-		if action.State == "conflict" && policy == "replace" {
+		if action.State == "merge" || action.State == "conflict" && policy == "replace" {
 			backup := restoreBackupPath(journalPath, i)
 			if err := copyRestoreBackup(action.Destination, backup); err != nil {
 				return fail(i, err)
@@ -258,7 +273,7 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 		if file.format == "skill" && file.mode != 0 {
 			mode = file.mode
 		}
-		if err := writeRestoreFile(action.Destination, data, action.State == "conflict" && policy == "replace", mode); err != nil {
+		if err := writeRestoreFile(action.Destination, data, action.State == "merge" || action.State == "conflict" && policy == "replace", mode); err != nil {
 			return fail(i, err)
 		}
 		if err := verifyRestoreFile(action.Destination, file); err != nil {
@@ -270,7 +285,7 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 		case "create":
 			created = append(created, action.Destination)
 			journal.Actions[i].State = "created"
-		case "conflict":
+		case "merge", "conflict":
 			replaced = append(replaced, action.Destination)
 			backups = append(backups, journal.Actions[i].Backup)
 			journal.Actions[i].State = "replaced"

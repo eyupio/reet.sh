@@ -385,21 +385,71 @@ func TestSkillLockIsRestoredOnlyWhenMissing(t *testing.T) {
 	}
 	existingPlan := planForSelection(t, selection, existingReport)
 	lockPath = filepath.Join(existing.home, ".agents", ".skill-lock.json")
-	for _, action := range existingPlan.Actions {
-		if action.Destination == lockPath {
-			t.Fatalf("existing lock was replaced: %+v", action)
-		}
-	}
-	found := false
-	for _, unsupported := range existingPlan.Unsupported {
-		if unsupported.Kind == "skill_lock" && unsupported.Reason == "existing_lock_not_merged" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("existing lock omission missing: %+v", existingPlan.Unsupported)
+	action = findRestoreAction(t, existingPlan, lockPath)
+	if action.State != "merge" {
+		t.Fatalf("existing lock was not merged: %+v", action)
 	}
 	if data, err := os.ReadFile(lockPath); err != nil || !strings.Contains(string(data), "other/repo") {
 		t.Fatal("planning changed the existing lock")
+	}
+	existingApplied, err := ApplyRestorePlan(existingPlan, RestoreApplyOptions{JournalDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "other/repo") || !strings.Contains(string(data), "owner/repo") {
+		t.Fatalf("lock merge lost an entry: %s", data)
+	}
+	existingUpdated, err := discover(fixtureWithHome(t, existing.home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RollbackRestore(existingApplied.JournalPath, BuildSetupSnapshot(selection), testManifest("setup-plan"), existingUpdated, RestoreRollbackOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(lockPath)
+	if err != nil || strings.Contains(string(data), "owner/repo") || !strings.Contains(string(data), "other/repo") {
+		t.Fatalf("rollback did not restore the original lock: %s %v", data, err)
+	}
+}
+
+func TestSkillLockMergeRefusesAChangedFile(t *testing.T) {
+	e, _ := skillFixture(t)
+	mkdir(t, filepath.Join(e.home, ".agents"))
+	writeConfig(t, filepath.Join(e.home, ".agents", ".skill-lock.json"), `{"version":3,"skills":{"alpha":{"source":"owner/repo","sourceType":"github","skillPath":"skills/alpha/SKILL.md"},"other":{"source":"other/repo"}}}`)
+	source, err := discover(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := BuildSnapshotSelection(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination := fixture(t)
+	mkdir(t, filepath.Join(destination.home, ".agents"))
+	lockPath := filepath.Join(destination.home, ".agents", ".skill-lock.json")
+	writeConfig(t, lockPath, `{"version":3,"skills":{"other":{"source":"other/repo"}}}`)
+	report, err := discover(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := planForSelection(t, selection, report)
+	if action := findRestoreAction(t, plan, lockPath); action.State != "merge" {
+		t.Fatalf("lock not planned as merge: %+v", action)
+	}
+	writeConfig(t, lockPath, `{"version":3,"skills":{"other":{"source":"changed/repo"}}}`)
+	before, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyRestorePlan(plan, RestoreApplyOptions{JournalDir: t.TempDir()}); err == nil {
+		t.Fatal("changed lock file was overwritten")
+	}
+	after, err := os.ReadFile(lockPath)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("changed lock file was modified")
 	}
 }

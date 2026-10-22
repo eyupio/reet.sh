@@ -31,7 +31,7 @@ type RestoreAction struct {
 	Destination string   `json:"destination"`
 	Scope       string   `json:"scope"`
 	Format      string   `json:"format"`
-	State       string   `json:"state"` // create, conflict, blocked
+	State       string   `json:"state"` // create, merge, conflict, blocked
 	Reason      string   `json:"reason,omitempty"`
 }
 
@@ -67,6 +67,7 @@ type restoreFile struct {
 	text                       string
 	data                       []byte
 	mode                       os.FileMode
+	baseDigest                 string
 }
 
 type restoreComponent struct {
@@ -96,6 +97,7 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 			"Destination discovery is metadata-only; an existing source is a conflict even when selected content looks similar.",
 			"Unsupported and omitted components are listed; they are not restore actions.",
 			"Skill folders are mapped by known location and restored file-by-file; symlinked skills and special files are omitted during snapshot capture.",
+			"Existing skills CLI lock files are merged for missing entries only; conflicting sources are left unchanged and reported.",
 			"No cross-OS translation, dependency resolution or runtime verification has been performed.",
 		},
 	}
@@ -287,32 +289,68 @@ func addSkillLockRestoreActions(plan *RestorePlan, snapshot SetupSnapshot, desti
 	sort.Strings(paths)
 	for _, path := range paths {
 		target := targets[path]
+		lockEntry := restoreFile{
+			agentID: "agents", format: "json",
+			settings: map[string]any{"version": json.Number("3"), "skills": target.entries},
+		}
 		info, err := os.Lstat(path)
 		switch {
 		case os.IsNotExist(err):
+			actions["agents\x00"+path] = &RestoreAction{
+				AgentID: "agents", Components: []string{"skill_lock"}, Sources: []string{path},
+				Destination: path, Scope: target.scope, Format: "json", State: "create",
+			}
+			files[path] = lockEntry
+			continue
 		case err != nil:
 			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skill_lock", Source: path, Reason: "skill_lock_unavailable"})
 			continue
 		case info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular():
 			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skill_lock", Source: path, Reason: "skill_lock_unsafe"})
 			continue
-		default:
-			files[path] = restoreFile{
-				agentID: "agents", format: "json",
-				settings: map[string]any{"version": json.Number("3"), "skills": target.entries},
-			}
-			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skill_lock", Source: path, Reason: "existing_lock_not_merged"})
+		}
+		data, issue := readConfig(path, info)
+		if issue != "" {
+			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skill_lock", Source: path, Reason: "skill_lock_" + issue})
 			continue
 		}
-		key := "agents\x00" + path
-		action := &RestoreAction{
-			AgentID: "agents", Components: []string{"skill_lock"}, Sources: []string{path},
-			Destination: path, Scope: target.scope, Format: "json", State: "create",
+		existing, err := parseSource(data, "json")
+		if err != nil {
+			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skill_lock", Source: path, Reason: "skill_lock_invalid"})
+			continue
 		}
-		actions[key] = action
-		files[path] = restoreFile{
-			agentID: "agents", format: "json",
-			settings: map[string]any{"version": json.Number("3"), "skills": target.entries},
+		existingSkills, ok := existing["skills"].(map[string]any)
+		if !ok {
+			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skill_lock", Source: path, Reason: "skill_lock_not_a_map"})
+			continue
+		}
+		missing := false
+		for name, entry := range target.entries {
+			if current, exists := existingSkills[name]; exists {
+				currentMap, currentOK := current.(map[string]any)
+				entryMap, entryOK := entry.(map[string]any)
+				if currentOK && entryOK && currentMap["source"] != entryMap["source"] {
+					plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skill_lock", Source: path, Reason: "skill_lock_source_conflict", Count: 1})
+				}
+				continue
+			}
+			existingSkills[name] = entry
+			missing = true
+		}
+		if _, ok := existing["version"]; !ok {
+			existing["version"] = json.Number("3")
+		}
+		existing["skills"] = existingSkills
+		lockEntry.settings = existing
+		files[path] = lockEntry
+		if !missing {
+			continue
+		}
+		lockEntry.baseDigest = sha256Bytes(data)
+		files[path] = lockEntry
+		actions["agents\x00"+path] = &RestoreAction{
+			AgentID: "agents", Components: []string{"skill_lock"}, Sources: []string{path},
+			Destination: path, Scope: target.scope, Format: "json", State: "merge",
 		}
 	}
 }

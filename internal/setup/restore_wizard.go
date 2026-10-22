@@ -87,18 +87,20 @@ func runRestoreWizard(out io.Writer, dir, project, machine string) error {
 		return err
 	}
 	plan := BuildRestorePlan(snapshot, manifest, destination)
-	creates, conflicts, blocked := 0, 0, 0
+	creates, merges, conflicts, blocked := 0, 0, 0, 0
 	for _, action := range plan.Actions {
 		switch action.State {
 		case "create":
 			creates++
+		case "merge":
+			merges++
 		case "conflict":
 			conflicts++
 		case "blocked":
 			blocked++
 		}
 	}
-	if _, err := fmt.Fprintf(out, "Plan: %d create, %d conflict, %d blocked; %d unsupported/omitted.\n", creates, conflicts, blocked, len(plan.Unsupported)); err != nil {
+	if _, err := fmt.Fprintf(out, "Plan: %d create, %d merge, %d conflict, %d blocked; %d unsupported/omitted.\n", creates, merges, conflicts, blocked, len(plan.Unsupported)); err != nil {
 		return err
 	}
 	if blocked > 0 {

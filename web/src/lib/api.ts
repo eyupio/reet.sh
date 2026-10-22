@@ -443,6 +443,11 @@ export type SetupProfilePreview = {
   credentials_included?: boolean
   limitations?: string[]
 }
+export type SetupProfileOverrides = {
+  exclude_kinds?: string[]; exclude_sources?: string[]
+  machines?: Record<string, { exclude_kinds?: string[]; exclude_sources?: string[] }>
+  projects?: Record<string, { exclude_kinds?: string[]; exclude_sources?: string[] }>
+}
 export type SetupProfileRevision = {
   revision: number
   created_at: string
@@ -451,11 +456,7 @@ export type SetupProfileRevision = {
   snapshot_taken_at: string
   preview?: SetupProfilePreview
   software?: { agent_id: string; name: string; application_version?: string; installation_package?: string }[]
-  overrides?: {
-    exclude_kinds?: string[]; exclude_sources?: string[]
-    machines?: Record<string, { exclude_kinds?: string[]; exclude_sources?: string[] }>
-    projects?: Record<string, { exclude_kinds?: string[]; exclude_sources?: string[] }>
-  }
+  overrides?: SetupProfileOverrides
 }
 export type SetupProfileRecord = { schema_version: number; name: string; revisions: SetupProfileRevision[] }
 export type Machine = { aliases?: string[]; host: string; groups: SyncEnvironment[]; skillCount: number }
@@ -674,6 +675,9 @@ export async function getSetupProfile(name: string): Promise<SetupProfileRecord>
 }
 export async function renameSetupProfile(name: string, newName: string): Promise<SetupProfileRecord> {
   return (await req(`/api/v2/setup/profiles/${encodeURIComponent(name)}`, { method: 'PATCH', body: json({ name: newName }) })).json()
+}
+export async function updateSetupProfileOverrides(name: string, overrides: SetupProfileOverrides): Promise<SetupProfileRecord> {
+  return (await req(`/api/v2/setup/profiles/${encodeURIComponent(name)}`, { method: 'PATCH', body: json({ overrides }) })).json()
 }
 export async function deleteSetupProfile(name: string): Promise<void> {
   await req(`/api/v2/setup/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' })

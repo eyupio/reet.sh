@@ -298,8 +298,9 @@ hooks and caches. It reads no configuration values and implements no export.
   snapshot. Restore creates a missing lock file and merges missing entries into an
   existing one, reporting source conflicts. Exclusions can be scoped to named
   machines/projects. The web page can rename or delete a server copy, while local
-  profile creation and edits remain CLI commands; broader web editing remains later
-  work.
+  profile creation and edits remain CLI commands; the web page can rename/delete a server
+  copy or append a server revision with changed global exclusions. Broader local/web
+  editing remains later work.
 - Record drift from observations; stale/incomplete inventory stays unknown.
 - Gate: intentional machine differences survive sync; profile revisions are
   explicit; no implicit remote execution or credential sharing.

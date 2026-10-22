@@ -89,6 +89,22 @@ func TestSetupProfileAPI(t *testing.T) {
 	if code != 400 || !containsAll(response, "profile names") {
 		t.Fatalf("rename invalid name: %d %s", code, response)
 	}
+	code, response = doClient(t, srv.Client(), srv, "PATCH", "/api/v2/setup/profiles/personal", `{"overrides":{"exclude_kinds":["memory"],"exclude_sources":["/project"]}}`, "X-Reet-Token", "tok")
+	if code != 200 {
+		t.Fatalf("override edit: %d %s", code, response)
+	}
+	var edited setup.SetupProfile
+	if err := json.Unmarshal([]byte(response), &edited); err != nil || len(edited.Revisions) != 2 || edited.Revisions[1].Overrides == nil || edited.Revisions[1].SnapshotID != edited.Revisions[0].SnapshotID || !containsAll(response, "memory") {
+		t.Fatalf("override edit payload: %+v %v", edited, err)
+	}
+	code, response = doClient(t, srv.Client(), srv, "PATCH", "/api/v2/setup/profiles/personal", `{"overrides":{"exclude_kinds":["bogus"]}}`, "X-Reet-Token", "tok")
+	if code != 400 || !containsAll(response, "excluded kind") {
+		t.Fatalf("invalid override: %d %s", code, response)
+	}
+	code, response = doClient(t, srv.Client(), srv, "PATCH", "/api/v2/setup/profiles/personal", `{"name":"other","overrides":{}}`, "X-Reet-Token", "tok")
+	if code != 400 || !containsAll(response, "not both") {
+		t.Fatalf("combined edit: %d %s", code, response)
+	}
 	code, response = doClient(t, srv.Client(), srv, "DELETE", "/api/v2/setup/profiles/personal", "", "X-Reet-Token", "tok")
 	if code != 200 {
 		t.Fatalf("delete: %d %s", code, response)

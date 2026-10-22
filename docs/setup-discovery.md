@@ -598,8 +598,10 @@ field names, MCP server names, instruction sources, installed skill folders with
 counts and recorded source, encrypted-field names, omissions and software evidence. Credential values and
 skill file contents are never shown; newer previews record MCP server names, while older
 revisions show counts. The page also lists revision metadata,
-overrides and history, and can rename or delete the server copy; renaming the server
-copy does not rename the local profile. Profile creation, push and pull remain CLI-only.
+overrides and history, and can rename or delete the server copy or add a server revision
+with changed global exclusions. These edits affect the server copy only; local profiles
+change after a pull, and renaming does not rename the local profile. Profile creation,
+push and pull remain CLI-only.
 `restore --profile`, `verify --profile`, `inspect --profile`, `rollback --profile` and
 `fetch --s3 --profile` use the newest revision's snapshot unless `--revision N` selects
 an older one; restore/verify apply its overrides.

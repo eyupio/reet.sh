@@ -371,6 +371,14 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 			WHERE se.skill_id=sh.skill_id AND e.user_id=?)=1`
 		args = append(args, userID)
 	}
+	if f.SourceType != "" {
+		q += ` AND s.source_type=?`
+		args = append(args, f.SourceType)
+	}
+	if f.Untagged {
+		q += ` AND NOT EXISTS (SELECT 1 FROM skill_tags st WHERE st.user_id=? AND st.skill_id=sh.skill_id AND st.hidden=0)`
+		args = append(args, userID)
+	}
 	if term != "" {
 		like := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.ToLower(term)) + "%"
 		q += ` AND (lower(s.name) LIKE ? ESCAPE '\' OR lower(s.id) LIKE ? ESCAPE '\' OR lower(s.description) LIKE ? ESCAPE '\' OR lower(sh.notes) LIKE ? ESCAPE '\')`

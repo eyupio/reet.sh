@@ -245,11 +245,12 @@ func skillBytes(files []SetupSkillFile) int64 {
 }
 
 func setupSkillDigest(files []SetupSkillFile) string {
-	hash := sha256.New()
+	var manifest []byte
 	for _, file := range files {
-		fmt.Fprintf(hash, "%s\x00%o\x00%d\x00", file.Path, file.Mode, len(file.Data))
-		hash.Write(file.Data)
-		hash.Write([]byte{0})
+		manifest = append(manifest, []byte(fmt.Sprintf("%s\x00%o\x00%d\x00", file.Path, file.Mode, len(file.Data)))...)
+		manifest = append(manifest, file.Data...)
+		manifest = append(manifest, 0)
 	}
-	return hex.EncodeToString(hash.Sum(nil))
+	sum := sha256.Sum256(manifest)
+	return hex.EncodeToString(sum[:])
 }

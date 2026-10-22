@@ -146,3 +146,95 @@ func TestSetupProfileRestoreAndVerifyCLI(t *testing.T) {
 		t.Fatal("profile and snapshot together were accepted")
 	}
 }
+
+func TestProfileOverridesExcludeKindsAndSources(t *testing.T) {
+	e := fixture(t)
+	e.project = t.TempDir()
+	writeConfig(t, filepath.Join(e.home, ".claude.json"), `{"model":"OVERRIDE-MODEL"}`)
+	instruction := filepath.Join(e.project, "CLAUDE.md")
+	writeConfig(t, instruction, "excluded instructions")
+	r, err := discover(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := BuildSnapshotSelection(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	snapshot, err := WriteSetupSnapshot(selection, SetupWriteOptions{Dir: dir, Password: testSetupPassphrase})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, revision, err := SaveSetupProfileWithOptions("work", testSetupPassphrase, snapshot.ID, dir, time.Now(), SaveSetupProfileOptions{ExcludeKinds: []string{"instructions"}})
+	if err != nil || revision.Overrides == nil || len(revision.Overrides.ExcludeKinds) != 1 {
+		t.Fatalf("overrides not saved: %+v %v", revision, err)
+	}
+	if _, _, err := SaveSetupProfileWithOptions("bad", testSetupPassphrase, snapshot.ID, dir, time.Now(), SaveSetupProfileOptions{ExcludeKinds: []string{"history"}}); err == nil {
+		t.Fatal("unknown excluded kind accepted")
+	}
+	loaded, _, err := LoadProfile("work", dir, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filtered := ApplyProfileOverrides(BuildSetupSnapshot(selection), loaded.Revisions[0].Overrides)
+	for _, source := range filtered.Sources {
+		if source.Component == "instructions" {
+			t.Fatalf("instruction source survived override: %+v", source)
+		}
+	}
+	if filtered.Preview.Agents[0].Omitted == nil {
+		t.Fatal("override omission missing")
+	}
+	destination := fixture(t)
+	report, err := discover(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := BuildRestorePlan(filtered, testManifest(snapshot.ID), report)
+	for _, action := range plan.Actions {
+		if action.Scope == "project" {
+			t.Fatalf("excluded project source planned: %+v", action)
+		}
+	}
+	var text bytes.Buffer
+	if err := renderProfile(&text, loaded, loaded.Revisions[0]); err != nil || !strings.Contains(text.String(), "excluded kinds") {
+		t.Fatalf("profile override text: %v %s", err, text.String())
+	}
+}
+
+func TestProfileOverrideCLI(t *testing.T) {
+	e := fixture(t)
+	e.project = t.TempDir()
+	writeConfig(t, filepath.Join(e.home, ".claude.json"), `{"model":"OVERRIDE-CLI"}`)
+	writeConfig(t, filepath.Join(e.project, "CLAUDE.md"), "excluded")
+	r, err := discover(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := BuildSnapshotSelection(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	snapshot, err := WriteSetupSnapshot(selection, SetupWriteOptions{Dir: dir, Password: testSetupPassphrase})
+	if err != nil {
+		t.Fatal(err)
+	}
+	passFile := writePassphrase(t, t.TempDir(), testSetupPassphrase)
+	if err := Run([]string{"profile", "save", "--exclude-kind", "instructions", "--dir", dir, "--password-file", passFile, "work", snapshot.ID}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	destination := t.TempDir()
+	t.Setenv("HOME", destination)
+	t.Setenv("USERPROFILE", destination)
+	if err := Run([]string{"restore", "--profile", "work", "--apply", "--password-file", passFile, "--dir", dir}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, ".claude.json")); err != nil {
+		t.Fatal("non-excluded setting missing")
+	}
+	if _, err := os.Stat(filepath.Join(destination, "CLAUDE.md")); !os.IsNotExist(err) {
+		t.Fatal("excluded instruction restored without a project")
+	}
+}

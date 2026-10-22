@@ -514,6 +514,7 @@ runtime health and does not prove that an agent or MCP server works.
 
 ```sh
 reet setup profile save --password-file FILE work SNAPSHOT
+reet setup profile save --exclude-kind instructions --password-file FILE work2 SNAPSHOT
 reet setup profile list
 reet setup profile show work
 reet setup restore --profile work --password-file FILE
@@ -521,11 +522,13 @@ reet setup verify --profile work --password-file FILE
 ```
 
 `profile save` opens and verifies a snapshot, then appends an explicit revision that
-records its ID, digest, policy preview and software evidence. It never stores selected
-values. Saving the same name again creates a new revision; taking a new backup does not
-change an existing profile. `profile list` and `profile show` are local and need no
-passphrase. `restore --profile`, `verify --profile`, `inspect --profile` and `rollback --profile` use
-the newest revision's snapshot.
+records its ID, digest, policy preview, software evidence and optional overrides. It
+never stores selected values. Repeat `--exclude-kind settings|mcp|instructions` or
+`--exclude-source PATH` to omit components when a profile is used by restore or verify.
+Saving the same name again creates a new revision; taking a new backup does not change an
+existing profile. `profile list` and `profile show` are local and need no passphrase.
+`restore --profile`, `verify --profile`, `inspect --profile` and `rollback --profile` use
+the newest revision's snapshot; restore/verify apply its overrides.
 
 Profiles are local named snapshot revisions. Account sync, machine/project overrides,
 selective plan application, conflict profiles and cross-machine profile sharing remain

@@ -17,14 +17,25 @@ const (
 	maxProfileBytes           = 4 << 20
 )
 
+type SetupProfileOverrides struct {
+	ExcludeKinds   []string `json:"exclude_kinds,omitempty"`
+	ExcludeSources []string `json:"exclude_sources,omitempty"`
+}
+
 type SetupProfileRevision struct {
-	Revision       int             `json:"revision"`
-	CreatedAt      time.Time       `json:"created_at"`
-	SnapshotID     string          `json:"snapshot_id"`
-	SnapshotDigest string          `json:"snapshot_digest"`
-	TakenAt        time.Time       `json:"snapshot_taken_at"`
-	Preview        SnapshotPreview `json:"preview"`
-	Software       []SetupSoftware `json:"software,omitempty"`
+	Revision       int                    `json:"revision"`
+	CreatedAt      time.Time              `json:"created_at"`
+	SnapshotID     string                 `json:"snapshot_id"`
+	SnapshotDigest string                 `json:"snapshot_digest"`
+	TakenAt        time.Time              `json:"snapshot_taken_at"`
+	Preview        SnapshotPreview        `json:"preview"`
+	Software       []SetupSoftware        `json:"software,omitempty"`
+	Overrides      *SetupProfileOverrides `json:"overrides,omitempty"`
+}
+
+type SaveSetupProfileOptions struct {
+	ExcludeKinds   []string
+	ExcludeSources []string
 }
 
 type SetupProfile struct {
@@ -73,6 +84,10 @@ func validProfileName(name string) bool {
 }
 
 func SaveSetupProfile(name, password, snapshotPath, dir string, now time.Time) (SetupProfile, SetupProfileRevision, error) {
+	return SaveSetupProfileWithOptions(name, password, snapshotPath, dir, now, SaveSetupProfileOptions{})
+}
+
+func SaveSetupProfileWithOptions(name, password, snapshotPath, dir string, now time.Time, opts SaveSetupProfileOptions) (SetupProfile, SetupProfileRevision, error) {
 	if !validProfileName(name) {
 		return SetupProfile{}, SetupProfileRevision{}, errors.New("profile names use 1-64 letters, digits, '-' or '_'")
 	}
@@ -87,11 +102,15 @@ func SaveSetupProfile(name, password, snapshotPath, dir string, now time.Time) (
 	if profile.SchemaVersion == 0 {
 		profile = SetupProfile{SchemaVersion: setupProfileSchemaVersion, Name: name, Revisions: []SetupProfileRevision{}}
 	}
+	overrides, err := normalizeProfileOverrides(opts)
+	if err != nil {
+		return SetupProfile{}, SetupProfileRevision{}, err
+	}
 	revision := SetupProfileRevision{
 		Revision: len(profile.Revisions) + 1, CreatedAt: now.UTC(),
 		SnapshotID: manifest.ID, SnapshotDigest: manifest.SHA256,
 		TakenAt: time.UnixMilli(manifest.TakenAt).UTC(),
-		Preview: snapshot.Preview, Software: snapshot.Software,
+		Preview: snapshot.Preview, Software: snapshot.Software, Overrides: overrides,
 	}
 	profile.Revisions = append(profile.Revisions, revision)
 	path, err := profilePath(name, dir)
@@ -254,5 +273,81 @@ func renderProfile(out io.Writer, profile SetupProfile, revision SetupProfileRev
 	if _, err := fmt.Fprintf(out, "  selected components: %d; omitted records: %d; software evidence: %d\n", snapshotComponentCount(revision.Preview), omissionCount(revision.Preview), len(revision.Software)); err != nil {
 		return err
 	}
+	if revision.Overrides != nil {
+		if len(revision.Overrides.ExcludeKinds) > 0 {
+			if _, err := fmt.Fprintf(out, "  excluded kinds: %s\n", strings.Join(revision.Overrides.ExcludeKinds, ", ")); err != nil {
+				return err
+			}
+		}
+		if len(revision.Overrides.ExcludeSources) > 0 {
+			if _, err := fmt.Fprintf(out, "  excluded sources: %s\n", strings.Join(revision.Overrides.ExcludeSources, ", ")); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
+}
+
+func normalizeProfileOverrides(opts SaveSetupProfileOptions) (*SetupProfileOverrides, error) {
+	overrides := &SetupProfileOverrides{}
+	allowed := map[string]bool{"settings": true, "mcp": true, "instructions": true}
+	for _, kind := range opts.ExcludeKinds {
+		kind = strings.ToLower(strings.TrimSpace(kind))
+		if !allowed[kind] {
+			return nil, fmt.Errorf("excluded kind %q must be settings, mcp or instructions", kind)
+		}
+		overrides.ExcludeKinds = appendUnique(overrides.ExcludeKinds, kind)
+	}
+	for _, source := range opts.ExcludeSources {
+		source = strings.TrimSpace(source)
+		if source == "" {
+			return nil, errors.New("excluded source paths cannot be empty")
+		}
+		overrides.ExcludeSources = appendUnique(overrides.ExcludeSources, source)
+	}
+	sort.Strings(overrides.ExcludeKinds)
+	sort.Strings(overrides.ExcludeSources)
+	if len(overrides.ExcludeKinds) == 0 && len(overrides.ExcludeSources) == 0 {
+		return nil, nil
+	}
+	return overrides, nil
+}
+
+// ApplyProfileOverrides removes explicitly excluded sources/components before
+// planning or verification. It never adds or rewrites snapshot content.
+func ApplyProfileOverrides(snapshot SetupSnapshot, overrides *SetupProfileOverrides) SetupSnapshot {
+	if overrides == nil {
+		return snapshot
+	}
+	kinds := map[string]bool{}
+	for _, kind := range overrides.ExcludeKinds {
+		kinds[kind] = true
+	}
+	sources := map[string]bool{}
+	for _, source := range overrides.ExcludeSources {
+		sources[source] = true
+	}
+	filtered := snapshot
+	filtered.Sources = []SetupSnapshotSource{}
+	for _, source := range snapshot.Sources {
+		if sources[source.Path] || kinds[source.Component] {
+			continue
+		}
+		filtered.Sources = append(filtered.Sources, source)
+	}
+	filtered.Preview = snapshot.Preview
+	filtered.Preview.Agents = append([]SnapshotAgent(nil), snapshot.Preview.Agents...)
+	for i := range filtered.Preview.Agents {
+		agent := snapshot.Preview.Agents[i]
+		filtered.Preview.Agents[i] = agent
+		filtered.Preview.Agents[i].Components = []SnapshotComponent{}
+		for _, component := range agent.Components {
+			if sources[component.Source] || kinds[component.Kind] {
+				filtered.Preview.Agents[i].Omitted = append(filtered.Preview.Agents[i].Omitted, SnapshotOmission{Kind: component.Kind, Source: component.Source, Reason: "profile_excluded", Count: 1})
+				continue
+			}
+			filtered.Preview.Agents[i].Components = append(filtered.Preview.Agents[i].Components, component)
+		}
+	}
+	return filtered
 }

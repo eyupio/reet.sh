@@ -15,7 +15,7 @@ import (
 // Run implements the standalone setup command. No server credentials are needed.
 func Run(args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n       reet setup backup --preview [--json] [--project PATH]\n       reet setup backup --password-file FILE [--dir DIR] [--json] [--project PATH] [--probe-versions] [--inspect-installation] [--include-credentials] [--s3]\n       reet setup list [--json] [--dir DIR]\n       reet setup inspect [--profile NAME | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE]\n       reet setup restore [--profile NAME | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] [--apply] [--on-conflict skip|replace] [--conflict PATH=skip|replace]...\n       reet setup verify [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] SNAPSHOT\n       reet setup rollback (--journal FILE | --last) [--profile NAME | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH]\n       reet setup journals [--json] [--dir DIR]\n       reet setup health [--json] [--project PATH] [--probe-versions] [--inspect-installation]\n       reet setup fetch --s3 [--profile NAME | SNAPSHOT] [--json] [--dir DIR]\n       reet setup profile (save [--json] [--dir DIR] [--password-file FILE] NAME SNAPSHOT | list [--json] [--dir DIR] | show [--json] [--dir DIR] [--revision N] NAME)\n       reet setup prune --keep N [--apply] [--json] [--dir DIR]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\n--preview shows the policy-driven selection without writing an archive.\nWithout --preview, write a passphrase-encrypted local setup snapshot.\nlist and inspect read clear headers; inspect opens the payload only with a passphrase.\nrestore previews a mapped plan; --apply creates or replaces conflicts when chosen, with optional per-path choices.\nverify compares the selected fields in the destination without repairing them.\nrollback reverses a completed create/replace journal after checking it against the snapshot; --last picks the newest completed one.\njournals lists local apply/rollback records without opening snapshots.\nhealth gives conservative local evidence and authentication guidance.\nfetch downloads a snapshot from the configured S3 destination.\nremote list reads the configured S3 snapshot prefix without downloading payloads.\nprofile saves, lists and shows named local snapshot revisions; restore/verify/inspect/rollback accept --profile.\nprune removes old local snapshots, protecting profile and journal references.")
+		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n       reet setup backup --preview [--json] [--project PATH]\n       reet setup backup --password-file FILE [--dir DIR] [--json] [--project PATH] [--probe-versions] [--inspect-installation] [--include-credentials] [--s3]\n       reet setup list [--json] [--dir DIR]\n       reet setup inspect [--profile NAME | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE]\n       reet setup restore [--profile NAME | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] [--apply] [--on-conflict skip|replace] [--conflict PATH=skip|replace]...\n       reet setup verify [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] SNAPSHOT\n       reet setup rollback (--journal FILE | --last) [--profile NAME | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH]\n       reet setup journals [--json] [--dir DIR]\n       reet setup health [--json] [--project PATH] [--probe-versions] [--inspect-installation]\n       reet setup fetch --s3 [--profile NAME | SNAPSHOT] [--json] [--dir DIR]\n       reet setup profile (save [--exclude-kind KIND] [--exclude-source PATH] [--json] [--dir DIR] [--password-file FILE] NAME SNAPSHOT | list [--json] [--dir DIR] | show [--json] [--dir DIR] [--revision N] NAME)\n       reet setup prune --keep N [--apply] [--json] [--dir DIR]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\n--preview shows the policy-driven selection without writing an archive.\nWithout --preview, write a passphrase-encrypted local setup snapshot.\nlist and inspect read clear headers; inspect opens the payload only with a passphrase.\nrestore previews a mapped plan; --apply creates or replaces conflicts when chosen, with optional per-path choices.\nverify compares the selected fields in the destination without repairing them.\nrollback reverses a completed create/replace journal after checking it against the snapshot; --last picks the newest completed one.\njournals lists local apply/rollback records without opening snapshots.\nhealth gives conservative local evidence and authentication guidance.\nfetch downloads a snapshot from the configured S3 destination.\nremote list reads the configured S3 snapshot prefix without downloading payloads.\nprofile saves, lists and shows named local snapshot revisions; restore/verify/inspect/rollback accept --profile.\nprune removes old local snapshots, protecting profile and journal references.")
 		return err
 	}
 	switch args[0] {
@@ -284,11 +284,13 @@ func runRestore(args []string, out io.Writer) error {
 		return err
 	}
 	snapshotRef := f.Arg(0)
+	var profileRevision *SetupProfileRevision
 	if *profile != "" {
-		snapshotRef, err = ResolveProfileSnapshot(*profile, *dir)
+		_, revision, err := LoadProfile(*profile, *dir, 0)
 		if err != nil {
 			return err
 		}
+		snapshotRef, profileRevision = revision.SnapshotID, &revision
 	}
 	snapshot, manifest, err := loadSetupSnapshot(snapshotRef, passphrase, *dir)
 	if err != nil {
@@ -297,6 +299,9 @@ func runRestore(args []string, out io.Writer) error {
 	destination, err := Discover(home, *project)
 	if err != nil {
 		return err
+	}
+	if profileRevision != nil {
+		snapshot = ApplyProfileOverrides(snapshot, profileRevision.Overrides)
 	}
 	if *inspectInstallation {
 		InspectInstallations(&destination)
@@ -355,15 +360,20 @@ func runVerify(args []string, out io.Writer) error {
 		return err
 	}
 	snapshotRef := f.Arg(0)
+	var profileRevision *SetupProfileRevision
 	if *profile != "" {
-		snapshotRef, err = ResolveProfileSnapshot(*profile, *dir)
+		_, revision, err := LoadProfile(*profile, *dir, 0)
 		if err != nil {
 			return err
 		}
+		snapshotRef, profileRevision = revision.SnapshotID, &revision
 	}
 	snapshot, manifest, err := loadSetupSnapshot(snapshotRef, passphrase, *dir)
 	if err != nil {
 		return err
+	}
+	if profileRevision != nil {
+		snapshot = ApplyProfileOverrides(snapshot, profileRevision.Overrides)
 	}
 	destination, err := Discover(home, *project)
 	if err != nil {
@@ -417,10 +427,11 @@ func runRollback(args []string, out io.Writer) error {
 	}
 	snapshotRef := f.Arg(0)
 	if *profile != "" {
-		snapshotRef, err = ResolveProfileSnapshot(*profile, *dir)
+		_, revision, err := LoadProfile(*profile, *dir, 0)
 		if err != nil {
 			return err
 		}
+		snapshotRef = revision.SnapshotID
 	}
 	snapshot, manifest, err := loadSetupSnapshot(snapshotRef, passphrase, *dir)
 	if err != nil {
@@ -555,7 +566,7 @@ type setupProfileSaveResult struct {
 
 func runProfile(args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "Usage: reet setup profile save [--json] [--dir DIR] [--password-file FILE] NAME SNAPSHOT\n       reet setup profile list [--json] [--dir DIR]\n       reet setup profile show [--json] [--dir DIR] [--revision N] NAME")
+		_, err := fmt.Fprintln(out, "Usage: reet setup profile save [--exclude-kind KIND] [--exclude-source PATH] [--json] [--dir DIR] [--password-file FILE] NAME SNAPSHOT\n       reet setup profile list [--json] [--dir DIR]\n       reet setup profile show [--json] [--dir DIR] [--revision N] NAME")
 		return err
 	}
 	switch args[0] {
@@ -565,6 +576,10 @@ func runProfile(args []string, out io.Writer) error {
 		asJSON := f.Bool("json", false, "write a versioned JSON profile revision")
 		dir := f.String("dir", "", "save profiles here (default REET_SETUP_DIR or the user config directory)")
 		passwordFile := f.String("password-file", "", "read the snapshot passphrase from this file, or - for standard input")
+		excludeKinds := stringListFlag{}
+		excludeSources := stringListFlag{}
+		f.Var(&excludeKinds, "exclude-kind", "exclude this component kind (settings, mcp, instructions); repeat for several")
+		f.Var(&excludeSources, "exclude-source", "exclude this exact snapshot source path; repeat for several")
 		if err := f.Parse(args[1:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
@@ -572,13 +587,13 @@ func runProfile(args []string, out io.Writer) error {
 			return err
 		}
 		if f.NArg() != 2 {
-			return fmt.Errorf("usage: reet setup profile save [--json] [--dir DIR] [--password-file FILE] NAME SNAPSHOT")
+			return fmt.Errorf("usage: reet setup profile save [--exclude-kind KIND] [--exclude-source PATH] [--json] [--dir DIR] [--password-file FILE] NAME SNAPSHOT")
 		}
 		passphrase, err := readSetupPassphrase(*passwordFile)
 		if err != nil {
 			return err
 		}
-		profile, revision, err := SaveSetupProfile(f.Arg(0), passphrase, f.Arg(1), *dir, time.Now().UTC())
+		profile, revision, err := SaveSetupProfileWithOptions(f.Arg(0), passphrase, f.Arg(1), *dir, time.Now().UTC(), SaveSetupProfileOptions{ExcludeKinds: excludeKinds, ExcludeSources: excludeSources})
 		if err != nil {
 			return err
 		}
@@ -925,5 +940,18 @@ func (c conflictChoicesFlag) Set(value string) error {
 		return fmt.Errorf("duplicate conflict choice for %q", path)
 	}
 	c[path] = policy
+	return nil
+}
+
+type stringListFlag []string
+
+func (s stringListFlag) String() string { return "" }
+
+func (s *stringListFlag) Set(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return errors.New("value cannot be empty")
+	}
+	*s = append(*s, value)
 	return nil
 }

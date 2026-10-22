@@ -269,6 +269,7 @@ reet setup fetch --s3 SNAPSHOT
 reet setup fetch --s3 --profile work
 reet setup remote list
 reet setup profile save --password-file ~/.config/reet/setup.pass work SNAPSHOT
+reet setup profile save --exclude-kind instructions --password-file ~/.config/reet/setup.pass work2 SNAPSHOT
 reet setup prune --keep 10 --apply
 reet setup restore --profile work --password-file ~/.config/reet/setup.pass
 reet setup list
@@ -324,7 +325,8 @@ after snapshot, digest and current-file checks; `reet setup journals` lists reco
 evidence and reauthentication guidance without repairing anything.
 
 `reet setup profile save` keeps a named local revision pointing at an immutable snapshot;
-`restore`, `verify`, `inspect` and `rollback` accept `--profile NAME`. Profiles are not
+`restore`, `verify`, `inspect` and `rollback` accept `--profile NAME`; profiles can
+exclude component kinds or exact source paths for restore/verify. Profiles are not
 synced to an account or another machine. `reet setup prune --keep N` previews local
 snapshot deletion and `--apply` removes old unprotected snapshots; profile and journal
 references are protected.

@@ -57,10 +57,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Cross-OS plan/verify warnings merged in [PR #76](https://github.com/eyupio/reet.sh/pull/76), `faa92c7`.
 - Profile component/source overrides merged in [PR #77](https://github.com/eyupio/reet.sh/pull/77), `9cb03f9`.
 - Profile revision selection merged in [PR #78](https://github.com/eyupio/reet.sh/pull/78), `653ee2e`.
-- Latest verified source baseline: `origin/main` at `653ee2e` (2026-10-22).
-- Remote S3 prune/delete are in [PR #79](https://github.com/eyupio/reet.sh/pull/79) on
-  `feat/setup-s3-prune`; fetch remote status before continuing and preserve any
-  uncommitted work.
+- Remote S3 prune/delete merged in [PR #79](https://github.com/eyupio/reet.sh/pull/79), `1d97f47`.
+- Latest verified source baseline: `origin/main` at `1d97f47` (2026-10-22).
+- This handoff refresh is documentation-only; fetch remote status before continuing and
+  preserve any uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -103,6 +103,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Add profile overrides that exclude component kinds or source paths.
 - [x] Select profile revisions for restore/verify/inspect/rollback/fetch.
 - [x] Add profile-protected remote S3 prune/delete.
+- [x] Verify the `1d97f47` dev binary exposes the complete setup command family.
 
 ## Implemented slice
 
@@ -664,13 +665,14 @@ unimplemented.
 
 ## Final dev release verification
 
-The main-push binary release for `f313ff1` completed successfully and refreshed the
+The main-push binary release for `1d97f47` completed successfully and refreshed the
 rolling `dev` release. The published Linux amd64 artifact was downloaded into an
 isolated temporary home and reported `reet dev
-(f313ff1ce70d652f45ac418a65b4577f696e04ce)`. Its help lists `setup scan`, `backup`,
-`list`, `inspect`, `restore` and `verify` with the current flags, including
-`--export-policy`, passphrase files, conflict policies and `--apply`. No production host
-was upgraded and no live configuration was used or modified.
+(1d97f476331be662f2fac5b16f1f77470acf3ec1)`. Its help lists `setup scan`, `backup`,
+`list`, `inspect`, `restore`, `verify`, `rollback`, `journals`, `health`, `fetch`,
+`profile`, `prune` and `remote list/delete/prune`, including export policy, software
+evidence, credentials, S3, conflict overrides and profile revision selection. No
+production host was upgraded and no live configuration was used or modified.
 
 ## Rollback of applied setup changes
 
@@ -879,8 +881,8 @@ tests; zero Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary s
 upload/read-back, fetch identity and mode-0600 local fetch output; setup tests
 cross-compile for Windows amd64 and macOS arm64. `git diff --check` passed. No dependency changed.
 
-Named profiles/S5, broader memory/history adapters, remote retention and verified
-cross-OS restore remain unimplemented.
+Account-synced profiles, broader memory/history adapters and verified cross-OS restore
+remain unimplemented.
 
 ## Named local profiles
 

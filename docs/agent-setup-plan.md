@@ -207,6 +207,10 @@ The next S1c slice adds opt-in local Node package evidence by checking declared
 executables against observed files. This verifies a local association only;
 package-manager receipts, publisher authenticity and install resolution remain
 unverified. Do not treat editable metadata as permission to reinstall a package.
+An opt-in `--export-policy` now declares, per source, the settings fields, MCP
+declarations and credential-bearing fields a future encrypted snapshot may select,
+plus explicit unsupported classes for memory, history, instructions, behaviour,
+hooks and caches. It reads no configuration values and implements no export.
 
 - Parse agent-specific config formats and MCP declarations with bounded reads.
 - Record versions, installation provenance, dependencies, global/project scope,

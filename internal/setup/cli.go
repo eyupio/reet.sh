@@ -8,12 +8,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Run implements the standalone setup command. No server credentials are needed.
 func Run(args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nSetup backup and restore are not yet available.")
+		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\nSetup backup and restore are not yet available.")
 		return err
 	}
 	if args[0] != "scan" {
@@ -26,6 +27,7 @@ func Run(args []string, out io.Writer) error {
 	components := f.Bool("components", false, "read known configuration files and summarise settings/MCP without values")
 	installation := f.Bool("inspect-installation", false, "read bounded local Node package metadata associated with executables")
 	versions := f.Bool("probe-versions", false, "invoke discovered executables with --version; timeout 3s each, output bounded")
+	exportPolicy := f.Bool("export-policy", false, "declare component and field selection for future encrypted snapshots; reads no configuration values")
 	if err := f.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -51,6 +53,9 @@ func Run(args []string, out io.Writer) error {
 	}
 	if *components {
 		InspectComponents(&r)
+	}
+	if *exportPolicy {
+		ApplyExportPolicies(&r)
 	}
 	if *installation {
 		InspectInstallations(&r)
@@ -78,6 +83,9 @@ func render(out io.Writer, r Report) error {
 	}
 	if r.VersionProbes {
 		mode += "; application version probes enabled"
+	}
+	if r.ExportPolicies {
+		mode += "; export policy declared, no export implemented"
 	}
 	if _, err := fmt.Fprintf(out, "AI agent setup inventory (%s/%s)\n%s; setup backup and restore are not implemented.\n", r.OS, r.Architecture, mode); err != nil {
 		return err
@@ -144,6 +152,11 @@ func render(out io.Writer, r Report) error {
 				}
 			}
 		}
+		if agent.ExportPolicy != nil {
+			if err := renderExportPolicy(out, *agent.ExportPolicy); err != nil {
+				return err
+			}
+		}
 	}
 	for _, note := range r.Limitations {
 		if _, err := fmt.Fprintf(out, "\n%s\n", note); err != nil {
@@ -151,4 +164,48 @@ func render(out io.Writer, r Report) error {
 		}
 	}
 	return nil
+}
+
+func renderExportPolicy(out io.Writer, policy ExportPolicy) error {
+	if _, err := fmt.Fprintf(out, "  Export policy (version %d; declared only, no export implemented):\n", policy.PolicyVersion); err != nil {
+		return err
+	}
+	for _, source := range policy.Sources {
+		if _, err := fmt.Fprintf(out, "    %q (%s, %s, %s)\n", source.Path, source.Scope, source.Observed, source.Format); err != nil {
+			return err
+		}
+		for _, component := range source.Components {
+			if _, err := fmt.Fprintf(out, "      %s: %s, %s; unknown fields %s\n", component.Kind, component.Selection, component.Handling, component.UnlistedFields); err != nil {
+				return err
+			}
+			for _, state := range []string{"include", "encrypted_only", "reference_only", "exclude"} {
+				if fields := fieldPaths(component.Fields, state); len(fields) > 0 {
+					if _, err := fmt.Fprintf(out, "        %s: %s\n", state, strings.Join(fields, ", ")); err != nil {
+						return err
+					}
+				}
+			}
+			if component.Reason != "" {
+				if _, err := fmt.Fprintf(out, "        %s\n", component.Reason); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	for _, class := range policy.Classes {
+		if _, err := fmt.Fprintf(out, "    %s: %s, %s — %s\n", class.Kind, class.Selection, class.Handling, class.Reason); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func fieldPaths(fields []FieldExportPolicy, state string) []string {
+	paths := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if field.State == state {
+			paths = append(paths, field.Path)
+		}
+	}
+	return paths
 }

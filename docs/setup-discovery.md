@@ -8,6 +8,7 @@ reet setup scan
 reet setup scan --json
 reet setup scan --project /path/to/project
 reet setup scan --components --json
+reet setup scan --export-policy --json
 ```
 
 The default checks known global paths under the user's home directory and looks
@@ -152,8 +153,84 @@ not a transactional snapshot or a hardened archive collector.
 
 Current fixtures validate declared JSON, TOML and JSONC shapes rather than installed
 agent release versions. Other formats remain unsupported. Verified package provenance,
-capture, memory/history export policy and restore verification are subsequent
-stages in the implementation plan.
+content capture, encrypted snapshots and restore verification remain later stages in
+the implementation plan.
+
+## Opt-in export policy declarations (S1c)
+
+```sh
+reet setup scan --export-policy --json
+reet setup scan --components --export-policy --json
+```
+
+`--export-policy` adds schema v2 `export_policy` declarations to each agent and
+sets `export_policies: true`. It is independent of `--components` and reads no
+configuration contents. The default metadata-only schema v1 remains unchanged
+without the flag. Policies describe intended selection for a future encrypted
+snapshot; no setup export, backup or restore command is implemented.
+
+Each known configuration or MCP source has a `SourceExportPolicy` with its path,
+scope, format and observed source state. A source policy lists the component
+kinds that apply to it:
+
+| Component | Selection | Handling |
+| --- | --- | --- |
+| `settings` | `include` or `opt_in` | `portable` |
+| `mcp` | `include` or `opt_in` | `portable` |
+| unknown source format or unsupported adapter | `unsupported` | `not_implemented` |
+
+`settings.local.json` is `opt_in` because it is machine-specific. MCP declarations
+follow their source's selection. For a present location, a `SourceExportPolicy`'s
+`observed` value is the state of that exact candidate file, not the containing
+directory. Missing, symlink, error and unsupported location states are inherited
+without inspecting targets.
+
+Field states are explicit:
+
+- `include`: selected with the component.
+- `encrypted_only`: selected only when portable credentials are explicitly chosen
+  for an encrypted snapshot.
+- `reference_only`: the reference name is preserved; the referenced value is never
+  read or resolved.
+- `exclude`: never copied, even with credentials.
+
+`unlisted_fields` is always `exclude`, so a settings file is never copied
+generically. `*.command` and similar entries describe fields inside each MCP
+declaration. URL and literal environment/header values are `encrypted_only`;
+reference fields such as `env_vars`, `env_http_headers` and
+`bearer_token_env_var` are `reference_only` where a format defines them.
+Hooks, credential helpers, project history, account identities, provider secrets
+and unknown fields are not selected by default. Commands and arguments are classed
+as launch parameters; only URLs and environment/header values receive the
+`encrypted_only` classification, so review command and argument values before any
+future export.
+
+Component kinds not tied to one parsed file are classified separately for every
+agent:
+
+| Class | Selection | Handling |
+| --- | --- | --- |
+| instructions | unsupported | not_implemented |
+| behaviour | unsupported | not_implemented |
+| memory | unsupported | not_implemented |
+| history | opt_in | not_implemented |
+| credentials | include | references_only |
+| hooks | exclude | never |
+| caches | exclude | never |
+
+These classes make the current gaps explicit rather than implying that memory,
+history, hooks or portable credentials can already be exported. `history` is an
+intended opt-in; `credentials` means reference names only, and device-bound
+keychains or sessions still require fresh authentication. No class policy is a
+claim that its adapter or restore path exists.
+
+Policy paths and field names may identify private projects, services or settings,
+so review a report before sharing it. No configuration values, commands, URLs,
+environment values, headers or credential material are returned. Unknown formats
+and unsupported adapters remain explicit. The policy is not a sanitised
+configuration export, a backup manifest or evidence that restoration is supported.
+See the [implementation plan](agent-setup-plan.md) for the snapshot, encryption and
+restore acceptance gates.
 
 ## Opt-in application version probes
 

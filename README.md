@@ -253,6 +253,7 @@ reet setup scan
 reet setup scan --json
 reet setup scan --project /path/to/project
 reet setup scan --components --json
+reet setup scan --export-policy --json
 reet setup scan --probe-versions --json
 reet setup scan --inspect-installation --json
 ```
@@ -267,8 +268,12 @@ application versions are separate from reet's scanner/server version and do not
 verify installation provenance. `--inspect-installation` independently reads bounded
 local Node package metadata and checks its declared executable against the discovered
 file. It runs no commands; a match is local evidence, not authenticated provenance
-or proof of which package manager was used. No reports are uploaded. Setup backup and restore
-are **not implemented**. Existing instance and shelf backups below remain separate.
+or proof of which package manager was used. `--export-policy` declares the
+selection rules for configuration sources, settings fields, MCP declarations,
+credential references and excluded classes in a future encrypted snapshot. It reads
+no configuration contents and is a policy declaration, not an export. No reports
+are uploaded. Setup backup and restore are **not implemented**. Existing instance
+and shelf backups below remain separate.
 See [setup discovery and limits](docs/setup-discovery.md), the
 [implementation plan](docs/agent-setup-plan.md) and [handoff](handoff.md).
 

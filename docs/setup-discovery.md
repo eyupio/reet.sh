@@ -351,10 +351,32 @@ unsupported classes remain in the plan's unsupported list. The plan fingerprint 
 SHA-256 of the snapshot identity, destination facts, actions and unsupported entries;
 it contains no selected values.
 
-No files, installers, hooks, package managers or authentication flows run. Restore
-execution, conflict choices, rollback copies, dependency/version resolution,
-cross-OS translation and post-restore verification remain unimplemented. A plan is
-not a promise that a working setup can be restored.
+No files, installers, hooks, package managers or authentication flows run without
+`--apply`, and a plan is not a promise that a working setup can be restored.
+
+### Applying a create-only plan
+
+```sh
+reet setup restore --apply --password-file FILE SNAPSHOT
+```
+
+`--apply` is a local confirmation. It writes only when every action is `create`; any
+`conflict` or `blocked` action refuses the whole run before writing. Destinations are
+rechecked after the plan, and a changed destination invalidates the run. It writes the
+selected settings and MCP declarations as a new JSON, JSONC or TOML file with mode
+0600, creating missing parent directories with mode 0700. Existing JSONC comments are
+not preserved because the destination is a new file. Each written file is parsed again
+and compared with the selected content; a mismatch removes it.
+
+A journal is written atomically under the snapshot directory (`--dir`,
+`REET_SETUP_DIR` or the default). It records destinations, states and errors, never
+selected values. If a later write fails, files created by that run are removed and the
+journal records `failed`/`rolled_back`. `--apply` does not run installers, hooks,
+package managers or authentication, and it does not verify runtime health.
+
+Per-conflict choices, replacement, merge, rollback copies, a rollback command,
+dependency/version resolution, cross-OS translation and post-restore verification
+remain unimplemented. Applying a plan is not the complete setup milestone.
 
 ## Opt-in application version probes
 

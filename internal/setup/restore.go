@@ -52,6 +52,13 @@ type RestorePlan struct {
 	Unsupported     []RestoreUnsupported `json:"unsupported"`
 	Fingerprint     string               `json:"fingerprint"`
 	Limitations     []string             `json:"limitations"`
+
+	files map[string]restoreFile
+}
+
+type restoreFile struct {
+	agentID, format, container string
+	settings, mcp              map[string]any
 }
 
 type restoreComponent struct {
@@ -89,6 +96,7 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 	}
 	candidates := destinationCandidates(destination)
 	actions := map[string]*RestoreAction{}
+	files := map[string]restoreFile{}
 	for _, source := range snapshot.Sources {
 		var component restoreComponent
 		found := false
@@ -122,6 +130,25 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 			}
 			actions[key] = action
 		}
+		file := files[candidate.path]
+		file.agentID, file.format, file.container = component.agentID, component.format, mcpContainer(component.agentID)
+		if file.settings == nil {
+			file.settings = map[string]any{}
+		}
+		if file.mcp == nil {
+			file.mcp = map[string]any{}
+		}
+		switch source.Component {
+		case "settings":
+			for key, value := range source.Content {
+				file.settings[key] = value
+			}
+		case "mcp":
+			for name, declaration := range source.Content {
+				file.mcp[name] = declaration
+			}
+		}
+		files[candidate.path] = file
 		action.Components = appendUnique(action.Components, component.kind)
 		action.Sources = appendUnique(action.Sources, source.Path)
 		state, reason := restoreState(candidate)
@@ -167,6 +194,7 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 		}
 		return plan.Unsupported[i].Reason < plan.Unsupported[j].Reason
 	})
+	plan.files = files
 	plan.Fingerprint = restoreFingerprint(plan)
 	return plan
 }

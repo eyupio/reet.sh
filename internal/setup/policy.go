@@ -156,13 +156,7 @@ func unsupportedMCPPolicy() ComponentExportPolicy {
 }
 
 func mcpExportPolicy(agent, selection string) ComponentExportPolicy {
-	container := "mcpServers"
-	switch agent {
-	case "codex":
-		container = "mcp_servers"
-	case "opencode":
-		container = "mcp"
-	}
+	container := mcpContainer(agent)
 	fields := []FieldExportPolicy{
 		{container, "include"},
 		{"*.type", "include"},
@@ -346,5 +340,16 @@ func classExportPolicies() []ClassExportPolicy {
 			Kind: "caches", Selection: "exclude", Handling: "never",
 			Reason: "Caches, logs, sockets, temporary files and generated state are never collected.",
 		},
+	}
+}
+
+func mcpContainer(agent string) string {
+	switch agent {
+	case "codex":
+		return "mcp_servers"
+	case "opencode":
+		return "mcp"
+	default:
+		return "mcpServers"
 	}
 }

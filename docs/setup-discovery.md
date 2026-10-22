@@ -22,15 +22,15 @@ inspected implicitly just because the command runs inside one.
 
 | Agent | Command on PATH | Default global locations | Project locations |
 | --- | --- | --- | --- |
-| Claude Code | `claude` | `~/.claude`, `~/.claude.json` | `.claude`, `CLAUDE.md`, `.mcp.json` |
-| Codex | `codex` | `~/.codex`, shared `~/.agents/skills` | `.codex`, shared `.agents/skills`, shared `AGENTS.md` |
-| OpenCode | `opencode` | `~/.config/opencode` | `.opencode`, `opencode.json`, `opencode.jsonc` |
-| Pi | `pi` | `~/.pi/agent` | `.pi` |
+| Claude Code | `claude` | `~/.claude`, `~/.claude.json`, `~/.claude/CLAUDE.md` | `.claude`, `CLAUDE.md`, `.mcp.json` |
+| Codex | `codex` | `~/.codex`, `~/.codex/AGENTS.md`, shared `~/.agents/skills` | `.codex`, shared `.agents/skills`, shared `AGENTS.md` |
+| OpenCode | `opencode` | `~/.config/opencode`, `~/.config/opencode/AGENTS.md` | `.opencode`, `opencode.json`, `opencode.jsonc` |
+| Pi | `pi` | `~/.pi/agent`, `~/.pi/agent/AGENTS.md` | `.pi` |
 | Cursor | `cursor` | `~/.cursor` | `.cursor`, `.cursorrules` |
-| Gemini CLI | `gemini` | `~/.gemini` | `.gemini`, `GEMINI.md` |
+| Gemini CLI | `gemini` | `~/.gemini`, `~/.gemini/GEMINI.md` | `.gemini`, `GEMINI.md` |
 
 `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and `PI_CODING_AGENT_DIR` override the corresponding
-global directory. OpenCode honours `XDG_CONFIG_HOME` (with `/opencode` appended)
+global directory, including its instruction file. OpenCode honours `XDG_CONFIG_HOME` (with `/opencode` appended)
 and additionally reports `OPENCODE_CONFIG_DIR` and `OPENCODE_CONFIG` when set.
 Overrides must be absolute paths; a relative override is reported as an error
 without falling back to the default. An unexpanded `~` is not an absolute path.
@@ -218,12 +218,11 @@ agent:
 | hooks | exclude | never |
 | caches | exclude | never |
 
-Project instruction files discovered by the adapters (`CLAUDE.md`, `.cursorrules`,
-`GEMINI.md` and Codex's shared project `AGENTS.md`) are selected as whole bounded text.
-They stay inside the encrypted payload, can be restored or verified, and are never
-printed by preview, list or inspect. Shared `AGENTS.md` may be used by more than one
-agent, so restore it deliberately. Global or unlisted instruction locations are not
-inventoried. These classes make the other gaps explicit rather than implying that
+Discovered global and project instruction files (`CLAUDE.md`, `AGENTS.md`,
+`.cursorrules`, `GEMINI.md`) are selected as whole bounded text. They stay inside the
+encrypted payload, can be restored or verified, and are never printed by preview, list
+or inspect. Shared project `AGENTS.md` may be used by more than one agent, so restore it
+deliberately. Other or unlisted instruction locations are not inventoried. These classes make the other gaps explicit rather than implying that
 memory, history, hooks or portable credentials can already be exported. `history` is
 an intended opt-in; `credentials` means reference names only, and device-bound
 keychains or sessions still require fresh authentication. No class policy is a claim

@@ -99,7 +99,7 @@
 <PageHeader
   eyebrow="Agent setups"
   title="Profiles."
-  lede="Named setup revisions stored by your account. Push one with reet setup profile push; the snapshot stays on your machine and is fetched separately."
+  lede="Named setup revisions stored by your account. Run reet setup profile to create one and optionally push it; the snapshot stays on your machine and is fetched separately."
 />
 
 {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
@@ -109,10 +109,12 @@
 {:else if profiles.length === 0}
   <section class="empty-state">
     <h2>No profiles yet.</h2>
-    <p>Save a local profile revision, then push it here:</p>
-    <pre><code>reet setup profile save --password-file FILE work SNAPSHOT
-reet setup profile push NAME</code></pre>
-    <p>Pulling a profile never downloads its snapshot; use <code>reet setup fetch --s3 --profile NAME</code> for that.</p>
+    <p>Run the interactive wizard; it can create or choose a snapshot, save a profile and push it here:</p>
+    <pre><code>reet setup profile</code></pre>
+    <p>Or save and push in steps:</p>
+    <pre><code>reet setup profile save work
+reet setup profile push work</code></pre>
+    <p>Profiles never contain the snapshot itself; use <code>reet setup fetch --s3 --profile work</code> to download it on another machine.</p>
   </section>
 {:else}
   <div class="profiles">

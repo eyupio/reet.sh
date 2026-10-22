@@ -75,7 +75,7 @@ func usesClientDefaults(command string, args []string) bool {
 		}
 	}
 	switch command {
-	case "configure", "install", "init", "upgrade", "update", "doctor", "scan", "sync", "agent":
+	case "configure", "install", "init", "upgrade", "update", "doctor", "scan", "sync", "agent", "setup":
 		return true
 	case "healthcheck":
 		for _, arg := range args {

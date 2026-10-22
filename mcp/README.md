@@ -74,7 +74,8 @@ defaults, mutation hints and return information. Successful calls return
 | `list_environments`, `get_environment` | Read scan summaries and paginated inventories, including scan time and completeness. |
 | `list_sync_targets` | Inspect saved desired/missing/extra plans without applying changes. |
 | `list_lists`, `get_list` | Find accessible lists and read skills, list notes and permissions. |
-| `create_list`, `add_list_skill` | Create a personal list or add a reference with a shared list note. |
+| `create_list`, `add_list_skill` | Create a personal list or add a skill with a shared list note. Pass `id` for a skill already on the shelf (including `local/...` skills) or `input` for an `owner/repo/skill` reference; exactly one is required. |
+| `forget_machine`, `merge_machines` | Remove a machine's scanned environments, or merge a renamed host into another. Dry run unless `confirm=true`; `forget_machine` refuses machines that still list skills unless `force=true`. Shelf skills, lists and tags are never touched. |
 | `list_events` | Read the most recent activity, optionally for one skill. |
 | `list_ignored`, `unignore_skill` | Inspect scanner exclusions and allow future imports. |
 

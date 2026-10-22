@@ -29,10 +29,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - CLI defaults and branding merged in [PR #47](https://github.com/eyupio/reet.sh/pull/47), `666964a1ab44d2e16853b93d26115805c7e9a36a`.
 - Handoff refresh merged in [PR #48](https://github.com/eyupio/reet.sh/pull/48), `9fb357598aba062838249db10d1f76a92bbda2c7`.
 - Export policy declarations merged in [PR #49](https://github.com/eyupio/reet.sh/pull/49), `bf77b247b8a75903c8d7eab2fe1f82eb30c96d8b`.
-- Latest verified source baseline: `origin/main` at `bf77b24` (2026-10-22).
-- Policy-driven backup preview is in [PR #51](https://github.com/eyupio/reet.sh/pull/51)
-  on `feat/setup-snapshot-manifest`; fetch remote status before continuing and
-  preserve any uncommitted work.
+- Policy-driven backup preview merged in [PR #51](https://github.com/eyupio/reet.sh/pull/51), `e309a6f`.
+- Latest verified source baseline: `origin/main` at `e309a6f` (2026-10-22).
+- Shared sealed archive primitive is in [PR #52](https://github.com/eyupio/reet.sh/pull/52)
+  on `feat/sealed-archive`; fetch remote status before continuing and preserve any
+  uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -48,6 +49,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Verify PR #47's final CI and published dev artifact.
 - [x] Implement explicit component export policies and document their limits.
 - [x] Implement policy-driven backup preview without writing an archive.
+- [x] Extract the shared sealed archive primitive for local setup snapshots.
 
 ## Implemented slice
 
@@ -107,10 +109,16 @@ fields, per-component digests and fixed omission reasons. Opt-in sources are not
 read; selected values never appear in the preview; nothing is written. `reet setup
 backup` without `--preview` returns an explicit not-implemented error.
 
-Next implementation slice: create an encrypted local snapshot from the selected
-content, with user-held key/passphrase handling, atomic private writes, verification,
-listing/inspection and an omissions report. Keep values inside the encrypted payload.
-Do not start with restore execution or claim cross-OS recovery.
+The sealed archive primitive now lives in `internal/sealed`, shared by instance/shelf
+backups and future setup snapshots without making `internal/setup` depend on the
+backup service, store or SQLite. The backup package keeps its public names through
+aliases and wrappers, so existing formats and callers are unchanged.
+
+Next implementation slice: create an encrypted local setup snapshot from the selected
+content using `internal/sealed`, with passphrase input without command-line values,
+atomic private writes, verification, listing/inspection and an omissions report.
+Keep values inside the encrypted payload. Do not start with restore execution or claim
+cross-OS recovery.
 
 ## Validation and continuation
 
@@ -305,6 +313,20 @@ listing/inspection, S3 delivery, restore planning/execution/verification and
 cross-OS translation are not implemented. Digests cover selected component content,
 not complete files or provenance.
 
+## Shared sealed archive primitive
+
+`internal/sealed` now owns the existing AES-256-GCM/Argon2id archive format, manifest,
+password/compression options, digest verification and the 512 MiB in-memory bound.
+`internal/backup` aliases the exported types/constants and wraps the entry points, so
+its public API, stored formats and tests are unchanged. `internal/setup` can use the
+same verified primitive in the next stage without importing the backup service,
+SQLite or server code.
+
+Validation: focused `internal/sealed` tests cover key/password round trips,
+compression, wrong key/password, tampering and truncation. Existing backup tests pass
+unchanged. Full `go vet ./...` and `go test -race ./...` passed. No dependency or
+format changed.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -316,12 +338,13 @@ not complete files or provenance.
    review quota was exhausted. This is not a completed review or a validated code
    finding. Inspect actual review threads and perform code review independently;
    do not claim automated approval.
-4. Explicit component export policies and the policy-driven backup preview are now
-   implemented. The next small slice is encrypted local snapshot writing from the
-   selected content, with user-held key/passphrase handling, atomic private writes,
-   verification, listing/inspection and an omissions report. Keep values inside the
-   encrypted payload and unknown formats unsupported. Do not enable restore execution
-   or cross-OS claims before their acceptance gates. Consult the detailed plan for
+4. Explicit component export policies, the policy-driven backup preview and the
+   shared sealed archive primitive are now implemented. The next small slice is
+   encrypted local setup snapshot writing from the selected content, with passphrase
+   input without command-line values, atomic private writes, verification,
+   listing/inspection and an omissions report. Keep values inside the encrypted
+   payload and unknown formats unsupported. Do not enable restore execution or
+   cross-OS claims before their acceptance gates. Consult the detailed plan for
    encryption, key handling, restore and compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner

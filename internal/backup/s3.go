@@ -27,7 +27,6 @@ import (
 const (
 	emptyPayloadSHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 	defaultS3Region    = "us-east-1"
-	maxObjectBytes     = 512 << 20
 )
 
 type s3Client struct {

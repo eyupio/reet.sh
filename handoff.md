@@ -28,10 +28,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Upgrade/health regression fixes merged in [PR #46](https://github.com/eyupio/reet.sh/pull/46), `5373885`.
 - CLI defaults and branding merged in [PR #47](https://github.com/eyupio/reet.sh/pull/47), `666964a1ab44d2e16853b93d26115805c7e9a36a`.
 - Handoff refresh merged in [PR #48](https://github.com/eyupio/reet.sh/pull/48), `9fb357598aba062838249db10d1f76a92bbda2c7`.
-- Latest verified source baseline: `origin/main` at `9fb3575` (2026-10-22).
-- Export policy declarations are in [PR #49](https://github.com/eyupio/reet.sh/pull/49) on
-  `feat/setup-export-policy`; fetch remote status before continuing and preserve any
-  uncommitted work.
+- Export policy declarations merged in [PR #49](https://github.com/eyupio/reet.sh/pull/49), `bf77b247b8a75903c8d7eab2fe1f82eb30c96d8b`.
+- Latest verified source baseline: `origin/main` at `bf77b24` (2026-10-22).
+- Policy-driven backup preview is in [PR #51](https://github.com/eyupio/reet.sh/pull/51)
+  on `feat/setup-snapshot-manifest`; fetch remote status before continuing and
+  preserve any uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.

@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import {
-    deleteSetupProfile, getSetupProfile, listSetupProfiles, renameSetupProfile,
-    type SetupProfileRecord, type SetupProfileRevision, type SetupProfileSummary,
+    deleteSetupProfile, getSetupProfile, listSetupProfiles, renameSetupProfile, updateSetupProfileOverrides,
+    type SetupProfileOverrides, type SetupProfileRecord, type SetupProfileRevision, type SetupProfileSummary,
   } from './api'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import PageHeader from './PageHeader.svelte'
@@ -20,6 +20,10 @@
   let deleteFor = $state<SetupProfileSummary | null>(null)
   let renaming = $state(false)
   let renameName = $state('')
+  let editingOverrides = $state(false)
+  let excludedKinds = $state<string[]>([])
+  let excludedSources = $state('')
+  const overrideKinds = ['settings', 'mcp', 'instructions', 'skills', 'memory']
 
   const latest = $derived(selected?.revisions.at(-1) ?? null)
   const hasPreview = $derived((latest?.preview?.schema_version ?? 0) > 0)
@@ -60,6 +64,7 @@
   async function choose(name: string) {
     busy = name
     renaming = false
+    editingOverrides = false
     try {
       selected = await getSetupProfile(name)
       error = ''
@@ -75,6 +80,37 @@
     if (!selected) return
     renameName = selected.name
     renaming = true
+  }
+
+  function startOverrides() {
+    if (!latest) return
+    const overrides = latest.overrides ?? {}
+    excludedKinds = [...(overrides.exclude_kinds ?? [])]
+    excludedSources = (overrides.exclude_sources ?? []).join('\n')
+    editingOverrides = true
+  }
+
+  async function saveOverrides() {
+    if (!selected || !latest) return
+    const previous = latest.overrides ?? {}
+    const sources = excludedSources.split('\n').map((value) => value.trim()).filter(Boolean)
+    const overrides: SetupProfileOverrides = { ...previous, exclude_kinds: excludedKinds, exclude_sources: sources }
+    if (excludedKinds.length === 0) delete overrides.exclude_kinds
+    if (sources.length === 0) delete overrides.exclude_sources
+    busy = selected.name
+    try {
+      const updated = await updateSetupProfileOverrides(selected.name, overrides)
+      const result = await listSetupProfiles()
+      profiles = result.profiles ?? []
+      selected = updated
+      editingOverrides = false
+      error = ''
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      busy = ''
+    }
   }
 
   async function renameProfile() {
@@ -192,11 +228,30 @@ reet setup profile push work</code></pre>
           </div>
           {#if canWrite}
             <div class="detail-actions">
+              <button type="button" class="btn quiet" onclick={startOverrides} disabled={busy !== ''}>Edit overrides</button>
               <button type="button" class="btn quiet" onclick={startRename} disabled={busy !== ''}>Rename</button>
               <button type="button" class="btn quiet danger" onclick={() => (deleteFor = profiles.find((profile) => profile.name === selected?.name) ?? null)} disabled={busy !== ''}>Delete</button>
             </div>
           {/if}
         </header>
+
+        {#if editingOverrides}
+          <form class="rename-form" onsubmit={(event) => { event.preventDefault(); void saveOverrides() }}>
+            <span class="rename-label">New server revision exclusions</span>
+            <div class="override-kinds">
+              {#each overrideKinds as kind}
+                <label><input type="checkbox" value={kind} bind:group={excludedKinds} /> {kindLabel(kind)}</label>
+              {/each}
+            </div>
+            <label for="profile-exclude-sources">Excluded source paths, one per line</label>
+            <textarea id="profile-exclude-sources" bind:value={excludedSources} rows="3" placeholder="/path/to/source"></textarea>
+            <div class="rename-row">
+              <button type="submit" class="btn" disabled={busy !== ''}>Save revision</button>
+              <button type="button" class="btn quiet" onclick={() => (editingOverrides = false)} disabled={busy !== ''}>Cancel</button>
+            </div>
+            <p class="muted small">Adds a server revision with the same snapshot. Machine/project scopes are preserved; local profiles change only after a pull.</p>
+          </form>
+        {/if}
 
         {#if renaming}
           <form class="rename-form" onsubmit={(event) => { event.preventDefault(); void renameProfile() }}>
@@ -422,9 +477,13 @@ reet setup profile push work</code></pre>
   .detail-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
   .rename-form { margin-top: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
   .rename-form label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 6px; }
+  .rename-label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 6px; }
   .rename-row { display: flex; gap: 8px; flex-wrap: wrap; }
-  .rename-row input { flex: 1 1 180px; min-width: 0; }
+  .rename-row input, .rename-form textarea { flex: 1 1 180px; min-width: 0; }
   .rename-form p { margin: 8px 0 0; }
+  .rename-form textarea { width: 100%; box-sizing: border-box; margin: 4px 0 8px; font: inherit; }
+  .override-kinds { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 4px 0 10px; font-size: 0.8rem; }
+  .override-kinds label { display: flex; align-items: center; gap: 4px; margin: 0; }
   .eyebrow { margin: 0; color: var(--accent); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
   h2 { margin: 4px 0 6px; font: 500 1.7rem/1.1 var(--serif); letter-spacing: -0.02em; overflow-wrap: anywhere; }
   h3 { margin: 22px 0 8px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }

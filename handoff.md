@@ -147,6 +147,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Publish the conservative per-agent component and restore support matrix.
 - [x] Resume an interrupted apply journal after rechecking applied actions.
 - [x] Capture and restore the supported Codex memory database.
+- [x] Add a server revision with changed global exclusions from the Profiles page.
 
 ## Implemented slice
 
@@ -1242,8 +1243,8 @@ zero Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary smoke te
 verify the simplified command before merge; setup tests cross-compile for Windows amd64
 and macOS arm64. `git diff --check` passed. No dependency changed.
 
-Skill dependency resolution, memory stores other than Codex, history adapters, broader
-web profile editing and verified cross-OS restore remain unimplemented.
+Skill dependency resolution, memory stores other than Codex, history adapters, local web
+profile editing and verified cross-OS restore remain unimplemented.
 
 ## Interactive backup passphrase
 
@@ -1260,8 +1261,8 @@ diagnostics) and all 16 MCP tests passed. A PTY smoke test verified the two-prom
 macOS arm64.
 `git diff --check` passed. No dependency changed (x/term was already present).
 
-Skill dependency resolution, memory stores other than Codex, history adapters, broader
-web profile editing and verified cross-OS restore remain unimplemented.
+Skill dependency resolution, memory stores other than Codex, history adapters, local web
+profile editing and verified cross-OS restore remain unimplemented.
 
 ## Interactive setup-profile wizard
 
@@ -1279,8 +1280,8 @@ diagnostics) and all 16 MCP tests passed. Setup tests cross-compile for Windows 
 macOS arm64. `git diff --check` passed. No dependency changed (x/term was already
 present).
 
-Skill dependency resolution, memory stores other than Codex, history adapters, broader
-web profile editing and verified cross-OS restore remain unimplemented.
+Skill dependency resolution, memory stores other than Codex, history adapters, local web
+profile editing and verified cross-OS restore remain unimplemented.
 
 ## Wizard sync and env-file defaults
 
@@ -1296,8 +1297,8 @@ pushed it to a local fake server using `.env`. Full `go vet ./...` and
 all 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and macOS arm64.
 `git diff --check` passed. No dependency changed.
 
-Skill dependency resolution, memory stores other than Codex, history adapters, broader
-web profile editing and verified cross-OS restore remain unimplemented.
+Skill dependency resolution, memory stores other than Codex, history adapters, local web
+profile editing and verified cross-OS restore remain unimplemented.
 
 ## Rejected profile-sync token retry
 
@@ -1311,8 +1312,8 @@ Validation: focused tests cover the unauthorized sentinel; a PTY smoke test used
 diagnostics) and all 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and
 macOS arm64. `git diff --check` passed. No dependency changed.
 
-Skill dependency resolution, memory stores other than Codex, history adapters, broader
-web profile editing and verified cross-OS restore remain unimplemented.
+Skill dependency resolution, memory stores other than Codex, history adapters, local web
+profile editing and verified cross-OS restore remain unimplemented.
 
 ## Profile preview defaults and saved-token retry
 
@@ -1328,8 +1329,8 @@ capture and silent saved-token retry with a stale `.env` token. Full `go vet ./.
 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and macOS arm64.
 `git diff --check` passed. No dependency changed.
 
-Skill dependency resolution, memory stores other than Codex, history adapters, broader
-web profile editing and verified cross-OS restore remain unimplemented.
+Skill dependency resolution, memory stores other than Codex, history adapters, local web
+profile editing and verified cross-OS restore remain unimplemented.
 
 ## Skills in setup snapshots
 
@@ -1354,6 +1355,17 @@ verify and rollback mode preservation. A manual end-to-end run backed up two ski
 folders, restored them into a fresh home and verified both. Web checks pass with zero
 Svelte diagnostics; a seeded profile rendered both skill names. Full Go, MCP and web
 checks pass.
+
+## Web profile exclusions
+
+The Profiles page can append a server revision with changed global `exclude_kinds` and
+`exclude_sources` while preserving machine/project scopes. `PATCH
+/api/v2/setup/profiles/{name}` accepts either a new name or overrides, not both; overrides
+are validated and saved with the same snapshot and preview. A local profile is unchanged
+until a pull.
+
+Validation: API tests cover the appended revision, snapshot reuse, invalid kinds and the
+mutually exclusive edit form. Web checks pass with zero Svelte diagnostics.
 
 ## Codex memory
 
@@ -1462,8 +1474,8 @@ checks passed (8 tests; zero Svelte diagnostics) and all 16 MCP tests passed. Se
 cross-compile for Windows amd64 and macOS arm64. `git diff --check` passed. No dependency
 changed.
 
-Skill dependency resolution, memory stores other than Codex, history adapters, broader
-web profile editing and verified cross-OS restore remain unimplemented.
+Skill dependency resolution, memory stores other than Codex, history adapters, local web
+profile editing and verified cross-OS restore remain unimplemented.
 
 ## Resume checklist (2026-10-22)
 

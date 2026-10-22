@@ -363,8 +363,9 @@ explicit snapshot ID.
 for named machines/projects, selected with `--machine NAME`/`--project PATH`. `profile rename` keeps history and `profile remove --yes` keeps snapshots;
 `profile push`/`pull` sync the profile (not the snapshot) with a reet server. The
 **Profiles** page lists synced profiles, their latest revision, overrides and revision
-history, and can rename or delete the server copy. Renaming the server copy does not
-rename the local profile. For revisions with a recorded preview it also
+history, and can rename or delete the server copy, or add a server revision with changed
+global exclusions. These edits affect the server copy only; local profiles change after a
+pull, and renaming does not rename the local profile. For revisions with a recorded preview it also
 shows each agent's stored components: settings field names, MCP server names, instruction
 sources, installed skill folders with file counts and recorded source, encrypted-field
 names, omissions and software evidence. Credential values and skill file contents are never shown. Profiles are

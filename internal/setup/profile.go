@@ -376,6 +376,9 @@ func renderProfile(out io.Writer, profile SetupProfile, revision SetupProfileRev
 
 func normalizeProfileOverrides(opts SaveSetupProfileOptions) (*SetupProfileOverrides, error) {
 	if opts.Overrides != nil {
+		if err := ValidateSetupProfileOverrides(opts.Overrides); err != nil {
+			return nil, err
+		}
 		copy := *opts.Overrides
 		return &copy, nil
 	}
@@ -434,6 +437,47 @@ func normalizeProfileOverrides(opts SaveSetupProfileOptions) (*SetupProfileOverr
 
 // ApplyProfileOverrides removes explicitly excluded sources/components before
 // planning or verification. It never adds or rewrites snapshot content.
+// ValidateSetupProfileOverrides checks explicit profile exclusions without reading a snapshot.
+func ValidateSetupProfileOverrides(overrides *SetupProfileOverrides) error {
+	if overrides == nil {
+		return nil
+	}
+	allowed := map[string]bool{"settings": true, "mcp": true, "instructions": true, "skills": true, "memory": true}
+	validateScope := func(scope SetupProfileScope) error {
+		for _, kind := range scope.ExcludeKinds {
+			if !allowed[kind] {
+				return fmt.Errorf("excluded kind %q must be settings, mcp, instructions, skills or memory", kind)
+			}
+		}
+		for _, source := range scope.ExcludeSources {
+			if strings.TrimSpace(source) == "" || len(source) > 4096 {
+				return errors.New("excluded source paths must be 1-4096 characters")
+			}
+		}
+		return nil
+	}
+	if err := validateScope(SetupProfileScope{ExcludeKinds: overrides.ExcludeKinds, ExcludeSources: overrides.ExcludeSources}); err != nil {
+		return err
+	}
+	for machine, scope := range overrides.Machines {
+		if machine == "" || len(machine) > 128 {
+			return errors.New("machine overrides need a name of 1-128 characters")
+		}
+		if err := validateScope(scope); err != nil {
+			return err
+		}
+	}
+	for project, scope := range overrides.Projects {
+		if project == "" || len(project) > 1024 {
+			return errors.New("project overrides need a path of 1-1024 characters")
+		}
+		if err := validateScope(scope); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func ApplyProfileOverrides(snapshot SetupSnapshot, overrides *SetupProfileOverrides, machine, project string) SetupSnapshot {
 	if overrides == nil {
 		return snapshot

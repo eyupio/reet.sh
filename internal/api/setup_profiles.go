@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"time"
+
+	"fmt"
 
 	"github.com/eyupio/reet.sh/internal/setup"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -89,11 +92,20 @@ func (s *server) renameSetupProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var request struct {
-		Name string `json:"name"`
+		Name      *string                      `json:"name"`
+		Overrides *setup.SetupProfileOverrides `json:"overrides"`
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1024))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxSetupProfileBytes))
 	if err != nil || json.Unmarshal(body, &request) != nil {
-		writeErr(w, http.StatusBadRequest, "the rename request is invalid")
+		writeErr(w, http.StatusBadRequest, "the profile edit request is invalid")
+		return
+	}
+	if request.Name == nil && request.Overrides == nil {
+		writeErr(w, http.StatusBadRequest, "name a new profile name or overrides")
+		return
+	}
+	if request.Name != nil && request.Overrides != nil {
+		writeErr(w, http.StatusBadRequest, "edit the name or overrides, not both")
 		return
 	}
 	var profile setup.SetupProfile
@@ -101,21 +113,56 @@ func (s *server) renameSetupProfile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "stored setup profile is invalid")
 		return
 	}
-	if request.Name == record.Name {
+	if request.Overrides != nil {
+		if err := setup.ValidateSetupProfileOverrides(request.Overrides); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if overridesEmpty(request.Overrides) {
+			request.Overrides = nil
+		}
+		latest := profile.Revisions[len(profile.Revisions)-1]
+		next := latest
+		next.Revision = len(profile.Revisions) + 1
+		next.CreatedAt = time.Now().UTC()
+		next.Overrides = request.Overrides
+		profile.Revisions = append(profile.Revisions, next)
+		payload, err := json.Marshal(profile)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if _, err := setup.ParseSetupProfile(payload, profile.Name); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := s.st.SaveSetupProfile(store.SetupProfileRecord{
+			UserID: s.uid(r), Name: profile.Name, Revision: next.Revision,
+			SnapshotID: next.SnapshotID, SnapshotDigest: next.SnapshotDigest, Payload: string(payload),
+		}); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.eventRequest(r, "setup-profile-override", "", map[string]string{"profile": profile.Name, "revision": fmt.Sprint(next.Revision)})
 		writeJSON(w, http.StatusOK, profile)
 		return
 	}
-	profile.Name = request.Name
+	name := *request.Name
+	if name == record.Name {
+		writeJSON(w, http.StatusOK, profile)
+		return
+	}
+	profile.Name = name
 	payload, err := json.Marshal(profile)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if _, err := setup.ParseSetupProfile(payload, request.Name); err != nil {
+	if _, err := setup.ParseSetupProfile(payload, name); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	renamed, err := s.st.RenameSetupProfileFor(s.uid(r), record.Name, request.Name, string(payload))
+	renamed, err := s.st.RenameSetupProfileFor(s.uid(r), record.Name, name, string(payload))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -124,8 +171,12 @@ func (s *server) renameSetupProfile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "a setup profile with that name already exists")
 		return
 	}
-	s.eventRequest(r, "setup-profile-rename", "", map[string]string{"from": record.Name, "to": request.Name})
+	s.eventRequest(r, "setup-profile-rename", "", map[string]string{"from": record.Name, "to": name})
 	writeJSON(w, http.StatusOK, profile)
+}
+
+func overridesEmpty(overrides *setup.SetupProfileOverrides) bool {
+	return len(overrides.ExcludeKinds) == 0 && len(overrides.ExcludeSources) == 0 && len(overrides.Machines) == 0 && len(overrides.Projects) == 0
 }
 
 func (s *server) deleteSetupProfile(w http.ResponseWriter, r *http.Request) {

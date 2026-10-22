@@ -30,10 +30,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Handoff refresh merged in [PR #48](https://github.com/eyupio/reet.sh/pull/48), `9fb357598aba062838249db10d1f76a92bbda2c7`.
 - Export policy declarations merged in [PR #49](https://github.com/eyupio/reet.sh/pull/49), `bf77b247b8a75903c8d7eab2fe1f82eb30c96d8b`.
 - Policy-driven backup preview merged in [PR #51](https://github.com/eyupio/reet.sh/pull/51), `e309a6f`.
-- Latest verified source baseline: `origin/main` at `e309a6f` (2026-10-22).
-- Shared sealed archive primitive is in [PR #52](https://github.com/eyupio/reet.sh/pull/52)
-  on `feat/sealed-archive`; fetch remote status before continuing and preserve any
-  uncommitted work.
+- Shared sealed archive primitive merged in [PR #52](https://github.com/eyupio/reet.sh/pull/52), `2e9cfb6`.
+- Latest verified source baseline: `origin/main` at `2e9cfb6` (2026-10-22).
+- Encrypted local setup snapshot writing is in [PR #53](https://github.com/eyupio/reet.sh/pull/53)
+  on `feat/setup-snapshot-write`; fetch remote status before continuing and preserve
+  any uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -50,6 +51,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Implement explicit component export policies and document their limits.
 - [x] Implement policy-driven backup preview without writing an archive.
 - [x] Extract the shared sealed archive primitive for local setup snapshots.
+- [x] Write and verify encrypted local setup snapshots from the policy selection.
 
 ## Implemented slice
 
@@ -100,25 +102,31 @@ declaration, not an export or backup. Authenticated provenance, package-manager
 receipts and install resolution still need dedicated support before their restore
 paths can be enabled. Current slices do not meet the complete S1 acceptance gate.
 Do not copy configuration trees generically: they may mix secrets, history, caches
-and hooks. No setup backup/restore command is implemented yet.
+and hooks. Setup backup now writes encrypted local snapshots; setup restore is not
+implemented.
 
 S2a now applies those policies in memory through
 `reet setup backup --preview [--json] [--project PATH]`. It reports included,
 credential-only, reference and excluded field names, MCP declaration counts, unknown
 fields, per-component digests and fixed omission reasons. Opt-in sources are not
-read; selected values never appear in the preview; nothing is written. `reet setup
-backup` without `--preview` returns an explicit not-implemented error.
+read; selected values never appear in the preview; the preview itself writes nothing.
+Writing an encrypted snapshot is the next slice below.
 
 The sealed archive primitive now lives in `internal/sealed`, shared by instance/shelf
 backups and future setup snapshots without making `internal/setup` depend on the
 backup service, store or SQLite. The backup package keeps its public names through
 aliases and wrappers, so existing formats and callers are unchanged.
 
-Next implementation slice: create an encrypted local setup snapshot from the selected
-content using `internal/sealed`, with passphrase input without command-line values,
-atomic private writes, verification, listing/inspection and an omissions report.
-Keep values inside the encrypted payload. Do not start with restore execution or claim
-cross-OS recovery.
+S2b now writes a passphrase-encrypted local setup snapshot from that selection using
+`internal/sealed`: `reet setup backup --password-file FILE [--dir DIR] [--json]`.
+It refuses command-line passphrase values, writes privately and atomically, verifies
+the seal before and the file after the write, and keeps paths, selected values and
+omissions inside the encrypted payload. Listing/inspection and restore remain later
+slices.
+
+Next implementation slice: list and inspect local setup snapshots using their clear
+headers, then start restore planning from the encrypted payload. Keep values encrypted
+and do not claim cross-OS recovery before its acceptance gate.
 
 ## Validation and continuation
 
@@ -288,7 +296,7 @@ smoke scan verified default schema v1, opt-in policy output and no secret leakag
 
 ## Policy-driven backup preview
 
-[PR #51](https://github.com/eyupio/reet.sh/pull/51) adds
+[PR #51](https://github.com/eyupio/reet.sh/pull/51) added
 `reet setup backup --preview [--json] [--project PATH]`. It applies the declared
 policies to bounded known sources and reports included, credential-only, reference
 and excluded field names, MCP declaration counts, unknown-field counts,
@@ -296,8 +304,8 @@ per-component SHA-256 digests and fixed omission reasons. Selected values stay i
 unexported in-memory content only; the preview never prints them and writes nothing.
 Opt-in sources such as `settings.local.json` are not read. Credential-bearing fields
 are counted but not selected, references retain names without resolution, and
-unsupported classes remain explicit. `reet setup backup` without `--preview` returns
-an explicit not-implemented error.
+unsupported classes remain explicit. The preview itself is read-only; writing was
+added in the next slice.
 
 Preview validation: focused setup tests cover policy application, settings/MCP field
 selection, omitted credentials and unknown fields, opt-in sources not being read,
@@ -305,12 +313,13 @@ symlinked and oversized sources, invalid MCP declarations, stable preview identi
 CLI preview-only behaviour, no writes and secret absence in JSON/text. Full
 `go vet ./...` and `go test -race ./...` passed. Web checks passed (8 tests; zero
 Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary smoke test verified
-preview output, secret absence and refusal of backup writing; setup tests cross-compile
-for Windows amd64 and macOS arm64. `git diff --check` passed. No dependency changed.
+preview output, secret absence and writing refusal at that stage; setup tests
+cross-compiled for Windows amd64 and macOS arm64. `git diff --check` passed. No
+dependency changed.
 
-This is still not a backup: encryption, key/passphrase handling, archive writing,
-listing/inspection, S3 delivery, restore planning/execution/verification and
-cross-OS translation are not implemented. Digests cover selected component content,
+The preview itself is not a backup. Encryption and writing were added in the next
+slice; listing/inspection, S3 delivery, restore planning/execution/verification and
+cross-OS translation remain unimplemented. Digests cover selected component content,
 not complete files or provenance.
 
 ## Shared sealed archive primitive
@@ -318,14 +327,47 @@ not complete files or provenance.
 `internal/sealed` now owns the existing AES-256-GCM/Argon2id archive format, manifest,
 password/compression options, digest verification and the 512 MiB in-memory bound.
 `internal/backup` aliases the exported types/constants and wraps the entry points, so
-its public API, stored formats and tests are unchanged. `internal/setup` can use the
-same verified primitive in the next stage without importing the backup service,
-SQLite or server code.
+its public API, stored formats and tests are unchanged. `internal/setup` now uses the
+same verified primitive without importing the backup service, SQLite or server code.
 
 Validation: focused `internal/sealed` tests cover key/password round trips,
 compression, wrong key/password, tampering and truncation. Existing backup tests pass
 unchanged. Full `go vet ./...` and `go test -race ./...` passed. No dependency or
 format changed.
+
+## Encrypted local setup snapshots
+
+The current stage on `feat/setup-snapshot-write` makes `reet setup backup` write one
+passphrase-encrypted snapshot when `--preview` is absent. `--password-file FILE`
+(or `-` for standard input) supplies a passphrase of at least 12 characters; there is
+no command-line passphrase value and no stored key. `--dir` selects the snapshot
+directory, otherwise `REET_SETUP_DIR` or the user config `reet/setup` directory is
+used. Files are `setup-<timestamp>-<nonce>.reetsetup`, mode 0600 in a mode-0700
+directory, written through a synced temporary file and rename. Symlinked or non-
+directory destinations are refused.
+
+Snapshots use the shared `internal/sealed` AES-256-GCM/Argon2id archive with gzip.
+The clear header carries only the ID, kind/target `setup`, time, format version,
+payload size/digest and protection/compression. Source paths, selected values, MCP
+content and omissions are inside the encrypted payload. The writer opens the sealed
+bytes before writing and opens the file on disk again afterwards; failure removes the
+file. Credential-bearing values, opt-in sources, memory, history, hooks and caches
+remain excluded by the policy.
+
+Validation: focused setup tests cover encrypted write/read, selected content and
+omitted credentials, wrong passphrase, tampering, digest/schema mismatch, atomic
+private permissions, no temporary plaintext, missing/short passphrase, symlink and
+file destinations, CLI JSON/text output and secret absence. Full `go vet ./...` and
+`go test -race ./...` passed. Web checks passed (8 tests; zero Svelte diagnostics) and
+all 16 MCP tests passed. A compiled-binary smoke test verified the written
+snapshot header, mode-0600 file, clean ciphertext and result output, that preview
+still works, and that a missing passphrase is refused. Setup tests cross-compile for
+Windows amd64 and macOS arm64. `git diff --check` passed. No dependency changed.
+
+Listing/inspection, S3 delivery, restore planning/execution/verification, dependency
+resolution and cross-OS translation are not implemented. This is not yet a complete
+AI setup backup: unsupported components remain omissions and no restored setup has
+been verified.
 
 ## Resume checklist (2026-10-22)
 
@@ -338,22 +380,23 @@ format changed.
    review quota was exhausted. This is not a completed review or a validated code
    finding. Inspect actual review threads and perform code review independently;
    do not claim automated approval.
-4. Explicit component export policies, the policy-driven backup preview and the
-   shared sealed archive primitive are now implemented. The next small slice is
-   encrypted local setup snapshot writing from the selected content, with passphrase
-   input without command-line values, atomic private writes, verification,
-   listing/inspection and an omissions report. Keep values inside the encrypted
-   payload and unknown formats unsupported. Do not enable restore execution or
-   cross-OS claims before their acceptance gates. Consult the detailed plan for
-   encryption, key handling, restore and compatibility requirements.
+4. Explicit component export policies, the policy-driven preview, the shared sealed
+   archive and encrypted local setup snapshot writing are now implemented. The next
+   small slice is listing/inspection of local snapshots from their clear headers,
+   followed by restore planning from the encrypted payload. Keep values encrypted and
+   unknown formats unsupported. Do not enable restore execution or cross-OS claims
+   before their acceptance gates. Consult the detailed plan for encryption, key
+   handling, restore and compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current
    with actual commits, tests, limitations and next work. New product decisions
    should use clickable options with a recommendation when the UI supports them.
 
-Important boundaries: no complete AI setup backup/restore has shipped. Existing
-`reet backup` is not evidence that the planned setup milestone is complete.
+Important boundaries: no complete AI setup backup/restore has shipped. Setup backup
+now writes a partial encrypted local snapshot, but restore, listing and verified
+cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
+the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
 manage that server. No production host was upgraded by this session. Do not copy
 live MCP inventory or credentials into fixtures, logs or documentation.

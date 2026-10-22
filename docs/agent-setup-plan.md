@@ -225,7 +225,10 @@ hooks and caches. It reads no configuration values and implements no export.
 - Add immutable manifest/content storage, local key/passphrase management,
   selection previews, optional portable credentials and optional history.
   An opt-in preview now applies the S1 policies in memory and reports selected
-  fields, omissions and per-component digests without writing any archive.
+  fields, omissions and per-component digests without writing any archive. A first
+  writing slice seals that selection into a passphrase-encrypted local snapshot and
+  verifies it before and after the atomic private write. Restore and listing remain
+  later slices.
 - Verify every completed archive, write privately and atomically, and produce an
   omissions report. Add local listing/inspection and optional S3 delivery.
 - Keep local recovery usable after complete loss of the controller database.

@@ -158,7 +158,14 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	mux.HandleFunc("PUT /api/v2/sync", s.requireWriter(s.saveSync))
 	mux.HandleFunc("DELETE /api/v2/sync", s.requireWriter(s.deleteSync))
 	mux.HandleFunc("DELETE /api/v2/environments", s.requireWriter(s.forgetEnvironment))
+	mux.HandleFunc("POST /api/v2/environments/delete", s.requireWriter(s.deleteEnvironments))
+	mux.HandleFunc("POST /api/v2/environments/merge", s.requireWriter(s.mergeEnvironments))
+	mux.HandleFunc("POST /api/v2/skills/bulk", s.requireWriter(s.bulkUpdateSkills))
+	mux.HandleFunc("GET /api/v2/skills/duplicates", s.findDuplicates)
 	mux.HandleFunc("GET /api/tags", s.tags)
+	mux.HandleFunc("POST /api/v2/tags", s.requireWriter(s.createTag))
+	mux.HandleFunc("PATCH /api/v2/tags/{id}", s.requireWriter(s.renameTagScoped))
+	mux.HandleFunc("POST /api/v2/tags/{id}/delete", s.requireWriter(s.deleteTag))
 	mux.HandleFunc("PATCH /api/tag", s.requireAdmin(s.renameTag))
 	mux.HandleFunc("POST /api/tags/merge", s.requireAdmin(s.mergeTags))
 	mux.HandleFunc("GET /api/events", s.events)
@@ -188,8 +195,10 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	mux.HandleFunc("PATCH /api/v2/lists/{id}", s.updateList)
 	mux.HandleFunc("DELETE /api/v2/lists/{id}", s.deleteList)
 	mux.HandleFunc("POST /api/v2/lists/{id}/skills", s.addListSkill)
+	mux.HandleFunc("POST /api/v2/lists/{id}/skills/bulk", s.addListSkills)
 	mux.HandleFunc("PATCH /api/v2/lists/{id}/skills", s.updateListSkill)
 	mux.HandleFunc("DELETE /api/v2/lists/{id}/skills", s.removeListSkill)
+	mux.HandleFunc("POST /api/v2/lists/{id}/delete", s.deleteListConfirmed)
 	mux.HandleFunc("POST /api/v2/lists/{id}/members", s.addListMember)
 	mux.HandleFunc("PATCH /api/v2/lists/{id}/members", s.updateListMember)
 	mux.HandleFunc("DELETE /api/v2/lists/{id}/members", s.removeListMember)
@@ -625,6 +634,34 @@ func (s *server) event(userID int64, source, action, skillID string, detail any)
 	}
 }
 
+// eventRequest attributes a change to the MCP client that made it while keeping
+// the existing UI source for browser-originated calls.
+func (s *server) eventRequest(r *http.Request, action, skillID string, detail any) {
+	source := "ui"
+	if strings.EqualFold(r.Header.Get("X-Reet-Source"), "mcp") {
+		source = "mcp"
+	}
+	if client := strings.TrimSpace(r.Header.Get("X-Reet-Client")); client != "" {
+		switch d := detail.(type) {
+		case nil:
+			detail = map[string]any{"client": client}
+		case map[string]any:
+			d["client"] = client
+			detail = d
+		case map[string]string:
+			merged := make(map[string]any, len(d)+1)
+			for k, v := range d {
+				merged[k] = v
+			}
+			merged["client"] = client
+			detail = merged
+		default:
+			detail = map[string]any{"detail": detail, "client": client}
+		}
+	}
+	s.event(s.uid(r), source, action, skillID, detail)
+}
+
 func stageLabel(sk store.Skill) string {
 	if sk.Used {
 		return "In use"
@@ -644,6 +681,35 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
 }
+
+// writeErrCode keeps the legacy error string and adds machine-readable fields
+// so MCP clients can tell the agent what to change instead of retrying blindly.
+func writeErrCode(w http.ResponseWriter, code int, errCode, field, msg, hint string) {
+	out := map[string]string{"error": msg, "code": errCode, "message": msg}
+	if field != "" {
+		out["field"] = field
+	}
+	if hint != "" {
+		out["hint"] = hint
+	}
+	writeJSON(w, code, out)
+}
+
+const (
+	errConfirmRequired      = "confirm_required"
+	errEnvironmentHasSkills = "environment_has_skills"
+	errEnvironmentNotFound  = "environment_not_found"
+	errLocalSkillInList     = "local_skill_not_allowed_in_list"
+	errAmbiguousSkillID     = "ambiguous_skill_id"
+	errSkillNotFound        = "skill_not_found"
+	errListNotFound         = "list_not_found"
+	errTagNotFound          = "tag_not_found"
+	errInvalidArgument      = "invalid_argument"
+	errReadOnly             = "read_only"
+	errConflict             = "conflict"
+	errNoMatchingSkills     = "no_matching_skills"
+	errInvalidField         = "invalid_field"
+)
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<20)
@@ -681,7 +747,73 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	q := r.URL.Query()
+	compact := q.Get("compact") == "1" || q.Get("compact") == "true" || q.Get("fields") != ""
+	if compact {
+		fields := []string{"id", "name", "source", "sourceType", "stage", "liked", "bookmarked", "tags", "environment_count"}
+		if raw := strings.TrimSpace(q.Get("fields")); raw != "" {
+			fields = nil
+			allowed := map[string]bool{"id": true, "name": true, "source": true, "sourceType": true, "stage": true, "liked": true, "bookmarked": true, "tags": true, "environment_count": true}
+			for _, field := range strings.Split(raw, ",") {
+				field = strings.TrimSpace(field)
+				if field == "" {
+					continue
+				}
+				if !allowed[field] {
+					writeErrCode(w, 400, errInvalidField, "fields", "unknown compact field: "+field, "Use id, name, source, sourceType, stage, liked, bookmarked, tags or environment_count.")
+					return
+				}
+				fields = append(fields, field)
+			}
+			if len(fields) == 0 {
+				fields = []string{"id", "name"}
+			}
+		}
+		compactSkills := make([]map[string]any, 0, len(skills))
+		for _, sk := range skills {
+			row := map[string]any{}
+			for _, field := range fields {
+				switch field {
+				case "id":
+					row["id"] = sk.ID
+				case "name":
+					row["name"] = sk.Name
+				case "source":
+					row["source"] = sk.Source
+				case "sourceType":
+					row["sourceType"] = sk.SourceType
+				case "stage":
+					row["stage"] = stageKey(sk)
+				case "liked":
+					row["liked"] = sk.Liked
+				case "bookmarked":
+					row["bookmarked"] = sk.Bookmarked
+				case "tags":
+					names := make([]string, 0, len(sk.Tags))
+					for _, tag := range sk.Tags {
+						names = append(names, tag.Name)
+					}
+					row["tags"] = names
+				case "environment_count":
+					row["environment_count"] = len(sk.Environments)
+				}
+			}
+			compactSkills = append(compactSkills, row)
+		}
+		writeJSON(w, 200, map[string]any{"skills": compactSkills, "counts": counts})
+		return
+	}
 	writeJSON(w, 200, map[string]any{"skills": skills, "counts": counts})
+}
+
+func stageKey(sk store.Skill) string {
+	if sk.Used {
+		return "use"
+	}
+	if sk.Bookmarked {
+		return "try"
+	}
+	return "shelf"
 }
 
 func (s *server) add(w http.ResponseWriter, r *http.Request) {
@@ -709,7 +841,7 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.enqueue(rf)
-	s.event(s.uid(r), "ui", "add", sk.ID, map[string]any{"name": sk.Name, "created": !existed})
+	s.eventRequest(r, "add", sk.ID, map[string]any{"name": sk.Name, "created": !existed})
 	writeJSON(w, 200, struct {
 		store.Skill
 		Created bool `json:"created"`
@@ -734,7 +866,7 @@ func (s *server) patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	action, detail := patchEvent(old, sk, in.Patch)
-	s.event(s.uid(r), "ui", action, sk.ID, detail)
+	s.eventRequest(r, action, sk.ID, detail)
 	writeJSON(w, 200, sk)
 }
 
@@ -768,7 +900,7 @@ func (s *server) remove(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 500, err.Error())
 			return
 		}
-		s.event(s.uid(r), "ui", "ignore", id, map[string]any{"name": sk.Name})
+		s.eventRequest(r, "ignore", id, map[string]any{"name": sk.Name})
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -776,7 +908,7 @@ func (s *server) remove(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "remove", id, map[string]any{"name": sk.Name})
+	s.eventRequest(r, "remove", id, map[string]any{"name": sk.Name})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -803,7 +935,7 @@ func (s *server) refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	changed := refreshed && metaChanged(before, sk)
-	s.event(s.uid(r), "ui", "refresh", sk.ID, map[string]any{"name": sk.Name, "changed": changed, "ok": refreshed})
+	s.eventRequest(r, "refresh", sk.ID, map[string]any{"name": sk.Name, "changed": changed, "ok": refreshed})
 	writeJSON(w, 200, struct {
 		store.Skill
 		Changed   bool `json:"changed"`
@@ -845,7 +977,7 @@ func (s *server) resolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.enqueue(rf)
-	s.event(s.uid(r), "ui", "link", sk.ID, map[string]any{"name": sk.Name, "from": in.ID})
+	s.eventRequest(r, "link", sk.ID, map[string]any{"name": sk.Name, "from": in.ID})
 	writeJSON(w, 200, sk)
 }
 
@@ -1089,6 +1221,22 @@ func (s *server) environments(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	q := r.URL.Query()
+	emptyOnly := q.Get("empty_only") == "1" || q.Get("empty_only") == "true"
+	agent := strings.TrimSpace(q.Get("agent"))
+	if emptyOnly || agent != "" {
+		filtered := make([]store.SyncEnvironment, 0, len(envs))
+		for _, env := range envs {
+			if emptyOnly && env.SkillCount != 0 {
+				continue
+			}
+			if agent != "" && !strings.EqualFold(env.Agent, agent) {
+				continue
+			}
+			filtered = append(filtered, env)
+		}
+		envs = filtered
+	}
 	writeJSON(w, 200, map[string]any{"environments": envs, "machines": machines})
 }
 
@@ -1131,7 +1279,7 @@ func (s *server) skillTags(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "skill not found")
 		return
 	}
-	s.event(s.uid(r), "ui", "tag", sk.ID, map[string]any{"name": sk.Name, "added": in.Add, "removed": in.Remove})
+	s.eventRequest(r, "tag", sk.ID, map[string]any{"name": sk.Name, "added": in.Add, "removed": in.Remove})
 	writeJSON(w, 200, sk)
 }
 
@@ -1147,7 +1295,7 @@ func (s *server) installCopy(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "skill not found")
 		return
 	}
-	s.event(s.uid(r), "ui", "install-copy", sk.ID, map[string]any{"name": sk.Name})
+	s.eventRequest(r, "install-copy", sk.ID, map[string]any{"name": sk.Name})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1203,7 +1351,7 @@ func (s *server) patchMany(w http.ResponseWriter, r *http.Request) {
 	}
 	action, detail := bulkAction(in.Patch)
 	detail["count"] = n
-	s.event(s.uid(r), "ui", action, "", detail)
+	s.eventRequest(r, action, "", detail)
 	writeJSON(w, 200, map[string]int{"updated": n})
 }
 
@@ -1225,7 +1373,7 @@ func (s *server) tagMany(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "bulk-tag", "", map[string]any{"count": n, "added": in.Add, "removed": in.Remove})
+	s.eventRequest(r, "bulk-tag", "", map[string]any{"count": n, "added": in.Add, "removed": in.Remove})
 	writeJSON(w, 200, map[string]int{"tagged": n})
 }
 
@@ -1250,7 +1398,7 @@ func (s *server) removeMany(w http.ResponseWriter, r *http.Request) {
 	if in.Ignore {
 		action = "bulk-ignore"
 	}
-	s.event(s.uid(r), "ui", action, "", map[string]any{"count": n})
+	s.eventRequest(r, action, "", map[string]any{"count": n})
 	writeJSON(w, 200, map[string]int{"removed": n})
 }
 
@@ -1273,7 +1421,7 @@ func (s *server) renameTag(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "tag-rename", "", map[string]any{"name": in.Name})
+	s.eventRequest(r, "tag-rename", "", map[string]any{"name": in.Name})
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -1289,7 +1437,7 @@ func (s *server) mergeTags(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "tag-merge", "", map[string]any{"from": in.From, "into": in.Into})
+	s.eventRequest(r, "tag-merge", "", map[string]any{"from": in.From, "into": in.Into})
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -1304,12 +1452,33 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	if limit > 100 {
 		limit = 100
 	}
-	events, err := s.st.ListEventsFor(s.uid(r), limit, q.Get("skill"))
+	before, _ := strconv.ParseInt(q.Get("before"), 10, 64)
+	after, _ := strconv.ParseInt(q.Get("after"), 10, 64)
+	events, hasMore, err := s.st.ListEventsPageFor(s.uid(r), store.EventQuery{
+		Limit: limit, SkillID: q.Get("skill"), Action: q.Get("action"), Source: q.Get("source"),
+		Before: before, After: after,
+	})
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"events": events})
+	out := map[string]any{"events": events, "has_more": hasMore, "next_before": nil, "next_after": nil}
+	if len(events) > 0 {
+		out["next_before"] = events[0].ID
+		out["next_after"] = events[0].ID
+		oldest, newest := events[0].ID, events[0].ID
+		for _, ev := range events {
+			if ev.ID < oldest {
+				oldest = ev.ID
+			}
+			if ev.ID > newest {
+				newest = ev.ID
+			}
+		}
+		out["next_before"] = oldest
+		out["next_after"] = newest
+	}
+	writeJSON(w, 200, out)
 }
 
 func (s *server) ignored(w http.ResponseWriter, r *http.Request) {
@@ -1340,7 +1509,7 @@ func (s *server) unignore(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "unignore", id, map[string]any{"name": name})
+	s.eventRequest(r, "unignore", id, map[string]any{"name": name})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1547,7 +1716,7 @@ func (s *server) createToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "token-create", "", map[string]any{"name": tok.Name})
+	s.eventRequest(r, "token-create", "", map[string]any{"name": tok.Name})
 	writeJSON(w, 200, map[string]any{"id": tok.ID, "name": tok.Name, "token": token, "createdAt": tok.CreatedAt})
 }
 
@@ -1568,7 +1737,7 @@ func (s *server) revokeToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "token-revoke", "", map[string]any{"id": id})
+	s.eventRequest(r, "token-revoke", "", map[string]any{"id": id})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1681,7 +1850,7 @@ func (s *server) adminUserDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "user-delete", "", map[string]any{"name": target.Name, "email": target.Email})
+	s.eventRequest(r, "user-delete", "", map[string]any{"name": target.Name, "email": target.Email})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1716,7 +1885,7 @@ func (s *server) adminUserReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.st.RevokeUserTokens(target.ID)
-	s.event(s.uid(r), "ui", "user-reset", "", map[string]any{"name": target.Name, "email": target.Email})
+	s.eventRequest(r, "user-reset", "", map[string]any{"name": target.Name, "email": target.Email})
 	writeJSON(w, 200, map[string]any{"password": password})
 }
 
@@ -1739,7 +1908,7 @@ func (s *server) adminUserRevoke(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "user-revoke", "", map[string]any{"name": target.Name, "email": target.Email})
+	s.eventRequest(r, "user-revoke", "", map[string]any{"name": target.Name, "email": target.Email})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1948,6 +2117,8 @@ func (s *server) adminStatus(w http.ResponseWriter, r *http.Request) {
 	metaOK, _ := s.st.GetSetting("meta_last_ok_at")
 	metaError, _ := s.st.GetSetting("meta_last_error")
 	instanceName, _ := s.st.GetSetting("instance_name")
+	pruneRaw, _ := s.st.GetSetting("prune_server_environments_days")
+	pruneDays, _ := strconv.Atoi(strings.TrimSpace(pruneRaw))
 	writeJSON(w, 200, map[string]any{
 		"version": s.version,
 		"commit":  s.commit,
@@ -1967,11 +2138,12 @@ func (s *server) adminStatus(w http.ResponseWriter, r *http.Request) {
 			"lastError":  topicsError,
 		},
 		"settings": map[string]any{
-			"refreshEnabled":   settingEnabled(s.st, "refresh_enabled"),
-			"topicsEnabled":    settingEnabled(s.st, "topics_enabled"),
-			"linkListsEnabled": s.linkListsEnabled(),
-			"rollupIndividual": s.rollupIndividual(),
-			"instanceName":     instanceName,
+			"refreshEnabled":              settingEnabled(s.st, "refresh_enabled"),
+			"topicsEnabled":               settingEnabled(s.st, "topics_enabled"),
+			"linkListsEnabled":            s.linkListsEnabled(),
+			"rollupIndividual":            s.rollupIndividual(),
+			"pruneServerEnvironmentsDays": pruneDays,
+			"instanceName":                instanceName,
 		},
 	})
 }
@@ -1982,6 +2154,7 @@ func (s *server) adminSettings(w http.ResponseWriter, r *http.Request) {
 		TopicsEnabled    *bool   `json:"topicsEnabled"`
 		LinkListsEnabled *bool   `json:"linkListsEnabled"`
 		RollupIndividual *bool   `json:"rollupIndividual"`
+		PruneDays        *int    `json:"pruneServerEnvironmentsDays"`
 		InstanceName     *string `json:"instanceName"`
 	}
 	if !decode(w, r, &in) {
@@ -2032,6 +2205,18 @@ func (s *server) adminSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		detail["rollupIndividual"] = *in.RollupIndividual
 	}
+	if in.PruneDays != nil {
+		days := *in.PruneDays
+		if days < 0 || days > 3650 {
+			writeErrCode(w, 400, errInvalidArgument, "pruneServerEnvironmentsDays", "choose 0 to 3650 days", "0 turns automatic pruning off.")
+			return
+		}
+		if err := s.st.SetSetting("prune_server_environments_days", strconv.Itoa(days)); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		detail["pruneServerEnvironmentsDays"] = days
+	}
 	if in.InstanceName != nil {
 		if err := s.st.SetSetting("instance_name", strings.TrimSpace(*in.InstanceName)); err != nil {
 			writeErr(w, 500, err.Error())
@@ -2039,7 +2224,7 @@ func (s *server) adminSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		detail["instanceName"] = strings.TrimSpace(*in.InstanceName)
 	}
-	s.event(s.uid(r), "ui", "settings", "", detail)
+	s.eventRequest(r, "settings", "", detail)
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -2052,7 +2237,7 @@ func (s *server) export(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 500, err.Error())
 			return
 		}
-		s.event(s.uid(r), "ui", "export", "", map[string]any{"format": "markdown"})
+		s.eventRequest(r, "export", "", map[string]any{"format": "markdown"})
 		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="reet-shelf.md"`)
 		w.Write([]byte(markdown(skills)))
@@ -2063,7 +2248,7 @@ func (s *server) export(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 500, err.Error())
 			return
 		}
-		s.event(s.uid(r), "ui", "export", "", map[string]any{"format": "csv"})
+		s.eventRequest(r, "export", "", map[string]any{"format": "csv"})
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="reet-shelf.csv"`)
 		w.Write([]byte(csvExport(skills)))
@@ -2075,7 +2260,7 @@ func (s *server) export(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "export", "", map[string]any{"format": "json", "events": includeEvents})
+	s.eventRequest(r, "export", "", map[string]any{"format": "json", "events": includeEvents})
 	w.Header().Set("Content-Disposition", `attachment; filename="reet-export.json"`)
 	writeJSON(w, 200, snap)
 }
@@ -2176,7 +2361,7 @@ func (s *server) restore(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "restore", "", map[string]any{"restored": len(in.Skills), "ignored": len(in.Ignored)})
+	s.eventRequest(r, "restore", "", map[string]any{"restored": len(in.Skills), "ignored": len(in.Ignored)})
 	writeJSON(w, 200, map[string]int{"restored": len(in.Skills)})
 }
 

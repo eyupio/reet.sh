@@ -69,6 +69,7 @@ func (s *Store) RegisterMachineFor(userID int64, info MachineInfo) error {
 	if err != nil {
 		return err
 	}
+	s.autoPruneServerEnvironments(userID)
 	info.Host = canonical
 	agent := "reet"
 	if info.Server {

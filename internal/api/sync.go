@@ -46,7 +46,7 @@ func (s *server) saveSync(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "sync-target", "", map[string]string{"source": in.SourceID, "target": in.TargetID})
+	s.eventRequest(r, "sync-target", "", map[string]string{"source": in.SourceID, "target": in.TargetID})
 	s.syncState(w, r)
 }
 func (s *server) deleteSync(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +63,7 @@ func (s *server) forgetEnvironment(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "forget-environment", "", map[string]string{"environment": id})
+	s.eventRequest(r, "forget-environment", "", map[string]string{"environment": id})
 	s.syncState(w, r)
 }
 
@@ -88,7 +88,7 @@ func (s *server) mergeMachines(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, code, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "merge-machines", "", map[string]string{"from": in.From, "to": in.To})
+	s.eventRequest(r, "merge-machines", "", map[string]string{"from": in.From, "to": in.To})
 	s.syncState(w, r)
 }
 func (s *server) forgetMachine(w http.ResponseWriter, r *http.Request) {
@@ -99,6 +99,6 @@ func (s *server) forgetMachine(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "forget-machine", "", map[string]string{"host": host})
+	s.eventRequest(r, "forget-machine", "", map[string]string{"host": host})
 	s.syncState(w, r)
 }

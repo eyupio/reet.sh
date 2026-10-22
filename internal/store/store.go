@@ -134,6 +134,8 @@ type Filter struct {
 	Machine          string
 	Only             string
 	Stage            string
+	SourceType       string
+	Untagged         bool
 }
 
 type Counts struct {

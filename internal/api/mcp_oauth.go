@@ -304,7 +304,7 @@ func (s *server) oauthConsent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out.Set("code", code)
-		s.event(s.uid(r), "ui", "mcp-authorize", "", map[string]any{"name": a.Client.Name, "scope": in.Scope})
+		s.eventRequest(r, "mcp-authorize", "", map[string]any{"name": a.Client.Name, "scope": in.Scope})
 	}
 	redirect.RawQuery = out.Encode()
 	w.Header().Set("Cache-Control", "no-store")

@@ -25,7 +25,7 @@ func (a mcpAccess) canWrite() bool { return a.Connection.Scope == "write" && a.U
 func mcpAPIPath(method, path string) bool {
 	if method == http.MethodGet {
 		switch path {
-		case "/api/skills", "/api/tags", "/api/environments", "/api/v2/sync", "/api/v2/lists", "/api/events", "/api/ignored":
+		case "/api/skills", "/api/tags", "/api/environments", "/api/v2/sync", "/api/v2/lists", "/api/events", "/api/ignored", "/api/v2/skills/duplicates":
 			return true
 		}
 		if id, ok := strings.CutPrefix(path, "/api/v2/lists/"); ok {
@@ -34,10 +34,44 @@ func mcpAPIPath(method, path string) bool {
 		}
 	}
 	switch method + " " + path {
-	case "POST /api/skills", "PATCH /api/skill", "DELETE /api/skill", "POST /api/skill/tags", "POST /api/v2/lists", "DELETE /api/skill/ignore", "DELETE /api/v2/machines", "POST /api/v2/machines/merge":
+	case "POST /api/skills", "PATCH /api/skill", "DELETE /api/skill", "POST /api/skill/tags", "POST /api/v2/lists", "DELETE /api/skill/ignore",
+		"DELETE /api/v2/machines", "POST /api/v2/machines/merge",
+		"POST /api/v2/environments/delete", "POST /api/v2/environments/merge", "POST /api/v2/skills/bulk",
+		"POST /api/v2/tags", "PATCH /api/tag":
 		return true
 	}
 	if method == http.MethodPost {
+		if middle, ok := strings.CutPrefix(path, "/api/v2/lists/"); ok {
+			if id, found := strings.CutSuffix(middle, "/skills"); found {
+				n, err := strconv.ParseInt(id, 10, 64)
+				return err == nil && n > 0
+			}
+			if id, found := strings.CutSuffix(middle, "/skills/bulk"); found {
+				n, err := strconv.ParseInt(id, 10, 64)
+				return err == nil && n > 0
+			}
+			if id, found := strings.CutSuffix(middle, "/delete"); found {
+				n, err := strconv.ParseInt(id, 10, 64)
+				return err == nil && n > 0
+			}
+		}
+		if middle, ok := strings.CutPrefix(path, "/api/v2/tags/"); ok {
+			id, found := strings.CutSuffix(middle, "/delete")
+			n, err := strconv.ParseInt(id, 10, 64)
+			return found && err == nil && n > 0
+		}
+	}
+	if method == http.MethodPatch {
+		if middle, ok := strings.CutPrefix(path, "/api/v2/lists/"); ok {
+			n, err := strconv.ParseInt(middle, 10, 64)
+			return err == nil && n > 0
+		}
+		if middle, ok := strings.CutPrefix(path, "/api/v2/tags/"); ok {
+			n, err := strconv.ParseInt(middle, 10, 64)
+			return err == nil && n > 0
+		}
+	}
+	if method == http.MethodDelete {
 		if middle, ok := strings.CutPrefix(path, "/api/v2/lists/"); ok {
 			id, found := strings.CutSuffix(middle, "/skills")
 			n, err := strconv.ParseInt(id, 10, 64)
@@ -165,7 +199,7 @@ func (s *server) mcpSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.event(s.uid(r), "ui", "mcp-access", "", map[string]any{"enabled": in.Enabled, "browserEnabled": browser, "browserScope": scope})
+	s.eventRequest(r, "mcp-access", "", map[string]any{"enabled": in.Enabled, "browserEnabled": browser, "browserScope": scope})
 	s.mcpStatus(w, r)
 }
 
@@ -211,7 +245,7 @@ func (s *server) mcpCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "use a name of 1–100 characters and read or write permission")
 		return
 	}
-	s.event(s.uid(r), "ui", "mcp-create", "", map[string]any{"name": c.Name, "scope": c.Scope})
+	s.eventRequest(r, "mcp-create", "", map[string]any{"name": c.Name, "scope": c.Scope})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, map[string]any{"connection": c, "token": secret})
 }
@@ -286,7 +320,7 @@ func (s *server) mcpUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "use a name of 1–100 characters and read or write permission")
 		return
 	}
-	s.event(s.uid(r), "ui", "mcp-update", "", map[string]any{"name": c.Name, "scope": c.Scope, "enabled": c.Enabled})
+	s.eventRequest(r, "mcp-update", "", map[string]any{"name": c.Name, "scope": c.Scope, "enabled": c.Enabled})
 	s.mcpStatus(w, r)
 }
 
@@ -309,7 +343,7 @@ func (s *server) mcpRotate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "could not rotate credential")
 		return
 	}
-	s.event(s.uid(r), "ui", "mcp-rotate", "", map[string]any{"name": c.Name})
+	s.eventRequest(r, "mcp-rotate", "", map[string]any{"name": c.Name})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, map[string]any{"connection": c, "token": secret})
 }
@@ -323,7 +357,7 @@ func (s *server) mcpRevoke(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "could not revoke credential")
 		return
 	}
-	s.event(s.uid(r), "ui", "mcp-revoke", "", map[string]any{"name": c.Name})
+	s.eventRequest(r, "mcp-revoke", "", map[string]any{"name": c.Name})
 	w.WriteHeader(204)
 }
 
@@ -332,6 +366,6 @@ func (s *server) mcpRevokeAll(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "could not revoke credentials")
 		return
 	}
-	s.event(s.uid(r), "ui", "mcp-revoke-all", "", nil)
+	s.eventRequest(r, "mcp-revoke-all", "", nil)
 	w.WriteHeader(204)
 }

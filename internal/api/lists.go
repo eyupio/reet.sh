@@ -88,7 +88,7 @@ func (s *server) createList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "list-create", "", map[string]any{"list": list.Name, "id": list.ID, "visibility": list.Visibility})
+	s.eventRequest(r, "list-create", "", map[string]any{"list": list.Name, "id": list.ID, "visibility": list.Visibility})
 	s.writeListDetail(w, r, list.ID)
 }
 
@@ -154,7 +154,7 @@ func (s *server) updateList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "list-update", "", map[string]any{"list": name, "id": access.List.ID})
+	s.eventRequest(r, "list-update", "", map[string]any{"list": name, "id": access.List.ID})
 	s.writeListDetail(w, r, access.List.ID)
 }
 
@@ -171,7 +171,7 @@ func (s *server) deleteList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "list-delete", "", map[string]any{"list": access.List.Name, "id": access.List.ID})
+	s.eventRequest(r, "list-delete", "", map[string]any{"list": access.List.Name, "id": access.List.ID})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -184,44 +184,24 @@ func (s *server) addListSkill(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "you can read this list but not change it")
 		return
 	}
-	var in struct {
-		ID    string `json:"id"`
-		Input string `json:"input"`
-		Note  string `json:"note"`
-	}
+	var in listSkillInput
 	if !decode(w, r, &in) {
 		return
 	}
-	skillID := strings.TrimSpace(in.ID)
-	if input := strings.TrimSpace(in.Input); input != "" {
-		rf, err := s.parseSkillInput(r, input)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "use an npx skills add command, owner/repo/skill or a skills.sh URL")
-			return
+	sk, resolveErr := s.resolveListSkill(r, access.List, in)
+	if resolveErr != nil {
+		code := http.StatusBadRequest
+		if resolveErr.code == errSkillNotFound || resolveErr.code == errEnvironmentNotFound {
+			code = http.StatusNotFound
 		}
-		if err := s.st.EnsureSkill(rf); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		s.enqueue(rf)
-		skillID = rf.ID
-	}
-	if skillID == "" {
-		writeErr(w, http.StatusBadRequest, "pick a skill or paste a reference")
+		writeErrCode(w, code, resolveErr.code, resolveErr.field, resolveErr.message, resolveErr.hint)
 		return
 	}
-	if _, ok, err := s.st.Get(skillID); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	} else if !ok {
-		writeErr(w, http.StatusBadRequest, "that skill is not in the catalogue yet")
-		return
-	}
-	if err := s.st.AddListSkill(access.List.ID, skillID, in.Note, s.uid(r)); err != nil {
+	if err := s.st.AddListSkill(access.List.ID, sk.ID, in.Note, s.uid(r)); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "list-skill-add", skillID, map[string]any{"list": access.List.Name, "id": access.List.ID})
+	s.eventRequest(r, "list-skill-add", sk.ID, map[string]any{"list": access.List.Name, "id": access.List.ID})
 	s.writeListDetail(w, r, access.List.ID)
 }
 
@@ -249,7 +229,7 @@ func (s *server) updateListSkill(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "list-note", in.ID, map[string]any{"list": access.List.Name, "id": access.List.ID})
+	s.eventRequest(r, "list-note", in.ID, map[string]any{"list": access.List.Name, "id": access.List.ID})
 	s.writeListDetail(w, r, access.List.ID)
 }
 
@@ -275,7 +255,7 @@ func (s *server) removeListSkill(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "list-skill-remove", skillID, map[string]any{"list": access.List.Name, "id": access.List.ID})
+	s.eventRequest(r, "list-skill-remove", skillID, map[string]any{"list": access.List.Name, "id": access.List.ID})
 	s.writeListDetail(w, r, access.List.ID)
 }
 
@@ -316,7 +296,7 @@ func (s *server) addListMember(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "list-member-add", "", map[string]any{"list": access.List.Name, "id": access.List.ID, "member": user.Name})
+	s.eventRequest(r, "list-member-add", "", map[string]any{"list": access.List.Name, "id": access.List.ID, "member": user.Name})
 	s.writeListDetail(w, r, access.List.ID)
 }
 
@@ -353,7 +333,7 @@ func (s *server) updateListMember(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "list-member-role", "", map[string]any{"list": access.List.Name, "id": access.List.ID, "userId": in.UserID, "role": in.Role})
+	s.eventRequest(r, "list-member-role", "", map[string]any{"list": access.List.Name, "id": access.List.ID, "userId": in.UserID, "role": in.Role})
 	s.writeListDetail(w, r, access.List.ID)
 }
 
@@ -375,7 +355,7 @@ func (s *server) removeListMember(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "list-member-remove", "", map[string]any{"list": access.List.Name, "id": access.List.ID, "userId": userID})
+	s.eventRequest(r, "list-member-remove", "", map[string]any{"list": access.List.Name, "id": access.List.ID, "userId": userID})
 	s.writeListDetail(w, r, access.List.ID)
 }
 
@@ -411,7 +391,7 @@ func (s *server) transferList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "list-transfer", "", map[string]any{"list": access.List.Name, "id": access.List.ID, "userId": in.UserID})
+	s.eventRequest(r, "list-transfer", "", map[string]any{"list": access.List.Name, "id": access.List.ID, "userId": in.UserID})
 	s.writeListDetail(w, r, access.List.ID)
 }
 
@@ -425,7 +405,7 @@ func (s *server) addListToShelf(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "list-add-shelf", "", map[string]any{"list": access.List.Name, "id": access.List.ID, "count": n})
+	s.eventRequest(r, "list-add-shelf", "", map[string]any{"list": access.List.Name, "id": access.List.ID, "count": n})
 	writeJSON(w, http.StatusOK, map[string]any{"added": n})
 }
 

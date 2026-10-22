@@ -185,7 +185,10 @@ Open **Account → MCP access** and copy the hosted MCP URL into Claude or anoth
 compatible client. OAuth sign-in and consent are the default; manual bearer
 tokens and opt-in browser WebMCP are also available. Each person manages their
 own connection permissions, expiry, pause, rotation and revocation. The existing
-Go server hosts `/mcp`; no sidecar is needed. See [MCP setup and access](docs/mcp.md).
+Go server hosts `/mcp`; no sidecar is needed. An agent can read a compact shelf,
+find duplicates, edit many skills in one call, manage lists and tags, and preview
+or apply environment cleanup. See [MCP setup and access](docs/mcp.md) and the
+[full tool list](mcp/README.md#tools), including example calls.
 
 ### Capture and scan
 

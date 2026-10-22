@@ -302,3 +302,34 @@ func TestRemotePruneAndDeleteProtectProfiles(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSetupS3DestinationConnection(t *testing.T) {
+	fake := newFakeSetupS3(t)
+	steps, err := TestSetupS3Destination()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) != 3 {
+		t.Fatalf("wrong steps: %+v", steps)
+	}
+	for _, step := range steps {
+		if !step.OK {
+			t.Fatalf("failed step: %+v", step)
+		}
+	}
+	fake.mu.Lock()
+	for key := range fake.objects {
+		if strings.Contains(key, ".connection-test/") {
+			fake.mu.Unlock()
+			t.Fatalf("test object left behind: %s", key)
+		}
+	}
+	fake.mu.Unlock()
+	var out bytes.Buffer
+	if err := Run([]string{"remote", "test", "--json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "\"ok\": true") {
+		t.Fatalf("bad remote test output: %s", out.String())
+	}
+}

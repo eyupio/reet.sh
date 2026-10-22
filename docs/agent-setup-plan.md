@@ -227,8 +227,8 @@ hooks and caches. It reads no configuration values and implements no export.
   An opt-in preview now applies the S1 policies in memory and reports selected
   fields, omissions and per-component digests without writing any archive.
   Encrypted writing now supports explicit `--include-credentials` literal values and
-  optional S3 upload/fetch/listing plus profile-protected remote prune/delete with
-  read-back verification and profile/journal-protected local pruning; OS keychains,
+  optional S3 upload/fetch/listing/testing plus profile-protected remote prune/delete
+  with read-back verification and profile/journal-protected local pruning; OS keychains,
   device-bound stores and optional history remain later work. A first
   writing slice seals that selection into a passphrase-encrypted local snapshot and
   verifies it before and after the atomic private write. A listing/inspection slice

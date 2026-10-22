@@ -59,9 +59,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Profile revision selection merged in [PR #78](https://github.com/eyupio/reet.sh/pull/78), `653ee2e`.
 - Remote S3 prune/delete merged in [PR #79](https://github.com/eyupio/reet.sh/pull/79), `1d97f47`.
 - Final handoff refresh merged in [PR #80](https://github.com/eyupio/reet.sh/pull/80), `8af31bc`.
-- Latest verified source baseline: `origin/main` at `8af31bc` (2026-10-22; code from `1d97f47`).
-- Profile rename/remove are in [PR #81](https://github.com/eyupio/reet.sh/pull/81) on
-  `feat/setup-profile-manage`; fetch remote status before continuing and preserve any
+- Profile rename/remove merged in [PR #81](https://github.com/eyupio/reet.sh/pull/81), `0967082`.
+- Latest verified source baseline: `origin/main` at `0967082` (2026-10-22).
+- S3 destination testing is in [PR #82](https://github.com/eyupio/reet.sh/pull/82) on
+  `feat/setup-s3-test`; fetch remote status before continuing and preserve any
   uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
@@ -107,6 +108,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Add profile-protected remote S3 prune/delete.
 - [x] Verify the `1d97f47` dev binary exposes the complete setup command family.
 - [x] Add local profile rename/remove without deleting snapshots.
+- [x] Test the configured S3 destination with put/get/delete.
 
 ## Implemented slice
 
@@ -319,6 +321,10 @@ refuses a profile-referenced snapshot. Only `.reetsetup` objects are touched.
 S5e now adds `profile rename` (keeping revision history) and `profile remove --yes`
 (deleting only the profile file, never snapshots). Local profile management is complete
 for this slice.
+
+S2i now adds `reet setup remote test`, which writes, reads and deletes a small object
+under the configured prefix to check destination permissions without touching snapshots.
+It complements upload/fetch/list/prune/delete.
 
 Next implementation slice: account-synced profiles with machine/project overrides, or
 broader memory/history adapters, depending on owner priority. Do not claim cross-OS
@@ -1068,6 +1074,22 @@ passed. No dependency changed.
 Account-synced profiles, machine/project-specific overrides, memory/history adapters and
 verified cross-OS restore remain unimplemented.
 
+## S3 destination test
+
+The current stage on `feat/setup-s3-test` adds `reet setup remote test`, which writes,
+reads and deletes a small object under the configured prefix and reports each step. It
+checks PutObject/GetObject/DeleteObject permissions without listing or touching
+snapshots and never prints credentials.
+
+Validation: focused tests cover all three steps, cleanup and CLI JSON output against a
+fake store. Full `go vet ./...` and `go test -race ./...` passed. Web checks passed (8
+tests; zero Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary smoke test
+will verify the destination test before merge; setup tests cross-compile for Windows
+amd64 and macOS arm64. `git diff --check` passed. No dependency changed.
+
+Account-synced profiles, machine/project-specific overrides, memory/history adapters and
+verified cross-OS restore remain unimplemented.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -1085,13 +1107,13 @@ verified cross-OS restore remain unimplemented.
    with rollback copies, destination verification, rollback, journal listing, local
    health guidance, per-destination conflict choices, optional software evidence,
    global/project instruction export, explicit portable credential inclusion, optional
-   S3 upload/fetch/listing/prune/delete, named local profiles with component/source
-   overrides, revision selection, rename/remove, and local pruning are now implemented.
-   The next slice is account-synced profiles/overrides or broader memory/history
-   adapters, depending on owner priority. Keep values encrypted and unknown formats
-   unsupported. Do not claim cross-OS restore or working-setup verification before their
-   acceptance gates. Consult the detailed plan for encryption, key handling, restore and
-   compatibility requirements.
+   S3 upload/fetch/listing/testing/prune/delete, named local profiles with
+   component/source overrides, revision selection, rename/remove, and local pruning are
+   now implemented. The next slice is account-synced profiles/overrides or broader
+   memory/history adapters, depending on owner priority. Keep values encrypted and
+   unknown formats unsupported. Do not claim cross-OS restore or working-setup
+   verification before their acceptance gates. Consult the detailed plan for encryption,
+   key handling, restore and compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current

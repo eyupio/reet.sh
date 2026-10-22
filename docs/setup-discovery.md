@@ -325,6 +325,7 @@ reet setup backup --s3 --password-file FILE
 reet setup fetch --s3 SNAPSHOT
 reet setup fetch --s3 --profile NAME
 reet setup remote list
+reet setup remote test
 reet setup remote prune --keep 10 --apply
 reet setup remote delete --yes SNAPSHOT
 ```
@@ -334,7 +335,9 @@ the bytes. `reet setup fetch --s3` downloads a snapshot to the local snapshot di
 after checking its clear header and snapshot identity; it writes mode 0600 and refuses
 to overwrite an existing local file. `--profile NAME` resolves the snapshot ID from the
 newest local profile revision. `reet setup remote list` reads object metadata under the
-configured prefix without downloading or opening snapshots. `remote prune` is a dry run
+configured prefix without downloading or opening snapshots. `remote test` writes, reads
+and deletes a small object under the prefix to check PutObject/GetObject/DeleteObject
+permissions without touching snapshots. `remote prune` is a dry run
 unless `--apply`, keeps the newest objects and protects snapshots referenced by local
 profile revisions. `remote delete --yes` deletes one remote object and refuses a
 profile-referenced snapshot. The object key is

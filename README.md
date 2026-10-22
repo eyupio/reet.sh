@@ -295,6 +295,8 @@ reet setup rollback --journal FILE --password-file ~/.config/reet/setup.pass SNA
 reet setup rollback --last --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup journals
 reet setup health --probe-versions --inspect-installation
+reet setup support
+reet setup support --json
 ```
 
 The default checks path metadata and executable availability only. Opt into
@@ -342,7 +344,9 @@ keeping mode-0600 rollback copies. `reet setup verify` compares selected fields 
 repairing or running agents. `reet setup rollback` reverses a completed apply journal
 after snapshot, digest and current-file checks; `reet setup journals` lists records and
 `--last` picks the newest completed one. `reet setup health` gives conservative local
-evidence and reauthentication guidance without repairing anything.
+evidence and reauthentication guidance without repairing anything. `reet setup support`
+prints the per-agent component and restore support matrix; it is a limitation statement,
+not runtime verification.
 
 `reet setup profile` runs an interactive wizard (create/choose snapshot, optional
 preview, profile name, optional push using `REET_URL`/`REET_TOKEN`, saved defaults or

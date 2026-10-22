@@ -531,6 +531,19 @@ Credential stores, OS keychains, device-bound sessions, memory, history and hook
 checked. After restoring on another machine, authenticate again. Health guidance is not
 runtime health and does not prove that an agent or MCP server works.
 
+## Support matrix
+
+```sh
+reet setup support
+reet setup support --json
+```
+
+`support` reports what this build can discover, select and restore for each agent:
+settings, MCP, instructions, skills, memory, history, credential references and file/field
+restore. It is deliberately conservative: a file copy is not runtime verification, and
+memory, history, hooks, caches, keychains and device-bound sessions remain unsupported.
+The JSON form is versioned for scripts.
+
 ## Named local profiles (S5a)
 
 ```sh

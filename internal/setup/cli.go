@@ -25,7 +25,40 @@ type ProfileRemote interface {
 // unless profile push/pull is used with a supplied remote.
 func Run(args []string, out io.Writer, remote ...ProfileRemote) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n       reet setup backup --preview [--json] [--project PATH]\n       reet setup backup [--password-file FILE] [--dir DIR] [--json] [--project PATH] [--probe-versions] [--inspect-installation] [--include-credentials] [--s3]\n       reet setup list [--json] [--dir DIR]\n       reet setup inspect [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE]\n       reet setup restore [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] [--apply] [--on-conflict skip|replace] [--conflict PATH=skip|replace]...\n       reet setup verify [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation]\n       reet setup rollback (--journal FILE | --last) [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH]\n       reet setup journals [--json] [--dir DIR]\n       reet setup health [--json] [--project PATH] [--probe-versions] [--inspect-installation]\n       reet setup fetch --s3 [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR]\n       reet setup remote (list [--json] | test [--json] | delete --yes [--json] SNAPSHOT | prune --keep N [--apply] [--json])\n       reet setup profile (save [--exclude-kind KIND] [--exclude-source PATH] [--json] [--dir DIR] [--password-file FILE] NAME SNAPSHOT | list [--json] [--dir DIR] | show [--json] [--dir DIR] [--revision N] NAME | remove [--yes] [--dir DIR] NAME | rename [--dir DIR] OLD NEW | push [--server URL] [--token TOKEN] NAME | pull [--server URL] [--token TOKEN] NAME)\n       reet setup prune --keep N [--apply] [--json] [--dir DIR]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\n--preview shows the policy-driven selection without writing an archive.\nWithout --preview, write a passphrase-encrypted local setup snapshot.\nlist and inspect read clear headers; inspect opens the payload only with a passphrase.\nrestore previews a mapped plan; --apply creates or replaces conflicts when chosen, with optional per-path choices.\nverify compares the selected fields in the destination without repairing them.\nrollback reverses a completed create/replace journal after checking it against the snapshot; --last picks the newest completed one.\njournals lists local apply/rollback records without opening snapshots.\nhealth gives conservative local evidence and authentication guidance.\nfetch downloads a snapshot from the configured S3 destination.\nremote list reads the configured S3 snapshot prefix; remote test checks put/get/delete; remote delete/prune manage remote objects.\nprofile saves, lists and shows named local snapshot revisions; restore/verify/inspect/rollback accept --profile.\nprune removes old local snapshots, protecting profile and journal references.")
+		_, err := fmt.Fprintln(out, `Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]
+       reet setup backup --preview [--json] [--project PATH]
+       reet setup backup [--password-file FILE] [--dir DIR] [--json] [--project PATH] [--probe-versions] [--inspect-installation] [--include-credentials] [--s3]
+       reet setup list [--json] [--dir DIR]
+       reet setup inspect [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE]
+       reet setup restore [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] [--apply] [--on-conflict skip|replace] [--conflict PATH=skip|replace]...
+       reet setup verify [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation]
+       reet setup rollback (--journal FILE | --last) [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH]
+       reet setup journals [--json] [--dir DIR]
+       reet setup health [--json] [--project PATH] [--probe-versions] [--inspect-installation]
+       reet setup fetch --s3 [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR]
+       reet setup remote (list [--json] | test [--json] | delete --yes [--json] SNAPSHOT | prune --keep N [--apply] [--json])
+       reet setup profile (save [--exclude-kind KIND] [--exclude-source PATH] [--json] [--dir DIR] [--password-file FILE] NAME SNAPSHOT | list [--json] [--dir DIR] | show [--json] [--dir DIR] [--revision N] NAME | remove [--yes] [--dir DIR] NAME | rename [--dir DIR] OLD NEW | push [--server URL] [--token TOKEN] NAME | pull [--server URL] [--token TOKEN] NAME)
+       reet setup prune --keep N [--apply] [--json] [--dir DIR]
+       reet setup support [--json]
+
+Discover known agent setup locations and executables locally.
+Use --components to read bounded configuration summaries without returning values.
+Use --probe-versions to invoke discovered agents with --version (3-second timeout each).
+Use --inspect-installation to read local package evidence without running commands.
+Use --export-policy to declare component and field selection for future encrypted snapshots.
+--preview shows the policy-driven selection without writing an archive.
+Without --preview, write a passphrase-encrypted local setup snapshot.
+list and inspect read clear headers; inspect opens the payload only with a passphrase.
+restore previews a mapped plan; --apply creates or replaces conflicts when chosen, with optional per-path choices.
+verify compares the selected fields in the destination without repairing them.
+rollback reverses a completed create/replace journal after checking it against the snapshot; --last picks the newest completed one.
+journals lists local apply/rollback records without opening snapshots.
+health gives conservative local evidence and authentication guidance.
+fetch downloads a snapshot from the configured S3 destination.
+remote list reads the configured S3 snapshot prefix; remote test checks put/get/delete; remote delete/prune manage remote objects.
+profile saves, lists and shows named local snapshot revisions; restore/verify/inspect/rollback accept --profile.
+prune removes old local snapshots, protecting profile and journal references.
+support prints the conservative per-agent component and restore support matrix.`)
 		return err
 	}
 	switch args[0] {
@@ -55,6 +88,8 @@ func Run(args []string, out io.Writer, remote ...ProfileRemote) error {
 		return runProfile(args[1:], out, remote...)
 	case "prune":
 		return runPrune(args[1:], out)
+	case "support":
+		return runSupport(args[1:], out)
 	default:
 		return fmt.Errorf("unknown setup command %q; use reet setup --help", args[0])
 	}
@@ -1085,6 +1120,39 @@ func writeJSON(out io.Writer, value any) error {
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(value)
+}
+
+func runSupport(args []string, out io.Writer) error {
+	f := flag.NewFlagSet("reet setup support", flag.ContinueOnError)
+	f.SetOutput(out)
+	asJSON := f.Bool("json", false, "write a versioned JSON support matrix")
+	if err := f.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if f.NArg() != 0 {
+		return fmt.Errorf("unexpected setup support arguments")
+	}
+	matrix := BuildSupportMatrix()
+	if *asJSON {
+		return writeJSON(out, matrix)
+	}
+	if _, err := fmt.Fprintf(out, "AI agent setup support (%s/%s)\n", matrix.OS, matrix.Architecture); err != nil {
+		return err
+	}
+	for _, row := range matrix.Agents {
+		if _, err := fmt.Fprintf(out, "\n%s (%s)\n  settings=%s mcp=%s instructions=%s skills=%s\n  memory=%s history=%s credentials=%s restore=%s\n  %s\n", row.Name, row.AgentID, row.Settings, row.MCP, row.Instructions, row.Skills, row.Memory, row.History, row.Credentials, row.Restore, row.Notes); err != nil {
+			return err
+		}
+	}
+	for _, note := range matrix.Limitations {
+		if _, err := fmt.Fprintf(out, "\n%s\n", note); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func render(out io.Writer, r Report) error {

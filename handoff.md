@@ -63,10 +63,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - S3 destination testing merged in [PR #82](https://github.com/eyupio/reet.sh/pull/82), `0ba3d28`.
 - Handoff baseline refresh merged in [PR #83](https://github.com/eyupio/reet.sh/pull/83), `8354f57`.
 - Server-synced profiles merged in [PR #84](https://github.com/eyupio/reet.sh/pull/84), `1ba287a`.
-- Latest verified source baseline: `origin/main` at `1ba287a` (2026-10-22).
-- The read-only Profiles web page is in [PR #85](https://github.com/eyupio/reet.sh/pull/85)
-  on `feat/setup-profiles-ui`; fetch remote status before continuing and preserve any
-  uncommitted work.
+- The read-only Profiles web page merged in [PR #85](https://github.com/eyupio/reet.sh/pull/85), `8d60f1b`.
+- Latest verified source baseline: `origin/main` at `8d60f1b` (2026-10-22).
+- This handoff refresh is documentation-only; fetch remote status before continuing and
+  preserve any uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -1134,8 +1134,10 @@ can delete the server copy; local snapshots and profiles are untouched. Creation
 push/pull and restore remain CLI commands.
 
 Validation: `npm run check` passed (8 tests; zero Svelte diagnostics) and
-`npm run build` produced the embedded UI. Full `go vet ./...` and `go test -race ./...`
-passed; all 16 MCP tests passed. `git diff --check` passed. No dependency changed.
+`npm run build` produced the embedded UI. A headless Chromium smoke test loaded a seeded
+`/profiles` page and verified the profile name, revision, overrides, history and Delete
+control. Full `go vet ./...` and `go test -race ./...` passed; all 16 MCP tests passed.
+`git diff --check` passed. No dependency changed.
 
 Machine/project-specific profile overrides, memory/history adapters and verified cross-OS
 restore remain unimplemented.

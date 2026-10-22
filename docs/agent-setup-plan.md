@@ -226,7 +226,8 @@ hooks and caches. It reads no configuration values and implements no export.
   selection previews, optional portable credentials and optional history.
   An opt-in preview now applies the S1 policies in memory and reports selected
   fields, omissions and per-component digests without writing any archive.
-  Encrypted writing now supports explicit `--include-credentials` literal values and
+  Encrypted writing prompts for a passphrase in a terminal (no command-line secret)
+  and supports explicit `--include-credentials` literal values plus
   optional S3 upload/fetch/listing/testing plus profile-protected remote prune/delete
   with read-back verification and profile/journal-protected local pruning; OS keychains,
   device-bound stores and optional history remain later work. A first

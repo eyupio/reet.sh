@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/term"
 )
 
 // ProfileRemote is an optional server-side profile store.
@@ -22,7 +24,7 @@ type ProfileRemote interface {
 // unless profile push/pull is used with a supplied remote.
 func Run(args []string, out io.Writer, remote ...ProfileRemote) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n       reet setup backup --preview [--json] [--project PATH]\n       reet setup backup --password-file FILE [--dir DIR] [--json] [--project PATH] [--probe-versions] [--inspect-installation] [--include-credentials] [--s3]\n       reet setup list [--json] [--dir DIR]\n       reet setup inspect [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE]\n       reet setup restore [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] [--apply] [--on-conflict skip|replace] [--conflict PATH=skip|replace]...\n       reet setup verify [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation]\n       reet setup rollback (--journal FILE | --last) [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH]\n       reet setup journals [--json] [--dir DIR]\n       reet setup health [--json] [--project PATH] [--probe-versions] [--inspect-installation]\n       reet setup fetch --s3 [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR]\n       reet setup remote (list [--json] | test [--json] | delete --yes [--json] SNAPSHOT | prune --keep N [--apply] [--json])\n       reet setup profile (save [--exclude-kind KIND] [--exclude-source PATH] [--json] [--dir DIR] [--password-file FILE] NAME SNAPSHOT | list [--json] [--dir DIR] | show [--json] [--dir DIR] [--revision N] NAME | remove [--yes] [--dir DIR] NAME | rename [--dir DIR] OLD NEW | push [--server URL] [--token TOKEN] NAME | pull [--server URL] [--token TOKEN] NAME)\n       reet setup prune --keep N [--apply] [--json] [--dir DIR]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\n--preview shows the policy-driven selection without writing an archive.\nWithout --preview, write a passphrase-encrypted local setup snapshot.\nlist and inspect read clear headers; inspect opens the payload only with a passphrase.\nrestore previews a mapped plan; --apply creates or replaces conflicts when chosen, with optional per-path choices.\nverify compares the selected fields in the destination without repairing them.\nrollback reverses a completed create/replace journal after checking it against the snapshot; --last picks the newest completed one.\njournals lists local apply/rollback records without opening snapshots.\nhealth gives conservative local evidence and authentication guidance.\nfetch downloads a snapshot from the configured S3 destination.\nremote list reads the configured S3 snapshot prefix; remote test checks put/get/delete; remote delete/prune manage remote objects.\nprofile saves, lists and shows named local snapshot revisions; restore/verify/inspect/rollback accept --profile.\nprune removes old local snapshots, protecting profile and journal references.")
+		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n       reet setup backup --preview [--json] [--project PATH]\n       reet setup backup [--password-file FILE] [--dir DIR] [--json] [--project PATH] [--probe-versions] [--inspect-installation] [--include-credentials] [--s3]\n       reet setup list [--json] [--dir DIR]\n       reet setup inspect [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE]\n       reet setup restore [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] [--apply] [--on-conflict skip|replace] [--conflict PATH=skip|replace]...\n       reet setup verify [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation]\n       reet setup rollback (--journal FILE | --last) [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH]\n       reet setup journals [--json] [--dir DIR]\n       reet setup health [--json] [--project PATH] [--probe-versions] [--inspect-installation]\n       reet setup fetch --s3 [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR]\n       reet setup remote (list [--json] | test [--json] | delete --yes [--json] SNAPSHOT | prune --keep N [--apply] [--json])\n       reet setup profile (save [--exclude-kind KIND] [--exclude-source PATH] [--json] [--dir DIR] [--password-file FILE] NAME SNAPSHOT | list [--json] [--dir DIR] | show [--json] [--dir DIR] [--revision N] NAME | remove [--yes] [--dir DIR] NAME | rename [--dir DIR] OLD NEW | push [--server URL] [--token TOKEN] NAME | pull [--server URL] [--token TOKEN] NAME)\n       reet setup prune --keep N [--apply] [--json] [--dir DIR]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\n--preview shows the policy-driven selection without writing an archive.\nWithout --preview, write a passphrase-encrypted local setup snapshot.\nlist and inspect read clear headers; inspect opens the payload only with a passphrase.\nrestore previews a mapped plan; --apply creates or replaces conflicts when chosen, with optional per-path choices.\nverify compares the selected fields in the destination without repairing them.\nrollback reverses a completed create/replace journal after checking it against the snapshot; --last picks the newest completed one.\njournals lists local apply/rollback records without opening snapshots.\nhealth gives conservative local evidence and authentication guidance.\nfetch downloads a snapshot from the configured S3 destination.\nremote list reads the configured S3 snapshot prefix; remote test checks put/get/delete; remote delete/prune manage remote objects.\nprofile saves, lists and shows named local snapshot revisions; restore/verify/inspect/rollback accept --profile.\nprune removes old local snapshots, protecting profile and journal references.")
 		return err
 	}
 	switch args[0] {
@@ -112,7 +114,7 @@ func runBackup(args []string, out io.Writer) error {
 	f.SetOutput(out)
 	asJSON := f.Bool("json", false, "write a versioned JSON preview or result")
 	preview := f.Bool("preview", false, "show policy-driven selection without writing an archive")
-	passwordFile := f.String("password-file", "", "read the snapshot passphrase from this file, or - for standard input")
+	passwordFile := f.String("password-file", "", "read the passphrase from this file, or - for standard input; omit to prompt in a terminal")
 	dir := f.String("dir", "", "write snapshots here (default REET_SETUP_DIR or the user config directory)")
 	project := f.String("project", "", "also consider known locations in this project (no recursive search)")
 	probeVersions := f.Bool("probe-versions", false, "record application --version reports; timeout 3s each, output bounded")
@@ -125,8 +127,10 @@ func runBackup(args []string, out io.Writer) error {
 		}
 		return err
 	}
-	if f.NArg() != 0 {
-		return fmt.Errorf("unexpected setup backup arguments")
+	if f.NArg() == 1 && f.Arg(0) == "-" {
+		*passwordFile = "-"
+	} else if f.NArg() != 0 {
+		return fmt.Errorf("unexpected setup backup arguments; use --password-file - for standard input")
 	}
 	passphrase := ""
 	var err error
@@ -134,7 +138,7 @@ func runBackup(args []string, out io.Writer) error {
 		return fmt.Errorf("--include-credentials only applies when writing a snapshot; preview never contains credential values")
 	}
 	if !*preview {
-		passphrase, err = readSetupPassphrase(*passwordFile)
+		passphrase, err = readSetupPassphrase(*passwordFile, true, os.Stderr)
 		if err != nil {
 			return err
 		}
@@ -230,7 +234,7 @@ func runInspect(args []string, out io.Writer) error {
 	passphrase := ""
 	if *passwordFile != "" {
 		var err error
-		passphrase, err = readSetupPassphrase(*passwordFile)
+		passphrase, err = readSetupPassphrase(*passwordFile, false, os.Stderr)
 		if err != nil {
 			return err
 		}
@@ -282,7 +286,7 @@ func runRestore(args []string, out io.Writer) error {
 	if !*apply && (*onConflict != "" || len(conflicts) > 0) {
 		return fmt.Errorf("--on-conflict and --conflict are only used with --apply")
 	}
-	passphrase, err := readSetupPassphrase(*passwordFile)
+	passphrase, err := readSetupPassphrase(*passwordFile, false, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -363,7 +367,7 @@ func runVerify(args []string, out io.Writer) error {
 	if (*profile == "") == (f.NArg() != 1) {
 		return fmt.Errorf("usage: reet setup verify [--profile NAME | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation]")
 	}
-	passphrase, err := readSetupPassphrase(*passwordFile)
+	passphrase, err := readSetupPassphrase(*passwordFile, false, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -433,7 +437,7 @@ func runRollback(args []string, out io.Writer) error {
 	if (*profile == "") == (f.NArg() != 1) || (*journal == "" && !*last) || (*journal != "" && *last) {
 		return fmt.Errorf("usage: reet setup rollback (--journal FILE | --last) [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH]")
 	}
-	passphrase, err := readSetupPassphrase(*passwordFile)
+	passphrase, err := readSetupPassphrase(*passwordFile, false, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -623,7 +627,7 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		passphrase := ""
 		var err error
 		if *passwordFile != "" {
-			passphrase, err = readSetupPassphrase(*passwordFile)
+			passphrase, err = readSetupPassphrase(*passwordFile, false, os.Stderr)
 			if err != nil {
 				return fmt.Errorf("%w; omit --password-file to save a profile that references the snapshot without opening it", err)
 			}
@@ -919,9 +923,17 @@ func runRemote(args []string, out io.Writer) error {
 	}
 }
 
-func readSetupPassphrase(file string) (string, error) {
-	if file == "" {
-		return "", errors.New("a setup snapshot passphrase is required; give --password-file FILE or - for standard input")
+func readSetupPassphrase(file string, confirm bool, promptOut io.Writer) (string, error) {
+	interactive := term.IsTerminal(int(os.Stdin.Fd()))
+	if file == "" && !interactive {
+		return "", errors.New("a setup snapshot passphrase is required; give --password-file FILE or --password-file - for standard input")
+	}
+	if file == "" || file == "-" && interactive {
+		passphrase, err := promptSetupPassphrase(confirm, promptOut)
+		if err != nil {
+			return "", err
+		}
+		return passphrase, nil
 	}
 	var raw []byte
 	var err error
@@ -949,6 +961,38 @@ func readSetupPassphrase(file string) (string, error) {
 	passphrase := strings.TrimSpace(string(raw))
 	if err := validateSetupPassphrase(passphrase); err != nil {
 		return "", err
+	}
+	return passphrase, nil
+}
+
+func promptSetupPassphrase(confirm bool, out io.Writer) (string, error) {
+	fmt.Fprint(out, "Setup passphrase (at least 12 characters): ")
+	raw, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(out)
+	if err != nil {
+		return "", errors.New("could not read the setup passphrase from the terminal")
+	}
+	passphrase := string(raw)
+	for i := range raw {
+		raw[i] = 0
+	}
+	if err := validateSetupPassphrase(passphrase); err != nil {
+		return "", err
+	}
+	if confirm {
+		fmt.Fprint(out, "Confirm setup passphrase: ")
+		again, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Fprintln(out)
+		if err != nil {
+			return "", errors.New("could not read the setup passphrase confirmation")
+		}
+		confirmed := string(again)
+		for i := range again {
+			again[i] = 0
+		}
+		if passphrase != confirmed {
+			return "", errors.New("the setup passphrases do not match")
+		}
 	}
 	return passphrase, nil
 }

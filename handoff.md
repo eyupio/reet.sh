@@ -66,9 +66,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - The read-only Profiles web page merged in [PR #85](https://github.com/eyupio/reet.sh/pull/85), `8d60f1b`.
 - Profiles UI handoff refresh merged in [PR #86](https://github.com/eyupio/reet.sh/pull/86), `3040fc0`.
 - Machine/project-scoped profile overrides merged in [PR #87](https://github.com/eyupio/reet.sh/pull/87), `c8fa9ee`.
-- Latest verified source baseline: `origin/main` at `c8fa9ee` (2026-10-22).
-- Passphrase-free profile saving is in [PR #88](https://github.com/eyupio/reet.sh/pull/88) on
-  `fix/setup-profile-just-works`; fetch remote status before continuing and preserve any
+- Passphrase-free profile saving merged in [PR #88](https://github.com/eyupio/reet.sh/pull/88), `42e88c8`.
+- Latest verified source baseline: `origin/main` at `42e88c8` (2026-10-22).
+- Interactive backup passphrase prompting is in [PR #89](https://github.com/eyupio/reet.sh/pull/89)
+  on `fix/setup-backup-prompt`; fetch remote status before continuing and preserve any
   uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
@@ -120,6 +121,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Add a read-only Profiles web page with revision/override details and delete.
 - [x] Scope profile exclusions to named machines and projects.
 - [x] Make `profile save NAME` use the newest snapshot without a passphrase.
+- [x] Prompt for a new snapshot passphrase in a terminal and accept `backup -`.
 
 ## Implemented slice
 
@@ -356,6 +358,11 @@ Profile save now "just works": `reet setup profile save NAME` uses the newest lo
 snapshot and records its clear header without a passphrase. An explicit snapshot or
 `--password-file` remains available, the latter adding preview/software evidence. Missing
 `FILE`/`SNAPSHOT` placeholders get guidance instead of an opaque path error.
+
+`reet setup backup` now prompts for a new passphrase twice in a terminal when no
+`--password-file` is given; `--password-file -` and a bare trailing `-` use standard
+input. Non-interactive callers still get explicit guidance. This closes the empty-machine
+flow: `reet setup backup` then `reet setup profile save NAME`.
 
 Next implementation slice: broadening memory/history components or web profile editing,
 depending on owner priority. Do not claim cross-OS restore or a complete working-setup
@@ -1193,6 +1200,24 @@ and macOS arm64. `git diff --check` passed. No dependency changed.
 Broader memory/history components, web profile editing and verified cross-OS restore
 remain unimplemented.
 
+## Interactive backup passphrase
+
+The current branch prompts twice for a new setup-snapshot passphrase in a terminal when
+`--password-file` is omitted, with no echo and no command-line secret. `--password-file -`
+and a bare `backup -` read standard input; non-interactive callers get explicit guidance.
+`profile save NAME` then uses the newest snapshot without needing the passphrase again.
+
+Validation: focused tests cover existing file/stdin passphrase parsing, profile save
+without a passphrase, restore by header-only profile and placeholder guidance. Full
+`go vet ./...` and `go test -race ./...` passed. Web checks passed (8 tests; zero Svelte
+diagnostics) and all 16 MCP tests passed. A PTY smoke test verified the two-prompt backup flow, then
+`profile save NAME` and `setup list`; setup tests cross-compile for Windows amd64 and
+macOS arm64.
+`git diff --check` passed. No dependency changed (x/term was already present).
+
+Broader memory/history components, web profile editing and verified cross-OS restore
+remain unimplemented.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -1211,13 +1236,13 @@ remain unimplemented.
    health guidance, per-destination conflict choices, optional software evidence,
    global/project instruction export, explicit portable credential inclusion, optional
    S3 upload/fetch/listing/testing/prune/delete, named local profiles with global and
-   machine/project-scoped overrides, passphrase-free profile saving, revision selection,
-   rename/remove, server push/pull, a read-only Profiles web page and local pruning are
-   now implemented. The next slice is broader memory/history adapters or web profile
-   editing, depending on owner priority. Keep values encrypted and unknown formats
-   unsupported. Do not claim cross-OS restore or working-setup verification before their
-   acceptance gates. Consult the detailed plan for encryption, key handling, restore and
-   compatibility requirements.
+   machine/project-scoped overrides, passphrase-free profile saving, interactive backup
+   passphrases, revision selection, rename/remove, server push/pull, a read-only Profiles
+   web page and local pruning are now implemented. The next slice is broader
+   memory/history adapters or web profile editing, depending on owner priority. Keep
+   values encrypted and unknown formats unsupported. Do not claim cross-OS restore or
+   working-setup verification before their acceptance gates. Consult the detailed plan
+   for encryption, key handling, restore and compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current

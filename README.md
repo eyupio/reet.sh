@@ -258,6 +258,8 @@ reet setup scan --probe-versions --json
 reet setup scan --inspect-installation --json
 reet setup backup --preview --json
 reet setup backup --password-file ~/.config/reet/setup.pass
+reet setup list
+reet setup inspect --password-file ~/.config/reet/setup.pass SNAPSHOT
 ```
 
 The default checks path metadata and executable availability only. Opt into

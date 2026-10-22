@@ -24,6 +24,7 @@ type Report struct {
 	Limitations            []string  `json:"limitations"`
 	InstallationInspection bool      `json:"installation_inspection,omitempty"`
 	VersionProbes          bool      `json:"version_probes,omitempty"`
+	ExportPolicies         bool      `json:"export_policies,omitempty"`
 }
 
 type Agent struct {
@@ -36,6 +37,7 @@ type Agent struct {
 	Components         *ComponentInventory      `json:"components,omitempty"`
 	Installation       *InstallationObservation `json:"installation,omitempty"`
 	ApplicationVersion *VersionObservation      `json:"application_version,omitempty"`
+	ExportPolicy       *ExportPolicy            `json:"export_policy,omitempty"`
 }
 
 type Executable struct {
@@ -61,6 +63,7 @@ type Capabilities struct {
 	Restore      string `json:"restore"`
 	Version      string `json:"version,omitempty"`
 	Installation string `json:"installation,omitempty"`
+	ExportPolicy string `json:"export_policy,omitempty"`
 }
 
 type environment struct {

@@ -27,8 +27,9 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Installation evidence merged in [PR #45](https://github.com/eyupio/reet.sh/pull/45).
 - Upgrade/health regression fixes merged in [PR #46](https://github.com/eyupio/reet.sh/pull/46), `5373885`.
 - CLI defaults and branding merged in [PR #47](https://github.com/eyupio/reet.sh/pull/47), `666964a1ab44d2e16853b93d26115805c7e9a36a`.
-- Latest verified source baseline: `origin/main` at `666964a` (2026-10-22).
-- This documentation refresh is on `docs/refresh-agent-setup-handoff`; fetch remote status before continuing and preserve any uncommitted work.
+- Handoff refresh merged in [PR #48](https://github.com/eyupio/reet.sh/pull/48), `9fb357598aba062838249db10d1f76a92bbda2c7`.
+- Latest verified source baseline: `origin/main` at `9fb3575` (2026-10-22).
+- This stage is on `feat/setup-export-policy`; fetch remote status before continuing and preserve any uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -41,6 +42,8 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Implement S0: local agent discovery and capability reporting.
 - [x] Add fixtures and CLI tests; update README with actual commands/limitations.
 - [x] Run required checks and record results below.
+- [x] Verify PR #47's final CI and published dev artifact.
+- [x] Implement explicit component export policies and document their limits.
 
 ## Implemented slice
 
@@ -80,12 +83,22 @@ evidence only; package manager and authenticity remain unknown. Native installer
 Cursor packaging and Windows shims remain unsupported. No commands or registry
 requests run during inspection.
 
-Next: implement explicit component export policies; authenticated provenance,
-package-manager receipts and install resolution still need dedicated support
-before their restore paths can be enabled. Current slices do not meet
-the complete S1 acceptance gate. Do not copy
-configuration trees generically: they may mix secrets, history, caches and hooks.
-No setup backup/restore command is implemented yet.
+Policy declarations are now opt-in: `reet setup scan --export-policy` (alone or
+with `--components`) adds schema v2 per-agent policies without reading configuration
+values. Each discovered source lists its component selection, allowed fields,
+encrypted-only credential fields, preserved references and explicit exclusions.
+Unlisted settings fields are excluded; memory, history, instructions, behaviour,
+hooks and caches have explicit class policies; `settings.local.json` is opt-in.
+Unknown formats and unsupported adapters remain explicit. This is a policy
+declaration, not an export or backup. Authenticated provenance, package-manager
+receipts and install resolution still need dedicated support before their restore
+paths can be enabled. Current slices do not meet the complete S1 acceptance gate.
+Do not copy configuration trees generically: they may mix secrets, history, caches
+and hooks. No setup backup/restore command is implemented yet.
+
+Next implementation slice: apply these policies to a bounded local snapshot manifest
+(S2), keeping values inside an encrypted payload and preserving the explicit
+omissions report. Do not start with restore execution or claim cross-OS recovery.
 
 ## Validation and continuation
 
@@ -211,34 +224,63 @@ module or version is introduced. Full Go vet/race checks, web checks (8 tests,
 zero Svelte diagnostics), and all 16 MCP tests pass. A compiled-binary PTY smoke
 test verified branding, interactive prompts, private saved defaults, later health
 checks, animation and all disable controls, plus clean redirected output.
-Resume component export policies after this follow-up.
+This was followed by the export policy slice below.
+
+## PR #47 release verification and export policy slice
+
+PR #47's final checks all passed: CodeQL, image `test` and binary `source`, `web`,
+`verify` and all four build jobs. Its main-push binary release run `39769605396`
+also completed successfully. The main-push image run for `666964a` was cancelled
+because PR #48 superseded it; the PR image run passed. Later main-push workflows for
+`9fb3575` refreshed the `dev` release.
+
+The published `dev` Linux amd64 artifact was downloaded into an isolated temporary
+home after the `9fb3575` refresh. It reported `reet dev
+(9fb357598aba062838249db10d1f76a92bbda2c7)`, listed the setup, configure and
+healthcheck commands, saved `REET_VERSION=dev` and `REET_URL=https://reet.sh` in a
+mode-0600 client file, and used an explicit `--url` health target instead of the
+saved value. No PR #47 regression was confirmed. Automated Codex review for PR #47
+still shows only the quota-failure comment and no review findings; that is not an
+automated approval.
+
+The current slice adds `reet setup scan --export-policy` as an independent opt-in
+(schema v2, `export_policies: true`). It declares per-source component selection and
+field handling for future encrypted snapshots without reading configuration values.
+Supported settings use explicit allowlists; unlisted fields are excluded. MCP
+launch parameters are selected, URL and literal environment/header values are
+encrypted-only, and environment reference names are preserved without resolution.
+Hooks, credential helpers, project history and account identity are excluded.
+Class policies explicitly mark instructions, behaviour, memory and history as not
+implemented (history is opt-in), credentials as references-only, and hooks and
+caches as never collected. `settings.local.json` is opt-in. Unknown formats and
+unsupported adapters remain explicit. Policy source observations use the exact
+candidate file state and never contents.
+
+Policy validation: focused setup tests cover every adapter/source, component and
+field policy values, credential-field exclusion, local-settings opt-in, unsupported
+formats/adapters, class coverage, CLI opt-in, schema preservation and secret absence
+in JSON/text. Full `go vet ./...` and `go test -race ./...` passed. Web checks passed
+(8 tests; zero Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary
+smoke scan verified default schema v1, opt-in policy output and no secret leakage.
+`git diff --check` passed. No dependency changed.
 
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
    repository instructions. Fetch GitHub state; this document records observations,
    not a guarantee that CI or release state remains unchanged.
-2. Finish release verification for PR #47 before claiming the new CLI is published.
-   At handoff, PR #47 was already merged by another actor. Its image PR workflow
-   passed; binary PR workflow run `39769421719` was still in progress. Check both
-   final PR results and the main push/release workflows for merge `666964a`.
-   Download the published dev artifact into an isolated temporary directory and
-   verify its commit, configure/default persistence, health targeting and help.
-   Last downloaded release actually verified by this session was PR #46's
-   `5373885`; PR #47's published artifact has not yet been verified.
-3. Automated Codex review for PR #47 failed to run because the account review quota
-   was exhausted. This is not a completed review or a validated code finding.
-   Inspect any actual review threads and perform code review independently;
-   do not claim automated approval. Local Go/web/MCP/PTY verification passed as
-   recorded above. Fix any confirmed regression in a separate tested PR.
-4. Resume explicit component export policies as the next small implementation
-   slice. Classify supported settings, MCP definitions, reusable memory,
-   credential references/portable secrets, opt-in history, and excluded caches,
-   hooks or unsupported data. Keep unknown formats explicitly unsupported; avoid
-   generic recursive copying and avoid exposing configuration values in scan output.
-   Add fixture-based policy and secret-exclusion tests, document real coverage,
-   and maintain the existing default scan schema/behaviour. Consult the detailed
-   plan for the full backup, encryption, restore and cross-OS acceptance gates.
+2. PR #47's final checks and published `dev` artifact were verified at `9fb3575`
+   as recorded above. Recheck live CI/release state before relying on it.
+3. Automated Codex review for PR #47 and PR #48 failed to run because the account
+   review quota was exhausted. This is not a completed review or a validated code
+   finding. Inspect actual review threads and perform code review independently;
+   do not claim automated approval.
+4. Explicit component export policies are now declared. The next small slice is
+   policy-driven bounded snapshot manifest/content collection (S2), with values only
+   inside an encrypted payload and an explicit omissions report. Keep unknown formats
+   unsupported, avoid generic recursive copying, and do not enable restore execution
+   or cross-OS claims before their acceptance gates. Consult the detailed plan for
+   encryption, key handling, restore and compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current

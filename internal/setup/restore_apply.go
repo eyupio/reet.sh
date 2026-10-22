@@ -57,6 +57,7 @@ type restoreJournalAction struct {
 	Destination   string `json:"destination"`
 	State         string `json:"state"`
 	Backup        string `json:"backup,omitempty"`
+	BackupMode    uint32 `json:"backup_mode,omitempty"`
 	AppliedSHA256 string `json:"applied_sha256,omitempty"`
 	BackupSHA256  string `json:"backup_sha256,omitempty"`
 	Error         string `json:"error,omitempty"`
@@ -185,7 +186,11 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 				}
 				data, err := os.ReadFile(backup)
 				if err == nil {
-					err = writeRestoreFile(journal.Actions[i].Destination, data, true)
+					mode := os.FileMode(journal.Actions[i].BackupMode)
+					if mode == 0 {
+						mode = 0o600
+					}
+					err = writeRestoreFile(journal.Actions[i].Destination, data, true, mode)
 				}
 				if err != nil {
 					rollbackErr = fmt.Errorf("restore %q from its rollback copy: %w", journal.Actions[i].Destination, err)
@@ -233,6 +238,9 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 				return fail(i, err)
 			}
 			journal.Actions[i].Backup = backup
+			if info, err := os.Lstat(action.Destination); err == nil {
+				journal.Actions[i].BackupMode = uint32(info.Mode().Perm())
+			}
 			journal.Actions[i].BackupSHA256 = fileSHA256(backup)
 			if journal.Actions[i].BackupSHA256 == "" {
 				return fail(i, fmt.Errorf("read the rollback copy for %q", action.Destination))
@@ -246,7 +254,11 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 				return fail(i, err)
 			}
 		}
-		if err := writeRestoreFile(action.Destination, data, action.State == "conflict" && policy == "replace"); err != nil {
+		mode := os.FileMode(0o600)
+		if file.format == "skill" && file.mode != 0 {
+			mode = file.mode
+		}
+		if err := writeRestoreFile(action.Destination, data, action.State == "conflict" && policy == "replace", mode); err != nil {
 			return fail(i, err)
 		}
 		if err := verifyRestoreFile(action.Destination, file); err != nil {
@@ -333,6 +345,9 @@ func restoreContent(file restoreFile) ([]byte, error) {
 	if file.format == "text" {
 		return []byte(file.text), nil
 	}
+	if file.format == "skill" {
+		return file.data, nil
+	}
 	content := map[string]any{}
 	for key, value := range file.settings {
 		content[key] = value
@@ -361,7 +376,7 @@ func restoreContent(file restoreFile) ([]byte, error) {
 	}
 }
 
-func writeRestoreFile(path string, data []byte, overwrite bool) error {
+func writeRestoreFile(path string, data []byte, overwrite bool, mode os.FileMode) error {
 	dir := filepath.Dir(path)
 	info, err := os.Lstat(dir)
 	if os.IsNotExist(err) {
@@ -379,8 +394,11 @@ func writeRestoreFile(path string, data []byte, overwrite bool) error {
 	}
 	name := f.Name()
 	defer os.Remove(name)
+	if mode == 0 {
+		mode = 0o600
+	}
 	if _, err := f.Write(data); err == nil {
-		err = f.Chmod(0o600)
+		err = f.Chmod(mode)
 	}
 	if err == nil {
 		err = f.Sync()
@@ -417,6 +435,12 @@ func verifyRestoreFile(path string, file restoreFile) error {
 	if file.format == "text" {
 		if string(data) != file.text {
 			return fmt.Errorf("verify restored file %q: text does not match", path)
+		}
+		return nil
+	}
+	if file.format == "skill" {
+		if !reflect.DeepEqual(data, file.data) {
+			return fmt.Errorf("verify restored file %q: skill content does not match", path)
 		}
 		return nil
 	}

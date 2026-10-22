@@ -173,7 +173,8 @@ Do not change existing `reet backup` restore behaviour or formats. Document the
 difference between instance recovery, personal shelf recovery and setup recovery.
 
 Evolve navigation towards Overview, Library, Machines, Profiles, Backups and
-Updates as features land. Keep skills in Library. Machine detail should show
+Updates as features land. Keep the live skill inventory and sync in Library; setup
+profiles may also include bounded installed skill folders for portable restore. Machine detail should show
 agents/components with observed state, report age and capability limitations.
 Backup selection distinguishes configuration, reusable memory, optional history
 and optional portable credentials. Restore UI prepares a plan/command; execution
@@ -284,8 +285,11 @@ hooks and caches. It reads no configuration values and implements no export.
   inspect/rollback/fetch select a revision, keep
   explicit revision history and supports local rename/remove plus server push/pull;
   a read-only web Profiles page lists server copies with stored component metadata
-  (settings fields, MCP names, instruction sources, omissions and software evidence) but
-  never credential values. Exclusions can be scoped to named
+  (settings fields, MCP names, instruction sources, installed skill folders, omissions
+  and software evidence) but never credential values or skill file contents. Installed
+  skill folders are captured as whole bounded directories in the encrypted snapshot and
+  restored file-by-file; symlinked or special files make that skill an explicit
+  omission. Exclusions can be scoped to named
   machines/projects; web editing remains later work.
 - Record drift from observations; stale/incomplete inventory stays unknown.
 - Gate: intentional machine differences survive sync; profile revisions are

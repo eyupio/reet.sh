@@ -123,7 +123,11 @@ func RollbackRestore(journalPath string, snapshot SetupSnapshot, manifest sealed
 	for i := len(targets) - 1; i >= 0; i-- {
 		target := targets[i]
 		if target.action.State == "replaced" {
-			if err := writeRestoreFile(target.destination, target.backup, true); err != nil {
+			mode := os.FileMode(target.action.BackupMode)
+			if mode == 0 {
+				mode = 0o600
+			}
+			if err := writeRestoreFile(target.destination, target.backup, true, mode); err != nil {
 				return rollbackFailure(journalPath, journal, target, err)
 			}
 			result.Restored = append(result.Restored, target.destination)

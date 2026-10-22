@@ -30,6 +30,7 @@
     return latest.preview.agents.reduce((n, agent) => n + (agent.omitted?.length ?? 0), 0)
   })
   const unavailable = $derived((latest?.preview?.classes ?? []).filter((item) => item.selection !== 'include'))
+  const skillCount = $derived(latest?.preview?.skills?.length ?? 0)
   const storedAgents = $derived((latest?.preview?.agents ?? []).filter((agent) => (agent.components?.length ?? 0) > 0))
   const emptyAgents = $derived((latest?.preview?.agents ?? []).filter((agent) => (agent.components?.length ?? 0) === 0))
 
@@ -95,12 +96,13 @@
   }
 
   function kindLabel(kind: string): string {
-    return ({ settings: 'Agent settings', mcp: 'MCP servers', instructions: 'Instructions', credentials: 'Credential references', behavior: 'Rules and commands', memory: 'Memory', history: 'History', hooks: 'Hooks', caches: 'Caches' } as Record<string, string>)[kind] ?? kind
+    return ({ settings: 'Agent settings', mcp: 'MCP servers', instructions: 'Instructions', skills: 'Skills', credentials: 'Credential references', behavior: 'Rules and commands', memory: 'Memory', history: 'History', hooks: 'Hooks', caches: 'Caches' } as Record<string, string>)[kind] ?? kind
   }
 
   function revisionSummary(revision: SetupProfileRevision): string {
     const components = revision.preview?.agents?.reduce((n, agent) => n + (agent.components?.length ?? 0), 0) ?? 0
-    return `${components} components`
+    const skills = revision.preview?.skills?.length ?? 0
+    return skills > 0 ? `${components} components, ${skills} skills` : `${components} components`
   }
 </script>
 
@@ -163,7 +165,7 @@ reet setup profile push work</code></pre>
           <div><dt>Snapshot</dt><dd><code>{latest.snapshot_id}</code></dd></div>
           <div><dt>Taken</dt><dd>{when(latest.snapshot_taken_at)}</dd></div>
           <div><dt>Recorded</dt><dd>{when(latest.created_at)}</dd></div>
-          <div><dt>Selected</dt><dd>{hasPreview ? `${componentCount} components` : '—'}</dd></div>
+          <div><dt>Selected</dt><dd>{hasPreview ? `${componentCount} components, ${skillCount} skills` : '—'}</dd></div>
           <div><dt>Omitted</dt><dd>{hasPreview ? `${omissionCount} records` : '—'}</dd></div>
           <div><dt>Software evidence</dt><dd>{hasPreview ? (latest.software?.length ? `${latest.software.length} agents` : 'None recorded') : '—'}</dd></div>
         </dl>
@@ -201,8 +203,10 @@ reet setup profile push work</code></pre>
                             <span class="chip mono">{name}</span>
                           {/each}
                         </div>
+                      {:else if !component.declarations}
+                        <p class="muted small">No MCP declarations selected.</p>
                       {:else}
-                        <p class="muted small">{(component.selected_declarations ?? component.declarations ?? 0)} declarations selected; server names were not recorded in this revision.</p>
+                        <p class="muted small">{(component.selected_declarations ?? 0)} of {component.declarations} declarations selected; server names were not recorded in this revision.</p>
                       {/if}
                     {/if}
                     {#if component.included_fields?.length}
@@ -240,6 +244,22 @@ reet setup profile push work</code></pre>
             {#if emptyAgents.length}
               <p class="muted small">No selected components for {emptyAgents.map((agent) => agent.name).join(', ')}.</p>
             {/if}
+            <div class="skills">
+              <h3>Skills</h3>
+              {#if latest.preview?.skills?.length}
+                <ul>
+                  {#each latest.preview.skills as skill}
+                    <li>
+                      <strong>{skill.name}</strong>
+                      <span class="tag">{skill.agent_id} · {skill.scope}</span>
+                      <span class="muted small">{skill.files} file{skill.files === 1 ? '' : 's'}, {skill.bytes} bytes</span>
+                    </li>
+                  {/each}
+                </ul>
+              {:else}
+                <p class="muted small">No installed skill folders were recorded in this revision.</p>
+              {/if}
+            </div>
             {#if unavailable.length}
               <div class="not-stored">
                 <h3>Not stored here</h3>
@@ -250,7 +270,7 @@ reet setup profile push work</code></pre>
                 </ul>
               </div>
             {/if}
-            <p class="notice small">Skills are managed by your <a href="/">Library</a> and sync flow and are not copied into setup profiles. Credential values are never displayed; encrypted fields are listed by name only.</p>
+            <p class="notice small">Skill files stay inside the encrypted snapshot; this page shows their names, counts and digests only. Credential values are never displayed; encrypted fields are listed by name only.</p>
           </section>
         {/if}
 
@@ -356,6 +376,10 @@ reet setup profile push work</code></pre>
   .omitted summary { cursor: pointer; color: var(--muted); }
   .omitted ul, .not-stored ul, .software ul { margin: 6px 0 0; padding-left: 18px; font-size: 0.8rem; }
   .omitted li, .not-stored li, .software li { margin: 4px 0; overflow-wrap: anywhere; }
+  .skills { margin-top: 16px; }
+  .skills h3 { margin-bottom: 4px; }
+  .skills ul { margin: 6px 0 0; padding-left: 18px; font-size: 0.8rem; }
+  .skills li { margin: 4px 0; overflow-wrap: anywhere; }
   .not-stored { margin-top: 16px; }
   .not-stored h3, .software h3 { margin-bottom: 4px; }
   .software { margin-top: 16px; }

@@ -24,6 +24,7 @@ type SnapshotPreview struct {
 	Architecture        string              `json:"architecture"`
 	Project             string              `json:"project,omitempty"`
 	Agents              []SnapshotAgent     `json:"agents"`
+	Skills              []SnapshotSkill     `json:"skills,omitempty"`
 	Classes             []ClassExportPolicy `json:"classes"`
 	CredentialsIncluded bool                `json:"credentials_included,omitempty"`
 	Limitations         []string            `json:"limitations"`
@@ -67,6 +68,7 @@ type SnapshotOmission struct {
 type SnapshotSelection struct {
 	Preview             SnapshotPreview
 	sources             []selectedSnapshotSource
+	skills              []SetupSkill
 	software            []SetupSoftware
 	credentialsIncluded bool
 }
@@ -108,6 +110,7 @@ func BuildSnapshotSelectionWithOptions(r Report, opts SnapshotBuildOptions) (Sna
 			"Preview reads supported configuration files into memory to apply policy; selected values are never returned or written.",
 			"Credential-bearing fields are counted but not selected; portable credentials remain unimplemented.",
 			"Opt-in sources are not read. Unsupported classes and unknown fields are reported, not collected.",
+			"Installed skill folders are selected as whole directories up to 256 files and 8 MiB each; symlinks and special files make the whole skill an omission.",
 			"This is a preview, not a backup: archive writing, encryption, key management, restore and cross-OS translation are not implemented.",
 		},
 	}
@@ -123,6 +126,7 @@ func BuildSnapshotSelectionWithOptions(r Report, opts SnapshotBuildOptions) (Sna
 		}
 		preview.Agents = append(preview.Agents, sa)
 	}
+	selectSkillContent(cp.Agents, &preview, &selection)
 	selection.Preview = preview
 	return selection, nil
 }
@@ -460,6 +464,11 @@ func renderSnapshotPreview(out io.Writer, preview SnapshotPreview) error {
 			if _, err := fmt.Fprintln(out); err != nil {
 				return err
 			}
+		}
+	}
+	for _, skill := range preview.Skills {
+		if _, err := fmt.Fprintf(out, "  skill %q (%s/%s): %d files, %d bytes, digest %s\n", skill.Name, skill.AgentID, skill.Scope, skill.Files, skill.Bytes, skill.Digest); err != nil {
+			return err
 		}
 	}
 	for _, class := range preview.Classes {

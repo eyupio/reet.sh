@@ -105,6 +105,7 @@ func TestOverridesAndExplicitProject(t *testing.T) {
 		overrides[key] = t.TempDir()
 	}
 	mkdir(t, filepath.Join(overrides["XDG_CONFIG_HOME"], "opencode"))
+	mkdir(t, filepath.Join(overrides["XDG_CONFIG_HOME"], "opencode", "skills"))
 	for _, path := range []string{
 		filepath.Join(overrides["CLAUDE_CONFIG_DIR"], "CLAUDE.md"),
 		filepath.Join(overrides["CODEX_HOME"], "AGENTS.md"),
@@ -114,6 +115,14 @@ func TestOverridesAndExplicitProject(t *testing.T) {
 		if err := os.WriteFile(path, []byte("instructions"), 0o600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	for _, path := range []string{
+		filepath.Join(overrides["CLAUDE_CONFIG_DIR"], "skills"),
+		filepath.Join(overrides["CODEX_HOME"], "skills"),
+		filepath.Join(overrides["PI_CODING_AGENT_DIR"], "skills"),
+		filepath.Join(overrides["OPENCODE_CONFIG_DIR"], "skills"),
+	} {
+		mkdir(t, path)
 	}
 	overrides["OPENCODE_CONFIG"] = filepath.Join(t.TempDir(), "custom.json")
 	if err := os.WriteFile(overrides["OPENCODE_CONFIG"], []byte("not parsed"), 0o600); err != nil {

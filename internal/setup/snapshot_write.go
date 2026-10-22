@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	setupSnapshotSchemaVersion = 1
-	setupSnapshotKind          = "setup"
-	setupSnapshotVersion       = "setup-v1"
-	setupSnapshotExtension     = ".reetsetup"
+	setupSnapshotSchemaVersion    = 2
+	minSetupSnapshotSchemaVersion = 1
+	setupSnapshotKind             = "setup"
+	setupSnapshotVersion          = "setup-v2"
+	setupSnapshotExtension        = ".reetsetup"
 
 	// EnvSetupDir overrides the default local setup snapshot directory.
 	EnvSetupDir = "REET_SETUP_DIR"
@@ -31,6 +32,7 @@ type SetupSnapshot struct {
 	CreatedAt     time.Time             `json:"created_at"`
 	Preview       SnapshotPreview       `json:"preview"`
 	Sources       []SetupSnapshotSource `json:"sources"`
+	Skills        []SetupSkill          `json:"skills,omitempty"`
 	Software      []SetupSoftware       `json:"software,omitempty"`
 }
 
@@ -69,6 +71,8 @@ type SetupWriteResult struct {
 	Protection          string          `json:"protection"`
 	Compression         string          `json:"compression"`
 	Components          int             `json:"components"`
+	Skills              int             `json:"skills,omitempty"`
+	SkillFiles          int             `json:"skill_files,omitempty"`
 	Omissions           int             `json:"omissions"`
 	CredentialsIncluded bool            `json:"credentials_included,omitempty"`
 	Preview             SnapshotPreview `json:"preview"`
@@ -103,6 +107,7 @@ func BuildSetupSnapshot(selection SnapshotSelection) SetupSnapshot {
 		CreatedAt:     selection.Preview.CapturedAt,
 		Preview:       selection.Preview,
 		Sources:       []SetupSnapshotSource{},
+		Skills:        append([]SetupSkill(nil), selection.skills...),
 		Software:      selection.software,
 	}
 	for _, source := range selection.sources {
@@ -192,7 +197,7 @@ func WriteSetupSnapshot(selection SnapshotSelection, opts SetupWriteOptions) (Se
 		ID: id, Path: path, Bytes: int64(len(onDisk)),
 		TakenAt: time.UnixMilli(written.TakenAt).UTC(),
 		SHA256:  written.SHA256, Protection: written.Protection, Compression: written.Compression,
-		Components: len(snapshot.Sources), Omissions: omissionCount(snapshot.Preview),
+		Components: len(snapshot.Sources), Skills: len(snapshot.Skills), SkillFiles: skillFileCount(snapshot.Skills), Omissions: omissionCount(snapshot.Preview),
 		CredentialsIncluded: snapshot.Preview.CredentialsIncluded,
 		Preview:             snapshot.Preview, Software: snapshot.Software,
 	}, nil
@@ -223,8 +228,11 @@ func openSetupSnapshot(data []byte, password string) (SetupSnapshot, sealed.Mani
 }
 
 func verifySetupSnapshot(snapshot SetupSnapshot) error {
-	if snapshot.SchemaVersion != setupSnapshotSchemaVersion {
+	if snapshot.SchemaVersion < minSetupSnapshotSchemaVersion || snapshot.SchemaVersion > setupSnapshotSchemaVersion {
 		return fmt.Errorf("unsupported setup snapshot schema version %d", snapshot.SchemaVersion)
+	}
+	if snapshot.SchemaVersion < 2 && len(snapshot.Skills) > 0 {
+		return errors.New("setup snapshot skills require schema version 2")
 	}
 	components := map[string]SnapshotComponent{}
 	for _, agent := range snapshot.Preview.Agents {
@@ -255,7 +263,44 @@ func verifySetupSnapshot(snapshot SetupSnapshot) error {
 			return errors.New("setup snapshot content does not match its recorded digest")
 		}
 	}
+	skills := map[string]SnapshotSkill{}
+	for _, skill := range snapshot.Preview.Skills {
+		skills[skill.AgentID+"\x00"+skill.Source] = skill
+	}
+	seenSkills := map[string]bool{}
+	for _, skill := range snapshot.Skills {
+		source := filepath.Join(skill.Root, skill.Name)
+		key := skill.AgentID + "\x00" + source
+		if seenSkills[key] {
+			return errors.New("duplicate setup snapshot skill")
+		}
+		seenSkills[key] = true
+		preview, ok := skills[key]
+		if !ok {
+			return errors.New("setup snapshot skill is not in the selected preview")
+		}
+		if preview.Name != skill.Name || preview.AgentID != skill.AgentID || preview.Scope != skill.Scope {
+			return errors.New("setup snapshot skill identity does not match its preview")
+		}
+		if preview.Digest != "" && preview.Digest != skill.Digest {
+			return errors.New("setup snapshot skill content does not match its recorded digest")
+		}
+		if setupSkillDigest(skill.Files) != skill.Digest {
+			return errors.New("setup snapshot skill content does not match its recorded digest")
+		}
+		if preview.Files != len(skill.Files) || preview.Bytes != skillBytes(skill.Files) {
+			return errors.New("setup snapshot skill metadata does not match its content")
+		}
+	}
 	return nil
+}
+
+func skillFileCount(skills []SetupSkill) int {
+	total := 0
+	for _, skill := range skills {
+		total += len(skill.Files)
+	}
+	return total
 }
 
 func omissionCount(preview SnapshotPreview) int {
@@ -338,5 +383,8 @@ func redactPreviewDigests(preview *SnapshotPreview) {
 		for j := range preview.Agents[i].Components {
 			preview.Agents[i].Components[j].Digest = ""
 		}
+	}
+	for i := range preview.Skills {
+		preview.Skills[i].Digest = ""
 	}
 }

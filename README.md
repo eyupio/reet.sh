@@ -275,6 +275,7 @@ reet setup remote delete --yes SNAPSHOT
 reet setup profile
 reet setup profile save work
 reet setup profile save --exclude-kind instructions --machine laptop work2
+reet setup profile save --exclude-kind skills work3
 reet setup profile rename work2 personal
 reet setup profile remove --yes personal
 reet setup profile push --server https://reet.example work
@@ -311,12 +312,16 @@ selection rules for configuration sources, settings fields, MCP declarations,
 credential references and excluded classes in a future encrypted snapshot. It reads
 no configuration contents and is a policy declaration, not an export.
 `reet setup backup --preview` applies those policies in memory and reports included,
-encrypted-only, reference and excluded fields, MCP declaration counts, unknown fields
-and omissions without printing values or writing an archive. Without `--preview`,
+encrypted-only, reference and excluded fields, MCP declaration counts, installed skill
+folders with file counts, unknown fields and omissions without printing values or
+writing an archive. Without `--preview`,
 `reet setup backup` prompts for a passphrase in a terminal (or takes
 `--password-file FILE`/`-`) and writes one encrypted local snapshot under
 `REET_SETUP_DIR` or the user config `reet/setup` directory; source paths, selected
-values and discovered instruction text stay inside the encrypted payload.
+values, discovered instruction text and whole skill folders stay inside the encrypted
+payload. Skill folders are limited to 256 files and 8 MiB each, with a 64 MiB snapshot
+budget; a symlinked or special file makes that skill an explicit omission rather than
+a partial copy.
 `--include-credentials` explicitly includes literal credential values from URLs,
 environment and header fields; it is rejected with `--preview`. Optional
 `--probe-versions` and `--inspect-installation` record application/package evidence.
@@ -350,17 +355,18 @@ for named machines/projects, selected with `--machine NAME`/`--project PATH`. `p
 **Profiles** page lists synced profiles, their latest revision, overrides and revision
 history, and can delete the server copy. For revisions with a recorded preview it also
 shows each agent's stored components: settings field names, MCP server names, instruction
-sources, encrypted-field names, omissions and software evidence. Credential values are
-never shown. Profiles are not synced to an account or another machine. `reet setup prune --keep N` previews local
+sources, installed skill folders with file counts, encrypted-field names, omissions and
+software evidence. Credential values and skill file contents are never shown. Profiles are
+not synced to an account or another machine. `reet setup prune --keep N` previews local
 snapshot deletion and `--apply` removes old unprotected snapshots; profile and journal
 references are protected.
 
 This is still not complete setup backup/restore: memory databases, conversation/session
-history, account-synced profiles with machine/project overrides, remote S3
-retention/deletion, runtime health verification and verified cross-OS restore are not
-implemented. Discovered global and project instruction files (`CLAUDE.md`, `AGENTS.md`,
-`.cursorrules`, `GEMINI.md`) are included as encrypted text; other instruction locations
-are not inventoried. Existing instance and shelf backups below remain separate.
+history and skill dependency/provenance resolution are not implemented; runtime health
+verification and verified cross-OS restore remain unproven. Discovered global and
+project instruction files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `GEMINI.md`) are
+included as encrypted text; other instruction locations are not inventoried. Existing
+instance and shelf backups below remain separate.
 See [setup discovery and limits](docs/setup-discovery.md), the
 [implementation plan](docs/agent-setup-plan.md) and [handoff](handoff.md).
 

@@ -85,15 +85,7 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 			"No cross-OS translation, dependency resolution or runtime verification has been performed.",
 		},
 	}
-	components := map[string]restoreComponent{}
-	for _, agent := range snapshot.Preview.Agents {
-		for _, component := range agent.Components {
-			components[restoreKey(agent.ID, component.Source, component.Kind)] = restoreComponent{
-				agentID: agent.ID, path: component.Source, kind: component.Kind,
-				scope: component.Scope, format: component.Format, digest: component.Digest,
-			}
-		}
-	}
+	components := snapshotRestoreComponents(snapshot)
 	candidates := destinationCandidates(destination)
 	actions := map[string]*RestoreAction{}
 	files := map[string]restoreFile{}
@@ -167,24 +159,7 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 		}
 		return plan.Actions[i].Destination < plan.Actions[j].Destination
 	})
-	for _, agent := range snapshot.Preview.Agents {
-		for _, omitted := range agent.Omitted {
-			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{
-				Kind: omitted.Kind, Source: omitted.Source, Reason: omitted.Reason, Count: omitted.Count,
-			})
-		}
-	}
-	for _, class := range snapshot.Preview.Classes {
-		switch class.Kind {
-		case "credentials":
-			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: class.Kind, Reason: "reference_names_only"})
-		default:
-			if class.Selection == "include" {
-				continue
-			}
-			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: class.Kind, Reason: "class_" + class.Selection})
-		}
-	}
+	plan.Unsupported = append(plan.Unsupported, policyUnsupported(snapshot)...)
 	sort.Slice(plan.Unsupported, func(i, j int) bool {
 		if plan.Unsupported[i].Kind != plan.Unsupported[j].Kind {
 			return plan.Unsupported[i].Kind < plan.Unsupported[j].Kind
@@ -197,6 +172,42 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 	plan.files = files
 	plan.Fingerprint = restoreFingerprint(plan)
 	return plan
+}
+
+func snapshotRestoreComponents(snapshot SetupSnapshot) map[string]restoreComponent {
+	components := map[string]restoreComponent{}
+	for _, agent := range snapshot.Preview.Agents {
+		for _, component := range agent.Components {
+			components[restoreKey(agent.ID, component.Source, component.Kind)] = restoreComponent{
+				agentID: agent.ID, path: component.Source, kind: component.Kind,
+				scope: component.Scope, format: component.Format, digest: component.Digest,
+			}
+		}
+	}
+	return components
+}
+
+func policyUnsupported(snapshot SetupSnapshot) []RestoreUnsupported {
+	var unsupported []RestoreUnsupported
+	for _, agent := range snapshot.Preview.Agents {
+		for _, omitted := range agent.Omitted {
+			unsupported = append(unsupported, RestoreUnsupported{
+				Kind: omitted.Kind, Source: omitted.Source, Reason: omitted.Reason, Count: omitted.Count,
+			})
+		}
+	}
+	for _, class := range snapshot.Preview.Classes {
+		switch class.Kind {
+		case "credentials":
+			unsupported = append(unsupported, RestoreUnsupported{Kind: class.Kind, Reason: "reference_names_only"})
+		default:
+			if class.Selection == "include" {
+				continue
+			}
+			unsupported = append(unsupported, RestoreUnsupported{Kind: class.Kind, Reason: "class_" + class.Selection})
+		}
+	}
+	return unsupported
 }
 
 func restoreKey(agentID, path, kind string) string {

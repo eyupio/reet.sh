@@ -267,6 +267,7 @@ reet setup inspect --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --apply --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --apply --on-conflict replace --password-file ~/.config/reet/setup.pass SNAPSHOT
+reet setup verify --password-file ~/.config/reet/setup.pass SNAPSHOT
 ```
 
 The default checks path metadata and executable availability only. Opt into

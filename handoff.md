@@ -74,10 +74,9 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Preview defaults and saved-token retry merged in [PR #94](https://github.com/eyupio/reet.sh/pull/94), `4057583`.
 - Interactive restore wizard merged in [PR #95](https://github.com/eyupio/reet.sh/pull/95), `a7fbb04`.
 - Detailed profile contents in the web page merged in [PR #96](https://github.com/eyupio/reet.sh/pull/96), `426e57d`.
-- Latest verified source baseline: `origin/main` at `426e57d` (2026-10-22).
-- Whole installed skill folders in setup snapshots are in [PR #97](https://github.com/eyupio/reet.sh/pull/97)
-  on `feat/setup-skills`; fetch remote status before continuing and preserve any
-  uncommitted work.
+- Whole installed skill folders in setup snapshots merged in [PR #97](https://github.com/eyupio/reet.sh/pull/97), `475e40c`.
+- The CodeQL integrity-digest follow-up merged in [PR #98](https://github.com/eyupio/reet.sh/pull/98), `3ae9e40`.
+- Latest verified source baseline: `origin/main` at `3ae9e40` (2026-10-22).
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -1322,7 +1321,7 @@ editing and verified cross-OS restore remain unimplemented.
 
 ## Skills in setup snapshots
 
-Setup snapshots now capture installed skill folders from known agent locations:
+Merged in PR #97, with the digest follow-up in PR #98. Setup snapshots capture installed skill folders from known agent locations:
 `~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills`, `~/.codex/skills`,
 `~/.config/opencode/skills`, `~/.pi/agent/skills` and their known project equivalents.
 Each skill is copied whole, with relative paths and executable bits, into the encrypted

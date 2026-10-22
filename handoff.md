@@ -71,10 +71,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Interactive setup-profile wizard merged in [PR #90](https://github.com/eyupio/reet.sh/pull/90), `39c3091`.
 - Wizard profile sync and env-file defaults merged in [PR #91](https://github.com/eyupio/reet.sh/pull/91), `60051f4`.
 - Profiles empty-state refresh merged in [PR #92](https://github.com/eyupio/reet.sh/pull/92), `af36a77`.
-- Latest verified source baseline: `origin/main` at `af36a77` (2026-10-22).
-- Rejected-token retry is in [PR #93](https://github.com/eyupio/reet.sh/pull/93) on
-  `fix/profile-push-unauthorized`; fetch remote status before continuing and preserve any
-  uncommitted work.
+- Rejected-token retry merged in [PR #93](https://github.com/eyupio/reet.sh/pull/93), `d11638e`.
+- Latest verified source baseline: `origin/main` at `d11638e` (2026-10-22).
+- Preview defaults and saved-token retry are in [PR #94](https://github.com/eyupio/reet.sh/pull/94)
+  on `fix/profile-preview-and-token`; fetch remote status before continuing and preserve
+  any uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -129,6 +130,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Add an interactive `reet setup profile` wizard.
 - [x] Offer profile sync in the wizard and read server/token from saved/default/env settings.
 - [x] Prompt for a replacement personal token and retry when sync is rejected.
+- [x] Default to recording profile preview and retry a saved token silently.
 
 ## Implemented slice
 
@@ -382,9 +384,10 @@ saved `reet configure` defaults, `REET_ENV_FILE` or `.env`, and the token from
 support `--env-file` and auto-detect `.env`/`REET_ENV_FILE`. Setup now loads saved client
 defaults like upgrade/scan.
 
-If the server rejects the token during wizard sync, the wizard prompts for a personal API
-token from Account, saves it and retries once. Direct `profile push` does the same in a
-terminal.
+If the server rejects the token during wizard sync, a previously saved token is tried
+first; otherwise the wizard prompts for a personal API token from Account, saves it and
+retries once. Existing snapshots now default to recording preview/software evidence, and
+`profile push` offers to backfill a header-only profile before uploading.
 
 Next implementation slice: broadening memory/history components or web profile editing,
 depending on owner priority. Do not claim cross-OS restore or a complete working-setup
@@ -1287,6 +1290,23 @@ Validation: focused tests cover the unauthorized sentinel; a PTY smoke test used
 `go vet ./...` and `go test -race ./...` passed; web checks passed (8 tests; zero Svelte
 diagnostics) and all 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and
 macOS arm64. `git diff --check` passed. No dependency changed.
+
+Broader memory/history components, web profile editing and verified cross-OS restore
+remain unimplemented.
+
+## Profile preview defaults and saved-token retry
+
+The current branch defaults the wizard's existing-snapshot preview question to yes, so
+new profiles show agent components. `profile push` offers to open a header-only profile
+before uploading. When sync is rejected, a saved token is tried silently before prompting
+for a replacement. The Profiles page shows "not recorded" instead of zeroes for old
+header-only revisions.
+
+Validation: focused tests cover saved-token retry; PTY smoke tests verified preview
+capture and silent saved-token retry with a stale `.env` token. Full `go vet ./...` and
+`go test -race ./...` passed; web checks passed (8 tests; zero Svelte diagnostics) and all
+16 MCP tests passed. Setup tests cross-compile for Windows amd64 and macOS arm64.
+`git diff --check` passed. No dependency changed.
 
 Broader memory/history components, web profile editing and verified cross-OS restore
 remain unimplemented.

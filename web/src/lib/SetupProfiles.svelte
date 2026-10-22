@@ -20,6 +20,7 @@
   let deleteFor = $state<SetupProfileSummary | null>(null)
 
   const latest = $derived(selected?.revisions.at(-1) ?? null)
+  const hasPreview = $derived((latest?.preview?.schema_version ?? 0) > 0)
   const componentCount = $derived.by(() => {
     if (!latest?.preview?.agents) return 0
     return latest.preview.agents.reduce((n, agent) => n + (agent.components?.length ?? 0), 0)
@@ -155,13 +156,13 @@ reet setup profile push work</code></pre>
           <div><dt>Snapshot</dt><dd><code>{latest.snapshot_id}</code></dd></div>
           <div><dt>Taken</dt><dd>{when(latest.snapshot_taken_at)}</dd></div>
           <div><dt>Recorded</dt><dd>{when(latest.created_at)}</dd></div>
-          <div><dt>Selected</dt><dd>{componentCount} components</dd></div>
-          <div><dt>Omitted</dt><dd>{omissionCount} records</dd></div>
-          <div><dt>Software evidence</dt><dd>{latest.software?.length ?? 0} agents</dd></div>
+          <div><dt>Selected</dt><dd>{hasPreview ? `${componentCount} components` : '—'}</dd></div>
+          <div><dt>Omitted</dt><dd>{hasPreview ? `${omissionCount} records` : '—'}</dd></div>
+          <div><dt>Software evidence</dt><dd>{hasPreview ? `${latest.software?.length ?? 0} agents` : '—'}</dd></div>
         </dl>
 
-        {#if !latest.preview}
-          <p class="notice">Preview not recorded. Save the profile with <code>--password-file</code> to include selected/omitted counts.</p>
+        {#if !hasPreview}
+          <p class="notice">Preview not recorded. Run <code>reet setup profile</code> or <code>reet setup profile push</code> and open the snapshot, or save with <code>--password-file</code>, to include selected/omitted counts.</p>
         {/if}
         {#if latest.preview?.credentials_included}
           <p class="notice good">Literal credentials were included inside the encrypted snapshot. They are not shown here.</p>

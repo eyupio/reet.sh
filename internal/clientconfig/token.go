@@ -88,6 +88,9 @@ func validateScanToken(value string) error {
 	return nil
 }
 
+// SavedToken returns the token saved by a previous interactive command.
+func SavedToken() (string, error) { return loadSavedToken() }
+
 // TokenPath is the private file that stores an interactively entered personal
 // token. It is deliberately separate from client.env, which holds no secrets.
 func TokenPath() (string, error) {

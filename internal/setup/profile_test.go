@@ -284,3 +284,39 @@ func TestProfileRevisionSelectionCLI(t *testing.T) {
 		t.Fatal("revision without profile accepted")
 	}
 }
+
+func TestProfileRenameAndRemoveCLI(t *testing.T) {
+	dir, snapshot := profileFixture(t)
+	passFile := writePassphrase(t, t.TempDir(), testSetupPassphrase)
+	if err := Run([]string{"profile", "save", "--dir", dir, "--password-file", passFile, "work", snapshot.ID}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run([]string{"profile", "rename", "--dir", dir, "work", "personal"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadProfile("work", dir, 0); err == nil {
+		t.Fatal("old profile still loads after rename")
+	}
+	renamed, revision, err := LoadProfile("personal", dir, 0)
+	if err != nil || renamed.Name != "personal" || revision.SnapshotID != snapshot.ID {
+		t.Fatalf("renamed profile wrong: %+v %+v %v", renamed, revision, err)
+	}
+	if _, err := os.Stat(snapshot.Path); err != nil {
+		t.Fatal("rename removed a snapshot")
+	}
+	if err := Run([]string{"profile", "remove", "--dir", dir, "personal"}, &bytes.Buffer{}); err == nil {
+		t.Fatal("remove without --yes accepted")
+	}
+	if err := Run([]string{"profile", "remove", "--yes", "--dir", dir, "personal"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadProfile("personal", dir, 0); err == nil {
+		t.Fatal("removed profile still loads")
+	}
+	if _, err := os.Stat(snapshot.Path); err != nil {
+		t.Fatal("remove deleted a snapshot")
+	}
+	if err := Run([]string{"profile", "rename", "--dir", dir, "missing", "x"}, &bytes.Buffer{}); err == nil {
+		t.Fatal("missing profile renamed")
+	}
+}

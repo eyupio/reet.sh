@@ -219,3 +219,26 @@ subsequent command output; no sleeps are added to make work appear longer.
 disables colour and motion. Redirected output gets no escape sequences or banner,
 and JSON output remains machine-readable. Version output retains the exact
 `reet VERSION (COMMIT)` contract used to verify release binaries.
+
+## Scanner authentication
+
+`reet scan` uses `--token`, then exported `REET_TOKEN`, then the token in an
+explicitly selected file:
+
+```sh
+reet scan --env-file .env
+# Or, with no token configured, enter it at the hidden terminal prompt:
+reet scan
+```
+
+Use a personal API token from **Account** on the target server. The file option
+reads only `REET_TOKEN`; the target still comes from `--server`, `REET_URL`, or
+saved CLI defaults. It accepts literal unquoted, single-quoted or double-quoted
+values and optional `export`. It never executes the file or expands variables.
+Duplicate token entries and malformed values are rejected. A project `.env` is
+not loaded implicitly. Keep files containing tokens private (mode 0600).
+
+The prompt does not echo or save the token. Enter skips authentication for servers
+configured without it. Noninteractive commands never prompt and retain support
+for unauthenticated servers; a 401 includes configuration guidance. `--dry-run`
+neither reads the token file nor prompts. Tokens are not written to `client.env`.

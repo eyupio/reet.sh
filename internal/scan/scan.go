@@ -247,6 +247,7 @@ func RunVersion(args []string, out io.Writer, version string) error {
 	def := os.Getenv("REET_URL")
 	server := fs.String("server", def, "reet server URL (env REET_URL)")
 	token := fs.String("token", "", "access token (env REET_TOKEN)")
+	tokenEnvFile := fs.String("env-file", "", "read REET_TOKEN from an explicitly selected .env file; flags/exported token win")
 	dry := fs.Bool("dry-run", false, "list what would be imported without sending it")
 	reconcile := fs.Bool("reconcile", false, "repair hostname/--env aliases before refreshing inventories; never changes installed skills")
 	prune := fs.Bool("prune", false, "remove stale inventory reports for scanned environments; keeps installed files and shelf entries")
@@ -270,8 +271,12 @@ func RunVersion(args []string, out io.Writer, version string) error {
 		}
 		*server = value
 	}
-	if *token == "" {
-		*token = os.Getenv("REET_TOKEN")
+	if !*dry {
+		value, err := scanToken(*token, *tokenEnvFile, os.Stdin, os.Stderr)
+		if err != nil {
+			return err
+		}
+		*token = value
 	}
 	host := strings.TrimSpace(*envName)
 	if host == "" {
@@ -361,6 +366,9 @@ func RunVersion(args []string, out io.Writer, version string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusUnauthorized {
+			return errors.New("server replied 401 Unauthorized; use a personal API token from Account on the target server via REET_TOKEN, --env-file .env, or the interactive token prompt")
+		}
 		return fmt.Errorf("server replied %s", resp.Status)
 	}
 	var res struct {

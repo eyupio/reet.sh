@@ -265,3 +265,24 @@ reet healthcheck
 
 Installing the CLI does not restart a separately running server. Inspect its
 actual managed deployment before applying any host upgrade.
+
+## Scanner token follow-up
+
+The user's terminal output confirms the published PR #47 dev binary at `666964a`
+was installed successfully, but `reet scan` prompted only for URL and then got 401.
+Branch `fix/scan-token-input` fixes this with explicit `scan --env-file .env`
+(reads only literal REET_TOKEN) and a hidden terminal prompt when no token is
+available. Precedence: --token > exported REET_TOKEN > explicit file > prompt.
+Prompted tokens are session-only; no secrets are saved in client.env. Dry runs do
+not read/prompt for tokens. Noninteractive unauthenticated servers remain supported;
+401 now gives actionable token guidance. No automatic project .env execution.
+`golang.org/x/term v0.47.0` is used for portable terminal echo suppression/restoration.
+Continue release verification and component export policies after this fix.
+
+Validation for the token fix: full `go vet ./...` and `go test -race ./...`
+passed; focused scan race tests passed after the file-type check refinement.
+Web checks passed (8 tests, zero Svelte diagnostics); all 16 MCP tests passed.
+A compiled-binary PTY test confirmed hidden token entry, authenticated submission,
+no token in terminal output and restoration of terminal echo. Unit/integration
+coverage includes precedence, literal env parsing/rejections, no secret diagnostics,
+noninteractive behaviour and dry-run isolation. `git diff --check` passed.

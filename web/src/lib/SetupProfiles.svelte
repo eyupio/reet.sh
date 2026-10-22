@@ -178,8 +178,12 @@ reet setup profile push work</code></pre>
         {/if}
 
         {#if hasPreview}
-          <section class="stored" aria-labelledby="stored-heading">
-            <h3 id="stored-heading">What this revision stores</h3>
+          <details class="stored" open>
+            <summary class="stored-summary">
+              <span>What this revision stores</span>
+              <span class="muted small">{componentCount} components · {skillCount} skills</span>
+            </summary>
+            <div class="stored-body">
             {#if storedAgents.length === 0}
               <p class="muted small">No components were selected in this revision.</p>
             {/if}
@@ -271,7 +275,8 @@ reet setup profile push work</code></pre>
               </div>
             {/if}
             <p class="notice small">Skill files stay inside the encrypted snapshot; this page shows their names, counts and digests only. Credential values are never displayed; encrypted fields are listed by name only.</p>
-          </section>
+            </div>
+          </details>
         {/if}
 
         {#if latest.software?.length}
@@ -363,6 +368,11 @@ reet setup profile push work</code></pre>
   .notice { margin-top: 16px; }
   .overrides p { margin: 6px 0; font-size: 0.82rem; overflow-wrap: anywhere; }
   .stored { margin-top: 18px; }
+  .stored-summary { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; cursor: pointer; padding: 8px 0; color: var(--ink); font-size: 0.8rem; font-weight: 650; text-transform: uppercase; letter-spacing: 0.08em; }
+  .stored-summary::before { content: ""; flex: 0 0 auto; width: 0; height: 0; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform 150ms ease; }
+  .stored[open] .stored-summary::before { transform: rotate(90deg); }
+  .stored-summary .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .stored-body { margin-top: 4px; }
   .agent-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 10px; }
   .agent-head, .component-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
   .component { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; min-width: 0; }

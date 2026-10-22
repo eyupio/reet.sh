@@ -56,9 +56,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Restore-plan software compatibility warnings merged in [PR #75](https://github.com/eyupio/reet.sh/pull/75), `b10efaa`.
 - Cross-OS plan/verify warnings merged in [PR #76](https://github.com/eyupio/reet.sh/pull/76), `faa92c7`.
 - Profile component/source overrides merged in [PR #77](https://github.com/eyupio/reet.sh/pull/77), `9cb03f9`.
-- Latest verified source baseline: `origin/main` at `9cb03f9` (2026-10-22).
-- Profile revision selection is in [PR #78](https://github.com/eyupio/reet.sh/pull/78) on
-  `feat/setup-profile-revision`; fetch remote status before continuing and preserve any
+- Profile revision selection merged in [PR #78](https://github.com/eyupio/reet.sh/pull/78), `653ee2e`.
+- Latest verified source baseline: `origin/main` at `653ee2e` (2026-10-22).
+- Remote S3 prune/delete are in [PR #79](https://github.com/eyupio/reet.sh/pull/79) on
+  `feat/setup-s3-prune`; fetch remote status before continuing and preserve any
   uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
@@ -101,6 +102,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Mark differing source/destination OS as unverified in plans and verification.
 - [x] Add profile overrides that exclude component kinds or source paths.
 - [x] Select profile revisions for restore/verify/inspect/rollback/fetch.
+- [x] Add profile-protected remote S3 prune/delete.
 
 ## Implemented slice
 
@@ -304,6 +306,11 @@ profile omissions, not silently dropped.
 S5d now accepts `--revision N` with `--profile` for restore, verify, inspect, rollback
 and S3 fetch. The default remains the newest revision. Revision selection is local and
 does not change profile history.
+
+S2h now adds `reet setup remote prune --keep N [--apply]` and
+`reet setup remote delete --yes SNAPSHOT`. Remote prune is a dry run by default, keeps
+the newest objects and protects snapshots referenced by local profile revisions; delete
+refuses a profile-referenced snapshot. Only `.reetsetup` objects are touched.
 
 Next implementation slice: account-synced profiles with machine/project overrides, or
 broader memory/history adapters, depending on owner priority. Do not claim cross-OS
@@ -1018,6 +1025,24 @@ selection; setup tests cross-compile for Windows amd64 and macOS arm64.
 Account-synced profiles, machine/project-specific overrides, memory/history adapters,
 remote S3 retention and verified cross-OS restore remain unimplemented.
 
+## Remote S3 prune and delete
+
+The current stage on `feat/setup-s3-prune` adds `remote prune --keep N [--apply]` and
+`remote delete --yes SNAPSHOT`. Prune is a dry run by default, keeps the newest objects
+and protects snapshots referenced by local profile revisions. Delete refuses a
+profile-referenced snapshot. Only `.reetsetup` objects under the configured prefix are
+managed.
+
+Validation: focused tests cover dry-run/apply remote pruning, profile protection,
+explicit delete, delete refusal and fake-store listing/deletion. Full `go vet ./...` and
+`go test -race ./...` passed. Web checks passed (8 tests; zero Svelte diagnostics) and
+all 16 MCP tests passed. A compiled-binary smoke test verified protected remote prune/delete;
+setup tests cross-compile for Windows amd64 and macOS arm64.
+`git diff --check` passed. No dependency changed.
+
+Account-synced profiles, machine/project-specific overrides, memory/history adapters and
+verified cross-OS restore remain unimplemented.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -1035,9 +1060,9 @@ remote S3 retention and verified cross-OS restore remain unimplemented.
    with rollback copies, destination verification, rollback, journal listing, local
    health guidance, per-destination conflict choices, optional software evidence,
    global/project instruction export, explicit portable credential inclusion, optional
-   S3 upload/fetch/listing, named local profiles with component/source overrides and
-   revision selection (including inspect/rollback) and local pruning are now
-   implemented. The next slice is account-synced profiles/overrides or broader
+   S3 upload/fetch/listing/prune/delete, named local profiles with component/source
+   overrides and revision selection (including inspect/rollback) and local pruning are
+   now implemented. The next slice is account-synced profiles/overrides or broader
    memory/history adapters, depending on owner priority. Keep values encrypted and
    unknown formats unsupported. Do not claim cross-OS restore or working-setup
    verification before their acceptance gates. Consult the detailed plan for encryption,
@@ -1049,14 +1074,14 @@ remote S3 retention and verified cross-OS restore remain unimplemented.
    should use clickable options with a recommendation when the UI supports them.
 
 Important boundaries: no complete AI setup backup/restore has shipped. Setup backup
-now writes a partial encrypted local snapshot, can optionally upload/fetch/list it through
-S3, list, inspect, plan with compatibility/cross-OS warnings, create or replace supported
-files, verify selected destination fields, roll back a completed apply, list journals,
-report local health guidance, apply per-destination conflict choices, record/compare
-optional software evidence, export global/project instructions, optionally include
-portable literal credentials, save/use named local profiles with overrides and revision selection, and prune old local
-snapshots, but account-synced profiles, memory/history, remote retention and verified
-cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
+now writes a partial encrypted local snapshot, can optionally upload/fetch/list/prune or
+delete it through S3, list, inspect, plan with compatibility/cross-OS warnings, create or
+replace supported files, verify selected destination fields, roll back a completed apply,
+list journals, report local health guidance, apply per-destination conflict choices,
+record/compare optional software evidence, export global/project instructions, optionally
+include portable literal credentials, save/use named local profiles with overrides and
+revision selection, and prune old local snapshots, but account-synced profiles,
+memory/history and verified cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
 manage that server. No production host was upgraded by this session. Do not copy

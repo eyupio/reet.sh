@@ -261,6 +261,7 @@ reet setup scan --export-policy --json
 reet setup scan --probe-versions --json
 reet setup scan --inspect-installation --json
 reet setup backup --preview --json
+reet setup backup
 reet setup backup --password-file ~/.config/reet/setup.pass
 reet setup backup --probe-versions --inspect-installation --password-file ~/.config/reet/setup.pass
 reet setup backup --include-credentials --password-file ~/.config/reet/setup.pass
@@ -310,8 +311,9 @@ no configuration contents and is a policy declaration, not an export.
 `reet setup backup --preview` applies those policies in memory and reports included,
 encrypted-only, reference and excluded fields, MCP declaration counts, unknown fields
 and omissions without printing values or writing an archive. Without `--preview`,
-`reet setup backup --password-file FILE` writes one passphrase-encrypted local snapshot
-under `REET_SETUP_DIR` or the user config `reet/setup` directory; source paths, selected
+`reet setup backup` prompts for a passphrase in a terminal (or takes
+`--password-file FILE`/`-`) and writes one encrypted local snapshot under
+`REET_SETUP_DIR` or the user config `reet/setup` directory; source paths, selected
 values and discovered instruction text stay inside the encrypted payload.
 `--include-credentials` explicitly includes literal credential values from URLs,
 environment and header fields; it is rejected with `--preview`. Optional

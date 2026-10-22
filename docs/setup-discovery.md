@@ -278,10 +278,10 @@ reet setup backup --password-file FILE --dir /path/to/snapshots
 
 Without `--preview`, `reet setup backup` applies the same policy-driven selection
 and writes one encrypted local snapshot. The passphrase must be at least 12
-characters and comes from a regular file or standard input (`-`); there is no
-command-line passphrase value and no stored key. A passphrase file must be a
-regular file, not a symlink, and at most 4 KiB. The passphrase is not written to
-the snapshot, logs or output.
+characters and comes from a regular file, standard input (`-`), or an interactive
+terminal prompt (with confirmation); there is no command-line passphrase value and
+no stored key. A passphrase file must be a regular file, not a symlink, and at most
+4 KiB. The passphrase is not written to the snapshot, logs or output.
 
 Snapshots are written atomically with mode 0600 into a directory with mode 0700.
 The default directory is `REET_SETUP_DIR` when set, otherwise the user config

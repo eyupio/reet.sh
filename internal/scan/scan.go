@@ -272,7 +272,11 @@ func RunVersion(args []string, out io.Writer, version string) error {
 		*server = value
 	}
 	if !*dry {
-		value, err := scanToken(*token, *tokenEnvFile, os.Stdin, os.Stderr)
+		var input io.Reader = os.Stdin
+		if *serverHost {
+			input = strings.NewReader("")
+		}
+		value, err := clientconfig.ResolveToken(*token, *tokenEnvFile, input, os.Stderr)
 		if err != nil {
 			return err
 		}

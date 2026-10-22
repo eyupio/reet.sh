@@ -353,3 +353,8 @@ Developed by [EyUp.io](https://eyup.io)
 For scan authentication, export `REET_TOKEN`, use `reet scan --env-file .env`, or
 enter a personal API token at the hidden interactive prompt. Tokens entered at
 the prompt are not saved. See [scanner authentication](docs/binary-installation.md#scanner-authentication).
+
+Interactive commands also ask for missing sync targets, restore identifiers,
+backup paths, passwords and keys when needed. Saved values are used first;
+secrets stay hidden, and noninteractive commands report missing required inputs.
+See [missing command inputs](docs/binary-installation.md#missing-command-inputs).

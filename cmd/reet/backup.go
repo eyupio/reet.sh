@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/backup"
+	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -138,10 +139,14 @@ func backupOpen(args []string, out io.Writer) error {
 	if err := f.Parse(args); err != nil {
 		return err
 	}
-	if f.NArg() != 1 {
-		return errors.New("usage: reet backup open [--password-file FILE | --password VALUE] FILE")
+	if f.NArg() > 1 {
+		return errors.New("expected one backup FILE")
 	}
-	raw, err := os.ReadFile(f.Arg(0))
+	path, err := clientconfig.Require(f.Arg(0), "backup FILE", false, os.Stdin, os.Stderr)
+	if err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
@@ -152,8 +157,17 @@ func backupOpen(args []string, out io.Writer) error {
 	key := ""
 	if m, err := backup.ManifestOf(raw); err != nil {
 		return err
-	} else if !(m.Protection == backup.ProtectionPassword && password != "") {
+	} else if m.Protection == backup.ProtectionPassword && password == "" {
+		password, err = clientconfig.Require("", "copy password (--password-file)", true, os.Stdin, os.Stderr)
+		if err != nil {
+			return err
+		}
+	} else if m.Protection != backup.ProtectionPassword {
 		key, err = backup.Lookup(os.Getenv, backup.EnvKey)
+		if err != nil {
+			return err
+		}
+		key, err = clientconfig.Require(key, "REET_BACKUP_KEY", true, os.Stdin, os.Stderr)
 		if err != nil {
 			return err
 		}
@@ -174,10 +188,16 @@ func backupEscrow(args []string, out io.Writer) error {
 	if err := f.Parse(args); err != nil {
 		return err
 	}
-	if *outPath == "" {
-		return errors.New("usage: reet backup escrow --out FILE --passphrase-file FILE")
+	path, inputErr := clientconfig.Require(*outPath, "--out (escrow output file)", false, os.Stdin, os.Stderr)
+	if inputErr != nil {
+		return inputErr
 	}
+	*outPath = path
 	passphrase, err := readPassword(*file, *literal)
+	if err != nil {
+		return err
+	}
+	passphrase, err = clientconfig.Require(passphrase, "escrow passphrase (--passphrase-file)", true, os.Stdin, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -213,10 +233,16 @@ func backupUnescrow(args []string, out io.Writer) error {
 	if err := f.Parse(args); err != nil {
 		return err
 	}
-	if *inPath == "" {
-		return errors.New("usage: reet backup unescrow --in FILE --passphrase-file FILE [--remote NAME]")
+	path, inputErr := clientconfig.Require(*inPath, "--in (escrow input file)", false, os.Stdin, os.Stderr)
+	if inputErr != nil {
+		return inputErr
 	}
+	*inPath = path
 	passphrase, err := readPassword(*file, *literal)
+	if err != nil {
+		return err
+	}
+	passphrase, err = clientconfig.Require(passphrase, "escrow passphrase (--passphrase-file)", true, os.Stdin, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -269,10 +295,13 @@ func backupRestore(args []string, out io.Writer) error {
 	if err := f.Parse(args); err != nil {
 		return err
 	}
-	if f.NArg() != 1 {
-		return errors.New("usage: reet backup restore --yes [--password-file FILE | --password VALUE] ID")
+	if f.NArg() > 1 {
+		return errors.New("expected one backup ID")
 	}
-	id := f.Arg(0)
+	id, inputErr := clientconfig.Require(f.Arg(0), "backup ID", false, os.Stdin, os.Stderr)
+	if inputErr != nil {
+		return inputErr
+	}
 	if !*yes {
 		return errors.New("this replaces the live database; stop reet first, then run again with --yes")
 	}
@@ -287,6 +316,12 @@ func backupRestore(args []string, out io.Writer) error {
 		return err
 	}
 	m, payload, err := svc.DownloadWithPassword(context.Background(), 0, id, password)
+	if errors.Is(err, backup.ErrPasswordRequired) && password == "" {
+		password, err = clientconfig.Require("", "copy password (--password-file)", true, os.Stdin, os.Stderr)
+		if err == nil {
+			m, payload, err = svc.DownloadWithPassword(context.Background(), 0, id, password)
+		}
+	}
 	if err != nil {
 		st.Close()
 		return err

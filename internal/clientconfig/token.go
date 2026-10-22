@@ -1,4 +1,4 @@
-package scan
+package clientconfig
 
 import (
 	"bufio"
@@ -86,7 +86,7 @@ func validateScanToken(value string) error {
 	return nil
 }
 
-func scanToken(explicit, envFile string, in *os.File, out io.Writer) (string, error) {
+func ResolveToken(explicit, envFile string, in io.Reader, out io.Writer) (string, error) {
 	token := explicit
 	if token == "" {
 		token = os.Getenv("REET_TOKEN")
@@ -98,9 +98,9 @@ func scanToken(explicit, envFile string, in *os.File, out io.Writer) (string, er
 			return "", err
 		}
 	}
-	if token == "" && term.IsTerminal(int(in.Fd())) {
+	if token == "" && Interactive(in) {
 		fmt.Fprint(out, "Personal API token (Account on the target server; hidden, Enter for unauthenticated server): ")
-		secret, err := term.ReadPassword(int(in.Fd()))
+		secret, err := term.ReadPassword(int(in.(*os.File).Fd()))
 		fmt.Fprintln(out)
 		if err != nil {
 			return "", errors.New("could not read token from terminal")

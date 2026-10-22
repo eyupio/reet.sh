@@ -193,6 +193,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	fs.SetOutput(out)
 	server := fs.String("server", os.Getenv("REET_URL"), "controller URL (env REET_URL)")
 	token := fs.String("token", "", "personal token (env REET_TOKEN)")
+	tokenFile := fs.String("env-file", "", "read REET_TOKEN from an explicit env file")
 	targetID := fs.String("target", "", "target ID from Your account")
 	host := fs.String("env", os.Getenv("REET_ENV"), "local environment name (default hostname)")
 	apply := fs.Bool("apply", false, "preview, then ask before installing/removing skills")
@@ -209,6 +210,13 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	if *token == "" {
 		*token = os.Getenv("REET_TOKEN")
 	}
+	if *token == "" && *tokenFile != "" {
+		value, err := clientconfig.ResolveToken("", *tokenFile, strings.NewReader(""), os.Stderr)
+		if err != nil {
+			return err
+		}
+		*token = value
+	}
 	if c, e := loadAgentConfig(*config); e == nil {
 		if *server == "" {
 			*server = c.Server
@@ -220,16 +228,23 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 			*host = c.Host
 		}
 	}
-	if *server == "" && *targetID != "" {
+	if *server == "" {
 		value, err := clientconfig.ResolveURL("", in, os.Stderr)
 		if err != nil {
 			return err
 		}
 		*server = value
 	}
-	if *server == "" || *targetID == "" {
-		return errors.New("--server and --target are required; copy the command from Your account")
+	targetValue, inputErr := clientconfig.Require(*targetID, "--target (target ID from Account)", false, in, os.Stderr)
+	if inputErr != nil {
+		return inputErr
 	}
+	*targetID = targetValue
+	tokenValue, inputErr := clientconfig.ResolveToken(*token, *tokenFile, in, os.Stderr)
+	if inputErr != nil {
+		return inputErr
+	}
+	*token = tokenValue
 	if *host == "" {
 		*host, _ = os.Hostname()
 	}

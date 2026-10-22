@@ -29,7 +29,9 @@ storage plus optional S3; named profiles with machine/project overrides.
 - CLI defaults and branding merged in [PR #47](https://github.com/eyupio/reet.sh/pull/47), `666964a1ab44d2e16853b93d26115805c7e9a36a`.
 - Handoff refresh merged in [PR #48](https://github.com/eyupio/reet.sh/pull/48), `9fb357598aba062838249db10d1f76a92bbda2c7`.
 - Latest verified source baseline: `origin/main` at `9fb3575` (2026-10-22).
-- This stage is on `feat/setup-export-policy`; fetch remote status before continuing and preserve any uncommitted work.
+- Export policy declarations are in [PR #49](https://github.com/eyupio/reet.sh/pull/49) on
+  `feat/setup-export-policy`; fetch remote status before continuing and preserve any
+  uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -243,8 +245,9 @@ saved value. No PR #47 regression was confirmed. Automated Codex review for PR #
 still shows only the quota-failure comment and no review findings; that is not an
 automated approval.
 
-The current slice adds `reet setup scan --export-policy` as an independent opt-in
-(schema v2, `export_policies: true`). It declares per-source component selection and
+[PR #49](https://github.com/eyupio/reet.sh/pull/49) adds
+`reet setup scan --export-policy` as an independent opt-in (schema v2,
+`export_policies: true`). It declares per-source component selection and
 field handling for future encrypted snapshots without reading configuration values.
 Supported settings use explicit allowlists; unlisted fields are excluded. MCP
 launch parameters are selected, URL and literal environment/header values are
@@ -254,7 +257,8 @@ Class policies explicitly mark instructions, behaviour, memory and history as no
 implemented (history is opt-in), credentials as references-only, and hooks and
 caches as never collected. `settings.local.json` is opt-in. Unknown formats and
 unsupported adapters remain explicit. Policy source observations use the exact
-candidate file state and never contents.
+candidate file state for present locations and inherit missing/symlink/error states
+without inspecting targets or contents.
 
 Policy validation: focused setup tests cover every adapter/source, component and
 field policy values, credential-field exclusion, local-settings opt-in, unsupported

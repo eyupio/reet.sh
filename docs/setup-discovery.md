@@ -180,8 +180,10 @@ kinds that apply to it:
 | unknown source format or unsupported adapter | `unsupported` | `not_implemented` |
 
 `settings.local.json` is `opt_in` because it is machine-specific. MCP declarations
-follow their source's selection. A `SourceExportPolicy`'s `observed` value is the
-state of that exact candidate file, not the containing directory.
+follow their source's selection. For a present location, a `SourceExportPolicy`'s
+`observed` value is the state of that exact candidate file, not the containing
+directory. Missing, symlink, error and unsupported location states are inherited
+without inspecting targets.
 
 Field states are explicit:
 

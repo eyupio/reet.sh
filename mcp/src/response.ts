@@ -18,6 +18,7 @@ export function page(items: JsonObject[], args: PageArgs, metadata: JsonObject =
     selected.pop();
     update();
     result.truncated = true;
+    result.truncated_reason = 'response_character_limit';
   }
   if (JSON.stringify({ data: result }).length > PAGE_BUDGET) {
     throw new Error('One record exceeds the 25,000 character response limit. Narrow the query or shorten its notes in the web UI.');

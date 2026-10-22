@@ -34,7 +34,7 @@ export class ReetClient {
       throw new Error('Cannot reach reet.sh. Check REET_URL, TLS and connectivity; requests time out after 30 seconds. Redirects are rejected: configure the final instance URL.');
     }
     if (!response.ok) {
-      await response.body?.cancel();
+      const raw = (await response.text().catch(() => '')).slice(0, 64_000);
       const advice: Record<number, string> = {
         400: 'Check the tool arguments and use IDs returned by the read tools.',
         401: 'Set REET_API_TOKEN to a personal API token from Account → API tokens (or the legacy instance token in token mode). Bootstrap tokens cannot access shelf APIs.',
@@ -42,6 +42,20 @@ export class ReetClient {
         404: 'Resource not found. Use the list tools to find an accessible ID.',
         429: 'Rate limited. Wait before retrying.',
       };
+      try {
+        const body: unknown = JSON.parse(raw);
+        if (body && typeof body === 'object') {
+          const error = body as { code?: unknown; field?: unknown; message?: unknown; hint?: unknown; error?: unknown };
+          if (typeof error.code === 'string' && error.code) {
+            const message = typeof error.message === 'string' ? error.message : (typeof error.error === 'string' ? error.error : 'request rejected');
+            const field = typeof error.field === 'string' && error.field ? ` field=${error.field}` : '';
+            const hint = typeof error.hint === 'string' && error.hint ? `. ${error.hint}` : '';
+            throw new Error(`reet.sh returned HTTP ${response.status} [${error.code}]${field}: ${message}${hint}`);
+          }
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('reet.sh returned HTTP')) throw error;
+      }
       throw new Error(`reet.sh returned HTTP ${response.status}. ${advice[response.status] ?? 'Check instance health and server logs before retrying.'}`);
     }
     if (response.status === 204) return { ok: true };

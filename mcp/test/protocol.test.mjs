@@ -9,7 +9,7 @@ after(async () => { await client?.close(); await api?.close(); });
 
 test('stdio discovery declares schemas, strict inputs and correct mutation hints', async () => {
   const { tools } = await client.listTools();
-  assert.equal(tools.length, 17);
+  assert.equal(tools.length, 28);
   for (const tool of tools) {
     assert.ok(tool.title && tool.description && tool.outputSchema);
     assert.equal(tool.inputSchema.additionalProperties, false);
@@ -117,8 +117,8 @@ test('hosted HTTP and stdio forwarding preserve user scope across SDK languages'
   const bridge = await connect(accounts.url, 'reet_mcp_fixture_read');
   try {
     await remote.connect(new StreamableHTTPClientTransport(new URL(`${accounts.url}/mcp`), { requestInit: { headers: { Authorization: 'Bearer reet_mcp_fixture_write' } } }));
-    assert.equal((await remote.listTools()).tools.length, 17);
-    assert.equal((await bridge.listTools()).tools.length, 10);
+    assert.equal((await remote.listTools()).tools.length, 28);
+    assert.equal((await bridge.listTools()).tools.length, 11);
     const hosted = await call(remote, 'list_skills', { limit: 2, sort: 'name' });
     const forwarded = await call(bridge, 'list_skills', { limit: 2, sort: 'name' });
     assert.deepEqual(forwarded, hosted);
@@ -131,4 +131,52 @@ test('hosted HTTP and stdio forwarding preserve user scope across SDK languages'
   } finally {
     await bridge.close(); await remote.close(); await accounts.close();
   }
+});
+
+test('tidy tools cover compact reads, batch edits, dry runs and MCP audit events', async () => {
+  const compact = await call(client, 'list_skills', { compact: true, limit: 100 });
+  assert.equal(compact.count, 6);
+  assert.equal(compact.truncated, undefined);
+  assert.deepEqual(Object.keys(compact.items[0]).sort(), [
+    'bookmarked', 'environment_count', 'id', 'liked', 'name', 'source', 'sourceType', 'stage', 'tags',
+  ]);
+
+  const created = await call(client, 'create_list', { name: 'MCP tidy' });
+  const batch = await call(client, 'add_list_skills', {
+    list_id: created.id,
+    inputs: [{ id: 'demo/skills/tests' }, { id: 'demo/skills/deploy', note: 'Tidy note' }],
+  });
+  assert.equal(batch.added, 2);
+  assert.equal(batch.failed, 0);
+  const removed = await call(client, 'remove_list_skill', { list_id: created.id, id: 'demo/skills/tests' });
+  assert.equal(removed.skillCount, 1);
+  const renamed = await call(client, 'update_list', { list_id: created.id, name: 'MCP tidy renamed' });
+  assert.equal(renamed.name, 'MCP tidy renamed');
+  const deletePreview = await call(client, 'delete_list', { list_id: created.id });
+  assert.equal(deletePreview.dry_run, true);
+  await call(client, 'delete_list', { list_id: created.id, dry_run: false, confirm: true });
+
+  const tag = await call(client, 'create_tag', { name: 'MCP tidy tag' });
+  const bulk = await call(client, 'bulk_update_skills', {
+    ids: ['demo/skills/tests', 'demo/skills/deploy'], add_tags: ['MCP bulk'], stage: 'try',
+  });
+  assert.equal(bulk.updated, 2);
+  assert.equal(bulk.failed, 0);
+  const renameTag = await call(client, 'rename_tag', { tag_id: tag.id, name: 'MCP tidy renamed tag' });
+  assert.equal(renameTag.name, 'MCP tidy renamed tag');
+  const deleteTagPreview = await call(client, 'delete_tag', { tag_id: tag.id });
+  assert.equal(deleteTagPreview.dry_run, true);
+  await call(client, 'delete_tag', { tag_id: tag.id, dry_run: false, confirm: true });
+
+  const duplicates = await call(client, 'find_duplicates');
+  assert.ok(Array.isArray(duplicates.groups));
+  const envs = await call(client, 'list_environments', { limit: 100 });
+  const envPreview = await call(client, 'delete_environment', { id: envs.items[0].id, force: true });
+  assert.equal(envPreview.dry_run, true);
+  const mergePreview = await call(client, 'merge_environments', { from_id: envs.items[0].id, to_id: envs.items[1].id });
+  assert.equal(mergePreview.dry_run, true);
+
+  const events = await call(client, 'list_events', { source: 'mcp', action: 'bulk-update', limit: 5 });
+  assert.ok(events.events.length >= 1);
+  assert.ok(events.next_before > 0);
 });

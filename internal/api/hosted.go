@@ -66,7 +66,7 @@ func (s *server) hostedUsername(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, code, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "publishing-username", "", map[string]any{"username": name})
+	s.eventRequest(r, "publishing-username", "", map[string]any{"username": name})
 	s.hostedList(w, r)
 }
 
@@ -92,7 +92,7 @@ func (s *server) hostedSave(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "hosted-save", "", map[string]any{"name": saved.Slug, "published": saved.Published})
+	s.eventRequest(r, "hosted-save", "", map[string]any{"name": saved.Slug, "published": saved.Published})
 	if saved.Published {
 		username, _ := s.st.PublishingUsername(s.uid(r))
 		rf, _ := ref.ParseAt(requestOrigin(r)+"/"+username+"/"+saved.Slug, r.Host)
@@ -111,7 +111,7 @@ func (s *server) hostedDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "hosted-delete", "", map[string]any{"name": r.PathValue("slug")})
+	s.eventRequest(r, "hosted-delete", "", map[string]any{"name": r.PathValue("slug")})
 	writeJSON(w, 200, map[string]bool{"deleted": true})
 }
 

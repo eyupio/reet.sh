@@ -46,7 +46,7 @@ func (s *server) saveDesired(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "sync-desired", "", map[string]string{"target": in.TargetID, "mode": in.Mode})
+	s.eventRequest(r, "sync-desired", "", map[string]string{"target": in.TargetID, "mode": in.Mode})
 	s.syncState(w, r)
 }
 func (s *server) reconcileDesired(w http.ResponseWriter, r *http.Request) {

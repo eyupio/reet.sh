@@ -175,6 +175,7 @@ func mcpPage(items []any, args, meta map[string]any) (map[string]any, error) {
 		}
 		selected = selected[:len(selected)-1]
 		meta["truncated"] = true
+		meta["truncated_reason"] = "response_character_limit"
 	}
 }
 
@@ -204,6 +205,16 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 				query.Add("tag", mcpInteger(tag))
 			}
 		}
+		if args["compact"] == true {
+			query.Set("compact", "1")
+		}
+		if fields, ok := args["fields"].([]any); ok && len(fields) > 0 {
+			names := make([]string, 0, len(fields))
+			for _, field := range fields {
+				names = append(names, fmt.Sprint(field))
+			}
+			query.Set("fields", strings.Join(names, ","))
+		}
 		if name == "reet_get_skill" {
 			query.Set("q", str("id"))
 		}
@@ -231,6 +242,16 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 		}
 	case "reet_list_environments", "reet_get_environment":
 		path, collectionKey = "/api/environments", "environments"
+		if args["empty_only"] == true {
+			query.Set("empty_only", "1")
+		}
+		if v := str("agent"); v != "" {
+			query.Set("agent", v)
+		}
+	case "reet_delete_environment":
+		method, path = "POST", "/api/v2/environments/delete"
+	case "reet_merge_environments":
+		method, path = "POST", "/api/v2/environments/merge"
 	case "reet_list_sync_targets":
 		path, collectionKey = "/api/v2/sync", "targets"
 	case "reet_list_lists":
@@ -240,15 +261,43 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 	case "reet_create_list":
 		method, path = "POST", "/api/v2/lists"
 		body["visibility"] = "personal"
+	case "reet_update_list":
+		method, path = "PATCH", listPath
+		delete(body, "list_id")
+	case "reet_delete_list":
+		method, path = "POST", listPath+"/delete"
+		delete(body, "list_id")
 	case "reet_add_list_skill":
 		method, path = "POST", listPath+"/skills"
 		delete(body, "list_id")
+	case "reet_add_list_skills":
+		method, path = "POST", listPath+"/skills/bulk"
+		delete(body, "list_id")
+	case "reet_remove_list_skill":
+		method, path = "DELETE", listPath+"/skills"
+		query.Set("id", str("id"))
+		delete(body, "list_id")
+		delete(body, "id")
+	case "reet_bulk_update_skills":
+		method, path = "POST", "/api/v2/skills/bulk"
+	case "reet_find_duplicates":
+		path = "/api/v2/skills/duplicates"
 	case "reet_list_events":
 		path = "/api/events"
 		query.Set("limit", fmt.Sprint(args["limit"]))
-		if str("skill") != "" {
-			query.Set("skill", str("skill"))
+		for _, key := range []string{"skill", "action", "source", "before", "after"} {
+			if v := str(key); v != "" {
+				query.Set(key, v)
+			}
 		}
+	case "reet_create_tag":
+		method, path = "POST", "/api/v2/tags"
+	case "reet_rename_tag":
+		method, path = "PATCH", "/api/v2/tags/"+mcpInteger(args["tag_id"])
+		delete(body, "tag_id")
+	case "reet_delete_tag":
+		method, path = "POST", "/api/v2/tags/"+mcpInteger(args["tag_id"])+"/delete"
+		delete(body, "tag_id")
 	case "reet_list_ignored":
 		path, collectionKey = "/api/ignored", "ignored"
 	case "reet_unignore_skill":
@@ -267,12 +316,36 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Reet-Source", "mcp")
+	if access.Connection.Name != "" {
+		req.Header.Set("X-Reet-Client", access.Connection.Name)
+	}
 	w := &mcpBuffer{header: make(http.Header)}
 	api.ServeHTTP(w, req)
 	if w.err != nil {
 		return nil, w.err
 	}
 	if w.status >= 400 {
+		var detail struct {
+			Code, Field, Message, Hint, Error string
+		}
+		_ = json.Unmarshal(w.body.Bytes(), &detail)
+		if detail.Code != "" {
+			text := fmt.Sprintf("reet.sh returned HTTP %d [%s]", w.status, detail.Code)
+			if detail.Field != "" {
+				text += " field=" + detail.Field
+			}
+			msg := detail.Message
+			if msg == "" {
+				msg = detail.Error
+			}
+			if msg != "" {
+				text += ": " + msg
+			}
+			if detail.Hint != "" {
+				text += ". " + detail.Hint
+			}
+			return nil, errors.New(text)
+		}
 		return nil, fmt.Errorf("reet.sh returned HTTP %d; check resource IDs, account role and list permissions", w.status)
 	}
 	if method != "GET" {
@@ -289,7 +362,8 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 		return map[string]any{"id": data["id"], "name": data["name"], "skillCount": data["skillCount"]}, nil
 	}
 	if name == "reet_list_events" {
-		return map[string]any{"events": data["events"], "limit": args["limit"]}, nil
+		data["limit"] = args["limit"]
+		return data, nil
 	}
 	if collectionKey == "" {
 		return data, nil

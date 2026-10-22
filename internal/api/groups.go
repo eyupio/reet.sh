@@ -27,7 +27,7 @@ func (s *server) createGroup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "group-create", "", map[string]any{"id": g.ID, "kind": g.Kind})
+	s.eventRequest(r, "group-create", "", map[string]any{"id": g.ID, "kind": g.Kind})
 	s.groups(w, r)
 }
 func (s *server) groupMember(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +52,7 @@ func (s *server) groupMember(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	s.event(s.uid(r), "ui", "group-membership", "", map[string]any{"group": id, "removed": in.Remove})
+	s.eventRequest(r, "group-membership", "", map[string]any{"group": id, "removed": in.Remove})
 	s.groups(w, r)
 }
 func (s *server) community(w http.ResponseWriter, r *http.Request) {
@@ -82,6 +82,6 @@ func (s *server) updateGroup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	s.event(s.uid(r), "ui", "group-update", "", map[string]any{"group": id, "deleted": in.Remove})
+	s.eventRequest(r, "group-update", "", map[string]any{"group": id, "deleted": in.Remove})
 	s.groups(w, r)
 }

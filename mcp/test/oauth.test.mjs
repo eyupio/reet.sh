@@ -37,7 +37,7 @@ test('SDK OAuth discovery, public registration, PKCE, consent, token exchange an
     await auth(provider, { serverUrl: `${api.url}/mcp`, authorizationCode: callback.searchParams.get('code'), iss: callback.searchParams.get('iss') });
     assert.ok(tokens.access_token && tokens.refresh_token);
     await client.connect(new StreamableHTTPClientTransport(new URL(`${api.url}/mcp`), { authProvider: provider }));
-    assert.equal((await client.listTools()).tools.length, 17);
+    assert.equal((await client.listTools()).tools.length, 28);
     assert.equal((await call(client, 'list_skills', { limit: 1 })).total_count, 6);
     const oldRefresh = tokens.refresh_token;
     await auth(provider, { serverUrl: `${api.url}/mcp` });

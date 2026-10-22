@@ -79,10 +79,8 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Profiles disclosure merged in [PR #100](https://github.com/eyupio/reet.sh/pull/100), `d87c4fe`.
 - Latest verified source baseline: `origin/main` at `d87c4fe` (2026-10-22).
 - Skill source provenance merged in [PR #101](https://github.com/eyupio/reet.sh/pull/101), `5b97f1d`.
-- Latest verified source baseline: `origin/main` at `5b97f1d` (2026-10-22).
-- Server-copy profile rename is in [PR #102](https://github.com/eyupio/reet.sh/pull/102)
-  on `feat/profile-rename`; fetch remote status before continuing and preserve any
-  uncommitted work.
+- Server-copy profile rename merged in [PR #102](https://github.com/eyupio/reet.sh/pull/102), `95ccd79`.
+- Latest verified source baseline: `origin/main` at `95ccd79` (2026-10-22).
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -1353,7 +1351,7 @@ checks pass.
 
 ## Profile rename in the web page
 
-The current branch adds `PATCH /api/v2/setup/profiles/{name}` and a Rename control on the
+Merged in PR #102. The work adds `PATCH /api/v2/setup/profiles/{name}` and a Rename control on the
 Profiles page. The server validates the new profile name and revision history, refuses a
 name already in use, and updates the stored payload and row together. It changes only
 the server copy; the local profile keeps its old name until `reet setup profile rename`

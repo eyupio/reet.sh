@@ -214,6 +214,27 @@ See [environment sync](docs/environment-sync.md) for account setup, confirmed in
 
 ## Backup
 
+### Local AI agent setup discovery
+
+`reet setup scan` provides a standalone, read-only inventory of known configuration
+locations and executables for Claude Code, Codex, OpenCode, Pi, Cursor and Gemini
+CLI. It does not require a reet account or server:
+
+```sh
+reet setup scan
+reet setup scan --json
+reet setup scan --project /path/to/project
+```
+
+This first step towards complete setup backup/restore checks path metadata and
+executable availability only. It does not read configuration contents, run agents,
+collect credentials, upload reports or change files. It reports setup backup and
+restore as **not implemented**. Existing instance and shelf backups below remain
+separate. See [setup discovery and limits](docs/setup-discovery.md), the
+[implementation plan](docs/agent-setup-plan.md) and [handoff](handoff.md).
+
+### Instance and personal shelf backups
+
 There are two kinds: a one-off export, and sealed copies taken on a schedule.
 
 **Personal shelf export and restore.** Use **JSON (personal shelf backup) → Download** and **Restore from JSON** in Shelf tools, or call `GET /api/export` and `POST /api/restore`. The export includes personal skills, flags, notes, tags, attached environment reports and the ignored list; tick **Include local history** to add the event log. It does not include accounts, shared lists, teams, sync references or standalone machine heartbeats; use an instance backup for those. **Markdown** and **CSV** downloads follow the current search, stage, tag and environment filters.

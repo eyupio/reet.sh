@@ -21,6 +21,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/lifecycle"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/scan"
+	"github.com/eyupio/reet.sh/internal/setup"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/web"
 )
@@ -55,6 +56,7 @@ Usage: reet <command> [options]
   serve        Run the web app (also the default when no command is given)
   agent        Enroll a machine and process approved sync jobs
   scan         Report installed skills to your account
+  setup        Discover local AI agent setups and support limitations
   sync         Preview a saved skill set; --apply asks before changing files
   install      Install this binary or set up a managed server
   upgrade      Update a managed deployment with backup and recovery
@@ -128,6 +130,11 @@ backup to preserve accounts, lists, teams and sync references.
 		if err := scan.RunSyncVersion(args, os.Stdin, os.Stdout, version); err != nil {
 			log.Fatal(err)
 		}
+	case "setup":
+		if err := setup.Run(args, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case "scan":
 		if err := scan.RunVersion(args, os.Stdout, version); err != nil {
 			log.Fatal(err)
@@ -138,7 +145,7 @@ backup to preserve accounts, lists, teams and sync references.
 			os.Exit(1)
 		}
 	default:
-		fmt.Fprintln(os.Stderr, "usage: reet serve | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet sync | reet backup | reet version")
+		fmt.Fprintln(os.Stderr, "usage: reet serve | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet setup | reet sync | reet backup | reet version")
 		os.Exit(2)
 	}
 }

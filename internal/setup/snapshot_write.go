@@ -31,6 +31,19 @@ type SetupSnapshot struct {
 	CreatedAt     time.Time             `json:"created_at"`
 	Preview       SnapshotPreview       `json:"preview"`
 	Sources       []SetupSnapshotSource `json:"sources"`
+	Software      []SetupSoftware       `json:"software,omitempty"`
+}
+
+// SetupSoftware records application evidence without executable or metadata paths.
+type SetupSoftware struct {
+	AgentID        string `json:"agent_id"`
+	Name           string `json:"name"`
+	Version        string `json:"application_version,omitempty"`
+	VersionState   string `json:"application_version_state,omitempty"`
+	InstallState   string `json:"installation_state,omitempty"`
+	Package        string `json:"installation_package,omitempty"`
+	InstallVersion string `json:"installation_version,omitempty"`
+	Manager        string `json:"installation_manager,omitempty"`
 }
 
 type SetupSnapshotSource struct {
@@ -56,6 +69,7 @@ type SetupWriteResult struct {
 	Components  int             `json:"components"`
 	Omissions   int             `json:"omissions"`
 	Preview     SnapshotPreview `json:"preview"`
+	Software    []SetupSoftware `json:"software,omitempty"`
 }
 
 func validateSetupPassphrase(passphrase string) error {
@@ -85,6 +99,7 @@ func BuildSetupSnapshot(selection SnapshotSelection) SetupSnapshot {
 		CreatedAt:     selection.Preview.CapturedAt,
 		Preview:       selection.Preview,
 		Sources:       []SetupSnapshotSource{},
+		Software:      selection.software,
 	}
 	for _, source := range selection.sources {
 		snapshot.Sources = append(snapshot.Sources, SetupSnapshotSource{
@@ -167,7 +182,7 @@ func WriteSetupSnapshot(selection SnapshotSelection, opts SetupWriteOptions) (Se
 		TakenAt: time.UnixMilli(written.TakenAt).UTC(),
 		SHA256:  written.SHA256, Protection: written.Protection, Compression: written.Compression,
 		Components: len(snapshot.Sources), Omissions: omissionCount(snapshot.Preview),
-		Preview: snapshot.Preview,
+		Preview: snapshot.Preview, Software: snapshot.Software,
 	}, nil
 }
 
@@ -278,4 +293,22 @@ func writeSnapshotFile(path string, data []byte, mode os.FileMode) error {
 		return fmt.Errorf("finish setup snapshot: %w", err)
 	}
 	return nil
+}
+
+func snapshotSoftware(agents []Agent) []SetupSoftware {
+	var out []SetupSoftware
+	for _, agent := range agents {
+		software := SetupSoftware{AgentID: agent.ID, Name: agent.Name}
+		if agent.ApplicationVersion != nil {
+			software.Version, software.VersionState = agent.ApplicationVersion.Version, agent.ApplicationVersion.State
+		}
+		if agent.Installation != nil {
+			software.InstallState, software.Package = agent.Installation.State, agent.Installation.Package
+			software.InstallVersion, software.Manager = agent.Installation.Version, agent.Installation.Manager
+		}
+		if software.Version != "" || software.InstallState != "" {
+			out = append(out, software)
+		}
+	}
+	return out
 }

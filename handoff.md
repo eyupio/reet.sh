@@ -39,10 +39,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Destination verification merged in [PR #59](https://github.com/eyupio/reet.sh/pull/59), `f313ff1ce70d652f45ac418a65b4577f696e04ce`.
 - Final handoff documentation merged in [PR #60](https://github.com/eyupio/reet.sh/pull/60), `9c9593b`.
 - Rollback of completed apply journals merged in [PR #61](https://github.com/eyupio/reet.sh/pull/61), `c2b129a`.
-- Latest verified source baseline: `origin/main` at `c2b129a` (2026-10-22).
-- Per-destination conflict choices are in [PR #62](https://github.com/eyupio/reet.sh/pull/62)
-  on `feat/setup-per-file-conflicts`; fetch remote status before continuing and preserve
-  any uncommitted work.
+- Per-destination conflict choices merged in [PR #62](https://github.com/eyupio/reet.sh/pull/62), `2abd67f`.
+- Latest verified source baseline: `origin/main` at `2abd67f` (2026-10-22).
+- Snapshot software evidence is in [PR #63](https://github.com/eyupio/reet.sh/pull/63) on
+  `feat/setup-version-evidence`; fetch remote status before continuing and preserve any
+  uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -68,6 +69,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Verify the latest `dev` binary contains the complete setup command family.
 - [x] Add rollback of completed apply journals with snapshot and digest checks.
 - [x] Add per-destination conflict skip/replace choices.
+- [x] Record optional application/package evidence and compare it during verify.
 
 ## Implemented slice
 
@@ -178,9 +180,16 @@ S4d now accepts repeatable `--conflict PATH=skip|replace` choices that override
 `--on-conflict` for exact plan destinations. Choices that do not match a conflict, or
 that target unknown paths, are refused before writing.
 
-Next implementation slice: add runtime health guidance after restore/verify without
-silently repairing or executing arbitrary hooks. Do not claim cross-OS restore or a
-complete working-setup restore before their acceptance gates.
+S4e now records optional application and package evidence in the encrypted snapshot
+(`--probe-versions`, `--inspect-installation`) and compares it during `setup verify`
+with the same opt-in flags. It reports matches, missing agents, unknown versions,
+version/package mismatches and installation guidance without executing installers,
+hooks or authentication. Snapshot inspect also shows the recorded evidence without
+executable or metadata paths.
+
+Next implementation slice: add destination runtime health checks without repairing or
+running arbitrary hooks, then move to named profiles/S5. Do not claim cross-OS restore
+or a complete working-setup restore before their acceptance gates.
 
 ## Validation and continuation
 
@@ -582,6 +591,34 @@ dependency changed.
 Runtime health checks, merge, dependency/version resolution, installers, authentication,
 S3 delivery and cross-OS translation remain unimplemented.
 
+## Snapshot software evidence
+
+The current stage on `feat/setup-version-evidence` records optional application and
+package evidence inside the encrypted snapshot. `setup backup --probe-versions` runs
+the existing bounded `--version` probe; `--inspect-installation` records the existing
+local Node package association. Both are opt-in because probes execute the discovered
+executable. The stored evidence omits executable and metadata paths and is not
+authenticated provenance.
+
+`setup verify --probe-versions --inspect-installation` compares the recorded application
+version, package and installation association with the destination. It reports
+`matches`, `agent_not_detected`, `source_version_not_recorded`,
+`destination_version_unknown`, `version_mismatch`, `package_mismatch` or
+`installation_unknown` with guidance. It does not install, update, repair or
+authenticate anything. `setup inspect` shows the recorded evidence in JSON/text.
+
+Validation: focused setup tests cover recording, encrypted payload/result/inspection
+round trips, path omission, version matches/mismatches, missing agents, guidance text
+and CLI output. Full `go vet ./...` and `go test -race ./...` passed. Web checks passed
+(8 tests; zero Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary smoke
+test verified evidence recording, inspect output, matching versions and a changed-version
+warning; setup tests cross-compile for Windows amd64 and macOS arm64. `git diff --check` passed. No
+dependency changed.
+
+Runtime health checks, exact-version restore/substitution flows, dependency/version
+resolution, installers, authentication, S3 delivery and cross-OS translation remain
+unimplemented.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -596,8 +633,9 @@ S3 delivery and cross-OS translation remain unimplemented.
 4. Explicit component export policies, the policy-driven preview, the shared sealed
    archive, encrypted local setup snapshot writing, listing/inspection, restore
    planning, create-only apply, conflict skip/replace with rollback copies, destination
-   verification, rollback and per-destination conflict choices are now implemented. The
-   next small slice is runtime health guidance. Keep values encrypted and unknown formats
+   verification, rollback, per-destination conflict choices and optional software
+   evidence are now implemented. The next small slice is destination runtime health
+   checks, then named profiles/S5. Keep values encrypted and unknown formats
    unsupported. Do not claim cross-OS restore or working-setup verification before their
    acceptance gates. Consult the detailed plan for encryption, key handling, restore and
    compatibility requirements.
@@ -609,9 +647,9 @@ S3 delivery and cross-OS translation remain unimplemented.
 
 Important boundaries: no complete AI setup backup/restore has shipped. Setup backup
 now writes a partial encrypted local snapshot and can list, inspect, plan, create or
-replace supported files, verify selected destination fields, roll back a completed apply
-and apply per-destination conflict choices, but runtime health and cross-OS recovery are
-not implemented. Existing `reet backup` is not evidence that
+replace supported files, verify selected destination fields, roll back a completed apply,
+apply per-destination conflict choices and record/compare optional software evidence,
+but runtime health and cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
 manage that server. No production host was upgraded by this session. Do not copy

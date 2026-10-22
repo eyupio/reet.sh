@@ -292,12 +292,17 @@ settings values, MCP declarations and omission details stay inside the encrypted
 payload. The writer opens the sealed bytes before writing and opens the file on
 disk again afterwards; a mismatch fails and removes the file.
 
-The encrypted payload includes the policy preview, selected source content and the
-omissions report. It does not include credential-bearing values, opt-in sources,
-memory, history, hooks, caches or unsupported classes. The snapshot is not a
-complete AI setup: restore, list/inspect, S3 delivery, dependency resolution,
-cross-OS translation and post-restore verification remain unimplemented.
-`--preview` remains read-only.
+The encrypted payload includes the policy preview, selected source content, the
+omissions report and optional software evidence. `--probe-versions` records bounded
+application `--version` reports and `--inspect-installation` records local Node package
+associations; both are opt-in because probing executes the discovered executable.
+Software evidence deliberately omits executable and metadata paths, and it is not
+authenticated provenance.
+
+Credential-bearing values, opt-in sources, memory, history, hooks and caches remain
+excluded. The snapshot is not a complete AI setup: S3 delivery, dependency/version
+resolution, cross-OS translation and runtime health verification remain
+unimplemented. `--preview` remains read-only.
 
 ## Listing and inspecting local snapshots (S2c)
 
@@ -402,7 +407,11 @@ reet setup verify --password-file FILE --project /path/to/project --json SNAPSHO
 compares the selected settings fields and MCP declarations with the mapped
 destination files. Extra destination fields are ignored. Each component is
 `verified`, `missing`, `changed`, `blocked` or `unsupported`; `changed` lists field or
-declaration names, never values. Project sources need `--project`.
+declaration names, never values. Project sources need `--project`. When the snapshot
+recorded software evidence, `--probe-versions` and `--inspect-installation` compare
+destination versions, packages and installation associations and give guidance for
+missing agents, unknown versions or mismatches. These flags are opt-in because probing
+executes the discovered executable; no installer, hook or authentication flow runs.
 
 Verification never repairs, rewrites, rolls back or runs an agent. It does not check
 application versions, installation provenance, authentication, MCP health, hooks or

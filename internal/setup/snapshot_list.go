@@ -55,6 +55,7 @@ type SetupSnapshotInspection struct {
 	Opened        bool                         `json:"opened"`
 	Preview       *SnapshotPreview             `json:"preview,omitempty"`
 	Sources       []SetupSnapshotSourceSummary `json:"sources,omitempty"`
+	Software      []SetupSoftware              `json:"software,omitempty"`
 	Limitations   []string                     `json:"limitations"`
 }
 
@@ -192,6 +193,7 @@ func InspectSetupSnapshot(path, password, dir string) (SetupSnapshotInspection, 
 	preview := snapshot.Preview
 	inspection.Opened = true
 	inspection.Preview = &preview
+	inspection.Software = snapshot.Software
 	for _, source := range snapshot.Sources {
 		summary := SetupSnapshotSourceSummary{
 			Path: source.Path, Component: source.Component, Fields: len(source.Content),
@@ -309,6 +311,11 @@ func renderSnapshotInspection(out io.Writer, inspection SetupSnapshotInspection)
 	}
 	for _, source := range inspection.Sources {
 		if _, err := fmt.Fprintf(out, "  %s %q: fields=%d declarations=%d digest=%s\n", source.Component, source.Path, source.Fields, source.Declarations, source.Digest); err != nil {
+			return err
+		}
+	}
+	for _, software := range inspection.Software {
+		if _, err := fmt.Fprintf(out, "  software %s: version=%s state=%s package=%s install_version=%s manager=%s\n", software.Name, software.Version, software.VersionState, software.Package, software.InstallVersion, software.Manager); err != nil {
 			return err
 		}
 	}

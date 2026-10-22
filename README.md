@@ -262,13 +262,14 @@ reet setup scan --probe-versions --json
 reet setup scan --inspect-installation --json
 reet setup backup --preview --json
 reet setup backup --password-file ~/.config/reet/setup.pass
+reet setup backup --probe-versions --inspect-installation --password-file ~/.config/reet/setup.pass
 reet setup list
 reet setup inspect --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --apply --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --apply --on-conflict replace --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup restore --apply --on-conflict skip --conflict ~/.claude.json=replace --password-file ~/.config/reet/setup.pass SNAPSHOT
-reet setup verify --password-file ~/.config/reet/setup.pass SNAPSHOT
+reet setup verify --probe-versions --inspect-installation --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup rollback --journal FILE --password-file ~/.config/reet/setup.pass SNAPSHOT
 ```
 
@@ -297,7 +298,9 @@ and source summaries only with a passphrase and never prints values. `reet setup
 restore` previews a destination plan. `--apply` creates new files or handles conflicts
 with `--on-conflict skip|replace` and repeatable `--conflict PATH=skip|replace`
 overrides, keeping mode-0600 rollback copies. `reet setup verify` compares selected
-fields without repairing or running agents. `reet setup rollback` reverses a completed
+fields without repairing or running agents; opt-in `--probe-versions` and
+`--inspect-installation` add application/package guidance when the snapshot recorded
+software evidence. `reet setup rollback` reverses a completed
 apply journal after snapshot, digest and current-file checks. This is still not complete
 setup backup/restore: memory/history/credentials, runtime health, S3 delivery and
 verified cross-OS restore are not implemented. Existing instance and shelf backups

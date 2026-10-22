@@ -13,11 +13,24 @@ import (
 const setupVerifySchemaVersion = 1
 
 type SetupVerifySummary struct {
-	Verified    int `json:"verified"`
-	Missing     int `json:"missing"`
-	Changed     int `json:"changed"`
-	Blocked     int `json:"blocked"`
-	Unsupported int `json:"unsupported"`
+	Verified         int `json:"verified"`
+	Missing          int `json:"missing"`
+	Changed          int `json:"changed"`
+	Blocked          int `json:"blocked"`
+	Unsupported      int `json:"unsupported"`
+	SoftwareMatches  int `json:"software_matches"`
+	SoftwareWarnings int `json:"software_warnings"`
+}
+
+type VerifySoftware struct {
+	AgentID            string `json:"agent_id"`
+	Name               string `json:"name"`
+	SourceVersion      string `json:"source_version,omitempty"`
+	DestinationVersion string `json:"destination_version,omitempty"`
+	SourcePackage      string `json:"source_package,omitempty"`
+	DestinationPackage string `json:"destination_package,omitempty"`
+	State              string `json:"state"`
+	Guidance           string `json:"guidance"`
 }
 
 type VerifyComponent struct {
@@ -39,6 +52,7 @@ type SetupVerifyResult struct {
 	Destination    RestoreDestination   `json:"destination"`
 	Summary        SetupVerifySummary   `json:"summary"`
 	Components     []VerifyComponent    `json:"components"`
+	Software       []VerifySoftware     `json:"software,omitempty"`
 	Unsupported    []RestoreUnsupported `json:"unsupported"`
 	Limitations    []string             `json:"limitations"`
 }
@@ -123,7 +137,68 @@ func VerifySetupSnapshot(snapshot SetupSnapshot, manifest sealed.Manifest, desti
 		}
 		return result.Components[i].Source < result.Components[j].Source
 	})
+	result.Software = verifySoftware(snapshot.Software, destination.Agents)
+	for _, software := range result.Software {
+		if software.State == "matches" {
+			result.Summary.SoftwareMatches++
+		} else {
+			result.Summary.SoftwareWarnings++
+		}
+	}
 	return result
+}
+
+func verifySoftware(source []SetupSoftware, destination []Agent) []VerifySoftware {
+	agents := map[string]Agent{}
+	for _, agent := range destination {
+		agents[agent.ID] = agent
+	}
+	var out []VerifySoftware
+	for _, recorded := range source {
+		entry := VerifySoftware{
+			AgentID: recorded.AgentID, Name: recorded.Name,
+			SourceVersion: recorded.Version, SourcePackage: recorded.Package,
+		}
+		agent, ok := agents[recorded.AgentID]
+		if !ok {
+			entry.State = "agent_not_detected"
+			entry.Guidance = "Install the agent application or make its command available on PATH."
+			out = append(out, entry)
+			continue
+		}
+		if agent.ApplicationVersion != nil {
+			entry.DestinationVersion = agent.ApplicationVersion.Version
+		}
+		if agent.Installation != nil {
+			entry.DestinationPackage = agent.Installation.Package
+		}
+		switch {
+		case recorded.Version == "" && entry.DestinationVersion == "":
+			entry.State = "not_recorded"
+			entry.Guidance = "Neither the snapshot nor the destination reported an application version."
+		case recorded.Version == "":
+			entry.State = "source_version_not_recorded"
+			entry.Guidance = "The snapshot did not record an application version; retake it with --probe-versions to compare later."
+		case entry.DestinationVersion == "":
+			entry.State = "destination_version_unknown"
+			entry.Guidance = "Run reet setup verify --probe-versions or check the agent installation."
+		case recorded.Version != entry.DestinationVersion:
+			entry.State = "version_mismatch"
+			entry.Guidance = "The recorded application version differs from the destination; ask before substituting or updating."
+		case recorded.Package != "" && entry.DestinationPackage != "" && recorded.Package != entry.DestinationPackage:
+			entry.State = "package_mismatch"
+			entry.Guidance = "The local package identity differs from the snapshot; confirm the installation source."
+		case recorded.InstallState != "" && recorded.InstallState != "matched" && entry.DestinationPackage == "":
+			entry.State = "installation_unknown"
+			entry.Guidance = "Installation provenance is unknown on the destination; confirm how the agent was installed."
+		default:
+			entry.State = "matches"
+			entry.Guidance = "The recorded application version matches the destination."
+		}
+		out = append(out, entry)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].AgentID < out[j].AgentID })
+	return out
 }
 
 func addVerifyComponent(result *SetupVerifyResult, component VerifyComponent) {
@@ -180,6 +255,11 @@ func renderSetupVerify(out io.Writer, result SetupVerifyResult) error {
 		result.Summary.Verified, result.Summary.Missing, result.Summary.Changed, result.Summary.Blocked, result.Summary.Unsupported); err != nil {
 		return err
 	}
+	if len(result.Software) > 0 {
+		if _, err := fmt.Fprintf(out, "software matches=%d warnings=%d\n", result.Summary.SoftwareMatches, result.Summary.SoftwareWarnings); err != nil {
+			return err
+		}
+	}
 	for _, component := range result.Components {
 		if _, err := fmt.Fprintf(out, "  %s %s %q", component.State, component.Kind, component.Source); err != nil {
 			return err
@@ -196,6 +276,19 @@ func renderSetupVerify(out io.Writer, result SetupVerifyResult) error {
 		}
 		if len(component.Mismatches) > 0 {
 			if _, err := fmt.Fprintf(out, " mismatches: %s", strings.Join(component.Mismatches, ", ")); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintln(out); err != nil {
+			return err
+		}
+	}
+	for _, software := range result.Software {
+		if _, err := fmt.Fprintf(out, "  software %s: %s", software.Name, software.State); err != nil {
+			return err
+		}
+		if software.Guidance != "" {
+			if _, err := fmt.Fprintf(out, " (%s)", software.Guidance); err != nil {
 				return err
 			}
 		}

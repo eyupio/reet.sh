@@ -593,7 +593,7 @@ type setupProfileSaveResult struct {
 
 func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "Usage: reet setup profile save [--exclude-kind KIND] [--exclude-source PATH] [--machine NAME] [--project PATH] [--json] [--dir DIR] [--password-file FILE] NAME SNAPSHOT\n       reet setup profile list [--json] [--dir DIR]\n       reet setup profile show [--json] [--dir DIR] [--revision N] NAME\n       reet setup profile remove [--yes] [--dir DIR] NAME\n       reet setup profile rename [--dir DIR] OLD NEW\n       reet setup profile push [--server URL] [--token TOKEN] NAME\n       reet setup profile pull [--server URL] [--token TOKEN] NAME")
+		_, err := fmt.Fprintln(out, "Usage: reet setup profile save [--exclude-kind KIND] [--exclude-source PATH] [--machine NAME] [--project PATH] [--json] [--dir DIR] [--password-file FILE] NAME [SNAPSHOT]\n       reet setup profile list [--json] [--dir DIR]\n       reet setup profile show [--json] [--dir DIR] [--revision N] NAME\n       reet setup profile remove [--yes] [--dir DIR] NAME\n       reet setup profile rename [--dir DIR] OLD NEW\n       reet setup profile push [--server URL] [--token TOKEN] NAME\n       reet setup profile pull [--server URL] [--token TOKEN] NAME")
 		return err
 	}
 	switch args[0] {
@@ -602,7 +602,7 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		f.SetOutput(out)
 		asJSON := f.Bool("json", false, "write a versioned JSON profile revision")
 		dir := f.String("dir", "", "save profiles here (default REET_SETUP_DIR or the user config directory)")
-		passwordFile := f.String("password-file", "", "read the snapshot passphrase from this file, or - for standard input")
+		passwordFile := f.String("password-file", "", "optionally open the snapshot for preview/software evidence; otherwise only its clear header is recorded")
 		excludeKinds := stringListFlag{}
 		excludeSources := stringListFlag{}
 		machines := stringListFlag{}
@@ -617,14 +617,34 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 			}
 			return err
 		}
-		if f.NArg() != 2 {
-			return fmt.Errorf("usage: reet setup profile save [--exclude-kind KIND] [--exclude-source PATH] [--machine NAME] [--project PATH] [--json] [--dir DIR] [--password-file FILE] NAME SNAPSHOT")
+		if f.NArg() < 1 || f.NArg() > 2 {
+			return fmt.Errorf("usage: reet setup profile save [--exclude-kind KIND] [--exclude-source PATH] [--machine NAME] [--project PATH] [--json] [--dir DIR] [--password-file FILE] NAME [SNAPSHOT]")
 		}
-		passphrase, err := readSetupPassphrase(*passwordFile)
-		if err != nil {
-			return err
+		passphrase := ""
+		var err error
+		if *passwordFile != "" {
+			passphrase, err = readSetupPassphrase(*passwordFile)
+			if err != nil {
+				return fmt.Errorf("%w; omit --password-file to save a profile that references the snapshot without opening it", err)
+			}
 		}
-		profile, revision, err := SaveSetupProfileWithOptions(f.Arg(0), passphrase, f.Arg(1), *dir, time.Now().UTC(), SaveSetupProfileOptions{ExcludeKinds: excludeKinds, ExcludeSources: excludeSources, Machines: machines, Projects: projects})
+		snapshotRef := ""
+		if f.NArg() == 2 {
+			snapshotRef = f.Arg(1)
+			if !validSetupSnapshotID(snapshotRef) && !strings.HasSuffix(snapshotRef, setupSnapshotExtension) && !strings.ContainsAny(snapshotRef, `/\\`) {
+				return fmt.Errorf("snapshot %q is not a local ID or path; use reet setup list or omit SNAPSHOT to use the newest", snapshotRef)
+			}
+		} else {
+			snapshots, listErr := ListSetupSnapshots(*dir)
+			if listErr != nil {
+				return listErr
+			}
+			if len(snapshots.Snapshots) == 0 {
+				return fmt.Errorf("no local setup snapshots found; run reet setup backup first or pass SNAPSHOT")
+			}
+			snapshotRef = snapshots.Snapshots[0].ID
+		}
+		profile, revision, err := SaveSetupProfileWithOptions(f.Arg(0), passphrase, snapshotRef, *dir, time.Now().UTC(), SaveSetupProfileOptions{ExcludeKinds: excludeKinds, ExcludeSources: excludeSources, Machines: machines, Projects: projects})
 		if err != nil {
 			return err
 		}
@@ -633,6 +653,11 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		}
 		if _, err := fmt.Fprintf(out, "Saved profile %s revision %d for snapshot %s.\n", profile.Name, revision.Revision, revision.SnapshotID); err != nil {
 			return err
+		}
+		if revision.Preview.SchemaVersion == 0 {
+			if _, err := fmt.Fprintln(out, "Header only; pass --password-file to record preview and software evidence."); err != nil {
+				return err
+			}
 		}
 		return nil
 	case "list":

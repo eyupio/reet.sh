@@ -414,3 +414,31 @@ func TestProfileMachineAndProjectOverrides(t *testing.T) {
 		t.Fatal("empty scoped override accepted")
 	}
 }
+
+func TestProfileSaveJustWorksWithoutPassphraseOrSnapshot(t *testing.T) {
+	dir, snapshot := profileFixture(t)
+	if err := Run([]string{"profile", "save", "--dir", dir, "work"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	profile, revision, err := LoadProfile("work", dir, 0)
+	if err != nil || revision.SnapshotID != snapshot.ID || revision.Preview.SchemaVersion != 0 {
+		t.Fatalf("header-only profile wrong: %+v %+v %v", profile, revision, err)
+	}
+	destination := fixture(t)
+	passFile := writePassphrase(t, t.TempDir(), testSetupPassphrase)
+	t.Setenv("HOME", destination.home)
+	t.Setenv("USERPROFILE", destination.home)
+	if err := Run([]string{"restore", "--profile", "work", "--apply", "--password-file", passFile, "--dir", dir}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(destination.home, ".claude.json")); err != nil {
+		t.Fatal("header-only profile did not restore")
+	}
+	if err := Run([]string{"profile", "save", "--dir", dir, "bad", "SNAPSHOT"}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "omit SNAPSHOT") {
+		t.Fatalf("placeholder snapshot error: %v", err)
+	}
+	missing := filepath.Join(t.TempDir(), "FILE")
+	if err := Run([]string{"profile", "save", "--dir", dir, "--password-file", missing, "other"}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "omit --password-file") {
+		t.Fatalf("missing passphrase guidance: %v", err)
+	}
+}

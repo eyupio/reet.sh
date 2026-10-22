@@ -158,6 +158,9 @@ reet setup profile push NAME</code></pre>
           <div><dt>Software evidence</dt><dd>{latest.software?.length ?? 0} agents</dd></div>
         </dl>
 
+        {#if !latest.preview}
+          <p class="notice">Preview not recorded. Save the profile with <code>--password-file</code> to include selected/omitted counts.</p>
+        {/if}
         {#if latest.preview?.credentials_included}
           <p class="notice good">Literal credentials were included inside the encrypted snapshot. They are not shown here.</p>
         {/if}

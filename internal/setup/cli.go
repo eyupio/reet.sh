@@ -14,7 +14,7 @@ import (
 // Run implements the standalone setup command. No server credentials are needed.
 func Run(args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n       reet setup backup --preview [--json] [--project PATH]\n       reet setup backup --password-file FILE [--dir DIR] [--json] [--project PATH] [--probe-versions] [--inspect-installation] [--include-credentials]\n       reet setup list [--json] [--dir DIR]\n       reet setup inspect [--json] [--dir DIR] [--password-file FILE] SNAPSHOT\n       reet setup restore [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--apply] [--on-conflict skip|replace] [--conflict PATH=skip|replace]... SNAPSHOT\n       reet setup verify [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] SNAPSHOT\n       reet setup rollback (--journal FILE | --last) [--json] [--dir DIR] [--password-file FILE] [--project PATH] SNAPSHOT\n       reet setup journals [--json] [--dir DIR]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\n--preview shows the policy-driven selection without writing an archive.\nWithout --preview, write a passphrase-encrypted local setup snapshot.\nlist and inspect read clear headers; inspect opens the payload only with a passphrase.\nrestore previews a mapped plan; --apply creates or replaces conflicts when chosen, with optional per-path choices.\nverify compares the selected fields in the destination without repairing them.\nrollback reverses a completed create/replace journal after checking it against the snapshot; --last picks the newest completed one.\njournals lists local apply/rollback records without opening snapshots.")
+		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n       reet setup backup --preview [--json] [--project PATH]\n       reet setup backup --password-file FILE [--dir DIR] [--json] [--project PATH] [--probe-versions] [--inspect-installation] [--include-credentials]\n       reet setup list [--json] [--dir DIR]\n       reet setup inspect [--json] [--dir DIR] [--password-file FILE] SNAPSHOT\n       reet setup restore [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--apply] [--on-conflict skip|replace] [--conflict PATH=skip|replace]... SNAPSHOT\n       reet setup verify [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] SNAPSHOT\n       reet setup rollback (--journal FILE | --last) [--json] [--dir DIR] [--password-file FILE] [--project PATH] SNAPSHOT\n       reet setup journals [--json] [--dir DIR]\n       reet setup health [--json] [--project PATH] [--probe-versions] [--inspect-installation]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\n--preview shows the policy-driven selection without writing an archive.\nWithout --preview, write a passphrase-encrypted local setup snapshot.\nlist and inspect read clear headers; inspect opens the payload only with a passphrase.\nrestore previews a mapped plan; --apply creates or replaces conflicts when chosen, with optional per-path choices.\nverify compares the selected fields in the destination without repairing them.\nrollback reverses a completed create/replace journal after checking it against the snapshot; --last picks the newest completed one.\njournals lists local apply/rollback records without opening snapshots.\nhealth gives conservative local evidence and authentication guidance.")
 		return err
 	}
 	switch args[0] {
@@ -34,6 +34,8 @@ func Run(args []string, out io.Writer) error {
 		return runRollback(args[1:], out)
 	case "journals":
 		return runJournals(args[1:], out)
+	case "health":
+		return runHealth(args[1:], out)
 	default:
 		return fmt.Errorf("unknown setup command %q; use reet setup --help", args[0])
 	}
@@ -407,6 +409,49 @@ func runJournals(args []string, out io.Writer) error {
 		return writeJSON(out, list)
 	}
 	return renderRestoreJournalList(out, list)
+}
+
+func runHealth(args []string, out io.Writer) error {
+	f := flag.NewFlagSet("reet setup health", flag.ContinueOnError)
+	f.SetOutput(out)
+	asJSON := f.Bool("json", false, "write a versioned JSON health report")
+	project := f.String("project", "", "also inspect known locations in this project (no recursive search)")
+	probeVersions := f.Bool("probe-versions", false, "include bounded application --version reports")
+	inspectInstallation := f.Bool("inspect-installation", false, "include bounded local Node package evidence")
+	if err := f.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if f.NArg() != 0 {
+		return fmt.Errorf("unexpected setup health arguments")
+	}
+	home, err := setupHome()
+	if err != nil {
+		return err
+	}
+	*project, err = setupProject(*project)
+	if err != nil {
+		return err
+	}
+	r, err := Discover(home, *project)
+	if err != nil {
+		return err
+	}
+	if *inspectInstallation {
+		InspectInstallations(&r)
+	}
+	if *probeVersions {
+		if err := ProbeVersions(&r); err != nil {
+			return err
+		}
+	}
+	report := BuildSetupHealthReport(r)
+	if *asJSON {
+		return writeJSON(out, report)
+	}
+	return renderSetupHealth(out, report)
 }
 
 func readSetupPassphrase(file string) (string, error) {

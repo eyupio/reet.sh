@@ -97,16 +97,29 @@ already consented OAuth grant. Clients with other OAuth grant types, private
 client secrets or client-ID metadata documents must use the supported public
 dynamic-registration flow or manual bearer authentication.
 
-The 17 tool definitions are shared with the optional stdio package. Read-only
-connections discover ten tools; management connections discover seventeen.
+The 28 tool definitions are shared with the optional stdio package. Read-only
+connections discover eleven tools; management connections discover twenty-eight.
 Collections support bounded pages and filters. Responses are capped at 25,000
 characters; use smaller pages or more specific filters for large shelves.
+`reet_list_skills` has `compact: true` (or `fields`) for large shelves; it
+returns only id, name, source, sourceType, stage, liked, bookmarked, tags and
+environment_count. A page shortened to fit the limit says so in `truncated` and
+`truncated_reason`; follow `next_offset` for the rest.
 If a change succeeds but its response exceeds the limit, the error explicitly
 says the change succeeded. Read the saved state before making another change;
 do not retry the write just to retrieve its response.
-Recent activity has a 100-event window rather than historical pagination.
+Recent activity pages with `before`/`after` event-ID cursors and can be filtered
+by `action`, `source` and skill. Changes made through MCP are recorded with
+`source: "mcp"` and the client name in the event detail.
 Inventories include scan time and completeness: an old or incomplete scan does
 not prove what is installed today.
+
+Environment reports can be deleted or merged by ID. Deletes and merges default
+to a dry run and need `confirm: true`; a non-empty report is refused unless
+`force: true`. Owner settings can prune empty `reet-server` reports older than a
+chosen number of days. Local skills can be added to personal lists only; shared
+or published lists return `local_skill_not_allowed_in_list`. Ambiguous display
+names return `ambiguous_skill_id` with the exact candidate IDs.
 
 ## Validation
 

@@ -360,12 +360,12 @@ export type AdminStatus = {
   metaLastOK: string
   metaLastError: string
   topics: { lastSynced: string; lastError: string }
-  settings: { refreshEnabled: boolean; topicsEnabled: boolean; linkListsEnabled: boolean; rollupIndividual: boolean; instanceName: string }
+  settings: { refreshEnabled: boolean; topicsEnabled: boolean; linkListsEnabled: boolean; rollupIndividual: boolean; pruneServerEnvironmentsDays: number; instanceName: string }
 }
 export async function getAdminStatus(): Promise<AdminStatus> {
   return (await req('/api/admin/status')).json()
 }
-export async function saveAdminSettings(settings: { refreshEnabled?: boolean; topicsEnabled?: boolean; linkListsEnabled?: boolean; rollupIndividual?: boolean; instanceName?: string }): Promise<void> {
+export async function saveAdminSettings(settings: { refreshEnabled?: boolean; topicsEnabled?: boolean; linkListsEnabled?: boolean; rollupIndividual?: boolean; pruneServerEnvironmentsDays?: number; instanceName?: string }): Promise<void> {
   await req('/api/admin/settings', { method: 'PATCH', body: json(settings) })
 }
 export async function listIgnored(): Promise<{ ignored: Ignored[] }> {

@@ -68,14 +68,19 @@ defaults, mutation hints and return information. Successful calls return
 
 | Tools | Behavior |
 | --- | --- |
-| `list_skills`, `get_skill` | Search the personal shelf by text, stage, flag, tags, environment or machine; read a skill's flags, notes and metadata. |
+| `list_skills`, `get_skill` | Search the personal shelf by text, stage, flag, tags, environment or machine. `compact: true` returns a small shape for paging large shelves. |
+| `find_duplicates` | Group skills by normalised name and upstream source, flag local/upstream pairs and suggest a canonical ID. Read-only. |
 | `add_skill`, `update_skill`, `remove_skill` | Capture references and edit personal flags/notes; remove entries, optionally ignoring future scanner imports. |
-| `list_tags`, `tag_skill` | Discover tag IDs; add names or remove IDs on a skill. |
-| `list_environments`, `get_environment` | Read scan summaries and paginated inventories, including scan time and completeness. |
+| `list_tags`, `tag_skill`, `create_tag` | Discover tag IDs; add names or remove IDs on a skill; create an empty tag. |
+| `rename_tag`, `delete_tag` | Rename a tag, or delete it from this account after a dry run and confirmation. |
+| `list_environments`, `get_environment` | Read scan summaries and paginated inventories, including scan time and completeness. Filter by `empty_only` and `agent`. |
+| `delete_environment`, `merge_environments` | Preview and apply environment-report deletion or merge. Defaults to dry run; deletion refuses non-empty reports unless `force`. |
 | `list_sync_targets` | Inspect saved desired/missing/extra plans without applying changes. |
 | `list_lists`, `get_list` | Find accessible lists and read skills, list notes and permissions. |
-| `create_list`, `add_list_skill` | Create a personal list or add a reference with a shared list note. |
-| `list_events` | Read the most recent activity, optionally for one skill. |
+| `create_list`, `update_list`, `delete_list` | Create a personal list, rename/describe it, or delete it after a dry run and confirmation. |
+| `add_list_skill`, `add_list_skills`, `remove_list_skill` | Add one or many skills (including `local/...` on personal lists) and remove one. |
+| `bulk_update_skills` | Apply flags, a stage, tags and a list membership to up to 500 skills by ID or filter, with an optional dry run. |
+| `list_events` | Read audit activity with `skill`, `action`, `source` and `before`/`after` cursors. MCP changes carry the client name. |
 | `list_ignored`, `unignore_skill` | Inspect scanner exclusions and allow future imports. |
 
 The account role and list permissions are enforced by reet.sh for every request.
@@ -100,28 +105,37 @@ Try these requests in your MCP client:
 - “Add `anthropics/skills/mcp-builder` to my shelf with a note to review its transport examples.”
 - “Move that skill to To test while keeping its existing notes and liked flag.”
 - “Create a personal list called Agent tooling and add mcp-builder with a list note about evaluation coverage.”
+- “Add `local/seo-audit` to my personal list, and tell me if a name is ambiguous.”
+- “Preview deleting the empty reet-server environments older than a week, then apply it.”
+- “Tag all skills matching #backend with `reviewed`, without touching notes, using one bulk call.”
+- “Show me the compact shelf so all 65 skills fit in one response, then find likely duplicates.”
+- “Find what changed through MCP in the last day.”
 
 ## Limits and errors
 
 Collection tools accept `limit` (1–100, default 20) and `offset`. Follow
 `next_offset` until `has_more` is false. Pages also include `total_count` and
-`count`. `list_events` supports only the latest 100 events and has no historical
-cursor. Shelf `counts` describe all flags in the account; the page's
+`count`; a shortened page adds `truncated` and `truncated_reason`. `list_events`
+pages with `before`/`after` event-ID cursors and returns `next_before` and
+`next_after`. Shelf `counts` describe all flags in the account; the page's
 `total_count` describes the filtered results.
 
 Most upstream collection APIs do not support pagination. The bridge fetches
 their filtered response, bounds it to **8 MiB**, and paginates locally. It is
 therefore intended for personal and team shelves rather than unbounded exports.
 Responses are capped at **25,000 characters**. Pages shrink to fit and still
-advance the cursor. Individual oversized records fail with a clear message;
-use a narrower filter or shorten notes in the web UI. Nested sync-plan inventories
+advance the cursor; `compact: true` is the recommended way to page a large shelf.
+Individual oversized records fail with a clear message; use a narrower filter or
+shorten notes in the web UI. Nested sync-plan inventories
 are returned intact and may hit this cap; inspect environments separately in
 that case. Concurrent shelf changes can move records between offset pages.
 
 Requests time out after 30 seconds. Errors explain how to resolve authentication,
 permission, missing-resource, rate-limit, connectivity and JSON response problems.
 Raw server error bodies and credential values are not returned. Check server
-logs for validation details hidden by a generic HTTP 400 response. A failed write
+logs for validation details. Structured failures return `code`, `field`,
+`message` and `hint`, for example `local_skill_not_allowed_in_list`,
+`ambiguous_skill_id`, `environment_has_skills` or `confirm_required`. A failed write
 request may have reached the server before a connection failure: inspect the
 current state before retrying a create operation.
 

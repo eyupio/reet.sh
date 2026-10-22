@@ -22,16 +22,18 @@ type Report struct {
 	Project       string    `json:"project,omitempty"`
 	Agents        []Agent   `json:"agents"`
 	Limitations   []string  `json:"limitations"`
+	VersionProbes bool      `json:"version_probes,omitempty"`
 }
 
 type Agent struct {
-	ID           string              `json:"id"`
-	Name         string              `json:"name"`
-	State        string              `json:"state"` // detected, not_detected, unknown
-	Executable   Executable          `json:"executable"`
-	Locations    []Location          `json:"locations"`
-	Capabilities Capabilities        `json:"capabilities"`
-	Components   *ComponentInventory `json:"components,omitempty"`
+	ID                 string              `json:"id"`
+	Name               string              `json:"name"`
+	State              string              `json:"state"` // detected, not_detected, unknown
+	Executable         Executable          `json:"executable"`
+	Locations          []Location          `json:"locations"`
+	Capabilities       Capabilities        `json:"capabilities"`
+	Components         *ComponentInventory `json:"components,omitempty"`
+	ApplicationVersion *VersionObservation `json:"application_version,omitempty"`
 }
 
 type Executable struct {
@@ -55,6 +57,7 @@ type Capabilities struct {
 	Discovery string `json:"discovery"`
 	Backup    string `json:"backup"`
 	Restore   string `json:"restore"`
+	Version   string `json:"version,omitempty"`
 }
 
 type environment struct {
@@ -89,7 +92,7 @@ func discover(e environment) (Report, error) {
 		Agents: []Agent{},
 		Limitations: []string{
 			"Metadata-only discovery of known paths; configuration contents and nested files are not read.",
-			"Executables are looked up on PATH, not run; application versions, installation methods and runtime health are unknown.",
+			noVersionProbeNote,
 			"Configuration may remain after uninstalling an agent; a detected setup is not proof of a working installation.",
 			"MCP definitions, credentials, memory and history are not collected; setup backup and restore are not implemented.",
 			"Symlink locations are reported without inspecting their targets; missing known paths do not prove an agent is absent.",

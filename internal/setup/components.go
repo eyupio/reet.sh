@@ -63,7 +63,7 @@ func InspectComponents(r *Report) {
 	r.SchemaVersion = 2
 	r.Limitations = []string{
 		"Component summaries read only known configuration files; values are omitted, but paths and MCP names may identify private projects or services.",
-		"Executables are not run; versions, package provenance and runtime health remain unknown.",
+		noVersionProbeNote,
 		"Files are observed separately; agent merge precedence and effective settings are not resolved.",
 		"Setup backup and restore are not implemented; this report cannot recreate a setup.",
 	}

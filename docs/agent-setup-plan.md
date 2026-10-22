@@ -200,6 +200,9 @@ Deliver S1 as separately tested slices: S1a adds opt-in bounded strict-JSON
 settings/MCP summaries and credential hints; S1b adds TOML/JSONC format adapters;
 S1c covers version/provenance capture and component export policies. S1a must not
 claim that the complete S1 acceptance gate or any restore capability has landed.
+The first S1c slice adds explicit `--probe-versions` command reports; verified
+installation provenance and export policies remain separate work. Keep application
+versions distinct from existing controller/scanner version fields.
 
 - Parse agent-specific config formats and MCP declarations with bounded reads.
 - Record versions, installation provenance, dependencies, global/project scope,

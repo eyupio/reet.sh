@@ -13,7 +13,7 @@ import (
 // Run implements the standalone setup command. No server credentials are needed.
 func Run(args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nSetup backup and restore are not yet available.")
+		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nSetup backup and restore are not yet available.")
 		return err
 	}
 	if args[0] != "scan" {
@@ -24,6 +24,7 @@ func Run(args []string, out io.Writer) error {
 	asJSON := f.Bool("json", false, "write a versioned JSON inventory")
 	project := f.String("project", "", "also inspect known locations in this project (no recursive search)")
 	components := f.Bool("components", false, "read known configuration files and summarise settings/MCP without values")
+	versions := f.Bool("probe-versions", false, "invoke discovered executables with --version; timeout 3s each, output bounded")
 	if err := f.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -50,6 +51,11 @@ func Run(args []string, out io.Writer) error {
 	if *components {
 		InspectComponents(&r)
 	}
+	if *versions {
+		if err := ProbeVersions(&r); err != nil {
+			return err
+		}
+	}
 	if *asJSON {
 		encoder := json.NewEncoder(out)
 		encoder.SetIndent("", "  ")
@@ -60,8 +66,11 @@ func Run(args []string, out io.Writer) error {
 
 func render(out io.Writer, r Report) error {
 	mode := "Metadata only"
-	if r.SchemaVersion == 2 {
+	if len(r.Agents) > 0 && r.Agents[0].Components != nil {
 		mode = "Configuration summaries; values omitted"
+	}
+	if r.VersionProbes {
+		mode += "; application version probes enabled"
 	}
 	if _, err := fmt.Fprintf(out, "AI agent setup inventory (%s/%s)\n%s; setup backup and restore are not implemented.\n", r.OS, r.Architecture, mode); err != nil {
 		return err
@@ -80,6 +89,11 @@ func render(out io.Writer, r Report) error {
 		}
 		if agent.Executable.Issue != "" {
 			if _, err := fmt.Fprintf(out, "  %s\n", agent.Executable.Issue); err != nil {
+				return err
+			}
+		}
+		if v := agent.ApplicationVersion; v != nil {
+			if _, err := fmt.Fprintf(out, "  Application version: %s %s %s (installation method: %s)\n", v.State, v.Version, v.Issue, v.InstallMethod); err != nil {
 				return err
 			}
 		}

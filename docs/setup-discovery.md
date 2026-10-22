@@ -84,8 +84,9 @@ project/home directory and output failures return command errors. Scripted users
 should inspect location/executable states in JSON for incomplete observations.
 
 Without `--components`, MCP definitions and configuration contents are not read.
-Versions, package provenance, memory and conversation history are not collected. Agents and hooks
-are never executed. Nothing is installed, changed or sent to a server. The report
+Without `--probe-versions`, application versions are not collected and agents are
+never executed. Package provenance, memory and conversation history are not collected.
+The scanner installs nothing and sends no reports to a server. The report
 is inventory metadata, not a recoverable backup. Existing `reet scan`, `reet sync`
 and `reet backup` retain their existing meanings.
 
@@ -150,6 +151,41 @@ avoid hanging if a file is replaced with a FIFO. This is best-effort observation
 not a transactional snapshot or a hardened archive collector.
 
 Current fixtures validate declared JSON, TOML and JSONC shapes rather than installed
-agent release versions. Other formats remain unsupported. Full version/provenance
+agent release versions. Other formats remain unsupported. Verified package provenance,
 capture, memory/history export policy and restore verification are subsequent
 stages in the implementation plan.
+
+## Opt-in application version probes
+
+```sh
+reet setup scan --probe-versions --json
+reet setup scan --components --probe-versions --json
+```
+
+`--probe-versions` explicitly invokes each discovered absolute executable path
+with one fixed argument, `--version`. It does not use commands from configuration
+files or a shell. Commands inherit the current environment and working directory;
+they may perform their own file/network operations. This flag is opt-in precisely
+because an executable's behaviour cannot be guaranteed by metadata discovery.
+
+Each command has a three-second timeout and at most 8 KiB of stdout retained.
+Stderr and unrecognised stdout are discarded. Only a recognised three-part version
+token (optionally with prerelease/build metadata) from the first line is returned.
+This may still identify a private build. Unix cancellation terminates the process
+group; elsewhere cancellation targets the direct process. Waiting for inherited
+output pipes is bounded. This is a bounded probe, not an execution sandbox.
+Interrupting the scan cancels the active probe and prevents subsequent probes.
+
+An opt-in report uses schema v2 and `version_probes: true`, with separate
+`application_version` observations and a `version: command_report_only` capability.
+The observation distinguishes `reported`, `not_detected`, `unknown`, `error` and
+`timeout`. A missing executable does not prove the agent is uninstalled; a failed
+probe does not invalidate other inventory results. Individual probe failures are
+reported in otherwise successful output; user cancellation returns a command error.
+
+The source is explicitly `executable --version`, and `install_method` remains
+`unknown`. A same-named executable can be a different program, so reported versions
+are not verified provenance. Do not interpret them as a signature, package-manager
+record or guarantee of a reproducible installation. Existing controller environment
+`version` fields describe the reet reporter; they are not repurposed for agent
+application versions. These local observations are not yet uploaded through MCP.

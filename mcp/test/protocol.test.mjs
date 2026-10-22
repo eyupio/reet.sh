@@ -9,7 +9,7 @@ after(async () => { await client?.close(); await api?.close(); });
 
 test('stdio discovery declares schemas, strict inputs and correct mutation hints', async () => {
   const { tools } = await client.listTools();
-  assert.equal(tools.length, 17);
+  assert.equal(tools.length, 19);
   for (const tool of tools) {
     assert.ok(tool.title && tool.description && tool.outputSchema);
     assert.equal(tool.inputSchema.additionalProperties, false);
@@ -77,6 +77,22 @@ test('personal list creation and list notes use the real API contracts', async (
   assert.notEqual((await call(client, 'get_skill', { id: 'demo/skills/tests' })).notes, 'Shared note');
 });
 
+test('lists accept shelf IDs and machine cleanup is a dry run until confirmed', async () => {
+  const created = await call(client, 'create_list', { name: 'By shelf ID' });
+  const added = await call(client, 'add_list_skill', { list_id: created.id, id: 'demo/skills/tests' });
+  assert.equal(added.skillCount, 1);
+  await assert.rejects(call(client, 'add_list_skill', { list_id: created.id }), /exactly one/);
+  await assert.rejects(call(client, 'add_list_skill', { list_id: created.id, id: 'demo/skills/tests', input: 'demo/skills/tests' }), /exactly one/);
+  const preview = await call(client, 'forget_machine', { host: 'laptop' });
+  assert.equal(preview.dry_run, true);
+  assert.equal(preview.applied, false);
+  assert.equal(preview.skillCount, 3);
+  await assert.rejects(call(client, 'forget_machine', { host: 'laptop', confirm: true }), /still lists 3 skills/);
+  await assert.rejects(call(client, 'forget_machine', { host: 'no-such-host' }), /No environments/);
+  await assert.rejects(call(client, 'merge_machines', { from: 'laptop', to: 'laptop' }), /different/);
+  assert.equal((await call(client, 'list_environments', { host: 'laptop' })).items.length, 1);
+});
+
 test('invalid arguments are rejected before HTTP and errors do not leak credentials', async () => {
   await assert.rejects(call(client, 'list_skills', { limit: 0 }));
   await assert.rejects(call(client, 'list_skills', { surprise: true }));
@@ -117,7 +133,7 @@ test('hosted HTTP and stdio forwarding preserve user scope across SDK languages'
   const bridge = await connect(accounts.url, 'reet_mcp_fixture_read');
   try {
     await remote.connect(new StreamableHTTPClientTransport(new URL(`${accounts.url}/mcp`), { requestInit: { headers: { Authorization: 'Bearer reet_mcp_fixture_write' } } }));
-    assert.equal((await remote.listTools()).tools.length, 17);
+    assert.equal((await remote.listTools()).tools.length, 19);
     assert.equal((await bridge.listTools()).tools.length, 10);
     const hosted = await call(remote, 'list_skills', { limit: 2, sort: 'name' });
     const forwarded = await call(bridge, 'list_skills', { limit: 2, sort: 'name' });

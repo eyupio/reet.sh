@@ -330,7 +330,7 @@ func TestMCPExistingClientsFollowRoleChangesDisablingAndAdminRevocation(t *testi
 	}
 	session := mcpSession(t, ts, token)
 	tools, err := session.ListTools(context.Background(), nil)
-	if err != nil || len(tools.Tools) != 17 {
+	if err != nil || len(tools.Tools) != 19 {
 		t.Fatalf("member tools: %v", err)
 	}
 	if err = st.UpdateUserRole(u.ID, "viewer"); err != nil {
@@ -434,5 +434,91 @@ func mcpToolCaller(t *testing.T, ts *httptest.Server, browser *http.Client, tran
 			t.Fatal(err)
 		}
 		return result.IsError, result.Content[0].(*mcp.TextContent).Text
+	}
+}
+
+func TestMCPLocalSkillsAndMachineCleanup(t *testing.T) {
+	for _, transport := range []string{"hosted", "browser"} {
+		t.Run(transport, func(t *testing.T) {
+			ts, _, browser, _ := mcpAccounts(t)
+			imp := func(host string, skills ...string) {
+				items := []map[string]any{}
+				for _, name := range skills {
+					items = append(items, map[string]any{"name": name, "host": host, "agent": "agents"})
+				}
+				mcpJSON(t, browser, ts, "POST", "/api/import", map[string]any{
+					"machine": map[string]any{"host": host}, "prune": true, "items": items,
+					"environments": []map[string]any{{"host": host, "agent": "agents", "skills": skills}},
+				}, 200)
+			}
+			imp("empty-box")
+			imp("renamed-box")
+			imp("main-box", "mine")
+			call := mcpToolCaller(t, ts, browser, transport)
+
+			// Local skills can be added to a list by shelf ID, and exactly one of id/input is required.
+			created := mcpJSON(t, browser, ts, "POST", "/api/v2/lists", map[string]any{"name": "Local", "visibility": "personal"}, 200)
+			failed, text := call("reet_add_list_skill", map[string]any{"list_id": created["id"], "id": "local/mine"})
+			if failed || !strings.Contains(text, `"skillCount":1`) {
+				t.Fatalf("add local skill by id: %s", text)
+			}
+			for _, args := range []map[string]any{
+				{"list_id": created["id"]},
+				{"list_id": created["id"], "id": "local/mine", "input": "o/r/s"},
+			} {
+				if failed, text = call("reet_add_list_skill", args); !failed || !strings.Contains(text, "exactly one") {
+					t.Fatalf("id/input rule not enforced: %s", text)
+				}
+			}
+
+			// Forgetting is a dry run until confirmed, and refuses machines that still list skills.
+			failed, text = call("reet_forget_machine", map[string]any{"host": "empty-box"})
+			if failed || !strings.Contains(text, `"dry_run":true`) || !strings.Contains(text, `"applied":false`) {
+				t.Fatalf("dry run: %s", text)
+			}
+			failed, text = call("reet_list_environments", map[string]any{"host": "empty-box"})
+			if failed || !strings.Contains(text, `"total_count":2`) {
+				t.Fatalf("dry run must not delete: %s", text)
+			}
+			if failed, text = call("reet_forget_machine", map[string]any{"host": "main-box", "confirm": true}); !failed || !strings.Contains(text, "still lists 1 skills") {
+				t.Fatalf("machine with skills must need force: %s", text)
+			}
+			failed, text = call("reet_forget_machine", map[string]any{"host": "empty-box", "confirm": true})
+			if failed || !strings.Contains(text, `"applied":true`) {
+				t.Fatalf("forget: %s", text)
+			}
+			failed, text = call("reet_list_environments", map[string]any{"host": "empty-box"})
+			if failed || !strings.Contains(text, `"total_count":0`) {
+				t.Fatalf("machine still listed: %s", text)
+			}
+			if failed, text = call("reet_forget_machine", map[string]any{"host": "empty-box", "confirm": true}); !failed {
+				t.Fatalf("unknown host must fail: %s", text)
+			}
+
+			// Merge is also a dry run until confirmed.
+			if failed, text = call("reet_merge_machines", map[string]any{"from": "renamed-box", "to": "main-box"}); failed || !strings.Contains(text, `"applied":false`) {
+				t.Fatalf("merge dry run: %s", text)
+			}
+			if failed, text = call("reet_merge_machines", map[string]any{"from": "renamed-box", "to": "main-box", "confirm": true}); failed || !strings.Contains(text, `"applied":true`) {
+				t.Fatalf("merge: %s", text)
+			}
+			if failed, text = call("reet_list_environments", map[string]any{"host": "renamed-box"}); failed || !strings.Contains(text, `"total_count":0`) {
+				t.Fatalf("merged host still listed: %s", text)
+			}
+		})
+	}
+}
+
+func TestMCPMachineToolsNeedWriteScope(t *testing.T) {
+	ts, _, browser, _ := mcpAccounts(t)
+	token, _ := mcpManual(t, browser, ts, "read")
+	tools, err := mcpSession(t, ts, token).ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools.Tools {
+		if tool.Name == "reet_forget_machine" || tool.Name == "reet_merge_machines" {
+			t.Fatalf("read-only connection exposes %s", tool.Name)
+		}
 	}
 }

@@ -1507,6 +1507,258 @@
     }
   },
   {
+    "name": "reet_forget_machine",
+    "title": "Forget a machine",
+    "description": "Delete a machine’s scanned environments by exact host name (see reet_list_environments). Dry run by default: returns what would be removed and changes nothing. Set confirm=true to apply. Refuses machines that still list skills unless force=true. Never touches shelf skills, lists or tags; the host name stays aliased so scans cannot resurrect duplicates. Returns {data: object} as structured content and text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "description": "Exact host name from reet_list_environments."
+        },
+        "confirm": {
+          "default": false,
+          "description": "Apply the change. false returns a preview only.",
+          "type": "boolean"
+        },
+        "force": {
+          "default": false,
+          "description": "Allow forgetting a machine whose environments still list skills.",
+          "type": "boolean"
+        },
+        "response_format": {
+          "default": "json",
+          "description": "JSON or a Markdown JSON code block.",
+          "type": "string",
+          "enum": [
+            "json",
+            "markdown"
+          ]
+        }
+      },
+      "required": [
+        "host"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "dry_run": {
+              "type": "boolean"
+            },
+            "host": {
+              "type": "string"
+            },
+            "environments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            },
+            "skillCount": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "applied": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "dry_run",
+            "host",
+            "environments",
+            "skillCount",
+            "applied"
+          ],
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema1"
+          }
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "$defs": {
+        "__schema0": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              }
+            }
+          ]
+        },
+        "__schema1": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema1"
+              }
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema1"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "reet_merge_machines",
+    "title": "Merge two machines",
+    "description": "Merge one machine name into another so a renamed host is not counted twice. Dry run by default; set confirm=true to apply. Moves environments, sync plans and aliases from the source host to the target host; shelf skills, lists and tags are unchanged. Returns {data: object} as structured content and text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "description": "Host name to merge away."
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "description": "Host name to keep."
+        },
+        "confirm": {
+          "default": false,
+          "description": "Apply the change. false returns a preview only.",
+          "type": "boolean"
+        },
+        "response_format": {
+          "default": "json",
+          "description": "JSON or a Markdown JSON code block.",
+          "type": "string",
+          "enum": [
+            "json",
+            "markdown"
+          ]
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "dry_run": {
+              "type": "boolean"
+            },
+            "from": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string"
+            },
+            "applied": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "dry_run",
+            "from",
+            "to",
+            "applied"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    }
+  },
+  {
     "name": "reet_list_sync_targets",
     "title": "Inspect saved sync plans",
     "description": "Read saved sync targets and desired/missing/extra inventories. Does not create a plan or apply installs/removals; use reet sync locally to preview and confirm changes. Returns a page of sync target objects. Returns {data: object} as structured content and text. Pages contain items, count, total_count, has_more and next_offset.",
@@ -2502,7 +2754,7 @@
   {
     "name": "reet_add_list_skill",
     "title": "Add a skill to a list",
-    "description": "Add a skill reference to a list this account can edit, with a shared list note. Does not add it to a personal shelf. Returns the updated list’s skill count and ID. Returns {data: object} as structured content and text.",
+    "description": "Add a skill to a list this account can edit, with a shared list note. Supply id for a skill already on the shelf (including local/... skills) or input for an owner/repo/skill or skills.sh reference. Exactly one of id or input is required. Does not add it to a personal shelf. Returns the updated list’s skill count and ID. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2512,11 +2764,17 @@
           "maximum": 9007199254740991,
           "description": "Numeric list ID returned by reet_list_lists."
         },
-        "input": {
+        "id": {
+          "description": "Exact shelf skill ID from reet_list_skills, e.g. local/seo-audit. Use for local skills.",
           "type": "string",
           "minLength": 1,
-          "maxLength": 1000,
-          "description": "owner/repo/skill or skills.sh URL."
+          "maxLength": 500
+        },
+        "input": {
+          "description": "owner/repo/skill or skills.sh URL. Use when the skill is not yet on the shelf.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
         },
         "note": {
           "default": "",
@@ -2535,8 +2793,7 @@
         }
       },
       "required": [
-        "list_id",
-        "input"
+        "list_id"
       ],
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false

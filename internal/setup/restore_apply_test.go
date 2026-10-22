@@ -3,6 +3,7 @@ package setup
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,6 +38,13 @@ func applyFixture(t *testing.T) (SnapshotSelection, Report, string) {
 		t.Fatal(err)
 	}
 	return selection, report, destination.home
+}
+
+func fixtureWithHome(t *testing.T, home string) environment {
+	t.Helper()
+	e := fixture(t)
+	e.home = home
+	return e
 }
 
 func TestApplyRestorePlanCreatesVerifiedFiles(t *testing.T) {
@@ -236,5 +244,203 @@ func TestApplyRestorePlanCLI(t *testing.T) {
 	var refused bytes.Buffer
 	if err := Run([]string{"restore", "--apply", "--password-file", passFile, "--dir", dir, snapshot.ID}, &refused); err == nil {
 		t.Fatal("conflicting apply was accepted")
+	}
+	before, err := os.ReadFile(filepath.Join(destination, ".claude.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var skipped bytes.Buffer
+	if err := Run([]string{"restore", "--apply", "--on-conflict", "skip", "--password-file", passFile, "--dir", dir, "--json", snapshot.ID}, &skipped); err != nil {
+		t.Fatal(err)
+	}
+	var skipResult RestoreApplyResult
+	if err := json.Unmarshal(skipped.Bytes(), &skipResult); err != nil || len(skipResult.Skipped) != 1 {
+		t.Fatalf("skip result: %+v %v", skipResult, err)
+	}
+	afterSkip, err := os.ReadFile(filepath.Join(destination, ".claude.json"))
+	if err != nil || !bytes.Equal(before, afterSkip) {
+		t.Fatal("skipped conflict changed the destination")
+	}
+	var replaced bytes.Buffer
+	if err := Run([]string{"restore", "--apply", "--on-conflict", "replace", "--password-file", passFile, "--dir", dir, "--json", snapshot.ID}, &replaced); err != nil {
+		t.Fatal(err)
+	}
+	var replaceResult RestoreApplyResult
+	if err := json.Unmarshal(replaced.Bytes(), &replaceResult); err != nil || len(replaceResult.Replaced) != 1 || len(replaceResult.Backups) != 1 {
+		t.Fatalf("replace result: %+v %v", replaceResult, err)
+	}
+	if err := Run([]string{"restore", "--on-conflict", "skip", "--password-file", passFile, "--dir", dir, snapshot.ID}, &bytes.Buffer{}); err == nil {
+		t.Fatal("on-conflict without apply was accepted")
+	}
+}
+
+func TestApplyRestorePlanSkipsConflicts(t *testing.T) {
+	selection, report, home := applyFixture(t)
+	path := filepath.Join(home, ".claude.json")
+	original := `{"model":"KEEP-DESTINATION"}`
+	writeConfig(t, path, original)
+	updated, err := discover(fixtureWithHome(t, home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := planForSelection(t, selection, updated)
+	if action := findRestoreAction(t, plan, path); action.State != "conflict" {
+		t.Fatalf("destination not a conflict: %+v", action)
+	}
+	result, err := ApplyRestorePlan(plan, RestoreApplyOptions{JournalDir: t.TempDir(), Conflict: "skip"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Skipped) != 1 || result.Skipped[0] != path || len(result.Created) != 0 || len(result.Replaced) != 0 {
+		t.Fatalf("conflict was not skipped: %+v", result)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || string(after) != original {
+		t.Fatalf("skipped conflict changed the destination: %q %v", after, err)
+	}
+	var record restoreJournal
+	data, err := os.ReadFile(result.JournalPath)
+	if err != nil || json.Unmarshal(data, &record) != nil || record.State != "completed" || record.Actions[0].State != "skipped" {
+		t.Fatalf("bad skip journal: %+v %v", record, err)
+	}
+	_ = report
+}
+
+func TestApplyRestorePlanReplacesWithRollbackCopy(t *testing.T) {
+	selection, report, home := applyFixture(t)
+	path := filepath.Join(home, ".claude.json")
+	original := `{"model":"KEEP-DESTINATION"}`
+	writeConfig(t, path, original)
+	updated, err := discover(fixtureWithHome(t, home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := planForSelection(t, selection, updated)
+	result, err := ApplyRestorePlan(plan, RestoreApplyOptions{JournalDir: t.TempDir(), Conflict: "replace"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Replaced) != 1 || result.Replaced[0] != path || len(result.Backups) != 1 {
+		t.Fatalf("conflict was not replaced: %+v", result)
+	}
+	backup, err := os.ReadFile(result.Backups[0])
+	if err != nil || string(backup) != original {
+		t.Fatalf("rollback copy wrong: %q %v", backup, err)
+	}
+	info, err := os.Stat(result.Backups[0])
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("rollback copy permissions: %+v %v", info, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	object, err := parseSource(data, "json")
+	if err != nil || object["model"] != "MODEL" {
+		t.Fatalf("replacement content wrong: %#v %v", object, err)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil || strings.Contains(string(encoded), "SYNTHETIC-APPLY-SECRET-DO-NOT-RETURN") {
+		t.Fatal("replace result exposed a value")
+	}
+	_ = report
+}
+
+func TestApplyRestorePlanRollsBackReplacedFilesOnFailure(t *testing.T) {
+	e := fixture(t)
+	writeConfig(t, filepath.Join(e.home, ".claude.json"), `{"model":"SOURCE-CLAUDE"}`)
+	writeConfig(t, filepath.Join(e.home, ".codex", "config.toml"), "model = 'SOURCE-CODEX'\n")
+	source, err := discover(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := BuildSnapshotSelection(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination := fixture(t)
+	first := filepath.Join(destination.home, ".claude.json")
+	second := filepath.Join(destination.home, ".codex", "config.toml")
+	writeConfig(t, first, `{"model":"KEEP-CLAUDE"}`)
+	writeConfig(t, second, "model = 'KEEP-CODEX'\n")
+	report, err := discover(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := planForSelection(t, selection, report)
+	if len(plan.Actions) != 2 {
+		t.Fatalf("expected two conflicts: %+v", plan.Actions)
+	}
+	journalDir := t.TempDir()
+	_, err = ApplyRestorePlan(plan, RestoreApplyOptions{
+		JournalDir: journalDir, Conflict: "replace",
+		beforeWrite: func(path string) error {
+			if path == second {
+				return errors.New("injected replace failure")
+			}
+			return nil
+		},
+	})
+	if err == nil {
+		t.Fatal("injected replace failure was accepted")
+	}
+	afterFirst, err := os.ReadFile(first)
+	if err != nil || string(afterFirst) != `{"model":"KEEP-CLAUDE"}` {
+		t.Fatalf("replaced file not rolled back: %q %v", afterFirst, err)
+	}
+	afterSecond, err := os.ReadFile(second)
+	if err != nil || string(afterSecond) != "model = 'KEEP-CODEX'\n" {
+		t.Fatalf("second destination changed: %q %v", afterSecond, err)
+	}
+	entries, err := os.ReadDir(journalDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var journalPath string
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "restore-") && strings.HasSuffix(entry.Name(), ".json") {
+			journalPath = filepath.Join(journalDir, entry.Name())
+		}
+	}
+	if journalPath == "" {
+		t.Fatal("journal missing")
+	}
+	data, err := os.ReadFile(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record restoreJournal
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.State != "failed" || record.Actions[0].State != "rolled_back" || record.Actions[1].State != "failed" {
+		t.Fatalf("bad replace failure journal: %+v", record)
+	}
+}
+
+func TestApplyRestorePlanRefusesBlockedActionWithSkip(t *testing.T) {
+	selection, report, home := applyFixture(t)
+	path := filepath.Join(home, ".claude.json")
+	target := filepath.Join(t.TempDir(), "target.json")
+	writeConfig(t, target, `{}`)
+	if err := os.Symlink(target, path); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	updated, err := discover(fixtureWithHome(t, home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := planForSelection(t, selection, updated)
+	if _, err := ApplyRestorePlan(plan, RestoreApplyOptions{JournalDir: t.TempDir(), Conflict: "skip"}); err == nil {
+		t.Fatal("blocked action was skipped")
+	}
+	_ = report
+}
+
+func TestApplyRestorePlanRejectsUnknownConflictPolicy(t *testing.T) {
+	selection, report, _ := applyFixture(t)
+	plan := planForSelection(t, selection, report)
+	if _, err := ApplyRestorePlan(plan, RestoreApplyOptions{JournalDir: t.TempDir(), Conflict: "merge"}); err == nil {
+		t.Fatal("unknown conflict policy accepted")
 	}
 }

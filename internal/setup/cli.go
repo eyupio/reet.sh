@@ -14,7 +14,7 @@ import (
 // Run implements the standalone setup command. No server credentials are needed.
 func Run(args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n       reet setup backup --preview [--json] [--project PATH]\n       reet setup backup --password-file FILE [--dir DIR] [--json] [--project PATH]\n       reet setup list [--json] [--dir DIR]\n       reet setup inspect [--json] [--dir DIR] [--password-file FILE] SNAPSHOT\n       reet setup restore [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--apply] SNAPSHOT\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\n--preview shows the policy-driven selection without writing an archive.\nWithout --preview, write a passphrase-encrypted local setup snapshot.\nlist and inspect read clear headers; inspect opens the payload only with a passphrase.\nrestore previews a mapped plan; --apply creates only new files and refuses conflicts.")
+		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n       reet setup backup --preview [--json] [--project PATH]\n       reet setup backup --password-file FILE [--dir DIR] [--json] [--project PATH]\n       reet setup list [--json] [--dir DIR]\n       reet setup inspect [--json] [--dir DIR] [--password-file FILE] SNAPSHOT\n       reet setup restore [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--apply] [--on-conflict skip|replace] SNAPSHOT\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\n--preview shows the policy-driven selection without writing an archive.\nWithout --preview, write a passphrase-encrypted local setup snapshot.\nlist and inspect read clear headers; inspect opens the payload only with a passphrase.\nrestore previews a mapped plan; --apply creates or replaces conflicts when chosen.")
 		return err
 	}
 	switch args[0] {
@@ -204,7 +204,8 @@ func runRestore(args []string, out io.Writer) error {
 	dir := f.String("dir", "", "read snapshots here (default REET_SETUP_DIR or the user config directory)")
 	passwordFile := f.String("password-file", "", "read the snapshot passphrase from this file, or - for standard input")
 	project := f.String("project", "", "map project-scoped sources into this destination project")
-	apply := f.Bool("apply", false, "create only new files from the plan; conflicts are refused")
+	apply := f.Bool("apply", false, "apply the plan; conflicts need --on-conflict")
+	onConflict := f.String("on-conflict", "", "for conflicting destinations: skip or replace; default refuses the run")
 	if err := f.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -212,7 +213,10 @@ func runRestore(args []string, out io.Writer) error {
 		return err
 	}
 	if f.NArg() != 1 {
-		return fmt.Errorf("usage: reet setup restore [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--apply] SNAPSHOT")
+		return fmt.Errorf("usage: reet setup restore [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--apply] [--on-conflict skip|replace] SNAPSHOT")
+	}
+	if !*apply && *onConflict != "" {
+		return fmt.Errorf("--on-conflict is only used with --apply")
 	}
 	passphrase, err := readSetupPassphrase(*passwordFile)
 	if err != nil {
@@ -236,7 +240,7 @@ func runRestore(args []string, out io.Writer) error {
 	}
 	plan := BuildRestorePlan(snapshot, manifest, destination)
 	if *apply {
-		result, err := ApplyRestorePlan(plan, RestoreApplyOptions{JournalDir: *dir})
+		result, err := ApplyRestorePlan(plan, RestoreApplyOptions{JournalDir: *dir, Conflict: *onConflict})
 		if err != nil {
 			return err
 		}

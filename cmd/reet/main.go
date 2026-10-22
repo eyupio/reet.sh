@@ -69,7 +69,7 @@ Usage: reet <command> [options]
   scan         Report installed skills to your account
   setup        Discover local AI agent setups and support limitations
   sync         Preview a saved skill set; --apply asks before changing files
-  configure    Save your release channel and target server
+  configure    Save your release channel, target server and token
   install      Install this binary or set up a managed server
   upgrade      Update a managed deployment with backup and recovery
   backup       Take, verify and restore sealed backups

@@ -15,6 +15,11 @@ export REET_TOKEN='your-personal-token'
 reet scan --server "$REET_URL" --env my-laptop --prune
 ```
 
+If `REET_TOKEN` is unset, `reet scan` prompts for the token and saves it in
+`reet/token` under the platform user configuration directory with owner-only
+permissions. Later scans reuse it; `REET_TOKEN`, `--token` or `--env-file` still
+take precedence. Remove the saved copy with `reet configure --forget-token`.
+
 Choose a stable, distinct `--env` name for each machine. It defaults to the hostname; `REET_ENV` supplies a reusable alias. Run the scan from each project you want to track. Global and project lock files retain their separate source information. Project identities now include a hash of the full local project path so two projects named `app` do not collide. Rescan older project environments with the new binary, then forget obsolete reports from Account.
 
 `--prune` updates reported inventory: it does not uninstall skills or delete shelf entries. Empty scans register the machine too. Missing skills folders under an existing agent configuration report an empty inventory; unreadable folders are not treated as empty. An import with errors does not prune old inventory or qualify as a complete reference scan.

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	"golang.org/x/term"
@@ -86,6 +88,103 @@ func validateScanToken(value string) error {
 	return nil
 }
 
+// TokenPath is the private file that stores an interactively entered personal
+// token. It is deliberately separate from client.env, which holds no secrets.
+func TokenPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "reet", "token"), nil
+}
+
+func loadSavedToken() (string, error) {
+	path, err := TokenPath()
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() || info.Size() > 4098 {
+		return "", errors.New("saved token must be a small regular file, not a symlink")
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
+		return "", fmt.Errorf("saved token %s is accessible by other users; run chmod 600 %s or forget it with reet configure --forget-token", path, path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	token := strings.TrimRight(string(data), "\r\n")
+	if err := validateScanToken(token); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// SaveToken stores an interactively entered token with owner-only permissions.
+func SaveToken(token string) (string, error) {
+	if token == "" {
+		return "", errors.New("empty token")
+	}
+	if err := validateScanToken(token); err != nil {
+		return "", err
+	}
+	path, err := TokenPath()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(dir, 0700); err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(dir, ".token-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if err := f.Chmod(0600); err != nil {
+		return "", err
+	}
+	if _, err := io.WriteString(f, token); err != nil {
+		return "", err
+	}
+	if err := f.Sync(); err != nil {
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(f.Name(), path); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(path, 0600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// ForgetToken removes the saved token. A missing file is not an error.
+func ForgetToken() (string, error) {
+	path, err := TokenPath()
+	if err != nil {
+		return "", err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+	return path, nil
+}
+
 func ResolveToken(explicit, envFile string, in io.Reader, out io.Writer) (string, error) {
 	token := explicit
 	if token == "" {
@@ -94,6 +193,13 @@ func ResolveToken(explicit, envFile string, in io.Reader, out io.Writer) (string
 	if token == "" && envFile != "" {
 		var err error
 		token, err = tokenFromEnvFile(envFile)
+		if err != nil {
+			return "", err
+		}
+	}
+	if token == "" {
+		var err error
+		token, err = loadSavedToken()
 		if err != nil {
 			return "", err
 		}
@@ -108,6 +214,13 @@ func ResolveToken(explicit, envFile string, in io.Reader, out io.Writer) (string
 		token = string(secret)
 		for i := range secret {
 			secret[i] = 0
+		}
+		if token != "" {
+			path, err := SaveToken(token)
+			if err != nil {
+				return "", err
+			}
+			fmt.Fprintf(out, "Saved personal API token in %s for future scans. Remove it with reet configure --forget-token.\n", path)
 		}
 	}
 	return token, validateScanToken(token)

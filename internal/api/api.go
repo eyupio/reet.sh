@@ -1012,7 +1012,7 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 	if rf.ID == "" {
 		if r, err := s.parseSkillInput(request, name); err == nil {
 			rf = r
-		} else if strings.ContainsAny(name, "/\\ \t") {
+		} else if strings.ContainsAny(name, "/\\\t\r\n") {
 			return "", false, false, fmt.Errorf("can't tell what %q is", name)
 		} else {
 			local = true

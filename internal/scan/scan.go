@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -202,9 +203,11 @@ func readLock(path string, add func(name, source string)) {
 		SourceType    string `json:"sourceType"`
 		SourceBaseURL string `json:"sourceBaseUrl"`
 		SourceURL     string `json:"sourceUrl"`
+		SkillPath     string `json:"skillPath"`
 	}
 	if json.Unmarshal(v.Skills, &asMap) == nil {
-		for name, e := range asMap {
+		for key, e := range asMap {
+			name := lockSkillName(key, e.SkillPath)
 			source := e.Source
 			if e.SourceType == "well-known" {
 				base := e.SourceBaseURL
@@ -213,7 +216,7 @@ func readLock(path string, add func(name, source string)) {
 				}
 				if u, err := url.Parse(base); err == nil && u.Host != "" && u.User == nil {
 					parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-					if len(parts) == 2 && parts[1] == name {
+					if len(parts) == 2 && (parts[1] == name || parts[1] == key) {
 						source = u.Scheme + "://" + u.Host + "/" + parts[0]
 					}
 				}
@@ -231,6 +234,21 @@ func readLock(path string, add func(name, source string)) {
 			add(e.Name, e.Source)
 		}
 	}
+}
+
+// lockSkillName prefers the installed folder name from the lock entry's skillPath.
+// The skills CLI may key entries by a display name (for example "SVG Logo
+// Designer"), while scans see the folder name ("svg-logo-designer"); matching on
+// the folder keeps sources attached and avoids phantom lock-only skills.
+func lockSkillName(key, skillPath string) string {
+	if skillPath == "" {
+		return key
+	}
+	base := path.Base(path.Dir(strings.ReplaceAll(skillPath, "\\", "/")))
+	if base == "." || base == "/" || base == "" {
+		return key
+	}
+	return base
 }
 
 type multi []string
@@ -371,7 +389,7 @@ func RunVersion(args []string, out io.Writer, version string) error {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusUnauthorized {
-			return errors.New("server replied 401 Unauthorized; use a personal API token from Account on the target server via REET_TOKEN, --env-file .env, or the interactive token prompt")
+			return errors.New("server replied 401 Unauthorized; use a personal API token from Account on the target server via REET_TOKEN, --env-file .env, or the interactive token prompt; delete a stale saved token with reet configure --forget-token")
 		}
 		return fmt.Errorf("server replied %s", resp.Status)
 	}

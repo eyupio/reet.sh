@@ -54,3 +54,24 @@ func TestLocalAndInformationalCommandsDoNotLoadClientDefaults(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigureForgetsSavedToken(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("APPDATA", dir)
+	if _, err := clientconfig.SaveToken("secret-token"); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := runConfigure([]string{"--forget-token"}, strings.NewReader(""), &out); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := clientconfig.TokenPath()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("saved token still present")
+	}
+	if err := runConfigure([]string{"--forget-token", "--url", "https://example.test"}, strings.NewReader(""), &out); err == nil {
+		t.Fatal("accepted conflicting flags")
+	}
+}

@@ -233,6 +233,19 @@ func TestImportLocalAndSourced(t *testing.T) {
 	}
 }
 
+func TestImportLocalNameWithSpaces(t *testing.T) {
+	srv := newSrv(t, deadFetcher(t), "")
+	body := `{"items":[{"name":"SVG Logo Designer"}]}`
+	code, b := do(t, srv, "POST", "/api/import", body)
+	if code != 200 || strings.Contains(b, "can't tell") {
+		t.Fatalf("%d %s", code, b)
+	}
+	l := list(t, srv, "?tab=used")
+	if len(l.Skills) != 1 || l.Skills[0].ID != "local/SVG Logo Designer" {
+		t.Fatalf("%+v", l.Skills)
+	}
+}
+
 func TestImportKeepsLikes(t *testing.T) {
 	srv := newSrv(t, deadFetcher(t), "")
 	do(t, srv, "POST", "/api/skills", `{"input":"`+findSkills+`","liked":true,"bookmarked":true}`)

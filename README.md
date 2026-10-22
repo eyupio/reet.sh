@@ -235,7 +235,11 @@ override saved defaults. `REET_VERSION` selects the release and `REET_URL` selec
 the server. Commands prompt for missing required values in a terminal and save the
 answers. Scripts receive an actionable error; container checks use `--local`.
 The CLI does not modify your parent shell or automatically source a project's
-`.env`; tokens stay in `REET_TOKEN` or the existing enrollment file.
+`.env`. A personal API token entered at a hidden prompt (for example by `reet scan`)
+is saved as plain text in `reet/token` with owner-only permissions
+(`~/.config/reet/token` on Linux), then reused by later commands. `REET_TOKEN`, an
+explicit `--token` or `--env-file` selection overrides it. Forget it with
+`reet configure --forget-token`.
 
 Interactive terminals show the reet wordmark and burnt-orange progress indicators
 for update checks/downloads and remote health checks. Set `REET_NO_ANIMATION=1` to

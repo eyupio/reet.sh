@@ -67,6 +67,19 @@ func TestCollectUsesLockFileSource(t *testing.T) {
 	}
 }
 
+func TestCollectMapsLockDisplayNameToSkillFolder(t *testing.T) {
+	home := t.TempDir()
+	mkSkill(t, filepath.Join(home, ".agents", "skills"), "svg-logo-designer", true)
+	lock := `{"version":3,"skills":{"SVG Logo Designer":{"source":"rknall/claude-skills","skillPath":"svg-logo-designer/SKILL.md"}}}`
+	if err := os.WriteFile(filepath.Join(home, ".agents", ".skill-lock.json"), []byte(lock), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := CollectScan(home, t.TempDir(), nil, "machine").Found
+	if len(got) != 1 || got[0].Name != "svg-logo-designer" || got[0].Source != "rknall/claude-skills" {
+		t.Fatalf("display-name lock entry not mapped to folder: %+v", got)
+	}
+}
+
 func TestCollectToleratesBadLockFile(t *testing.T) {
 	home := t.TempDir()
 	mkSkill(t, filepath.Join(home, ".claude", "skills"), "alpha", true)

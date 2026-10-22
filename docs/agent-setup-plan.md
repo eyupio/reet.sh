@@ -272,6 +272,8 @@ hooks and caches. It reads no configuration values and implements no export.
 
 - Add revisioned profiles, machine/project overrides, migration/API/UI work and
   selective plan application. Preserve existing skill-sync APIs and references.
+  A first local slice now saves explicit named snapshot revisions and lets restore/verify
+  use the newest revision; account sync and overrides remain later work.
 - Record drift from observations; stale/incomplete inventory stays unknown.
 - Gate: intentional machine differences survive sync; profile revisions are
   explicit; no implicit remote execution or credential sharing.

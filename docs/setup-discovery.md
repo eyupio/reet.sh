@@ -502,6 +502,27 @@ Credential stores, OS keychains, device-bound sessions, memory, history and hook
 checked. After restoring on another machine, authenticate again. Health guidance is not
 runtime health and does not prove that an agent or MCP server works.
 
+## Named local profiles (S5a)
+
+```sh
+reet setup profile save --password-file FILE work SNAPSHOT
+reet setup profile list
+reet setup profile show work
+reet setup restore --profile work --password-file FILE
+reet setup verify --profile work --password-file FILE
+```
+
+`profile save` opens and verifies a snapshot, then appends an explicit revision that
+records its ID, digest, policy preview and software evidence. It never stores selected
+values. Saving the same name again creates a new revision; taking a new backup does not
+change an existing profile. `profile list` and `profile show` are local and need no
+passphrase. `restore --profile` and `verify --profile` use the newest revision's
+snapshot.
+
+Profiles are local named snapshot revisions. Account sync, machine/project overrides,
+selective plan application, conflict profiles and cross-machine profile sharing remain
+unimplemented.
+
 ## Opt-in application version probes
 
 ```sh

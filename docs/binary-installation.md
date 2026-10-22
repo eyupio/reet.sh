@@ -36,6 +36,10 @@ reet scan --server https://your-reet-instance.example --token "$REET_TOKEN" --en
 
 `REET_TOKEN` in this command is your personal scanner token. Use `reet scan --help` for the supported folders, environment and pruning options. Add `--dry-run` to inspect the scan before sending it.
 
+## Connect an enrolled scanner
+
+Use `reet agent enroll --server https://reet.sh --env NAME` with your personal `REET_TOKEN`, then `reet agent run`. Add `--allow-apply` during enrollment to enable plans approved in the web UI, and `--project /absolute/path` for tracked project scopes. See [controller sync](controller-sync.md) for private configuration, controls and recovery.
+
 ## Run the web UI
 
 The same binary includes the built Library UI:

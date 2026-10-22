@@ -1,0 +1,385 @@
+package scan
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/eyupio/reet.sh/internal/store"
+)
+
+type agentConfig struct {
+	Server     string   `json:"server"`
+	Token      string   `json:"token"`
+	ID         string   `json:"id"`
+	Secret     string   `json:"secret"`
+	Host       string   `json:"host"`
+	Hostname   string   `json:"hostname"`
+	Home       string   `json:"home"`
+	Projects   []string `json:"projects"`
+	AllowApply bool     `json:"allowApply"`
+}
+
+func agentConfigPath() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "reet-agent.json"
+	}
+	return filepath.Join(dir, "reet", "agent.json")
+}
+func loadAgentConfig(path string) (agentConfig, error) {
+	var c agentConfig
+	st, err := os.Stat(path)
+	if err != nil {
+		return c, err
+	}
+	if st.Mode().Perm()&0077 != 0 {
+		return c, errors.New("agent configuration must be private (chmod 600)")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return c, err
+	}
+	if err = json.Unmarshal(b, &c); err != nil {
+		return c, err
+	}
+	hostname, _ := os.Hostname()
+	home, _ := os.UserHomeDir()
+	if c.Hostname != hostname || c.Home != home {
+		return c, errors.New("enrollment belongs to another local machine or user; enroll this installation separately")
+	}
+	return c, nil
+}
+func writePrivate(path string, data any) error {
+	b, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), ".reet-agent-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err = f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
+}
+func agentRequest(c agentConfig, path string, body any, result any, version string) error {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest("POST", c.Server+path, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Reet-Token", c.Token)
+	req.Header.Set("X-Reet-Agent", c.ID)
+	req.Header.Set("X-Reet-Agent-Key", c.Secret)
+	req.Header.Set("X-Reet-Version", version)
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		var e struct{ Error string }
+		_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&e)
+		return fmt.Errorf("controller %s: %s", resp.Status, e.Error)
+	}
+	if result == nil {
+		return nil
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(result)
+}
+
+// RunAgent enrolls a scanner-only installation and processes typed controller jobs.
+func RunAgent(args []string, out io.Writer, version string) error {
+	if len(args) == 0 {
+		return errors.New("usage: reet agent enroll|run|status|restore [--config PATH]; run --help for options")
+	}
+	action := args[0]
+	fs := flag.NewFlagSet("agent "+action, flag.ContinueOnError)
+	fs.SetOutput(out)
+	config := fs.String("config", agentConfigPath(), "private machine enrollment file")
+	server := fs.String("server", os.Getenv("REET_URL"), "controller URL")
+	host := fs.String("env", os.Getenv("REET_ENV"), "stable machine name")
+	backup := fs.String("backup", "", "removed skill entry to restore")
+	targetID := fs.String("target", "", "target scope for restore")
+	once := fs.Bool("once", false, "poll once, then exit (useful for a scheduler)")
+	allow := fs.Bool("allow-apply", false, "allow this installation to execute plans approved in the web UI")
+	var projects multi
+	fs.Var(&projects, "project", "absolute project directory to track (repeatable at enrollment)")
+	if err := fs.Parse(args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New("unexpected positional arguments")
+	}
+	absoluteConfig, err := filepath.Abs(*config)
+	if err != nil {
+		return err
+	}
+	*config = absoluteConfig
+	switch action {
+	case "enroll":
+		if _, err := os.Stat(*config); err == nil {
+			return errors.New("configuration already exists; keep it or revoke the enrollment before replacing it")
+		}
+		u, err := url.Parse(*server)
+		if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" {
+			return errors.New("use the controller origin, e.g. https://reet.sh")
+		}
+		if u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1")) {
+			return errors.New("remote enrollment requires HTTPS")
+		}
+		hostname, err := os.Hostname()
+		if err != nil {
+			return err
+		}
+		if *host == "" {
+			*host = hostname
+		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		for i, p := range projects {
+			if !filepath.IsAbs(p) {
+				return errors.New("project paths must be absolute")
+			}
+			p, err = filepath.EvalSymlinks(p)
+			if err != nil {
+				return err
+			}
+			st, e := os.Stat(p)
+			if e != nil || !st.IsDir() {
+				return errors.New("project directory unavailable")
+			}
+			projects[i] = p
+		}
+		c := agentConfig{Server: strings.TrimRight(*server, "/"), Token: os.Getenv("REET_TOKEN"), Host: *host, Hostname: hostname, Home: home, Projects: projects, AllowApply: *allow}
+		var result struct {
+			Agent  store.SyncAgent
+			Secret string
+		}
+		if err = agentRequest(c, "/api/v2/sync/agents", map[string]string{"host": *host, "version": version}, &result, version); err != nil {
+			return err
+		}
+		c.ID = result.Agent.ID
+		c.Secret = result.Secret
+		c.Host = result.Agent.Host
+		if err = writePrivate(*config, c); err != nil {
+			return fmt.Errorf("enrolled but could not save configuration; revoke enrollment in Machines before retrying: %w", err)
+		}
+		fmt.Fprintf(out, "Enrolled %s. Private configuration: %s\nRun reet agent run --config %q to report inventories and process approved jobs. Remote apply enabled: %t\n", c.Host, *config, *config, c.AllowApply)
+		return nil
+	case "restore":
+		c, err := loadAgentConfig(*config)
+		if err != nil {
+			return err
+		}
+		return restoreSkill(c, *targetID, *backup, os.Stdin, out, version)
+	case "status":
+		c, err := loadAgentConfig(*config)
+		if err != nil {
+			return err
+		}
+		var a store.SyncAgent
+		if err = agentRequest(c, "/api/v2/sync/identity", map[string]string{}, &a, version); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "Machine: %s\nController: %s\nPaused: %t\nRemote apply enabled: %t\n", a.Host, c.Server, a.Paused, c.AllowApply)
+		return nil
+	case "run":
+	default:
+		return errors.New("unknown agent command")
+	}
+	c, err := loadAgentConfig(*config)
+	if err != nil {
+		return err
+	}
+	lock, err := os.OpenFile(*config+".lock", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return errors.New("agent is already running or its lock needs recovery; inspect the local process before removing the .lock file")
+	}
+	lock.Close()
+	defer os.Remove(*config + ".lock")
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	lastScan := time.Time{}
+	for {
+		if err = agentCycle(ctx, c, *config, out, version, &lastScan); err != nil {
+			if *once {
+				return err
+			}
+			fmt.Fprintf(out, "Agent: %v\n", err)
+		}
+		if *once {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
+type agentResult struct {
+	ID      string   `json:"id"`
+	Status  string   `json:"status"`
+	Hash    string   `json:"hash"`
+	Message string   `json:"message"`
+	Plan    SyncPlan `json:"plan"`
+}
+
+func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer, version string, lastScan *time.Time) error {
+	// A completed result is durable before acknowledgment. Reconnect resends the
+	// result, never the filesystem operation.
+	if b, err := os.ReadFile(config + ".result"); err == nil {
+		var result agentResult
+		if err = json.Unmarshal(b, &result); err != nil {
+			return err
+		}
+		if err = agentRequest(c, "/api/v2/sync/result", result, nil, version); err != nil {
+			return err
+		}
+		if err = os.Remove(config + ".result"); err != nil {
+			return err
+		}
+	}
+	var reply struct {
+		Agent store.SyncAgent
+		Job   *store.SyncJob
+	}
+	if err := agentRequest(c, "/api/v2/sync/poll", map[string]string{}, &reply, version); err != nil {
+		return err
+	}
+	c.Host = reply.Agent.Host
+	if reply.Agent.Paused {
+		return nil
+	}
+	scanAll := func() error {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		defer os.Chdir(cwd)
+		dirs := append([]string{c.Home}, c.Projects...)
+		var failures []error
+		for _, dir := range dirs {
+			if err = os.Chdir(dir); err != nil {
+				failures = append(failures, err)
+				continue
+			}
+			if err = RunVersion([]string{"--server", c.Server, "--token", c.Token, "--env", c.Host, "--prune"}, out, version); err != nil {
+				failures = append(failures, err)
+			}
+		}
+		return errors.Join(failures...)
+	}
+	if reply.Job == nil {
+		if time.Since(*lastScan) >= time.Minute {
+			*lastScan = time.Now()
+			return scanAll()
+		}
+		return nil
+	}
+	j := reply.Job
+	result := agentResult{ID: j.ID, Status: "succeeded"}
+	var operationErr error
+	if j.Kind == "scan" {
+		operationErr = scanAll()
+	} else {
+		target, err := fetchTarget(c.Server, c.Token, j.TargetID)
+		if err != nil {
+			operationErr = err
+		} else if !strings.EqualFold(target.Target.Host, c.Host) || target.Revision != j.Revision {
+			operationErr = errors.New("target identity or revision changed")
+		} else {
+			dir := c.Home
+			if target.Target.Project != "" {
+				dir = target.Target.Project
+				allowed := false
+				for _, p := range c.Projects {
+					if p == dir {
+						allowed = true
+					}
+				}
+				if !allowed {
+					operationErr = errors.New("project is not enrolled; add it to this installation's project scopes locally")
+				}
+			}
+			if j.Kind == "apply" && !c.AllowApply {
+				operationErr = errors.New("remote apply disabled locally; enroll with --allow-apply to opt in")
+			}
+			if operationErr == nil {
+				cwd, _ := os.Getwd()
+				if err = os.Chdir(dir); err != nil {
+					operationErr = err
+				} else {
+					args := []string{"--server", c.Server, "--token", c.Token, "--env", c.Host, "--target", j.TargetID, "--config", config}
+					opts := syncOptions{verifyEnrollment: true, onBackup: func(path string) { result.Plan.Backups = append(result.Plan.Backups, path) }, onPlan: func(p SyncPlan) { result.Plan = p; result.Hash = p.Hash() }}
+					if j.Kind == "apply" {
+						args = append(args, "--apply")
+						opts.approvedHash = j.Hash
+					}
+					runCtx, cancel := context.WithTimeout(ctx, 8*time.Minute)
+					operationErr = runSyncWithOptions(args, strings.NewReader(""), out, func(args []string, cwd string) error {
+						cmd := exec.CommandContext(runCtx, "npx", args...)
+						cmd.Dir = cwd
+						cmd.Stdout = out
+						cmd.Stderr = out
+						return cmd.Run()
+					}, version, opts)
+					cancel()
+					os.Chdir(cwd)
+					if operationErr == nil && j.Kind == "preview" {
+						result.Status = "awaiting-approval"
+					}
+				}
+			}
+		}
+	}
+	if operationErr != nil {
+		result.Status = "failed"
+		result.Message = operationErr.Error()
+	}
+	if err := writePrivate(config+".result", result); err != nil {
+		return err
+	}
+	if err := agentRequest(c, "/api/v2/sync/result", result, nil, version); err != nil {
+		return err
+	}
+	return os.Remove(config + ".result")
+}

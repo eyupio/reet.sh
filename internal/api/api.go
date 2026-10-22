@@ -135,6 +135,7 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 		go s.refreshWorker()
 	}
 	mux := http.NewServeMux()
+	s.registerSyncControl(mux)
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /api/version", s.buildInfo)
 	mux.HandleFunc("GET /api/skills", s.list)
@@ -865,7 +866,12 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 	}
 	var rf ref.Ref
 	local := false
-	if source != "" {
+	if strings.Contains(source, "://") {
+		if parsed, err := s.parseSkillInput(request, strings.TrimRight(source, "/")+"/"+name); err == nil && parsed.SourceType == "hosted" {
+			rf = parsed
+		}
+	}
+	if source != "" && rf.ID == "" {
 		source = strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(source, "https://github.com/"), "http://github.com/"), ".git")
 		if r, err := ref.Parse(source + "/" + name); err == nil {
 			rf = r
@@ -892,7 +898,10 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 		return id, false, false, err
 	}
 	used := true
-	flags := store.Patch{Used: &used}
+	flags := store.Patch{}
+	if !existed {
+		flags.Used = &used
+	}
 	var sk store.Skill
 	if local {
 		sk, err = s.st.UpsertLocalFor(userID, name, flags)
@@ -931,6 +940,7 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 			Project string   `json:"project"`
 			Path    string   `json:"path"`
 			Skills  []string `json:"skills"`
+			Errors  []string `json:"errors"`
 		} `json:"environments"`
 	}
 	if !decode(w, r, &in) {
@@ -958,6 +968,11 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 	}
 	imported, created, ignoredCount := 0, 0, 0
 	errs := []string{}
+	for _, env := range in.Environments {
+		for _, problem := range env.Errors {
+			errs = append(errs, env.Agent+": "+problem)
+		}
+	}
 	// A reference snapshot must never capture a scan midway through its writes.
 	for _, env := range in.Environments {
 		if err := s.st.TouchEnvironmentFor(s.uid(r), env.Host, env.Agent, env.Project, env.Path); err != nil {
@@ -1047,6 +1062,11 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if err := s.st.RecordInventoryFor(s.uid(r), store.EnvironmentIDFor(s.uid(r), env.Host, env.Agent, env.Project), in.Prune && len(errs) == 0, in.Machine); err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
+	for _, env := range in.Environments {
+		if err := s.st.RecordScanErrorFor(s.uid(r), store.EnvironmentIDFor(s.uid(r), env.Host, env.Agent, env.Project), strings.Join(env.Errors, "; ")); err != nil {
 			errs = append(errs, err.Error())
 		}
 	}

@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import type { Snippet } from 'svelte'
-  import { getSyncState, mergeMachines, forgetMachine, saveSyncTarget, deleteSyncTarget, forgetEnvironment, type SyncState, type SyncEnvironment, type SyncTarget } from './api'
+  import { getSyncState, mergeMachines, forgetMachine, forgetEnvironment, type SyncState, type SyncEnvironment } from './api'
   import CopyButton from './CopyButton.svelte'
-  import MachineComparison from './MachineComparison.svelte'
+  import SyncControl from './SyncControl.svelte'
   import { groupLabel, agentGroups, inventoryMachines } from './machines'
   import ConfirmDialog from './ConfirmDialog.svelte'
 
@@ -35,28 +35,30 @@
   let busy = $state(false)
   let error = $state('')
   let notice = $state('')
-  let host = $state('my-laptop')
+  let host = $state('')
+  let connectionSince = $state(Date.now())
+  let lastRefresh = $state(0)
   let channel = $state('stable')
   let emptyAgent = $state('agents')
-  let source = $state('')
-  let target = $state('')
+  let allowApply = $state(false)
   let forgetting = $state<SyncEnvironment | null>(null)
   let now = $state(Date.now())
   // svelte-ignore state_referenced_locally
   let connectOpen = $state(startConnect)
   let loadedOnce = false
+  let refreshing = false
+  let loadGeneration = 0
   const machines = $derived(inventoryMachines(syncState.machines ?? []))
   const serverMachines = $derived((syncState.machines ?? []).filter(machine => agentGroups(machine).length === 0))
-  const connectedMachine = $derived(machines.find(machine => machine.host === host.trim() && agentGroups(machine).some(group => group.complete && fresh(group))))
+  const connectedMachine = $derived(machines.find(machine => machine.host === host.trim() && agentGroups(machine).some(group => group.complete && fresh(group) && group.scannedAt >= connectionSince)))
   const site = location.origin
   function quote(value: string): string { return "'" + value.replaceAll("'", "'\\''") + "'" }
-  const install = $derived(`curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh${channel === 'dev' ? ' -s -- --version dev' : ''}`)
+  const install = $derived(`curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh${channel === 'dev' ? ' -s -- --version dev' : ''}\nexport PATH="$HOME/.local/bin:$PATH"\nreet --version`)
   const credentials = $derived(`export REET_URL=${quote(site)}\nexport REET_TOKEN=${quote(token || 'PASTE_YOUR_PERSONAL_TOKEN_HERE')}`)
   const scan = $derived(`reet scan --server ${quote(site)} --env ${quote(host.trim() || 'my-laptop')} --prune`)
+  const enrollment = $derived(`reet agent enroll --server ${quote(site)} --env ${quote(host.trim() || 'my-laptop')}${allowApply ? ' --allow-apply' : ''}\nreet agent run`)
   const emptyFolder = $derived(`mkdir -p ${emptyAgent === 'claude' ? '~/.claude/skills' : emptyAgent === 'cursor' ? '~/.cursor/skills' : emptyAgent === 'opencode' ? '~/.config/opencode/skills' : '~/.agents/skills'}\n${scan}`)
   const serverConfig = $derived(`export REET_CONTROLLER_URL=${quote(site)}\nexport REET_CONTROLLER_TOKEN="$REET_TOKEN"\nexport REET_ENV=${quote(host.trim() || 'my-server')}\nreet serve`)
-  const references = $derived(syncState.environments.filter((env) => env.complete && fresh(env) && !env.agent.startsWith('reet')))
-  const targets = $derived(references.filter((env) => ['claude', 'agents', 'cursor', 'opencode'].includes(env.agent) && (!env.project || env.project.startsWith('/'))))
   function fresh(env: SyncEnvironment): boolean { return env.scannedAt > now - (env.agent === 'reet-server' ? 5 * 60000 : 14 * 86400000) }
   function when(at: number): string { return at ? new Date(at).toLocaleString() : 'Not reported yet' }
   function status(env: SyncEnvironment): string {
@@ -68,39 +70,32 @@
     if (!policy) return 'No reference selected'
     return policy.missing.length || policy.extra.length ? 'Changes needed' : 'In sync with snapshot'
   }
-  function syncCommand(item: SyncTarget, apply = false): string {
-    return `reet sync --server ${quote(site)} --env ${quote(item.target.host)} --target ${quote(item.target.id)}${apply ? ' --apply' : ''}`
-  }
-  async function load() {
-    loading = true; error = ''
+  async function load(background = false) {
+    if (refreshing || busy) return
+    refreshing = true
+    const generation = ++loadGeneration
+    if (!background) loading = true; error = ''
     try {
-      syncState = await getSyncState()
+      const next = await getSyncState(); if (generation !== loadGeneration) return; syncState = next; lastRefresh = Date.now()
       if (!loadedOnce) {
         connectOpen = inventoryMachines(syncState.machines ?? []).length === 0 || startConnect
         loadedOnce = true
       }
-    } catch (e) { error = e instanceof Error ? e.message : String(e) } finally { loading = false }
+    } catch (e) { error = e instanceof Error ? e.message : String(e) } finally { loading = false; refreshing = false }
   }
-  onMount(() => { void load(); const timer = setInterval(() => now = Date.now(), 30000); return () => clearInterval(timer) })
-  async function save(e: SubmitEvent) {
-    e.preventDefault(); if (busy || !source || !target || source === target) return
-    busy = true; error = ''; notice = ''
-    try { syncState = await saveSyncTarget(source, target); notice = 'Reference snapshot saved. Preview on the target machine before applying.' } catch (e) { error = e instanceof Error ? e.message : String(e) } finally { busy = false }
-  }
-  async function remove(id: string) {
-    if (busy) return; busy = true; error = ''
-    try { syncState = await deleteSyncTarget(id); notice = 'Sync reference removed. No machine was changed.' } catch (e) { error = e instanceof Error ? e.message : String(e) } finally { busy = false }
-  }
+  onMount(() => { void load(); const timer = setInterval(() => { now = Date.now(); if (document.visibilityState === 'visible') void load(true) }, 5000); return () => clearInterval(timer) })
   async function forget() {
     if (!forgetting || busy) return
     const id = forgetting.id; forgetting = null; busy = true; error = ''
-    try { syncState = await forgetEnvironment(id); if (source === id) source = ''; if (target === id) target = ''; notice = 'Report forgotten. A future scan or server heartbeat can register it again.' } catch (e) { error = e instanceof Error ? e.message : String(e) } finally { busy = false }
+    try { syncState = await forgetEnvironment(id); notice = 'Report forgotten. A future scan or server heartbeat can register it again.' } catch (e) { error = e instanceof Error ? e.message : String(e) } finally { busy = false }
   }
 </script>
 
 <section class="sync" aria-labelledby="sync-title">
-  <header><div><p class="eyebrow">Machines & servers</p><h2 id="sync-title">{view === 'machines' ? 'Your machines' : 'Compare & sync'}</h2></div><button class="btn quiet" type="button" onclick={load} disabled={loading || busy}>{loading ? 'Refreshing…' : 'Refresh status'}</button></header>
-  <p class="lede">Use this reet instance as your controller. It remembers each scan and your chosen skill sets; changes run locally, after you confirm.</p>
+  <header><div><p class="eyebrow">Machines & servers</p><h2 id="sync-title">{view === 'machines' ? 'Your machines' : 'Compare & sync'}</h2></div><button class="btn quiet" type="button" onclick={() => load()} disabled={loading || busy}>{loading ? 'Refreshing…' : 'Refresh status'}</button></header>
+  <p class="lede">Keep your reet.sh skills and machines in step. Review differences and approve the changes you want.</p>
+  {#if lastRefresh}<p class="hint">Status refreshed {when(lastRefresh)} · updates automatically while this page is open.</p>{/if}
+  <SyncControl snapshot={syncState} {canWrite} {view} onupdate={next => { ++loadGeneration; syncState = next }} />
   {#if view === 'machines'}<label class="site">Controller site <input value={site} readonly /></label>{/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
@@ -125,15 +120,18 @@
         {/if}
       </li>
       <li><h3>Report what is installed</h3>
-        <label>Machine name <input bind:value={host} placeholder="my-laptop" autocomplete="off" /></label>
+        <label>Machine name <input bind:value={host} oninput={() => connectionSince = Date.now()} placeholder="Choose a unique machine name" autocomplete="off" /></label>
         <div class="command"><pre>{scan}</pre><CopyButton text={scan} label="Copy scan" /></div>
+        <p class="hint">For ongoing reporting and web controls, enroll once, then run the agent. Add <code>--project /absolute/path</code> for each project. Add <code>--allow-apply</code> only if this machine should execute plans approved here.</p>
+        <label class="apply-opt-in"><input type="checkbox" bind:checked={allowApply} /> Allow this machine to apply plans I approve in reet.sh</label>
+        <div class="command"><pre>{enrollment}</pre><CopyButton text={enrollment} label="Copy enrollment" /></div>
         <p class="hint">Run this in each project you want to track. <code>--prune</code> updates this machine's inventory; it does not uninstall skills or remove them from your shelf. Keep the name stable between scans.</p>
       </li>
     </ol>
     <div class="connection-status" role="status">
       <strong>{connectedMachine ? `Reet, ${connectedMachine.host} is connected.` : 'Check your connection'}</strong>
       <p class="hint">{connectedMachine ? 'A complete, recent skill scan has been received. Your machine is ready to compare.' : 'After running the scan, check for a complete report from this machine.'}</p>
-      <button class="btn" type="button" onclick={load} disabled={loading || busy}>{loading ? 'Checking…' : 'Check for my scan'}</button>
+      <button class="btn" type="button" onclick={() => load()} disabled={loading || busy}>{loading ? 'Checking…' : 'Check for my scan'}</button>
     </div>
     <details class="server"><summary>Install a server, upgrade or diagnose problems</summary>
       <p class="hint">After downloading reet, choose a user service or Docker Compose. Installation and upgrades show a plan and ask for confirmation. Docker Compose needs Docker with the Compose plugin. Run these commands on the host, outside containers.</p>
@@ -148,9 +146,6 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
     </details>
   {/if}
 
-  {#if view === 'compare'}
-  <MachineComparison {machines} {canWrite} onreference={(from, to) => { source = from; target = to; notice = 'Groups selected. Review the reference and target below, then save the snapshot.'; document.getElementById('reference-title')?.focus() }} />
-  {/if}
   {#if view === 'machines'}
   {#if canWrite && reportedMachines.length}
     <details class="maintenance"><summary>Manage machine names & duplicate reports</summary>
@@ -169,11 +164,11 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
       <p class="hint">The controller cannot rescan machines remotely. After each command finishes, use Refresh status to see the reports received.</p>
     </details>
   {/if}
-  <div class="sectionhead"><h3 id="machine-list-title" tabindex="-1">Known machines</h3><span>{machines.length} machines · {syncState.environments.filter(e => !e.agent.startsWith('reet')).length} agent groups</span></div>
+  <div class="sectionhead"><h3 id="machine-list-title" tabindex="-1">Known machines</h3><span>{machines.length} {machines.length === 1 ? 'machine' : 'machines'} · {syncState.environments.filter(e => !e.agent.startsWith('reet')).length} agent groups</span></div>
   {#if !loading && !machines.length}<p class="empty">No machines have reported yet.{canWrite ? ' Run the scan command above, then refresh status.' : ''}</p>{/if}
   <ul class="environments">
     {#each machines as machine (machine.host)}
-      <li><details class="machine-inventory"><summary class="envhead"><div><strong>{machine.host}</strong>{#if machine.aliases?.length}<small class="machine-alias">Also known as {machine.aliases.join(', ')}</small>{/if}</div><span class="badge">{machine.skillCount} unique skills · {agentGroups(machine).length} agent groups</span></summary>
+      <li><details class="machine-inventory"><summary class="envhead"><div><strong>{machine.host}</strong>{#if machine.aliases?.length}<small class="machine-alias">Also known as {machine.aliases.join(', ')}</small>{/if}</div><span class="badge">{agentGroups(machine).every(g => g.complete && fresh(g)) ? 'Inventory current' : 'Scan needed'} · {machine.skillCount} unique {machine.skillCount === 1 ? 'skill' : 'skills'} · {agentGroups(machine).length} agent {agentGroups(machine).length === 1 ? 'group' : 'groups'}</span></summary>
         {#if machine.aliases?.length}<p class="hint">Also known as: {machine.aliases.join(', ')}</p>{/if}
         {#if canWrite}<button class="btn quiet" disabled={busy} onclick={() => (machineChange={from:machine.host})}>Forget machine {machine.host}</button>{/if}
         <p class="hint">One machine environment. Each agent / project below is a subgroup; shared skills count once above.</p>
@@ -184,6 +179,7 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
         <ul class="agent-groups">
           {#each agentGroups(machine) as env (env.id)}
             <li><div class="envhead"><strong>{groupLabel(env)}</strong><span class="badge" class:attention={!env.complete || !fresh(env)}>{status(env)}</span></div>
+              {#if env.error}<p class="error" role="alert">{env.error}</p>{/if}
               <p class="hint">{env.skillCount ?? 0} skills · Last full report: {when(env.scannedAt || env.lastSeen)}</p>
               {#if !env.complete || !fresh(env)}<p class="advice">Run <code>reet scan --server {quote(site)} --env {quote(env.host)} --prune</code>{env.project ? ` from ${env.project}` : ''}, then refresh.</p>{/if}
               {#if canWrite}<button type="button" class="btn quiet" disabled={busy} onclick={() => forgetting = env}>Forget agent group</button>{/if}
@@ -200,29 +196,7 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
   {/if}
   {/if}
 
-  {#if view === 'compare'}
-  {#if canWrite}
-    <h3 id="reference-title" class="mirror-title" tabindex="-1">Choose a reference skill set</h3>
-    <p class="hint">Choose a machine and agent group on each side. Capture a recently scanned group as the desired skill set for the target group. This saves a snapshot on the controller; nothing is installed yet. Save again when you want to adopt newer reference changes. Local-only skills need a linked source first.</p>
-    <form class="reference" onsubmit={save}>
-      <label>Reference <select aria-label="Reference" bind:value={source} disabled={busy}><option value="">Choose reference</option>{#each machines as m}<optgroup label={m.host}>{#each references.filter(e => e.host === m.host) as env}<option value={env.id} disabled={env.id === target}>{groupLabel(env)}</option>{/each}</optgroup>{/each}</select></label>
-      <label>Target <select aria-label="Target" bind:value={target} disabled={busy}><option value="">Choose target</option>{#each machines as m}<optgroup label={m.host}>{#each targets.filter(e => e.host === m.host) as env}<option value={env.id} disabled={env.id === source}>{groupLabel(env)}</option>{/each}</optgroup>{/each}</select></label>
-      <button class="btn primary" type="submit" disabled={busy || !source || !target || source === target}>{busy ? 'Saving…' : 'Save reference snapshot'}</button>
-    </form>
-    {#if !references.length}<p class="hint">Run a full scan first. Only complete scans from the last 14 days can be used to create a reference.</p>{/if}
-  {/if}
-  <ul class="policies">
-    {#each syncState.targets as item (item.target.id)}
-      <li><div class="envhead"><strong>{item.target.name}</strong><span class="badge">{item.missing.length} to install · {item.extra.length} extra</span></div>
-        <p class="hint">Reference: {item.sourceName} · snapshot {when(item.updatedAt)}</p>
-        {#if item.missing.length || item.extra.length}<details><summary>Review differences</summary><ul>{#each item.missing as skill}<li>Install {skill.name} <code>{skill.source}</code></li>{/each}{#each item.extra as skill}<li>Remove {skill.name}</li>{/each}</ul></details>{/if}
-        <p class="hint">Run on <strong>{item.target.host}</strong>{item.target.project ? ` from project ${item.target.project}` : ''}. The CLI checks current files again and stops on unknown sources, name conflicts, or shared-folder removals that would break another detected agent. Removed entries are backed up locally.</p>
-        {#if canWrite}<div class="command"><pre>{syncCommand(item)}</pre><CopyButton text={syncCommand(item)} label="Copy preview" /></div>{/if}
-        {#if canWrite}<div class="policy-actions"><CopyButton text={syncCommand(item, true)} label="Copy apply command" /><button type="button" class="btn quiet" disabled={busy} onclick={() => remove(item.target.id)}>Stop tracking this reference</button></div><p class="hint">Apply lists installs and removals, then asks you to type the target name. The web page never executes commands on your machines.</p>{/if}
-      </li>
-    {/each}
-  </ul>
-  {/if}
+
 </section>
 
 {#if machineChange}
@@ -236,6 +210,7 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
 {/if}
 
 <style>
+ .apply-opt-in { display:flex; align-items:center; gap:10px; margin:12px 0; }
  .machine-alias { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 4px; overflow-wrap: anywhere; }
  .maintenance { margin: 16px 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
  .maintenance > summary { cursor: pointer; min-height: 24px; font-weight: 600; }
@@ -244,7 +219,7 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
  .fleet-command { margin-top: 16px; }
  .machine-inventory > summary { cursor: pointer; min-height: 44px; }
  .sync { margin-top:24px; padding:clamp(18px,3vw,28px); border:1px solid var(--line); border-radius:12px; background:var(--card); }
- header,.envhead,.sectionhead,.policy-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+ header,.envhead,.sectionhead { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
  .eyebrow { margin:0 0 4px; color:var(--accent); text-transform:uppercase; letter-spacing:.1em; font-size:.7rem; font-weight:650; }
  h2 { margin:0; font:500 1.7rem/1.15 var(--serif); } h3 { margin:0 0 8px; font-size:1rem; }
  .lede { color:var(--muted); max-width:72ch; } .hint { color:var(--muted); font-size:.83rem; margin:6px 0; overflow-wrap:anywhere; }
@@ -256,13 +231,13 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
  .existing-token { margin-top:12px; } .connection-status { margin:20px 0; padding:16px; border:1px solid var(--line); border-radius:10px; background:var(--bg); }
  .server { padding:14px; border:1px solid var(--line); border-radius:8px; } summary { cursor:pointer; font-weight:600; } .server .command { margin-bottom:0; }
  .sectionhead { margin-top:28px; } .sectionhead span { color:var(--muted); font-size:.8rem; }
- .environments,.policies { list-style:none; padding:0; display:grid; gap:10px; } .environments>li,.policies>li { border:1px solid var(--line); border-radius:10px; padding:14px; min-width:0; }
+ .environments { list-style:none; padding:0; display:grid; gap:10px; } .environments>li { border:1px solid var(--line); border-radius:10px; padding:14px; min-width:0; }
  .agent-groups { list-style:none; padding:0 0 0 14px; margin-top:14px; border-left:2px solid var(--line); } .agent-groups>li { padding:12px 0; border-top:1px solid var(--line); }
 
  .envhead strong { overflow-wrap:anywhere; } .badge { font-size:.73rem; color:var(--muted); padding:3px 8px; border:1px solid var(--line); border-radius:999px; } .attention { color:var(--accent); border-color:var(--accent); }
- .advice { font-size:.8rem; overflow-wrap:anywhere; margin:10px 0 0; } .mirror-title { margin-top:28px; }
- .reference { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:16px 0; } .reference select { width:100%; } .reference .btn { grid-column:1/-1; justify-self:start; }
+ .advice { font-size:.8rem; overflow-wrap:anywhere; margin:10px 0 0; }
+
  .error,.notice { padding:12px; border:1px solid var(--bad); border-radius:8px; overflow-wrap:anywhere; } .notice { border-color:var(--good); } .empty { color:var(--muted); padding:20px 0; }
- .policies details { margin:12px 0; font-size:.85rem; } .policies details li { padding:4px 0; } .policies details code { overflow-wrap:anywhere; }
- @media(max-width:560px) { .reference { grid-template-columns:1fr; } .command { align-items:stretch; } .command :global(button) { width:100%; } .setup { padding-left:16px; } }
+
+ @media(max-width:560px) { .command { align-items:stretch; } .command :global(button) { width:100%; } .setup { padding-left:16px; } }
 </style>

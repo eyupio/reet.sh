@@ -2,12 +2,16 @@ package scan
 
 import (
 	"bufio"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,8 +25,28 @@ import (
 )
 
 type syncAction struct {
-	Add   bool
-	Skill store.SyncSkill
+	Add   bool            `json:"add"`
+	Skill store.SyncSkill `json:"skill"`
+}
+type SyncPlan struct {
+	Target    string       `json:"target"`
+	Directory string       `json:"directory"`
+	Revision  string       `json:"revision"`
+	Actions   []syncAction `json:"actions"`
+	Backups   []string     `json:"backups,omitempty"`
+}
+
+func (p SyncPlan) Hash() string {
+	b, _ := json.Marshal(p)
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+type syncOptions struct {
+	verifyEnrollment bool
+	approvedHash     string
+	onPlan           func(SyncPlan)
+	onBackup         func(string)
 }
 
 var safeSlug = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
@@ -35,6 +59,16 @@ func syncSource(sk store.SyncSkill) (string, error) {
 	}
 	if sk.SourceType == "github" && githubSource.MatchString(sk.Source) {
 		return "https://github.com/" + sk.Source, nil
+	}
+	if sk.SourceType == "hosted" {
+		raw := sk.URL
+		if raw == "" {
+			raw = "https://" + sk.Source + "/" + sk.Slug
+		}
+		u, err := url.Parse(raw)
+		if err == nil && (u.Scheme == "https" || u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1")) && u.Host+u.Path == sk.Source+"/"+sk.Slug && u.User == nil && u.RawQuery == "" && u.Fragment == "" && len(strings.Split(strings.Trim(u.Path, "/"), "/")) == 2 {
+			return u.String(), nil
+		}
 	}
 	if sk.SourceType == "well-known" && domainSource.MatchString(sk.Source) {
 		return "https://" + sk.Source, nil
@@ -66,7 +100,7 @@ func planSync(desired []store.SyncSkill, actual []Found) ([]syncAction, error) {
 			actions = append(actions, syncAction{Add: true, Skill: sk})
 			continue
 		}
-		if installed.Source == "" || strings.TrimSuffix(strings.TrimPrefix(installed.Source, "https://github.com/"), ".git") != sk.Source {
+		if installed.Source == "" || canonicalSource(installed.Source) != canonicalSource(sk.Source) {
 			return nil, fmt.Errorf("source conflict for %s; inspect its local lock file before syncing", name)
 		}
 	}
@@ -138,17 +172,22 @@ func RunSync(args []string, in io.Reader, out io.Writer) error {
 }
 
 func RunSyncVersion(args []string, in io.Reader, out io.Writer, version string) error {
-	return runSync(args, in, out, func(args []string, cwd string) error {
-		cmd := exec.Command("npx", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	defer cancel()
+	return runSyncWithOptions(args, in, out, func(args []string, cwd string) error {
+		cmd := exec.CommandContext(ctx, "npx", args...)
 		cmd.Dir = cwd
 		cmd.Stdout = out
 		cmd.Stderr = out
 		cmd.Stdin = in
 		return cmd.Run()
-	}, version)
+	}, version, syncOptions{verifyEnrollment: true})
 }
 
 func runSync(args []string, in io.Reader, out io.Writer, execute func([]string, string) error, version string) error {
+	return runSyncWithOptions(args, in, out, execute, version, syncOptions{})
+}
+func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func([]string, string) error, version string, options syncOptions) error {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 	fs.SetOutput(out)
 	server := fs.String("server", os.Getenv("REET_URL"), "controller URL (env REET_URL)")
@@ -156,6 +195,7 @@ func runSync(args []string, in io.Reader, out io.Writer, execute func([]string, 
 	targetID := fs.String("target", "", "target ID from Your account")
 	host := fs.String("env", os.Getenv("REET_ENV"), "local environment name (default hostname)")
 	apply := fs.Bool("apply", false, "preview, then ask before installing/removing skills")
+	config := fs.String("config", agentConfigPath(), "enrolled machine configuration")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -167,6 +207,17 @@ func runSync(args []string, in io.Reader, out io.Writer, execute func([]string, 
 	}
 	if *token == "" {
 		*token = os.Getenv("REET_TOKEN")
+	}
+	if c, e := loadAgentConfig(*config); e == nil {
+		if *server == "" {
+			*server = c.Server
+		}
+		if *token == "" && strings.TrimRight(*server, "/") == c.Server {
+			*token = c.Token
+		}
+		if *host == "" {
+			*host = c.Host
+		}
 	}
 	if *server == "" || *targetID == "" {
 		return errors.New("--server and --target are required; copy the command from Your account")
@@ -182,6 +233,30 @@ func runSync(args []string, in io.Reader, out io.Writer, execute func([]string, 
 		return fmt.Errorf("this command is for %s, not %s; run it on the target machine", target.Target.Host, *host)
 	}
 	*host = target.Target.Host
+	if *apply && options.verifyEnrollment {
+		c, err := loadAgentConfig(*config)
+		if err != nil {
+			return fmt.Errorf("enroll this machine with reet agent enroll before applying: %w", err)
+		}
+		if strings.TrimRight(*server, "/") != c.Server {
+			return errors.New("enrollment belongs to another controller")
+		}
+		var a store.SyncAgent
+		if err := agentRequest(c, "/api/v2/sync/identity", map[string]string{}, &a, version); err != nil {
+			return err
+		}
+		if !strings.EqualFold(a.Host, *host) {
+			return errors.New("this installation is enrolled as a different machine")
+		}
+		applicationLock := *config + ".apply.lock"
+		lock, err := os.OpenFile(applicationLock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			return errors.New("another apply is running for this installation; inspect the process before recovering a stale .apply.lock")
+		}
+		lock.Close()
+		defer os.Remove(applicationLock)
+
+	}
 
 	agent := syncAgent(target.Target.Agent)
 	if agent == "" {
@@ -211,12 +286,15 @@ func runSync(args []string, in io.Reader, out io.Writer, execute func([]string, 
 	targetPath := ""
 	collect := func() ([]syncAction, error) {
 		inventory := CollectScan(home, cwd, nil, *host)
+		if err := inventory.Err(); err != nil {
+			return nil, fmt.Errorf("scan incomplete; no changes allowed: %w", err)
+		}
 		actual := []Found{}
 		// Agent-specific installs can share a canonical directory. Do not replace
 		// another agent's same-name skill with a different or unknown source.
 		for _, desired := range target.Desired {
 			for _, found := range inventory.Found {
-				if found.Project == target.Target.Project && found.Agent != target.Target.Agent && found.Host == *host && found.Name == desired.Slug && found.Source != desired.Source {
+				if found.Project == target.Target.Project && found.Agent != target.Target.Agent && found.Host == *host && found.Name == desired.Slug && canonicalSource(found.Source) != canonicalSource(desired.Source) {
 					return nil, fmt.Errorf("%s is shared with %s from a different or unknown source; resolve it before syncing", found.Name, found.Agent)
 				}
 			}
@@ -246,7 +324,51 @@ func runSync(args []string, in io.Reader, out io.Writer, execute func([]string, 
 		if _, err := os.ReadDir(path); err != nil {
 			return nil, fmt.Errorf("cannot read target skills directory: %w", err)
 		}
-		actions, err := planSync(target.Desired, actual)
+		desired := target.Desired
+		if target.Mode == "bidirectional" {
+			// A changed local set must be reconciled and saved in the web UI first.
+			base := map[string]string{}
+			have := map[string]string{}
+			for _, sk := range target.Baseline {
+				base[sk.Slug] = canonicalSource(sk.Source)
+			}
+			for _, sk := range actual {
+				have[sk.Name] = canonicalSource(sk.Source)
+			}
+			// After a successful apply, actual matches desired rather than the old baseline.
+			wanted := map[string]string{}
+			for _, sk := range desired {
+				wanted[sk.Slug] = canonicalSource(sk.Source)
+			}
+			same := func(a, b map[string]string) bool {
+				if len(a) != len(b) {
+					return false
+				}
+				for k, v := range a {
+					if w, ok := b[k]; !ok || v != w {
+						return false
+					}
+				}
+				return true
+			}
+			if !same(have, base) && !same(have, wanted) {
+				return nil, errors.New("local changes need review in Compare & sync; save the reconciled selection before applying")
+			}
+		}
+		actions, err := planSync(desired, actual)
+		if target.Mode == "additive" {
+			// Preserve extras, including local-only skills, in additive mode.
+			filtered := []Found{}
+			for _, f := range actual {
+				for _, d := range desired {
+					if d.Slug == f.Name {
+						filtered = append(filtered, f)
+						break
+					}
+				}
+			}
+			actions, err = planSync(desired, filtered)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -293,6 +415,13 @@ func runSync(args []string, in io.Reader, out io.Writer, execute func([]string, 
 		}
 		fmt.Fprintf(out, "  %s %s (%s)\n", verb, action.Skill.Slug, action.Skill.Source)
 	}
+	plan := SyncPlan{Target: target.Target.ID, Directory: targetPath, Revision: target.Revision, Actions: actions}
+	if options.onPlan != nil {
+		options.onPlan(plan)
+	}
+	if options.approvedHash != "" && options.approvedHash != plan.Hash() {
+		return errors.New("approved plan no longer matches local files or desired revision; preview again")
+	}
 	if len(actions) == 0 {
 		fmt.Fprintln(out, "Already in sync.")
 		return RunVersion([]string{"--server", *server, "--token", *token, "--env", *host, "--prune"}, out, version)
@@ -301,13 +430,15 @@ func runSync(args []string, in io.Reader, out io.Writer, execute func([]string, 
 		fmt.Fprintln(out, "Preview only. Add --apply to review and confirm these changes.")
 		return nil
 	}
-	fmt.Fprintf(out, "Removals move entries into .reet-sync-backups beside the skills folder. This may affect skills available to this agent. Type %q to apply: ", target.Target.Name)
-	line, err := bufio.NewReader(in).ReadString('\n')
-	if err != nil && err != io.EOF {
-		return err
-	}
-	if strings.TrimSpace(line) != target.Target.Name {
-		return errors.New("cancelled; no skills changed")
+	if options.approvedHash == "" {
+		fmt.Fprintf(out, "Removals move entries into .reet-sync-backups beside the skills folder. This may affect skills available to this agent. Type %q to apply: ", target.Target.Name)
+		line, err := bufio.NewReader(in).ReadString('\n')
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if strings.TrimSpace(line) != target.Target.Name {
+			return errors.New("cancelled; no skills changed")
+		}
 	}
 	lockPath := filepath.Join(targetPath, ".reet-sync.lock")
 	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
@@ -357,6 +488,9 @@ func runSync(args []string, in io.Reader, out io.Writer, execute func([]string, 
 				operationErr = os.Rename(filepath.Join(targetPath, action.Skill.Slug), filepath.Join(backup, action.Skill.Slug))
 				if operationErr == nil {
 					fmt.Fprintf(out, "Backed up removed entry to %s\n", filepath.Join(backup, action.Skill.Slug))
+					if options.onBackup != nil {
+						options.onBackup(filepath.Join(backup, action.Skill.Slug))
+					}
 				}
 			}
 		}
@@ -378,4 +512,10 @@ func runSync(args []string, in io.Reader, out io.Writer, execute func([]string, 
 	}
 	fmt.Fprintln(out, "Sync complete. Updated inventory persisted on the controller.")
 	return nil
+}
+
+func canonicalSource(source string) string {
+	source = strings.TrimPrefix(strings.TrimPrefix(source, "https://"), "http://")
+	source = strings.TrimPrefix(source, "github.com/")
+	return strings.TrimSuffix(strings.TrimRight(source, "/"), ".git")
 }

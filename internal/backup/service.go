@@ -529,7 +529,7 @@ func (s *Service) Items(ctx context.Context, ownerID int64) ([]Item, []string, e
 			continue
 		}
 		rctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		objects, err := cl.list(rctx, listingPrefix(r.S3.Prefix, scope, ownerID))
+		objects, err := cl.List(rctx, listingPrefix(r.S3.Prefix, scope, ownerID))
 		cancel()
 		if err != nil {
 			unreachable = append(unreachable, r.Name)
@@ -760,7 +760,7 @@ func (s *Service) ship(ctx context.Context, ownerID int64, id string, data []byt
 		}
 		_ = s.st.SetBackupRemoteUploading(ownerID, r.Name, true)
 		key := remotePath(r.S3.Prefix, scopeOf(ownerID), ownerID, id)
-		putErr := cl.putRetry(ctx, key, data)
+		putErr := cl.PutRetry(ctx, key, data)
 		at := time.Now().UnixMilli()
 		msg := ""
 		if putErr != nil {
@@ -849,7 +849,7 @@ func (s *Service) pruneOneRemote(ctx context.Context, ownerID int64, r runtimeRe
 	}
 	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	objects, err := cl.list(rctx, listingPrefix(r.S3.Prefix, scopeOf(ownerID), ownerID))
+	objects, err := cl.List(rctx, listingPrefix(r.S3.Prefix, scopeOf(ownerID), ownerID))
 	if err != nil {
 		return nil, err
 	}
@@ -865,7 +865,7 @@ func (s *Service) pruneOneRemote(ctx context.Context, ownerID int64, r runtimeRe
 		if i < r.Keep {
 			continue
 		}
-		if err := cl.remove(rctx, o.Key); err != nil {
+		if err := cl.Delete(rctx, o.Key); err != nil {
 			return removed, err
 		}
 		removed = append(removed, strings.TrimSuffix(filepath.Base(o.Key), ".reetbackup"))
@@ -920,7 +920,7 @@ func (s *Service) ShipMissing(ctx context.Context, ownerID int64) (Shipment, err
 			continue
 		}
 		rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		objects, err := cl.list(rctx, listingPrefix(r.S3.Prefix, scopeOf(ownerID), ownerID))
+		objects, err := cl.List(rctx, listingPrefix(r.S3.Prefix, scopeOf(ownerID), ownerID))
 		cancel()
 		if err != nil {
 			out.Errors[r.Name] = err.Error()
@@ -956,7 +956,7 @@ func (s *Service) ShipMissing(ctx context.Context, ownerID int64) (Shipment, err
 						continue
 					}
 					rctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-					data, err = other.cl.get(rctx, remotePath(other.r.S3.Prefix, scopeOf(ownerID), ownerID, id))
+					data, err = other.cl.Get(rctx, remotePath(other.r.S3.Prefix, scopeOf(ownerID), ownerID, id))
 					cancel()
 					if err == nil {
 						break
@@ -967,7 +967,7 @@ func (s *Service) ShipMissing(ctx context.Context, ownerID int64) (Shipment, err
 			if data == nil {
 				continue
 			}
-			if err := src.cl.putRetry(ctx, remotePath(r.S3.Prefix, scopeOf(ownerID), ownerID, id), data); err != nil {
+			if err := src.cl.PutRetry(ctx, remotePath(r.S3.Prefix, scopeOf(ownerID), ownerID, id), data); err != nil {
 				out.Errors[r.Name] = err.Error()
 				_ = s.st.SetBackupRemoteResult(ownerID, r.Name, time.Now().UnixMilli(), err.Error())
 				break
@@ -1046,7 +1046,7 @@ func (s *Service) DeleteRemoteCopy(ctx context.Context, ownerID int64, name, id 
 		}
 		rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		return cl.remove(rctx, remotePath(r.S3.Prefix, scopeOf(ownerID), ownerID, id))
+		return cl.Delete(rctx, remotePath(r.S3.Prefix, scopeOf(ownerID), ownerID, id))
 	}
 	return store.ErrNotFound
 }
@@ -1091,7 +1091,7 @@ func (s *Service) download(ctx context.Context, ownerID int64, id, password stri
 			continue
 		}
 		rctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		data, err := cl.get(rctx, remotePath(r.S3.Prefix, scopeOf(ownerID), ownerID, id))
+		data, err := cl.Get(rctx, remotePath(r.S3.Prefix, scopeOf(ownerID), ownerID, id))
 		cancel()
 		if err != nil {
 			continue
@@ -1147,7 +1147,7 @@ func (s *Service) Archive(ctx context.Context, ownerID int64, id string) ([]byte
 			continue
 		}
 		rctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		data, err := cl.get(rctx, remotePath(r.S3.Prefix, scopeOf(ownerID), ownerID, id))
+		data, err := cl.Get(rctx, remotePath(r.S3.Prefix, scopeOf(ownerID), ownerID, id))
 		cancel()
 		if err != nil {
 			continue
@@ -1560,7 +1560,7 @@ func (s *Service) RemoteCopies(ctx context.Context, ownerID int64, name string) 
 		if err != nil {
 			return nil, err
 		}
-		objects, err := cl.list(ctx, listingPrefix(r.S3.Prefix, scopeOf(ownerID), ownerID))
+		objects, err := cl.List(ctx, listingPrefix(r.S3.Prefix, scopeOf(ownerID), ownerID))
 		if err != nil {
 			return nil, err
 		}

@@ -1,4 +1,4 @@
-package backup
+package objectstore
 
 import (
 	"bytes"
@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -25,11 +24,23 @@ import (
 // costs less to read than a dependency tree would.
 
 const (
+	// MaxObjectBytes bounds an object this build will read from a store.
+	MaxObjectBytes = 512 << 20
+
 	emptyPayloadSHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 	defaultS3Region    = "us-east-1"
 )
 
-type s3Client struct {
+type Config struct {
+	Endpoint  string
+	Bucket    string
+	Region    string
+	AccessKey string
+	SecretKey string
+	PathStyle *bool
+}
+
+type Client struct {
 	endpoint  *url.URL
 	bucket    string
 	region    string
@@ -51,7 +62,7 @@ var s3Transport = &http.Transport{
 	MaxIdleConnsPerHost:   2,
 }
 
-func newS3Client(c S3) (*s3Client, error) {
+func New(c Config) (*Client, error) {
 	u, err := url.Parse(strings.TrimSpace(c.Endpoint))
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return nil, fmt.Errorf("%q is not an S3 endpoint URL; write one like https://s3.eu-west-2.amazonaws.com or http://minio:9000", c.Endpoint)
@@ -70,7 +81,7 @@ func newS3Client(c S3) (*s3Client, error) {
 	if c.PathStyle != nil {
 		style = *c.PathStyle
 	}
-	return &s3Client{
+	return &Client{
 		endpoint: u, bucket: strings.TrimSpace(c.Bucket), region: region,
 		accessKey: strings.TrimSpace(c.AccessKey), secretKey: strings.TrimSpace(c.SecretKey),
 		pathStyle: style, http: &http.Client{Transport: s3Transport}, now: time.Now,
@@ -82,7 +93,7 @@ func isAWSEndpoint(host string) bool {
 	return host == "amazonaws.com" || strings.HasSuffix(host, ".amazonaws.com")
 }
 
-func (c *s3Client) url(key string) *url.URL {
+func (c *Client) url(key string) *url.URL {
 	u := *c.endpoint
 	if c.pathStyle {
 		u.Path = "/" + c.bucket
@@ -97,7 +108,7 @@ func (c *s3Client) url(key string) *url.URL {
 	return &u
 }
 
-type s3Object struct {
+type Object struct {
 	Key          string
 	Size         int64
 	LastModified time.Time
@@ -114,8 +125,8 @@ type listResult struct {
 	} `xml:"Contents"`
 }
 
-func (c *s3Client) list(ctx context.Context, prefix string) ([]s3Object, error) {
-	var out []s3Object
+func (c *Client) List(ctx context.Context, prefix string) ([]Object, error) {
+	var out []Object
 	token := ""
 	for {
 		q := url.Values{"list-type": {"2"}}
@@ -148,7 +159,7 @@ func (c *s3Client) list(ctx context.Context, prefix string) ([]s3Object, error) 
 			return nil, fmt.Errorf("%s answered a listing this is not: %w", c.endpoint.Host, err)
 		}
 		for _, item := range parsed.Contents {
-			out = append(out, s3Object{Key: item.Key, Size: item.Size, LastModified: item.LastModified})
+			out = append(out, Object{Key: item.Key, Size: item.Size, LastModified: item.LastModified})
 		}
 		if !parsed.IsTruncated || parsed.NextContinuationToken == "" {
 			return out, nil
@@ -160,10 +171,10 @@ func (c *s3Client) list(ctx context.Context, prefix string) ([]s3Object, error) 
 // putRetry sends a copy up to three times when the store may pass: a 5xx,
 // 429 or 408, or a connection that failed or timed out. A refusal that will
 // not pass is attempted once.
-func (c *s3Client) putRetry(ctx context.Context, key string, body []byte) error {
+func (c *Client) PutRetry(ctx context.Context, key string, body []byte) error {
 	var err error
 	for attempt := 0; attempt < 3; attempt++ {
-		err = c.put(ctx, key, body)
+		err = c.Put(ctx, key, body)
 		if err == nil || !retryableS3(err) {
 			return err
 		}
@@ -191,7 +202,7 @@ func retryableS3(err error) bool {
 	return false
 }
 
-func (c *s3Client) put(ctx context.Context, key string, body []byte) error {
+func (c *Client) Put(ctx context.Context, key string, body []byte) error {
 	sum := sha256.Sum256(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.url(key).String(), bytes.NewReader(body))
 	if err != nil {
@@ -208,7 +219,7 @@ func (c *s3Client) put(ctx context.Context, key string, body []byte) error {
 	return nil
 }
 
-func (c *s3Client) get(ctx context.Context, key string) ([]byte, error) {
+func (c *Client) Get(ctx context.Context, key string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(key).String(), nil)
 	if err != nil {
 		return nil, err
@@ -218,17 +229,17 @@ func (c *s3Client) get(ctx context.Context, key string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.ContentLength > maxObjectBytes {
-		return nil, fmt.Errorf("%s is %d bytes, larger than this build can read from a destination (%d); restore it from the copy on this machine instead", key, resp.ContentLength, int64(maxObjectBytes))
+	if resp.ContentLength > MaxObjectBytes {
+		return nil, fmt.Errorf("%s is %d bytes, larger than this build can read from a destination (%d); restore it from the copy on this machine instead", key, resp.ContentLength, int64(MaxObjectBytes))
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxObjectBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxObjectBytes))
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", key, err)
 	}
 	return body, nil
 }
 
-func (c *s3Client) remove(ctx context.Context, key string) error {
+func (c *Client) Delete(ctx context.Context, key string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(key).String(), nil)
 	if err != nil {
 		return err
@@ -242,7 +253,7 @@ func (c *s3Client) remove(ctx context.Context, key string) error {
 	return nil
 }
 
-func (c *s3Client) do(req *http.Request, payloadSHA256 string) (*http.Response, error) {
+func (c *Client) do(req *http.Request, payloadSHA256 string) (*http.Response, error) {
 	if err := c.sign(req, payloadSHA256); err != nil {
 		return nil, err
 	}
@@ -299,7 +310,7 @@ func redactedURL(u *url.URL) string {
 	return u.Scheme + "://" + u.Host + u.EscapedPath()
 }
 
-func (c *s3Client) sign(req *http.Request, payloadSHA256 string) error {
+func (c *Client) sign(req *http.Request, payloadSHA256 string) error {
 	now := c.now().UTC()
 	amzDate := now.Format("20060102T150405Z")
 	dateStamp := now.Format("20060102")
@@ -397,60 +408,4 @@ func hmacSHA256(key []byte, data string) []byte {
 func sha256Of(s string) []byte {
 	sum := sha256.Sum256([]byte(s))
 	return sum[:]
-}
-
-// CheckStep is one request of a destination test.
-type CheckStep struct {
-	Step   string `json:"step"`
-	OK     bool   `json:"ok"`
-	Detail string `json:"detail"`
-}
-
-// Test writes a small object under the prefix, reads it back and deletes it:
-// the three things a backup needs of a store, in the order it needs them.
-func Test(ctx context.Context, s S3) ([]CheckStep, error) {
-	cl, err := newS3Client(s)
-	if err != nil {
-		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	nonce, _ := randomHex(8)
-	key := s.Prefix + ".connection-test/" + nonce + ".txt"
-	body := []byte("A connection test from reet.sh\n")
-	var steps []CheckStep
-	step := func(name string, err error, ok string) error {
-		if err != nil {
-			steps = append(steps, CheckStep{Step: name, Detail: err.Error()})
-			return err
-		}
-		steps = append(steps, CheckStep{Step: name, OK: true, Detail: ok})
-		return nil
-	}
-	if err := step("put", cl.put(ctx, key, body), "Wrote "+s.Bucket+"/"+key+"."); err != nil {
-		return steps, err
-	}
-	got, err := cl.get(ctx, key)
-	if err == nil && !bytes.Equal(got, body) {
-		err = errors.New("the object read back is not the one written")
-	}
-	if err := step("get", err, "Read it back, byte for byte."); err != nil {
-		_ = cl.remove(context.WithoutCancel(ctx), key)
-		return steps, err
-	}
-	if err := step("delete", cl.remove(ctx, key), "Deleted it again."); err != nil {
-		return steps, err
-	}
-	return steps, nil
-}
-
-func remotePath(prefix, scope string, ownerID int64, id string) string {
-	prefix = strings.Trim(prefix, "/")
-	if prefix != "" {
-		prefix += "/"
-	}
-	if scope == "instance" {
-		return prefix + "instance/" + id + ".reetbackup"
-	}
-	return prefix + "user-" + strconv.FormatInt(ownerID, 10) + "/" + id + ".reetbackup"
 }

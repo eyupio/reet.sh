@@ -165,6 +165,11 @@ func TestMCPTidyTools(t *testing.T) {
 	if !strings.Contains(localRefused, "local_skill_not_allowed_in_list") {
 		t.Fatalf("local shared-list error: %s", localRefused)
 	}
+	bulkLocal := mcpData(t, session, "reet_bulk_update_skills", map[string]any{"ids": []string{"local/seo-audit"}, "add_to_list_id": membersID})
+	bulkResults := bulkLocal["results"].([]any)
+	if int(bulkLocal["failed"].(float64)) != 1 || bulkResults[0].(map[string]any)["code"] != "local_skill_not_allowed_in_list" {
+		t.Fatalf("bulk local shared-list bypass: %+v", bulkLocal)
+	}
 
 	batch := mcpData(t, session, "reet_add_list_skills", map[string]any{"list_id": listID, "inputs": []map[string]any{
 		{"id": "local/svg-logo-designer", "note": "local copy"},

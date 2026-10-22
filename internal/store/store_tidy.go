@@ -350,6 +350,19 @@ func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dry
 		} else if err != nil {
 			return 0, nil, err
 		}
+		if change.AddToListID > 0 {
+			var visibility, sourceType string
+			if err := tx.QueryRow(`SELECT visibility FROM lists WHERE id=?`, change.AddToListID).Scan(&visibility); err != nil {
+				return 0, nil, err
+			}
+			if err := tx.QueryRow(`SELECT source_type FROM skills WHERE id=?`, id).Scan(&sourceType); err != nil {
+				return 0, nil, err
+			}
+			if sourceType == "local" && visibility != "personal" {
+				results = append(results, BulkItemResult{ID: id, Code: "local_skill_not_allowed_in_list", Message: "local skills can only be added to personal lists"})
+				continue
+			}
+		}
 		if change.Liked != nil || change.Bookmarked != nil || change.Used != nil {
 			if _, err := tx.Exec(`UPDATE shelf SET liked=COALESCE(?,liked), bookmarked=COALESCE(?,bookmarked), used=COALESCE(?,used), updated_at=?
 				WHERE user_id=? AND skill_id=?`, nullBool(change.Liked), nullBool(change.Bookmarked), nullBool(change.Used), now(), userID, id); err != nil {

@@ -274,7 +274,9 @@ hooks and caches. It reads no configuration values and implements no export.
 
 - Add revisioned profiles, machine/project overrides, migration/API/UI work and
   selective plan application. Preserve existing skill-sync APIs and references.
-  A first local slice now saves explicit named snapshot revisions, optional component/source
+  A first local slice saves explicit named snapshot revisions from the newest snapshot
+  (or a chosen one), with optional password-protected preview capture and optional
+  component/source
   overrides for restore/verify, lets inspect/rollback/fetch select a revision, keeps
   explicit revision history and supports local rename/remove plus server push/pull;
   a read-only web Profiles page lists server copies. Exclusions can be scoped to named

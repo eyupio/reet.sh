@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/eyupio/reet.sh/internal/sealed"
 )
 
 const (
@@ -100,9 +102,19 @@ func SaveSetupProfileWithOptions(name, password, snapshotPath, dir string, now t
 	if !validProfileName(name) {
 		return SetupProfile{}, SetupProfileRevision{}, errors.New("profile names use 1-64 letters, digits, '-' or '_'")
 	}
-	snapshot, manifest, err := loadSetupSnapshot(snapshotPath, password, dir)
-	if err != nil {
-		return SetupProfile{}, SetupProfileRevision{}, err
+	var snapshot SetupSnapshot
+	var manifest sealed.Manifest
+	var err error
+	if password == "" {
+		manifest, err = snapshotHeaderForProfile(snapshotPath, dir)
+		if err != nil {
+			return SetupProfile{}, SetupProfileRevision{}, err
+		}
+	} else {
+		snapshot, manifest, err = loadSetupSnapshot(snapshotPath, password, dir)
+		if err != nil {
+			return SetupProfile{}, SetupProfileRevision{}, err
+		}
 	}
 	profile, err := loadSetupProfile(name, dir)
 	if err != nil && !os.IsNotExist(err) {
@@ -137,6 +149,25 @@ func SaveSetupProfileWithOptions(name, password, snapshotPath, dir string, now t
 		return SetupProfile{}, SetupProfileRevision{}, err
 	}
 	return profile, revision, nil
+}
+
+func snapshotHeaderForProfile(ref, dir string) (sealed.Manifest, error) {
+	path, err := resolveSetupSnapshotPath(ref, dir)
+	if err != nil {
+		return sealed.Manifest{}, err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return sealed.Manifest{}, fmt.Errorf("inspect setup snapshot: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return sealed.Manifest{}, errors.New("the setup snapshot must be a regular file, not a symlink")
+	}
+	manifest, err := readSetupHeader(path, info)
+	if err != nil || manifest.Kind != setupSnapshotKind {
+		return sealed.Manifest{}, errors.New("this is not a readable reet setup snapshot")
+	}
+	return manifest, nil
 }
 
 func loadSetupProfile(name, dir string) (SetupProfile, error) {
@@ -311,6 +342,11 @@ func renderProfile(out io.Writer, profile SetupProfile, revision SetupProfileRev
 	}
 	if _, err := fmt.Fprintf(out, "  selected components: %d; omitted records: %d; software evidence: %d\n", snapshotComponentCount(revision.Preview), omissionCount(revision.Preview), len(revision.Software)); err != nil {
 		return err
+	}
+	if revision.Preview.SchemaVersion == 0 {
+		if _, err := fmt.Fprintln(out, "  preview not recorded; pass --password-file when saving to include selected/omitted counts."); err != nil {
+			return err
+		}
 	}
 	if revision.Overrides != nil {
 		if len(revision.Overrides.ExcludeKinds) > 0 {

@@ -65,9 +65,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Server-synced profiles merged in [PR #84](https://github.com/eyupio/reet.sh/pull/84), `1ba287a`.
 - The read-only Profiles web page merged in [PR #85](https://github.com/eyupio/reet.sh/pull/85), `8d60f1b`.
 - Profiles UI handoff refresh merged in [PR #86](https://github.com/eyupio/reet.sh/pull/86), `3040fc0`.
-- Latest verified source baseline: `origin/main` at `3040fc0` (2026-10-22).
-- Machine/project-scoped profile overrides are in [PR #87](https://github.com/eyupio/reet.sh/pull/87)
-  on `feat/setup-profile-scopes`; fetch remote status before continuing and preserve any
+- Machine/project-scoped profile overrides merged in [PR #87](https://github.com/eyupio/reet.sh/pull/87), `c8fa9ee`.
+- Latest verified source baseline: `origin/main` at `c8fa9ee` (2026-10-22).
+- Passphrase-free profile saving is in [PR #88](https://github.com/eyupio/reet.sh/pull/88) on
+  `fix/setup-profile-just-works`; fetch remote status before continuing and preserve any
   uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
@@ -118,6 +119,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Store and sync named setup profiles through the server API.
 - [x] Add a read-only Profiles web page with revision/override details and delete.
 - [x] Scope profile exclusions to named machines and projects.
+- [x] Make `profile save NAME` use the newest snapshot without a passphrase.
 
 ## Implemented slice
 
@@ -349,6 +351,11 @@ S5h now scopes profile exclusions to named machines/projects:
 `profile save --exclude-kind/--exclude-source --machine NAME` and `--project PATH`.
 Restore/verify apply a machine scope with `--machine` and a project scope with
 `--project`; the Profiles page shows both. Unscoped save still stores global exclusions.
+
+Profile save now "just works": `reet setup profile save NAME` uses the newest local
+snapshot and records its clear header without a passphrase. An explicit snapshot or
+`--password-file` remains available, the latter adding preview/software evidence. Missing
+`FILE`/`SNAPSHOT` placeholders get guidance instead of an opaque path error.
 
 Next implementation slice: broadening memory/history components or web profile editing,
 depending on owner priority. Do not claim cross-OS restore or a complete working-setup
@@ -1168,6 +1175,24 @@ passed. No dependency changed.
 Broader memory/history adapters, web profile editing and verified cross-OS restore remain
 unimplemented.
 
+## Profile save just works
+
+The current branch makes `reet setup profile save NAME` use the newest local snapshot and
+record only its clear header, so no passphrase is needed. `SNAPSHOT` can still be given
+explicitly, and `--password-file` still opens the encrypted payload to record preview and
+software evidence. A literal `SNAPSHOT` placeholder or missing `FILE` passphrase file now
+returns guidance to omit the argument.
+
+Validation: focused tests cover header-only profile save, newest-snapshot selection,
+restore by header-only profile, placeholder/missing-file guidance and optional preview
+capture. Full `go vet ./...` and `go test -race ./...` passed. Web checks passed (8 tests;
+zero Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary smoke test will
+verify the simplified command before merge; setup tests cross-compile for Windows amd64
+and macOS arm64. `git diff --check` passed. No dependency changed.
+
+Broader memory/history components, web profile editing and verified cross-OS restore
+remain unimplemented.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -1186,12 +1211,13 @@ unimplemented.
    health guidance, per-destination conflict choices, optional software evidence,
    global/project instruction export, explicit portable credential inclusion, optional
    S3 upload/fetch/listing/testing/prune/delete, named local profiles with global and
-   machine/project-scoped overrides, revision selection, rename/remove, server push/pull, a
-   read-only Profiles web page and local pruning are now implemented. The next slice is
-   broader memory/history adapters or web profile editing, depending on owner priority.
-   Keep values encrypted and unknown formats unsupported. Do not claim cross-OS restore
-   or working-setup verification before their acceptance gates. Consult the detailed
-   plan for encryption, key handling, restore and compatibility requirements.
+   machine/project-scoped overrides, passphrase-free profile saving, revision selection,
+   rename/remove, server push/pull, a read-only Profiles web page and local pruning are
+   now implemented. The next slice is broader memory/history adapters or web profile
+   editing, depending on owner priority. Keep values encrypted and unknown formats
+   unsupported. Do not claim cross-OS restore or working-setup verification before their
+   acceptance gates. Consult the detailed plan for encryption, key handling, restore and
+   compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current

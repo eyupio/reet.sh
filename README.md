@@ -271,8 +271,8 @@ reet setup remote list
 reet setup remote test
 reet setup remote prune --keep 10 --apply
 reet setup remote delete --yes SNAPSHOT
-reet setup profile save --password-file ~/.config/reet/setup.pass work SNAPSHOT
-reet setup profile save --exclude-kind instructions --machine laptop --password-file ~/.config/reet/setup.pass work2 SNAPSHOT
+reet setup profile save work
+reet setup profile save --exclude-kind instructions --machine laptop work2
 reet setup profile rename work2 personal
 reet setup profile remove --yes personal
 reet setup profile push --server https://reet.example work
@@ -331,7 +331,10 @@ after snapshot, digest and current-file checks; `reet setup journals` lists reco
 `--last` picks the newest completed one. `reet setup health` gives conservative local
 evidence and reauthentication guidance without repairing anything.
 
-`reet setup profile save` keeps a named local revision pointing at an immutable snapshot;
+`reet setup profile save NAME` uses the newest local snapshot without a passphrase, or
+add `--password-file` to record preview/software evidence; it keeps a named local revision
+pointing at an immutable snapshot. `reet setup profile save` continues to accept an
+explicit snapshot ID.
 `restore`, `verify`, `inspect` and `rollback` accept `--profile NAME` and optional
 `--revision N`; profiles can exclude component kinds or exact source paths globally or
 for named machines/projects, selected with `--machine NAME`/`--project PATH`. `profile rename` keeps history and `profile remove --yes` keeps snapshots;

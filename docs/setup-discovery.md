@@ -521,8 +521,9 @@ runtime health and does not prove that an agent or MCP server works.
 ## Named local profiles (S5a)
 
 ```sh
+reet setup profile save work
 reet setup profile save --password-file FILE work SNAPSHOT
-reet setup profile save --exclude-kind instructions --machine laptop --password-file FILE work2 SNAPSHOT
+reet setup profile save --exclude-kind instructions --machine laptop work2
 reet setup profile list
 reet setup profile show work
 reet setup profile rename work personal
@@ -533,9 +534,10 @@ reet setup restore --profile work --password-file FILE
 reet setup verify --profile work --password-file FILE
 ```
 
-`profile save` opens and verifies a snapshot, then appends an explicit revision that
-records its ID, digest, policy preview, software evidence and optional overrides. It
-never stores selected values. Repeat `--exclude-kind settings|mcp|instructions` or
+`profile save NAME` uses the newest local snapshot and records its clear header (ID,
+digest and time) without needing a passphrase. Pass `SNAPSHOT` to choose one explicitly,
+or `--password-file` to open the encrypted payload and also record the policy preview and
+software evidence. It appends an explicit revision and never stores selected values. Repeat `--exclude-kind settings|mcp|instructions` or
 `--exclude-source PATH` to omit components when a profile is used by restore or verify.
 Add `--machine NAME` or `--project PATH` to scope those exclusions to a machine or
 project; restore/verify apply a machine scope with `--machine NAME` and a project scope

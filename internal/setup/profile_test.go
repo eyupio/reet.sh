@@ -238,3 +238,49 @@ func TestProfileOverrideCLI(t *testing.T) {
 		t.Fatal("excluded instruction restored without a project")
 	}
 }
+
+func TestProfileRevisionSelectionCLI(t *testing.T) {
+	e := fixture(t)
+	dir := t.TempDir()
+	passFile := writePassphrase(t, t.TempDir(), testSetupPassphrase)
+	var ids []string
+	for _, model := range []string{"OLD-MODEL", "NEW-MODEL"} {
+		writeConfig(t, filepath.Join(e.home, ".claude.json"), `{"model":"`+model+`"}`)
+		r, err := discover(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		selection, err := BuildSnapshotSelection(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot, err := WriteSetupSnapshot(selection, SetupWriteOptions{Dir: dir, Password: testSetupPassphrase})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, snapshot.ID)
+	}
+	for _, id := range ids {
+		if err := Run([]string{"profile", "save", "--dir", dir, "--password-file", passFile, "work", id}, &bytes.Buffer{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		revision string
+		want     string
+	}{{"1", "OLD-MODEL"}, {"2", "NEW-MODEL"}} {
+		destination := t.TempDir()
+		t.Setenv("HOME", destination)
+		t.Setenv("USERPROFILE", destination)
+		if err := Run([]string{"restore", "--profile", "work", "--revision", tc.revision, "--apply", "--password-file", passFile, "--dir", dir}, &bytes.Buffer{}); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(filepath.Join(destination, ".claude.json"))
+		if err != nil || !strings.Contains(string(data), tc.want) {
+			t.Fatalf("revision %s used wrong snapshot: %q %v", tc.revision, data, err)
+		}
+	}
+	if err := Run([]string{"restore", "--revision", "1", "--apply", "--password-file", passFile, "--dir", dir, ids[0]}, &bytes.Buffer{}); err == nil {
+		t.Fatal("revision without profile accepted")
+	}
+}

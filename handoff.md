@@ -126,7 +126,11 @@ TOML decoding; `go mod tidy` also recorded an existing test dependency checksum.
 
 ## Current-stage validation and connected sources
 
-Version-probe focused race tests passed. Full repository checks are pending.
+Version-probe focused race tests, `go vet ./...`, and full `go test -race ./...`
+passed. Web checks passed (8 tests; zero Svelte diagnostics), as did all 16 MCP
+tests. Compiled CLI fixture smoke tests passed for default discovery, opt-in
+probes, and combined component/probe flags. `git diff --check` passed. No new
+dependencies. Runtime verification remains Linux-only.
 The reet MCP connection was verified with read-only environment and sync-target
 queries. Its existing environment `version` is reporter metadata, confirmed by
 the scanner/store code; keep application versions separate. No live inventory,

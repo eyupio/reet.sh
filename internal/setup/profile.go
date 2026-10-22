@@ -369,3 +369,47 @@ func profileSnapshotReferences(dir string) map[string]string {
 	}
 	return references
 }
+
+func RemoveSetupProfile(name, dir string) error {
+	if _, err := loadSetupProfile(name, dir); err != nil {
+		return err
+	}
+	path, err := profilePath(name, dir)
+	if err != nil {
+		return err
+	}
+	return os.Remove(path)
+}
+
+func RenameSetupProfile(oldName, newName, dir string) error {
+	if !validProfileName(newName) {
+		return errors.New("profile names use 1-64 letters, digits, '-' or '_'")
+	}
+	profile, err := loadSetupProfile(oldName, dir)
+	if err != nil {
+		return err
+	}
+	oldPath, err := profilePath(oldName, dir)
+	if err != nil {
+		return err
+	}
+	newPath, err := profilePath(newName, dir)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Lstat(newPath); !os.IsNotExist(err) {
+		if err == nil {
+			return fmt.Errorf("profile %q already exists", newName)
+		}
+		return err
+	}
+	profile.Name = newName
+	data, err := json.MarshalIndent(profile, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode profile: %w", err)
+	}
+	if err := writeSnapshotFile(newPath, append(data, '\n'), 0o600); err != nil {
+		return err
+	}
+	return os.Remove(oldPath)
+}

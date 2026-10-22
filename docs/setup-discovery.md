@@ -522,6 +522,8 @@ reet setup profile save --password-file FILE work SNAPSHOT
 reet setup profile save --exclude-kind instructions --password-file FILE work2 SNAPSHOT
 reet setup profile list
 reet setup profile show work
+reet setup profile rename work personal
+reet setup profile remove --yes personal
 reet setup restore --profile work --password-file FILE
 reet setup verify --profile work --password-file FILE
 ```
@@ -531,7 +533,9 @@ records its ID, digest, policy preview, software evidence and optional overrides
 never stores selected values. Repeat `--exclude-kind settings|mcp|instructions` or
 `--exclude-source PATH` to omit components when a profile is used by restore or verify.
 Saving the same name again creates a new revision; taking a new backup does not change an
-existing profile. `profile list` and `profile show` are local and need no passphrase.
+existing profile. `profile list` and `profile show` are local and need no passphrase. `profile rename`
+keeps revision history; `profile remove --yes` deletes only the profile file and keeps
+snapshots.
 `restore --profile`, `verify --profile`, `inspect --profile`, `rollback --profile` and
 `fetch --s3 --profile` use the newest revision's snapshot unless `--revision N` selects
 an older one; restore/verify apply its overrides.

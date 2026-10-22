@@ -58,9 +58,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Profile component/source overrides merged in [PR #77](https://github.com/eyupio/reet.sh/pull/77), `9cb03f9`.
 - Profile revision selection merged in [PR #78](https://github.com/eyupio/reet.sh/pull/78), `653ee2e`.
 - Remote S3 prune/delete merged in [PR #79](https://github.com/eyupio/reet.sh/pull/79), `1d97f47`.
-- Latest verified source baseline: `origin/main` at `1d97f47` (2026-10-22).
-- This handoff refresh is documentation-only; fetch remote status before continuing and
-  preserve any uncommitted work.
+- Final handoff refresh merged in [PR #80](https://github.com/eyupio/reet.sh/pull/80), `8af31bc`.
+- Latest verified source baseline: `origin/main` at `8af31bc` (2026-10-22; code from `1d97f47`).
+- Profile rename/remove are in [PR #81](https://github.com/eyupio/reet.sh/pull/81) on
+  `feat/setup-profile-manage`; fetch remote status before continuing and preserve any
+  uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -104,6 +106,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Select profile revisions for restore/verify/inspect/rollback/fetch.
 - [x] Add profile-protected remote S3 prune/delete.
 - [x] Verify the `1d97f47` dev binary exposes the complete setup command family.
+- [x] Add local profile rename/remove without deleting snapshots.
 
 ## Implemented slice
 
@@ -312,6 +315,10 @@ S2h now adds `reet setup remote prune --keep N [--apply]` and
 `reet setup remote delete --yes SNAPSHOT`. Remote prune is a dry run by default, keeps
 the newest objects and protects snapshots referenced by local profile revisions; delete
 refuses a profile-referenced snapshot. Only `.reetsetup` objects are touched.
+
+S5e now adds `profile rename` (keeping revision history) and `profile remove --yes`
+(deleting only the profile file, never snapshots). Local profile management is complete
+for this slice.
 
 Next implementation slice: account-synced profiles with machine/project overrides, or
 broader memory/history adapters, depending on owner priority. Do not claim cross-OS
@@ -1045,6 +1052,22 @@ setup tests cross-compile for Windows amd64 and macOS arm64.
 Account-synced profiles, machine/project-specific overrides, memory/history adapters and
 verified cross-OS restore remain unimplemented.
 
+## Profile rename and remove
+
+The current stage on `feat/setup-profile-manage` adds `profile rename OLD NEW` (keeps
+revision history) and `profile remove --yes NAME` (deletes only the profile file, never
+snapshots). Missing profiles, existing targets and invalid names are refused.
+
+Validation: focused tests cover rename, old-name removal, revision preservation, remove
+confirmation, snapshot retention and CLI errors. Full `go vet ./...` and
+`go test -race ./...` passed. Web checks passed (8 tests; zero Svelte diagnostics) and
+all 16 MCP tests passed. A compiled-binary smoke test verified rename/remove and snapshot
+retention; setup tests cross-compile for Windows amd64 and macOS arm64. `git diff --check`
+passed. No dependency changed.
+
+Account-synced profiles, machine/project-specific overrides, memory/history adapters and
+verified cross-OS restore remain unimplemented.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -1063,12 +1086,12 @@ verified cross-OS restore remain unimplemented.
    health guidance, per-destination conflict choices, optional software evidence,
    global/project instruction export, explicit portable credential inclusion, optional
    S3 upload/fetch/listing/prune/delete, named local profiles with component/source
-   overrides and revision selection (including inspect/rollback) and local pruning are
-   now implemented. The next slice is account-synced profiles/overrides or broader
-   memory/history adapters, depending on owner priority. Keep values encrypted and
-   unknown formats unsupported. Do not claim cross-OS restore or working-setup
-   verification before their acceptance gates. Consult the detailed plan for encryption,
-   key handling, restore and compatibility requirements.
+   overrides, revision selection, rename/remove, and local pruning are now implemented.
+   The next slice is account-synced profiles/overrides or broader memory/history
+   adapters, depending on owner priority. Keep values encrypted and unknown formats
+   unsupported. Do not claim cross-OS restore or working-setup verification before their
+   acceptance gates. Consult the detailed plan for encryption, key handling, restore and
+   compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current
@@ -1081,9 +1104,9 @@ delete it through S3, list, inspect, plan with compatibility/cross-OS warnings, 
 replace supported files, verify selected destination fields, roll back a completed apply,
 list journals, report local health guidance, apply per-destination conflict choices,
 record/compare optional software evidence, export global/project instructions, optionally
-include portable literal credentials, save/use named local profiles with overrides and
-revision selection, and prune old local snapshots, but account-synced profiles,
-memory/history and verified cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
+include portable literal credentials, save/use/manage named local profiles with
+overrides and revision selection, and prune old local snapshots, but account-synced
+profiles, memory/history and verified cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
 manage that server. No production host was upgraded by this session. Do not copy

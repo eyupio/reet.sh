@@ -31,6 +31,7 @@ func (a *App) doctor(args []string) error {
 	f := flags("doctor", a.Out)
 	stateArg := f.String("state-dir", stateDefault(), "managed deployment configuration directory")
 	asJSON := f.Bool("json", false, "machine-readable results (no credentials)")
+	tokenFile := f.String("env-file", "", "read REET_TOKEN from an explicit env file")
 	server := f.String("server", "", "controller URL (defaults to REET_URL or REET_CONTROLLER_URL)")
 	ok, err := parse(f, args)
 	if !ok {
@@ -131,7 +132,7 @@ func (a *App) doctor(args []string) error {
 		token = os.Getenv("REET_CONTROLLER_TOKEN")
 	}
 	if controller == "" && !*asJSON && clientconfig.Interactive(a.In) {
-		value, err := clientconfig.ResolveURL("", a.In, a.Out)
+		value, err := clientconfig.ResolveURL("", a.In, os.Stderr)
 		if err != nil {
 			return err
 		}
@@ -144,6 +145,17 @@ func (a *App) doctor(args []string) error {
 		if e != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 			add("controller", "fail", "Invalid controller URL.", "Use an http(s) site URL; keep tokens in REET_TOKEN, not the URL.")
 		} else {
+			if !*asJSON || *tokenFile != "" {
+				input := a.In
+				if *asJSON {
+					input = strings.NewReader("")
+				}
+				value, err := clientconfig.ResolveToken(token, *tokenFile, input, os.Stderr)
+				if err != nil {
+					return err
+				}
+				token = value
+			}
 			req, _ := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(controller, "/")+"/api/v2/auth/me", nil)
 			if token != "" {
 				req.Header.Set("Authorization", "Bearer "+token)

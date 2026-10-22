@@ -219,3 +219,53 @@ subsequent command output; no sleeps are added to make work appear longer.
 disables colour and motion. Redirected output gets no escape sequences or banner,
 and JSON output remains machine-readable. Version output retains the exact
 `reet VERSION (COMMIT)` contract used to verify release binaries.
+
+## Scanner authentication
+
+`reet scan` uses `--token`, then exported `REET_TOKEN`, then the token in an
+explicitly selected file:
+
+```sh
+reet scan --env-file .env
+# Or, with no token configured, enter it at the hidden terminal prompt:
+reet scan
+```
+
+Use a personal API token from **Account** on the target server. The file option
+reads only `REET_TOKEN`; the target still comes from `--server`, `REET_URL`, or
+saved CLI defaults. It accepts literal unquoted, single-quoted or double-quoted
+values and optional `export`. It never executes the file or expands variables.
+Duplicate token entries and malformed values are rejected. A project `.env` is
+not loaded implicitly. Keep files containing tokens private (mode 0600).
+
+The prompt does not echo or save the token. Enter skips authentication for servers
+configured without it. Noninteractive commands never prompt and retain support
+for unauthenticated servers; a 401 includes configuration guidance. `--dry-run`
+neither reads the token file nor prompts. Tokens are not written to `client.env`.
+
+## Missing command inputs
+
+Interactive commands resolve settings from their flags, environment and applicable
+saved configuration before asking for missing inputs. URL and release defaults
+retain their existing persistence. Tokens, passwords and recovery keys use hidden
+input and are not added to `client.env`.
+
+- `scan`, `sync`, `agent enroll` and text `doctor` share token resolution and the
+  explicit `--env-file` option. Sync can reuse enrollment credentials only for the
+  enrolled server; explicit credentials take precedence.
+- `sync` asks for a missing target ID. `agent restore` asks for missing target and
+  removed-entry identifiers. Enrollment still creates its private enrollment file
+  through the existing enrollment flow.
+- `backup open` asks for its input file and the password or key required by that
+  archive. Escrow commands ask for missing paths and passphrases. `backup restore`
+  asks for a missing backup ID and, if no stored password is available, the copy
+  password. The destructive restore still requires `--yes` and a stopped server.
+- `healthcheck`, `configure`, and upgrades retain their URL/version prompts.
+
+Prompts go to stderr, keeping payload stdout clean. JSON doctor output, daemon
+operation and redirected stdin never open interactive prompts. Missing required
+inputs produce actionable errors in noninteractive use. Authentication remains
+optional for servers configured without it; Enter skips a token, and a rejected
+request reports how to supply credentials. Help and local dry scans do not request
+remote credentials. A missing enrollment file requires enrollment; reet does not
+silently create an enrollment or invent command intent, recovery keys or resources.

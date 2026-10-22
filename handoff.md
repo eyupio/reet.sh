@@ -349,3 +349,46 @@ reet healthcheck
 
 Installing the CLI does not restart a separately running server. Inspect its
 actual managed deployment before applying any host upgrade.
+
+## Scanner token follow-up
+
+The user's terminal output confirms the published PR #47 dev binary at `666964a`
+was installed successfully, but `reet scan` prompted only for URL and then got 401.
+Branch `fix/scan-token-input` fixes this with explicit `scan --env-file .env`
+(reads only literal REET_TOKEN) and a hidden terminal prompt when no token is
+available. Precedence: --token > exported REET_TOKEN > explicit file > prompt.
+Prompted tokens are session-only; no secrets are saved in client.env. Dry runs do
+not read/prompt for tokens. Noninteractive unauthenticated servers remain supported;
+401 now gives actionable token guidance. No automatic project .env execution.
+`golang.org/x/term v0.47.0` is used for portable terminal echo suppression/restoration.
+Continue release verification and component export policies after this fix.
+
+Validation for the token fix: full `go vet ./...` and `go test -race ./...`
+passed; focused scan race tests passed after the file-type check refinement.
+Web checks passed (8 tests, zero Svelte diagnostics); all 16 MCP tests passed.
+A compiled-binary PTY test confirmed hidden token entry, authenticated submission,
+no token in terminal output and restoration of terminal echo. Unit/integration
+coverage includes precedence, literal env parsing/rejections, no secret diagnostics,
+noninteractive behaviour and dry-run isolation. `git diff --check` passed.
+
+### Consistent missing-input behaviour
+
+The owner expanded the requirement from scan-only token prompts to all commands:
+resolve existing values first, then prompt for missing command inputs. PR #50 is
+being expanded on the same branch with shared `clientconfig.Require` and
+`ResolveToken`. Shared tokens/explicit env files now cover scan, sync, enrollment
+and text doctor. Sync/skill restore prompt for target/entry IDs. Backup open,
+escrow/unescrow and restore prompt for missing files, IDs and needed secrets;
+restore confirmation remains explicit. The backup service exposes a typed missing
+password error so the CLI prompts only when a stored password is unavailable.
+Background reporting and JSON diagnostics suppress interactive input. Enrollment
+credentials remain scoped to their server; no token is saved in client.env.
+The command coverage and intentional noninteractive behaviour are documented in
+`docs/binary-installation.md` under Missing command inputs.
+
+Expanded-scope validation: full Go vet/race suite passed (including API and backup
+packages); focused command/clientconfig/scan/lifecycle race tests passed after the
+stderr routing refinement. Web checks and all 16 MCP tests passed. Additional PTY
+smokes verified sequential target/token and escrow path/passphrase prompts, secret
+non-disclosure and restored echo. Required-input unit tests verify existing values
+skip prompts and noninteractive missing values fail without consuming stdin.

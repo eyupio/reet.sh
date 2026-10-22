@@ -130,6 +130,8 @@ func RunAgent(args []string, out io.Writer, version string) error {
 	fs.SetOutput(out)
 	config := fs.String("config", agentConfigPath(), "private machine enrollment file")
 	server := fs.String("server", os.Getenv("REET_URL"), "controller URL")
+	token := fs.String("token", "", "personal token for enrollment (env REET_TOKEN)")
+	tokenFile := fs.String("env-file", "", "read enrollment REET_TOKEN from an explicit env file")
 	host := fs.String("env", os.Getenv("REET_ENV"), "stable machine name")
 	backup := fs.String("backup", "", "removed skill entry to restore")
 	targetID := fs.String("target", "", "target scope for restore")
@@ -195,7 +197,11 @@ func RunAgent(args []string, out io.Writer, version string) error {
 			}
 			projects[i] = p
 		}
-		c := agentConfig{Server: strings.TrimRight(*server, "/"), Token: os.Getenv("REET_TOKEN"), Host: *host, Hostname: hostname, Home: home, Projects: projects, AllowApply: *allow}
+		tokenValue, err := clientconfig.ResolveToken(*token, *tokenFile, os.Stdin, os.Stderr)
+		if err != nil {
+			return err
+		}
+		c := agentConfig{Server: strings.TrimRight(*server, "/"), Token: tokenValue, Host: *host, Hostname: hostname, Home: home, Projects: projects, AllowApply: *allow}
 		var result struct {
 			Agent  store.SyncAgent
 			Secret string
@@ -216,7 +222,15 @@ func RunAgent(args []string, out io.Writer, version string) error {
 		if err != nil {
 			return err
 		}
-		return restoreSkill(c, *targetID, *backup, os.Stdin, out, version)
+		targetValue, err := clientconfig.Require(*targetID, "--target (target scope)", false, os.Stdin, os.Stderr)
+		if err != nil {
+			return err
+		}
+		backupValue, err := clientconfig.Require(*backup, "--backup (removed skill entry)", false, os.Stdin, os.Stderr)
+		if err != nil {
+			return err
+		}
+		return restoreSkill(c, targetValue, backupValue, os.Stdin, out, version)
 	case "status":
 		c, err := loadAgentConfig(*config)
 		if err != nil {

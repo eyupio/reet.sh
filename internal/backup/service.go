@@ -21,6 +21,8 @@ import (
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
+var ErrPasswordRequired = errors.New("this copy is protected with a password; enter it to open it")
+
 // Service takes, lists, verifies and restores copies. One instance's copies
 // belong to owner 0; a person's belong to that person's account id.
 type Service struct {
@@ -421,7 +423,7 @@ func (s *Service) openArchive(ownerID int64, data []byte, password string) (Mani
 		}
 	}
 	if password == "" {
-		return m, nil, errors.New("this copy is protected with a password; enter it to open it")
+		return m, nil, ErrPasswordRequired
 	}
 	return s.cfg.Sealer.OpenWithPassword(data, password)
 }

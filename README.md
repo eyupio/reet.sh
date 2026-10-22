@@ -257,6 +257,7 @@ reet setup scan --export-policy --json
 reet setup scan --probe-versions --json
 reet setup scan --inspect-installation --json
 reet setup backup --preview --json
+reet setup backup --password-file ~/.config/reet/setup.pass
 ```
 
 The default checks path metadata and executable availability only. Opt into
@@ -275,9 +276,11 @@ credential references and excluded classes in a future encrypted snapshot. It re
 no configuration contents and is a policy declaration, not an export.
 `reet setup backup --preview` applies those policies in memory and reports included,
 encrypted-only, reference and excluded fields, MCP declaration counts, unknown fields
-and omissions without printing values or writing an archive. No reports are uploaded.
-Setup backup writing and restore are **not implemented**. Existing instance and shelf
-backups below remain separate.
+and omissions without printing values or writing an archive. Without `--preview`,
+`reet setup backup --password-file FILE` writes one passphrase-encrypted local
+snapshot under `REET_SETUP_DIR` or the user config `reet/setup` directory; source
+paths and selected values stay inside the encrypted payload. Setup restore remains
+**not implemented**. Existing instance and shelf backups below remain separate.
 See [setup discovery and limits](docs/setup-discovery.md), the
 [implementation plan](docs/agent-setup-plan.md) and [handoff](handoff.md).
 

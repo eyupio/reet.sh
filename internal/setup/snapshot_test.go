@@ -155,28 +155,23 @@ func TestSnapshotPreviewCLIIsPreviewOnly(t *testing.T) {
 	home := isolatedCLI(t)
 	const secret = "SYNTHETIC-SNAPSHOT-CLI-SECRET"
 	writeConfig(t, filepath.Join(home, ".claude.json"), `{"model":"`+secret+`","env":{"TOKEN":"`+secret+`"}}`)
-	for _, args := range [][]string{{"backup"}, {"backup", "--preview", "--json"}} {
-		var out bytes.Buffer
-		err := Run(args, &out)
-		if len(args) == 1 {
-			if err == nil || !strings.Contains(err.Error(), "not implemented") {
-				t.Fatalf("backup writing was not refused: %v", err)
-			}
-			continue
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		var preview SnapshotPreview
-		if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
-			t.Fatal(err)
-		}
-		if preview.SchemaVersion != snapshotPreviewSchemaVersion || preview.PolicyVersion != exportPolicyVersion || len(preview.Agents) != 6 {
-			t.Fatalf("wrong preview identity: %+v", preview)
-		}
-		if strings.Contains(out.String(), secret) {
-			t.Fatal("CLI preview exposed a value")
-		}
+	var out bytes.Buffer
+	if err := Run([]string{"backup", "--preview", "--json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var preview SnapshotPreview
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if preview.SchemaVersion != snapshotPreviewSchemaVersion || preview.PolicyVersion != exportPolicyVersion || len(preview.Agents) != 6 {
+		t.Fatalf("wrong preview identity: %+v", preview)
+	}
+	if strings.Contains(out.String(), secret) {
+		t.Fatal("CLI preview exposed a value")
+	}
+	var refused bytes.Buffer
+	if err := Run([]string{"backup"}, &refused); err == nil || !strings.Contains(err.Error(), "passphrase") {
+		t.Fatalf("backup without a passphrase was not refused: %v", err)
 	}
 	var text bytes.Buffer
 	if err := Run([]string{"backup", "--preview"}, &text); err != nil {

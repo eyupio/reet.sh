@@ -263,6 +263,42 @@ they are not file digests, repository provenance or proof that a setup can be
 restored. Run `reet setup backup --preview` before `reet setup backup` writes
 anything; writing still returns an explicit not-implemented error.
 
+## Encrypted local setup snapshots (S2b)
+
+```sh
+reet setup backup --password-file ~/.config/reet/setup.pass
+reet setup backup --password-file - --json
+reet setup backup --password-file FILE --dir /path/to/snapshots
+```
+
+Without `--preview`, `reet setup backup` applies the same policy-driven selection
+and writes one encrypted local snapshot. The passphrase must be at least 12
+characters and comes from a regular file or standard input (`-`); there is no
+command-line passphrase value and no stored key. A passphrase file must be a
+regular file, not a symlink, and at most 4 KiB. The passphrase is not written to
+the snapshot, logs or output.
+
+Snapshots are written atomically with mode 0600 into a directory with mode 0700.
+The default directory is `REET_SETUP_DIR` when set, otherwise the user config
+directory under `reet/setup`; `--dir` overrides both. The writer refuses a
+snapshot directory that is a symlink or not a directory. Each file is named
+`setup-<UTC timestamp>-<nonce>.reetsetup`.
+
+The existing shared archive primitive encrypts the gzip-compressed JSON payload
+with AES-256-GCM and an Argon2id-derived key. The clear archive header contains
+only the snapshot ID, kind `setup`, target `setup`, recorded time, format version,
+payload size, payload SHA-256, protection and compression. Source paths, selected
+settings values, MCP declarations and omission details stay inside the encrypted
+payload. The writer opens the sealed bytes before writing and opens the file on
+disk again afterwards; a mismatch fails and removes the file.
+
+The encrypted payload includes the policy preview, selected source content and the
+omissions report. It does not include credential-bearing values, opt-in sources,
+memory, history, hooks, caches or unsupported classes. The snapshot is not a
+complete AI setup: restore, list/inspect, S3 delivery, dependency resolution,
+cross-OS translation and post-restore verification remain unimplemented.
+`--preview` remains read-only.
+
 ## Opt-in application version probes
 
 ```sh

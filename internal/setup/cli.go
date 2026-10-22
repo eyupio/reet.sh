@@ -14,7 +14,7 @@ import (
 // Run implements the standalone setup command. No server credentials are needed.
 func Run(args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n       reet setup backup --preview [--json] [--project PATH]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\n--preview shows the policy-driven selection without writing an archive.\nSetup backup writing and restore are not yet available.")
+		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n       reet setup backup --preview [--json] [--project PATH]\n       reet setup backup --password-file FILE [--dir DIR] [--json] [--project PATH]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\n--preview shows the policy-driven selection without writing an archive.\nWithout --preview, write a passphrase-encrypted local setup snapshot.\nSetup restore is not yet available.")
 		return err
 	}
 	switch args[0] {
@@ -80,8 +80,10 @@ func runScan(args []string, out io.Writer) error {
 func runBackup(args []string, out io.Writer) error {
 	f := flag.NewFlagSet("reet setup backup", flag.ContinueOnError)
 	f.SetOutput(out)
-	asJSON := f.Bool("json", false, "write a versioned JSON preview")
+	asJSON := f.Bool("json", false, "write a versioned JSON preview or result")
 	preview := f.Bool("preview", false, "show policy-driven selection without writing an archive")
+	passwordFile := f.String("password-file", "", "read the snapshot passphrase from this file, or - for standard input")
+	dir := f.String("dir", "", "write snapshots here (default REET_SETUP_DIR or the user config directory)")
 	project := f.String("project", "", "also consider known locations in this project (no recursive search)")
 	if err := f.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -92,8 +94,13 @@ func runBackup(args []string, out io.Writer) error {
 	if f.NArg() != 0 {
 		return fmt.Errorf("unexpected setup backup arguments")
 	}
+	passphrase := ""
+	var err error
 	if !*preview {
-		return fmt.Errorf("setup backup writing is not implemented; use --preview")
+		passphrase, err = readSetupPassphrase(*passwordFile)
+		if err != nil {
+			return err
+		}
 	}
 	home, err := setupHome()
 	if err != nil {
@@ -111,10 +118,54 @@ func runBackup(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if *asJSON {
-		return writeJSON(out, selection.Preview)
+	if *preview {
+		if *asJSON {
+			return writeJSON(out, selection.Preview)
+		}
+		return renderSnapshotPreview(out, selection.Preview)
 	}
-	return renderSnapshotPreview(out, selection.Preview)
+	result, err := WriteSetupSnapshot(selection, SetupWriteOptions{Dir: *dir, Password: passphrase})
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		return writeJSON(out, result)
+	}
+	return renderSnapshotWrite(out, result)
+}
+
+func readSetupPassphrase(file string) (string, error) {
+	if file == "" {
+		return "", errors.New("writing a setup snapshot needs a passphrase; give --password-file FILE or - for standard input")
+	}
+	var raw []byte
+	var err error
+	if file == "-" {
+		raw, err = io.ReadAll(io.LimitReader(os.Stdin, 4097))
+	} else {
+		info, statErr := os.Lstat(file)
+		if statErr != nil {
+			return "", fmt.Errorf("inspect setup passphrase file: %w", statErr)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return "", errors.New("the setup passphrase file must be a regular file, not a symlink")
+		}
+		if info.Size() > 4096 {
+			return "", errors.New("the setup passphrase file is larger than 4 KiB")
+		}
+		raw, err = os.ReadFile(file)
+	}
+	if err != nil {
+		return "", fmt.Errorf("read setup passphrase: %w", err)
+	}
+	if len(raw) > 4096 {
+		return "", errors.New("the setup passphrase input is larger than 4 KiB")
+	}
+	passphrase := strings.TrimSpace(string(raw))
+	if err := validateSetupPassphrase(passphrase); err != nil {
+		return "", err
+	}
+	return passphrase, nil
 }
 
 func setupHome() (string, error) {
@@ -277,4 +328,15 @@ func fieldPaths(fields []FieldExportPolicy, state string) []string {
 		}
 	}
 	return paths
+}
+
+func renderSnapshotWrite(out io.Writer, result SetupWriteResult) error {
+	if _, err := fmt.Fprintf(out, "Took setup snapshot %s (%d bytes) at %q.\n", result.ID, result.Bytes, result.Path); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "Selected %d components; %d omissions recorded.\n", result.Components, result.Omissions); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintln(out, "It is passphrase-encrypted on this machine. Setup restore is not implemented.")
+	return err
 }

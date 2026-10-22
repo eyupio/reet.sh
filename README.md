@@ -268,6 +268,8 @@ reet setup backup --s3 --password-file ~/.config/reet/setup.pass
 reet setup fetch --s3 SNAPSHOT
 reet setup fetch --s3 --profile work
 reet setup remote list
+reet setup remote prune --keep 10 --apply
+reet setup remote delete --yes SNAPSHOT
 reet setup profile save --password-file ~/.config/reet/setup.pass work SNAPSHOT
 reet setup profile save --exclude-kind instructions --password-file ~/.config/reet/setup.pass work2 SNAPSHOT
 reet setup prune --keep 10 --apply

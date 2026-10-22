@@ -37,6 +37,9 @@ func newFakeSetupS3(t *testing.T) *fakeSetupS3 {
 			body, _ := io.ReadAll(r.Body)
 			f.objects[key] = body
 			w.WriteHeader(http.StatusOK)
+		case http.MethodDelete:
+			delete(f.objects, key)
+			w.WriteHeader(http.StatusNoContent)
 		case http.MethodGet:
 			if r.URL.Query().Get("list-type") == "2" {
 				var b strings.Builder
@@ -238,5 +241,64 @@ func TestSetupRemoteListAndFetchByProfile(t *testing.T) {
 	var empty SetupRemoteList
 	if err := json.Unmarshal(out.Bytes(), &empty); err != nil || len(empty.Snapshots) != 0 {
 		t.Fatalf("remote list after delete: %+v %v", empty, err)
+	}
+}
+
+func TestRemotePruneAndDeleteProtectProfiles(t *testing.T) {
+	fake := newFakeSetupS3(t)
+	dir := t.TempDir()
+	t.Setenv(EnvSetupDir, dir)
+	e := fixture(t)
+	writeConfig(t, filepath.Join(e.home, ".claude.json"), `{"model":"REMOTE-PRUNE"}`)
+	r, err := discover(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := BuildSnapshotSelection(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, err := WriteSetupSnapshot(selection, SetupWriteOptions{Dir: dir, Password: testSetupPassphrase, Now: func() time.Time { return time.Date(2026, 10, 22, 10, 0, 0, 0, time.UTC) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := SaveSetupProfile("keep", testSetupPassphrase, local.ID, dir, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := uploadSetupSnapshotFile(local.Path, local.ID); err != nil {
+		t.Fatal(err)
+	}
+	otherIDs := []string{"setup-20261022T110000Z-aaaaaaaa", "setup-20261022T120000Z-bbbbbbbb"}
+	fake.mu.Lock()
+	localBytes := fake.objects["prefix/"+local.ID+setupSnapshotExtension]
+	for _, id := range otherIDs {
+		fake.objects["prefix/"+id+setupSnapshotExtension] = localBytes
+	}
+	fake.mu.Unlock()
+	if _, err := DeleteRemoteSetupSnapshot(local.ID); err == nil {
+		t.Fatal("profile-referenced remote snapshot was deleted")
+	}
+	result, err := PruneRemoteSetupSnapshots(1, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Protected) != 1 || result.Protected[0].ID != local.ID {
+		t.Fatalf("profile snapshot not protected: %+v", result)
+	}
+	applied, err := PruneRemoteSetupSnapshots(1, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(applied.Removed) != 1 || applied.Removed[0] != "prefix/"+otherIDs[0]+setupSnapshotExtension {
+		t.Fatalf("wrong remote prune: %+v", applied)
+	}
+	fake.mu.Lock()
+	_, protectedExists := fake.objects["prefix/"+local.ID+setupSnapshotExtension]
+	fake.mu.Unlock()
+	if !protectedExists {
+		t.Fatal("protected remote snapshot was pruned")
+	}
+	if _, err := DeleteRemoteSetupSnapshot(otherIDs[1]); err != nil {
+		t.Fatal(err)
 	}
 }

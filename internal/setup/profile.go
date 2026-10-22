@@ -351,3 +351,21 @@ func ApplyProfileOverrides(snapshot SetupSnapshot, overrides *SetupProfileOverri
 	}
 	return filtered
 }
+
+func profileSnapshotReferences(dir string) map[string]string {
+	references := map[string]string{}
+	profiles, err := ListSetupProfiles(dir)
+	if err != nil {
+		return references
+	}
+	for _, summary := range profiles.Profiles {
+		profile, err := loadSetupProfile(summary.Name, dir)
+		if err != nil {
+			continue
+		}
+		for _, revision := range profile.Revisions {
+			references[revision.SnapshotID] = "profile " + summary.Name + " revision " + fmt.Sprint(revision.Revision)
+		}
+	}
+	return references
+}

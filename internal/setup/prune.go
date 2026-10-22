@@ -46,20 +46,7 @@ func PruneSetupSnapshots(dir string, keep int, apply bool) (SetupPruneResult, er
 			"Snapshots referenced by any profile revision or restore journal are protected.",
 		},
 	}
-	protected := map[string]string{}
-	profiles, err := ListSetupProfiles(dir)
-	if err != nil {
-		return SetupPruneResult{}, err
-	}
-	for _, summary := range profiles.Profiles {
-		profile, err := loadSetupProfile(summary.Name, dir)
-		if err != nil {
-			continue
-		}
-		for _, revision := range profile.Revisions {
-			protected[revision.SnapshotID] = "profile " + summary.Name + " revision " + fmt.Sprint(revision.Revision)
-		}
-	}
+	protected := profileSnapshotReferences(dir)
 	journals, err := ListRestoreJournals(dir)
 	if err != nil {
 		return SetupPruneResult{}, err

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -29,6 +30,22 @@ var mcpToolDefinitions = func() []*mcp.Tool {
 }()
 
 const mcpResponseLimit = 25000
+
+// A write has already committed by the time its response is formatted. Make
+// that explicit if the result cannot fit, so clients do not retry the change.
+func mcpResultJSON(data map[string]any, wrote bool) ([]byte, error) {
+	raw, err := json.Marshal(map[string]any{"data": data})
+	if err != nil {
+		return nil, err
+	}
+	if utf8.RuneCount(raw) > mcpResponseLimit {
+		if wrote {
+			return nil, errors.New("the change succeeded, but its response exceeds 25,000 characters; read it with a filtered or paginated tool before making another change")
+		}
+		return nil, errors.New("response exceeds 25,000 characters; use a smaller page or narrower filters")
+	}
+	return raw, nil
+}
 
 func mcpInteger(value any) string {
 	if n, ok := value.(float64); ok {
@@ -50,14 +67,14 @@ func (s *server) hostedMCP(api http.Handler) http.Handler {
 				continue
 			}
 			mcp.AddTool(srv, tool, func(ctx context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, map[string]any, error) {
-				data, err := s.executeMCP(ctx, api, access, tool.Name, args)
+				data, err := s.executeMCP(ctx, api, access, s.oauthBase(r), tool.Name, args)
 				if err != nil {
 					return nil, nil, err
 				}
 				out := map[string]any{"data": data}
-				raw, _ := json.Marshal(out)
-				if len(raw) > mcpResponseLimit {
-					return nil, nil, errors.New("response exceeds 25,000 characters; use a smaller page or narrower filters")
+				raw, err := mcpResultJSON(data, !tool.Annotations.ReadOnlyHint)
+				if err != nil {
+					return nil, nil, err
 				}
 				text := string(raw)
 				if args["response_format"] == "markdown" {
@@ -150,7 +167,7 @@ func mcpPage(items []any, args, meta map[string]any) (map[string]any, error) {
 			meta["next_offset"] = offset + len(selected)
 		}
 		b, _ := json.Marshal(meta)
-		if len(b) < mcpResponseLimit-128 {
+		if utf8.RuneCount(b) < mcpResponseLimit-128 {
 			return meta, nil
 		}
 		if len(selected) <= 1 {
@@ -161,7 +178,7 @@ func mcpPage(items []any, args, meta map[string]any) (map[string]any, error) {
 	}
 }
 
-func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAccess, name string, args map[string]any) (map[string]any, error) {
+func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAccess, origin, name string, args map[string]any) (map[string]any, error) {
 	str := func(key string) string { v, _ := args[key].(string); return v }
 	method, path := "GET", ""
 	query := url.Values{}
@@ -244,7 +261,7 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 		return nil, errors.New("this MCP connection is read-only")
 	}
 	raw, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(context.WithValue(ctx, userContextKey{}, access.User), method, path+"?"+query.Encode(), bytes.NewReader(raw))
+	req, err := http.NewRequestWithContext(context.WithValue(ctx, userContextKey{}, access.User), method, origin+path+"?"+query.Encode(), bytes.NewReader(raw))
 	if err != nil {
 		return nil, err
 	}

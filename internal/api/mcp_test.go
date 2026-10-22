@@ -356,3 +356,83 @@ func TestMCPExistingClientsFollowRoleChangesDisablingAndAdminRevocation(t *testi
 		t.Fatal("admin token revocation missed MCP access")
 	}
 }
+
+func TestMCPHostedSkillReferences(t *testing.T) {
+	for _, transport := range []string{"hosted", "browser"} {
+		t.Run(transport, func(t *testing.T) {
+			ts, _, browser, _ := mcpAccounts(t)
+			mcpJSON(t, browser, ts, "POST", "/api/v2/hosting/username", map[string]any{"username": "ada"}, 200)
+			mcpJSON(t, browser, ts, "PUT", "/api/v2/hosting/skills/demo", store.HostedSkill{
+				Published: true, Content: "---\nname: demo\ndescription: A demo skill.\n---\n\nInstructions.",
+			}, 200)
+			call := mcpToolCaller(t, ts, browser, transport)
+			input := ts.URL + "/ada/demo"
+			failed, text := call("reet_add_skill", map[string]any{"input": input})
+			if failed || !strings.Contains(text, `"sourceType":"hosted"`) {
+				t.Fatalf("add hosted skill: %s", text)
+			}
+			created := mcpJSON(t, browser, ts, "POST", "/api/v2/lists", map[string]any{"name": "Hosted references", "visibility": "personal"}, 200)
+			failed, text = call("reet_add_list_skill", map[string]any{"list_id": created["id"], "input": "npx skills add " + input})
+			if failed {
+				t.Fatalf("add hosted skill to list: %s", text)
+			}
+		})
+	}
+}
+
+func TestMCPWriteResponseLimits(t *testing.T) {
+	for _, transport := range []string{"hosted", "browser"} {
+		t.Run(transport, func(t *testing.T) {
+			ts, st, browser, uid := mcpAccounts(t)
+			call := mcpToolCaller(t, ts, browser, transport)
+			// Under the character budget but over 25,000 UTF-8 bytes.
+			notes := strings.Repeat("漢", 10000)
+			failed, text := call("reet_update_skill", map[string]any{"id": "demo/skills/private", "notes": notes})
+			if failed || !strings.Contains(text, notes) {
+				t.Fatalf("Unicode write failed: %s", text)
+			}
+			failed, text = call("reet_list_skills", map[string]any{"limit": 1})
+			if failed || !strings.Contains(text, notes) {
+				t.Fatalf("Unicode page failed: %s", text)
+			}
+			// Valid input can still exceed the response budget after JSON escaping.
+			notes = strings.Repeat("\n", 14000)
+			failed, text = call("reet_update_skill", map[string]any{"id": "demo/skills/private", "notes": notes})
+			if !failed || !strings.Contains(text, "the change succeeded") {
+				t.Fatalf("oversized write must report that it succeeded: %s", text)
+			}
+			sk, ok, err := st.GetFor(uid, "demo/skills/private")
+			if err != nil || !ok || sk.Notes != notes {
+				t.Fatalf("write was not persisted: %v", err)
+			}
+			failed, text = call("reet_get_skill", map[string]any{"id": "demo/skills/private"})
+			if !failed || strings.Contains(text, "change succeeded") {
+				t.Fatalf("oversized read must not claim a write succeeded: %s", text)
+			}
+		})
+	}
+}
+
+// Exercise both entry points through their public protocols.
+func mcpToolCaller(t *testing.T, ts *httptest.Server, browser *http.Client, transport string) func(string, map[string]any) (bool, string) {
+	t.Helper()
+	token, _ := mcpManual(t, browser, ts, "write")
+	if transport == "browser" {
+		mcpJSON(t, browser, ts, "PATCH", "/api/v2/mcp", map[string]any{"browserEnabled": true, "browserScope": "write"}, 200)
+		return func(name string, args map[string]any) (bool, string) {
+			t.Helper()
+			raw, _ := json.Marshal(map[string]any{"name": name, "arguments": args})
+			status, text := doClient(t, browser, ts, "POST", "/api/v2/mcp/browser/call", string(raw), "Content-Type", "application/json")
+			return status != 200, text
+		}
+	}
+	session := mcpSession(t, ts, token)
+	return func(name string, args map[string]any) (bool, string) {
+		t.Helper()
+		result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: name, Arguments: args})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result.IsError, result.Content[0].(*mcp.TextContent).Text
+	}
+}

@@ -85,15 +85,22 @@ func (s *server) mcpBrowserCall(w http.ResponseWriter, r *http.Request, api http
 		writeErr(w, 400, "arguments do not match the tool schema")
 		return
 	}
-	data, err := s.executeMCP(r.Context(), api, access, in.Name, in.Arguments)
+	data, err := s.executeMCP(r.Context(), api, access, s.oauthBase(r), in.Name, in.Arguments)
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
 	out := map[string]any{"data": data}
-	raw, _ := json.Marshal(out)
-	if len(raw) > mcpResponseLimit {
-		writeErr(w, 400, "response is too large; use a smaller page")
+	wrote := false
+	for _, tool := range mcpToolDefinitions {
+		if tool.Name == in.Name {
+			wrote = !tool.Annotations.ReadOnlyHint
+			break
+		}
+	}
+	raw, err := mcpResultJSON(data, wrote)
+	if err != nil {
+		writeErr(w, 400, err.Error())
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

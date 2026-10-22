@@ -758,7 +758,7 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		if err != nil {
 			return err
 		}
-		if err := remote[0].Push(*server, resolved, profile); err != nil {
+		if err := pushProfile(remote[0], *server, resolved, profile, out); err != nil {
 			return err
 		}
 		_, err = fmt.Fprintf(out, "Pushed profile %s.\n", profile.Name)

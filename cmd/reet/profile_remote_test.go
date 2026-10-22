@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -61,5 +62,16 @@ func TestProfileRemotePushAndPull(t *testing.T) {
 	}
 	if _, err := remote.Pull("", "tok", "work"); err == nil {
 		t.Fatal("missing server accepted")
+	}
+}
+
+func TestProfileRemoteUnauthorizedSentinel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	err := (profileRemote{}).Push(server.URL, "bad", testProfile())
+	if err == nil || !errors.Is(err, setup.ErrProfileUnauthorized) {
+		t.Fatalf("wrong unauthorized error: %v", err)
 	}
 }

@@ -228,7 +228,8 @@ reet setup scan --components --json
 ```
 
 The default checks path metadata and executable availability only. Opt into
-`--components` to read bounded, known JSON configuration files and summarise
+`--components` to read bounded, known configuration files (JSON, Codex TOML and
+OpenCode JSONC) and summarise
 settings, MCP declarations and credential requirements without returning values.
 Unsupported formats and incomplete reads are explicit. Neither mode runs agents,
 uploads reports or changes files. Setup backup and restore are **not implemented**.

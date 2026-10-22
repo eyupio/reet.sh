@@ -89,7 +89,7 @@ are never executed. Nothing is installed, changed or sent to a server. The repor
 is inventory metadata, not a recoverable backup. Existing `reet scan`, `reet sync`
 and `reet backup` retain their existing meanings.
 
-## Opt-in component summaries (S1a)
+## Opt-in component summaries (S1a/S1b)
 
 `--components` reads selected configuration files locally and returns schema v2.
 The original metadata-only schema v1 remains unchanged without the flag. The
@@ -99,8 +99,8 @@ capability becomes `metadata_and_config_summary`; backup and restore remain
 | Agent | Selected configuration sources | Supported summary |
 | --- | --- | --- |
 | Claude Code | `~/.claude.json`; `settings.json` and `settings.local.json` under discovered global/project config directories; project `.mcp.json` | Selected settings and top-level `mcpServers` |
-| Codex | `config.toml` under discovered global/project config directories | Present files explicitly reported as unsupported in this stage |
-| OpenCode | `opencode.json` / `opencode.jsonc` under discovered config directories and project root; explicit `OPENCODE_CONFIG` | Strict JSON settings and `mcp`; JSONC explicitly unsupported |
+| Codex | `config.toml` under discovered global/project config directories | TOML settings and `mcp_servers` |
+| OpenCode | `opencode.json` / `opencode.jsonc` under discovered config directories and project root; explicit `OPENCODE_CONFIG` | JSON/JSONC settings and `mcp` |
 | Pi | `settings.json` under discovered global/project config directories | Selected settings; no built-in MCP parser claimed |
 | Cursor | `mcp.json` under discovered global/project config directories | `mcpServers` |
 | Gemini CLI | `settings.json` under discovered global/project config directories | Selected settings and `mcpServers`, including `httpUrl` |
@@ -116,6 +116,13 @@ hooks, permissions and packages fields; they do not validate their values. Top-l
 count, and environment/header field counts. Commands, URLs, arguments, environment
 values, headers, unknown values and raw parser errors are never returned.
 
+For Codex, `approval_policy` / `sandbox_mode` also set the permissions-field flag;
+OpenCode recognises its singular `permission` setting. Codex MCP summaries support
+stdio commands and HTTP URLs, `env`, `env_vars`, `http_headers`,
+`env_http_headers` and `bearer_token_env_var`. Environment/header reference names
+are counted without being returned or resolved. The bearer-token reference adds
+to `reference_fields` without adding to environment/header map counts.
+
 Whole-value `${NAME}` and `{env:NAME}` strings count as reference-shaped fields;
 this does not prove an agent resolves that syntax or that the environment variable
 exists. Mixed templates, defaults and other values count conservatively as
@@ -129,14 +136,20 @@ distinguishes `absent_in_file`, `parsed`, `partial`, `unsupported` and
 `not_supported_by_adapter`. Never interpret errors, unsupported formats or missing
 files as a complete absence of MCP servers across the user's setup.
 
-Reads are limited to regular files up to 1 MiB. Duplicate JSON keys, nesting over
-64 levels, over 20,000 values and trailing data are rejected. MCP maps over 256
+Reads are limited to regular files up to 1 MiB. Duplicate keys and invalid format
+syntax are rejected. JSON/JSONC parsing rejects nesting over 64 levels, over
+20,000 values and trailing data. JSONC allows line/block comments and trailing
+commas; quoted strings are preserved and duplicate keys remain errors. TOML uses
+the pinned `github.com/pelletier/go-toml/v2` parser (v2.4.3), which limits value
+nesting during decoding; the decoded tree then receives the same inventory
+depth/node limits, including dotted table/key depth. MCP maps over 256
 entries are rejected; names over 256 bytes are omitted with a partial diagnostic.
 Symlink files are skipped; opens are confined to the selected parent directory
 and checked against the observed inode/size/mtime. Unix opens are nonblocking to
 avoid hanging if a file is replaced with a FIFO. This is best-effort observation,
 not a transactional snapshot or a hardened archive collector.
 
-Current fixtures validate declared JSON shapes rather than installed agent release
-versions. TOML/JSONC parsing, full version/provenance capture, memory/history export
-policy and restore verification are subsequent stages in the implementation plan.
+Current fixtures validate declared JSON, TOML and JSONC shapes rather than installed
+agent release versions. Other formats remain unsupported. Full version/provenance
+capture, memory/history export policy and restore verification are subsequent
+stages in the implementation plan.

@@ -81,7 +81,12 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Skill source provenance merged in [PR #101](https://github.com/eyupio/reet.sh/pull/101), `5b97f1d`.
 - Server-copy profile rename merged in [PR #102](https://github.com/eyupio/reet.sh/pull/102), `95ccd79`.
 - Missing skill-lock restore merged in [PR #104](https://github.com/eyupio/reet.sh/pull/104), `0d81784`.
-- Latest verified source baseline: `origin/main` at `0d81784` (2026-10-22).
+- Skill-lock merge merged in [PR #106](https://github.com/eyupio/reet.sh/pull/106), `a7c0671`.
+- Setup support matrix merged in [PR #107](https://github.com/eyupio/reet.sh/pull/107), `867a601`.
+- Restore resume merged in [PR #108](https://github.com/eyupio/reet.sh/pull/108), `7899fc0`.
+- Codex memory merged in [PR #109](https://github.com/eyupio/reet.sh/pull/109), `47bd104`.
+- Web profile exclusions merged in [PR #110](https://github.com/eyupio/reet.sh/pull/110), `4cac976`.
+- Latest verified source baseline: `origin/main` at `4cac976` (2026-10-22).
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -1369,8 +1374,7 @@ mutually exclusive edit form. Web checks pass with zero Svelte diagnostics.
 
 ## Codex memory
 
-The current branch adds a supported reusable-memory adapter for the Codex memory
-database. It finds `~/.codex/memories_*.sqlite` (honouring `CODEX_HOME`), copies a
+Merged in PR #109. The Codex memory adapter It finds `~/.codex/memories_*.sqlite` (honouring `CODEX_HOME`), copies a
 consistent database through SQLite `VACUUM INTO`, and stores only the copy inside the
 encrypted snapshot. Preview and the Profiles page show the database name, size and
 digest, never its contents. Restore writes the database as a journalled file action but

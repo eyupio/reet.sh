@@ -464,6 +464,24 @@ not verify runtime health. Per-file conflict choices, runtime health checks,
 dependency/version resolution, S3 delivery and cross-OS translation remain
 unimplemented.
 
+## Local health guidance (S4i)
+
+```sh
+reet setup health
+reet setup health --json
+reet setup health --probe-versions --inspect-installation
+```
+
+`reet setup health` reports conservative local evidence per agent: executable presence,
+optional bounded version reports and optional local package evidence. Checks are
+`pass`, `warn`, `fail` or `info`, with a summary. It never authenticates, installs,
+repairs, runs hooks or contacts a service; `--probe-versions` executes the discovered
+executable exactly as the scan probe does.
+
+Credential stores, OS keychains, device-bound sessions, memory, history and hooks are not
+checked. After restoring on another machine, authenticate again. Health guidance is not
+runtime health and does not prove that an agent or MCP server works.
+
 ## Opt-in application version probes
 
 ```sh

@@ -239,7 +239,8 @@ hooks and caches. It reads no configuration values and implements no export.
   components without repairing. A rollback command reverses a completed apply journal
   after checking it against the snapshot and current files; local journals can be listed
   and `--last` selects the newest completed one. Apply supports global and
-  per-destination skip/replace choices. Snapshots can now record bounded application
+  per-destination skip/replace choices. A local health command reports executable,
+  optional version and optional package evidence without authenticating or repairing. Snapshots can now record bounded application
   and package evidence and selected global/project instruction text; verify compares
   software evidence with opt-in probes. Runtime health checks and broader memory
   adapters remain later slices.

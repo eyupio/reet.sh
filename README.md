@@ -274,6 +274,7 @@ reet setup verify --probe-versions --inspect-installation --password-file ~/.con
 reet setup rollback --journal FILE --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup rollback --last --password-file ~/.config/reet/setup.pass SNAPSHOT
 reet setup journals
+reet setup health --probe-versions --inspect-installation
 ```
 
 The default checks path metadata and executable availability only. Opt into

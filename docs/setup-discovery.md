@@ -387,6 +387,25 @@ A per-file conflict choice, merge, a rollback command, dependency/version resolu
 cross-OS translation and post-restore verification remain unimplemented. Applying a
 plan is not the complete setup milestone.
 
+## Verifying a restored setup (S4b)
+
+```sh
+reet setup verify --password-file FILE SNAPSHOT
+reet setup verify --password-file FILE --project /path/to/project --json SNAPSHOT
+```
+
+`reet setup verify` opens and verifies the snapshot, discovers the destination and
+compares the selected settings fields and MCP declarations with the mapped
+destination files. Extra destination fields are ignored. Each component is
+`verified`, `missing`, `changed`, `blocked` or `unsupported`; `changed` lists field or
+declaration names, never values. Project sources need `--project`.
+
+Verification never repairs, rewrites, rolls back or runs an agent. It does not check
+application versions, installation provenance, authentication, MCP health, hooks or
+runtime behaviour, and it is not proof that the setup works on this machine or another
+OS. It also reports the snapshot's omitted/unsupported classes so they are not silently
+treated as verified.
+
 ## Opt-in application version probes
 
 ```sh

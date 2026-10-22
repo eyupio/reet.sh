@@ -114,16 +114,31 @@ func VerifySetupSnapshot(snapshot SetupSnapshot, manifest sealed.Manifest, desti
 			addVerifyComponent(&result, entry)
 			continue
 		}
-		object, state, issue := readConfigObject(candidate.path, component.format, component.agentID)
-		if state != "parsed" {
-			entry.State, entry.Reason = "blocked", issue
-			if entry.Reason == "" {
-				entry.Reason = state
+		if source.Component == "instructions" {
+			text, state, issue := readInstructionText(candidate.path)
+			if state != "parsed" {
+				entry.State, entry.Reason = "blocked", issue
+				if entry.Reason == "" {
+					entry.Reason = state
+				}
+				addVerifyComponent(&result, entry)
+				continue
 			}
-			addVerifyComponent(&result, entry)
-			continue
+			if text != source.Text {
+				entry.Mismatches = []string{"text"}
+			}
+		} else {
+			object, state, issue := readConfigObject(candidate.path, component.format, component.agentID)
+			if state != "parsed" {
+				entry.State, entry.Reason = "blocked", issue
+				if entry.Reason == "" {
+					entry.Reason = state
+				}
+				addVerifyComponent(&result, entry)
+				continue
+			}
+			entry.Mismatches = verifySelectedContent(object, component.agentID, source)
 		}
-		entry.Mismatches = verifySelectedContent(object, component.agentID, source)
 		if len(entry.Mismatches) == 0 {
 			entry.State = "verified"
 		} else {

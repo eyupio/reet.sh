@@ -292,7 +292,8 @@ encrypted-only, reference and excluded fields, MCP declaration counts, unknown f
 and omissions without printing values or writing an archive. Without `--preview`,
 `reet setup backup --password-file FILE` writes one passphrase-encrypted local
 snapshot under `REET_SETUP_DIR` or the user config `reet/setup` directory; source
-paths and selected values stay inside the encrypted payload. `reet setup list` reads
+paths, selected values and discovered project instruction text stay inside the
+encrypted payload. `reet setup list` reads
 clear headers without a passphrase; `reet setup inspect` opens the encrypted preview
 and source summaries only with a passphrase and never prints values. `reet setup
 restore` previews a destination plan. `--apply` creates new files or handles conflicts
@@ -303,7 +304,9 @@ fields without repairing or running agents; opt-in `--probe-versions` and
 software evidence. `reet setup rollback` reverses a completed
 apply journal after snapshot, digest and current-file checks. This is still not complete
 setup backup/restore: memory/history/credentials, runtime health, S3 delivery and
-verified cross-OS restore are not implemented. Existing instance and shelf backups
+verified cross-OS restore are not implemented. Discovered project instruction files
+(`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `GEMINI.md`) are included as encrypted text;
+global instruction locations are not inventoried. Existing instance and shelf backups
 below remain separate.
 See [setup discovery and limits](docs/setup-discovery.md), the
 [implementation plan](docs/agent-setup-plan.md) and [handoff](handoff.md).

@@ -40,9 +40,10 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Final handoff documentation merged in [PR #60](https://github.com/eyupio/reet.sh/pull/60), `9c9593b`.
 - Rollback of completed apply journals merged in [PR #61](https://github.com/eyupio/reet.sh/pull/61), `c2b129a`.
 - Per-destination conflict choices merged in [PR #62](https://github.com/eyupio/reet.sh/pull/62), `2abd67f`.
-- Latest verified source baseline: `origin/main` at `2abd67f` (2026-10-22).
-- Snapshot software evidence is in [PR #63](https://github.com/eyupio/reet.sh/pull/63) on
-  `feat/setup-version-evidence`; fetch remote status before continuing and preserve any
+- Snapshot software evidence merged in [PR #63](https://github.com/eyupio/reet.sh/pull/63), `3b19a69`.
+- Latest verified source baseline: `origin/main` at `3b19a69` (2026-10-22).
+- Project instruction export is in [PR #64](https://github.com/eyupio/reet.sh/pull/64) on
+  `feat/setup-instructions`; fetch remote status before continuing and preserve any
   uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
@@ -70,6 +71,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Add rollback of completed apply journals with snapshot and digest checks.
 - [x] Add per-destination conflict skip/replace choices.
 - [x] Record optional application/package evidence and compare it during verify.
+- [x] Export, restore and verify discovered project instruction files as encrypted text.
 
 ## Implemented slice
 
@@ -186,6 +188,12 @@ with the same opt-in flags. It reports matches, missing agents, unknown versions
 version/package mismatches and installation guidance without executing installers,
 hooks or authentication. Snapshot inspect also shows the recorded evidence without
 executable or metadata paths.
+
+S4f now exports discovered project instruction files (`CLAUDE.md`, `.cursorrules`,
+`GEMINI.md` and Codex's shared `AGENTS.md`) as whole bounded text inside encrypted
+snapshots. Preview/list/inspect never print the text; restore writes it as a mode-0600
+file and verify compares exact text. Shared `AGENTS.md` is called out because other
+agents may use it, and global or unlisted instruction locations remain uninventoried.
 
 Next implementation slice: add destination runtime health checks without repairing or
 running arbitrary hooks, then move to named profiles/S5. Do not claim cross-OS restore
@@ -619,6 +627,28 @@ Runtime health checks, exact-version restore/substitution flows, dependency/vers
 resolution, installers, authentication, S3 delivery and cross-OS translation remain
 unimplemented.
 
+## Project instruction export
+
+The current stage on `feat/setup-instructions` selects discovered project instruction
+files as whole bounded text inside the encrypted snapshot. It covers `CLAUDE.md`,
+`.cursorrules`, `GEMINI.md` and Codex's shared project `AGENTS.md`; global or unlisted
+instruction locations are not inventoried. Preview, list and inspect never print the
+text. Restore writes it with mode 0600 and verify compares exact text, reporting a
+`text` mismatch name without the content. Shared `AGENTS.md` may affect other agents, so
+restore is deliberate.
+
+Validation: focused tests cover policy/class selection, snapshot encryption, preview and
+inspection text omission, restore permissions/content, verify match/change and shared
+instruction sources. Full `go vet ./...` and `go test -race ./...` passed. Web checks
+passed (8 tests; zero Svelte diagnostics) and all 16 MCP tests passed. A compiled-binary
+smoke test verified encrypted backup, restore permissions/content and verify for project
+instructions; setup tests cross-compile for Windows amd64 and macOS arm64. `git diff --check` passed. No
+dependency changed.
+
+Memory databases, global instructions, history, hooks, credentials, runtime health,
+dependency/version resolution, S3 delivery and cross-OS translation remain
+unimplemented.
+
 ## Resume checklist (2026-10-22)
 
 1. Read this file, `docs/agent-setup-plan.md`, `docs/setup-discovery.md`, and current
@@ -633,12 +663,12 @@ unimplemented.
 4. Explicit component export policies, the policy-driven preview, the shared sealed
    archive, encrypted local setup snapshot writing, listing/inspection, restore
    planning, create-only apply, conflict skip/replace with rollback copies, destination
-   verification, rollback, per-destination conflict choices and optional software
-   evidence are now implemented. The next small slice is destination runtime health
-   checks, then named profiles/S5. Keep values encrypted and unknown formats
-   unsupported. Do not claim cross-OS restore or working-setup verification before their
-   acceptance gates. Consult the detailed plan for encryption, key handling, restore and
-   compatibility requirements.
+   verification, rollback, per-destination conflict choices, optional software evidence
+   and project instruction export are now implemented. The next small slice is
+   destination runtime health checks, then named profiles/S5. Keep values encrypted and
+   unknown formats unsupported. Do not claim cross-OS restore or working-setup
+   verification before their acceptance gates. Consult the detailed plan for encryption,
+   key handling, restore and compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
    already authorised this workflow; do not ask again. Keep this handoff current
@@ -648,8 +678,9 @@ unimplemented.
 Important boundaries: no complete AI setup backup/restore has shipped. Setup backup
 now writes a partial encrypted local snapshot and can list, inspect, plan, create or
 replace supported files, verify selected destination fields, roll back a completed apply,
-apply per-destination conflict choices and record/compare optional software evidence,
-but runtime health and cross-OS recovery are not implemented. Existing `reet backup` is not evidence that
+apply per-destination conflict choices, record/compare optional software evidence and
+export selected project instructions, but runtime health, broader memory and cross-OS
+recovery are not implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
 manage that server. No production host was upgraded by this session. Do not copy

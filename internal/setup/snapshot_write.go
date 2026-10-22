@@ -49,7 +49,8 @@ type SetupSoftware struct {
 type SetupSnapshotSource struct {
 	Path      string         `json:"path"`
 	Component string         `json:"component"`
-	Content   map[string]any `json:"content"`
+	Content   map[string]any `json:"content,omitempty"`
+	Text      string         `json:"text,omitempty"`
 }
 
 type SetupWriteOptions struct {
@@ -103,7 +104,7 @@ func BuildSetupSnapshot(selection SnapshotSelection) SetupSnapshot {
 	}
 	for _, source := range selection.sources {
 		snapshot.Sources = append(snapshot.Sources, SetupSnapshotSource{
-			Path: source.Path, Component: source.Component, Content: source.Content,
+			Path: source.Path, Component: source.Component, Content: source.Content, Text: source.Text,
 		})
 	}
 	return snapshot
@@ -231,7 +232,11 @@ func verifySetupSnapshot(snapshot SetupSnapshot) error {
 		if !ok || component.Selection != "include" {
 			return errors.New("setup snapshot content is not in the selected preview")
 		}
-		if component.Digest == "" || contentDigest(source.Content) != component.Digest {
+		digest := contentDigest(source.Content)
+		if source.Component == "instructions" {
+			digest = textDigest(source.Text)
+		}
+		if component.Digest == "" || digest != component.Digest {
 			return errors.New("setup snapshot content does not match its recorded digest")
 		}
 	}

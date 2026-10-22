@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -71,6 +72,7 @@ type selectedSnapshotSource struct {
 	Path      string
 	Component string
 	Content   map[string]any
+	Text      string
 }
 
 // BuildSnapshotSelection applies the declared export policies to supported
@@ -128,6 +130,10 @@ func addSourceSelection(agent *SnapshotAgent, selection *SnapshotSelection, agen
 		}
 		return
 	}
+	if len(source.Components) == 1 && source.Components[0].Kind == "instructions" {
+		addInstructionSelection(agent, selection, source)
+		return
+	}
 	object, state, issue := readConfigObject(source.Path, source.Format, agentID)
 	if state != "parsed" {
 		reason := "source_" + state
@@ -149,6 +155,50 @@ func addSourceSelection(agent *SnapshotAgent, selection *SnapshotSelection, agen
 			agent.Omitted = append(agent.Omitted, SnapshotOmission{Kind: component.Kind, Source: source.Path, Reason: "component_unsupported"})
 		}
 	}
+}
+
+func addInstructionSelection(agent *SnapshotAgent, selection *SnapshotSelection, source SourceExportPolicy) {
+	component := source.Components[0]
+	text, state, issue := readInstructionText(source.Path)
+	preview := SnapshotComponent{
+		Kind: component.Kind, Source: source.Path, Scope: source.Scope, Format: "text",
+		Observed: source.Observed, Selection: component.Selection,
+	}
+	if state != "parsed" {
+		reason := "source_" + state
+		if issue != "" {
+			reason = issue
+		}
+		agent.Omitted = append(agent.Omitted, SnapshotOmission{Kind: component.Kind, Source: source.Path, Reason: reason})
+		return
+	}
+	preview.Digest = textDigest(text)
+	agent.Components = append(agent.Components, preview)
+	selection.sources = append(selection.sources, selectedSnapshotSource{Path: source.Path, Component: component.Kind, Text: text})
+}
+
+func readInstructionText(path string) (string, string, string) {
+	info, err := os.Lstat(path)
+	switch {
+	case os.IsNotExist(err):
+		return "", "missing", ""
+	case err != nil:
+		return "", "error", "metadata_unavailable"
+	case info.Mode()&os.ModeSymlink != 0:
+		return "", "symlink", "target_not_inspected"
+	case !info.Mode().IsRegular():
+		return "", "unsupported", "unexpected_file_type"
+	}
+	data, issue := readConfig(path, info)
+	if issue != "" {
+		return "", "error", issue
+	}
+	return string(data), "parsed", ""
+}
+
+func textDigest(text string) string {
+	sum := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(sum[:])
 }
 
 func addIncludedComponent(agent *SnapshotAgent, selection *SnapshotSelection, source SourceExportPolicy, component ComponentExportPolicy, object map[string]any) {

@@ -330,6 +330,9 @@ func copyRestoreBackup(source, destination string) error {
 }
 
 func restoreContent(file restoreFile) ([]byte, error) {
+	if file.format == "text" {
+		return []byte(file.text), nil
+	}
 	content := map[string]any{}
 	for key, value := range file.settings {
 		content[key] = value
@@ -410,6 +413,12 @@ func verifyRestoreFile(path string, file restoreFile) error {
 	data, issue := readConfig(path, info)
 	if issue != "" {
 		return fmt.Errorf("verify restored file %q: %s", path, issue)
+	}
+	if file.format == "text" {
+		if string(data) != file.text {
+			return fmt.Errorf("verify restored file %q: text does not match", path)
+		}
+		return nil
 	}
 	object, err := parseSource(data, file.format)
 	if err != nil {

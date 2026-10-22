@@ -281,6 +281,9 @@ func runRestore(args []string, out io.Writer) error {
 		}
 		return err
 	}
+	if *profile == "" && f.NArg() == 0 && interactive() && !*asJSON {
+		return runRestoreWizard(out, *dir, *project, *machine)
+	}
 	if (*profile == "") == (f.NArg() != 1) {
 		return fmt.Errorf("usage: reet setup restore [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] [--apply] [--on-conflict skip|replace] [--conflict PATH=skip|replace]...")
 	}

@@ -72,10 +72,11 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Wizard profile sync and env-file defaults merged in [PR #91](https://github.com/eyupio/reet.sh/pull/91), `60051f4`.
 - Profiles empty-state refresh merged in [PR #92](https://github.com/eyupio/reet.sh/pull/92), `af36a77`.
 - Rejected-token retry merged in [PR #93](https://github.com/eyupio/reet.sh/pull/93), `d11638e`.
-- Latest verified source baseline: `origin/main` at `d11638e` (2026-10-22).
-- Preview defaults and saved-token retry are in [PR #94](https://github.com/eyupio/reet.sh/pull/94)
-  on `fix/profile-preview-and-token`; fetch remote status before continuing and preserve
-  any uncommitted work.
+- Preview defaults and saved-token retry merged in [PR #94](https://github.com/eyupio/reet.sh/pull/94), `4057583`.
+- Latest verified source baseline: `origin/main` at `4057583` (2026-10-22).
+- The interactive restore wizard is in [PR #95](https://github.com/eyupio/reet.sh/pull/95)
+  on `feat/setup-restore-wizard`; fetch remote status before continuing and preserve any
+  uncommitted work.
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - No implementation capability is implied by this planning document.
@@ -131,6 +132,7 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Offer profile sync in the wizard and read server/token from saved/default/env settings.
 - [x] Prompt for a replacement personal token and retry when sync is rejected.
 - [x] Default to recording profile preview and retry a saved token silently.
+- [x] Add an interactive local restore wizard with plan confirmation and verification.
 
 ## Implemented slice
 
@@ -388,6 +390,10 @@ If the server rejects the token during wizard sync, a previously saved token is 
 first; otherwise the wizard prompts for a personal API token from Account, saves it and
 retries once. Existing snapshots now default to recording preview/software evidence, and
 `profile push` offers to backfill a header-only profile before uploading.
+
+`reet setup restore` with no arguments now runs a local wizard: choose a local profile,
+fetch its snapshot from S3 if configured, enter the passphrase, review the plan, confirm
+apply, choose skip/replace for conflicts and see verification results.
 
 Next implementation slice: broadening memory/history components or web profile editing,
 depending on owner priority. Do not claim cross-OS restore or a complete working-setup
@@ -1307,6 +1313,23 @@ capture and silent saved-token retry with a stale `.env` token. Full `go vet ./.
 `go test -race ./...` passed; web checks passed (8 tests; zero Svelte diagnostics) and all
 16 MCP tests passed. Setup tests cross-compile for Windows amd64 and macOS arm64.
 `git diff --check` passed. No dependency changed.
+
+Broader memory/history components, web profile editing and verified cross-OS restore
+remain unimplemented.
+
+## Interactive restore wizard
+
+The current branch adds an interactive local restore wizard for `reet setup restore`
+with no arguments. It chooses a local profile, fetches the snapshot from S3 if missing
+and configured, prompts for the passphrase, prints a plan summary, asks for confirmation,
+offers skip/replace for conflicts, applies through the journalled path and then verifies
+the selected fields. Flag-driven restore is unchanged.
+
+Validation: a PTY smoke test selected a profile, entered the passphrase, confirmed apply
+and verified the restored file. Full `go vet ./...` and `go test -race ./...` passed; web
+checks passed (8 tests; zero Svelte diagnostics) and all 16 MCP tests passed. Setup tests
+cross-compile for Windows amd64 and macOS arm64. `git diff --check` passed. No dependency
+changed.
 
 Broader memory/history components, web profile editing and verified cross-OS restore
 remain unimplemented.

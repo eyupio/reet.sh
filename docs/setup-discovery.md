@@ -381,12 +381,16 @@ verification remain unimplemented.
 ## Restore planning (S3)
 
 ```sh
+reet setup restore                              # interactive wizard
 reet setup restore --password-file FILE SNAPSHOT
 reet setup restore --password-file FILE --project /path/to/project --json SNAPSHOT
 ```
 
-`reet setup restore` opens and verifies the snapshot with the passphrase, discovers
-the destination metadata-only, and prints a plan. It writes nothing without `--apply`.
+`reet setup restore` with no arguments runs a local wizard: choose a local profile,
+fetch its snapshot from S3 if available, enter the passphrase, review the plan,
+confirm apply, choose skip/replace for conflicts and see verification results. The
+flag-driven command opens and verifies the snapshot, discovers the destination
+metadata-only, and prints a plan. It writes nothing without `--apply`.
 With `--probe-versions` and/or `--inspect-installation`, it compares the snapshot's
 recorded application/package evidence with the destination and adds compatibility
 warnings; warnings do not block apply. If the snapshot and destination OS/architecture

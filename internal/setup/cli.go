@@ -140,7 +140,7 @@ func runBackup(args []string, out io.Writer) error {
 	if !*preview {
 		passphrase, err = readSetupPassphrase(*passwordFile, true, os.Stderr)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w; omit --password-file to be prompted in a terminal", err)
 		}
 	}
 	home, err := setupHome()
@@ -596,8 +596,11 @@ type setupProfileSaveResult struct {
 }
 
 func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
+	if len(args) == 0 && interactive() {
+		return runProfileWizard("", out)
+	}
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "Usage: reet setup profile save [--exclude-kind KIND] [--exclude-source PATH] [--machine NAME] [--project PATH] [--json] [--dir DIR] [--password-file FILE] NAME [SNAPSHOT]\n       reet setup profile list [--json] [--dir DIR]\n       reet setup profile show [--json] [--dir DIR] [--revision N] NAME\n       reet setup profile remove [--yes] [--dir DIR] NAME\n       reet setup profile rename [--dir DIR] OLD NEW\n       reet setup profile push [--server URL] [--token TOKEN] NAME\n       reet setup profile pull [--server URL] [--token TOKEN] NAME")
+		_, err := fmt.Fprintln(out, "Usage: reet setup profile (interactive wizard when run without a subcommand)\n       reet setup profile save [--exclude-kind KIND] [--exclude-source PATH] [--machine NAME] [--project PATH] [--json] [--dir DIR] [--password-file FILE] NAME [SNAPSHOT]\n       reet setup profile list [--json] [--dir DIR]\n       reet setup profile show [--json] [--dir DIR] [--revision N] NAME\n       reet setup profile remove [--yes] [--dir DIR] NAME\n       reet setup profile rename [--dir DIR] OLD NEW\n       reet setup profile push [--server URL] [--token TOKEN] NAME\n       reet setup profile pull [--server URL] [--token TOKEN] NAME")
 		return err
 	}
 	switch args[0] {
@@ -615,14 +618,20 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		f.Var(&excludeSources, "exclude-source", "exclude this exact snapshot source path; repeat for several")
 		f.Var(&machines, "machine", "apply the exclusions only to this machine name; repeat for several")
 		f.Var(&projects, "project", "apply the exclusions only to this project path; repeat for several")
-		if err := f.Parse(args[1:]); err != nil {
+		if err := f.Parse(reorderFlags(f, args[1:])); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
 			}
 			return err
 		}
+		if f.NArg() == 0 && interactive() && !*asJSON {
+			return runProfileWizard(*dir, out)
+		}
 		if f.NArg() < 1 || f.NArg() > 2 {
 			return fmt.Errorf("usage: reet setup profile save [--exclude-kind KIND] [--exclude-source PATH] [--machine NAME] [--project PATH] [--json] [--dir DIR] [--password-file FILE] NAME [SNAPSHOT]")
+		}
+		if strings.HasSuffix(*passwordFile, setupSnapshotExtension) {
+			return fmt.Errorf("--password-file is for the passphrase, not the snapshot; pass the snapshot as SNAPSHOT or omit SNAPSHOT to use the newest")
 		}
 		passphrase := ""
 		var err error
@@ -669,7 +678,7 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		f.SetOutput(out)
 		asJSON := f.Bool("json", false, "write a versioned JSON profile list")
 		dir := f.String("dir", "", "read profiles here (default REET_SETUP_DIR or the user config directory)")
-		if err := f.Parse(args[1:]); err != nil {
+		if err := f.Parse(reorderFlags(f, args[1:])); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
 			}
@@ -692,7 +701,7 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		asJSON := f.Bool("json", false, "write a versioned JSON profile revision")
 		dir := f.String("dir", "", "read profiles here (default REET_SETUP_DIR or the user config directory)")
 		revision := f.Int("revision", 0, "show this revision; default is the newest")
-		if err := f.Parse(args[1:]); err != nil {
+		if err := f.Parse(reorderFlags(f, args[1:])); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
 			}
@@ -715,7 +724,7 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		server := f.String("server", os.Getenv("REET_URL"), "reet server URL (env REET_URL)")
 		token := f.String("token", os.Getenv("REET_TOKEN"), "personal token (env REET_TOKEN)")
 		dir := f.String("dir", "", "read profiles here (default REET_SETUP_DIR or the user config directory)")
-		if err := f.Parse(args[1:]); err != nil {
+		if err := f.Parse(reorderFlags(f, args[1:])); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
 			}
@@ -739,7 +748,7 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		server := f.String("server", os.Getenv("REET_URL"), "reet server URL (env REET_URL)")
 		token := f.String("token", os.Getenv("REET_TOKEN"), "personal token (env REET_TOKEN)")
 		dir := f.String("dir", "", "write profiles here (default REET_SETUP_DIR or the user config directory)")
-		if err := f.Parse(args[1:]); err != nil {
+		if err := f.Parse(reorderFlags(f, args[1:])); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
 			}
@@ -762,7 +771,7 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		f.SetOutput(out)
 		yes := f.Bool("yes", false, "confirm removing the profile file")
 		dir := f.String("dir", "", "read profiles here (default REET_SETUP_DIR or the user config directory)")
-		if err := f.Parse(args[1:]); err != nil {
+		if err := f.Parse(reorderFlags(f, args[1:])); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
 			}
@@ -780,7 +789,7 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		f := flag.NewFlagSet("reet setup profile rename", flag.ContinueOnError)
 		f.SetOutput(out)
 		dir := f.String("dir", "", "read profiles here (default REET_SETUP_DIR or the user config directory)")
-		if err := f.Parse(args[1:]); err != nil {
+		if err := f.Parse(reorderFlags(f, args[1:])); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
 			}
@@ -835,7 +844,7 @@ func runRemote(args []string, out io.Writer) error {
 		f := flag.NewFlagSet("reet setup remote list", flag.ContinueOnError)
 		f.SetOutput(out)
 		asJSON := f.Bool("json", false, "write a versioned JSON remote list")
-		if err := f.Parse(args[1:]); err != nil {
+		if err := f.Parse(reorderFlags(f, args[1:])); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
 			}
@@ -856,7 +865,7 @@ func runRemote(args []string, out io.Writer) error {
 		f := flag.NewFlagSet("reet setup remote test", flag.ContinueOnError)
 		f.SetOutput(out)
 		asJSON := f.Bool("json", false, "write a versioned JSON connection test")
-		if err := f.Parse(args[1:]); err != nil {
+		if err := f.Parse(reorderFlags(f, args[1:])); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
 			}
@@ -878,7 +887,7 @@ func runRemote(args []string, out io.Writer) error {
 		f.SetOutput(out)
 		asJSON := f.Bool("json", false, "write a versioned JSON delete result")
 		yes := f.Bool("yes", false, "confirm remote deletion")
-		if err := f.Parse(args[1:]); err != nil {
+		if err := f.Parse(reorderFlags(f, args[1:])); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
 			}
@@ -901,7 +910,7 @@ func runRemote(args []string, out io.Writer) error {
 		asJSON := f.Bool("json", false, "write a versioned JSON prune result")
 		keep := f.Int("keep", 0, "keep this many newest remote snapshots")
 		apply := f.Bool("apply", false, "delete the planned remote snapshots; default is a dry run")
-		if err := f.Parse(args[1:]); err != nil {
+		if err := f.Parse(reorderFlags(f, args[1:])); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
 			}
@@ -1171,7 +1180,7 @@ func renderSnapshotWrite(out io.Writer, result SetupWriteResult) error {
 			return err
 		}
 	}
-	_, err := fmt.Fprintln(out, "It is passphrase-encrypted on this machine. Setup restore is not implemented.")
+	_, err := fmt.Fprintln(out, "It is passphrase-encrypted on this machine. Preview a restore with reet setup restore; no runtime verification has been run.")
 	return err
 }
 
@@ -1207,4 +1216,40 @@ func (s *stringListFlag) Set(value string) error {
 	}
 	*s = append(*s, value)
 	return nil
+}
+
+func reorderFlags(f *flag.FlagSet, args []string) []string {
+	var options, positional []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			positional = append(positional, args[i+1:]...)
+			break
+		}
+		if arg == "-" || !strings.HasPrefix(arg, "-") {
+			positional = append(positional, arg)
+			continue
+		}
+		name := strings.TrimLeft(arg, "-")
+		if before, _, ok := strings.Cut(name, "="); ok {
+			name = before
+		}
+		option := f.Lookup(name)
+		if option == nil {
+			options = append(options, arg)
+			continue
+		}
+		options = append(options, arg)
+		if strings.Contains(arg, "=") {
+			continue
+		}
+		if boolean, ok := option.Value.(interface{ IsBoolFlag() bool }); ok && boolean.IsBoolFlag() {
+			continue
+		}
+		if i+1 < len(args) {
+			options = append(options, args[i+1])
+			i++
+		}
+	}
+	return append(options, positional...)
 }

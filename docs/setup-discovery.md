@@ -521,6 +521,7 @@ runtime health and does not prove that an agent or MCP server works.
 ## Named local profiles (S5a)
 
 ```sh
+reet setup profile            # interactive wizard
 reet setup profile save work
 reet setup profile save --password-file FILE work SNAPSHOT
 reet setup profile save --exclude-kind instructions --machine laptop work2
@@ -534,8 +535,10 @@ reet setup restore --profile work --password-file FILE
 reet setup verify --profile work --password-file FILE
 ```
 
-`profile save NAME` uses the newest local snapshot and records its clear header (ID,
-digest and time) without needing a passphrase. Pass `SNAPSHOT` to choose one explicitly,
+`reet setup profile` with no subcommand runs an interactive wizard: it offers to create a
+snapshot if none exists, lets you choose one, asks whether to record preview/software
+evidence, and saves a named profile. `profile save NAME` uses the newest local snapshot
+and records its clear header (ID, digest and time) without needing a passphrase. Pass `SNAPSHOT` to choose one explicitly,
 or `--password-file` to open the encrypted payload and also record the policy preview and
 software evidence. It appends an explicit revision and never stores selected values. Repeat `--exclude-kind settings|mcp|instructions` or
 `--exclude-source PATH` to omit components when a profile is used by restore or verify.

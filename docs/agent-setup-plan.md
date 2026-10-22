@@ -227,8 +227,9 @@ hooks and caches. It reads no configuration values and implements no export.
   An opt-in preview now applies the S1 policies in memory and reports selected
   fields, omissions and per-component digests without writing any archive. A first
   writing slice seals that selection into a passphrase-encrypted local snapshot and
-  verifies it before and after the atomic private write. Restore and listing remain
-  later slices.
+  verifies it before and after the atomic private write. A listing/inspection slice
+  reads clear headers without a passphrase and opens the encrypted preview only on
+  request. Restore remains a later slice.
 - Verify every completed archive, write privately and atomically, and produce an
   omissions report. Add local listing/inspection and optional S3 delivery.
 - Keep local recovery usable after complete loss of the controller database.

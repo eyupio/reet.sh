@@ -299,6 +299,34 @@ complete AI setup: restore, list/inspect, S3 delivery, dependency resolution,
 cross-OS translation and post-restore verification remain unimplemented.
 `--preview` remains read-only.
 
+## Listing and inspecting local snapshots (S2c)
+
+```sh
+reet setup list
+reet setup list --json --dir /path/to/snapshots
+reet setup inspect setup-20261022T120000Z-a1b2c3d4
+reet setup inspect --password-file FILE --json setup-20261022T120000Z-a1b2c3d4
+```
+
+`reet setup list` reads clear archive headers without a passphrase. It lists regular
+`.reetsetup` files by recorded time, newest first, with ID, path, size, protection
+and compression. Symlinks, temporary `.reet-setup-*` files, invalid headers and other
+archive kinds are reported as skipped; unrelated files are ignored. A missing
+directory is an empty list, not an error.
+
+`reet setup inspect` accepts a snapshot ID (resolved under `--dir`,
+`REET_SETUP_DIR` or the default directory) or a `.reetsetup` path. It always shows
+the clear header. With `--password-file FILE` (or `-`) it opens and verifies the
+encrypted payload, then reports the policy preview and per-source summaries: path,
+component, field/declaration counts and recorded digest. It never prints selected
+values, file contents or credential material. A wrong passphrase or damaged archive
+fails without partial output. Flags must come before the snapshot argument.
+
+Neither command writes, restores or repairs anything. Listing does not prove that a
+snapshot is complete or restorable, and inspection does not verify application health
+or cross-OS compatibility. S3 delivery, restore planning/execution and post-restore
+verification remain unimplemented.
+
 ## Opt-in application version probes
 
 ```sh

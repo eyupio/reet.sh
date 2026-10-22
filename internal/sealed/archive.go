@@ -23,6 +23,8 @@ import (
 const (
 	// MaxObjectBytes bounds an archive this build will open in memory.
 	MaxObjectBytes = 512 << 20
+	// MaxHeaderBytes bounds the clear manifest header.
+	MaxHeaderBytes = 1 << 20
 
 	archiveMagic = "REETBK1\n"
 	argonTime    = 2
@@ -273,7 +275,7 @@ func parseArchive(data []byte) (Manifest, []byte, error) {
 	at := len(archiveMagic)
 	n := int(binary.BigEndian.Uint32(data[at : at+4]))
 	at += 4
-	if n < 0 || n > 1<<20 || len(data) < at+n {
+	if n < 0 || n > MaxHeaderBytes || len(data) < at+n {
 		return m, nil, errors.New("this backup's header is damaged")
 	}
 	if err := json.Unmarshal(data[at:at+n], &m); err != nil {

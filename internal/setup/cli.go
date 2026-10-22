@@ -14,7 +14,7 @@ import (
 // Run implements the standalone setup command. No server credentials are needed.
 func Run(args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n       reet setup backup --preview [--json] [--project PATH]\n       reet setup backup --password-file FILE [--dir DIR] [--json] [--project PATH]\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\n--preview shows the policy-driven selection without writing an archive.\nWithout --preview, write a passphrase-encrypted local setup snapshot.\nSetup restore is not yet available.")
+		_, err := fmt.Fprintln(out, "Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]\n       reet setup backup --preview [--json] [--project PATH]\n       reet setup backup --password-file FILE [--dir DIR] [--json] [--project PATH]\n       reet setup list [--json] [--dir DIR]\n       reet setup inspect [--json] [--dir DIR] [--password-file FILE] SNAPSHOT\n\nDiscover known agent setup locations and executables locally.\nUse --components to read bounded configuration summaries without returning values.\nUse --probe-versions to invoke discovered agents with --version (3-second timeout each).\nUse --inspect-installation to read local package evidence without running commands.\nUse --export-policy to declare component and field selection for future encrypted snapshots.\n--preview shows the policy-driven selection without writing an archive.\nWithout --preview, write a passphrase-encrypted local setup snapshot.\nlist and inspect read clear headers; inspect opens the payload only with a passphrase.\nSetup restore is not yet available.")
 		return err
 	}
 	switch args[0] {
@@ -22,6 +22,10 @@ func Run(args []string, out io.Writer) error {
 		return runScan(args[1:], out)
 	case "backup":
 		return runBackup(args[1:], out)
+	case "list":
+		return runList(args[1:], out)
+	case "inspect":
+		return runInspect(args[1:], out)
 	default:
 		return fmt.Errorf("unknown setup command %q; use reet setup --help", args[0])
 	}
@@ -132,6 +136,63 @@ func runBackup(args []string, out io.Writer) error {
 		return writeJSON(out, result)
 	}
 	return renderSnapshotWrite(out, result)
+}
+
+func runList(args []string, out io.Writer) error {
+	f := flag.NewFlagSet("reet setup list", flag.ContinueOnError)
+	f.SetOutput(out)
+	asJSON := f.Bool("json", false, "write a versioned JSON list")
+	dir := f.String("dir", "", "read snapshots here (default REET_SETUP_DIR or the user config directory)")
+	if err := f.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if f.NArg() != 0 {
+		return fmt.Errorf("unexpected setup list arguments")
+	}
+	list, err := ListSetupSnapshots(*dir)
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		return writeJSON(out, list)
+	}
+	return renderSnapshotList(out, list)
+}
+
+func runInspect(args []string, out io.Writer) error {
+	f := flag.NewFlagSet("reet setup inspect", flag.ContinueOnError)
+	f.SetOutput(out)
+	asJSON := f.Bool("json", false, "write a versioned JSON inspection")
+	dir := f.String("dir", "", "read snapshots here (default REET_SETUP_DIR or the user config directory)")
+	passwordFile := f.String("password-file", "", "read the snapshot passphrase from this file, or - for standard input")
+	if err := f.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if f.NArg() != 1 {
+		return fmt.Errorf("usage: reet setup inspect [--json] [--dir DIR] [--password-file FILE] SNAPSHOT")
+	}
+	passphrase := ""
+	if *passwordFile != "" {
+		var err error
+		passphrase, err = readSetupPassphrase(*passwordFile)
+		if err != nil {
+			return err
+		}
+	}
+	inspection, err := InspectSetupSnapshot(f.Arg(0), passphrase, *dir)
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		return writeJSON(out, inspection)
+	}
+	return renderSnapshotInspection(out, inspection)
 }
 
 func readSetupPassphrase(file string) (string, error) {

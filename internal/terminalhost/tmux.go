@@ -13,7 +13,10 @@ import (
 	"time"
 )
 
-const minTmuxMajor = 3
+const (
+	minTmuxMajor = 3
+	minTmuxMinor = 3
+)
 
 var ErrNotRunning = errors.New("terminal tmux service is not running")
 
@@ -40,11 +43,15 @@ func FindTmux(ctx context.Context) (Tmux, error) {
 		return Tmux{}, ErrTmuxUnavailable
 	}
 	version := strings.TrimSpace(string(output))
-	major, _, err := parseTmuxVersion(version)
-	if err != nil || major < minTmuxMajor {
-		return Tmux{}, fmt.Errorf("%w: tmux 3.0 or newer is required", ErrTmuxUnavailable)
+	major, minor, err := parseTmuxVersion(version)
+	if err != nil || !supportedTmux(major, minor) {
+		return Tmux{}, fmt.Errorf("%w: tmux 3.3 or newer is required", ErrTmuxUnavailable)
 	}
 	return Tmux{Path: path, Version: version}, nil
+}
+
+func supportedTmux(major, minor int) bool {
+	return major > minTmuxMajor || major == minTmuxMajor && minor >= minTmuxMinor
 }
 
 func parseTmuxVersion(value string) (int, int, error) {

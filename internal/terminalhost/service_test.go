@@ -73,12 +73,12 @@ func TestPlanServicesRejectsUnsafeConfiguration(t *testing.T) {
 
 func TestInstallAndUninstallUseIndependentServices(t *testing.T) {
 	plan := testPlan(t, []string{"PATH=/usr/bin:/bin", "HOME=/home/tester", "USER=tester", "SHELL=/bin/sh"})
-	original := runServiceCommand
-	defer func() { runServiceCommand = original }()
+	original := runServiceOutput
+	defer func() { runServiceOutput = original }()
 	var calls []string
-	runServiceCommand = func(ctx context.Context, name string, args ...string) error {
+	runServiceOutput = func(ctx context.Context, name string, args ...string) (string, error) {
 		calls = append(calls, name+" "+strings.Join(args, " "))
-		return nil
+		return "", nil
 	}
 	if err := Install(context.Background(), plan); err != nil {
 		t.Fatal(err)
@@ -89,9 +89,11 @@ func TestInstallAndUninstallUseIndependentServices(t *testing.T) {
 		}
 	}
 	if runtime.GOOS == "linux" {
-		terminal := indexOf(calls, "systemctl --user enable --now "+plan.TerminalName)
-		agent := indexOf(calls, "systemctl --user enable --now "+plan.AgentName)
-		if terminal < 0 || agent < 0 || terminal > agent {
+		terminalEnable := indexOf(calls, "systemctl --user enable "+plan.TerminalName)
+		terminalRestart := indexOf(calls, "systemctl --user restart "+plan.TerminalName)
+		agentEnable := indexOf(calls, "systemctl --user enable "+plan.AgentName)
+		agentRestart := indexOf(calls, "systemctl --user restart "+plan.AgentName)
+		if terminalEnable < 0 || terminalRestart < 0 || agentEnable < 0 || agentRestart < 0 || terminalRestart > agentEnable {
 			t.Fatalf("service order: %v", calls)
 		}
 	}

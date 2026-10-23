@@ -33,6 +33,15 @@ func TestParseTmuxVersion(t *testing.T) {
 	}
 }
 
+func TestSupportedTmuxVersion(t *testing.T) {
+	if supportedTmux(3, 2) {
+		t.Fatal("tmux 3.2 accepted without allow-passthrough")
+	}
+	if !supportedTmux(3, 3) || !supportedTmux(4, 0) {
+		t.Fatal("supported tmux versions rejected")
+	}
+}
+
 func TestTmuxSessionsAndLocalEnd(t *testing.T) {
 	tmux, err := FindTmux(context.Background())
 	if err != nil {

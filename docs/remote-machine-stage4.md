@@ -20,7 +20,7 @@ reet agent terminal end --session NAME
 ```
 
 - `enable` requires the non-root host user that owns the enrollment. It checks
-  the Linux/macOS host, a supported tmux (3.0 or newer), the private layout, and
+  the Linux/macOS host, a supported tmux (3.3 or newer, which includes the `allow-passthrough` option), the private layout, and
   then writes consent atomically to the private enrollment file.
 - `disable` only turns off remote terminal access. Running local tmux sessions
   continue and can be listed or ended locally.
@@ -73,8 +73,10 @@ reet agent service uninstall --config ~/.config/reet/agent.json
   credentials are not inherited by either service. The agent reads its
   enrollment file itself.
 - Units and plists are private, restart on failure, and apply a `0077` umask.
-- Reinstalling an active tmux service can restart it and end local sessions;
-  the command says so. Uninstalling stops both services and therefore ends
+- Linux installation now uses `enable` plus `restart` so refreshed unit
+  definitions, binary paths, and environments are applied. Reinstalling an
+  active tmux service therefore restarts it and ends local sessions; the
+  command says so. Uninstalling stops both services and therefore ends
   local tmux sessions, while leaving consent and the private directory in place.
 - Linux user services stop at logout unless lingering is enabled; `install`
   reports the exact `loginctl enable-linger` guidance. macOS per-user
@@ -84,8 +86,9 @@ reet agent service uninstall --config ~/.config/reet/agent.json
 
 - `terminal_enabled` is reported only after local consent and validation.
 - Readiness distinguishes `disabled_locally`, `tmux_unavailable`,
-  `supervisor_unavailable`, and `ready`. A live socket is required for `ready`;
-  a missing or stale socket is not treated as a working supervisor.
+  `supervisor_unavailable`, and `ready`. `ready` requires a successful harmless
+  tmux client probe, so a leftover socket from an unclean exit is not treated as
+  a working supervisor.
 - The controller accepts a capability update only for the current enrollment,
   instance, and connection generation. The update does not create, attach, or
   authorize a session.

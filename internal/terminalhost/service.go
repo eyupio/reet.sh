@@ -185,7 +185,7 @@ func (p ServicePlan) cleanEnvironment(executable string) []string {
 
 func (p ServicePlan) systemdUnit(description, after string, command []string) string {
 	args := append(p.cleanEnvironment(command[0]), command[1:]...)
-	return "[Unit]\nDescription=" + description + "\n" + after + "\n\n[Service]\nType=simple\nExecStart=" + systemdExec(args) + "\nWorkingDirectory=" + systemdQuote(p.Layout.Dir) + "\nRestart=on-failure\nRestartSec=5\nUMask=0077\nNoNewPrivileges=true\n\n[Install]\nWantedBy=default.target\n"
+	return "[Unit]\nDescription=" + description + "\n" + after + "\n\n[Service]\nType=simple\nExecStart=" + systemdExec(args) + "\nRestart=on-failure\nRestartSec=5\nUMask=0077\nNoNewPrivileges=true\n\n[Install]\nWantedBy=default.target\n"
 }
 
 func (p ServicePlan) plist(label string, command []string, logPath string) string {
@@ -285,13 +285,31 @@ func envList(values map[string]string) []string {
 	return out
 }
 
-var runServiceCommand = func(ctx context.Context, name string, args ...string) error {
+var runServiceOutput = func(ctx context.Context, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if err := exec.CommandContext(ctx, name, args...).Run(); err != nil {
+	output, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	return string(output), err
+}
+
+func runServiceCommand(ctx context.Context, name string, args ...string) error {
+	if _, err := runServiceOutput(ctx, name, args...); err != nil {
 		return fmt.Errorf("%s failed; inspect the local service manager", name)
 	}
 	return nil
+}
+
+func bootoutMac(ctx context.Context, label string) error {
+	output, err := runServiceOutput(ctx, "launchctl", "bootout", "gui/"+strconv.Itoa(os.Getuid())+"/"+label)
+	if err == nil {
+		return nil
+	}
+	for _, missing := range []string{"Could not find service", "No such process", "service not found"} {
+		if strings.Contains(output, missing) {
+			return nil
+		}
+	}
+	return fmt.Errorf("launchctl bootout failed; inspect the service manager")
 }
 
 // Install writes both unit definitions and starts them through the native user
@@ -313,7 +331,9 @@ func Install(ctx context.Context, plan ServicePlan) error {
 	uid := strconv.Itoa(os.Getuid())
 	if runtime.GOOS == "darwin" {
 		for _, item := range []struct{ label, path string }{{plan.TerminalLabel, plan.TerminalPath}, {plan.AgentLabel, plan.AgentPath}} {
-			_ = runServiceCommand(ctx, "launchctl", "bootout", "gui/"+uid+"/"+item.label)
+			if err := bootoutMac(ctx, item.label); err != nil {
+				return err
+			}
 			if err := runServiceCommand(ctx, "launchctl", "bootstrap", "gui/"+uid, item.path); err != nil {
 				return err
 			}
@@ -324,20 +344,27 @@ func Install(ctx context.Context, plan ServicePlan) error {
 	if err := runServiceCommand(ctx, "systemctl", "--user", "daemon-reload"); err != nil {
 		return err
 	}
-	if err := runServiceCommand(ctx, "systemctl", "--user", "enable", "--now", plan.TerminalName); err != nil {
+	if err := runServiceCommand(ctx, "systemctl", "--user", "enable", plan.TerminalName); err != nil {
 		return err
 	}
-	return runServiceCommand(ctx, "systemctl", "--user", "enable", "--now", plan.AgentName)
+	if err := runServiceCommand(ctx, "systemctl", "--user", "restart", plan.TerminalName); err != nil {
+		return err
+	}
+	if err := runServiceCommand(ctx, "systemctl", "--user", "enable", plan.AgentName); err != nil {
+		return err
+	}
+	return runServiceCommand(ctx, "systemctl", "--user", "restart", plan.AgentName)
 }
 
 // Uninstall stops both services and removes their definitions. Stopping the
 // terminal service ends local tmux sessions; callers must warn before calling.
 func Uninstall(ctx context.Context, plan ServicePlan) error {
 	var errs []error
-	uid := strconv.Itoa(os.Getuid())
 	if runtime.GOOS == "darwin" {
 		for _, item := range []struct{ label, path string }{{plan.AgentLabel, plan.AgentPath}, {plan.TerminalLabel, plan.TerminalPath}} {
-			_ = runServiceCommand(ctx, "launchctl", "bootout", "gui/"+uid+"/"+item.label)
+			if err := bootoutMac(ctx, item.label); err != nil {
+				errs = append(errs, err)
+			}
 			if err := os.Remove(item.path); err != nil && !os.IsNotExist(err) {
 				errs = append(errs, err)
 			}

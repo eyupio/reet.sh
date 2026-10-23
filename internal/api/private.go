@@ -46,6 +46,7 @@ func (s *server) configurePrivate() {
 			log.Printf("private connection: "+format, args...)
 		},
 	})
+	s.healthHub.Start()
 }
 
 // privateBootstrap returns the controller capability to an authenticated
@@ -82,16 +83,28 @@ func (s *server) privateHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		if !privateconn.IsPrivateTransport(r.Context()) || r.URL.RawQuery != "" || r.URL.ForceQuery || r.URL.RawPath != "" || r.URL.Path != "/private/v1/hello" {
+		if !privateconn.IsPrivateTransport(r.Context()) || r.URL.RawQuery != "" || r.URL.ForceQuery || r.URL.RawPath != "" {
 			http.NotFound(w, r)
 			return
 		}
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", http.MethodPost)
-			writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
+		switch r.URL.Path {
+		case "/private/v1/hello":
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", http.MethodPost)
+				writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+				return
+			}
+			s.privateHello(w, r)
+		case "/private/v1/control":
+			if r.Method != http.MethodGet {
+				w.Header().Set("Allow", http.MethodGet)
+				writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+				return
+			}
+			s.privateControl(w, r)
+		default:
+			http.NotFound(w, r)
 		}
-		s.privateHello(w, r)
 	})
 }
 

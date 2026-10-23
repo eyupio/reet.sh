@@ -8,6 +8,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/coder/websocket"
 
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/privateconn"
@@ -301,5 +304,148 @@ func TestPrivateHelloRejectsDisabledInstancesAndOversizedBodies(t *testing.T) {
 	rec = privateRequest(t, accountsHandler, "POST", "/private/v1/hello", oversized, accountsAgent.ID, accountsSecret, true)
 	if rec.Code != 400 {
 		t.Fatalf("oversized body status = %d", rec.Code)
+	}
+}
+
+func TestPrivateControlStreamsProbesAndHealth(t *testing.T) {
+	srv, st, agent, secret, ownerToken := privateFixture(t, AuthAccounts, "")
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv.s.privateHandler().ServeHTTP(w, r.WithContext(privateconn.WithPrivateTransport(r.Context())))
+	}))
+	defer ts.Close()
+	apiServer := httptest.NewServer(srv)
+	defer apiServer.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	dialURL := strings.Replace(ts.URL, "http://", "ws://", 1) + "/private/v1/control"
+	headers := http.Header{
+		"X-Reet-Agent": {agent.ID}, "X-Reet-Agent-Key": {secret}, "X-Reet-Version": {"test"},
+	}
+	conn, _, err := websocket.Dial(ctx, dialURL, &websocket.DialOptions{HTTPHeader: headers})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
+	conn.SetReadLimit(terminalproto.MaxControlBytes)
+	instance := "instance0123456789abcdef"
+	handshake, err := terminalproto.EncodeHandshake(terminalproto.Handshake{
+		ProtocolVersion: terminalproto.Version, RequestID: strings.Repeat("h", 32), AgentInstanceID: instance,
+		Capabilities: healthOnlyCapabilities(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Write(ctx, websocket.MessageText, handshake); err != nil {
+		t.Fatal(err)
+	}
+	kind, data, err := conn.Read(ctx)
+	if err != nil || kind != websocket.MessageText {
+		t.Fatal(err)
+	}
+	reply, err := terminalproto.DecodeHandshakeReply(data)
+	if err != nil || reply.Generation != 1 {
+		t.Fatalf("reply: %+v %v", reply, err)
+	}
+	kind, data, err = conn.Read(ctx)
+	if err != nil || kind != websocket.MessageText {
+		t.Fatal(err)
+	}
+	probeMessage, err := terminalproto.Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe, ok := probeMessage.Body.(*terminalproto.Probe)
+	if !ok {
+		t.Fatalf("expected probe, got %T", probeMessage.Body)
+	}
+	result, err := terminalproto.Encode(terminalproto.Message{
+		Version: terminalproto.Version, RequestID: probeMessage.RequestID, Generation: reply.Generation,
+		Body: terminalproto.ProbeResult(*probe),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Write(ctx, websocket.MessageText, result); err != nil {
+		t.Fatal(err)
+	}
+	cpu := 18.0
+	memoryTotal, memoryAvailable := 16e9, 6.2e9
+	diskTotal, diskAvailable := 500e9, 84e9
+	uptime := 12345.0
+	report, err := terminalproto.Encode(terminalproto.Message{
+		Version: terminalproto.Version, RequestID: strings.Repeat("r", 32), Generation: reply.Generation,
+		Body: terminalproto.HealthReport{
+			SchemaVersion: terminalproto.Version, Sequence: 1, AgentInstanceID: instance,
+			SampledAt: time.Now().UnixMilli(), Scope: "host",
+			CPUPercent:        terminalproto.Reading{Value: &cpu},
+			Memory:            terminalproto.CapacityReading{Total: terminalproto.Reading{Value: &memoryTotal}, Available: terminalproto.Reading{Value: &memoryAvailable}},
+			Disk:              terminalproto.CapacityReading{Total: terminalproto.Reading{Value: &diskTotal}, Available: terminalproto.Reading{Value: &diskAvailable}},
+			HostUptimeSeconds: terminalproto.Reading{Value: &uptime},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Write(ctx, websocket.MessageText, report); err != nil {
+		t.Fatal(err)
+	}
+	var health machineHealthResponse
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		code, body := doClient(t, apiServer.Client(), apiServer, "GET", "/api/v2/machines/health?agent="+agent.ID, "", "X-Reet-Token", ownerToken)
+		if code != 200 || json.Unmarshal([]byte(body), &health) != nil {
+			t.Fatalf("health API: %d %s", code, body)
+		}
+		if len(health.Machines) == 1 && health.Machines[0].Connection != nil && health.Machines[0].Connection.RTTMillis != nil && len(health.History) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("health did not converge: %+v", health)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	machine := health.Machines[0]
+	if machine.State != "connected" || machine.Connection == nil || !machine.Connection.Connected || !machine.Connection.ReportFresh {
+		t.Fatalf("machine: %+v connection: %+v", machine, machine.Connection)
+	}
+	if machine.Capabilities == nil || machine.Capabilities.TerminalEnabled || !machine.Capabilities.HealthEnabled {
+		t.Fatalf("capabilities: %+v", machine.Capabilities)
+	}
+	if machine.Connection.RTTMillis == nil || *machine.Connection.RTTMillis < 0 || *machine.Connection.RTTMillis > 5000 {
+		t.Fatalf("rtt: %+v", machine.Connection)
+	}
+	if health.History[0].Summary.CPUPercent.Valid != 1 || health.History[0].RTTP50Millis == nil {
+		t.Fatalf("history: %+v", health.History[0])
+	}
+	conn.Close(websocket.StatusNormalClosure, "")
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		code, body := doClient(t, apiServer.Client(), apiServer, "GET", "/api/v2/machines/health", "", "X-Reet-Token", ownerToken)
+		if code != 200 || json.Unmarshal([]byte(body), &health) != nil {
+			t.Fatalf("health API: %d %s", code, body)
+		}
+		if len(health.Machines) == 1 && health.Machines[0].State == "unreachable" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("disconnect state: %+v", health)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	other, _ := st.CreateUser("other@remote.invalid", "Other", "member", "")
+	if _, err := st.CreateAPIToken(other.ID, "other", auth.HashToken("fixture-other-health")); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := doClient(t, apiServer.Client(), apiServer, "GET", "/api/v2/machines/health?agent="+agent.ID, "", "X-Reet-Token", "fixture-other-health"); code != 404 {
+		t.Fatalf("cross-account health status = %d", code)
+	}
+}
+
+func TestMachineHealthRequiresAuthenticatedInstance(t *testing.T) {
+	srv, _, _, _, _ := privateFixture(t, AuthNone, "")
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+	if code, _ := doClient(t, ts.Client(), ts, "GET", "/api/v2/machines/health", ""); code != http.StatusForbidden {
+		t.Fatalf("unauthenticated health status = %d", code)
 	}
 }

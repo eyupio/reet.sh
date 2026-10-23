@@ -268,6 +268,12 @@ func (m *multi) Set(s string) error { *m = append(*m, s); return nil }
 func Run(args []string, out io.Writer) error { return RunVersion(args, out, "dev") }
 
 func RunVersion(args []string, out io.Writer, version string) error {
+	return runVersionAt("", args, out, version)
+}
+
+// runVersionAt scans an explicit directory instead of the process working
+// directory. Background collectors must never change global process state.
+func runVersionAt(dir string, args []string, out io.Writer, version string) error {
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
 	fs.SetOutput(out)
 	def := os.Getenv("REET_URL")
@@ -316,7 +322,10 @@ func RunVersion(args []string, out io.Writer, version string) error {
 		host = "unknown"
 	}
 	home, _ := os.UserHomeDir()
-	cwd, _ := os.Getwd()
+	cwd := dir
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
 	scan := CollectScan(home, cwd, dirs, host)
 
 	for _, f := range scan.Found {

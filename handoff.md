@@ -60,6 +60,23 @@ Other memory adapters, conversation history, hooks, caches, device-bound credent
 agent dependency installation, verified cross-OS recovery and runtime health remain
 unsupported or unverified. Do not reopen settled product choices without evidence.
 
+## Remote machines
+
+The approved design and stage-by-stage delivery record is
+[remote-machine-implementation-plan.md](remote-machine-implementation-plan.md).
+Stages 0–3 are merged and stage 4 is complete in PR #126: bounded Tailcat
+transport, sealed identity recovery, private bootstrap/handshake, typed
+protocol and durable records, agent probes and read-only host health, an
+account-scoped health API, local terminal opt-in, and separate agent/tmux
+services. Native service tests pass on Ubuntu and macOS and show that killing
+the agent service leaves tmux and a running test process alive.
+
+No controller-authorized terminal exists yet. The host session manager and
+registry, broker/tickets/leases, browser attachment, terminal UI, history, and
+gated rollout remain stages 5–9. The private capability is never returned in a
+browser machine payload; terminal content is not recorded. Do not claim a
+working terminal from the monitoring or service evidence.
+
 ## Safety and conflict handling
 
 - Restore verification uses format-specific limits: configurations 1 MiB, whole

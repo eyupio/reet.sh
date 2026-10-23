@@ -114,6 +114,14 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 			hubConn.Report(*body, time.Now())
 		case *terminalproto.ProbeResult:
 			hubConn.ProbeResult(*body, time.Now())
+		case *terminalproto.Hello:
+			if body.AgentInstanceID != handshake.AgentInstanceID {
+				return
+			}
+			if err := s.st.UpdateRemoteCapabilitiesFor(uid, agent.ID, body.AgentInstanceID, caps.Generation, body.Capabilities); err != nil {
+				return
+			}
+			hubConn.UpdateCapabilities(body.Capabilities)
 		default:
 			return
 		}

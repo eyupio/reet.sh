@@ -22,18 +22,20 @@ import (
 	"github.com/eyupio/reet.sh/internal/agenthealth"
 	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 type agentConfig struct {
-	Server     string   `json:"server"`
-	Token      string   `json:"token"`
-	ID         string   `json:"id"`
-	Secret     string   `json:"secret"`
-	Host       string   `json:"host"`
-	Hostname   string   `json:"hostname"`
-	Home       string   `json:"home"`
-	Projects   []string `json:"projects"`
-	AllowApply bool     `json:"allowApply"`
+	Server          string   `json:"server"`
+	Token           string   `json:"token"`
+	ID              string   `json:"id"`
+	Secret          string   `json:"secret"`
+	Host            string   `json:"host"`
+	Hostname        string   `json:"hostname"`
+	Home            string   `json:"home"`
+	Projects        []string `json:"projects"`
+	AllowApply      bool     `json:"allowApply"`
+	TerminalEnabled bool     `json:"terminalEnabled,omitempty"`
 }
 
 func agentConfigPath() string {
@@ -125,9 +127,15 @@ func agentRequest(c agentConfig, path string, body any, result any, version stri
 // RunAgent enrolls a scanner-only installation and processes typed controller jobs.
 func RunAgent(args []string, out io.Writer, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet agent enroll|run|status|restore [--config PATH]; run --help for options")
+		return errors.New("usage: reet agent enroll|run|status|restore|terminal|service [--config PATH]; run --help for options")
 	}
 	action := args[0]
+	if action == "terminal" {
+		return runAgentTerminal(args[1:], out)
+	}
+	if action == "service" {
+		return runAgentService(args[1:], out)
+	}
 	fs := flag.NewFlagSet("agent "+action, flag.ContinueOnError)
 	fs.SetOutput(out)
 	config := fs.String("config", agentConfigPath(), "private machine enrollment file")
@@ -242,7 +250,7 @@ func RunAgent(args []string, out io.Writer, version string) error {
 		if err = agentRequest(c, "/api/v2/sync/identity", map[string]string{}, &a, version); err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "Machine: %s\nController: %s\nPaused: %t\nRemote apply enabled: %t\n", a.Host, c.Server, a.Paused, c.AllowApply)
+		fmt.Fprintf(out, "Machine: %s\nController: %s\nPaused: %t\nRemote apply enabled: %t\nTerminal access enabled locally: %t\n", a.Host, c.Server, a.Paused, c.AllowApply, c.TerminalEnabled)
 		return nil
 	case "run":
 	default:
@@ -269,6 +277,14 @@ func RunAgent(args []string, out io.Writer, version string) error {
 			if err := agenthealth.RunAgent(ctx, agenthealth.AgentConfig{
 				ServerURL: c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,
 				Version: version, InstanceID: instance,
+				TerminalEnabled: c.TerminalEnabled, TerminalReadiness: terminalReadiness(*config, c.TerminalEnabled),
+				Consent: func() (bool, terminalproto.Readiness, error) {
+					current, err := loadAgentConfig(*config)
+					if err != nil {
+						return false, terminalproto.Unsupported, err
+					}
+					return current.TerminalEnabled, terminalReadiness(*config, current.TerminalEnabled), nil
+				},
 			}); err != nil {
 				log.Printf("private monitoring: %v", err)
 			}

@@ -349,6 +349,23 @@ func (c *Conn) ProbeResult(result terminalproto.ProbeResult, received time.Time)
 	c.persistLocked(received)
 }
 
+// UpdateCapabilities applies a live consent/readiness change without changing
+// the connection generation. A health-disabled update closes the connection;
+// terminal-only disable is handled by the broker when bridges exist.
+func (c *Conn) UpdateCapabilities(caps terminalproto.Capabilities) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	c.caps = caps
+	closeNow := !caps.HealthEnabled
+	c.mu.Unlock()
+	if closeNow {
+		go c.Close()
+	}
+}
+
 // ReportTraffic records actual terminal payload bytes once streams exist.
 func (c *Conn) ReportTraffic(input, output int64, received time.Time) {
 	c.mu.Lock()

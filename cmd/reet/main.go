@@ -68,7 +68,7 @@ func main() {
 Usage: reet <command> [options]
 
   serve        Run the web app (also the default when no command is given)
-  agent        Enroll a machine and process approved sync jobs
+  agent        Enroll a machine, process sync jobs and manage local terminal services
   scan         Report installed skills to your account
   setup        Discover local AI agent setups and support limitations
   sync         Preview a saved skill set; --apply asks before changing files

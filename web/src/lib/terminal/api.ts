@@ -1,7 +1,7 @@
 export type SessionState = 'creating' | 'running' | 'end_requested' | 'ended' | 'exited' | 'lost'
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null }
 export type Capabilities = { protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
-export type TerminalMachine = { agentId: string; host: string; ready: boolean; capabilities?: Capabilities }
+export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
 export type HealthReport = { cpuPercent: Reading; memory: Capacity; disk: Capacity; hostUptimeSeconds: Reading; scope: 'host' | 'container' }
@@ -37,6 +37,7 @@ export async function terminalHistory(id: string, signal?: AbortSignal): Promise
 
 export function readiness(machine?: TerminalMachine): string {
   if (!machine) return 'Choose an enrolled machine.'
+  if (machine.serverEnabled===false) return 'Remote terminals are disabled on this server. The operator must enable REET_REMOTE_TERMINALS=on with an HTTPS public URL. Monitoring and local shells remain available.'
   const caps = machine.capabilities
   if (!caps) return 'Start the background agent on this machine to connect.'
   if (!caps.terminalControl) return 'Update the reet agent to enable terminal support.'

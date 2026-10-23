@@ -119,6 +119,7 @@ Configuration (environment variables):
   REET_TOPICS     off to disable topic seeding
   REET_REFRESH    off to disable background metadata refresh
   REET_RELAY_MAP_URL  Optional HTTPS Tailcat relay map for private agent connections
+  REET_REMOTE_TERMINALS  on to opt into account-owned web terminals (default off)
 
 Local example:
   REET_ADDR=127.0.0.1:8080 REET_DATA_DIR=./data reet serve
@@ -226,6 +227,7 @@ func serve() error {
 		strings.TrimSpace(os.Getenv("REET_SIGNUP")) == "1" ||
 		strings.EqualFold(strings.TrimSpace(os.Getenv("REET_SIGNUP")), "true")
 	h := api.New(st, meta.Default(os.Getenv("SKILLS_SH_TOKEN")), os.Getenv("REET_TOKEN"),
+		api.WithRemoteTerminals(os.Getenv("REET_REMOTE_TERMINALS") == "on"),
 		api.WithAuthMode(mode), api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"),
 		api.WithTopics(os.Getenv("REET_TOPICS") != "off"), api.WithPublicURL(os.Getenv("REET_PUBLIC_URL")),
 		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"), api.WithBackups(backups),

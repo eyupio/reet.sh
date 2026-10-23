@@ -46,7 +46,7 @@ func privateFixture(t *testing.T, mode AuthMode, token string) (*Server, *store.
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := New(st, deadFetcher(t), token, WithAuthMode(mode))
+	srv := New(st, deadFetcher(t), token, WithAuthMode(mode), WithRemoteTerminals(true), WithPublicURL("https://reet.example"))
 	t.Cleanup(func() { srv.Close() })
 	return srv, st, agent, secret, "fixture-owner"
 }

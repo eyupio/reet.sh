@@ -5,8 +5,9 @@ The follow-up [foundation review](docs/remote-machine-foundation-review.md)
 records corrective recovery/health work and strengthens the native service gate
 to run the actual reet binary; it is merged in PR #127. Stage 5 is merged in
 PR #128, including its macOS PTY correction. Stage 6 is merged in PR #129.
-Stage 7 is merged in PR #130. Stage 8 is implemented in the current increment;
-stage 9 remains pending. This document remains the approved design and delivery record.
+Stage 7 is merged in PR #130. Stage 8 is in PR #131; stage 9 is implemented in
+the current increment. Production pilot activation remains an operator task.
+This document remains the approved design and delivery record.
 
 Decisions agreed with the product owner on 23 October 2026. Implement this plan in
 small, reviewable stages. Read the current repository instructions before each
@@ -26,7 +27,7 @@ UI, and host monitoring requirements; it supersedes the earlier chat drafts.
 | 6 — Broker, browser authentication, and leases | Merged | [PR #129](https://github.com/eyupio/reet.sh/pull/129), [notes](docs/remote-machine-stage6.md); both native OS, CodeQL, full suites and four binaries passed |
 | 7 — Terminal and health vertical slice | Merged | [PR #130](https://github.com/eyupio/reet.sh/pull/130), [notes](docs/remote-machine-stage7.md) |
 | 8 — Complete UX, session management, and history | Implemented in this increment | [UX and verification](docs/remote-machine-stage8.md) |
-| 9 — Resilience, documentation, and gated rollout | Not started | — |
+| 9 — Resilience, documentation, and gated rollout | Implemented in this increment; pilot pending | [Evidence](docs/remote-machine-stage9.md), [runbook](docs/remote-machine-operations.md) |
 
 What exists now:
 
@@ -921,15 +922,12 @@ Covered by the implementation through stage 4:
 Stages 5–6 additionally cover host registry recovery, real PTY streaming,
 browser API authorization/tickets, reverse streams, transfer, partitions,
 slow consumers, finite renewal and durable ends. See their notes for exact
-tests. Not yet covered (they require stages 7–9):
-
-- Managed shell creation/attach/resume, lost create acknowledgments, browser
-  close/refresh, long commands across disconnects, and host reboot/tmux loss.
-- Terminal/history streaming, split UTF-8, slow-consumer bounds, vim/top resize,
-  privacy assertions, browser/theme/mobile/accessibility tests, and gated
-  rollout.
-- The controller can create/authorize a terminal through the API. Browser UI
-  behavior in the matrix below remains a future gate until stage 7 exists.
+tests. Stages 7–9 add browser durability, terminal/history streaming, Unicode,
+clipboard safety, theme/mobile checks, controller component restart/rollback,
+alternate-screen restoration, privacy assertions and gated rollout. The precise
+[evidence map](docs/remote-machine-stage9.md) separates real relay/native tests
+from the browser transport fixture and lists remaining pilot checks (including
+vim/top, IME, actual logout/reboot and a small production fleet).
 
 | Scenario | Required evidence |
 | --- | --- |
@@ -995,8 +993,9 @@ this file.
 
 ## 14. First milestone and operator runbook
 
-Status: not yet achieved. Stages 5–7 are required before a terminal can be
-created, attached, survive an agent restart, and be observed in the browser.
+Status: achieved in the real browser/API/PTY/tmux fixture during stages 7–9.
+The original shell and long job survive refresh, agent reconnect, controller
+component restart and flag rollback/re-enable. Production pilot remains pending.
 
 The first product milestone is:
 
@@ -1007,7 +1006,7 @@ The first product milestone is:
 5. Resume the same shell and verify the same process.
 6. Confirm monitoring reconnects with a new agent instance and honest freshness.
 
-The runbook must cover install/enable, non-root user selection, compatible
+The [runbook](docs/remote-machine-operations.md) covers install/enable, OS user/root selection, compatible
 versions, tmux service supervision, resource units and scope, relay outages,
 credential revocation, controller-key recovery, local session list/end,
 host reboot limits, backup limitations, pending end requests, and safe

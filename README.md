@@ -484,3 +484,9 @@ The workspace separates **Skills**, **Lists**, **Setups** and **Machines**. Use 
 profiles show captured coverage, exclusions and revision comparisons, with a guided
 local recovery flow. Syncing a profile transfers metadata, not its encrypted snapshot.
 See [UX rebalance](docs/ux-rebalance.md) and [binary installation](docs/binary-installation.md).
+
+Remote Linux/macOS terminals and host health are available inside **Machines**.
+Terminals require server opt-in (`REET_REMOTE_TERMINALS=on` with HTTPS/accounts)
+and explicit host-local consent, including for root-owned enrollments. Sessions
+survive browser/agent disconnects while tmux remains running. See the
+[remote machine runbook](docs/remote-machine-operations.md) for setup and rollback.

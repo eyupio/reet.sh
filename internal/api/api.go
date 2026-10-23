@@ -60,6 +60,7 @@ type server struct {
 	private         privateTransport
 	healthHub       *agenthealth.Hub
 	terminals       *terminalbroker.Broker
+	remoteTerminals bool
 }
 
 // AuthMode selects how the instance authenticates requests.
@@ -80,6 +81,9 @@ type userContextKey struct{}
 
 // Option configures the server.
 type Option func(*server)
+
+// WithRemoteTerminals opts into remote shells. Health remains independent.
+func WithRemoteTerminals(enabled bool) Option { return func(s *server) { s.remoteTerminals = enabled } }
 
 // WithPublicURL sets the canonical origin used by MCP OAuth discovery behind a proxy.
 func WithPublicURL(origin string) Option {

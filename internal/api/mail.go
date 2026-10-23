@@ -413,11 +413,7 @@ func (s *server) resetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.event(u.ID, "ui", "password-reset", "", map[string]any{"name": u.Name, "email": u.Email})
-	if s.mail != nil {
-		if err := s.mail.PasswordChanged(r.Context(), u, time.Now()); err != nil {
-			log.Printf("email: queueing a password-change notice: %v", err)
-		}
-	}
+	s.emitPasswordChanged(u, time.Now())
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Your password changed. Every other session was signed out."})
 }
 

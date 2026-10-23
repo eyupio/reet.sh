@@ -12,6 +12,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/mail"
+	"github.com/eyupio/reet.sh/internal/notify"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -26,10 +27,11 @@ func (mailTestSealer) OpenSecret(v string) (string, error) {
 }
 
 type mailSrv struct {
-	srv  *httptest.Server
-	st   *store.Store
-	fake *mail.Fake
-	q    *mail.Queue
+	srv    *httptest.Server
+	st     *store.Store
+	fake   *mail.Fake
+	q      *mail.Queue
+	notify *notify.Service
 }
 
 func newMailSrv(t *testing.T) mailSrv {
@@ -49,9 +51,10 @@ func newMailSrv(t *testing.T) mailSrv {
 	fake := &mail.Fake{}
 	q := &mail.Queue{Store: st, Settings: settings, Sender: fake}
 	m := &mail.Mailer{Store: st, Settings: settings, Queue: q}
-	srv := httptest.NewServer(New(st, deadFetcher(t), "bootstrap", WithAuthMode(AuthAccounts), WithMail(m)))
+	n := &notify.Service{Store: st, Mail: m}
+	srv := httptest.NewServer(New(st, deadFetcher(t), "bootstrap", WithAuthMode(AuthAccounts), WithMail(m), WithNotify(n)))
 	t.Cleanup(func() { srv.Close(); st.Close() })
-	return mailSrv{srv: srv, st: st, fake: fake, q: q}
+	return mailSrv{srv: srv, st: st, fake: fake, q: q, notify: n}
 }
 
 func setupMailOwner(t *testing.T, srv *httptest.Server) *http.Client {

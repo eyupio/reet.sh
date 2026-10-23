@@ -532,6 +532,47 @@ export type BackupRun = {
   error: string
 }
 export type BackupFinding = { severity: 'error' | 'warning' | 'info'; code: string; message: string }
+export type Notification = {
+  id: number
+  kind: string
+  teamId?: number
+  title: string
+  body?: string
+  link?: string
+  tone?: 'warning' | 'danger' | ''
+  readAt?: number
+  emailedAt?: number
+  createdAt: number
+  updatedAt: number
+}
+export type NotificationPreference = {
+  key: string
+  audience: 'staff' | 'user'
+  group: string
+  label: string
+  description: string
+  locked?: string
+  security?: boolean
+  ownerDefault?: boolean
+  adminDefault?: boolean
+  tone?: string
+  enabled: boolean
+  mode: 'immediate' | 'none'
+  source: string
+}
+export type NotificationDefault = {
+  key: string
+  audience: 'staff' | 'user'
+  group: string
+  label: string
+  description: string
+  locked?: string
+  security?: boolean
+  ownerDefault?: boolean
+  adminDefault?: boolean
+  tone?: string
+  default: { enabled: boolean; mode: 'immediate' | 'none'; owner: boolean; admin: boolean; updatedAt?: number; updatedBy?: string }
+}
 export type TicketStatus = 'open' | 'waiting' | 'closed'
 export type Ticket = {
   id: number
@@ -646,6 +687,29 @@ export type BackupCompression = 'gzip' | 'none'
 
 const bpath = (admin: boolean) => (admin ? '/api/v2/admin/backups' : '/api/v2/backups')
 
+export async function listNotifications(unreadOnly = false, limit = 50): Promise<{ notifications: Notification[]; unread: number }> {
+  const p = new URLSearchParams({ limit: String(limit) })
+  if (unreadOnly) p.set('unread', '1')
+  return (await req(`/api/v2/notifications?${p}`)).json()
+}
+export async function getNotificationCount(): Promise<{ unread: number }> {
+  return (await req('/api/v2/notifications/count')).json()
+}
+export async function markNotificationsRead(ids: number[] = [], read = true): Promise<{ unread: number }> {
+  return (await req('/api/v2/notifications/read', { method: 'POST', body: json({ ids, read }) })).json()
+}
+export async function getNotificationPreferences(): Promise<{ preferences: NotificationPreference[] }> {
+  return (await req('/api/v2/notifications/preferences')).json()
+}
+export async function saveNotificationPreferences(preferences: { key: string; enabled: boolean; mode: string }[]): Promise<{ preferences: NotificationPreference[]; done: string }> {
+  return (await req('/api/v2/notifications/preferences', { method: 'PATCH', body: json({ preferences }) })).json()
+}
+export async function getNotificationDefaults(): Promise<{ defaults: NotificationDefault[] }> {
+  return (await req('/api/v2/admin/notifications/defaults')).json()
+}
+export async function saveNotificationDefaults(defaults: { kind: string; enabled: boolean; mode: string; owner: boolean; admin: boolean }[]): Promise<{ defaults: NotificationDefault[]; done: string }> {
+  return (await req('/api/v2/admin/notifications/defaults', { method: 'PATCH', body: json({ defaults }) })).json()
+}
 export async function listTickets(status = ''): Promise<{ tickets: Ticket[] }> {
   return (await req(`/api/v2/tickets${status ? `?status=${encodeURIComponent(status)}` : ''}`)).json()
 }

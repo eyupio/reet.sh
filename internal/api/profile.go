@@ -2,7 +2,6 @@ package api
 
 import (
 	"errors"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -198,11 +197,7 @@ func (s *server) profilePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = s.st.DeleteOtherSessions(user.ID, auth.HashToken(token))
 	s.event(user.ID, "ui", "password-change", "", map[string]any{"name": user.Name})
-	if s.mail != nil {
-		if err := s.mail.PasswordChanged(r.Context(), user, time.Now()); err != nil {
-			log.Printf("email: queueing a password-change notice: %v", err)
-		}
-	}
+	s.emitPasswordChanged(user, time.Now())
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 

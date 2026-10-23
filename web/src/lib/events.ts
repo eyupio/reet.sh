@@ -109,6 +109,10 @@ export function eventLabel(e: Event): string {
       return `Updated ${d.count ?? 0} skills`
     case 'settings':
       return 'Changed instance settings'
+    case 'notification-prefs':
+      return 'Changed their notification choices'
+    case 'notification-defaults':
+      return 'Changed the notification defaults'
     case 'ticket-open':
       return `Opened support ticket #${d.ticket ?? ''}${d.subject ? `: ${d.subject}` : ''}`.trim()
     case 'ticket-reply':

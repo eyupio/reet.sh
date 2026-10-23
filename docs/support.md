@@ -37,18 +37,19 @@ A subject of up to 200 characters and messages of up to 20,000 characters.
 There are no attachments: paste the relevant text, or describe where to find
 it. A support message is prose, not a file upload.
 
-## Email notifications
+## Notifications
 
-When the instance can send email, opening a ticket tells the instance
-administrators and the team's owner and managers (except whoever opened it).
-A requester reply tells the same people. A team manager's reply tells the
-requester. An administrator's reply tells the requester and the team's
-managers. Internal notes are never emailed.
+Opening a ticket tells the instance administrators and the team's owner and
+managers (except whoever opened it). A requester reply tells the same people.
+A team manager's reply tells the requester. An administrator's reply tells the
+requester and the team's managers. Internal notes are never emailed.
 
-Support notices are transactional and cannot be turned off; they are not part
-of a team's notification choices. The message carries a link to the ticket,
-not the conversation itself. With no mail server, tickets still work in the
-application and nobody is emailed.
+Every one of those notices is also a row in the notification centre. Each
+person chooses whether they get the email now, keep it in the centre only, or
+turn that kind off, under **Notifications**. An administrator's assignment of
+a ticket is a staff notification too. The message carries a link to the
+ticket, not the conversation itself. With no mail server, tickets still work
+and the centre still fills; nobody is emailed.
 
 ## API additions
 

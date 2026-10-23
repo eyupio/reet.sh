@@ -278,7 +278,7 @@ func RunAgent(args []string, out io.Writer, version string) error {
 			if err := agenthealth.RunAgent(ctx, agenthealth.AgentConfig{
 				ServerURL: c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,
 				Version: version, InstanceID: instance,
-				TerminalEnabled: c.TerminalEnabled, TerminalReadiness: terminalReadiness(*config, c.TerminalEnabled),
+				TerminalEnabled: c.TerminalEnabled, TerminalReadiness: terminalReadiness(*config, c.ID, c.TerminalEnabled),
 				Consent: func() (bool, terminalproto.Readiness, error) {
 					current, err := loadAgentConfig(*config)
 					if err != nil {
@@ -287,7 +287,7 @@ func RunAgent(args []string, out io.Writer, version string) error {
 					if current.ID != c.ID || current.Secret != c.Secret || current.Server != c.Server {
 						return false, terminalproto.DisabledLocally, errors.New("local enrollment changed; restart the agent")
 					}
-					return current.TerminalEnabled, terminalReadiness(*config, current.TerminalEnabled), nil
+					return current.TerminalEnabled, terminalReadiness(*config, current.ID, current.TerminalEnabled), nil
 				},
 			}); err != nil {
 				log.Printf("private monitoring: %v", err)

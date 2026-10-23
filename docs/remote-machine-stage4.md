@@ -6,6 +6,12 @@ separate per-user agent and tmux services. No shell is created and no terminal
 is authorized by the controller in this increment; the host session manager and
 broker remain later stages.
 
+Subsequent behavior: [stage 5](remote-machine-stage5.md) adds an enrollment
+namespace beneath `terminal/` and preserves a matching running tmux service
+during refresh. Its migration notes supersede the unscoped layout and
+restart-on-reinstall behavior recorded below. The stronger real-agent native
+gate is recorded in the [foundation review](remote-machine-foundation-review.md).
+
 ## Local consent
 
 Existing enrollment files have no `terminalEnabled` field and therefore remain

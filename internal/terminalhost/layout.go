@@ -3,8 +3,11 @@
 package terminalhost
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,6 +27,26 @@ type Layout struct {
 	Socket string
 	Config string
 	Logs   string
+	base   string
+}
+
+// NewEnrollmentLayout prevents a replacement enrollment (or a second config
+// beside the first) from sharing the previous enrollment's server/registry.
+func NewEnrollmentLayout(configPath, agentID string) (Layout, error) {
+	if !terminalproto.ValidID(agentID) {
+		return Layout{}, ErrUnsafePath
+	}
+	base, err := NewLayout(configPath)
+	if err != nil {
+		return Layout{}, err
+	}
+	sum := sha256.Sum256([]byte(agentID))
+	dir := filepath.Join(base.Dir, hex.EncodeToString(sum[:6]))
+	l := Layout{Dir: dir, Socket: filepath.Join(dir, "tmux.sock"), Config: filepath.Join(dir, "tmux.conf"), Logs: filepath.Join(dir, "logs"), base: base.Dir}
+	if len(l.Socket) > maxSocketPath {
+		return Layout{}, fmt.Errorf("%w: enrollment socket path is too long; move its config to a shorter directory", ErrUnsafePath)
+	}
+	return l, nil
 }
 
 func (l Layout) String() string   { return "[terminal host layout]" }
@@ -50,6 +73,11 @@ func NewLayout(configPath string) (Layout, error) {
 // Ensure creates or verifies the private layout. Unsafe ownership, symlinks,
 // permissive modes, or non-socket entries fail closed instead of being repaired.
 func Ensure(layout Layout) error {
+	if layout.base != "" {
+		if err := ensurePrivateDir(layout.base); err != nil {
+			return err
+		}
+	}
 	if err := ensurePrivateDir(layout.Dir); err != nil {
 		return err
 	}
@@ -168,7 +196,11 @@ func cleanEnvValue(value string) bool {
 
 // Check verifies an existing layout without creating or repairing anything.
 func Check(layout Layout) error {
-	for _, dir := range []string{layout.Dir, layout.Logs} {
+	dirs := []string{layout.Dir, layout.Logs}
+	if layout.base != "" {
+		dirs = append(dirs, layout.base)
+	}
+	for _, dir := range dirs {
 		info, err := os.Lstat(dir)
 		if err != nil {
 			return err

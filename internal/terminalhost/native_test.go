@@ -56,7 +56,7 @@ func TestNativeAgentKillKeepsTmuxSession(t *testing.T) {
 	if agentBinary == "" {
 		t.Fatal("REET_NATIVE_AGENT_BINARY must point to the built reet binary; a placeholder process does not verify real agent recovery")
 	}
-	layout, err := NewLayout(config)
+	layout, err := NewEnrollmentLayout(config, "native0123456789abcdef")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,6 +92,14 @@ func TestNativeAgentKillKeepsTmuxSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	pid := panePID(t, tmux.Path, layout.Socket)
+	// Refreshing agent definitions must preserve the independently running
+	// server as well. This used to restart tmux as an install side effect.
+	if err := Install(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if !processAlive(pid) || panePID(t, tmux.Path, layout.Socket) != pid {
+		t.Fatal("service refresh killed the original process")
+	}
 	firstAgent := mainPID(t, plan)
 	if firstAgent == 0 {
 		t.Fatal("agent service has no main process")

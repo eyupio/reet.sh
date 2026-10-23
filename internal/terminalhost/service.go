@@ -316,6 +316,20 @@ func bootoutMac(ctx context.Context, label string) error {
 // service manager. The units remain independent: stopping the agent never
 // stops tmux or its sessions.
 func Install(ctx context.Context, plan ServicePlan) error {
+	// Never replace a running tmux supervisor as a side effect of refreshing
+	// the agent. A live service bound to another enrollment needs explicit local
+	// migration after its work is finished; do not silently kill/adopt it.
+	preserve := responsive(ctx, Tmux{Path: plan.TmuxPath}, plan.Layout)
+	active, err := terminalServiceActive(ctx, plan)
+	if err != nil {
+		return err
+	}
+	if active && !preserve {
+		return errors.New("terminal service is already active for a different or unavailable socket; preserve its work and stop or migrate that service explicitly before installing")
+	}
+	if preserve && !active {
+		return errors.New("a tmux server is already running outside the terminal service; preserve its work and migrate it explicitly before installing")
+	}
 	if err := Ensure(plan.Layout); err != nil {
 		return err
 	}
@@ -331,6 +345,9 @@ func Install(ctx context.Context, plan ServicePlan) error {
 	uid := strconv.Itoa(os.Getuid())
 	if runtime.GOOS == "darwin" {
 		for _, item := range []struct{ label, path string }{{plan.TerminalLabel, plan.TerminalPath}, {plan.AgentLabel, plan.AgentPath}} {
+			if preserve && item.label == plan.TerminalLabel {
+				continue
+			}
 			if err := bootoutMac(ctx, item.label); err != nil {
 				return err
 			}
@@ -347,13 +364,31 @@ func Install(ctx context.Context, plan ServicePlan) error {
 	if err := runServiceCommand(ctx, "systemctl", "--user", "enable", plan.TerminalName); err != nil {
 		return err
 	}
-	if err := runServiceCommand(ctx, "systemctl", "--user", "restart", plan.TerminalName); err != nil {
-		return err
+	if !preserve {
+		if err := runServiceCommand(ctx, "systemctl", "--user", "restart", plan.TerminalName); err != nil {
+			return err
+		}
 	}
 	if err := runServiceCommand(ctx, "systemctl", "--user", "enable", plan.AgentName); err != nil {
 		return err
 	}
 	return runServiceCommand(ctx, "systemctl", "--user", "restart", plan.AgentName)
+}
+
+func terminalServiceActive(ctx context.Context, plan ServicePlan) (bool, error) {
+	if runtime.GOOS != "darwin" {
+		return serviceActive(ctx, plan.TerminalName)
+	}
+	out, err := runServiceOutput(ctx, "launchctl", "print", "gui/"+strconv.Itoa(os.Getuid())+"/"+plan.TerminalLabel)
+	if err == nil {
+		return true, nil
+	}
+	for _, missing := range []string{"Could not find service", "No such process", "service not found"} {
+		if strings.Contains(out, missing) {
+			return false, nil
+		}
+	}
+	return false, errors.New("could not inspect the terminal service; inspect the local service manager")
 }
 
 // Uninstall stops both services and removes their definitions. Stopping the
@@ -418,12 +453,12 @@ func ReadStatus(ctx context.Context, plan ServicePlan) ServiceStatus {
 func serviceActive(ctx context.Context, name string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	output, err := exec.CommandContext(ctx, "systemctl", "--user", "is-active", name).Output()
-	state := strings.TrimSpace(string(output))
+	output, err := runServiceOutput(ctx, "systemctl", "--user", "is-active", name)
+	state := strings.TrimSpace(output)
 	switch state {
 	case "active":
 		return true, nil
-	case "inactive", "failed", "deactivating", "activating":
+	case "inactive", "failed", "deactivating", "activating", "unknown":
 		return false, nil
 	}
 	if err != nil {

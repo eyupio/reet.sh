@@ -7,6 +7,7 @@ on:
       - 'internal/scan/**'
       - 'internal/agenthealth/**'
       - 'internal/privateconn/**'
+      - 'internal/filelock/**'
       - 'cmd/**'
       - 'go.mod'
       - 'go.sum'
@@ -18,6 +19,7 @@ on:
       - 'internal/scan/**'
       - 'internal/agenthealth/**'
       - 'internal/privateconn/**'
+      - 'internal/filelock/**'
       - 'cmd/**'
       - 'go.mod'
       - 'go.sum'
@@ -69,4 +71,7 @@ jobs:
       - name: Run native service test
         env:
           REET_NATIVE_SERVICE_TESTS: '1'
-        run: go test -race -count=1 -timeout=4m -run TestNativeAgentKillKeepsTmuxSession -v ./internal/terminalhost
+          REET_NATIVE_AGENT_BINARY: ${{ runner.temp }}/reet-native-agent
+        run: |
+          go build -o "$REET_NATIVE_AGENT_BINARY" ./cmd/reet
+          go test -race -count=1 -timeout=4m -run TestNativeAgentKillKeepsTmuxSession -v ./internal/terminalhost

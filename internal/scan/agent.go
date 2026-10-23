@@ -21,7 +21,9 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/agenthealth"
 	"github.com/eyupio/reet.sh/internal/clientconfig"
+	"github.com/eyupio/reet.sh/internal/filelock"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
@@ -47,12 +49,8 @@ func agentConfigPath() string {
 }
 func loadAgentConfig(path string) (agentConfig, error) {
 	var c agentConfig
-	st, err := os.Stat(path)
-	if err != nil {
+	if err := terminalhost.CheckEnrollmentConfig(path); err != nil {
 		return c, err
-	}
-	if st.Mode().Perm()&0077 != 0 {
-		return c, errors.New("agent configuration must be private (chmod 600)")
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -260,14 +258,17 @@ func RunAgent(args []string, out io.Writer, version string) error {
 	if err != nil {
 		return err
 	}
-	lock, err := os.OpenFile(*config+".lock", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	lock, err := filelock.Acquire(*config + ".lock")
 	if err != nil {
-		return errors.New("agent is already running or its lock needs recovery; inspect the local process before removing the .lock file")
+		return fmt.Errorf("cannot lock agent enrollment: %w", err)
 	}
-	lock.Close()
-	defer os.Remove(*config + ".lock")
+	defer lock.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if !*once {
+		fmt.Fprintf(out, "Agent running in the foreground for %s. Press Ctrl+C to stop.\n", c.Host)
+		fmt.Fprintf(out, "Inventory scans repeat every minute; monitoring continues between scans.\nFor a single upload and exit: reet agent run --once --config %q\n", *config)
+	}
 	if !*once {
 		instance, err := agenthealth.NewInstanceID()
 		if err != nil {
@@ -283,6 +284,9 @@ func RunAgent(args []string, out io.Writer, version string) error {
 					if err != nil {
 						return false, terminalproto.Unsupported, err
 					}
+					if current.ID != c.ID || current.Secret != c.Secret || current.Server != c.Server {
+						return false, terminalproto.DisabledLocally, errors.New("local enrollment changed; restart the agent")
+					}
 					return current.TerminalEnabled, terminalReadiness(*config, current.TerminalEnabled), nil
 				},
 			}); err != nil {
@@ -291,12 +295,16 @@ func RunAgent(args []string, out io.Writer, version string) error {
 		}()
 	}
 	lastScan := time.Time{}
+	announcedWaiting := false
 	for {
 		if err = agentCycle(ctx, c, *config, out, version, &lastScan); err != nil {
 			if *once {
 				return err
 			}
 			fmt.Fprintf(out, "Agent: %v\n", err)
+		} else if !*once && !announcedWaiting {
+			fmt.Fprintln(out, "Agent cycle complete. Still running: waiting for updates and the next inventory scan.")
+			announcedWaiting = true
 		}
 		if *once {
 			return nil

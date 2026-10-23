@@ -65,6 +65,9 @@ func NewRuntime(cfg RuntimeConfig) *Runtime {
 	if cfg.RetryMin <= 0 {
 		cfg.RetryMin = defaultRetryMin
 	}
+	if cfg.RetryMax <= 0 {
+		cfg.RetryMax = defaultRetryMax
+	}
 	if cfg.RetryMax < cfg.RetryMin {
 		cfg.RetryMax = cfg.RetryMin
 	}

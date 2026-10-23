@@ -134,6 +134,7 @@ func (cfg *AgentConfig) normalise() error {
 	if cfg.Collector == nil {
 		cfg.Collector = NewCollector()
 	}
+	cfg.Collector = &boundedCollector{inner: cfg.Collector, busy: make(chan struct{}, 1)}
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{
 			Timeout: defaultBootstrapTimeout,
@@ -173,6 +174,11 @@ func (cfg *AgentConfig) normalise() error {
 }
 
 func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (bool, error) {
+	// Refresh consent before EVERY handshake, including reconnects. Never
+	// advertise the opt-in snapshot captured when the process first started.
+	if cfg.Consent != nil {
+		cfg.TerminalEnabled, cfg.TerminalReadiness = readConsent(cfg.Consent)
+	}
 	address, err := bootstrap(ctx, cfg)
 	if err != nil {
 		return false, err
@@ -239,20 +245,41 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 	}
 	generation := reply.Generation
 
-	errorsSeen := make(chan error, 2)
-	go readControl(sessionCtx, conn, generation, send, errorsSeen)
-	go reportHealth(sessionCtx, cfg, generation, sequence, send, errorsSeen)
+	return true, runControlWorkers(sessionCtx, cfg, conn, generation, sequence, send)
+}
+
+// Join the old generation's workers before another generation can reuse its
+// collector or sequence. Bounded collection makes cancellation prompt even if
+// an OS collector is stuck in an uninterruptible filesystem operation.
+func runControlWorkers(ctx context.Context, cfg AgentConfig, conn *websocket.Conn, generation int64, sequence *int64, send Sender) error {
+	sessionCtx, cancel := context.WithCancel(ctx)
+	errorsSeen := make(chan error, 3)
+	var workers sync.WaitGroup
+	start := func(fn func()) { workers.Add(1); go func() { defer workers.Done(); fn() }() }
+	defer func() { cancel(); conn.CloseNow(); workers.Wait() }()
+	start(func() { readControl(sessionCtx, conn, generation, send, errorsSeen) })
+	start(func() { reportHealth(sessionCtx, cfg, generation, sequence, send, errorsSeen) })
 	if cfg.Consent != nil {
 		initial := capabilities(cfg)
-		go consentControl(sessionCtx, cfg, generation, initial.TerminalEnabled, initial.Readiness, send, errorsSeen)
+		start(func() {
+			consentControl(sessionCtx, cfg, generation, initial.TerminalEnabled, initial.Readiness, send, errorsSeen)
+		})
 	}
 	select {
 	case <-sessionCtx.Done():
-		return true, nil
+		return nil
 	case err := <-errorsSeen:
 		cancel()
-		return true, err
+		return err
 	}
+}
+
+func readConsent(read func() (bool, terminalproto.Readiness, error)) (bool, terminalproto.Readiness) {
+	enabled, readiness, err := read()
+	if err != nil || capabilitiesFor(AgentConfig{}, enabled, readiness).Validate() != nil {
+		return false, terminalproto.DisabledLocally
+	}
+	return enabled, readiness
 }
 
 func readControl(ctx context.Context, conn *websocket.Conn, generation int64, send Sender, errorsSeen chan<- error) {
@@ -297,8 +324,8 @@ func consentControl(ctx context.Context, cfg AgentConfig, generation int64, enab
 			return
 		case <-ticker.C:
 		}
-		nextEnabled, nextReadiness, err := cfg.Consent()
-		if err != nil || nextEnabled == enabled && nextReadiness == readiness {
+		nextEnabled, nextReadiness := readConsent(cfg.Consent)
+		if nextEnabled == enabled && nextReadiness == readiness {
 			continue
 		}
 		caps := capabilitiesFor(cfg, nextEnabled, nextReadiness)
@@ -384,7 +411,7 @@ func bootstrap(ctx context.Context, cfg AgentConfig) (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("private bootstrap was refused (%s)", resp.Status)
+		return "", fmt.Errorf("private bootstrap was refused (HTTP %d)", resp.StatusCode)
 	}
 	var reply struct {
 		ProtocolVersion int    `json:"protocolVersion"`

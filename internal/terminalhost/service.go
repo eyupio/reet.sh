@@ -81,7 +81,7 @@ func PlanServices(ctx context.Context, options ServiceOptions) (ServicePlan, err
 	if err != nil {
 		return ServicePlan{}, errors.New("enrollment configuration path is invalid")
 	}
-	if err := isPrivateConfig(configPath); err != nil {
+	if err := CheckEnrollmentConfig(configPath); err != nil {
 		return ServicePlan{}, err
 	}
 	if options.Layout.Dir == "" {
@@ -196,7 +196,7 @@ func (p ServicePlan) plist(label string, command []string, logPath string) strin
 	for _, arg := range command[1:] {
 		args.WriteString("<string>" + xmlEscape(arg) + "</string>")
 	}
-	return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>` + xmlEscape(label) + `</string><key>ProgramArguments</key><array>` + args.String() + `</array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>WorkingDirectory</key><string>` + xmlEscape(p.Layout.Dir) + `</string><key>StandardOutPath</key><string>` + xmlEscape(logPath) + `</string><key>StandardErrorPath</key><string>` + xmlEscape(logPath) + `</string><key>ProcessType</key><string>Background</string><key>ThrottleInterval</key><integer>5</integer></dict></plist>`
+	return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>` + xmlEscape(label) + `</string><key>ProgramArguments</key><array>` + args.String() + `</array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>Umask</key><integer>63</integer><key>WorkingDirectory</key><string>` + xmlEscape(p.Layout.Dir) + `</string><key>StandardOutPath</key><string>` + xmlEscape(logPath) + `</string><key>StandardErrorPath</key><string>` + xmlEscape(logPath) + `</string><key>ProcessType</key><string>Background</string><key>ThrottleInterval</key><integer>5</integer></dict></plist>`
 }
 
 func systemdExec(args []string) string {

@@ -58,6 +58,25 @@ func (f *fakeSummaryStore) last() savedSummary {
 	return f.saves[len(f.saves)-1]
 }
 
+func waitSummary(t *testing.T, f *fakeSummaryStore, want func(savedSummary) bool) savedSummary {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		f.mu.Lock()
+		if len(f.saves) > 0 {
+			last := f.saves[len(f.saves)-1]
+			if want(last) {
+				f.mu.Unlock()
+				return last
+			}
+		}
+		f.mu.Unlock()
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("expected health summary was not persisted")
+	return savedSummary{}
+}
+
 type fakeClock struct {
 	mu  sync.Mutex
 	now time.Time
@@ -163,6 +182,7 @@ func TestHubIgnoresDuplicateAndOutOfOrderReports(t *testing.T) {
 	}
 	nextProbe(t, sent)
 	conn.Report(healthReport(2), clock.Now())
+	waitSummary(t, summary, func(v savedSummary) bool { return v.in.Summary.CPUPercent.Valid == 1 })
 	saves := summary.count()
 	conn.Report(healthReport(2), clock.Now())
 	conn.Report(healthReport(1), clock.Now())
@@ -176,6 +196,7 @@ func TestHubIgnoresDuplicateAndOutOfOrderReports(t *testing.T) {
 		t.Fatal("foreign instance report was accepted")
 	}
 	conn.Report(healthReport(3), clock.Now())
+	waitSummary(t, summary, func(v savedSummary) bool { return v.in.Summary.CPUPercent.Valid == 2 })
 	if summary.count() != saves+1 {
 		t.Fatal("ordered report was not accepted")
 	}
@@ -193,10 +214,12 @@ func TestHubRollsMinutesAndReconnects(t *testing.T) {
 	}
 	nextProbe(t, sent)
 	first.Report(healthReport(1), clock.Now())
+	waitSummary(t, summary, func(v savedSummary) bool { return v.in.Summary.CPUPercent.Valid == 1 })
 	firstMinute := summary.last().in.Minute
 	clock.Advance(time.Minute)
 	first.Report(healthReport(2), clock.Now())
-	if summary.last().in.Minute == firstMinute || summary.last().in.Revision != 1 {
+	waitSummary(t, summary, func(v savedSummary) bool { return v.in.Minute != firstMinute })
+	if summary.last().in.Minute == firstMinute || summary.last().in.Revision != 1 || summary.last().in.Summary.CPUPercent.Valid != 1 || summary.last().in.Summary.CPUPercent.Sum != 2 {
 		t.Fatalf("minute rollover: %+v", summary.last().in)
 	}
 	second, err := hub.Connect(1, "agent0123456789abcdef", 2, testInstance(), testCaps(), testSender(sent))
@@ -214,9 +237,80 @@ func TestHubRollsMinutesAndReconnects(t *testing.T) {
 		t.Fatalf("reconnect status: %+v", status)
 	}
 	second.Report(healthReport(3), clock.Now())
+	waitSummary(t, summary, func(v savedSummary) bool { return v.in.Generation == 2 })
 	last := summary.last()
 	if last.in.Generation != 2 || last.in.Summary.Reconnects != 1 {
 		t.Fatalf("reconnect summary: %+v", last.in.Summary)
+	}
+}
+
+func TestHubRejectsDelayedGenerationWithoutClosingNewer(t *testing.T) {
+	hub, _, _, sent := testHub(t)
+	newer, err := hub.Connect(1, "agent0123456789abcdef", 3, testInstance(), testCaps(), testSender(sent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextProbe(t, sent)
+	for _, generation := range []int64{2, 3} {
+		if old, err := hub.Connect(1, "agent0123456789abcdef", generation, testInstance(), testCaps(), testSender(sent)); !errors.Is(err, store.ErrTerminalConflict) {
+			if old != nil {
+				old.Close()
+			}
+			t.Fatal("stale generation replaced current", err)
+		}
+	}
+	if !newer.Status().Connected {
+		t.Fatal("newer generation closed")
+	}
+	newer.Close()
+	if _, err := hub.Connect(1, "agent0123456789abcdef", 2, testInstance(), testCaps(), testSender(sent)); !errors.Is(err, store.ErrTerminalConflict) {
+		t.Fatal("retained generation was resurrected", err)
+	}
+}
+
+func TestHubReconnectCountUsesObservedConnections(t *testing.T) {
+	hub, _, _, sent := testHub(t)
+	first, err := hub.Connect(1, "agent0123456789abcdef", 8, testInstance(), testCaps(), testSender(sent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextProbe(t, sent)
+	if first.Status().Reconnects != 0 {
+		t.Fatal("fabricated a reconnect from generation number")
+	}
+	for generation := int64(9); generation <= 10; generation++ {
+		next, err := hub.Connect(1, "agent0123456789abcdef", generation, testInstance(), testCaps(), testSender(sent))
+		if err != nil {
+			t.Fatal(err)
+		}
+		nextProbe(t, sent)
+		if next.Status().Reconnects != int(generation-8) {
+			t.Fatal("reconnect total reset", next.Status().Reconnects)
+		}
+	}
+}
+
+func TestHubRetainsFirstProbeAndTrafficOfNewMinute(t *testing.T) {
+	hub, summary, clock, sent := testHub(t)
+	conn, err := hub.Connect(1, "agent0123456789abcdef", 1, testInstance(), testCaps(), testSender(sent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextProbe(t, sent)
+	clock.Advance(time.Minute)
+	conn.sendProbe()
+	probe, _ := nextProbe(t, sent)
+	clock.Advance(20 * time.Millisecond)
+	conn.ProbeResult(terminalproto.ProbeResult(probe), clock.Now())
+	waitSummary(t, summary, func(v savedSummary) bool { return len(v.in.Summary.RTTMillis) == 1 })
+	if values := summary.last().in.Summary.RTTMillis; len(values) != 1 || values[0] != 20 {
+		t.Fatal("first RTT lost", values)
+	}
+	clock.Advance(time.Minute)
+	conn.ReportTraffic(12, 34, clock.Now())
+	waitSummary(t, summary, func(v savedSummary) bool { return v.in.Summary.InputBytes == 12 })
+	if value := summary.last().in.Summary; value.InputBytes != 12 || value.OutputBytes != 34 {
+		t.Fatal("first traffic lost", value)
 	}
 }
 
@@ -239,14 +333,11 @@ func TestHubMarksUnreachableAfterThreeMissedProbes(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("unreachable connection was not closed")
 	}
-	if summary.count() != maxConsecutive {
-		t.Fatalf("missed probe summaries = %d", summary.count())
-	}
-	if last := summary.last().in.Summary; last.MissedProbes != maxConsecutive {
-		t.Fatalf("missed probe count: %+v", last)
-	}
+	// A disconnect may cancel a queued summary; the live/last-known status
+	// must still include every missed probe regardless of database progress.
+	_ = summary
 	status, ok := hub.Status(1, "agent0123456789abcdef")
-	if !ok || !status.LastKnown || !status.Unreachable || status.Connected {
+	if !ok || !status.LastKnown || !status.Unreachable || status.Connected || status.MissedProbes != maxConsecutive {
 		t.Fatalf("last known status: %+v", status)
 	}
 }
@@ -352,5 +443,65 @@ func TestHubPrunesWhileIdle(t *testing.T) {
 	}
 	if summary.pruneCount() == 0 {
 		t.Fatal("idle hub did not prune")
+	}
+}
+
+type blockedSummaryStore struct {
+	*fakeSummaryStore
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *blockedSummaryStore) SaveRemoteHealthMinuteForContext(ctx context.Context, uid int64, in store.RemoteHealthMinute) error {
+	select {
+	case s.started <- struct{}{}:
+	default:
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.release:
+		return s.fakeSummaryStore.SaveRemoteHealthMinuteFor(uid, in)
+	}
+}
+func TestSlowSummaryStoreDoesNotBlockProbesAndCoalescesReports(t *testing.T) {
+	clock := newFakeClock()
+	st := &blockedSummaryStore{fakeSummaryStore: &fakeSummaryStore{}, started: make(chan struct{}, 1), release: make(chan struct{})}
+	hub := NewHub(HubConfig{Store: st, Now: clock.Now, ProbeInterval: time.Hour})
+	t.Cleanup(hub.Close)
+	sent := make(chan sentMessage, 16)
+	c, err := hub.Connect(1, "agent0123456789abcdef", 1, testInstance(), testCaps(), testSender(sent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe, _ := nextProbe(t, sent)
+	c.Report(healthReport(1), clock.Now())
+	select {
+	case <-st.started:
+	case <-time.After(time.Second):
+		t.Fatal("store was not called")
+	}
+	complete := make(chan struct{})
+	go func() {
+		for i := int64(2); i <= 100; i++ {
+			c.Report(healthReport(i), clock.Now())
+		}
+		clock.Advance(42 * time.Millisecond)
+		c.ProbeResult(terminalproto.ProbeResult(probe), clock.Now())
+		close(complete)
+	}()
+	select {
+	case <-complete:
+	case <-time.After(time.Second):
+		close(st.release)
+		t.Fatal("store stalled report/probe handling")
+	}
+	if status := c.Status(); status.RTTMillis == nil || *status.RTTMillis != 42 {
+		t.Fatal("pong was blocked by persistence")
+	}
+	close(st.release)
+	waitSummary(t, st.fakeSummaryStore, func(v savedSummary) bool { return v.in.Summary.CPUPercent.Valid == 100 })
+	if st.count() > 2 {
+		t.Fatal("did not coalesce cumulative snapshots", st.count())
 	}
 }

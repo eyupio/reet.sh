@@ -66,6 +66,10 @@ func TestEnsureRefusesUnsafePaths(t *testing.T) {
 	if err := os.Mkdir(layout.Dir, 0755); err != nil {
 		t.Fatal(err)
 	}
+	// Test the on-disk mode regardless of the invoking shell's umask.
+	if err := os.Chmod(layout.Dir, 0755); err != nil {
+		t.Fatal(err)
+	}
 	if err := Ensure(layout); !errors.Is(err, ErrUnsafePath) {
 		t.Fatalf("permissive directory: %v", err)
 	}

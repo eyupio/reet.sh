@@ -102,6 +102,37 @@ func TestSessionsWithoutService(t *testing.T) {
 	}
 }
 
+func TestEndSessionDoesNotResolvePrefixToAnotherSession(t *testing.T) {
+	tmux, err := FindTmux(context.Background())
+	if err != nil {
+		t.Skip(err)
+	}
+	layout := privateLayout(t)
+	server := exec.Command(tmux.Path, "-D", "-S", layout.Socket, "-f", layout.Config)
+	if err := server.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = exec.Command(tmux.Path, "-S", layout.Socket, "kill-server").Run()
+		_ = server.Process.Kill()
+		_ = server.Wait()
+	})
+	deadline := time.Now().Add(3 * time.Second)
+	for !SocketActive(layout) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if err := exec.Command(tmux.Path, "-S", layout.Socket, "new-session", "-d", "-s", "reet-longer", "sleep", "30").Run(); err != nil {
+		t.Fatal(err)
+	}
+	if err := EndSession(context.Background(), tmux, layout, "reet"); err == nil {
+		t.Fatal("prefix matched an unrelated session")
+	}
+	sessions, err := Sessions(context.Background(), tmux, layout)
+	if err != nil || len(sessions) != 1 || sessions[0].Name != "reet-longer" {
+		t.Fatal("unrelated local work ended", sessions, err)
+	}
+}
+
 func TestReadinessDistinguishesConsentTmuxAndSupervisor(t *testing.T) {
 	layout := privateLayout(t)
 	if readiness := Readiness(context.Background(), layout, false); readiness != "disabled_locally" {

@@ -32,14 +32,14 @@ func Readiness(ctx context.Context, layout Layout, consent bool) terminalproto.R
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		return terminalproto.Unsupported
 	}
-	if _, err := FindTmux(ctx); err != nil {
+	tmux, err := FindTmux(ctx)
+	if err != nil {
 		return terminalproto.TmuxUnavailable
 	}
 	if err := Check(layout); err != nil {
 		return terminalproto.SupervisorUnavailable
 	}
-	tmux, err := FindTmux(ctx)
-	if err != nil || !responsive(ctx, tmux, layout) {
+	if !responsive(ctx, tmux, layout) {
 		return terminalproto.SupervisorUnavailable
 	}
 	return terminalproto.Ready

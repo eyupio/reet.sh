@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -50,6 +51,11 @@ func (s *server) terminal(next http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, 400, "terminal credentials must not appear in URLs")
 			return
 		}
+		metadata := r.Method == http.MethodGet && (r.URL.Path == "/api/v2/terminal/machines" || r.URL.Path == "/api/v2/terminal/sessions")
+		if !metadata && !s.terminalEnabled() {
+			writeErr(w, 403, "remote terminals are disabled by the server; monitoring and local shells remain available")
+			return
+		}
 		if r.Method != http.MethodGet || r.URL.Path == "/api/v2/terminal/socket" {
 			if !s.terminalOrigin(r) {
 				writeErr(w, 403, "terminal origin is not allowed")
@@ -58,6 +64,16 @@ func (s *server) terminal(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), userContextKey{}, u)))
 	}
+}
+func (s *server) terminalEnabled() bool {
+	if !s.remoteTerminals || s.authMode != AuthAccounts {
+		return false
+	}
+	u, err := url.Parse(s.publicURL)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" {
+		return false
+	}
+	return u.Scheme == "https" || u.Scheme == "http" && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()).IsLoopback())
 }
 func (s *server) terminalOrigin(r *http.Request) bool {
 	u, err := url.Parse(s.publicURL)
@@ -103,7 +119,7 @@ func (s *server) terminalMachines(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []map[string]any{}
 	for _, a := range agents {
-		item := map[string]any{"agentId": a.ID, "host": a.Host, "ready": s.terminals.Ready(s.uid(r), a.ID)}
+		item := map[string]any{"agentId": a.ID, "host": a.Host, "ready": s.terminalEnabled() && s.terminals.Ready(s.uid(r), a.ID), "serverEnabled": s.terminalEnabled()}
 		if c, e := s.st.RemoteCapabilitiesFor(s.uid(r), a.ID); e == nil {
 			item["capabilities"] = c.Capabilities
 		}
@@ -246,7 +262,7 @@ func (s *server) terminalSocket(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (s *server) privateTerminalData(w http.ResponseWriter, r *http.Request) {
-	if !s.privateCredentials() {
+	if !s.privateCredentials() || !s.terminalEnabled() {
 		http.NotFound(w, r)
 		return
 	}

@@ -3,6 +3,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -56,6 +58,9 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	srv, st, agent, secret, _ := privateFixture(t, AuthAccounts, "")
+	var current atomic.Pointer[Server]
+	current.Store(srv)
+	t.Cleanup(func() { current.Load().Close() })
 	uid, _ := st.DefaultOwner()
 	cookie := terminalLogin(t, st, uid)
 	layout, err := terminalhost.NewEnrollmentLayout(filepath.Join(dir, "agent.json"), agent.ID)
@@ -89,20 +94,20 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 	}
 	command("set-option", "-g", "default-command", "PS1='stage6-ready> ' exec /bin/sh -i")
 	private := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		srv.s.privateHandler().ServeHTTP(w, r.WithContext(privateconn.WithPrivateTransport(r.Context())))
+		current.Load().s.privateHandler().ServeHTTP(w, r.WithContext(privateconn.WithPrivateTransport(r.Context())))
 	}))
 	defer private.Close()
 	browserMode := os.Getenv("REET_BROWSER_TESTS") == "1"
 	browserCommands := make(chan terminalBrowserCommand)
 	public := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if browserMode && strings.HasPrefix(r.URL.Path, "/_test/") {
-			if user, ok := srv.s.sessionUser(r); !ok || user.ID != uid {
+			if user, ok := current.Load().s.sessionUser(r); !ok || user.ID != uid {
 				http.Error(w, "forbidden", 403)
 				return
 			}
 			_, _ = io.Copy(io.Discard, r.Body)
 			action := strings.TrimPrefix(r.URL.Path, "/_test/")
-			if action != "state" && action != "restart-agent" {
+			if action != "state" && action != "restart-agent" && action != "restart-controller" && action != "disable-terminals" && action != "enable-terminals" {
 				http.NotFound(w, r)
 				return
 			}
@@ -120,7 +125,7 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 			return
 		}
 		if !browserMode || strings.HasPrefix(r.URL.Path, "/api/") {
-			srv.ServeHTTP(w, r)
+			current.Load().ServeHTTP(w, r)
 			return
 		}
 		assets := filepath.Join("..", "..", "web", "dist")
@@ -203,10 +208,10 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 			}
 		}
 		deadline := time.Now().Add(3 * time.Second)
-		for !srv.s.terminals.Ready(uid, agent.ID) && time.Now().Before(deadline) {
+		for current.Load().s.terminalEnabled() && !current.Load().s.terminals.Ready(uid, agent.ID) && time.Now().Before(deadline) {
 			time.Sleep(10 * time.Millisecond)
 		}
-		if !srv.s.terminals.Ready(uid, agent.ID) {
+		if current.Load().s.terminalEnabled() && !current.Load().s.terminals.Ready(uid, agent.ID) {
 			stop()
 			t.Fatal("private connection never became terminal-ready")
 		}
@@ -217,6 +222,13 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 	if browserMode {
 		var originalPID string
 		runTerminalBrowser(t, public.URL, cookie, agent.ID, browserCommands, func(action string) map[string]any {
+			if action == "restart-controller" || action == "disable-terminals" || action == "enable-terminals" {
+				stop()
+				current.Load().Close()
+				next := New(st, deadFetcher(t), "", WithAuthMode(AuthAccounts), WithRemoteTerminals(action != "disable-terminals"), WithPublicURL(public.URL))
+				current.Store(next)
+				stop = connect()
+			}
 			if action == "restart-agent" {
 				stop()
 				stop = connect()
@@ -235,6 +247,29 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 		})
 		if originalPID == "" {
 			t.Fatal("browser did not verify an original shell process")
+		}
+		for _, root := range []string{st.Path(), layout.Dir} {
+			err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				if !info.Mode().IsRegular() {
+					return nil
+				}
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				for _, marker := range []string{"__browser_started__", "__controller_survived__", "__rollback_survived__"} {
+					if bytes.Contains(data, []byte(marker)) {
+						t.Errorf("terminal content persisted to %s", path)
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal("privacy inspection", err)
+			}
 		}
 		deadline := time.Now().Add(2 * time.Second)
 		traffic := false

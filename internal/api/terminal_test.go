@@ -104,6 +104,67 @@ func TestStreamHelloRejectsConfusedBindings(t *testing.T) {
 	}
 }
 
+func TestTerminalRolloutFlagAndSecureOriginFailClosed(t *testing.T) {
+	srv, st, _, _, _ := privateFixture(t, AuthAccounts, "")
+	uid, _ := st.DefaultOwner()
+	cookie := terminalLogin(t, st, uid)
+	for _, tc := range []struct {
+		enabled bool
+		origin  string
+		allowed bool
+	}{
+		{false, "https://reet.example", false}, {true, "http://reet.example", false},
+		{true, "https://reet.example", true}, {true, "http://127.0.0.1:8080", true}, {true, "http://[::1]:8080", true},
+		{true, "http://localhost.evil", false}, {true, "https://reet.example/path", false},
+	} {
+		srv.s.remoteTerminals = tc.enabled
+		srv.s.publicURL = tc.origin
+		if got := srv.s.terminalEnabled(); got != tc.allowed {
+			t.Fatalf("enabled=%t origin=%q: %t", tc.enabled, tc.origin, got)
+		}
+		for _, path := range []string{"/api/v2/terminal/machines", "/api/v2/terminal/sessions"} {
+			r := httptest.NewRequest("GET", path, nil)
+			r.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, r)
+			if w.Code != 200 {
+				t.Fatalf("read-only metadata unavailable during rollback: %d", w.Code)
+			}
+		}
+		if tc.allowed {
+			continue
+		}
+		for _, request := range []struct{ method, path string }{
+			{"POST", "/api/v2/terminal/sessions"}, {"PATCH", "/api/v2/terminal/sessions/session"},
+			{"POST", "/api/v2/terminal/sessions/session/end"}, {"POST", "/api/v2/terminal/sessions/session/attachments"},
+			{"GET", "/api/v2/terminal/sessions/session/history"}, {"GET", "/api/v2/terminal/socket"},
+		} {
+			r := httptest.NewRequest(request.method, request.path, strings.NewReader(`{}`))
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("Origin", tc.origin)
+			r.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, r)
+			if w.Code != 403 {
+				t.Fatalf("disabled route %s: %d", request.path, w.Code)
+			}
+		}
+		r := httptest.NewRequest("GET", "/api/v2/machines/health", nil)
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatal("terminal flag disabled health", w.Code)
+		}
+	}
+	defaultServer := newServer(st, deadFetcher(t), "", WithAuthMode(AuthAccounts), WithPublicURL("https://reet.example"))
+	defer defaultServer.terminals.Close()
+	defer defaultServer.healthHub.Close()
+	if defaultServer.terminalEnabled() {
+		t.Fatal("remote shells enabled by default")
+	}
+}
+
 func TestTerminalHistoryIsInertDownloadableText(t *testing.T) {
 	r := httptest.NewRequest("GET", "/api/v2/terminal/sessions/test/history", nil)
 	w := httptest.NewRecorder()

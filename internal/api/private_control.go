@@ -86,7 +86,7 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer hubConn.Close()
-	peer, err := s.terminals.Connect(uid, agent.ID, caps.Generation, caps.Capabilities.TerminalControl && caps.Capabilities.TerminalEnabled && caps.Capabilities.Readiness == terminalproto.Ready, terminalbroker.Sender(send))
+	peer, err := s.terminals.Connect(uid, agent.ID, caps.Generation, s.terminalEnabled() && caps.Capabilities.TerminalControl && caps.Capabilities.TerminalEnabled && caps.Capabilities.Readiness == terminalproto.Ready, terminalbroker.Sender(send))
 	if err != nil {
 		return
 	}
@@ -95,7 +95,7 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 	peerCtx, peerCancel := context.WithCancel(r.Context())
 	var peerWorkers sync.WaitGroup
 	defer func() { peerCancel(); peerWorkers.Wait() }()
-	if caps.Capabilities.TerminalControl {
+	if s.terminalEnabled() && caps.Capabilities.TerminalControl {
 		peerWorkers.Add(1)
 		go func() { defer peerWorkers.Done(); _ = peer.Synchronize(peerCtx) }()
 	}
@@ -138,12 +138,15 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			hubConn.UpdateCapabilities(body.Capabilities)
-			peer.Capabilities(body.Capabilities.TerminalControl && body.Capabilities.TerminalEnabled && body.Capabilities.Readiness == terminalproto.Ready)
-			if body.Capabilities.TerminalControl {
+			peer.Capabilities(s.terminalEnabled() && body.Capabilities.TerminalControl && body.Capabilities.TerminalEnabled && body.Capabilities.Readiness == terminalproto.Ready)
+			if s.terminalEnabled() && body.Capabilities.TerminalControl {
 				peerWorkers.Add(1)
 				go func() { defer peerWorkers.Done(); _ = peer.Synchronize(peerCtx) }()
 			}
 		case *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.SessionChanged:
+			if !s.terminalEnabled() {
+				continue
+			}
 			if err := peer.Receive(message); err != nil {
 				return
 			}

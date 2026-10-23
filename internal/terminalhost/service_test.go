@@ -23,12 +23,46 @@ func testPlan(t *testing.T, env []string) ServicePlan {
 	return plan
 }
 
+func TestControlAgentServicePreservesTmuxAndChecksEnrollment(t *testing.T) {
+	plan := testPlan(t, nil)
+	if err := writePrivateFile(plan.AgentPath, []byte(plan.AgentText())); err != nil {
+		t.Fatal(err)
+	}
+	old := runServiceOutput
+	defer func() { runServiceOutput = old }()
+	var calls []string
+	runServiceOutput = func(_ context.Context, name string, args ...string) (string, error) {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		return "", nil
+	}
+	for _, action := range []string{"stop", "start"} {
+		if err := ControlAgentService(context.Background(), plan, action); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, call := range calls {
+		if strings.Contains(call, plan.TerminalName) || strings.Contains(call, plan.TerminalLabel) {
+			t.Fatal("agent lifecycle touched terminal supervisor", call)
+		}
+	}
+	calls = nil
+	if err := writePrivateFile(plan.AgentPath, []byte("unrelated enrollment")); err != nil {
+		t.Fatal(err)
+	}
+	if err := ControlAgentService(context.Background(), plan, "stop"); err == nil || len(calls) != 0 {
+		t.Fatal("foreign agent service was controlled", err, calls)
+	}
+}
+
 func TestPlanServicesSeparatesUnitsAndFiltersEnvironment(t *testing.T) {
 	plan := testPlan(t, []string{
 		"PATH=/usr/bin:/bin", "HOME=/home/tester", "USER=tester", "LOGNAME=tester", "SHELL=/bin/sh",
 		"TERM=xterm-256color", "REET_TOKEN=must-not-leak", "SSH_AUTH_SOCK=/tmp/agent.sock", "BAD\nKEY=x",
 	})
 	agent, terminal := plan.AgentText(), plan.TerminalText()
+	if !strings.Contains(agent, "--foreground") || !strings.Contains(agent, "--supervised") {
+		t.Fatal("native service would detach from its supervisor")
+	}
 	if strings.Contains(agent+terminal, "must-not-leak") || strings.Contains(agent+terminal, "SSH_AUTH_SOCK") {
 		t.Fatal("service environment inherited a credential")
 	}

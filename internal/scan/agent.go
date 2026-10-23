@@ -93,11 +93,14 @@ func writePrivate(path string, data any) error {
 	return os.Rename(f.Name(), path)
 }
 func agentRequest(c agentConfig, path string, body any, result any, version string) error {
+	return agentRequestContext(context.Background(), c, path, body, result, version)
+}
+func agentRequestContext(ctx context.Context, c agentConfig, path string, body any, result any, version string) error {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest("POST", c.Server+path, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.Server+path, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
@@ -125,7 +128,7 @@ func agentRequest(c agentConfig, path string, body any, result any, version stri
 // RunAgent enrolls a scanner-only installation and processes typed controller jobs.
 func RunAgent(args []string, out io.Writer, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet agent enroll|run|status|restore|terminal|service [--config PATH]; run --help for options")
+		return errors.New("usage: reet agent enroll|start|stop|restart|status|run|restore|terminal|service [--config PATH]; run backgrounds by default; --foreground for debugging")
 	}
 	action := args[0]
 	if action == "terminal" {
@@ -144,6 +147,10 @@ func RunAgent(args []string, out io.Writer, version string) error {
 	backup := fs.String("backup", "", "removed skill entry to restore")
 	targetID := fs.String("target", "", "target scope for restore")
 	once := fs.Bool("once", false, "poll once, then exit (useful for a scheduler)")
+	foreground := fs.Bool("foreground", false, "keep the agent attached to this terminal (debugging / supervisors)")
+	supervised := fs.Bool("supervised", false, "run under the installed native service manager")
+	servicePrefix := fs.String("service-prefix", "reet", "native service name prefix")
+	remoteStatus := fs.Bool("remote", false, "also request controller status (may wait for the network)")
 	allow := fs.Bool("allow-apply", false, "allow this installation to execute plans approved in the web UI")
 	var projects multi
 	fs.Var(&projects, "project", "absolute project directory to track (repeatable at enrollment)")
@@ -244,12 +251,23 @@ func RunAgent(args []string, out io.Writer, version string) error {
 		if err != nil {
 			return err
 		}
+		if err = printAgentStatus(*config, out); err != nil {
+			return err
+		}
+		if !*remoteStatus {
+			return nil
+		}
 		var a store.SyncAgent
 		if err = agentRequest(c, "/api/v2/sync/identity", map[string]string{}, &a, version); err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "Machine: %s\nController: %s\nPaused: %t\nRemote apply enabled: %t\nTerminal access enabled locally: %t\n", a.Host, c.Server, a.Paused, c.AllowApply, c.TerminalEnabled)
 		return nil
+	case "start", "stop", "restart":
+		if _, err := loadAgentConfig(*config); err != nil {
+			return err
+		}
+		return controlAgent(action, *config, *servicePrefix, out)
 	case "run":
 	default:
 		return errors.New("unknown agent command")
@@ -258,6 +276,9 @@ func RunAgent(args []string, out io.Writer, version string) error {
 	if err != nil {
 		return err
 	}
+	if !*once && !*foreground {
+		return controlAgent("start", *config, *servicePrefix, out)
+	}
 	lock, err := filelock.Acquire(*config + ".lock")
 	if err != nil {
 		return fmt.Errorf("cannot lock agent enrollment: %w", err)
@@ -265,6 +286,19 @@ func RunAgent(args []string, out io.Writer, version string) error {
 	defer lock.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	ctx, cancelAgent := context.WithCancel(ctx)
+	defer cancelAgent()
+	state := &agentRuntime{started: time.Now().UnixMilli(), version: version, supervised: *supervised, servicePrefix: *servicePrefix}
+	if !*once {
+		closeControl, err := serveAgentControl(*config, state, cancelAgent)
+		if err != nil {
+			return err
+		}
+		defer closeControl()
+		if err := notifyAgentReady(); err != nil {
+			return err
+		}
+	}
 	if !*once {
 		fmt.Fprintf(out, "Agent running in the foreground for %s. Press Ctrl+C to stop.\n", c.Host)
 		fmt.Fprintf(out, "Inventory scans repeat every minute; monitoring continues between scans.\nFor a single upload and exit: reet agent run --once --config %q\n", *config)
@@ -274,9 +308,14 @@ func RunAgent(args []string, out io.Writer, version string) error {
 		if err != nil {
 			return err
 		}
+		monitorDone := make(chan struct{})
+		defer func() { cancelAgent(); <-monitorDone }()
 		go func() {
+			defer close(monitorDone)
 			if err := agenthealth.RunAgent(ctx, agenthealth.AgentConfig{
-				ServerURL: c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,
+				TerminalSession: terminalControl(*config, c),
+				OnConnection:    state.connected.Store,
+				ServerURL:       c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,
 				Version: version, InstanceID: instance,
 				TerminalEnabled: c.TerminalEnabled, TerminalReadiness: terminalReadiness(*config, c.ID, c.TerminalEnabled),
 				Consent: func() (bool, terminalproto.Readiness, error) {
@@ -306,6 +345,9 @@ func RunAgent(args []string, out io.Writer, version string) error {
 			fmt.Fprintln(out, "Agent cycle complete. Still running: waiting for updates and the next inventory scan.")
 			announcedWaiting = true
 		}
+		if err == nil {
+			state.lastCycle.Store(time.Now().UnixMilli())
+		}
 		if *once {
 			return nil
 		}
@@ -333,7 +375,7 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 		if err = json.Unmarshal(b, &result); err != nil {
 			return err
 		}
-		if err = agentRequest(c, "/api/v2/sync/result", result, nil, version); err != nil {
+		if err = agentRequestContext(ctx, c, "/api/v2/sync/result", result, nil, version); err != nil {
 			return err
 		}
 		if err = os.Remove(config + ".result"); err != nil {
@@ -344,7 +386,7 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 		Agent store.SyncAgent
 		Job   *store.SyncJob
 	}
-	if err := agentRequest(c, "/api/v2/sync/poll", map[string]string{}, &reply, version); err != nil {
+	if err := agentRequestContext(ctx, c, "/api/v2/sync/poll", map[string]string{}, &reply, version); err != nil {
 		return err
 	}
 	c.Host = reply.Agent.Host
@@ -425,7 +467,7 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	if err := writePrivate(config+".result", result); err != nil {
 		return err
 	}
-	if err := agentRequest(c, "/api/v2/sync/result", result, nil, version); err != nil {
+	if err := agentRequestContext(ctx, c, "/api/v2/sync/result", result, nil, version); err != nil {
 		return err
 	}
 	return os.Remove(config + ".result")

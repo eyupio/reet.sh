@@ -167,7 +167,7 @@ func (p ServicePlan) TerminalText() string {
 }
 
 func (p ServicePlan) agentArgs() []string {
-	return []string{p.Binary, "agent", "run", "--config", p.ConfigPath}
+	return []string{p.Binary, "agent", "run", "--foreground", "--supervised", "--service-prefix", p.Prefix, "--config", p.ConfigPath}
 }
 
 func (p ServicePlan) terminalArgs() []string {
@@ -389,6 +389,52 @@ func terminalServiceActive(ctx context.Context, plan ServicePlan) (bool, error) 
 		}
 	}
 	return false, errors.New("could not inspect the terminal service; inspect the local service manager")
+}
+
+// ControlAgentService changes only the agent, preserving the independent tmux
+// service. Refuse a shared unit bound to a different local enrollment.
+func ControlAgentService(ctx context.Context, plan ServicePlan, action string) error {
+	if action != "start" && action != "stop" {
+		return errors.New("invalid agent service action")
+	}
+	if err := CheckEnrollmentConfig(plan.AgentPath); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(plan.AgentPath)
+	if err != nil {
+		return err
+	}
+	binding := systemdExec([]string{"--config", plan.ConfigPath})
+	if runtime.GOOS == "darwin" {
+		binding = "<string>--config</string><string>" + xmlEscape(plan.ConfigPath) + "</string>"
+	}
+	if !strings.Contains(string(data), binding) {
+		return errors.New("installed agent service belongs to another enrollment; inspect it locally")
+	}
+	if action == "start" {
+		if err := writePrivateFile(plan.AgentPath, []byte(plan.AgentText())); err != nil {
+			return err
+		}
+	}
+	if runtime.GOOS == "darwin" {
+		if action == "stop" {
+			return bootoutMac(ctx, plan.AgentLabel)
+		}
+		if err := bootoutMac(ctx, plan.AgentLabel); err != nil {
+			return err
+		}
+		domain := "gui/" + strconv.Itoa(os.Getuid())
+		if err := runServiceCommand(ctx, "launchctl", "bootstrap", domain, plan.AgentPath); err != nil {
+			return err
+		}
+		return runServiceCommand(ctx, "launchctl", "kickstart", domain+"/"+plan.AgentLabel)
+	}
+	if action == "start" {
+		if err := runServiceCommand(ctx, "systemctl", "--user", "daemon-reload"); err != nil {
+			return err
+		}
+	}
+	return runServiceCommand(ctx, "systemctl", "--user", action, plan.AgentName)
 }
 
 // Uninstall stops both services and removes their definitions. Stopping the

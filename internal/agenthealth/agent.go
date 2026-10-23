@@ -35,6 +35,9 @@ const (
 // AgentConfig is the installed agent's private monitoring configuration. Health
 // reporting is independent of terminal opt-in.
 type AgentConfig struct {
+	OnConnection      func(bool)
+	TerminalSession   TerminalFactory
+	control           func(context.Context, terminalproto.Message) error
 	ServerURL         string
 	Token             string
 	AgentID           string
@@ -57,6 +60,10 @@ type AgentConfig struct {
 	BackoffMax       time.Duration
 	ConsentInterval  time.Duration
 }
+
+// TerminalFactory is given only the authenticated private client's HTTP
+// transport. Its returned cleanup must cancel and join all generation workers.
+type TerminalFactory func(context.Context, *http.Client, http.Header, int64, Sender) (func(context.Context, terminalproto.Message) error, func())
 
 // RunAgent maintains the private control connection and reports host health.
 // Transient failures are retried with bounded backoff; only context
@@ -244,6 +251,15 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 		return false, errors.New("this agent protocol is not supported; update the agent or controller")
 	}
 	generation := reply.Generation
+	if cfg.OnConnection != nil {
+		cfg.OnConnection(true)
+		defer cfg.OnConnection(false)
+	}
+	if cfg.TerminalSession != nil {
+		var closeTerminal func()
+		cfg.control, closeTerminal = cfg.TerminalSession(sessionCtx, client.HTTPClient(), authHeaders(cfg), generation, send)
+		defer closeTerminal()
+	}
 
 	return true, runControlWorkers(sessionCtx, cfg, conn, generation, sequence, send)
 }
@@ -257,7 +273,7 @@ func runControlWorkers(ctx context.Context, cfg AgentConfig, conn *websocket.Con
 	var workers sync.WaitGroup
 	start := func(fn func()) { workers.Add(1); go func() { defer workers.Done(); fn() }() }
 	defer func() { cancel(); conn.CloseNow(); workers.Wait() }()
-	start(func() { readControl(sessionCtx, conn, generation, send, errorsSeen) })
+	start(func() { readControlWithTerminal(sessionCtx, conn, generation, send, errorsSeen, cfg.control) })
 	start(func() { reportHealth(sessionCtx, cfg, generation, sequence, send, errorsSeen) })
 	if cfg.Consent != nil {
 		initial := capabilities(cfg)
@@ -283,6 +299,9 @@ func readConsent(read func() (bool, terminalproto.Readiness, error)) (bool, term
 }
 
 func readControl(ctx context.Context, conn *websocket.Conn, generation int64, send Sender, errorsSeen chan<- error) {
+	readControlWithTerminal(ctx, conn, generation, send, errorsSeen, nil)
+}
+func readControlWithTerminal(ctx context.Context, conn *websocket.Conn, generation int64, send Sender, errorsSeen chan<- error, terminal func(context.Context, terminalproto.Message) error) {
 	for {
 		readCtx, cancel := context.WithTimeout(ctx, controlReadTimeout)
 		kind, data, err := conn.Read(readCtx)
@@ -302,6 +321,13 @@ func readControl(ctx context.Context, conn *websocket.Conn, generation int64, se
 		}
 		probe, ok := message.Body.(*terminalproto.Probe)
 		if !ok {
+			if terminal != nil {
+				if err := terminal(ctx, message); err != nil {
+					errorsSeen <- err
+					return
+				}
+				continue
+			}
 			errorsSeen <- terminalproto.ErrInvalid
 			return
 		}
@@ -464,6 +490,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		username = current.Username
 	}
 	return terminalproto.Capabilities{
+		TerminalControl: cfg.TerminalSession != nil,
 		ProtocolVersion: terminalproto.Version,
 		OS:              osName,
 		OSUser:          username,

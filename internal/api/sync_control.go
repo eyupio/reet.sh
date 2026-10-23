@@ -122,6 +122,9 @@ func (s *server) controlSyncAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	if in.Action == "revoke" {
+		s.terminals.Revoke(s.uid(r), in.ID)
+	}
 	s.syncState(w, r)
 }
 func (s *server) queueSyncJob(w http.ResponseWriter, r *http.Request) {

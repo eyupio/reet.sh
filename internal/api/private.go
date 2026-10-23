@@ -102,6 +102,9 @@ func (s *server) privateHandler() http.Handler {
 				return
 			}
 			s.privateControl(w, r)
+		case "/private/v1/terminal/data":
+			if r.Method != http.MethodGet {http.NotFound(w,r);return}
+			s.privateTerminalData(w,r)
 		default:
 			http.NotFound(w, r)
 		}

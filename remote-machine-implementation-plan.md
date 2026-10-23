@@ -3,9 +3,10 @@
 Status: implementation handoff. Stages 0–4 are merged, including PR #126.
 The follow-up [foundation review](docs/remote-machine-foundation-review.md)
 records corrective recovery/health work and strengthens the native service gate
-to run the actual reet binary; it is merged in PR #127. Stage 5 is implemented
-in the current host-manager increment (see its validation notes). Stages 6–9
-are not implemented. This document remains the approved design and delivery record.
+to run the actual reet binary; it is merged in PR #127. Stage 5 is merged in
+PR #128, including its macOS PTY correction. Stage 6 is implemented in the
+current broker increment (see its validation notes). Stages 7–9 are not
+implemented. This document remains the approved design and delivery record.
 
 Decisions agreed with the product owner on 23 October 2026. Implement this plan in
 small, reviewable stages. Read the current repository instructions before each
@@ -21,8 +22,8 @@ UI, and host monitoring requirements; it supersedes the earlier chat drafts.
 | 2 — Private connection bootstrap and handshake | Merged | [PR #124](https://github.com/eyupio/reet.sh/pull/124), [notes](docs/remote-machine-stage2.md) |
 | 3 — Private host monitoring and health API | Merged | [PR #125](https://github.com/eyupio/reet.sh/pull/125), [notes](docs/remote-machine-stage3.md) |
 | 4 — Local consent and independent services | Merged | [PR #126](https://github.com/eyupio/reet.sh/pull/126), [notes](docs/remote-machine-stage4.md); see review for the strengthened native gate |
-| 5 — Host session manager | Implemented in this increment | [Notes and caller obligations](docs/remote-machine-stage5.md); native service validation remains a PR gate |
-| 6 — Broker, browser authentication, and leases | Not started | — |
+| 5 — Host session manager | Merged | [PR #128](https://github.com/eyupio/reet.sh/pull/128), [notes](docs/remote-machine-stage5.md); both native OS gates passed |
+| 6 — Broker, browser authentication, and leases | Implemented in this increment | [API, recovery, compatibility and validation notes](docs/remote-machine-stage6.md) |
 | 7 — Terminal and health vertical slice | Not started | — |
 | 8 — Complete UX, session management, and history | Not started | — |
 | 9 — Resilience, documentation, and gated rollout | Not started | — |
@@ -41,16 +42,21 @@ What exists now:
   and a running test process alive on Ubuntu and macOS.
 - An internal durable host registry/session manager, disposable PTY clients,
   explicit takeover and host leases, bounded history, and exit reconciliation.
+- Private agent dispatch, browser session authorization, one-use attachment
+  tickets, exact reverse stream binding, finite renewal, durable end dispatch,
+  reconnect reconciliation, and bounded binary data/history APIs.
+- Background live agent start by default, local status/stop/start/restart,
+  private Unix control, and explicit foreground mode for service supervision.
 
 What deliberately does not exist yet:
 
-- The host manager is not wired into the private control runtime. No controller
-  terminal dispatch, broker, browser ticket/reverse-data authorization, or
-  browser terminal UI exists yet.
+- No browser terminal UI exists yet. The backend API and private runtime are
+  wired, but the xterm.js browser/health vertical slice is stage 7.
 - No terminal content recording or command history. Health has no browser chart
   yet; only the authenticated health endpoint exists.
-- The controller cannot create or authorize a terminal. Local readiness describes
-  local infrastructure, not a working broker.
+- Broker readiness requires successful reconciliation; local readiness alone
+  still describes host infrastructure. Updated agents advertise terminalControl
+  so older health-only agents are never sent unsupported terminal operations.
 
 ## 1. Outcome and approved scope
 
@@ -606,8 +612,9 @@ A history request authorizes the same session owner and asks the agent for a
 bounded plain-text tmux snapshot through a separate reverse data stream, marked
 as history in the broker's expected-stream registry. Return it as text with
 no-store and nosniff; render it through textContent or equivalent. Do not put a
-large history payload into the 16 KiB control channel. Limit it to 10,000 lines
-and 1 MiB, with explicit truncation metadata. This is recent pane history, not
+large history payload into the 16 KiB control channel. The implemented initial
+limit is 2,000 lines and 256 KiB; oversized snapshots fail and callers can
+request fewer lines. This is recent pane history, not
 a complete recording.
 
 ### 10.1 Workspace
@@ -906,19 +913,18 @@ Covered by the implementation through stage 4:
   services, filtered service environments, and native Linux/macOS evidence that
   killing the agent leaves tmux and a running process alive.
 
-Not yet covered (they require stages 5–9):
+Stages 5–6 additionally cover host registry recovery, real PTY streaming,
+browser API authorization/tickets, reverse streams, transfer, partitions,
+slow consumers, finite renewal and durable ends. See their notes for exact
+tests. Not yet covered (they require stages 7–9):
 
 - Managed shell creation/attach/resume, lost create acknowledgments, browser
   close/refresh, long commands across disconnects, and host reboot/tmux loss.
-- Broker tickets, Origin checks, one controlling attachment, transfer/fencing,
-  finite leases, durable end dispatch, revocation bridge teardown, and pending
-  end state.
 - Terminal/history streaming, split UTF-8, slow-consumer bounds, vim/top resize,
   privacy assertions, browser/theme/mobile/accessibility tests, and gated
   rollout.
-- A terminal can still not be created or authorized by the controller, so rows
-  below that describe terminal behaviour remain future gates even where some
-  supporting primitives exist.
+- The controller can create/authorize a terminal through the API. Browser UI
+  behavior in the matrix below remains a future gate until stage 7 exists.
 
 | Scenario | Required evidence |
 | --- | --- |

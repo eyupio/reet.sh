@@ -241,3 +241,45 @@ func TestPublishedSyncCandidatesExcludeDrafts(t *testing.T) {
 		t.Fatal("another user's hosted source leaked")
 	}
 }
+
+func TestAuthenticateRemoteAgentUsesEnrollmentCredentialsOnly(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	a, secret, err := s.EnrollSyncAgent(uid, "laptop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.AuthenticateRemoteAgent(a.ID, "wrong", "v1"); err == nil {
+		t.Fatal("wrong secret accepted")
+	}
+	if _, _, err := s.AuthenticateRemoteAgent("not-an-enrollment", secret, "v1"); err == nil {
+		t.Fatal("unknown enrollment accepted")
+	}
+	gotUID, got, err := s.AuthenticateRemoteAgent(a.ID, secret, "v2")
+	if err != nil || gotUID != uid || got.ID != a.ID {
+		t.Fatalf("authenticate: uid=%d agent=%+v err=%v", gotUID, got, err)
+	}
+	if _, err = s.AuthenticateSyncAgent(uid, a.ID, secret, "v2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, after, err := s.AuthenticateRemoteAgent(a.ID, secret, ""); err != nil || after.Version != "v2" {
+		t.Fatalf("version update: %+v %v", after, err)
+	}
+	if err = s.ControlSyncAgent(uid, a.ID, "revoke"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.AuthenticateRemoteAgent(a.ID, secret, "v3"); err == nil {
+		t.Fatal("revoked enrollment accepted")
+	}
+	viewer, _ := s.CreateUser("viewer@remote.invalid", "Viewer", "viewer", "")
+	other, otherSecret, _ := s.EnrollSyncAgent(viewer.ID, "desktop", "test")
+	if gotUID, _, err := s.AuthenticateRemoteAgent(other.ID, otherSecret, "v3"); err != nil || gotUID != viewer.ID {
+		t.Fatalf("enrollment owner mismatch: %d %v", gotUID, err)
+	}
+	if err := s.SetUserDisabled(viewer.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.AuthenticateRemoteAgent(other.ID, otherSecret, "v3"); err == nil {
+		t.Fatal("disabled account accepted")
+	}
+}

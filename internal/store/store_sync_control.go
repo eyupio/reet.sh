@@ -261,6 +261,29 @@ func (s *Store) AuthenticateSyncAgent(uid int64, id, secret, version string) (Sy
 	_, err = s.db.Exec(`UPDATE sync_agents SET last_seen=?,version=? WHERE id=?`, now(), version, id)
 	return a, err
 }
+
+// AuthenticateRemoteAgent resolves the owning account from enrollment
+// credentials alone. It exists only for the private agent listener: browser and
+// public HTTP authorization must keep using a session or personal token. A
+// revoked enrollment, a disabled account, or an unknown secret all fail the
+// same way so callers cannot enumerate enrollments.
+func (s *Store) AuthenticateRemoteAgent(id, secret, version string) (int64, SyncAgent, error) {
+	var a SyncAgent
+	var uid int64
+	if id == "" || secret == "" || len(id) > 128 || len(secret) > 256 || len(version) > 64 || strings.ContainsAny(version, "\x00\r\n") {
+		return 0, a, errors.New("machine enrollment is missing or revoked")
+	}
+	err := s.db.QueryRow(`SELECT a.user_id,a.id,a.host,a.version,a.last_seen,a.paused FROM sync_agents a JOIN users u ON u.id=a.user_id WHERE a.id=? AND a.secret_hash=? AND u.disabled_at=0`, id, secretHash(secret)).Scan(&uid, &a.ID, &a.Host, &a.Version, &a.LastSeen, &a.Paused)
+	if err != nil {
+		return 0, a, errors.New("machine enrollment is missing or revoked")
+	}
+	if version == "" {
+		version = a.Version
+	}
+	_, err = s.db.Exec(`UPDATE sync_agents SET last_seen=?,version=? WHERE id=? AND user_id=?`, now(), version, id, uid)
+	return uid, a, err
+}
+
 func (s *Store) ControlSyncAgent(uid int64, id, action string) error {
 	switch action {
 	case "pause", "resume":

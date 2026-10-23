@@ -118,6 +118,7 @@ Configuration (environment variables):
   REET_MAIL_OUTBOX_DIR  Local dev only: write emails here instead of sending
   REET_TOPICS     off to disable topic seeding
   REET_REFRESH    off to disable background metadata refresh
+  REET_RELAY_MAP_URL  Optional HTTPS Tailcat relay map for private agent connections
 
 Local example:
   REET_ADDR=127.0.0.1:8080 REET_DATA_DIR=./data reet serve
@@ -228,7 +229,9 @@ func serve() error {
 		api.WithAuthMode(mode), api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"),
 		api.WithTopics(os.Getenv("REET_TOPICS") != "off"), api.WithPublicURL(os.Getenv("REET_PUBLIC_URL")),
 		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"), api.WithBackups(backups),
-		api.WithSignup(signup), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")), api.WithMail(mailer), api.WithNotify(notifier))
+		api.WithSignup(signup), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")), api.WithMail(mailer), api.WithNotify(notifier),
+		api.WithPrivateConnection(bcfg.Sealer, os.Getenv("REET_RELAY_MAP_URL")))
+	defer h.Close()
 	mux := http.NewServeMux()
 	mux.Handle("/api/", h)
 	mux.Handle("/quick", h)

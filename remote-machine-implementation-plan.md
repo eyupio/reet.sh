@@ -691,6 +691,11 @@ retries; migrations preserve existing data.
 
 ### Stage 2 — Private connection adapter and bootstrap
 
+Implementation contract: see [the stage 2 notes](docs/remote-machine-stage2.md)
+for the lazy listener, sealed identity restoration, exact private route allowlist,
+connection generations, and disabled-auth boundaries. No agent loop, shell,
+collector, or terminal is enabled by that increment.
+
 Files: internal/privateconn/*, dedicated internal/api private handlers, server
 assembly options in cmd/reet/main.go.
 

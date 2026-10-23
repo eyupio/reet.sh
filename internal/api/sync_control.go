@@ -21,6 +21,7 @@ func (s *server) registerSyncControl(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/sync/poll", s.requireWriter(s.pollSyncAgent))
 	mux.HandleFunc("POST /api/v2/sync/result", s.requireWriter(s.finishSyncJob))
 	mux.HandleFunc("POST /api/v2/sync/identity", s.requireWriter(s.syncIdentity))
+	mux.HandleFunc("POST /api/v2/sync/private", s.requireWriter(s.privateBootstrap))
 }
 func (s *server) syncCandidates(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.URL.Query().Get("list"), 10, 64)

@@ -124,6 +124,7 @@ The navbar also has **Profiles**, where server-synced AI setup profiles are list
 | `REET_CONTROLLER_URL` | empty | Optional remote controller to receive a server process's scans every minute. |
 | `REET_CONTROLLER_TOKEN` | empty | Personal token from the remote controller account; separate from this instance's bootstrap token. |
 | `REET_REFRESH` | empty | Set to `off` to stop the six-hourly metadata refresh (the 50 oldest skills, two seconds apart). |
+| `REET_RELAY_MAP_URL` | empty | Optional HTTPS Tailcat relay map for private agent connections. Empty uses the Tailcat default. It must be reachable by the controller; it is never returned to a browser. |
 | `REET_BACKUP_KEY` | generated | Passphrase that seals every backup and every stored destination secret. Use `reet backup keygen`, and keep a copy away from this machine. Empty generates `data/backup.key` on first start. |
 | `REET_BACKUP_DIR` | `<data>/backups` | Where this machine keeps copies. |
 | `REET_BACKUP_EVERY`, `REET_BACKUP_KEEP` | `24h`, `48` | Instance backup schedule and the count kept here. `0` turns the schedule off; `0` kept means every copy. |

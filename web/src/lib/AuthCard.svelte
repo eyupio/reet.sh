@@ -1,20 +1,20 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
 
-  let { title, lede, eyebrow = 'Your personal skill shelf', children }: { title: string; lede: string; eyebrow?: string; children: Snippet } = $props()
+  let { title, lede, eyebrow = 'Your shelf for AI', children }: { title: string; lede: string; eyebrow?: string; children: Snippet } = $props()
 </script>
 
 <section class="auth" aria-labelledby="auth-title">
   <aside class="intro" aria-label="About your shelf">
     <p class="eyebrow">{eyebrow}</p>
-    <p class="headline">A reet good home<br />for your skills.</p>
-    <p class="intro-copy">Find it. Give it a go. Keep what earns its place.</p>
+    <p class="headline">Everything AI, <br />on one shelf.</p>
+    <p class="intro-copy">Collect the AI skills, agents and setups you and your team use. Test them. Sync them. Keep what earns a place.</p>
     <ol class="stages" aria-label="How the shelf works">
       <li><span aria-hidden="true">01</span><div><strong>On the shelf</strong><small>Keep a good find for later.</small></div></li>
       <li><span aria-hidden="true">02</span><div><strong>To test</strong><small>Give something new a go.</small></div></li>
       <li><span aria-hidden="true">03</span><div><strong>In use</strong><small>The ones earning their keep.</small></div></li>
     </ol>
-    <p class="local">Self-hosted. Yours to keep.</p>
+    <p class="local">Self-hosted. No telemetry. AGPL-3.0.</p>
   </aside>
   <div class="form-panel">
     <h1 id="auth-title">{title}</h1>
@@ -48,7 +48,13 @@
     .intro { padding: 22px; border-right: 0; border-bottom: 1px solid var(--line); }
     .headline { margin-top: 10px; font-size: 1.65rem; }
     .headline br { display: none; }
-    .intro-copy, .stages, .local { display: none; }
+    .intro-copy { font-size: 0.84rem; }
+    .stages { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
+    .stages li { gap: 5px; align-items: center; }
+    .stages strong { display: inline; font-size: 0.76rem; }
+    .stages small { display: none; }
+    .stages li > span { font-size: 0.64rem; }
+    .local { margin-top: 12px; padding-top: 10px; font-size: 0.72rem; }
     .form-panel { padding: 24px 22px; }
     h1 { font-size: 1.5rem; }
   }

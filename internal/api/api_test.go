@@ -1103,3 +1103,53 @@ func TestAdminRollupAndPrivacy(t *testing.T) {
 		t.Fatalf("private rollup leaked people: %s", body)
 	}
 }
+
+func TestSignupOptInContactAndMemberRole(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	hash, err := auth.HashPassword("owner-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.CreateFirstOwner("owner@example.com", "Owner", "owner", hash); err != nil {
+		t.Fatal(err)
+	}
+
+	closed := httptest.NewServer(New(st, deadFetcher(t), "", WithAuthMode(AuthAccounts)))
+	code, body := do(t, closed, "POST", "/api/v2/auth/signup", `{"name":"Sam","email":"sam@example.com","password":"long-enough"}`)
+	if code != http.StatusForbidden || !strings.Contains(body, "sign-ups are closed") {
+		t.Fatalf("closed signup: %d %s", code, body)
+	}
+	var status struct {
+		SignupEnabled bool   `json:"signupEnabled"`
+		ContactEmail  string `json:"contactEmail"`
+	}
+	if code, body := do(t, closed, "GET", "/api/v2/auth/status", ""); code != 200 || json.Unmarshal([]byte(body), &status) != nil || status.SignupEnabled {
+		t.Fatalf("closed status: %d %s", code, body)
+	}
+	closed.Close()
+
+	open := httptest.NewServer(New(st, deadFetcher(t), "", WithAuthMode(AuthAccounts), WithSignup(true), WithContactEmail("admin@example.com")))
+	t.Cleanup(open.Close)
+	if code, body := do(t, open, "GET", "/api/v2/auth/status", ""); code != 200 || json.Unmarshal([]byte(body), &status) != nil || !status.SignupEnabled || status.ContactEmail != "admin@example.com" {
+		t.Fatalf("open status: %d %s", code, body)
+	}
+	client := &http.Client{Jar: mustJar(t)}
+	code, body = doClient(t, client, open, "POST", "/api/v2/auth/signup", `{"name":"Sam","email":"sam@example.com","password":"long-enough"}`)
+	var user store.User
+	if code != 200 || json.Unmarshal([]byte(body), &user) != nil || user.Role != "member" || user.Email != "sam@example.com" {
+		t.Fatalf("signup: %d %s", code, body)
+	}
+	if code, body := doClient(t, client, open, "GET", "/api/skills?tab=all&q=&sort=recent", ""); code != 200 {
+		t.Fatalf("signup session: %d %s", code, body)
+	}
+	if code, body := doClient(t, &http.Client{Jar: mustJar(t)}, open, "POST", "/api/v2/auth/signup", `{"name":"Sam","email":"sam@example.com","password":"long-enough"}`); code != http.StatusConflict || !strings.Contains(body, "already registered") {
+		t.Fatalf("duplicate signup: %d %s", code, body)
+	}
+	if code, _ := doClient(t, &http.Client{Jar: mustJar(t)}, open, "POST", "/api/v2/auth/signup", `{"name":"Bad","email":"bad","password":"long-enough"}`); code != http.StatusBadRequest {
+		t.Fatalf("invalid signup email: %d", code)
+	}
+}

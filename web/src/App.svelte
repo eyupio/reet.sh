@@ -31,7 +31,10 @@
   import Setup from './lib/Setup.svelte'
   import SetupProfiles from './lib/SetupProfiles.svelte'
   import SignIn from './lib/SignIn.svelte'
+  import SignUp from './lib/SignUp.svelte'
+  import Welcome from './lib/Welcome.svelte'
   import SkillCard from './lib/SkillCard.svelte'
+  import Bookmarklets from './lib/Bookmarklets.svelte'
   import Toast from './lib/Toast.svelte'
   import Tools from './lib/Tools.svelte'
   import { copyText } from './lib/clipboard'
@@ -50,6 +53,8 @@
   let defaultExpanded = $state(false)
   let viewSave = Promise.resolve()
   let addInput = $state('')
+  let adding = $state(false)
+  let addError = $state('')
   let message = $state('')
   let error = $state('')
   let loading = $state(true)
@@ -59,6 +64,8 @@
   let authChecked = $state(false)
   let setupRequired = $state(false)
   let bootstrapRequired = $state(false)
+  let signupEnabled = $state(false)
+  let contactEmail = $state('')
   let currentUser = $state<User | null>(null)
   let search = $state<HTMLInputElement>()
   let addEl = $state<HTMLInputElement>()
@@ -99,6 +106,9 @@
   const isAccount = location.pathname.startsWith('/account')
   const isMCPConsent = location.pathname === '/account/mcp/authorize'
   const isJoin = location.pathname.startsWith('/join')
+  const isWelcome = location.pathname === '/' || location.pathname === '/welcome'
+  const isSignIn = location.pathname === '/signin'
+  const isSignUp = location.pathname === '/signup'
   const listMatch = location.pathname.match(/^\/lists\/(\d+)\/?$/)
   const isList = listMatch !== null
   const listId = listMatch ? Number(listMatch[1]) : 0
@@ -128,12 +138,18 @@
     },
   ])
   const scanCommand = $derived(`reet scan --prune --server ${origin}`)
+  const suggestions = [
+    { slug: 'anthropics/skills/pdf', name: 'PDF', blurb: 'Read, extract and combine PDF files.' },
+    { slug: 'anthropics/skills/frontend-design', name: 'Frontend design', blurb: 'Layouts, type and UI polish for real interfaces.' },
+    { slug: 'vercel-labs/skills/find-skills', name: 'Find skills', blurb: 'Find and install the right skill for a task.' },
+  ]
 
   const filtering = $derived(q.trim() !== '' || onlyLiked || selectedTags.length > 0 || selectedEnv !== '' || selectedMachine !== '' || onlyOne)
   const grouped = $derived(stages.map((st) => ({ ...st, items: skills.filter((k) => stageOf(k) === st.id) })))
-  // While searching or filtering, hide sections with nothing to show; otherwise keep them so the shelf reads as a pipeline.
+  // The board keeps empty columns as lanes. The list hides empty stages so the
+  // first added skill appears immediately instead of below two dead sections.
   const orderedGroups = $derived(view === 'board' ? [grouped[2], grouped[1], grouped[0]] : grouped)
-  const visible = $derived(orderedGroups.filter((g) => (show === 'all' || show === g.id) && (view === 'board' || g.items.length > 0 || !filtering)))
+  const visible = $derived(orderedGroups.filter((g) => (show === 'all' || show === g.id) && ((view === 'board' && !filtering) || g.items.length > 0)))
   const total = $derived(visible.reduce((n, g) => n + g.items.length, 0))
   const anyExpanded = $derived(visible.some(g => g.items.some(skill => expandedSkills[skill.id] ?? defaultExpanded)))
   const likedCount = $derived(skills.filter((s) => s.liked).length)
@@ -265,7 +281,13 @@
       authMode = status.mode
       setupRequired = status.setupRequired
       bootstrapRequired = status.bootstrapRequired
+      signupEnabled = status.signupEnabled ?? false
+      contactEmail = status.contactEmail ?? ''
       currentUser = status.user
+      if (status.user && location.pathname === '/welcome') {
+        location.replace('/')
+        return
+      }
       if (status.mode === 'token') {
         token = getToken()
         needsAuth = token === ''
@@ -302,6 +324,10 @@
     needsAuth = false
     token = ''
     clearToken()
+    if (['/signin', '/signup', '/welcome'].includes(location.pathname)) {
+      location.replace('/')
+      return
+    }
     await loadPreferences()
     loading = true
     await load()
@@ -402,22 +428,60 @@
     setTimeout(() => card.classList.remove('flash'), 1600)
   }
 
-  async function add(e: SubmitEvent) {
-    e.preventDefault()
-    if (!addInput.trim()) return
+  function friendlyAddError(e: unknown): string {
+    const text = e instanceof Error ? e.message : String(e)
+    if (text.toLowerCase().includes('expected a skills.sh')) {
+      return "That doesn't look like a skill yet. Paste a skills.sh link like skills.sh/anthropics/skills/pdf, or an npx skills add command."
+    }
+    return text
+  }
+
+  async function addValue(value: string): Promise<boolean> {
+    if (!value.trim() || adding) return false
+    adding = true
+    addError = ''
     try {
-      const s = await addSkill(addInput.trim())
+      const s = await addSkill(value.trim())
       addInput = ''
-      show = 'all'
+      show = stageOf(s)
       onlyLiked = false
       q = ''
+      selectedTags = []
+      selectedEnv = ''
+      selectedMachine = ''
+      onlyOne = false
       ok(s.created ? `Reet, added ${s.name} to the shelf.` : `Already on the shelf, in ${stageTitle(stageOf(s))}.`)
       await reloadAll()
-      if (!s.created) await flash(s.id)
+      await flash(s.id)
       setTimeout(load, 2500) // pick up fetched metadata
+      return true
     } catch (e) {
-      fail(e)
+      if (e instanceof UnauthorizedError) {
+        fail(e)
+        return false
+      }
+      addError = friendlyAddError(e)
+      await tick()
+      addEl?.focus()
+      addEl?.select()
+      return false
+    } finally {
+      adding = false
     }
+  }
+
+  async function add(e: SubmitEvent) {
+    e.preventDefault()
+    await addValue(addInput)
+  }
+
+  async function addSuggestion(slug: string) {
+    await addValue(slug)
+  }
+
+  function focusAdd() {
+    addEl?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    addEl?.focus()
   }
   async function patch(s: Skill, flags: Flags, act: string): Promise<boolean> {
     try {
@@ -644,7 +708,7 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isAdmin ? 'Admin' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isWelcome && !currentUser ? 'Your shelf for everything AI' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isAdmin ? 'Admin' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
   {/if}
 </svelte:head>
 
@@ -659,10 +723,10 @@
     {:else if isPublicList || isCommunity || isJoin}
       <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a class="entry-link" href="/">Open your shelf →</a></nav>
     {/if}
-    {#if (!authenticated || needsAuth) && !isPublicList && !isCommunity && !isJoin}<span class="tag">Your shelf for AI skills</span>{/if}
+    {#if (!authenticated || needsAuth) && !isPublicList && !isCommunity && !isJoin && !isWelcome}<span class="tag">Your shelf for AI</span>{/if}
   </div>
 </header>
-<main id="main-content" tabindex="-1" class:auth-page={!isPublicList && !isCommunity && (!authenticated || needsAuth || isJoin)}>
+<main id="main-content" tabindex="-1" class:auth-page={!isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
   {#if isCommunity}
     <Community canSave={authenticated && !needsAuth && canWrite} />
   {:else if isPublicList}
@@ -671,10 +735,16 @@
     <Join token={joinToken} onsuccess={afterJoin} />
   {:else if !authChecked}
     <p class="empty" role="status">Loading…</p>
-  {:else if authMode === 'accounts' && setupRequired}
+  {:else if authMode === 'accounts' && setupRequired && !isWelcome}
     <Setup {bootstrapRequired} onsuccess={afterAuth} />
   {:else if authMode === 'accounts' && !currentUser}
-    <AccountSignIn onsuccess={afterAuth} />
+    {#if isWelcome}
+      <Welcome {signupEnabled} {contactEmail} {setupRequired} />
+    {:else if isSignUp && signupEnabled}
+      <SignUp onsuccess={afterAuth} />
+    {:else}
+      <AccountSignIn onsuccess={afterAuth} {signupEnabled} {contactEmail} />
+    {/if}
   {:else if authMode === 'token' && needsAuth}
     <SignIn onattempt={attemptSignIn} />
   {:else if !authMode}
@@ -708,11 +778,15 @@
     <PageHeader eyebrow="Ey up. Your skill shelf." title="A reet good toolkit." lede="Keep the good finds, give new skills a go, and put the best to work.">
     </PageHeader>
     {#if canWrite}
-      <form class="add" onsubmit={add}>
+      <form class="add" onsubmit={add} aria-busy={adding}>
         <label class="vh" for="add-input">Skill install command, URL or slug</label>
-        <input id="add-input" bind:this={addEl} placeholder="Paste an install command, skills.sh URL or owner/repo/skill" autocomplete="off" bind:value={addInput} />
-        <button class="btn primary" type="submit">Add to shelf</button>
+        <input id="add-input" bind:this={addEl} placeholder="Paste a skills.sh link or install command" autocomplete="off" bind:value={addInput}
+          aria-invalid={addError ? 'true' : undefined}
+          aria-describedby={addError ? 'add-hint add-error' : 'add-hint'} />
+        <button class="btn primary" type="submit" disabled={adding || !addInput.trim()}>{adding ? 'Adding…' : 'Add to shelf'}</button>
       </form>
+      <p class="add-hint" id="add-hint">Paste a link like <code>skills.sh/anthropics/skills/pdf</code>, or an <code>npx skills add</code> command.</p>
+      {#if addError}<p class="add-error" id="add-error" role="alert">{addError}</p>{/if}
     {/if}
 
     <div class="notices">
@@ -753,8 +827,9 @@
       </div>
     {/if}
 
+    {#if tagCounts.length > 0 || shelfMachines.length > 0 || lists.length > 0 || filtering}
     <details class="shelf-filters">
-      <summary>Filters & lists <span>{selectedTags.length + Number(!!selectedMachine) + Number(!!selectedEnv) + Number(onlyOne) ? `${selectedTags.length + Number(!!selectedMachine) + Number(!!selectedEnv) + Number(onlyOne)} active` : `${tagCounts.length} tags · ${shelfMachines.length} environments`}</span></summary>
+      <summary>Filters & lists <span>{selectedTags.length + Number(!!selectedMachine) + Number(!!selectedEnv) + Number(onlyOne) ? `${selectedTags.length + Number(!!selectedMachine) + Number(!!selectedEnv) + Number(onlyOne)} active` : `${tagCounts.length} ${tagCounts.length === 1 ? 'tag' : 'tags'} · ${shelfMachines.length} ${shelfMachines.length === 1 ? 'environment' : 'environments'}`}</span></summary>
       <div class="filter-panel">
     {#if lists.length > 0 || canWrite}
       <div class="filterbar" role="group" aria-label="Shared lists">
@@ -817,6 +892,7 @@
 
       </div>
     </details>
+    {/if}
 
     {#if !loading && (counts.all > 0 || filtering)}
       <div class="shelf-summary">
@@ -840,12 +916,27 @@
           <p class="eyebrow">Ey up. Start here.</p>
           <h2 id="start-title">Put the first skill on your shelf.</h2>
           <p class="lede">Capture it now, sort it later. Everything stays on this instance.</p>
-          <p>Paste an <code>npx skills add</code> command, skills.sh URL or <code>owner/repo/skill</code> into the box above. Your first find starts On the shelf; save it To test, then mark it In use when it earns its place.</p>
+          <button class="btn primary" type="button" onclick={focusAdd}>Add your first skill</button>
+          <ul class="suggestions" aria-label="Good skills to start with">
+            {#each suggestions as item (item.slug)}
+              <li>
+                <div><strong>{item.name}</strong><code>{item.slug}</code><span>{item.blurb}</span></div>
+                <button class="btn" type="button" onclick={() => addSuggestion(item.slug)} disabled={adding}>{adding ? 'Adding…' : 'Add'}</button>
+              </li>
+            {/each}
+          </ul>
           <div class="start-options">
-            {#if authMode === 'accounts'}<a class="btn" href="/account/machines#connect-machine">Scan this machine</a>{/if}
+            {#if authMode === 'accounts'}<a class="btn" href="/account/machines#connect-machine" title="Install the reet CLI and scan your agent folders.">Connect this machine</a>{/if}
             <a class="btn" href="/community">Explore community</a>
-            <a href="https://www.skills.sh/topic" target="_blank" rel="noopener noreferrer">Browse skills.sh<span class="vh"> (opens in a new tab)</span></a>
+            <a href="https://www.skills.sh/topic" target="_blank" rel="noopener noreferrer">Find a skill on skills.sh<span class="vh"> (opens in a new tab)</span></a>
+            <a href="/hosting">Host your own skill</a>
           </div>
+          {#if authMode === 'accounts'}<p class="start-note">Connecting a machine takes about 2 minutes and needs the reet CLI.</p>{/if}
+          <details class="save-anywhere">
+            <summary>Save skills from skills.sh with a bookmarklet</summary>
+            <p>Drag one of these to your bookmarks bar, then click it on any skills.sh skill page.</p>
+            <Bookmarklets {token} />
+          </details>
           {#if authMode !== 'accounts'}
             <details class="scan-help"><summary>Already have skills installed?</summary><p>Run this on your machine. It reports installed skills as in use.</p><div class="command"><code>{scanCommand}</code><CopyButton text={scanCommand} compact /></div></details>
           {/if}
@@ -965,8 +1056,11 @@
   .home { display: inline-block; color: inherit; text-decoration: none; }
   .tag { color: var(--muted); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em; }
 
-  .add { display: flex; gap: 8px; margin: 24px 0 12px; }
+  .add { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0 6px; }
   .add input { flex: 1; }
+  .add-hint { margin: 0 2px 12px; color: var(--muted); font-size: 0.78rem; }
+  .add-hint code { font-size: 0.92em; }
+  .add-error { margin: 0 2px 12px; color: var(--bad); font-size: 0.82rem; }
 
   .notices { display: grid; gap: 8px; }
   .notice { margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
@@ -1068,6 +1162,21 @@
   .start h2 { display: block; margin: 8px 0 0; font: 600 clamp(1.5rem, 4vw, 1.9rem)/1.1 var(--serif); letter-spacing: -0.02em; }
   .lede { margin: 8px 0 0; color: var(--muted); max-width: 48ch; }
   .start > p { max-width: 64ch; }
+  .start > .btn { margin-top: 18px; }
+  .suggestions { list-style: none; display: grid; gap: 8px; margin: 14px 0 0; padding: 0; }
+  .suggestions li { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+  .suggestions li > div { min-width: 0; }
+  .suggestions strong { display: block; font-size: 0.86rem; }
+  .suggestions code { display: block; margin-top: 1px; color: var(--muted); font-size: 0.72rem; overflow-wrap: anywhere; }
+  .suggestions span { display: block; margin-top: 2px; color: var(--muted); font-size: 0.78rem; }
+  .suggestions .btn { flex: none; }
+  .start-note { margin: 10px 0 0; color: var(--muted); font-size: 0.78rem; }
+  .save-anywhere { margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .save-anywhere > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; font-weight: 600; font-size: 0.85rem; }
+  .save-anywhere > summary::before { content: '+'; color: var(--accent); font-size: 1.05rem; width: 12px; }
+  .save-anywhere[open] > summary::before { content: '−'; }
+  .save-anywhere > summary::-webkit-details-marker { display: none; }
+  .save-anywhere > p { margin: 2px 0 0; color: var(--muted); font-size: 0.8rem; }
   .start-options { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
   .start-options > a:not(.btn) { color: var(--accent); padding: 10px 0; }
   .scan-help { margin-top: 20px; }
@@ -1099,11 +1208,14 @@
   @media (max-width: 560px) {
     main { padding: 28px 16px 40px; }
     .header-inner { flex-wrap: wrap; gap: 14px; padding: 20px 16px; }
-    .tag { margin-left: auto; max-width: 18ch; text-align: right; }
+    .tag { margin-left: auto; max-width: 26ch; text-align: right; white-space: nowrap; }
     .site-nav { width: 100%; }
     .site-nav a { flex: 1; justify-content: center; border: 1px solid var(--line); }
-    .add input { min-width: 0; width: 0; }
-    .add .btn { flex: none; padding-left: 12px; padding-right: 12px; font-size: 0.82rem; }
+    .add { flex-direction: column; align-items: stretch; }
+    .add input { flex: 1 1 auto; width: 100%; }
+    .add .btn { width: 100%; flex: none; font-size: 0.9rem; }
+    .suggestions li { align-items: flex-start; }
+    .suggestions .btn { min-height: 44px; }
     .controls { width: 100%; flex-wrap: wrap; }
     .controls input { flex: 1; width: auto; }
     .sep { display: none; }

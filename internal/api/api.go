@@ -38,6 +38,8 @@ type server struct {
 	topics       bool
 	refreshJob   bool
 	authMode     AuthMode
+	signup       bool
+	contactEmail string
 	limiter      *auth.Limiter
 	dummyHash    string
 	oauthLimiter *auth.Limiter
@@ -101,6 +103,18 @@ func WithRefresh(enabled bool) Option {
 // WithAuthMode selects token, accounts or no authentication.
 func WithAuthMode(mode AuthMode) Option {
 	return func(s *server) { s.authMode = mode }
+}
+
+// WithSignup opens self-serve account creation in accounts mode. It is off by
+// default so an instance stays invite-only unless the operator opts in.
+func WithSignup(enabled bool) Option {
+	return func(s *server) { s.signup = enabled }
+}
+
+// WithContactEmail publishes an optional admin contact for account and
+// password-reset requests. It is shown on the sign-in screen.
+func WithContactEmail(email string) Option {
+	return func(s *server) { s.contactEmail = strings.TrimSpace(email) }
 }
 
 // WithBackups gives the API the backup service. Without one the backup pages
@@ -179,6 +193,7 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	mux.HandleFunc("GET /api/admin/rollup", s.requireAdmin(s.rollup))
 	mux.HandleFunc("GET /api/v2/auth/status", s.authStatus)
 	mux.HandleFunc("POST /api/v2/auth/setup", s.setup)
+	mux.HandleFunc("POST /api/v2/auth/signup", s.signUp)
 	mux.HandleFunc("POST /api/v2/auth/sign-in", s.signIn)
 	mux.HandleFunc("POST /api/v2/auth/sign-out", s.signOut)
 	mux.HandleFunc("GET /api/v2/auth/me", s.me)
@@ -293,7 +308,7 @@ func guardedPath(path string) bool {
 
 func openAuthPath(path string) bool {
 	switch path {
-	case "/api/version", "/api/v2/auth/status", "/api/v2/auth/setup", "/api/v2/auth/sign-in", "/api/v2/auth/sign-out", "/api/v2/auth/invite", "/api/v2/auth/join":
+	case "/api/version", "/api/v2/auth/status", "/api/v2/auth/setup", "/api/v2/auth/signup", "/api/v2/auth/sign-in", "/api/v2/auth/sign-out", "/api/v2/auth/invite", "/api/v2/auth/join":
 		return true
 	}
 	return path == "/api/community" || strings.HasPrefix(path, "/api/v2/public/lists/")
@@ -1543,6 +1558,8 @@ func (s *server) authStatus(w http.ResponseWriter, r *http.Request) {
 		"mode":              mode,
 		"setupRequired":     setupRequired,
 		"bootstrapRequired": bootstrapRequired,
+		"signupEnabled":     s.authMode == AuthAccounts && s.signup && !setupRequired,
+		"contactEmail":      s.contactEmail,
 		"user":              user,
 	})
 }
@@ -1617,6 +1634,80 @@ func (s *server) setup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.event(user.ID, "ui", "setup", "", map[string]any{"name": user.Name, "email": user.Email})
+	writeJSON(w, http.StatusOK, user)
+}
+
+// signUp creates an ordinary member account when the operator opened signups.
+// The first account must still go through setup so every instance has an owner.
+func (s *server) signUp(w http.ResponseWriter, r *http.Request) {
+	if s.authMode != AuthAccounts {
+		writeErr(w, http.StatusNotFound, "accounts are not enabled")
+		return
+	}
+	if !s.signup {
+		writeErr(w, http.StatusForbidden, "sign-ups are closed on this instance")
+		return
+	}
+	n, err := s.st.UserCount()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not check accounts")
+		return
+	}
+	if n == 0 {
+		writeErr(w, http.StatusConflict, "this instance is not set up yet")
+		return
+	}
+	var in struct {
+		Name     string `json:"name"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(in.Email))
+	if !strings.Contains(email, "@") || len(email) > 254 {
+		writeErr(w, http.StatusBadRequest, "enter a valid email address")
+		return
+	}
+	name := strings.TrimSpace(in.Name)
+	if len(name) > 100 {
+		writeErr(w, http.StatusBadRequest, "name is too long")
+		return
+	}
+	if len(in.Password) < 8 {
+		writeErr(w, http.StatusBadRequest, "password must be at least 8 characters")
+		return
+	}
+	if len(in.Password) > 1024 {
+		writeErr(w, http.StatusBadRequest, "password is too long")
+		return
+	}
+	keys := []string{"signup", clientIP(r), email}
+	if !s.limiter.Allow(keys...) {
+		w.Header().Set("Retry-After", "60")
+		writeErr(w, http.StatusTooManyRequests, "too many attempts, try again in a minute")
+		return
+	}
+	s.limiter.Hit(keys...)
+	hash, err := auth.HashPassword(in.Password)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not create the account")
+		return
+	}
+	user, err := s.st.CreateUser(email, name, "member", hash)
+	if errors.Is(err, store.ErrUserExists) {
+		writeErr(w, http.StatusConflict, "that email is already registered")
+		return
+	} else if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if _, err := s.newSession(w, r, user); err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not start a session")
+		return
+	}
+	s.event(user.ID, "ui", "signup", "", map[string]any{"name": user.Name, "email": user.Email})
 	writeJSON(w, http.StatusOK, user)
 }
 

@@ -12,7 +12,7 @@
     finally { busy = false }
   }
 </script>
-<PageHeader eyebrow="Your workspace" title="Machines." lede="See where skills are installed, compare inventories and review changes before applying them." />
+<PageHeader eyebrow="Your workspace" title="Machines." lede="See what every AI agent has installed, compare machines and review changes before applying them." />
 <nav aria-label="Machines"><a class="btn quiet" href="/machines" aria-current={!compare ? 'page' : undefined}>Inventory & connection</a><a class="btn quiet" href="/machines?view=compare" aria-current={compare ? 'page' : undefined}>Compare & sync</a><a class="btn quiet" href="/profiles">Portable setups →</a></nav>
 <EnvironmentSync compact {canWrite} {token} view={compare ? 'compare' : 'machines'} startConnect={location.hash === '#connect-machine'}>
   {#snippet tokenSetup()}

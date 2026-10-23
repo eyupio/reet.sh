@@ -55,7 +55,7 @@
   }
 </script>
 
-<AuthCard eyebrow="Ey up. Start here." title="Set up reet.sh" lede="Create the owner account for this instance. Everything already on the shelf stays where it is.">
+<AuthCard eyebrow="Ey up. Start here." title="Create your account" lede="You're setting up this reet.sh instance and will be its owner. Your shelf, lists, teams, agent sync and machine reports stay on this server: no telemetry, one SQLite file.">
   <form onsubmit={submit} aria-busy={busy} aria-describedby={error ? "setup-error" : undefined}>
     <label for="setup-name">Your name</label>
     <input id="setup-name" bind:this={nameInput} bind:value={name} autocomplete="name" placeholder="Sam" />
@@ -71,7 +71,7 @@
       <p class="hint">This is the bootstrap credential. Find it on the server: <code>grep REET_TOKEN .env</code></p>
     {/if}
     {#if error}<p class="error" id="setup-error" role="alert">{error}</p>{/if}
-    <button type="submit" class="btn primary submit" disabled={busy}>{busy ? 'Creating…' : 'Create owner'}</button>
+    <button type="submit" class="btn primary submit" disabled={busy}>{busy ? 'Creating…' : 'Create account'}</button>
   </form>
 </AuthCard>
 

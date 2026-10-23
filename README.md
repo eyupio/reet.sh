@@ -5,9 +5,9 @@
   <img src="brand/logo/horizontal-color-light.svg" alt="reet.sh" width="340">
 </picture>
 
-### Your own shelf for the AI skills on [skills.sh](https://www.skills.sh)
+### Your own shelf for everything AI
 
-Like them, save them for later, and keep track of the ones you actually use.<br>
+Capture skills from [skills.sh](https://www.skills.sh) or host your own, sync agent setups and machine inventories, share lists with your team, and keep every machine in step.<br>
 One Go binary. One SQLite file. No telemetry.
 
 [![CI](https://github.com/eyupio/reet.sh/actions/workflows/image.yml/badge.svg)](https://github.com/eyupio/reet.sh/actions/workflows/image.yml)
@@ -31,7 +31,7 @@ One Go binary. One SQLite file. No telemetry.
 
 [skills.sh](https://www.skills.sh) is a great directory of agent skills, but it has no accounts, likes or bookmarks. You find a skill, close the tab, and a month later cannot remember which one it was or whether you ever installed it.
 
-reet.sh is the missing personal layer. Capture a skill in two seconds, move it through **On the shelf → To test → In use**, and run a scanner on any machine to see what is really installed in Claude Code, Cursor, Codex, OpenCode and the `skills` CLI. Setting up a new laptop becomes one click: **Copy missing installs**.
+reet.sh is the missing personal layer for the rest of your AI stack. Capture a skill in two seconds, move it through **On the shelf → To test → In use**, then sync what every agent has installed across your machines. A new laptop becomes one click: **Copy missing installs**, or restore a portable setup.
 
 Nothing is sent to skills.sh except read-only page fetches for names and descriptions.
 
@@ -110,6 +110,8 @@ The navbar also has **Profiles**, where server-synced AI setup profiles are list
 | `REET_VERSION` | `latest` | Compose image tag; when exported, also selects CLI installs/upgrades (`latest`, `dev`, or a release tag). Compose additionally accepts `sha-<short>`. |
 | `REET_AUTH` | `accounts` | `accounts` (owner setup and sessions), `token` (the single `REET_TOKEN`) or `none` (trusted LAN, no sign-in). |
 | `REET_TOKEN` | empty | Accounts mode: setup bootstrap and fallback scan token until a personal token exists. Token mode: the only credential. Empty means no token. |
+| `REET_SIGNUP` | empty | Set to `open` to allow self-serve member accounts. Empty keeps accounts invite-only. |
+| `REET_CONTACT_EMAIL` | empty | Optional admin address shown on the sign-in screen for account and password-reset requests. |
 | `SKILLS_SH_TOKEN` | empty | Optional skills.sh API token (needs a Vercel OIDC token, so it can't be generated). Without it, reet reads the public skills.sh pages. |
 | `REET_LOG` | empty | Set to `debug` for one line per metadata fetch; writes are always logged without tokens. |
 | `REET_TOPICS` | empty | Set to `off` to stop the daily skills.sh topic seed (nine read-only page fetches a day). |
@@ -455,7 +457,7 @@ reet.sh is an independent project and is not affiliated with or endorsed by skil
 
 <img src="brand/logo/tile-ink.svg" alt="" width="28" height="28">
 
-**reet.sh** · Your shelf for AI skills<br>
+**reet.sh** · Your shelf for everything AI<br>
 Developed by [EyUp.io](https://eyup.io)
 
 </div>

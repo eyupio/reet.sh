@@ -672,6 +672,11 @@ do not invent a successful build or silently downgrade.
 
 ### Stage 1 — Protocol and persistence contracts
 
+Implementation contract: see [the stage 1 notes](docs/remote-machine-stage1.md)
+for the concrete envelope, store caller obligations, lifecycle edge cases,
+generation fencing, and deletion/retention choices. No runtime endpoint or
+terminal is enabled by that increment.
+
 Files: internal/terminalproto/*, internal/store/store_terminal.go and tests,
 health store migrations.
 

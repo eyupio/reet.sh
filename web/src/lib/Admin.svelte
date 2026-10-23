@@ -8,6 +8,7 @@
     saveAdminSettings, transferOwner, updateAdminUser, type AdminStatus, type Rollup, type RollupSkill, type UserMeta,
   } from './api'
   import AdminEmail from './AdminEmail.svelte'
+  import AdminTickets from './AdminTickets.svelte'
   import Backups from './Backups.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import CopyButton from './CopyButton.svelte'
@@ -22,7 +23,7 @@
   const sections = [
     { key: 'overview', label: 'Overview' }, { key: 'environments', label: 'Environments' },
     ...(accounts ? [{ key: 'users', label: 'Users' }, { key: 'team', label: 'Team usage' }] : []),
-    { key: 'email', label: 'Email' }, { key: 'backups', label: 'Backups' }, { key: 'settings', label: 'Settings' }, { key: 'activity', label: 'Activity' },
+    { key: 'support', label: 'Support' }, { key: 'email', label: 'Email' }, { key: 'backups', label: 'Backups' }, { key: 'settings', label: 'Settings' }, { key: 'activity', label: 'Activity' },
   ]
   const legacy: Record<string, string> = { 'admin-overview': 'overview', 'admin-envs': 'environments', 'admin-users': 'users', 'admin-team': 'team', 'admin-backups': 'backups', 'admin-settings': 'settings', 'admin-events': 'activity' }
   const requested = legacy[location.hash.slice(1)] || location.pathname.split('/')[2] || 'overview'
@@ -33,6 +34,7 @@
     environments: 'Inspect scanned machines and agent reports, with server heartbeats kept separate.',
     users: 'Invite people and manage their access.',
     team: 'See which skills are earning their keep and where shared lists need attention.',
+    support: 'Answer support tickets from people and teams, assign them and keep notes.',
     email: 'Set the one mail server every message goes through, and watch the outbox.',
     backups: 'Protect the whole instance with encrypted backups.',
     settings: 'Configure background jobs, sharing and usage privacy.',
@@ -631,6 +633,11 @@
         {/if}
       </section>
 
+    {/if}
+    {#if section === 'support'}
+    <div id="admin-support">
+      <AdminTickets {onerror} />
+    </div>
     {/if}
     {#if section === 'email'}
     <div id="admin-email">

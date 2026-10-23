@@ -174,3 +174,30 @@ func (m *Mailer) TeamNotice(ctx context.Context, groupID int64, event, dedupe st
 	}
 	return errors.Join(errs...)
 }
+
+// TicketNotice tells one person about a support ticket opening or a reply on
+// it. dedupe identifies the message, so a retried request is one email.
+// Admins are told they are on support; a team manager is told they manage the
+// team; and the requester is told the ticket is theirs.
+func (m *Mailer) TicketNotice(ctx context.Context, ticketID, groupID int64, event, dedupe string, r store.MailRecipient, d Data) error {
+	tpl := ""
+	switch event {
+	case "opened":
+		tpl = TplTicketOpened
+	case "reply":
+		tpl = TplTicketReply
+	default:
+		return fmt.Errorf("email: no ticket notice for %q", event)
+	}
+	switch {
+	case r.Admin:
+		d.Why = "You were sent this because you are on support for this reet instance. Support notices cannot be turned off."
+	case r.Manager && d.Team != "":
+		d.Why = "You were sent this because you manage " + d.Team + ". Support notices cannot be turned off."
+	default:
+		d.Why = "You were sent this because this support ticket is yours. Support notices cannot be turned off."
+	}
+	key := fmt.Sprintf("ticket:%d:%s:%s:%s", ticketID, event, dedupe, strings.ToLower(r.Email))
+	_, _, err := m.Send(ctx, key, tpl, r.Email, groupID, false, d)
+	return err
+}

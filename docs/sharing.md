@@ -33,6 +33,8 @@ Each group has explicit membership: joining an organisation does not automatical
 
 A group's owner or managers choose what that group is emailed about under its **Notifications** details: people joining, leaving or changing role, and lists shared with the group. Notices go to the owner and managers by default, or to every member, and any extra addresses the managers add (who receive the email but no access). The instance owner sets the mail server under **Admin → Email**; see [email](email.md).
 
+A group's owner and managers can also read and answer support tickets opened for the group. Other members cannot see them unless they opened the ticket. See [support](support.md).
+
 For a list, choose **Team or organisation**, select a group, then choose **View only** or **Edit skills and notes** for inherited access. Add named collaborators outside the group when needed. New group members automatically gain inherited list access; removed members lose it immediately. A separate direct invitation continues to grant access until it is removed or excluded.
 
 Use **People & exceptions** to exclude individual account emails. Exclusions override both group and direct grants for ordinary accounts, so a directly invited editor who is excluded cannot read, edit, discover the list or see its name attached to a skill card. Owners/admins retain administrative access. Read access cannot be excluded from public or unlisted audiences; choose a private audience if you need that restriction.

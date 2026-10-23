@@ -25,6 +25,14 @@ type Detail = {
   deleted?: boolean
   removed?: boolean
   list?: string
+  ticket?: number
+  kind?: string
+  message?: number
+  status?: string
+  assignee?: number
+  by?: string
+  subject?: string
+  group?: string
 }
 
 function detail(e: Event): Detail {
@@ -101,6 +109,18 @@ export function eventLabel(e: Event): string {
       return `Updated ${d.count ?? 0} skills`
     case 'settings':
       return 'Changed instance settings'
+    case 'ticket-open':
+      return `Opened support ticket #${d.ticket ?? ''}${d.subject ? `: ${d.subject}` : ''}`.trim()
+    case 'ticket-reply':
+      return `Replied to support ticket #${d.ticket ?? ''}`
+    case 'ticket-note':
+      return `Added an internal note to support ticket #${d.ticket ?? ''}`
+    case 'ticket-close':
+      return `Closed support ticket #${d.ticket ?? ''}`
+    case 'ticket-status':
+      return `Changed support ticket #${d.ticket ?? ''} to ${d.status || 'another status'}`
+    case 'ticket-assign':
+      return `Reassigned support ticket #${d.ticket ?? ''}`
     case 'mail-settings':
       return `Changed the mail server${d.host ? ` (${d.host})` : ''}`
     case 'mail-check':

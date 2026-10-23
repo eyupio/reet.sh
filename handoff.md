@@ -86,7 +86,8 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Codex memory merged in [PR #109](https://github.com/eyupio/reet.sh/pull/109), `47bd104`.
 - Web profile exclusions merged in [PR #110](https://github.com/eyupio/reet.sh/pull/110), `4cac976`.
 - Handoff baseline merged in [PR #111](https://github.com/eyupio/reet.sh/pull/111), `1a25202`.
-- Latest verified source baseline: `origin/main` at `1a25202` (2026-10-23).
+- Handoff status refresh merged in [PR #112](https://github.com/eyupio/reet.sh/pull/112), `2796fda`.
+- Latest verified code baseline before the handoff refresh: `1a25202` (2026-10-23).
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
 - Do not claim unsupported capabilities; the current status and limits are recorded below.

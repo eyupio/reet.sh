@@ -130,7 +130,15 @@ func CollectScan(home, cwd string, extraDirs []string, host string) Scan {
 		project = resolved
 	}
 	for _, d := range projectDirs {
-		read(filepath.Join(cwd, d.Dir), d.Agent, project, filepath.Join(project, d.Dir))
+		dir := filepath.Join(cwd, d.Dir)
+		// Running from the home directory, or from a project whose agent folder
+		// is linked to the home one, describes the same installs that the global
+		// scan already reported. Treating them as a project duplicates every
+		// skill and loses the lock-file source because the project lock is empty.
+		if sameDirectory(dir, filepath.Join(home, d.Dir)) {
+			continue
+		}
+		read(dir, d.Agent, project, filepath.Join(project, d.Dir))
 	}
 	for _, dir := range extraDirs {
 		label := filepath.Base(dir)
@@ -423,6 +431,22 @@ func sourceForScope(global, project map[string]string, scope, name string) strin
 		return project[name]
 	}
 	return global[name]
+}
+
+// sameDirectory reports whether two paths point at the same folder, including
+// through symlinks. Missing paths still compare by their cleaned absolute name.
+func sameDirectory(a, b string) bool {
+	absA, errA := filepath.Abs(a)
+	absB, errB := filepath.Abs(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	if filepath.Clean(absA) == filepath.Clean(absB) {
+		return true
+	}
+	resolvedA, errA := filepath.EvalSymlinks(absA)
+	resolvedB, errB := filepath.EvalSymlinks(absB)
+	return errA == nil && errB == nil && filepath.Clean(resolvedA) == filepath.Clean(resolvedB)
 }
 
 // Err reports incomplete scopes without converting unreadable files to absence.

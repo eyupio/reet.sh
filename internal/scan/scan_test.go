@@ -154,6 +154,48 @@ func TestCollectScanEnvironments(t *testing.T) {
 	}
 }
 
+func TestCollectScanDoesNotTreatHomeAsProject(t *testing.T) {
+	home := t.TempDir()
+	mkSkill(t, filepath.Join(home, ".claude", "skills"), "alpha", true)
+	mkSkill(t, filepath.Join(home, ".agents", "skills"), "alpha", true)
+	os.WriteFile(filepath.Join(home, ".agents", ".skill-lock.json"), []byte(`{"skills":{"alpha":{"source":"owner/repo"}}}`), 0600)
+
+	scan := CollectScan(home, home, nil, "machine")
+	for _, env := range scan.Envs {
+		if env.Project != "" {
+			t.Fatalf("home reported as project: %+v", env)
+		}
+	}
+	for _, found := range scan.Found {
+		if found.Project != "" || found.Source != "owner/repo" {
+			t.Fatalf("home install duplicated without source: %+v", found)
+		}
+	}
+}
+
+func TestCollectScanSkipsProjectDirLinkedToHome(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	mkSkill(t, filepath.Join(home, ".claude", "skills"), "alpha", true)
+	if err := os.MkdirAll(filepath.Join(cwd, ".claude"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, ".claude", "skills"), filepath.Join(cwd, ".claude", "skills")); err != nil {
+		t.Fatal(err)
+	}
+
+	scan := CollectScan(home, cwd, nil, "machine")
+	for _, env := range scan.Envs {
+		if env.Project != "" {
+			t.Fatalf("linked home folder reported as project: %+v", env)
+		}
+	}
+	for _, found := range scan.Found {
+		if found.Project != "" {
+			t.Fatalf("linked home install duplicated as project: %+v", found)
+		}
+	}
+}
+
 func TestRunPostsEnvironmentsAndPrune(t *testing.T) {
 	var body struct {
 		Items []struct {

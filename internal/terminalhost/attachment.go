@@ -115,6 +115,18 @@ func (m *Manager) Attach(ctx context.Context, sessionID string, opts AttachOptio
 		_ = cmd.Wait()
 		return nil, ErrNotRunning
 	}
+	// Register the already-nonblocking descriptor with Go's poller. Setting
+	// O_NONBLOCK after os.NewFile (as pty.Open does) leaves Darwin reads returning
+	// EAGAIN instead of waiting for readiness.
+	fd, err := unix.FcntlInt(ptmx.Fd(), unix.F_DUPFD_CLOEXEC, 0)
+	if err != nil {
+		cancel()
+		ptmx.Close()
+		_ = cmd.Wait()
+		return nil, ErrNotRunning
+	}
+	_ = ptmx.Close()
+	ptmx = os.NewFile(uintptr(fd), "reet-terminal-pty")
 	a := &Attachment{ID: opts.ID, Generation: opts.Generation, ptmx: ptmx, cancel: cancel, done: make(chan struct{}), lock: attachmentLock}
 	started = true
 	m.attachments[sessionID] = a

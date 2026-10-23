@@ -729,6 +729,11 @@ collection cannot block connection probes or existing agent operations.
 
 ### Stage 4 — Local consent and independent services
 
+Implementation contract: see [the stage 4 notes](docs/remote-machine-stage4.md)
+for the local opt-in commands, private tmux layout, filtered service
+environments, separate Linux/macOS services, and the native service-manager gate.
+No shell or controller-authorized terminal is enabled by that increment.
+
 Files: agent configuration/CLI, internal/terminalhost service support,
 agent-service lifecycle fixtures.
 

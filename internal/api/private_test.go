@@ -417,6 +417,36 @@ func TestPrivateControlStreamsProbesAndHealth(t *testing.T) {
 	if health.History[0].Summary.CPUPercent.Valid != 1 || health.History[0].RTTP50Millis == nil {
 		t.Fatalf("history: %+v", health.History[0])
 	}
+	updated := healthOnlyCapabilities()
+	updated.TerminalEnabled = true
+	updated.Readiness = terminalproto.Ready
+	hello, err := terminalproto.Encode(terminalproto.Message{
+		Version: terminalproto.Version, RequestID: strings.Repeat("u", 32), Generation: reply.Generation,
+		Body: terminalproto.Hello{AgentInstanceID: instance, Capabilities: updated},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Write(ctx, websocket.MessageText, hello); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		code, body := doClient(t, apiServer.Client(), apiServer, "GET", "/api/v2/machines/health?agent="+agent.ID, "", "X-Reet-Token", ownerToken)
+		if code != 200 || json.Unmarshal([]byte(body), &health) != nil {
+			t.Fatalf("health API: %d %s", code, body)
+		}
+		if len(health.Machines) == 1 && health.Machines[0].Capabilities != nil && health.Machines[0].Capabilities.TerminalEnabled && health.Machines[0].Connection != nil && health.Machines[0].Connection.Generation == reply.Generation {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("capability update did not converge: %+v", health)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if health.Machines[0].Connection.Capabilities.Readiness != terminalproto.Ready {
+		t.Fatalf("hub capabilities: %+v", health.Machines[0].Connection.Capabilities)
+	}
 	conn.Close(websocket.StatusNormalClosure, "")
 	deadline = time.Now().Add(5 * time.Second)
 	for {

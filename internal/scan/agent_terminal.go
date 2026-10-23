@@ -1,0 +1,218 @@
+package scan
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
+	"time"
+
+	"github.com/eyupio/reet.sh/internal/terminalhost"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
+)
+
+var rootUser = func() bool { return os.Geteuid() == 0 }
+
+func runAgentTerminal(args []string, out io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("usage: reet agent terminal enable|disable|status|sessions|end [--config PATH]")
+	}
+	action := args[0]
+	fs := flag.NewFlagSet("agent terminal "+action, flag.ContinueOnError)
+	fs.SetOutput(out)
+	config := fs.String("config", agentConfigPath(), "private machine enrollment file")
+	session := fs.String("session", "", "local terminal session name")
+	if err := fs.Parse(args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New("unexpected positional arguments")
+	}
+	absolute, err := filepath.Abs(*config)
+	if err != nil {
+		return err
+	}
+	*config = absolute
+	c, err := loadAgentConfig(*config)
+	if err != nil {
+		return err
+	}
+	layout, err := terminalhost.NewLayout(*config)
+	if err != nil {
+		return err
+	}
+	switch action {
+	case "enable":
+		if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+			return errors.New("terminal access is supported on Linux and macOS hosts")
+		}
+		if rootUser() {
+			return errors.New("enable terminal access as the non-root host user that owns this enrollment")
+		}
+		tmux, err := terminalhost.FindTmux(context.Background())
+		if err != nil {
+			return err
+		}
+		if err := terminalhost.Ensure(layout); err != nil {
+			return err
+		}
+		c.TerminalEnabled = true
+		if err := writePrivate(*config, c); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "Terminal access enabled locally for %s.\n", c.Host)
+		fmt.Fprintf(out, "tmux: %s (%s)\nPrivate socket: %s\n", tmux.Path, tmux.Version, layout.Socket)
+		fmt.Fprintf(out, "Install or refresh the independent services with: reet agent service install --config %q\n", *config)
+		return nil
+	case "disable":
+		c.TerminalEnabled = false
+		if err := writePrivate(*config, c); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "Remote terminal access disabled for %s. Local tmux sessions continue; list or end them with reet agent terminal sessions or end.\n", c.Host)
+		return nil
+	case "status":
+		readiness := terminalhost.Readiness(context.Background(), layout, c.TerminalEnabled)
+		fmt.Fprintf(out, "Machine: %s\nTerminal access: %t\nReadiness: %s\n", c.Host, c.TerminalEnabled, readiness)
+		if tmux, err := terminalhost.FindTmux(context.Background()); err == nil {
+			fmt.Fprintf(out, "tmux: %s (%s)\n", tmux.Path, tmux.Version)
+		} else {
+			fmt.Fprintf(out, "tmux: unavailable\n")
+		}
+		fmt.Fprintf(out, "Private socket: %s\n", layout.Socket)
+		if plan, err := servicePlan(*config, layout, true); err == nil {
+			status := terminalhost.ReadStatus(context.Background(), plan)
+			fmt.Fprintf(out, "Services installed: %t\nServices active: %t\n", status.Installed, status.Active)
+		}
+		return nil
+	case "sessions":
+		tmux, err := terminalhost.FindTmux(context.Background())
+		if err != nil {
+			return err
+		}
+		sessions, err := terminalhost.Sessions(context.Background(), tmux, layout)
+		if errors.Is(err, terminalhost.ErrNotRunning) {
+			fmt.Fprintln(out, "Terminal service is not running; no local sessions.")
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if len(sessions) == 0 {
+			fmt.Fprintln(out, "No local terminal sessions.")
+			return nil
+		}
+		for _, item := range sessions {
+			attached := ""
+			if item.Attached {
+				attached = " attached"
+			}
+			fmt.Fprintf(out, "%s  %s  %d window(s)%s\n", item.Name, time.UnixMilli(item.Created).Format(time.RFC3339), item.Windows, attached)
+		}
+		return nil
+	case "end":
+		if *session == "" {
+			return errors.New("agent terminal end requires --session NAME")
+		}
+		tmux, err := terminalhost.FindTmux(context.Background())
+		if err != nil {
+			return err
+		}
+		if err := terminalhost.EndSession(context.Background(), tmux, layout, *session); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "Ended local terminal session %s.\n", *session)
+		return nil
+	default:
+		return errors.New("unknown terminal action; use enable, disable, status, sessions or end")
+	}
+}
+
+func runAgentService(args []string, out io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("usage: reet agent service install|status|uninstall [--config PATH]")
+	}
+	action := args[0]
+	fs := flag.NewFlagSet("agent service "+action, flag.ContinueOnError)
+	fs.SetOutput(out)
+	config := fs.String("config", agentConfigPath(), "private machine enrollment file")
+	if err := fs.Parse(args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New("unexpected positional arguments")
+	}
+	absolute, err := filepath.Abs(*config)
+	if err != nil {
+		return err
+	}
+	if _, err := loadAgentConfig(absolute); err != nil {
+		return err
+	}
+	layout, err := terminalhost.NewLayout(absolute)
+	if err != nil {
+		return err
+	}
+	plan, err := servicePlan(absolute, layout, action != "install")
+	if err != nil {
+		return err
+	}
+	switch action {
+	case "install":
+		if rootUser() {
+			return errors.New("install per-user services as the non-root host user that owns this enrollment")
+		}
+		if err := terminalhost.Install(context.Background(), plan); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "Installed %s and %s.\n", plan.AgentName, plan.TerminalName)
+		fmt.Fprintln(out, terminalhost.LingerGuidance(context.Background()))
+		fmt.Fprintln(out, "Reinstalling an active terminal service restarts tmux and ends its local sessions.")
+		return nil
+	case "status":
+		status := terminalhost.ReadStatus(context.Background(), plan)
+		fmt.Fprintf(out, "Agent unit: %s\nTerminal unit: %s\nInstalled: %t\nActive: %t\n", plan.AgentPath, plan.TerminalPath, status.Installed, status.Active)
+		if !status.ManagerAvailable {
+			fmt.Fprintln(out, "Service manager unavailable or user services are not enabled on this host.")
+		}
+		return nil
+	case "uninstall":
+		if rootUser() {
+			return errors.New("uninstall per-user services as the non-root host user that owns this enrollment")
+		}
+		fmt.Fprintln(out, "Stopping the terminal service ends running local tmux sessions.")
+		if err := terminalhost.Uninstall(context.Background(), plan); err != nil {
+			return err
+		}
+		fmt.Fprintln(out, "Removed the agent and terminal services. Local terminal state and consent were left in place.")
+		return nil
+	default:
+		return errors.New("unknown service action; use install, status or uninstall")
+	}
+}
+
+func servicePlan(configPath string, layout terminalhost.Layout, allowMissingTmux bool) (terminalhost.ServicePlan, error) {
+	return terminalhost.PlanServices(context.Background(), terminalhost.ServiceOptions{
+		Prefix: "reet", Binary: "", ConfigPath: configPath, Layout: layout, AllowMissingTmux: allowMissingTmux,
+	})
+}
+
+func terminalReadiness(configPath string, enabled bool) terminalproto.Readiness {
+	layout, err := terminalhost.NewLayout(configPath)
+	if err != nil {
+		return terminalproto.SupervisorUnavailable
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	return terminalhost.Readiness(ctx, layout, enabled)
+}

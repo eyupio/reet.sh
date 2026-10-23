@@ -35,14 +35,17 @@ const (
 // AgentConfig is the installed agent's private monitoring configuration. Health
 // reporting is independent of terminal opt-in.
 type AgentConfig struct {
-	ServerURL       string
-	Token           string
-	AgentID         string
-	Secret          string
-	Version         string
-	InstanceID      string
-	Home            string
-	TerminalEnabled bool
+	ServerURL         string
+	Token             string
+	AgentID           string
+	Secret            string
+	Version           string
+	InstanceID        string
+	Home              string
+	TerminalEnabled   bool
+	TerminalReadiness terminalproto.Readiness
+	// Consent is polled for local terminal opt-in and readiness changes.
+	Consent func() (enabled bool, readiness terminalproto.Readiness, err error)
 
 	Collector        Collector
 	HTTPClient       *http.Client
@@ -52,6 +55,7 @@ type AgentConfig struct {
 	CollectTimeout   time.Duration
 	BackoffMin       time.Duration
 	BackoffMax       time.Duration
+	ConsentInterval  time.Duration
 }
 
 // RunAgent maintains the private control connection and reports host health.
@@ -162,6 +166,9 @@ func (cfg *AgentConfig) normalise() error {
 	if cfg.BackoffMax < cfg.BackoffMin {
 		cfg.BackoffMax = cfg.BackoffMin
 	}
+	if cfg.ConsentInterval <= 0 {
+		cfg.ConsentInterval = 5 * time.Second
+	}
 	return nil
 }
 
@@ -235,6 +242,10 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 	errorsSeen := make(chan error, 2)
 	go readControl(sessionCtx, conn, generation, send, errorsSeen)
 	go reportHealth(sessionCtx, cfg, generation, sequence, send, errorsSeen)
+	if cfg.Consent != nil {
+		initial := capabilities(cfg)
+		go consentControl(sessionCtx, cfg, generation, initial.TerminalEnabled, initial.Readiness, send, errorsSeen)
+	}
 	select {
 	case <-sessionCtx.Done():
 		return true, nil
@@ -274,6 +285,39 @@ func readControl(ctx context.Context, conn *websocket.Conn, generation int64, se
 			errorsSeen <- err
 			return
 		}
+	}
+}
+
+func consentControl(ctx context.Context, cfg AgentConfig, generation int64, enabled bool, readiness terminalproto.Readiness, send Sender, errorsSeen chan<- error) {
+	ticker := time.NewTicker(cfg.ConsentInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		nextEnabled, nextReadiness, err := cfg.Consent()
+		if err != nil || nextEnabled == enabled && nextReadiness == readiness {
+			continue
+		}
+		caps := capabilitiesFor(cfg, nextEnabled, nextReadiness)
+		if caps.Validate() != nil {
+			continue
+		}
+		requestID, err := randomID()
+		if err != nil {
+			errorsSeen <- err
+			return
+		}
+		if err := send(ctx, terminalproto.Message{
+			Version: terminalproto.Version, RequestID: requestID, Generation: generation,
+			Body: terminalproto.Hello{AgentInstanceID: cfg.InstanceID, Capabilities: caps},
+		}); err != nil {
+			errorsSeen <- err
+			return
+		}
+		enabled, readiness = nextEnabled, nextReadiness
 	}
 }
 
@@ -362,13 +406,30 @@ func authHeaders(cfg AgentConfig) http.Header {
 }
 
 func capabilities(cfg AgentConfig) terminalproto.Capabilities {
+	if cfg.TerminalEnabled && cfg.TerminalReadiness == "" {
+		cfg.TerminalReadiness = terminalproto.SupervisorUnavailable
+	}
+	return capabilitiesFor(cfg, cfg.TerminalEnabled, cfg.TerminalReadiness)
+}
+
+func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Readiness) terminalproto.Capabilities {
 	osName := runtime.GOOS
-	readiness := terminalproto.DisabledLocally
 	if osName != "linux" && osName != "darwin" {
 		osName = "unknown"
-		readiness = terminalproto.Unsupported
+		if !enabled {
+			readiness = terminalproto.Unsupported
+		}
 	}
-	if cfg.TerminalEnabled {
+	if !enabled {
+		if readiness == "" || readiness == terminalproto.Ready || readiness == terminalproto.TmuxUnavailable || readiness == terminalproto.SupervisorUnavailable || readiness == terminalproto.CapacityReached || readiness == terminalproto.Reconnecting {
+			if osName == "unknown" {
+				readiness = terminalproto.Unsupported
+			} else {
+				readiness = terminalproto.DisabledLocally
+			}
+		}
+	}
+	if enabled && readiness == terminalproto.DisabledLocally {
 		readiness = terminalproto.SupervisorUnavailable
 	}
 	username := "unknown"
@@ -379,7 +440,7 @@ func capabilities(cfg AgentConfig) terminalproto.Capabilities {
 		ProtocolVersion: terminalproto.Version,
 		OS:              osName,
 		OSUser:          username,
-		TerminalEnabled: cfg.TerminalEnabled,
+		TerminalEnabled: enabled,
 		HealthEnabled:   true,
 		Readiness:       readiness,
 	}

@@ -1,0 +1,424 @@
+package terminalhost
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"os/user"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
+
+var prefixPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,20}$`)
+
+type ServiceOptions struct {
+	Prefix           string
+	Binary           string
+	ConfigPath       string
+	Layout           Layout
+	UnitDir          string
+	Env              []string
+	AllowMissingTmux bool
+}
+
+type ServicePlan struct {
+	Prefix        string
+	Binary        string
+	ConfigPath    string
+	Layout        Layout
+	TmuxPath      string
+	Env           []string
+	UnitDir       string
+	AgentName     string
+	TerminalName  string
+	AgentLabel    string
+	TerminalLabel string
+	AgentPath     string
+	TerminalPath  string
+}
+
+type ServiceStatus struct {
+	Installed        bool
+	Active           bool
+	ManagerAvailable bool
+	AgentPath        string
+	TerminalPath     string
+}
+
+// PlanServices prepares independent agent and tmux service definitions. It
+// performs no writes and starts no service.
+func PlanServices(ctx context.Context, options ServiceOptions) (ServicePlan, error) {
+	prefix := options.Prefix
+	if prefix == "" {
+		prefix = "reet"
+	}
+	if !prefixPattern.MatchString(prefix) {
+		return ServicePlan{}, errors.New("invalid service name prefix")
+	}
+	binary := options.Binary
+	if binary == "" {
+		executable, err := os.Executable()
+		if err != nil {
+			return ServicePlan{}, err
+		}
+		binary = executable
+	}
+	binary, err := filepath.Abs(binary)
+	if err != nil {
+		return ServicePlan{}, errors.New("service binary path is invalid")
+	}
+	if info, err := os.Stat(binary); err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+		return ServicePlan{}, errors.New("service binary must be an executable file")
+	}
+	configPath, err := filepath.Abs(options.ConfigPath)
+	if err != nil {
+		return ServicePlan{}, errors.New("enrollment configuration path is invalid")
+	}
+	if err := isPrivateConfig(configPath); err != nil {
+		return ServicePlan{}, err
+	}
+	if options.Layout.Dir == "" {
+		options.Layout, err = NewLayout(configPath)
+		if err != nil {
+			return ServicePlan{}, err
+		}
+	}
+	tmux, err := FindTmux(ctx)
+	if err != nil && !options.AllowMissingTmux {
+		return ServicePlan{}, err
+	}
+	tmuxPath := tmux.Path
+	if tmuxPath == "" {
+		tmuxPath = "tmux"
+	}
+	unitDir := options.UnitDir
+	if unitDir == "" {
+		unitDir, err = defaultUnitDir()
+		if err != nil {
+			return ServicePlan{}, err
+		}
+	}
+	env := options.Env
+	if env == nil {
+		env = safeEnvironment()
+	}
+	env = validateEnvironment(env)
+	plan := ServicePlan{
+		Prefix: prefix, Binary: binary, ConfigPath: configPath, Layout: options.Layout,
+		TmuxPath: tmuxPath, Env: env, UnitDir: unitDir,
+	}
+	if runtime.GOOS == "darwin" {
+		plan.AgentLabel = labelFor(prefix, "agent")
+		plan.TerminalLabel = labelFor(prefix, "terminal")
+		plan.AgentName = plan.AgentLabel + ".plist"
+		plan.TerminalName = plan.TerminalLabel + ".plist"
+	} else {
+		plan.AgentName = prefix + "-agent.service"
+		plan.TerminalName = prefix + "-terminal.service"
+		plan.AgentLabel = plan.AgentName
+		plan.TerminalLabel = plan.TerminalName
+	}
+	plan.AgentPath = filepath.Join(unitDir, plan.AgentName)
+	plan.TerminalPath = filepath.Join(unitDir, plan.TerminalName)
+	return plan, nil
+}
+
+func labelFor(prefix, kind string) string {
+	if prefix == "reet" {
+		return "sh.reet." + kind
+	}
+	return "sh.reet." + prefix + "." + kind
+}
+
+func defaultUnitDir() (string, error) {
+	if runtime.GOOS == "darwin" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(home, "Library", "LaunchAgents"), nil
+	}
+	config, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(config, "systemd", "user"), nil
+}
+
+func (p ServicePlan) AgentText() string {
+	if runtime.GOOS == "darwin" {
+		return p.plist(p.AgentLabel, p.agentArgs(), filepath.Join(p.Layout.Logs, "agent.log"))
+	}
+	return p.systemdUnit("reet agent (private monitoring and sync)", "After=network-online.target\nWants=network-online.target", p.agentArgs())
+}
+
+func (p ServicePlan) TerminalText() string {
+	if runtime.GOOS == "darwin" {
+		return p.plist(p.TerminalLabel, p.terminalArgs(), filepath.Join(p.Layout.Logs, "terminal.log"))
+	}
+	return p.systemdUnit("reet terminal tmux supervisor", "After=network-online.target\nWants=network-online.target", p.terminalArgs())
+}
+
+func (p ServicePlan) agentArgs() []string {
+	return []string{p.Binary, "agent", "run", "--config", p.ConfigPath}
+}
+
+func (p ServicePlan) terminalArgs() []string {
+	return []string{p.TmuxPath, "-D", "-S", p.Layout.Socket, "-f", p.Layout.Config}
+}
+
+func (p ServicePlan) cleanEnvironment(executable string) []string {
+	envPath, err := exec.LookPath("env")
+	if err != nil {
+		envPath = "/usr/bin/env"
+	}
+	envPath, _ = filepath.Abs(envPath)
+	return append([]string{envPath, "-i"}, append(append([]string{}, p.Env...), executable)...)
+}
+
+func (p ServicePlan) systemdUnit(description, after string, command []string) string {
+	args := append(p.cleanEnvironment(command[0]), command[1:]...)
+	return "[Unit]\nDescription=" + description + "\n" + after + "\n\n[Service]\nType=simple\nExecStart=" + systemdExec(args) + "\nWorkingDirectory=" + systemdQuote(p.Layout.Dir) + "\nRestart=on-failure\nRestartSec=5\nUMask=0077\nNoNewPrivileges=true\n\n[Install]\nWantedBy=default.target\n"
+}
+
+func (p ServicePlan) plist(label string, command []string, logPath string) string {
+	var args strings.Builder
+	for _, arg := range p.cleanEnvironment(command[0]) {
+		args.WriteString("<string>" + xmlEscape(arg) + "</string>")
+	}
+	for _, arg := range command[1:] {
+		args.WriteString("<string>" + xmlEscape(arg) + "</string>")
+	}
+	return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>` + xmlEscape(label) + `</string><key>ProgramArguments</key><array>` + args.String() + `</array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>WorkingDirectory</key><string>` + xmlEscape(p.Layout.Dir) + `</string><key>StandardOutPath</key><string>` + xmlEscape(logPath) + `</string><key>StandardErrorPath</key><string>` + xmlEscape(logPath) + `</string><key>ProcessType</key><string>Background</string><key>ThrottleInterval</key><integer>5</integer></dict></plist>`
+}
+
+func systemdExec(args []string) string {
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = systemdQuote(arg)
+	}
+	return strings.Join(quoted, " ")
+}
+
+func systemdQuote(value string) string {
+	value = strings.ReplaceAll(value, "%", "%%")
+	value = strings.ReplaceAll(value, "$", "$$")
+	return strconv.Quote(value)
+}
+
+func xmlEscape(value string) string {
+	replacer := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;", "'", "&apos;")
+	return replacer.Replace(value)
+}
+
+func safeEnvironment() []string {
+	allowed := map[string]bool{
+		"PATH": true, "HOME": true, "USER": true, "LOGNAME": true, "SHELL": true,
+		"TMPDIR": true, "LANG": true, "LC_ALL": true, "LC_CTYPE": true, "TERM": true,
+	}
+	values := map[string]string{}
+	for _, entry := range os.Environ() {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && allowed[key] && cleanEnvValue(value) {
+			values[key] = value
+		}
+	}
+	if values["HOME"] == "" {
+		values["HOME"], _ = os.UserHomeDir()
+	}
+	if values["USER"] == "" {
+		if current, err := user.Current(); err == nil {
+			values["USER"] = current.Username
+		}
+	}
+	if values["LOGNAME"] == "" {
+		values["LOGNAME"] = values["USER"]
+	}
+	if values["SHELL"] == "" || !filepath.IsAbs(values["SHELL"]) {
+		values["SHELL"] = "/bin/sh"
+	}
+	if values["PATH"] == "" {
+		values["PATH"] = "/usr/local/bin:/usr/bin:/bin"
+	}
+	if values["TMPDIR"] == "" {
+		values["TMPDIR"] = os.TempDir()
+	}
+	if values["TERM"] == "" {
+		values["TERM"] = "xterm-256color"
+	}
+	return envList(values)
+}
+
+func validateEnvironment(env []string) []string {
+	allowed := map[string]bool{
+		"PATH": true, "HOME": true, "USER": true, "LOGNAME": true, "SHELL": true,
+		"TMPDIR": true, "LANG": true, "LC_ALL": true, "LC_CTYPE": true, "TERM": true,
+	}
+	values := map[string]string{}
+	for _, entry := range env {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok || !allowed[key] || strings.ContainsAny(key, " \t\r\n\x00") || !cleanEnvValue(value) {
+			continue
+		}
+		values[key] = value
+	}
+	return envList(values)
+}
+
+func envList(values map[string]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, key+"="+values[key])
+	}
+	return out
+}
+
+var runServiceCommand = func(ctx context.Context, name string, args ...string) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := exec.CommandContext(ctx, name, args...).Run(); err != nil {
+		return fmt.Errorf("%s failed; inspect the local service manager", name)
+	}
+	return nil
+}
+
+// Install writes both unit definitions and starts them through the native user
+// service manager. The units remain independent: stopping the agent never
+// stops tmux or its sessions.
+func Install(ctx context.Context, plan ServicePlan) error {
+	if err := Ensure(plan.Layout); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(plan.UnitDir, 0700); err != nil {
+		return err
+	}
+	if err := writePrivateFile(plan.AgentPath, []byte(plan.AgentText())); err != nil {
+		return err
+	}
+	if err := writePrivateFile(plan.TerminalPath, []byte(plan.TerminalText())); err != nil {
+		return err
+	}
+	uid := strconv.Itoa(os.Getuid())
+	if runtime.GOOS == "darwin" {
+		for _, item := range []struct{ label, path string }{{plan.TerminalLabel, plan.TerminalPath}, {plan.AgentLabel, plan.AgentPath}} {
+			_ = runServiceCommand(ctx, "launchctl", "bootout", "gui/"+uid+"/"+item.label)
+			if err := runServiceCommand(ctx, "launchctl", "bootstrap", "gui/"+uid, item.path); err != nil {
+				return err
+			}
+			_ = runServiceCommand(ctx, "launchctl", "enable", "gui/"+uid+"/"+item.label)
+		}
+		return nil
+	}
+	if err := runServiceCommand(ctx, "systemctl", "--user", "daemon-reload"); err != nil {
+		return err
+	}
+	if err := runServiceCommand(ctx, "systemctl", "--user", "enable", "--now", plan.TerminalName); err != nil {
+		return err
+	}
+	return runServiceCommand(ctx, "systemctl", "--user", "enable", "--now", plan.AgentName)
+}
+
+// Uninstall stops both services and removes their definitions. Stopping the
+// terminal service ends local tmux sessions; callers must warn before calling.
+func Uninstall(ctx context.Context, plan ServicePlan) error {
+	var errs []error
+	uid := strconv.Itoa(os.Getuid())
+	if runtime.GOOS == "darwin" {
+		for _, item := range []struct{ label, path string }{{plan.AgentLabel, plan.AgentPath}, {plan.TerminalLabel, plan.TerminalPath}} {
+			_ = runServiceCommand(ctx, "launchctl", "bootout", "gui/"+uid+"/"+item.label)
+			if err := os.Remove(item.path); err != nil && !os.IsNotExist(err) {
+				errs = append(errs, err)
+			}
+		}
+		return errors.Join(errs...)
+	}
+	if _, err := os.Stat(plan.AgentPath); err == nil {
+		if err := runServiceCommand(ctx, "systemctl", "--user", "disable", "--now", plan.AgentName); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if _, err := os.Stat(plan.TerminalPath); err == nil {
+		if err := runServiceCommand(ctx, "systemctl", "--user", "disable", "--now", plan.TerminalName); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if err := os.Remove(plan.AgentPath); err != nil && !os.IsNotExist(err) {
+		errs = append(errs, err)
+	}
+	if err := os.Remove(plan.TerminalPath); err != nil && !os.IsNotExist(err) {
+		errs = append(errs, err)
+	}
+	if err := runServiceCommand(ctx, "systemctl", "--user", "daemon-reload"); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+func ReadStatus(ctx context.Context, plan ServicePlan) ServiceStatus {
+	status := ServiceStatus{AgentPath: plan.AgentPath, TerminalPath: plan.TerminalPath}
+	_, agentFileErr := os.Stat(plan.AgentPath)
+	_, terminalFileErr := os.Stat(plan.TerminalPath)
+	status.Installed = agentFileErr == nil && terminalFileErr == nil
+	uid := strconv.Itoa(os.Getuid())
+	if runtime.GOOS == "darwin" {
+		agentActive := runServiceCommand(ctx, "launchctl", "print", "gui/"+uid+"/"+plan.AgentLabel) == nil
+		terminalActive := runServiceCommand(ctx, "launchctl", "print", "gui/"+uid+"/"+plan.TerminalLabel) == nil
+		status.ManagerAvailable = agentActive || terminalActive
+		status.Active = agentActive && terminalActive
+		return status
+	}
+	agent, agentErr := serviceActive(ctx, plan.AgentName)
+	terminal, terminalErr := serviceActive(ctx, plan.TerminalName)
+	if agentErr == nil || terminalErr == nil {
+		status.ManagerAvailable = true
+	}
+	status.Active = agent && terminal
+	return status
+}
+
+func serviceActive(ctx context.Context, name string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, "systemctl", "--user", "is-active", name).Output()
+	state := strings.TrimSpace(string(output))
+	switch state {
+	case "active":
+		return true, nil
+	case "inactive", "failed", "deactivating", "activating":
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+// LingerGuidance explains Linux logout behaviour without changing it.
+func LingerGuidance(ctx context.Context) string {
+	if runtime.GOOS != "linux" {
+		return "macOS stops per-user LaunchAgents at logout; tmux sessions continue only while the user session remains."
+	}
+	current, err := user.Current()
+	if err != nil {
+		return "Linux user services stop at logout unless lingering is enabled (loginctl enable-linger)."
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, "loginctl", "show-user", current.Username, "--property=Linger", "--value").Output()
+	if err == nil && strings.TrimSpace(string(output)) == "yes" {
+		return "Linux user services will continue after logout because lingering is enabled."
+	}
+	return "Linux user services stop at logout unless you enable lingering: sudo loginctl enable-linger " + current.Username
+}

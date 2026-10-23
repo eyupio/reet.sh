@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -89,5 +90,33 @@ func TestRunAgentRejectsUnsafeConfiguration(t *testing.T) {
 	}
 	if !strings.Contains(RunAgent(context.Background(), AgentConfig{}).Error(), "controller origin") {
 		t.Fatal("missing configuration error was not descriptive")
+	}
+}
+
+func TestConsentControlSendsUpdatedCapabilities(t *testing.T) {
+	cfg := AgentConfig{
+		InstanceID: testInstance(), ConsentInterval: 10 * time.Millisecond,
+		Consent: func() (bool, terminalproto.Readiness, error) {
+			return true, terminalproto.Ready, nil
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sent := make(chan terminalproto.Message, 4)
+	errs := make(chan error, 2)
+	go consentControl(ctx, cfg, 3, false, terminalproto.DisabledLocally, func(ctx context.Context, message terminalproto.Message) error {
+		sent <- message
+		return nil
+	}, errs)
+	select {
+	case message := <-sent:
+		hello, ok := message.Body.(terminalproto.Hello)
+		if !ok || !hello.Capabilities.TerminalEnabled || hello.Capabilities.Readiness != terminalproto.Ready || message.Generation != 3 {
+			t.Fatalf("capability update: %+v", message)
+		}
+	case err := <-errs:
+		t.Fatal(err)
+	case <-time.After(time.Second):
+		t.Fatal("no capability update was sent")
 	}
 }

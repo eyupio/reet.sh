@@ -22,6 +22,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/cliui"
 	"github.com/eyupio/reet.sh/internal/lifecycle"
+	"github.com/eyupio/reet.sh/internal/mail"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/scan"
 	"github.com/eyupio/reet.sh/internal/setup"
@@ -113,6 +114,7 @@ Configuration (environment variables):
   REET_TOKEN      Optional owner-setup bootstrap / legacy access token
   REET_SIGNUP     open to allow self-serve accounts (default invite-only)
   REET_CONTACT_EMAIL  Optional admin address shown for account/reset requests
+  REET_MAIL_OUTBOX_DIR  Local dev only: write emails here instead of sending
   REET_TOPICS     off to disable topic seeding
   REET_REFRESH    off to disable background metadata refresh
 
@@ -186,6 +188,7 @@ func serve() error {
 	_ = st.PruneEvents(time.Now().AddDate(-1, 0, 0).UnixMilli())
 	_ = st.PruneSessions(time.Now().UnixMilli())
 	_ = st.PruneInvites(time.Now().UnixMilli())
+	_, _ = st.PruneMail()
 	mode := api.AuthMode(os.Getenv("REET_AUTH"))
 	switch mode {
 	case "":
@@ -205,6 +208,16 @@ func serve() error {
 	}
 	backups := backup.New(st, bcfg)
 	backups.Start(ctx)
+	mailSettings := &mail.Settings{Store: st, Sealer: bcfg.Sealer, Env: mail.Config{
+		BaseURL: publicURL, OutboxDir: strings.TrimSpace(os.Getenv(mail.EnvOutboxDir)),
+	}}
+	queue := &mail.Queue{Store: st, Settings: mailSettings}
+	mailer := &mail.Mailer{Store: st, Settings: mailSettings, Queue: queue}
+	go queue.Loop(ctx, time.Minute)
+	mailNow := mailSettings.Current()
+	if warning := mail.OutboxWarning(mailNow, mailNow.BaseURL); warning != "" {
+		log.Printf("email: %s", warning)
+	}
 	signup := strings.EqualFold(strings.TrimSpace(os.Getenv("REET_SIGNUP")), "open") ||
 		strings.TrimSpace(os.Getenv("REET_SIGNUP")) == "1" ||
 		strings.EqualFold(strings.TrimSpace(os.Getenv("REET_SIGNUP")), "true")
@@ -212,7 +225,7 @@ func serve() error {
 		api.WithAuthMode(mode), api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"),
 		api.WithTopics(os.Getenv("REET_TOPICS") != "off"), api.WithPublicURL(os.Getenv("REET_PUBLIC_URL")),
 		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"), api.WithBackups(backups),
-		api.WithSignup(signup), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")))
+		api.WithSignup(signup), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")), api.WithMail(mailer))
 	mux := http.NewServeMux()
 	mux.Handle("/api/", h)
 	mux.Handle("/quick", h)

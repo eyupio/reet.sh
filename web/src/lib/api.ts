@@ -91,6 +91,7 @@ export type AuthStatus = {
   bootstrapRequired: boolean
   signupEnabled?: boolean
   contactEmail?: string
+  passwordReset?: boolean
   user: User | null
 }
 export type APIToken = { id: number; name: string; createdAt: number; lastUsedAt?: number }
@@ -313,7 +314,7 @@ export async function updateAdminUser(data: { id: number; role?: string; disable
 export async function deleteAdminUser(id: number): Promise<void> {
   await req(`/api/v2/admin/users?id=${id}`, { method: 'DELETE' })
 }
-export async function resetUserPassword(id: number): Promise<{ password: string }> {
+export async function resetUserPassword(id: number): Promise<{ password?: string; emailed?: boolean; email?: string }> {
   return (await req('/api/v2/admin/users/reset', { method: 'POST', body: json({ id }) })).json()
 }
 export async function revokeUserTokens(id: number): Promise<void> {
@@ -322,7 +323,7 @@ export async function revokeUserTokens(id: number): Promise<void> {
 export async function transferOwner(id: number): Promise<{ users: UserMeta[] }> {
   return (await req('/api/v2/admin/users/transfer', { method: 'POST', body: json({ id }) })).json()
 }
-export async function createInvite(email: string, role: string): Promise<{ url: string; token: string; email: string; role: string; expiresAt: number }> {
+export async function createInvite(email: string, role: string): Promise<{ url: string; token: string; email: string; role: string; expiresAt: number; emailed?: boolean }> {
   return (await req('/api/v2/admin/invites', { method: 'POST', body: json({ email, role }) })).json()
 }
 export async function getInvite(token: string): Promise<Invite> {
@@ -531,6 +532,61 @@ export type BackupRun = {
   error: string
 }
 export type BackupFinding = { severity: 'error' | 'warning' | 'info'; code: string; message: string }
+export type MailSettingsView = {
+  source: 'database' | 'none'
+  mode: 'smtp' | 'outbox' | 'held' | 'off'
+  summary: string
+  problem?: string
+  host: string
+  port: number
+  tls: 'starttls' | 'implicit' | 'none'
+  user: string
+  passwordSet: boolean
+  from: string
+  fromName: string
+  replyTo: string
+  baseUrl: string
+  baseUrlInUse: string
+  dkimSelector: string
+  updatedAt?: number
+  updatedBy?: string
+}
+export type MailMessage = {
+  id: string
+  template: string
+  to: string
+  subject: string
+  state: string
+  attempts: number
+  lastError?: string
+  via?: string
+  createdAt: number
+  nextAttemptAt?: number
+  deliveredAt?: number
+  secret: boolean
+  resendable: boolean
+}
+export type MailOutbox = {
+  mode: string
+  summary: string
+  warning?: string
+  messages: MailMessage[]
+  counts: Record<string, number>
+}
+export type MailCheck = { ok: boolean; message: string; transcript: string[] }
+export type MailDNSRecord = { state: 'found' | 'missing' | 'unknown'; record?: string; advice: string }
+export type MailDNS = { domain: string; spf: MailDNSRecord; dkim: MailDNSRecord; dmarc: MailDNSRecord; bimi: MailDNSRecord }
+export type TeamNotify = {
+  groupId: number
+  enabled: boolean
+  events: string[]
+  recipients: 'managers' | 'members'
+  extraEmails: string[]
+  updatedAt?: number
+  updatedBy?: number
+}
+export type TeamNotifyEvent = { key: string; label: string; description: string }
+export type TeamNotifyView = { notify: TeamNotify; events: TeamNotifyEvent[]; mailReady: boolean; mailMode: string; groupName: string }
 export type BackupStatus = {
   scope: 'instance' | 'user'
   enabled: boolean
@@ -563,6 +619,36 @@ export type BackupCompression = 'gzip' | 'none'
 
 const bpath = (admin: boolean) => (admin ? '/api/v2/admin/backups' : '/api/v2/backups')
 
+export async function getMailSettings(): Promise<{ settings: MailSettingsView }> { return (await req('/api/v2/admin/mail')).json() }
+export async function saveMailSettings(settings: {
+  host: string; port: number; tls: string; user: string; password?: string; passwordAction: string;
+  from: string; fromName: string; replyTo: string; baseUrl: string; dkimSelector: string
+}): Promise<{ settings: MailSettingsView; done: string }> { return (await req('/api/v2/admin/mail', { method: 'PATCH', body: json(settings) })).json() }
+export async function checkMailSettings(settings: {
+  host: string; port: number; tls: string; user: string; password?: string; passwordAction: string;
+  from: string; fromName: string; replyTo: string; baseUrl: string; dkimSelector: string
+}): Promise<MailCheck> { return (await req('/api/v2/admin/mail/check', { method: 'POST', body: json(settings) })).json() }
+export async function sendTestMail(): Promise<MailCheck> { return (await req('/api/v2/admin/mail/test', { method: 'POST', body: json({}) })).json() }
+export async function getMailDNS(from: string, selector: string): Promise<MailDNS> {
+  const p = new URLSearchParams({ from, selector })
+  return (await req(`/api/v2/admin/mail/dns?${p}`)).json()
+}
+export async function listMailOutbox(state = ''): Promise<MailOutbox> {
+  return (await req(`/api/v2/admin/mail/outbox${state ? `?state=${encodeURIComponent(state)}` : ''}`)).json()
+}
+export async function resendMail(id: string): Promise<{ message: MailMessage; done: string }> {
+  return (await req('/api/v2/admin/mail/outbox/resend', { method: 'POST', body: json({ id }) })).json()
+}
+export async function forgotPassword(email: string): Promise<{ message: string }> {
+  return (await req('/api/v2/auth/forgot', { method: 'POST', body: json({ email }) })).json()
+}
+export async function resetPassword(token: string, password: string): Promise<{ ok: boolean; message: string }> {
+  return (await req('/api/v2/auth/reset', { method: 'POST', body: json({ token, password }) })).json()
+}
+export async function getTeamNotifications(id: number): Promise<TeamNotifyView> { return (await req(`/api/v2/groups/${id}/notifications`)).json() }
+export async function saveTeamNotifications(id: number, notify: Partial<TeamNotify>): Promise<TeamNotifyView> {
+  return (await req(`/api/v2/groups/${id}/notifications`, { method: 'PATCH', body: json(notify) })).json()
+}
 export async function getBackupStatus(admin = false): Promise<BackupStatus> {
   return (await req(bpath(admin))).json()
 }

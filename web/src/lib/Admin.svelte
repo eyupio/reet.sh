@@ -7,6 +7,7 @@
     createInvite, deleteAdminUser, getAdminStatus, getRollup, listAdminUsers, resetUserPassword, revokeUserTokens,
     saveAdminSettings, transferOwner, updateAdminUser, type AdminStatus, type Rollup, type RollupSkill, type UserMeta,
   } from './api'
+  import AdminEmail from './AdminEmail.svelte'
   import Backups from './Backups.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import CopyButton from './CopyButton.svelte'
@@ -21,7 +22,7 @@
   const sections = [
     { key: 'overview', label: 'Overview' }, { key: 'environments', label: 'Environments' },
     ...(accounts ? [{ key: 'users', label: 'Users' }, { key: 'team', label: 'Team usage' }] : []),
-    { key: 'backups', label: 'Backups' }, { key: 'settings', label: 'Settings' }, { key: 'activity', label: 'Activity' },
+    { key: 'email', label: 'Email' }, { key: 'backups', label: 'Backups' }, { key: 'settings', label: 'Settings' }, { key: 'activity', label: 'Activity' },
   ]
   const legacy: Record<string, string> = { 'admin-overview': 'overview', 'admin-envs': 'environments', 'admin-users': 'users', 'admin-team': 'team', 'admin-backups': 'backups', 'admin-settings': 'settings', 'admin-events': 'activity' }
   const requested = legacy[location.hash.slice(1)] || location.pathname.split('/')[2] || 'overview'
@@ -32,6 +33,7 @@
     environments: 'Inspect scanned machines and agent reports, with server heartbeats kept separate.',
     users: 'Invite people and manage their access.',
     team: 'See which skills are earning their keep and where shared lists need attention.',
+    email: 'Set the one mail server every message goes through, and watch the outbox.',
     backups: 'Protect the whole instance with encrypted backups.',
     settings: 'Configure background jobs, sharing and usage privacy.',
     activity: 'Recent changes across the instance.',
@@ -53,7 +55,9 @@
   let inviteRole = $state('member')
   let inviteLink = $state('')
   let inviteExpires = $state(0)
+  let inviteEmailed = $state(false)
   let resetPassword = $state('')
+  let resetNotice = $state('')
   let resetName = $state('')
   let busyID = $state(0)
   let confirmAction = $state<{ kind: 'delete' | 'transfer'; user: UserMeta } | null>(null)
@@ -221,10 +225,15 @@
   async function resetPasswordFor(user: UserMeta) {
     busyID = user.id
     resetPassword = ''
+    resetNotice = ''
     try {
       const r = await resetUserPassword(user.id)
-      resetPassword = r.password
-      resetName = user.name
+      if (r.emailed) {
+        resetNotice = `A reset link is on its way to ${r.email || user.email}.`
+      } else {
+        resetPassword = r.password || ''
+        resetName = user.name
+      }
       usersError = ''
     } catch (e) {
       usersError = e instanceof Error ? e.message : String(e)
@@ -255,6 +264,7 @@
       const r = await createInvite(inviteEmail.trim(), inviteRole)
       inviteLink = location.origin + r.url
       inviteExpires = r.expiresAt
+      inviteEmailed = Boolean(r.emailed)
       inviteEmail = ''
       usersError = ''
     } catch (e) {
@@ -415,7 +425,7 @@
           </div>
           {#if inviteLink}
             <div class="fresh">
-              <p>Send this link. It expires {new Date(inviteExpires).toLocaleString()}.</p>
+              <p>{inviteEmailed ? `Invitation queued for email. You can also send this link.` : `Send this link.`} It expires {new Date(inviteExpires).toLocaleString()}.</p>
               <div class="tokenline">
                 <code>{inviteLink}</code>
                 <CopyButton text={inviteLink} />
@@ -424,6 +434,9 @@
           {/if}
         </div>
 
+        {#if resetNotice}
+          <div class="fresh"><p>{resetNotice}</p></div>
+        {/if}
         {#if resetPassword}
           <div class="fresh">
             <p>Temporary password for {resetName}. Copy it now.</p>
@@ -618,6 +631,11 @@
         {/if}
       </section>
 
+    {/if}
+    {#if section === 'email'}
+    <div id="admin-email">
+      <AdminEmail {role} {onerror} />
+    </div>
     {/if}
     {#if section === 'backups'}
     <div id="admin-backups">

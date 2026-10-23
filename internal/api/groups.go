@@ -1,8 +1,13 @@
 package api
 
 import (
-	"github.com/eyupio/reet.sh/internal/store"
+	"fmt"
 	"net/http"
+	"strings"
+	"time"
+
+	"github.com/eyupio/reet.sh/internal/mail"
+	"github.com/eyupio/reet.sh/internal/store"
 )
 
 func (s *server) groups(w http.ResponseWriter, r *http.Request) {
@@ -44,6 +49,18 @@ func (s *server) groupMember(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	// Read the group and person first: the notice says what actually changed,
+	// and the store has already forgotten a removed role by the time it returns.
+	group, groupErr := s.st.GroupFor(s.uid(r), s.role(r), id)
+	email := store.NormalizeListEmail(in.Email)
+	oldRole := ""
+	for _, m := range group.Members {
+		if strings.EqualFold(m.Email, email) {
+			oldRole = m.Role
+			break
+		}
+	}
+	person, personOK, _ := s.st.UserByEmail(email)
 	if err := s.st.SetGroupMember(s.uid(r), s.role(r), id, in.Email, in.Role, in.Remove); err != nil {
 		if err == store.ErrNotFound {
 			writeErr(w, 404, "group not found")
@@ -53,6 +70,23 @@ func (s *server) groupMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.eventRequest(r, "group-membership", "", map[string]any{"group": id, "removed": in.Remove})
+	if groupErr == nil && personOK {
+		action, role := "member_joined", in.Role
+		switch {
+		case in.Remove && oldRole != "":
+			action, role = "member_left", oldRole
+		case in.Remove:
+			personOK = false
+		case oldRole != "" && oldRole != in.Role:
+			action = "member_role"
+		case oldRole != "":
+			personOK = false
+		}
+		if personOK {
+			s.notifyTeam(r, id, action, fmt.Sprintf("%d:%s:%d", person.ID, action, time.Now().Unix()),
+				mail.Data{Name: person.Name, Actor: s.currentUser(r).Name, Role: role, When: time.Now()})
+		}
+	}
 	s.groups(w, r)
 }
 func (s *server) community(w http.ResponseWriter, r *http.Request) {

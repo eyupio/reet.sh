@@ -20,6 +20,11 @@ type Detail = {
   disabled?: boolean
   enabled?: boolean
   connection?: string
+  ok?: boolean
+  template?: string
+  deleted?: boolean
+  removed?: boolean
+  list?: string
 }
 
 function detail(e: Event): Detail {
@@ -96,6 +101,30 @@ export function eventLabel(e: Event): string {
       return `Updated ${d.count ?? 0} skills`
     case 'settings':
       return 'Changed instance settings'
+    case 'mail-settings':
+      return `Changed the mail server${d.host ? ` (${d.host})` : ''}`
+    case 'mail-check':
+      return `${d.ok ? 'Checked' : 'Failed to check'} the mail server${d.host ? ` (${d.host})` : ''}`
+    case 'mail-test':
+      return `Sent a test email to ${d.to || 'an administrator'}${d.ok === false ? ' (failed)' : ''}`
+    case 'mail-resend':
+      return `Queued ${d.template || 'an email'} to ${d.to || 'a recipient'} again`
+    case 'password-reset-request':
+      return `Password reset requested for ${d.email || 'an account'}`
+    case 'password-reset':
+      return `${d.name || 'Someone'} reset their password`
+    case 'group-notify':
+      return `Changed team notifications${d.enabled === false ? ' (paused)' : ''}`
+    case 'group-create':
+      return 'Created a team or organisation'
+    case 'group-update':
+      return d.deleted ? 'Deleted a team or organisation' : 'Renamed a team or organisation'
+    case 'group-membership':
+      return d.removed ? 'Removed a group member' : 'Changed group membership'
+    case 'list-create':
+      return `Created the list ${d.list || ''}`.trim()
+    case 'list-update':
+      return `Updated the list ${d.list || ''}`.trim()
     case 'token-create':
       return 'Created an API token'
     case 'token-revoke':

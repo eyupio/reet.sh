@@ -162,6 +162,7 @@ export function clearToken() {
   }
 }
 
+export async function getMachineHealth(signal?:AbortSignal):Promise<import('./terminal/api').HealthResponse> { return (await req('/api/v2/machines/health',{signal,cache:'no-store'})).json() }
 async function req(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers)
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')

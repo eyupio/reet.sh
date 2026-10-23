@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { MachineHealth } from './api'
   import { age, bytes, fresh, missing, percent, uptime, value } from './health'
-  let { health, serverNow }: { health?: MachineHealth; serverNow: number } = $props()
+  let { health, serverNow, compact=false }: { health?: MachineHealth; serverNow: number; compact?:boolean } = $props()
   const connection = $derived(health?.connection)
   const report = $derived(connection?.report)
   const isFresh = $derived(fresh(health, serverNow))
@@ -10,7 +10,7 @@
   const rtt = $derived(connection?.connected && connection.rttMillis != null ? connection.rttMillis : null)
 </script>
 
-<section class="health" class:stale={!isFresh} aria-label="Machine health">
+<section class="health" class:compact class:stale={!isFresh} aria-label="Machine health">
   <div class="health-title"><span class="dot" class:connected={connection?.connected}></span><strong>{connection?.connected ? 'Private connection' : 'Awaiting connection'}</strong><span>{report?.scope === 'container' ? 'Container scope · ' : ''}{isFresh ? `Updated ${age(connection?.reportAt, serverNow)}` : report ? `Last known · ${age(connection?.reportAt, serverNow)}` : 'No resource samples yet'}</span></div>
   <dl>
     <div title="Controller-to-host application round trip over the private connection"><dt>Host RTT</dt><dd>{rtt == null ? '—' : rtt < 1 ? '<1' : Math.round(rtt)}<small>{rtt == null ? '' : ' ms'}</small></dd></div>
@@ -22,6 +22,7 @@
 </section>
 
 <style>
+  .health.compact{padding:12px}.compact dl{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.compact dl>div{border:0;padding:0}.compact dd,.compact dd.compact{font-size:1rem}.compact .health-title>span:last-child{width:100%;margin-left:0}
   .health { border:1px solid var(--line);border-radius:12px;background:var(--card);padding:16px 20px;min-width:0 }
   .health-title {display:flex;gap:8px;align-items:center;font-size:.75rem;flex-wrap:wrap;color:var(--muted)} .health-title strong{color:var(--ink);font-weight:600}.health-title>span:last-child{margin-left:auto}
   .dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}.dot.connected{background:var(--good);box-shadow:0 0 0 3px color-mix(in srgb,var(--good) 12%,transparent)}

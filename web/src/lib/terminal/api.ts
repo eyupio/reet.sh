@@ -31,6 +31,9 @@ export async function terminalSessions(signal?: AbortSignal): Promise<TerminalSe
 export async function createTerminal(agentId: string, requestId: string, title: string, cols = 100, rows = 30): Promise<TerminalSession> { return (await terminalRequest('/api/v2/terminal/sessions', { method: 'POST', body: JSON.stringify({ agentId, requestId, title, cols, rows }) })).json() }
 export async function terminalTicket(session: string, cols: number, rows: number, takeover: boolean, signal?: AbortSignal): Promise<string> { return (await (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(session)}/attachments`, { method: 'POST', body: JSON.stringify({ cols, rows, takeover }), signal })).json()).ticket }
 export async function machineHealth(signal?: AbortSignal): Promise<HealthResponse> { return (await terminalRequest('/api/v2/machines/health', { signal })).json() }
+export async function renameTerminal(id: string, title: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}`, { method:'PATCH', body:JSON.stringify({title}) }) }
+export async function endTerminal(id: string, requestId: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/end`, { method:'POST', body:JSON.stringify({requestId}) }) }
+export async function terminalHistory(id: string, signal?: AbortSignal): Promise<string> { return (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/history?lines=2000`, {signal})).text() }
 
 export function readiness(machine?: TerminalMachine): string {
   if (!machine) return 'Choose an enrolled machine.'

@@ -100,6 +100,30 @@ func TestNewLayoutRefusesLongSocketPaths(t *testing.T) {
 	}
 }
 
+func TestEnrollmentLayoutsDoNotShareSocketOrRegistry(t *testing.T) {
+	path := filepath.Join(shortTempDir(t), "agent.json")
+	one, err := NewEnrollmentLayout(path, "enrollment0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := NewEnrollmentLayout(path, "replacement0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one.Socket == two.Socket || one.Dir == two.Dir {
+		t.Fatal("replacement shares old private state")
+	}
+	if err := Ensure(one); err != nil {
+		t.Fatal(err)
+	}
+	if err := Ensure(two); err != nil {
+		t.Fatal(err)
+	}
+	if err := Check(one); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func readFile(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)

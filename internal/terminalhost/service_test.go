@@ -2,6 +2,7 @@ package terminalhost
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -78,6 +79,12 @@ func TestInstallAndUninstallUseIndependentServices(t *testing.T) {
 	var calls []string
 	runServiceOutput = func(ctx context.Context, name string, args ...string) (string, error) {
 		calls = append(calls, name+" "+strings.Join(args, " "))
+		if name == "systemctl" && len(args) > 1 && args[1] == "is-active" {
+			return "inactive", nil
+		}
+		if name == "launchctl" && len(args) > 0 && args[0] == "print" {
+			return "Could not find service", errors.New("not loaded")
+		}
 		return "", nil
 	}
 	if err := Install(context.Background(), plan); err != nil {
@@ -131,5 +138,40 @@ func TestValidateEnvironmentAllowsOnlySafeKeys(t *testing.T) {
 	}
 	if !strings.Contains(joined, "PATH=/bin") || !strings.Contains(joined, "LANG=en_GB.UTF-8") {
 		t.Fatalf("safe environment missing: %v", got)
+	}
+}
+
+func TestServiceRefreshPreservesRunningTmux(t *testing.T) {
+	m, _ := managerFixture(t)
+	s := createManaged(t, m, 1)
+	pid := managedPID(t, m, s.ID)
+	config := filepath.Join(filepath.Dir(m.layout.Dir), "agent.json")
+	plan, err := PlanServices(context.Background(), ServiceOptions{Binary: "/bin/sh", ConfigPath: config, Layout: m.layout, UnitDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := runServiceOutput
+	defer func() { runServiceOutput = original }()
+	var calls []string
+	runServiceOutput = func(_ context.Context, name string, args ...string) (string, error) {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		if name == "systemctl" && len(args) > 1 && args[1] == "is-active" {
+			return "active", nil
+		}
+		return "", nil
+	}
+	if err := Install(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if managedPID(t, m, s.ID) != pid {
+		t.Fatal("refresh killed local shell")
+	}
+	if indexOf(calls, "systemctl --user restart "+plan.TerminalName) >= 0 {
+		t.Fatal("refresh restarted terminal unit")
+	}
+	for _, call := range calls {
+		if strings.HasPrefix(call, "launchctl bootout ") && strings.HasSuffix(call, "/"+plan.TerminalLabel) {
+			t.Fatal("refresh stopped terminal LaunchAgent")
+		}
 	}
 }

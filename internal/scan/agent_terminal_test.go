@@ -46,7 +46,7 @@ func TestAgentTerminalConsentKeepsLocalSessions(t *testing.T) {
 		t.Fatalf("status: %s", out.String())
 	}
 
-	layout, err := terminalhost.NewLayout(config)
+	layout, err := terminalhost.NewEnrollmentLayout(config, c.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

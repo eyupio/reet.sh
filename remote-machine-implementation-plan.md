@@ -3,9 +3,9 @@
 Status: implementation handoff. Stages 0–4 are merged, including PR #126.
 The follow-up [foundation review](docs/remote-machine-foundation-review.md)
 records corrective recovery/health work and strengthens the native service gate
-to run the actual reet binary. Stages 5–9 are not
-implemented. This document remains the approved design and the current delivery
-record.
+to run the actual reet binary; it is merged in PR #127. Stage 5 is implemented
+in the current host-manager increment (see its validation notes). Stages 6–9
+are not implemented. This document remains the approved design and delivery record.
 
 Decisions agreed with the product owner on 23 October 2026. Implement this plan in
 small, reviewable stages. Read the current repository instructions before each
@@ -21,7 +21,7 @@ UI, and host monitoring requirements; it supersedes the earlier chat drafts.
 | 2 — Private connection bootstrap and handshake | Merged | [PR #124](https://github.com/eyupio/reet.sh/pull/124), [notes](docs/remote-machine-stage2.md) |
 | 3 — Private host monitoring and health API | Merged | [PR #125](https://github.com/eyupio/reet.sh/pull/125), [notes](docs/remote-machine-stage3.md) |
 | 4 — Local consent and independent services | Merged | [PR #126](https://github.com/eyupio/reet.sh/pull/126), [notes](docs/remote-machine-stage4.md); see review for the strengthened native gate |
-| 5 — Host session manager | Not started | — |
+| 5 — Host session manager | Implemented in this increment | [Notes and caller obligations](docs/remote-machine-stage5.md); native service validation remains a PR gate |
 | 6 — Broker, browser authentication, and leases | Not started | — |
 | 7 — Terminal and health vertical slice | Not started | — |
 | 8 — Complete UX, session management, and history | Not started | — |
@@ -39,13 +39,14 @@ What exists now:
   independent per-user services, and local session list/end commands.
 - Evidence that killing the agent service leaves the independent tmux service
   and a running test process alive on Ubuntu and macOS.
+- An internal durable host registry/session manager, disposable PTY clients,
+  explicit takeover and host leases, bounded history, and exit reconciliation.
 
 What deliberately does not exist yet:
 
-- No host session manager, session registry, tmux create/attach/history
-  operations, or dead-pane reconciliation.
-- No broker, browser ticket, attachment, lease, transfer, durable end dispatch,
-  or browser terminal UI.
+- The host manager is not wired into the private control runtime. No controller
+  terminal dispatch, broker, browser ticket/reverse-data authorization, or
+  browser terminal UI exists yet.
 - No terminal content recording or command history. Health has no browser chart
   yet; only the authenticated health endpoint exists.
 - The controller cannot create or authorize a terminal. Local readiness describes
@@ -96,9 +97,9 @@ numbers or this inventory remain current.
 
 The application has Go, SQLite, an embedded Svelte 5 UI, account-scoped machine
 enrollment, typed sync jobs, the private transport/protocol/health foundation,
-and local terminal consent and service management. It does **not** yet have an
-interactive terminal, host session manager, broker, browser attachment, or
-terminal UI.
+local terminal consent/service management, and an internal host session manager.
+It does **not** yet have controller terminal dispatch, a broker, browser
+attachment, or terminal UI.
 
 | Existing area | Entry points and relevance |
 | --- | --- |
@@ -804,6 +805,11 @@ and a running test process alive on both OSes. Fixture tests alone do not pass
 this gate. The `native services` workflow passes on Ubuntu and macOS for PR #126.
 
 ### Stage 5 — Host session manager
+
+Implementation contract: see [the stage 5 notes](docs/remote-machine-stage5.md)
+for the host registry, reconciliation, PTY/lease primitives, enrollment-specific
+layout, service refresh/migration, and later broker caller obligations. No public
+terminal or private terminal dispatch is enabled by this increment.
 
 Files: internal/terminalhost/{manager,tmux,attachment,registry}.go and tests.
 

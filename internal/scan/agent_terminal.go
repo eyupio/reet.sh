@@ -44,7 +44,7 @@ func runAgentTerminal(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	layout, err := terminalhost.NewLayout(*config)
+	layout, err := terminalhost.NewEnrollmentLayout(*config, c.ID)
 	if err != nil {
 		return err
 	}
@@ -156,10 +156,11 @@ func runAgentService(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if _, err := loadAgentConfig(absolute); err != nil {
+	c, err := loadAgentConfig(absolute)
+	if err != nil {
 		return err
 	}
-	layout, err := terminalhost.NewLayout(absolute)
+	layout, err := terminalhost.NewEnrollmentLayout(absolute, c.ID)
 	if err != nil {
 		return err
 	}
@@ -177,7 +178,7 @@ func runAgentService(args []string, out io.Writer) error {
 		}
 		fmt.Fprintf(out, "Installed %s and %s.\n", plan.AgentName, plan.TerminalName)
 		fmt.Fprintln(out, terminalhost.LingerGuidance(context.Background()))
-		fmt.Fprintln(out, "Reinstalling an active terminal service restarts tmux and ends its local sessions.")
+		fmt.Fprintln(out, "A running terminal service is preserved during refresh. New tmux settings take effect after you explicitly restart it locally.")
 		return nil
 	case "status":
 		status := terminalhost.ReadStatus(context.Background(), plan)
@@ -207,8 +208,8 @@ func servicePlan(configPath string, layout terminalhost.Layout, allowMissingTmux
 	})
 }
 
-func terminalReadiness(configPath string, enabled bool) terminalproto.Readiness {
-	layout, err := terminalhost.NewLayout(configPath)
+func terminalReadiness(configPath, agentID string, enabled bool) terminalproto.Readiness {
+	layout, err := terminalhost.NewEnrollmentLayout(configPath, agentID)
 	if err != nil {
 		return terminalproto.SupervisorUnavailable
 	}

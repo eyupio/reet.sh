@@ -21,6 +21,9 @@ const (
 	TplTeamMemberLeft   = "team_member_left"
 	TplTeamMemberRole   = "team_member_role"
 	TplTeamListShared   = "team_list_shared"
+
+	TplTicketOpened = "ticket_opened"
+	TplTicketReply  = "ticket_reply"
 )
 
 // Data is what a message is written from.
@@ -29,6 +32,7 @@ type Data struct {
 	Email    string
 	Team     string
 	List     string
+	Ticket   string
 	Actor    string
 	Role     string
 	Link     string
@@ -75,6 +79,7 @@ func Templates() []string {
 	return []string{
 		TplPasswordReset, TplPasswordChanged, TplInvite, TplWelcome, TplTest,
 		TplTeamMemberJoined, TplTeamMemberLeft, TplTeamMemberRole, TplTeamListShared,
+		TplTicketOpened, TplTicketReply,
 	}
 }
 
@@ -211,6 +216,43 @@ var messages = map[string]func(Data) Content{
 			Facts:  []Fact{{"List", d.List}, {"Team", d.Team}},
 			Button: &Link{Label: "Open the list", URL: d.Link},
 			Why:    teamWhy(d),
+		}
+	},
+	TplTicketOpened: func(d Data) Content {
+		facts := []Fact{{"Ticket", d.Ticket}, {"Opened by", or(d.Actor, "an account")}}
+		if d.Team != "" {
+			facts = append(facts, Fact{"Team", d.Team})
+		}
+		return Content{
+			Subject:   "New support ticket: " + d.Ticket,
+			Preheader: or(d.Actor, "Someone") + " opened a support ticket.",
+			Heading:   "A new support ticket",
+			Intro: []string{
+				hello(d),
+				or(d.Actor, "Someone") + " opened a support ticket on " + at(d.When) + ": " + d.Ticket + ".",
+				"Read it and reply from the support queue; the rest of the conversation stays there.",
+			},
+			Facts:  facts,
+			Button: &Link{Label: "Open the ticket", URL: d.Link},
+			Why:    or(d.Why, "You were sent this because you are on support for this reet instance. Support notices cannot be turned off."),
+		}
+	},
+	TplTicketReply: func(d Data) Content {
+		facts := []Fact{{"Ticket", d.Ticket}, {"From", or(d.Actor, "support")}}
+		if d.Team != "" {
+			facts = append(facts, Fact{"Team", d.Team})
+		}
+		return Content{
+			Subject:   "Reply on support ticket: " + d.Ticket,
+			Preheader: or(d.Actor, "Someone") + " replied.",
+			Heading:   "A reply on a support ticket",
+			Intro: []string{
+				hello(d),
+				or(d.Actor, "Someone") + " replied to the support ticket " + d.Ticket + " on " + at(d.When) + ".",
+			},
+			Facts:  facts,
+			Button: &Link{Label: "Open the ticket", URL: d.Link},
+			Why:    or(d.Why, "You were sent this because this ticket is yours or your team's. Support notices cannot be turned off."),
 		}
 	},
 }

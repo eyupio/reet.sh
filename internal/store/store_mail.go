@@ -474,6 +474,11 @@ var TeamNotifyEvents = []string{"member_joined", "member_left", "member_role", "
 type MailRecipient struct {
 	Email string `json:"email"`
 	Name  string `json:"name,omitempty"`
+	// Admin marks an instance administrator, so a notice can link to the
+	// admin queue rather than the requester's page. Manager marks a team's
+	// owner or manager, so a notice can say why they were sent it.
+	Admin   bool `json:"-"`
+	Manager bool `json:"-"`
 }
 
 // TeamNotify is one group's notification choice.

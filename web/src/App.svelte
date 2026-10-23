@@ -34,6 +34,8 @@
   import SetupProfiles from './lib/SetupProfiles.svelte'
   import SignIn from './lib/SignIn.svelte'
   import SignUp from './lib/SignUp.svelte'
+  import Support from './lib/Support.svelte'
+  import Ticket from './lib/Ticket.svelte'
   import Welcome from './lib/Welcome.svelte'
   import SkillCard from './lib/SkillCard.svelte'
   import Bookmarklets from './lib/Bookmarklets.svelte'
@@ -110,6 +112,10 @@
   const isMCPConsent = location.pathname === '/account/mcp/authorize'
   const isJoin = location.pathname.startsWith('/join')
   const isReset = location.pathname === '/reset'
+  const isSupport = location.pathname === '/support' || location.pathname === '/support/'
+  const supportMatch = location.pathname.match(/^\/support\/(\d+)\/?$/)
+  const isTicket = supportMatch !== null
+  const supportTicketID = supportMatch ? Number(supportMatch[1]) : 0
   const isWelcome = location.pathname === '/' || location.pathname === '/welcome'
   const isSignIn = location.pathname === '/signin'
   const isSignUp = location.pathname === '/signup'
@@ -134,6 +140,7 @@
     { href: '/community', label: 'More', current: isSpaces || isCommunity || isHosting,
       children: [
         { href: '/community', label: 'Community', current: isCommunity },
+        { href: '/support', label: 'Support', current: isSupport || isTicket },
         { href: '/spaces', label: 'Teams & organisations', current: isSpaces },
         ...(canWrite ? [{ href: '/hosting', label: 'Host skills', current: isHosting }] : []),
       ],
@@ -711,7 +718,7 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser ? 'Your shelf for everything AI' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isAdmin ? 'Admin' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser ? 'Your shelf for everything AI' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
   {/if}
 </svelte:head>
 
@@ -775,6 +782,10 @@
     <Machines {canWrite} accounts={authMode === 'accounts'} compare={(location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} />
   {:else if isProfiles}
     <SetupProfiles {canWrite} onerror={fail} />
+  {:else if isSupport}
+    <Support />
+  {:else if isTicket}
+    <Ticket id={supportTicketID} />
   {:else if isSpaces}
     <Spaces {canWrite} />
   {:else if isMCPConsent && authMode === 'accounts'}

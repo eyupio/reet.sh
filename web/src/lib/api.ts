@@ -532,6 +532,33 @@ export type BackupRun = {
   error: string
 }
 export type BackupFinding = { severity: 'error' | 'warning' | 'info'; code: string; message: string }
+export type TicketStatus = 'open' | 'waiting' | 'closed'
+export type Ticket = {
+  id: number
+  userId?: number
+  opener: string
+  groupId?: number
+  groupName?: string
+  subject: string
+  status: TicketStatus
+  assigneeId?: number
+  assignee?: string
+  messages: number
+  createdAt: number
+  updatedAt: number
+}
+export type TicketMessage = {
+  id: number
+  ticketId: number
+  authorId?: number
+  authorKind: 'user' | 'team' | 'admin'
+  author: string
+  body: string
+  internal?: boolean
+  createdAt: number
+}
+export type TicketQueue = { tickets: Ticket[]; counts: Record<TicketStatus, number> }
+export type TicketDetail = { ticket: Ticket; messages: TicketMessage[] }
 export type MailSettingsView = {
   source: 'database' | 'none'
   mode: 'smtp' | 'outbox' | 'held' | 'off'
@@ -619,6 +646,39 @@ export type BackupCompression = 'gzip' | 'none'
 
 const bpath = (admin: boolean) => (admin ? '/api/v2/admin/backups' : '/api/v2/backups')
 
+export async function listTickets(status = ''): Promise<{ tickets: Ticket[] }> {
+  return (await req(`/api/v2/tickets${status ? `?status=${encodeURIComponent(status)}` : ''}`)).json()
+}
+export async function openTicket(data: { subject: string; body: string; groupId?: number }): Promise<{ ticket: Ticket }> {
+  return (await req('/api/v2/tickets', { method: 'POST', body: json(data) })).json()
+}
+export async function getTicket(id: number): Promise<TicketDetail> { return (await req(`/api/v2/tickets/${id}`)).json() }
+export async function replyTicket(id: number, body: string): Promise<{ ticket: Ticket; message: TicketMessage }> {
+  return (await req(`/api/v2/tickets/${id}/reply`, { method: 'POST', body: json({ body }) })).json()
+}
+export async function closeTicket(id: number): Promise<{ ticket: Ticket }> {
+  return (await req(`/api/v2/tickets/${id}/close`, { method: 'POST', body: json({}) })).json()
+}
+export async function adminListTickets(status = '', assignee = 0): Promise<TicketQueue> {
+  const p = new URLSearchParams()
+  if (status) p.set('status', status)
+  if (assignee) p.set('assignee', String(assignee))
+  const qs = p.toString()
+  return (await req(`/api/v2/admin/tickets${qs ? `?${qs}` : ''}`)).json()
+}
+export async function adminGetTicket(id: number): Promise<TicketDetail> { return (await req(`/api/v2/admin/tickets/${id}`)).json() }
+export async function adminReplyTicket(id: number, body: string, status = 'waiting'): Promise<{ ticket: Ticket; message: TicketMessage }> {
+  return (await req(`/api/v2/admin/tickets/${id}/reply`, { method: 'POST', body: json({ body, status }) })).json()
+}
+export async function adminNoteTicket(id: number, body: string): Promise<{ ticket: Ticket; message: TicketMessage }> {
+  return (await req(`/api/v2/admin/tickets/${id}/note`, { method: 'POST', body: json({ body }) })).json()
+}
+export async function adminSetTicketStatus(id: number, status: TicketStatus): Promise<{ ticket: Ticket }> {
+  return (await req(`/api/v2/admin/tickets/${id}/status`, { method: 'POST', body: json({ status }) })).json()
+}
+export async function adminAssignTicket(id: number, assigneeId: number): Promise<{ ticket: Ticket }> {
+  return (await req(`/api/v2/admin/tickets/${id}/assign`, { method: 'POST', body: json({ assigneeId }) })).json()
+}
 export async function getMailSettings(): Promise<{ settings: MailSettingsView }> { return (await req('/api/v2/admin/mail')).json() }
 export async function saveMailSettings(settings: {
   host: string; port: number; tls: string; user: string; password?: string; passwordAction: string;

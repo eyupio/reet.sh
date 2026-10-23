@@ -246,6 +246,7 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	s.registerMCPRoutes(mux)
 	s.registerHostedRoutes(mux)
 	s.registerMailRoutes(mux)
+	s.registerTicketRoutes(mux)
 	mux.HandleFunc("GET /quick", s.requireWriter(s.quick))
 	return s.logRequests(s.auth(mux))
 }

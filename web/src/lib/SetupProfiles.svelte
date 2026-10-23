@@ -29,7 +29,10 @@
 
   let selectedRevision = $state(0)
   let scopeMachine = $state(''), scopeProject = $state(''), creating = $state(false)
+  let showAllRevisions = $state(false)
+  const revisionLimit = 6
   const newest = $derived(selected?.revisions.at(-1) ?? null)
+  const visibleRevisions = $derived(selected ? (showAllRevisions ? selected.revisions : selected.revisions.slice(-revisionLimit)) : [])
   const latest = $derived(selected?.revisions.find(revision => revision.revision === selectedRevision) ?? newest)
   const contents = $derived(setupContents(latest, scopeMachine, scopeProject))
   const previous = $derived(selected?.revisions.find(revision => revision.revision === (latest?.revision ?? 0) - 1))
@@ -78,6 +81,7 @@
     busy = name
     renaming = false
     editingOverrides = false
+    showAllRevisions = false
     selectedRevision = 0; scopeMachine = ''; scopeProject = ''
     try {
       selected = await getSetupProfile(name)
@@ -118,6 +122,7 @@
       profiles = result.profiles ?? []
       selected = updated
       selectedRevision = 0
+      showAllRevisions = false
       editingOverrides = false
       error = ''
     } catch (e) {
@@ -143,6 +148,7 @@
       profiles = result.profiles ?? []
       selected = updated
       selectedRevision = 0
+      showAllRevisions = false
       renaming = false
       error = ''
     } catch (e) {
@@ -171,6 +177,11 @@
     }
   }
 
+  function toggleRevisionHistory() {
+    if (!selected) return
+    showAllRevisions = !showAllRevisions
+    if (!showAllRevisions && !selected.revisions.slice(-revisionLimit).some((revision) => revision.revision === selectedRevision)) selectedRevision = 0
+  }
   function stamp(value: number): string {
     if (!value) return ''
     return new Date(value).toLocaleString()
@@ -475,9 +486,9 @@ reet setup profile push work</code></pre>
         {/if}
 
         <div class="history">
-          <h3>Revision history</h3>
+          <div class="history-head"><h3>Revision history</h3>{#if selected.revisions.length > revisionLimit}<span class="muted small">{showAllRevisions ? `All ${selected.revisions.length} revisions` : `Latest ${revisionLimit} of ${selected.revisions.length}`}</span>{/if}</div>
           <ol>
-            {#each selected.revisions as revision (revision.revision)}
+            {#each visibleRevisions as revision (revision.revision)}
               <li class:current={revision.revision === latest.revision}>
                 <button type="button" class="btn quiet rev" aria-pressed={revision.revision === latest.revision} onclick={() => { selectedRevision = revision.revision; editingOverrides = false; renaming = false; scopeMachine = ''; scopeProject = '' }}>View r{revision.revision}</button>
                 <span>{when(revision.created_at)}</span>
@@ -485,6 +496,9 @@ reet setup profile push work</code></pre>
               </li>
             {/each}
           </ol>
+          {#if selected.revisions.length > revisionLimit}
+            <button type="button" class="btn quiet" onclick={toggleRevisionHistory}>{showAllRevisions ? 'Show latest only' : `Show all ${selected.revisions.length} revisions`}</button>
+          {/if}
         </div>
 
         {#if previous && changes}
@@ -555,6 +569,8 @@ reet setup profile push work</code></pre>
   code { font-size: 0.8em; }
   .notice { margin-top: 16px; }
   .overrides p { margin: 6px 0; font-size: 0.82rem; overflow-wrap: anywhere; }
+  .history-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .history-head h3 { margin-bottom: 8px; }
   .stored { margin-top: 18px; }
   .stored-summary { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; cursor: pointer; padding: 8px 0; color: var(--ink); font-size: 0.8rem; font-weight: 650; text-transform: uppercase; letter-spacing: 0.08em; }
   .stored-summary::before { content: ""; flex: 0 0 auto; width: 0; height: 0; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform 150ms ease; }

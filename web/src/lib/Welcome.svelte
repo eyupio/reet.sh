@@ -12,9 +12,9 @@
 
 <section class="welcome" aria-labelledby="welcome-title">
   <div class="hero">
-    <p class="eyebrow">Your shelf for everything AI</p>
-    <h1 id="welcome-title">Find a skill.<br />Sync your agents.<br /><span>Keep the good ones.</span></h1>
-    <p class="lede">The self-hosted home for the AI skills, agents and setups you and your team use. Capture them from <a href="https://www.skills.sh" target="_blank" rel="noopener noreferrer">skills.sh</a> or host your own, then test, share and sync every machine.</p>
+    <p class="eyebrow">Ey up. Your shelf for everything AI</p>
+    <h1 id="welcome-title">Find a skill.<br />Give it a proper go.<br /><span>Keep the good ones.</span></h1>
+    <p class="lede">The self-hosted home for the AI skills, agents and setups you use. Start on your own, then bring your team when you need one. Capture from <a href="https://www.skills.sh" target="_blank" rel="noopener noreferrer">skills.sh</a> or host your own, and sync every agent and machine.</p>
     <div class="cta-row">
       {#if setupRequired}
         <a class="btn primary" href="/setup">Set up this instance</a>
@@ -73,8 +73,8 @@
 <section class="features" aria-labelledby="features-title">
   <div class="feature-head">
     <p class="eyebrow">More than a bookmark list</p>
-    <h2 id="features-title">A shelf, a team workspace, and an AI agent sync.</h2>
-    <p>Start with one person. Add lists, teams, hosted skills, agent sync and sealed backups when you need them. Every part is built in and self-hosted.</p>
+    <h2 id="features-title">A shelf of your own. Room for the team.</h2>
+    <p>Start with your own finds. Add lists, teams, hosted skills, agent sync and sealed backups when you need them. Every part is built in and self-hosted.</p>
   </div>
   <div class="feature-grid">
     <article>
@@ -85,7 +85,7 @@
     <article>
       <span>02</span>
       <h3>Lists and teams</h3>
-      <p>Keep personal lists, share with selected people or a whole team, publish to the public community, or hand out an unlisted link. Editors and per-list notes included.</p>
+      <p>Keep a list to yourself, share it with a few people, a whole team or your organisation, publish to the community, or hand out an unlisted link. Editors and per-list notes included.</p>
     </article>
     <article>
       <span>03</span>
@@ -114,7 +114,7 @@
   <div class="selfhost-copy">
     <p class="eyebrow">Yours to keep</p>
     <h2 id="selfhost-title">One binary. One SQLite file. No telemetry.</h2>
-    <p>Run it on your laptop, a home server or your team's infrastructure. Lists, teams, agent sync, MCP, setups and sealed backups come with it. Nothing is sent to skills.sh except read-only page fetches for names and descriptions.</p>
+    <p>Run it on your laptop first, then a home server or your team's infrastructure when you need. Lists, teams, agent sync, MCP, setups and sealed backups come with it. Nothing is sent to skills.sh except read-only page fetches for names and descriptions.</p>
     <p class="links"><a href={docs} target="_blank" rel="noopener noreferrer">Quick start and docs<span class="vh"> (opens in a new tab)</span></a><a href="https://github.com/eyupio/reet.sh" target="_blank" rel="noopener noreferrer">GitHub<span class="vh"> (opens in a new tab)</span></a></p>
   </div>
   <div class="command">
@@ -126,7 +126,7 @@
 <style>
   .welcome { display: grid; grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr); gap: clamp(24px, 4vw, 48px); align-items: center; margin: 8px 0 12px; }
   .eyebrow { margin: 0; color: var(--accent); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
-  h1 { margin: 14px 0 0; font: 500 clamp(2.5rem, 5.4vw, 4.4rem)/0.98 var(--serif); letter-spacing: -0.045em; }
+  h1 { margin: 14px 0 0; font: 500 clamp(2.4rem, 4.6vw, 3.8rem)/1 var(--serif); letter-spacing: -0.045em; }
   h1 span { color: var(--accent); }
   .lede { margin: 20px 0 0; max-width: 48ch; color: var(--muted); font-size: 1rem; line-height: 1.6; }
   .lede a { color: var(--accent); }

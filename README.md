@@ -7,7 +7,7 @@
 
 ### Your own shelf for everything AI
 
-Capture skills from [skills.sh](https://www.skills.sh) or host your own, sync agent setups and machine inventories, share lists with your team, and keep every machine in step.<br>
+Capture skills from [skills.sh](https://www.skills.sh) or host your own, sync agent setups and machine inventories, and add lists and teams when you need them.<br>
 One Go binary. One SQLite file. No telemetry.
 
 [![CI](https://github.com/eyupio/reet.sh/actions/workflows/image.yml/badge.svg)](https://github.com/eyupio/reet.sh/actions/workflows/image.yml)

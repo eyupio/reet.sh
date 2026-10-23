@@ -7,8 +7,8 @@
 <section class="auth" aria-labelledby="auth-title">
   <aside class="intro" aria-label="About your shelf">
     <p class="eyebrow">{eyebrow}</p>
-    <p class="headline">Everything AI, <br />on one shelf.</p>
-    <p class="intro-copy">Collect the AI skills, agents and setups you and your team use. Test them. Sync them. Keep what earns a place.</p>
+    <p class="headline">A reet good home <br />for everything AI.</p>
+    <p class="intro-copy">Collect the AI skills, agents and setups you use. Start on your own, add your team when you need one, and keep what earns a place.</p>
     <ol class="stages" aria-label="How the shelf works">
       <li><span aria-hidden="true">01</span><div><strong>On the shelf</strong><small>Keep a good find for later.</small></div></li>
       <li><span aria-hidden="true">02</span><div><strong>To test</strong><small>Give something new a go.</small></div></li>

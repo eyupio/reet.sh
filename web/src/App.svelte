@@ -13,6 +13,7 @@
     type Counts, type Environment, type Event, type Flags, type ListRef, type SharedList, type Skill, type Sort, type Tag, type User,
   } from './lib/api'
   import Account from './lib/Account.svelte'
+  import AccountMenu from './lib/AccountMenu.svelte'
   import MCPConsent from './lib/MCPConsent.svelte'
   import WebMCP from './lib/WebMCP.svelte'
   import Hosting from './lib/Hosting.svelte'
@@ -127,13 +128,11 @@
     { href: '/shared', label: 'Lists', current: isShared || isList },
     { href: '/profiles', label: 'Setups', current: isProfiles },
     { href: '/machines', label: 'Machines', current: isMachines },
-    { href: '/community', label: 'More', current: isSpaces || isCommunity || isHosting || (isAccount && !isMachines) || isAdmin,
+    { href: '/community', label: 'More', current: isSpaces || isCommunity || isHosting,
       children: [
         { href: '/community', label: 'Community', current: isCommunity },
         { href: '/spaces', label: 'Teams & organisations', current: isSpaces },
         ...(canWrite ? [{ href: '/hosting', label: 'Host skills', current: isHosting }] : []),
-        ...(authMode === 'accounts' ? [{ href: '/account/profile', label: 'Account & preferences', current: isAccount && !isMachines }] : []),
-        ...(isAdminUser ? [{ href: '/admin/overview', label: 'Instance administration', current: isAdmin }] : []),
       ],
     },
   ])
@@ -719,7 +718,19 @@
       <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
     </div>
     {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-      <NavigationMenu label="Main navigation" primary items={mainNavigation} />
+      <div class="app-nav">
+        <NavigationMenu label="Main navigation" primary items={mainNavigation} />
+        {#if authMode !== 'none'}
+          <AccountMenu
+            name={currentUser?.name ?? ''}
+            email={currentUser?.email ?? ''}
+            admin={isAdminUser}
+            accounts={authMode === 'accounts'}
+            active={isAccount || isAdmin}
+            onsignout={signOut}
+          />
+        {/if}
+      </div>
     {:else if isPublicList || isCommunity || isJoin}
       <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a class="entry-link" href="/">Open your shelf →</a></nav>
     {/if}
@@ -1050,6 +1061,7 @@
   main:focus { outline: none; }
   .site-header { border-bottom: 1px solid var(--line); }
   .header-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: var(--content-width); margin: auto; padding: 24px 40px; }
+  .app-nav { display: flex; align-items: center; gap: 8px; min-width: 0; margin-left: auto; }
   .site-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
   .site-nav a, .entry-link { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--muted); font-size: 0.8rem; font-weight: 600; text-decoration: none; border-radius: 8px; }
   .site-nav a:hover, .entry-link:hover { color: var(--ink); background: var(--card); }
@@ -1208,6 +1220,7 @@
   @media (max-width: 560px) {
     main { padding: 28px 16px 40px; }
     .header-inner { flex-wrap: wrap; gap: 14px; padding: 20px 16px; }
+    .app-nav { gap: 6px; }
     .tag { margin-left: auto; max-width: 26ch; text-align: right; white-space: nowrap; }
     .site-nav { width: 100%; }
     .site-nav a { flex: 1; justify-content: center; border: 1px solid var(--line); }

@@ -24,6 +24,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/lifecycle"
 	"github.com/eyupio/reet.sh/internal/mail"
 	"github.com/eyupio/reet.sh/internal/meta"
+	"github.com/eyupio/reet.sh/internal/notify"
 	"github.com/eyupio/reet.sh/internal/scan"
 	"github.com/eyupio/reet.sh/internal/setup"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -213,7 +214,9 @@ func serve() error {
 	}}
 	queue := &mail.Queue{Store: st, Settings: mailSettings}
 	mailer := &mail.Mailer{Store: st, Settings: mailSettings, Queue: queue}
+	notifier := &notify.Service{Store: st, Mail: mailer}
 	go queue.Loop(ctx, time.Minute)
+	go notifier.Loop(ctx, time.Hour)
 	mailNow := mailSettings.Current()
 	if warning := mail.OutboxWarning(mailNow, mailNow.BaseURL); warning != "" {
 		log.Printf("email: %s", warning)
@@ -225,7 +228,7 @@ func serve() error {
 		api.WithAuthMode(mode), api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"),
 		api.WithTopics(os.Getenv("REET_TOPICS") != "off"), api.WithPublicURL(os.Getenv("REET_PUBLIC_URL")),
 		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"), api.WithBackups(backups),
-		api.WithSignup(signup), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")), api.WithMail(mailer))
+		api.WithSignup(signup), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")), api.WithMail(mailer), api.WithNotify(notifier))
 	mux := http.NewServeMux()
 	mux.Handle("/api/", h)
 	mux.Handle("/quick", h)

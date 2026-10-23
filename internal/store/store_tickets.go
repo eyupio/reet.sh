@@ -370,7 +370,7 @@ func (s *Store) AssignTicket(ticketID, assigneeID int64) error {
 // AdminRecipients is the owner and every active instance administrator, for
 // notices that must reach whoever is on support.
 func (s *Store) AdminRecipients() ([]MailRecipient, error) {
-	rows, err := s.db.Query(`SELECT name,email FROM users
+	rows, err := s.db.Query(`SELECT id,name,email,role FROM users
 		WHERE role IN ('owner','admin') AND disabled_at=0 ORDER BY lower(name),lower(email)`)
 	if err != nil {
 		return nil, err
@@ -379,7 +379,7 @@ func (s *Store) AdminRecipients() ([]MailRecipient, error) {
 	out := []MailRecipient{}
 	for rows.Next() {
 		var r MailRecipient
-		if err := rows.Scan(&r.Name, &r.Email); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.Email, &r.Role); err != nil {
 			return nil, err
 		}
 		r.Admin = true

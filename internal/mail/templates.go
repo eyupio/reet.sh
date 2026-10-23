@@ -22,8 +22,10 @@ const (
 	TplTeamMemberRole   = "team_member_role"
 	TplTeamListShared   = "team_list_shared"
 
-	TplTicketOpened = "ticket_opened"
-	TplTicketReply  = "ticket_reply"
+	TplTicketOpened    = "ticket_opened"
+	TplTicketReply     = "ticket_reply"
+	TplTicketAssigned  = "ticket_assigned"
+	TplStaffNewAccount = "staff_new_account"
 )
 
 // Data is what a message is written from.
@@ -79,7 +81,7 @@ func Templates() []string {
 	return []string{
 		TplPasswordReset, TplPasswordChanged, TplInvite, TplWelcome, TplTest,
 		TplTeamMemberJoined, TplTeamMemberLeft, TplTeamMemberRole, TplTeamListShared,
-		TplTicketOpened, TplTicketReply,
+		TplTicketOpened, TplTicketReply, TplTicketAssigned, TplStaffNewAccount,
 	}
 }
 
@@ -216,6 +218,38 @@ var messages = map[string]func(Data) Content{
 			Facts:  []Fact{{"List", d.List}, {"Team", d.Team}},
 			Button: &Link{Label: "Open the list", URL: d.Link},
 			Why:    teamWhy(d),
+		}
+	},
+	TplTicketAssigned: func(d Data) Content {
+		facts := []Fact{{"Ticket", d.Ticket}, {"From", or(d.Actor, "support")}}
+		if d.Team != "" {
+			facts = append(facts, Fact{"Team", d.Team})
+		}
+		return Content{
+			Subject:   "Ticket assigned to you: " + d.Ticket,
+			Preheader: or(d.Actor, "Somebody") + " assigned a support ticket to you.",
+			Heading:   "A support ticket is yours",
+			Intro: []string{
+				hello(d),
+				or(d.Actor, "Somebody") + " assigned the support ticket " + d.Ticket + " to you on " + at(d.When) + ".",
+			},
+			Facts:  facts,
+			Button: &Link{Label: "Open the ticket", URL: d.Link},
+			Why:    or(d.Why, "You were sent this because a support ticket was assigned to you."),
+		}
+	},
+	TplStaffNewAccount: func(d Data) Content {
+		return Content{
+			Subject:   "New account: " + or(d.Actor, d.Email),
+			Preheader: or(d.Actor, d.Email) + " created an account.",
+			Heading:   "A new account",
+			Intro: []string{
+				hello(d),
+				or(d.Actor, "Somebody") + " created an account on " + at(d.When) + " as " + or(d.Role, "a member") + ".",
+			},
+			Facts:  []Fact{{"Name", or(d.Actor, "not given")}, {"Email", d.Email}, {"Role", or(d.Role, "member")}},
+			Button: &Link{Label: "Open Users", URL: d.Link},
+			Why:    or(d.Why, "You were sent this because you are on support for this reet instance."),
 		}
 	},
 	TplTicketOpened: func(d Data) Content {

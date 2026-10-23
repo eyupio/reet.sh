@@ -472,8 +472,10 @@ var TeamNotifyEvents = []string{"member_joined", "member_left", "member_role", "
 
 // MailRecipient is somebody a message goes to.
 type MailRecipient struct {
+	ID    int64  `json:"-"`
 	Email string `json:"email"`
 	Name  string `json:"name,omitempty"`
+	Role  string `json:"-"`
 	// Admin marks an instance administrator, so a notice can link to the
 	// admin queue rather than the requester's page. Manager marks a team's
 	// owner or manager, so a notice can say why they were sent it.
@@ -600,16 +602,16 @@ func (s *Store) GroupName(groupID int64) (string, error) {
 // or every active member, plus any extra addresses the team added. Each
 // address appears once and disabled accounts are left out.
 func (s *Store) TeamNotifyRecipients(groupID int64, audience string, extra []string) ([]MailRecipient, error) {
-	query := `SELECT u.name,u.email FROM audience_groups g JOIN users u ON u.id=g.owner_id
+	query := `SELECT u.id,u.name,u.email,u.role FROM audience_groups g JOIN users u ON u.id=g.owner_id
 		WHERE g.id=? AND u.disabled_at=0
 		UNION
-		SELECT u.name,u.email FROM audience_group_members m JOIN users u ON u.id=m.user_id
+		SELECT u.id,u.name,u.email,u.role FROM audience_group_members m JOIN users u ON u.id=m.user_id
 		WHERE m.group_id=? AND u.disabled_at=0`
 	if audience != "members" {
-		query = `SELECT u.name,u.email FROM audience_groups g JOIN users u ON u.id=g.owner_id
+		query = `SELECT u.id,u.name,u.email,u.role FROM audience_groups g JOIN users u ON u.id=g.owner_id
 			WHERE g.id=? AND u.disabled_at=0
 			UNION
-			SELECT u.name,u.email FROM audience_group_members m JOIN users u ON u.id=m.user_id
+			SELECT u.id,u.name,u.email,u.role FROM audience_group_members m JOIN users u ON u.id=m.user_id
 			WHERE m.group_id=? AND m.role='manager' AND u.disabled_at=0`
 	}
 	rows, err := s.db.Query(query, groupID, groupID)
@@ -621,7 +623,7 @@ func (s *Store) TeamNotifyRecipients(groupID int64, audience string, extra []str
 	seen := map[string]bool{}
 	for rows.Next() {
 		var r MailRecipient
-		if err := rows.Scan(&r.Name, &r.Email); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.Email, &r.Role); err != nil {
 			return nil, err
 		}
 		e := strings.ToLower(strings.TrimSpace(r.Email))
@@ -629,7 +631,7 @@ func (s *Store) TeamNotifyRecipients(groupID int64, audience string, extra []str
 			continue
 		}
 		seen[e] = true
-		out = append(out, MailRecipient{Email: r.Email, Name: r.Name})
+		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

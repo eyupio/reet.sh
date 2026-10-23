@@ -24,6 +24,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/backup"
 	"github.com/eyupio/reet.sh/internal/mail"
 	"github.com/eyupio/reet.sh/internal/meta"
+	"github.com/eyupio/reet.sh/internal/notify"
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
 )
@@ -49,6 +50,7 @@ type server struct {
 	queue        chan ref.Ref
 	backups      *backup.Service
 	mail         *mail.Mailer
+	notify       *notify.Service
 }
 
 // AuthMode selects how the instance authenticates requests.
@@ -129,6 +131,11 @@ func WithBackups(service *backup.Service) Option {
 // Without one, email-dependent features explain that it is not wired in.
 func WithMail(m *mail.Mailer) Option {
 	return func(s *server) { s.mail = m }
+}
+
+// WithNotify gives the API the notification centre and its email delivery.
+func WithNotify(n *notify.Service) Option {
+	return func(s *server) { s.notify = n }
 }
 
 // New returns the API handler. An empty token disables authentication.
@@ -247,6 +254,7 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	s.registerHostedRoutes(mux)
 	s.registerMailRoutes(mux)
 	s.registerTicketRoutes(mux)
+	s.registerNotificationRoutes(mux)
 	mux.HandleFunc("GET /quick", s.requireWriter(s.quick))
 	return s.logRequests(s.auth(mux))
 }
@@ -1724,6 +1732,7 @@ func (s *server) signUp(w http.ResponseWriter, r *http.Request) {
 			log.Printf("email: queueing a welcome: %v", err)
 		}
 	}
+	s.emitNewAccount(user)
 	writeJSON(w, http.StatusOK, user)
 }
 
@@ -2189,6 +2198,7 @@ func (s *server) join(w http.ResponseWriter, r *http.Request) {
 			log.Printf("email: queueing a welcome: %v", err)
 		}
 	}
+	s.emitNewAccount(user)
 	writeJSON(w, 200, user)
 }
 

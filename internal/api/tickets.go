@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/mail"
+	"github.com/eyupio/reet.sh/internal/notify"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -96,7 +98,7 @@ func (s *server) ticketOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.eventRequest(r, "ticket-open", "", map[string]any{"ticket": t.ID, "subject": t.Subject, "group": t.GroupName})
-	s.notifyTicket(r, t, "opened", "opened", true, true, false, u.Email, ticketName(u))
+	s.emitTicketOpened(t, u)
 	writeJSON(w, http.StatusCreated, map[string]any{"ticket": t})
 }
 
@@ -175,7 +177,7 @@ func (s *server) ticketReply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.eventRequest(r, "ticket-reply", "", map[string]any{"ticket": t.ID, "kind": kind, "message": msg.ID})
-	s.notifyTicketForReply(r, t, kind, strconv.FormatInt(msg.ID, 10), u.Email, ticketName(u))
+	s.emitTicketReply(t, kind, msg.ID, u)
 	writeJSON(w, http.StatusOK, map[string]any{"ticket": t, "message": msg})
 }
 
@@ -290,7 +292,7 @@ func (s *server) adminTicketMessage(w http.ResponseWriter, r *http.Request, inte
 	}
 	s.eventRequest(r, action, "", map[string]any{"ticket": t.ID, "message": msg.ID})
 	if !internal {
-		s.notifyTicketForReply(r, t, "admin", strconv.FormatInt(msg.ID, 10), u.Email, ticketName(u))
+		s.emitTicketReply(t, "admin", msg.ID, u)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ticket": t, "message": msg})
 }
@@ -340,89 +342,115 @@ func (s *server) adminTicketAssign(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.eventRequest(r, "ticket-assign", "", map[string]any{"ticket": id, "assignee": in.AssigneeID})
+	assignee, _, _ := s.st.UserByID(in.AssigneeID)
 	t, _ := s.st.GetTicket(id)
+	s.emitTicketAssigned(t, assignee, s.currentUser(r))
+	s.eventRequest(r, "ticket-assign", "", map[string]any{"ticket": id, "assignee": in.AssigneeID})
 	writeJSON(w, http.StatusOK, map[string]any{"ticket": t})
 }
 
 // ---------------------------------------------------------------------------
 // Notifications
 
-func uniqueRecipients(in []store.MailRecipient, skipEmail string) []store.MailRecipient {
-	seen := map[string]bool{}
-	out := []store.MailRecipient{}
-	for _, r := range in {
-		email := strings.ToLower(strings.TrimSpace(r.Email))
-		if email == "" || email == strings.ToLower(skipEmail) || seen[email] {
+func (s *server) emit(ev notify.Event) {
+	if s.notify == nil {
+		return
+	}
+	if err := s.notify.Emit(context.Background(), ev); err != nil {
+		log.Printf("notifications: %s: %v", ev.Type, err)
+	}
+}
+
+func (s *server) managerRecipients(t store.Ticket, includeAdmins bool) []notify.Recipient {
+	if t.GroupID == 0 {
+		return nil
+	}
+	rs, err := s.st.TeamNotifyRecipients(t.GroupID, "managers", nil)
+	if err != nil {
+		log.Printf("notifications: reading a team's managers: %v", err)
+		return nil
+	}
+	out := []notify.Recipient{}
+	for _, r := range rs {
+		// When a staff kind is also emitted, an instance administrator
+		// already receives that and does not need the team copy too.
+		if !includeAdmins && (r.Role == "owner" || r.Role == "admin") {
 			continue
 		}
-		seen[email] = true
-		r.Email = email
-		out = append(out, r)
+		out = append(out, notify.Recipient{UserID: r.ID, Email: r.Email, Name: r.Name, Role: r.Role,
+			Admin: r.Role == "owner" || r.Role == "admin", Manager: true})
 	}
 	return out
 }
 
-func (s *server) ticketRecipients(t store.Ticket, admins, team, opener bool) ([]store.MailRecipient, error) {
-	out := []store.MailRecipient{}
-	if admins {
-		rs, err := s.st.AdminRecipients()
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, rs...)
+func (s *server) openerRecipient(t store.Ticket) []notify.Recipient {
+	if t.UserID == 0 {
+		return nil
 	}
-	if team && t.GroupID != 0 {
-		rs, err := s.st.TeamNotifyRecipients(t.GroupID, "managers", nil)
-		if err != nil {
-			return nil, err
-		}
-		for i := range rs {
-			rs[i].Admin = false
-			rs[i].Manager = true
-		}
-		out = append(out, rs...)
+	u, ok, err := s.st.UserByID(t.UserID)
+	if err != nil || !ok || u.DisabledAt != 0 {
+		return nil
 	}
-	if opener && t.UserID != 0 {
-		if u, ok, err := s.st.UserByID(t.UserID); err != nil {
-			return nil, err
-		} else if ok && u.DisabledAt == 0 {
-			out = append(out, store.MailRecipient{Email: u.Email, Name: ticketName(u)})
-		}
-	}
-	return out, nil
+	return []notify.Recipient{{UserID: u.ID, Email: u.Email, Name: u.Name, Role: u.Role}}
 }
 
-func (s *server) notifyTicket(r *http.Request, t store.Ticket, event, dedupe string, admins, team, opener bool, authorEmail, author string) {
-	if s.mail == nil || !s.mail.Delivers() {
-		return
-	}
-	recipients, err := s.ticketRecipients(t, admins, team, opener)
-	if err != nil {
-		log.Printf("email: reading support ticket recipients: %v", err)
-		return
-	}
-	recipients = uniqueRecipients(recipients, authorEmail)
-	base := s.mailBase(r)
-	for _, rc := range recipients {
-		link := base + "/support/" + strconv.FormatInt(t.ID, 10)
-		if rc.Admin {
-			link = base + "/admin/support?ticket=" + strconv.FormatInt(t.ID, 10)
-		}
-		d := mail.Data{Ticket: t.Subject, Team: t.GroupName, Actor: author, Link: link, When: time.Now()}
-		if err := s.mail.TicketNotice(r.Context(), t.ID, t.GroupID, event, dedupe, rc, d); err != nil {
-			log.Printf("email: queueing a support ticket notice: %v", err)
-		}
+func ticketTitle(prefix string, t store.Ticket) string { return prefix + ": " + t.Subject }
+
+func (s *server) emitTicketOpened(t store.Ticket, by store.User) {
+	data := mail.Data{Ticket: t.Subject, Team: t.GroupName, Actor: ticketName(by), When: time.Now()}
+	s.emit(notify.Event{
+		Type: "staff_ticket_opened", Key: "ticket:" + strconv.FormatInt(t.ID, 10) + ":opened:staff",
+		TeamID: t.GroupID, Title: ticketTitle("New support ticket", t), Body: ticketName(by) + " opened a support ticket.",
+		Link: "/support/" + strconv.FormatInt(t.ID, 10), AdminLink: "/admin/support?ticket=" + strconv.FormatInt(t.ID, 10),
+		Data: data, Except: by.ID,
+	})
+	if t.GroupID != 0 {
+		s.emit(notify.Event{
+			Type: "ticket_opened", Key: "ticket:" + strconv.FormatInt(t.ID, 10) + ":opened:team",
+			TeamID: t.GroupID, Title: ticketTitle("New team ticket", t), Body: ticketName(by) + " opened a ticket for " + t.GroupName + ".",
+			Link: "/support/" + strconv.FormatInt(t.ID, 10), Data: data, To: s.managerRecipients(t, false), Except: by.ID,
+		})
 	}
 }
 
-func (s *server) notifyTicketForReply(r *http.Request, t store.Ticket, kind, dedupe, authorEmail, author string) {
+func (s *server) emitTicketReply(t store.Ticket, kind string, messageID int64, by store.User) {
+	data := mail.Data{Ticket: t.Subject, Team: t.GroupName, Actor: ticketName(by), When: time.Now()}
+	key := "ticket:" + strconv.FormatInt(t.ID, 10) + ":reply:" + strconv.FormatInt(messageID, 10)
+	id := strconv.FormatInt(t.ID, 10)
 	switch kind {
 	case "user":
-		s.notifyTicket(r, t, "reply", dedupe, true, true, false, authorEmail, author)
+		s.emit(notify.Event{Type: "staff_ticket_replied", Key: key + ":staff", TeamID: t.GroupID,
+			Title: ticketTitle("Requester replied", t), Body: ticketName(by) + " replied on ticket #" + id + ".",
+			Link: "/support/" + id, AdminLink: "/admin/support?ticket=" + id, Data: data, Except: by.ID})
+		if t.GroupID != 0 {
+			s.emit(notify.Event{Type: "ticket_replied", Key: key + ":team", TeamID: t.GroupID,
+				Title: ticketTitle("Reply on", t), Body: ticketName(by) + " replied on ticket #" + id + ".",
+				Link: "/support/" + id, Data: data, To: s.managerRecipients(t, false), Except: by.ID})
+		}
 	case "team":
-		s.notifyTicket(r, t, "reply", dedupe, false, false, true, authorEmail, author)
+		if to := s.openerRecipient(t); len(to) > 0 {
+			s.emit(notify.Event{Type: "ticket_replied", Key: key + ":user", TeamID: t.GroupID,
+				Title: ticketTitle("Reply on", t), Body: ticketName(by) + " replied on ticket #" + id + ".",
+				Link: "/support/" + id, Data: data, To: to, Except: by.ID})
+		}
 	case "admin":
-		s.notifyTicket(r, t, "reply", dedupe, false, true, true, authorEmail, author)
+		to := append(s.openerRecipient(t), s.managerRecipients(t, true)...)
+		if len(to) > 0 {
+			s.emit(notify.Event{Type: "ticket_replied", Key: key + ":user", TeamID: t.GroupID,
+				Title: ticketTitle("Support replied", t), Body: ticketName(by) + " replied on ticket #" + id + ".",
+				Link: "/support/" + id, Data: data, To: to, Except: by.ID})
+		}
 	}
+}
+
+func (s *server) emitTicketAssigned(t store.Ticket, assignee store.User, by store.User) {
+	if assignee.ID == 0 {
+		return
+	}
+	data := mail.Data{Ticket: t.Subject, Team: t.GroupName, Actor: ticketName(by), When: time.Now()}
+	s.emit(notify.Event{Type: "staff_ticket_assigned",
+		Key:    "ticket:" + strconv.FormatInt(t.ID, 10) + ":assigned:" + strconv.FormatInt(assignee.ID, 10) + ":" + strconv.FormatInt(t.UpdatedAt, 10),
+		TeamID: t.GroupID, Title: ticketTitle("Ticket assigned", t), Body: ticketName(by) + " assigned ticket #" + strconv.FormatInt(t.ID, 10) + " to you.",
+		Link: "/support/" + strconv.FormatInt(t.ID, 10), AdminLink: "/admin/support?ticket=" + strconv.FormatInt(t.ID, 10),
+		Data: data, To: []notify.Recipient{{UserID: assignee.ID, Email: assignee.Email, Name: assignee.Name, Role: assignee.Role, Admin: true}}})
 }

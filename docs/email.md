@@ -105,7 +105,7 @@ every sign-in link to disk in the clear.
 | Invitation | the invited address | An administrator creates an invitation on Admin → Users. It still shows the link to copy. The link works once, for seven days. |
 | Welcome | the new account | A self-serve sign-up, or an invitation is accepted. |
 | Team notice | the team's choice | A member joins, leaves or changes role; or a list is shared with the team. Each of those kinds can be turned off. |
-| Support ticket | instance administrators, and a team's owner and managers | A ticket is opened or a reply is added. Support notices are transactional and cannot be turned off. |
+| Support ticket | instance administrators, and a team's owner and managers | A ticket is opened or a reply is added. The person's notification choice decides email or centre-only; see [notifications](notifications.md). |
 
 A password reset request is limited per address and per network address. A
 reset link, a password change and an invitation are security messages and

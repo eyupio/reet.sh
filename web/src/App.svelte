@@ -8,7 +8,7 @@
   import { audienceLabel } from './lib/api'
   import { onMount, tick } from 'svelte'
   import {
-    addSkill, addSkillTags, applyTheme, clearToken, getAuthStatus, getProfile, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
+    addSkill, addSkillTags, applyTheme, clearToken, getAuthStatus, getNotificationCount, getProfile, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
     patchSkill, patchSkills, refreshSkill, removeSkill, removeSkills, resolveSkill, restoreAll, saveProfile, signOutAccount, tagSkills, UnauthorizedError,
     type Counts, type Environment, type Event, type Flags, type ListRef, type SharedList, type Skill, type Sort, type Tag, type User,
   } from './lib/api'
@@ -34,6 +34,7 @@
   import SetupProfiles from './lib/SetupProfiles.svelte'
   import SignIn from './lib/SignIn.svelte'
   import SignUp from './lib/SignUp.svelte'
+  import Notifications from './lib/Notifications.svelte'
   import Support from './lib/Support.svelte'
   import Ticket from './lib/Ticket.svelte'
   import Welcome from './lib/Welcome.svelte'
@@ -71,6 +72,7 @@
   let signupEnabled = $state(false)
   let contactEmail = $state('')
   let passwordReset = $state(false)
+  let unreadNotifications = $state(0)
   let currentUser = $state<User | null>(null)
   let search = $state<HTMLInputElement>()
   let addEl = $state<HTMLInputElement>()
@@ -115,6 +117,7 @@
   const isSupport = location.pathname === '/support' || location.pathname === '/support/'
   const supportMatch = location.pathname.match(/^\/support\/(\d+)\/?$/)
   const isTicket = supportMatch !== null
+  const isNotifications = location.pathname === '/notifications'
   const supportTicketID = supportMatch ? Number(supportMatch[1]) : 0
   const isWelcome = location.pathname === '/' || location.pathname === '/welcome'
   const isSignIn = location.pathname === '/signin'
@@ -133,14 +136,15 @@
   const canWrite = $derived(authMode !== 'accounts' || role !== 'viewer')
   const isAdminUser = $derived(authMode !== 'accounts' || role === 'owner' || role === 'admin')
   const mainNavigation = $derived([
-    { href: '/', label: 'Skills', current: !isMachines && !isHosting && !isAdmin && !isAccount && !isList && !isCommunity && !isShared && !isSpaces && !isProfiles },
+    { href: '/', label: 'Skills', current: !isMachines && !isHosting && !isAdmin && !isAccount && !isList && !isCommunity && !isShared && !isSpaces && !isProfiles && !isSupport && !isTicket && !isNotifications },
     { href: '/shared', label: 'Lists', current: isShared || isList },
     { href: '/profiles', label: 'Setups', current: isProfiles },
     { href: '/machines', label: 'Machines', current: isMachines },
-    { href: '/community', label: 'More', current: isSpaces || isCommunity || isHosting,
+    { href: '/community', label: 'More', current: isSpaces || isCommunity || isHosting || isSupport || isTicket || isNotifications,
       children: [
         { href: '/community', label: 'Community', current: isCommunity },
         { href: '/support', label: 'Support', current: isSupport || isTicket },
+        { href: '/notifications', label: unreadNotifications > 0 ? `Notifications (${unreadNotifications})` : 'Notifications', current: isNotifications },
         { href: '/spaces', label: 'Teams & organisations', current: isSpaces },
         ...(canWrite ? [{ href: '/hosting', label: 'Host skills', current: isHosting }] : []),
       ],
@@ -263,13 +267,19 @@
     metaLoaded = await loadMeta()
   }
 
+  async function loadNotificationCount() {
+    if (!authenticated) return
+    try { unreadNotifications = (await getNotificationCount()).unread } catch { /* a count is not worth an error banner */ }
+  }
+
   onMount(() => {
     try { view = localStorage.getItem('reet-shelf-view') === 'board' ? 'board' : 'list' } catch { /* use the default when storage is unavailable */ }
-    void initAuth()
+    void initAuth().then(() => { if (authenticated) void loadNotificationCount() })
     const changed = () => { if (authenticated) void reloadAll() }
     window.addEventListener('reet-shelf-changed', changed)
     const timer = setInterval(() => (inventoryNow = Date.now()), 60000)
-    return () => { clearInterval(timer); window.removeEventListener('reet-shelf-changed', changed) }
+    const notifications = setInterval(() => { if (authenticated) void loadNotificationCount() }, 60000)
+    return () => { clearInterval(timer); clearInterval(notifications); window.removeEventListener('reet-shelf-changed', changed) }
   })
 
   function chooseView(next: 'list' | 'board') {
@@ -342,6 +352,7 @@
     loading = true
     await load()
     await loadMeta()
+    await loadNotificationCount()
     await tick()
     addEl?.focus()
   }
@@ -366,6 +377,7 @@
   }
 
   async function signOut() {
+    unreadNotifications = 0
     if (authMode === 'accounts') {
       try {
         await signOutAccount()
@@ -718,7 +730,7 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser ? 'Your shelf for everything AI' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser ? 'Your shelf for everything AI' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
   {/if}
 </svelte:head>
 
@@ -731,6 +743,10 @@
     {#if authenticated && !needsAuth && !isPublicList && !isJoin}
       <div class="app-nav">
         <NavigationMenu label="Main navigation" primary items={mainNavigation} />
+        <a class="notif-link" href="/notifications" aria-label={unreadNotifications > 0 ? `Notifications, ${unreadNotifications} unread` : 'Notifications'}>
+          <span>Notifications</span>
+          {#if unreadNotifications > 0}<span class="notif-count">{unreadNotifications > 99 ? '99+' : unreadNotifications}</span>{/if}
+        </a>
         {#if authMode !== 'none'}
           <AccountMenu
             name={currentUser?.name ?? ''}
@@ -782,6 +798,8 @@
     <Machines {canWrite} accounts={authMode === 'accounts'} compare={(location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} />
   {:else if isProfiles}
     <SetupProfiles {canWrite} onerror={fail} />
+  {:else if isNotifications}
+    <Notifications onchange={loadNotificationCount} />
   {:else if isSupport}
     <Support />
   {:else if isTicket}
@@ -1079,6 +1097,9 @@
   .site-header { border-bottom: 1px solid var(--line); }
   .header-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: var(--content-width); margin: auto; padding: 24px 40px; }
   .app-nav { display: flex; align-items: center; gap: 8px; min-width: 0; margin-left: auto; }
+  .notif-link { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.78rem; font-weight: 600; text-decoration: none; white-space: nowrap; }
+  .notif-link:hover { color: var(--ink); border-color: var(--muted); }
+  .notif-count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 0.68rem; }
   .site-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
   .site-nav a, .entry-link { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--muted); font-size: 0.8rem; font-weight: 600; text-decoration: none; border-radius: 8px; }
   .site-nav a:hover, .entry-link:hover { color: var(--ink); background: var(--card); }

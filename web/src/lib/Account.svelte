@@ -274,7 +274,7 @@
     <PageHeader eyebrow="Your account" title={who.name || who.email} titleId="account-title" lede={`${who.email} · ${who.role}`} />
   </div>
 
-  <NavigationMenu label="Account" items={sections.map(s => ({ label: s.label, href: `/account/${s.key}`, current: section === s.key }))} />
+  <NavigationMenu label="Account" items={sections.map(s => ({ label: s.label, href: s.key === 'machines' ? '/machines' : s.key === 'sync' ? '/machines?view=compare' : `/account/${s.key}`, current: section === s.key }))} />
 
   {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
   {#if notice}<p class="notice good" role="status">{notice}</p>{/if}

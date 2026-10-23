@@ -15,6 +15,8 @@ export PATH="$HOME/.local/bin:$PATH"
 reet --version
 ```
 
+Before replacing the executable, the installer runs the staged binary with `--version` and checks the requested tag. An existing regular binary is preserved as `reet.previous`; an existing symlink requires manual inspection. It also reports when another reet is earlier on PATH.
+
 Running the installer again updates the binary. Existing shelves and settings are stored separately and are not touched by installation.
 
 To review the script, choose a version, or change the destination, download it first:
@@ -70,7 +72,7 @@ Each merge/push to main publishes a prerelease named `dev`, with four checksumme
 sh scripts/install.sh --version dev
 ```
 
-The `dev` tag and assets move to the tested main commit on each successful build. It is explicitly excluded from GitHub's latest stable release. Only this rolling channel may replace assets; stable `v*` releases retain their existing verification and no-overwrite rules. During a dev update, a checksum mismatch means retry after publication finishes; the installer keeps the old binary on any verification failure. Every build job uses one resolved source commit, including manual `dev` runs.
+The `dev` tag and legacy rolling assets move to the tested main commit on each successful build. New clients first resolve `dev-build.txt` to a full source SHA, then fetch `reet_dev_SHA_OS_ARCH.tar.gz` and `checksums-SHA.txt`. These commit-addressed assets are verified on reruns and never overwritten; the pointer is updated after they are available. Only a 404 for the pointer falls back to a legacy dev release. This prevents mixing a new archive with an old manifest during publication. It is explicitly excluded from GitHub's latest stable release. Only this rolling channel may replace assets; stable `v*` releases retain their existing verification and no-overwrite rules. During a dev update, a checksum mismatch means retry after publication finishes; the installer keeps the old binary on any verification failure. Every build job uses one resolved source commit, including manual `dev` runs.
 
 ## Publishing a binary release
 
@@ -269,3 +271,34 @@ optional for servers configured without it; Enter skips a token, and a rejected
 request reports how to supply credentials. Help and local dry scans do not request
 remote credentials. A missing enrollment file requires enrollment; reet does not
 silently create an enrollment or invent command intent, recovery keys or resources.
+
+## Setups and machine preparation
+
+The web workspace separates Skills, Lists, Setups and Machines. Connect a machine
+under **Machines**, or choose **Host a server** if you want a separate site. The
+page shows the server build and local commands to check the CLI path, version and
+supported setup components. A skill inventory scan is not a setup backup.
+
+Create a portable setup locally with `reet setup profile`. On another machine:
+
+```sh
+reet setup support
+reet setup profile pull work --server https://your-reet-instance.example
+# Copy the encrypted snapshot from the original machine, or configure S3 and use:
+reet setup fetch --s3 --profile work
+# Stop destination agents, then preview without writing:
+reet setup restore --profile work
+```
+
+Use a personal token at the hidden CLI prompt. The browser's Prepare this machine
+flow generates commands for a selected revision and scope. Review mapped paths,
+compatibility warnings and omissions before applying; a plan without `--project`
+omits project-scoped files. `--apply` requires explicit conflict policies where
+needed. The interactive restore wizard offers per-file skip/replace choices and
+verifies files afterwards. `reet setup verify` emits its full report and returns a nonzero exit status when selected files are missing, changed or blocked, including in JSON mode. A file match is not a runtime health check.
+
+Profile sync refuses stale/divergent histories. To keep both local and server edits,
+rename the local copy (`reet setup profile rename work work-local`), pull `work`,
+and review before creating a new revision. Do not delete the local history to make
+a push succeed. Server metadata never substitutes for the encrypted snapshot or
+its independently retained passphrase.

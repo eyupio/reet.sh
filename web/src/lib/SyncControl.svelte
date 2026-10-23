@@ -77,7 +77,17 @@
   }
   async function adoptSelected() { await run(async () => { await adoptSyncSkills(target, adopt, source === 'shelf' ? listId : 0); await loadSource(); notice = 'Selected skills added to reet.sh. Existing notes and shelf choices were preserved.' }) }
   function approve(job: SyncJob) { confirm = { title: 'Apply this plan on the machine?', body: `${job.plan.actions?.filter(a => a.add).length ?? 0} installs and ${job.plan.actions?.filter(a => !a.add).length ?? 0} removals in ${job.plan.directory || 'the selected scope'}. Removed entries are backed up locally. The agent rechecks this exact plan before applying.`, action: () => run(async () => { onupdate(await controlSyncJob(job.id, 'approve', job.hash)); notice = 'Approved plan queued for the enrolled machine.' }) } }
-  onMount(() => { if (view === 'compare') { void loadSource(); void listLists().then(r => lists = r.lists).catch(e => error = String(e)) } })
+  onMount(() => {
+    if (view !== 'compare') return
+    void (async () => {
+      try {
+        lists = (await listLists()).lists
+        const requested = Number(new URLSearchParams(location.search).get('list'))
+        if (Number.isSafeInteger(requested) && requested > 0 && lists.some(list => list.id === requested)) listId = requested
+        await loadSource()
+      } catch (e) { error = e instanceof Error ? e.message : String(e) }
+    })()
+  })
 </script>
 
 {#if error}<p class="feedback bad" role="alert">{error}</p>{/if}

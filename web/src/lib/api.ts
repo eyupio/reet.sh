@@ -24,6 +24,7 @@ export type SharedList = {
   id: number
   ownerId: number
   ownerName?: string
+  sharedWithMe?: boolean
   name: string
   description: string
   visibility: 'personal' | 'private' | 'team' | 'public' | 'members' | 'link'
@@ -435,6 +436,8 @@ export type SetupProfileComponent = {
   excluded_fields?: string[]; unknown_fields?: number; digest?: string
 }
 export type SetupProfilePreview = {
+  os?: string
+  architecture?: string
   schema_version?: number
   agents?: { id: string; name: string; state?: string; components?: SetupProfileComponent[]; omitted?: { kind: string; reason: string; count?: number }[] }[]
   skills?: { name: string; agent_id: string; scope: string; source: string; origin?: string; origin_type?: string; files: number; bytes: number; digest: string }[]
@@ -673,11 +676,11 @@ export async function listSetupProfiles(): Promise<{ profiles: SetupProfileSumma
 export async function getSetupProfile(name: string): Promise<SetupProfileRecord> {
   return (await req(`/api/v2/setup/profiles/${encodeURIComponent(name)}`)).json()
 }
-export async function renameSetupProfile(name: string, newName: string): Promise<SetupProfileRecord> {
-  return (await req(`/api/v2/setup/profiles/${encodeURIComponent(name)}`, { method: 'PATCH', body: json({ name: newName }) })).json()
+export async function renameSetupProfile(name: string, newName: string, baseRevision?: number): Promise<SetupProfileRecord> {
+  return (await req(`/api/v2/setup/profiles/${encodeURIComponent(name)}`, { method: 'PATCH', body: json({ name: newName, base_revision: baseRevision }) })).json()
 }
-export async function updateSetupProfileOverrides(name: string, overrides: SetupProfileOverrides): Promise<SetupProfileRecord> {
-  return (await req(`/api/v2/setup/profiles/${encodeURIComponent(name)}`, { method: 'PATCH', body: json({ overrides }) })).json()
+export async function updateSetupProfileOverrides(name: string, overrides: SetupProfileOverrides, baseRevision?: number): Promise<SetupProfileRecord> {
+  return (await req(`/api/v2/setup/profiles/${encodeURIComponent(name)}`, { method: 'PATCH', body: json({ overrides, base_revision: baseRevision }) })).json()
 }
 export async function deleteSetupProfile(name: string): Promise<void> {
   await req(`/api/v2/setup/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' })

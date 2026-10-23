@@ -150,6 +150,23 @@ esac
 				t.Fatal("complete releases must be a no-op")
 			}
 			if tc.tag == "dev" {
+				pointer, err := os.ReadFile(filepath.Join(remote, "dev-build.txt"))
+				if err != nil || strings.TrimSpace(string(pointer)) != strings.Repeat("a", 40) {
+					t.Fatal("dev pointer missing")
+				}
+				for _, legacy := range names {
+					immutable := strings.Replace(legacy, "reet_dev_", "reet_dev_"+strings.Repeat("a", 40)+"_", 1)
+					original, _ := os.ReadFile(filepath.Join(artifacts, legacy))
+					published, err := os.ReadFile(filepath.Join(remote, immutable))
+					if err != nil || string(original) != string(published) {
+						t.Fatalf("immutable asset missing: %s", immutable)
+					}
+					for _, line := range strings.Split(string(calls), "\n") {
+						if strings.Contains(line, immutable) && strings.Contains(line, "--clobber") {
+							t.Fatal("immutable archive overwritten")
+						}
+					}
+				}
 				if !strings.Contains(string(calls), "--prerelease") || !strings.Contains(string(calls), "--latest=false") {
 					t.Fatalf("dev must not become latest stable: %s", calls)
 				}

@@ -1,5 +1,6 @@
 <script lang="ts">
   import NavigationMenu from './lib/NavigationMenu.svelte'
+  import Machines from './lib/Machines.svelte'
   import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
   import Community from './lib/Community.svelte'
   import SharedLists from './lib/SharedLists.svelte'
@@ -92,7 +93,8 @@
   const isCommunity = location.pathname === '/community'
   const isShared = location.pathname === '/shared'
   const isSpaces = location.pathname === '/spaces'
-  const isProfiles = location.pathname === '/profiles'
+  const isProfiles = ['/profiles', '/setups'].includes(location.pathname)
+  const isMachines = location.pathname === '/machines' || ['/account/machines', '/account/sync'].includes(location.pathname)
   const isAdmin = location.pathname.startsWith('/admin')
   const isAccount = location.pathname.startsWith('/account')
   const isMCPConsent = location.pathname === '/account/mcp/authorize'
@@ -110,23 +112,22 @@
   const role = $derived(currentUser?.role ?? (authMode === 'accounts' ? 'viewer' : 'owner'))
   const canWrite = $derived(authMode !== 'accounts' || role !== 'viewer')
   const isAdminUser = $derived(authMode !== 'accounts' || role === 'owner' || role === 'admin')
-  const accountPages = [['profile', 'Profile'], ['security', 'Password'], ['sessions', 'Sessions'], ['machines', 'Machines'], ['sync', 'Compare & sync'], ['tokens', 'API tokens'], ['mcp', 'MCP access'], ['backups', 'Backups'], ['activity', 'Activity']]
-  const adminPages = [['overview', 'Overview'], ['environments', 'Environments'], ['users', 'Users'], ['team', 'Team usage'], ['backups', 'Backups'], ['settings', 'Settings'], ['activity', 'Activity']]
   const mainNavigation = $derived([
-    { href: '/', label: 'Personal shelf', current: !isHosting && !isAdmin && !isAccount && !isList && !isCommunity && !isShared && !isSpaces && !isProfiles },
+    { href: '/', label: 'Skills', current: !isMachines && !isHosting && !isAdmin && !isAccount && !isList && !isCommunity && !isShared && !isSpaces && !isProfiles },
     { href: '/shared', label: 'Lists', current: isShared || isList },
-    { href: '/profiles', label: 'Profiles', current: isProfiles },
-    { href: '/spaces', label: 'Teams', current: isSpaces },
-    { href: '/community', label: 'Community', current: isCommunity },
-    ...(canWrite ? [{ href: '/hosting', label: 'Host skills', current: isHosting }] : []),
-    ...(authMode === 'accounts' ? [{ href: '/account/profile', label: 'Account', current: isAccount,
-      children: accountPages.filter(([key]) => key !== 'tokens' || canWrite).map(([key, label]) => ({ label, href: `/account/${key}`, current: isAccount && (location.pathname === `/account/${key}` || (key === 'profile' && location.pathname === '/account')) })),
-    }] : []),
-    ...(isAdminUser ? [{ href: '/admin/overview', label: 'Admin', current: isAdmin,
-      children: adminPages.filter(([key]) => authMode === 'accounts' || !['users', 'team'].includes(key)).map(([key, label]) => ({ label, href: `/admin/${key}`, current: isAdmin && (location.pathname === `/admin/${key}` || (key === 'overview' && location.pathname === '/admin')) })),
-    }] : []),
+    { href: '/profiles', label: 'Setups', current: isProfiles },
+    { href: '/machines', label: 'Machines', current: isMachines },
+    { href: '/community', label: 'More', current: isSpaces || isCommunity || isHosting || (isAccount && !isMachines) || isAdmin,
+      children: [
+        { href: '/community', label: 'Community', current: isCommunity },
+        { href: '/spaces', label: 'Teams & organisations', current: isSpaces },
+        ...(canWrite ? [{ href: '/hosting', label: 'Host skills', current: isHosting }] : []),
+        ...(authMode === 'accounts' ? [{ href: '/account/profile', label: 'Account & preferences', current: isAccount && !isMachines }] : []),
+        ...(isAdminUser ? [{ href: '/admin/overview', label: 'Instance administration', current: isAdmin }] : []),
+      ],
+    },
   ])
-  const scanCommand = $derived(`reet scan --prune --server ${origin}${authMode === 'none' ? '' : ' --token "$REET_TOKEN"'}`)
+  const scanCommand = $derived(`reet scan --prune --server ${origin}`)
 
   const filtering = $derived(q.trim() !== '' || onlyLiked || selectedTags.length > 0 || selectedEnv !== '' || selectedMachine !== '' || onlyOne)
   const grouped = $derived(stages.map((st) => ({ ...st, items: skills.filter((k) => stageOf(k) === st.id) })))
@@ -643,7 +644,7 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isAdmin ? 'Admin' : isAccount ? 'Your account' : isProfiles ? 'Profiles' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isAdmin ? 'Admin' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
   {/if}
 </svelte:head>
 
@@ -683,6 +684,8 @@
     <Hosting {canWrite} />
   {:else if isShared}
     <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
+  {:else if isMachines}
+    <Machines {canWrite} accounts={authMode === 'accounts'} compare={(location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} />
   {:else if isProfiles}
     <SetupProfiles {canWrite} onerror={fail} />
   {:else if isSpaces}

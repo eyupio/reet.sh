@@ -11,7 +11,13 @@ import (
 
 // runRestoreWizard guides a restore from a local profile. Execution still
 // happens locally after an explicit confirmation.
-func runRestoreWizard(out io.Writer, dir, project, machine string) error {
+type restoreWizardOptions struct {
+	PasswordFile                       string
+	Revision                           int
+	ProbeVersions, InspectInstallation bool
+}
+
+func runRestoreWizard(out io.Writer, dir, project, machine string, opts restoreWizardOptions) error {
 	var err error
 	project, err = setupProject(project)
 	if err != nil {
@@ -22,7 +28,7 @@ func runRestoreWizard(out io.Writer, dir, project, machine string) error {
 		return err
 	}
 	if len(profiles.Profiles) == 0 {
-		return errors.New("no local setup profiles found; run reet setup profile first")
+		return errors.New("no local setup profiles found; pull one with reet setup profile pull NAME --server URL, or create one with reet setup profile")
 	}
 	chosen := profiles.Profiles[0]
 	if len(profiles.Profiles) > 1 {
@@ -44,7 +50,7 @@ func runRestoreWizard(out io.Writer, dir, project, machine string) error {
 		}
 		chosen = profiles.Profiles[index-1]
 	}
-	_, revision, err := LoadProfile(chosen.Name, dir, 0)
+	_, revision, err := LoadProfile(chosen.Name, dir, opts.Revision)
 	if err != nil {
 		return err
 	}
@@ -69,7 +75,7 @@ func runRestoreWizard(out io.Writer, dir, project, machine string) error {
 	} else if err != nil {
 		return err
 	}
-	passphrase, err := readSetupPassphrase("", false, out)
+	passphrase, err := readSetupPassphrase(opts.PasswordFile, false, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -86,7 +92,21 @@ func runRestoreWizard(out io.Writer, dir, project, machine string) error {
 	if err != nil {
 		return err
 	}
+	if opts.InspectInstallation {
+		InspectInstallations(&destination)
+	}
+	if opts.ProbeVersions {
+		if err := ProbeVersions(&destination); err != nil {
+			return err
+		}
+	}
 	plan := BuildRestorePlan(snapshot, manifest, destination)
+	if _, err := fmt.Fprintln(out, "Stop the destination agents before restoring settings or memory. Replace writes selected snapshot content and removes destination-only fields in that file; a rollback copy is retained. File verification does not check runtime health."); err != nil {
+		return err
+	}
+	if err := renderRestorePlan(out, plan); err != nil {
+		return err
+	}
 	creates, merges, conflicts, blocked := 0, 0, 0, 0
 	for _, action := range plan.Actions {
 		switch action.State {
@@ -106,29 +126,34 @@ func runRestoreWizard(out io.Writer, dir, project, machine string) error {
 	if blocked > 0 {
 		return errors.New("the plan has blocked destinations; run reet setup restore --profile " + chosen.Name + " to inspect them")
 	}
-	apply, err := wizardYesNo(out, "Apply this restore plan now?", false)
-	if err != nil || !apply {
-		if err == nil {
-			_, err = fmt.Fprintln(out, "Plan not applied.")
+	choices := map[string]string{}
+	for _, action := range plan.Actions {
+		if action.State != "conflict" {
+			continue
 		}
-		return err
-	}
-	conflictPolicy := ""
-	if conflicts > 0 {
-		conflictPolicy, err = wizardPrompt(out, "Conflicts: skip, replace or cancel", "cancel")
+		answer, err := wizardPrompt(out, "Conflict at "+action.Destination+": skip, replace or cancel", "skip")
 		if err != nil {
 			return err
 		}
-		switch conflictPolicy {
+		switch answer {
 		case "skip", "replace":
-		case "cancel", "":
+			choices[action.Destination] = answer
+		case "cancel":
 			_, err = fmt.Fprintln(out, "Plan not applied.")
 			return err
 		default:
-			return errors.New("choose skip, replace or cancel")
+			return errors.New("choose skip, replace or cancel; nothing was applied")
 		}
 	}
-	result, err := ApplyRestorePlan(plan, RestoreApplyOptions{JournalDir: dir, Conflict: conflictPolicy})
+	apply, err := wizardYesNo(out, "Apply the reviewed plan and conflict choices now?", false)
+	if err != nil {
+		return err
+	}
+	if !apply {
+		_, err = fmt.Fprintln(out, "Plan not applied.")
+		return err
+	}
+	result, err := ApplyRestorePlan(plan, RestoreApplyOptions{JournalDir: dir, Conflicts: choices})
 	if err != nil {
 		return err
 	}
@@ -143,6 +168,17 @@ func runRestoreWizard(out io.Writer, dir, project, machine string) error {
 	if _, err := fmt.Fprintf(out, "Verified: %d; changed: %d; missing: %d; blocked: %d.\n", verification.Summary.Verified, verification.Summary.Changed, verification.Summary.Missing, verification.Summary.Blocked); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(out, "Completed %s. Runtime health is not checked.\n", time.Now().UTC().Format(time.RFC3339))
+	if err := setupVerificationError(verification); err != nil {
+		return fmt.Errorf("files applied; %w. Journal: %s", err, result.JournalPath)
+	}
+	_, err = fmt.Fprintf(out, "File verification passed %s. Runtime health is not checked.\n", time.Now().UTC().Format(time.RFC3339))
 	return err
+}
+
+func setupVerificationError(result SetupVerifyResult) error {
+	s := result.Summary
+	if s.Changed+s.Missing+s.Blocked > 0 {
+		return fmt.Errorf("verification incomplete: %d changed, %d missing, %d blocked", s.Changed, s.Missing, s.Blocked)
+	}
+	return nil
 }

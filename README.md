@@ -468,3 +468,11 @@ Interactive commands also ask for missing sync targets, restore identifiers,
 backup paths, passwords and keys when needed. Saved values are used first;
 secrets stay hidden, and noninteractive commands report missing required inputs.
 See [missing command inputs](docs/binary-installation.md#missing-command-inputs).
+
+### Setups and machines
+
+The workspace separates **Skills**, **Lists**, **Setups** and **Machines**. Use a list's
+**Prepare a machine** action to review its skills against a target inventory. Setup
+profiles show captured coverage, exclusions and revision comparisons, with a guided
+local recovery flow. Syncing a profile transfers metadata, not its encrypted snapshot.
+See [UX rebalance](docs/ux-rebalance.md) and [binary installation](docs/binary-installation.md).

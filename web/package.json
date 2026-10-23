@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build && touch dist/.gitkeep",
     "check": "npm run test && svelte-check --tsconfig ./tsconfig.json",
-    "test": "node src/lib/machines.test.mjs"
+    "test": "node src/lib/machines.test.mjs && node src/lib/rebalance.test.mjs"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

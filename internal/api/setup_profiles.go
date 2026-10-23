@@ -2,12 +2,13 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
 
-	"fmt"
-
+	"github.com/eyupio/reet.sh/internal/profilehistory"
 	"github.com/eyupio/reet.sh/internal/setup"
 	"github.com/eyupio/reet.sh/internal/store"
 )
@@ -17,7 +18,7 @@ const maxSetupProfileBytes = 4 << 20
 func (s *server) setupProfileList(w http.ResponseWriter, r *http.Request) {
 	records, err := s.st.SetupProfilesFor(s.uid(r))
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeSetupProfileError(w, err)
 		return
 	}
 	type summary struct {
@@ -37,7 +38,7 @@ func (s *server) setupProfileList(w http.ResponseWriter, r *http.Request) {
 func (s *server) getSetupProfile(w http.ResponseWriter, r *http.Request) {
 	record, ok, err := s.st.SetupProfileFor(s.uid(r), r.PathValue("name"))
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeSetupProfileError(w, err)
 		return
 	}
 	if !ok {
@@ -74,7 +75,7 @@ func (s *server) saveSetupProfile(w http.ResponseWriter, r *http.Request) {
 		Payload: string(body),
 	}
 	if err := s.st.SaveSetupProfile(record); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeSetupProfileError(w, err)
 		return
 	}
 	s.eventRequest(r, "setup-profile-save", "", map[string]string{"profile": profile.Name, "snapshot": latest.SnapshotID})
@@ -84,7 +85,7 @@ func (s *server) saveSetupProfile(w http.ResponseWriter, r *http.Request) {
 func (s *server) renameSetupProfile(w http.ResponseWriter, r *http.Request) {
 	record, ok, err := s.st.SetupProfileFor(s.uid(r), r.PathValue("name"))
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeSetupProfileError(w, err)
 		return
 	}
 	if !ok {
@@ -92,8 +93,9 @@ func (s *server) renameSetupProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var request struct {
-		Name      *string                      `json:"name"`
-		Overrides *setup.SetupProfileOverrides `json:"overrides"`
+		Name         *string                      `json:"name"`
+		Overrides    *setup.SetupProfileOverrides `json:"overrides"`
+		BaseRevision *int                         `json:"base_revision"`
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxSetupProfileBytes))
 	if err != nil || json.Unmarshal(body, &request) != nil {
@@ -113,6 +115,10 @@ func (s *server) renameSetupProfile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "stored setup profile is invalid")
 		return
 	}
+	if request.BaseRevision != nil && *request.BaseRevision != record.Revision {
+		writeErr(w, http.StatusConflict, "This setup changed since you opened it. Reload it before saving; your edits have not been applied.")
+		return
+	}
 	if request.Overrides != nil {
 		if err := setup.ValidateSetupProfileOverrides(request.Overrides); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
@@ -129,7 +135,7 @@ func (s *server) renameSetupProfile(w http.ResponseWriter, r *http.Request) {
 		profile.Revisions = append(profile.Revisions, next)
 		payload, err := json.Marshal(profile)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			writeSetupProfileError(w, err)
 			return
 		}
 		if _, err := setup.ParseSetupProfile(payload, profile.Name); err != nil {
@@ -140,7 +146,7 @@ func (s *server) renameSetupProfile(w http.ResponseWriter, r *http.Request) {
 			UserID: s.uid(r), Name: profile.Name, Revision: next.Revision,
 			SnapshotID: next.SnapshotID, SnapshotDigest: next.SnapshotDigest, Payload: string(payload),
 		}); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			writeSetupProfileError(w, err)
 			return
 		}
 		s.eventRequest(r, "setup-profile-override", "", map[string]string{"profile": profile.Name, "revision": fmt.Sprint(next.Revision)})
@@ -155,16 +161,16 @@ func (s *server) renameSetupProfile(w http.ResponseWriter, r *http.Request) {
 	profile.Name = name
 	payload, err := json.Marshal(profile)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeSetupProfileError(w, err)
 		return
 	}
 	if _, err := setup.ParseSetupProfile(payload, name); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	renamed, err := s.st.RenameSetupProfileFor(s.uid(r), record.Name, name, string(payload))
+	renamed, err := s.st.RenameSetupProfileFor(s.uid(r), record.Name, name, string(payload), record.Payload)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeSetupProfileError(w, err)
 		return
 	}
 	if !renamed {
@@ -182,16 +188,24 @@ func overridesEmpty(overrides *setup.SetupProfileOverrides) bool {
 func (s *server) deleteSetupProfile(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if _, ok, err := s.st.SetupProfileFor(s.uid(r), name); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeSetupProfileError(w, err)
 		return
 	} else if !ok {
 		writeErr(w, http.StatusNotFound, "setup profile not found")
 		return
 	}
 	if err := s.st.DeleteSetupProfileFor(s.uid(r), name); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeSetupProfileError(w, err)
 		return
 	}
 	s.eventRequest(r, "setup-profile-delete", "", map[string]string{"profile": name})
 	writeJSON(w, http.StatusOK, map[string]string{"deleted": name})
+}
+
+func writeSetupProfileError(w http.ResponseWriter, err error) {
+	status := http.StatusInternalServerError
+	if errors.Is(err, profilehistory.ErrConflict) {
+		status = http.StatusConflict
+	}
+	writeErr(w, status, err.Error())
 }

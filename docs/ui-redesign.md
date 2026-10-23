@@ -1,5 +1,7 @@
 # Whole UI design studies
 
+The current task-based navigation and setup coverage presentation are described in [UX rebalance](ux-rebalance.md). The studies below document the earlier Library foundation.
+
 The explorer in `web/concepts/controller.html` covers the signed-out pages first, then the signed-in workspace. It is one self-contained HTML file with the existing brand wordmark, sample data, and no runtime dependencies or network calls. Open it directly in a browser, or run `npm run dev` in `web/` and visit `/concepts/controller.html`.
 
 ## Three directions

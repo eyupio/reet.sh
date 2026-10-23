@@ -6,6 +6,8 @@
   } from './api'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import PageHeader from './PageHeader.svelte'
+  import CopyButton from './CopyButton.svelte'
+  import { setupContents, compareSetups, shellQuote } from './setupProfiles'
 
   let {
     canWrite = true,
@@ -25,7 +27,18 @@
   let excludedSources = $state('')
   const overrideKinds = ['settings', 'mcp', 'instructions', 'skills', 'memory']
 
-  const latest = $derived(selected?.revisions.at(-1) ?? null)
+  let selectedRevision = $state(0)
+  let scopeMachine = $state(''), scopeProject = $state(''), creating = $state(false)
+  const newest = $derived(selected?.revisions.at(-1) ?? null)
+  const latest = $derived(selected?.revisions.find(revision => revision.revision === selectedRevision) ?? newest)
+  const contents = $derived(setupContents(latest, scopeMachine, scopeProject))
+  const previous = $derived(selected?.revisions.find(revision => revision.revision === (latest?.revision ?? 0) - 1))
+  const changes = $derived(latest ? compareSetups(previous, latest, scopeMachine, scopeProject) : null)
+  const profileArg = $derived(selected ? shellQuote(selected.name) : "'work'")
+  const restoreCommand = $derived(`reet setup restore --profile ${profileArg} --revision ${latest?.revision ?? 1}${scopeMachine ? ` --machine ${shellQuote(scopeMachine)}` : ''}${scopeProject ? ` --project ${shellQuote(scopeProject)}` : ''}`)
+  const verifyCommand = $derived(restoreCommand.replace(' setup restore ', ' setup verify '))
+  const pullCommand = $derived(`reet setup profile pull ${profileArg} --server ${shellQuote(location.origin)}`)
+  const fetchCommand = $derived(`reet setup fetch --s3 --profile ${profileArg} --revision ${latest?.revision ?? 1}`)
   const hasPreview = $derived((latest?.preview?.schema_version ?? 0) > 0)
   const componentCount = $derived.by(() => {
     if (!latest?.preview?.agents) return 0
@@ -65,6 +78,7 @@
     busy = name
     renaming = false
     editingOverrides = false
+    selectedRevision = 0; scopeMachine = ''; scopeProject = ''
     try {
       selected = await getSetupProfile(name)
       error = ''
@@ -83,8 +97,8 @@
   }
 
   function startOverrides() {
-    if (!latest) return
-    const overrides = latest.overrides ?? {}
+    if (!newest) return
+    const overrides = newest.overrides ?? {}
     excludedKinds = [...(overrides.exclude_kinds ?? [])]
     excludedSources = (overrides.exclude_sources ?? []).join('\n')
     editingOverrides = true
@@ -92,17 +106,18 @@
 
   async function saveOverrides() {
     if (!selected || !latest) return
-    const previous = latest.overrides ?? {}
+    const previous = newest?.overrides ?? {}
     const sources = excludedSources.split('\n').map((value) => value.trim()).filter(Boolean)
     const overrides: SetupProfileOverrides = { ...previous, exclude_kinds: excludedKinds, exclude_sources: sources }
     if (excludedKinds.length === 0) delete overrides.exclude_kinds
     if (sources.length === 0) delete overrides.exclude_sources
     busy = selected.name
     try {
-      const updated = await updateSetupProfileOverrides(selected.name, overrides)
+      const updated = await updateSetupProfileOverrides(selected.name, overrides, newest?.revision)
       const result = await listSetupProfiles()
       profiles = result.profiles ?? []
       selected = updated
+      selectedRevision = 0
       editingOverrides = false
       error = ''
     } catch (e) {
@@ -123,10 +138,11 @@
     }
     busy = oldName
     try {
-      const updated = await renameSetupProfile(oldName, newName)
+      const updated = await renameSetupProfile(oldName, newName, newest?.revision)
       const result = await listSetupProfiles()
       profiles = result.profiles ?? []
       selected = updated
+      selectedRevision = 0
       renaming = false
       error = ''
     } catch (e) {
@@ -140,6 +156,7 @@
   async function remove() {
     if (!deleteFor) return
     const name = deleteFor.name
+    deleteFor = null
     busy = name
     try {
       await deleteSetupProfile(name)
@@ -178,23 +195,28 @@
 
 <PageHeader
   eyebrow="Agent setups"
-  title="Profiles."
-  lede="Named setup revisions stored by your account. Run reet setup profile to create one and optionally push it; the snapshot stays on your machine and is fetched separately."
-/>
+  title="Setups."
+  lede="Keep a portable record of your agent settings, skills and supported memory. Review coverage before restoring on another machine."
+>
+ {#snippet actions()}{#if canWrite}<button class="btn primary" onclick={() => creating = !creating} aria-expanded={creating}>Create a setup</button>{/if}{/snippet}
+</PageHeader>
+{#if creating}
+ <section class="empty-state"><h2>Create a setup locally</h2><p>Run the wizard on the machine you want to capture. It creates an encrypted snapshot, saves a named profile and offers to sync its metadata here.</p><pre><code>reet setup profile</code></pre><CopyButton text="reet setup profile" label="Copy wizard command" /><p>The snapshot stays local unless you explicitly upload it to S3. Keep its passphrase somewhere you can recover independently.</p><a class="btn quiet" href="/machines#connect-machine">Install or connect the CLI →</a></section>
+{/if}
 
-{#if error}<p class="notice bad" role="alert">{error}</p>{/if}
+{#if error}<p class="notice bad" role="alert">{error} <button class="btn quiet" onclick={() => selected ? choose(selected.name) : load()} disabled={busy !== ''}>Reload setup</button></p>{/if}
 
 {#if loading}
-  <p class="empty" role="status">Loading profiles…</p>
+  <p class="empty" role="status">Loading setups…</p>
 {:else if profiles.length === 0}
   <section class="empty-state">
-    <h2>No profiles yet.</h2>
+    <h2>No setups yet.</h2>
     <p>Run the interactive wizard; it can create or choose a snapshot, save a profile and push it here:</p>
     <pre><code>reet setup profile</code></pre>
     <p>Or save and push in steps:</p>
     <pre><code>reet setup profile save work
 reet setup profile push work</code></pre>
-    <p>Profiles never contain the snapshot itself; use <code>reet setup fetch --s3 --profile work</code> to download it on another machine.</p>
+    <p>The synced profile is metadata, not the encrypted snapshot. On another machine, pull the profile first, then copy the snapshot or fetch it from your configured S3 destination.</p><a class="btn quiet" href="/machines#connect-machine">Install or connect the CLI →</a>
   </section>
 {:else}
   <div class="profiles">
@@ -210,7 +232,7 @@ reet setup profile push work</code></pre>
         >
           <span class="name">{profile.name}</span>
           <span class="revision">revision {profile.revision}</span>
-          <span class="snapshot">{profile.snapshotId}</span>
+
           <span class="updated">{stamp(profile.updatedAt)}</span>
         </button>
       {/each}
@@ -222,13 +244,13 @@ reet setup profile push work</code></pre>
       {:else if latest}
         <header class="detail-head">
           <div>
-            <p class="eyebrow">Profile</p>
+            <p class="eyebrow">Setup profile</p>
             <h2>{selected.name}</h2>
-            <p class="muted">Latest revision {latest.revision} of {selected.revisions.length}</p>
+            <p class="muted">{latest.revision === newest?.revision ? 'Latest revision' : 'Viewing revision'} {latest.revision} of {selected.revisions.length}</p>
           </div>
           {#if canWrite}
             <div class="detail-actions">
-              <button type="button" class="btn quiet" onclick={startOverrides} disabled={busy !== ''}>Edit overrides</button>
+              <button type="button" class="btn quiet" onclick={startOverrides} disabled={busy !== '' || latest.revision !== newest?.revision}>Edit exclusions</button>
               <button type="button" class="btn quiet" onclick={startRename} disabled={busy !== ''}>Rename</button>
               <button type="button" class="btn quiet danger" onclick={() => (deleteFor = profiles.find((profile) => profile.name === selected?.name) ?? null)} disabled={busy !== ''}>Delete</button>
             </div>
@@ -265,14 +287,39 @@ reet setup profile push work</code></pre>
           </form>
         {/if}
 
+        <section class="coverage" aria-label="Restore coverage">
+          <p class="eyebrow">Restore coverage</p>
+          {#if hasPreview}
+            <p class="coverage-count">{contents.count.components} components · {contents.count.skills} skills · {contents.count.memories} memory databases</p>
+            <p class="muted small">Selected after exclusions for the scope below; the local plan determines which files can be mapped. Captured: {componentCount} components, {skillCount} skills and {memoryCount} memory databases. {contents.excluded} excluded.</p>
+          {:else}<p>Coverage not recorded</p>{/if}
+          <div class="scope-controls">
+            <label>Machine scope<select bind:value={scopeMachine}><option value="">Global exclusions only</option>{#each Object.keys(latest.overrides?.machines ?? {}) as machine}<option value={machine}>{machine}</option>{/each}</select></label>
+            <label>Destination project<input bind:value={scopeProject} list="setup-project-scopes" placeholder="/absolute/path (optional)" autocomplete="off" /></label><datalist id="setup-project-scopes">{#each Object.keys(latest.overrides?.projects ?? {}) as project}<option value={project}></option>{/each}</datalist>
+          </div>
+          <p class="muted small">Snapshot location and destination health are not checked by this page. File restore is supported for selected components; cross-OS recovery and runtime behaviour remain unverified.</p>
+        </section>
+
+        <details class="prepare">
+          <summary>Prepare this machine</summary>
+          <ol>
+            <li><strong>Install and authenticate.</strong> <a href="/machines#connect-machine">Get the CLI</a>, then check <code>reet setup support</code>. Use a personal token from this site when prompted.</li>
+            <li><strong>Pull the profile.</strong><pre>{pullCommand}</pre><CopyButton text={pullCommand} label="Copy pull command" /><p>A divergent local copy is preserved. Rename it locally before pulling if you need to keep both histories.</p></li>
+            <li><strong>Obtain the encrypted snapshot.</strong> Copy it securely from the source machine, or use your configured S3 destination:<pre>{fetchCommand}</pre><CopyButton text={fetchCommand} label="Copy fetch command" /><p>Syncing a profile does not upload the snapshot. S3 must already be configured on this machine.</p></li>
+            <li><strong>Stop destination agents and preview.</strong><pre>{restoreCommand}</pre><CopyButton text={restoreCommand} label="Copy restore preview" /><p>Enter the snapshot passphrase locally. Review paths, omissions and compatibility warnings. Without <code>--project</code>, project files are omitted.</p></li>
+            <li><strong>Apply and verify locally.</strong> Re-run the reviewed command with <code>--apply</code>. Conflicts require explicit per-path skip/replace choices. Then verify the selected files:<pre>{verifyCommand}</pre><CopyButton text={verifyCommand} label="Copy verification command" /><p>Keep the journal for rollback; a file match does not establish working agents.</p></li>
+          </ol>
+        </details>
+
+        <details class="technical"><summary>Snapshot and capture details</summary>
         <dl class="facts">
-          <div><dt>Snapshot</dt><dd><code>{latest.snapshot_id}</code></dd></div>
-          <div><dt>Taken</dt><dd>{when(latest.snapshot_taken_at)}</dd></div>
-          <div><dt>Recorded</dt><dd>{when(latest.created_at)}</dd></div>
-          <div><dt>Selected</dt><dd>{hasPreview ? `${componentCount} components, ${skillCount} skills, ${memoryCount} memory database${memoryCount === 1 ? '' : 's'}` : '—'}</dd></div>
-          <div><dt>Omitted</dt><dd>{hasPreview ? `${omissionCount} records` : '—'}</dd></div>
-          <div><dt>Software evidence</dt><dd>{hasPreview ? (latest.software?.length ? `${latest.software.length} agents` : 'None recorded') : '—'}</dd></div>
-        </dl>
+          <div><dt>Snapshot ID</dt><dd><code>{latest.snapshot_id}</code></dd></div>
+          <div><dt>Snapshot captured</dt><dd>{when(latest.snapshot_taken_at)}</dd></div>
+          <div><dt>Revision recorded</dt><dd>{when(latest.created_at)}</dd></div>
+          <div><dt>Source platform</dt><dd>{latest.preview?.os || 'Not recorded'} / {latest.preview?.architecture || 'Not recorded'}</dd></div>
+          <div><dt>Capture omissions</dt><dd>{hasPreview ? `${omissionCount} records` : 'Not recorded'}</dd></div>
+          <div><dt>Software evidence</dt><dd>{latest.software?.length ? `${latest.software.length} agents` : 'None recorded'}</dd></div>
+        </dl></details>
 
         {#if !hasPreview}
           <p class="notice">Preview not recorded. Run <code>reet setup profile</code> or <code>reet setup profile push</code> and open the snapshot, or save with <code>--password-file</code>, to include selected/omitted counts.</p>
@@ -282,9 +329,9 @@ reet setup profile push work</code></pre>
         {/if}
 
         {#if hasPreview}
-          <details class="stored" open>
+          <details class="stored">
             <summary class="stored-summary">
-              <span>What this revision stores</span>
+              <span>Captured contents before exclusions</span>
               <span class="muted small">{componentCount} components · {skillCount} skills</span>
             </summary>
             <div class="stored-body">
@@ -432,7 +479,7 @@ reet setup profile push work</code></pre>
           <ol>
             {#each selected.revisions as revision (revision.revision)}
               <li class:current={revision.revision === latest.revision}>
-                <span class="rev">r{revision.revision}</span>
+                <button type="button" class="btn quiet rev" aria-pressed={revision.revision === latest.revision} onclick={() => { selectedRevision = revision.revision; editingOverrides = false; renaming = false; scopeMachine = ''; scopeProject = '' }}>View r{revision.revision}</button>
                 <span>{when(revision.created_at)}</span>
                 <span class="muted">{revisionSummary(revision)}</span>
               </li>
@@ -440,7 +487,15 @@ reet setup profile push work</code></pre>
           </ol>
         </div>
 
-        <p class="muted small">Use <code>reet setup restore --profile {selected.name}</code> to plan a restore, or add <code>--revision N</code> for an older revision. The snapshot must exist locally or be fetched first.</p>
+        {#if previous && changes}
+          <details class="revision-diff"><summary>Changes from r{previous.revision} to r{latest.revision}</summary>
+            <p class="muted small">{changes.added.length} added · {changes.removed.length} removed · {changes.changed.length} changed in the selected scope. Exclusions {changes.exclusionsChanged ? 'changed' : 'unchanged'}.</p>
+            {#each [['Added', changes.added], ['Removed', changes.removed], ['Changed', changes.changed]] as [label, items]}
+              {#if Array.isArray(items) && items.length}<h3>{label}</h3><ul>{#each items as item}<li class="muted small">{item}</li>{/each}</ul>{/if}
+            {/each}
+            <p class="muted small">Metadata comparison only; encrypted values and file contents are not available here.</p>
+          </details>
+        {/if}
       {:else}
         <p class="empty">This profile has no revisions.</p>
       {/if}
@@ -460,7 +515,11 @@ reet setup profile push work</code></pre>
 {/if}
 
 <style>
-  .profiles { display: grid; grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.4fr); gap: 18px; align-items: start; }
+  .coverage {margin:20px 0;padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--tint)}
+  .coverage-count {font-size:1.05rem;font-weight:600;margin:8px 0}
+  .scope-controls {display:flex;gap:12px;flex-wrap:wrap;margin:14px 0}.scope-controls label {display:grid;gap:6px;font-size:.8rem;min-width:0;flex:1}.scope-controls select,.scope-controls input {max-width:100%;min-width:0}
+  .prepare,.technical,.revision-diff {border-top:1px solid var(--line);padding:14px 0;margin-top:12px} .prepare summary,.technical summary,.revision-diff summary {cursor:pointer;font-weight:600;font-size:.9rem}.prepare ol {padding-left:22px}.prepare li {margin:16px 0;font-size:.85rem}.prepare p {color:var(--muted)}
+  .profiles { display: grid; grid-template-columns: minmax(200px, 0.55fr) minmax(0, 1.6fr); gap: 18px; align-items: start; }
   .profile-list { display: grid; gap: 8px; }
   .profile-row {
     display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; text-align: left; padding: 12px 14px;
@@ -471,7 +530,7 @@ reet setup profile push work</code></pre>
   .profile-row:disabled { opacity: 0.65; cursor: default; }
   .name { font-weight: 650; overflow-wrap: anywhere; }
   .revision { color: var(--accent); font-size: 0.76rem; font-weight: 600; }
-  .snapshot, .updated { grid-column: 1 / -1; color: var(--muted); font-size: 0.75rem; overflow-wrap: anywhere; }
+  .updated { grid-column: 1 / -1; color: var(--muted); font-size: 0.75rem; overflow-wrap: anywhere; }
   .profile-detail { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 20px; min-width: 0; }
   .detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
   .detail-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
@@ -523,8 +582,8 @@ reet setup profile push work</code></pre>
   .not-stored h3, .software h3 { margin-bottom: 4px; }
   .software { margin-top: 16px; }
   .history ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-  .history li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: baseline; padding: 6px 8px; border-radius: 6px; font-size: 0.8rem; }
-  .history li.current { background: var(--tint); }
+  .history li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 6px 8px; border-radius: 6px; font-size: 0.8rem; }
+  .history li > .muted {grid-column:2}.history button {font-size:.8rem}.history li.current { background: var(--tint); }
   .rev { color: var(--accent); font-weight: 650; }
   .empty-state { border: 1px dashed var(--line); border-radius: 12px; padding: 24px; }
   .empty-state h2 { margin-top: 0; }

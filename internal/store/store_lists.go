@@ -14,18 +14,19 @@ import (
 
 // SharedList is one named set of skills a team keeps together.
 type SharedList struct {
-	ID          int64  `json:"id"`
-	OwnerID     int64  `json:"ownerId"`
-	OwnerName   string `json:"ownerName,omitempty"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Visibility  string `json:"visibility"`
-	Slug        string `json:"slug,omitempty"`
-	Role        string `json:"role,omitempty"`
-	SkillCount  int    `json:"skillCount"`
-	MemberCount int    `json:"memberCount"`
-	CreatedAt   int64  `json:"createdAt"`
-	UpdatedAt   int64  `json:"updatedAt"`
+	ID           int64  `json:"id"`
+	OwnerID      int64  `json:"ownerId"`
+	OwnerName    string `json:"ownerName,omitempty"`
+	SharedWithMe bool   `json:"sharedWithMe"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	Visibility   string `json:"visibility"`
+	Slug         string `json:"slug,omitempty"`
+	Role         string `json:"role,omitempty"`
+	SkillCount   int    `json:"skillCount"`
+	MemberCount  int    `json:"memberCount"`
+	CreatedAt    int64  `json:"createdAt"`
+	UpdatedAt    int64  `json:"updatedAt"`
 }
 
 // ListSkill is a catalogue skill in a shared list, with the list's note.
@@ -254,6 +255,7 @@ func (s *Store) ListAccessFor(userID int64, userRole string, id int64) (ListAcce
 	if !read {
 		return ListAccess{}, ErrNotFound
 	}
+	l.SharedWithMe = userID != l.OwnerID && memberRole != "" && !excluded
 	l.Role = role
 	return ListAccess{List: l, CanEdit: edit, CanManage: manage, CanTransfer: transfer}, nil
 }

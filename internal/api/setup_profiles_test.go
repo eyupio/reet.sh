@@ -127,3 +127,40 @@ func containsAll(value string, parts ...string) bool {
 	}
 	return true
 }
+
+func TestSetupProfileRejectsStaleAndDivergentHistory(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	srv := httptest.NewServer(New(st, deadFetcher(t), "tok"))
+	defer srv.Close()
+	original := `{"schema_version":1,"name":"work","revisions":[{"revision":1,"snapshot_id":"a","snapshot_digest":"digest","created_at":"2026-10-22T12:00:00Z","snapshot_taken_at":"2026-10-22T12:00:00Z","preview":{"schema_version":1}}]}`
+	call := func(method, body string) (int, string) {
+		return doClient(t, srv.Client(), srv, method, "/api/v2/setup/profiles/work", body, "X-Reet-Token", "tok")
+	}
+	if code, body := call("PUT", original); code != 200 {
+		t.Fatalf("create: %d %s", code, body)
+	}
+	if code, body := call("PATCH", `{"base_revision":1,"overrides":{"exclude_kinds":["skills"]}}`); code != 200 {
+		t.Fatalf("edit: %d %s", code, body)
+	}
+	if code, _ := call("PUT", original); code != 409 {
+		t.Fatalf("stale push: %d", code)
+	}
+	if code, _ := call("PATCH", `{"base_revision":1,"overrides":{}}`); code != 409 {
+		t.Fatalf("stale edit: %d", code)
+	}
+	_, current := call("GET", "")
+	if !strings.Contains(current, `"exclude_kinds":["skills"]`) {
+		t.Fatal("server exclusions lost")
+	}
+	if code, body := call("PUT", current); code != 200 {
+		t.Fatalf("idempotent push: %d %s", code, body)
+	}
+	divergent := strings.Replace(current, `"snapshot_id":"a"`, `"snapshot_id":"b"`, 1)
+	if code, _ := call("PUT", divergent); code != 409 {
+		t.Fatalf("divergent push: %d", code)
+	}
+}

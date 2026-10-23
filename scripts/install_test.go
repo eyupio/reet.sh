@@ -34,6 +34,8 @@ func TestInstallRelease(t *testing.T) {
 		tamper, duplicate, omitBinary        bool
 		envVersion                           string
 		omitVersion                          bool
+		badVersion, cannotRun                bool
+		immutable                            bool
 	}{
 		{name: "environment dev", system: "Linux", arch: "x86_64", envVersion: "dev", omitVersion: true},
 		{name: "environment stable", system: "Linux", arch: "x86_64", envVersion: "latest", omitVersion: true},
@@ -43,6 +45,9 @@ func TestInstallRelease(t *testing.T) {
 		{name: "explicit dev overrides env", system: "Linux", arch: "x86_64", version: "dev", envVersion: "latest"},
 		{name: "explicit overrides invalid env", system: "Linux", arch: "x86_64", version: "dev", envVersion: "invalid"},
 		{name: "reject invalid env", system: "Linux", arch: "x86_64", envVersion: "../../invalid", omitVersion: true, problem: "version must be a release tag"},
+		{name: "binary version mismatch preserves old binary", system: "Linux", arch: "x86_64", version: "v9.8.7", badVersion: true, problem: "version does not match"},
+		{name: "binary cannot run preserves old binary", system: "Linux", arch: "x86_64", version: "v9.8.7", cannotRun: true, problem: "cannot run"},
+		{name: "immutable dev", system: "Linux", arch: "x86_64", version: "dev", immutable: true},
 		{name: "rolling dev", system: "Linux", arch: "x86_64", version: "dev"},
 		{name: "linux latest", system: "Linux", arch: "x86_64", version: "latest"},
 		{name: "linux arm64", system: "Linux", arch: "aarch64", version: "9.8.7"},
@@ -89,12 +94,28 @@ done
 printf '%s\n' "$url" >> "$REET_FIXTURE/requests"
 case "$url" in
   */releases/latest) printf 'https://github.com/eyupio/reet.sh/releases/tag/v9.8.7' ;;
-  */checksums.txt) cp "$REET_FIXTURE/checksums.txt" "$out" ;;
+  */dev-build.txt)
+    if [ "$REET_IMMUTABLE_FIXTURE" = true ]; then printf '%s\n' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa > "$out"; printf '200'; else printf '404'; exit 22; fi ;;
+  */checksums-*.txt|*/checksums.txt) cp "$REET_FIXTURE/checksums.txt" "$out" ;;
   */*.tar.gz) cp "$REET_FIXTURE/archive.tar.gz" "$out" ;;
   *) exit 91 ;;
 esac
 `, 0755)
-			binary := []byte("#!/bin/sh\nprintf 'reet v9.8.7 (fixture)\\n'\n")
+			fixtureVersion := "v9.8.7"
+			if tc.version == "dev" || tc.omitVersion && tc.envVersion == "dev" {
+				fixtureVersion = "dev"
+			}
+			if tc.badVersion {
+				fixtureVersion = "v0.0.0"
+			}
+			fixtureCommit := "fixture"
+			if tc.immutable {
+				fixtureCommit = strings.Repeat("a", 40)
+			}
+			binary := []byte(fmt.Sprintf("#!/bin/sh\nprintf 'reet %s (%s)\\n'\n", fixtureVersion, fixtureCommit))
+			if tc.cannotRun {
+				binary = []byte("#!/bin/sh\nexit 1\n")
+			}
 			var archive bytes.Buffer
 			gz := gzip.NewWriter(&archive)
 			tw := tar.NewWriter(gz)
@@ -133,6 +154,9 @@ esac
 				releaseVersion = "dev"
 			}
 			asset := fmt.Sprintf("reet_%s_%s_%s.tar.gz", releaseVersion, osName, arch)
+			if tc.immutable {
+				asset = fmt.Sprintf("reet_dev_%s_%s_%s.tar.gz", strings.Repeat("a", 40), osName, arch)
+			}
 			digest := fmt.Sprintf("%x", sha256.Sum256(archive.Bytes()))
 			manifest := digest + "  " + asset + "\n"
 			if tc.duplicate {
@@ -148,7 +172,7 @@ esac
 				args = append(args, "--version", tc.version)
 			}
 			cmd := exec.Command("sh", args...)
-			cmd.Env = append(os.Environ(), "PATH="+mockBin+string(os.PathListSeparator)+os.Getenv("PATH"), "REET_FIXTURE="+root, "REET_VERSION="+tc.envVersion)
+			cmd.Env = append(os.Environ(), "PATH="+mockBin+string(os.PathListSeparator)+os.Getenv("PATH"), "REET_FIXTURE="+root, "REET_VERSION="+tc.envVersion, fmt.Sprintf("REET_IMMUTABLE_FIXTURE=%t", tc.immutable))
 			output, installErr := cmd.CombinedOutput()
 			installed, err := os.ReadFile(filepath.Join(installDir, "reet"))
 			if err != nil {
@@ -165,6 +189,10 @@ esac
 			}
 			if installErr != nil {
 				t.Fatalf("install: %v: %s", installErr, output)
+			}
+			previous, _ := os.ReadFile(filepath.Join(installDir, "reet.previous"))
+			if string(previous) != "old installation" {
+				t.Fatal("previous binary was not preserved")
 			}
 			if !bytes.Equal(installed, binary) {
 				t.Fatal("installed file differs from verified release")

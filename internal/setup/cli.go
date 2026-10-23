@@ -318,7 +318,7 @@ func runRestore(args []string, out io.Writer) error {
 		return err
 	}
 	if *profile == "" && f.NArg() == 0 && interactive() && !*asJSON {
-		return runRestoreWizard(out, *dir, *project, *machine)
+		return runRestoreWizard(out, *dir, *project, *machine, restoreWizardOptions{PasswordFile: *passwordFile, Revision: *revision, ProbeVersions: *probeVersions, InspectInstallation: *inspectInstallation})
 	}
 	if (*profile == "") == (f.NArg() != 1) {
 		return fmt.Errorf("usage: reet setup restore [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH] [--probe-versions] [--inspect-installation] [--apply] [--resume JOURNAL] [--on-conflict skip|replace] [--conflict PATH=skip|replace]...")
@@ -455,9 +455,13 @@ func runVerify(args []string, out io.Writer) error {
 	}
 	result := VerifySetupSnapshot(snapshot, manifest, destination)
 	if *asJSON {
-		return writeJSON(out, result)
+		if err := writeJSON(out, result); err != nil {
+			return err
+		}
+	} else if err := renderSetupVerify(out, result); err != nil {
+		return err
 	}
-	return renderSetupVerify(out, result)
+	return setupVerificationError(result)
 }
 
 func runRollback(args []string, out io.Writer) error {

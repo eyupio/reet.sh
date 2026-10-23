@@ -8,9 +8,19 @@ import (
 	"testing"
 )
 
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "reet-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 func privateLayout(t *testing.T) Layout {
 	t.Helper()
-	config := filepath.Join(t.TempDir(), "agent.json")
+	config := filepath.Join(shortTempDir(t), "agent.json")
 	if err := os.WriteFile(config, []byte("{}"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +55,7 @@ func TestEnsureCreatesPrivateLayout(t *testing.T) {
 }
 
 func TestEnsureRefusesUnsafePaths(t *testing.T) {
-	config := filepath.Join(t.TempDir(), "agent.json")
+	config := filepath.Join(shortTempDir(t), "agent.json")
 	if err := os.WriteFile(config, []byte("{}"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +90,7 @@ func TestEnsureRefusesUnsafePaths(t *testing.T) {
 }
 
 func TestNewLayoutRefusesLongSocketPaths(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), strings.Repeat("x", 100))
+	dir := filepath.Join(shortTempDir(t), strings.Repeat("x", 100))
 	if _, err := NewLayout(filepath.Join(dir, "agent.json")); !errors.Is(err, ErrUnsafePath) {
 		t.Fatalf("long socket path: %v", err)
 	}

@@ -22,7 +22,7 @@ func TestAgentTerminalConsentKeepsLocalSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := filepath.Join(t.TempDir(), "agent.json")
+	config := filepath.Join(shortScanDir(t), "agent.json")
 	c := agentConfig{Server: "https://example.invalid", Token: "token", ID: "agent0123456789abcdef", Secret: "secret0123456789abcdef", Host: "fixture", Hostname: hostname, Home: home}
 	if err := writePrivate(config, c); err != nil {
 		t.Fatal(err)
@@ -94,6 +94,16 @@ func TestAgentTerminalConsentKeepsLocalSessions(t *testing.T) {
 	}
 }
 
+func shortScanDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "reet-scan-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 func TestAgentTerminalEnableRefusesRoot(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -106,7 +116,7 @@ func TestAgentTerminalEnableRefusesRoot(t *testing.T) {
 	original := rootUser
 	rootUser = func() bool { return true }
 	defer func() { rootUser = original }()
-	config := filepath.Join(t.TempDir(), "agent.json")
+	config := filepath.Join(shortScanDir(t), "agent.json")
 	if err := writePrivate(config, agentConfig{Server: "https://example.invalid", Token: "token", ID: "agent0123456789abcdef", Secret: "secret0123456789abcdef", Host: "fixture", Hostname: hostname, Home: home}); err != nil {
 		t.Fatal(err)
 	}

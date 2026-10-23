@@ -62,9 +62,12 @@ func TestNativeAgentKillKeepsTmuxSession(t *testing.T) {
 	if err := Install(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
-	waitForNative(t, 20*time.Second, func() bool {
+	if !waitForNative(t, 20*time.Second, func() bool {
 		return SocketActive(layout) && ReadStatus(context.Background(), plan).Active
-	}, "services to start")
+	}) {
+		debugServices(t, plan, layout)
+		t.Fatal("timed out waiting for services to start")
+	}
 	if err := exec.Command(tmux.Path, "-S", layout.Socket, "new-session", "-d", "-s", "reet-native", "sleep", "300").Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -76,10 +79,13 @@ func TestNativeAgentKillKeepsTmuxSession(t *testing.T) {
 	if err := syscall.Kill(firstAgent, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	waitForNative(t, 25*time.Second, func() bool {
+	if !waitForNative(t, 25*time.Second, func() bool {
 		next := mainPID(t, plan)
 		return next != 0 && next != firstAgent
-	}, "agent service to restart")
+	}) {
+		debugServices(t, plan, layout)
+		t.Fatal("timed out waiting for the agent service to restart")
+	}
 	if !SocketActive(layout) || !processAlive(pid) {
 		t.Fatal("killing the agent ended tmux or the running test process")
 	}
@@ -137,14 +143,34 @@ func processAlive(pid int) bool {
 	return syscall.Kill(pid, 0) == nil
 }
 
-func waitForNative(t *testing.T, timeout time.Duration, condition func() bool, description string) {
+func waitForNative(t *testing.T, timeout time.Duration, condition func() bool) bool {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if condition() {
-			return
+			return true
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	t.Fatalf("timed out waiting for %s", description)
+	return false
+}
+
+func debugServices(t *testing.T, plan ServicePlan, layout Layout) {
+	t.Helper()
+	t.Logf("layout socket active=%t status=%+v", SocketActive(layout), ReadStatus(context.Background(), plan))
+	if runtime.GOOS == "darwin" {
+		for _, label := range []string{plan.AgentLabel, plan.TerminalLabel} {
+			out, err := exec.Command("launchctl", "print", "gui/"+strconv.Itoa(os.Getuid())+"/"+label).CombinedOutput()
+			t.Logf("%s print err=%v:\n%s", label, err, out)
+		}
+		return
+	}
+	for _, name := range []string{plan.AgentName, plan.TerminalName} {
+		out, err := exec.Command("systemctl", "--user", "status", name, "--no-pager", "-l").CombinedOutput()
+		t.Logf("%s status err=%v:\n%s", name, err, out)
+		journal, jerr := exec.Command("journalctl", "--user", "-u", name, "--no-pager", "-n", "40").CombinedOutput()
+		if jerr == nil {
+			t.Logf("%s journal:\n%s", name, journal)
+		}
+	}
 }

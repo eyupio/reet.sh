@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -110,6 +111,8 @@ Configuration (environment variables):
   REET_DATA_DIR   SQLite data directory (default ./data)
   REET_AUTH       accounts (default), token or none
   REET_TOKEN      Optional owner-setup bootstrap / legacy access token
+  REET_SIGNUP     open to allow self-serve accounts (default invite-only)
+  REET_CONTACT_EMAIL  Optional admin address shown for account/reset requests
   REET_TOPICS     off to disable topic seeding
   REET_REFRESH    off to disable background metadata refresh
 
@@ -202,10 +205,14 @@ func serve() error {
 	}
 	backups := backup.New(st, bcfg)
 	backups.Start(ctx)
+	signup := strings.EqualFold(strings.TrimSpace(os.Getenv("REET_SIGNUP")), "open") ||
+		strings.TrimSpace(os.Getenv("REET_SIGNUP")) == "1" ||
+		strings.EqualFold(strings.TrimSpace(os.Getenv("REET_SIGNUP")), "true")
 	h := api.New(st, meta.Default(os.Getenv("SKILLS_SH_TOKEN")), os.Getenv("REET_TOKEN"),
 		api.WithAuthMode(mode), api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"),
 		api.WithTopics(os.Getenv("REET_TOPICS") != "off"), api.WithPublicURL(os.Getenv("REET_PUBLIC_URL")),
-		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"), api.WithBackups(backups))
+		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"), api.WithBackups(backups),
+		api.WithSignup(signup), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")))
 	mux := http.NewServeMux()
 	mux.Handle("/api/", h)
 	mux.Handle("/quick", h)

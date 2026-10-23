@@ -99,18 +99,22 @@
 
 <section class="sync" aria-labelledby="sync-title">
   <header><div><p class="eyebrow">Machines & servers</p><h2 id="sync-title">{view === 'machines' ? (compact ? 'Inventory' : 'Your machines') : 'Compare & sync'}</h2></div><button class="btn quiet" type="button" onclick={() => load()} disabled={loading || busy}>{loading ? 'Refreshing…' : 'Refresh status'}</button></header>
-  {#if !compact}<p class="lede">Keep your reet.sh skills and machines in step. Review differences and approve the changes you want.</p>{/if}
-  {#if lastRefresh}<p class="hint">Status refreshed {when(lastRefresh)} · updates automatically while this page is open.</p>{/if}
-  <SyncControl snapshot={syncState} {canWrite} {view} onupdate={next => { ++loadGeneration; syncState = next }} />
-  {#if view === 'machines'}<label class="site">Controller site <input value={site} readonly /></label>{/if}
+  {#if !compact}<p class="lede">{reportedMachines.length ? 'Keep your AI agents, skills and machines in step. Review differences and approve the changes you want.' : 'Connect this machine in three steps: install the reet CLI, authenticate, then scan. About 2 minutes. It reports what is installed; it does not install or remove skills.'}</p>{/if}
+  {#if lastRefresh && reportedMachines.length}<p class="hint">Status refreshed {when(lastRefresh)} · updates automatically while this page is open.</p>{/if}
+  {#if reportedMachines.length}<SyncControl snapshot={syncState} {canWrite} {view} onupdate={next => { ++loadGeneration; syncState = next }} />{/if}
+  {#if view === 'machines' && reportedMachines.length}<label class="site">Controller site <input value={site} readonly /></label>{/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
 
   {#if canWrite && view === 'machines'}
     <details id="connect-machine" class="connect" bind:open={connectOpen}><summary>{machines.length ? 'Connect another machine' : 'Connect your first machine'}</summary>
-    <div class="purpose" role="group" aria-label="Installation purpose"><button class="btn quiet" aria-pressed={intent === 'connect'} onclick={() => intent = 'connect'}>Connect a machine</button><button class="btn quiet" aria-pressed={intent === 'host'} onclick={() => intent = 'host'}>Host a server</button></div>
-    <p class="hint">{intent === 'connect' ? 'Connect this machine to the existing site. No local server is required.' : 'Run a separate reet site on your own machine. This does not connect your skills to the existing site.'}</p>
-    {#if serverBuild}<p class="hint">This site's server: {serverBuild.version} ({serverBuild.commit.slice(0, 12)}). Your local CLI has its own version; check it with <code>reet --version</code>.</p>{/if}
+    {#if machines.length}
+      <div class="purpose" role="group" aria-label="Installation purpose"><button class="btn quiet" aria-pressed={intent === 'connect'} onclick={() => intent = 'connect'}>Connect a machine</button><button class="btn quiet" aria-pressed={intent === 'host'} onclick={() => intent = 'host'}>Host a server</button></div>
+      <p class="hint">{intent === 'connect' ? 'Connect this machine to the existing site. No local server is required.' : 'Run a separate reet site on your own machine. This does not connect your skills to the existing site.'}</p>
+    {:else}
+      <p class="hint">Install the reet CLI, create a machine token, then run the scan. You only need to do this once per machine.</p>
+    {/if}
+    {#if serverBuild && machines.length}<p class="hint">This site's server: {serverBuild.version} ({serverBuild.commit.slice(0, 12)}). Your local CLI has its own version; check it with <code>reet --version</code>.</p>{/if}
     {#if intent === 'connect'}<div class="connection-steps" role="group" aria-label="Connection steps">{#each [[1, 'Install'], [2, 'Authenticate'], [3, 'Scan']] as [number, label]}<button class="btn quiet" aria-current={connectStep === number ? 'step' : undefined} onclick={() => connectionStep(Number(number))}>{number}. {label}</button>{/each}</div>{/if}
     <ol class="setup">
       {#if intent === 'host' || connectStep === 1}
@@ -118,10 +122,12 @@
         <label class="channel">Release <select aria-label="Release" bind:value={channel} onchange={() => channelChosen = true}><option value="stable">Latest stable</option><option value="dev">Dev — latest main build</option></select></label>
         {#if channel === 'dev'}<p class="hint">Dev updates after each merge to main. It may contain unfinished changes and does not replace the latest stable release.</p>{/if}
         <div class="command"><pre>{install}</pre><CopyButton text={install} label="Copy install" /></div>
-        <p class="hint">The initial channel follows this server when its build is known. Check command support locally before continuing:</p><div class="command"><pre>command -v reet
+        <details class="server"><summary>Install troubleshooting</summary>
+          <p class="hint">The initial channel follows this server when its build is known. Check command support locally before continuing:</p><div class="command"><pre>command -v reet
 reet --version
 reet setup support</pre><CopyButton text="command -v reet\nreet --version\nreet setup support" label="Copy capability check" /></div><p class="hint">If this release lacks a required command, choose Dev and reinstall, or wait for a stable release containing it.</p>
-        {#if intent === 'connect'}<button class="btn" onclick={() => connectionStep(2)}>Continue to authentication →</button>{/if}
+        </details>
+        {#if intent === 'connect'}<button class="btn primary" onclick={() => connectionStep(2)}>Continue to authentication →</button>{/if}
       </li>
       {/if}
       {#if intent === 'connect'}
@@ -136,17 +142,19 @@ reet setup support</pre><CopyButton text="command -v reet\nreet --version\nreet 
           <details class="existing-token"><summary>Already have a token?</summary><p class="hint">Continue to the scan below and enter your existing token at the hidden CLI prompt. Existing tokens cannot be displayed again.</p></details>
         {/if}
         <div class="command"><pre>{credentials}</pre><CopyButton text={credentials} label="Copy connection defaults" /></div>
-        <button class="btn" onclick={() => connectionStep(3)}>Continue to scan →</button>
+        <button class="btn primary" onclick={() => connectionStep(3)}>Continue to scan →</button>
       </li>
       {/if}
       {#if connectStep === 3}
       <li value="3"><h3 id="connection-step-3" tabindex="-1">Report what is installed</h3>
         <label>Machine name <input bind:value={host} oninput={() => connectionSince = Date.now()} placeholder="Choose a unique machine name" autocomplete="off" /></label>
         <div class="command"><pre>{scan}</pre><CopyButton text={scan} label="Copy scan" /></div>
-        <p class="hint">For ongoing reporting and web controls, enroll once, then run the agent. Add <code>--project /absolute/path</code> for each project. Add <code>--allow-apply</code> only if this machine should execute plans approved here.</p>
-        <label class="apply-opt-in"><input type="checkbox" bind:checked={allowApply} /> Allow this machine to apply plans I approve in reet.sh</label>
-        <div class="command"><pre>{enrollment}</pre><CopyButton text={enrollment} label="Copy enrollment" /></div>
-        <p class="hint">Run this in each project you want to track. <code>--prune</code> updates this machine's inventory; it does not uninstall skills or remove them from your shelf. Keep the name stable between scans.</p>
+        <details class="server"><summary>Keep this machine reporting automatically</summary>
+          <p class="hint">For ongoing reporting and web controls, enroll once, then run the agent. Add <code>--project /absolute/path</code> for each project. Add <code>--allow-apply</code> only if this machine should execute plans approved here.</p>
+          <label class="apply-opt-in"><input type="checkbox" bind:checked={allowApply} /> Allow this machine to apply plans I approve in reet.sh</label>
+          <div class="command"><pre>{enrollment}</pre><CopyButton text={enrollment} label="Copy enrollment" /></div>
+          <p class="hint">Run this in each project you want to track. <code>--prune</code> updates this machine's inventory; it does not uninstall skills or remove them from your shelf. Keep the name stable between scans.</p>
+        </details>
       </li>
       {/if}
       {:else}
@@ -164,14 +172,16 @@ reet install --mode native
       <button class="btn" type="button" onclick={() => load()} disabled={loading || busy}>{loading ? 'Checking…' : 'Check for my scan'}</button>
     </div>
     {/if}
-    <details class="server"><summary>Upgrade or diagnose this CLI</summary>
-      <p class="hint">Upgrades preserve the installed channel unless you select another. Run these commands on the host; updating the CLI does not restart an unmanaged server.</p>
-      <div class="command"><pre>reet upgrade --check
+    {#if machines.length}
+      <details class="server"><summary>Upgrade or diagnose this CLI</summary>
+        <p class="hint">Upgrades preserve the installed channel unless you select another. Run these commands on the host; updating the CLI does not restart an unmanaged server.</p>
+        <div class="command"><pre>reet upgrade --check
 reet upgrade{channel === 'dev' ? ' --version dev' : ''}
 reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --version dev' : ''}\nreet doctor`} label="Copy upgrade and doctor" /></div>
-    </details>
-    <details class="server"><summary>Connecting an empty machine?</summary><p class="hint">Choose the agent you want to sync, create its empty skills folder, then report it. This does not install the agent itself.</p><label>Agent <select aria-label="Agent" bind:value={emptyAgent}><option value="agents">Codex / shared agents</option><option value="claude">Claude Code</option><option value="cursor">Cursor</option><option value="opencode">OpenCode</option></select></label><div class="command"><pre>{emptyFolder}</pre><CopyButton text={emptyFolder} label="Copy empty-machine setup" /></div></details>
-    <details class="server"><summary>Running reet on another server?</summary><p class="hint">For a server deployment, set REET_TOKEN privately in its process environment, then configure the server process to report to this controller every minute. A container reports only its own files; mount the skill directories you want it to see. Without a remote controller configured, the server identity appears in its local owner's account.</p><div class="command"><pre>{serverConfig}</pre><CopyButton text={serverConfig} label="Copy server setup" /></div></details>
+      </details>
+      <details class="server"><summary>Connecting an empty machine?</summary><p class="hint">Choose the agent you want to sync, create its empty skills folder, then report it. This does not install the agent itself.</p><label>Agent <select aria-label="Agent" bind:value={emptyAgent}><option value="agents">Codex / shared agents</option><option value="claude">Claude Code</option><option value="cursor">Cursor</option><option value="opencode">OpenCode</option></select></label><div class="command"><pre>{emptyFolder}</pre><CopyButton text={emptyFolder} label="Copy empty-machine setup" /></div></details>
+      <details class="server"><summary>Running reet on another server?</summary><p class="hint">For a server deployment, set REET_TOKEN privately in its process environment, then configure the server process to report to this controller every minute. A container reports only its own files; mount the skill directories you want it to see. Without a remote controller configured, the server identity appears in its local owner's account.</p><div class="command"><pre>{serverConfig}</pre><CopyButton text={serverConfig} label="Copy server setup" /></div></details>
+    {/if}
     {/if}
     </details>
   {/if}
@@ -194,8 +204,8 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
       <p class="hint">The controller cannot rescan machines remotely. After each command finishes, use Refresh status to see the reports received.</p>
     </details>
   {/if}
+  {#if machines.length}
   <div class="sectionhead"><h3 id="machine-list-title" tabindex="-1">Known machines</h3><span>{machines.length} {machines.length === 1 ? 'machine' : 'machines'} · {syncState.environments.filter(e => !e.agent.startsWith('reet')).length} agent groups</span></div>
-  {#if !loading && !machines.length}<p class="empty">No machines have reported yet.{canWrite ? ' Run the scan command above, then refresh status.' : ''}</p>{/if}
   <ul class="environments">
     {#each machines as machine (machine.host)}
       <li><details class="machine-inventory"><summary class="envhead"><div><strong>{machine.host}</strong>{#if machine.aliases?.length}<small class="machine-alias">Also known as {machine.aliases.join(', ')}</small>{/if}</div><span class="badge">{agentGroups(machine).every(g => g.complete && fresh(g)) ? 'Inventory current' : 'Scan needed'} · {machine.skillCount} unique {machine.skillCount === 1 ? 'skill' : 'skills'} · {agentGroups(machine).length} agent {agentGroups(machine).length === 1 ? 'group' : 'groups'}</span></summary>
@@ -219,6 +229,7 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
       </details></li>
     {/each}
   </ul>
+  {/if}
   {#if serverMachines.length}
     <details class="server"><summary>Server-only reports ({serverMachines.length})</summary><p class="hint">These machines have reported a heartbeat but no agent inventory. Container restarts may create new host IDs.</p>
       <ul>{#each serverMachines as machine (machine.host)}{#each machine.groups as heartbeat (heartbeat.id)}<li><strong>{machine.host}</strong><p class="hint">{status(heartbeat)} · {when(heartbeat.scannedAt || heartbeat.lastSeen)}</p>{#if canWrite}<button class="btn quiet" onclick={() => (machineChange={from:machine.host})} disabled={busy}>Forget machine {machine.host}</button>{/if}</li>{/each}{/each}</ul>
@@ -269,7 +280,7 @@ reet doctor</pre><CopyButton text={`reet upgrade${channel === 'dev' ? ' --versio
  .envhead strong { overflow-wrap:anywhere; } .badge { font-size:.73rem; color:var(--muted); padding:3px 8px; border:1px solid var(--line); border-radius:999px; } .attention { color:var(--accent); border-color:var(--accent); }
  .advice { font-size:.8rem; overflow-wrap:anywhere; margin:10px 0 0; }
 
- .error,.notice { padding:12px; border:1px solid var(--bad); border-radius:8px; overflow-wrap:anywhere; } .notice { border-color:var(--good); } .empty { color:var(--muted); padding:20px 0; }
+ .error,.notice { padding:12px; border:1px solid var(--bad); border-radius:8px; overflow-wrap:anywhere; } .notice { border-color:var(--good); }
 
  @media(max-width:560px) { .command { align-items:stretch; } .command :global(button) { width:100%; } .setup { padding-left:16px; } }
 </style>

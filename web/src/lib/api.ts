@@ -89,6 +89,8 @@ export type AuthStatus = {
   mode: 'accounts' | 'token' | 'none'
   setupRequired: boolean
   bootstrapRequired: boolean
+  signupEnabled?: boolean
+  contactEmail?: string
   user: User | null
 }
 export type APIToken = { id: number; name: string; createdAt: number; lastUsedAt?: number }
@@ -195,6 +197,9 @@ export async function setupAccount(data: { name: string; email: string; password
   const headers: Record<string, string> = {}
   if (bootstrapToken) headers['X-Reet-Token'] = bootstrapToken
   return (await req('/api/v2/auth/setup', { method: 'POST', body: json(data), headers })).json()
+}
+export async function signUpAccount(data: { name: string; email: string; password: string }): Promise<User> {
+  return (await req('/api/v2/auth/signup', { method: 'POST', body: json(data) })).json()
 }
 export async function signInAccount(email: string, password: string): Promise<User> {
   return (await req('/api/v2/auth/sign-in', { method: 'POST', body: json({ email, password }) })).json()

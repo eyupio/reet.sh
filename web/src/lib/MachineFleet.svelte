@@ -11,6 +11,7 @@
     snapshot,
     site,
     canWrite,
+    terminalAccess=false,
     onadd,
     onupdate,
     onerror,
@@ -20,6 +21,7 @@
     snapshot: SyncState
     site: string
     canWrite: boolean
+    terminalAccess?:boolean
     onadd: () => void
     onupdate: (state: SyncState) => void
     onerror: (error: unknown) => void
@@ -149,6 +151,7 @@
 
         <div class="actions">
           <a class="btn primary" href={syncLink(machine.host)}>Sync this machine</a>
+          {#if terminalAccess&&enrolled}<a class="btn" href={`/machines?view=terminal&agent=${encodeURIComponent(enrolled.id)}`}>Open terminal</a>{/if}
           <button class="btn" type="button" onclick={() => (commandsFor = machine)}>Commands</button>
           {#if canWrite}
             <details class="manage">

@@ -91,6 +91,7 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer peer.Close()
+	peer.SetTrafficObserver(hubConn.ReportTraffic)
 	peerCtx, peerCancel := context.WithCancel(r.Context())
 	var peerWorkers sync.WaitGroup
 	defer func() { peerCancel(); peerWorkers.Wait() }()

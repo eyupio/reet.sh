@@ -166,6 +166,7 @@ func (b *Broker) Serve(ctx context.Context, uid int64, source, id string, c *web
 			if kind != websocket.MessageBinary || terminalproto.ValidateBinary(data) != nil {
 				return terminalproto.ErrInvalid
 			}
+			p.recordTraffic(0, len(data))
 			select {
 			case output <- data:
 			default:
@@ -198,6 +199,7 @@ func (b *Broker) Serve(ctx context.Context, uid int64, source, id string, c *web
 				if err := write(vctx, v.host, kind, data); err != nil {
 					return err
 				}
+				p.recordTraffic(len(data), 0)
 				continue
 			}
 			var resize struct {
@@ -332,5 +334,6 @@ func (b *Broker) History(ctx context.Context, uid int64, session string, lines i
 			return nil, terminalproto.ErrInvalid
 		}
 		data = append(data, frame...)
+		p.recordTraffic(0, len(frame))
 	}
 }

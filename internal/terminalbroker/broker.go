@@ -51,7 +51,23 @@ type Peer struct {
 	streams      map[string]*expected
 	next         int64
 	observations chan terminalproto.Message
+	traffic      func(int64, int64, time.Time)
 }
+
+func (p *Peer) SetTrafficObserver(fn func(int64, int64, time.Time)) {
+	p.mu.Lock()
+	p.traffic = fn
+	p.mu.Unlock()
+}
+func (p *Peer) recordTraffic(input, output int) {
+	p.mu.Lock()
+	fn := p.traffic
+	p.mu.Unlock()
+	if fn != nil {
+		fn(int64(input), int64(output), time.Now())
+	}
+}
+
 type expected struct {
 	hello   terminalproto.StreamHello
 	conn    chan *websocket.Conn

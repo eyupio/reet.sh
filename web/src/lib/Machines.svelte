@@ -2,8 +2,12 @@
   import EnvironmentSync from './EnvironmentSync.svelte'
   import PageHeader from './PageHeader.svelte'
   import { createToken } from './api'
+  import { onMount, type Component } from 'svelte'
   let { canWrite, accounts, compare = false }: { canWrite: boolean; accounts: boolean; compare?: boolean } = $props()
   let token = $state(''), name = $state('machine token'), busy = $state(false), error = $state('')
+  const terminals = new URLSearchParams(location.search).get('view') === 'terminal'
+  let TerminalView = $state<Component>()
+  onMount(()=>{let disposed=false;if(terminals&&accounts&&canWrite)void import('./terminal/TerminalWorkspace.svelte').then(module=>{if(!disposed)TerminalView=module.default}).catch(()=>{if(!disposed)error='Could not load the terminal workspace. Refresh this page to retry.'});return()=>{disposed=true}})
   async function connectToken() {
     if (busy) return
     busy = true; error = ''
@@ -13,8 +17,9 @@
   }
 </script>
 <PageHeader eyebrow="Your workspace" title="Machines." lede="Bring a machine online, see what its agents have installed, and sync the skills and setups you want." />
-<nav aria-label="Machines"><a class="btn quiet" href="/machines" aria-current={!compare ? 'page' : undefined}>Inventory & connection</a><a class="btn quiet" href="/machines?view=compare" aria-current={compare ? 'page' : undefined}>Compare & sync</a><a class="btn quiet" href="/profiles">Portable setups →</a></nav>
-<EnvironmentSync compact {canWrite} {token} view={compare ? 'compare' : 'machines'} startConnect={location.hash === '#connect-machine'}>
+<nav aria-label="Machines"><a class="btn quiet" href="/machines" aria-current={!compare&&!terminals ? 'page' : undefined}>Inventory & connection</a><a class="btn quiet" href="/machines?view=compare" aria-current={compare ? 'page' : undefined}>Compare & sync</a>{#if accounts&&canWrite}<a class="btn quiet" href="/machines?view=terminal" aria-current={terminals?'page':undefined}>Terminals</a>{/if}<a class="btn quiet" href="/profiles">Portable setups →</a></nav>
+{#if terminals && accounts && canWrite}{#if TerminalView}<TerminalView />{:else}<p role="status">{error||'Loading terminal workspace…'}</p>{/if}{:else}
+<EnvironmentSync compact {canWrite} terminalAccess={accounts&&canWrite} {token} view={compare ? 'compare' : 'machines'} startConnect={location.hash === '#connect-machine'}>
   {#snippet tokenSetup()}
     {#if accounts && canWrite}
       {#if !token}
@@ -24,6 +29,7 @@
     {:else}<p>Use the token configured for this instance when the CLI asks. Instances without authentication do not require one.</p>{/if}
   {/snippet}
 </EnvironmentSync>
+{/if}
 <style>
  nav,form {display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:20px} a {text-decoration:none} a[aria-current=page] {background:var(--tint);border-color:var(--accent)} label {display:grid;gap:6px;font-size:.85rem} p {font-size:.85rem;color:var(--muted)}
 </style>

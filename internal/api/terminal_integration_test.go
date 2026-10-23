@@ -44,10 +44,16 @@ func (t terminalTestTransport) RoundTrip(r *http.Request) (*http.Response, error
 
 func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 	if os.Geteuid() == 0 {
+		if os.Getenv("REET_BROWSER_TESTS") == "1" {
+			t.Fatal("browser terminal gate requires a non-root host user")
+		}
 		t.Skip("managed shells require a non-root OS user")
 	}
 	tmux, err := terminalhost.FindTmux(t.Context())
 	if err != nil {
+		if os.Getenv("REET_BROWSER_TESTS") == "1" {
+			t.Fatal("browser terminal gate requires installed tmux", err)
+		}
 		t.Skip(err)
 	}
 	dir, err := os.MkdirTemp("/tmp", "reet-broker-")
@@ -92,7 +98,44 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 		srv.s.privateHandler().ServeHTTP(w, r.WithContext(privateconn.WithPrivateTransport(r.Context())))
 	}))
 	defer private.Close()
-	public := httptest.NewServer(srv)
+	browserMode := os.Getenv("REET_BROWSER_TESTS") == "1"
+	browserCommands := make(chan terminalBrowserCommand)
+	public := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if browserMode && strings.HasPrefix(r.URL.Path, "/_test/") {
+			if user, ok := srv.s.sessionUser(r); !ok || user.ID != uid {
+				http.Error(w, "forbidden", 403)
+				return
+			}
+			_, _ = io.Copy(io.Discard, r.Body)
+			action := strings.TrimPrefix(r.URL.Path, "/_test/")
+			if action != "state" && action != "restart-agent" {
+				http.NotFound(w, r)
+				return
+			}
+			reply := make(chan map[string]any, 1)
+			select {
+			case browserCommands <- terminalBrowserCommand{action, reply}:
+			case <-r.Context().Done():
+				return
+			}
+			select {
+			case result := <-reply:
+				writeJSON(w, 200, result)
+			case <-r.Context().Done():
+			}
+			return
+		}
+		if !browserMode || strings.HasPrefix(r.URL.Path, "/api/") {
+			srv.ServeHTTP(w, r)
+			return
+		}
+		assets := filepath.Join("..", "..", "web", "dist")
+		if strings.HasPrefix(r.URL.Path, "/assets/") {
+			http.FileServer(http.Dir(assets)).ServeHTTP(w, r)
+			return
+		}
+		http.ServeFile(w, r, filepath.Join(assets, "index.html"))
+	}))
 	defer public.Close()
 	srv.s.publicURL = public.URL
 	base, _ := url.Parse(private.URL)
@@ -107,7 +150,8 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		handshake, _ := terminalproto.EncodeHandshake(terminalproto.Handshake{ProtocolVersion: 1, RequestID: terminalbroker.ID(), AgentInstanceID: terminalbroker.ID(), Capabilities: caps})
+		instance := terminalbroker.ID()
+		handshake, _ := terminalproto.EncodeHandshake(terminalproto.Handshake{ProtocolVersion: 1, RequestID: terminalbroker.ID(), AgentInstanceID: instance, Capabilities: caps})
 		if err = c.Write(ctx, websocket.MessageText, handshake); err != nil {
 			t.Fatal(err)
 		}
@@ -153,6 +197,8 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 				}
 			}
 		}()
+		cpu, total, available, disk, diskFree, uptime := 42.0, float64(4<<30), float64(2<<30), float64(100<<30), float64(75<<30), 3600.0
+		_ = send(ctx, terminalproto.Message{Version: 1, RequestID: terminalbroker.ID(), Generation: reply.Generation, Body: terminalproto.HealthReport{SchemaVersion: 1, Sequence: 1, AgentInstanceID: instance, SampledAt: time.Now().UnixMilli(), Scope: "host", CPUPercent: terminalproto.Reading{Value: &cpu}, Memory: terminalproto.CapacityReading{Total: terminalproto.Reading{Value: &total}, Available: terminalproto.Reading{Value: &available}}, Disk: terminalproto.CapacityReading{Total: terminalproto.Reading{Value: &disk}, Available: terminalproto.Reading{Value: &diskFree}}, HostUptimeSeconds: terminalproto.Reading{Value: &uptime}}})
 		stop := func() {
 			cancel()
 			c.CloseNow()
@@ -174,6 +220,50 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 	}
 	stop := connect()
 	defer func() { stop() }()
+	if browserMode {
+		var originalPID string
+		runTerminalBrowser(t, public.URL, cookie, agent.ID, browserCommands, func(action string) map[string]any {
+			if action == "restart-agent" {
+				stop()
+				stop = connect()
+			}
+			pid := command("list-panes", "-a", "-F", "#{pane_pid}")
+			if originalPID == "" {
+				originalPID = pid
+			} else if originalPID != pid {
+				t.Fatal("browser recovery replaced the original shell", originalPID, pid)
+			}
+			sessions, err := st.TerminalSessionsFor(uid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return map[string]any{"pid": pid, "sessions": len(sessions)}
+		})
+		if originalPID == "" {
+			t.Fatal("browser did not verify an original shell process")
+		}
+		deadline := time.Now().Add(2 * time.Second)
+		traffic := false
+		for time.Now().Before(deadline) {
+			minutes, err := st.RemoteHealthMinutesFor(uid, agent.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, minute := range minutes {
+				if minute.Summary.InputBytes > 0 && minute.Summary.OutputBytes > 0 {
+					traffic = true
+				}
+			}
+			if traffic {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if !traffic {
+			t.Fatal("actual terminal payload traffic was not counted")
+		}
+		return
+	}
 	request := func(method, path string, in any) (int, []byte) {
 		t.Helper()
 		data, _ := json.Marshal(in)

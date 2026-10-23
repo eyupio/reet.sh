@@ -710,6 +710,11 @@ disabled-auth tests pass.
 
 ### Stage 3 — Monitoring core before terminals
 
+Implementation contract: see [the stage 3 notes](docs/remote-machine-stage3.md)
+for the agent control loop, probes, collectors, freshness, summary bounds, and
+the account-scoped health API. No shell, tmux service, attachment, or terminal
+UI is enabled by that increment.
+
 Files: internal/agenthealth/*, agent runtime loop, health persistence/API, tests.
 
 - Implement cross-platform read-only collectors behind an interface; reuse

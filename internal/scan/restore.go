@@ -96,13 +96,5 @@ func restoreSkill(c agentConfig, targetID, backup string, in io.Reader, out io.W
 		return err
 	}
 	fmt.Fprintln(out, "Restored. Review local & web changes before the next sync.")
-	cwd, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	defer os.Chdir(cwd)
-	if err = os.Chdir(base); err != nil {
-		return err
-	}
-	return RunVersion([]string{"--server", c.Server, "--token", c.Token, "--env", agent.Host, "--prune"}, out, version)
+	return runVersionAt(base, []string{"--server", c.Server, "--token", c.Token, "--env", agent.Host, "--prune"}, out, version)
 }

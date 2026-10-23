@@ -46,6 +46,7 @@ func (p SyncPlan) Hash() string {
 type syncOptions struct {
 	verifyEnrollment bool
 	approvedHash     string
+	cwd              string
 	onPlan           func(SyncPlan)
 	onBackup         func(string)
 }
@@ -289,13 +290,24 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	if err != nil {
 		return err
 	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return err
+	cwd := options.cwd
+	if cwd == "" {
+		var err error
+		cwd, err = os.Getwd()
+		if err != nil {
+			return err
+		}
 	}
 	resolvedCWD := cwd
 	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
 		resolvedCWD = resolved
+	}
+	rescan := func() error {
+		args := []string{"--server", *server, "--token", *token, "--env", *host, "--prune"}
+		if options.cwd != "" {
+			return runVersionAt(options.cwd, args, out, version)
+		}
+		return RunVersion(args, out, version)
 	}
 	if target.Target.Project != "" && (!filepath.IsAbs(target.Target.Project) || filepath.Clean(resolvedCWD) != filepath.Clean(target.Target.Project)) {
 		return fmt.Errorf("run this command from project %s", target.Target.Project)
@@ -447,7 +459,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	}
 	if len(actions) == 0 {
 		fmt.Fprintln(out, "Already in sync.")
-		return RunVersion([]string{"--server", *server, "--token", *token, "--env", *host, "--prune"}, out, version)
+		return rescan()
 	}
 	if !*apply {
 		fmt.Fprintln(out, "Preview only. Add --apply to review and confirm these changes.")
@@ -518,12 +530,12 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 			}
 		}
 		if operationErr != nil {
-			_ = RunVersion([]string{"--server", *server, "--token", *token, "--env", *host, "--prune"}, out, version)
+			_ = rescan()
 			return fmt.Errorf("sync stopped at %s: %w; rescan and preview again", action.Skill.Slug, operationErr)
 		}
 	}
 
-	if err := RunVersion([]string{"--server", *server, "--token", *token, "--env", *host, "--prune"}, out, version); err != nil {
+	if err := rescan(); err != nil {
 		return err
 	}
 	remaining, err := collect()

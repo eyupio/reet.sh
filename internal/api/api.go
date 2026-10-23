@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/agenthealth"
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/backup"
 	"github.com/eyupio/reet.sh/internal/mail"
@@ -56,6 +57,7 @@ type server struct {
 	privateSealer   *sealed.Sealer
 	privateRelayURL string
 	private         privateTransport
+	healthHub       *agenthealth.Hub
 }
 
 // AuthMode selects how the instance authenticates requests.
@@ -166,7 +168,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.h.ServeHT
 // Close stops the private listener and any of its active streams. It does not
 // close the store or background workers, as in earlier increments.
 func (s *Server) Close() error {
-	if s == nil || s.s == nil || s.s.private == nil {
+	if s == nil || s.s == nil {
+		return nil
+	}
+	if s.s.healthHub != nil {
+		s.s.healthHub.Close()
+	}
+	if s.s.private == nil {
 		return nil
 	}
 	return s.s.private.Close()
@@ -202,6 +210,9 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	if s.refreshJob {
 		go s.refreshWorker()
 	}
+	s.healthHub = agenthealth.NewHub(agenthealth.HubConfig{Store: st, Logf: func(format string, args ...any) {
+		log.Printf("machine health: "+format, args...)
+	}})
 	s.configurePrivate()
 	return s
 }
@@ -299,6 +310,7 @@ func (s *server) routes() http.Handler {
 	s.registerMailRoutes(mux)
 	s.registerTicketRoutes(mux)
 	s.registerNotificationRoutes(mux)
+	s.registerHealthRoutes(mux)
 	mux.HandleFunc("GET /quick", s.requireWriter(s.quick))
 	return mux
 }

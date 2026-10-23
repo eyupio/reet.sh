@@ -55,8 +55,16 @@ func TestEnrolledAgentPreviewApprovalApply(t *testing.T) {
 	}
 	run := func() {
 		t.Helper()
+		before, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := RunAgent([]string{"run", "--once", "--config", cfg}, io.Discard, "test"); err != nil {
 			t.Fatal(err)
+		}
+		after, err := os.Getwd()
+		if err != nil || after != before {
+			t.Fatalf("agent run changed the process working directory: %q -> %q (%v)", before, after, err)
 		}
 	}
 	run()

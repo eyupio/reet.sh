@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/agenthealth"
 	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/store"
 )
@@ -258,6 +260,20 @@ func RunAgent(args []string, out io.Writer, version string) error {
 	defer os.Remove(*config + ".lock")
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if !*once {
+		instance, err := agenthealth.NewInstanceID()
+		if err != nil {
+			return err
+		}
+		go func() {
+			if err := agenthealth.RunAgent(ctx, agenthealth.AgentConfig{
+				ServerURL: c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,
+				Version: version, InstanceID: instance,
+			}); err != nil {
+				log.Printf("private monitoring: %v", err)
+			}
+		}()
+	}
 	lastScan := time.Time{}
 	for {
 		if err = agentCycle(ctx, c, *config, out, version, &lastScan); err != nil {
@@ -312,19 +328,10 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 		return nil
 	}
 	scanAll := func() error {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return err
-		}
-		defer os.Chdir(cwd)
 		dirs := append([]string{c.Home}, c.Projects...)
 		var failures []error
 		for _, dir := range dirs {
-			if err = os.Chdir(dir); err != nil {
-				failures = append(failures, err)
-				continue
-			}
-			if err = RunVersion([]string{"--server", c.Server, "--token", c.Token, "--env", c.Host, "--prune"}, out, version); err != nil {
+			if err := runVersionAt(dir, []string{"--server", c.Server, "--token", c.Token, "--env", c.Host, "--prune"}, out, version); err != nil {
 				failures = append(failures, err)
 			}
 		}
@@ -366,29 +373,23 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 				operationErr = errors.New("remote apply disabled locally; enroll with --allow-apply to opt in")
 			}
 			if operationErr == nil {
-				cwd, _ := os.Getwd()
-				if err = os.Chdir(dir); err != nil {
-					operationErr = err
-				} else {
-					args := []string{"--server", c.Server, "--token", c.Token, "--env", c.Host, "--target", j.TargetID, "--config", config}
-					opts := syncOptions{verifyEnrollment: true, onBackup: func(path string) { result.Plan.Backups = append(result.Plan.Backups, path) }, onPlan: func(p SyncPlan) { result.Plan = p; result.Hash = p.Hash() }}
-					if j.Kind == "apply" {
-						args = append(args, "--apply")
-						opts.approvedHash = j.Hash
-					}
-					runCtx, cancel := context.WithTimeout(ctx, 8*time.Minute)
-					operationErr = runSyncWithOptions(args, strings.NewReader(""), out, func(args []string, cwd string) error {
-						cmd := exec.CommandContext(runCtx, "npx", args...)
-						cmd.Dir = cwd
-						cmd.Stdout = out
-						cmd.Stderr = out
-						return cmd.Run()
-					}, version, opts)
-					cancel()
-					os.Chdir(cwd)
-					if operationErr == nil && j.Kind == "preview" {
-						result.Status = "awaiting-approval"
-					}
+				args := []string{"--server", c.Server, "--token", c.Token, "--env", c.Host, "--target", j.TargetID, "--config", config}
+				opts := syncOptions{cwd: dir, verifyEnrollment: true, onBackup: func(path string) { result.Plan.Backups = append(result.Plan.Backups, path) }, onPlan: func(p SyncPlan) { result.Plan = p; result.Hash = p.Hash() }}
+				if j.Kind == "apply" {
+					args = append(args, "--apply")
+					opts.approvedHash = j.Hash
+				}
+				runCtx, cancel := context.WithTimeout(ctx, 8*time.Minute)
+				operationErr = runSyncWithOptions(args, strings.NewReader(""), out, func(args []string, cwd string) error {
+					cmd := exec.CommandContext(runCtx, "npx", args...)
+					cmd.Dir = cwd
+					cmd.Stdout = out
+					cmd.Stderr = out
+					return cmd.Run()
+				}, version, opts)
+				cancel()
+				if operationErr == nil && j.Kind == "preview" {
+					result.Status = "awaiting-approval"
 				}
 			}
 		}

@@ -8,6 +8,7 @@ require (
 	github.com/mattn/go-isatty v0.0.24
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pelletier/go-toml/v2 v2.4.3
+	github.com/shirou/gopsutil/v4 v4.26.9
 	github.com/tailscale/tailcat v0.7.0
 	golang.org/x/crypto v0.58.0
 	golang.org/x/net v0.61.0
@@ -27,9 +28,11 @@ require (
 	github.com/dblohm7/wingoes v0.0.0-20240119213807-a09d6be7affa // indirect
 	github.com/dgryski/go-metro v0.0.0-20180109044635-280f6062b5bc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/gaissmai/bart v0.26.1 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68 // indirect
+	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go4org/hashtriemap v0.0.0-20260824042624-45fcf11fca0e // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
@@ -40,12 +43,14 @@ require (
 	github.com/jsimonetti/rtnetlink v1.4.1 // indirect
 	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/kr/fs v0.1.0 // indirect
+	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mdlayher/netlink v1.7.3-0.20250113171957-fbb4dce95f42 // indirect
 	github.com/mdlayher/socket v0.5.1 // indirect
 	github.com/mitchellh/go-ps v1.0.0 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pires/go-proxyproto v0.8.1 // indirect
 	github.com/pkg/sftp v1.13.6 // indirect
+	github.com/power-devops/perfstat v0.0.0-20260805114148-88456608a4f6 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/safchain/ethtool v0.3.0 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
@@ -57,9 +62,12 @@ require (
 	github.com/tailscale/peercred v0.0.0-20250107143737-35a0c7bd7edc // indirect
 	github.com/tailscale/web-client-prebuilt v0.0.0-20250124233751-d4cd19a26976 // indirect
 	github.com/tailscale/wireguard-go v0.0.0-20260911194433-e3222a3340cd // indirect
+	github.com/tklauser/go-sysconf v0.4.0 // indirect
+	github.com/tklauser/numcpus v0.12.0 // indirect
 	github.com/u-root/u-root v0.14.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go4.org/mem v0.0.0-20240501181205-ae6ca9944745 // indirect
 	go4.org/netipx v0.0.0-20260823151212-3075585bcbeb // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect

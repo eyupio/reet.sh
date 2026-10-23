@@ -14,6 +14,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -572,7 +573,7 @@ func (s *server) auth(next http.Handler) http.Handler {
 func (s *server) setSession(w http.ResponseWriter, r *http.Request, token string, expires time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: token, Path: "/", HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		Secure:   s.sessionSecure(r),
 		SameSite: http.SameSiteLaxMode, Expires: expires, MaxAge: int(time.Until(expires).Seconds()),
 	})
 }
@@ -580,9 +581,19 @@ func (s *server) setSession(w http.ResponseWriter, r *http.Request, token string
 func (s *server) clearSession(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: "", Path: "/", HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		Secure:   s.sessionSecure(r),
 		SameSite: http.SameSiteLaxMode, MaxAge: -1,
 	})
+}
+
+func (s *server) sessionSecure(r *http.Request) bool {
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		return true
+	}
+	// A TLS-terminating proxy may omit forwarded headers. The configured HTTPS
+	// origin must still prevent this privileged browser cookie travelling over HTTP.
+	u, err := url.Parse(s.publicURL)
+	return err == nil && u.Scheme == "https" && u.Host != ""
 }
 
 func (s *server) newSession(w http.ResponseWriter, r *http.Request, user store.User) (store.User, error) {

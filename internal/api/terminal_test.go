@@ -104,6 +104,31 @@ func TestStreamHelloRejectsConfusedBindings(t *testing.T) {
 	}
 }
 
+func TestCanonicalHTTPSKeepsSessionCookiesSecureBehindProxy(t *testing.T) {
+	s := &server{publicURL: "https://reet.example"}
+	r := httptest.NewRequest("POST", "http://internal-proxy/api/v2/auth/signin", nil)
+	for _, clear := range []bool{false, true} {
+		w := httptest.NewRecorder()
+		if clear {
+			s.clearSession(w, r)
+		} else {
+			s.setSession(w, r, "test-cookie", time.Now().Add(time.Hour))
+		}
+		cookies := w.Result().Cookies()
+		if len(cookies) != 1 || !cookies[0].Secure || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
+			t.Fatalf("HTTPS proxy cookie clear=%t: %+v", clear, cookies)
+		}
+	}
+	s.publicURL = "http://127.0.0.1:8080"
+	if s.sessionSecure(r) {
+		t.Fatal("loopback HTTP development requires a usable cookie")
+	}
+	r.Header.Set("X-Forwarded-Proto", "https")
+	if !s.sessionSecure(r) {
+		t.Fatal("forwarded HTTPS lost its secure cookie")
+	}
+}
+
 func TestTerminalRolloutFlagAndSecureOriginFailClosed(t *testing.T) {
 	srv, st, _, _, _ := privateFixture(t, AuthAccounts, "")
 	uid, _ := st.DefaultOwner()

@@ -12,6 +12,8 @@ or ownership model.
 | A failed resource-health request blocked successful machine/session reads | Health failure is non-blocking, with an explicit notice and independently aged last observations |
 | Invalid titles could lock the creation form behind an idempotency key | Validate the protocol's control/format/rune constraints before reservation; release keys only for definitive 400 rejection; keep uncertain keys |
 | Root setup depended on root's user bus or GUI login | Root uses independent systemd system units / macOS LaunchDaemons; ordinary users retain per-user services; no automatic elevation |
+| Setup instructions could leave a standalone daemon competing with its new native service | Local setup now stops the existing agent first, preserving tmux and releasing the lifetime lock before service installation |
+| An HTTPS reverse proxy omitting forwarded headers could issue a browser session cookie without Secure | Canonical HTTPS now also pins Secure on session creation and clearing; loopback HTTP development remains supported |
 | Monitoring UI was tied to terminal write access | Authenticated monitoring gets its own permission path; terminal routes remain browser-owner-only |
 | Container CPU label implied cgroup/quota measurements | Clearly identify OS-visible observations from a container; they can reflect the host |
 | Sync pause, revoke and inventory-forget wording obscured terminal effects | Describe sync-only pause, attachment revocation, surviving local shells, and inventory removal separately |

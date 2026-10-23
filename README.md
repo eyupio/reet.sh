@@ -12,7 +12,7 @@ One Go binary. One SQLite file. No telemetry.
 
 [![CI](https://github.com/eyupio/reet.sh/actions/workflows/image.yml/badge.svg)](https://github.com/eyupio/reet.sh/actions/workflows/image.yml)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-c2410c.svg)](LICENSE)
-[![Go](https://img.shields.io/badge/go-1.26-1d1c1a.svg)](go.mod)
+[![Go](https://img.shields.io/badge/go-1.27.1-1d1c1a.svg)](go.mod)
 [![Container](https://img.shields.io/badge/ghcr.io-eyupio%2Freet.sh-1d1c1a.svg)](https://github.com/eyupio/reet.sh/pkgs/container/reet.sh)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-c2410c.svg)](CONTRIBUTING.md)
 

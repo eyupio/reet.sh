@@ -14,7 +14,9 @@ By taking part you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). Your cont
 
 ## Development setup
 
-You need Go 1.26 or newer and Node 22.
+You need Go 1.27.1 or newer and Node 22. The private-connection tests use a local
+Tailcat relay and need loopback sockets and network-interface discovery; they do
+not contact hosted relays or require root or a TUN device.
 
 ```sh
 git clone https://github.com/eyupio/reet.sh && cd reet.sh

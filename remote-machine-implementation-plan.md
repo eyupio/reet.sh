@@ -1,11 +1,53 @@
 # Remote machine implementation plan
 
-Status: implementation handoff; no runtime functionality is implemented by this document.
+Status: implementation handoff. Stages 0–3 are merged; stage 4 is complete in
+PR #126 with passing Linux and macOS native service tests. Stages 5–9 are not
+implemented. This document remains the approved design and the current delivery
+record.
 
 Decisions agreed with the product owner on 23 October 2026. Implement this plan in
 small, reviewable stages. Read the current repository instructions before each
 stage. This document consolidates the terminal, private connection, reconnection,
 UI, and host monitoring requirements; it supersedes the earlier chat drafts.
+
+## Implementation progress
+
+| Stage | State | Evidence |
+| --- | --- | --- |
+| 0 — Compatibility and private transport spike | Merged | [PR #122](https://github.com/eyupio/reet.sh/pull/122), [notes](docs/remote-machine-stage0.md) |
+| 1 — Protocol and persistence contracts | Merged | [PR #123](https://github.com/eyupio/reet.sh/pull/123), [notes](docs/remote-machine-stage1.md) |
+| 2 — Private connection bootstrap and handshake | Merged | [PR #124](https://github.com/eyupio/reet.sh/pull/124), [notes](docs/remote-machine-stage2.md) |
+| 3 — Private host monitoring and health API | Merged | [PR #125](https://github.com/eyupio/reet.sh/pull/125), [notes](docs/remote-machine-stage3.md) |
+| 4 — Local consent and independent services | Complete in PR #126 | [notes](docs/remote-machine-stage4.md); native service tests pass on Ubuntu and macOS |
+| 5 — Host session manager | Not started | — |
+| 6 — Broker, browser authentication, and leases | Not started | — |
+| 7 — Terminal and health vertical slice | Not started | — |
+| 8 — Complete UX, session management, and history | Not started | — |
+| 9 — Resilience, documentation, and gated rollout | Not started | — |
+
+What exists now:
+
+- A bounded Tailcat adapter, sealed controller identity, authenticated private
+  bootstrap, exact private route allowlist, and connection-generation fencing.
+- Typed protocol messages, durable session/operation/capability/health records,
+  24-hour bounded health summaries, and account-scoped health API.
+- Agent-side private control connection, probes, independent read-only host
+  collectors, reconnect/backoff, and stale/duplicate/generation handling.
+- Local terminal opt-in, private tmux layout, filtered agent/tmux environments,
+  independent per-user services, and local session list/end commands.
+- Evidence that killing the agent service leaves the independent tmux service
+  and a running test process alive on Ubuntu and macOS.
+
+What deliberately does not exist yet:
+
+- No host session manager, session registry, tmux create/attach/history
+  operations, or dead-pane reconciliation.
+- No broker, browser ticket, attachment, lease, transfer, durable end dispatch,
+  or browser terminal UI.
+- No terminal content recording or command history. Health has no browser chart
+  yet; only the authenticated health endpoint exists.
+- The controller cannot create or authorize a terminal. Local readiness describes
+  local infrastructure, not a working broker.
 
 ## 1. Outcome and approved scope
 
@@ -45,15 +87,16 @@ AI/MCP access to terminals. Those require separate designs and product decisions
 
 ## 2. Evidence and repository entry points
 
-Source inspection used reet.sh commit
-d12e627a03386802340da20a99c325c94a7fa304. Before this documentation PR, main advanced
-to 957f60159675352454cc27e5767f64aa03dca993 with two additional commits changing
-internal/scan/scan.go and its tests. Re-read current code before implementation;
-do not assume line numbers or this inventory remain current.
+The original design inspection used reet.sh commit
+d12e627a03386802340da20a99c325c94a7fa304. Stages 0–4 have since changed the tree.
+Re-read current code before implementing a later stage; do not assume line
+numbers or this inventory remain current.
 
-The application already has Go, SQLite, an embedded Svelte 5 UI, account-scoped
-machine enrollment, and typed sync jobs. The inspected code has no interactive
-terminal or Tailcat integration.
+The application has Go, SQLite, an embedded Svelte 5 UI, account-scoped machine
+enrollment, typed sync jobs, the private transport/protocol/health foundation,
+and local terminal consent and service management. It does **not** yet have an
+interactive terminal, host session manager, broker, browser attachment, or
+terminal UI.
 
 | Existing area | Entry points and relevance |
 | --- | --- |
@@ -64,7 +107,12 @@ terminal or Tailcat integration.
 | Persistent enrollment | internal/store/store_sync_control.go and internal/store/store.go |
 | Machine identity | internal/store/store_machines.go: aliases and merge behaviour |
 | Encryption helpers | internal/sealed/archive.go: existing SealSecret/OpenSecret |
-| Service management | internal/lifecycle/service.go: existing server units, not agent supervision |
+| Service management | internal/lifecycle/service.go: existing server units; agent/tmux units are in internal/terminalhost |
+| Private transport | internal/privateconn/*: bounded Tailcat listener/client, sealed identity, lazy runtime |
+| Protocol and records | internal/terminalproto/*, internal/store/store_terminal.go, internal/store/store_remote_health.go |
+| Private endpoints | internal/api/private.go, private_control.go, health.go |
+| Host monitoring | internal/agenthealth/*: collectors, probe/health hub, agent loop |
+| Local consent and services | internal/terminalhost/*, internal/scan/agent_terminal.go |
 | Existing health check | cmd/reet/health.go: server /healthz and container check |
 | Existing diagnostics | internal/lifecycle/doctor.go |
 | Routing and UI | web/src/App.svelte, Machines.svelte, MachineFleet.svelte |
@@ -73,14 +121,15 @@ terminal or Tailcat integration.
 | Development proxy | web/vite.config.ts: add WebSocket proxy support |
 | Build/release | go.mod, go.sum, Dockerfile, .github/workflows/release.yml |
 
-Current agent last-seen reporting is not a latency measurement or terminal
-readiness check. A long sync operation can delay a sequential polling loop.
-The new private connection and monitoring loops must run independently.
+The private monitoring loop runs independently of the sequential sync poll and
+long scans. Controller receipt time, not the agent's last-seen report, drives
+health freshness. Probe RTT is an application measurement, not raw network RTT.
 
-The agent currently changes the process working directory during scans.
-Background collectors and terminal work must use explicit absolute paths and
-command-specific working directories. Remove the process-global dependency or
-isolate scan execution before introducing unsafe concurrency.
+The agent no longer changes the process working directory during scans,
+previews, applies, or restore rescans. Scans take an explicit directory, sync
+plans and rescans use the target project directory, and `npx` receives
+`cmd.Dir`. Background collectors and future terminal work do not depend on
+process-global cwd.
 
 ## 3. Architecture and framework choice
 
@@ -136,6 +185,12 @@ build. Do not copy an entire Zoomies dependency graph into reet.sh.
 Tailcat's API and wire format are not guaranteed stable. Keep it behind a small
 adapter and test mixed agent/controller versions. Unsupported protocol versions
 must fail with update guidance, not attempt an unsafe fallback.
+
+Current implementation pins are Tailcat v0.7.0, `tailscale.com`
+v1.103.0-pre.0.20260916030321-a2263542f260, `coder/websocket` v1.8.15, and
+`gopsutil/v4` v4.26.9 for read-only host collectors. Exact validation,
+architecture, and binary-size notes are in the stage notes. The dependency graph
+has not been presented as a security audit.
 
 ### 3.2 Privacy and operational boundary
 
@@ -744,7 +799,7 @@ agent-service lifecycle fixtures.
 
 Exit: actual native service-manager tests prove agent restart/kill leaves tmux
 and a running test process alive on both OSes. Fixture tests alone do not pass
-this gate.
+this gate. The `native services` workflow passes on Ubuntu and macOS for PR #126.
 
 ### Stage 5 — Host session manager
 
@@ -827,6 +882,36 @@ operational limits are recorded accurately.
 
 ## 13. Acceptance matrix and release checks
 
+Covered by the implementation through stage 4:
+
+- Local-relay authenticated HTTP/WebSocket traffic, forced relay operation,
+  sealed-identity restoration, controller restart, wrong-key/damaged identity,
+  revoked enrollment, forbidden routes, and disabled auth.
+- Typed envelope/limit/UTF-8/title/binary validation; duplicate/concurrent
+  create reservation and quota behaviour; pending ends and generation fencing
+  at the store-contract level.
+- Agent probes, duplicate/out-of-order health reports, controller receipt-time
+  freshness, missed-probe handling, CPU first-sample/multicore normalisation,
+  null reasons, container scope, minute bounds, 24-hour retention, and
+  cross-account health isolation.
+- Local consent default-off, private layout validation, independent agent/tmux
+  services, filtered service environments, and native Linux/macOS evidence that
+  killing the agent leaves tmux and a running process alive.
+
+Not yet covered (they require stages 5–9):
+
+- Managed shell creation/attach/resume, lost create acknowledgments, browser
+  close/refresh, long commands across disconnects, and host reboot/tmux loss.
+- Broker tickets, Origin checks, one controlling attachment, transfer/fencing,
+  finite leases, durable end dispatch, revocation bridge teardown, and pending
+  end state.
+- Terminal/history streaming, split UTF-8, slow-consumer bounds, vim/top resize,
+  privacy assertions, browser/theme/mobile/accessibility tests, and gated
+  rollout.
+- A terminal can still not be created or authorized by the controller, so rows
+  below that describe terminal behaviour remain future gates even where some
+  supporting primitives exist.
+
 | Scenario | Required evidence |
 | --- | --- |
 | Duplicate/concurrent creation | One session and one quota reservation |
@@ -890,6 +975,9 @@ claim runtime validation: no runtime changes or validations are delivered by
 this file.
 
 ## 14. First milestone and operator runbook
+
+Status: not yet achieved. Stages 5–7 are required before a terminal can be
+created, attached, survive an agent restart, and be observed in the browser.
 
 The first product milestone is:
 

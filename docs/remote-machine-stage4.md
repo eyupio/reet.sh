@@ -109,7 +109,19 @@ The `native services` workflow installs tmux, prepares the Linux user manager,
 and runs that test on Ubuntu and macOS. It is intentionally separate from the
 local-relay transport tests. If a hosted runner has no usable user service
 manager, the job fails rather than claiming the gate from fixture-only evidence.
-Results are recorded in the pull request.
+The gate passes on both hosted platforms: the agent service is killed, the user
+manager restarts it, and the tmux unit plus the original test process survive.
+
+Review follow-ups included in this increment:
+
+- Readiness now runs a harmless tmux client probe (`show-options -gv
+  exit-empty`), so a stale socket left by an unclean exit is not reported ready.
+- tmux 3.3 is the minimum because the reet-owned config uses
+  `allow-passthrough`, introduced in 3.3.
+- Linux reinstall uses `enable` plus `restart`, so changed units, binary paths,
+  and environments are applied; this restarts tmux and ends local sessions.
+- macOS uninstall propagates a real `launchctl bootout` failure and ignores only
+  the explicit not-loaded case.
 
 ## Limits
 

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/profilehistory"
 	"github.com/eyupio/reet.sh/internal/sealed"
 )
 
@@ -117,6 +118,11 @@ func SaveSetupProfileWithOptions(name, password, snapshotPath, dir string, now t
 			return SetupProfile{}, SetupProfileRevision{}, err
 		}
 	}
+	unlock, err := lockProfiles(dir)
+	if err != nil {
+		return SetupProfile{}, SetupProfileRevision{}, err
+	}
+	defer unlock()
 	profile, err := loadSetupProfile(name, dir)
 	if err != nil && !os.IsNotExist(err) {
 		return SetupProfile{}, SetupProfileRevision{}, err
@@ -212,6 +218,9 @@ func ParseSetupProfile(data []byte, name string) (SetupProfile, error) {
 		return SetupProfile{}, errors.New("the profile is incomplete or from another version")
 	}
 	for i, revision := range profile.Revisions {
+		if err := ValidateSetupProfileOverrides(revision.Overrides); err != nil {
+			return SetupProfile{}, err
+		}
 		if revision.Revision != i+1 || revision.SnapshotID == "" || revision.SnapshotDigest == "" {
 			return SetupProfile{}, errors.New("the profile revision history is inconsistent")
 		}
@@ -227,6 +236,24 @@ func WriteSetupProfile(profile SetupProfile, dir string) error {
 	}
 	if _, err := ParseSetupProfile(data, profile.Name); err != nil {
 		return err
+	}
+	unlock, err := lockProfiles(dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	current, err := loadSetupProfile(profile.Name, dir)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err == nil {
+		existing, err := json.Marshal(current)
+		if err != nil {
+			return err
+		}
+		if err := profilehistory.CanAdvance(existing, data); err != nil {
+			return err
+		}
 	}
 	path, err := profilePath(profile.Name, dir)
 	if err != nil {
@@ -582,6 +609,11 @@ func profileSnapshotReferences(dir string) map[string]string {
 }
 
 func RemoveSetupProfile(name, dir string) error {
+	unlock, err := lockProfiles(dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	if _, err := loadSetupProfile(name, dir); err != nil {
 		return err
 	}
@@ -593,6 +625,11 @@ func RemoveSetupProfile(name, dir string) error {
 }
 
 func RenameSetupProfile(oldName, newName, dir string) error {
+	unlock, err := lockProfiles(dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	if !validProfileName(newName) {
 		return errors.New("profile names use 1-64 letters, digits, '-' or '_'")
 	}
@@ -623,4 +660,25 @@ func RenameSetupProfile(oldName, newName, dir string) error {
 		return err
 	}
 	return os.Remove(oldPath)
+}
+
+// Serialize local profile read/compare/write operations, including rename/remove.
+func lockProfiles(dir string) (func(), error) {
+	path, err := profileDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	if err := prepareSnapshotDir(path); err != nil {
+		return nil, err
+	}
+	lockPath := filepath.Join(path, ".write.lock")
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return nil, errors.New("setup profiles are locked; wait for the other command. After an interruption, confirm it has stopped before removing profiles/.write.lock")
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(lockPath)
+		return nil, err
+	}
+	return func() { os.Remove(lockPath) }, nil
 }

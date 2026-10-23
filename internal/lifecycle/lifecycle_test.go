@@ -632,3 +632,42 @@ func TestComposeInstallUsesVersionEnvironment(t *testing.T) {
 		})
 	}
 }
+
+func TestDevDownloadUsesOneImmutableBuild(t *testing.T) {
+	sha := strings.Repeat("a", 40)
+	blob := archive(t, []string{"reet"}, tar.TypeReg)
+	name := fmt.Sprintf("reet_dev_%s_%s_%s.tar.gz", sha, runtime.GOOS, runtime.GOARCH)
+	calls := []string{}
+	client := &http.Client{Transport: transport(func(r *http.Request) (*http.Response, error) {
+		calls = append(calls, r.URL.Path)
+		switch r.URL.Path {
+		case "/dev/dev-build.txt":
+			return response(200, sha+"\n"), nil
+		case "/dev/checksums-" + sha + ".txt":
+			return response(200, fmt.Sprintf("%x  %s\n", sha256.Sum256(blob), name)), nil
+		case "/dev/" + name:
+			return response(200, string(blob)), nil
+		}
+		return response(404, ""), nil
+	})}
+	path, err := fetchBinary(context.Background(), client, "https://example.invalid", "dev", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contents(t, path) != "new binary" {
+		t.Fatal("wrong binary")
+	}
+	if len(calls) != 3 {
+		t.Fatalf("unexpected downloads: %v", calls)
+	}
+	for _, bad := range []string{"../other", strings.Repeat("a", 39), ""} {
+		client.Transport = transport(func(r *http.Request) (*http.Response, error) { return response(200, bad), nil })
+		if _, err := fetchBinary(context.Background(), client, "https://example.invalid", "dev", t.TempDir()); err == nil {
+			t.Fatalf("accepted pointer %q", bad)
+		}
+	}
+	client.Transport = transport(func(r *http.Request) (*http.Response, error) { return response(503, ""), nil })
+	if _, err := fetchBinary(context.Background(), client, "https://example.invalid", "dev", t.TempDir()); err == nil {
+		t.Fatal("pointer outage silently fell back to mutable archives")
+	}
+}

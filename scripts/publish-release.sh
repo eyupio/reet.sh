@@ -25,12 +25,39 @@ if [ "$REET_TAG" = dev ]; then
   else
     gh api --method POST "repos/$repo/git/refs" -f ref=refs/tags/dev -f sha="$REET_SHA" >/dev/null
   fi
+  # Publish commit-addressed assets before moving the small channel pointer.
+  # Legacy rolling names remain for older installers; new clients never mix builds.
+  immutable=()
+  for os in darwin linux; do
+    for arch in amd64 arm64; do
+      name="reet_dev_${REET_SHA}_${os}_${arch}.tar.gz"
+      cp "reet_dev_${os}_${arch}.tar.gz" "$name"
+      immutable+=("$name")
+    done
+  done
+  sha256sum "${immutable[@]}" > "checksums-${REET_SHA}.txt"
+  immutable+=("checksums-${REET_SHA}.txt")
+  printf '%s\n' "$REET_SHA" > dev-build.txt
   notes="Rolling development build from main at $REET_SHA. This prerelease is replaced after each merge; use a stable version for production."
   if gh release view dev >/dev/null 2>&1; then
+    immutable_scratch=$(mktemp -d)
+    trap 'rm -rf "$immutable_scratch"' EXIT
+    gh release view dev --json assets --jq '.assets[].name' > "$immutable_scratch/names"
+    missing=()
+    for file in "${immutable[@]}"; do
+      if grep -Fxq -- "$file" "$immutable_scratch/names"; then
+        gh release download dev --pattern "$file" --dir "$immutable_scratch"
+        cmp -s "$file" "$immutable_scratch/$file" || { echo "Published immutable asset differs: $file" >&2; exit 1; }
+      else
+        missing+=("$file")
+      fi
+    done
+    if ((${#missing[@]})); then gh release upload dev "${missing[@]}"; fi
     gh release upload dev "${files[@]}" --clobber
+    gh release upload dev dev-build.txt --clobber
     gh release edit dev --prerelease --latest=false --title 'Development (main)' --notes "$notes"
   else
-    gh release create dev "${files[@]}" --verify-tag --prerelease --latest=false --title 'Development (main)' --notes "$notes"
+    gh release create dev "${immutable[@]}" "${files[@]}" dev-build.txt --verify-tag --prerelease --latest=false --title 'Development (main)' --notes "$notes"
   fi
   exit 0
 fi

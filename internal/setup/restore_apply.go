@@ -249,7 +249,9 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 	backups := []string{}
 	fail := func(index int, cause error) (RestoreApplyResult, error) {
 		if index >= 0 {
-			journal.Actions[index].State = "failed"
+			if journal.Actions[index].State == "pending" {
+				journal.Actions[index].State = "failed"
+			}
 			journal.Actions[index].Error = cause.Error()
 		}
 		var rollbackErr error
@@ -358,11 +360,12 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 		if file.format == "skill" && file.mode != 0 {
 			mode = file.mode
 		}
-		if err := writeRestoreFile(action.Destination, data, action.State == "merge" || action.State == "conflict" && policy == "replace", mode); err != nil {
-			return fail(journalIndexForAction, err)
+		if file.format == "sqlite" {
+			if state, reason := memoryRestoreState(action.Destination); state == "blocked" {
+				return fail(journalIndexForAction, fmt.Errorf("memory destination changed: %s; stop the agent and preview again", reason))
+			}
 		}
-		if err := verifyRestoreFile(action.Destination, file); err != nil {
-			_ = os.Remove(action.Destination)
+		if err := writeRestoreFile(action.Destination, data, action.State == "merge" || action.State == "conflict" && policy == "replace", mode); err != nil {
 			return fail(journalIndexForAction, err)
 		}
 		journal.Actions[journalIndexForAction].AppliedSHA256 = sha256Bytes(data)
@@ -374,6 +377,10 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 			replaced = append(replaced, action.Destination)
 			backups = append(backups, journal.Actions[journalIndexForAction].Backup)
 			journal.Actions[journalIndexForAction].State = "replaced"
+		}
+		// Mark the write before verification so failure rolls back this action too.
+		if err := verifyRestoreFile(action.Destination, file); err != nil {
+			return fail(journalIndexForAction, err)
 		}
 		if err := writeRestoreJournal(journalPath, journal); err != nil {
 			return fail(journalIndexForAction, fmt.Errorf("update the restore journal: %w", err))
@@ -501,7 +508,7 @@ func writeRestoreFile(path string, data []byte, overwrite bool, mode os.FileMode
 	if mode == 0 {
 		mode = 0o600
 	}
-	if _, err := f.Write(data); err == nil {
+	if _, err = f.Write(data); err == nil {
 		err = f.Chmod(mode)
 	}
 	if err == nil {
@@ -532,7 +539,14 @@ func verifyRestoreFile(path string, file restoreFile) error {
 	if err != nil || !info.Mode().IsRegular() {
 		return fmt.Errorf("verify restored file %q: not a regular file", path)
 	}
-	data, issue := readConfig(path, info)
+	limit := int64(maxConfigBytes)
+	switch file.format {
+	case "skill":
+		limit = maxSkillBytes
+	case "sqlite":
+		limit = maxMemoryBytes
+	}
+	data, issue := readRegularFile(path, info, limit)
 	if issue != "" {
 		return fmt.Errorf("verify restored file %q: %s", path, issue)
 	}
@@ -623,7 +637,7 @@ func writeRestoreJournal(path string, journal restoreJournal) error {
 	}
 	name := f.Name()
 	defer os.Remove(name)
-	if _, err := f.Write(data); err == nil {
+	if _, err = f.Write(data); err == nil {
 		err = f.Chmod(0o600)
 	}
 	if err == nil {

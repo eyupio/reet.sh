@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/profilehistory"
 	"github.com/eyupio/reet.sh/internal/setup"
 )
 
@@ -46,6 +47,9 @@ func profileRequest(method, endpoint, token string, body []byte) ([]byte, error)
 	}
 	if resp.StatusCode != http.StatusOK {
 		message := strings.TrimSpace(string(data))
+		if resp.StatusCode == http.StatusConflict {
+			return nil, profilehistory.ErrConflict
+		}
 		if resp.StatusCode == http.StatusUnauthorized {
 			return nil, fmt.Errorf("%w: server replied 401 Unauthorized; use a personal API token from Account on the target server via REET_TOKEN or --token", setup.ErrProfileUnauthorized)
 		}

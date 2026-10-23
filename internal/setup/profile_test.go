@@ -521,3 +521,41 @@ func TestProfilePushRetriesSavedToken(t *testing.T) {
 		t.Fatalf("saved token not retried: %d calls", remote.calls)
 	}
 }
+
+func TestProfilePullPreservesDivergentLocalHistory(t *testing.T) {
+	dir := t.TempDir()
+	original := SetupProfile{SchemaVersion: 1, Name: "work", Revisions: []SetupProfileRevision{{Revision: 1, SnapshotID: "a", SnapshotDigest: "digest"}}}
+	if err := WriteSetupProfile(original, dir); err != nil {
+		t.Fatal(err)
+	}
+	path, err := profilePath("work", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := original
+	next.Revisions = append(append([]SetupProfileRevision(nil), original.Revisions...), SetupProfileRevision{Revision: 2, SnapshotID: "b", SnapshotDigest: "digest-b"})
+	if err := WriteSetupProfile(next, dir); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(path)
+	if err := WriteSetupProfile(original, dir); err == nil {
+		t.Fatal("stale pull replaced local revisions")
+	}
+	fork := original
+	fork.Revisions = []SetupProfileRevision{{Revision: 1, SnapshotID: "other", SnapshotDigest: "other"}}
+	if err := WriteSetupProfile(fork, dir); err == nil {
+		t.Fatal("divergent pull replaced local revisions")
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Fatal("rejected pull changed local file")
+	}
+	unlock, err := lockProfiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	if err := WriteSetupProfile(next, dir); err == nil {
+		t.Fatal("concurrent profile writer accepted")
+	}
+}

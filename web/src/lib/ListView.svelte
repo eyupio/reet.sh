@@ -320,6 +320,7 @@
       {#if canWrite}
         <button type="button" class="btn primary" onclick={addAll} disabled={busy || detail.skillCount === 0}>Add all to my shelf</button>
       {/if}
+      <a class="btn" href={`/machines?view=compare&list=${id}`}>Prepare a machine</a>
       <button type="button" class="btn" onclick={copyAll} disabled={!commands.length}>Copy install commands</button>
       {#if detail.canManage}
         <button type="button" class="btn quiet" aria-expanded={settingsOpen} onclick={toggleSettings} disabled={busy}>Settings</button>

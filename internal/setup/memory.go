@@ -109,19 +109,13 @@ func validMemoryName(name string) bool {
 }
 
 func snapshotSQLite(path string) ([]byte, error) {
-	tmp, err := os.CreateTemp("", "reet-memory-*.sqlite")
+	// SQLite creates the VACUUM output itself. Keep it inside a private directory.
+	tmpDir, err := os.MkdirTemp("", "reet-memory-*")
 	if err != nil {
 		return nil, err
 	}
-	tmpPath := tmp.Name()
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
-		return nil, err
-	}
-	if err := os.Remove(tmpPath); err != nil {
-		return nil, err
-	}
-	defer os.Remove(tmpPath)
+	defer os.RemoveAll(tmpDir)
+	tmpPath := filepath.Join(tmpDir, "memory.sqlite")
 	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
 	if err != nil {
 		return nil, err
@@ -131,9 +125,13 @@ func snapshotSQLite(path string) ([]byte, error) {
 	if _, err := db.Exec("VACUUM INTO '" + quoted + "'"); err != nil {
 		return nil, fmt.Errorf("copy memory database: %w", err)
 	}
-	data, err := os.ReadFile(tmpPath)
+	info, err := os.Lstat(tmpPath)
 	if err != nil {
 		return nil, err
+	}
+	data, issue := readRegularFile(tmpPath, info, maxMemoryBytes)
+	if issue != "" {
+		return nil, fmt.Errorf("read memory copy: %s", issue)
 	}
 	return data, nil
 }

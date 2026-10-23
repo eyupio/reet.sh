@@ -169,6 +169,17 @@ func TestVerifySetupSnapshotCLI(t *testing.T) {
 	if !strings.Contains(text.String(), "Setup verification") || strings.Contains(text.String(), secret) {
 		t.Fatalf("bad verification text: %s", text.String())
 	}
+	if err := os.Remove(filepath.Join(destination, ".claude.json")); err != nil {
+		t.Fatal(err)
+	}
+	var incomplete bytes.Buffer
+	if err := Run([]string{"verify", "--password-file", passFile, "--dir", dir, "--json", snapshot.ID}, &incomplete); err == nil {
+		t.Fatal("missing destination returned success")
+	}
+	var missing SetupVerifyResult
+	if err := json.Unmarshal(incomplete.Bytes(), &missing); err != nil || missing.Summary.Missing != 1 {
+		t.Fatalf("incomplete JSON report lost: %s %v", incomplete.String(), err)
+	}
 	for _, args := range [][]string{
 		{"verify", "--dir", dir, snapshot.ID},
 		{"verify", "--password-file", passFile, "--dir", dir, "missing"},

@@ -145,7 +145,7 @@ func TestHostedRoutingPreservesApplicationPages(t *testing.T) {
 	api := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("hosted")) })
 	spa := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("spa")) })
 	handler := WithHostedPages(api, spa)
-	for path, want := range map[string]string{"/": "spa", "/account": "spa", "/hosting": "spa", "/lists/1": "spa", "/api/skills": "spa", "/alice/demo": "hosted", "/alice/demo/.well-known/agent-skills/index.json": "hosted"} {
+	for path, want := range map[string]string{"/": "spa", "/account": "spa", "/machines": "spa", "/machines?view=compare": "spa", "/setups": "spa", "/machines/demo": "hosted", "/hosting": "spa", "/lists/1": "spa", "/api/skills": "spa", "/alice/demo": "hosted", "/alice/demo/.well-known/agent-skills/index.json": "hosted"} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest("GET", path, nil))
 		if response.Body.String() != want {

@@ -205,7 +205,12 @@ func readConfigObject(path, format, agent string) (map[string]any, string, strin
 }
 
 func readConfig(path string, before os.FileInfo) ([]byte, string) {
-	if before.Size() > maxConfigBytes {
+	return readRegularFile(path, before, maxConfigBytes)
+}
+
+// readRegularFile confines and bounds reads, checking the opened inode and changes.
+func readRegularFile(path string, before os.FileInfo, limit int64) ([]byte, string) {
+	if before.Size() > limit {
 		return nil, "file_too_large"
 	}
 	root, err := os.OpenRoot(filepath.Dir(path))
@@ -222,11 +227,11 @@ func readConfig(path string, before os.FileInfo) ([]byte, string) {
 	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
 		return nil, "file_changed"
 	}
-	data, err := io.ReadAll(io.LimitReader(f, maxConfigBytes+1))
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {
 		return nil, "read_unavailable"
 	}
-	if len(data) > maxConfigBytes {
+	if int64(len(data)) > limit {
 		return nil, "file_too_large"
 	}
 	after, err := f.Stat()

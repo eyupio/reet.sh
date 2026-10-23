@@ -77,15 +77,29 @@ case "$version" in dev|v*) ;; *) version=v$version ;; esac
 asset=reet_${version}_${os}_${arch}.tar.gz
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/reet-install.XXXXXX") || fail 'could not create a temporary directory'
 staged_binary=
+staged_previous=
 cleanup() {
   rm -rf "$work_dir"
   if [ -n "$staged_binary" ]; then rm -f "$staged_binary"; fi
+  if [ -n "$staged_previous" ]; then rm -f "$staged_previous"; fi
 }
 trap cleanup 0
 trap 'exit 1' HUP INT TERM
+manifest_asset=checksums.txt
+build_sha=
+if [ "$version" = dev ]; then
+  if pointer_status=$(fetch --output "$work_dir/dev-build.txt" --write-out '%{http_code}' "$release_root/download/dev/dev-build.txt"); then
+    build_sha=$(cat "$work_dir/dev-build.txt")
+    printf '%s\n' "$build_sha" | grep -Eq '^[0-9a-f]{40}$' || fail 'invalid dev build pointer; existing installation was not changed'
+    asset=reet_dev_${build_sha}_${os}_${arch}.tar.gz
+    manifest_asset=checksums-${build_sha}.txt
+  elif [ "$pointer_status" != 404 ]; then
+    fail 'could not resolve the dev build; existing installation was not changed'
+  fi
+fi
 printf 'Downloading reet %s for %s/%s…\n' "$version" "$os" "$arch"
 fetch --output "$work_dir/$asset" "$release_root/download/$version/$asset" || fail "could not download $asset"
-fetch --output "$work_dir/checksums.txt" "$release_root/download/$version/checksums.txt" || fail 'could not download release checksums'
+fetch --output "$work_dir/checksums.txt" "$release_root/download/$version/$manifest_asset" || fail 'could not download release checksums'
 expected=$(awk -v name="$asset" '$2 == name { print $1; matches++ } END { if (matches != 1) exit 1 }' "$work_dir/checksums.txt") || fail 'release must contain exactly one checksum for this archive'
 printf '%s\n' "$expected" | grep -Eq '^[0-9a-f]{64}$' || fail 'release checksum is not a SHA-256 digest'
 if [ "$checksum" = sha256sum ]; then
@@ -101,6 +115,19 @@ mkdir -p "$install_dir" || fail "cannot create $install_dir; choose a writable d
 [ ! -d "$install_dir/reet" ] || fail "$install_dir/reet is a directory"
 staged_binary=$(mktemp "$install_dir/.reet-install.XXXXXX") || fail "cannot write to $install_dir; choose a writable directory with --dir"
 install -m 0755 "$work_dir/reet" "$staged_binary"
+build=$("$staged_binary" --version) || fail 'verified release binary cannot run on this host; existing installation was not changed'
+set -f
+set -- $build
+[ "$#" -eq 3 ] && [ "$1" = reet ] && [ "$2" = "$version" ] || fail 'release binary version does not match the requested tag; existing installation was not changed'
+[ -z "$build_sha" ] || [ "$3" = "($build_sha)" ] || fail 'release binary commit does not match the dev build; existing installation was not changed'
+if [ -e "$install_dir/reet" ] || [ -L "$install_dir/reet" ]; then
+  [ -f "$install_dir/reet" ] && [ ! -L "$install_dir/reet" ] || fail 'existing binary must be a regular file; inspect its symlink before replacing it'
+  [ ! -d "$install_dir/reet.previous" ] || fail 'reet.previous is a directory; existing installation was not changed'
+  staged_previous=$(mktemp "$install_dir/.reet-previous.XXXXXX") || fail 'cannot stage previous binary'
+  install -m 0755 "$install_dir/reet" "$staged_previous"
+  mv -f "$staged_previous" "$install_dir/reet.previous"
+  staged_previous=
+fi
 mv -f "$staged_binary" "$install_dir/reet"
 staged_binary=
 printf 'Reet, installed %s to %s/reet\n' "$version" "$install_dir"
@@ -108,6 +135,11 @@ case ":${PATH:-}:" in
   *":$install_dir:"*) ;;
   *) printf '\nRun this in your terminal, and add it to your shell profile for future sessions:\n'; printf 'export PATH='; quote "$install_dir"; printf ':"$PATH"\n' ;;
 esac
+resolved=$(command -v reet 2>/dev/null || true)
+if [ -n "$resolved" ] && [ "$resolved" != "$install_dir/reet" ]; then
+  printf '\nAnother reet is earlier on PATH: %s\nUse the absolute path below, or prepend the installation directory and run hash -r.\n' "$resolved"
+fi
+printf '\nVerified build: %s\nPrevious binary (when present): %s/reet.previous\n' "$build" "$install_dir"
 printf '\nCheck your installation:\n'
 quote "$install_dir/reet"
-printf ' --version\n\nConnect to an existing site: open Account on that site, then Connect a machine.\nHost your own site: run reet install --mode native (user service), or --mode compose (Docker).\nFor an existing managed server, use reet upgrade for future updates.\n'
+printf ' --version\n\nConnect to an existing site: open Machines on that site, then Connect a machine.\nHost your own site: run reet install --mode native (user service), or --mode compose (Docker).\nFor an existing managed server, use reet upgrade for future updates.\n'

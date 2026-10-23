@@ -16,6 +16,7 @@ import (
 // assert that configuration is readable, valid or sufficient for recovery.
 type Report struct {
 	Home                   string    `json:"-"`
+	CodexHome              string    `json:"-"`
 	SchemaVersion          int       `json:"schema_version"`
 	CapturedAt             time.Time `json:"captured_at"`
 	OS                     string    `json:"os"`
@@ -105,6 +106,10 @@ func discover(e environment) (Report, error) {
 			"Configuration contents are not read by discovery; MCP definitions, credentials, memory and history are collected only by explicit snapshot commands or remain unsupported.",
 			"Symlink locations are reported without inspecting their targets; missing known paths do not prove an agent is absent.",
 		},
+	}
+	r.CodexHome = e.getenv("CODEX_HOME")
+	if r.CodexHome == "" {
+		r.CodexHome = filepath.Join(e.home, ".codex")
 	}
 	for _, adapter := range adapters() {
 		a := Agent{

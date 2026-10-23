@@ -34,7 +34,7 @@ func verifySetupSkills(snapshot SetupSnapshot, destination Report, result *Setup
 			addVerifyComponent(result, entry)
 			continue
 		}
-		missing, changed := false, false
+		missing, changed, blocked := false, false, false
 		for _, file := range skill.Files {
 			path := filepath.Join(root.root, skill.Name, filepath.FromSlash(file.Path))
 			info, err := os.Lstat(path)
@@ -44,12 +44,12 @@ func verifySetupSkills(snapshot SetupSnapshot, destination Report, result *Setup
 				entry.Mismatches = append(entry.Mismatches, file.Path)
 				continue
 			case err != nil:
-				entry.State, entry.Reason = "blocked", "destination_metadata_unavailable"
-				addVerifyComponent(result, entry)
+				blocked = true
+				entry.Reason = "destination_metadata_unavailable"
 				continue
 			case info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular():
-				entry.State, entry.Reason = "blocked", "destination_unsupported"
-				addVerifyComponent(result, entry)
+				blocked = true
+				entry.Reason = "destination_unsupported"
 				continue
 			}
 			data, reason := readSkillFile(path, info)
@@ -59,6 +59,8 @@ func verifySetupSkills(snapshot SetupSnapshot, destination Report, result *Setup
 			}
 		}
 		switch {
+		case blocked:
+			entry.State = "blocked"
 		case missing:
 			entry.State = "missing"
 		case changed:

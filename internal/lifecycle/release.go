@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -52,7 +53,7 @@ func get(ctx context.Context, client *http.Client, url string, limit int64) ([]b
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("download returned HTTP %d", resp.StatusCode)
+		return nil, releaseHTTPError{resp.StatusCode}
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
@@ -99,7 +100,23 @@ func fetchBinary(ctx context.Context, client *http.Client, root, tag, dir string
 		return "", fmt.Errorf("unsupported architecture")
 	}
 	name := fmt.Sprintf("reet_%s_%s_%s.tar.gz", tag, runtime.GOOS, runtime.GOARCH)
-	manifest, err := get(ctx, client, root+"/"+tag+"/checksums.txt", 1<<20)
+	manifestName := "checksums.txt"
+	if tag == "dev" {
+		pointer, err := get(ctx, client, root+"/dev/dev-build.txt", 128)
+		var status releaseHTTPError
+		if err != nil && !(errors.As(err, &status) && status.Status == http.StatusNotFound) {
+			return "", err
+		}
+		if err == nil {
+			sha := strings.TrimSpace(string(pointer))
+			if !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(sha) {
+				return "", fmt.Errorf("invalid dev build pointer")
+			}
+			name = fmt.Sprintf("reet_dev_%s_%s_%s.tar.gz", sha, runtime.GOOS, runtime.GOARCH)
+			manifestName = "checksums-" + sha + ".txt"
+		}
+	}
+	manifest, err := get(ctx, client, root+"/"+tag+"/"+manifestName, 1<<20)
 	if err != nil {
 		return "", err
 	}
@@ -218,3 +235,7 @@ func replaceBinary(source, target string) error {
 	return os.Rename(name, target)
 }
 func defaultClient() *http.Client { return &http.Client{Timeout: 2 * time.Minute} }
+
+type releaseHTTPError struct{ Status int }
+
+func (e releaseHTTPError) Error() string { return fmt.Sprintf("download returned HTTP %d", e.Status) }

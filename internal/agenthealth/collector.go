@@ -35,6 +35,35 @@ type Collector interface {
 	Collect(ctx context.Context, home string) Sample
 }
 
+// A timed-out OS call cannot always be interrupted (notably statfs on a
+// stalled home mount). Keep at most ONE call outstanding across reconnects and
+// discard its late result. Probes, cancellation and future reports stay live.
+type boundedCollector struct {
+	inner Collector
+	busy  chan struct{}
+}
+
+func (c *boundedCollector) Collect(ctx context.Context, home string) Sample {
+	select {
+	case <-ctx.Done():
+		return Sample{}
+	case c.busy <- struct{}{}:
+	default:
+		return Sample{}
+	}
+	result := make(chan Sample, 1)
+	go func() { defer func() { <-c.busy }(); result <- c.inner.Collect(ctx, home) }()
+	select {
+	case <-ctx.Done():
+		return Sample{}
+	case sample := <-result:
+		if ctx.Err() != nil {
+			return Sample{}
+		}
+		return sample
+	}
+}
+
 // CPUSampler normalises busy time over the interval since its previous sample.
 // The first observation has no interval, so it reports initial_sample.
 type CPUSampler struct {
@@ -97,7 +126,7 @@ func cpuTimes(ctx context.Context) (float64, float64) {
 	var total, idle float64
 	for _, stat := range stats {
 		total += stat.Total()
-		idle += stat.Idle
+		idle += stat.Idle + stat.Iowait
 	}
 	return total, idle
 }

@@ -151,7 +151,7 @@ func writePrivateFile(path string, data []byte) error {
 	return os.Rename(name, path)
 }
 
-func isPrivateConfig(path string) error {
+func CheckEnrollmentConfig(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return err

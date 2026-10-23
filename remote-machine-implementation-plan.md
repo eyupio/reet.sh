@@ -1,7 +1,9 @@
 # Remote machine implementation plan
 
-Status: implementation handoff. Stages 0–3 are merged; stage 4 is complete in
-PR #126 with passing Linux and macOS native service tests. Stages 5–9 are not
+Status: implementation handoff. Stages 0–4 are merged, including PR #126.
+The follow-up [foundation review](docs/remote-machine-foundation-review.md)
+records corrective recovery/health work and strengthens the native service gate
+to run the actual reet binary. Stages 5–9 are not
 implemented. This document remains the approved design and the current delivery
 record.
 
@@ -18,7 +20,7 @@ UI, and host monitoring requirements; it supersedes the earlier chat drafts.
 | 1 — Protocol and persistence contracts | Merged | [PR #123](https://github.com/eyupio/reet.sh/pull/123), [notes](docs/remote-machine-stage1.md) |
 | 2 — Private connection bootstrap and handshake | Merged | [PR #124](https://github.com/eyupio/reet.sh/pull/124), [notes](docs/remote-machine-stage2.md) |
 | 3 — Private host monitoring and health API | Merged | [PR #125](https://github.com/eyupio/reet.sh/pull/125), [notes](docs/remote-machine-stage3.md) |
-| 4 — Local consent and independent services | Complete in PR #126 | [notes](docs/remote-machine-stage4.md); native service tests pass on Ubuntu and macOS |
+| 4 — Local consent and independent services | Merged | [PR #126](https://github.com/eyupio/reet.sh/pull/126), [notes](docs/remote-machine-stage4.md); see review for the strengthened native gate |
 | 5 — Host session manager | Not started | — |
 | 6 — Broker, browser authentication, and leases | Not started | — |
 | 7 — Terminal and health vertical slice | Not started | — |

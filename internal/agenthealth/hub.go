@@ -74,12 +74,13 @@ type Hub struct {
 	maxLastKnown  int
 	logf          func(format string, args ...any)
 
-	mu     sync.Mutex
-	live   map[string]*Conn
-	last   map[string]Status
-	closed bool
-	done   chan struct{}
-	prune  sync.Once
+	mu      sync.Mutex
+	live    map[string]*Conn
+	last    map[string]Status
+	closed  bool
+	done    chan struct{}
+	prune   sync.Once
+	writers sync.WaitGroup
 }
 
 func NewHub(cfg HubConfig) *Hub {
@@ -125,7 +126,7 @@ func hubKey(uid int64, agentID string) string {
 // Connect installs a new connection generation. Any previous connection for
 // the same enrollment is fenced and its last observation is retained.
 func (h *Hub) Connect(uid int64, agentID string, generation int64, instance string, caps terminalproto.Capabilities, send Sender) (*Conn, error) {
-	if h == nil || send == nil || generation <= 0 {
+	if h == nil || send == nil || !terminalproto.ValidCounter(generation) || !terminalproto.ValidID(agentID) || !terminalproto.ValidID(instance) || caps.Validate() != nil || !caps.HealthEnabled {
 		return nil, terminalproto.ErrInvalid
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -134,10 +135,7 @@ func (h *Hub) Connect(uid int64, agentID string, generation int64, instance stri
 		send: send, ctx: ctx, cancel: cancel, done: make(chan struct{}),
 		acc:         NewAccumulator(h.now().Truncate(time.Minute).UnixMilli(), generation),
 		outstanding: map[string]probeAttempt{},
-	}
-	if generation > 1 {
-		c.acc.NoteReconnect()
-		c.reconnects = 1
+		pending:     make(chan store.RemoteHealthMinute, 1),
 	}
 	key := hubKey(uid, agentID)
 	h.mu.Lock()
@@ -147,12 +145,35 @@ func (h *Hub) Connect(uid int64, agentID string, generation int64, instance stri
 		return nil, store.ErrRemoteNotFound
 	}
 	old := h.live[key]
+	if old != nil && old.generation >= generation || h.last[key].Generation >= generation {
+		h.mu.Unlock()
+		cancel()
+		return nil, store.ErrTerminalConflict
+	}
+	previous, known := h.last[key]
+	if old != nil {
+		previous = old.Status()
+		known = true
+	}
+	if known {
+		c.reconnects = previous.Reconnects
+		if c.reconnects < 1_000_000_000 {
+			c.reconnects++
+		}
+		c.acc.NoteReconnect()
+	}
 	h.live[key] = c
+	if h.st != nil {
+		h.writers.Add(1)
+	}
 	h.mu.Unlock()
 	if old != nil {
 		old.Close()
 	}
 	go c.probeLoop()
+	if h.st != nil {
+		go func() { defer h.writers.Done(); c.persistLoop() }()
+	}
 	return c, nil
 }
 
@@ -200,6 +221,7 @@ func (h *Hub) Close() {
 	for _, c := range conns {
 		c.Close()
 	}
+	h.writers.Wait()
 }
 
 // Status returns a live or last-known observation. It does not consult the
@@ -262,6 +284,7 @@ type Conn struct {
 	nextSequence int64
 	acc          *Accumulator
 	revision     int64
+	pending      chan store.RemoteHealthMinute
 }
 
 func (c *Conn) Done() <-chan struct{} { return c.done }
@@ -315,6 +338,7 @@ func (c *Conn) Report(report terminalproto.HealthReport, received time.Time) {
 	c.lastReportAt = received
 	copy := report
 	c.lastReport = &copy
+	c.rollMinuteLocked(received)
 	c.acc.AddReport(report)
 	c.persistLocked(received)
 }
@@ -333,7 +357,7 @@ func (c *Conn) ProbeResult(result terminalproto.ProbeResult, received time.Time)
 	}
 	delete(c.outstanding, result.Nonce)
 	rtt := received.Sub(attempt.at)
-	if rtt < 0 || rtt > 5*time.Second {
+	if rtt < 0 || rtt > c.hub.probeTimeout || rtt > 5*time.Second {
 		return
 	}
 	millis := float64(rtt) / float64(time.Millisecond)
@@ -345,6 +369,7 @@ func (c *Conn) ProbeResult(result terminalproto.ProbeResult, received time.Time)
 	} else {
 		c.rtt = append(c.rtt[1:], millis)
 	}
+	c.rollMinuteLocked(received)
 	c.acc.AddRTT(millis)
 	c.persistLocked(received)
 }
@@ -373,14 +398,14 @@ func (c *Conn) ReportTraffic(input, output int64, received time.Time) {
 	if c.closed || !c.caps.HealthEnabled {
 		return
 	}
+	c.rollMinuteLocked(received)
 	c.acc.AddTraffic(input, output)
 	c.persistLocked(received)
 }
 
-func (c *Conn) persistLocked(now time.Time) {
-	if c.closed || !c.caps.HealthEnabled || c.hub.st == nil {
-		return
-	}
+// Advance BEFORE recording the event; otherwise the first report, probe, or
+// traffic increment in every minute is added to the old bucket and discarded.
+func (c *Conn) rollMinuteLocked(now time.Time) {
 	minute := now.Truncate(time.Minute).UnixMilli()
 	if c.acc.Minute != minute {
 		scope := c.acc.Scope
@@ -388,6 +413,13 @@ func (c *Conn) persistLocked(now time.Time) {
 		c.acc.Scope = scope
 		c.revision = 0
 	}
+}
+
+func (c *Conn) persistLocked(now time.Time) {
+	if c.closed || !c.caps.HealthEnabled || c.hub.st == nil {
+		return
+	}
+	minute := now.Truncate(time.Minute).UnixMilli()
 	c.revision++
 	if c.revision > terminalproto.MaxCounter {
 		c.revision = 1
@@ -396,10 +428,43 @@ func (c *Conn) persistLocked(now time.Time) {
 		AgentID: c.agentID, Minute: minute, Generation: c.generation, Revision: c.revision,
 		Summary: c.acc.Summary(),
 	}
-	if err := c.hub.st.SaveRemoteHealthMinuteFor(c.uid, in); err != nil {
-		c.hub.logf("health summary write failed")
-		if errors.Is(err, store.ErrRemoteNotFound) || errors.Is(err, store.ErrTerminalNotReady) || errors.Is(err, store.ErrTerminalConflict) {
-			go c.Close()
+	// Only the newest cumulative snapshot needs to wait behind a slow store.
+	// Never block probe handling or status reads on database I/O.
+	select {
+	case c.pending <- in:
+	default:
+		select {
+		case <-c.pending:
+		default:
+		}
+		c.pending <- in
+	}
+}
+
+func (c *Conn) persistLoop() {
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case in := <-c.pending:
+			if c.ctx.Err() != nil {
+				return
+			}
+			var err error
+			if st, ok := c.hub.st.(interface {
+				SaveRemoteHealthMinuteForContext(context.Context, int64, store.RemoteHealthMinute) error
+			}); ok {
+				err = st.SaveRemoteHealthMinuteForContext(c.ctx, c.uid, in)
+			} else {
+				err = c.hub.st.SaveRemoteHealthMinuteFor(c.uid, in)
+			}
+			if err != nil && c.ctx.Err() == nil {
+				c.hub.logf("health summary write failed")
+				if errors.Is(err, store.ErrRemoteNotFound) || errors.Is(err, store.ErrTerminalNotReady) || errors.Is(err, store.ErrTerminalConflict) {
+					c.Close()
+					return
+				}
+			}
 		}
 	}
 }
@@ -427,7 +492,7 @@ func (c *Conn) probeLoop() {
 func (c *Conn) sendProbe() {
 	nonce, err := randomID()
 	if err != nil {
-		c.cancel()
+		c.Close()
 		return
 	}
 	c.mu.Lock()
@@ -468,6 +533,7 @@ func (c *Conn) expireProbes() {
 		}
 		delete(c.outstanding, nonce)
 		c.misses++
+		c.rollMinuteLocked(now)
 		c.acc.MissProbe()
 		c.persistLocked(now)
 		if c.misses >= maxConsecutive {

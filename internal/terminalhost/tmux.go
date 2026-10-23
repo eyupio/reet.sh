@@ -88,7 +88,7 @@ type Session struct {
 
 func SocketActive(layout Layout) bool {
 	info, err := os.Lstat(layout.Socket)
-	return err == nil && info.Mode()&os.ModeSocket != 0
+	return err == nil && info.Mode()&os.ModeSocket != 0 && info.Mode().Perm()&0077 == 0 && ownedByCurrentUser(info) == nil
 }
 
 func Sessions(ctx context.Context, tmux Tmux, layout Layout) ([]Session, error) {
@@ -136,7 +136,7 @@ func EndSession(ctx context.Context, tmux Tmux, layout Layout, name string) erro
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	if err := exec.CommandContext(ctx, tmux.Path, "-S", layout.Socket, "kill-session", "-t", name).Run(); err != nil {
+	if err := exec.CommandContext(ctx, tmux.Path, "-S", layout.Socket, "kill-session", "-t", "="+name).Run(); err != nil {
 		return errors.New("could not end the local tmux session")
 	}
 	return nil

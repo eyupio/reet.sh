@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -23,14 +24,25 @@ type RemoteHealthMinute struct {
 // It accepts only the current controller minute; host timestamps cannot grow
 // history or manufacture old observations. No raw report/terminal data is saved.
 func (s *Store) SaveRemoteHealthMinuteFor(uid int64, in RemoteHealthMinute) error {
-	return s.saveRemoteHealthMinuteAt(uid, in, time.Now())
+	return s.SaveRemoteHealthMinuteForContext(context.Background(), uid, in)
+}
+func (s *Store) SaveRemoteHealthMinuteForContext(ctx context.Context, uid int64, in RemoteHealthMinute) error {
+	return s.saveRemoteHealthMinuteContext(ctx, uid, in, time.Now())
 }
 func (s *Store) saveRemoteHealthMinuteAt(uid int64, in RemoteHealthMinute, at time.Time) error {
+	return s.saveRemoteHealthMinuteContext(context.Background(), uid, in, at)
+}
+func (s *Store) saveRemoteHealthMinuteContext(ctx context.Context, uid int64, in RemoteHealthMinute, at time.Time) error {
 	if !terminalproto.ValidID(in.AgentID) || !terminalproto.ValidCounter(in.Generation) || !terminalproto.ValidCounter(in.Revision) || in.Minute != at.Truncate(time.Minute).UnixMilli() || in.Summary.Validate() != nil {
 		return terminalproto.ErrInvalid
 	}
 	raw, _ := json.Marshal(in.Summary)
-	return s.withTx(func(tx *sql.Tx) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	err = func() error {
 		if err := lockRemoteAgent(tx, uid, in.AgentID, false); err != nil {
 			return err
 		}
@@ -60,7 +72,11 @@ func (s *Store) saveRemoteHealthMinuteAt(uid int64, in RemoteHealthMinute, at ti
 		}
 		_, err = tx.Exec(`DELETE FROM remote_health_summaries WHERE minute<?`, at.Add(-healthRetention).Truncate(time.Minute).UnixMilli())
 		return err
-	})
+	}()
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // RemoteHealthMinutesFor returns bounded owner-only history from the last day.

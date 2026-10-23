@@ -4,7 +4,10 @@ package terminalhost
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,12 +37,24 @@ func TestNativeAgentKillKeepsTmuxSession(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	config := filepath.Join(dir, "agent.json")
-	if err := os.WriteFile(config, []byte("{}"), 0600); err != nil {
+	hostname, _ := os.Hostname()
+	home, _ := os.UserHomeDir()
+	controller := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/sync/poll" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"agent":{"host":"native","paused":true}}`)
+			return
+		}
+		http.Error(w, "not configured", http.StatusServiceUnavailable)
+	}))
+	defer controller.Close()
+	data, _ := json.Marshal(map[string]any{"server": controller.URL, "token": "native-test-token", "id": "native0123456789abcdef", "secret": "native-test-secret", "host": "native", "hostname": hostname, "home": home})
+	if err := os.WriteFile(config, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	agentScript := filepath.Join(dir, "fake-agent")
-	if err := os.WriteFile(agentScript, []byte("#!/bin/sh\nwhile :; do sleep 1; done\n"), 0700); err != nil {
-		t.Fatal(err)
+	agentBinary := os.Getenv("REET_NATIVE_AGENT_BINARY")
+	if agentBinary == "" {
+		t.Fatal("REET_NATIVE_AGENT_BINARY must point to the built reet binary; a placeholder process does not verify real agent recovery")
 	}
 	layout, err := NewLayout(config)
 	if err != nil {
@@ -50,7 +65,7 @@ func TestNativeAgentKillKeepsTmuxSession(t *testing.T) {
 	}
 	prefix := fmt.Sprintf("reet-native-%d", os.Getpid())
 	plan, err := PlanServices(context.Background(), ServiceOptions{
-		Prefix: prefix, Binary: agentScript, ConfigPath: config, Layout: layout,
+		Prefix: prefix, Binary: agentBinary, ConfigPath: config, Layout: layout,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -67,6 +82,11 @@ func TestNativeAgentKillKeepsTmuxSession(t *testing.T) {
 	}) {
 		debugServices(t, plan, layout)
 		t.Fatal("timed out waiting for services to start")
+	}
+	// The real agent must have entered its run loop and acquired its lock before
+	// it is killed. Then prove it stays up after the manager restarts it.
+	if !waitForNative(t, 10*time.Second, func() bool { _, err := os.Stat(config + ".lock"); return err == nil }) {
+		t.Fatal("real agent did not acquire enrollment lock")
 	}
 	if err := exec.Command(tmux.Path, "-S", layout.Socket, "new-session", "-d", "-s", "reet-native", "sleep", "300").Run(); err != nil {
 		t.Fatal(err)
@@ -85,6 +105,12 @@ func TestNativeAgentKillKeepsTmuxSession(t *testing.T) {
 	}) {
 		debugServices(t, plan, layout)
 		t.Fatal("timed out waiting for the agent service to restart")
+	}
+	restarted := mainPID(t, plan)
+	time.Sleep(2 * time.Second)
+	if restarted == 0 || mainPID(t, plan) != restarted {
+		debugServices(t, plan, layout)
+		t.Fatal("real agent could not remain running after restart")
 	}
 	if !SocketActive(layout) || !processAlive(pid) {
 		t.Fatal("killing the agent ended tmux or the running test process")

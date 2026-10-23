@@ -3,7 +3,7 @@
   import PageHeader from './PageHeader.svelte'
   import { createToken } from './api'
   import { onMount, type Component } from 'svelte'
-  let { canWrite, accounts, compare = false }: { canWrite: boolean; accounts: boolean; compare?: boolean } = $props()
+  let { canWrite, accounts, monitoring=false, compare = false }: { canWrite: boolean; accounts: boolean; monitoring?:boolean; compare?: boolean } = $props()
   let token = $state(''), name = $state('machine token'), busy = $state(false), error = $state('')
   const terminals = new URLSearchParams(location.search).get('view') === 'terminal'
   let TerminalView = $state<Component>()
@@ -16,10 +16,10 @@
     finally { busy = false }
   }
 </script>
-<PageHeader eyebrow="Your workspace" title="Machines." lede="Bring a machine online, see what its agents have installed, and sync the skills and setups you want." />
+{#if !terminals}<PageHeader eyebrow="Your workspace" title="Machines." lede="Bring a machine online, see what its agents have installed, and sync the skills and setups you want." />{/if}
 <nav aria-label="Machines"><a class="btn quiet" href="/machines" aria-current={!compare&&!terminals ? 'page' : undefined}>Inventory & connection</a><a class="btn quiet" href="/machines?view=compare" aria-current={compare ? 'page' : undefined}>Compare & sync</a>{#if accounts&&canWrite}<a class="btn quiet" href="/machines?view=terminal" aria-current={terminals?'page':undefined}>Terminals</a>{/if}<a class="btn quiet" href="/profiles">Portable setups →</a></nav>
 {#if terminals && accounts && canWrite}{#if TerminalView}<TerminalView />{:else}<p role="status">{error||'Loading terminal workspace…'}</p>{/if}{:else}
-<EnvironmentSync compact {canWrite} terminalAccess={accounts&&canWrite} {token} view={compare ? 'compare' : 'machines'} startConnect={location.hash === '#connect-machine'}>
+<EnvironmentSync compact {canWrite} monitorAccess={monitoring} terminalAccess={accounts&&canWrite} {token} view={compare ? 'compare' : 'machines'} startConnect={location.hash === '#connect-machine'}>
   {#snippet tokenSetup()}
     {#if accounts && canWrite}
       {#if !token}

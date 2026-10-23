@@ -6,8 +6,11 @@ Remote terminals ship disabled. Set `REET_AUTH=accounts`, a canonical HTTPS
 `REET_PUBLIC_URL` (for example `https://reet.sh`), and
 `REET_REMOTE_TERMINALS=on`, then restart the controller. The flag accepts exactly
 `on`. HTTP is accepted only for localhost/loopback development. Health and sync
-work independently of this flag. The existing private-connection sealing key
-must be configured and retained; see [stage 2](remote-machine-stage2.md).
+work independently of this flag. Configure and retain the existing private-
+connection sealing key (`REET_BACKUP_KEY`, or the instance's protected
+`backup.key`); see [stage 2](remote-machine-stage2.md) and
+[backup keys](backups.md). Generate a key with `reet backup keygen` only when
+initialising an instance; preserve the existing key during upgrades/recovery.
 
 The browser needs no VPN client. It uses same-origin HTTPS/WebSocket to reet.sh.
 The controller decrypts browser traffic and bridges it over the authenticated,
@@ -32,22 +35,30 @@ is not a sandbox. Existing enrollments default to terminal access disabled.
 Install tmux 3.3 or newer, then:
 
 ```sh
+reet agent stop
 reet agent terminal enable
 reet agent service install
 reet agent status
 ```
 
+Stop the current standalone/background agent before installing native services,
+so it releases its lifetime lock. Stopping the agent preserves tmux shells. This
+avoids an older fallback process preventing the new service from starting.
+
 Add `--config /absolute/path/agent.json` consistently for a non-default enrollment.
 The agent and tmux run as separate native services; stopping/restarting the agent
-must leave the terminal service alone. On Linux, user services need a functioning
-user manager. Enable lingering for that OS user if work must survive logout.
-For a root enrollment on a headless Linux host, prepare root's user manager if
-necessary: `loginctl enable-linger root`, `systemctl start user@0.service`, and
-use `XDG_RUNTIME_DIR=/run/user/0` for `reet agent service install`. Verify the
-reported active state rather than assuming installation proves connectivity.
-macOS LaunchAgents depend on a logged-in user session; see service status for
-manager availability. Host reboot and OS logout that terminates tmux are outside
-shell persistence guarantees.
+must leave the terminal service alone. Non-root Linux services need a functioning
+user manager; enable lingering for that OS user if work must survive logout.
+Root enrollments use independent system services in `/etc/systemd/system` on
+Linux and LaunchDaemons in `/Library/LaunchDaemons` on macOS. They need neither
+a root user bus nor a root GUI login. Ordinary users retain their per-user units
+and LaunchAgents; no command automatically elevates a non-root enrollment.
+Verify active status instead of assuming installation proves connectivity.
+Non-root macOS LaunchAgents depend on a logged-in user session. Host reboot and
+OS logout that terminates tmux remain outside shell persistence guarantees.
+For an earlier root user-service installation, stop the old agent locally and
+preserve/finish its tmux work before migrating to system services. Installation
+refuses to adopt or kill an existing unmanaged tmux server silently.
 
 `reet agent run` / `start` returns after starting a background process. `status`
 queries its private local control socket; `status --remote` also checks the
@@ -97,12 +108,16 @@ marks a genuinely missing shell lost; it does not recreate its processes.
 
 Host RTT is a controller-to-host application round trip over the private
 connection, not browser ping. CPU is a 0–100 host-wide observation (or explicitly
-container-scoped); the first CPU sample can be unavailable. Memory used derives
+container-environment observation); the first CPU sample can be unavailable. Memory used derives
 from total and available bytes; disk available is on the agent home filesystem.
 Uptime is observed host uptime, never extrapolated from agent uptime. Missing or
 unsupported counters remain null with a reason. Resource freshness uses controller
 receipt time and becomes stale after 90 seconds or disconnect; connection health
-and resource freshness are separate. Sync pause affects jobs, not monitoring.
+and resource freshness are separate. In a container these OS-visible counters
+may reflect the host; they are not cgroup/quota accounting. Sync pause affects
+jobs, not monitoring. Connection diagnostics expose RTT p50/p95 over recent valid
+probes, consecutive missed probes and controller-observed reconnects; those
+reconnect counts reset on controller restart. An unreported path stays unknown.
 
 History retains 24 hours of minute aggregates. CPU chart points are valid-sample
 means and RTT points are per-minute medians, never averaged percentiles. Gaps are

@@ -10,6 +10,7 @@
 
   let { session, host }: { session: TerminalSession; host: string } = $props()
   let element = $state<HTMLDivElement>()
+  let pane=$state<HTMLElement>(),searchInput=$state<HTMLInputElement>(),viewportHeight=$state(innerHeight)
   let connectionState = $state<ConnectionState>('connecting'), message = $state('')
   let connection: TerminalConnection | undefined
   let terminal: Terminal | undefined
@@ -26,13 +27,28 @@
     if(!live){feedback='Reconnect before pasting. Nothing was sent.';return}
     if(new TextEncoder().encode(text).length>240*1024){feedback='Paste is too large. Limit it to 240 KiB.';return}
     if(/[\r\n\x00-\x08\x0b-\x1f\x7f]/.test(text)||text.length>2000)pendingPaste={text,generation}
-    else terminal?.paste(text)
+    else {modifier=null;terminal?.paste(text)}
   }
-  function confirmPaste() { const pending=pendingPaste;pendingPaste=null;if(!pending)return;if(!live||pending.generation!==generation){feedback='Connection changed. Paste again after reconnecting; nothing was sent.';return}terminal?.paste(pending.text);terminal?.focus() }
+  function confirmPaste() { const pending=pendingPaste;pendingPaste=null;if(!pending)return;if(!live||pending.generation!==generation){feedback='Connection changed. Paste again after reconnecting; nothing was sent.';return}modifier=null;terminal?.paste(pending.text);terminal?.focus() }
   async function readClipboard() {const started=generation;try{const text=await navigator.clipboard.readText();if(!alive)return;if(started!==generation){feedback='Connection changed. Paste again; nothing was sent.';return}paste(text)}catch{if(alive)feedback='Clipboard access was denied. Paste with your keyboard inside the terminal.'} }
-  function key(value:string) {if(live){connection?.text(value);terminal?.focus()} }
+  function key(value:string) {modifier=null;if(live){connection?.text(value);terminal?.focus()} }
   async function historySnapshot() { if(historyBusy)return;historyBusy=true;feedback='';try{const text=await terminalHistory(session.id,historyAbort.signal);if(alive)snapshot=text}catch(e){if(alive)feedback=e instanceof Error?e.message:'History is unavailable.'}finally{historyBusy=false} }
   onMount(()=>()=>historyAbort.abort())
+  $effect(()=>{if(searching)searchInput?.focus()})
+  $effect(()=>{if(!maximised)return;const previous=document.body.style.overflow,focus=document.activeElement;document.body.style.overflow='hidden';return()=>{document.body.style.overflow=previous;if(focus instanceof HTMLElement&&focus.isConnected)focus.focus({preventScroll:true})}})
+  onMount(()=>{
+    const viewport=()=>{viewportHeight=window.visualViewport?.height||innerHeight;fitTerminal?.()}
+    const keyboard=(event:KeyboardEvent)=>{
+      if(document.querySelector('dialog[open]'))return
+      if(event.altKey&&event.shiftKey&&event.key.toLowerCase()==='m'){event.preventDefault();maximised=!maximised;fitTerminal?.();return}
+      if(!maximised||event.key!=='Tab'||event.ctrlKey||event.altKey||(event.target instanceof Element&&event.target.closest('.xterm')))return
+      const buttons=Array.from(pane?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),[tabindex="0"]')||[]).filter(item=>item.getClientRects().length)
+      const first=buttons[0],last=buttons.at(-1)
+      if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus()}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus()}
+    }
+    viewport();window.visualViewport?.addEventListener('resize',viewport);window.addEventListener('keydown',keyboard,true)
+    return()=>{window.visualViewport?.removeEventListener('resize',viewport);window.removeEventListener('keydown',keyboard,true)}
+  })
   const live = $derived(connectionState === 'live')
   const stateLabel = $derived(({ connecting:'Connecting',resynchronising:'Restoring screen',live:'Live',reconnecting:'Reconnecting',detached:'Detached',taken_over:'Open elsewhere',ended:'Ended',lost:'Shell unavailable',access_denied:'Access denied' })[connectionState])
 
@@ -61,7 +77,7 @@
     function resize() { cancelAnimationFrame(frame); frame=requestAnimationFrame(()=>{if (!element?.clientWidth || !element.clientHeight) return;fit.fit();const cols=Math.min(500,Math.max(2,term.cols)),rows=Math.min(300,Math.max(1,term.rows));if(cols!==term.cols||rows!==term.rows)term.resize(cols,rows);connection?.resize(cols,rows)}) }
     const sizes = new ResizeObserver(resize); sizes.observe(element);fit.fit()
     fitTerminal=resize
-    connection = new TerminalConnection({session:session.id,dimensions:()=>({cols:Math.min(500,Math.max(2,term.cols)),rows:Math.min(300,Math.max(1,term.rows))}),renderer:{write:(bytes,reset,done)=>{if(reset)term.reset();term.write(bytes,done)}},onstate:(next,detail)=>{generation++;modifier=null;connectionState=next;message=detail;term.options.disableStdin=next!=='live';if(next==='live')term.focus()}})
+    connection = new TerminalConnection({session:session.id,dimensions:()=>({cols:Math.min(500,Math.max(2,term.cols)),rows:Math.min(300,Math.max(1,term.rows))}),renderer:{write:(bytes,reset,done)=>{if(reset)term.reset();term.write(bytes,done)}},onstate:(next,detail)=>{generation++;modifier=null;connectionState=next;message=detail;term.options.disableStdin=next!=='live';if(next==='live'&&!searching&&!pendingPaste&&snapshot===null&&!document.querySelector('dialog[open]'))term.focus()}})
     term.options.disableStdin=true
     const input=term.onData((text)=>{let value=text;if(modifier==='Ctrl'&&/^[a-zA-Z@\[\]\\^_]$/.test(text))value=String.fromCharCode(text.toUpperCase().charCodeAt(0)&31);else if(modifier==='Alt')value='\x1b'+text;modifier=null;connection?.text(value)})
     const binary=term.onBinary((data)=>connection?.send(Uint8Array.from(data,c=>c.charCodeAt(0)&255)))
@@ -72,11 +88,12 @@
   })
 </script>
 
-<section class="pane" class:maximised aria-label={`Terminal on ${host}`} data-connection-state={connectionState}>
+<section class="pane" class:maximised bind:this={pane} role={maximised?'dialog':'region'} aria-modal={maximised?true:undefined} tabindex="-1" aria-label={`Terminal on ${host}`} style={`--terminal-viewport:${viewportHeight}px`} data-connection-state={connectionState}>
   <header><div class="identity"><span class="terminal-icon" aria-hidden="true">›_</span><strong>{session.title}</strong><span class="host">{host}</span></div><div class="controls"><span class="state" class:live><span aria-hidden="true">●</span> {stateLabel}</span>{#if live}<button type="button" onclick={()=>connection?.detach()}>Detach</button>{:else if connectionState==='taken_over'}<button type="button" class="continue" onclick={()=>void connection?.connect(true)}>Continue here</button>{:else if connectionState==='detached'}<button type="button" onclick={()=>void connection?.connect()}>Reconnect</button>{:else if connectionState==='reconnecting'}<button type="button" onclick={()=>connection?.recover()}>Retry now</button>{/if}</div></header>
   {#if message}<p class="connection-message" role="status">{message}</p>{/if}
+  {#if maximised}<p class="connection-message">Alt+Shift+M restores the workspace. Tab inside the terminal remains a shell key.</p>{/if}
   <div class="tools" aria-label="Terminal tools"><button onclick={()=>searching=!searching} aria-expanded={searching}>Search</button><button onclick={()=>void copy()}>Copy selection</button><button onclick={()=>void readClipboard()} disabled={!live}>Paste</button><button onclick={()=>changeFont(-1)} disabled={fontSize<=10} aria-label="Decrease terminal font">A−</button><span aria-label="Terminal font size">{fontSize}</span><button onclick={()=>changeFont(1)} disabled={fontSize>=22} aria-label="Increase terminal font">A+</button><button onclick={()=>void historySnapshot()} disabled={historyBusy}>{historyBusy?'Loading…':'Recent history'}</button><button onclick={()=>{maximised=!maximised;fitTerminal?.()}} aria-pressed={maximised}>{maximised?'Restore size':'Maximise'}</button></div>
-  {#if searching}<form class="tools" onsubmit={e=>{e.preventDefault();find()}}><label>Find in terminal <input bind:value={query} maxlength="200" oninput={()=>find()} /></label><button>Next match</button><button type="button" onclick={()=>find(false)}>Previous match</button><button type="button" onclick={()=>{searching=false;search?.clearDecorations();terminal?.focus()}}>Close search</button><span role="status">{found?'':'No matches'}</span></form>{/if}
+  {#if searching}<form class="tools" onsubmit={e=>{e.preventDefault();find()}}><label>Find in terminal <input bind:this={searchInput} bind:value={query} maxlength="200" autocomplete="off" spellcheck="false" oninput={e=>{query=e.currentTarget.value;find()}} /></label><button>Next match</button><button type="button" onclick={()=>find(false)}>Previous match</button><button type="button" onclick={()=>{searching=false;search?.clearDecorations();terminal?.focus()}}>Close search</button><span role="status">{found?'':'No matches'}</span></form>{/if}
   {#if feedback}<p class="connection-message" role="status">{feedback}</p>{/if}
   <div class="screen" bind:this={element} aria-label="Remote terminal screen"></div>
   <div class="tools mobile-keys" aria-label="Terminal extra keys">{#each [['Esc','\x1b'],['Tab','\t'],['↑','\x1b[A'],['↓','\x1b[B'],['←','\x1b[D'],['→','\x1b[C'],['Ctrl+C','\x03'],['Enter','\r']] as [label,value]}<button disabled={!live} onpointerdown={e=>e.preventDefault()} onclick={()=>key(value)} aria-label={`Send ${label}`}>{label}</button>{/each}{#each ['Ctrl','Alt'] as mod}<button disabled={!live} aria-pressed={modifier===mod} onpointerdown={e=>e.preventDefault()} onclick={()=>{modifier=modifier===mod?null:mod as 'Ctrl'|'Alt';terminal?.focus()}}>{mod}</button>{/each}</div>
@@ -86,6 +103,7 @@
 {#if snapshot!==null}<ConfirmDialog title="Recent terminal history" body="Read-only snapshot, up to 2,000 lines / 256 KiB. It is separate from the live screen and may contain sensitive output." confirmLabel="Close history" onconfirm={()=>snapshot=null} oncancel={()=>snapshot=null}><pre class="snapshot">{snapshot}</pre></ConfirmDialog>{/if}
 
 <style>
+  .pane.maximised{bottom:auto;height:calc(var(--terminal-viewport,100dvh) - 24px)}.tools button:hover:not(:disabled){border-color:var(--accent);background:var(--tint)}button:disabled{opacity:.45;cursor:default}@media(max-width:650px){.pane.maximised{height:var(--terminal-viewport,100dvh)}}
   .tools{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--line);font-size:.72rem}.tools label{display:flex;gap:8px;align-items:center;min-width:0}.tools input{min-width:0;max-width:180px;font-size:.8rem}.tools button[aria-pressed=true]{border-color:var(--accent);color:var(--accent)}.mobile-keys{border-top:1px solid var(--line);border-bottom:0}.snapshot{white-space:pre-wrap;overflow-wrap:anywhere;max-height:55dvh;overflow:auto;font:.75rem/1.5 monospace}.pane.maximised{position:fixed;inset:12px;z-index:90;display:flex;flex-direction:column}.pane.maximised .screen{flex:1;height:0;min-height:0}.pane.maximised footer{flex-shrink:0}@media(max-width:650px){.tools{padding:6px;gap:4px}.tools button{min-height:40px}.pane.maximised{inset:0;border-radius:0}}
   .pane{border:1px solid var(--line);border-radius:14px;overflow:hidden;min-width:0;background:var(--card);box-shadow:0 6px 24px rgb(0 0 0 / .035)}header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:var(--bg);border-bottom:1px solid var(--line)}.identity,.controls{display:flex;gap:12px;align-items:center;min-width:0}.identity strong{font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.terminal-icon{font:700 1rem monospace;color:var(--accent)}.host{font-size:.75rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis}.state{font-size:.72rem;color:var(--muted);white-space:nowrap}.state.live{color:var(--good)}button{font:inherit;font-size:.75rem;background:var(--card);border:1px solid var(--line);border-radius:7px;padding:6px 10px;min-height:32px;cursor:pointer;white-space:nowrap}button.continue{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}.screen{height:clamp(300px,58vh,650px);padding:12px 10px 8px 14px;min-width:0;overflow:hidden}.screen :global(.xterm){height:100%;padding:0}.screen :global(.xterm-viewport){overscroll-behavior:contain}.connection-message{padding:10px 16px;margin:0;font-size:.8rem;background:var(--tint);border-bottom:1px solid var(--line)}footer{padding:8px 16px;border-top:1px solid var(--line);display:flex;gap:12px;justify-content:space-between;align-items:center;font-size:.65rem;color:var(--muted)}footer button{font-size:.65rem;min-height:28px;padding:3px 8px}
   @media(max-width:650px){header{padding:10px;align-items:flex-start}.identity{gap:7px;flex-wrap:wrap}.host{width:100%;margin-left:24px}.controls{gap:8px;flex-wrap:wrap;justify-content:flex-end}.screen{padding:10px 6px;height:56vh;min-height:300px}footer{padding:8px 10px}footer span{max-width:65%}}

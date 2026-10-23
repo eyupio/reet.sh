@@ -8,7 +8,11 @@ const url = source => `data:text/javascript;base64,${Buffer.from(source).toStrin
 const apiURL = url(transpile('api'))
 const { TerminalConnection } = await import(url(transpile('connection').replace("from './api'", `from '${apiURL}'`)))
 const { value, percent, fresh, uptime } = await import(url(transpile('health')))
-const { readiness } = await import(apiURL)
+const { readiness, validTerminalTitle } = await import(apiURL)
+test('session titles reject terminal controls, format controls and overlong names before creating a retry key',()=>{
+  for(const title of ['', '   ', 'a'.repeat(81),'bad\x1btitle','bad\u202etitle','bad\u2028title'])assert.equal(validTerminalTitle(title),false)
+  for(const title of ['Root build','Café 💥','a'.repeat(80)])assert.equal(validTerminalTitle(title),true)
+})
 
 function fixture() {
   const original = { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket, location: globalThis.location }

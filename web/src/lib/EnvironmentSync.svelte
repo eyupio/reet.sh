@@ -9,7 +9,7 @@
   import { agentGroups, inventoryMachines } from './machines'
   import ConfirmDialog from './ConfirmDialog.svelte'
 
-  let { canWrite, terminalAccess=false, token = '', tokenSetup, view = 'machines', startConnect = false, compact = false }: { canWrite: boolean; terminalAccess?:boolean;token?: string; tokenSetup?: Snippet; view?: 'machines' | 'compare'; startConnect?: boolean; compact?: boolean } = $props()
+  let { canWrite, terminalAccess=false, monitorAccess=false, token = '', tokenSetup, view = 'machines', startConnect = false, compact = false }: { canWrite: boolean; terminalAccess?:boolean;monitorAccess?:boolean;token?: string; tokenSetup?: Snippet; view?: 'machines' | 'compare'; startConnect?: boolean; compact?: boolean } = $props()
 
   let syncState = $state<SyncState>({ environments: [], targets: [] })
   let machines = $derived(inventoryMachines(syncState.machines ?? []))
@@ -144,7 +144,7 @@
   {:else}
     <MachineSetup {site} {machines} {profiles} {token} {tokenSetup} {serverBuild} bind:open={setupOpen} initialMode={initialSetupMode} onrefresh={() => load()} />
     {#if machines.length}
-      <MachineFleet {machines} snapshot={syncState} {site} {canWrite} {terminalAccess} onadd={openSetup} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e) }} onnotice={(message) => { notice = message }} />
+      <MachineFleet {machines} snapshot={syncState} {site} {canWrite} {terminalAccess} {monitorAccess} onadd={openSetup} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e) }} onnotice={(message) => { notice = message }} />
     {/if}
   {/if}
 

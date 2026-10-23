@@ -13,6 +13,7 @@ export class TerminalError extends Error {
   status: number
   constructor(status: number, message: string) { super(message); this.status = status }
 }
+export function validTerminalTitle(title:string):boolean {return !!title.trim()&&Array.from(title).length<=80&&!/[\p{Cc}\p{Cf}\u2028\u2029]/u.test(title)}
 // Interactive terminals intentionally use only the browser cookie, never the
 // generic API helper's localStorage API token or a capability in a URL.
 export async function terminalRequest(path: string, init: RequestInit = {}): Promise<Response> {

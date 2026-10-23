@@ -26,6 +26,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/notify"
 	"github.com/eyupio/reet.sh/internal/ref"
+	"github.com/eyupio/reet.sh/internal/sealed"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -51,6 +52,10 @@ type server struct {
 	backups      *backup.Service
 	mail         *mail.Mailer
 	notify       *notify.Service
+
+	privateSealer   *sealed.Sealer
+	privateRelayURL string
+	private         privateTransport
 }
 
 // AuthMode selects how the instance authenticates requests.
@@ -138,8 +143,42 @@ func WithNotify(n *notify.Service) Option {
 	return func(s *server) { s.notify = n }
 }
 
+// WithPrivateConnection enables the lazily started Tailcat listener. The
+// sealing key is the existing instance backup key; without it the listener is
+// disabled and bootstrap requests explain that it is unavailable. The relay map
+// URL is optional and must be HTTPS.
+func WithPrivateConnection(sealer *sealed.Sealer, relayMapURL string) Option {
+	return func(s *server) {
+		s.privateSealer = sealer
+		s.privateRelayURL = strings.TrimSpace(relayMapURL)
+	}
+}
+
+// Server is the application handler. Close releases an active private
+// listener; the process still needs its normal shutdown for everything else.
+type Server struct {
+	s *server
+	h http.Handler
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.h.ServeHTTP(w, r) }
+
+// Close stops the private listener and any of its active streams. It does not
+// close the store or background workers, as in earlier increments.
+func (s *Server) Close() error {
+	if s == nil || s.s == nil || s.s.private == nil {
+		return nil
+	}
+	return s.s.private.Close()
+}
+
 // New returns the API handler. An empty token disables authentication.
-func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Handler {
+func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) *Server {
+	s := newServer(st, f, token, opts...)
+	return &Server{s: s, h: s.logRequests(s.auth(s.routes()))}
+}
+
+func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *server {
 	dummy, _ := auth.HashPassword("not-a-real-password")
 	s := &server{
 		st: st, f: f, token: token, version: "dev", commit: "unknown",
@@ -163,6 +202,11 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	if s.refreshJob {
 		go s.refreshWorker()
 	}
+	s.configurePrivate()
+	return s
+}
+
+func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
 	s.registerSyncControl(mux)
 	mux.HandleFunc("GET /healthz", s.health)
@@ -256,7 +300,7 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	s.registerTicketRoutes(mux)
 	s.registerNotificationRoutes(mux)
 	mux.HandleFunc("GET /quick", s.requireWriter(s.quick))
-	return s.logRequests(s.auth(mux))
+	return mux
 }
 
 type statusWriter struct {

@@ -12,18 +12,34 @@ let sockets = 0
 let lastSize
 page.on('websocket', socket => {sockets++;socket.on('framesent',({payload})=>{try{const message=JSON.parse(String(payload));if(message.type==='resize')lastSize={cols:message.cols,rows:message.rows}}catch{/* binary input */}})})
 page.on('pageerror', error => errors.push(error.message))
-const pane = page.getByRole('region', { name: 'Terminal on laptop' })
+const pane = page.locator('.pane[aria-label="Terminal on laptop"]')
 const screen = page.locator('.xterm-accessibility-tree')
 async function live() { await expect(pane).toHaveAttribute('data-connection-state', 'live', { timeout: 20000 }) }
 async function command(text) { await page.getByRole('button', { name: 'Focus terminal' }).click(); await page.keyboard.type(text); await page.keyboard.press('Enter') }
 async function state() { return page.evaluate(async () => (await fetch('/_test/state')).json()) }
 
 try {
+  const otherAgent='browser-other-machine0123456789'
+  await page.route('**/api/v2/terminal/machines',async route=>{const response=await route.fetch();const data=await response.json();data.machines.push({agentId:otherAgent,host:'Other machine',ready:false,serverEnabled:data.machines[0]?.serverEnabled});await route.fulfill({response,json:data})})
+  await page.route('**/api/v2/machines/health',route=>route.fulfill({status:503,json:{error:'fixture health unavailable'}}))
+  let releaseCreate
+  const createGate=new Promise(resolve=>releaseCreate=resolve)
+  let firstCreate=true
+  await page.route('**/api/v2/terminal/sessions',async route=>{if(route.request().method()==='POST'&&firstCreate){firstCreate=false;await createGate}await route.continue()})
   await page.goto(`${base}/machines?view=terminal&agent=${encodeURIComponent(process.env.REET_BROWSER_AGENT)}`)
   await expect(page.getByRole('heading', { name: 'Your machine. Your shell.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'New terminal' })).toBeEnabled()
+  await expect(page.getByText(/Resource readings are temporarily unavailable/)).toBeVisible()
+  await page.unroute('**/api/v2/machines/health')
   await page.getByLabel('New session name').fill('Browser durability')
   await page.getByRole('button', { name: 'New terminal', exact: true }).click()
+  await page.getByLabel('Machine',{exact:true}).selectOption(otherAgent)
+  const created=page.waitForResponse(response=>response.request().method()==='POST'&&response.url().endsWith('/api/v2/terminal/sessions'))
+  releaseCreate();await created
+  await expect(page.getByRole('button',{name:'New terminal',exact:true})).toBeDisabled()
+  expect(new URL(page.url()).searchParams.get('agent')).toBe(otherAgent)
+  expect(new URL(page.url()).searchParams.get('session')).toBeNull()
+  await page.getByLabel('Machine',{exact:true}).selectOption(process.env.REET_BROWSER_AGENT)
   await live()
   await expect(screen).toContainText('stage6-ready>')
   await expect(page.getByLabel('Machine health')).toContainText('42.0')
@@ -78,6 +94,15 @@ try {
   await command("printf '__safe_%s__\\n' 'after-cancel'")
   await expect(screen).toContainText('__safe_after-cancel__')
   await expect(screen).not.toContainText('__must_not_execute__')
+  await page.locator('.screen').evaluate(element=>{const data=new DataTransfer();data.setData('text/plain',"printf '__stale_paste_must_not_run__'\n");element.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}))})
+  const pasteRestart=sockets
+  await page.evaluate(async()=>{const response=await fetch('/_test/restart-agent',{method:'POST'});if(!response.ok)throw new Error('paste reconnect fixture failed')})
+  await expect.poll(()=>sockets,{timeout:20000}).toBeGreaterThan(pasteRestart);await live()
+  await page.getByRole('button',{name:'Paste text',exact:true}).click()
+  await expect(page.getByText('Connection changed. Paste again after reconnecting; nothing was sent.',{exact:true})).toBeVisible()
+  await command("printf '__paste_fence_%s__\\n' 'safe'")
+  await expect(screen).toContainText('__paste_fence_safe__')
+  await expect(screen).not.toContainText('__stale_paste_must_not_run__')
   await page.getByRole('button',{name:'Recent history',exact:true}).click()
   await expect(page.getByRole('dialog')).toContainText('__browser_agent-survived__')
   await page.getByRole('button',{name:'Close history',exact:true}).click()

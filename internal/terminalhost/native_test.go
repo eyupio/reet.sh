@@ -147,7 +147,7 @@ func TestNativeAgentKillKeepsTmuxSession(t *testing.T) {
 		t.Fatalf("tmux session did not survive: %+v %v", sessions, err)
 	}
 	if runtime.GOOS == "darwin" {
-		if active := runServiceCommand(context.Background(), "launchctl", "print", "gui/"+strconv.Itoa(os.Getuid())+"/"+plan.TerminalLabel); active != nil {
+		if active := runServiceCommand(context.Background(), "launchctl", "print", macServiceDomain()+"/"+plan.TerminalLabel); active != nil {
 			t.Fatal("terminal LaunchAgent stopped")
 		}
 	} else {
@@ -172,9 +172,8 @@ func panePID(t *testing.T, tmuxPath, socket string) int {
 
 func mainPID(t *testing.T, plan ServicePlan) int {
 	t.Helper()
-	uid := strconv.Itoa(os.Getuid())
 	if runtime.GOOS == "darwin" {
-		output, err := exec.Command("launchctl", "print", "gui/"+uid+"/"+plan.AgentLabel).CombinedOutput()
+		output, err := runServiceOutput(context.Background(), "launchctl", "print", macServiceDomain()+"/"+plan.AgentLabel)
 		if err != nil {
 			return 0
 		}
@@ -185,7 +184,7 @@ func mainPID(t *testing.T, plan ServicePlan) int {
 		pid, _ := strconv.Atoi(match[1])
 		return pid
 	}
-	output, err := exec.Command("systemctl", "--user", "show", plan.AgentName, "--property=MainPID", "--value").Output()
+	output, err := runServiceOutput(context.Background(), "systemctl", "--user", "show", plan.AgentName, "--property=MainPID", "--value")
 	if err != nil {
 		return 0
 	}
@@ -214,15 +213,15 @@ func debugServices(t *testing.T, plan ServicePlan, layout Layout) {
 	t.Logf("layout socket active=%t status=%+v", SocketActive(layout), ReadStatus(context.Background(), plan))
 	if runtime.GOOS == "darwin" {
 		for _, label := range []string{plan.AgentLabel, plan.TerminalLabel} {
-			out, err := exec.Command("launchctl", "print", "gui/"+strconv.Itoa(os.Getuid())+"/"+label).CombinedOutput()
+			out, err := runServiceOutput(context.Background(), "launchctl", "print", macServiceDomain()+"/"+label)
 			t.Logf("%s print err=%v:\n%s", label, err, out)
 		}
 		return
 	}
 	for _, name := range []string{plan.AgentName, plan.TerminalName} {
-		out, err := exec.Command("systemctl", "--user", "status", name, "--no-pager", "-l").CombinedOutput()
+		out, err := runServiceOutput(context.Background(), "systemctl", "--user", "status", name, "--no-pager", "-l")
 		t.Logf("%s status err=%v:\n%s", name, err, out)
-		journal, jerr := exec.Command("journalctl", "--user", "-u", name, "--no-pager", "-n", "40").CombinedOutput()
+		journal, jerr := runServiceOutput(context.Background(), "journalctl", "--user", "-u", name, "--no-pager", "-n", "40")
 		if jerr == nil {
 			t.Logf("%s journal:\n%s", name, journal)
 		}

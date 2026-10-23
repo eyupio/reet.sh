@@ -138,6 +138,12 @@ func labelFor(prefix, kind string) string {
 }
 
 func defaultUnitDir() (string, error) {
+	if os.Geteuid() == 0 {
+		if runtime.GOOS == "darwin" {
+			return "/Library/LaunchDaemons", nil
+		}
+		return "/etc/systemd/system", nil
+	}
 	if runtime.GOOS == "darwin" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -286,10 +292,22 @@ func envList(values map[string]string) []string {
 }
 
 var runServiceOutput = func(ctx context.Context, name string, args ...string) (string, error) {
+	// Root enrollments use the native system manager, without depending on a
+	// root login/user bus or a root GUI session. Never elevate another user.
+	if os.Geteuid() == 0 && (name == "systemctl" || name == "journalctl") && len(args) > 0 && args[0] == "--user" {
+		args = args[1:]
+	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	output, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
 	return string(output), err
+}
+
+func macServiceDomain() string {
+	if os.Geteuid() == 0 {
+		return "system"
+	}
+	return "gui/" + strconv.Itoa(os.Getuid())
 }
 
 func runServiceCommand(ctx context.Context, name string, args ...string) error {
@@ -300,7 +318,7 @@ func runServiceCommand(ctx context.Context, name string, args ...string) error {
 }
 
 func bootoutMac(ctx context.Context, label string) error {
-	output, err := runServiceOutput(ctx, "launchctl", "bootout", "gui/"+strconv.Itoa(os.Getuid())+"/"+label)
+	output, err := runServiceOutput(ctx, "launchctl", "bootout", macServiceDomain()+"/"+label)
 	if err == nil {
 		return nil
 	}
@@ -312,7 +330,7 @@ func bootoutMac(ctx context.Context, label string) error {
 	return fmt.Errorf("launchctl bootout failed; inspect the service manager")
 }
 
-// Install writes both unit definitions and starts them through the native user
+// Install writes both unit definitions and starts them through the native
 // service manager. The units remain independent: stopping the agent never
 // stops tmux or its sessions.
 func Install(ctx context.Context, plan ServicePlan) error {
@@ -342,7 +360,6 @@ func Install(ctx context.Context, plan ServicePlan) error {
 	if err := writePrivateFile(plan.TerminalPath, []byte(plan.TerminalText())); err != nil {
 		return err
 	}
-	uid := strconv.Itoa(os.Getuid())
 	if runtime.GOOS == "darwin" {
 		for _, item := range []struct{ label, path string }{{plan.TerminalLabel, plan.TerminalPath}, {plan.AgentLabel, plan.AgentPath}} {
 			if preserve && item.label == plan.TerminalLabel {
@@ -351,10 +368,10 @@ func Install(ctx context.Context, plan ServicePlan) error {
 			if err := bootoutMac(ctx, item.label); err != nil {
 				return err
 			}
-			if err := runServiceCommand(ctx, "launchctl", "bootstrap", "gui/"+uid, item.path); err != nil {
+			if err := runServiceCommand(ctx, "launchctl", "bootstrap", macServiceDomain(), item.path); err != nil {
 				return err
 			}
-			_ = runServiceCommand(ctx, "launchctl", "enable", "gui/"+uid+"/"+item.label)
+			_ = runServiceCommand(ctx, "launchctl", "enable", macServiceDomain()+"/"+item.label)
 		}
 		return nil
 	}
@@ -379,7 +396,7 @@ func terminalServiceActive(ctx context.Context, plan ServicePlan) (bool, error) 
 	if runtime.GOOS != "darwin" {
 		return serviceActive(ctx, plan.TerminalName)
 	}
-	out, err := runServiceOutput(ctx, "launchctl", "print", "gui/"+strconv.Itoa(os.Getuid())+"/"+plan.TerminalLabel)
+	out, err := runServiceOutput(ctx, "launchctl", "print", macServiceDomain()+"/"+plan.TerminalLabel)
 	if err == nil {
 		return true, nil
 	}
@@ -423,7 +440,7 @@ func ControlAgentService(ctx context.Context, plan ServicePlan, action string) e
 		if err := bootoutMac(ctx, plan.AgentLabel); err != nil {
 			return err
 		}
-		domain := "gui/" + strconv.Itoa(os.Getuid())
+		domain := macServiceDomain()
 		if err := runServiceCommand(ctx, "launchctl", "bootstrap", domain, plan.AgentPath); err != nil {
 			return err
 		}
@@ -479,10 +496,9 @@ func ReadStatus(ctx context.Context, plan ServicePlan) ServiceStatus {
 	_, agentFileErr := os.Stat(plan.AgentPath)
 	_, terminalFileErr := os.Stat(plan.TerminalPath)
 	status.Installed = agentFileErr == nil && terminalFileErr == nil
-	uid := strconv.Itoa(os.Getuid())
 	if runtime.GOOS == "darwin" {
-		agentActive := runServiceCommand(ctx, "launchctl", "print", "gui/"+uid+"/"+plan.AgentLabel) == nil
-		terminalActive := runServiceCommand(ctx, "launchctl", "print", "gui/"+uid+"/"+plan.TerminalLabel) == nil
+		agentActive := runServiceCommand(ctx, "launchctl", "print", macServiceDomain()+"/"+plan.AgentLabel) == nil
+		terminalActive := runServiceCommand(ctx, "launchctl", "print", macServiceDomain()+"/"+plan.TerminalLabel) == nil
 		status.ManagerAvailable = agentActive || terminalActive
 		status.Active = agentActive && terminalActive
 		return status
@@ -515,6 +531,9 @@ func serviceActive(ctx context.Context, name string) (bool, error) {
 
 // LingerGuidance explains Linux logout behaviour without changing it.
 func LingerGuidance(ctx context.Context) string {
+	if os.Geteuid() == 0 {
+		return "Root enrollments use independent system services, which continue after logout. Host reboot still ends running shells."
+	}
 	if runtime.GOOS != "linux" {
 		return "macOS stops per-user LaunchAgents at logout; tmux sessions continue only while the user session remains."
 	}

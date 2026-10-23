@@ -85,3 +85,5 @@ jobs:
         run: |
           go build -o "$REET_NATIVE_AGENT_BINARY" ./cmd/reet
           go test -race -count=1 -timeout=4m -run TestNativeAgentKillKeepsTmuxSession -v ./internal/terminalhost
+      - name: Run root system-service recovery test
+        run: sudo env "PATH=$PATH" "GOPATH=$(go env GOPATH)" "GOCACHE=$RUNNER_TEMP/root-native-go-cache" REET_NATIVE_SERVICE_TESTS=1 "REET_NATIVE_AGENT_BINARY=$RUNNER_TEMP/reet-native-agent" go test -race -count=1 -timeout=4m -run TestNativeAgentKillKeepsTmuxSession -v ./internal/terminalhost

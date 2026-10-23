@@ -16,6 +16,7 @@
     site,
     canWrite,
     terminalAccess=false,
+    monitorAccess=false,
     onadd,
     onupdate,
     onerror,
@@ -26,6 +27,7 @@
     site: string
     canWrite: boolean
     terminalAccess?:boolean
+    monitorAccess?:boolean
     onadd: () => void
     onupdate: (state: SyncState) => void
     onerror: (error: unknown) => void
@@ -37,7 +39,7 @@
   let confirm = $state<Pending | null>(null)
   let busy = $state('')
   let health=$state<HealthResponse>({serverNow:Date.now(),machines:[]}), healthElapsed=$state(0),healthReceived=performance.now()
-  onMount(()=>{if(!terminalAccess)return;const abort=new AbortController();let busy=false;async function refreshHealth(){if(busy)return;busy=true;try{const next=await machineHealth(abort.signal);if(!abort.signal.aborted){health=next;healthReceived=performance.now();healthElapsed=0}}catch{/* inventory remains usable when health is unavailable */}finally{busy=false}}void refreshHealth();const timer=setInterval(()=>void refreshHealth(),15000),clock=setInterval(()=>healthElapsed=performance.now()-healthReceived,1000);return()=>{abort.abort();clearInterval(timer);clearInterval(clock)}})
+  onMount(()=>{if(!monitorAccess)return;const abort=new AbortController();let busy=false;async function refreshHealth(){if(busy||document.visibilityState!=='visible')return;busy=true;try{const next=await machineHealth(abort.signal);if(!abort.signal.aborted){health=next;healthReceived=performance.now();healthElapsed=0}}catch{/* inventory remains usable when health is unavailable */}finally{busy=false}}void refreshHealth();const wake=()=>void refreshHealth();document.addEventListener('visibilitychange',wake);window.addEventListener('online',wake);const timer=setInterval(wake,15000),clock=setInterval(()=>healthElapsed=performance.now()-healthReceived,1000);return()=>{abort.abort();clearInterval(timer);clearInterval(clock);document.removeEventListener('visibilitychange',wake);window.removeEventListener('online',wake)}})
 
   function fresh(group: SyncEnvironment): boolean {
     return group.scannedAt > Date.now() - 14 * 86400000
@@ -89,7 +91,7 @@
   function askForgetMachine(machine: Machine) {
     confirm = {
       title: `Forget ${machine.host}?`,
-      body: 'This removes the machine reports and saved sync references. Installed files and shelf entries stay. A future scan can report it again.',
+      body: 'This removes inventory reports and saved sync references. It does not revoke enrollment or terminal access. Installed files and running shells stay; a future scan can report it again.',
       confirmLabel: 'Forget machine',
       danger: true,
       action: async () => { if (await run(`forget-${machine.host}`, () => forgetMachine(machine.host))) onnotice(`Forgot ${machine.host}. Installed files are unchanged.`) },
@@ -107,7 +109,7 @@
   function askRevoke(agent: SyncAgent) {
     confirm = {
       title: `Revoke live access for ${agent.host}?`,
-      body: 'The agent cannot claim further jobs. A running operation may finish. Installed files and shelf entries remain.',
+      body: 'This closes private access and prevents new terminal authorization and sync jobs. Independent local tmux shells keep running. A running sync operation may finish; installed files remain.',
       confirmLabel: 'Revoke enrollment',
       danger: true,
       action: async () => { if (await run(`revoke-${agent.id}`, () => controlSyncAgent(agent.id, 'revoke'))) onnotice(`${agent.host} is no longer enrolled.`) },
@@ -166,7 +168,7 @@
               <div class="manage-menu">
                 {#if enrolled}
                   <button type="button" disabled={!!busy || enrolled.paused} onclick={() => scan(enrolled)}>{busy === `scan-${enrolled.id}` ? 'Queueing…' : 'Scan now'}</button>
-                  <button type="button" disabled={!!busy} onclick={() => pause(enrolled)}>{enrolled.paused ? 'Resume live agent' : 'Pause live agent'}</button>
+                  <button type="button" disabled={!!busy} onclick={() => pause(enrolled)}>{enrolled.paused ? 'Resume sync jobs' : 'Pause sync jobs'}</button>
                 {/if}
                 <button type="button" class="danger" onclick={() => askForgetMachine(machine)}>Forget machine</button>
                 {#if enrolled}<button type="button" onclick={() => askRevoke(enrolled)}>Revoke live access</button>{/if}

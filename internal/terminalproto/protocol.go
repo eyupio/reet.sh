@@ -112,6 +112,7 @@ const (
 )
 
 type Capabilities struct {
+	TerminalControl bool      `json:"terminalControl,omitempty"`
 	ProtocolVersion int       `json:"protocolVersion"`
 	OS              string    `json:"os"`
 	OSUser          string    `json:"osUser"`
@@ -221,15 +222,16 @@ func (c Create) Validate() error {
 }
 
 type Attach struct {
-	Cols         int  `json:"cols"`
-	Rows         int  `json:"rows"`
-	Takeover     bool `json:"takeover"`
-	LeaseSeconds int  `json:"leaseSeconds"`
+	StreamToken  string `json:"streamToken,omitempty"`
+	Cols         int    `json:"cols"`
+	Rows         int    `json:"rows"`
+	Takeover     bool   `json:"takeover"`
+	LeaseSeconds int    `json:"leaseSeconds"`
 }
 
 func (Attach) kind() string { return "attach" }
 func (a Attach) valid() bool {
-	return ValidDimensions(a.Cols, a.Rows) && a.LeaseSeconds >= 1 && a.LeaseSeconds <= 60
+	return (a.StreamToken == "" || ValidID(a.StreamToken)) && ValidDimensions(a.Cols, a.Rows) && a.LeaseSeconds >= 1 && a.LeaseSeconds <= 60
 }
 
 type Resize struct {
@@ -260,11 +262,14 @@ func (End) kind() string { return "end" }
 func (End) valid() bool  { return true }
 
 type History struct {
-	Lines int `json:"lines"`
+	StreamToken string `json:"streamToken,omitempty"`
+	Lines       int    `json:"lines"`
 }
 
-func (History) kind() string  { return "history" }
-func (h History) valid() bool { return h.Lines >= 1 && h.Lines <= MaxHistoryLines }
+func (History) kind() string { return "history" }
+func (h History) valid() bool {
+	return (h.StreamToken == "" || ValidID(h.StreamToken)) && h.Lines >= 1 && h.Lines <= MaxHistoryLines
+}
 
 type Probe struct {
 	Sequence int64  `json:"sequence"`

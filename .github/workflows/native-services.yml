@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - 'internal/terminalhost/**'
+      - 'internal/terminalagent/**'
+      - 'internal/terminalbroker/**'
+      - 'internal/terminalproto/**'
+      - 'internal/api/**'
       - 'internal/scan/**'
       - 'internal/agenthealth/**'
       - 'internal/privateconn/**'
@@ -16,6 +20,10 @@ on:
     branches: [main]
     paths:
       - 'internal/terminalhost/**'
+      - 'internal/terminalagent/**'
+      - 'internal/terminalbroker/**'
+      - 'internal/terminalproto/**'
+      - 'internal/api/**'
       - 'internal/scan/**'
       - 'internal/agenthealth/**'
       - 'internal/privateconn/**'
@@ -68,6 +76,8 @@ jobs:
           systemctl --user status --no-pager || true
       - name: Run terminal host tests
         run: go test -race -count=1 -timeout=3m ./internal/terminalhost
+      - name: Run terminal broker and real PTY integration tests
+        run: go test -race -count=1 -timeout=3m ./internal/scan ./internal/terminalbroker ./internal/api -run '^Test(AgentDaemon|AgentControl|Terminal|Tickets|OfflineCreate|ReverseBinding|ReconnectDoes|SlowConsumer|RevokedLogin)'
       - name: Run native service test
         env:
           REET_NATIVE_SERVICE_TESTS: '1'

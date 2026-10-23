@@ -31,10 +31,10 @@
       id: 'live' as const,
       label: 'Live agent',
       title: enrolled ? 'Restart this machine\'s live agent' : 'Enroll this machine for live status and remote jobs',
-      commands: enrolled ? 'reet agent run' : enrollCommands(site, machine),
+      commands: enrolled ? 'reet agent restart\nreet agent status' : enrollCommands(site, machine),
       note: enrolled
-        ? 'Run this on the machine to restart the live agent. Its enrollment and token are preserved. Use your service manager if it should start automatically.'
-        : 'Enroll once, then keep the agent running. It reports automatically, and can preview or apply changes you approve here. The CLI asks for a personal token the first time.',
+        ? 'Restart the agent in the background, then check its connection. Your terminal prompt stays free. Enrollment, credentials and running terminal sessions are preserved. Use reet agent stop to stop the connection.'
+        : 'Enroll once, then start the background agent. You can close your terminal; it keeps reporting and processes changes you approve here. The CLI asks for a personal token the first time.',
     },
     {
       id: 'upgrade' as const,

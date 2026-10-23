@@ -8,6 +8,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/eyupio/reet.sh/internal/terminalbroker"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
@@ -85,11 +86,25 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer hubConn.Close()
+	peer, err := s.terminals.Connect(uid, agent.ID, caps.Generation, caps.Capabilities.TerminalControl && caps.Capabilities.TerminalEnabled && caps.Capabilities.Readiness == terminalproto.Ready, terminalbroker.Sender(send))
+	if err != nil {
+		return
+	}
+	defer peer.Close()
+	peerCtx, peerCancel := context.WithCancel(r.Context())
+	var peerWorkers sync.WaitGroup
+	defer func() { peerCancel(); peerWorkers.Wait() }()
+	if caps.Capabilities.TerminalControl {
+		peerWorkers.Add(1)
+		go func() { defer peerWorkers.Done(); _ = peer.Synchronize(peerCtx) }()
+	}
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
 		select {
 		case <-hubConn.Done():
+			conn.CloseNow()
+		case <-peer.Done():
 			conn.CloseNow()
 		case <-done:
 		}
@@ -122,6 +137,15 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			hubConn.UpdateCapabilities(body.Capabilities)
+			peer.Capabilities(body.Capabilities.TerminalControl && body.Capabilities.TerminalEnabled && body.Capabilities.Readiness == terminalproto.Ready)
+			if body.Capabilities.TerminalControl {
+				peerWorkers.Add(1)
+				go func() { defer peerWorkers.Done(); _ = peer.Synchronize(peerCtx) }()
+			}
+		case *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.SessionChanged:
+			if err := peer.Receive(message); err != nil {
+				return
+			}
 		default:
 			return
 		}

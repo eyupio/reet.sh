@@ -100,6 +100,26 @@ func TestNativeAgentKillKeepsTmuxSession(t *testing.T) {
 	if !processAlive(pid) || panePID(t, tmux.Path, layout.Socket) != pid {
 		t.Fatal("service refresh killed the original process")
 	}
+	// Exercise the real CLI lifecycle too. Native stop must stop just the agent
+	// (including launchd KeepAlive), and restart must preserve the same pane PID.
+	if !waitForNative(t, 10*time.Second, func() bool {
+		output, err := exec.Command(agentBinary, "agent", "status", "--config", config).CombinedOutput()
+		return err == nil && strings.Contains(string(output), "Agent: running")
+	}) {
+		t.Fatal("agent local control did not become ready")
+	}
+	for _, action := range []string{"status", "stop", "start", "restart"} {
+		cmd := exec.Command(agentBinary, "agent", action, "--config", config, "--service-prefix", prefix)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("agent %s: %s (%v)", action, output, err)
+		}
+		if action == "stop" && mainPID(t, plan) != 0 {
+			t.Fatal("native service restarted after stop")
+		}
+		if !processAlive(pid) || panePID(t, tmux.Path, layout.Socket) != pid {
+			t.Fatalf("agent %s killed original shell", action)
+		}
+	}
 	firstAgent := mainPID(t, plan)
 	if firstAgent == 0 {
 		t.Fatal("agent service has no main process")

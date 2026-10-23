@@ -29,6 +29,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/sealed"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalbroker"
 )
 
 type server struct {
@@ -58,6 +59,7 @@ type server struct {
 	privateRelayURL string
 	private         privateTransport
 	healthHub       *agenthealth.Hub
+	terminals       *terminalbroker.Broker
 }
 
 // AuthMode selects how the instance authenticates requests.
@@ -174,6 +176,9 @@ func (s *Server) Close() error {
 	if s.s.healthHub != nil {
 		s.s.healthHub.Close()
 	}
+	if s.s.terminals != nil {
+		s.s.terminals.Close()
+	}
 	if s.s.private == nil {
 		return nil
 	}
@@ -213,6 +218,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	s.healthHub = agenthealth.NewHub(agenthealth.HubConfig{Store: st, Logf: func(format string, args ...any) {
 		log.Printf("machine health: "+format, args...)
 	}})
+	s.terminals = terminalbroker.New(st)
 	s.configurePrivate()
 	return s
 }
@@ -311,6 +317,7 @@ func (s *server) routes() http.Handler {
 	s.registerTicketRoutes(mux)
 	s.registerNotificationRoutes(mux)
 	s.registerHealthRoutes(mux)
+	s.registerTerminalRoutes(mux)
 	mux.HandleFunc("GET /quick", s.requireWriter(s.quick))
 	return mux
 }
@@ -1841,6 +1848,7 @@ func (s *server) signOut(w http.ResponseWriter, r *http.Request) {
 			s.event(user.ID, "ui", "sign-out", "", map[string]any{"name": user.Name, "email": user.Email})
 		}
 		_ = s.st.DeleteSession(hash)
+		s.terminals.RevokeSource(hash)
 	}
 	s.clearSession(w, r)
 	w.WriteHeader(http.StatusNoContent)

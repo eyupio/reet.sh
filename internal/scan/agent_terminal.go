@@ -53,9 +53,6 @@ func runAgentTerminal(args []string, out io.Writer) error {
 		if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 			return errors.New("terminal access is supported on Linux and macOS hosts")
 		}
-		if rootUser() {
-			return errors.New("enable terminal access as the non-root host user that owns this enrollment")
-		}
 		tmux, err := terminalhost.FindTmux(context.Background())
 		if err != nil {
 			return err
@@ -68,6 +65,9 @@ func runAgentTerminal(args []string, out io.Writer) error {
 			return err
 		}
 		fmt.Fprintf(out, "Terminal access enabled locally for %s.\n", c.Host)
+		if rootUser() {
+			fmt.Fprintln(out, "Remote shells run as root, the user owning this enrollment.")
+		}
 		fmt.Fprintf(out, "tmux: %s (%s)\nPrivate socket: %s\n", tmux.Path, tmux.Version, layout.Socket)
 		fmt.Fprintf(out, "Install or refresh the independent services with: reet agent service install --config %q\n", *config)
 		return nil
@@ -170,9 +170,6 @@ func runAgentService(args []string, out io.Writer) error {
 	}
 	switch action {
 	case "install":
-		if rootUser() {
-			return errors.New("install per-user services as the non-root host user that owns this enrollment")
-		}
 		if err := terminalhost.Install(context.Background(), plan); err != nil {
 			return err
 		}
@@ -188,9 +185,6 @@ func runAgentService(args []string, out io.Writer) error {
 		}
 		return nil
 	case "uninstall":
-		if rootUser() {
-			return errors.New("uninstall per-user services as the non-root host user that owns this enrollment")
-		}
 		fmt.Fprintln(out, "Stopping the terminal service ends running local tmux sessions.")
 		if err := terminalhost.Uninstall(context.Background(), plan); err != nil {
 			return err

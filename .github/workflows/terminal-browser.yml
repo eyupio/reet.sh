@@ -30,13 +30,25 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: sudo apt-get update && sudo apt-get install -y tmux
-      - run: npm ci && npx playwright install --with-deps chromium && npm run check && npm run build
+      - run: npm ci && npm run check && npm run build
         working-directory: web
+      - name: Prepare Chromium
+        working-directory: web
+        run: |
+          browser_path="$(command -v google-chrome || command -v chromium || true)"
+          if [ -n "$browser_path" ]; then
+            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$browser_path" >> "$GITHUB_ENV"
+            "$browser_path" --version
+          else
+            npx playwright install --with-deps chromium
+          fi
       - name: Exercise real browser, broker and persistent tmux shell
         env:
           REET_BROWSER_TESTS: '1'
           REET_BROWSER_ARTIFACT_DIR: ${{ runner.temp }}/terminal-browser
         run: go test -race -count=1 -timeout=3m ./internal/api -run '^TestTerminalPrivateLifecyclePreservesActualShell$' -v
+      - name: Exercise explicitly enabled root shells
+        run: sudo env "PATH=$PATH" "GOPATH=$(go env GOPATH)" "GOCACHE=$RUNNER_TEMP/root-go-cache" go test -race -count=1 -timeout=3m ./internal/terminalhost ./internal/scan -run 'TestManagerRetryAndRestartKeepOriginalProcess|TestAgentTerminalEnableAllowsExplicitRootConsent' -v
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -39,7 +39,7 @@ type Manager struct {
 }
 
 func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
-	if os.Geteuid() == 0 || !terminalproto.ValidID(opts.EnrollmentID) || opts.Consent == nil {
+	if !terminalproto.ValidID(opts.EnrollmentID) || opts.Consent == nil {
 		return nil, ErrTerminalDisabled
 	}
 	if err := Check(opts.Layout); err != nil {

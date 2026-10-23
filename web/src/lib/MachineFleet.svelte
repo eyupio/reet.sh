@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
+  import type { HealthResponse } from './terminal/api'
+  import { getMachineHealth as machineHealth } from './api'
+  import MachineHealthStrip from './terminal/MachineHealthStrip.svelte'
   import type { Machine, SyncAgent, SyncEnvironment, SyncState } from './api'
   import { controlSyncAgent, forgetEnvironment, forgetMachine, queueSyncJob } from './api'
   import { agentGroups, groupLabel } from './machines'
@@ -32,6 +36,8 @@
   let commandsFor = $state<Machine | null>(null)
   let confirm = $state<Pending | null>(null)
   let busy = $state('')
+  let health=$state<HealthResponse>({serverNow:Date.now(),machines:[]}), healthElapsed=$state(0),healthReceived=performance.now()
+  onMount(()=>{if(!terminalAccess)return;const abort=new AbortController();let busy=false;async function refreshHealth(){if(busy)return;busy=true;try{const next=await machineHealth(abort.signal);if(!abort.signal.aborted){health=next;healthReceived=performance.now();healthElapsed=0}}catch{/* inventory remains usable when health is unavailable */}finally{busy=false}}void refreshHealth();const timer=setInterval(()=>void refreshHealth(),15000),clock=setInterval(()=>healthElapsed=performance.now()-healthReceived,1000);return()=>{abort.abort();clearInterval(timer);clearInterval(clock)}})
 
   function fresh(group: SyncEnvironment): boolean {
     return group.scannedAt > Date.now() - 14 * 86400000
@@ -50,8 +56,8 @@
     return ({ current: 'Inventory current', stale: 'Scan is out of date', partial: 'Scan needs attention', empty: 'No agent inventory' })[machineStatus(machine)]
   }
   function agentState(agent: SyncAgent): string {
-    if (agent.paused) return 'Paused'
-    return agent.lastSeen > Date.now() - 90000 ? 'Live' : 'Offline'
+    if (agent.paused) return 'Sync paused'
+    return agent.lastSeen > Date.now() - 90000 ? 'Sync agent online' : 'Sync agent offline'
   }
   function agentSeen(agent: SyncAgent): string {
     return new Date(agent.lastSeen).toLocaleString()
@@ -148,6 +154,7 @@
           {#each supported as group (group.id)}<span class="agent-chip">{groupLabel(group)} <strong>{group.skillCount ?? 0}</strong></span>{/each}
           {#each scanOnly as group (group.id)}<span class="agent-chip muted">{groupLabel(group)}</span>{/each}
         </div>
+        {#if enrolled&&health.machines.some(item=>item.agentId===enrolled.id)}<MachineHealthStrip compact health={health.machines.find(item=>item.agentId===enrolled.id)} serverNow={health.serverNow+healthElapsed} />{/if}
 
         <div class="actions">
           <a class="btn primary" href={syncLink(machine.host)}>Sync this machine</a>

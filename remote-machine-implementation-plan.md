@@ -4,9 +4,9 @@ Status: implementation handoff. Stages 0–4 are merged, including PR #126.
 The follow-up [foundation review](docs/remote-machine-foundation-review.md)
 records corrective recovery/health work and strengthens the native service gate
 to run the actual reet binary; it is merged in PR #127. Stage 5 is merged in
-PR #128, including its macOS PTY correction. Stage 6 is implemented in the
-current broker increment (see its validation notes). Stages 7–9 are not
-implemented. This document remains the approved design and delivery record.
+PR #128, including its macOS PTY correction. Stage 6 is merged in PR #129.
+Stage 7 is implemented in the current browser-terminal increment. Stages 8–9
+are not implemented. This document remains the approved design and delivery record.
 
 Decisions agreed with the product owner on 23 October 2026. Implement this plan in
 small, reviewable stages. Read the current repository instructions before each
@@ -23,8 +23,8 @@ UI, and host monitoring requirements; it supersedes the earlier chat drafts.
 | 3 — Private host monitoring and health API | Merged | [PR #125](https://github.com/eyupio/reet.sh/pull/125), [notes](docs/remote-machine-stage3.md) |
 | 4 — Local consent and independent services | Merged | [PR #126](https://github.com/eyupio/reet.sh/pull/126), [notes](docs/remote-machine-stage4.md); see review for the strengthened native gate |
 | 5 — Host session manager | Merged | [PR #128](https://github.com/eyupio/reet.sh/pull/128), [notes](docs/remote-machine-stage5.md); both native OS gates passed |
-| 6 — Broker, browser authentication, and leases | Implemented in this increment | [API, recovery, compatibility and validation notes](docs/remote-machine-stage6.md) |
-| 7 — Terminal and health vertical slice | Not started | — |
+| 6 — Broker, browser authentication, and leases | Merged | [PR #129](https://github.com/eyupio/reet.sh/pull/129), [notes](docs/remote-machine-stage6.md); both native OS, CodeQL, full suites and four binaries passed |
+| 7 — Terminal and health vertical slice | Implemented in this increment | [Browser, health and durability notes](docs/remote-machine-stage7.md) |
 | 8 — Complete UX, session management, and history | Not started | — |
 | 9 — Resilience, documentation, and gated rollout | Not started | — |
 
@@ -47,13 +47,17 @@ What exists now:
   reconnect reconciliation, and bounded binary data/history APIs.
 - Background live agent start by default, local status/stop/start/restart,
   private Unix control, and explicit foreground mode for service supervision.
+- A lazy-loaded xterm.js browser workspace, explicit creation, session resume,
+  transfer/detach/reconnect states, health metrics and terminal traffic counts.
+- A real Chromium + broker + PTY + tmux integration test proving original shell
+  and long-job continuity through browser refresh and agent reconnect.
 
 What deliberately does not exist yet:
 
-- No browser terminal UI exists yet. The backend API and private runtime are
-  wired, but the xterm.js browser/health vertical slice is stage 7.
-- No terminal content recording or command history. Health has no browser chart
-  yet; only the authenticated health endpoint exists.
+- Complete session management and UX controls remain stage 8; the working
+  terminal/health vertical slice now exists.
+- No terminal content recording or command history. Expanded historical health
+  charts remain stage 8; current health metrics are displayed in the workspace.
 - Broker readiness requires successful reconciliation; local readiness alone
   still describes host infrastructure. Updated agents advertise terminalControl
   so older health-only agents are never sent unsupported terminal operations.

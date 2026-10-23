@@ -103,3 +103,13 @@ func TestStreamHelloRejectsConfusedBindings(t *testing.T) {
 		t.Fatal("duplicate operation accepted")
 	}
 }
+
+func TestTerminalHistoryIsInertDownloadableText(t *testing.T) {
+	r := httptest.NewRequest("GET", "/api/v2/terminal/sessions/test/history", nil)
+	w := httptest.NewRecorder()
+	payload := []byte(`<script>window.location='https://evil.example'</script>`)
+	serveTerminalHistory(w, r, payload)
+	if w.Code != 200 || w.Body.String() != string(payload) || w.Header().Get("Content-Type") != "text/plain; charset=utf-8" || w.Header().Get("X-Content-Type-Options") != "nosniff" || !strings.HasPrefix(w.Header().Get("Content-Disposition"), "attachment;") || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("history response could execute markup", w.Code, w.Header())
+	}
+}

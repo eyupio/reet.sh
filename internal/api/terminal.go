@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -199,10 +200,19 @@ func (s *server) terminalHistory(w http.ResponseWriter, r *http.Request) {
 		terminalError(w, terminalbroker.ErrDenied)
 		return
 	}
+	serveTerminalHistory(w, r, data)
+}
+
+// A snapshot is inert downloadable text even when a shell prints HTML. The
+// standard file-serving path also avoids arbitrary response-writer wrappers
+// treating a network-derived terminal buffer as an HTML response.
+func serveTerminalHistory(w http.ResponseWriter, r *http.Request, data []byte) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Disposition", `attachment; filename="terminal-history.txt"`)
 	w.Header().Set("X-Reet-History-Snapshot", "true")
-	w.WriteHeader(200)
-	_, _ = w.Write(data)
+	http.ServeContent(w, r, "terminal-history.txt", time.Time{}, bytes.NewReader(data))
 }
 func (s *server) terminalSocket(w http.ResponseWriter, r *http.Request) {
 	// The wrapper already checked the exact scheme and origin; the library

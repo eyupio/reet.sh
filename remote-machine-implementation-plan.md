@@ -5,7 +5,7 @@ The follow-up [foundation review](docs/remote-machine-foundation-review.md)
 records corrective recovery/health work and strengthens the native service gate
 to run the actual reet binary; it is merged in PR #127. Stage 5 is merged in
 PR #128, including its macOS PTY correction. Stage 6 is merged in PR #129.
-Stage 7 is merged in PR #130. Stage 8 is in PR #131; stage 9 is implemented in
+Stage 7 is merged in PR #130. Stage 8 is merged in PR #131; stage 9 is implemented in
 the current increment. Production pilot activation remains an operator task.
 This document remains the approved design and delivery record.
 
@@ -26,7 +26,7 @@ UI, and host monitoring requirements; it supersedes the earlier chat drafts.
 | 5 — Host session manager | Merged | [PR #128](https://github.com/eyupio/reet.sh/pull/128), [notes](docs/remote-machine-stage5.md); both native OS gates passed |
 | 6 — Broker, browser authentication, and leases | Merged | [PR #129](https://github.com/eyupio/reet.sh/pull/129), [notes](docs/remote-machine-stage6.md); both native OS, CodeQL, full suites and four binaries passed |
 | 7 — Terminal and health vertical slice | Merged | [PR #130](https://github.com/eyupio/reet.sh/pull/130), [notes](docs/remote-machine-stage7.md) |
-| 8 — Complete UX, session management, and history | Implemented in this increment | [UX and verification](docs/remote-machine-stage8.md) |
+| 8 — Complete UX, session management, and history | Merged | [PR #131](https://github.com/eyupio/reet.sh/pull/131), [UX and verification](docs/remote-machine-stage8.md) |
 | 9 — Resilience, documentation, and gated rollout | Implemented in this increment; pilot pending | [Evidence](docs/remote-machine-stage9.md), [runbook](docs/remote-machine-operations.md) |
 
 What exists now:

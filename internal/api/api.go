@@ -22,6 +22,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/backup"
+	"github.com/eyupio/reet.sh/internal/mail"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -47,6 +48,7 @@ type server struct {
 	defaultUser  store.User
 	queue        chan ref.Ref
 	backups      *backup.Service
+	mail         *mail.Mailer
 }
 
 // AuthMode selects how the instance authenticates requests.
@@ -121,6 +123,12 @@ func WithContactEmail(email string) Option {
 // answer that no key is configured.
 func WithBackups(service *backup.Service) Option {
 	return func(s *server) { s.backups = service }
+}
+
+// WithMail gives the API the outbox, for account email and team notices.
+// Without one, email-dependent features explain that it is not wired in.
+func WithMail(m *mail.Mailer) Option {
+	return func(s *server) { s.mail = m }
 }
 
 // New returns the API handler. An empty token disables authentication.
@@ -237,6 +245,7 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) http.Han
 	s.registerProfileRoutes(mux)
 	s.registerMCPRoutes(mux)
 	s.registerHostedRoutes(mux)
+	s.registerMailRoutes(mux)
 	mux.HandleFunc("GET /quick", s.requireWriter(s.quick))
 	return s.logRequests(s.auth(mux))
 }
@@ -308,7 +317,7 @@ func guardedPath(path string) bool {
 
 func openAuthPath(path string) bool {
 	switch path {
-	case "/api/version", "/api/v2/auth/status", "/api/v2/auth/setup", "/api/v2/auth/signup", "/api/v2/auth/sign-in", "/api/v2/auth/sign-out", "/api/v2/auth/invite", "/api/v2/auth/join":
+	case "/api/version", "/api/v2/auth/status", "/api/v2/auth/setup", "/api/v2/auth/signup", "/api/v2/auth/sign-in", "/api/v2/auth/sign-out", "/api/v2/auth/invite", "/api/v2/auth/join", "/api/v2/auth/forgot", "/api/v2/auth/reset":
 		return true
 	}
 	return path == "/api/community" || strings.HasPrefix(path, "/api/v2/public/lists/")
@@ -1560,6 +1569,7 @@ func (s *server) authStatus(w http.ResponseWriter, r *http.Request) {
 		"bootstrapRequired": bootstrapRequired,
 		"signupEnabled":     s.authMode == AuthAccounts && s.signup && !setupRequired,
 		"contactEmail":      s.contactEmail,
+		"passwordReset":     s.mail != nil && s.mail.Delivers(),
 		"user":              user,
 	})
 }
@@ -1708,6 +1718,11 @@ func (s *server) signUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.event(user.ID, "ui", "signup", "", map[string]any{"name": user.Name, "email": user.Email})
+	if s.mail != nil {
+		if err := s.mail.Welcome(r.Context(), user); err != nil {
+			log.Printf("email: queueing a welcome: %v", err)
+		}
+	}
 	writeJSON(w, http.StatusOK, user)
 }
 
@@ -1965,6 +1980,15 @@ func (s *server) adminUserReset(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if s.mail != nil && s.mail.Delivers() {
+		if err := s.mail.PasswordReset(r.Context(), target, mail.StaffResetTTL); err != nil {
+			writeErr(w, 500, "could not send the reset link: "+err.Error())
+			return
+		}
+		s.eventRequest(r, "user-reset", "", map[string]any{"name": target.Name, "email": target.Email, "emailed": true})
+		writeJSON(w, 200, map[string]any{"emailed": true, "email": target.Email})
+		return
+	}
 	raw, err := auth.NewToken()
 	if err != nil {
 		writeErr(w, 500, "could not reset the password")
@@ -1981,7 +2005,7 @@ func (s *server) adminUserReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.st.RevokeUserTokens(target.ID)
-	s.eventRequest(r, "user-reset", "", map[string]any{"name": target.Name, "email": target.Email})
+	s.eventRequest(r, "user-reset", "", map[string]any{"name": target.Name, "email": target.Email, "emailed": false})
 	writeJSON(w, 200, map[string]any{"password": password})
 }
 
@@ -2082,12 +2106,21 @@ func (s *server) adminInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.event(actor.ID, "ui", "invite", "", map[string]any{"email": email, "role": role})
+	emailed := false
+	if s.mail != nil && s.mail.Delivers() {
+		if err := s.mail.Invite(r.Context(), email, role, s.mailBase(r)+"/join?token="+raw, expires, actor.Name); err != nil {
+			log.Printf("email: queueing an invitation: %v", err)
+		} else {
+			emailed = true
+		}
+	}
 	writeJSON(w, 200, map[string]any{
 		"url":       "/join?token=" + raw,
 		"token":     raw,
 		"email":     email,
 		"role":      role,
 		"expiresAt": expires.UnixMilli(),
+		"emailed":   emailed,
 	})
 }
 
@@ -2150,6 +2183,11 @@ func (s *server) join(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.event(user.ID, "ui", "join", "", map[string]any{"name": user.Name, "email": user.Email})
+	if s.mail != nil {
+		if err := s.mail.Welcome(r.Context(), user); err != nil {
+			log.Printf("email: queueing a welcome: %v", err)
+		}
+	}
 	writeJSON(w, 200, user)
 }
 

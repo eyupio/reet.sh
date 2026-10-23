@@ -1,13 +1,14 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { signInAccount, type User } from './api'
+  import { forgotPassword, signInAccount, type User } from './api'
   import AuthCard from './AuthCard.svelte'
   import PasswordInput from './PasswordInput.svelte'
 
-  let { onsuccess, signupEnabled = false, contactEmail = '' }: {
+  let { onsuccess, signupEnabled = false, contactEmail = '', passwordReset = false }: {
     onsuccess: (user: User) => Promise<void> | void
     signupEnabled?: boolean
     contactEmail?: string
+    passwordReset?: boolean
   } = $props()
 
   const inviteHref = $derived(contactEmail
@@ -22,6 +23,10 @@
   let error = $state('')
   let busy = $state(false)
   let emailInput = $state<HTMLInputElement>()
+  let resetEmail = $state('')
+  let resetNotice = $state('')
+  let resetError = $state('')
+  let resetBusy = $state(false)
 
   $effect(() => {
     emailInput?.focus()
@@ -47,6 +52,25 @@
       busy = false
     }
   }
+
+  async function forgot(e: SubmitEvent) {
+    e.preventDefault()
+    if (!resetEmail.trim()) {
+      resetError = 'Enter the email address on the account.'
+      return
+    }
+    resetBusy = true
+    resetError = ''
+    resetNotice = ''
+    try {
+      const r = await forgotPassword(resetEmail.trim())
+      resetNotice = r.message
+    } catch (e) {
+      resetError = e instanceof Error ? e.message : String(e)
+    } finally {
+      resetBusy = false
+    }
+  }
 </script>
 
 <AuthCard title="Sign in to your shelf" lede="Your shelf, lists, agent sync and machine reports are waiting.">
@@ -68,7 +92,17 @@
     {/if}
     <details class="forgot">
       <summary>Forgot password?</summary>
-      <p>Ask your instance admin; they can issue a temporary password from Admin → Users.{#if resetHref} Or <a href={resetHref}>email {contactEmail}</a>.{/if}</p>
+      {#if passwordReset}
+        <form onsubmit={forgot} aria-busy={resetBusy}>
+          <label for="forgot-email">Email</label>
+          <input id="forgot-email" bind:value={resetEmail} type="email" autocomplete="email" placeholder="you@example.com" required />
+          <button type="submit" class="btn" disabled={resetBusy}>{resetBusy ? 'Sending…' : 'Email a reset link'}</button>
+        </form>
+        {#if resetNotice}<p class="reset-note" role="status">{resetNotice}</p>{/if}
+        {#if resetError}<p class="error" role="alert">{resetError}</p>{/if}
+      {:else}
+        <p>Ask your instance admin; they can issue a temporary password from Admin → Users.{#if resetHref} Or <a href={resetHref}>email {contactEmail}</a>.{/if}</p>
+      {/if}
     </details>
   </div>
 </AuthCard>
@@ -85,5 +119,8 @@
   .forgot summary { min-height: 32px; display: inline-flex; align-items: center; color: var(--muted); cursor: pointer; font-weight: 600; }
   .forgot summary:hover { color: var(--ink); }
   .forgot p { margin: 6px 0 0; line-height: 1.5; }
+  .forgot form { display: grid; gap: 8px; margin-top: 8px; }
+  .forgot form label { font-weight: 600; font-size: 0.82rem; }
+  .reset-note { color: var(--good); }
   .error { margin: 0; color: var(--bad); font-size: 0.9rem; }
 </style>

@@ -54,6 +54,7 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 - **Tags and notes.** Skills.sh topics are seeded as tags; add your own and filter by several at once.
 - **Accounts and profiles.** Owner setup, argon2id passwords, HttpOnly SameSite sessions, rate-limited sign-in. Each person's Account has their profile, password, sessions, personal API tokens, activity and backups. Or token mode, or no auth on a trusted LAN.
 - **Yours to take away.** Export JSON, Markdown or CSV, and restore from JSON. The database is one file.
+- **Email that waits.** The owner sets one SMTP server under **Admin → Email**; invitations, password resets, password-change notices and welcomes go through an outbox with retries, a test send and DNS checks. Each team's owner or managers choose what that team is emailed about under **Teams & organisations**. With no server, resets hand over a temporary password, invitations show a link to copy, and the admin page says so. [Email setup](docs/email.md).
 - **Sealed backups, here and off-site.** The owner backs up the whole instance; every person can back up their own shelf. Copies are encrypted before they are written or shipped, verified after every take, pruned by a count you choose, and sent to any S3-compatible destination.
 - **Yorkshire at heart.** A reet good toolkit, with a white-rose bookmark and a practical, quietly quirky voice. See [voice and copy](docs/voice-and-copy.md) when changing user-facing text.
 - **Pleasant to use.** Light and dark themes, works on a phone, keyboard friendly, respects reduced motion.
@@ -112,6 +113,8 @@ The navbar also has **Profiles**, where server-synced AI setup profiles are list
 | `REET_TOKEN` | empty | Accounts mode: setup bootstrap and fallback scan token until a personal token exists. Token mode: the only credential. Empty means no token. |
 | `REET_SIGNUP` | empty | Set to `open` to allow self-serve member accounts. Empty keeps accounts invite-only. |
 | `REET_CONTACT_EMAIL` | empty | Optional admin address shown on the sign-in screen for account and password-reset requests. |
+| `REET_PUBLIC_URL` | empty | Canonical public origin, also the default for links in email. |
+| `REET_MAIL_OUTBOX_DIR` | empty | Local development only: write each email here as `.eml`/`.html` instead of sending it. Never set this on a public instance. |
 | `SKILLS_SH_TOKEN` | empty | Optional skills.sh API token (needs a Vercel OIDC token, so it can't be generated). Without it, reet reads the public skills.sh pages. |
 | `REET_LOG` | empty | Set to `debug` for one line per metadata fetch; writes are always logged without tokens. |
 | `REET_TOPICS` | empty | Set to `off` to stop the daily skills.sh topic seed (nine read-only page fetches a day). |

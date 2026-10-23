@@ -28,6 +28,7 @@
   import Logo from './lib/Logo.svelte'
   import NewList from './lib/NewList.svelte'
   import PublicList from './lib/PublicList.svelte'
+  import ResetPassword from './lib/ResetPassword.svelte'
   import PageHeader from './lib/PageHeader.svelte'
   import Setup from './lib/Setup.svelte'
   import SetupProfiles from './lib/SetupProfiles.svelte'
@@ -67,6 +68,7 @@
   let bootstrapRequired = $state(false)
   let signupEnabled = $state(false)
   let contactEmail = $state('')
+  let passwordReset = $state(false)
   let currentUser = $state<User | null>(null)
   let search = $state<HTMLInputElement>()
   let addEl = $state<HTMLInputElement>()
@@ -107,6 +109,7 @@
   const isAccount = location.pathname.startsWith('/account')
   const isMCPConsent = location.pathname === '/account/mcp/authorize'
   const isJoin = location.pathname.startsWith('/join')
+  const isReset = location.pathname === '/reset'
   const isWelcome = location.pathname === '/' || location.pathname === '/welcome'
   const isSignIn = location.pathname === '/signin'
   const isSignUp = location.pathname === '/signup'
@@ -282,6 +285,7 @@
       bootstrapRequired = status.bootstrapRequired
       signupEnabled = status.signupEnabled ?? false
       contactEmail = status.contactEmail ?? ''
+      passwordReset = status.passwordReset ?? false
       currentUser = status.user
       if (status.user && location.pathname === '/welcome') {
         location.replace('/')
@@ -707,7 +711,7 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isWelcome && !currentUser ? 'Your shelf for everything AI' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isAdmin ? 'Admin' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser ? 'Your shelf for everything AI' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isAdmin ? 'Admin' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
   {/if}
 </svelte:head>
 
@@ -744,6 +748,8 @@
     <PublicList slug={publicSlug} />
   {:else if isJoin}
     <Join token={joinToken} onsuccess={afterJoin} />
+  {:else if isReset}
+    <ResetPassword />
   {:else if !authChecked}
     <p class="empty" role="status">Loading…</p>
   {:else if authMode === 'accounts' && setupRequired && !isWelcome}
@@ -754,7 +760,7 @@
     {:else if isSignUp && signupEnabled}
       <SignUp onsuccess={afterAuth} />
     {:else}
-      <AccountSignIn onsuccess={afterAuth} {signupEnabled} {contactEmail} />
+      <AccountSignIn onsuccess={afterAuth} {signupEnabled} {contactEmail} {passwordReset} />
     {/if}
   {:else if authMode === 'token' && needsAuth}
     <SignIn onattempt={attemptSignIn} />

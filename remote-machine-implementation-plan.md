@@ -409,6 +409,13 @@ Follow the inspected Zoomies fresh peer-introduction/reannouncement pattern
 when appropriate to the pinned Tailcat API. Do not assume a reused idle virtual
 connection detects a restarted listener. Bound dialing and retry failures.
 
+The stage-0 prototype found that Tailcat v0.7.0 can retain an old introduction
+acknowledgment and WireGuard peer state after the controller restarts. When the
+control connection is lost, close that native client and create a fresh client
+for the next connection generation, using the same saved controller capability.
+Authenticate again and reattach the existing logical session. A repeated Ping
+on the old native client is not proof that the new controller generation is ready.
+
 Ordinary HTTP is not a fallback for terminal contents. Custom private dials
 must not follow redirects or use an environment proxy to reroute credentials
 outside the tunnel. Relay discovery itself must respect supported deployment

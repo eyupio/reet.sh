@@ -1,0 +1,43 @@
+name: private connection
+
+on:
+  pull_request:
+    paths:
+      - 'internal/privateconn/**'
+      - 'internal/sealed/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/private-connection.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'internal/privateconn/**'
+      - 'internal/sealed/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/private-connection.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  local-relay:
+    name: local relay (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go vet ./internal/privateconn
+      - run: go test -race -count=1 -timeout=3m ./internal/privateconn

@@ -77,7 +77,6 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Whole installed skill folders in setup snapshots merged in [PR #97](https://github.com/eyupio/reet.sh/pull/97), `475e40c`.
 - The CodeQL integrity-digest follow-up merged in [PR #98](https://github.com/eyupio/reet.sh/pull/98), `3ae9e40`.
 - Profiles disclosure merged in [PR #100](https://github.com/eyupio/reet.sh/pull/100), `d87c4fe`.
-- Latest verified source baseline: `origin/main` at `d87c4fe` (2026-10-22).
 - Skill source provenance merged in [PR #101](https://github.com/eyupio/reet.sh/pull/101), `5b97f1d`.
 - Server-copy profile rename merged in [PR #102](https://github.com/eyupio/reet.sh/pull/102), `95ccd79`.
 - Missing skill-lock restore merged in [PR #104](https://github.com/eyupio/reet.sh/pull/104), `0d81784`.
@@ -86,10 +85,35 @@ storage plus optional S3; named profiles with machine/project overrides.
 - Restore resume merged in [PR #108](https://github.com/eyupio/reet.sh/pull/108), `7899fc0`.
 - Codex memory merged in [PR #109](https://github.com/eyupio/reet.sh/pull/109), `47bd104`.
 - Web profile exclusions merged in [PR #110](https://github.com/eyupio/reet.sh/pull/110), `4cac976`.
-- Latest verified source baseline: `origin/main` at `4cac976` (2026-10-22).
+- Handoff baseline merged in [PR #111](https://github.com/eyupio/reet.sh/pull/111), `1a25202`.
+- Latest verified source baseline: `origin/main` at `1a25202` (2026-10-23).
 - Existing skill scan/sync, hosted MCP, lifecycle and backup behaviour must remain
   compatible. Hosted MCP access is distinct from managing installed MCP servers.
-- No implementation capability is implied by this planning document.
+- Do not claim unsupported capabilities; the current status and limits are recorded below.
+
+## Current status (2026-10-23)
+
+Implemented on the latest verified `main` (`1a25202`):
+
+- Metadata-only discovery for Claude Code, Codex, OpenCode, Pi, Cursor and Gemini CLI,
+  with optional component summaries, version probes and local package evidence.
+- Policy previews and passphrase-encrypted setup snapshots with optional literal
+  credentials, local/S3 delivery, listing, inspection, pruning and protected deletion.
+- Restore planning, conflict choices, create/merge/replace apply, verification,
+  rollback, interrupted-journal resume, cross-OS warnings and conservative health/
+  support matrices.
+- Named profiles with revisions, overrides and machine/project scopes, local and server
+  sync, wizards, web detail/rename/delete and server-side exclusion revisions.
+- Whole skill folders with source provenance and safe lock-file create/merge; supported
+  Codex memory database capture/restore with SQLite sidecar blocking.
+
+Verification: full `go vet ./...`, `go test -race ./...`, web checks/build, all 16 MCP
+tests and Windows/macOS setup cross-compilation pass on the verified baseline.
+
+Known gaps: history adapters, memory stores other than Codex, skill dependency
+resolution, local (not server-copy) web editing, reviewed update/install execution
+(S6) and actual cross-OS restore verification. A successful file copy or selected-field
+check is not runtime proof.
 
 ## Progress
 
@@ -154,8 +178,9 @@ storage plus optional S3; named profiles with machine/project overrides.
 - [x] Capture and restore the supported Codex memory database.
 - [x] Add a server revision with changed global exclusions from the Profiles page.
 
-## Implemented slice
+## Earlier implementation notes (historical)
 
+These notes record earlier slices. Use **Current status** above for actual capability.
 `internal/setup` and `reet setup scan [--json] [--project PATH]` now provide
 metadata-only path discovery and executable lookup without executing agents
 or reading configuration contents. Six declarative adapters cover Claude Code,
@@ -164,8 +189,10 @@ states and backup/restore as not implemented. Shared files do not establish that
 an agent is installed. Optional path overrides and explicit project scope are
 covered by tests. Details: [setup discovery](docs/setup-discovery.md).
 
-## Next implementation task
+## S1-S4 implementation notes (historical)
 
+These notes record how the earlier slices landed. Several statements below describe
+states that later slices replaced. See **Current status** for the current capability.
 S1a is merged: `reet setup scan --components` opts into bounded
 strict-JSON settings/MCP summaries with schema v2. Default schema v1 remains
 metadata-only. Per-source partial/error/unsupported states, credential/reference
@@ -203,15 +230,15 @@ declaration, not an export or backup. Authenticated provenance, package-manager
 receipts and install resolution still need dedicated support before their restore
 paths can be enabled. Current slices do not meet the complete S1 acceptance gate.
 Do not copy configuration trees generically: they may mix secrets, history, caches
-and hooks. Setup backup now writes encrypted local snapshots; setup restore is not
-implemented.
+and hooks. Setup backup writes encrypted local snapshots; restore was added by the later S3/S4
+slices described above.
 
 S2a now applies those policies in memory through
 `reet setup backup --preview [--json] [--project PATH]`. It reports included,
 credential-only, reference and excluded field names, MCP declaration counts, unknown
 fields, per-component digests and fixed omission reasons. Opt-in sources are not
 read; selected values never appear in the preview; the preview itself writes nothing.
-Writing an encrypted snapshot is the next slice below.
+Writing an encrypted snapshot was the next slice at that point; it is implemented now.
 
 The sealed archive primitive now lives in `internal/sealed`, shared by instance/shelf
 backups and future setup snapshots without making `internal/setup` depend on the
@@ -1404,17 +1431,18 @@ and cross-OS claims remain separate gates.
 
 ## Support matrix
 
-The current branch adds `reet setup support` and `--json`. It reports, per agent, whether
+Merged in PR #107. `reet setup support` and `--json` report, per agent, whether
 settings, MCP, instructions, skills, memory, history, credential references and
 file/field restore are supported. It explicitly states that a successful file copy is
-not runtime verification and that memory, history, hooks, caches, keychains and
-device-bound sessions remain unsupported. The output contains no values or secrets.
+not runtime verification, that only the Codex memory database is supported and that
+other memory stores, history, hooks, caches, keychains and device-bound sessions remain
+unsupported. The output contains no values or secrets.
 
 Validation: CLI text/JSON tests cover all six agents, representative unsupported rows and
 limitations. Full Go, web and MCP checks pass.
 
-Memory/history adapters, interrupted-restore resumption, broader web editing and
-verified cross-OS restore remain unimplemented.
+Other memory stores, history adapters, local web editing and verified cross-OS restore
+remain unimplemented.
 
 ## Profile rename in the web page
 
@@ -1427,7 +1455,8 @@ is run. Same-name requests are idempotent.
 Validation: API tests cover a successful rename, old-name removal, conflict, invalid
 name and same-name request. Web checks pass with zero Svelte diagnostics.
 
-Broader web profile editing remains unimplemented.
+Server-side exclusion revisions are implemented; local profile editing from the web
+remains unimplemented.
 
 ## Skill provenance
 
@@ -1492,20 +1521,14 @@ profile editing and verified cross-OS restore remain unimplemented.
    quota was exhausted. This is not a completed review or a validated code finding.
    Inspect actual review threads and perform code review independently; do not claim
    automated approval.
-4. Explicit component export policies, the policy-driven preview, the shared sealed
-   archive, encrypted local setup snapshot writing, listing/inspection, restore
-   planning and compatibility/cross-OS warnings, create-only apply, conflict skip/replace
-   with rollback copies, destination verification, rollback, journal listing, local
-   health guidance, per-destination conflict choices, optional software evidence,
-   global/project instruction export, explicit portable credential inclusion, optional
-   S3 upload/fetch/listing/testing/prune/delete, named local profiles with global and
-   machine/project-scoped overrides, passphrase-free profile saving, interactive backup
-   passphrases, the interactive profile wizard with sync, revision selection,
-   rename/remove, server push/pull, a read-only Profiles web page and local pruning are
-   now implemented. The next slice is broader memory/history adapters or web profile
-   editing, depending on owner priority. Keep values encrypted and unknown formats
-   unsupported. Do not claim cross-OS restore or working-setup verification before their
-   acceptance gates. Consult the detailed plan for encryption, key handling, restore and
+4. The policy preview, sealed snapshots, local/S3 lifecycle, profiles and wizards,
+   restore planning/apply/verify/rollback/resume, skill folders/provenance/lock merge,
+   Codex memory, support matrix and web profile detail/rename/delete/exclusion revisions
+   are implemented. Remaining plan work: history adapters, other memory stores, skill
+   dependency resolution, local web editing, S6 reviewed update/install execution and
+   verified cross-OS restore. Keep values encrypted and unknown formats unsupported.
+   Do not claim cross-OS restore or working-setup verification before their acceptance
+   gates. Consult the detailed plan for encryption, key handling, restore and
    compatibility requirements.
 5. Create a PR per stage, run required Go/web checks plus MCP tests, review changes,
    merge only when checks are green, then continue on a fresh branch. The owner
@@ -1521,9 +1544,10 @@ list journals, report local health guidance, apply per-destination conflict choi
 record/compare optional software evidence, export global/project instructions, optionally
 include portable literal credentials, save/use/manage named local profiles with
 overrides and revision selection, sync profiles to an account, view them in the web
-Profiles page, apply machine/project-scoped profile exclusions, and prune old local
-snapshots, but broader memory/history, web profile editing and verified cross-OS recovery
-are not implemented. Existing `reet backup` is not evidence that
+Profiles page, apply machine/project-scoped exclusions, capture/restore Codex memory,
+resume interrupted journals and prune old local snapshots, but history adapters, other
+memory stores, local web editing, S6 update execution and verified cross-OS recovery are
+not implemented. Existing `reet backup` is not evidence that
 the planned setup milestone is complete.
 Saved REET_URL selects client requests; it does not make `reet upgrade` remotely
 manage that server. No production host was upgraded by this session. Do not copy

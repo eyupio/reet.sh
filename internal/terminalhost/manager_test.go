@@ -24,9 +24,6 @@ func testRequestID(n int) string { return fmt.Sprintf("request0123456789-%08d", 
 
 func managerFixture(t *testing.T) (*Manager, ManagerOptions) {
 	t.Helper()
-	if os.Geteuid() == 0 {
-		t.Skip("real terminal manager requires a non-root host user")
-	}
 	tmux, err := FindTmux(context.Background())
 	if err != nil {
 		t.Skip(err)

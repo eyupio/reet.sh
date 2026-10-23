@@ -39,7 +39,6 @@ export function readiness(machine?: TerminalMachine): string {
   if (!machine) return 'Choose an enrolled machine.'
   const caps = machine.capabilities
   if (!caps) return 'Start the background agent on this machine to connect.'
-  if (caps.osUser === 'root') return 'Remote shells require a non-root host user. Monitoring remains available.'
   if (!caps.terminalControl) return 'Update the reet agent to enable terminal support.'
   if (!caps.terminalEnabled) return 'Enable terminal access locally on this machine.'
   if (caps.readiness === 'tmux_unavailable') return 'Install tmux on this machine.'

@@ -104,7 +104,10 @@ func shortScanDir(t *testing.T) string {
 	return dir
 }
 
-func TestAgentTerminalEnableRefusesRoot(t *testing.T) {
+func TestAgentTerminalEnableAllowsExplicitRootConsent(t *testing.T) {
+	if _, err := terminalhost.FindTmux(t.Context()); err != nil {
+		t.Skip(err)
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +123,12 @@ func TestAgentTerminalEnableRefusesRoot(t *testing.T) {
 	if err := writePrivate(config, agentConfig{Server: "https://example.invalid", Token: "token", ID: "agent0123456789abcdef", Secret: "secret0123456789abcdef", Host: "fixture", Hostname: hostname, Home: home}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runAgentTerminal([]string{"enable", "--config", config}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "non-root") {
+	var out bytes.Buffer
+	if err := runAgentTerminal([]string{"enable", "--config", config}, &out); err != nil {
 		t.Fatalf("root enable: %v", err)
+	}
+	loaded, err := loadAgentConfig(config)
+	if err != nil || !loaded.TerminalEnabled || !strings.Contains(out.String(), "run as root") {
+		t.Fatalf("explicit root consent: %+v %v %s", loaded, err, out.String())
 	}
 }

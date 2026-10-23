@@ -43,12 +43,6 @@ func (t terminalTestTransport) RoundTrip(r *http.Request) (*http.Response, error
 }
 
 func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
-	if os.Geteuid() == 0 {
-		if os.Getenv("REET_BROWSER_TESTS") == "1" {
-			t.Fatal("browser terminal gate requires a non-root host user")
-		}
-		t.Skip("managed shells require a non-root OS user")
-	}
 	tmux, err := terminalhost.FindTmux(t.Context())
 	if err != nil {
 		if os.Getenv("REET_BROWSER_TESTS") == "1" {

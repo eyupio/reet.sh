@@ -37,6 +37,8 @@ jobs:
           REET_BROWSER_TESTS: '1'
           REET_BROWSER_ARTIFACT_DIR: ${{ runner.temp }}/terminal-browser
         run: go test -race -count=1 -timeout=3m ./internal/api -run '^TestTerminalPrivateLifecyclePreservesActualShell$' -v
+      - name: Exercise explicitly enabled root shells
+        run: sudo env "PATH=$PATH" "GOPATH=$GOPATH" "GOCACHE=$RUNNER_TEMP/root-go-cache" go test -race -count=1 -timeout=3m ./internal/terminalhost ./internal/scan -run 'TestManagerRetryAndRestartKeepOriginalProcess|TestAgentTerminalEnableAllowsExplicitRootConsent' -v
       - uses: actions/upload-artifact@v4
         if: always()
         with:

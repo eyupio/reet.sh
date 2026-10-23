@@ -1,5 +1,12 @@
 # Stage 8: terminal workspace and health UX
 
+Updated product decision: root shells are supported when the agent/enrollment
+belongs to root and terminal access is explicitly enabled locally. This replaces
+the non-root restriction in stages 4–7. Root never becomes available through an
+API privilege switch or browser-selected username; filesystem ownership checks,
+local consent and account isolation remain mandatory. Services currently use
+the owning user's service manager, including root's user manager on Linux.
+
 The existing session selector resumes immutable logical sessions. Rename changes
 controller metadata only. End requires confirmation, uses a stable per-session
 request key on uncertain responses, and displays pending offline requests.

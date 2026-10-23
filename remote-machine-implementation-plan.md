@@ -91,8 +91,9 @@ running.
 
 A terminal has the permissions of the OS user running the host agent. Starting
 in an enrolled project directory is a convenience, not a sandbox. Do not introduce
-automatic privilege escalation. The initial supported terminal setup should use
-a non-root host account.
+automatic privilege escalation. Root-owned enrollments are supported when the
+owner explicitly enables terminal access locally (product decision updated on
+23 October 2026). Selecting a browser session never changes the host OS user.
 
 Do not expand v1 into shared operators, collaborative input, file transfer,
 browser split panes, Windows/ConPTY, OS tuning, arbitrary port forwarding, or

@@ -89,5 +89,5 @@ test('health preserves missing readings and distinguishes last-known observation
   assert.equal(fresh({ connection: { connected: true, reportFresh: true, reportAt: 1000 } }, 92000), false)
   assert.equal(fresh({ connection: { connected: false, reportFresh: true, reportAt: 1000 } }, 2000), false)
   assert.equal(uptime(null), '—')
-  assert.match(readiness({ capabilities: { osUser: 'root' } }), /non-root/)
+  assert.equal(readiness({ready:true,capabilities:{osUser:'root',terminalControl:true,terminalEnabled:true,readiness:'ready'}}),'')
 })

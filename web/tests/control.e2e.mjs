@@ -52,7 +52,7 @@ await page.route('**/api/**',async route=>{
 const noOverflow=async()=>expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
 try {
  await page.goto(base)
- await expect(page.getByRole('heading',{name:'Your machines. Within reach.'})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
  await expect(page.getByRole('article',{name:/^Machine /})).toHaveCount(2)
  await expect(page.getByRole('button',{name:'Sync all · preview'})).toHaveCount(0)
  await noOverflow()
@@ -130,7 +130,7 @@ try {
  failSource=false
  viewer=true
  await page.goto(base)
- await expect(page.getByRole('heading',{name:'Your machines. Within reach.'})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
  await expect(page.getByRole('button',{name:'Scan all',exact:true})).toHaveCount(0)
  await expect(page.getByRole('link',{name:'Terminals',exact:true})).toHaveCount(0)
  viewer=false;failState=true

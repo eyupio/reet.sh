@@ -926,8 +926,19 @@ func TestPreviewUsesReceiptAsBaseline(t *testing.T) {
 	if got.ReceiptVersion != r.Version || baseline == nil || baseline.RevisionID != r.RevisionID || baseline.BundleID != r.BundleID || baseline.Manifest.Digest != r.ManagedDigest {
 		t.Fatalf("the plan did not bind the receipt it was built from: %q %+v", got.ReceiptVersion, baseline)
 	}
-	if got.ReviewHash == "" {
-		t.Fatal("a plan built on a receipt still gets a review identity")
+	// A later approval binds this hash, so the receipt version must be part of it:
+	// the same review with a different (or no) receipt version cannot match.
+	identity := skillContentReviewIdentity{
+		OwnerID: e.uid, RequestID: got.ID, TargetID: got.TargetID, TargetVersion: got.TargetVersion, BundleID: got.BundleID, RevisionID: got.RevisionID,
+		ManifestDigest: got.ManifestDigest, Mode: got.Mode, AgentID: got.AgentID, Instance: got.Instance, InventoryRevision: got.InventoryRevision,
+		CaptureHash: got.CaptureHash, PlanHash: got.Plan.Hash, ReceiptVersion: got.ReceiptVersion,
+	}
+	if got.ReviewHash == "" || identity.Hash() != got.ReviewHash {
+		t.Fatalf("the review hash must be built from the receipt version the plan bound: %q vs %q", got.ReviewHash, identity.Hash())
+	}
+	identity.ReceiptVersion = ""
+	if identity.Hash() == got.ReviewHash {
+		t.Fatal("a review made without the receipt version must not match one made with it")
 	}
 }
 

@@ -1,6 +1,6 @@
 # Terminal workspace
 
-The signed-in **Control** page shows active shells before fleet inventory. Continue
+The signed-in **Control** page shows active shells and machine connection cards. Skill sync and bulk inventory actions remain on **More → Sync**. Continue
 links select the exact connector and session ID on `/terminals`; they never create
 a shell. Running means a shell lifecycle state, not AI-agent activity. Creating and
 end-requested sessions retain their actual labels.
@@ -11,8 +11,25 @@ Transient errors preserve the last list; 401/403 clears it. Viewers do not mount
 band or request terminal data. Viewing the band does not attach to a shell.
 
 The terminal route uses compact app navigation and the remaining visual viewport.
-The desktop session sidebar scrolls independently; phones can open it with
-**Sessions**. The screen fits when the viewport/sidebar/font changes. **Details &
+The session sidebar scrolls independently and can be collapsed with **Sessions**
+or its collapse button. Drag its edge on desktop, or focus the splitter and use
+Left/Right/Home/End, to resize it between 220 and 480 pixels. Collapse and width
+survive reloads in this browser, separately for each signed-in account. Phones
+show an overlay sidebar and close it when a session is selected.
+
+**Your sessions → Machines** defaults to all machines, with individual selection
+and multi-machine checkboxes. Filtering or organising never creates or stops a
+shell. Select a row to continue that exact session across machines. Sort by custom
+order, name, recent metadata activity, creation or state; group by machine, state,
+colour or none. Drag the row's action handle within its group in Custom order;
+keyboard users can choose Move up/down from the same menu. Colours mark sessions
+separately from running-state dots. Organisation choices stay in this browser.
+
+Right-click a row, press Shift+F10, or use its action button to rename, disconnect
+the selected browser attachment, stop the shell or remove confirmed closed history.
+Actions capture the clicked session without selecting or attaching to it. Cross-machine
+responses cannot retarget the active shell. Stop and history removal require
+confirmation; pending or running shells cannot be removed directly. The screen fits when the viewport/sidebar/font changes. **Details &
 help** contains health, setup, quotas and command reference. Opening it does not
 replace the attachment. Legacy `/machines?view=terminal` and account route links
 keep the same workspace behaviour. **Find** searches host and shell-user names,
@@ -34,6 +51,30 @@ in-flight observations and schedules a fresh list, so stale polling cannot erase
 confirmed new session or undo rename/end presentation. Selection stays independent
 of mutation responses. Metadata access denial clears the private inventory and
 closes the browser attachment, with an access explanation; it does not end shells.
+
+## Appearance, commands and close defaults
+
+**Appearance** offers Midnight, Graphite, Ember and Paper palettes, follow-app
+mode, font size and cursor shape. These browser preferences leave the shell and
+attachment identity intact. The compact toolbar keeps clipboard, interrupt,
+search, history and maximise controls within reach.
+
+**Commands** opens a private account library, also reachable from Control. Search,
+create, edit, remove, copy or explicitly insert command text. The controller stores
+up to 200 commands, with 1–80-character names, 16 KiB of exact UTF-8 command text
+and optional notes. Optimistic revisions reject stale edits/deletes. Another
+browser sees the same library. It is metadata, usable without an available host;
+viewers and API tokens cannot read or write it. Saving never dispatches input.
+Insertion binds to the chosen live attachment generation and adds no Enter.
+Multiline/tab/control/large input retains explicit paste review. No shell output
+or credential interpolation is used to build commands.
+
+Stopping a session includes **Remove from history when this session ends** and
+**Use this as my account default**. Account → Profile also stores the default.
+History stays visible during offline/pending termination. The immutable end
+receipt stores the explicit choice; authenticated host closure inserts the
+existing archive tombstone in the same transaction. Changing preferences later
+never changes an already requested stop. Files and operation receipts remain.
 
 ## Actions and keyboard
 
@@ -92,7 +133,8 @@ Run `npm --prefix web run check` and `npm --prefix web run build`. Finish the bu
 before Go checks because Go embeds its output. For production-bundle UI fixtures,
 start `npm --prefix web run preview -- --host 127.0.0.1 --port 4173`, then run
 `node web/tests/control.e2e.mjs`, `node web/tests/terminal-workspace.e2e.mjs` and
-`node web/tests/terminal-lifecycle.e2e.mjs`.
+`node web/tests/terminal-lifecycle.e2e.mjs` and
+`node web/tests/terminal-organisation.e2e.mjs`.
 These fixtures cover synthetic two-machine continuation, permissions/errors,
 viewport bounds, clipboard, intentional disconnect, delayed observations, per-host
 retries, pending end, quota and explicit takeover. They do not prove remote
@@ -104,5 +146,22 @@ browser proves creation-response retry, context switching, explicit lease takeov
 rename and offline end without replacing either original shell.
 
 No production relay, physical phone, macOS or Windows runtime is established by
-these local Linux/Chromium fixtures. Modern terminal presentation, themes, account-synced commands and first-machine/
-upgrade terminal setup are the next priorities recorded in `handoff.md`.
+these local Linux/Chromium fixtures. Initial-install/enrollment/upgrade terminal
+setup is the next priority recorded in `handoff.md`.
+
+## Account command metadata API
+
+| Method/path | Body/result |
+| --- | --- |
+| GET `/api/v2/terminal/commands` | `{commands:[...]}` for the signed-in account |
+| POST `/api/v2/terminal/commands` | `{name,command,description,revision:0}` → saved record with generated ID/revision 1 |
+| PATCH `/api/v2/terminal/commands/{id}` | Same fields plus current revision → incremented revision |
+| DELETE `/api/v2/terminal/commands/{id}` | `{revision}` → `{ok:true}` |
+
+Records also expose `createdAt` and `updatedAt`. Unknown body fields and invalid
+text return 400; stale revisions and the 200-item limit return 409. Missing and
+foreign records share the existing 403 policy. These metadata routes keep account,
+write-role, cookie-only and canonical write-Origin checks while allowing command
+management when terminal execution is disabled. Commands are never interpolated
+or sent to the broker by these handlers. The profile default is UI-only: an end
+API request must explicitly set `removeHistory:true` to request archival.

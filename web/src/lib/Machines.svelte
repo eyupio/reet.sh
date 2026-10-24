@@ -3,10 +3,10 @@
   import PageHeader from './PageHeader.svelte'
   import { createToken } from './api'
   import { onMount, type Component } from 'svelte'
-  let { canWrite, accounts, monitoring=false, compare = false }: { canWrite: boolean; accounts: boolean; monitoring?:boolean; compare?: boolean } = $props()
+  let { canWrite, accounts, monitoring=false, compare = false, userId=0 }: { canWrite: boolean; accounts: boolean; monitoring?:boolean; compare?: boolean;userId?:number } = $props()
   let token = $state(''), name = $state('machine token'), busy = $state(false), error = $state('')
   const terminals = location.pathname === '/terminals' || new URLSearchParams(location.search).get('view') === 'terminal'
-  let TerminalView = $state<Component>()
+  let TerminalView = $state<Component<{userId?:number}>>()
   onMount(()=>{let disposed=false;if(terminals&&accounts&&canWrite)void import('./terminal/TerminalWorkspace.svelte').then(module=>{if(!disposed)TerminalView=module.default}).catch(()=>{if(!disposed)error='Could not load the terminal workspace. Refresh this page to retry.'});return()=>{disposed=true}})
   async function connectToken() {
     if (busy) return
@@ -18,7 +18,7 @@
 </script>
 {#if !terminals}<PageHeader eyebrow="Your control centre" title={compare ? "Sync, on your terms." : "Your machines, connected."} lede={compare ? "Move skills between reet.sh and your machines. Choose a source, select destinations, then review the changes." : "Connect a machine, inspect its skills and agents, and open a terminal to put them to work."} />{/if}
 {#if !terminals}<nav aria-label="Machines"><a class="btn quiet" href="/machines" aria-current={!compare&&!terminals ? 'page' : undefined}>Inventory & connection</a><a class="btn quiet" href="/sync" aria-current={compare ? 'page' : undefined}>Skills & sync</a>{#if accounts&&canWrite}<a class="btn quiet" href="/terminals" aria-current={terminals?'page':undefined}>Terminals</a>{/if}<a class="btn quiet" href="/profiles">Portable setups →</a></nav>{/if}
-{#if terminals && accounts && canWrite}{#if TerminalView}<TerminalView />{:else}<p role="status">{error||'Loading terminal workspace…'}</p>{/if}{:else}
+{#if terminals && accounts && canWrite}{#if TerminalView}<TerminalView {userId} />{:else}<p role="status">{error||'Loading terminal workspace…'}</p>{/if}{:else}
 <EnvironmentSync compact {canWrite} monitorAccess={monitoring} terminalAccess={accounts&&canWrite} {token} view={compare ? 'compare' : 'machines'} startConnect={location.hash === '#connect-machine'}>
   {#snippet tokenSetup()}
     {#if accounts && canWrite}

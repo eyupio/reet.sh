@@ -43,12 +43,13 @@ func (s *server) profileGet(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name          *string `json:"name"`
-		Theme         *string `json:"theme"`
-		Timezone      *string `json:"timezone"`
-		DateFormat    *string `json:"dateFormat"`
-		ShelfView     *string `json:"shelfView"`
-		CardsExpanded *bool   `json:"cardsExpanded"`
+		Name                  *string `json:"name"`
+		Theme                 *string `json:"theme"`
+		Timezone              *string `json:"timezone"`
+		DateFormat            *string `json:"dateFormat"`
+		ShelfView             *string `json:"shelfView"`
+		CardsExpanded         *bool   `json:"cardsExpanded"`
+		TerminalRemoveOnClose *bool   `json:"terminalRemoveOnClose"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -124,6 +125,10 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	if in.CardsExpanded != nil {
 		profile.CardsExpanded = *in.CardsExpanded
 		detail["cardsExpanded"] = *in.CardsExpanded
+	}
+	if in.TerminalRemoveOnClose != nil {
+		profile.TerminalRemoveOnClose = *in.TerminalRemoveOnClose
+		detail["terminalRemoveOnClose"] = *in.TerminalRemoveOnClose
 	}
 	if err := s.st.SaveProfileFor(user.ID, profile); err != nil {
 		writeErr(w, 500, err.Error())

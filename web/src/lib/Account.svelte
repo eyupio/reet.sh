@@ -50,7 +50,7 @@
   let busy = $state('')
 
   // svelte-ignore state_referenced_locally
-  let profileForm = $state({ name: user.name, theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list' as 'list' | 'board', cardsExpanded: false })
+  let profileForm = $state({ name: user.name, theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list' as 'list' | 'board', cardsExpanded: false, terminalRemoveOnClose: false })
   let passwordForm = $state({ current: '', password: '', confirm: '' })
 
   function sectionFromHash(): Section {
@@ -78,7 +78,7 @@
       const r = await getProfile()
       who = r.user
       profile = r.profile
-      profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat, shelfView: r.profile.shelfView, cardsExpanded: r.profile.cardsExpanded }
+      profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat, shelfView: r.profile.shelfView, cardsExpanded: r.profile.cardsExpanded, terminalRemoveOnClose: r.profile.terminalRemoveOnClose??false }
       applyTheme(r.profile.theme)
       error = ''
     } catch (e) {
@@ -282,7 +282,7 @@
   {#if section === 'profile'}
     <section class="block" aria-labelledby="profile-title">
       <h2 id="profile-title">Profile</h2>
-      <p class="muted">Get your shelf just reet. Set your name, shelf defaults, theme and date preferences.</p>
+      <p class="muted">Make your workspace feel just reet. Set your terminal, theme and date preferences.</p>
       <form onsubmit={save}>
         <div class="grid2">
           <label class="wide"><span>Name</span>
@@ -309,6 +309,7 @@
             </select>
             <small>Today reads {sampleDate()}.</small>
           </label>
+          <label class="wide"><span>When stopping a terminal session</span><select aria-label="Terminal history default" bind:value={profileForm.terminalRemoveOnClose}><option value={false}>Keep the closed session in history</option><option value={true}>Remove from history after it ends</option></select><small>This sets the confirmation’s default. You can change it for each session. Running or pending sessions remain visible until the machine confirms closure.</small></label>
           <label><span>Default shelf layout</span>
             <select bind:value={profileForm.shelfView}><option value="list">List</option><option value="board">Board</option></select>
             <small>Switching List/Board on your shelf also saves this preference.</small>

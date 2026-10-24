@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/eyupio/reet.sh/internal/contentobs"
@@ -299,4 +301,266 @@ func currentReceiptVersion(q previewQuerier, uid int64, environmentID, name stri
 		return "", nil
 	}
 	return version, err
+}
+
+// SkillContentAdopt is everything a caller says when adopting: which reviewed
+// preview, the review hash it was shown and the library revision the folder came
+// from. Which files are claimed is never taken from the caller.
+type SkillContentAdopt struct {
+	RequestKey        string `json:"requestKey"`
+	PreviewID         string `json:"previewId"`
+	ReviewHash        string `json:"reviewHash"`
+	AdoptAsRevisionID string `json:"adoptAsRevisionId"`
+}
+
+// AdoptionCandidate is one revision that could prove ownership of a captured
+// folder, with how much of it: files claimable, observed files left unclaimed,
+// and revision files the folder does not hold identically.
+type AdoptionCandidate struct {
+	RevisionID   string `json:"revisionId"`
+	Matched      int    `json:"matched"`
+	ObservedOnly int    `json:"observedOnly"`
+	RevisionOnly int    `json:"revisionOnly"`
+}
+
+// SkillContentAdoptionOffer is advice on an item read, never a selection: the
+// caller still names the revision, and adoption recomputes the claim.
+type SkillContentAdoptionOffer struct {
+	Candidates []AdoptionCandidate `json:"candidates"`
+}
+
+const maxAdoptionCandidates = 16
+
+var skillContentReviewHash = regexp.MustCompile(`^[a-f0-9]{64}$`)
+
+// adoptable reports whether a review shows a present folder in an exclusive root
+// whose only obstacle is that nothing owns it yet. A shared, unknown, absent or
+// otherwise blocked root is never adoptable, whatever its bytes.
+func adoptable(p SkillContentPreview) bool {
+	return p.Capture != nil && p.Capture.Presence == "present" && p.Capture.RootOwnership == "exclusive" && p.Capture.Manifest != nil &&
+		p.Plan != nil && len(p.Plan.Conflicts) == 1 && p.Plan.Conflicts[0].Code == "adoption_required"
+}
+
+// adoptionOffer lists the revisions of the preview's bundle whose SKILL.md
+// matches the captured folder, best match first, then newest, at most 16. It
+// reads stored manifests only and is offered for a current, adoptable review.
+func adoptionOffer(q privateSkillQuery, uid int64, p SkillContentPreview) (*SkillContentAdoptionOffer, error) {
+	if p.State != "captured" || !adoptable(p) {
+		return nil, nil
+	}
+	rows, err := q.Query(`SELECT id,manifest FROM private_skill_revisions WHERE user_id=? AND bundle_id=? AND `+privateSkillAccount+` ORDER BY created_at DESC,id DESC LIMIT ?`, uid, p.BundleID, uid, MaxPrivateSkillRevisions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	offer := &SkillContentAdoptionOffer{Candidates: []AdoptionCandidate{}}
+	for rows.Next() {
+		var id, raw string
+		var m skillbundle.Manifest
+		if err = rows.Scan(&id, &raw); err != nil {
+			return nil, err
+		}
+		// A revision is a candidate only if the claim succeeds. One whose stored
+		// manifest does not decode or validate is left out rather than hiding the
+		// review; adoption re-reads and re-checks whichever revision is named.
+		if json.Unmarshal([]byte(raw), &m) != nil {
+			continue
+		}
+		_, counts, e := skillplan.ClaimSubset(*p.Capture.Manifest, m)
+		if e != nil {
+			continue
+		}
+		offer.Candidates = append(offer.Candidates, AdoptionCandidate{RevisionID: id, Matched: counts.Matched, ObservedOnly: counts.ObservedOnly, RevisionOnly: counts.RevisionOnly})
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	// Rows arrive newest first; a stable sort keeps that order among equal matches.
+	sort.SliceStable(offer.Candidates, func(i, j int) bool { return offer.Candidates[i].Matched > offer.Candidates[j].Matched })
+	if len(offer.Candidates) > maxAdoptionCandidates {
+		offer.Candidates = offer.Candidates[:maxAdoptionCandidates]
+	}
+	return offer, nil
+}
+
+// AdoptSkillContentPreviewFor records which files of a reviewed skill folder this
+// account's library provably owns. The design's checks run in its order inside one
+// transaction whose first write takes the account lock, so two adoptions of one
+// slot cannot both succeed. The claim is computed here from the stored capture and
+// the stored revision: only files equal in path, size, digest and executable bit,
+// and SKILL.md among them. Adoption is create-only, consumes its preview and sends
+// nothing to the machine.
+func (s *Store) AdoptSkillContentPreviewFor(uid int64, in SkillContentAdopt) (out SkillContentReceipt, err error) {
+	if !privateSkillRequestID.MatchString(in.RequestKey) || !contentobs.ValidID(in.PreviewID) || !skillContentReviewHash.MatchString(in.ReviewHash) || !privateSkillID.MatchString(in.AdoptAsRevisionID) {
+		return out, ErrSkillContentReceiptInvalid
+	}
+	err = s.withTx(func(tx *sql.Tx) error {
+		// 1. An active writer. A repeated request key replays the original receipt
+		// for the same preview, review hash and revision, and conflicts otherwise.
+		if e := skillContentReceiptOwner(tx, uid); e != nil {
+			return e
+		}
+		original, e := scanStoredReceipt(tx.QueryRow(`SELECT `+receiptCols+` FROM skill_content_receipts WHERE user_id=? AND request_key=?`, uid, in.RequestKey))
+		switch {
+		case e == nil:
+			prior, _, de := original.decode()
+			if de != nil || prior.Evidence.PreviewID != in.PreviewID || prior.Evidence.ReviewHash != in.ReviewHash || prior.RevisionID != in.AdoptAsRevisionID {
+				return ErrSkillContentReceipt
+			}
+			out, e = original.verified(tx, uid)
+			return e
+		case !errors.Is(e, sql.ErrNoRows):
+			return e
+		}
+		// 2. An owned preview whose effective state is exactly captured.
+		stored, e := readPreview(tx, uid, in.PreviewID)
+		if e != nil {
+			return e
+		}
+		p, e := effectivePreview(tx, uid, stored)
+		if e != nil {
+			return e
+		}
+		if p.State != "captured" {
+			return ErrSkillContentReceipt
+		}
+		// 3. The caller saw this capture, plan, pin version, inventory and process.
+		if p.ReviewHash != in.ReviewHash {
+			return ErrSkillContentReceipt
+		}
+		// 4. A present folder in an exclusive root, blocked only for want of an owner.
+		if !adoptable(p) {
+			return ErrSkillContentReceipt
+		}
+		// 5. The pin still stands at the version the preview bound; the connector is unpaused.
+		var pinVersion, pinBundle string
+		switch e = tx.QueryRow(`SELECT version,bundle_id FROM skill_content_targets WHERE user_id=? AND id=?`, uid, p.TargetID).Scan(&pinVersion, &pinBundle); {
+		case errors.Is(e, sql.ErrNoRows):
+			return ErrSkillContentReceipt
+		case e != nil:
+			return e
+		case pinVersion != p.TargetVersion:
+			return ErrSkillContentReceipt
+		}
+		switch e = contentAgent(tx, uid, p.AgentID); {
+		case errors.Is(e, ErrRemoteNotFound), errors.Is(e, ErrContentObservationStale):
+			return ErrSkillContentReceipt
+		case e != nil:
+			return e
+		}
+		// 6. An owned revision of the pin's bundle.
+		var bundle string
+		switch e = tx.QueryRow(`SELECT bundle_id FROM private_skill_revisions WHERE user_id=? AND id=?`, uid, in.AdoptAsRevisionID).Scan(&bundle); {
+		case errors.Is(e, sql.ErrNoRows):
+			return ErrPrivateSkillMissing
+		case e != nil:
+			return e
+		case bundle != pinBundle:
+			return ErrSkillContentReceipt
+		}
+		revision, e := privateSkillRevision(tx, uid, bundle, in.AdoptAsRevisionID, false)
+		if e != nil {
+			return e
+		}
+		// 7. Claim only what the stored capture and the stored revision hold
+		// identically. Unclaimed observed files stay unmanaged and unmentioned.
+		managed, _, e := skillplan.ClaimSubset(*p.Capture.Manifest, *revision.Manifest)
+		if e != nil {
+			return e
+		}
+		// 8. Create-only: a slot that has a receipt, of any bundle and even a damaged
+		// one, is released first. The receipt takes the reviewed plan's target, so
+		// the next plan rebuilds exactly the slot and root that were reviewed.
+		target := p.Plan.Preconditions.Target
+		current, e := currentReceiptVersion(tx, uid, target.EnvironmentID, target.SkillName)
+		if e != nil {
+			return e
+		}
+		if current != "" {
+			return ErrSkillContentReceipt
+		}
+		var total int
+		if e = tx.QueryRow(`SELECT count(*) FROM skill_content_receipts WHERE user_id=?`, uid).Scan(&total); e != nil {
+			return e
+		}
+		if total >= MaxSkillContentReceipts {
+			return ErrSkillContentReceiptCapacity
+		}
+		at := now()
+		managedRaw, e := json.Marshal(managed)
+		if e != nil {
+			return e
+		}
+		evidence, e := json.Marshal(SkillContentReceiptEvidence{
+			PreviewID: p.ID, ReviewHash: p.ReviewHash, CaptureHash: p.CaptureHash, ObservedDigest: p.Capture.Manifest.Digest,
+			PinID: p.TargetID, PinVersion: p.TargetVersion, CapturedAt: p.CapturedAt, AdoptedAt: at, AdoptedBy: uid,
+		})
+		if e != nil {
+			return e
+		}
+		id := syncID()
+		if _, e = tx.Exec(`INSERT INTO skill_content_receipts(id,user_id,environment_id,agent_id,name,bundle_id,revision_id,root_id,adapter,schema_version,managed,provenance,evidence,request_key,version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			id, uid, target.EnvironmentID, target.AgentID, target.SkillName, bundle, revision.ID, target.RootID, target.Adapter, target.Schema, string(managedRaw), skillContentReceiptAdopted, string(evidence), in.RequestKey, syncID(), at, at); e != nil {
+			if strings.Contains(e.Error(), "UNIQUE") {
+				// Unreachable under the account lock, where steps 1 and 8 have already
+				// answered a repeated key and an occupied slot; never a second claim.
+				return ErrSkillContentReceipt
+			}
+			return e
+		}
+		// The preview is consumed: it stays superseded even if this receipt is later
+		// released, so replaying it can never claim the folder a second time.
+		stored.State, stored.Reasons = "superseded", unionReasons(stored.Reasons, []string{"receipt_changed"})
+		if e = writePreview(tx, uid, stored); e != nil {
+			return e
+		}
+		// Return what an item read returns, proved against the revision before commit.
+		row, e := scanStoredReceipt(tx.QueryRow(`SELECT `+receiptCols+` FROM skill_content_receipts WHERE user_id=? AND id=?`, uid, id))
+		if e != nil {
+			return e
+		}
+		out, e = row.verified(tx, uid)
+		return e
+	})
+	return
+}
+
+// moveSkillContentReceipts follows a machine rename within the same enrollment,
+// never a cross-scope adoption. Only the slot moves: the receipt keeps its ID,
+// bundle, revision, root and managed files, so the baseline rebuilt from the row
+// is the one that was adopted. A fresh version fences every review that bound the
+// old slot. Two receipts for one slot are never merged: the rename rolls back.
+func moveSkillContentReceipts(tx *sql.Tx, uid int64, from, to string) error {
+	rows, err := tx.Query(`SELECT id,name FROM skill_content_receipts WHERE user_id=? AND environment_id=? ORDER BY id`, uid, from)
+	if err != nil {
+		return err
+	}
+	type slot struct{ id, name string }
+	receipts := []slot{}
+	for rows.Next() {
+		var r slot
+		if err = rows.Scan(&r.id, &r.name); err != nil {
+			rows.Close()
+			return err
+		}
+		receipts = append(receipts, r)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, r := range receipts {
+		var taken int
+		if err = tx.QueryRow(`SELECT count(*) FROM skill_content_receipts WHERE user_id=? AND environment_id=? AND name=?`, uid, to, r.name).Scan(&taken); err != nil {
+			return err
+		}
+		if taken > 0 {
+			return errors.New("these reports have different ownership receipts; release one before merging")
+		}
+		if _, err = tx.Exec(`UPDATE skill_content_receipts SET environment_id=?,version=?,updated_at=? WHERE user_id=? AND id=?`, to, syncID(), now(), uid, r.id); err != nil {
+			return err
+		}
+	}
+	return nil
 }

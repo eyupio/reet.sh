@@ -90,6 +90,13 @@ func (s *Store) MergeEnvironmentsFor(userID int64, fromID, toID string) (int, er
 		if contentPins > 0 {
 			return errors.New("remove private skill pins before merging this report into a different scope")
 		}
+		var receipts int
+		if err := tx.QueryRow(`SELECT count(*) FROM skill_content_receipts WHERE user_id=? AND environment_id=?`, userID, fromID).Scan(&receipts); err != nil {
+			return err
+		}
+		if receipts > 0 {
+			return errors.New("release private skill ownership receipts before merging this report into a different scope")
+		}
 		res, err := tx.Exec(`INSERT OR IGNORE INTO skill_envs(skill_id,env_id,installed_at,last_seen,source_path)
 			SELECT skill_id,?,installed_at,last_seen,source_path FROM skill_envs WHERE env_id=?`, toID, fromID)
 		if err != nil {

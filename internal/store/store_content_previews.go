@@ -68,6 +68,8 @@ type SkillContentPreview struct {
 	ReviewHash        string                `json:"reviewHash,omitempty"`
 	Authority         string                `json:"authority"`
 	Error             string                `json:"error,omitempty"`
+	// Adoption is computed on item reads only, never stored or listed.
+	Adoption *SkillContentAdoptionOffer `json:"adoption,omitempty"`
 }
 
 type SkillContentPreviewCreate struct {
@@ -164,6 +166,9 @@ func readPreview(q previewQuerier, uid int64, id string) (p SkillContentPreview,
 
 func writePreview(tx *sql.Tx, uid int64, p SkillContentPreview) error {
 	p.UpdatedAt = now()
+	// An adoption offer is derived on item reads; a caller holding one must never
+	// persist it.
+	p.Adoption = nil
 	raw, err := json.Marshal(p)
 	if err != nil {
 		return err
@@ -277,15 +282,31 @@ func effectivePreview(q previewQuerier, uid int64, p SkillContentPreview) (Skill
 	return p, nil
 }
 
-func (s *Store) SkillContentPreviewFor(uid int64, id string) (SkillContentPreview, error) {
-	p, err := readPreview(s.db, uid, id)
+// currentPreview is a stored request with its fences applied, as every read sees it.
+func currentPreview(q previewQuerier, uid int64, id string) (SkillContentPreview, error) {
+	p, err := readPreview(q, uid, id)
 	if err != nil {
 		return p, err
 	}
-	return effectivePreview(s.db, uid, p)
+	return effectivePreview(q, uid, p)
 }
 
-// SkillContentPreviewsFor returns bounded summaries: no capture, no plan.
+// SkillContentPreviewFor is the item read. It alone carries the adoption offer,
+// read in the same snapshot as the request's effective state.
+func (s *Store) SkillContentPreviewFor(uid int64, id string) (out SkillContentPreview, err error) {
+	err = s.withTx(func(tx *sql.Tx) error {
+		p, e := currentPreview(tx, uid, id)
+		if e != nil {
+			return e
+		}
+		p.Adoption, e = adoptionOffer(tx, uid, p)
+		out = p
+		return e
+	})
+	return
+}
+
+// SkillContentPreviewsFor returns bounded summaries: no capture, no plan, no offer.
 func (s *Store) SkillContentPreviewsFor(uid int64) ([]SkillContentPreview, []SkillContentPreviewCapability, error) {
 	rows, err := s.db.Query(`SELECT id FROM skill_content_previews WHERE user_id=? AND `+privateSkillAccount+` ORDER BY created_at DESC,id`, uid, uid)
 	if err != nil {
@@ -308,7 +329,7 @@ func (s *Store) SkillContentPreviewsFor(uid int64) ([]SkillContentPreview, []Ski
 	}
 	list := []SkillContentPreview{}
 	for _, id := range ids {
-		p, e := s.SkillContentPreviewFor(uid, id)
+		p, e := currentPreview(s.db, uid, id)
 		if errors.Is(e, ErrSkillContentPreviewMissing) {
 			continue
 		}

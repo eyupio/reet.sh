@@ -53,7 +53,7 @@ of equality. Completeness means the reported observation completed, not permissi
 to infer a deletion or authorize later apply. A future import/apply must freshly
 revalidate its own preview, bytes and ownership.
 
-`environment_scans.inventory_revision` is an opaque random positive integer
+`environment_scans.inventory_revision` is an opaque random non-negative integer
 refreshed by **every** legacy inventory report, including from older connectors.
 It avoids timestamp collisions and stale observation revival when an environment
 is forgotten and recreated. Migration gives existing records zero without claiming
@@ -96,3 +96,18 @@ recompute exact bytes/modes/digest server-side; write one immutable private revi
 only after verified transfer. Do not reuse periodic observations as import approval
 or add payload fields to legacy strict terminal messages. Keep the existing
 metadata-only “Add selected to reet.sh” action distinct.
+
+## Verification
+
+Local checks on the main-integrated branch passed: frontend check/build with zero
+Svelte diagnostics, full Go vet/race suite, all 16 MCP tests, five production UI
+fixtures and the real browser/broker/tmux lifecycle with original shell/job
+preservation. New tests cover strict metadata limits, negotiation before reads,
+redirect refusal, exact byte/mode digest parity, unsafe files, exhausted scan
+budget, cancellation, owned enrollments/role changes/revocation, superseded or
+expired grants, receipt freshness, legacy scan invalidation/forget-recreate,
+transaction rollback, old-schema reopening and distinct fingerprints for two
+machines. UI fixtures inspect observed/stale/unreported states without writes.
+These are local/synthetic machine fixtures; no live fleet rollout or physical
+cross-platform observation tests were performed. Published CI must pass for the
+exact final PR head before merge.

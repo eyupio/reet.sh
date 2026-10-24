@@ -6,7 +6,7 @@ This is the current implementation baseline **and** the continuation plan. Curre
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations are implemented on `feat/machine-content-observations`, pending checks/publication; explicit payload import follows separately.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations are implemented on `feat/machine-content-observations`, locally validated, awaiting published CI; explicit payload import follows separately.** S1 is merged through PR #139; do not repeat
 it. Preserve the terminal work and do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -1102,7 +1102,7 @@ with a documented compatibility path for old clients and restore/backups.
 
 ### S3 [ ] Machine content observations and explicit import
 
-**Metadata slice implemented, pending final validation/PR.** Read
+**Metadata slice implemented and locally validated; awaiting PR CI/merge.** Read
 [the protocol and continuation contract](docs/machine-content-observations.md).
 - New authenticated prepare/report endpoints negotiate version 1 before file
   hashing. Old controllers (404/405) and future schemas skip content reads.
@@ -1117,6 +1117,14 @@ with a documented compatibility path for old clients and restore/backups.
 - `SyncEnvironment.content` is separate from name/source desired-set identities.
   Machines and Sync show unknown/incomplete/stale/paused/observed labels and
   read-only fingerprint details; they do not claim contents are in sync.
+- Local checks passed after integrating main through `0c39e79`: frontend check
+  (zero errors/warnings) and build; `go vet ./...`; full `go test -race ./...`;
+  all 16 MCP tests; all five production browser fixtures (including new content
+  states/details and no writes on inspection); real browser/broker/tmux shell
+  lifecycle preserving the original shell and job through refresh/reconnect and
+  two-host lifecycle. Additional race tests cover byte-budget exhaustion,
+  cancellation, legacy-schema reopen, expiry, role changes and rollback.
+  No live user workloads or deployed connector installations were changed.
 - Explicit transfer/import, sensitive-content selection, private content UI and
   content-aware apply are **not implemented** in this slice. Keep S3 unchecked
   until explicit verified import meets its acceptance gate below.

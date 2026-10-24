@@ -1,8 +1,11 @@
 package scan
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -123,5 +126,60 @@ func TestObservationNegotiatedReportAndRedirectDoesNotLeak(t *testing.T) {
 	}
 	if received.SchemaVersion != 1 || received.Scopes == nil {
 		t.Fatal(received)
+	}
+}
+
+func TestObservationBudgetMarksRemainingSkillsIncomplete(t *testing.T) {
+	home := t.TempDir()
+	// Large regular files exhaust the shared budget. A later skill remains an
+	// explicit incomplete record instead of a comparable empty/missing skill.
+	payload := bytes.Repeat([]byte("x"), int(skillbundle.MaxBytes))
+	for i := 0; i < 9; i++ {
+		root := filepath.Join(home, ".agents", "skills", fmt.Sprintf("skill-%02d", i))
+		if err := os.MkdirAll(root, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "SKILL.md"), payload, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := collectContentObservations(context.Background(), agentConfig{Home: home}, contentobs.Grant{ScanID: strings.Repeat("a", 48)})
+	if err := r.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Scopes) != 1 || r.Scopes[0].Complete || len(r.Scopes[0].Skills) != 9 {
+		t.Fatal(r)
+	}
+	var completeBytes int64
+	incomplete := 0
+	for _, v := range r.Scopes[0].Skills {
+		if v.Complete {
+			completeBytes += v.Bytes
+		} else {
+			incomplete++
+			if v.Digest != "" {
+				t.Fatal("partial digest")
+			}
+		}
+	}
+	if completeBytes > contentobs.MaxScanBytes || incomplete < 2 {
+		t.Fatal("budget not enforced", completeBytes, incomplete)
+	}
+}
+func TestObservationCancellationDoesNotDispatch(t *testing.T) {
+	posts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		posts++
+		json.NewEncoder(w).Encode(contentobs.Grant{SchemaVersion: 1, ScanID: strings.Repeat("a", 48), ExpiresAt: time.Now().Add(time.Minute).UnixMilli()})
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err := reportContentObservationsWith(ctx, agentConfig{Server: srv.URL}, "test", func(context.Context, agentConfig, contentobs.Grant) contentobs.Report {
+		cancel()
+		return contentobs.Report{}
+	})
+	if !errors.Is(err, context.Canceled) || posts != 1 {
+		t.Fatal(err, posts)
 	}
 }

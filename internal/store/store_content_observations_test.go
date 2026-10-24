@@ -253,3 +253,66 @@ func TestContentObservationTwoMachinesAndRoleChanges(t *testing.T) {
 		t.Fatal("disabled account bypassed")
 	}
 }
+
+func TestContentObservationMigrationAndExpiredGrant(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { s.Close() }()
+	uid, _ := s.DefaultOwner()
+	a, _, err := s.EnrollSyncAgent(uid, "old-machine", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.TouchEnvironmentFor(uid, "old-machine", "agents", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	env := EnvironmentIDFor(uid, "old-machine", "agents", "")
+	if err = s.RecordInventoryFor(uid, env, true, MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a database from before this additive migration, retaining inventory.
+	for _, stmt := range []string{`DROP TABLE content_observation_scopes`, `DROP TABLE content_observation_grants`, `ALTER TABLE environment_scans DROP COLUMN inventory_revision`} {
+		if _, err = s.db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := s.ContentObservationFor(uid, env)
+	if err != nil || v.State != "not_reported" {
+		t.Fatal(v, err)
+	}
+	g, err := s.PrepareContentObservationFor(uid, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.db.Exec(`UPDATE content_observation_grants SET expires_at=1`); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.RecordContentObservationFor(uid, a.ID, observationReport(g)); !errors.Is(err, ErrContentObservationStale) {
+		t.Fatal("expired", err)
+	}
+	v, err = s.ContentObservationFor(uid, env)
+	if err != nil || v.State != "not_reported" {
+		t.Fatal(v, err)
+	}
+	// Reopening after migration is idempotent and leaves old metadata available.
+	if err = s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if envs, err := s.SyncEnvironmentsFor(uid); err != nil || len(envs) != 1 || !envs[0].Complete {
+		t.Fatal(envs, err)
+	}
+}

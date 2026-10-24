@@ -4,9 +4,11 @@ package web
 import (
 	"bytes"
 	"embed"
+	"html"
 	"io/fs"
 	"mime"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -70,7 +72,7 @@ func serveIndex(w http.ResponseWriter, index []byte, path, origin string) {
 		http.Error(w, "reet.sh UI is not built; run `npm run build` in web/", http.StatusNotFound)
 		return
 	}
-	body := bytes.ReplaceAll(index, []byte(originToken), []byte(origin))
+	body := bytes.ReplaceAll(index, []byte(originToken), []byte(html.EscapeString(origin)))
 	if path == "/" || path == "/welcome" {
 		body = bytes.ReplaceAll(body, []byte(fallbackStart), nil)
 		body = bytes.ReplaceAll(body, []byte(fallbackEnd), nil)
@@ -98,16 +100,39 @@ func stripFallback(body []byte) []byte {
 // origin-tagged tags in index.html.
 func origin(r *http.Request, baseURL string) string {
 	if base := strings.TrimRight(strings.TrimSpace(baseURL), "/"); base != "" {
-		return base
+		if u, err := url.Parse(base); err == nil && u.Host != "" && (u.Scheme == "http" || u.Scheme == "https") {
+			return u.Scheme + "://" + u.Host
+		}
 	}
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	if proto := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]); proto != "" {
+	if proto := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0])); proto == "http" || proto == "https" {
 		scheme = proto
 	}
-	return scheme + "://" + r.Host
+	host := r.Host
+	if !validHost(host) {
+		host = "localhost"
+	}
+	return scheme + "://" + host
+}
+
+// validHost keeps untrusted Host values out of the generated HTML and XML. Go's
+// server already rejects malformed hosts, but proxies can pass arbitrary values.
+func validHost(host string) bool {
+	if host == "" || len(host) > 255 {
+		return false
+	}
+	for _, c := range host {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '.' || c == '-' || c == ':' || c == '[' || c == ']' || c == '_':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 const robotsTxt = `# reet.sh — self-hosted control room for AI agents
@@ -138,7 +163,7 @@ Sitemap: %s/sitemap.xml
 func writeRobots(w http.ResponseWriter, origin string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=300")
-	_, _ = w.Write([]byte(strings.Replace(robotsTxt, "%s", origin, 1)))
+	_, _ = w.Write([]byte(strings.Replace(robotsTxt, "%s", html.EscapeString(origin), 1)))
 }
 
 const sitemapXML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -152,5 +177,5 @@ const sitemapXML = `<?xml version="1.0" encoding="UTF-8"?>
 func writeSitemap(w http.ResponseWriter, origin string) {
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=300")
-	_, _ = w.Write([]byte(strings.Replace(sitemapXML, "%s", origin, 1)))
+	_, _ = w.Write([]byte(strings.Replace(sitemapXML, "%s", html.EscapeString(origin), 1)))
 }

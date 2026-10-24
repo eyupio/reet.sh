@@ -131,3 +131,18 @@ func TestStaticAssetsStillServed(t *testing.T) {
 		t.Fatalf("content-type = %q", ct)
 	}
 }
+
+func TestOriginRejectsHeaderInjection(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/robots.txt", nil)
+	req.Host = "reet.sh"
+	req.Header.Set("X-Forwarded-Proto", `https"><script>alert(1)</script>`)
+	rec := httptest.NewRecorder()
+	Handler("").ServeHTTP(rec, req)
+	body := rec.Body.String()
+	if strings.Contains(body, "<script>") || strings.Contains(body, `"><`) {
+		t.Fatalf("header value was reflected: %s", body)
+	}
+	if !strings.Contains(body, "Sitemap: http://reet.sh/sitemap.xml") {
+		t.Fatalf("invalid protocol should fall back to http:\n%s", body)
+	}
+}

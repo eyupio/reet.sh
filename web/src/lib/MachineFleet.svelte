@@ -223,7 +223,7 @@
             {#each scanOnly as group (group.id)}
               <li class="scan-only">
                 <span class="dot empty" aria-hidden="true"></span>
-                <div class="agent-copy"><strong>{groupLabel(group)}</strong><small>Scan only. Sync to the shared agents folder or this agent's supported location.</small></div>
+                <div class="agent-copy"><strong>{groupLabel(group)}</strong><small>Scan only. Sync to the shared agents folder or this agent's supported location.</small><ContentObservation content={group.content} /></div>
                 <span class="scope-state">Scan only</span>
               </li>
             {/each}

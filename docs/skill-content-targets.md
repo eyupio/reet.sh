@@ -7,9 +7,10 @@ ownership baseline, dispatch connector work or authorise a future apply. Every
 response is labelled `verification: "not_verified"`.
 
 This slice supplies the persistent desired input for the
-[pure content planner](skill-content-planner.md). Negotiated per-file observation,
-root ownership, preview/approval UI and reviewed execution remain separate stages.
-There is no new browser control in this slice.
+[pure content planner](skill-content-planner.md). The
+[negotiated metadata-only preview](skill-content-preview.md) now reads a pin and
+observes one machine; ownership receipts, adoption, approval UI and reviewed execution
+remain separate stages. There is no new browser control in this slice.
 
 ## Ownership and scope
 
@@ -125,29 +126,17 @@ content or pins. There is no new export/restore format in this slice.
 
 ## Granular continuation
 
-1. The user requested a pause after this PR. Only when they explicitly resume,
-   implement the negotiated metadata preview
-   channel. Read the pure planner's input/authority contract before adding types.
-2. Select the owned pin and exact immutable private revision server-side. Bind the
-   pin ID/version, account, enrollment, current process/connection generation and
-   inventory revision into a separately expiring preview request. Never accept a
-   browser-supplied planner snapshot or treat this pin as an installed receipt.
-3. Negotiate support before hashing files. Map only the selected reported scope to
-   the connector's locally configured home/project root. Reuse bounded S1 reads;
-   send per-file metadata only, with explicit present/absent/unknown states.
-   A failed or omitted scan is not proof of absence. Keep old connectors unchanged.
-4. Establish physical-root identity and aliases across scopes. Shared/unknown roots
-   must block; an existing unowned tree must still require explicit adoption.
-   Store future verified managed receipts separately from pins and observations.
-5. Construct the planner input from trusted storage and observation data. Reject
-   changed pin versions, scan generations, connection instances, permissions,
-   pause/revocation, stale captures and expired requests. Bind the pin version in
-   the surrounding preview/approval identity as well as the planner hash; a pin can
-   change away and back to the same revision (ABA), which must invalidate old review.
-6. Add API/protocol/store tests for those fences, old servers/connectors, cancellations,
-   changed source and lost responses. Connect a review UI only to truthful metadata
-   states. There are still no filesystem writes at this stage.
-7. Add reviewed execution as a subsequent slice: full payload staging, local locks,
+1. **Done in a following slice:** the negotiated metadata-only preview, bound to the
+   pin ID **and version**, enrolment, connector process generation and inventory
+   revision, with physical-root identity and alias detection. See
+   [the preview contract](skill-content-preview.md). A pin that changes away and back
+   to the same revision has a new version and invalidates old reviews.
+2. **Still to do:** store future verified managed receipts separately from pins and
+   observations (no baseline exists, so every existing tree still needs adoption), and
+   design explicit adoption for existing unowned roots.
+3. **Still to do:** a review UI joined to pin selection, connected only to truthful
+   metadata states. Pins and previews both have API only.
+4. Add reviewed execution as a subsequent slice: full payload staging, local locks,
    immediate precondition revalidation, recoverable journal/backups, installed
    verification and durable receipts. Do not close S4 or begin S5 fleet apply until
    temporary-filesystem failure/crash/recovery gates in handoff.md pass.

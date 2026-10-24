@@ -2,17 +2,20 @@
 
 ## Read this first — 24 October 2026
 
-**User-requested pause after [PR #171](https://github.com/eyupio/reet.sh/pull/171).**
-Finish that PR and merge only after its final checks are green, then stop. Do not
-start metadata preview, executor work or any other roadmap stage until the user
-explicitly resumes. The code/contract and restart points below are saved for that
-future session. The PR link is authoritative for its final head, CI and merge state.
+**Resumed after [PR #171](https://github.com/eyupio/reet.sh/pull/171) merged as `1eb92c0`.**
+The user explicitly authorised continuation with one bounded S4 slice: the negotiated
+metadata-only machine content preview, in [PR #172](https://github.com/eyupio/reet.sh/pull/172) (branch
+`claude/gallant-darwin-n9oqfj`). It is API and connector protocol only: no browser
+control, no filesystem write and no apply authority. Ownership receipts, adoption,
+reviewed execution and S5 are **not** started. Read
+[the preview contract](docs/skill-content-preview.md) first. The PR link is
+authoritative for its final head, CI and merge state.
 
 This is the current implementation baseline **and** the continuation plan. Current
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 and CLI import in PR #164 (`7253663`). Central browser import merged in PR #168 (`7e2c992`) after all five workflows passed for `56aefe0fbb76d9cf9ce85bfec2591d58cdcc3eee`. S3 is complete. S4's pure content planner merged in PR #169 (`d494543`) after both workflows passed for `7595bc9b50f9d920da30fc4803f7720dfdc5af2a`. Optional owned revision pins/storage/API are implemented in PR #171 (`feat/private-content-target-pins`), with its implementation and continuation contract recorded below. No machine content preview/apply is wired yet.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 and CLI import in PR #164 (`7253663`). Central browser import merged in PR #168 (`7e2c992`) after all five workflows passed for `56aefe0fbb76d9cf9ce85bfec2591d58cdcc3eee`. S3 is complete. S4's pure content planner merged in PR #169 (`d494543`) after both workflows passed for `7595bc9b50f9d920da30fc4803f7720dfdc5af2a`. Optional owned revision pins/storage/API merged in PR #171 (`1eb92c0`). The negotiated metadata-only content preview is implemented in [PR #172](https://github.com/eyupio/reet.sh/pull/172) (API and connector channel only, no UI). No machine content apply is wired yet.** S1 is merged through PR #139; do not repeat
 it. Preserve the terminal work and do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -101,12 +104,14 @@ The user requested a status report and continued roadmap delivery after PR #155.
   separately and integrated into PR #171; preserve its `AgentUpdate.svelte`,
   `store_sync_updates.go` and connector update-state/protocol code. This concerns
   the reet connector binary, not the future AI-agent software/MCP maintenance stages.
-- **Pause checkpoint:** optional owned private revision pins, separate storage/API
-  in PR #171 (`feat/private-content-target-pins`). Read
+- **S4 pins merged:** optional owned private revision pins, separate storage/API
+  in PR #171 (`1eb92c0`). Read
   [the API, boundaries and granular continuation](docs/skill-content-targets.md).
-  When the user resumes, implement only negotiated per-file metadata preview;
-  keep reviewed executor/journal/receipts in a separate slice. S4 and S5 remain
-  incomplete. Do not start this next stage after the current PR merges.
+- **S4 preview checkpoint:** the negotiated metadata-only content preview is in [PR #172](https://github.com/eyupio/reet.sh/pull/172).
+  Read [its contract and continuation](docs/skill-content-preview.md). It observes and
+  plans but never writes; with no ownership baseline every existing tree needs adoption.
+  Ownership receipts/adoption, a review UI and the reviewed executor are separate
+  slices, in an order the user chooses. S4 and S5 remain incomplete.
 - **Later:** A1–A3 registered agent launch/activity/attention; W1–W3 projects,
   worktrees/diffs/structured tool review; L1–L4 AI software/MCP fleet maintenance
   and optional isolation. Existing machine inventory and setup snapshots are a
@@ -997,13 +1002,12 @@ recovery as a fully working recovered agent environment.
    branch state here are a dated baseline, not permission to reset local work.
 2. Run `git status --short`, inspect the current branch/log and fetch the current
    base when network/authentication are available. Preserve existing edits.
-   Confirm the PR #171 checkpoint through its live PR/CI/merge record. The user
-   requested a pause after that PR; do not open a new implementation branch yet.
-   Only after the user resumes, start from current main and preserve local edits.
-3. After explicit resumption, pick **one bounded S4 metadata-preview slice** from
-   the current checkpoint and docs/skill-content-targets.md. T1–T9 and S1–S3 are
-   complete; do not restart T3 or earlier work. Do not build an execution/UI control
-   before its prerequisite is present or turn the whole roadmap into one PR.
+   Confirm the previous slice's state through its live PR/CI/merge record, then start
+   from current main and preserve local edits.
+3. Pick **one bounded next slice** from the continuation list in the S4 preview record
+   and docs/skill-content-preview.md; the user chooses the order. T1–T9, S1–S3 and the
+   S4 planner, pins and preview are done; do not restart them. Do not build an execution
+   control before its prerequisite is present or turn the whole roadmap into one PR.
 4. Before editing, state the task ID, files affected, expected behaviour and checks.
    Resolve routine implementation choices from existing conventions. If a domain
    decision genuinely remains open, record the question and continue independent
@@ -1300,10 +1304,10 @@ passed for `7595bc9b50f9d920da30fc4803f7720dfdc5af2a`.** Read
 - The pure planner slice did not add revision pins to storage, per-file connector
   preview, API/UI review, approval, transfer, apply, locking, rollback or durable receipts.
   S4 stays unchecked until real filesystem execution/recovery gates below pass.
-- Optional revision pins/storage/API are now implemented in the following bounded
-  slice below. Next implement separately negotiated metadata preview. Existing
-  aggregate content observations cannot provide the required per-file tree or
-  trustworthy absence. Keep execution separate.
+- Optional revision pins/storage/API merged in PR #171 (below), and the separately
+  negotiated metadata preview follows it (next subsection). Existing aggregate content
+  observations cannot provide the required per-file tree or trustworthy absence, so the
+  preview captures it explicitly. Keep execution separate.
 - Validation: frontend check/build with zero Svelte diagnostics; full `go vet ./...`
   and `go test -race ./...`; all 16 MCP tests. Focused planner race tests have
   96.6% statement coverage. The first full run lacked tmux on PATH; after adding
@@ -1348,14 +1352,79 @@ Read [docs/skill-content-targets.md](docs/skill-content-targets.md).
   pin implementation (including rename integration) is `43f083a`; the PR also
   integrates main through PR #170 (`d040518`). PR #171 remains the authoritative
   record of its final integration/documentation head, published checks and merge.
-- Next: negotiated metadata-only capture bound to pin ID/version and current
+- Next (implemented in the preview subsection below): negotiated metadata-only capture bound to pin ID/version and current
   inventory/connection identities, local root identity/aliases, then trusted planner
   input and truthful review. A pin change away and back must invalidate old review
   even if the planner's content inputs match (bind the independent pin version).
   Full execution/journals/receipts and S5 remain later. Preserve the deferred PIN
   preference note and existing terminal jobs; do not ask users to stop sessions.
 
+#### S4 negotiated metadata-only content preview — resumed after PR #171
+
+Read [docs/skill-content-preview.md](docs/skill-content-preview.md). Branch
+`claude/gallant-darwin-n9oqfj`, [PR #172](https://github.com/eyupio/reet.sh/pull/172).
+
+- **Task and scope.** S4 negotiated per-file metadata preview only. The user resumed
+  explicitly after PR #171 merged. No browser control, filesystem write, approval,
+  staging, journal, rollback, durable receipt, baseline storage or adoption.
+- **Behaviour added.**
+  - `internal/skillpreview`: `Capture` (strict `Validate`, canonical `Hash`) and
+    `Observe` (Linux/macOS). It reads only the connector's configured scope root with
+    `os.Root` and S1's no-follow traversal and reports `present` (complete manifest of
+    **every** file), `absent` (verified real root, no such entry) or `unknown` (any
+    failed, partial or refused capture; issue codes and relative paths only). `rootId`
+    hashes device+inode; every other configured scope root is compared, giving
+    `exclusive` / `shared` / `unknown`. Shared, symlinked, unidentifiable or
+    unprovable roots are reported and **never read**. A symlinked skill folder or any
+    unsafe entry is `unknown`; a missing scope root is `unknown`, not absence. The
+    non-POSIX stub never claims presence or absence.
+  - `store_content_previews.go`: tables `skill_content_preview_capabilities` and
+    `skill_content_previews`. Create names an owned pin ID and its exact version; the
+    revision, bundle, name, mode and scope come from storage; the connector must have
+    negotiated within 90 s and not be paused. Claim binds the inventory revision when
+    capture begins (a legacy scan can finish between click and poll; none can run inside
+    the claim-capture-report cycle). Report rechecks every fence in the writing
+    transaction, builds `skillplan.Snapshot` from storage plus the validated capture
+    (baseline **nil**, so any existing tree is `adoption_required`; enrolment generation
+    is the connector ID) and stores the plan. `reviewHash` binds the pin version, so a
+    pin that changes away and back invalidates the old review. Reads compute fences
+    (`pin_changed`/`pin_removed`, `connector_paused`/`connector_removed`,
+    `process_changed`, `inventory_changed`/`scope_removed`, expired, stale) without
+    writing. 64 previews/account, one active per machine, request-key retries.
+  - `api/content_previews.go`: browser routes under `/api/v2/skill-content-previews`
+    and connector routes under `/api/v2/sync/skill-content-preview/{work,report,failure}`,
+    behind the existing private-skill access wrapper, strict bounded JSON, no MCP change.
+  - `scan/content_preview.go`: asking for work is the negotiation; 404/405/403 or a
+    future schema leave files unread. The connector picks the root from its own
+    configuration, refuses Codex, bad names and unenrolled projects, honours cancellation,
+    and runs in `agentCycle` after import and before legacy polling.
+  - Shared refactors, behaviour preserving: `reportedPinScope` (pin save and preview use
+    one scope predicate), `skillScopeRoot` (import and preview) and `controllerPost`
+    (one versioned-channel transport).
+- **Compatibility / migration.** Additive `CREATE TABLE IF NOT EXISTS` tables, migrated
+  after pins. Old connectors never negotiate; new connectors skip old controllers. No
+  legacy desired set, hash, job, observation, import or terminal message changed. Full
+  SQLite backups include the tables; shelf exports do not.
+- **Checks actually run.** Final local run on the exact code (base `1eb92c0`; Go 1.27.1, Node 22.22.0, tmux 3.4 on PATH), in the required order: frontend `npm run check` (228 files, 0 errors, 0 warnings) and `npm run build` first; `go vet ./...` clean; `go test -race -count=1 ./...` with all 31 packages ok and 0 failures (internal/api 232 s, internal/store 128 s, internal/scan 23 s); MCP `npm test` 16/16; `git diff --check` clean. New code was written test-first (red for the right reason, then green). `internal/skillpreview` has race tests at 85.6% statements (the gaps are platform-defensive branches). Store, API and connector tests use real SQLite, a real HTTP controller and synthetic temporary homes: a new install into an absent skill; an existing tree whose bytes equal the library still `adoption_required`; an unmanaged local note preserved and never claimed; aliased, symlinked, linked-skill and missing roots reported but never read; project scope and unenrolled projects; the filesystem unchanged byte for byte; old, forbidden, paused and future-schema controllers triggering no file reads; redirect and cleartext refusal; cancellation; agent-cycle ordering; the ABA pin round trip; every fence before and during capture; corrupted private revisions never producing a plan; competing Store connections. Mutation checks (each break made the tests fail and the file was restored byte-identical): alias detection off, a truncated alias set trusted, a missing root treated as absent; pin version, process, inventory, pin removal, pause and staleness ignored; root ownership trusted blindly; the store's revision identity check removed; strict JSON off; connector identity skipped on report; cycle wiring removed. Cross-platform: `GOOS=darwin` build of `cmd/reet` and vet of the touched packages pass; the non-POSIX stub vets and test-compiles for Windows. The whole-binary Windows build fails identically on untouched `main` (`internal/scan/terminal_setup.go`), so it is pre-existing and not a CI target.
+- **Not performed.** No live machine, production service, terminal session or physical
+  cross-platform check. No browser UI was added or changed. Tests use synthetic homes,
+  SQLite and HTTP. Nothing writes to a machine, so no recovery gate applies yet.
+- **Known limitations and decisions.** "Exclusive" is among configured scopes only.
+  Previews need a complete, recently reported inventory scope (the pin predicate).
+  Inventory is bound at claim, not creation (reason above). Finished previews stay
+  until dismissed, so a full history (64) needs dismissals via the API. A manual `reet`
+  scan during capture supersedes the preview (fail-safe). There is no review UI, and
+  pins have none either, so both are API-only. `adoption_required` has no resolution yet.
+- **Next unchecked work and first files.** The user chooses the order of: review UI with
+  pin selection (`web/src/lib/api.ts`, `MachineSkillImports.svelte` for the pattern);
+  ownership receipts and adoption design (`docs/skill-content-planner.md` items 3–4);
+  reviewed executor with temporary-filesystem failure/crash/recovery gates.
+- **Publication / deployment state.** Not inferred: the PR link is authoritative.
+
 #### Remaining S4 integration and apply gates
+
+The preview slice meets item 1 and the review-only part of item 2 below. Approval
+binding, ownership, execution and everything after remain open.
 
 1. Feed owned pinned desired revisions into negotiated review. Preserve legacy
    reference-based targets; mark their content-verification limits explicitly.
@@ -1720,20 +1789,19 @@ failing case and recoverable state. "Code compiles", "API returned 200", a mocke
 success response or a green screenshot does not establish successful remote writes,
 working agent authentication or complete environment recovery.
 
-## Ready-to-use continuation brief — only after the user resumes
+## Ready-to-use continuation brief
 
-> Work is paused after PR #171 at the user's request. Do not start a new stage
-> until the user explicitly resumes. When resumed, continue reet.sh from handoff.md.
-> Inspect branch, worktree, main and PR states without resetting edits. Terminal T1–T9 priorities are merged through PR #155.
-> S2 private revision storage/API merged through PR #156. Read its storage contract.
-> S3 is complete through PRs #161/#164/#168; browser import merged as `7e2c992`.
-> S4 pure planner merged in PR #169 (`d494543`), both workflows green for `7595bc9`.
-> PR #170's staged reet connector updates (`d040518`) are also integrated; preserve
-> them without treating them as completion of AI-agent software maintenance.
-> Owned revision pins/storage/API are implemented in PR #171 on feat/private-content-target-pins;
-> confirm its final head/CI/merge through the PR link. This is the pause checkpoint.
-> Read docs/skill-content-targets.md and the planner contract. Next implement only negotiated metadata preview; executor/receipts follow. Keep
-> ownership, exact byte/mode manifests, stable retry receipts, reviewed sync and
-> existing terminal sessions intact. Do not jump to remote apply or the whole roadmap.
-> Build the frontend before Go checks, record actual evidence, update this handoff
-> and publish one reviewable PR per bounded stage.
+> Continue reet.sh from handoff.md. Inspect branch, worktree, main and PR states without
+> resetting edits. Terminal T1–T9 are merged through PR #155. S2 private revisions merged
+> in PR #156; S3 is complete through PRs #161/#164/#168. S4's pure planner merged in
+> PR #169, owned revision pins in PR #171 (`1eb92c0`), and the negotiated metadata-only
+> content preview is in [PR #172](https://github.com/eyupio/reet.sh/pull/172) (confirm its final head/CI/merge through the link).
+> PR #170's staged reet connector updates are integrated; they are not AI-agent
+> software maintenance. Read docs/skill-content-preview.md, docs/skill-content-targets.md
+> and docs/skill-content-planner.md. Nothing writes to a machine yet and no ownership
+> baseline exists, so existing trees need adoption. The next slice is the user's choice:
+> review UI with pin selection, ownership receipts and adoption design, or the reviewed
+> executor. Keep terminal sessions, the deferred user-controlled PIN/security preference,
+> exact byte/mode manifests and stable retry receipts intact; do not jump to remote apply
+> or the whole roadmap. Build the frontend before Go checks, record actual evidence,
+> update this handoff and publish one reviewable PR per bounded stage.

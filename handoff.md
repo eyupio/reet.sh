@@ -4,9 +4,9 @@
 
 This is the current implementation baseline **and** the continuation plan. Current
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
-**T1 (terminal-first workspace UX) is implemented on `feat/terminal-first-workspace`.**
-Review its evidence and publication state below. **T2 is next**, completing lifecycle
-edge cases before T3 history maintenance. S1 is merged through PR #139; do not repeat
+**T1 (terminal-first workspace UX) is merged through PR #140.**
+Review its evidence and publication state below. **T2 is implemented on
+`feat/terminal-lifecycle-controls`; T3 history maintenance is next.** S1 is merged through PR #139; do not repeat
 it or start S2 ahead of the remaining terminal priorities. Do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -34,8 +34,8 @@ use case. Users should land directly in a usable terminal workspace, without
 scrolling past a stack of setup/help/health sections. Session connection and
 maintenance actions need to be easy to find and unambiguous. This requirement
 moved **T1 first**, ahead of S2 and the remaining skill/agent-management roadmap.
-T1 is now implemented in the current branch. S1 is merged as a separate bounded
-stage. Continue with the T2 remainder below; do not expand this terminal work into S2.
+T1 is merged. S1 is merged as a separate bounded
+stage. Review the T2 delivery below, then take T3; do not expand terminal work into S2.
 
 ### Required product behaviour
 
@@ -152,7 +152,7 @@ T1/T2 reuse supported actions; implement the T3 contract before exposing persist
 history removal. Read-only observation/shared control are later permission work;
 do not relax current account ownership or viewer restrictions for this redesign.
 
-### T1 [x] Terminal-first viewport and layout — implemented in current branch
+### T1 [x] Terminal-first viewport and layout — merged in PR #140
 
 Scope: improve the existing terminal route and active-session band using current
 session APIs. No
@@ -206,8 +206,10 @@ no regression in other routes and no hidden change to terminal authorization.
 
 - Branch: `feat/terminal-first-workspace`, based on main `cdafcd0` after PR #139
   merged. Implementation commit: `6bc7a78`. PR [#140](https://github.com/eyupio/reet.sh/pull/140)
-  was opened on 24 October 2026. This records implemented branch work, not a
-  production deployment. Check current GitHub PR/main state before continuing.
+  was merged on 24 October 2026 as `5fca4f43d90bd6a3a06fe404629adcd0020bba31`,
+  after terminal-browser, image and binary-release workflows all passed on head
+  `51ef5f0`. Automated review could not run because of its usage allowance; there
+  were no inline review threads. A source merge does not establish deployment.
 - Added compact, full-width terminal chrome and a visual-viewport-sized workspace;
   session navigation is beside the screen on desktop and toggleable on phones.
   Help, machine health, setup and command reference are in a native dialog.
@@ -250,18 +252,19 @@ no regression in other routes and no hidden change to terminal authorization.
   paste fences, light/dark and desktop/tablet/phone layouts.
 - Not performed: physical phone/IME/OS keyboard testing, native macOS/Windows
   runtime, production relay/fleet deployment or AI-agent activity detection.
-- **Exact next task: T2 remainder below.** After its gate, implement T3's persistent
-  history contract before exposing Remove from history. Do not repeat T1 or S1.
+- T2 completed the follow-up below in the current branch. **T3 is now next:**
+  implement its persistent history contract before exposing Remove from history.
+  Do not repeat T1 or S1.
 
-### T2 [ ] Session navigation and clear existing lifecycle controls — NEXT TASK
+### T2 [x] Session navigation and clear lifecycle controls — implemented in current branch
 
 Depends on T1. Reuse existing APIs and `TerminalConnection.detach/connect/recover`.
 
 **Already delivered with T1:** machine selector, searchable per-machine session
 sidebar, selected/lifecycle labels, Manage → Rename/End, explicit New session,
 Disconnect/Reconnect, exact deep links, immutable confirmation IDs and intentional
-disconnect recovery test. Do not recreate these controls. T2 is a focused follow-up
-for the remaining coverage and navigation gaps:
+disconnect recovery test. T2 completes the following focused follow-up scope;
+read its implementation record before repeating any of this work:
 
 - Make machine selection searchable at larger fleet sizes; expose enough selected
   host/user context when the phone sidebar is closed.
@@ -297,11 +300,66 @@ pending offline end is not shown as completed; takeover and denied access stay s
 Gate: browser tests exercise the actual controls, not only mocked state labels;
 ordinary typing, control keys and multiline-paste confirmation still work.
 
-### T3 [ ] Remove closed sessions from history safely
+### T2 implementation record — 24 October 2026
+
+- Branch: `feat/terminal-lifecycle-controls`, based on main `5fca4f4` after PR #140
+  passed its workflows and merged. This records branch implementation and local
+  verification, not a release or deployment. Check its PR state before continuing.
+- Added Find machine: search enrolled host/shell-user names and retain unavailable
+  hosts with setup/reconnect guidance. Returning to a machine restores its last
+  selected session while mounted. User/host remains visible on phones; narrowing
+  from desktop closes the navigation overlay. Search receives keyboard focus.
+- Fixed an evidenced creation-retry bug: an accepted creation with an interrupted
+  response lost its retry context when users switched machines. The browser
+  regression failed against T1 with A's original title replaced by B's title.
+  Each machine now keeps its immutable request ID, original title and uncertainty
+  message; retries cannot silently retarget or create a fresh operation.
+- Fixed pre-mutation polling overwriting a newly confirmed session. Successful
+  create/rename/end invalidates older observations and queues a fresh list.
+  A separate status error clears on recovery. Status requests time out at 10s and
+  abort unfinished sibling reads; creation waits at most 15s but retains its retry.
+- Metadata 401/403 clears session/machine data, closes the attachment and explains
+  lost access. Lost shells have explicit no-replacement guidance. No implicit
+  shell creation, input replay, permission relaxation or transport rewrite.
+- Added `web/tests/terminal-lifecycle.e2e.mjs` to terminal-browser CI: per-machine
+  immutable retries, delayed list/rename responses, selection targeting, mobile
+  context/control bounds, unavailable-host search, pending end/retry IDs, explicit
+  takeover, lost shell, quota and account revocation.
+- Extended the real browser/PTY fixture with two independently enrolled local
+  hosts, each with its own tmux server, registry and original shell PID. It aborts
+  an accepted creation response, switches hosts, retries the exact request,
+  transfers the lease through two browser pages, renames, and ends only the
+  offline builder. The original primary background job survives throughout.
+- Checks: web unit/Svelte check (zero errors/warnings), production build, Go vet,
+  full Go race suite, all 16 MCP tests, Control/workspace/lifecycle Chromium
+  fixtures, and the extended real-shell browser gate. The existing Vite bundle-size
+  advisory remains. See verification commands below and the implementation map.
+- Limits: the two real connectors run on one local Linux fixture, not two physical
+  machines. Native macOS/Windows, physical phone/IME and production relay/fleet
+  rollout were not exercised. Pending retry metadata and remembered per-machine
+  selections are in memory for the mounted workspace, not durable browser storage.
+  Reloads resume reported session IDs and never create a replacement implicitly.
+- **Exact next task: T3**, beginning with a persistent archive/store/API contract.
+  Keep End session and Remove from history separate. Do not start S2 or agent
+  lifecycle installation merely because the terminal layout is now primary.
+
+### T3 [ ] Remove closed sessions from history safely — NEXT TASK
 
 Depends on T2. Add a small explicit lifecycle/API contract before exposing this UI.
-Read `internal/store/store_terminal.go`, `internal/api/terminal.go`, host registry
-and receipts, `web/src/lib/terminal/api.ts` and the integration fixtures.
+Read `internal/store/store_terminal.go`, the schema/migration definitions in
+`internal/store`, `internal/api/terminal.go`, host registry and operation receipts,
+`web/src/lib/terminal/api.ts`, `TerminalWorkspace.svelte`, `TerminalPane.svelte`,
+`terminal-lifecycle.e2e.mjs` and the real integration fixtures. Keep this first PR
+limited to single-session archival; bulk cleanup follows only after that gate.
+
+Start by writing down the endpoint, allowed states and visibility rules. Prefer
+an archive timestamp/tombstone over deleting rows. Account-scoped listing should
+hide archived closed records while receipt/retry lookup and host reconciliation
+still find the original immutable IDs. Use one transaction for the state check and
+archive write. Decide explicitly whether archival remains available when remote
+terminal execution is disabled; preserving account/write/origin checks must not
+accidentally enable other terminal operations. Never rely on browser state to
+prove a shell is closed, and never use a host-file deletion as archival.
 
 1. Choose an archive/tombstone model for account-owned terminal history. Reject
    removal of creating/running/end-requested sessions, even if a browser believes
@@ -514,7 +572,7 @@ Priorities, in order (terminal UX moved first by the user on 24 October):
 
 1. **T — Make terminals the primary usable workspace:** viewport layout, clear
    session navigation/controls and safe history maintenance (T1–T3). Finish
-   the T2 remainder next, then T3; do not start S2 ahead of terminal maintenance.
+   reviewing T2 and implementing T3 next; do not start S2 ahead of terminal maintenance.
 2. **S — Complete the skill foundation:** versioned bundles, content-level drift,
    reviewed local edits, safe one/many-machine transfer and verification.
 3. **A — Make remote work convenient:** registered agent capabilities, project
@@ -545,7 +603,7 @@ recovery as a fully working recovered agent environment.
    base when network/authentication are available. Preserve existing edits.
    PR #135's branch is already merged; use a new branch from current main for the
    next implementation PR, carrying any authorised local edits safely.
-3. Pick **one unchecked task**, starting with the T2 remainder after reviewing T1. Do not build a later UI button
+3. Pick **one unchecked task**, starting with T3 after reviewing T2. Do not build a later UI button
    or remote mutation endpoint while its prerequisite is absent. Do not turn
    this whole roadmap into one PR.
 4. Before editing, state the task ID, files affected, expected behaviour and checks.
@@ -658,7 +716,7 @@ change the public meaning of "in sync" or claim live content sync exists.**
   cross-compilation. Cross-compilation is not native platform runtime validation.
 - No UI/session transport changed; no real machine, provider, release or production
   deployment was used. Vite retains its existing bundle-size advisory.
-- **T1 is implemented in the current branch; T2 is next.** Do not start S2
+- **T1 is merged; T2 is implemented in the current branch; T3 is next.** Do not start S2
   merely because it is the next content dependency.
 
 ### S2 [ ] Private immutable revision store and ownership
@@ -1021,6 +1079,7 @@ Then, from the repository root:
 ```sh
 node web/tests/control.e2e.mjs
 node web/tests/terminal-workspace.e2e.mjs
+node web/tests/terminal-lifecycle.e2e.mjs
 ```
 
 `REET_UI_URL` can select another dev URL. `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`
@@ -1083,17 +1142,22 @@ working agent authentication or complete environment recovery.
 
 ## Ready-to-use continuation brief
 
-> Continue reet.sh from handoff.md. Inspect the branch, worktree, current main and
-> PR state without resetting edits. S1 is merged; T1 is implemented in
-> feat/terminal-first-workspace. Review the T1 evidence and avoid duplicating it.
-> Take the T2 remainder as one bounded task: improve machine search/compact phone
-> context and prove lifecycle edge cases through actual controls. Read
-> TerminalWorkspace.svelte, TerminalPane.svelte, connection.ts, api.ts,
-> terminal-workspace.e2e.mjs, terminal.e2e.mjs and the Go terminal fixtures first.
-> Preserve viewport-first layout, the Control active-session hero, safe clipboard
-> behaviour, immutable session IDs, host consent and attachment leases. Exercise
-> delayed creation/polling, switch contexts, rename/end confirmation targeting,
-> offline pending end, quotas, denied access and takeover. Fix evidenced races;
-> do not rewrite working transport. Do not add history removal until T3 supplies
-> its persistent archive contract. Finish web build before Go checks, run the
-> browser fixtures, record evidence/limitations, and update the exact next task.
+> Continue reet.sh from handoff.md. Inspect branch, worktree, latest main and PR
+> state without resetting edits. S1 and T1 are merged; T2 is implemented on
+> feat/terminal-lifecycle-controls. Review its evidence and PR before duplicating
+> work. The next bounded task is T3: safe single-session Remove from history.
+> Read internal/store/store_terminal.go and migrations, internal/api/terminal.go,
+> host registry/receipts, terminal/api.ts, TerminalWorkspace.svelte,
+> TerminalPane.svelte, terminal-lifecycle.e2e.mjs and the two-host real browser
+> fixture. Define a persistent account-owned archive/tombstone contract first.
+> Reject active/pending session removal in the store transaction; preserve quota,
+> receipt replay fences and reconciliation identity. Hide archived closed records
+> from normal history across reload/restart. Retrying an old create/end must never
+> recreate a shell. Keep End and Remove from history distinct; never delete host
+> files. Preserve consent, leases, clipboard fences and terminal-first layout.
+> Test owner/viewer/other account, stale active state, concurrent end/archive,
+> offline hosts, repeated archive, restart and old operation retries. Finish web
+> build before Go checks; run the three synthetic browser fixtures and real
+> two-host terminal gate. Record actual evidence, limitations, publication state
+> and the next task. Keep bulk removal, new transport, agent installation and S2
+> outside this first archival PR.

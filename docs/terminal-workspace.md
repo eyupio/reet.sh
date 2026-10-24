@@ -15,7 +15,25 @@ The desktop session sidebar scrolls independently; phones can open it with
 **Sessions**. The screen fits when the viewport/sidebar/font changes. **Details &
 help** contains health, setup, quotas and command reference. Opening it does not
 replace the attachment. Legacy `/machines?view=terminal` and account route links
-keep the same workspace behaviour.
+keep the same workspace behaviour. **Find** searches host and shell-user names,
+including enrolled hosts that need connection/setup. Each machine remembers its
+last selected session while this workspace is mounted. The selected user/host
+remains visible on phones; moving from desktop to phone closes the sidebar.
+
+Each unconfirmed creation keeps its immutable request ID and original title per
+machine while the workspace is mounted. Switching machines cannot discard or
+retarget that retry. **Review creation** or **New session** opens the original retry;
+its title is locked until the controller confirms the result. These pending
+operations are in memory, not terminal output saved in browser storage. After
+reloading, use the reported session inventory to continue existing work; the app
+never automatically creates a replacement shell.
+
+Status fetches have a 10-second deadline; creation requests stop waiting after 15
+seconds and retain the retry operation. A successful mutation invalidates older
+in-flight observations and schedules a fresh list, so stale polling cannot erase a
+confirmed new session or undo rename/end presentation. Selection stays independent
+of mutation responses. Metadata access denial clears the private inventory and
+closes the browser attachment, with an access explanation; it does not end shells.
 
 ## Actions and keyboard
 
@@ -70,13 +88,17 @@ new direct SSH adapter. Phone viewport emulation is not a physical keyboard test
 Run `npm --prefix web run check` and `npm --prefix web run build`. Finish the build
 before Go checks because Go embeds its output. For production-bundle UI fixtures,
 start `npm --prefix web run preview -- --host 127.0.0.1 --port 4173`, then run
-`node web/tests/control.e2e.mjs` and `node web/tests/terminal-workspace.e2e.mjs`.
+`node web/tests/control.e2e.mjs`, `node web/tests/terminal-workspace.e2e.mjs` and
+`node web/tests/terminal-lifecycle.e2e.mjs`.
 These fixtures cover synthetic two-machine continuation, permissions/errors,
-viewport bounds, clipboard and intentional disconnect. They do not prove remote
+viewport bounds, clipboard, intentional disconnect, delayed observations, per-host
+retries, pending end, quota and explicit takeover. They do not prove remote
 shell identity. Pair them with the real browser/PTY fixture in
 `.github/workflows/terminal-browser.yml`, which checks shell PID continuity,
 controller/connector restarts, actual resizing, paste fences and rollout disable.
+Its two local enrolled hosts have independent tmux servers and registries; the
+browser proves creation-response retry, context switching, explicit lease takeover,
+rename and offline end without replacing either original shell.
 
 No production relay, physical phone, macOS or Windows runtime is established by
-these local Linux/Chromium fixtures. Further lifecycle edge cases are tracked as
-T2 in `handoff.md`; persistent history removal is T3.
+these local Linux/Chromium fixtures. Persistent history removal is the next T3 contract in `handoff.md`.

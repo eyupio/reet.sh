@@ -46,7 +46,8 @@ export class TerminalConnection {
       if (!session) { this.set('lost', 'This shell is no longer available. No replacement was created.'); return }
       if (session.state !== 'running') {
         if (session.state === 'creating') { this.schedule(epoch, 'Waiting for the original creation to be reconciled.'); return }
-        this.set(session.state === 'lost' ? 'lost' : 'ended', session.state === 'end_requested' ? 'Ending when the machine reconnects.' : `This shell ${session.state === 'exited' ? 'exited' : 'ended'}.`); return
+        if(session.state==='lost'){this.set('lost','The host can no longer find this shell. No replacement was created.');return}
+        this.set('ended', session.state === 'end_requested' ? 'Ending when the machine reconnects.' : `This shell ${session.state === 'exited' ? 'exited' : 'ended'}.`); return
       }
       const size = this.options.dimensions()
       const ticket = await terminalTicket(this.options.session, size.cols, size.rows, takeover, request.signal)

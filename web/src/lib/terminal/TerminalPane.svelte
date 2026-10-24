@@ -9,7 +9,7 @@
   import { terminalHistory, type TerminalSession } from './api'
   import { terminalShortcut } from './keyboard'
 
-  let { session, host, onrename, onend, actionDisabled = false }: { session: TerminalSession; host: string; onrename?: () => void; onend?: () => void; actionDisabled?: boolean } = $props()
+  let { session, host, user = '', onrename, onend, actionDisabled = false }: { session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; actionDisabled?: boolean } = $props()
   let element = $state<HTMLDivElement>()
   let pane=$state<HTMLElement>(),searchInput=$state<HTMLInputElement>(),viewportHeight=$state(innerHeight)
   let connectionState = $state<ConnectionState>('connecting'), message = $state('')
@@ -112,7 +112,7 @@
 
 <svelte:window onclick={event=>{if(contextMenu&&event.target instanceof Node&&!menu?.contains(event.target))contextMenu=null}} onblur={()=>contextMenu=null} />
 <section class="pane" class:maximised bind:this={pane} role={maximised?'dialog':'region'} aria-modal={maximised?true:undefined} tabindex="-1" aria-label={`Terminal on ${host}`} style={`--terminal-viewport:${viewportHeight}px`} data-connection-state={connectionState}>
-  <header><div class="identity"><span class="terminal-icon" aria-hidden="true">›_</span><strong>{session.title}</strong><span class="host">{host}</span></div><div class="controls"><span class="state" class:live><span aria-hidden="true">●</span> {stateLabel}</span>{#if live}<button type="button" onclick={()=>connection?.detach()}>Disconnect</button>{:else if connectionState==='taken_over'}<button type="button" class="continue" onclick={()=>void connection?.connect(true)}>Continue here</button>{:else if connectionState==='detached'}<button type="button" onclick={()=>void connection?.connect()}>Reconnect</button>{:else if connectionState==='reconnecting'}<button type="button" onclick={()=>connection?.recover()}>Retry now</button>{/if}{#if onrename||onend}<details class="session-menu"><summary>Manage</summary><div>{#if onrename}<button disabled={actionDisabled} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onrename?.()}}>Rename</button>{/if}{#if onend}<button class="end" disabled={actionDisabled||!['creating','running','end_requested'].includes(session.state)} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onend?.()}}>{session.state==='end_requested'?'Retry end request':'End session'}</button>{/if}</div></details>{/if}</div></header>
+  <header><div class="identity"><span class="terminal-icon" aria-hidden="true">›_</span><strong>{session.title}</strong><span class="host" title={`${user ? user+'@' : ''}${host}`}>{user ? `${user}@` : ''}{host}</span></div><div class="controls"><span class="state" class:live><span aria-hidden="true">●</span> {stateLabel}</span>{#if live}<button type="button" onclick={()=>connection?.detach()}>Disconnect</button>{:else if connectionState==='taken_over'}<button type="button" class="continue" onclick={()=>void connection?.connect(true)}>Continue here</button>{:else if connectionState==='detached'}<button type="button" onclick={()=>void connection?.connect()}>Reconnect</button>{:else if connectionState==='reconnecting'}<button type="button" onclick={()=>connection?.recover()}>Retry now</button>{/if}{#if onrename||onend}<details class="session-menu"><summary>Manage</summary><div>{#if onrename}<button disabled={actionDisabled} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onrename?.()}}>Rename</button>{/if}{#if onend}<button class="end" disabled={actionDisabled||!['creating','running','end_requested'].includes(session.state)} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onend?.()}}>{session.state==='end_requested'?'Retry end request':'End session'}</button>{/if}</div></details>{/if}</div></header>
   {#if message}<p class="connection-message" role="status">{message}</p>{/if}
   {#if maximised}<p class="connection-message">Alt+Shift+M restores the workspace. Tab inside the terminal remains a shell key.</p>{/if}
   <div class="tools" aria-label="Terminal tools"><button onclick={()=>searching=!searching} aria-expanded={searching}>Search</button><button onclick={()=>void copy()}>Copy selection</button><button onclick={()=>void readClipboard()} disabled={!live}>Paste</button><button onclick={()=>key("\x03")} disabled={!live} aria-label="Interrupt shell">Interrupt</button><button onclick={()=>changeFont(-1)} disabled={fontSize<=10} aria-label="Decrease terminal font">A−</button><span aria-label="Terminal font size">{fontSize}</span><button onclick={()=>changeFont(1)} disabled={fontSize>=22} aria-label="Increase terminal font">A+</button><button onclick={()=>void historySnapshot()} disabled={historyBusy}>{historyBusy?'Loading…':'Recent history'}</button><button onclick={()=>{maximised=!maximised;fitTerminal?.()}} aria-pressed={maximised}>{maximised?'Restore size':'Maximise'}</button></div>
@@ -132,7 +132,7 @@
   .pane>header,.pane>.tools,.pane>footer,.pane>.connection-message {flex-shrink:0}
   header {display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 12px;background:var(--bg);border-bottom:1px solid var(--line)}
   .identity,.controls {display:flex;align-items:center;gap:8px;min-width:0}
-  .identity {flex:1}
+  .identity {flex:1;flex-wrap:wrap;column-gap:6px;row-gap:1px}
   .identity strong {font-size:.85rem;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .terminal-icon {font:700 1rem monospace;color:var(--accent)}
   .host {font-size:.75rem;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -168,7 +168,8 @@
   @media(max-width:650px) {
     header {padding:5px 8px}
     .identity strong {font-size:.74rem}
-    .host,.terminal-icon {display:none}
+    .terminal-icon {display:none}
+    .host {display:block;flex-basis:100%;max-width:100%;font-size:.62rem}
     .controls {gap:5px}
     .state {font-size:.65rem}
     .controls>button,.session-menu>summary {font-size:.67rem;padding:5px 7px;min-height:30px}

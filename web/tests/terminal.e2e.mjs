@@ -13,7 +13,7 @@ let sockets = 0
 let lastSize
 page.on('websocket', socket => {sockets++;socket.on('framereceived',({payload})=>{if(typeof payload!=='string'){wireBytes+=payload.length;wirePrompt ||= payload.toString().includes('stage6-ready>')}});socket.on('framesent',({payload})=>{try{const message=JSON.parse(String(payload));if(message.type==='resize')lastSize={cols:message.cols,rows:message.rows}}catch{/* binary input */}})})
 page.on('pageerror', error => errors.push(error.message))
-const pane = page.locator('.pane[aria-label="Terminal on laptop"]')
+const pane = page.locator('.pane')
 const screen = page.locator('.xterm-accessibility-tree')
 async function live() { await expect(pane).toHaveAttribute('data-connection-state', 'live', { timeout: 20000 }) }
 async function command(text) { await page.getByRole('button', { name: 'Focus terminal' }).click(); await page.keyboard.type(text); await page.keyboard.press('Enter') }
@@ -183,7 +183,82 @@ try {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   expect(errors).toEqual([])
   if (process.env.REET_BROWSER_ARTIFACT_DIR) { await mkdir(process.env.REET_BROWSER_ARTIFACT_DIR, { recursive: true }); await page.screenshot({ path: `${process.env.REET_BROWSER_ARTIFACT_DIR}/terminal-desktop.png`, fullPage: true }) }
-  console.log(`Browser terminal passed: original shell PID ${original.pid}, one logical session, long job preserved through browser refresh and agent reconnect.`)
+  // Two enrolled hosts use independent real tmux servers and shell registries.
+  const builder=process.env.REET_BROWSER_BUILDER
+  if(!builder)throw new Error('The browser lifecycle gate requires a second enrolled host')
+  const fixture=action=>page.evaluate(async action=>{const response=await fetch(`/_test/${action}`,{method:action.startsWith('state')?'GET':'POST'});if(!response.ok)throw new Error('Fixture command failed');return response.json()},action)
+  const builderOperations=[]
+  let ambiguousBuilder=true, builderSession
+  await page.route('**/api/v2/terminal/sessions',async route=>{
+    const request=route.request()
+    if(request.method()==='POST'&&request.postDataJSON().agentId===builder){
+      builderOperations.push(request.postDataJSON())
+      if(ambiguousBuilder){ambiguousBuilder=false;const response=await route.fetch();expect(response.status()).toBe(200);builderSession=(await response.json()).id;await route.abort('failed');return}
+    }
+    await route.fallback()
+  })
+  await page.getByRole('button',{name:'Find machine',exact:true}).click()
+  await page.getByLabel('Machine or shell user').fill('builder')
+  await page.getByRole('navigation',{name:'Matching machines'}).getByRole('button',{name:/builder/}).click()
+  await page.getByLabel('New session name').fill('Builder work')
+  await page.getByRole('button',{name:'New terminal',exact:true}).click()
+  await expect(page.getByText(/The creation is unconfirmed/)).toBeVisible()
+  const builderOriginal=await fixture('state-builder')
+  expect(Number(builderOriginal.pid)).toBeGreaterThan(0)
+  expect(builderOriginal.pid).not.toBe(original.pid)
+  await page.getByLabel('Machine',{exact:true}).selectOption(process.env.REET_BROWSER_AGENT);await live()
+  await command("kill -0 \"$LONG_PID\" && printf '__two_host_%s__\\n' 'primary'")
+  await expect(screen).toContainText('__two_host_primary__')
+  expect((await state()).pid).toBe(original.pid)
+  await page.getByLabel('Machine',{exact:true}).selectOption(builder)
+  await page.getByRole('button',{name:'New session',exact:true}).click()
+  await expect(page.getByLabel('New session name')).toHaveValue('Builder work')
+  await page.getByRole('button',{name:'Retry creation',exact:true}).click();await live()
+  expect(builderOperations).toHaveLength(2)
+  expect(builderOperations[0]).toEqual(builderOperations[1])
+  expect((await state()).sessions).toBe(2)
+  expect(await fixture('state-builder')).toEqual(builderOriginal)
+  expect(new URL(page.url()).searchParams.get('session')).toBe(builderSession)
+  await command("sleep 300 & BUILDER_JOB=$!; printf '__builder_%s__\\n' 'ready'")
+  await expect(screen).toContainText('__builder_ready__')
+  // A second browser must explicitly transfer the existing attachment lease.
+  const other=await context.newPage();other.on('pageerror',error=>errors.push(error.message))
+  await other.goto(`${base}/terminals?agent=${builder}&session=${builderSession}`)
+  await expect(other.locator('.pane')).toHaveAttribute('data-connection-state','taken_over')
+  await other.getByRole('button',{name:'Continue here',exact:true}).click()
+  await expect(other.locator('.pane')).toHaveAttribute('data-connection-state','live')
+  await expect(pane).toHaveAttribute('data-connection-state','taken_over',{timeout:20000})
+  await page.getByRole('button',{name:'Continue here',exact:true}).click();await live()
+  await other.close()
+  expect(await fixture('state-builder')).toEqual(builderOriginal)
+  await command("kill -0 \"$BUILDER_JOB\" && printf '__takeover_%s__\\n' 'preserved'")
+  await expect(screen).toContainText('__takeover_preserved__')
+  await page.locator('.session-menu summary').click()
+  await page.getByRole('button',{name:'Rename',exact:true}).click()
+  await page.getByRole('dialog').getByLabel('Session name').fill('Builder renamed')
+  await page.getByRole('button',{name:'Save name',exact:true}).click()
+  await expect(pane).toContainText('Builder renamed')
+  expect(await fixture('state-builder')).toEqual(builderOriginal)
+  // End only the builder while it is offline; keep the original laptop job alive.
+  await fixture('offline-builder')
+  await expect.poll(()=>page.evaluate(async builder=>(await (await fetch('/api/v2/terminal/machines')).json()).machines.find(item=>item.agentId===builder)?.ready,builder)).toBe(false)
+  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')))
+  await page.locator('.session-menu summary').click()
+  await page.getByRole('button',{name:'End session',exact:true}).click()
+  await expect(page.getByRole('dialog')).toContainText('Builder renamed')
+  await page.getByRole('dialog').getByRole('button',{name:'End session',exact:true}).click()
+  await expect(page.getByText(/End requested. Waiting for this machine/)).toBeVisible()
+  await page.getByLabel('Machine',{exact:true}).selectOption(process.env.REET_BROWSER_AGENT);await live()
+  await command("kill -0 \"$LONG_PID\" && printf '__other_end_%s__\\n' 'safe'")
+  await expect(screen).toContainText('__other_end_safe__')
+  await fixture('online-builder')
+  await expect.poll(()=>page.evaluate(async id=>(await (await fetch('/api/v2/terminal/sessions')).json()).sessions.find(item=>item.id===id)?.state,builderSession),{timeout:20000}).toBe('ended')
+  expect((await state()).pid).toBe(original.pid)
+  expect((await state()).sessions).toBe(2)
+  expect(builderOperations).toHaveLength(2)
+  expect(errors).toEqual([])
+  console.log('Two-host lifecycle passed: distinct original PIDs, immutable ambiguous-create retry, context switching, explicit takeover, rename and pending offline end without affecting the other host.')
+  console.log(`Browser terminal passed: original shell PID ${original.pid}, original primary job preserved through browser refresh, agent reconnect and the two-host lifecycle.`)
 } catch(error) {
   const diagnostic=await page.evaluate(async()=>{
     const id=new URL(location.href).searchParams.get('session')

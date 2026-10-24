@@ -53,6 +53,7 @@ jobs:
           done
           node web/tests/control.e2e.mjs
           node web/tests/terminal-workspace.e2e.mjs
+          node web/tests/terminal-lifecycle.e2e.mjs
       - name: Exercise real browser, broker and persistent tmux shell
         env:
           REET_BROWSER_TESTS: '1'

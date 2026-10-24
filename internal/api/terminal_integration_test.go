@@ -68,32 +68,39 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = terminalhost.Ensure(layout); err != nil {
-		t.Fatal(err)
-	}
-	tmuxProcess := exec.Command(tmux.Path, "-D", "-S", layout.Socket, "-f", layout.Config)
-	tmuxProcess.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "SHELL=/bin/sh", "TERM=xterm-256color"}
-	if err = tmuxProcess.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		exec.Command(tmux.Path, "-S", layout.Socket, "kill-server").Run()
-		tmuxProcess.Process.Kill()
-		tmuxProcess.Wait()
-	})
-	command := func(args ...string) string {
-		t.Helper()
-		out, err := exec.Command(tmux.Path, append([]string{"-S", layout.Socket}, args...)...).Output()
-		if err != nil {
-			t.Fatal("tmux", args, err)
+	startHost := func(layout terminalhost.Layout, home string) func(...string) string {
+		if err := os.MkdirAll(home, 0700); err != nil {
+			t.Fatal(err)
 		}
-		return strings.TrimSpace(string(out))
+		if err := terminalhost.Ensure(layout); err != nil {
+			t.Fatal(err)
+		}
+		tmuxProcess := exec.Command(tmux.Path, "-D", "-S", layout.Socket, "-f", layout.Config)
+		tmuxProcess.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "SHELL=/bin/sh", "TERM=xterm-256color"}
+		if err := tmuxProcess.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			exec.Command(tmux.Path, "-S", layout.Socket, "kill-server").Run()
+			tmuxProcess.Process.Kill()
+			tmuxProcess.Wait()
+		})
+		command := func(args ...string) string {
+			t.Helper()
+			out, err := exec.Command(tmux.Path, append([]string{"-S", layout.Socket}, args...)...).Output()
+			if err != nil {
+				t.Fatal("tmux", args, err)
+			}
+			return strings.TrimSpace(string(out))
+		}
+		deadline := time.Now().Add(3 * time.Second)
+		for !terminalhost.SocketActive(layout) && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		command("set-option", "-g", "default-command", "PS1='stage6-ready> ' exec /bin/sh -i")
+		return command
 	}
-	deadline := time.Now().Add(3 * time.Second)
-	for !terminalhost.SocketActive(layout) && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	command("set-option", "-g", "default-command", "PS1='stage6-ready> ' exec /bin/sh -i")
+	command := startHost(layout, dir)
 	private := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		current.Load().s.privateHandler().ServeHTTP(w, r.WithContext(privateconn.WithPrivateTransport(r.Context())))
 	}))
@@ -108,7 +115,7 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 			}
 			_, _ = io.Copy(io.Discard, r.Body)
 			action := strings.TrimPrefix(r.URL.Path, "/_test/")
-			if action != "state" && action != "restart-agent" && action != "restart-controller" && action != "disable-terminals" && action != "enable-terminals" {
+			if action != "state" && action != "restart-agent" && action != "restart-controller" && action != "disable-terminals" && action != "enable-terminals" && action != "state-builder" && action != "offline-builder" && action != "online-builder" {
 				http.NotFound(w, r)
 				return
 			}
@@ -140,10 +147,10 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 	srv.s.publicURL = public.URL
 	base, _ := url.Parse(private.URL)
 	privateClient := &http.Client{Transport: terminalTestTransport{base, http.DefaultTransport}}
-	factory := terminalagent.Factory(terminalhost.ManagerOptions{EnrollmentID: agent.ID, Layout: layout, Home: dir, Consent: func() error { return nil }})
 	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", TerminalControl: true, TerminalEnabled: true, HealthEnabled: true, Readiness: terminalproto.Ready}
-	headers := http.Header{"X-Reet-Agent": {agent.ID}, "X-Reet-Agent-Key": {secret}, "X-Reet-Version": {"test"}}
-	connect := func() func() {
+	connectPeer := func(agent store.SyncAgent, secret string, layout terminalhost.Layout, home string) func() {
+		factory := terminalagent.Factory(terminalhost.ManagerOptions{EnrollmentID: agent.ID, Layout: layout, Home: home, Consent: func() error { return nil }})
+		headers := http.Header{"X-Reet-Agent": {agent.ID}, "X-Reet-Agent-Key": {secret}, "X-Reet-Version": {"test"}}
 		t.Helper()
 		ctx, cancel := context.WithCancel(t.Context())
 		c, _, err := websocket.Dial(ctx, private.URL+"/private/v1/control", &websocket.DialOptions{HTTPHeader: headers})
@@ -218,9 +225,24 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 		}
 		return stop
 	}
+	connect := func() func() { return connectPeer(agent, secret, layout, dir) }
 	stop := connect()
 	defer func() { stop() }()
 	if browserMode {
+		builder, builderSecret, err := st.EnrollSyncAgent(uid, "builder", "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		builderHome := filepath.Join(dir, "builder")
+		builderLayout, err := terminalhost.NewEnrollmentLayout(filepath.Join(builderHome, "agent.json"), builder.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		builderCommand := startHost(builderLayout, builderHome)
+		connectBuilder := func() func() { return connectPeer(builder, builderSecret, builderLayout, builderHome) }
+		stopBuilder := connectBuilder()
+		defer func() { stopBuilder() }()
+		builderOnline := true
 		controlDir := filepath.Join(dir, "controller")
 		control, err := terminalcontrol.Open(controlDir, true)
 		if err != nil {
@@ -231,7 +253,24 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 			t.Fatal(err)
 		}
 		var originalPID string
-		runTerminalBrowser(t, public.URL, cookie, agent.ID, browserCommands, func(action string) map[string]any {
+		runTerminalBrowser(t, public.URL, cookie, agent.ID, builder.ID, browserCommands, func(action string) map[string]any {
+			if action == "offline-builder" {
+				if builderOnline {
+					stopBuilder()
+					builderOnline = false
+				}
+				return map[string]any{"online": false}
+			}
+			if action == "online-builder" {
+				if !builderOnline {
+					stopBuilder = connectBuilder()
+					builderOnline = true
+				}
+				return map[string]any{"online": true}
+			}
+			if action == "state-builder" {
+				return map[string]any{"pid": builderCommand("list-panes", "-a", "-F", "#{pane_pid}")}
+			}
 			if action == "disable-terminals" || action == "enable-terminals" {
 				operation := "stop"
 				if action == "enable-terminals" {
@@ -241,14 +280,18 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 					t.Fatal(err)
 				}
 				stop()
+				stopBuilder()
 				stop = connect()
+				stopBuilder = connectBuilder()
 			}
 			if action == "restart-controller" {
 				stop()
+				stopBuilder()
 				current.Load().Close()
 				next := New(st, deadFetcher(t), "", WithAuthMode(AuthAccounts), WithRemoteTerminals(action != "disable-terminals"), WithPublicURL(public.URL))
 				current.Store(next)
 				stop = connect()
+				stopBuilder = connectBuilder()
 			}
 			if action == "restart-agent" {
 				stop()
@@ -269,7 +312,7 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 		if originalPID == "" {
 			t.Fatal("browser did not verify an original shell process")
 		}
-		for _, root := range []string{st.Path(), layout.Dir} {
+		for _, root := range []string{st.Path(), layout.Dir, builderLayout.Dir} {
 			err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
 					return err
@@ -444,7 +487,7 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 		t.Fatalf("offline end %d %s", code, data)
 	}
 	stop = connect()
-	deadline = time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		current, _ := st.TerminalSessionFor(uid, session.ID)
 		if current.State == terminalproto.Ended {

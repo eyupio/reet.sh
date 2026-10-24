@@ -100,6 +100,27 @@ type Options struct {
 	Takeover bool `json:"takeover"`
 }
 
+// ResetConnections invalidates transient authorization without ending shells.
+func (b *Broker) ResetConnections() {
+	b.mu.Lock()
+	peers := make([]*Peer, 0, len(b.peers))
+	for _, p := range b.peers {
+		peers = append(peers, p)
+	}
+	b.tickets = make(map[string]ticket)
+	bridges := make([]*Bridge, 0, len(b.bridges))
+	for _, v := range b.bridges {
+		bridges = append(bridges, v)
+	}
+	b.mu.Unlock()
+	for _, v := range bridges {
+		v.Close()
+	}
+	for _, p := range peers {
+		p.Close()
+	}
+}
+
 func ID() string {
 	var b [24]byte
 	if _, err := rand.Read(b[:]); err != nil {

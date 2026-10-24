@@ -116,6 +116,37 @@ func TestTicketsAreSingleUseBoundToLoginAndExpire(t *testing.T) {
 		t.Fatal("cross-account ticket issued")
 	}
 }
+
+func TestResetFencesTicketsWithoutEndingSessions(t *testing.T) {
+	b, p, uid, agent := fixture(t)
+	session, err := b.Create(t.Context(), uid, agent, ID(), terminalproto.Create{Title: "Keep job", Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := b.Ticket(uid, "login", session.ID, Options{Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.ResetConnections()
+	select {
+	case <-p.Done():
+	default:
+		t.Fatal("old connection remained authorized")
+	}
+	if _, err = b.consume(ticket, uid, "login"); !errors.Is(err, ErrTicket) {
+		t.Fatal("old ticket survived", err)
+	}
+	saved, err := b.st.TerminalSessionFor(uid, session.ID)
+	if err != nil || saved.State != terminalproto.Running {
+		t.Fatal("reset ended a durable shell", saved, err)
+	}
+	b.mu.Lock()
+	closed := b.closed
+	b.mu.Unlock()
+	if closed {
+		t.Fatal("reset permanently closed broker")
+	}
+}
 func TestOfflineCreateDoesNotReserveAndEndRemainsDurable(t *testing.T) {
 	b, p, uid, agent := fixture(t)
 	s, err := b.Create(t.Context(), uid, agent, ID(), terminalproto.Create{Title: "Work", Cols: 80, Rows: 24})

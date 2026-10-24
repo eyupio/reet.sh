@@ -38,7 +38,7 @@ export async function terminalHistory(id: string, signal?: AbortSignal): Promise
 
 export function readiness(machine?: TerminalMachine): string {
   if (!machine) return 'Choose an enrolled machine.'
-  if (machine.serverEnabled===false) return 'Remote terminals are disabled on this server. The operator must enable REET_REMOTE_TERMINALS=on with an HTTPS public URL. Monitoring and local shells remain available.'
+  if (machine.serverEnabled===false) return 'Remote terminals are disabled on this server. Run reet terminal start on the controller, with accounts mode and an HTTPS public URL configured. Monitoring and local shells remain available.'
   const caps = machine.capabilities
   if (!caps) return 'Start the background agent on this machine to connect.'
   if (!caps.terminalControl) return 'Update the reet agent to enable terminal support.'

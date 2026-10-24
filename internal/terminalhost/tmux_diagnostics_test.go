@@ -12,7 +12,7 @@ import (
 )
 
 func TestTmuxDiagnosticsExplainMissingBrokenAndOldExecutable(t *testing.T) {
-	for _, tc := range []struct{ name, program, want string }{{"missing", "", "not found on PATH"}, {"broken", "#!/bin/sh\nexit 1\n", "could not run tmux -V"}, {"old", "#!/bin/sh\nprintf 'tmux 3.2a\\n'\n", "3.3 or newer"}, {"invalid", "#!/bin/sh\nprintf '\\033[2Jnot a version\\n'\n", "3.3 or newer"}} {
+	for _, tc := range []struct{ name, program, want string }{{"missing", "", "not found on PATH"}, {"broken", "#!/bin/sh\nexit 1\n", "could not run tmux -V"}, {"old", "#!/bin/sh\nprintf 'tmux 3.1c\\n'\n", "3.2 or newer"}, {"invalid", "#!/bin/sh\nprintf '\\033[2Jnot a version\\n'\n", "3.2 or newer"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			t.Setenv("PATH", dir)

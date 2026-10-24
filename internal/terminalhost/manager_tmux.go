@@ -101,13 +101,13 @@ type paneState struct {
 }
 
 func (m *Manager) panes(ctx context.Context, sessionID string) ([]paneState, error) {
-	out, err := m.command(ctx, 64<<10, "list-panes", "-s", "-t", "="+m.name(sessionID), "-F", "#{pane_id}\t#{pane_dead}\t#{pane_dead_status}")
+	out, err := m.command(ctx, 64<<10, "list-panes", "-s", "-t", "="+m.name(sessionID), "-F", "#{pane_id}"+fieldSep+"#{pane_dead}"+fieldSep+"#{pane_dead_status}")
 	if err != nil {
 		return nil, err
 	}
 	panes := []paneState{}
 	for _, line := range strings.Split(strings.TrimSuffix(string(out), "\n"), "\n") {
-		fields := strings.Split(line, "\t")
+		fields := strings.Split(line, fieldSep)
 		if len(fields) != 3 || !paneID.MatchString(fields[0]) || fields[1] != "0" && fields[1] != "1" {
 			return nil, ErrNotRunning
 		}

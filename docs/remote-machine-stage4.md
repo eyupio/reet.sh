@@ -26,7 +26,7 @@ reet agent terminal end --session NAME
 ```
 
 - `enable` requires the non-root host user that owns the enrollment. It checks
-  the Linux/macOS host, a supported tmux (3.3 or newer, which includes the `allow-passthrough` option), the private layout, and
+  the Linux/macOS host, a supported tmux (3.2 or newer), the private layout, and
   then writes consent atomically to the private enrollment file.
 - `disable` only turns off remote terminal access. Running local tmux sessions
   continue and can be listed or ended locally.
@@ -122,8 +122,10 @@ Review follow-ups included in this increment:
 
 - Readiness now runs a harmless tmux client probe (`show-options -gv
   exit-empty`), so a stale socket left by an unclean exit is not reported ready.
-- tmux 3.3 is the minimum because the reet-owned config uses
-  `allow-passthrough`, introduced in 3.3.
+- tmux 3.2 is the minimum because session creation passes `-e` for `HOME`
+  (added in 3.2).
+  `allow-passthrough` only exists in 3.3+, so the private config writes it with
+  `-q`; older tmux ignores the unknown option and has no passthrough anyway.
 - Linux reinstall uses `enable` plus `restart`, so changed units, binary paths,
   and environments are applied; this restarts tmux and ends local sessions.
 - macOS uninstall propagates a real `launchctl bootout` failure and ignores only

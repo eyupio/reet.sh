@@ -45,7 +45,7 @@ try {
   await reference.getByText('Quick command reference',{exact:true}).click()
   await expect(page.getByText(/Resource readings are temporarily unavailable/)).toBeVisible()
   await page.getByRole('button',{name:'Close Machine & terminal details'}).click()
-  await expect(page.getByRole('button', { name: 'New terminal' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'New terminal', exact: true })).toBeEnabled()
   await page.unroute('**/api/v2/machines/health')
   await page.getByLabel('New session name').fill('Browser durability')
   await page.getByRole('button', { name: 'New terminal', exact: true }).click()

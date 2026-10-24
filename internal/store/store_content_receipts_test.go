@@ -1311,6 +1311,62 @@ func TestAdoptionOfferOnlyWhereAdoptable(t *testing.T) {
 		}
 	})
 
+	for name, damage := range map[string]string{
+		"a sibling revision whose manifest is not JSON":     `UPDATE private_skill_revisions SET manifest='not json' WHERE id=?`,
+		"a sibling revision whose manifest fails its check": `UPDATE private_skill_revisions SET manifest=json_set(manifest,'$.digest','` + strings.Repeat("0", 64) + `') WHERE id=?`,
+	} {
+		t.Run(name+" is left out, not fatal", func(t *testing.T) {
+			e := previewFixture(t)
+			r1, head := e.bundle.Revision, e.bundle.Revision.ID
+			siblings := []string{}
+			for i := 0; i < 2; i++ {
+				w := privateWrite(fmt.Sprintf("adopt_offer_sibling_%04d", i), head, "PRIVATE_PIN_BYTES")
+				w.Files[1].Data = []byte(fmt.Sprintf("#!/bin/sh\nprintf sibling%d\n", i))
+				rev, err := e.s.SavePrivateSkillRevisionFor(e.uid, e.bundle.Bundle.ID, w)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err = e.s.db.Exec(`UPDATE private_skill_revisions SET created_at=? WHERE id=?`, r1.CreatedAt+int64(i+1)*1000, rev.Revision.ID); err != nil {
+					t.Fatal(err)
+				}
+				head, siblings = rev.Revision.ID, append(siblings, rev.Revision.ID)
+			}
+			healthy, damaged := siblings[0], siblings[1]
+			p := capturedPreview(t, e, "adopt_offer_damaged_00001", matching(e))
+			partial := func(id string) AdoptionCandidate {
+				return AdoptionCandidate{RevisionID: id, Matched: 2, ObservedOnly: 1, RevisionOnly: 1}
+			}
+			if before := []AdoptionCandidate{{RevisionID: r1.ID, Matched: 3}, partial(damaged), partial(healthy)}; p.Adoption == nil || !reflect.DeepEqual(p.Adoption.Candidates, before) {
+				t.Fatalf("fixture must offer the sibling before it is damaged: %+v", p.Adoption)
+			}
+			if _, err := e.s.db.Exec(damage, damaged); err != nil {
+				t.Fatal(err)
+			}
+
+			got, err := e.s.SkillContentPreviewFor(e.uid, p.ID)
+			if err != nil || got.State != "captured" || got.ReviewHash != p.ReviewHash {
+				t.Fatalf("one damaged revision must not hide the review: %+v %v", got, err)
+			}
+			if want := []AdoptionCandidate{{RevisionID: r1.ID, Matched: 3}, partial(healthy)}; got.Adoption == nil || !reflect.DeepEqual(got.Adoption.Candidates, want) {
+				t.Fatalf("offer %+v, want %+v", got.Adoption, want)
+			}
+			// The cancel response reads the request back through the item read.
+			if err = e.s.StopSkillContentPreviewFor(e.uid, p.ID); err != nil {
+				t.Fatal(err)
+			}
+			if again, err := e.s.SkillContentPreviewFor(e.uid, p.ID); err != nil || again.State != "captured" {
+				t.Fatalf("%+v %v", again, err)
+			}
+			// Adoption re-reads and re-checks the revision itself, so it is refused.
+			if r, err := e.s.AdoptSkillContentPreviewFor(e.uid, adoption("adopt_offer_damaged_req01", p, damaged)); err == nil || r.ID != "" {
+				t.Fatalf("adopted as a damaged revision: %+v", r)
+			}
+			if receiptRows(t, e) != 0 {
+				t.Fatal("a refused adoption created a receipt")
+			}
+		})
+	}
+
 	t.Run("never on list reads", func(t *testing.T) {
 		e := previewFixture(t)
 		p := capturedPreview(t, e, "adopt_offer_list_0000001", matching(e))

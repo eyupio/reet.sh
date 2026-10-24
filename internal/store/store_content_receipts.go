@@ -360,15 +360,15 @@ func adoptionOffer(q privateSkillQuery, uid int64, p SkillContentPreview) (*Skil
 		if err = rows.Scan(&id, &raw); err != nil {
 			return nil, err
 		}
-		if err = json.Unmarshal([]byte(raw), &m); err != nil {
-			return nil, err
-		}
-		_, counts, e := skillplan.ClaimSubset(*p.Capture.Manifest, m)
-		if errors.Is(e, skillplan.ErrNotClaimable) {
+		// A revision is a candidate only if the claim succeeds. One whose stored
+		// manifest does not decode or validate is left out rather than hiding the
+		// review; adoption re-reads and re-checks whichever revision is named.
+		if json.Unmarshal([]byte(raw), &m) != nil {
 			continue
 		}
+		_, counts, e := skillplan.ClaimSubset(*p.Capture.Manifest, m)
 		if e != nil {
-			return nil, e
+			continue
 		}
 		offer.Candidates = append(offer.Candidates, AdoptionCandidate{RevisionID: id, Matched: counts.Matched, ObservedOnly: counts.ObservedOnly, RevisionOnly: counts.RevisionOnly})
 	}

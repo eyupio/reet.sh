@@ -350,3 +350,111 @@ func TestFleetPreviewsArePerScopeAndExecutionStaysSerial(t *testing.T) {
 		t.Fatal("parallel apply accepted", err)
 	}
 }
+
+func TestDesiredSelectionDeduplicatesLocalCopies(t *testing.T) {
+	s, uid, id := controlFixture(t)
+	local, err := s.UpsertLocalFor(uid, "improve", Patch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	linked, err := s.UpsertFor(uid, mustRef(t, "owner/skills/improve"), Patch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", SkillIDs: []string{local.ID, linked.ID}, Mode: "additive"}); err != nil {
+		t.Fatal(err)
+	}
+	targets, err := s.SyncTargetsFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 || len(targets[0].Desired) != 1 || targets[0].Desired[0].ID != linked.ID {
+		t.Fatalf("local duplicate was not deduplicated: %+v", targets)
+	}
+	if err = s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", SkillIDs: []string{local.ID, linked.ID}, Mode: "additive", Revision: targets[0].Revision}); err != nil {
+		t.Fatalf("reviewed duplicate save failed: %v", err)
+	}
+	if err = s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", SkillIDs: []string{local.ID}, Mode: "additive"}); err == nil {
+		t.Fatal("local-only selection accepted")
+	}
+}
+
+func TestSyncRunChainsScopesAndAutoApprovesAdditivePlans(t *testing.T) {
+	s, uid, first := controlFixture(t)
+	s.TouchEnvironmentFor(uid, "laptop", "claude", "", "")
+	second := EnvironmentIDFor(uid, "laptop", "claude", "")
+	s.RecordInventoryFor(uid, second, true, MachineInfo{})
+	for _, id := range []string{first, second} {
+		if err := s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", SkillIDs: []string{"a/b/one"}, Mode: "additive"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	agent, _, err := s.EnrollSyncAgent(uid, "laptop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := s.StartSyncRun(uid, agent.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(run.Targets) != 2 || run.Status != "running" {
+		t.Fatalf("bad run: %+v", run)
+	}
+	job, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || job == nil || job.Kind != "auto" || job.TargetID != first {
+		t.Fatalf("first auto job: %+v %v", job, err)
+	}
+	hash := strings.Repeat("d", 64)
+	plan := json.RawMessage(`{"actions":[{"add":true,"skill":{"slug":"one"}}]}`)
+	if err = s.FinishSyncJob(uid, agent.ID, job.ID, "awaiting-approval", hash, "", plan); err != nil {
+		t.Fatal(err)
+	}
+	apply, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || apply == nil || apply.Kind != "apply" || apply.ID != job.ID {
+		t.Fatalf("additive plan was not auto-approved: %+v %v", apply, err)
+	}
+	if err = s.FinishSyncJob(uid, agent.ID, apply.ID, "succeeded", hash, "", plan); err != nil {
+		t.Fatal(err)
+	}
+	next, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || next == nil || next.Kind != "auto" || next.TargetID != second {
+		t.Fatalf("run did not chain to second scope: %+v %v", next, err)
+	}
+	removal := json.RawMessage(`{"actions":[{"add":false,"skill":{"slug":"extra"}}]}`)
+	if err = s.FinishSyncJob(uid, agent.ID, next.ID, "awaiting-approval", hash, "", removal); err != nil {
+		t.Fatal(err)
+	}
+	jobs, _ := s.SyncJobsFor(uid)
+	for _, item := range jobs {
+		if item.ID == next.ID && (item.Kind != "auto" || item.Status != "awaiting-approval" || !strings.Contains(item.Message, "review")) {
+			t.Fatalf("removal was not held for review: %+v", item)
+		}
+	}
+	runs, _ := s.SyncRunsFor(uid)
+	if len(runs) == 0 || runs[0].Status != "review" || runs[0].Cursor != 2 {
+		t.Fatalf("review run: %+v", runs)
+	}
+}
+
+func TestQueueAgentUpdateUsesExistingJobGate(t *testing.T) {
+	s, uid, id := controlFixture(t)
+	a, _, err := s.EnrollSyncAgent(uid, "laptop", "v1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.QueueAgentUpdate(uid, a.ID, "latest")
+	if err != nil || job.Kind != "update" || job.Revision != "latest" || job.TargetID != "" {
+		t.Fatalf("update job: %+v %v", job, err)
+	}
+	if _, err = s.QueueSyncJob(uid, a.ID, id, "preview"); err == nil {
+		t.Fatal("preview queued while update pending")
+	}
+	if _, err = s.QueueAgentUpdate(uid, a.ID, "not-a-tag"); err == nil {
+		t.Fatal("invalid version accepted")
+	}
+	other, _ := s.CreateUser("other@update.invalid", "Other", "member", "")
+	foreign, _, _ := s.EnrollSyncAgent(other.ID, "desktop", "v1.0.0")
+	if _, err = s.QueueAgentUpdate(uid, foreign.ID, "latest"); err == nil {
+		t.Fatal("cross-account update accepted")
+	}
+}

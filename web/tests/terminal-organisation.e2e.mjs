@@ -131,8 +131,8 @@ try{
  await expect(page.getByRole('dialog')).toContainText('Update this machine’s reet agent')
  const legacyReads=historyReads
  await page.getByRole('button',{name:'Terminal output history →',exact:true}).click()
- await expect(page.getByRole('dialog')).toContainText('Read-only output snapshot')
- await page.getByRole('button',{name:'Close history',exact:true}).click()
+ await expect(page.getByRole('region',{name:'Earlier terminal output'})).toContainText('Read-only output snapshot')
+ await page.getByRole('button',{name:'Back to live ↓',exact:true}).click()
  expect(historyReads).toBe(legacyReads)
  await page.getByRole('button',{name:'Appearance',exact:true}).click()
  await page.getByRole('button',{name:'Use Graphite theme'}).click()

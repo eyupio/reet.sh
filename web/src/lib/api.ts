@@ -470,7 +470,8 @@ export type SetupProfileRevision = {
 }
 export type SetupProfileRecord = { schema_version: number; name: string; revisions: SetupProfileRevision[] }
 export type Machine = { aliases?: string[]; host: string; groups: SyncEnvironment[]; skillCount: number }
-export type SyncState = { agents?: SyncAgent[]; jobs?: SyncJob[]; machines?: Machine[]; environments: SyncEnvironment[]; targets: SyncTarget[] }
+export type SyncRun = { id: string; agentId: string; targets: string[]; cursor: number; status: string; createdAt: number; updatedAt: number }
+export type SyncState = { agents?: SyncAgent[]; jobs?: SyncJob[]; runs?: SyncRun[]; machines?: Machine[]; environments: SyncEnvironment[]; targets: SyncTarget[] }
 export async function getSyncState(): Promise<SyncState> { return (await req('/api/v2/sync')).json() }
 export async function saveSyncTarget(sourceId: string, targetId: string): Promise<SyncState> { return (await req('/api/v2/sync', { method: 'PUT', body: json({ sourceId, targetId }) })).json() }
 export async function deleteSyncTarget(targetId: string): Promise<SyncState> { return (await req(`/api/v2/sync?target=${encodeURIComponent(targetId)}`, { method: 'DELETE' })).json() }
@@ -885,6 +886,8 @@ export async function adoptSyncSkills(targetId: string, skillIds: string[], list
 export async function queueSyncJob(agentId: string, targetId: string, kind: string): Promise<SyncState> { return (await req('/api/v2/sync/jobs', { method: 'POST', body: json({ agentId, targetId, kind }) })).json() }
 export async function controlSyncJob(id: string, action: string, hash = ''): Promise<SyncState> { return (await req('/api/v2/sync/jobs', { method: 'PATCH', body: json({ id, action, hash }) })).json() }
 export async function controlSyncAgent(id: string, action: string): Promise<SyncState> { return (await req('/api/v2/sync/agents', { method: 'PATCH', body: json({ id, action }) })).json() }
+export async function startSyncRun(agentId: string, targetIds: string[] = []): Promise<SyncState> { return (await req('/api/v2/sync/run', { method: 'POST', body: json({ agentId, targetIds }) })).json() }
+export async function updateSyncAgent(id: string, version = 'latest'): Promise<SyncState> { return (await req('/api/v2/sync/agents/update', { method: 'POST', body: json({ id, version }) })).json() }
 
 export async function listSetupProfiles(): Promise<{ profiles: SetupProfileSummary[] }> {
   return (await req('/api/v2/setup/profiles')).json()

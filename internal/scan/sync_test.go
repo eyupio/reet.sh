@@ -130,7 +130,6 @@ func TestSyncRejectsConflictsAndUninstallableSkills(t *testing.T) {
 		actual  []Found
 	}{
 		{"source conflict", []store.SyncSkill{beta}, []Found{{Name: "beta", Source: "different/repo"}}},
-		{"unknown source", []store.SyncSkill{beta}, []Found{{Name: "beta"}}},
 		{"local-only removal", nil, []Found{{Name: "custom"}}},
 		{"duplicate name", []store.SyncSkill{beta, beta}, nil},
 		{"invalid source", []store.SyncSkill{{Slug: "beta", Source: "--evil", SourceType: "github"}}, nil},
@@ -216,5 +215,46 @@ func TestHelpNeverPrintsEnvironmentToken(t *testing.T) {
 		if strings.Contains(out.String(), "private-token-do-not-print") {
 			t.Fatal("help exposed the inherited token")
 		}
+	}
+}
+
+func TestSyncReplacesLocalDuplicateAndBacksItUp(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".claude", "skills")
+	mkSkill(t, dir, "improve", true)
+	target := store.SyncTarget{Target: store.Environment{ID: "1/laptop/claude", Name: "Laptop Claude", Host: "laptop", Agent: "claude"}, SourceName: "Reference", Revision: "one", Desired: []store.SyncSkill{{ID: "owner/skills/improve", Name: "improve", Slug: "improve", Source: "owner/skills", SourceType: "github"}}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			json.NewEncoder(w).Encode(map[string]any{"targets": []store.SyncTarget{target}, "canWrite": true})
+			return
+		}
+		w.Write([]byte(`{"imported":1,"errors":[]}`))
+	}))
+	defer srv.Close()
+	installed := false
+	var out bytes.Buffer
+	err := runSync([]string{"--server", srv.URL, "--token", "secret", "--env", "laptop", "--target", target.Target.ID, "--apply"}, strings.NewReader("Laptop Claude\n"), &out, func(args []string, cwd string) error {
+		if !strings.Contains(strings.Join(args, " "), "add https://github.com/owner/skills") {
+			t.Fatalf("unexpected command: %v", args)
+		}
+		mkSkill(t, dir, "improve", true)
+		lockDir := filepath.Join(home, ".agents")
+		os.MkdirAll(lockDir, 0755)
+		if err := os.WriteFile(filepath.Join(lockDir, ".skill-lock.json"), []byte(`{"skills":{"improve":{"source":"owner/skills","sourceType":"github"}}}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+		installed = true
+		return nil
+	}, "dev")
+	if err != nil {
+		t.Fatalf("sync failed: %v: %s", err, out.String())
+	}
+	if !installed || !strings.Contains(out.String(), "REPLACE improve") {
+		t.Fatalf("local duplicate was not replaced: %s", out.String())
+	}
+	backups, err := filepath.Glob(filepath.Join(home, ".claude", ".reet-sync-backups", "removed-*", "improve", "SKILL.md"))
+	if err != nil || len(backups) != 1 {
+		t.Fatalf("local copy was not backed up: %v %v", backups, err)
 	}
 }

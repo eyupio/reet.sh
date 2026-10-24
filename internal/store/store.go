@@ -168,6 +168,9 @@ var schemaV12 = []string{
 	`CREATE TABLE IF NOT EXISTS sync_receipts (job_id TEXT NOT NULL REFERENCES sync_jobs(id) ON DELETE CASCADE, status TEXT NOT NULL, hash TEXT NOT NULL, PRIMARY KEY(job_id,status,hash))`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS sync_agents_host ON sync_agents(user_id,host COLLATE NOCASE)`,
 	`CREATE INDEX IF NOT EXISTS sync_jobs_agent ON sync_jobs(agent_id,status)`,
+	`CREATE TABLE IF NOT EXISTS sync_runs (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, agent_id TEXT NOT NULL REFERENCES sync_agents(id) ON DELETE CASCADE, targets TEXT NOT NULL, cursor INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+	`CREATE TABLE IF NOT EXISTS sync_run_jobs (job_id TEXT PRIMARY KEY REFERENCES sync_jobs(id) ON DELETE CASCADE, run_id TEXT NOT NULL REFERENCES sync_runs(id) ON DELETE CASCADE, position INTEGER NOT NULL DEFAULT 0)`,
+	`CREATE INDEX IF NOT EXISTS sync_runs_agent ON sync_runs(agent_id,status)`,
 	`CREATE TABLE IF NOT EXISTS machine_aliases (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, alias TEXT NOT NULL, host TEXT NOT NULL, PRIMARY KEY(user_id,alias))`,
 	`CREATE TABLE IF NOT EXISTS environments (
 		id TEXT PRIMARY KEY, user_id INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL,

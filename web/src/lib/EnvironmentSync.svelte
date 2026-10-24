@@ -33,6 +33,9 @@
   let setupOpen = $state(startConnect)
   const initialSetupMode = new URLSearchParams(location.search).get('setup') === 'scratch' ? 'scratch' : 'connect'
   const site = location.origin
+  const focusHost = new URLSearchParams(location.search).get('machine') ?? ''
+  const focusedMachine = $derived(focusHost ? machines.find(machine => machine.host.toLowerCase() === focusHost.toLowerCase()) : undefined)
+  const visibleMachines = $derived(focusedMachine ? [focusedMachine] : machines)
   let now = $state(Date.now())
 
   function quote(value: string): string { return "'" + value.replaceAll("'", "'\\''") + "'" }
@@ -131,6 +134,7 @@
     <button class="btn quiet" type="button" onclick={() => load()} disabled={loading || busy}>{loading ? 'Refreshing…' : 'Refresh status'}</button>
   </header>
   {#if !compact}<p class="lede">{reportedMachines.length ? 'Your machines are one unit here: agent scopes live inside each machine, and every command is ready to run on that machine.' : 'Bring a machine in, scan what its agents have installed, and sync the skills and setups you want.'}</p>{/if}
+  {#if focusedMachine}<p class="hint machine-focus"><a href="/machines">All machines</a> / <strong>{focusedMachine.host}</strong></p>{:else if focusHost && !loading}<p class="hint">No machine named {focusHost} is connected. <a href="/machines">Show all machines</a>.</p>{/if}
   {#if lastRefresh && reportedMachines.length}<p class="hint">Status refreshed {when(lastRefresh)} · updates automatically while this page is open.</p>{/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
@@ -143,8 +147,8 @@
     {/if}
   {:else}
     <MachineSetup {terminalAccess} {site} {machines} {profiles} {token} {tokenSetup} {serverBuild} bind:open={setupOpen} initialMode={initialSetupMode} onrefresh={() => load()} />
-    {#if machines.length}
-      <MachineFleet {machines} snapshot={syncState} {site} {canWrite} {terminalAccess} {monitorAccess} onadd={openSetup} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e) }} onnotice={(message) => { notice = message }} />
+    {#if visibleMachines.length}
+      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {terminalAccess} {monitorAccess} onadd={openSetup} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e) }} onnotice={(message) => { notice = message }} />
     {/if}
   {/if}
 
@@ -199,6 +203,8 @@
   h2 { margin: 0; font: 500 1.7rem/1.15 var(--serif); }
   .lede { color: var(--muted); max-width: 72ch; margin: 8px 0 0; line-height: 1.6; }
   .hint { color: var(--muted); font-size: .83rem; margin: 6px 0; overflow-wrap: anywhere; }
+  .machine-focus a { color: var(--accent); }
+  .machine-focus strong { color: var(--ink); }
   .maintenance { margin: 16px 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
   .maintenance > summary { cursor: pointer; min-height: 24px; font-weight: 600; }
   .machine-form { display: grid; gap: 12px; margin-top: 16px; }

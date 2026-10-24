@@ -6,7 +6,7 @@ const context=await browser.newContext({viewport:{width:1360,height:900},permiss
 const page=await context.newPage(),errors=[],inputs=[],tickets=[],ticketSizes=[],writes=[]
 page.on('pageerror',error=>errors.push(error.message))
 const now=Date.now(),agentA='connector-laptop000000001',agentB='connector-builder00000001',sessionA='session-build00000000001',sessionB='session-deploy0000000001'
-let failSessions=false,denied=false,viewer=false,websockets=0
+let failHistory=false,historyReads=0,failSessions=false,denied=false,viewer=false,websockets=0
 const sessions=[{id:sessionA,agentId:agentA,title:'Build workspace',state:'running',createdAt:now,updatedAt:now,exitCode:null},{id:sessionB,agentId:agentB,title:'Deployment checks',state:'running',createdAt:now,updatedAt:now,exitCode:null}]
 const machines=[{agentId:agentA,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{osUser:'developer',terminalEnabled:true,terminalControl:true,readiness:'ready'}},{agentId:agentB,host:'build-server',ready:true,serverEnabled:true,capabilities:{osUser:'builder',terminalEnabled:true,terminalControl:true,readiness:'ready'}}]
 await page.addInitScript(()=>{
@@ -36,7 +36,7 @@ await page.route('**/api/**',async route=>{
   data={sessions}
  }
  else if(path.endsWith('/attachments')){tickets.push(path.split('/').at(-2));ticketSizes.push(request.postDataJSON());data={ticket:'fixture-ticket00000000000'}}
- else if(path.endsWith('/history'))return route.fulfill({body:'Fixture read-only history'})
+ else if(path.endsWith('/history')){historyReads++;return route.fulfill(failHistory?{status:503,json:{error:'History temporarily unavailable'}}:{body:Array.from({length:400},(_,i)=>`earlier output ${i}`).join('\n')})}
  else return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})
  await route.fulfill({json:data})
 })
@@ -153,6 +153,44 @@ try{
  expect(inputs.length).toBe(beforePaste)
  await screen.evaluate(element=>element.dispatchEvent(new MouseEvent('contextmenu',{button:2,shiftKey:true,bubbles:true,cancelable:true})))
  await expect(page.getByRole('menu')).toHaveCount(0)
+ // Earlier output has a native scrollbar; reading/searching never sends shell input.
+ const beforeScroll=inputs.length,beforeViews=websockets,sidebarBefore=await page.getByRole('button',{name:/^Sessions/}).getAttribute('aria-expanded')
+ await page.getByRole('button',{name:'Earlier output',exact:true}).click()
+ const output=page.getByRole('region',{name:'Scrollable terminal output',exact:true})
+ await expect(output).toContainText('earlier output 0')
+ expect(await output.evaluate(e=>getComputedStyle(e).overflowY)).toBe('auto')
+ expect(await output.evaluate(e=>e.scrollHeight>e.clientHeight)).toBe(true)
+ const outputBox=await output.boundingBox();await page.mouse.move(outputBox.x+80,outputBox.y+80);await page.mouse.wheel(0,-300)
+ await expect.poll(()=>output.evaluate(e=>e.scrollTop)).toBeLessThan(await output.evaluate(e=>e.scrollHeight-e.clientHeight))
+ await output.focus();await page.keyboard.press('Control+Home')
+ await expect.poll(()=>output.evaluate(e=>e.scrollTop)).toBe(0)
+ await page.getByLabel('Find in earlier output').fill('earlier output 8')
+ await expect(output.locator('mark')).toHaveCount(11)
+ await page.getByRole('button',{name:'Next output match',exact:true}).click()
+ await expect(page.getByText('2 / 11',{exact:true})).toBeVisible()
+ failHistory=true
+ await page.getByRole('region',{name:'Earlier terminal output'}).getByRole('button',{name:'Refresh',exact:true}).click()
+ await expect(page.getByRole('alert')).toContainText('Showing the previous snapshot')
+ await expect(output).toContainText('earlier output 399')
+ failHistory=false
+ await page.getByRole('button',{name:'Back to live ↓',exact:true}).click()
+ expect(inputs.length).toBe(beforeScroll);expect(historyReads).toBe(2)
+ await page.getByRole('button',{name:'Focus terminal',exact:true}).click();await page.keyboard.press('Shift+PageUp')
+ await expect(output).toBeVisible();await page.getByRole('button',{name:'Back to live ↓',exact:true}).click()
+ expect(inputs.length).toBe(beforeScroll)
+ await page.getByRole('button',{name:'Theatre view',exact:true}).click()
+ await expect(page.locator('.workspace')).toHaveClass(/theatre/)
+ await expect(page.getByRole('navigation',{name:'Terminal sessions'})).toBeHidden()
+ await expect(page.locator('.site-header')).toBeVisible()
+ await expect(page.locator('.workspace-toolbar')).toBeHidden()
+ expect((await screen.boundingBox()).width).toBeGreaterThan(1250)
+ await page.getByRole('button',{name:'Maximise',exact:true}).click()
+ await expect(pane).toHaveClass(/maximised/)
+ await page.getByRole('button',{name:'Restore size',exact:true}).click()
+ await page.getByRole('button',{name:'Exit theatre view',exact:true}).click()
+ await expect(page.locator('.workspace-toolbar')).toBeVisible()
+ expect(await page.getByRole('button',{name:/^Sessions/}).getAttribute('aria-expanded')).toBe(sidebarBefore)
+ expect(websockets).toBe(beforeViews);expect(inputs.length).toBe(beforeScroll)
  // A deliberate browser disconnect survives page visibility/network events.
  await page.getByRole('button',{name:'Disconnect',exact:true}).click()
  await expect(pane).toHaveAttribute('data-connection-state','detached')

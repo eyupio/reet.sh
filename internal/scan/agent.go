@@ -343,7 +343,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	lastScan := time.Time{}
 	announcedWaiting := false
 	for {
-		if err = agentCycle(ctx, c, *config, out, version, &lastScan); err != nil {
+		if err = agentCycle(ctx, c, *config, out, version, &lastScan, !*once); err != nil {
 			if *once {
 				return err
 			}
@@ -374,7 +374,7 @@ type agentResult struct {
 	Plan    SyncPlan `json:"plan"`
 }
 
-func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer, version string, lastScan *time.Time) error {
+func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer, version string, lastScan *time.Time, allowRestart bool) error {
 	// A completed result is durable before acknowledgment. Reconnect resends the
 	// result, never the filesystem operation.
 	if b, err := os.ReadFile(config + ".result"); err == nil {
@@ -420,8 +420,15 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	j := reply.Job
 	result := agentResult{ID: j.ID, Status: "succeeded"}
 	var operationErr error
+	restartPath := ""
 	if j.Kind == "scan" {
 		operationErr = scanAll()
+	} else if j.Kind == "update" {
+		if !allowRestart {
+			operationErr = errors.New("updating reet requires the long-running background or service agent")
+		} else {
+			result.Message, restartPath, operationErr = updateAgentBinary(ctx, j.Revision, version)
+		}
 	} else {
 		target, err := fetchTarget(c.Server, c.Token, j.TargetID)
 		if err != nil {
@@ -461,7 +468,7 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 					return cmd.Run()
 				}, version, opts)
 				cancel()
-				if operationErr == nil && j.Kind == "preview" {
+				if operationErr == nil && (j.Kind == "preview" || j.Kind == "auto") {
 					result.Status = "awaiting-approval"
 				}
 			}
@@ -470,6 +477,20 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	if operationErr != nil {
 		result.Status = "failed"
 		result.Message = operationErr.Error()
+	}
+	if restartPath != "" {
+		// Leave the successful result durable before replacing the process image.
+		// The new process sends it on its first cycle. If exec fails, record and
+		// send the failure from this process instead.
+		if err := writePrivate(config+".result", result); err != nil {
+			return err
+		}
+		if err := restartAgent(restartPath); err != nil {
+			result.Status = "failed"
+			result.Message = "Binary updated but the agent restart failed: " + err.Error()
+		} else {
+			return nil
+		}
 	}
 	if err := writePrivate(config+".result", result); err != nil {
 		return err

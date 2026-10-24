@@ -6,7 +6,7 @@
   import TerminalPane from './TerminalPane.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import HealthHistory from './HealthHistory.svelte'
-  import { renameTerminal, endTerminal } from './api'
+  import { renameTerminal, endTerminal, archiveTerminal, terminalClosed } from './api'
   import { TerminalError, validTerminalTitle } from './api'
   import WorkspaceDialog from './WorkspaceDialog.svelte'
   import TerminalCommandReference from './TerminalCommandReference.svelte'
@@ -29,7 +29,7 @@
   let workspace = $state<HTMLElement>(), workspaceHeight = $state(Math.max(120, innerHeight - 78))
   let navOpen = $state(innerWidth >= 960), detailsOpen = $state(false), query = $state('')
   let healthIssue=$state(''),showCreate=$state(false)
-  let action = $state<'rename'|'end'|null>(null), actionSession = $state(''), rename = $state(''), actionTitle = $state(''), actionBusy = $state(false)
+  let action = $state<'rename'|'end'|'archive'|null>(null), actionSession = $state(''), rename = $state(''), actionTitle = $state(''), actionBusy = $state(false)
   const endKeys = new Map<string,string>()
   let refreshing = false, refreshAgain = false, disposed = false, inventoryVersion = 0
   let refreshRequest: AbortController | undefined
@@ -99,7 +99,9 @@
       const created=await createTerminal(agent,operation.requestId,operation.title,100,30,request.signal)
       if(disposed)return
       inventoryVersion++
-      sessions=[created,...sessions.filter(item=>item.id!==created.id)]
+      // A retry can resolve to an old closed record; let the filtered history list
+      // determine visibility instead of reintroducing an archived session locally.
+      if(!terminalClosed(created.state))sessions=[created,...sessions.filter(item=>item.id!==created.id)]
       if(creations[agent]?.requestId===operation.requestId){const next={...creations};delete next[agent];creations=next}
       if(selectedAgent===agent){selectedSession=created.id;showCreate=false;remember()}
       await refresh()
@@ -109,12 +111,19 @@
       else creations={...creations,[agent]:{...operation,error:e instanceof Error?e.message:'Creation could not be confirmed. Retry the same operation.'}}
     } finally{clearTimeout(timeout);busy=false}
   }
-  function openAction(kind:'rename'|'end') { if(!session)return;actionSession=session.id;actionTitle=session.title;rename=session.title;action=kind }
+  function openAction(kind:'rename'|'end'|'archive') { if(!session)return;actionSession=session.id;actionTitle=session.title;rename=session.title;action=kind }
   async function performAction() {
     const kind=action,id=actionSession;action=null;if(!kind||actionBusy)return
     actionBusy=true;error=''
     try {
       if(kind==='rename'){if(!validTerminalTitle(rename.trim())){error='Use a session name of 1–80 characters without control characters.';return}await renameTerminal(id,rename.trim())}
+      else if(kind==='archive'){
+        await archiveTerminal(id)
+        if(disposed)return
+        sessions=sessions.filter(item=>item.id!==id)
+        for(const [agent,selected] of rememberedSessions)if(selected===id)rememberedSessions.delete(agent)
+        if(selectedSession===id){selectedSession='';remember()}
+      }
       else {let key=endKeys.get(id);if(!key){key=crypto.randomUUID();endKeys.set(id,key)}await endTerminal(id,key)}
       inventoryVersion++
       await refresh()
@@ -176,7 +185,7 @@
       {:else if !machines.length}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>Connect your first machine</h2><p>Enroll a machine and enable terminal access locally to open a shell here.</p><a class="btn primary" href="/machines#connect-machine">Connect a machine</a></div>
       {:else if session}
         {#if setup || session.state === 'end_requested'}<div class="workspace-notice" role="status">{session.state === 'end_requested' ? 'End requested. Waiting for this machine to confirm; the shell still counts towards its limit.' : setup}<button onclick={() => detailsOpen = true}>View details</button></div>{/if}
-        {#key session.id}<TerminalPane {session} host={machine?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} onrename={() => openAction('rename')} onend={() => openAction('end')} actionDisabled={actionBusy || machine?.serverEnabled === false} />{/key}
+        {#key session.id}<TerminalPane {session} host={machine?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} onrename={() => openAction('rename')} onend={() => openAction('end')} onarchive={() => openAction('archive')} archiveDisabled={actionBusy} actionDisabled={actionBusy || machine?.serverEnabled === false} />{/key}
       {:else}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>{selectedSession ? 'This session is unavailable' : selectedAgent && !machine ? 'This machine is unavailable' : 'Your next shell starts here.'}</h2><p>{selectedSession ? 'Choose an existing session or create one explicitly. No replacement shell was created.' : setup || 'Create a terminal, then return to the same session whenever you need it.'}</p>{@render createForm()}{#if setup}<button class="btn" onclick={() => detailsOpen = true}>View setup &amp; connection details</button>{/if}</div>{/if}
     </div>
   </div>
@@ -198,7 +207,7 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   <TerminalCommandReference />
   <section class="shortcut-help"><h3>Keyboard &amp; clipboard</h3><p>Ctrl+C interrupts the shell. On Windows/Linux, Ctrl+C copies selected terminal output; use Interrupt to send Ctrl+C when text is selected. On Mac, Cmd+C copies.</p><p>Ctrl+V / Cmd+V pastes. Ctrl+Shift+C/V are alternatives. Right-click the terminal for Copy/Paste; Shift+right-click keeps the browser menu. Ctrl+X stays a shell/editor key; cut works normally in editable app fields.</p><p>Multiple lines, control characters and large pastes need review. Disconnect keeps the shell running. End session stops its running work.</p></section>
 </WorkspaceDialog>{/if}
-{#if action === 'rename'}<ConfirmDialog title="Rename session" body="Only the display name changes. The running shell stays the same." confirmLabel="Save name" onconfirm={() => void performAction()} oncancel={() => action = null}><label>Session name<input bind:value={rename} maxlength="80" required /></label></ConfirmDialog>{:else if action === 'end'}<ConfirmDialog title={`End ${actionTitle}?`} body="This stops the shell and its running jobs. Disconnecting keeps them running. If the machine is offline, the request stays pending until it reconnects." confirmLabel="End session" danger onconfirm={() => void performAction()} oncancel={() => action = null} />{/if}
+{#if action === 'rename'}<ConfirmDialog title="Rename session" body="Only the display name changes. The running shell stays the same." confirmLabel="Save name" onconfirm={() => void performAction()} oncancel={() => action = null}><label>Session name<input bind:value={rename} maxlength="80" required /></label></ConfirmDialog>{:else if action === 'end'}<ConfirmDialog title={`End ${actionTitle}?`} body="This stops the shell and its running jobs. Disconnecting keeps them running. If the machine is offline, the request stays pending until it reconnects." confirmLabel="End session" danger onconfirm={() => void performAction()} oncancel={() => action = null} />{:else if action === 'archive'}<ConfirmDialog title={`Remove ${actionTitle} from history?`} body="This removes the closed session from your history. Files on the machine are kept. You cannot restore it from the web interface." confirmLabel="Remove from history" onconfirm={()=>void performAction()} oncancel={()=>action=null} />{/if}
 
 <style>
   .workspace{height:var(--workspace-height);min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}.workspace-toolbar{display:flex;align-items:center;gap:14px;padding:8px 12px;border-bottom:1px solid var(--line);flex-shrink:0}.workspace-title{display:flex;align-items:center;gap:8px}.workspace-title>a{font-size:1.2rem;text-decoration:none;padding:4px}.workspace-title h1{font:500 1.2rem var(--serif);margin:0}.machine-picker{min-width:0;max-width:280px;flex:1}.machine-picker select{width:100%;min-width:0;padding:6px 8px;min-height:34px;font-size:.78rem}.workspace-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}.workspace-actions .btn{font-size:.75rem;padding:6px 10px;min-height:34px}.workspace-actions .count{font-size:.65rem;border-radius:20px;background:var(--tint);padding:1px 5px}.workspace-body{display:grid;grid-template-columns:minmax(0,1fr);flex:1;min-height:0;position:relative}.workspace-body.with-sidebar{grid-template-columns:220px minmax(0,1fr)}.session-sidebar{display:flex;flex-direction:column;gap:12px;background:var(--bg);border-right:1px solid var(--line);padding:14px;min-height:0;overflow:auto}.sidebar-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:.8rem}.close-sidebar{background:none;border:0;font-size:1.4rem;cursor:pointer;line-height:1}.session-sidebar input{width:100%;min-height:34px;padding:6px 8px;font-size:.76rem}.machine-user{font-size:.65rem;color:var(--muted);margin:-4px 0 0;overflow-wrap:anywhere}.session-sidebar nav{display:grid;gap:6px;align-content:start}.session-row{display:flex;gap:8px;align-items:flex-start;text-align:left;border:1px solid transparent;border-radius:8px;background:transparent;padding:10px 8px;cursor:pointer;min-width:0;color:var(--ink)}.session-row.selected{background:var(--card);border-color:var(--line)}.session-row:hover{border-color:var(--accent)}.session-row>span:last-child{display:grid;gap:3px;min-width:0}.session-row strong{font-size:.76rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.session-row small{font-size:.65rem;color:var(--muted);text-transform:capitalize}.session-dot{height:6px;width:6px;flex:none;background:var(--muted);border-radius:50%;margin-top:6px}.session-dot.running{background:var(--good)}.sidebar-empty{color:var(--muted);font-size:.75rem}.sidebar-footer{margin-top:auto;display:grid;gap:8px;padding-top:14px}.sidebar-footer>a{font-size:.7rem;text-decoration:none}.sidebar-footer .btn{justify-content:flex-start;padding:0;font-size:.72rem;min-height:28px}.terminal-stage{min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}.terminal-stage :global(.pane:not(.maximised)){flex:1;min-height:0;border:0;border-radius:0;box-shadow:none}.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;flex:1;min-height:0;overflow:auto;color:var(--muted)}.empty-icon{font:500 2.2rem var(--mono);color:var(--accent)}.empty h2{font:500 1.6rem var(--serif);color:var(--ink);margin:12px 0}.empty>p{font-size:.85rem;max-width:55ch;margin:0 0 20px}.create-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;max-width:480px;width:100%;text-align:left;align-items:end}.create-form label{display:grid;gap:6px;font-size:.75rem}.create-form input{width:100%;min-width:0}.create-form p{grid-column:1/-1;font-size:.72rem;color:var(--muted);line-height:1.5;margin:0 0 16px}.workspace-notice{margin:0;padding:7px 12px;background:var(--tint);font-size:.74rem;flex-shrink:0;display:flex;align-items:center;gap:10px;justify-content:space-between}.workspace-notice button{border:0;background:none;text-decoration:underline;cursor:pointer;white-space:nowrap;color:inherit;font:inherit}.bad{color:var(--bad)}.dialog-copy,.setup-notice p,.shortcut-help p{font-size:.8rem;color:var(--muted);line-height:1.6;margin:0}.setup-notice{border:1px solid var(--line);border-left:3px solid var(--accent);padding:14px;border-radius:8px}.setup-notice pre{font-size:.75rem;white-space:pre-wrap;overflow-wrap:anywhere}h3{font-size:.85rem;margin:0 0 10px}.shortcut-help p+p{margin-top:8px}

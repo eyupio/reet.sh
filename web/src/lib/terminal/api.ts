@@ -36,6 +36,8 @@ export async function terminalTicket(session: string, cols: number, rows: number
 export async function machineHealth(signal?: AbortSignal): Promise<HealthResponse> { return (await terminalRequest('/api/v2/machines/health', { signal })).json() }
 export async function renameTerminal(id: string, title: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}`, { method:'PATCH', body:JSON.stringify({title}) }) }
 export async function endTerminal(id: string, requestId: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/end`, { method:'POST', body:JSON.stringify({requestId}) }) }
+export function terminalClosed(state: SessionState): boolean { return ['ended','exited','lost'].includes(state) }
+export async function archiveTerminal(id:string):Promise<void>{await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/archive`,{method:'POST',body:'{}'})}
 export async function terminalHistory(id: string, signal?: AbortSignal): Promise<string> { return (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/history?lines=2000`, {signal})).text() }
 
 export function readiness(machine?: TerminalMachine): string {

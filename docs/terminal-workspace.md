@@ -44,12 +44,15 @@ closes the browser attachment, with an access explanation; it does not end shell
 | New session | Explicitly create a shell; preserve retry IDs on uncertain responses |
 | Manage → Rename | Change the title; preserve process identity |
 | Manage → End session | Confirm and request termination of the exact shell and its work |
-| Recent history | Read a bounded snapshot; do not delete history |
+| Recent history | Read a bounded output snapshot |
+| Manage → Remove from history | Hide an ended/exited/lost record; keep machine files and operation identity |
 
 Intentional disconnect stays disconnected through online/visibility events.
 Switching machines or sessions preserves the old shell. End requests on unavailable
-machines remain pending until confirmed. Remove from history requires the future
-persistent archive contract; do not relabel End as Delete.
+machines remain pending until confirmed. Remove from history uses a persistent controller tombstone and rejects active or
+pending sessions. Confirmation captures the session ID/title. Failed removals stay
+visible; success cannot detach a newer selection. It remains available when terminal
+execution is disabled. See [the archive contract](terminal-history-archive.md).
 
 - Ctrl+C interrupts when there is no selected output. On Windows/Linux, selected
   output makes Ctrl+C copy. On Mac, Cmd+C copies and Ctrl+C interrupts. The visible
@@ -101,4 +104,5 @@ browser proves creation-response retry, context switching, explicit lease takeov
 rename and offline end without replacing either original shell.
 
 No production relay, physical phone, macOS or Windows runtime is established by
-these local Linux/Chromium fixtures. Persistent history removal is the next T3 contract in `handoff.md`.
+these local Linux/Chromium fixtures. Modern terminal presentation, themes, account-synced commands and first-machine/
+upgrade terminal setup are the next priorities recorded in `handoff.md`.

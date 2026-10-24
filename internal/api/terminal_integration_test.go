@@ -269,6 +269,9 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 				return map[string]any{"online": true}
 			}
 			if action == "state-builder" {
+				if builderCommand("list-sessions", "-F", "#{session_name}") == "" {
+					return map[string]any{"pid": ""}
+				}
 				return map[string]any{"pid": builderCommand("list-panes", "-a", "-F", "#{pane_pid}")}
 			}
 			if action == "disable-terminals" || action == "enable-terminals" {

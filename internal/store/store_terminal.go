@@ -36,6 +36,10 @@ func (s *Store) migrateTerminal() error {
 				UNIQUE(id,agent_id,user_id),
 				FOREIGN KEY(agent_id,user_id) REFERENCES sync_agents(id,user_id) ON DELETE CASCADE)`,
 			`CREATE INDEX IF NOT EXISTS terminal_sessions_quota ON terminal_sessions(user_id,agent_id,state)`,
+			`CREATE TABLE IF NOT EXISTS terminal_session_archives (
+                session_id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, agent_id TEXT NOT NULL,
+                archived_at INTEGER NOT NULL,
+                FOREIGN KEY(session_id,agent_id,user_id) REFERENCES terminal_sessions(id,agent_id,user_id) ON DELETE CASCADE)`,
 			`CREATE TABLE IF NOT EXISTS terminal_operations (
 				request_id TEXT NOT NULL, user_id INTEGER NOT NULL, agent_id TEXT NOT NULL, session_id TEXT NOT NULL,
 				kind TEXT NOT NULL CHECK(kind IN ('create','end')),
@@ -248,7 +252,7 @@ func (s *Store) TerminalSessionFor(uid int64, sessionID string) (TerminalSession
 	return readTerminal(s.db.QueryRow(`SELECT `+terminalSessionCols+` FROM terminal_sessions WHERE id=? AND user_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`, sessionID, uid, uid))
 }
 func (s *Store) TerminalSessionsFor(uid int64) ([]TerminalSession, error) {
-	rows, err := s.db.Query(`SELECT `+terminalSessionCols+` FROM terminal_sessions WHERE user_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer') ORDER BY state IN ('creating','running','end_requested') DESC,updated_at DESC,id LIMIT 100`, uid, uid)
+	rows, err := s.db.Query(`SELECT `+terminalSessionCols+` FROM terminal_sessions WHERE user_id=? AND NOT EXISTS(SELECT 1 FROM terminal_session_archives a WHERE a.session_id=terminal_sessions.id) AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer') ORDER BY state IN ('creating','running','end_requested') DESC,updated_at DESC,id LIMIT 100`, uid, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -262,6 +266,40 @@ func (s *Store) TerminalSessionsFor(uid int64) ([]TerminalSession, error) {
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+// ArchiveTerminalFor hides only confirmed closed sessions from browser history.
+// Session/operation rows remain available to retry and host reconciliation paths.
+// The initial write serializes state checks against concurrent end/observation
+// transactions across Store handles without depending on host connectivity.
+func (s *Store) ArchiveTerminalFor(uid int64, sessionID string) error {
+	if !terminalproto.ValidID(sessionID) {
+		return terminalproto.ErrInvalid
+	}
+	return s.withTx(func(tx *sql.Tx) error {
+		result, err := tx.Exec(`UPDATE terminal_sessions SET id=id WHERE id=? AND user_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`, sessionID, uid, uid)
+		if err != nil {
+			return err
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if count != 1 {
+			return ErrRemoteNotFound
+		}
+		session, err := readTerminal(tx.QueryRow(`SELECT `+terminalSessionCols+` FROM terminal_sessions WHERE id=? AND user_id=?`, sessionID, uid))
+		if err != nil {
+			return err
+		}
+		switch session.State {
+		case terminalproto.Ended, terminalproto.Exited, terminalproto.Lost:
+		default:
+			return ErrTerminalConflict
+		}
+		_, err = tx.Exec(`INSERT INTO terminal_session_archives(session_id,user_id,agent_id,archived_at) VALUES(?,?,?,?) ON CONFLICT(session_id) DO NOTHING`, session.ID, uid, session.AgentID, now())
+		return err
+	})
 }
 
 // ReserveTerminalCreateFor only reserves metadata/quota. The future broker must

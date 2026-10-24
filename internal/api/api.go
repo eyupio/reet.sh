@@ -352,6 +352,7 @@ func (s *server) routes() http.Handler {
 	s.registerProfileRoutes(mux)
 	s.registerMCPRoutes(mux)
 	s.registerHostedRoutes(mux)
+	s.registerPrivateSkillRoutes(mux)
 	s.registerMailRoutes(mux)
 	s.registerTicketRoutes(mux)
 	s.registerNotificationRoutes(mux)

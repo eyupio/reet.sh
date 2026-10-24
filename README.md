@@ -229,6 +229,8 @@ or apply environment cleanup. See [MCP setup and access](docs/mcp.md) and the
 
   Once environments exist, the shelf gets an environment filter and a **Copy missing installs** action that copies the install commands for everything on the shelf that is not on that machine yet.
 
+Private skill revisions have an [account-scoped storage/API contract](docs/private-skill-revisions.md) for exact file bytes, immutable history and conflict-checked heads. This foundation is separate from publication and machine apply; full database backups include its files, while personal shelf exports do not.
+
 Start a new shell with the + beside a machine in Control or Terminals. Right-click cards or terminal output for actions; Show sessions reopens a hidden session sidebar.
 
 Connect a machine’s terminal with `reet agent terminal setup`. Interactive install, enrollment and upgrades offer this resumable wizard; it checks tmux, asks for local shell consent and repairs native services while preserving running sessions. See [terminal connection setup](docs/terminal-controller-commands.md#first-class-machine-connection-setup).

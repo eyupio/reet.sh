@@ -6,7 +6,7 @@ This is the current implementation baseline **and** the continuation plan. Curre
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T5 initial-install/enrollment/upgrade terminal setup is next.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. Finish T7 command recall verification, then the saved T5 setup branch, before resuming the roadmap.** S1 is merged through PR #139; do not repeat
 it or start S2 ahead of the remaining terminal priorities. Do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -53,7 +53,7 @@ handling, and asked for searchable **shell command history** with paste/edit and
 explicit rerun actions. Finish these and the setup work, merge when green, then
 resume S2 and the remaining handoff stages. Do not reopen the overall strategy.
 
-- **T6: final-row fit and colour verification.** The cause was `screen` padding:
+- **T6: final-row fit and colour verification — merged through PR #147.** The cause was `screen` padding:
   xterm's FitAddon measures its immediate parent and subtracts xterm's own padding,
   so padding on that parent produced a 20-pixel oversized grid. The old tests
   checked text presence and outer bounds, allowing text to exist while clipped.
@@ -65,7 +65,7 @@ resume S2 and the remaining handoff stages. Do not reopen the overall strategy.
   red from the real host under Midnight/Paper palettes. Those local checks pass.
   Themes map text/palette colours; they do not invent highlighting for plain app
   output. Appearance explains that `top` toggles its colour mode with `z`.
-- **T7: searchable command recall — not implemented yet.** The existing History
+- **T7: searchable command recall — implemented in `feat/terminal-command-history`, pending PR checks.** The existing History
   is an output snapshot; the account Command library is manually saved snippets.
   Neither is shell command history. Read the selected machine's Bash/Zsh history
   on explicit user request, scoped to its enrolling OS user, without arbitrary
@@ -80,6 +80,31 @@ resume S2 and the remaining handoff stages. Do not reopen the overall strategy.
   agents advertise a new capability only when the server supports it; preserve
   strict message decoding and the existing wire version. Reuse bounded history
   transfer and test old/new agent-server compatibility before exposing controls.
+  Implementation map: `terminalproto/command_history.go` defines bounded typed
+  records/strict codecs and the extension token. `api/private_control.go` advertises
+  `X-Reet-Terminal-Features: command-history-v1` after agent authentication.
+  `agenthealth/agent.go` advertises optional `commandHistory` only after that
+  upgrade header, keeping new agents compatible with old strict V1 servers.
+  `terminalbroker/bridge.go` refuses unsupported agents before dispatch; the
+  existing bounded history stream carries JSON separately from terminal output.
+  `terminalhost/command_history.go` reads only default Bash/Zsh history files in
+  the locally bound OS-user home, with O_NOFOLLOW/nonblocking opens, regular-file,
+  ownership, no-other-writer and single-link checks. Read caps are 256 KiB per
+  file, 500 returned entries, 16 KiB per command and 256 KiB encoded response.
+  Timestamped Bash and extended Zsh multiline records are parsed without executing
+  anything. Missing/custom/unsaved history is labelled; no file is written.
+  `api/terminal_command_history.go` rechecks the account before returning data.
+  `CommandHistory.svelte` owns search/source filtering, paste and reviewed rerun;
+  terminal output history remains reachable from the same drawer. Run confirmation
+  cancellation keeps search results; confirmation binds the original attachment
+  generation. No history text is stored in SQLite or browser storage.
+  Store/API/host/protocol compatibility tests and synthetic UI checks pass locally.
+  The real two-host fixture reads seeded shell files, verifies search/paste with no
+  Enter, Run cancellation/confirmation and reconnect fences, and preserves PIDs.
+  Local verification passed: frontend check/build (zero warnings), `go vet ./...`,
+  `go test -race ./...`, all 16 MCP tests, production Control/workspace/lifecycle/
+  organisation/public browser fixtures and the real two-host PTY fixture. PR CI
+  and merge state must still be checked for the published head.
 - **T5 implementation saved remotely:** `feat/terminal-connection-setup`, commit
   `d48ccca`, contains the resumable CLI wizard, enrollment/initial-install/upgrade
   offers, tmux diagnostics, web setup step and real-TTY tests. It is not merged

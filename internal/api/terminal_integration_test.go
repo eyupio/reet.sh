@@ -72,6 +72,10 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 		if err := os.MkdirAll(home, 0700); err != nil {
 			t.Fatal(err)
 		}
+		history := "df -h\nprintf '__recall_%s__\\n' 'from-history'\nprintf '__recall_stale_%s__\\n' 'must-not-run'\n"
+		if err := os.WriteFile(filepath.Join(home, ".bash_history"), []byte(history), 0600); err != nil {
+			t.Fatal(err)
+		}
 		if err := terminalhost.Ensure(layout); err != nil {
 			t.Fatal(err)
 		}
@@ -153,12 +157,17 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 		headers := http.Header{"X-Reet-Agent": {agent.ID}, "X-Reet-Agent-Key": {secret}, "X-Reet-Version": {"test"}}
 		t.Helper()
 		ctx, cancel := context.WithCancel(t.Context())
-		c, _, err := websocket.Dial(ctx, private.URL+"/private/v1/control", &websocket.DialOptions{HTTPHeader: headers})
+		c, response, err := websocket.Dial(ctx, private.URL+"/private/v1/control", &websocket.DialOptions{HTTPHeader: headers})
 		if err != nil {
 			t.Fatal(err)
 		}
+		advertised := caps
+		advertised.CommandHistory = response != nil && terminalproto.SupportsCommandHistory(response.Header.Get(terminalproto.FeatureHeader))
+		if advertised.CommandHistory {
+			headers.Set(terminalproto.FeatureHeader, terminalproto.CommandHistoryFeature)
+		}
 		instance := terminalbroker.ID()
-		handshake, _ := terminalproto.EncodeHandshake(terminalproto.Handshake{ProtocolVersion: 1, RequestID: terminalbroker.ID(), AgentInstanceID: instance, Capabilities: caps})
+		handshake, _ := terminalproto.EncodeHandshake(terminalproto.Handshake{ProtocolVersion: 1, RequestID: terminalbroker.ID(), AgentInstanceID: instance, Capabilities: advertised})
 		if err = c.Write(ctx, websocket.MessageText, handshake); err != nil {
 			t.Fatal(err)
 		}

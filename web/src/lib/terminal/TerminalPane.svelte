@@ -10,12 +10,13 @@
   import { terminalShortcut } from './keyboard'
   import WorkspaceDialog from './WorkspaceDialog.svelte'
   import TerminalAppearance from './TerminalAppearance.svelte'
+  import CommandHistory from './CommandHistory.svelte'
   import CommandLibrary from './CommandLibrary.svelte'
   import TerminalIcon from './TerminalIcon.svelte'
   import {paletteFor,terminalPalettes,type CursorShape} from './themes'
   import type {TerminalCommand} from './api'
 
-  let { session, host, user = '', onrename, onend, onarchive, archiveDisabled=false, actionDisabled = false }: { session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; onarchive?:()=>void; archiveDisabled?:boolean; actionDisabled?: boolean } = $props()
+  let { session, host, user = '', onrename, onend, onarchive, archiveDisabled=false, historySupported=false, actionDisabled = false }: { session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; onarchive?:()=>void; archiveDisabled?:boolean;historySupported?:boolean; actionDisabled?: boolean } = $props()
   let element = $state<HTMLDivElement>(),screenFrame=$state<HTMLDivElement>()
   let pane=$state<HTMLElement>(),searchInput=$state<HTMLInputElement>(),viewportHeight=$state(innerHeight)
   let connectionState = $state<ConnectionState>('connecting'), message = $state('')
@@ -26,9 +27,9 @@
   let contextMenu = $state<{x:number;y:number}|null>(null), menu = $state<HTMLElement>(), hasSelection = $state(false)
   const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
   let feedback = $state(''), snapshot = $state<string|null>(null), historyBusy = $state(false)
-  let pendingPaste = $state<{text:string;generation:number}|null>(null), generation=0, alive=true
+  let pendingPaste = $state<{text:string;generation:number;execute?:boolean}|null>(null), generation=0, alive=true
   const historyAbort=new AbortController()
-  let appearanceOpen=$state(false),commandsOpen=$state(false),palette=$state('system'),cursor=$state<CursorShape>('bar')
+  let historyOpen=$state(false),appearanceOpen=$state(false),commandsOpen=$state(false),palette=$state('system'),cursor=$state<CursorShape>('bar')
   let applyTheme:(()=>void)|undefined
   let modifier = $state<'Ctrl'|'Alt'|null>(null)
   export function disconnect(){connection?.detach()}
@@ -38,6 +39,11 @@
     const intended=generation;commandsOpen=false;await tick()
     if(!alive||intended!==generation||!live){feedback='Connection changed. Open Commands again after reconnecting; nothing was inserted.';return}
     paste(item.command,/\t/.test(item.command));restoreFocus()
+  }
+  async function insertHistory(text:string,run:boolean){
+    const intended=generation;if(!run){historyOpen=false;await tick()}
+    if(!alive||intended!==generation||!live){feedback='Connection changed. Open History again after reconnecting; nothing was sent.';return}
+    if(run)pendingPaste={text,generation,execute:true};else paste(text,/\t/.test(text));restoreFocus()
   }
   function find(next=true) { found=!query||!!(next?search?.findNext(query,{caseSensitive:false,regex:false}):search?.findPrevious(query,{caseSensitive:false,regex:false})) }
   function changeFont(delta:number) { fontSize=Math.min(22,Math.max(10,fontSize+delta));if(terminal)terminal.options.fontSize=fontSize;try{localStorage.setItem('reet-terminal-font',String(fontSize))}catch{/* preferences are optional */}fitTerminal?.() }
@@ -50,7 +56,14 @@
     if(review||/[\r\n\x00-\x08\x0b-\x1f\x7f]/.test(text)||text.length>2000)pendingPaste={text,generation}
     else {modifier=null;terminal?.paste(text)}
   }
-  function confirmPaste() { const pending=pendingPaste;pendingPaste=null;if(!pending)return;if(!live||pending.generation!==generation){feedback='Connection changed. Paste again after reconnecting; nothing was sent.';return}modifier=null;terminal?.paste(pending.text);terminal?.focus() }
+  async function confirmPaste() {
+    const pending=pendingPaste;pendingPaste=null;if(!pending)return
+    if(pending.execute){historyOpen=false;await tick()}
+    if(!alive||!live||pending.generation!==generation){feedback=pending.execute?'Connection changed. Choose the command again after reconnecting; nothing was sent.':'Connection changed. Paste again after reconnecting; nothing was sent.';return}
+    modifier=null;terminal?.paste(pending.text)
+    if(pending.execute)feedback=connection?.text('\r')?'Command sent to the active terminal.':'Connection changed while sending. Check the terminal before retrying.'
+    terminal?.focus()
+  }
   async function readClipboard() {feedback='';const started=generation;try{const text=await navigator.clipboard.readText();if(!alive)return;if(started!==generation){feedback='Connection changed. Paste again; nothing was sent.';return}paste(text)}catch{if(alive)feedback='Clipboard access was denied. Paste with your keyboard inside the terminal.'}finally{restoreFocus()} }
   function key(value:string) {modifier=null;if(live){connection?.text(value);terminal?.focus()} }
   async function historySnapshot() { if(historyBusy)return;historyBusy=true;feedback='';try{const text=await terminalHistory(session.id,historyAbort.signal);if(alive)snapshot=text}catch(e){if(alive)feedback=e instanceof Error?e.message:'History is unavailable.'}finally{historyBusy=false} }
@@ -120,7 +133,7 @@
     const sizes = new ResizeObserver(resize); sizes.observe(element);fit.fit()
     fitTerminal=resize
     // Refresh after parsing and fitting so accessibility rows match full redraws.
-    connection = new TerminalConnection({session:session.id,dimensions:()=>{const size={cols:Math.min(500,Math.max(2,term.cols)),rows:Math.min(300,Math.max(1,term.rows))};term.resize(size.cols,size.rows);restoringGrid=true;return size},renderer:{write:(bytes,reset,done)=>{if(reset)term.reset();term.write(bytes,()=>{term.refresh(0,term.rows-1);done()})}},onstate:(next,detail)=>{if(next!=='resynchronising'){restoringGrid=false;if(next==='live')resize()}generation++;modifier=null;connectionState=next;message=detail;term.options.disableStdin=next!=='live';if(next==='live'&&!searching&&!pendingPaste&&snapshot===null&&!contextMenu&&!document.querySelector('dialog[open]'))term.focus()}})
+    connection = new TerminalConnection({session:session.id,dimensions:()=>{const size={cols:Math.min(500,Math.max(2,term.cols)),rows:Math.min(300,Math.max(1,term.rows))};term.resize(size.cols,size.rows);restoringGrid=true;return size},renderer:{write:(bytes,reset,done)=>{if(reset)term.reset();term.write(bytes,()=>{term.refresh(0,term.rows-1);done()})}},onstate:(next,detail)=>{if(next!=='resynchronising'){restoringGrid=false;if(next==='live')resize()}generation++;modifier=null;if(next==='access_denied')historyOpen=false;connectionState=next;message=detail;term.options.disableStdin=next!=='live';if(next==='live'&&!searching&&!pendingPaste&&snapshot===null&&!contextMenu&&!document.querySelector('dialog[open]'))term.focus()}})
     term.options.disableStdin=true
     const input=term.onData((text)=>{let value=text;if(modifier==='Ctrl'&&/^[a-zA-Z@\[\]\\^_]$/.test(text))value=String.fromCharCode(text.toUpperCase().charCodeAt(0)&31);else if(modifier==='Alt')value='\x1b'+text;modifier=null;connection?.text(value)})
     const binary=term.onBinary((data)=>connection?.send(Uint8Array.from(data,c=>c.charCodeAt(0)&255)))
@@ -145,7 +158,7 @@
     <button onclick={()=>commandsOpen=true} aria-label="Saved commands" title="Your saved commands"><TerminalIcon name="commands"/><span>Commands</span></button>
     <span class="tool-space"></span>
     <button onclick={()=>appearanceOpen=true} aria-label="Appearance" title="Theme, text size and cursor"><TerminalIcon name="appearance"/><span class="tool-label">Appearance</span></button>
-    <button onclick={()=>void historySnapshot()} disabled={historyBusy} aria-label="Recent history" title="Recent output history"><TerminalIcon name="history"/><span class="tool-label">{historyBusy?'Loading…':'History'}</span></button>
+    <button onclick={()=>historyOpen=true} disabled={historyBusy} aria-label="Recent history" title="Find saved shell commands or read terminal output"><TerminalIcon name="history"/><span class="tool-label">{historyBusy?'Loading…':'History'}</span></button>
     <button onclick={()=>{maximised=!maximised;fitTerminal?.()}} aria-pressed={maximised} aria-label={maximised?'Restore size':'Maximise'} title={maximised?'Restore size':'Maximise terminal'}><TerminalIcon name="expand"/></button>
   </div>
   {#if searching}<form class="tools" onsubmit={e=>{e.preventDefault();find()}}><label>Find in terminal <input bind:this={searchInput} bind:value={query} maxlength="200" autocomplete="off" spellcheck="false" oninput={e=>{query=e.currentTarget.value;find()}} /></label><button>Next match</button><button type="button" onclick={()=>find(false)}>Previous match</button><button type="button" onclick={()=>{searching=false;search?.clearDecorations();terminal?.focus()}}>Close search</button><span role="status">{found?'':'No matches'}</span></form>{/if}
@@ -158,7 +171,8 @@
 
 {#if appearanceOpen}<WorkspaceDialog title="Terminal appearance" placement="drawer" onclose={()=>appearanceOpen=false}><TerminalAppearance {palette} {fontSize} {cursor} onpalette={choosePalette} onfont={changeFont} oncursor={chooseCursor}/></WorkspaceDialog>{/if}
 {#if commandsOpen}<CommandLibrary onclose={()=>commandsOpen=false} oninsert={item=>void insertSaved(item)} canInsert={live} context={`${user?user+'@':''}${host} · ${session.title}`}/>{/if}
-{#if pendingPaste}<ConfirmDialog title="Paste into the remote shell?" body="This text contains multiple lines, control characters, or a large block. It may execute commands immediately." details={pendingPaste.text.slice(0,2000)+(pendingPaste.text.length>2000?'\n… preview truncated':'')} confirmLabel="Paste text" onconfirm={confirmPaste} oncancel={()=>{pendingPaste=null;terminal?.focus()}} />{/if}
+{#if historyOpen}<CommandHistory session={session.id} context={`${user?user+'@':''}${host} · ${session.title}`} supported={historySupported} canInsert={live} onclose={()=>historyOpen=false} oninsert={(text,run)=>void insertHistory(text,run)} onoutput={()=>{historyOpen=false;void historySnapshot()}}/>{/if}
+{#if pendingPaste}<ConfirmDialog title={pendingPaste.execute?'Run this command in the active terminal?':'Paste into the remote shell?'} body={pendingPaste.execute?`Send this command to ${host} · ${session.title} and press Enter. Be at a shell prompt; an open program receives terminal input instead.`:'This text contains multiple lines, control characters, or a large block. It may execute commands immediately.'} details={pendingPaste.execute?pendingPaste.text:pendingPaste.text.slice(0,2000)+(pendingPaste.text.length>2000?'\n… preview truncated':'')} confirmLabel={pendingPaste.execute?'Run command':'Paste text'} onconfirm={confirmPaste} oncancel={()=>{const running=pendingPaste?.execute;pendingPaste=null;if(!running)terminal?.focus()}} />{/if}
 {#if snapshot!==null}<ConfirmDialog title="Recent terminal history" body="Read-only snapshot, up to 2,000 lines / 256 KiB. It is separate from the live screen and may contain sensitive output." confirmLabel="Close history" onconfirm={()=>snapshot=null} oncancel={()=>snapshot=null}><pre class="snapshot">{snapshot}</pre></ConfirmDialog>{/if}
 
 <style>

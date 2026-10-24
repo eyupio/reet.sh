@@ -6,7 +6,7 @@ This is the current implementation baseline **and** the continuation plan. Curre
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations are implemented in PR #161 (`feat/machine-content-observations`), locally validated and awaiting final CI/merge; explicit payload import follows separately.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 as `dcef39c`, after all five workflows passed for `39cb762`. Explicit CLI import is implemented on `feat/explicit-machine-skill-import`, pending validation/publication; central browser import follows separately.** S1 is merged through PR #139; do not repeat
 it. Preserve the terminal work and do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -1102,7 +1102,7 @@ with a documented compatibility path for old clients and restore/backups.
 
 ### S3 [ ] Machine content observations and explicit import
 
-**Metadata slice implemented and locally validated in [PR #161](https://github.com/eyupio/reet.sh/pull/161); awaiting final CI/merge.** Read
+**Metadata slice merged in [PR #161](https://github.com/eyupio/reet.sh/pull/161), `dcef39cbd6cb172d0dc12a90b3730f78afc8852c`, after all five workflows passed for `39cb762931d5e0437acf59a1f906402bdf75d6ff`.** Read
 [the protocol and continuation contract](docs/machine-content-observations.md).
 - New authenticated prepare/report endpoints negotiate version 1 before file
   hashing. Old controllers (404/405) and future schemas skip content reads.
@@ -1125,9 +1125,26 @@ with a documented compatibility path for old clients and restore/backups.
   two-host lifecycle. Additional race tests cover byte-budget exhaustion,
   cancellation, legacy-schema reopen, expiry, role changes and rollback.
   No live user workloads or deployed connector installations were changed.
-- Explicit transfer/import, sensitive-content selection, private content UI and
-  content-aware apply are **not implemented** in this slice. Keep S3 unchecked
-  until explicit verified import meets its acceptance gate below.
+- **Explicit CLI transfer implemented, pending validation/PR:** read
+  [the complete import contract and granular continuation](docs/machine-skill-import.md).
+  `reet agent skill import` previews one locally enrolled scope/folder; `--upload`
+  plus typed IMPORT or explicit `--yes` sends selected files. Exact exclusions,
+  conservative credential blocking, fresh post-confirmation source capture and
+  selected digest verification precede transfer. No background upload or execution.
+- `skillbundle.ReadContents` reuses bounded no-follow S1 reads, returns no payload
+  on unsafe/changed/partial captures and checks exact captured byte/mode identity.
+  `skillimport.Select` is shared by CLI/controller. `store_machine_skill_import.go`
+  adds a guarded entry into the existing S2 transaction: active writer, enrollment,
+  pause and reported-scope membership are rechecked before private writes/receipts.
+  No new payload tables, backup promises or public/shelf mutations.
+- GET/POST `/api/v2/sync/skill-import` negotiate before dispatch and require account
+  plus owned enrollment. Strict bounded JSON, received digest recomputation,
+  expected-base CAS and original request-ID receipts preserve S2 semantics.
+  A printed request ID permits an identical retry after a lost acknowledgment.
+- **Still missing:** central browser preview/approval/dispatch and private-content
+  library controls. Keep S3 unchecked until this control-room workflow meets the
+  gate below. Next take that bounded browser/connector slice, preserving CLI
+  capture, policy and guarded storage; do not jump to S4 apply or bulk jobs.
 
 
 Depends on S1/S2. Split observation metadata and payload transfer into separate
@@ -1527,9 +1544,10 @@ working agent authentication or complete environment recovery.
 > Continue reet.sh from handoff.md. Inspect branch, worktree, main and PR states
 > without resetting edits. Terminal T1–T9 priorities are merged through PR #155.
 > S2 private revision storage/API merged through PR #156. Read its storage contract.
-> S3 metadata observations are implemented in PR #161 on feat/machine-content-observations;
-> verify its exact PR/check/merge state before calling it delivered. Finish this
-> bounded slice, then implement explicit S3 content import. Keep
+> S3 metadata observations merged through PR #161. Explicit CLI import is implemented
+> on feat/explicit-machine-skill-import; verify its exact PR/check/merge state.
+> Read docs/machine-skill-import.md and finish central browser preview/approval
+> and connector dispatch before closing S3 or starting S4. Keep
 > ownership, exact byte/mode manifests, stable retry receipts, reviewed sync and
 > existing terminal sessions intact. Do not jump to remote apply or the whole roadmap.
 > Build the frontend before Go checks, record actual evidence, update this handoff

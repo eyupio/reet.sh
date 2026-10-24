@@ -4,6 +4,7 @@
 package skillbundle
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -80,6 +81,7 @@ type observation struct {
 }
 
 type scanner struct {
+	contents  *[]ContentFile
 	limits    Limits
 	manifest  Manifest
 	entries   int
@@ -91,12 +93,16 @@ type scanner struct {
 }
 
 func scan(dir string, limits Limits, afterRead func(string)) (Manifest, error) {
+	return scanInto(dir, limits, afterRead, nil)
+}
+
+func scanInto(dir string, limits Limits, afterRead func(string), contents *[]ContentFile) (Manifest, error) {
 	m := Manifest{SchemaVersion: SchemaVersion, Algorithm: Algorithm, ModeSemantics: ModeSemantics, Files: []File{}}
 	limits, err := checkedLimits(limits)
 	if err != nil {
 		return m, err
 	}
-	s := scanner{limits: limits, manifest: m, afterRead: afterRead}
+	s := scanner{limits: limits, manifest: m, afterRead: afterRead, contents: contents}
 	if !supportedModes {
 		s.issue(".", "platform_unsupported")
 		return s.result()
@@ -298,13 +304,21 @@ func (s *scanner) walk(root *os.Root, prefix string, depth int) {
 			s.issue(relative, "byte_limit")
 			continue
 		}
-		file, bytesRead, code := readFile(root, name, relative, info, limit, s.afterRead)
+		var captured bytes.Buffer
+		var capture io.Writer
+		if s.contents != nil {
+			capture = &captured
+		}
+		file, bytesRead, code := readFileInto(root, name, relative, info, limit, s.afterRead, capture)
 		s.bytesRead += bytesRead
 		if code != "" {
 			s.issue(relative, code)
 			continue
 		}
 		s.observations = append(s.observations, observation{relative, info})
+		if s.contents != nil {
+			*s.contents = append(*s.contents, ContentFile{Path: file.Path, Data: captured.Bytes(), Executable: file.Executable})
+		}
 		s.manifest.Files = append(s.manifest.Files, file)
 		s.manifest.TotalBytes += file.Bytes
 	}
@@ -328,6 +342,10 @@ func (s *scanner) walk(root *os.Root, prefix string, depth int) {
 }
 
 func readFile(root *os.Root, name, relative string, before os.FileInfo, limit int64, afterRead func(string)) (File, int64, string) {
+	return readFileInto(root, name, relative, before, limit, afterRead, nil)
+}
+
+func readFileInto(root *os.Root, name, relative string, before os.FileInfo, limit int64, afterRead func(string), capture io.Writer) (File, int64, string) {
 	f, err := root.OpenFile(name, os.O_RDONLY|readFlags, 0)
 	if err != nil {
 		return File{}, 0, "file_unreadable"
@@ -338,7 +356,11 @@ func readFile(root *os.Root, name, relative string, before os.FileInfo, limit in
 		return File{}, 0, "file_changed"
 	}
 	hash := sha256.New()
-	size, err := io.Copy(hash, io.LimitReader(f, limit+1))
+	var sink io.Writer = hash
+	if capture != nil {
+		sink = io.MultiWriter(hash, capture)
+	}
+	size, err := io.Copy(sink, io.LimitReader(f, limit+1))
 	if err != nil {
 		return File{}, size, "file_unreadable"
 	}

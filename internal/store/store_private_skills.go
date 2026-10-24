@@ -133,7 +133,10 @@ func validatePrivateSkill(in PrivateSkillWrite) (skillbundle.Manifest, error) {
 // SavePrivateSkillRevisionFor atomically creates an immutable revision and moves
 // only its owned bundle's head. A digest never identifies an account or revision.
 // Reusing an identical request returns its original receipt, even after later edits.
-func (s *Store) SavePrivateSkillRevisionFor(uid int64, id string, in PrivateSkillWrite) (out PrivateSkillResult, err error) {
+func (s *Store) SavePrivateSkillRevisionFor(uid int64, id string, in PrivateSkillWrite) (PrivateSkillResult, error) {
+	return s.savePrivateSkillRevisionFor(uid, id, in, nil)
+}
+func (s *Store) savePrivateSkillRevisionFor(uid int64, id string, in PrivateSkillWrite, guard func(*sql.Tx) error) (out PrivateSkillResult, err error) {
 	if id != "" && !privateSkillID.MatchString(id) {
 		return out, ErrPrivateSkillMissing
 	}
@@ -155,6 +158,11 @@ func (s *Store) SavePrivateSkillRevisionFor(uid int64, id string, in PrivateSkil
 	err = s.withTx(func(tx *sql.Tx) error {
 		if err := privateSkillOwner(tx, uid); err != nil {
 			return err
+		}
+		if guard != nil {
+			if err := guard(tx); err != nil {
+				return err
+			}
 		}
 		var priorBundle, priorRevision, priorFingerprint string
 		e := tx.QueryRow(`SELECT bundle_id,id,fingerprint FROM private_skill_revisions WHERE user_id=? AND request_id=?`, uid, in.RequestID).Scan(&priorBundle, &priorRevision, &priorFingerprint)

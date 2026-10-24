@@ -14,6 +14,7 @@ type Detail = {
   restored?: number
   already?: boolean
   count?: number
+  files?: number
   liked?: boolean
   role?: string
   email?: string
@@ -221,6 +222,10 @@ export function eventLabel(e: Event): string {
       return `Changed backup destination ${d.name || ''}`.trim()
     case 'backup-remote-remove':
       return `Removed backup destination ${d.name || ''}`.trim()
+    case 'skill-content-adopt':
+      return `Recorded ownership of ${d.files ?? 0} files of ${name}`
+    case 'skill-content-release':
+      return `Released ownership of ${name}`
   }
   return `${e.action.replace(/-/g, ' ')} ${name}`.trim()
 }

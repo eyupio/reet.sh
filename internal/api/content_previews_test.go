@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"github.com/eyupio/reet.sh/internal/skillpreview"
 	"github.com/eyupio/reet.sh/internal/store"
 )
@@ -92,6 +93,12 @@ func (h *previewHarness) createBody(key string) string {
 
 func (h *previewHarness) absentReport(id string) string {
 	raw, _ := json.Marshal(map[string]any{"id": id, "instanceId": previewInstance, "capture": skillpreview.Capture{SchemaVersion: 1, Adapter: skillpreview.Adapter, RootID: strings.Repeat("d", 64), RootOwnership: "exclusive", Presence: "absent", Complete: true, Issues: []skillpreview.Issue{}}})
+	return string(raw)
+}
+
+// presentReport is a complete, exclusive capture of a folder holding exactly m.
+func (h *previewHarness) presentReport(id string, m skillbundle.Manifest) string {
+	raw, _ := json.Marshal(map[string]any{"id": id, "instanceId": previewInstance, "capture": skillpreview.Capture{SchemaVersion: 1, Adapter: skillpreview.Adapter, RootID: strings.Repeat("d", 64), RootOwnership: "exclusive", Presence: "present", Complete: true, Manifest: &m, Issues: []skillpreview.Issue{}}})
 	return string(raw)
 }
 

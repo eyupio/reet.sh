@@ -44,15 +44,21 @@ func skillContentPreviewError(w http.ResponseWriter, err error) {
 	}
 }
 
-func decodePreview(w http.ResponseWriter, r *http.Request, limit int64, out any) bool {
+// decodeStrictJSON reads exactly one JSON value of at most limit bytes into out.
+// An unknown field, trailing data or an oversized body answers 400 with message.
+func decodeStrictJSON(w http.ResponseWriter, r *http.Request, limit int64, out any, message string) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
 	if d.Decode(out) != nil || d.Decode(new(any)) != io.EOF {
-		writeErr(w, 400, "Invalid or oversized content preview request.")
+		writeErr(w, 400, message)
 		return false
 	}
 	return true
+}
+
+func decodePreview(w http.ResponseWriter, r *http.Request, limit int64, out any) bool {
+	return decodeStrictJSON(w, r, limit, out, "Invalid or oversized content preview request.")
 }
 
 func (s *server) skillContentPreviews(w http.ResponseWriter, r *http.Request) {

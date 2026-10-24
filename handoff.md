@@ -1486,9 +1486,11 @@ Read [docs/skill-content-receipts.md](docs/skill-content-receipts.md). Branch
     and HTTP with synthetic homes.
   - Every task had an independent reviewer. Tasks 1, 2, 4, 6 and 7a were approved without a
     fix round; Tasks 3, 5 and 7b each took one fix round (damaged-row listing, the adoption
-    offer, the merge dry run) and were re-reviewed clean.
+    offer, the merge dry run) and were re-reviewed clean (Task 7b's fix round was read and
+    accepted by the controller rather than re-reviewed by a separate reviewer).
   - Mutation checks per task, each break made a named test fail and the file was restored
-    byte-identical: Task 2 two (claim equality, the `SKILL.md` rule); Task 3 four (the subset
+    byte-identical: Task 1 had none of its own (red and green runs only; its baseline blocks
+    were broken in the closing pass below); Task 2 two (claim equality, the `SKILL.md` rule); Task 3 four (the subset
     check, the identity rebuild, the release lock, the list guard); Task 4 one, plus the
     controller's review-hash binding; Task 5 fifteen, fourteen caught (the survivor, dropping
     the adoption step 5 pin check alone, is redundant defence because step 2 runs the same
@@ -1502,10 +1504,26 @@ Read [docs/skill-content-receipts.md](docs/skill-content-receipts.md). Branch
     `npm run build`; `go vet ./...` clean; `go test -race -count=1 ./...` 31 packages ok with no
     failures or races (tmux 3.4 on PATH); MCP `npm test` 16/16; `git diff --check` clean. Its
     published workflows were green on the head that merged (`be33e01`).
-  - Final full validation and the closing mutation pass for this pull request:
-    VALIDATION RESULTS TO BE RECORDED BY THE CONTROLLER
-  - Broad review of the PR #176 range (Tasks 7a, 7b, 8): BROAD REVIEW RESULT TO BE RECORDED BY THE CONTROLLER
-  - Published workflows on the final head: CI RESULT TO BE RECORDED BY THE CONTROLLER
+  - Final full validation for this pull request, local on `11ba84d` with tmux 3.4 on PATH and
+    Go 1.27.1, in the required order: `npm run check` 228 files with 0 errors and 0 warnings,
+    `npm run build`, `node src/lib/events.test.mjs`; `go vet ./...` and `go build ./...`
+    clean; `go test -race -count=1 ./...` 31 packages ok with no failures or races; MCP
+    `npm test` 16/16; `git diff --check` clean.
+  - Closing mutation pass on `11ba84d`, in an isolated worktree with every file restored: both
+    planner baseline blocks, claim equality (path only), the `SKILL.md` rule, create-only
+    adoption, the review-hash binding, the `receipt_changed` fence and the receipt rename move
+    were each broken in turn, and named tests failed every time (eight of eight).
+  - Broad review of the PR #176 range (Tasks 7a, 7b, 8): no Critical finding; every new route is
+    behind the shared boundary and the MCP path is refused; once-only audit, typed 409s and the
+    receipt-aware delete confirmed. Its one Important finding, a documentation sentence
+    claiming a mutation check that had not been run for the planner baseline blocks, is fixed
+    (the check has now been run, and the sentence says when). Its Minor findings are fixed where
+    they were wording and listed as follow-ups where they were code.
+  - Published workflows on `11ba84d`: all five green (`test`, `verify`, `web` and `source`, the
+    four release builds, the native service jobs and the tmux 3.2 minimum, the local relay jobs
+    on macOS and Ubuntu, the terminal browser job, and CodeQL with its four analyses;
+    `publish` is skipped on pull requests). The pull request is authoritative for the head
+    that merges.
 - **Not performed.** No live machine, production service, terminal session or physical
   cross-platform or fleet check. No browser UI. Nothing writes to a machine, so no recovery gate
   applies yet. Tests use synthetic homes, SQLite and HTTP. The whole-binary Windows build fails
@@ -1542,7 +1560,11 @@ Read [docs/skill-content-receipts.md](docs/skill-content-receipts.md). Branch
   - Follow-ups: machine-merge 409s have no `code` field, so MCP and stdio clients lose the
     message; a receipts-aware guard for the empty-report prune; optionally persist `superseded`
     on every captured preview of the slot at adoption; an offer cost prefilter; transient
-    database errors in plan building; a review UI and MCP exposure for receipts.
+    database errors in plan building; a review UI and MCP exposure for receipts. From the last
+    broad review: name the release audit event with a single-row lookup; record the receipts a
+    forced environment delete cascades; a test with both skills and a receipt on one report to
+    pin dry-run and delete ordering; the browser's per-report Forget drops receipts, which the
+    review UI should surface; `AdoptSkillContentPreviewFor` now has no production caller.
 - **Next unchecked work and first files.** The user chooses the order of: the review UI with pin
   selection and receipt review (`web/src/lib/api.ts`, `web/src/lib/MachineSkillImports.svelte`
   for the pattern, `docs/skill-content-receipts.md`); the reviewed executor with

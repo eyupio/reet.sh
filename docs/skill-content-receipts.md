@@ -248,7 +248,7 @@ receipts.
 
 | Status | When |
 | --- | --- |
-| 400 | A malformed key, ID or hash; an unknown or extra JSON field, trailing data or an oversized body; a missing or null `expectedVersion`; any query string |
+| 400 | A malformed key or hash, or a malformed ID on `DELETE` (a malformed ID on `GET /{id}` is 404); an unknown or extra JSON field, trailing data or an oversized body; a missing or null `expectedVersion`; any query string |
 | 401 / 403 | Not signed in (401). Legacy auth modes, viewers and writes without a same-origin request or owning token (403) |
 | 404 | Receipt, preview or private revision unknown, foreign or unavailable to this account ("Ownership record or preview unavailable." or "Private skill unavailable.") |
 | 409 | The revision's `SKILL.md` differs; 1,024 receipts reached; a preview that is not `captured`, a wrong review hash, a changed or removed pin, a paused connector, a slot that already has a receipt, a changed payload under a used key, or a stale `expectedVersion` |
@@ -333,6 +333,17 @@ Known follow-ups, none of which blocks the above:
 - A cheaper prefilter for the offer.
 - Treat a transient database error while building a plan as retryable instead of
   `plan_unavailable`.
+- Name the receipt in the release audit event with a single-row lookup instead of decoding
+  the account's list, so a row the list cannot scan is named too.
+- Record how many receipts a forced environment delete cascaded, since no
+  `skill-content-release` event is written for them.
+- A test that puts both skills and a receipt on one report, to pin the order in which the
+  delete dry run and the real delete report them; the merge dry run checks only the source
+  report, as the real merge does, and a destination holding a pin or receipt must keep
+  returning 200.
+- The browser's per-report Forget drops receipts with the report and says installed files
+  are unchanged; the review UI should surface that. `AdoptSkillContentPreviewFor` has no
+  production caller now that the API uses the once-only variant.
 
 Preserve terminal sessions and controls, the approved sudo template behaviour and the
 deferred user-controlled security/PIN preference noted in `handoff.md`.
@@ -342,11 +353,16 @@ deferred user-controlled security/PIN preference noted in `handoff.md`.
 Every task was written test-first, with the failing run seen for the right reason before
 the code, against real SQLite and real HTTP. A separate reviewer examined each task and
 sent three back for one fix round each: the damaged-row listing, the adoption offer and
-the merge dry run. Each fence was then broken on purpose to confirm a test fails and the
-file restored byte for byte: the baseline blocks, claim equality, the `SKILL.md` rule,
-create-only adoption, the review-hash binding, the preview-consumed rule, `receipt_changed`,
-the account lock, the offer's bundle limit, the rename move and its collision, the scope
-merge fence, the typed refusals and the audit events. A broad review of the storage and
-adoption range found nothing critical; its API-facing findings (typed 409s and the
-receipt-aware delete) were fixed in the API slice. The full local suite and the published
-workflows for the final head are recorded in `handoff.md` and on the pull request.
+the merge dry run. Guarantees were then broken on purpose to confirm a named test fails,
+with the file restored byte for byte, in the task that added each one: claim equality, the
+`SKILL.md` rule, create-only adoption, the review-hash binding, the preview-consumed rule,
+the account lock, the offer's bundle limit and its never-stored rule, the rename move and
+its collision, the scope merge fence, the typed refusals and the audit events. A closing
+pass on the final head broke eight in turn (both baseline blocks, claim equality, the
+`SKILL.md` rule, create-only adoption, the review-hash binding, `receipt_changed` and the
+rename move) and a named test failed every time; the planner's baseline blocks were
+otherwise covered only by their own unit tests before that pass. A broad review of the
+storage and adoption range found nothing critical; its API-facing findings (typed 409s and
+the receipt-aware delete) were fixed in the API slice, and a second broad review of the API
+slice found nothing critical. The full local suite and the published workflows are
+recorded in `handoff.md` and on the pull request.

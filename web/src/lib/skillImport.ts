@@ -165,10 +165,19 @@ export function sanitizeSkillName(input: string): string {
     .replace(/-+$/g, '')
 }
 
+export function addPrefix(name: string, prefix: string): string {
+  if (!name || !prefix || name.startsWith(prefix)) return name
+  const head = name.slice(0, 64 - prefix.length).replace(/-+$/g, '')
+  return head ? `${prefix}${head}` : name
+}
+
 export function addReetPrefix(name: string): string {
-  if (!name || name.startsWith('reet-')) return name
-  const head = name.slice(0, 64 - 'reet-'.length).replace(/-+$/g, '')
-  return head ? `reet-${head}` : name
+  return addPrefix(name, 'reet-')
+}
+
+/** Accepts the historic boolean flag as well as a profile-defined prefix. */
+export function prefixValue(prefix: boolean | string): string {
+  return prefix === true ? 'reet-' : prefix === false ? '' : prefix
 }
 
 export function uniqueSkillName(name: string, taken: Iterable<string>): string {
@@ -220,7 +229,8 @@ function bundleProblem(input: ImportInput, frontmatter: Frontmatter | null, name
   return ''
 }
 
-export function prepareImports(inputs: ImportInput[], existingNames: Iterable<string>, prefix: boolean): PreparedImport[] {
+export function prepareImports(inputs: ImportInput[], existingNames: Iterable<string>, prefix: boolean | string): PreparedImport[] {
+  const prefixText = prefixValue(prefix)
   let groups = groupByPaths(inputs)
   if (!groups.length) groups = groupByLooseMarkdown(inputs)
   groups.sort((a, b) => displaySource(inputs, a).localeCompare(displaySource(inputs, b)) || a.mainIndex - b.mainIndex)
@@ -233,7 +243,7 @@ export function prepareImports(inputs: ImportInput[], existingNames: Iterable<st
     const frontmatter = main.markdown === undefined ? null : parseFrontmatter(main.markdown)
     const fallbackName = group.root ? basename(group.root) : basename(pathOf(inputs, group.mainIndex)).replace(/\.(md|markdown)$/i, '')
     const baseName = sanitizeSkillName(frontmatter?.fields.name?.trim() || fallbackName) || 'skill'
-    const prefixed = prefix ? addReetPrefix(baseName) : baseName
+    const prefixed = addPrefix(baseName, prefixText)
     const name = uniqueSkillName(prefixed, taken)
     taken.add(name)
     const description = frontmatter?.fields.description?.trim() || ''

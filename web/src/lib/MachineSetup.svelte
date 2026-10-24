@@ -200,7 +200,7 @@
         {/if}
         <div class="step-actions"><button class="btn" type="button" onclick={() => go(1)}>Back</button><button class="btn primary" type="button" onclick={() => go(3)} disabled={!host.trim()}>Continue to terminal connection →</button></div>
       {:else if step===3}
-        <header><p class="eyebrow">Step 3 · Machine &amp; terminal connection</p><h3>Bring this machine into your workspace.</h3><p>Enroll once. The CLI offers a terminal wizard for local shell consent, tmux 3.3+, independent services and connection checks.</p></header>
+        <header><p class="eyebrow">Step 3 · Machine &amp; terminal connection</p><h3>Bring this machine into your workspace.</h3><p>Enroll once. The CLI offers a terminal wizard for local shell consent, tmux 3.2+, independent services and connection checks.</p></header>
         {#if mode==='scratch'&&tokenSetup}{@render tokenSetup()}{/if}
         <label class="check"><input type="checkbox" bind:checked={allowApply}/> Allow this machine to apply sync plans I approve here</label>
         <div class="command"><div class="command-copy"><span>Enroll and connect</span><CopyButton text={enroll} label="Copy enrollment command"/></div><pre>{enroll}</pre></div>

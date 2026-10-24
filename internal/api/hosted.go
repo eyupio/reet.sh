@@ -15,6 +15,7 @@ func (s *server) registerHostedRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/hosting", s.hostedList)
 	mux.HandleFunc("POST /api/v2/hosting/username", s.requireWriter(s.hostedUsername))
 	mux.HandleFunc("PUT /api/v2/hosting/skills/{slug}", s.requireWriter(s.hostedSave))
+	mux.HandleFunc("POST /api/v2/hosting/skills/{slug}/rename", s.requireWriter(s.hostedRename))
 	mux.HandleFunc("DELETE /api/v2/hosting/skills/{slug}", s.requireWriter(s.hostedDelete))
 	mux.HandleFunc("GET /{username}/{slug}", s.hostedPublic)
 	mux.HandleFunc("GET /{username}/{slug}/{$}", s.hostedPublic)
@@ -47,7 +48,12 @@ func (s *server) hostedList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"username": username, "skills": skills})
+	profile, err := s.st.ProfileFor(s.uid(r))
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"username": username, "prefix": profile.HostedPrefix, "skills": skills})
 }
 
 func (s *server) hostedUsername(w http.ResponseWriter, r *http.Request) {
@@ -80,11 +86,27 @@ func (s *server) hostedSave(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	if username, err := s.st.PublishingUsername(s.uid(r)); err != nil {
+	username, err := s.st.PublishingUsername(s.uid(r))
+	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
-	} else if username == "" {
+	}
+	if username == "" {
 		writeErr(w, 400, "claim a publishing username first")
+		return
+	}
+	profile, err := s.st.ProfileFor(s.uid(r))
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	existed, err := s.st.HostedSkillExists(s.uid(r), sk.Slug)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if !existed && profile.HostedPrefix != "" && !strings.HasPrefix(sk.Slug, profile.HostedPrefix) {
+		writeErr(w, 400, "skill names must start with "+profile.HostedPrefix+" — change the prefix in Account → Profile")
 		return
 	}
 	saved, err := s.st.SaveHostedSkill(s.uid(r), sk)
@@ -94,11 +116,80 @@ func (s *server) hostedSave(w http.ResponseWriter, r *http.Request) {
 	}
 	s.eventRequest(r, "hosted-save", "", map[string]any{"name": saved.Slug, "published": saved.Published})
 	if saved.Published {
-		username, _ := s.st.PublishingUsername(s.uid(r))
-		rf, _ := ref.ParseAt(requestOrigin(r)+"/"+username+"/"+saved.Slug, r.Host)
-		_ = s.st.SetMeta(rf.ID, saved.Slug, saved.Description, 0, 0, nil)
+		s.addHostedSkillToShelf(r, username, saved)
 	}
 	writeJSON(w, 200, saved)
+}
+
+// addHostedSkillToShelf keeps a published reet skill in the shared catalogue
+// and puts it on the author's shelf in To test so they can try what they ship.
+func (s *server) addHostedSkillToShelf(r *http.Request, username string, skill store.HostedSkill) {
+	rf, err := ref.ParseAt(requestOrigin(r)+"/"+username+"/"+skill.Slug, r.Host)
+	if err != nil {
+		return
+	}
+	test := true
+	if _, err := s.st.UpsertFor(s.uid(r), rf, store.Patch{Bookmarked: &test}); err != nil {
+		return
+	}
+	_ = s.st.SetMeta(rf.ID, skill.Slug, skill.Description, 0, 0, nil)
+}
+
+func (s *server) hostedRename(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	slug := r.PathValue("slug")
+	name := strings.ToLower(strings.TrimSpace(in.Name))
+	if !store.ValidHostedName(name) {
+		writeErr(w, 400, "skill names must use lowercase letters, numbers and single hyphens (up to 64 characters)")
+		return
+	}
+	profile, err := s.st.ProfileFor(s.uid(r))
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if profile.HostedPrefix != "" && !strings.HasPrefix(name, profile.HostedPrefix) {
+		writeErr(w, 400, "skill names must start with "+profile.HostedPrefix+" — change the prefix in Account → Profile")
+		return
+	}
+	username, err := s.st.PublishingUsername(s.uid(r))
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if username == "" {
+		writeErr(w, 400, "claim a publishing username first")
+		return
+	}
+	oldRef, oldErr := ref.ParseAt(requestOrigin(r)+"/"+username+"/"+slug, r.Host)
+	newRef, newErr := ref.ParseAt(requestOrigin(r)+"/"+username+"/"+name, r.Host)
+	if oldErr != nil || newErr != nil {
+		writeErr(w, 400, "that skill name cannot be used")
+		return
+	}
+	renamed, err := s.st.RenameHostedSkill(s.uid(r), slug, name, oldRef, newRef)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "skill not found")
+		return
+	}
+	if errors.Is(err, store.ErrHostedNameTaken) {
+		writeErr(w, 409, err.Error())
+		return
+	}
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if renamed.Published {
+		_ = s.st.SetMeta(newRef.ID, renamed.Slug, renamed.Description, 0, 0, nil)
+	}
+	s.eventRequest(r, "hosted-rename", "", map[string]any{"from": slug, "to": renamed.Slug})
+	writeJSON(w, 200, renamed)
 }
 
 func (s *server) hostedDelete(w http.ResponseWriter, r *http.Request) {

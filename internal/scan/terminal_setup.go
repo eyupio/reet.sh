@@ -136,7 +136,7 @@ func SetupTerminalHost(options TerminalSetupOptions, in io.Reader, out io.Writer
 			return nil
 		}
 		if _, err = terminalhost.FindTmux(context.Background()); err != nil {
-			yes, err = confirm("tmux 3.3+ is required. Install tmux using the local package manager now?", "yes")
+			yes, err = confirm("tmux 3.2+ is required. Install tmux using the local package manager now?", "yes")
 			if err != nil {
 				return err
 			}

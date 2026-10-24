@@ -148,3 +148,13 @@ test('supporting paths follow the hosted skill rules', () => {
     assert.equal(validSupportingPath(path), false, path)
   }
 })
+
+test('uses a custom profile prefix and can turn the prefix off', () => {
+  const inputs = [main('alpha/SKILL.md', markdown('alpha')), main('beta/SKILL.md', markdown('reet-beta'))]
+  const custom = prepareImports(inputs, [], 'acme-')
+  assert.deepEqual(custom.map(skill => skill.name), ['acme-alpha', 'acme-reet-beta'])
+  assert.match(custom[0].content, /^name: acme-alpha$/m)
+
+  const bare = prepareImports(inputs, [], '')
+  assert.deepEqual(bare.map(skill => skill.name), ['alpha', 'reet-beta'])
+})

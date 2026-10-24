@@ -16,6 +16,7 @@ func TestParseTmuxVersion(t *testing.T) {
 		minor int
 		ok    bool
 	}{
+		{"tmux 3.2a", 3, 2, true},
 		{"tmux 3.4", 3, 4, true},
 		{"tmux 3.4a", 3, 4, true},
 		{"tmux next-3.5", 3, 5, true},
@@ -34,11 +35,27 @@ func TestParseTmuxVersion(t *testing.T) {
 }
 
 func TestSupportedTmuxVersion(t *testing.T) {
-	if supportedTmux(3, 2) {
-		t.Fatal("tmux 3.2 accepted without allow-passthrough")
+	if supportedTmux(3, 1) || supportedTmux(3, 0) || supportedTmux(2, 9) {
+		t.Fatal("tmux older than 3.2 accepted")
 	}
-	if !supportedTmux(3, 3) || !supportedTmux(4, 0) {
+	if !supportedTmux(3, 2) || !supportedTmux(3, 3) || !supportedTmux(4, 0) {
 		t.Fatal("supported tmux versions rejected")
+	}
+}
+
+func TestFindTmuxAcceptsMinimumVersion(t *testing.T) {
+	dir := t.TempDir()
+	program := "#!/bin/sh\nprintf 'tmux 3.2a\\n'\n"
+	if err := os.WriteFile(dir+"/tmux", []byte(program), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	tmux, err := FindTmux(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tmux.Version != "tmux 3.2a" {
+		t.Fatalf("version: %q", tmux.Version)
 	}
 }
 

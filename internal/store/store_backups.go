@@ -96,6 +96,7 @@ type Profile struct {
 	DateFormat            string `json:"dateFormat"`
 	ShelfView             string `json:"shelfView"`
 	CardsExpanded         bool   `json:"cardsExpanded"`
+	HostedPrefix          string `json:"hostedPrefix"`
 	UpdatedAt             int64  `json:"updatedAt"`
 }
 
@@ -161,6 +162,7 @@ func (s *Store) migrateBackups() error {
 			theme TEXT NOT NULL DEFAULT 'system',
 			timezone TEXT NOT NULL DEFAULT '',
 			date_format TEXT NOT NULL DEFAULT 'locale',
+			hosted_prefix TEXT NOT NULL DEFAULT 'reet-',
 			updated_at INTEGER NOT NULL DEFAULT 0)`,
 	}
 	for _, stmt := range stmts {
@@ -172,6 +174,7 @@ func (s *Store) migrateBackups() error {
 		{"shelf_view", "shelf_view TEXT NOT NULL DEFAULT 'list'"},
 		{"cards_expanded", "cards_expanded INTEGER NOT NULL DEFAULT 0"},
 		{"terminal_remove_on_close", "terminal_remove_on_close INTEGER NOT NULL DEFAULT 0"},
+		{"hosted_prefix", "hosted_prefix TEXT NOT NULL DEFAULT 'reet-'"},
 	} {
 		ok, err := hasColumn(s.db, "user_profiles", column.name)
 		if err != nil {
@@ -450,17 +453,17 @@ func (s *Store) DeleteBackupRemote(ownerID int64, name string) error {
 // time so the page has something to show.
 func (s *Store) ProfileFor(userID int64) (Profile, error) {
 	var p Profile
-	err := s.db.QueryRow(`SELECT theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,updated_at FROM user_profiles WHERE user_id=?`, userID).
-		Scan(&p.Theme, &p.Timezone, &p.DateFormat, &p.ShelfView, &p.CardsExpanded, &p.TerminalRemoveOnClose, &p.UpdatedAt)
+	err := s.db.QueryRow(`SELECT theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,hosted_prefix,updated_at FROM user_profiles WHERE user_id=?`, userID).
+		Scan(&p.Theme, &p.Timezone, &p.DateFormat, &p.ShelfView, &p.CardsExpanded, &p.TerminalRemoveOnClose, &p.HostedPrefix, &p.UpdatedAt)
 	if err == nil {
 		return p, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return p, err
 	}
-	p = Profile{Theme: "system", DateFormat: "locale", ShelfView: "list"}
-	if _, err := s.db.Exec(`INSERT OR IGNORE INTO user_profiles(user_id,theme,timezone,date_format,updated_at) VALUES(?,?,?,?,?)`,
-		userID, p.Theme, p.Timezone, p.DateFormat, now()); err != nil {
+	p = Profile{Theme: "system", DateFormat: "locale", ShelfView: "list", HostedPrefix: DefaultHostedPrefix}
+	if _, err := s.db.Exec(`INSERT OR IGNORE INTO user_profiles(user_id,theme,timezone,date_format,hosted_prefix,updated_at) VALUES(?,?,?,?,?,?)`,
+		userID, p.Theme, p.Timezone, p.DateFormat, p.HostedPrefix, now()); err != nil {
 		return p, err
 	}
 	return p, nil
@@ -470,10 +473,11 @@ func (s *Store) SaveProfileFor(userID int64, p Profile) error {
 	if p.ShelfView == "" {
 		p.ShelfView = "list"
 	}
-	_, err := s.db.Exec(`INSERT INTO user_profiles(user_id,theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,updated_at) VALUES(?,?,?,?,?,?,?,?)
+	_, err := s.db.Exec(`INSERT INTO user_profiles(user_id,theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,hosted_prefix,updated_at) VALUES(?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(user_id) DO UPDATE SET theme=excluded.theme, timezone=excluded.timezone,
-			date_format=excluded.date_format, shelf_view=excluded.shelf_view, cards_expanded=excluded.cards_expanded, terminal_remove_on_close=excluded.terminal_remove_on_close, updated_at=excluded.updated_at`,
-		userID, p.Theme, p.Timezone, p.DateFormat, p.ShelfView, p.CardsExpanded, p.TerminalRemoveOnClose, now())
+			date_format=excluded.date_format, shelf_view=excluded.shelf_view, cards_expanded=excluded.cards_expanded, terminal_remove_on_close=excluded.terminal_remove_on_close,
+			hosted_prefix=excluded.hosted_prefix, updated_at=excluded.updated_at`,
+		userID, p.Theme, p.Timezone, p.DateFormat, p.ShelfView, p.CardsExpanded, p.TerminalRemoveOnClose, p.HostedPrefix, now())
 	return err
 }
 

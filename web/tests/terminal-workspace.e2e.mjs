@@ -96,7 +96,7 @@ try{
  expect(writes).toHaveLength(0)
  await bounds(1360,900)
  const connections=websockets
- await page.getByRole('button',{name:/^Sessions/}).click()
+ await page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/}).click()
  await bounds(1360,900)
  expect(websockets).toBe(connections)
  await page.getByRole('button',{name:'Details & help',exact:true}).click()
@@ -125,16 +125,16 @@ try{
  await expect.poll(()=>inputs.join('')).toContain('native-paste-once')
  expect(inputs.join('').split('native-paste-once').length-1).toBe(1)
  // Normal app fields retain native cut semantics and do not forward editor keys.
- await page.getByRole('button',{name:/^Sessions/}).click()
+ await page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/}).click()
  const filter=page.getByRole('searchbox',{name:'Find sessions'})
  await filter.fill('cut this filter');await filter.press('Control+a')
  const beforeCut=inputs.length
  await filter.press('Control+x');await expect(filter).toHaveValue('')
  expect(inputs.length).toBe(beforeCut)
- await page.getByRole('button',{name:/^Sessions/}).click()
+ await page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/}).click()
  await page.evaluate(()=>window.__setClipboard('from-clipboard'))
  await screen.dispatchEvent('contextmenu',{button:2,clientX:300,clientY:220})
- await expect(page.getByRole('menu',{name:'Terminal clipboard'})).toBeVisible()
+ await expect(page.getByRole('menu',{name:'Terminal actions'})).toBeVisible()
  await page.getByRole('menuitem',{name:'Paste',exact:true}).click()
  await expect.poll(()=>inputs.join('')).toContain('from-clipboard')
  expect(inputs.join('').split('from-clipboard').length-1).toBe(1)
@@ -154,7 +154,7 @@ try{
  await screen.evaluate(element=>element.dispatchEvent(new MouseEvent('contextmenu',{button:2,shiftKey:true,bubbles:true,cancelable:true})))
  await expect(page.getByRole('menu')).toHaveCount(0)
  // Earlier output has a native scrollbar; reading/searching never sends shell input.
- const beforeScroll=inputs.length,beforeViews=websockets,sidebarBefore=await page.getByRole('button',{name:/^Sessions/}).getAttribute('aria-expanded')
+ const beforeScroll=inputs.length,beforeViews=websockets,sidebarBefore=await page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/}).getAttribute('aria-expanded')
  await page.getByRole('button',{name:'Earlier output',exact:true}).click()
  const output=page.getByRole('region',{name:'Scrollable terminal output',exact:true})
  await expect(output).toContainText('earlier output 0')
@@ -189,7 +189,7 @@ try{
  await page.getByRole('button',{name:'Restore size',exact:true}).click()
  await page.getByRole('button',{name:'Exit theatre view',exact:true}).click()
  await expect(page.locator('.workspace-toolbar')).toBeVisible()
- expect(await page.getByRole('button',{name:/^Sessions/}).getAttribute('aria-expanded')).toBe(sidebarBefore)
+ expect(await page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/}).getAttribute('aria-expanded')).toBe(sidebarBefore)
  expect(websockets).toBe(beforeViews);expect(inputs.length).toBe(beforeScroll)
  // A deliberate browser disconnect survives page visibility/network events.
  await page.getByRole('button',{name:'Disconnect',exact:true}).click()

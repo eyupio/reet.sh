@@ -7,8 +7,10 @@ const page=await context.newPage(),errors=[],inputs=[],tickets=[],mutations=[],c
 let historyReads=0
 const savedHistory={entries:[{command:'git status',source:'bash',timestamp:Date.now()},{command:"printf 'first'\nprintf 'second'",source:'zsh'}],sources:[{source:'bash',available:true},{source:'zsh',available:true}],truncated:false,skipped:0}
 let profile={theme:'light',shelfView:'list',cardsExpanded:false,terminalRemoveOnClose:false},conflict=false
-const now=Date.now(),a='organisation-machine00001',b='organisation-machine00002'
+const now=Date.now(),a='organisation-machine00001',b='organisation-machine00002',c='organisation-machine00003'
+const creations=new Map();let failCreateOnce=true
 const machines=[{agentId:a,host:'Laptop',ready:true,serverEnabled:true,capabilities:{osUser:'developer',terminalEnabled:true,terminalControl:true,commandHistory:true,readiness:'ready'}},{agentId:b,host:'Builder',ready:false,serverEnabled:true,capabilities:{osUser:'builder',terminalEnabled:true,terminalControl:true,commandHistory:true,readiness:'ready'}}]
+machines.push({agentId:c,host:'New machine',ready:true,serverEnabled:true,capabilities:{osUser:'developer',terminalEnabled:true,terminalControl:true,commandHistory:true,readiness:'ready'}})
 const sessions=[{id:'organisation-session0001',agentId:a,title:'Alpha shell',state:'running',createdAt:now-4,updatedAt:now,exitCode:null},{id:'organisation-session0002',agentId:b,title:'Build shell',state:'running',createdAt:now-3,updatedAt:now,exitCode:null},{id:'organisation-session0003',agentId:a,title:'Closed shell',state:'ended',createdAt:now-2,updatedAt:now,exitCode:null},{id:'organisation-session0004',agentId:a,title:'Zulu shell',state:'running',createdAt:now-1,updatedAt:now,exitCode:null}]
 page.on('pageerror',e=>errors.push(e.message))
 await context.route('**/api/**',async route=>{
@@ -23,7 +25,9 @@ await context.route('**/api/**',async route=>{
  else if(path==='/api/version')data={version:'fixture',commit:'fixture'}
  else if(path==='/api/v2/terminal/machines')data={machines}
  else if(path==='/api/v2/machines/health')data={serverNow:Date.now(),machines:[],history:[]}
- else if(path==='/api/v2/terminal/sessions')data={sessions}
+ else if(path==='/api/v2/terminal/sessions'){
+  if(method==='GET')data={sessions};else{const body=r.postDataJSON();mutations.push({kind:'create',...body});let item=creations.get(body.requestId);if(!item){item={id:`organisation-quick-session${creations.size}`,agentId:body.agentId,title:body.title,state:'running',createdAt:Date.now(),updatedAt:Date.now(),exitCode:null};creations.set(body.requestId,item);sessions.push(item)}if(failCreateOnce){failCreateOnce=false;return route.fulfill({status:503,json:{error:'Creation unconfirmed'}})}data=item}
+ }
  else if(path.endsWith('/command-history')){historyReads++;data=savedHistory}
  else if(path.endsWith('/history'))return route.fulfill({body:'Read-only output snapshot'})
  else if(path.endsWith('/attachments')){tickets.push(path.split('/').at(-2));data={ticket:'organisation-ticket00001'}}
@@ -43,7 +47,7 @@ await context.route('**/api/**',async route=>{
 await context.routeWebSocket('**/api/v2/terminal/socket',socket=>socket.onMessage(message=>{if(typeof message==='string'){if(JSON.parse(message).ticket){socket.send('{"type":"ready"}');socket.send(Buffer.from('\x1b[2J\x1b[HWorkspace shell\r\nready> '))}}else{inputs.push(message.toString());socket.send(message)}}))
 const sidebar=page.getByRole('complementary',{name:'Session navigation'}),menu=page.getByRole('menu'),pane=page.locator('.pane')
 const row=name=>sidebar.locator('.session-row').filter({has:page.getByText(name,{exact:true})})
-async function showSidebar(){if(await sidebar.count()===0)await page.getByRole('button',{name:/^Sessions/}).click()}
+async function showSidebar(){if(await sidebar.count()===0)await page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/}).click()}
 async function live(){await expect(pane).toHaveAttribute('data-connection-state','live')}
 try{
  await page.goto(`${base}/terminals?agent=${a}&session=${sessions[0].id}`);await live()
@@ -162,6 +166,79 @@ try{
  await page.getByRole('button',{name:'Close session navigation'}).click()
  await page.reload();await live();await expect(sidebar).toHaveCount(0)
  await showSidebar();await expect(sidebar.locator('.session-row')).toHaveCount(3)
+ // Machine quick actions include empty machines and preserve ambiguous-create IDs.
+ await sidebar.getByLabel('Group sessions').selectOption('machine')
+ const laptopGroup=sidebar.locator('.session-group').filter({has:page.getByRole('heading',{name:/^Laptop/})})
+ const builderGroup=sidebar.locator('.session-group').filter({has:page.getByRole('heading',{name:/^Builder/})})
+ const emptyGroup=sidebar.locator('.session-group').filter({has:page.getByRole('heading',{name:/^New machine/})})
+ await expect(emptyGroup).toContainText('No sessions yet')
+ await expect(builderGroup.getByRole('button',{name:'New terminal on Builder',exact:true})).toBeDisabled()
+ const beforeQuickTickets=tickets.length
+ await laptopGroup.getByRole('button',{name:'Laptop',exact:true}).click({button:'right'})
+ await expect(menu).toHaveAccessibleName('Actions for machine Laptop')
+ await menu.press('Escape');expect(tickets.length).toBe(beforeQuickTickets)
+ await emptyGroup.getByRole('button',{name:'New terminal on New machine',exact:true}).click()
+ await expect(page.getByRole('alert')).toContainText('Creation unconfirmed')
+ expect(new URL(page.url()).searchParams.get('agent')).toBe(c)
+ expect(new URL(page.url()).searchParams.get('session')).toBeNull()
+ expect(tickets.length).toBe(beforeQuickTickets)
+ await page.getByRole('button',{name:'Retry creation',exact:true}).click();await live()
+ const creates=mutations.filter(item=>item.kind==='create')
+ expect(creates).toHaveLength(2);expect(creates[0].agentId).toBe(c);expect(creates[0].title).toBe('Shell');expect(creates[1]).toEqual(creates[0]);expect(creations.size).toBe(1)
+ expect(tickets.at(-1)).toBe([...creations.values()][0].id)
+ // The collapsed sidebar can be reopened beside the terminal, including theatre view.
+ await sidebar.getByRole('button',{name:'Close session navigation',exact:true}).click()
+ await page.locator('.terminal-toolbar').getByRole('button',{name:'Show sessions',exact:true}).click()
+ await expect(sidebar).toBeVisible()
+ await page.getByRole('button',{name:'Theatre view',exact:true}).click()
+ await expect(sidebar).toBeHidden()
+ await page.locator('.terminal-toolbar').getByRole('button',{name:'Show sessions',exact:true}).click()
+ await expect(sidebar).toBeVisible();await expect(page.locator('.workspace')).not.toHaveClass(/theatre/)
+ const beforeMenuInput=inputs.length
+ await page.getByRole('region',{name:'Remote terminal screen',exact:true}).click({button:'right'})
+ await page.getByRole('menu',{name:'Terminal actions',exact:true}).getByRole('menuitem',{name:'Saved commands…',exact:true}).click()
+ await expect(page.getByRole('dialog')).toContainText('Saved commands')
+ await page.getByRole('button',{name:'Close Saved commands',exact:true}).click()
+ expect(inputs.length).toBe(beforeMenuInput)
+ // Active landing cards target the clicked session, with explicit stop/removal review.
+ await page.goto(base)
+ const band=page.locator('#active-sessions'),target=band.getByRole('link',{name:'Continue Zulu shell on Laptop',exact:true})
+ const landingTickets=tickets.length
+ await target.click({button:'right'})
+ await page.getByRole('menuitem',{name:'Rename session…',exact:true}).click()
+ await page.getByLabel('Session name',{exact:true}).fill('Landing rename')
+ await page.getByRole('button',{name:'Save name',exact:true}).click()
+ await expect(band.getByRole('link',{name:'Continue Landing rename on Laptop',exact:true})).toBeVisible()
+ expect(mutations.filter(m=>m.kind==='rename').at(-1).id).toBe('organisation-session0004')
+ await band.getByRole('link',{name:'Continue Landing rename on Laptop',exact:true}).click({button:'right'})
+ await page.getByRole('menuitem',{name:'Stop session…',exact:true}).click()
+ await expect(page.getByLabel('Remove from history when this session ends')).toBeChecked()
+ await page.getByRole('button',{name:'Cancel',exact:true}).click()
+ const stops=mutations.filter(m=>m.kind==='end').length
+ await band.getByRole('link',{name:'Continue Landing rename on Laptop',exact:true}).click({button:'right'})
+ await page.getByRole('menuitem',{name:'Stop session…',exact:true}).click()
+ await page.getByRole('button',{name:'End session',exact:true}).click()
+ await expect(band.getByRole('link',{name:'Continue Landing rename on Laptop',exact:true})).toContainText('End requested')
+ expect(mutations.filter(m=>m.kind==='end').length).toBe(stops+1)
+ expect(mutations.filter(m=>m.kind==='end').at(-1)).toMatchObject({id:'organisation-session0004',removeHistory:true})
+ expect(tickets.length).toBe(landingTickets)
+ await band.getByRole('link',{name:'Continue Alpha shell on Laptop',exact:true}).click({button:'right'})
+ await page.getByRole('menuitem',{name:'Saved commands…',exact:true}).click()
+ await expect(page.getByRole('dialog')).toContainText('Saved commands')
+ await expect(page.getByRole('button',{name:/^Insert /})).toHaveCount(0)
+ await page.getByRole('button',{name:'Close Saved commands',exact:true}).click()
+ const landingMachine=page.getByRole('article',{name:'Machine Builder',exact:true})
+ await expect(landingMachine.getByRole('button',{name:'New terminal on Builder',exact:true})).toBeDisabled()
+ await landingMachine.click({button:'right'})
+ await expect(page.getByRole('menuitem',{name:'New terminal',exact:true})).toBeDisabled()
+ await menu.press('Escape')
+ const createsBeforeLanding=mutations.filter(m=>m.kind==='create').length
+ await page.getByRole('article',{name:'Machine Laptop',exact:true}).getByRole('button',{name:'New terminal on Laptop',exact:true}).click()
+ await live()
+ await expect.poll(()=>new URL(page.url()).searchParams.get('agent')).toBe(a)
+ expect(mutations.filter(m=>m.kind==='create').length).toBe(createsBeforeLanding+1)
+ expect(mutations.filter(m=>m.kind==='create').at(-1).agentId).toBe(a)
+ await page.goto(`${base}/terminals?agent=${a}&session=organisation-session0001`);await live();await showSidebar()
  await page.setViewportSize({width:390,height:844});await showSidebar()
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
  if(process.env.REET_UI_SCREENSHOTS){await mkdir(process.env.REET_UI_SCREENSHOTS,{recursive:true});await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/organisation-phone.png`})}

@@ -70,6 +70,16 @@ try {
   const original = await state()
   expect(original.sessions).toBe(1)
   expect(Number(original.pid)).toBeGreaterThan(0)
+  const actionSockets=sockets
+  await page.getByRole('region',{name:'Remote terminal screen',exact:true}).click({button:'right'})
+  await page.getByRole('menu',{name:'Terminal actions',exact:true}).getByRole('menuitem',{name:'Saved commands…',exact:true}).click()
+  await expect(page.getByRole('dialog')).toHaveAccessibleName('Saved commands')
+  await page.getByRole('button',{name:'Close Saved commands',exact:true}).click()
+  await page.getByRole('button',{name:'Close session navigation',exact:true}).click()
+  await page.locator('.terminal-toolbar').getByRole('button',{name:'Show sessions',exact:true}).click()
+  await expect(page.getByRole('complementary',{name:'Session navigation'})).toBeVisible()
+  expect(sockets).toBe(actionSockets);expect(await state()).toEqual(original)
+
   await page.goto(base)
   const activeBand=page.locator('#active-sessions')
   await expect(activeBand).toContainText('1 active session')

@@ -189,6 +189,9 @@ func (s *Store) MergeMachinesFor(userID int64, from, to string) error {
 					return err
 				}
 			}
+			if err := moveSkillContentTargets(tx, userID, e.id, id); err != nil {
+				return err
+			}
 			if _, err := tx.Exec(`DELETE FROM environments WHERE id=? AND user_id=?`, e.id, userID); err != nil {
 				return err
 			}

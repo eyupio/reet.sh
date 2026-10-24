@@ -37,6 +37,7 @@ func privateSkillSameOrigin(r *http.Request) bool {
 	return err == nil && mcpSameOrigin(r) && origin.Path == "" && origin.RawQuery == "" && !origin.ForceQuery && origin.Fragment == ""
 }
 func (s *server) registerPrivateSkillRoutes(mux *http.ServeMux) {
+	s.registerSkillContentTargets(mux)
 	mux.HandleFunc("GET /api/v2/skill-bundles", s.privateSkillAccess(s.privateSkills))
 	mux.HandleFunc("POST /api/v2/skill-bundles", s.privateSkillAccess(s.privateSkillSave))
 	mux.HandleFunc("GET /api/v2/skill-bundles/{bundle}", s.privateSkillAccess(s.privateSkillGet))

@@ -28,6 +28,11 @@ var (
 	ErrSkillContentReceipt         = errors.New("ownership receipt changed, is blocked or must be released first")
 	ErrSkillContentReceiptCapacity = errors.New("ownership receipt limit reached")
 
+	// The refusals a machine merge and a scope merge answer with when receipts are
+	// in the way. Callers match them with errors.Is.
+	ErrSkillContentReceiptMerge = errors.New("these reports have different ownership receipts; release one before merging")
+	ErrSkillContentReceiptScope = errors.New("release private skill ownership receipts before merging this report into a different scope")
+
 	// errReceiptIntegrity is deliberately none of the exported sentinels: stored
 	// data that fails validation is a fault to surface, never a request outcome.
 	errReceiptIntegrity = errors.New("stored ownership receipt failed integrity validation")
@@ -261,6 +266,35 @@ func (s *Store) ReleaseSkillContentReceiptFor(uid int64, id, version string) err
 		_, e = tx.Exec(`DELETE FROM skill_content_receipts WHERE user_id=? AND id=? AND version=?`, uid, id, version)
 		return e
 	})
+}
+
+// ReceiptCountsFor counts this account's ownership receipts per report, in one
+// query. A report without receipts is absent from the map, and no IDs means no
+// query. Callers keep the list to 500 IDs, as the environment tidy endpoints do.
+// It counts rows whatever the account may read, since it guards stored ownership.
+func (s *Store) ReceiptCountsFor(userID int64, environmentIDs []string) (map[string]int, error) {
+	counts := map[string]int{}
+	if len(environmentIDs) == 0 {
+		return counts, nil
+	}
+	args := []any{userID}
+	for _, id := range environmentIDs {
+		args = append(args, id)
+	}
+	rows, err := s.db.Query(`SELECT environment_id,count(*) FROM skill_content_receipts WHERE user_id=? AND environment_id IN (`+placeholders(len(environmentIDs))+`) GROUP BY environment_id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		counts[id] = n
+	}
+	return counts, rows.Err()
 }
 
 // skillContentReceiptBaseline returns the planner baseline for one slot and the
@@ -556,7 +590,7 @@ func moveSkillContentReceipts(tx *sql.Tx, uid int64, from, to string) error {
 			return err
 		}
 		if taken > 0 {
-			return errors.New("these reports have different ownership receipts; release one before merging")
+			return ErrSkillContentReceiptMerge
 		}
 		if _, err = tx.Exec(`UPDATE skill_content_receipts SET environment_id=?,version=?,updated_at=? WHERE user_id=? AND id=?`, to, syncID(), now(), uid, r.id); err != nil {
 			return err

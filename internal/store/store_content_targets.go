@@ -16,6 +16,11 @@ var (
 	ErrSkillContentTargetConflict = errors.New("skill content target changed")
 	ErrSkillContentTargetScope    = errors.New("skill content target scope unavailable")
 	ErrSkillContentTargetCapacity = errors.New("skill content target limit reached")
+
+	// The refusals a machine merge and a scope merge answer with when pins are in
+	// the way. Callers match them with errors.Is.
+	ErrSkillContentTargetMerge      = errors.New("these reports have different private skill pins; remove one pin before merging")
+	ErrSkillContentTargetScopeMerge = errors.New("remove private skill pins before merging this report into a different scope")
 )
 
 // SkillContentTarget is desired content, never an installed/ownership receipt.
@@ -246,7 +251,7 @@ func moveSkillContentTargets(tx *sql.Tx, uid int64, from, to string) error {
 		}
 		if e == nil {
 			if other.AgentID != pin.AgentID || other.BundleID != pin.BundleID || other.RevisionID != pin.RevisionID || other.Mode != pin.Mode {
-				return errors.New("these reports have different private skill pins; remove one pin before merging")
+				return ErrSkillContentTargetMerge
 			}
 			if _, err = tx.Exec(`UPDATE skill_content_targets SET version=?,updated_at=? WHERE user_id=? AND id=?`, syncID(), now(), uid, other.ID); err != nil {
 				return err

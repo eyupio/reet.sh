@@ -434,3 +434,228 @@ func TestSkillContentReceiptAPIRejectsLegacyAuthModes(t *testing.T) {
 		})
 	}
 }
+
+// rawDB is a second connection, for rows the API cannot create (a persisted
+// duplicate report that predates consolidation).
+func (h *previewHarness) rawDB() *sql.DB {
+	h.t.Helper()
+	db, e := sql.Open("sqlite", "file:"+filepath.Join(h.st.Path(), "reet.db")+"?_pragma=busy_timeout(5000)")
+	if e != nil {
+		h.t.Fatal(e)
+	}
+	h.t.Cleanup(func() { db.Close() })
+	return db
+}
+
+func eventsOf(t *testing.T, st *store.Store, uid int64, action string) int {
+	t.Helper()
+	events, err := st.ListEventsFor(uid, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, ev := range events {
+		if ev.Action == action {
+			n++
+		}
+	}
+	return n
+}
+
+func TestMachineMergeAnswersASlotCollisionWith409(t *testing.T) {
+	for name, tc := range map[string]struct {
+		want error
+		seed func(h *previewHarness, db *sql.DB, dest string)
+	}{
+		"receipts": {store.ErrSkillContentReceiptMerge, func(h *previewHarness, db *sql.DB, dest string) {
+			receipt := h.adopt("merge_machine_adopt_001", h.captured("merge_machine_preview_01"))
+			id := strings.Repeat("a", 48)
+			if _, e := db.Exec(`INSERT INTO skill_content_receipts(id,user_id,environment_id,agent_id,name,bundle_id,revision_id,root_id,adapter,schema_version,managed,provenance,evidence,request_key,version,created_at,updated_at) SELECT ?,user_id,?,agent_id,name,bundle_id,revision_id,root_id,adapter,schema_version,managed,provenance,evidence,?,?,created_at,updated_at FROM skill_content_receipts WHERE id=?`,
+				id, dest, "seed_"+id, strings.Repeat("b", 48), receipt.ID); e != nil {
+				h.t.Fatal(e)
+			}
+		}},
+		"pins": {store.ErrSkillContentTargetMerge, func(h *previewHarness, db *sql.DB, dest string) {
+			if _, e := db.Exec(`INSERT INTO skill_content_targets(id,user_id,environment_id,agent_id,name,bundle_id,revision_id,mode,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+				strings.Repeat("c", 48), h.uid, dest, h.agent.ID, h.pin.Name, h.pin.BundleID, h.pin.RevisionID, "managed", strings.Repeat("d", 48), 1); e != nil {
+				h.t.Fatal(e)
+			}
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newPreviewHarness(t)
+			h.negotiate()
+			if e := h.st.TouchEnvironmentFor(h.uid, "preferred", "agents", "", ""); e != nil {
+				t.Fatal(e)
+			}
+			tc.seed(h, h.rawDB(), store.EnvironmentIDFor(h.uid, "preferred", "agents", ""))
+
+			w := h.browser("POST", "/api/v2/machines/merge", fmt.Sprintf(`{"from":%q,"to":"preferred"}`, h.agent.Host))
+			var out map[string]string
+			if e := json.Unmarshal(w.Body.Bytes(), &out); w.Code != 409 || e != nil || out["error"] != tc.want.Error() {
+				t.Fatalf("a slot collision should be a conflict the person can act on, not a fault: %d %s %v", w.Code, w.Body.String(), e)
+			}
+			if n := eventsOf(t, h.st, h.uid, "merge-machines"); n != 0 {
+				t.Fatal("a refused merge was audited as done", n)
+			}
+			if pin, e := h.st.SkillContentTargetFor(h.uid, h.pin.ID); e != nil || pin.EnvironmentID != h.pin.EnvironmentID {
+				t.Fatal("a refused merge moved the pin", pin, e)
+			}
+			if aliases, e := h.st.MachineAliasesFor(h.uid); e != nil || len(aliases) != 0 {
+				t.Fatal("a refused merge recorded an alias", aliases, e)
+			}
+		})
+	}
+}
+
+func TestEnvironmentMergeRefusesPinsAndReceiptsWith409(t *testing.T) {
+	h := newPreviewHarness(t)
+	h.negotiate()
+	if e := h.st.TouchEnvironmentFor(h.uid, "laptop", "claude", "", ""); e != nil {
+		t.Fatal(e)
+	}
+	dest := store.EnvironmentIDFor(h.uid, "laptop", "claude", "")
+	mergeBody := func(from string) string {
+		return fmt.Sprintf(`{"from_id":%q,"to_id":%q,"confirm":true}`, from, dest)
+	}
+	const path = "/api/v2/environments/merge"
+	refused := func(w *httptest.ResponseRecorder, code, message, hint string) {
+		t.Helper()
+		var out map[string]string
+		want := map[string]string{"error": message, "code": code, "message": message, "field": "from_id", "hint": hint}
+		if e := json.Unmarshal(w.Body.Bytes(), &out); w.Code != 409 || e != nil || !reflect.DeepEqual(out, want) {
+			t.Fatalf("%d %s %v, want 409 %v", w.Code, w.Body.String(), e, want)
+		}
+	}
+	reportListed := func() {
+		t.Helper()
+		envs, e := h.st.ListEnvironmentsFor(h.uid)
+		if e != nil {
+			t.Fatal(e)
+		}
+		for _, env := range envs {
+			if env.ID == h.pin.EnvironmentID {
+				return
+			}
+		}
+		t.Fatal("a refused merge removed the source report")
+	}
+
+	// The pin stands in the way first, and removing it never touches ownership.
+	refused(h.browser("POST", path, mergeBody(h.pin.EnvironmentID)), "environment_has_pins",
+		"remove private skill pins before merging this report into a different scope", "Remove the private skill pin first.")
+	if pin, e := h.st.SkillContentTargetFor(h.uid, h.pin.ID); e != nil || !reflect.DeepEqual(pin, h.pin) {
+		t.Fatal("a refused merge changed the pin", pin, e)
+	}
+	reportListed()
+
+	receipt := h.adopt("merge_env_adopt_000001", h.captured("merge_env_preview_0001"))
+	if e := h.st.DeleteSkillContentTargetFor(h.uid, h.pin.ID, h.pin.Version); e != nil {
+		t.Fatal(e)
+	}
+	refused(h.browser("POST", path, mergeBody(h.pin.EnvironmentID)), "environment_has_receipts",
+		"release private skill ownership receipts before merging this report into a different scope", "Release the ownership record first.")
+	if got, e := h.st.SkillContentReceiptFor(h.uid, receipt.ID); e != nil || !reflect.DeepEqual(got, receipt) {
+		t.Fatal("a refused merge changed the receipt", got, e)
+	}
+	reportListed()
+	if n := eventsOf(t, h.st, h.uid, "environment-merge"); n != 0 {
+		t.Fatal("a refused merge was audited as done", n)
+	}
+
+	// An unknown report is still a 404 and releasing the receipt still unblocks the merge.
+	var out map[string]string
+	if w := h.browser("POST", path, mergeBody("no-such-report")); w.Code != 404 || json.Unmarshal(w.Body.Bytes(), &out) != nil || out["code"] != "environment_not_found" {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if e := h.st.ReleaseSkillContentReceiptFor(h.uid, receipt.ID, receipt.Version); e != nil {
+		t.Fatal(e)
+	}
+	if w := h.browser("POST", path, mergeBody(h.pin.EnvironmentID)); w.Code != 200 || !strings.Contains(w.Body.String(), `"skills_moved":0`) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}
+
+// envChange is the part of a blocked entry the person acts on.
+type envChange struct {
+	ID      string `json:"id"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func TestEnvironmentDeleteKeepsOwnershipReceiptsUnlessForced(t *testing.T) {
+	h := newPreviewHarness(t)
+	h.negotiate()
+	receipt := h.adopt("delete_env_adopt_00001", h.captured("delete_env_preview_0001"))
+	id := receipt.EnvironmentID
+	const path = "/api/v2/environments/delete"
+	const message = "environment still holds ownership receipts; release them first"
+	preview := func(body string) (would []store.Environment, blocked []envChange) {
+		t.Helper()
+		w := h.browser("POST", path, body)
+		var out struct {
+			DryRun      bool                `json:"dry_run"`
+			WouldDelete []store.Environment `json:"would_delete"`
+			Blocked     []envChange         `json:"blocked"`
+		}
+		if e := json.Unmarshal(w.Body.Bytes(), &out); w.Code != 200 || e != nil || !out.DryRun {
+			t.Fatal(w.Code, w.Body.String(), e)
+		}
+		return out.WouldDelete, out.Blocked
+	}
+
+	// The dry run says what the real delete would do.
+	if would, blocked := preview(fmt.Sprintf(`{"ids":[%q],"dry_run":true}`, id)); len(would) != 0 || !reflect.DeepEqual(blocked, []envChange{{id, "environment_has_receipts", message}}) {
+		t.Fatal(would, blocked)
+	}
+	if would, blocked := preview(fmt.Sprintf(`{"ids":[%q],"dry_run":true,"force":true}`, id)); len(would) != 1 || would[0].ID != id || len(blocked) != 0 {
+		t.Fatal("force should preview the delete it would make", would, blocked)
+	}
+
+	// The real delete answers in the existing blocked shape and removes nothing.
+	w := h.browser("POST", path, fmt.Sprintf(`{"id":%q,"confirm":true}`, id))
+	var refusal struct {
+		Error, Code, Message, Hint string
+		Blocked                    []envChange
+	}
+	if e := json.Unmarshal(w.Body.Bytes(), &refusal); w.Code != 400 || e != nil ||
+		refusal.Error != message || refusal.Code != "environment_has_receipts" || refusal.Message != message ||
+		refusal.Hint != "Release the ownership records first, or use force=true to forget them with the report." ||
+		!reflect.DeepEqual(refusal.Blocked, []envChange{{id, "environment_has_receipts", message}}) {
+		t.Fatal(w.Code, w.Body.String(), e)
+	}
+	if got, e := h.st.SkillContentReceiptFor(h.uid, receipt.ID); e != nil || !reflect.DeepEqual(got, receipt) {
+		t.Fatal("a refused delete changed the receipt", got, e)
+	}
+	if n := eventsOf(t, h.st, h.uid, "environment-delete"); n != 0 {
+		t.Fatal("a refused delete was audited as done", n)
+	}
+
+	// Forcing forgets the record with the report; the private bytes are not touched.
+	w = h.browser("POST", path, fmt.Sprintf(`{"id":%q,"confirm":true,"force":true}`, id))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"deleted":1`) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if list, e := h.st.SkillContentReceiptsFor(h.uid); e != nil || len(list) != 0 {
+		t.Fatal("the receipt outlived a forced delete", list, e)
+	}
+	if _, e := h.st.PrivateSkillRevisionFor(h.uid, h.bundle.Bundle.ID, h.bundle.Revision.ID); e != nil {
+		t.Fatal("forgetting ownership removed private bytes", e)
+	}
+	if n := eventsOf(t, h.st, h.uid, "environment-delete"); n != 1 {
+		t.Fatal("the forced delete should be audited once", n)
+	}
+}
+
+func TestEnvironmentDeleteSucceedsOnceOwnershipIsReleased(t *testing.T) {
+	h := newPreviewHarness(t)
+	h.negotiate()
+	receipt := h.adopt("delete_env_adopt_00002", h.captured("delete_env_preview_0002"))
+	if e := h.st.ReleaseSkillContentReceiptFor(h.uid, receipt.ID, receipt.Version); e != nil {
+		t.Fatal(e)
+	}
+	w := h.browser("POST", "/api/v2/environments/delete", fmt.Sprintf(`{"id":%q,"confirm":true}`, receipt.EnvironmentID))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"deleted":1`) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}

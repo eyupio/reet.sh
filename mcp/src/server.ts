@@ -149,16 +149,16 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     return page(collection(env, 'skills'), args, { environment: metadata });
   });
 
-  tool('delete_environment', 'Delete environment reports', 'Delete one or more environment reports. Dry run by default; set dry_run=false and confirm=true to apply. Refuses an environment that still has skills unless force=true. Does not remove shelf skills or installed files.', {
+  tool('delete_environment', 'Delete environment reports', 'Delete one or more environment reports. Dry run by default; set dry_run=false and confirm=true to apply. Refuses an environment that still has skills or ownership records unless force=true. Does not remove shelf skills or installed files.', {
     id: environmentId.optional(), ids: z.array(environmentId).max(500).optional().describe('Delete several reports in one call.'),
-    force: z.boolean().default(false).describe('Also delete reports that still have linked skills.'),
+    force: z.boolean().default(false).describe('Also delete reports that still have linked skills or ownership records.'),
     dry_run: dryRun, confirm,
   }, async body => {
     if (!body.id && !body.ids?.length) throw new Error('Supply id or ids.');
     return client.request('/api/v2/environments/delete', 'POST', body);
   }, { write: true, destructive: true });
 
-  tool('merge_environments', 'Merge environment reports', 'Move one environment report’s skills into another and delete the source report. Dry run by default; set dry_run=false and confirm=true to apply. Does not merge two enrolled machine identities.', {
+  tool('merge_environments', 'Merge environment reports', 'Move one environment report’s skills into another and delete the source report. Dry run by default; set dry_run=false and confirm=true to apply. Refuses a report that still holds private skill pins or ownership records. Does not merge two enrolled machine identities.', {
     from_id: environmentId, to_id: environmentId, dry_run: dryRun, confirm,
   }, async body => client.request('/api/v2/environments/merge', 'POST', body), { write: true, destructive: true });
 

@@ -440,6 +440,9 @@ func TestSkillContentTargetMachineRenameAndScopeMerge(t *testing.T) {
 	if _, e = s.MergeEnvironmentsFor(u, got.EnvironmentID, dest); e == nil {
 		t.Fatal("scope merge discarded private intent")
 	}
+	if !errors.Is(e, ErrSkillContentTargetScopeMerge) {
+		t.Fatal("the scope refusal should be typed, so callers can answer it", e)
+	}
 	if _, e = s.SkillContentTargetFor(u, p.ID); e != nil {
 		t.Fatal("failed merge removed pin", e)
 	}
@@ -470,6 +473,9 @@ func TestSkillContentTargetRenameCollisionIsAtomic(t *testing.T) {
 			if !same {
 				if e == nil {
 					t.Fatal("conflicting intent silently merged")
+				}
+				if !errors.Is(e, ErrSkillContentTargetMerge) {
+					t.Fatal("the collision should be the typed refusal, so callers can answer it", e)
 				}
 				original, e := s.SkillContentTargetFor(u, p.ID)
 				if e != nil || !reflect.DeepEqual(original, p) {

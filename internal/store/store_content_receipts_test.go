@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1416,4 +1417,154 @@ func TestAdoptionOfferOnlyWhereAdoptable(t *testing.T) {
 			t.Fatalf("%+v", q)
 		}
 	})
+}
+
+func TestReceiptFollowsMachineRename(t *testing.T) {
+	e := previewFixture(t)
+	r := e.adopted(t)
+	earlier := capturedPreview(t, e, "receipt_rename_preview_01", matching(e))
+	if earlier.ReceiptVersion != r.Version {
+		t.Fatalf("the earlier review must bind the receipt: %+v", earlier)
+	}
+	before, _, err := skillContentReceiptBaseline(e.s.db, e.uid, r.EnvironmentID, r.Name)
+	if err != nil || before == nil {
+		t.Fatal(before, err)
+	}
+
+	if err = e.s.MergeMachinesFor(e.uid, e.agent.Host, "renamed-laptop"); err != nil {
+		t.Fatal(err)
+	}
+	renamed := EnvironmentIDFor(e.uid, "renamed-laptop", "agents", "")
+	got, err := e.s.SkillContentReceiptFor(e.uid, r.ID)
+	if err != nil {
+		t.Fatal("the rename deleted the receipt with the old report", err)
+	}
+	if got.EnvironmentID != renamed || got.AgentID != r.AgentID || got.Name != r.Name || got.BundleID != r.BundleID || got.RevisionID != r.RevisionID {
+		t.Fatalf("only the slot's environment may move: %+v", got)
+	}
+	if got.Version == r.Version || len(got.Version) != 48 || got.UpdatedAt < r.UpdatedAt || got.CreatedAt != r.CreatedAt {
+		t.Fatalf("the rename must draw a new version and keep the receipt's age: %+v from %+v", got, r)
+	}
+	if got.ManagedDigest != r.ManagedDigest || got.FileCount != r.FileCount || got.Provenance != r.Provenance || got.Evidence != r.Evidence {
+		t.Fatalf("a rename must not edit what the receipt claims: %+v", got)
+	}
+	// Nothing but the environment follows the rename: the root and its identity stay.
+	after, version, err := skillContentReceiptBaseline(e.s.db, e.uid, renamed, r.Name)
+	if err != nil || after == nil || version != got.Version {
+		t.Fatal(after, version, err)
+	}
+	want := before.Target
+	want.EnvironmentID = renamed
+	if after.Target != want || after.BundleID != before.BundleID || after.RevisionID != before.RevisionID || !reflect.DeepEqual(after.Manifest, before.Manifest) {
+		t.Fatalf("baseline %+v, want the old one in the new environment %+v", after, want)
+	}
+	if v, err := currentReceiptVersion(e.s.db, e.uid, r.EnvironmentID, r.Name); err != nil || v != "" {
+		t.Fatal("the old report must not keep a receipt", v, err)
+	}
+
+	old := e.state(t, earlier.ID)
+	if old.State != "superseded" || !slices.Contains(old.Reasons, "receipt_changed") {
+		t.Fatalf("a review made before the rename must not survive it: %+v", old)
+	}
+
+	// The pin followed the rename too. The renamed report awaits its first scan, as
+	// it would on the connector's next run; a fresh review then still has the
+	// receipt as its baseline.
+	pin, err := e.s.SkillContentTargetFor(e.uid, e.pin.ID)
+	if err != nil || pin.EnvironmentID != renamed {
+		t.Fatal(pin, err)
+	}
+	if err = e.s.RecordInventoryFor(e.uid, renamed, true, MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	e.pin = pin
+	next := capturedPreview(t, e, "receipt_rename_preview_02", presentOf(withLocal(t, *e.bundle.Revision.Manifest), "exclusive"))
+	if !next.Plan.Ready || len(next.Plan.Conflicts) != 0 || len(next.Plan.Actions) != 0 || next.Adoption != nil {
+		t.Fatalf("an adopted folder stays adopted after its machine is renamed, not adoption_required and not blocked: %+v", next.Plan)
+	}
+	if !reflect.DeepEqual(preservedList(next), []string{"local_only notes/mine.txt"}) {
+		t.Fatalf("the receipt's claim must still bound what the plan may touch: %v", preservedList(next))
+	}
+	baseline := next.Plan.Preconditions.Baseline
+	if next.EnvironmentID != renamed || next.ReceiptVersion != got.Version || baseline == nil || baseline.Target != after.Target || baseline.RevisionID != r.RevisionID {
+		t.Fatalf("the plan did not bind the renamed receipt: %q %+v", next.ReceiptVersion, baseline)
+	}
+}
+
+func TestReceiptRenameCollisionIsAtomic(t *testing.T) {
+	e := previewFixture(t)
+	r := e.adopted(t)
+	if err := e.s.TouchEnvironmentFor(e.uid, "preferred", "agents", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	dest := EnvironmentIDFor(e.uid, "preferred", "agents", "")
+	// A persisted duplicate report may predate consolidation. Give its slot a receipt
+	// of its own to prove the rename never silently picks a winner.
+	destID, destVersion := syncID(), syncID()
+	if _, err := e.s.db.Exec(`INSERT INTO skill_content_receipts(id,user_id,environment_id,agent_id,name,bundle_id,revision_id,root_id,adapter,schema_version,managed,provenance,evidence,request_key,version,created_at,updated_at) SELECT ?,user_id,?,agent_id,name,bundle_id,revision_id,root_id,adapter,schema_version,managed,provenance,evidence,?,?,created_at,updated_at FROM skill_content_receipts WHERE id=?`, destID, dest, "seed_"+destID, destVersion, r.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	err := e.s.MergeMachinesFor(e.uid, e.agent.Host, "preferred")
+	if err == nil || err.Error() != "these reports have different ownership receipts; release one before merging" {
+		t.Fatal("two receipts for one slot were silently merged", err)
+	}
+	list, err := e.s.SkillContentReceiptsFor(e.uid)
+	if err != nil || len(list) != 2 {
+		t.Fatal("a failed rename changed the receipts", list, err)
+	}
+	for _, it := range list {
+		switch it.ID {
+		case r.ID:
+			if !reflect.DeepEqual(it, r) {
+				t.Fatalf("a failed rename changed the receipt: %+v, want %+v", it, r)
+			}
+		case destID:
+			if it.EnvironmentID != dest || it.Version != destVersion {
+				t.Fatalf("a failed rename changed the destination's receipt: %+v", it)
+			}
+		default:
+			t.Fatal("unexpected receipt", it)
+		}
+	}
+	aliases, err := e.s.MachineAliasesFor(e.uid)
+	if err != nil || len(aliases) != 0 {
+		t.Fatal("partial alias update", aliases, err)
+	}
+	if pin, err := e.s.SkillContentTargetFor(e.uid, e.pin.ID); err != nil || !reflect.DeepEqual(pin, e.pin) {
+		t.Fatal("a failed rename moved the pin", pin, err)
+	}
+}
+
+func TestReceiptBlocksScopeMerge(t *testing.T) {
+	e := previewFixture(t)
+	r := e.adopted(t)
+	// Leave the receipt as the only thing standing in the way: the pin fence is
+	// answered first and removing a pin never touches ownership.
+	if err := e.s.DeleteSkillContentTargetFor(e.uid, e.pin.ID, e.pin.Version); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.s.TouchEnvironmentFor(e.uid, "laptop", "claude", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	dest := EnvironmentIDFor(e.uid, "laptop", "claude", "")
+	_, err := e.s.MergeEnvironmentsFor(e.uid, r.EnvironmentID, dest)
+	if err == nil || err.Error() != "release private skill ownership receipts before merging this report into a different scope" {
+		t.Fatal("scope merge discarded ownership", err)
+	}
+	if got, err := e.s.SkillContentReceiptFor(e.uid, r.ID); err != nil || got.EnvironmentID != r.EnvironmentID || got.Version != r.Version {
+		t.Fatal("a refused merge changed the receipt", got, err)
+	}
+	var n int
+	if err = e.s.db.QueryRow(`SELECT count(*) FROM environments WHERE user_id=? AND id=?`, e.uid, r.EnvironmentID).Scan(&n); err != nil || n != 1 {
+		t.Fatal("a refused merge removed the source report", n, err)
+	}
+
+	// Releasing the receipt is what unblocks it.
+	if err = e.s.ReleaseSkillContentReceiptFor(e.uid, r.ID, r.Version); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = e.s.MergeEnvironmentsFor(e.uid, r.EnvironmentID, dest); err != nil {
+		t.Fatal("a released receipt must not block the merge", err)
+	}
 }

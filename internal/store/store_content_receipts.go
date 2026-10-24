@@ -524,3 +524,43 @@ func (s *Store) AdoptSkillContentPreviewFor(uid int64, in SkillContentAdopt) (ou
 	})
 	return
 }
+
+// moveSkillContentReceipts follows a machine rename within the same enrollment,
+// never a cross-scope adoption. Only the slot moves: the receipt keeps its ID,
+// bundle, revision, root and managed files, so the baseline rebuilt from the row
+// is the one that was adopted. A fresh version fences every review that bound the
+// old slot. Two receipts for one slot are never merged: the rename rolls back.
+func moveSkillContentReceipts(tx *sql.Tx, uid int64, from, to string) error {
+	rows, err := tx.Query(`SELECT id,name FROM skill_content_receipts WHERE user_id=? AND environment_id=? ORDER BY id`, uid, from)
+	if err != nil {
+		return err
+	}
+	type slot struct{ id, name string }
+	receipts := []slot{}
+	for rows.Next() {
+		var r slot
+		if err = rows.Scan(&r.id, &r.name); err != nil {
+			rows.Close()
+			return err
+		}
+		receipts = append(receipts, r)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, r := range receipts {
+		var taken int
+		if err = tx.QueryRow(`SELECT count(*) FROM skill_content_receipts WHERE user_id=? AND environment_id=? AND name=?`, uid, to, r.name).Scan(&taken); err != nil {
+			return err
+		}
+		if taken > 0 {
+			return errors.New("these reports have different ownership receipts; release one before merging")
+		}
+		if _, err = tx.Exec(`UPDATE skill_content_receipts SET environment_id=?,version=?,updated_at=? WHERE user_id=? AND id=?`, to, syncID(), now(), uid, r.id); err != nil {
+			return err
+		}
+	}
+	return nil
+}

@@ -51,6 +51,7 @@ jobs:
             if curl -fsS http://127.0.0.1:4173/ > /dev/null; then break; fi
             sleep 1
           done
+          node web/tests/public-workspace.e2e.mjs
           node web/tests/control.e2e.mjs
           node web/tests/terminal-workspace.e2e.mjs
           node web/tests/terminal-lifecycle.e2e.mjs

@@ -115,7 +115,7 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 			}
 			_, _ = io.Copy(io.Discard, r.Body)
 			action := strings.TrimPrefix(r.URL.Path, "/_test/")
-			if action != "state" && action != "restart-agent" && action != "restart-controller" && action != "disable-terminals" && action != "enable-terminals" && action != "state-builder" && action != "offline-builder" && action != "online-builder" {
+			if action != "size" && action != "state" && action != "restart-agent" && action != "restart-controller" && action != "disable-terminals" && action != "enable-terminals" && action != "state-builder" && action != "offline-builder" && action != "online-builder" {
 				http.NotFound(w, r)
 				return
 			}
@@ -267,6 +267,9 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 					builderOnline = true
 				}
 				return map[string]any{"online": true}
+			}
+			if action == "size" {
+				return map[string]any{"grid": command("list-panes", "-a", "-F", "#{pane_height} #{pane_width}")}
 			}
 			if action == "state-builder" {
 				if builderCommand("list-sessions", "-F", "#{session_name}") == "" {

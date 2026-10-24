@@ -5,8 +5,7 @@
 This is the current implementation baseline **and** the continuation plan. Current
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
-state below. **T3 single-session archival is implemented on
-`feat/terminal-history-archive`. T4 terminal polish is the next user priority,
+state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is the next user priority,
 followed by T5 initial-install/enrollment/upgrade terminal setup.** S1 is merged through PR #139; do not repeat
 it or start S2 ahead of the remaining terminal priorities. Do not start the whole roadmap.
 Historical delivery evidence remains in
@@ -37,6 +36,26 @@ browsers and machines**. Initial reet installation, new-machine enrollment and r
 terminal connection wizard as a core setup step. A reported missing-tmux failure
 must have actionable diagnosis/setup guidance. These requests take priority over
 remaining skill/content work and bulk history cleanup.
+
+### Public entry points — terminal-first redesign
+
+The signed-out `/` and `/welcome` explain machines, persistent terminals and
+self-hosting. The illustrative workspace is explicitly labelled; its machine and
+session names are examples. Signup, owner setup, account/token sign-in, invitation
+copy, social metadata and the installed-app manifest use workspace language.
+The share-image source is `brand/og-image.html`; regenerate its committed
+`web/public/og-image.png` when changing the public positioning.
+Actual access rules, invite-only restrictions and bootstrap-token requirements
+are unchanged. Private inventories must never be fetched by these public pages.
+
+`web/tests/public-workspace.e2e.mjs` exercises invite-only, signup-enabled,
+first-owner/bootstrap and token entry points at 1440, 390 and 320 pixels in light
+and dark mode. It checks sign-in errors, keyboard focus, no horizontal overflow,
+and no private API requests. It runs in the terminal-browser CI workflow. Run
+against the built UI with `REET_UI_URL=http://127.0.0.1:4173 node
+web/tests/public-workspace.e2e.mjs`; optionally set `REET_UI_SCREENSHOTS` to retain
+screenshots. Keep public claims limited to shipped functionality when adding
+terminal appearance, account command libraries or future agent maintenance.
 
 ### T4 [ ] Modern terminal interaction, appearance and saved commands — NEXT TASK
 

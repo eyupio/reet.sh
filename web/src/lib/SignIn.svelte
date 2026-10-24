@@ -34,14 +34,14 @@
         field?.select()
       }
     } catch {
-      error = 'Could not reach the shelf. Check that the server is running.'
+      error = 'Could not reach your workspace. Check that the server is running.'
     } finally {
       busy = false
     }
   }
 </script>
 
-<AuthCard title="Open your shelf" lede="This instance uses an access token. Paste yours below to continue." eyebrow="Your private shelf">
+<AuthCard title="Open your workspace" lede="This instance uses an access token. Paste yours below to continue." eyebrow="Your private workspace">
   <form onsubmit={submit} aria-busy={busy}>
     <input class="vh" type="text" name="username" autocomplete="username" value="reet" tabindex="-1" aria-hidden="true" />
     <label for="access-token">Access token</label>
@@ -62,7 +62,7 @@
       placeholder="Paste your token"
     />
     {#if error}<p class="error" id="signin-error" role="alert">{error}</p>{/if}
-    <button class="btn primary submit" type="submit" disabled={busy}>{busy ? 'Checking…' : 'Open the shelf'}</button>
+    <button class="btn primary submit" type="submit" disabled={busy}>{busy ? 'Checking…' : 'Open the workspace'}</button>
   </form>
 
   <details class="help">

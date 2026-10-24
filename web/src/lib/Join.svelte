@@ -57,7 +57,7 @@
     <p class="muted">Loading…</p>
   {:else if !invite}
     <p class="error" id="join-error" role="alert">{error || 'This invite is not valid any more.'}</p>
-    <p class="muted"><a href="/skills">Go to the shelf</a></p>
+    <p class="muted"><a href="/">Go to your workspace</a></p>
   {:else}
     <p class="role">Role: <strong>{invite.role}</strong></p>
     <form onsubmit={submit} aria-busy={busy} aria-describedby={error ? "join-error" : undefined}>
@@ -68,7 +68,7 @@
       <label for="join-confirm">Confirm password</label>
       <PasswordInput id="join-confirm" bind:value={confirm} autocomplete="new-password" placeholder="Repeat the password" minlength={8} />
       {#if error}<p class="error" id="join-error" role="alert">{error}</p>{/if}
-      <button type="submit" class="btn primary submit" disabled={busy}>{busy ? 'Joining…' : 'Join the shelf'}</button>
+      <button type="submit" class="btn primary submit" disabled={busy}>{busy ? 'Joining…' : 'Join the workspace'}</button>
     </form>
   {/if}
 </AuthCard>

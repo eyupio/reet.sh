@@ -741,7 +741,7 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your machines, skills and agents' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isControl ? 'Control' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your machines and terminals' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isControl ? 'Control' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
   {/if}
 </svelte:head>
 
@@ -769,10 +769,12 @@
           />
         {/if}
       </div>
+    {:else if !authenticated && authMode==='accounts' && !isPublicList && !isCommunity && !isJoin}
+      <nav class="site-nav" aria-label="Public navigation"><a href="/welcome">Workspace</a><a href="/welcome#self-host">Self-host</a><a class="entry-link" href="/signin">Sign in →</a></nav>
     {:else if isPublicList || isCommunity || isJoin}
       <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a class="entry-link" href="/">Open your workspace →</a></nav>
     {/if}
-    {#if (!authenticated || needsAuth) && !isPublicList && !isCommunity && !isJoin && !isWelcome}<span class="tag">Your AI workspace</span>{/if}
+    {#if (!authenticated || needsAuth) && authMode !== 'accounts' && !isPublicList && !isCommunity && !isJoin && !isWelcome}<span class="tag">Your machine workspace</span>{/if}
   </div>
 </header>
 <main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout} class:auth-page={!isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
@@ -799,7 +801,7 @@
   {:else if authMode === 'token' && needsAuth}
     <SignIn onattempt={attemptSignIn} />
   {:else if !authMode}
-    <PageHeader eyebrow="Connection problem" title="The shelf is out of reach." />
+    <PageHeader eyebrow="Connection problem" title="Your workspace is out of reach." />
     <p class="notice bad" role="alert">Could not check how this instance signs in. Reload the page to try again.</p>
   {:else if isHosting}
     <Hosting {canWrite} />

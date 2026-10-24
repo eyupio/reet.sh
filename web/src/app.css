@@ -27,13 +27,13 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 var(
 #app { min-height: 100dvh; display: flex; flex-direction: column; }
 code, kbd { font-family: var(--mono); }
 a { color: var(--accent); text-underline-offset: 3px; }
-input:hover, select:hover, textarea:hover { border-color: var(--muted); }
-input:focus, select:focus, textarea:focus { border-color: var(--accent); }
-input[type='checkbox'] { accent-color: var(--accent); }
+input:not([type='checkbox']):not([type='radio']):hover, select:hover, textarea:hover { border-color: var(--muted); }
+input:not([type='checkbox']):not([type='radio']):focus, select:focus, textarea:focus { border-color: var(--accent); }
+input[type='checkbox'], input[type='radio'] { accent-color: var(--accent); }
 input[aria-invalid='true'] { border-color: var(--bad); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button, input, select, textarea { font: inherit; color: inherit; }
-input, select, textarea { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-height: 42px; min-width: 0; }
+input:not([type='checkbox']):not([type='radio']), select, textarea { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-height: 42px; min-width: 0; }
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 textarea { width: 100%; resize: vertical; }
 
@@ -52,8 +52,8 @@ textarea { width: 100%; resize: vertical; }
   .btn:active:not(:disabled) { transform: scale(0.97); }
 }
 @media (pointer: coarse) {
-  .btn, input, select, textarea, .filters button { min-height: 44px; }
+  .btn, input:not([type='checkbox']):not([type='radio']), select, textarea, .filters button { min-height: 44px; }
 }
 @media (max-width: 560px) {
-  input, select, textarea { font-size: 16px; }
+  input:not([type='checkbox']):not([type='radio']), select, textarea { font-size: 16px; }
 }

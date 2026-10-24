@@ -213,6 +213,22 @@ try{
  await live();expect(tickets.at(-1)).toBe(sessionB);expect(writes).toHaveLength(0)
  await page.goto(`${base}/machines?view=terminal&agent=${agentA}&session=${sessionA}`)
  await live();await bounds(1360,900)
+ // A new session always names its machine first; arriving without one attaches nothing.
+ await page.goto(`${base}/terminals`)
+ await expect(page.getByRole('heading',{name:'Terminals'})).toBeVisible()
+ expect(await page.locator('.workspace-toolbar').innerText()).not.toContain('dev-laptop')
+ await page.getByRole('button',{name:'New session',exact:true}).click()
+ await expect(page.getByRole('dialog',{name:'Choose a machine'})).toBeVisible()
+ await page.getByRole('button',{name:'Close Choose a machine'}).click()
+ await expect(page.getByRole('button',{name:'New terminal',exact:true})).toBeEnabled()
+ await page.getByRole('button',{name:'New terminal',exact:true}).click()
+ const chooseMachine=page.getByRole('dialog',{name:'Choose a machine'})
+ await expect(chooseMachine).toBeVisible()
+ await chooseMachine.getByRole('button',{name:/dev-laptop/}).click()
+ await expect(page.getByRole('dialog',{name:'New terminal session'})).toContainText('dev-laptop')
+ await page.getByRole('button',{name:'Close New terminal session'}).click()
+ await expect(page.getByRole('heading',{name:'Your next shell starts here.'})).toBeVisible()
+ expect(writes).toHaveLength(0)
  // Denied refresh clears the private hero inventory; viewers never fetch terminal APIs.
  await page.goto(base);denied=true
  await page.getByRole('button',{name:'Refresh active sessions'}).click()

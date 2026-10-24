@@ -122,7 +122,10 @@ new direct SSH adapter. Phone viewport emulation is not a physical keyboard test
   sizing, dialogs and existing create/rename/end APIs. Confirmations capture IDs
   and display names at open time. `WorkspaceDialog.svelte` provides native modals.
 - `terminal/TerminalPane.svelte` owns xterm fitting, attachment controls, clipboard,
-  focus and extra keys. `keyboard.ts` classifies terminal-only shortcuts.
+  focus and extra keys. `screen-frame` owns visual padding; the immediate xterm
+  fitting parent `screen` has no padding. FitAddon reads that parent's dimensions
+  without subtracting parent padding. Keep this split to prevent an oversized
+  grid clipping its final row. `keyboard.ts` classifies terminal-only shortcuts.
   `connection.ts` retains lease, recovery, generation and input-replay boundaries.
   The pane requests a full xterm refresh after each parsed batch and fit, keeping
   accessibility rows current through full redraws and resize. xterm coalesces these
@@ -165,3 +168,10 @@ write-role, cookie-only and canonical write-Origin checks while allowing command
 management when terminal execution is disabled. Commands are never interpolated
 or sent to the broker by these handlers. The profile default is UI-only: an end
 API request must explicitly set `removeHistory:true` to request archival.
+
+The fitting regression checks the actual renderer rectangle against its clipping
+area, including the final row, rather than only asserting that text exists in the
+accessibility tree. The real fixture also exercises `top` while resizing and a
+full-screen last-row marker before any input is sent to release it. ANSI colour
+checks read rendered foreground colours after real host SGR output and palette
+changes. Plain application output remains plain; `top` uses `z` for its colour mode.

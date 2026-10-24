@@ -57,11 +57,10 @@ agent configuration snapshots and skill distribution need distinct operations
 and results. Copying binaries or credentials between machines is not implied by
 skill sync. No lifecycle buttons claim functionality before those adapters exist.
 
-Agent of Empires provides session management and an experimental CityHall
-multi-machine control plane: https://www.agent-of-empires.com/ . Reet's design
-focus is the maintained central skill library and deliberate distribution,
-reconciliation and execution across machines. This is a product direction,
-not a claim of complete feature parity.
+Reet's product focus is a maintained central skill library, controlled distribution
+and reconciliation, and explicit execution across connected machines. Capability
+claims must distinguish current behaviour from planned work and locally tested
+results from verified fleet deployment.
 
 ## Validation
 

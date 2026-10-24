@@ -31,3 +31,18 @@ The installer and binary follow the same balance: a little warmth around introdu
 ## Copy review
 
 Check the everyday signed-in shelf, not just onboarding. Read the heading, lede and stage hints together for repetition. Check phone widths so the personality is visible without adding a tall banner. Preserve the Yorkshire rose and keep the layout restrained. A polished Reet should still sound like Reet.
+
+## Product scope on landing and entry pages
+
+Reet is the self-hosted control room around AI work across a machine fleet:
+installed agents, ongoing sessions, reusable AI setups, skills and reviewed sync.
+Terminals are a core way to use agents; do not describe the entire product as a
+remote-terminal app. Show how a known setup can help bring another machine into
+the fleet. Distinguish shipped controls from planned agent installation, updates,
+removal, richer orchestration and fleet-wide agent configuration.
+
+Keep the Yorkshire welcome visible in the main experience: “Ey up” at entry and
+a natural “reet good toolkit” or “proper control” in supporting copy. Keep the
+white rose, warm colours and bookish type. Familiar labels and concrete outcomes
+still come first; do not replace the voice with generic infrastructure marketing
+or put dialect into authentication errors and destructive confirmations.

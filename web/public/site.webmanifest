@@ -1,7 +1,7 @@
 {
   "name": "reet.sh",
   "short_name": "reet.sh",
-  "description": "Your machines and persistent terminal sessions in one self-hosted workspace.",
+  "description": "Your AI agents, machine fleet, skills and setups in one self-hosted control room.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

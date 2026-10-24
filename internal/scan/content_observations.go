@@ -34,6 +34,7 @@ func observationRequest(ctx context.Context, c agentConfig, path string, body, r
 	req.Header.Set("X-Reet-Agent", c.ID)
 	req.Header.Set("X-Reet-Agent-Key", c.Secret)
 	req.Header.Set("X-Reet-Version", version)
+	req.Header.Set("X-Reet-Commit", buildCommit)
 	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := client.Do(req)
 	if err != nil {

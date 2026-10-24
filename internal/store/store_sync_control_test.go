@@ -1,7 +1,9 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -456,5 +458,74 @@ func TestQueueAgentUpdateUsesExistingJobGate(t *testing.T) {
 	foreign, _, _ := s.EnrollSyncAgent(other.ID, "desktop", "v1.0.0")
 	if _, err = s.QueueAgentUpdate(uid, foreign.ID, "latest"); err == nil {
 		t.Fatal("cross-account update accepted")
+	}
+}
+
+func TestSyncAgentBuildAndAutoUpdateSettings(t *testing.T) {
+	s, uid, _ := controlFixture(t)
+	a, secret, err := s.EnrollSyncAgentBuild(uid, "laptop", "dev", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Commit != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" || !a.AutoUpdate {
+		t.Fatalf("enrollment defaults: %+v", a)
+	}
+	reported, err := s.AuthenticateSyncAgentBuild(uid, a.ID, secret, "dev", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reported.Commit != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+		t.Fatalf("reported commit not stored: %+v", reported)
+	}
+	if reported, err = s.AuthenticateSyncAgentBuild(uid, a.ID, secret, "dev", ""); err != nil || reported.Commit != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+		t.Fatalf("empty commit erased the last known build: %+v %v", reported, err)
+	}
+	if err = s.ControlSyncAgent(uid, a.ID, "auto-update-off"); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ := s.SyncAgentsFor(uid)
+	if len(agents) != 1 || agents[0].AutoUpdate {
+		t.Fatalf("auto-update did not turn off: %+v", agents)
+	}
+	if err = s.ControlSyncAgent(uid, a.ID, "auto-update-on"); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ = s.SyncAgentsFor(uid)
+	if !agents[0].AutoUpdate {
+		t.Fatalf("auto-update did not turn on: %+v", agents)
+	}
+	if _, err = s.QueueAgentUpdate(uid, a.ID, "dev"); err != nil {
+		t.Fatal(err)
+	}
+	recent, err := s.AgentUpdateAttemptedSince(uid, a.ID, time.Now().Add(-time.Minute).UnixMilli())
+	if err != nil || !recent {
+		t.Fatalf("recent update not detected: %t %v", recent, err)
+	}
+	old, err := s.AgentUpdateAttemptedSince(uid, a.ID, time.Now().Add(time.Minute).UnixMilli())
+	if err != nil || old {
+		t.Fatalf("future window reported an attempt: %t %v", old, err)
+	}
+}
+
+func TestOpenMigratesAgentBuildAndAutoUpdateColumns(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(dir, "reet.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`CREATE TABLE sync_agents (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, host TEXT NOT NULL, secret_hash TEXT NOT NULL, version TEXT NOT NULL, last_seen INTEGER NOT NULL, paused INTEGER NOT NULL DEFAULT 0, UNIQUE(user_id,host))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	uid, _ := s.DefaultOwner()
+	a, _, err := s.EnrollSyncAgentBuild(uid, "laptop", "dev", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	if err != nil || a.Commit == "" || !a.AutoUpdate {
+		t.Fatalf("migrated enrollment: %+v %v", a, err)
 	}
 }

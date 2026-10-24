@@ -1,0 +1,58 @@
+name: Cleanup Old Artifacts
+
+# The release and terminal-browser workflows upload Actions artifacts, and
+# nothing ever removes them. Artifacts count against the repository's Actions
+# storage until GitHub expires them, which keeps a lot of old builds around.
+#
+# .github/scripts/artifacts-prune.sh deletes an artifact only when it is old,
+# is not among the newest few of its name, and belongs to a completed run that
+# is not the latest successful run on the default branch. An artifact whose run
+# cannot be read, or whose run is still going, is kept: a later job in a running
+# run may still download it.
+#
+# A manual run is a dry run unless asked otherwise. The scheduled run deletes
+# for real.
+
+on:
+  schedule:
+    - cron: "53 2 * * *" # daily at 02:53 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List what would be deleted without deleting it."
+        type: boolean
+        default: true
+      keep_days:
+        description: "Never delete an artifact younger than this many days."
+        type: string
+        default: "14"
+      keep_newest:
+        description: "Always keep this many newest artifacts of each name."
+        type: string
+        default: "5"
+
+permissions: {}
+
+concurrency:
+  group: cleanup-artifacts
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Cleanup Actions artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test the prune
+        run: .github/scripts/artifacts-prune-test.sh
+      - name: Delete old unreferenced artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+          KEEP_DAYS: ${{ inputs.keep_days || '14' }}
+          KEEP_NEWEST: ${{ inputs.keep_newest || '5' }}
+        run: .github/scripts/artifacts-prune.sh

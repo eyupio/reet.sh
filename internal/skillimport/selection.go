@@ -43,21 +43,8 @@ func Select(files []skillbundle.ContentFile, exclude []string) (skillbundle.Mani
 		if omitted[f.Path] {
 			continue
 		}
-		for _, part := range strings.Split(strings.ToLower(f.Path), "/") {
-			switch part {
-			case ".git", ".ssh", ".aws", ".env", ".npmrc", ".netrc", "credentials", "credentials.json", "secrets.json", "auth.json", "settings.json", "config.toml", "opencode.json", "claude_desktop_config.json", ".claude.json", ".kube", "id_rsa", "id_ed25519", "id_ecdsa":
-				return empty, nil, &BlockedError{f.Path, "credential or configuration path"}
-			}
-			if strings.HasPrefix(part, ".env.") {
-				return empty, nil, &BlockedError{f.Path, "environment configuration"}
-			}
-		}
-		ext := strings.ToLower(path.Ext(f.Path))
-		if ext == ".pem" || ext == ".key" || ext == ".p12" || ext == ".pfx" {
-			return empty, nil, &BlockedError{f.Path, "key material"}
-		}
-		if credential.Match(f.Data) {
-			return empty, nil, &BlockedError{f.Path, "credential-like content"}
+		if code := BlockedReason(f); code != "" {
+			return empty, nil, &BlockedError{f.Path, BlockDescription(code)}
 		}
 		selected = append(selected, f)
 	}
@@ -66,4 +53,36 @@ func Select(files []skillbundle.ContentFile, exclude []string) (skillbundle.Mani
 		return empty, nil, ErrSelection
 	}
 	return m, selected, nil
+}
+
+// BlockedReason exposes bounded hazard codes for previews, never matched values.
+func BlockedReason(f skillbundle.ContentFile) string {
+	for _, part := range strings.Split(strings.ToLower(f.Path), "/") {
+		switch part {
+		case ".git", ".ssh", ".aws", ".env", ".npmrc", ".netrc", "credentials", "credentials.json", "secrets.json", "auth.json", "settings.json", "config.toml", "opencode.json", "claude_desktop_config.json", ".claude.json", ".kube", "id_rsa", "id_ed25519", "id_ecdsa":
+			return "credential_path"
+		}
+		if strings.HasPrefix(part, ".env.") {
+			return "credential_path"
+		}
+	}
+	ext := strings.ToLower(path.Ext(f.Path))
+	if ext == ".pem" || ext == ".key" || ext == ".p12" || ext == ".pfx" {
+		return "key_material"
+	}
+	if credential.Match(f.Data) {
+		return "credential_content"
+	}
+	return ""
+}
+func BlockDescription(code string) string {
+	switch code {
+	case "credential_path":
+		return "credential or configuration path"
+	case "key_material":
+		return "key material"
+	case "credential_content":
+		return "credential-like content"
+	}
+	return "unsupported content"
 }

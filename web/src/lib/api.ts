@@ -910,3 +910,24 @@ export async function updateSetupProfileOverrides(name: string, overrides: Setup
 export async function deleteSetupProfile(name: string): Promise<void> {
   await req(`/api/v2/setup/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' })
 }
+
+export type ImportPreviewFile = { path: string; bytes: number; digest: string; executable: boolean; blocked?: string }
+export type ImportRequest = {
+ id: string; requestKey: string; agentId: string; environmentId: string; host: string; agent: string; project: string; name: string
+ state: string; bundleId: string; expectedBase: string; createdAt: number; updatedAt: number; expiresAt: number
+ previewHash?: string; digest?: string; excluded: string[]; error?: string
+ preview?: { schemaVersion: number; sourceDigest: string; skillValid: boolean; files: ImportPreviewFile[] }
+ receipt?: { bundle: { id: string; name: string; head: string }; revision: { id: string; manifestDigest: string } }
+}
+export type PrivateBundle = { id: string; name: string; head: string; createdAt: number }
+export type PrivateRevision = { id: string; parent?: string; manifestDigest: string; createdAt: number; origin: { kind: string; reference?: string } }
+export type ImportState = { requests: ImportRequest[]; capabilities: { agentId: string; ready: boolean; observedAt: number }[] }
+export async function getImports(signal?: AbortSignal): Promise<ImportState> { return (await req('/api/v2/skill-imports', { signal })).json() }
+export async function getImport(id: string, signal?: AbortSignal): Promise<ImportRequest> { return (await req(`/api/v2/skill-imports/${encodeURIComponent(id)}`, { signal })).json() }
+export async function requestImport(input: { requestKey: string; agentId: string; environmentId: string; name: string; bundleId: string; expectedBase: string }): Promise<ImportRequest> { return (await req('/api/v2/skill-imports', { method: 'POST', body: json(input) })).json() }
+export async function approveImport(id: string, previewHash: string, excluded: string[]): Promise<ImportRequest> { return (await req(`/api/v2/skill-imports/${encodeURIComponent(id)}/approve`, { method: 'POST', body: json({ previewHash, excluded }) })).json() }
+export async function cancelImport(id: string): Promise<void> { await req(`/api/v2/skill-imports/${encodeURIComponent(id)}`, { method: 'DELETE' }) }
+export async function getPrivateBundles(signal?: AbortSignal): Promise<{ bundles: PrivateBundle[] }> { return (await req('/api/v2/skill-bundles', { signal })).json() }
+export async function getPrivateRevisions(id: string, signal?: AbortSignal): Promise<{ revisions: PrivateRevision[] }> { return (await req(`/api/v2/skill-bundles/${encodeURIComponent(id)}/revisions`, { signal })).json() }
+
+export async function stopImport(id: string): Promise<ImportRequest> { return (await req(`/api/v2/skill-imports/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: json({}) })).json() }

@@ -25,6 +25,9 @@ type MachineSkillImport struct {
 }
 
 func (s *Store) SaveMachineSkillImportFor(uid int64, enrollment string, in MachineSkillImport) (PrivateSkillResult, error) {
+	return s.saveMachineSkillImportFor(uid, enrollment, in, nil, nil)
+}
+func (s *Store) saveMachineSkillImportFor(uid int64, enrollment string, in MachineSkillImport, guard func(*sql.Tx) error, finish func(*sql.Tx, PrivateSkillResult) error) (PrivateSkillResult, error) {
 	var empty PrivateSkillResult
 	if in.SchemaVersion != 1 || !contentobs.ValidScope(in.Agent, in.Project) {
 		return empty, ErrPrivateSkillInvalid
@@ -38,7 +41,7 @@ func (s *Store) SaveMachineSkillImportFor(uid int64, enrollment string, in Machi
 	}
 	reference, _ := json.Marshal(struct{ Enrollment, Agent, Project, Name string }{enrollment, in.Agent, in.Project, in.Name})
 	write := PrivateSkillWrite{RequestID: in.RequestID, ExpectedBase: in.ExpectedBase, Name: in.Name, Files: in.Files, Origin: PrivateSkillOrigin{Kind: "import", Reference: string(reference)}}
-	return s.savePrivateSkillRevisionFor(uid, in.BundleID, write, func(tx *sql.Tx) error {
+	return s.savePrivateSkillRevisionWithReceipt(uid, in.BundleID, write, func(tx *sql.Tx) error {
 		if err := contentAgent(tx, uid, enrollment); err != nil {
 			return err
 		}
@@ -50,6 +53,9 @@ func (s *Store) SaveMachineSkillImportFor(uid int64, enrollment string, in Machi
 		if found != 1 {
 			return ErrRemoteNotFound
 		}
+		if guard != nil {
+			return guard(tx)
+		}
 		return nil
-	})
+	}, finish)
 }

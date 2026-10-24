@@ -6,9 +6,10 @@ No background scan uploads files, and this command never installs, removes,
 publishes or executes skill contents. It does not add a bookmark or change the
 existing metadata-only shelf/adoption actions.
 
-This first transfer slice is CLI-first. Browser preview/dispatch, private-content
-library controls and remote import jobs are still future work. S3 remains open
-until that central-control workflow is implemented. S4 file apply comes afterwards.
+The CLI transfer slice is merged through PR #164. The central browser workflow
+is implemented separately; read [browser skill import](browser-skill-import.md)
+for its protocol, review/approval and private revision history. S4 file apply
+remains a separate later stage.
 
 ## Use
 
@@ -118,7 +119,7 @@ Full controller DB backups include the imported bytes through existing S2 tables
 Personal shelf JSON/backups do not include them. There is no new deletion/GC or
 private-content export UI in this slice.
 
-## Continuation: central browser import
+## Browser import design checklist (implementation in browser-skill-import.md)
 
 1. Preserve the CLI/capture/policy/store contracts and read S3 in `handoff.md`.
 2. Negotiate a separate remote-import capability before dispatching new job types;

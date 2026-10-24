@@ -187,7 +187,9 @@ The installer downloads a GitHub release, verifies its SHA-256 checksum, and ins
 
 Open **Host skills** in the navigation and claim a permanent publishing username. Create a skill using the editor or upload an existing `SKILL.md`. Its YAML frontmatter must contain a `name` matching the skill's URL name and a `description` (up to 1024 bytes). Add instructions below the frontmatter. Supporting files are optional; paths can be edited to preserve folders such as `scripts/` and `references/`. Each bundle can contain up to 100 supporting files and 2 MiB total.
 
-Skills are private drafts until you select **Publish publicly** and save. A published skill has a public page at `https://reet.sh/username/skill-name`, with this install command:
+New hosted skills take the name prefix from **Account → Profile** (`reet-` by default, changeable or disablable). Imported folders use the same prefix. Skill names can be renamed later; the public URL and install command move with the name, and shelf, list and tag references follow the new identity.
+
+Skills are private drafts until you select **Publish publicly** and save. Publishing also puts the skill in the shared catalogue and on your own shelf under **To test**. A published skill has a public page at `https://reet.sh/username/skill-name`, with this install command:
 
 ```sh
 npx skills add https://reet.sh/username/skill-name

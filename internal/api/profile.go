@@ -50,6 +50,7 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 		ShelfView             *string `json:"shelfView"`
 		CardsExpanded         *bool   `json:"cardsExpanded"`
 		TerminalRemoveOnClose *bool   `json:"terminalRemoveOnClose"`
+		HostedPrefix          *string `json:"hostedPrefix"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -63,6 +64,15 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	if in.ShelfView != nil && *in.ShelfView != "list" && *in.ShelfView != "board" {
 		writeErr(w, http.StatusBadRequest, "shelfView must be list or board")
 		return
+	}
+	hostedPrefix := ""
+	if in.HostedPrefix != nil {
+		var err error
+		hostedPrefix, err = store.NormalizeHostedPrefix(*in.HostedPrefix)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	profile, err := s.st.ProfileFor(user.ID)
 	if err != nil {
@@ -129,6 +139,10 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	if in.TerminalRemoveOnClose != nil {
 		profile.TerminalRemoveOnClose = *in.TerminalRemoveOnClose
 		detail["terminalRemoveOnClose"] = *in.TerminalRemoveOnClose
+	}
+	if in.HostedPrefix != nil {
+		profile.HostedPrefix = hostedPrefix
+		detail["hostedPrefix"] = hostedPrefix
 	}
 	if err := s.st.SaveProfileFor(user.ID, profile); err != nil {
 		writeErr(w, 500, err.Error())

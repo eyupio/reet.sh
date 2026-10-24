@@ -362,11 +362,11 @@ func TestMCPHostedSkillReferences(t *testing.T) {
 		t.Run(transport, func(t *testing.T) {
 			ts, _, browser, _ := mcpAccounts(t)
 			mcpJSON(t, browser, ts, "POST", "/api/v2/hosting/username", map[string]any{"username": "ada"}, 200)
-			mcpJSON(t, browser, ts, "PUT", "/api/v2/hosting/skills/demo", store.HostedSkill{
-				Published: true, Content: "---\nname: demo\ndescription: A demo skill.\n---\n\nInstructions.",
+			mcpJSON(t, browser, ts, "PUT", "/api/v2/hosting/skills/reet-demo", store.HostedSkill{
+				Published: true, Content: "---\nname: reet-demo\ndescription: A demo skill.\n---\n\nInstructions.",
 			}, 200)
 			call := mcpToolCaller(t, ts, browser, transport)
-			input := ts.URL + "/ada/demo"
+			input := ts.URL + "/ada/reet-demo"
 			failed, text := call("reet_add_skill", map[string]any{"input": input})
 			if failed || !strings.Contains(text, `"sourceType":"hosted"`) {
 				t.Fatalf("add hosted skill: %s", text)

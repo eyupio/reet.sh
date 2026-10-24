@@ -984,6 +984,11 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	// A reet-hosted skill is something to try, not just a link to file away.
+	if rf.SourceType == "hosted" && in.Bookmarked == nil && in.Used == nil {
+		test := true
+		in.Bookmarked = &test
+	}
 	_ = s.st.UnignoreFor(s.uid(r), rf.ID)
 	sk, err := s.st.UpsertFor(s.uid(r), rf, in.Patch)
 	if err != nil {

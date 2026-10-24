@@ -123,3 +123,78 @@ func TestAutoUpdateLeavesNewerReleaseBuildsAlone(t *testing.T) {
 		t.Fatalf("newer local build was downgraded: %+v", polled.Job)
 	}
 }
+
+func TestAnAgentNarratesItsUpdateAndARollbackSettlesIt(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	srv := httptest.NewServer(New(st, deadFetcher(t), "tok", WithReleaseChecker(releaseFixture(t, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "v1.4.2"))))
+	defer srv.Close()
+	call := func(method, path, body string, headers ...string) (int, string) {
+		return doClient(t, srv.Client(), srv, method, path, body, append([]string{"X-Reet-Token", "tok"}, headers...)...)
+	}
+	code, body := call("POST", "/api/v2/sync/agents", `{"host":"laptop","version":"v1.0.0"}`)
+	if code != 201 {
+		t.Fatalf("enroll: %d %s", code, body)
+	}
+	var enrolled struct {
+		Agent  store.SyncAgent
+		Secret string
+	}
+	json.Unmarshal([]byte(body), &enrolled)
+	agentHeaders := []string{"X-Reet-Agent", enrolled.Agent.ID, "X-Reet-Agent-Key", enrolled.Secret, "X-Reet-Version", "v1.0.0"}
+
+	code, body = call("POST", "/api/v2/sync/poll", `{}`, agentHeaders...)
+	if code != 200 {
+		t.Fatalf("poll: %d %s", code, body)
+	}
+	var polled struct{ Job *store.SyncJob }
+	json.Unmarshal([]byte(body), &polled)
+	if polled.Job == nil || polled.Job.Kind != "update" || polled.Job.Stage != store.UpdateStageDownload || len(polled.Job.Stages) == 0 {
+		t.Fatalf("update job has no timeline: %s", body)
+	}
+
+	code, body = call("POST", "/api/v2/sync/agents/update/stage", `{"id":"`+polled.Job.ID+`","stage":"verify","detail":"Checking the downloaded build"}`, agentHeaders...)
+	if code != 200 {
+		t.Fatalf("stage: %d %s", code, body)
+	}
+	code, body = call("POST", "/api/v2/sync/agents/update/stage", `{"id":"`+polled.Job.ID+`","stage":"invented"}`, agentHeaders...)
+	if code != 409 {
+		t.Fatalf("unknown stage accepted: %d %s", code, body)
+	}
+	code, body = call("POST", "/api/v2/sync/agents/update/stage", `{"id":"`+polled.Job.ID+`","stage":"restart"}`, "X-Reet-Agent", enrolled.Agent.ID, "X-Reet-Agent-Key", "wrong", "X-Reet-Version", "v1.0.0")
+	if code != 403 {
+		t.Fatalf("a bad key wrote a stage: %d %s", code, body)
+	}
+
+	code, body = call("POST", "/api/v2/sync/result", `{"id":"`+polled.Job.ID+`","status":"rolled_back","message":"The new build did not report in; the previous binary is running."}`, agentHeaders...)
+	if code != 200 {
+		t.Fatalf("result: %d %s", code, body)
+	}
+	code, body = call("GET", "/api/v2/sync", "")
+	var state struct {
+		Jobs       []store.SyncJob
+		UpdateJobs []store.SyncJob
+	}
+	json.Unmarshal([]byte(body), &state)
+	if code != 200 || len(state.Jobs) != 1 || state.Jobs[0].Status != "rolled_back" || state.Jobs[0].Stage != store.UpdateStageRollback {
+		t.Fatalf("rolled-back update not visible: %d %s", code, body)
+	}
+	if len(state.UpdateJobs) != 1 || state.UpdateJobs[0].ID != polled.Job.ID {
+		t.Fatalf("latest update not kept beside the job list: %s", body)
+	}
+	if state.Jobs[0].Stages[len(state.Jobs[0].Stages)-1].Key != store.UpdateStageRollback {
+		t.Fatalf("rollback step missing: %+v", state.Jobs[0].Stages)
+	}
+
+	code, body = call("POST", "/api/v2/sync/poll", `{}`, agentHeaders...)
+	if code != 200 {
+		t.Fatalf("poll after rollback: %d %s", code, body)
+	}
+	json.Unmarshal([]byte(body), &polled)
+	if polled.Job != nil {
+		t.Fatalf("auto-update retried immediately after a rollback: %+v", polled.Job)
+	}
+}

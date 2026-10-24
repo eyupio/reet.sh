@@ -248,8 +248,8 @@ func (s *Store) QueueAgentUpdate(uid int64, agentID, version string) (SyncJob, e
 	if active > 0 {
 		return SyncJob{}, errors.New("finish or cancel this machine's current job first")
 	}
-	j := SyncJob{ID: syncID(), AgentID: agentID, Kind: "update", Status: "queued", Revision: version, Plan: json.RawMessage(`{}`), CreatedAt: now(), UpdatedAt: now()}
-	_, err := s.db.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,revision,created_at,updated_at) VALUES(?,?,?,'',?,?,?,?,?)`, j.ID, uid, agentID, j.Kind, j.Status, j.Revision, j.CreatedAt, j.UpdatedAt)
+	j := SyncJob{ID: syncID(), AgentID: agentID, Kind: "update", Status: "queued", Revision: version, Plan: json.RawMessage(`{}`), Stage: UpdateStageQueued, Stages: NewUpdateStages(), CreatedAt: now(), UpdatedAt: now()}
+	_, err := s.db.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,revision,stage,stages,created_at,updated_at) VALUES(?,?,?,'',?,?,?,?,?,?,?)`, j.ID, uid, agentID, j.Kind, j.Status, j.Revision, j.Stage, encodeStages(j.Stages), j.CreatedAt, j.UpdatedAt)
 	return j, err
 }
 

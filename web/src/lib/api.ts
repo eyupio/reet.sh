@@ -474,7 +474,7 @@ export type Machine = { aliases?: string[]; host: string; groups: SyncEnvironmen
 export type SyncRun = { id: string; agentId: string; targets: string[]; cursor: number; status: string; createdAt: number; updatedAt: number }
 export type ReleaseChannel = { version?: string; commit?: string; checkedAt?: number; error?: string }
 export type ReleaseInfo = { dev?: ReleaseChannel; latest?: ReleaseChannel }
-export type SyncState = { agents?: SyncAgent[]; jobs?: SyncJob[]; runs?: SyncRun[]; machines?: Machine[]; environments: SyncEnvironment[]; targets: SyncTarget[]; releases?: ReleaseInfo }
+export type SyncState = { agents?: SyncAgent[]; jobs?: SyncJob[]; updateJobs?: SyncJob[]; runs?: SyncRun[]; machines?: Machine[]; environments: SyncEnvironment[]; targets: SyncTarget[]; releases?: ReleaseInfo }
 export async function getSyncState(): Promise<SyncState> { return (await req('/api/v2/sync')).json() }
 export async function saveSyncTarget(sourceId: string, targetId: string): Promise<SyncState> { return (await req('/api/v2/sync', { method: 'PUT', body: json({ sourceId, targetId }) })).json() }
 export async function deleteSyncTarget(targetId: string): Promise<SyncState> { return (await req(`/api/v2/sync?target=${encodeURIComponent(targetId)}`, { method: 'DELETE' })).json() }
@@ -884,7 +884,8 @@ export async function deleteHostedSkill(slug: string): Promise<void> {
 
 export type SyncAgent = { id: string; host: string; version: string; commit?: string; lastSeen: number; paused: boolean; autoUpdate: boolean }
 export type SyncPlan = { backups?: string[]; target: string; directory: string; revision: string; actions: { add: boolean; skill: SyncSkill }[] }
-export type SyncJob = { id: string; agentId: string; targetId: string; kind: string; status: string; revision: string; hash: string; plan: Partial<SyncPlan>; message: string; createdAt: number; updatedAt: number }
+export type UpdateStage = { key: string; label: string; status: 'pending' | 'running' | 'done' | 'failed' | 'skipped'; detail?: string }
+export type SyncJob = { id: string; agentId: string; targetId: string; kind: string; status: string; revision: string; hash: string; plan: Partial<SyncPlan>; message: string; stage?: string; stages?: UpdateStage[]; createdAt: number; updatedAt: number }
 export async function syncCandidates(listId = 0, collection = 'shelf'): Promise<{ skills: SyncSkill[] }> { return (await req(`/api/v2/sync/candidates?list=${listId}&collection=${encodeURIComponent(collection)}`)).json() }
 export async function saveDesired(data: { targetId: string; sourceId: string; listId: number; skillIds: string[]; mode: string; revision: string }): Promise<SyncState> { return (await req('/api/v2/sync/desired', { method: 'PUT', body: json(data) })).json() }
 export async function reconcileDesired(targetId: string): Promise<{ skills: SyncSkill[]; conflicts: string[]; revision: string }> { return (await req('/api/v2/sync/reconcile', { method: 'POST', body: json({ targetId }) })).json() }

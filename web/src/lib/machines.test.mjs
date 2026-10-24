@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 // Compile the pure comparison helper without a browser or an extra test dependency.
 const { outputText } = ts.transpileModule(readFileSync(new URL('./machines.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
-const { inventoryMachines, compareInventories, inventory, agentGroups, installationReports, installationStatus, agentBuild, agentUpdateTarget, latestRelease, updateAvailable, versionLess } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { inventoryMachines, compareInventories, inventory, agentGroups, installationReports, installationStatus, agentBuild, agentUpdateTarget, latestRelease, updateAvailable, versionLess, updateJobFor, updateProgress, agentUpdateState, updateStateLabel } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 const now = Date.now()
 const skill = (id, source = 'org/repo') => ({ id, name: id, source, sourceType: source ? 'github' : 'local' })
 const group = (id, skills, changes = {}) => ({ id, agent: 'claude', skills, complete: true, scannedAt: now, ...changes })
@@ -104,4 +104,47 @@ test('semantic version comparison handles prereleases and unparseable builds', (
   assert.equal(versionLess('v1.2.10', 'v1.2.9'), false)
   assert.equal(versionLess('v2.0.0-rc.1', 'v2.0.0'), true)
   assert.equal(versionLess('not-a-version', 'v1.0.0'), false)
+})
+
+test('one machine update is chosen by kind and recency', () => {
+  const jobs = [
+    { id: 'old', agentId: 'a', kind: 'update', createdAt: 1 },
+    { id: 'scan', agentId: 'a', kind: 'scan', createdAt: 5 },
+    { id: 'new', agentId: 'a', kind: 'update', createdAt: 9 },
+    { id: 'other', agentId: 'b', kind: 'update', createdAt: 99 },
+  ]
+  assert.equal(updateJobFor(jobs, 'a').id, 'new')
+  assert.equal(updateJobFor(undefined, 'a'), undefined)
+  assert.equal(updateJobFor(jobs, 'c'), undefined)
+})
+
+test('update progress counts only completed stages and never goes backwards on failure', () => {
+  const job = (status, stages) => ({ id: 'j', agentId: 'a', kind: 'update', status, stages })
+  const running = job('running', [{ key: 'a', status: 'done' }, { key: 'b', status: 'running' }, { key: 'c', status: 'pending' }])
+  const progress = updateProgress(running)
+  assert.equal(progress.done, 1)
+  assert.equal(progress.total, 3)
+  assert.ok(progress.value > 0.3 && progress.value < 0.4)
+  const failed = updateProgress(job('failed', [{ key: 'a', status: 'done' }, { key: 'b', status: 'failed' }]))
+  assert.equal(failed.done, 1)
+  assert.equal(failed.value, 0.5)
+  assert.deepEqual(updateProgress(undefined), { done: 0, total: 0, value: 0 })
+})
+
+test('the machine update state follows the last job, then the published channel', () => {
+  const releases = { dev: { version: 'dev', commit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }, latest: { version: 'v1.4.2' } }
+  const agent = { version: 'v1.2.0' }
+  const job = (status) => ({ id: 'j', agentId: 'a', kind: 'update', status, updatedAt: Date.now() })
+  assert.equal(agentUpdateState(agent, releases), 'available')
+  assert.equal(agentUpdateState({ version: 'v1.4.2' }, releases), 'current')
+  assert.equal(agentUpdateState(agent, releases, job('queued')), 'queued')
+  assert.equal(agentUpdateState(agent, releases, job('running')), 'running')
+  assert.equal(agentUpdateState(agent, releases, job('failed')), 'failed')
+  assert.equal(agentUpdateState(agent, releases, job('rolled_back')), 'rolled_back')
+  assert.equal(agentUpdateState(agent, releases, job('cancelled')), 'cancelled')
+  assert.equal(agentUpdateState(agent, releases, job('succeeded')), 'available')
+  assert.equal(agentUpdateState({ version: 'v1.4.2' }, releases, job('succeeded')), 'current')
+  assert.equal(agentUpdateState(agent, { latest: { error: 'offline' } }), 'unknown')
+  assert.equal(agentUpdateState(agent, undefined), 'unknown')
+  assert.equal(updateStateLabel('rolled_back'), 'Rolled back')
 })

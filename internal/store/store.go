@@ -164,7 +164,7 @@ var schemaV12 = []string{
 	`CREATE TABLE IF NOT EXISTS scan_errors (env_id TEXT PRIMARY KEY REFERENCES environments(id) ON DELETE CASCADE, error TEXT NOT NULL)`,
 	`CREATE TABLE IF NOT EXISTS sync_options (target_id TEXT PRIMARY KEY REFERENCES environments(id) ON DELETE CASCADE, mode TEXT NOT NULL DEFAULT 'mirror', baseline TEXT NOT NULL DEFAULT '[]', applied_revision TEXT NOT NULL DEFAULT '')`,
 	`CREATE TABLE IF NOT EXISTS sync_agents (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, host TEXT NOT NULL, secret_hash TEXT NOT NULL, version TEXT NOT NULL, source_commit TEXT NOT NULL DEFAULT '', last_seen INTEGER NOT NULL, paused INTEGER NOT NULL DEFAULT 0, auto_update INTEGER NOT NULL DEFAULT 1, UNIQUE(user_id,host))`,
-	`CREATE TABLE IF NOT EXISTS sync_jobs (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, agent_id TEXT NOT NULL REFERENCES sync_agents(id) ON DELETE CASCADE, target_id TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL, status TEXT NOT NULL, revision TEXT NOT NULL DEFAULT '', plan TEXT NOT NULL DEFAULT '{}', hash TEXT NOT NULL DEFAULT '', message TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+	`CREATE TABLE IF NOT EXISTS sync_jobs (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, agent_id TEXT NOT NULL REFERENCES sync_agents(id) ON DELETE CASCADE, target_id TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL, status TEXT NOT NULL, revision TEXT NOT NULL DEFAULT '', plan TEXT NOT NULL DEFAULT '{}', hash TEXT NOT NULL DEFAULT '', message TEXT NOT NULL DEFAULT '', stage TEXT NOT NULL DEFAULT '', stages TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
 	`CREATE TABLE IF NOT EXISTS sync_receipts (job_id TEXT NOT NULL REFERENCES sync_jobs(id) ON DELETE CASCADE, status TEXT NOT NULL, hash TEXT NOT NULL, PRIMARY KEY(job_id,status,hash))`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS sync_agents_host ON sync_agents(user_id,host COLLATE NOCASE)`,
 	`CREATE INDEX IF NOT EXISTS sync_jobs_agent ON sync_jobs(agent_id,status)`,
@@ -344,6 +344,10 @@ func Open(dir string) (*Store, error) {
 		return nil, err
 	}
 	if err := st.migrateSyncAgents(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := st.migrateSyncJobs(); err != nil {
 		db.Close()
 		return nil, err
 	}

@@ -64,7 +64,7 @@ func main() {
 	}
 	switch cmd {
 	case "version", "--version", "-v":
-		fmt.Printf("reet %s (%s)\n", version, commit)
+		printVersion(os.Stdout, version, commit)
 	case "help", "--help", "-h":
 		fmt.Print(`reet.sh — your AI agent toolkit. Get your toolkit reet.
 
@@ -186,6 +186,17 @@ backup to preserve accounts, lists, teams and sync references.
 		fmt.Fprintln(os.Stderr, "usage: reet serve | reet terminal | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet setup | reet sync | reet backup | reet version")
 		os.Exit(2)
 	}
+}
+
+// printVersion answers the agent update protocol probe before the ordinary
+// version line. The probe lets a newer agent know whether a target build can
+// read the pending-update marker it would otherwise leave behind.
+func printVersion(out io.Writer, version, commit string) {
+	if os.Getenv("REET_AGENT_UPDATE_PROTOCOL") == "1" {
+		fmt.Fprintln(out, scan.AgentUpdateProtocol)
+		return
+	}
+	fmt.Fprintf(out, "reet %s (%s)\n", version, commit)
 }
 
 func serve() error {

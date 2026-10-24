@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/eyupio/reet.sh/internal/backup"
+	"github.com/eyupio/reet.sh/internal/scan"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -199,5 +200,20 @@ func TestHealthcheckTargetEnvironmentAndLocalOverride(t *testing.T) {
 	t.Setenv("REET_URL", "")
 	if err := runHealthcheck(nil, &bytes.Buffer{}); err == nil {
 		t.Fatal("missing noninteractive target should explain configuration")
+	}
+}
+
+func TestVersionAnswersTheAgentUpdateProtocolProbe(t *testing.T) {
+	t.Setenv("REET_AGENT_UPDATE_PROTOCOL", "1")
+	var out bytes.Buffer
+	printVersion(&out, "v1.2.3", "abc")
+	if strings.TrimSpace(out.String()) != scan.AgentUpdateProtocol {
+		t.Fatalf("probe answer: %q", out.String())
+	}
+	t.Setenv("REET_AGENT_UPDATE_PROTOCOL", "")
+	out.Reset()
+	printVersion(&out, "v1.2.3", "abc")
+	if strings.TrimSpace(out.String()) != "reet v1.2.3 (abc)" {
+		t.Fatalf("version line: %q", out.String())
 	}
 }

@@ -1,4 +1,4 @@
-import type { Environment, Machine, ReleaseInfo, SyncAgent, SyncEnvironment, SyncSkill } from './api'
+import type { Environment, Machine, ReleaseInfo, SyncAgent, SyncEnvironment, SyncJob, SyncSkill } from './api'
 
 export function groupLabel(env: Environment & { project?: string }): string {
   const names: Record<string, string> = { agents: 'Shared agents / Codex', claude: 'Claude Code', codex: 'Legacy Codex (scan only)', cursor: 'Cursor', opencode: 'OpenCode', reet: 'Scanner', 'reet-server': 'Server' }
@@ -138,4 +138,45 @@ export function versionLess(a: string, b: string): boolean {
   if (left.minor !== right.minor) return left.minor < right.minor
   if (left.patch !== right.patch) return left.patch < right.patch
   return comparePrerelease(left.pre, right.pre) < 0
+}
+
+export function updateJobFor(jobs: SyncJob[] | undefined, agentId: string): SyncJob | undefined {
+  return (jobs ?? []).filter(job => job.agentId === agentId && job.kind === 'update').sort((a, b) => b.createdAt - a.createdAt)[0]
+}
+
+export function updateProgress(job?: SyncJob): { done: number; total: number; value: number } {
+  const stages = job?.stages ?? []
+  const done = stages.filter(stage => stage.status === 'done' || stage.status === 'skipped').length
+  return { done, total: stages.length, value: stages.length ? (job?.status === 'running' ? Math.max(0.04, done / stages.length) : done / stages.length) : 0 }
+}
+
+export type AgentUpdateState = 'current' | 'available' | 'queued' | 'running' | 'failed' | 'rolled_back' | 'cancelled' | 'unknown'
+
+export function agentUpdateState(agent: Pick<SyncAgent, 'version' | 'commit'>, releases: ReleaseInfo | undefined, job?: SyncJob): AgentUpdateState {
+  if (job) {
+    if (job.status === 'queued') return 'queued'
+    if (job.status === 'running') return 'running'
+    if (job.status === 'rolled_back') return 'rolled_back'
+    if (job.status === 'cancelled') return 'cancelled'
+    if (job.status === 'failed') return 'failed'
+    if (job.status === 'succeeded') return updateAvailable(agent, releases) ? 'available' : 'current'
+  }
+  if (!releases) return 'unknown'
+  if (updateAvailable(agent, releases)) return 'available'
+  const latest = latestRelease(agent, releases)
+  if (!latest || latest.error) return 'unknown'
+  return 'current'
+}
+
+export function updateStateLabel(state: AgentUpdateState): string {
+  return ({
+    current: 'Up to date',
+    available: 'Update available',
+    queued: 'Update queued',
+    running: 'Updating',
+    failed: 'Update failed',
+    rolled_back: 'Rolled back',
+    cancelled: 'Update cancelled',
+    unknown: 'Not checked',
+  })[state]
 }

@@ -1,8 +1,12 @@
 package scan
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -93,11 +97,32 @@ func describeBuild(version, commit string) string {
 // that cannot be reached may simply be restarting, so it gets five minutes.
 const updateHealthWindow = 5 * time.Minute
 
+// AgentUpdateProtocol is the answer a build gives when asked whether it can
+// read the pending-update marker. A build that does not know the question
+// prints its ordinary version line, which is how an older target is spotted
+// before it is installed.
+const AgentUpdateProtocol = "reet-agent-update-v1"
+
+func agentUpdateProtocolSupported(ctx context.Context, path string) bool {
+	cmd := exec.CommandContext(ctx, path, "version")
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, item := range os.Environ() {
+		if !strings.HasPrefix(item, "REET_AGENT_UPDATE_PROTOCOL=") {
+			env = append(env, item)
+		}
+	}
+	cmd.Env = append(env, "REET_AGENT_UPDATE_PROTOCOL=1")
+	out, err := cmd.Output()
+	return err == nil && strings.TrimSpace(string(out)) == AgentUpdateProtocol
+}
+
 // shouldRollback separates a controller that refused the new build from one
 // that could not answer: a refusal will not improve by waiting, while a quiet
-// controller may be restarting.
+// controller, a gateway error or a rate limit may be temporary.
 func shouldRollback(err error, started int64, at time.Time) bool {
-	if strings.HasPrefix(err.Error(), "controller ") {
+	var refusal controllerError
+	if errors.As(err, &refusal) && refusal.Status >= 400 && refusal.Status < 500 &&
+		refusal.Status != http.StatusRequestTimeout && refusal.Status != http.StatusTooManyRequests {
 		return true
 	}
 	return at.Sub(time.UnixMilli(started)) >= updateHealthWindow

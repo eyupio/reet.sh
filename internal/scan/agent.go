@@ -118,7 +118,7 @@ func agentRequestContext(ctx context.Context, c agentConfig, path string, body a
 	if resp.StatusCode >= 300 {
 		var e struct{ Error string }
 		_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&e)
-		return fmt.Errorf("controller %s: %s", resp.Status, e.Error)
+		return controllerError{Status: resp.StatusCode, Message: e.Error}
 	}
 	if result == nil {
 		return nil
@@ -370,14 +370,27 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	}
 }
 
+// controllerError is a refusal or failure the controller answered with. The
+// status separates a permanent refusal from a server that is restarting.
+type controllerError struct {
+	Status  int
+	Message string
+}
+
+func (e controllerError) Error() string {
+	return fmt.Sprintf("controller %d %s: %s", e.Status, http.StatusText(e.Status), e.Message)
+}
+
 // permanentAgentError reports a controller refusal that will not change by
 // resending the same request.
 func permanentAgentError(err error) bool {
-	message := err.Error()
-	for _, code := range []string{"controller 400", "controller 403", "controller 404", "controller 409"} {
-		if strings.HasPrefix(message, code) {
-			return true
-		}
+	var refusal controllerError
+	if !errors.As(err, &refusal) {
+		return false
+	}
+	switch refusal.Status {
+	case http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict:
+		return true
 	}
 	return false
 }

@@ -87,8 +87,19 @@ func TestAnAgentReportsTheStageItIsOn(t *testing.T) {
 
 func TestAnUpdateRollsBackWhenRefusedOrAfterTheGraceWindow(t *testing.T) {
 	started := time.Now().Add(-time.Minute).UnixMilli()
-	if !shouldRollback(errors.New("controller 403 Forbidden: machine enrollment is missing or revoked"), started, time.Now()) {
+	if !shouldRollback(controllerError{Status: 403, Message: "machine enrollment is missing or revoked"}, started, time.Now()) {
 		t.Fatal("a refusal must roll back at once")
+	}
+	if !shouldRollback(controllerError{Status: 401}, started, time.Now()) {
+		t.Fatal("an authentication refusal must roll back at once")
+	}
+	for _, status := range []int{408, 429, 500, 502, 503} {
+		if shouldRollback(controllerError{Status: status}, started, time.Now()) {
+			t.Fatalf("HTTP %d rolled back inside the grace window", status)
+		}
+		if !shouldRollback(controllerError{Status: status}, started, time.Now().Add(updateHealthWindow)) {
+			t.Fatalf("HTTP %d did not roll back after the window", status)
+		}
 	}
 	if shouldRollback(errors.New("dial tcp 10.0.0.1:443: connect: connection refused"), started, time.Now()) {
 		t.Fatal("a quiet controller rolled back inside the grace window")

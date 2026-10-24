@@ -57,6 +57,10 @@ func updateAgentBinary(ctx context.Context, config, jobID, requested, current st
 	if !strings.EqualFold(strings.TrimSpace(version), strings.TrimSpace(resolved)) {
 		return "", "", fmt.Errorf("release binary version %q does not match %s", strings.TrimSpace(string(build)), resolved)
 	}
+	message := fmt.Sprintf("Updated from %s to %s. Restarting the agent.", describeBuild(current, buildCommit), describeBuild(version, commit))
+	if strings.TrimSpace(current) == "" || strings.EqualFold(current, "dev") {
+		message = fmt.Sprintf("Updated to %s. Restarting the agent.", describeBuild(version, commit))
+	}
 	target, err := os.Executable()
 	if err != nil {
 		return "", "", err
@@ -68,18 +72,24 @@ func updateAgentBinary(ctx context.Context, config, jobID, requested, current st
 	if lifecycle.SameBinary(candidate, target) {
 		return fmt.Sprintf("Already running %s.", describeBuild(version, commit)), "", nil
 	}
+	// A target built before this protocol cannot read the marker. Keep the
+	// pre-execution result the old agent sends so the job still completes; that
+	// build has no health check or rollback of its own.
+	markerSupport := agentUpdateProtocolSupported(ctx, candidate)
 	previous := target + ".previous"
 	report(store.UpdateStagePreserve, "Keeping the current binary as "+filepath.Base(previous))
 	if err = lifecycle.ReplaceBinary(target, previous); err != nil {
 		return "", "", fmt.Errorf("could not preserve the current binary: %w", err)
 	}
-	pending := pendingUpdate{
-		JobID: jobID, From: current, FromCommit: buildCommit,
-		To: version, Commit: commit, Target: target, Previous: previous,
-		Started: time.Now().UnixMilli(),
-	}
-	if err = savePendingUpdate(config, pending); err != nil {
-		return "", "", fmt.Errorf("could not record the pending update: %w", err)
+	if markerSupport {
+		pending := pendingUpdate{
+			JobID: jobID, From: current, FromCommit: buildCommit,
+			To: version, Commit: commit, Target: target, Previous: previous,
+			Started: time.Now().UnixMilli(),
+		}
+		if err = savePendingUpdate(config, pending); err != nil {
+			return "", "", fmt.Errorf("could not record the pending update: %w", err)
+		}
 	}
 	report(store.UpdateStageReplace, "Installing "+describeBuild(version, commit))
 	if err = lifecycle.ReplaceBinary(candidate, target); err != nil {
@@ -87,9 +97,10 @@ func updateAgentBinary(ctx context.Context, config, jobID, requested, current st
 		return "", "", fmt.Errorf("could not replace the current binary: %w", err)
 	}
 	report(store.UpdateStageRestart, "Restarting into "+describeBuild(version, commit))
-	message := fmt.Sprintf("Updated from %s to %s. Restarting the agent.", describeBuild(current, buildCommit), describeBuild(version, commit))
-	if strings.TrimSpace(current) == "" || strings.EqualFold(current, "dev") {
-		message = fmt.Sprintf("Updated to %s. Restarting the agent.", describeBuild(version, commit))
+	if !markerSupport {
+		if err = writePrivate(config+".result", agentResult{ID: jobID, Status: "succeeded", Message: message}); err != nil {
+			return "", "", fmt.Errorf("could not record the update result for the older build: %w", err)
+		}
 	}
 	return message, target, nil
 }

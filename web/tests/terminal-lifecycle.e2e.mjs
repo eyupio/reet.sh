@@ -76,7 +76,7 @@ const pane=page.locator('.pane')
 const selected=()=>new URL(page.url()).searchParams.get('session')
 async function live(){await expect(pane).toHaveAttribute('data-connection-state','live')}
 async function create(name){await page.getByRole('button',{name:'New session',exact:true}).click();await page.getByLabel('New session name').fill(name);await page.getByRole('button',{name:'New terminal',exact:true}).click()}
-async function refresh(){const toggle=page.getByRole('button',{name:/^Sessions/});if(await toggle.getAttribute('aria-expanded')!=='true')await toggle.click();await page.getByRole('button',{name:'Refresh status',exact:true}).click()}
+async function refresh(){const toggle=page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/});if(await toggle.getAttribute('aria-expanded')!=='true')await toggle.click();await page.getByRole('button',{name:'Refresh status',exact:true}).click()}
 async function manage(name){await page.locator('.session-menu summary').click();await page.getByRole('button',{name,exact:true}).click()}
 try{
  await page.goto(`${base}/terminals?agent=${agentA}&session=${sessionA}`);await live()

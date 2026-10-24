@@ -215,3 +215,22 @@ xterm scrollbar cannot expose its machine-side history.
 site navigation. Exit theatre restores the previous panel layout. **Maximise**
 remains the separate viewport-filling view (Alt+Shift+M). Both fit the existing
 terminal/PTY; neither disconnects, creates a shell or changes saved panel width.
+
+
+### Quick terminal actions
+
+The + beside a machine starts a new Shell explicitly. Empty machines remain in
+the machine groups; unready/disabled or full machines disable creation. An
+unconfirmed workspace creation reuses the same request when retried. The control
+page has the same + on machine and active-session cards and opens the returned
+session. Menus themselves never start or attach a shell.
+
+Right-click a machine or use its ellipsis for terminal actions. Right-click the
+terminal screen for saved commands, command history, earlier output, appearance
+and clipboard controls; Shift+right-click keeps the browser menu. Control-page
+active-session menus also rename or request a stop, with explicit confirmation
+and the same remove-after-closure/account preference as the workspace.
+
+When the sidebar is hidden, **Show sessions** is visible in both the workspace
+header and the terminal toolbar. In theatre view the toolbar control exits theatre
+and restores the sidebar. Its saved width and organisation remain intact.

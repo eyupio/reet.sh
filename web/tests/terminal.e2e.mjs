@@ -18,6 +18,7 @@ const screen = page.locator('.xterm-accessibility-tree')
 async function live() { await expect(pane).toHaveAttribute('data-connection-state', 'live', { timeout: 20000 }) }
 async function command(text) { await page.getByRole('button', { name: 'Focus terminal' }).click(); await page.keyboard.type(text); await page.keyboard.press('Enter') }
 async function state() { return page.evaluate(async () => (await fetch('/_test/state')).json()) }
+async function chooseMachine(id){const toggle=page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/});if(await toggle.getAttribute('aria-expanded')!=='true')await toggle.click();await page.getByLabel('Machine',{exact:true}).selectOption(id)}
 async function renderedScreenFits(){await expect.poll(async()=>{const host=await page.getByRole('region',{name:'Remote terminal screen',exact:true}).boundingBox(),rendered=await page.locator('.xterm-screen').boundingBox();return Math.ceil(rendered.y+rendered.height-host.y-host.height)}).toBeLessThanOrEqual(0)}
 
 
@@ -49,13 +50,13 @@ try {
   await page.unroute('**/api/v2/machines/health')
   await page.getByLabel('New session name').fill('Browser durability')
   await page.getByRole('button', { name: 'New terminal', exact: true }).click()
-  await page.getByLabel('Machine',{exact:true}).selectOption(otherAgent)
+  await chooseMachine(otherAgent)
   const created=page.waitForResponse(response=>response.request().method()==='POST'&&response.url().endsWith('/api/v2/terminal/sessions'))
   releaseCreate();await created
   await expect(page.getByRole('button',{name:'New terminal',exact:true})).toBeDisabled()
   expect(new URL(page.url()).searchParams.get('agent')).toBe(otherAgent)
   expect(new URL(page.url()).searchParams.get('session')).toBeNull()
-  await page.getByLabel('Machine',{exact:true}).selectOption(process.env.REET_BROWSER_AGENT)
+  await chooseMachine(process.env.REET_BROWSER_AGENT)
   await live()
   await expect(screen).toContainText('stage6-ready>')
   await expect.poll(async()=>{const remote=await page.evaluate(async()=>(await fetch('/_test/size')).json());return remote.grid===`${lastSize?.rows} ${lastSize?.cols}`},{timeout:10000}).toBe(true)
@@ -336,11 +337,11 @@ try {
   const builderOriginal=await fixture('state-builder')
   expect(Number(builderOriginal.pid)).toBeGreaterThan(0)
   expect(builderOriginal.pid).not.toBe(original.pid)
-  await page.getByLabel('Machine',{exact:true}).selectOption(process.env.REET_BROWSER_AGENT);await live()
+  await chooseMachine(process.env.REET_BROWSER_AGENT);await live()
   await command("kill -0 \"$LONG_PID\" && printf '__two_host_%s__\\n' 'primary'")
   await expect(screen).toContainText('__two_host_primary__')
   expect((await state()).pid).toBe(original.pid)
-  await page.getByLabel('Machine',{exact:true}).selectOption(builder)
+  await chooseMachine(builder)
   await page.getByRole('button',{name:'New session',exact:true}).click()
   await expect(page.getByLabel('New session name')).toHaveValue('Builder work')
   await page.getByRole('button',{name:'Retry creation',exact:true}).click();await live()
@@ -378,7 +379,7 @@ try {
   await expect(page.getByRole('dialog')).toContainText('Builder renamed')
   await page.getByRole('dialog').getByRole('button',{name:'End session',exact:true}).click()
   await expect(page.getByText(/End requested. Waiting for this machine/)).toBeVisible()
-  await page.getByLabel('Machine',{exact:true}).selectOption(process.env.REET_BROWSER_AGENT);await live()
+  await chooseMachine(process.env.REET_BROWSER_AGENT);await live()
   await command("kill -0 \"$LONG_PID\" && printf '__other_end_%s__\\n' 'safe'")
   await expect(screen).toContainText('__other_end_safe__')
   await fixture('online-builder')

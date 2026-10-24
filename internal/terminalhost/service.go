@@ -389,9 +389,9 @@ func Install(ctx context.Context, plan ServicePlan) error {
 	if err := runServiceCommand(ctx, "systemctl", "--user", "daemon-reload"); err != nil {
 		return err
 	}
-	if err := runServiceCommand(ctx, "systemctl", "--user", "reset-failed", plan.AgentName, plan.TerminalName); err != nil {
-		return err
-	}
+	// Fresh unit definitions may not be loaded until enable/start. Recovery is
+	// best-effort here; the actual start/restart must still succeed.
+	_ = runServiceCommand(ctx, "systemctl", "--user", "reset-failed", plan.AgentName, plan.TerminalName)
 	if err := runServiceCommand(ctx, "systemctl", "--user", "enable", plan.TerminalName); err != nil {
 		return err
 	}
@@ -464,9 +464,7 @@ func ControlAgentService(ctx context.Context, plan ServicePlan, action string) e
 		if err := runServiceCommand(ctx, "systemctl", "--user", "daemon-reload"); err != nil {
 			return err
 		}
-		if err := runServiceCommand(ctx, "systemctl", "--user", "reset-failed", plan.AgentName); err != nil {
-			return err
-		}
+		_ = runServiceCommand(ctx, "systemctl", "--user", "reset-failed", plan.AgentName)
 	}
 	return runServiceCommand(ctx, "systemctl", "--user", action, plan.AgentName)
 }

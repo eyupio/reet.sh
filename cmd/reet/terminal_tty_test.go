@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -42,5 +43,46 @@ func TestTerminalStartActuallyPromptsOnATerminal(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Also set up this machine for web terminal access?") || !strings.Contains(out.String(), "not enrolled or granted shell access") {
 		t.Fatal("start printed advice instead of asking", out.String())
+	}
+}
+
+func TestTerminalStartReadsMissingURLAndHostAnswerFromRealTTY(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "reet-questions-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	t.Setenv("REET_PUBLIC_URL", "")
+	t.Setenv("REET_URL", "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "client"))
+	master, slave, err := pty.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer master.Close()
+	defer slave.Close()
+	control, err := terminalcontrol.Open(filepath.Join(dir, "data"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer control.Close()
+	var origin atomic.Pointer[string]
+	if err = control.Serve(func(bool) {}, func() bool { return origin.Load() != nil }, terminalcontrol.Options{Configure: func(value string) error { origin.Store(&value); return nil }, Reason: func() string {
+		if origin.Load() == nil {
+			return "https_required"
+		}
+		return ""
+	}, AuthMode: func() string { return "accounts" }}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = master.Write([]byte("https://reet.example\nno\n")); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err = runTerminalInput([]string{"start", "--data-dir", filepath.Join(dir, "data"), "--agent-config", filepath.Join(dir, "agent.json")}, slave, &out); err != nil {
+		t.Fatal(err, out.String())
+	}
+	if !strings.Contains(out.String(), "Public URL:") || !strings.Contains(out.String(), "Also set up this machine") || origin.Load() == nil || *origin.Load() != "https://reet.example" {
+		t.Fatal("actual prompt path failed", out.String())
 	}
 }

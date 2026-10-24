@@ -367,6 +367,10 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := st.migrateSkillContentReceipts(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	var ownerID int64
 	if err := db.QueryRow(`SELECT id FROM users WHERE role='owner' ORDER BY id LIMIT 1`).Scan(&ownerID); err == nil {
 		if err := st.MigrateToOwner(ownerID); err != nil {

@@ -327,6 +327,7 @@ func TestSkillContentPreviewReviewIdentityBindsThePinVersion(t *testing.T) {
 		"inventory": func(i *skillContentReviewIdentity) { i.InventoryRevision = 8 },
 		"capture":   func(i *skillContentReviewIdentity) { i.CaptureHash = "x" },
 		"plan":      func(i *skillContentReviewIdentity) { i.PlanHash = "x" },
+		"receipt":   func(i *skillContentReviewIdentity) { i.ReceiptVersion = "x" },
 	} {
 		changed := base
 		change(&changed)
@@ -846,4 +847,356 @@ func TestSkillContentPreviewNeverPlansFromARevisionThatNoLongerMatchesItsPin(t *
 			}
 		})
 	}
+}
+
+// preview runs one whole request for the pinned slot and returns its stored result.
+func (e previewEnv) preview(t *testing.T, key string, c skillpreview.Capture) SkillContentPreview {
+	t.Helper()
+	p := e.create(t, key)
+	e.claim(t)
+	if err := e.report(t, p.ID, c); err != nil {
+		t.Fatal(err)
+	}
+	return e.state(t, p.ID)
+}
+
+// repin moves the pin by one saved change and returns the fixture holding the new pin.
+func (e previewEnv) repin(t *testing.T, change func(*SkillContentTargetWrite)) previewEnv {
+	t.Helper()
+	version := e.pin.Version
+	in := e.write
+	in.ExpectedVersion = &version
+	change(&in)
+	pin, err := e.s.SaveSkillContentTargetFor(e.uid, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.ExpectedVersion = nil
+	e.write, e.pin = in, pin
+	return e
+}
+
+// adopted seeds a receipt claiming every file of the fixture's revision, in the
+// root that exclusiveAbsent and presentOf report.
+func (e previewEnv) adopted(t *testing.T) SkillContentReceipt {
+	t.Helper()
+	return seedReceipt(t, e, e.bundle.Revision.ID, *e.bundle.Revision.Manifest, exclusiveAbsent().RootID)
+}
+
+// withLocal is a manifest of the files plus one the library does not own.
+func withLocal(t *testing.T, m skillbundle.Manifest) skillbundle.Manifest {
+	t.Helper()
+	out, err := skillbundle.FromMetadata(append(append([]skillbundle.File{}, m.Files...), skillbundle.File{Path: "notes/mine.txt", Bytes: 3, Digest: strings.Repeat("e", 64)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func actionList(p SkillContentPreview) []string {
+	out := []string{}
+	for _, a := range p.Plan.Actions {
+		out = append(out, a.Kind+" "+a.Path)
+	}
+	return out
+}
+
+func preservedList(p SkillContentPreview) []string {
+	out := []string{}
+	for _, k := range p.Plan.Preserved {
+		out = append(out, k.Reason+" "+k.Path)
+	}
+	return out
+}
+
+func TestPreviewUsesReceiptAsBaseline(t *testing.T) {
+	e := previewFixture(t)
+	r := e.adopted(t)
+	got := e.preview(t, "preview_receipt_baseline_1", presentOf(withLocal(t, *e.bundle.Revision.Manifest), "exclusive"))
+	if got.State != "captured" || got.Plan == nil || !got.Plan.Ready || len(got.Plan.Actions) != 0 || len(got.Plan.Conflicts) != 0 || len(got.Reasons) != 0 {
+		t.Fatalf("an adopted folder already at the pinned revision has nothing to do: %+v", got.Plan)
+	}
+	if got.Plan.ExpectedManaged == nil || got.Plan.ExpectedManaged.Digest != e.pin.ManifestDigest {
+		t.Fatalf("the managed result must be exactly the pinned revision: %+v", got.Plan.ExpectedManaged)
+	}
+	if !reflect.DeepEqual(preservedList(got), []string{"local_only notes/mine.txt"}) {
+		t.Fatalf("an unclaimed file must stay local: %v", preservedList(got))
+	}
+	baseline := got.Plan.Preconditions.Baseline
+	if got.ReceiptVersion != r.Version || baseline == nil || baseline.RevisionID != r.RevisionID || baseline.BundleID != r.BundleID || baseline.Manifest.Digest != r.ManagedDigest {
+		t.Fatalf("the plan did not bind the receipt it was built from: %q %+v", got.ReceiptVersion, baseline)
+	}
+	// A later approval binds this hash, so the receipt version must be part of it:
+	// the same review with a different (or no) receipt version cannot match.
+	identity := skillContentReviewIdentity{
+		OwnerID: e.uid, RequestID: got.ID, TargetID: got.TargetID, TargetVersion: got.TargetVersion, BundleID: got.BundleID, RevisionID: got.RevisionID,
+		ManifestDigest: got.ManifestDigest, Mode: got.Mode, AgentID: got.AgentID, Instance: got.Instance, InventoryRevision: got.InventoryRevision,
+		CaptureHash: got.CaptureHash, PlanHash: got.Plan.Hash, ReceiptVersion: got.ReceiptVersion,
+	}
+	if got.ReviewHash == "" || identity.Hash() != got.ReviewHash {
+		t.Fatalf("the review hash must be built from the receipt version the plan bound: %q vs %q", got.ReviewHash, identity.Hash())
+	}
+	identity.ReceiptVersion = ""
+	if identity.Hash() == got.ReviewHash {
+		t.Fatal("a review made without the receipt version must not match one made with it")
+	}
+}
+
+func TestPreviewUpgradePlanFromOlderAdoptedRevision(t *testing.T) {
+	e := previewFixture(t)
+	e.adopted(t)
+	next, err := e.s.SavePrivateSkillRevisionFor(e.uid, e.bundle.Bundle.ID, privateWrite("preview_receipt_upgrade_r2", e.bundle.Revision.ID, "NEWER"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e = e.repin(t, func(in *SkillContentTargetWrite) { in.RevisionID = next.Revision.ID })
+	got := e.preview(t, "preview_receipt_upgrade_1", presentOf(*e.bundle.Revision.Manifest, "exclusive"))
+	if got.State != "captured" || !got.Plan.Ready || !reflect.DeepEqual(actionList(got), []string{"update SKILL.md"}) || len(got.Plan.Preserved) != 0 {
+		t.Fatalf("only the file that differs between the adopted and the pinned revision may change: %+v", got.Plan)
+	}
+	if a := got.Plan.Actions[0]; a.Before == nil || a.After == nil || a.Before.Digest == a.After.Digest || a.After.Digest == "" {
+		t.Fatal(a)
+	}
+	if got.Plan.ExpectedManaged.Digest != next.Revision.ManifestDigest {
+		t.Fatal("after the update the managed files are the new revision")
+	}
+}
+
+func TestManagedModeRemovesOnlyClaimedObsoleteFiles(t *testing.T) {
+	// R2 drops scripts/run.sh and the pin removes obsolete files (mode managed).
+	smaller := func(t *testing.T, e previewEnv) previewEnv {
+		write := privateWrite("preview_receipt_managed_r2", e.bundle.Revision.ID, "PRIVATE_PIN_BYTES")
+		kept := []skillbundle.ContentFile{}
+		for _, f := range write.Files {
+			if f.Path != "scripts/run.sh" {
+				kept = append(kept, f)
+			}
+		}
+		write.Files = kept
+		next, err := e.s.SavePrivateSkillRevisionFor(e.uid, e.bundle.Bundle.ID, write)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(next.Revision.Manifest.Files) != 2 {
+			t.Fatal("the second revision should hold SKILL.md and assets/empty only", next.Revision.Manifest.Files)
+		}
+		return e.repin(t, func(in *SkillContentTargetWrite) { in.RevisionID, in.Mode = next.Revision.ID, "managed" })
+	}
+
+	t.Run("a claimed obsolete file is removed and a local file is kept", func(t *testing.T) {
+		e := previewFixture(t)
+		e.adopted(t)
+		e = smaller(t, e)
+		got := e.preview(t, "preview_receipt_managed_1", presentOf(withLocal(t, *e.bundle.Revision.Manifest), "exclusive"))
+		if got.State != "captured" || !got.Plan.Ready || !reflect.DeepEqual(actionList(got), []string{"remove scripts/run.sh"}) {
+			t.Fatalf("%+v", got.Plan)
+		}
+		if !reflect.DeepEqual(preservedList(got), []string{"local_only notes/mine.txt"}) {
+			t.Fatalf("a file the library never owned must survive managed mode: %v", preservedList(got))
+		}
+	})
+
+	t.Run("an obsolete file the receipt does not claim is kept", func(t *testing.T) {
+		e := previewFixture(t)
+		seedReceipt(t, e, e.bundle.Revision.ID, receiptManaged(t, e, "SKILL.md", "assets/empty"), exclusiveAbsent().RootID)
+		e = smaller(t, e)
+		got := e.preview(t, "preview_receipt_managed_2", presentOf(*e.bundle.Revision.Manifest, "exclusive"))
+		if got.State != "captured" || !got.Plan.Ready || len(got.Plan.Actions) != 0 || !reflect.DeepEqual(preservedList(got), []string{"local_only scripts/run.sh"}) {
+			t.Fatalf("matching bytes at an unclaimed path are not ownership: %+v", got.Plan)
+		}
+	})
+}
+
+func TestPreviewBlocksReceiptThatNoLongerFits(t *testing.T) {
+	observed := func(e previewEnv) skillbundle.Manifest { return *e.bundle.Revision.Manifest }
+	elsewhere := strings.Repeat("9", 64)
+
+	t.Run("the pin names another bundle with the same skill name", func(t *testing.T) {
+		e := previewFixture(t)
+		e.adopted(t)
+		second, err := e.s.SavePrivateSkillRevisionFor(e.uid, "", privateWrite("preview_receipt_other_bundle", "", "A SECOND BUNDLE"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if second.Bundle.ID == e.pin.BundleID || second.Bundle.Name != e.pin.Name {
+			t.Fatal("fixture needs a distinct bundle with the same name", second.Bundle)
+		}
+		m := observed(e)
+		e = e.repin(t, func(in *SkillContentTargetWrite) { in.BundleID, in.RevisionID = second.Bundle.ID, second.Revision.ID })
+		got := e.preview(t, "preview_receipt_bundle_a", presentOf(m, "exclusive"))
+		if got.State != "captured" || got.Plan.Ready || len(got.Plan.Actions) != 0 || !reflect.DeepEqual(conflictCodes(got), []string{"baseline_bundle_mismatch"}) {
+			t.Fatalf("%+v", got.Plan)
+		}
+		// A blocked baseline is reported before the absence logic, so it is not "missing".
+		gone := e.preview(t, "preview_receipt_bundle_b", exclusiveAbsent())
+		if !reflect.DeepEqual(conflictCodes(gone), []string{"baseline_bundle_mismatch"}) {
+			t.Fatalf("%v", conflictCodes(gone))
+		}
+	})
+
+	t.Run("the capture is of another root", func(t *testing.T) {
+		e := previewFixture(t)
+		e.adopted(t)
+		c := presentOf(observed(e), "exclusive")
+		c.RootID = elsewhere
+		got := e.preview(t, "preview_receipt_root_a", c)
+		if got.State != "captured" || got.Plan.Ready || len(got.Plan.Actions) != 0 || !reflect.DeepEqual(conflictCodes(got), []string{"baseline_target_mismatch"}) {
+			t.Fatalf("%+v", got.Plan)
+		}
+		// Absent observation plus a baseline that does not fit: the mismatch wins over managed_target_missing.
+		absent := exclusiveAbsent()
+		absent.RootID = elsewhere
+		gone := e.preview(t, "preview_receipt_root_b", absent)
+		if gone.State != "captured" || gone.Plan.Ready || !reflect.DeepEqual(conflictCodes(gone), []string{"baseline_target_mismatch"}) {
+			t.Fatalf("%v", conflictCodes(gone))
+		}
+	})
+}
+
+func TestDeletedSkillWithReceiptBlocksUntilReleased(t *testing.T) {
+	e := previewFixture(t)
+	r := e.adopted(t)
+	gone := e.preview(t, "preview_receipt_deleted_a", exclusiveAbsent())
+	if gone.State != "captured" || gone.Plan.Ready || len(gone.Plan.Actions) != 0 || !reflect.DeepEqual(conflictCodes(gone), []string{"managed_target_missing"}) || gone.ReceiptVersion != r.Version {
+		t.Fatalf("a skill the library owned must never recreate itself: %+v", gone.Plan)
+	}
+	if err := e.s.ReleaseSkillContentReceiptFor(e.uid, r.ID, r.Version); err != nil {
+		t.Fatal(err)
+	}
+	again := e.preview(t, "preview_receipt_deleted_b", exclusiveAbsent())
+	if again.State != "captured" || !again.Plan.Ready || again.ReceiptVersion != "" || len(again.Plan.Actions) != 3 || again.Plan.Preconditions.Baseline != nil {
+		t.Fatalf("once released the slot is a plain new install: %+v", again.Plan)
+	}
+	for _, a := range again.Plan.Actions {
+		if a.Kind != "create" {
+			t.Fatal(a)
+		}
+	}
+}
+
+func TestDamagedReceiptEndsPreviewAsPlanUnavailable(t *testing.T) {
+	swapped, err := skillbundle.FromContents([]skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("a different, self-consistent skill")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	swappedJSON, _ := json.Marshal(swapped)
+	for name, damage := range map[string]string{
+		"managed is not a manifest":                       `UPDATE skill_content_receipts SET managed='{"files":'`,
+		"managed file differs from the recorded revision": `UPDATE skill_content_receipts SET managed='` + string(swappedJSON) + `'`,
+		"provenance is not adopted":                       `UPDATE skill_content_receipts SET provenance='guessed'`,
+		"evidence is not JSON":                            `UPDATE skill_content_receipts SET evidence='nope'`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := previewFixture(t)
+			r := e.adopted(t)
+			if _, err := e.s.db.Exec(damage); err != nil {
+				t.Fatal(err)
+			}
+			// A folder that matches the library is the case that would read as plain
+			// adoption_required if a damaged receipt were mistaken for no receipt.
+			p := e.create(t, "preview_receipt_damaged_a")
+			e.claim(t)
+			if err := e.report(t, p.ID, presentOf(*e.bundle.Revision.Manifest, "exclusive")); err != nil {
+				t.Fatal("a receipt that cannot be trusted is this request's terminal result, not a connector error to retry:", err)
+			}
+			got := e.state(t, p.ID)
+			if got.State != "failed" || got.Error != "plan_unavailable" || got.Plan != nil || got.Capture != nil || got.ReviewHash != "" || got.ReceiptVersion != "" {
+				t.Fatalf("%+v", got)
+			}
+			// The row stays listable, and releasing it by version frees the slot.
+			list, err := e.s.SkillContentReceiptsFor(e.uid)
+			if err != nil || len(list) != 1 || list[0].ID != r.ID || list[0].Version != r.Version {
+				t.Fatal(list, err)
+			}
+			if err = e.s.ReleaseSkillContentReceiptFor(e.uid, r.ID, r.Version); err != nil {
+				t.Fatal(err)
+			}
+			free := e.preview(t, "preview_receipt_damaged_b", presentOf(*e.bundle.Revision.Manifest, "exclusive"))
+			if free.State != "captured" || !reflect.DeepEqual(conflictCodes(free), []string{"adoption_required"}) {
+				t.Fatalf("%+v", free)
+			}
+		})
+	}
+}
+
+func TestReceiptChangeSupersedesCapturedPreview(t *testing.T) {
+	captured := func(t *testing.T, e previewEnv, key string) SkillContentPreview {
+		t.Helper()
+		p := e.preview(t, key, presentOf(*e.bundle.Revision.Manifest, "exclusive"))
+		if p.State != "captured" || len(p.Reasons) != 0 {
+			t.Fatalf("%+v", p)
+		}
+		return p
+	}
+
+	t.Run("release", func(t *testing.T) {
+		e := previewFixture(t)
+		r := e.adopted(t)
+		p := captured(t, e, "preview_receipt_fence_a")
+		if err := e.s.ReleaseSkillContentReceiptFor(e.uid, r.ID, r.Version); err != nil {
+			t.Fatal(err)
+		}
+		old := e.state(t, p.ID)
+		if old.State != "superseded" || !reflect.DeepEqual(old.Reasons, []string{"receipt_changed"}) || old.Plan == nil {
+			t.Fatalf("a released receipt left its review current: %+v", old)
+		}
+	})
+
+	t.Run("release then identical content", func(t *testing.T) {
+		e := previewFixture(t)
+		r := e.adopted(t)
+		p := captured(t, e, "preview_receipt_fence_b")
+		if err := e.s.ReleaseSkillContentReceiptFor(e.uid, r.ID, r.Version); err != nil {
+			t.Fatal(err)
+		}
+		again := e.adopted(t)
+		if again.Version == r.Version || again.ManagedDigest != r.ManagedDigest {
+			t.Fatal("fixture did not reproduce a release and identical re-adoption", again)
+		}
+		old := e.state(t, p.ID)
+		if old.State != "superseded" || !reflect.DeepEqual(old.Reasons, []string{"receipt_changed"}) {
+			t.Fatalf("a re-adopted receipt must not revive an old review: %+v", old)
+		}
+	})
+
+	t.Run("a receipt appearing after a preview that had none", func(t *testing.T) {
+		e := previewFixture(t)
+		p := e.preview(t, "preview_receipt_fence_c", presentOf(*e.bundle.Revision.Manifest, "exclusive"))
+		if p.State != "captured" || p.ReceiptVersion != "" || !reflect.DeepEqual(conflictCodes(p), []string{"adoption_required"}) {
+			t.Fatalf("%+v", p)
+		}
+		e.adopted(t)
+		old := e.state(t, p.ID)
+		if old.State != "superseded" || !reflect.DeepEqual(old.Reasons, []string{"receipt_changed"}) {
+			t.Fatalf("a review made before adoption stayed current: %+v", old)
+		}
+	})
+
+	t.Run("a receipt for another skill leaves the review current", func(t *testing.T) {
+		e := previewFixture(t)
+		p := captured(t, e, "preview_receipt_fence_d")
+		other := e
+		other.pin.Name = "another-skill"
+		seedReceipt(t, other, e.bundle.Revision.ID, *e.bundle.Revision.Manifest, exclusiveAbsent().RootID)
+		if got := e.state(t, p.ID); got.State != "captured" || len(got.Reasons) != 0 {
+			t.Fatalf("a receipt for a different skill name fenced this slot: %+v", got)
+		}
+	})
+
+	t.Run("a receipt that appears before capture is read by the building transaction", func(t *testing.T) {
+		e := previewFixture(t)
+		p := e.create(t, "preview_receipt_fence_f")
+		e.claim(t)
+		r := e.adopted(t)
+		if got := e.state(t, p.ID); got.State != "capturing" || len(got.Reasons) != 0 {
+			t.Fatalf("receipt changes fence a captured review, never one awaiting capture: %+v", got)
+		}
+		if err := e.report(t, p.ID, presentOf(*e.bundle.Revision.Manifest, "exclusive")); err != nil {
+			t.Fatal(err)
+		}
+		got := e.state(t, p.ID)
+		if got.State != "captured" || got.ReceiptVersion != r.Version || len(conflictCodes(got)) != 0 || !got.Plan.Ready {
+			t.Fatalf("%+v", got)
+		}
+	})
 }

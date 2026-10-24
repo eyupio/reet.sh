@@ -143,8 +143,14 @@ func Build(input Snapshot, now int64) (Plan, error) {
 		return empty, errors.New("invalid desired manifest")
 	}
 	if b := s.Baseline; b != nil {
-		if b.Target != s.Target || b.BundleID != s.Desired.BundleID || !revisionPattern.MatchString(b.RevisionID) {
-			return empty, errors.New("baseline identity mismatch")
+		// A baseline for another owner is a caller bug and stays an error. A baseline
+		// for another slot or bundle is ordinary state and is reported as a blocked
+		// plan once the context fences below have passed.
+		if b.Target.OwnerID != s.Target.OwnerID {
+			return empty, errors.New("baseline owner mismatch")
+		}
+		if !revisionPattern.MatchString(b.RevisionID) {
+			return empty, errors.New("invalid baseline revision")
 		}
 		b.Manifest, err = canonical(b.Manifest)
 		if err != nil {
@@ -184,6 +190,14 @@ func Build(input Snapshot, now int64) (Plan, error) {
 	}
 	if o.ReceivedAt <= 0 || o.ReceivedAt > now || now-o.ReceivedAt > MaxAgeMillis {
 		return block("observation_stale")
+	}
+	if b := s.Baseline; b != nil {
+		if b.Target != s.Target {
+			return block("baseline_target_mismatch")
+		}
+		if b.BundleID != s.Desired.BundleID {
+			return block("baseline_bundle_mismatch")
+		}
 	}
 	if o.Presence == "absent" && o.Manifest != nil {
 		return empty, errors.New("absent observation has a manifest")

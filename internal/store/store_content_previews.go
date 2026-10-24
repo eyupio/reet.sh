@@ -33,7 +33,9 @@ var (
 // Stored states are queued, capturing, captured, failed, cancelled, expired and
 // superseded. Reads also report stale, for a capture older than the planner's
 // freshness window. A fence that no longer holds is reported as superseded with
-// reason codes, so an old review can never look current.
+// reason codes, so an old review can never look current. ReceiptVersion is the
+// version of the slot's ownership receipt as the plan was built, empty when the
+// slot had none; a captured review is superseded once it differs.
 type SkillContentPreview struct {
 	ID             string `json:"id"`
 	RequestKey     string `json:"requestKey"`
@@ -61,6 +63,7 @@ type SkillContentPreview struct {
 	CapturedAt        int64                 `json:"capturedAt,omitempty"`
 	Capture           *skillpreview.Capture `json:"capture,omitempty"`
 	CaptureHash       string                `json:"captureHash,omitempty"`
+	ReceiptVersion    string                `json:"receiptVersion,omitempty"`
 	Plan              *skillplan.Plan       `json:"plan,omitempty"`
 	ReviewHash        string                `json:"reviewHash,omitempty"`
 	Authority         string                `json:"authority"`
@@ -93,7 +96,9 @@ type SkillContentPreviewCapability struct {
 
 // skillContentReviewIdentity is what a future approval must bind. The plan hash
 // alone is not enough: a pin can change away and back to identical content, and
-// only the pin's independent version tells those two intents apart.
+// only the pin's independent version tells those two intents apart. The receipt
+// version does the same for ownership: a receipt released and re-adopted with
+// identical content is a different decision from the one a review saw.
 type skillContentReviewIdentity struct {
 	Version           int    `json:"version"`
 	OwnerID           int64  `json:"ownerId"`
@@ -109,6 +114,7 @@ type skillContentReviewIdentity struct {
 	InventoryRevision int64  `json:"inventoryRevision"`
 	CaptureHash       string `json:"captureHash"`
 	PlanHash          string `json:"planHash"`
+	ReceiptVersion    string `json:"receiptVersion"`
 }
 
 func (i skillContentReviewIdentity) Hash() string {
@@ -216,6 +222,16 @@ func previewFence(q previewQuerier, uid int64, p SkillContentPreview) ([]string,
 			return nil, err
 		case current != p.InventoryRevision:
 			reasons = append(reasons, "inventory_changed")
+		}
+	}
+	// Only a built plan binds a receipt version. A request still awaiting capture
+	// reads whatever receipt exists in the transaction that builds its plan.
+	if p.CapturedAt > 0 {
+		switch current, err := currentReceiptVersion(q, uid, p.EnvironmentID, p.Name); {
+		case err != nil:
+			return nil, err
+		case current != p.ReceiptVersion:
+			reasons = append(reasons, "receipt_changed")
 		}
 	}
 	return reasons, nil
@@ -512,8 +528,9 @@ func (s *Store) ClaimSkillContentPreviewFor(uid int64, agent, instance string) (
 
 // RecordSkillContentCaptureFor accepts the connector's metadata report. Every
 // fence is rechecked in the writing transaction, then the planner is run on
-// trusted storage plus this capture. There is no baseline yet, so an existing
-// tree is never treated as managed: it comes back as adoption_required.
+// trusted storage, this capture and the slot's ownership receipt, read in that
+// same transaction. Without a receipt there is no baseline, so an existing tree is
+// never treated as managed: it comes back as adoption_required.
 func (s *Store) RecordSkillContentCaptureFor(uid int64, agent, id, instance string, capture skillpreview.Capture) error {
 	hash, err := capture.Hash()
 	if err != nil {
@@ -550,18 +567,19 @@ func (s *Store) RecordSkillContentCaptureFor(uid int64, agent, id, instance stri
 			return ErrSkillContentPreview
 		}
 		received := now()
-		plan, e := buildPreviewPlan(tx, uid, p, capture, received)
+		plan, receiptVersion, e := buildPreviewPlan(tx, uid, p, capture, received)
 		if e != nil {
 			// The inputs themselves cannot be planned (for example a name the planner
-			// refuses). That is this request's terminal result, not something to retry.
+			// refuses, or a receipt that fails validation). That is this request's
+			// terminal result, not something to retry.
 			p.State, p.Error = "failed", "plan_unavailable"
 			return writePreview(tx, uid, p)
 		}
-		p.Capture, p.CaptureHash, p.Plan, p.CapturedAt, p.State = &capture, hash, &plan, received, "captured"
+		p.Capture, p.CaptureHash, p.Plan, p.CapturedAt, p.State, p.ReceiptVersion = &capture, hash, &plan, received, "captured", receiptVersion
 		p.ReviewHash = skillContentReviewIdentity{
 			OwnerID: uid, RequestID: p.ID, TargetID: p.TargetID, TargetVersion: p.TargetVersion, BundleID: p.BundleID, RevisionID: p.RevisionID,
 			ManifestDigest: p.ManifestDigest, Mode: p.Mode, AgentID: p.AgentID, Instance: p.Instance, InventoryRevision: p.InventoryRevision,
-			CaptureHash: hash, PlanHash: plan.Hash,
+			CaptureHash: hash, PlanHash: plan.Hash, ReceiptVersion: receiptVersion,
 		}.Hash()
 		return writePreview(tx, uid, p)
 	})
@@ -569,24 +587,37 @@ func (s *Store) RecordSkillContentCaptureFor(uid int64, agent, id, instance stri
 
 // buildPreviewPlan assembles the planner's snapshot only from storage and the
 // validated capture. Enrollment generation is the connector's ID: enrollment rows
-// are never reused, so re-enrolling a machine always yields a new one. No baseline
-// exists in this slice; absence of one is what blocks adoption.
-func buildPreviewPlan(tx *sql.Tx, uid int64, p SkillContentPreview, c skillpreview.Capture, received int64) (skillplan.Plan, error) {
+// are never reused, so re-enrolling a machine always yields a new one. The slot's
+// receipt, when it has one, is the baseline and its version is returned for the
+// preview to bind; having no receipt is what blocks adoption. A receipt that fails
+// validation is an error, never an absent baseline, and whether a baseline still
+// fits the target and bundle is the planner's decision. The caller holds the owner
+// write lock, so the receipt cannot change before the plan is stored.
+func buildPreviewPlan(tx *sql.Tx, uid int64, p SkillContentPreview, c skillpreview.Capture, received int64) (skillplan.Plan, string, error) {
 	revision, err := privateSkillRevision(tx, uid, p.BundleID, p.RevisionID, false)
 	if err != nil {
-		return skillplan.Plan{}, err
+		return skillplan.Plan{}, "", err
 	}
 	if revision.Manifest == nil || revision.ManifestDigest != p.ManifestDigest || revision.Manifest.Digest != p.ManifestDigest {
-		return skillplan.Plan{}, errors.New("pinned revision identity changed")
+		return skillplan.Plan{}, "", errors.New("pinned revision identity changed")
 	}
-	return skillplan.Build(skillplan.Snapshot{
+	baseline, receiptVersion, err := skillContentReceiptBaseline(tx, uid, p.EnvironmentID, p.Name)
+	if err != nil {
+		return skillplan.Plan{}, "", err
+	}
+	plan, err := skillplan.Build(skillplan.Snapshot{
 		InventoryRevision: p.InventoryRevision,
 		Target:            skillplan.Target{OwnerID: uid, AgentID: p.AgentID, EnvironmentID: p.EnvironmentID, Generation: p.AgentID, RootID: c.RootID, SkillName: p.Name, Adapter: c.Adapter, Schema: skillplan.Version},
 		Desired:           skillplan.Revision{OwnerID: uid, BundleID: p.BundleID, RevisionID: p.RevisionID, Name: p.Name, Manifest: *revision.Manifest},
 		Observation:       skillplan.Observation{InventoryRevision: p.InventoryRevision, Generation: p.AgentID, Presence: c.Presence, Complete: c.Complete, ReceivedAt: received, Manifest: c.Manifest},
+		Baseline:          baseline,
 		RootOwnership:     c.RootOwnership,
 		Mode:              p.Mode,
 	}, received)
+	if err != nil {
+		return skillplan.Plan{}, "", err
+	}
+	return plan, receiptVersion, nil
 }
 
 // FailSkillContentPreviewFor records a bounded code, never raw local errors.

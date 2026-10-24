@@ -206,9 +206,91 @@ func TestFailClosedContext(t *testing.T) {
 		{"unsupported adapter", "adapter_unsupported", func(s *Snapshot) { s.Target.Adapter = "windows"; s.Baseline.Target = s.Target }},
 		{"corrupt observed hash", "observation_invalid", func(s *Snapshot) { s.Observation.Manifest.Digest = strings.Repeat("0", 64) }},
 		{"future manifest", "observation_invalid", func(s *Snapshot) { s.Observation.Manifest.SchemaVersion++ }},
+		{"baseline root moved", "baseline_target_mismatch", func(s *Snapshot) { s.Baseline.Target.RootID = "elsewhere" }},
+		{"baseline generation", "baseline_target_mismatch", func(s *Snapshot) { s.Baseline.Target.Generation = "old" }},
+		{"baseline other connector", "baseline_target_mismatch", func(s *Snapshot) { s.Baseline.Target.AgentID = "agent-2" }},
+		{"baseline other bundle", "baseline_bundle_mismatch", func(s *Snapshot) { s.Baseline.BundleID = strings.Repeat("d", 32) }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) { s := fixture(t); tc.change(&s); conflict(t, build(t, s), tc.code) })
+	}
+}
+
+// A baseline that does not fit the target or bundle is a diagnostic plan, not an
+// error. It is only reached once the earlier context fences have all passed, and
+// the target is reported before the bundle.
+func TestBaselineMismatchPrecedence(t *testing.T) {
+	only := func(t *testing.T, p Plan, code string) {
+		t.Helper()
+		conflict(t, p, code)
+		if len(p.Conflicts) != 1 || p.Conflicts[0] != (Conflict{Path: ".", Code: code}) {
+			t.Fatalf("want only %q at the root, got %+v", code, p.Conflicts)
+		}
+	}
+	t.Run("shared root wins", func(t *testing.T) {
+		s := fixture(t)
+		s.RootOwnership = "shared"
+		s.Baseline.Target.RootID = "elsewhere"
+		only(t, build(t, s), "root_shared")
+	})
+	t.Run("stale observation wins", func(t *testing.T) {
+		s := fixture(t)
+		s.Observation.ReceivedAt = clock - MaxAgeMillis - 1
+		s.Baseline.Target.RootID = "elsewhere"
+		s.Baseline.BundleID = strings.Repeat("d", 32)
+		only(t, build(t, s), "observation_stale")
+	})
+	t.Run("target before bundle", func(t *testing.T) {
+		s := fixture(t)
+		s.Baseline.Target.RootID = "elsewhere"
+		s.Baseline.BundleID = strings.Repeat("d", 32)
+		only(t, build(t, s), "baseline_target_mismatch")
+	})
+}
+
+func TestBaselineMismatchPlanIsDiagnosticAndDeterministic(t *testing.T) {
+	cases := []struct {
+		name   string
+		code   string
+		change func(*Snapshot)
+	}{
+		{"target", "baseline_target_mismatch", func(s *Snapshot) { s.Baseline.Target.RootID = "elsewhere" }},
+		{"bundle", "baseline_bundle_mismatch", func(s *Snapshot) { s.Baseline.BundleID = strings.Repeat("d", 32) }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := fixture(t)
+			tc.change(&s)
+			first := build(t, s)
+			conflict(t, first, tc.code)
+			if first.Preconditions.Baseline == nil {
+				t.Fatal("diagnostic plan dropped the baseline it was built from")
+			}
+			if first.Version != 1 {
+				t.Fatalf("planner version changed: %d", first.Version)
+			}
+
+			// Reorder only the baseline files, on a private copy so the desired and
+			// observed manifests that share the fixture's backing array stay put.
+			r := fixture(t)
+			tc.change(&r)
+			files := append([]skillbundle.File(nil), r.Baseline.Manifest.Files...)
+			for i, j := 0, len(files)-1; i < j; i, j = i+1, j-1 {
+				files[i], files[j] = files[j], files[i]
+			}
+			if reflect.DeepEqual(files, r.Baseline.Manifest.Files) {
+				t.Fatal("fixture reorder is a no-op")
+			}
+			r.Baseline.Manifest.Files = files
+			second := build(t, r)
+			conflict(t, second, tc.code)
+			if first.Hash == "" || first.Hash != second.Hash {
+				t.Fatalf("baseline file order changed the diagnostic hash: %q vs %q", first.Hash, second.Hash)
+			}
+			if second.Preconditions.Baseline == nil || len(second.Actions) != 0 {
+				t.Fatalf("reordered diagnostic plan is not diagnostic only: %+v", second)
+			}
+		})
 	}
 }
 func TestRejectInvalidInputs(t *testing.T) {
@@ -219,10 +301,7 @@ func TestRejectInvalidInputs(t *testing.T) {
 		{"missing inventory identity", func(s *Snapshot) { s.InventoryRevision = 0 }},
 		{"owner", func(s *Snapshot) { s.Desired.OwnerID++ }},
 		{"desired revision", func(s *Snapshot) { s.Desired.RevisionID = "latest" }},
-		{"wrong bundle", func(s *Snapshot) { s.Baseline.BundleID = strings.Repeat("d", 32) }},
 		{"baseline owner", func(s *Snapshot) { s.Baseline.Target.OwnerID++ }},
-		{"baseline root", func(s *Snapshot) { s.Baseline.Target.RootID = "elsewhere" }},
-		{"baseline generation", func(s *Snapshot) { s.Baseline.Target.Generation = "old" }},
 		{"baseline revision", func(s *Snapshot) { s.Baseline.RevisionID = "" }},
 		{"mode", func(s *Snapshot) { s.Mode = "mirror" }},
 		{"name", func(s *Snapshot) { s.Desired.Name = "other-skill" }},

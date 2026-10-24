@@ -46,6 +46,47 @@ configuration as planned until the corresponding roadmap stages actually ship.
 The entry-page illustration and home toolkit links should convey this breadth.
 See `docs/voice-and-copy.md`; keep the new scope when implementing T5 and S/A/W/L.
 
+### Latest terminal follow-ups — finish before returning to the roadmap
+
+The user still observed a clipped final row in `top`, requested correct colour
+handling, and asked for searchable **shell command history** with paste/edit and
+explicit rerun actions. Finish these and the setup work, merge when green, then
+resume S2 and the remaining handoff stages. Do not reopen the overall strategy.
+
+- **T6: final-row fit and colour verification.** The cause was `screen` padding:
+  xterm's FitAddon measures its immediate parent and subtracts xterm's own padding,
+  so padding on that parent produced a 20-pixel oversized grid. The old tests
+  checked text presence and outer bounds, allowing text to exist while clipped.
+  `fix/terminal-bottom-row` moves spacing to `screen-frame`, leaving the measured
+  `screen` host unpadded. Keep PR #141's negotiated-grid lock unchanged. New tests
+  compare the actual `.xterm-screen` rectangle against the clipping/content area
+  at desktop/tablet/phone/short heights. The real fixture checks a last-row TUI
+  marker while waiting for input, actual `top` through viewport changes, and ANSI
+  red from the real host under Midnight/Paper palettes. Those local checks pass.
+  Themes map text/palette colours; they do not invent highlighting for plain app
+  output. Appearance explains that `top` toggles its colour mode with `z`.
+- **T7: searchable command recall — not implemented yet.** The existing History
+  is an output snapshot; the account Command library is manually saved snippets.
+  Neither is shell command history. Read the selected machine's Bash/Zsh history
+  on explicit user request, scoped to its enrolling OS user, without arbitrary
+  paths, subprocess `history` injection, screen scraping or keystroke logging.
+  Bound file bytes/entries and reject symlinks/foreign-owner files. Search and
+  display escaped command text; paste adds no Enter; rerun is an explicit reviewed
+  action bound to the immutable session and current attachment generation.
+  Keep history ephemeral unless the user explicitly saves a command. Label the
+  source and explain that open shells may not have saved their latest commands.
+  A new private-protocol request must be feature-gated without breaking old
+  agents. Consider an additive authenticated HTTP upgrade feature header so new
+  agents advertise a new capability only when the server supports it; preserve
+  strict message decoding and the existing wire version. Reuse bounded history
+  transfer and test old/new agent-server compatibility before exposing controls.
+- **T5 implementation saved remotely:** `feat/terminal-connection-setup`, commit
+  `d48ccca`, contains the resumable CLI wizard, enrollment/initial-install/upgrade
+  offers, tmux diagnostics, web setup step and real-TTY tests. It is not merged
+  or in a PR yet. Targeted race/TTY tests and the new web readiness check passed.
+  Merge current main into it, finish docs/handoff and verify the full change;
+  do not duplicate those 18 files. Preserve the broader AI positioning from #146.
+
 ### Public entry points — terminal-first redesign
 
 The signed-out `/` and `/welcome` explain machines, persistent terminals and

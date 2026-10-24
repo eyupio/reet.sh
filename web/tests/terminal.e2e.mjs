@@ -18,6 +18,8 @@ const screen = page.locator('.xterm-accessibility-tree')
 async function live() { await expect(pane).toHaveAttribute('data-connection-state', 'live', { timeout: 20000 }) }
 async function command(text) { await page.getByRole('button', { name: 'Focus terminal' }).click(); await page.keyboard.type(text); await page.keyboard.press('Enter') }
 async function state() { return page.evaluate(async () => (await fetch('/_test/state')).json()) }
+async function renderedScreenFits(){await expect.poll(async()=>{const host=await page.getByRole('region',{name:'Remote terminal screen',exact:true}).boundingBox(),rendered=await page.locator('.xterm-screen').boundingBox();return Math.ceil(rendered.y+rendered.height-host.y-host.height)}).toBeLessThanOrEqual(0)}
+
 
 try {
   const otherAgent='browser-other-machine0123456789'
@@ -147,6 +149,15 @@ try {
   await page.getByRole('button',{name:'Recent history',exact:true}).click()
   await expect(page.getByRole('dialog')).toContainText('__browser_agent-survived__')
   await page.getByRole('button',{name:'Close history',exact:true}).click()
+  // ANSI colour arrives from the actual host and follows palette changes.
+  await command("printf '\\033[31m__ansi_red__\\033[0m __ansi_plain__\\n'")
+  const redText=page.locator('.xterm-rows span').filter({hasText:'__ansi_red__'}).last()
+  await page.getByRole('button',{name:'Appearance',exact:true}).click()
+  await page.getByRole('button',{name:'Use Midnight theme'}).click()
+  await expect(redText).toHaveCSS('color','rgb(224, 108, 117)')
+  await page.getByRole('button',{name:'Use Paper theme'}).click()
+  await expect(redText).toHaveCSS('color','rgb(170, 38, 61)')
+  await page.getByRole('button',{name:'Close Terminal appearance'}).click()
   // Saved commands live in the account, including in a separate browser context.
   const savedText="printf '__library_%s__\\n' 'ran'"
   await page.getByRole('button',{name:'Saved commands',exact:true}).click()
@@ -193,6 +204,21 @@ try {
   await expect(lastRow).toContainText('__bottom_input_visible__')
   await page.getByRole('button',{name:'Interrupt shell',exact:true}).click()
   await expect(lastRow).toContainText('stage6-ready>')
+  // A full-screen app keeps a marker on the final row while awaiting input.
+  await command("set -- $(stty size); printf '\\033[?1049h\\033[2J\\033[H__tui_running__\\033[%s;1H__tui_bottom__' \"$1\"; IFS= read -r REET_TUI_DONE; printf '\\033[?1049l'")
+  await expect(lastRow).toContainText('__tui_bottom__')
+  await renderedScreenFits()
+  await page.getByRole('button',{name:'Focus terminal',exact:true}).click();await page.keyboard.press('Enter')
+  await expect(screen).toContainText('stage6-ready>')
+  if(process.platform==='linux'){
+    await command('top -d 0.5')
+    await expect(screen).toContainText('load average:')
+    await renderedScreenFits()
+    await page.setViewportSize({width:1280,height:900});await renderedScreenFits()
+    await page.setViewportSize({width:1360,height:1000});await renderedScreenFits()
+    await page.getByRole('button',{name:'Focus terminal',exact:true}).click();await page.keyboard.press('q')
+    await expect(screen).toContainText('stage6-ready>')
+  }
   await page.getByRole('button',{name:'Restore size',exact:true}).click()
   await page.setViewportSize({width:390,height:844})
   await page.evaluate(()=>document.documentElement.dataset.theme='dark')

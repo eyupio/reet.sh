@@ -6,7 +6,7 @@ This is the current implementation baseline **and** the continuation plan. Curre
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 and CLI import in PR #164 (`7253663`). Central browser import merged in PR #168 (`7e2c992`) after all five workflows passed for `56aefe0fbb76d9cf9ce85bfec2591d58cdcc3eee`. S3 is complete. S4's pure content planner is implemented in PR #169 (`feat/content-plan-core`), locally validated with final CI/merge pending; it has no API, approval or filesystem writes.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 and CLI import in PR #164 (`7253663`). Central browser import merged in PR #168 (`7e2c992`) after all five workflows passed for `56aefe0fbb76d9cf9ce85bfec2591d58cdcc3eee`. S3 is complete. S4's pure content planner merged in PR #169 (`d494543`) after both workflows passed for `7595bc9b50f9d920da30fc4803f7720dfdc5af2a`. Optional owned revision pins/storage/API are implemented on `feat/private-content-target-pins`, with full local validation passed and final CI/publication pending. No machine content preview/apply is wired yet.** S1 is merged through PR #139; do not repeat
 it. Preserve the terminal work and do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -88,9 +88,12 @@ The user requested a status report and continued roadmap delivery after PR #155.
 - **S3 complete:** metadata observations, explicit CLI import and browser imports
   merged through PRs #161/#164/#168. Final browser-import merge is `7e2c992`, all
   five workflows green for `56aefe0`. Private revision history is available.
-- **Current:** S4 pure bounded planner in PR #169 on `feat/content-plan-core`
-  (final CI/merge pending). Read [its contract and granular continuation](docs/skill-content-planner.md).
-  Next add owned revision pins and negotiated metadata preview; keep reviewed
+- **S4 foundation merged:** pure bounded planner in PR #169 (`d494543`), both
+  workflows green for `7595bc9`. Read [its contract](docs/skill-content-planner.md).
+- **Current:** optional owned private revision pins, separate storage/API on
+  `feat/private-content-target-pins` (full local validation passed; final CI/publication pending). Read
+  [the API, boundaries and granular continuation](docs/skill-content-targets.md).
+  Next implement only negotiated per-file metadata preview; keep reviewed
   executor/journal/receipts in a separate slice. S4 and S5 remain incomplete.
 - **Later:** A1–A3 registered agent launch/activity/attention; W1–W3 projects,
   worktrees/diffs/structured tool review; L1–L4 AI software/MCP fleet maintenance
@@ -1268,8 +1271,9 @@ fixtures can import different revisions without changing the existing shelf API.
 
 ### S4 [ ] Content-aware preview and reviewed single-target apply
 
-Depends on S2/S3, which are merged. **Pure planner implemented on
-[PR #169](https://github.com/eyupio/reet.sh/pull/169), locally validated with final CI/merge pending.** Read
+Depends on S2/S3, which are merged. **Pure planner merged in
+[PR #169](https://github.com/eyupio/reet.sh/pull/169) as `d494543`, after both workflows
+passed for `7595bc9b50f9d920da30fc4803f7720dfdc5af2a`.** Read
 [docs/skill-content-planner.md](docs/skill-content-planner.md) before continuing.
 
 - `internal/skillplan` has no filesystem/DB/network operations. Build takes an owned
@@ -1279,18 +1283,57 @@ Depends on S2/S3, which are merged. **Pure planner implemented on
 - Existing roots without a verified baseline require adoption; shared/unknown roots,
   local edits/deletions, unmanaged desired paths, stale/invalid observations and
   combined result collisions block. No partial executable plan is exposed.
-- This slice does not add revision pins to storage, per-file connector preview,
-  API/UI review, approval, transfer, apply, locking, rollback or durable receipts.
+- The pure planner slice did not add revision pins to storage, per-file connector
+  preview, API/UI review, approval, transfer, apply, locking, rollback or durable receipts.
   S4 stays unchecked until real filesystem execution/recovery gates below pass.
-- Next bounded slice: optional owned revision pins and separately negotiated
-  metadata preview. Existing periodic aggregate content observations cannot provide
-  the required per-file tree or trustworthy absence. Follow the seven granular
-  continuation tasks in the planner document. Keep execution separate.
+- Optional revision pins/storage/API are now implemented in the following bounded
+  slice below. Next implement separately negotiated metadata preview. Existing
+  aggregate content observations cannot provide the required per-file tree or
+  trustworthy absence. Keep execution separate.
 - Validation: frontend check/build with zero Svelte diagnostics; full `go vet ./...`
   and `go test -race ./...`; all 16 MCP tests. Focused planner race tests have
   96.6% statement coverage. The first full run lacked tmux on PATH; after adding
   the installed tmux 3.5a, the complete suite passed without source/test weakening.
   No browser UI, live machine, service, session or remote filesystem was changed.
+
+#### S4 desired revision pins — implemented, final publication pending
+
+Read [docs/skill-content-targets.md](docs/skill-content-targets.md). Branch:
+`feat/private-content-target-pins`.
+
+- `store_content_targets.go` adds optional `skill_content_targets`, migrated after
+  private revisions/enrollments. Pins bind owned environment, enrollment, bundle,
+  immutable revision, name derived from bundle, mode and independent CAS version.
+  Maximum 1024 pins/account. Old reference desired sets and hashes stay unchanged.
+- `api/content_targets.go` exposes private-account GET/POST collection and GET/DELETE
+  item endpoints at `/api/v2/skill-content-targets`. Active writers only; same-origin
+  browser writes or own personal tokens; strict 16 KiB JSON, no queries or MCP
+  allowlist changes. Responses are metadata-only, always `not_verified`.
+- Supported scopes: reported complete home claude/agents/cursor/opencode and
+  absolute claude/agents project scopes within 14 days. Paused/revoked or wrong-host
+  enrollments cannot save. Inspection/removal remain available while paused/offline.
+- Private head changes never move a pin; explicit CAS can select an older revision.
+  Identical current saves preserve version/time. Changed desired state creates a
+  fresh version; stale updates/deletes conflict. After uncertain replies reconcile
+  with GET; these are not durable execution receipts. A create replay with empty
+  expected version can recreate a removed pin; clients must not blindly retry it.
+- Removing pins affects only intent. Environment/enrollment/account cascades remove
+  pins; replacement enrollments do not inherit them. Private revision bytes survive
+  pin removal and enrollment revocation. No new legacy job/terminal message exists.
+- Focused SQLite/HTTP race tests pass: ownership/token/origin/role fences, pinned
+  history/rollback, old modes/scopes, stale edits/deletes, pause/revoke, cascades,
+  replacement enrollment, rollback injection, concurrent Store connections,
+  capacity, old-schema migration/reopen and unchanged legacy desired/dispatch.
+- Full local validation passed: frontend check/build with zero Svelte diagnostics,
+  `go vet ./...`, full `go test -race ./...` with tmux 3.5a on PATH, and all 16 MCP
+  tests. No browser UI, live machines, services or sessions were changed. The
+  published workflows must pass for the final PR head before merge.
+- Next: negotiated metadata-only capture bound to pin ID/version and current
+  inventory/connection identities, local root identity/aliases, then trusted planner
+  input and truthful review. A pin change away and back must invalidate old review
+  even if the planner's content inputs match (bind the independent pin version).
+  Full execution/journals/receipts and S5 remain later. Preserve the deferred PIN
+  preference note and existing terminal jobs; do not ask users to stop sessions.
 
 1. Extend desired target state with a pinned bundle revision. Preserve legacy
    reference-based targets; mark their content-verification limits explicitly.
@@ -1661,9 +1704,10 @@ working agent authentication or complete environment recovery.
 > without resetting edits. Terminal T1–T9 priorities are merged through PR #155.
 > S2 private revision storage/API merged through PR #156. Read its storage contract.
 > S3 is complete through PRs #161/#164/#168; browser import merged as `7e2c992`.
-> S4 pure planner is implemented in PR #169 on feat/content-plan-core; verify its CI/merge
-> state. Read docs/skill-content-planner.md. Next add owned revision pins and a
-> separately negotiated metadata preview, before a reviewed executor/receipt slice. Keep
+> S4 pure planner merged in PR #169 (`d494543`), both workflows green for `7595bc9`.
+> Owned revision pins/storage/API are implemented on feat/private-content-target-pins;
+> verify final validation/PR/merge. Read docs/skill-content-targets.md and the planner
+> contract. Next implement only negotiated metadata preview; executor/receipts follow. Keep
 > ownership, exact byte/mode manifests, stable retry receipts, reviewed sync and
 > existing terminal sessions intact. Do not jump to remote apply or the whole roadmap.
 > Build the frontend before Go checks, record actual evidence, update this handoff

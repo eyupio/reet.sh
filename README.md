@@ -232,7 +232,7 @@ or apply environment cleanup. See [MCP setup and access](docs/mcp.md) and the
 
   Once environments exist, the shelf gets an environment filter and a **Copy missing installs** action that copies the install commands for everything on the shelf that is not on that machine yet.
 
-Private skill revisions have an [account-scoped storage/API contract](docs/private-skill-revisions.md) for exact file bytes, immutable history and conflict-checked heads. This foundation is separate from publication and machine apply; full database backups include its files, while personal shelf exports do not.
+Private skill revisions have an [account-scoped storage/API contract](docs/private-skill-revisions.md) for exact file bytes, immutable history and conflict-checked heads. This foundation is separate from publication and machine apply; full database backups include its files, while personal shelf exports do not. The optional [pinned machine-content API](docs/skill-content-targets.md) records an exact private revision for a reported scope; these pins remain unverified desired state until reviewed content apply is implemented.
 
 Start a new shell with the + beside a machine in Control or Terminals. Right-click cards or terminal output for actions; Show sessions reopens a hidden session sidebar.
 

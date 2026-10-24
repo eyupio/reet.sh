@@ -2,9 +2,10 @@
 
 `internal/skillplan.Build(snapshot, nowMillis)` computes a bounded, deterministic
 single-skill plan from metadata. It does not read files, access SQLite, call APIs,
-transfer bytes, run commands or write to machines. Nothing invokes it from the
-product yet. S4 remains incomplete until reviewed execution and durable receipts
-are implemented and verified. S3 import approval cannot authorise a machine write.
+transfer bytes, run commands or write to machines. The
+[pinned desired-state API](skill-content-targets.md) now stores its future desired
+input, but nothing invokes Build from the product yet. S4 remains incomplete until
+reviewed execution and durable receipts are implemented and verified. S3 import approval cannot authorise a machine write.
 
 ## Inputs and authority
 
@@ -107,9 +108,10 @@ A repeated hash never permits replaying a completed or ambiguously executed writ
 Keep subsequent work in reviewable slices. Do not wire this library directly to
 legacy name-based sync jobs or terminal command messages.
 
-1. Add separate optional pinned private bundle/revision state to owned desired
-   targets; preserve existing reference-only targets and old connector behaviour.
-   Missing pins remain content-unknown. Do not change `SyncSkill` hash semantics.
+1. Optional owned private revision pins are implemented in the separate
+   [desired-state slice](skill-content-targets.md). Preserve reference-only targets
+   and `SyncSkill` hash semantics. Carry the pin version in future review identity;
+   identical content selected after an intervening change must not revive old approval.
 2. Design the negotiated per-file preview protocol. Authenticate account plus
    enrollment; bind server-side request to the current inventory/generation and
    reported local scope. Capture metadata from the configured local root using S1

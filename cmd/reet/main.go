@@ -28,6 +28,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/scan"
 	"github.com/eyupio/reet.sh/internal/setup"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalcontrol"
 	"github.com/eyupio/reet.sh/web"
 )
 
@@ -69,6 +70,7 @@ Usage: reet <command> [options]
 
   serve        Run the web app (also the default when no command is given)
   agent        Enroll a machine, process sync jobs and manage local terminal services
+  terminal     Start, stop, restart or inspect controller web terminal access
   scan         Report installed skills to your account
   setup        Discover local AI agent setups and support limitations
   sync         Preview a saved skill set; --apply asks before changing files
@@ -91,6 +93,11 @@ Host your own site:
 
 Run reet <command> --help for options. init/update alias install/upgrade.
 `)
+	case "terminal":
+		if err := runTerminal(args, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case "configure":
 		if err := runConfigure(args, os.Stdin, os.Stderr); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -119,7 +126,7 @@ Configuration (environment variables):
   REET_TOPICS     off to disable topic seeding
   REET_REFRESH    off to disable background metadata refresh
   REET_RELAY_MAP_URL  Optional HTTPS Tailcat relay map for private agent connections
-  REET_REMOTE_TERMINALS  on to opt into account-owned web terminals (default off)
+  REET_REMOTE_TERMINALS  Legacy initial default; use reet terminal start|stop|restart|status
 
 Local example:
   REET_ADDR=127.0.0.1:8080 REET_DATA_DIR=./data reet serve
@@ -170,12 +177,17 @@ backup to preserve accounts, lists, teams and sync references.
 			os.Exit(1)
 		}
 	default:
-		fmt.Fprintln(os.Stderr, "usage: reet serve | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet setup | reet sync | reet backup | reet version")
+		fmt.Fprintln(os.Stderr, "usage: reet serve | reet terminal | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet setup | reet sync | reet backup | reet version")
 		os.Exit(2)
 	}
 }
 
 func serve() error {
+	terminalControl, err := terminalcontrol.Open(env("REET_DATA_DIR", "./data"), os.Getenv("REET_REMOTE_TERMINALS") == "on")
+	if err != nil {
+		return err
+	}
+	defer terminalControl.Close()
 	publicURL := os.Getenv("REET_PUBLIC_URL")
 	if publicURL != "" {
 		u, err := url.Parse(publicURL)
@@ -227,13 +239,16 @@ func serve() error {
 		strings.TrimSpace(os.Getenv("REET_SIGNUP")) == "1" ||
 		strings.EqualFold(strings.TrimSpace(os.Getenv("REET_SIGNUP")), "true")
 	h := api.New(st, meta.Default(os.Getenv("SKILLS_SH_TOKEN")), os.Getenv("REET_TOKEN"),
-		api.WithRemoteTerminals(os.Getenv("REET_REMOTE_TERMINALS") == "on"),
+		api.WithRemoteTerminals(terminalControl.Enabled()),
 		api.WithAuthMode(mode), api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"),
 		api.WithTopics(os.Getenv("REET_TOPICS") != "off"), api.WithPublicURL(os.Getenv("REET_PUBLIC_URL")),
 		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"), api.WithBackups(backups),
 		api.WithSignup(signup), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")), api.WithMail(mailer), api.WithNotify(notifier),
 		api.WithPrivateConnection(bcfg.Sealer, os.Getenv("REET_RELAY_MAP_URL")))
-	defer h.Close()
+	defer func() { terminalControl.Close(); h.Close() }()
+	if err := terminalControl.Serve(h.SetRemoteTerminals, h.RemoteTerminalsAvailable); err != nil {
+		return err
+	}
 	mux := http.NewServeMux()
 	mux.Handle("/api/", h)
 	mux.Handle("/quick", h)

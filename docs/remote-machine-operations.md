@@ -2,10 +2,39 @@
 
 ## Enablement and network
 
-Remote terminals ship disabled. Set `REET_AUTH=accounts`, a canonical HTTPS
-`REET_PUBLIC_URL` (for example `https://reet.sh`), and
-`REET_REMOTE_TERMINALS=on`, then restart the controller. The flag accepts exactly
-`on`. HTTP is accepted only for localhost/loopback development. Health and sync
+Remote terminals ship disabled. Configure `REET_AUTH=accounts` and a canonical
+HTTPS `REET_PUBLIC_URL` (for example `https://reet.sh`). On the controller, run:
+
+```sh
+reet terminal start
+reet terminal status
+reet terminal stop
+reet terminal restart
+```
+
+Use the same OS user and data directory as `reet serve`; pass
+`--data-dir /absolute/controller/data` (or `REET_DATA_DIR`) when needed. For Docker,
+execute the command inside the controller container with its mounted data directory.
+These commands manage web terminal availability, not the controller process or
+the host agent. They require no browser token or public administration endpoint.
+Start/stop persist for subsequent controller starts; offline restart is rejected.
+Offline status reports the saved setting and explicitly identifies a stopped
+controller. Live status distinguishes configured-on from availability blocked by
+missing accounts/HTTPS configuration. Starting access still requires host-local
+terminal consent. No shell is created by these commands.
+
+Settings are stored in private `terminal-control/state.json` below the data
+directory. A private Unix control socket applies changes to a running controller.
+Saved commands take precedence over `REET_REMOTE_TERMINALS`, which remains a legacy
+initial default only when no saved state exists. Restart fences current attachments
+and tickets before enabling fresh authorization. Private host connections briefly
+reconnect and reconcile; independent tmux shells and jobs remain running.
+Retain `terminal-control/state.json` with the controller configuration during
+backup/recovery. Do not restore a stale control socket or delete the setting to
+stop access: use `reet terminal stop`, so a legacy environment default cannot
+silently re-enable access on the next restart.
+
+HTTP is accepted only for localhost/loopback development. Health and sync
 work independently of this flag. Configure and retain the existing private-
 connection sealing key (`REET_BACKUP_KEY`, or the instance's protected
 `backup.key`); see [stage 2](remote-machine-stage2.md) and
@@ -144,11 +173,11 @@ collecting terminal streams. For production use prefer native supervision.
 
 ## Disable, revoke, update and rollback
 
-For immediate server rollback, remove/set off `REET_REMOTE_TERMINALS` and restart
-the controller gracefully. Attachments close; no pending terminal commands are
+For immediate server rollback, run `reet terminal stop` against the controller's
+data directory. Attachments close; no pending terminal commands are
 dispatched while disabled. Owner-only metadata and health remain readable.
-Surviving local tmux sessions and registries remain intact. Re-enable with the
-same database, sealing key and enrollments, then resume existing sessions.
+Surviving local tmux sessions and registries remain intact. Run `reet terminal start`
+with the same database, sealing key and enrollments, then resume existing sessions.
 
 `reet agent terminal disable` removes local remote-terminal consent and closes
 attachments; local shells remain. Revoking enrollment cuts private access and

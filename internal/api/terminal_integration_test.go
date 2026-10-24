@@ -26,6 +26,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalagent"
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
+	"github.com/eyupio/reet.sh/internal/terminalcontrol"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -220,9 +221,29 @@ func TestTerminalPrivateLifecyclePreservesActualShell(t *testing.T) {
 	stop := connect()
 	defer func() { stop() }()
 	if browserMode {
+		controlDir := filepath.Join(dir, "controller")
+		control, err := terminalcontrol.Open(controlDir, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer control.Close()
+		if err = control.Serve(func(enabled bool) { current.Load().SetRemoteTerminals(enabled) }, func() bool { return current.Load().RemoteTerminalsAvailable() }); err != nil {
+			t.Fatal(err)
+		}
 		var originalPID string
 		runTerminalBrowser(t, public.URL, cookie, agent.ID, browserCommands, func(action string) map[string]any {
-			if action == "restart-controller" || action == "disable-terminals" || action == "enable-terminals" {
+			if action == "disable-terminals" || action == "enable-terminals" {
+				operation := "stop"
+				if action == "enable-terminals" {
+					operation = "start"
+				}
+				if _, err := terminalcontrol.Command(t.Context(), controlDir, operation, true); err != nil {
+					t.Fatal(err)
+				}
+				stop()
+				stop = connect()
+			}
+			if action == "restart-controller" {
 				stop()
 				current.Load().Close()
 				next := New(st, deadFetcher(t), "", WithAuthMode(AuthAccounts), WithRemoteTerminals(action != "disable-terminals"), WithPublicURL(public.URL))

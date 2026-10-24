@@ -66,7 +66,11 @@ func (s *server) terminal(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 func (s *server) terminalEnabled() bool {
-	if !s.remoteTerminals || s.authMode != AuthAccounts {
+	enabled := s.remoteTerminals
+	if override := s.terminalOverride.Load(); override != nil {
+		enabled = *override
+	}
+	if !enabled || s.authMode != AuthAccounts {
 		return false
 	}
 	u, err := url.Parse(s.publicURL)
@@ -254,6 +258,9 @@ func (s *server) terminalSocket(w http.ResponseWriter, r *http.Request) {
 	hash := auth.HashToken(cookie.Value)
 	uid := s.uid(r)
 	authorize := func() bool {
+		if !s.terminalEnabled() {
+			return false
+		}
 		u, ok, err := s.st.SessionUser(hash, time.Now().UnixMilli())
 		return err == nil && ok && u.ID == uid && u.Role != "viewer"
 	}

@@ -1,0 +1,28 @@
+# Controller terminal commands
+
+`reet terminal start|stop|restart|status [--data-dir PATH]` replaces manual changes
+to `REET_REMOTE_TERMINALS`. It controls server-wide browser terminal availability,
+not host agent processes or durable shells. Run as the controller's OS user in
+its filesystem namespace (inside the container for Docker deployments).
+
+The controller owns a crash-released lifetime lock and private Unix socket below
+its data directory. There is no public settings endpoint and no browser/API token
+is required. The state file is strict, bounded JSON, checked for ownership,
+permissions and symlinks, and written by fsync/atomic rename before runtime
+changes. Saved state overrides the legacy environment default. Offline start/stop
+configure the next process; offline restart fails instead of claiming availability.
+
+Live stop immediately disables admission, clears outstanding tickets and closes
+existing broker/control generations. Host tmux sessions are not ended. Live start
+reconnects private peers and reconciles existing sessions with fresh authorization.
+Restart performs the same fence then enables access. Repeated start/stop is
+idempotent. Health/private connections may briefly reconnect; durable host jobs
+continue. Accounts mode, HTTPS outside loopback and local terminal consent remain
+mandatory; status distinguishes configured-on from blocked availability.
+
+Validation covers live and offline configuration, persistence across controller
+instances, idempotency/restart transitions, unsafe state/symlink/socket paths,
+failed persistence leaving runtime unchanged, ticket fencing without shell state
+changes, CLI parsing/output, and real browser/PTY/tmux stop/start through the Unix
+control socket with original shell/job preservation. Web check/build and Go race
+checks remain required. See the updated [operator runbook](remote-machine-operations.md).

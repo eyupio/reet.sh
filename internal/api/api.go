@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/agenthealth"
@@ -56,12 +57,14 @@ type server struct {
 	mail         *mail.Mailer
 	notify       *notify.Service
 
-	privateSealer   *sealed.Sealer
-	privateRelayURL string
-	private         privateTransport
-	healthHub       *agenthealth.Hub
-	terminals       *terminalbroker.Broker
-	remoteTerminals bool
+	privateSealer     *sealed.Sealer
+	privateRelayURL   string
+	private           privateTransport
+	healthHub         *agenthealth.Hub
+	terminals         *terminalbroker.Broker
+	remoteTerminals   bool
+	terminalOverride  atomic.Pointer[bool]
+	terminalControlMu sync.Mutex
 }
 
 // AuthMode selects how the instance authenticates requests.
@@ -171,6 +174,17 @@ type Server struct {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.h.ServeHTTP(w, r) }
+
+// SetRemoteTerminals changes controller availability, never host shell lifetime.
+// Closing control generations fences existing tickets/streams; agents reconnect
+// and reconcile their surviving tmux sessions with fresh authorization.
+func (s *Server) SetRemoteTerminals(enabled bool) {
+	s.s.terminalControlMu.Lock()
+	defer s.s.terminalControlMu.Unlock()
+	s.s.terminalOverride.Store(&enabled)
+	s.s.terminals.ResetConnections()
+}
+func (s *Server) RemoteTerminalsAvailable() bool { return s.s.terminalEnabled() }
 
 // Close stops the private listener and any of its active streams. It does not
 // close the store or background workers, as in earlier increments.

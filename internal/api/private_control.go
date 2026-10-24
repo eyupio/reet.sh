@@ -91,6 +91,9 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer peer.Close()
+	// Re-read after registration: a live start/stop can race the initial
+	// capability calculation and its reset snapshot.
+	peer.Capabilities(s.terminalEnabled() && caps.Capabilities.TerminalControl && caps.Capabilities.TerminalEnabled && caps.Capabilities.Readiness == terminalproto.Ready)
 	peer.SetTrafficObserver(hubConn.ReportTraffic)
 	peerCtx, peerCancel := context.WithCancel(r.Context())
 	var peerWorkers sync.WaitGroup

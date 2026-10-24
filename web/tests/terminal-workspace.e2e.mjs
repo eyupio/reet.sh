@@ -57,6 +57,8 @@ async function bounds(width,height){
  await expect.poll(async()=>screen.evaluate(element=>Math.round(element.getBoundingClientRect().height))).toBeGreaterThan(height*(height<600?.2:width<650?.5:.6))
  await expect.poll(async()=>screen.evaluate(element=>Math.round(element.getBoundingClientRect().bottom))).toBeLessThanOrEqual(height+1)
  const b=await screen.boundingBox()
+ // The renderer itself must fit, including its final row; outer bounds alone miss clipped content.
+ await expect.poll(async()=>{const host=await screen.boundingBox(),rendered=await page.locator('.xterm-screen').boundingBox(),padding=await screen.evaluate(e=>parseFloat(getComputedStyle(e).paddingBottom)||0);return Math.ceil(rendered.y+rendered.height-(host.y+host.height-padding))}).toBeLessThanOrEqual(0)
  console.log(`Screen ${width}x${height}: top=${Math.round(b.y)}, height=${Math.round(b.height)} (${Math.round(b.height/height*100)}%)`)
  expect((await pane.boundingBox()).y).toBeLessThan(160)
  expect(b.y).toBeLessThan(240)

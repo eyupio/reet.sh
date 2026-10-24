@@ -16,7 +16,7 @@
   import type {TerminalCommand} from './api'
 
   let { session, host, user = '', onrename, onend, onarchive, archiveDisabled=false, actionDisabled = false }: { session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; onarchive?:()=>void; archiveDisabled?:boolean; actionDisabled?: boolean } = $props()
-  let element = $state<HTMLDivElement>()
+  let element = $state<HTMLDivElement>(),screenFrame=$state<HTMLDivElement>()
   let pane=$state<HTMLElement>(),searchInput=$state<HTMLInputElement>(),viewportHeight=$state(innerHeight)
   let connectionState = $state<ConnectionState>('connecting'), message = $state('')
   let connection: TerminalConnection | undefined
@@ -108,6 +108,7 @@
       const colors:ITheme=paletteFor(palette,dark)
       term.options.theme = colors
       if(element)element.style.backgroundColor=colors.background||''
+      if(screenFrame)screenFrame.style.backgroundColor=colors.background||''
     }
     applyTheme=theme;theme()
     const observer = new MutationObserver(theme); observer.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']})
@@ -149,7 +150,7 @@
   </div>
   {#if searching}<form class="tools" onsubmit={e=>{e.preventDefault();find()}}><label>Find in terminal <input bind:this={searchInput} bind:value={query} maxlength="200" autocomplete="off" spellcheck="false" oninput={e=>{query=e.currentTarget.value;find()}} /></label><button>Next match</button><button type="button" onclick={()=>find(false)}>Previous match</button><button type="button" onclick={()=>{searching=false;search?.clearDecorations();terminal?.focus()}}>Close search</button><span role="status">{found?'':'No matches'}</span></form>{/if}
   {#if feedback}<p class="connection-message" role="status">{feedback}</p>{/if}
-  <div class="screen" bind:this={element} role="region" aria-label="Remote terminal screen" oncontextmenu={openContext}></div>
+  <div class="screen-frame" bind:this={screenFrame}><div class="screen" bind:this={element} role="region" aria-label="Remote terminal screen" oncontextmenu={openContext}></div></div>
   <div class="tools mobile-keys" aria-label="Terminal extra keys">{#each [['Esc','\x1b'],['Tab','\t'],['↑','\x1b[A'],['↓','\x1b[B'],['←','\x1b[D'],['→','\x1b[C'],['Ctrl+C','\x03'],['Enter','\r']] as [label,value]}<button disabled={!live} onpointerdown={e=>e.preventDefault()} onclick={()=>key(value)} aria-label={`Send ${label}`}>{label}</button>{/each}{#each ['Ctrl','Alt'] as mod}<button disabled={!live} aria-pressed={modifier===mod} onpointerdown={e=>e.preventDefault()} onclick={()=>{modifier=modifier===mod?null:mod as 'Ctrl'|'Alt';terminal?.focus()}}>{mod}</button>{/each}</div>
   <footer><span>{live?'Connected privately · input goes directly to this shell':'Input paused · disconnected keystrokes are never replayed'}</span><button type="button" disabled={!live} onclick={()=>terminal?.focus()}>Focus terminal</button></footer>
 {#if contextMenu}<div class="clipboard-menu" role="menu" aria-label="Terminal clipboard" tabindex="-1" bind:this={menu} style={`left:${contextMenu.x}px;top:${contextMenu.y}px`} onkeydown={contextKey}><button role="menuitem" disabled={!hasSelection} onclick={()=>{contextMenu=null;void copy()}}>Copy selection</button><button role="menuitem" disabled={!live} onclick={()=>{contextMenu=null;void readClipboard()}}>Paste</button><button role="menuitem" onclick={closeContext}>Close menu</button></div>{/if}
@@ -183,7 +184,8 @@
   .tools button:hover:not(:disabled) {border-color:var(--accent);background:var(--tint)}
   .tools button[aria-pressed=true] {border-color:var(--accent);color:var(--accent)}
   .tools.mobile-keys {display:none;border-top:1px solid var(--line);border-bottom:0}
-  .screen {flex:1;height:0;min-height:0;min-width:0;overflow:hidden;padding:12px 10px 8px 14px}
+  .screen-frame {flex:1;height:0;min-height:0;min-width:0;overflow:hidden;padding:12px 10px 8px 14px}
+  .screen {height:100%;min-height:0;min-width:0;overflow:hidden;padding:0}
   .screen :global(.xterm) {height:100%;padding:0}
   .screen :global(.xterm-viewport) {overscroll-behavior:contain}
   .connection-message {max-height:72px;overflow:auto;padding:6px 12px;margin:0;font-size:.73rem;background:var(--tint);border-bottom:1px solid var(--line)}
@@ -212,7 +214,7 @@
     .terminal-toolbar .tool-label{display:none}.terminal-toolbar button{padding:6px;min-width:30px}.terminal-toolbar .tool-divider{margin:0 2px}.terminal-toolbar .tool-space{display:none}
     .tools.mobile-keys {display:flex}
     .mobile-keys button {min-width:34px;min-height:34px}
-    .screen {padding:10px 6px}
+    .screen-frame {padding:10px 6px}
     footer {font-size:.6rem}
     footer span {max-width:75%}
     footer button {font-size:.6rem;min-height:24px}

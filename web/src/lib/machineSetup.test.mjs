@@ -9,8 +9,8 @@ const transpile = (file) => ts.transpileModule(readFileSync(new URL(file, import
 const machinesURL = `data:text/javascript;base64,${Buffer.from(transpile('./machines.ts')).toString('base64')}`
 const setupSource = transpile('./machineSetup.ts').replace("from './machines'", `from '${machinesURL}'`)
 const {
-  enrollCommands, machineStatus, profileFetchCommand, profilePullCommand,
-  machineLink, scanCommand, shellQuote, supportedAgents, syncLink,
+  connectionStage, enrollCommands, machineStatus, profileFetchCommand, profilePullCommand,
+  machineLink, retryDelay, scanCommand, shellQuote, supportedAgents, syncLink,
 } = await import(`data:text/javascript;base64,${Buffer.from(setupSource).toString('base64')}`)
 
 const now = Date.now()
@@ -48,4 +48,23 @@ test('machine links open the focused machine view', () => {
 test('machine sync links preselect the machine without inventing an agent target', () => {
   assert.equal(syncLink('PROD_Snicket'), '/machines?view=compare&machine=PROD_Snicket')
   assert.match(syncLink('studio / west'), /machine=studio%20%2F%20west/)
+})
+
+test('connection polling backs off while checks fail and settles at the normal interval', () => {
+  assert.equal(retryDelay(0), 3000)
+  assert.equal(retryDelay(1), 6000)
+  assert.equal(retryDelay(2), 12000)
+  assert.equal(retryDelay(9), 20000)
+})
+
+test('connection stages name the next actionable state', () => {
+  const machine = (changes = {}) => ({ host: 'studio', ready: true, capabilities: { terminalControl: true, terminalEnabled: true, readiness: 'ready' }, ...changes })
+  assert.equal(connectionStage(undefined, false), 'blocked')
+  assert.equal(connectionStage(undefined, true), 'waiting')
+  assert.equal(connectionStage(machine(), true), 'ready')
+  assert.equal(connectionStage(machine({ ready: false }), true), 'reconnecting')
+  assert.equal(connectionStage(machine({ serverEnabled: false }), true), 'blocked')
+  assert.equal(connectionStage(machine({ capabilities: undefined }), true), 'needs-setup')
+  assert.equal(connectionStage(machine({ capabilities: { terminalControl: true, terminalEnabled: false, readiness: 'disabled_locally' } }), true), 'needs-setup')
+  assert.equal(connectionStage(machine({ capabilities: { terminalControl: true, terminalEnabled: true, readiness: 'tmux_unavailable' } }), true), 'needs-setup')
 })

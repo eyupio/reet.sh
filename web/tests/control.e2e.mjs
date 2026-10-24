@@ -137,6 +137,13 @@ try {
  terminalReady=true
  await page.getByRole('button',{name:'Check terminal connection',exact:true}).click()
  await expect(page.getByRole('link',{name:'Open terminals for dev-laptop →',exact:true})).toHaveAttribute('href','/terminals?agent=a')
+ // The watch keeps its own beat: a machine that becomes ready after the
+ // operator stops pressing buttons appears without another click.
+ terminalReady=false
+ await page.getByRole('button',{name:'Check terminal connection',exact:true}).click()
+ await expect(page.getByText('Waiting for terminal readiness',{exact:true})).toBeVisible()
+ terminalReady=true
+ await expect(page.getByRole('link',{name:'Open terminals for dev-laptop →',exact:true})).toBeVisible({timeout:10000})
  for(const width of [390,768,1440]){
   await page.setViewportSize({width,height:900})
   await page.goto(base)

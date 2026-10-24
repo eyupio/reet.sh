@@ -9,7 +9,8 @@ const now=Date.now(),agentA='connector-laptop000000001',agentB='connector-builde
 let denied=false
 const sessions=[{id:sessionA,agentId:agentA,title:'Build workspace',state:'running',createdAt:now,updatedAt:now,exitCode:null},{id:sessionB,agentId:agentB,title:'Deployment checks',state:'running',createdAt:now,updatedAt:now,exitCode:null}]
 const machines=[{agentId:agentA,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{osUser:'developer',terminalEnabled:true,terminalControl:true,readiness:'ready'}},{agentId:agentB,host:'build-server',ready:true,serverEnabled:true,capabilities:{osUser:'builder',terminalEnabled:true,terminalControl:true,readiness:'ready'}}]
-const operations=[],receipts=new Map(),mutations=[]
+const operations=[],receipts=new Map(),mutations=[],archived=new Set(),archiveRequests=[]
+let failArchive=false
 let sequence=0,failFirstCreate=true,claimed=false,listReads=0,pendingList=null,pendingMutation=null
 const makeSession=(agentId,title)=>({id:`new-session-${String(++sequence).padStart(24,'0')}`,agentId,title,state:'running',createdAt:now,updatedAt:now,exitCode:null})
 machines.push({agentId:'connector-offline00000001',host:'offline workstation',ready:false,serverEnabled:true,capabilities:{osUser:'offline-user',terminalEnabled:true,terminalControl:true,readiness:'ready'}})
@@ -41,7 +42,7 @@ await page.route('**/api/**',async route=>{
    return route.fulfill({json:item})
   }
   listReads++
-  const snapshot=structuredClone(sessions),gate=pendingList;pendingList=null
+  const snapshot=structuredClone(sessions.filter(item=>!archived.has(item.id))),gate=pendingList;pendingList=null
   if(gate){gate.mark();await gate.wait}
   data={sessions:snapshot}
  }
@@ -49,6 +50,13 @@ await page.route('**/api/**',async route=>{
   const id=path.split('/').at(-2),body=request.postDataJSON();tickets.push({id,takeover:body.takeover})
   if(claimed&&!body.takeover)return route.fulfill({status:409,json:{error:'Session attached elsewhere'}})
   claimed=false;data={ticket:'fixture-ticket00000000000'}
+ }
+ else if(path.endsWith('/archive')){
+  const id=path.split('/').at(-2),item=sessions.find(item=>item.id===id);archiveRequests.push(id)
+  if(!item||!['ended','exited','lost'].includes(item.state))return route.fulfill({status:409,json:{error:'Only closed sessions can be removed'}})
+  if(failArchive)return route.fulfill({status:503,json:{error:'History removal unavailable'}})
+  const gate=pendingMutation;pendingMutation=null;if(gate){gate.mark();await gate.wait}
+  archived.add(id);data={ok:true}
  }
  else if(method==='PATCH'||path.endsWith('/end')){
   const id=path.split('/').at(path.endsWith('/end')?-2:-1),body=request.postDataJSON(),item=sessions.find(s=>s.id===id)
@@ -135,12 +143,45 @@ try{
  await manage('End session');await expect(page.getByRole('dialog')).toContainText('Renamed A')
  await page.getByRole('dialog').getByRole('button',{name:'End session',exact:true}).click()
  await expect(page.getByText(/End requested. Waiting for this machine/)).toBeVisible()
+ await page.locator('.session-menu summary').click()
+ await expect(page.getByRole('button',{name:'Remove from history',exact:true})).toHaveCount(0)
+ await page.locator('.session-menu summary').click()
  await manage('Retry end request');await page.getByRole('dialog').getByRole('button',{name:'End session',exact:true}).click()
  await expect.poll(()=>mutations.filter(m=>m.kind==='end').length).toBe(2)
  const ends=mutations.filter(m=>m.kind==='end');expect(ends[0]).toEqual(ends[1]);expect(ends[0].id).toBe(renamedId)
  await page.getByLabel('Machine',{exact:true}).selectOption(agentB);await live()
  expect(sessions.find(item=>item.id===sessionB).state).toBe('running')
  machines[0].ready=true;sessions.find(item=>item.id===renamedId).state='ended'
+ // Closed-history removal works while execution is disabled and preserves a newer selection.
+ const builderBeforeArchive=selected()
+ await page.getByLabel('Machine',{exact:true}).selectOption(agentA);await refresh()
+ await expect(pane).toHaveAttribute('data-connection-state','ended')
+ machines[0].serverEnabled=false;machines[0].ready=false;await refresh()
+ await manage('Remove from history')
+ await expect(page.getByRole('dialog')).toContainText('Files on the machine are kept')
+ await page.getByRole('button',{name:'Cancel',exact:true}).click()
+ const closedRow=page.getByRole('navigation',{name:'Sessions on selected machine'}).getByRole('button',{name:/^Renamed A/})
+ await expect(closedRow).toBeVisible();expect(archiveRequests).toHaveLength(0)
+ failArchive=true
+ await manage('Remove from history');await page.getByRole('dialog').getByRole('button',{name:'Remove from history',exact:true}).click()
+ await expect(page.getByRole('alert')).toContainText('History removal unavailable')
+ await expect(closedRow).toBeVisible()
+ failArchive=false
+ const archiveGate=holdNextMutation()
+ await manage('Remove from history');await page.getByRole('dialog').getByRole('button',{name:'Remove from history',exact:true}).click();await archiveGate.entered
+ await page.getByLabel('Machine',{exact:true}).selectOption(agentB);await live()
+ archiveGate.release()
+ await expect.poll(()=>archived.has(renamedId)).toBe(true)
+ expect(archiveRequests).toEqual([renamedId,renamedId])
+ expect(selected()).toBe(builderBeforeArchive);await live()
+ machines[0].serverEnabled=true;machines[0].ready=true
+ await page.reload();await live()
+ await page.getByLabel('Machine',{exact:true}).selectOption(agentA);await live()
+ await expect(closedRow).toHaveCount(0)
+ await page.locator('.session-menu summary').click()
+ await expect(page.getByRole('button',{name:'Remove from history',exact:true})).toHaveCount(0)
+ await page.locator('.session-menu summary').click()
+ await page.getByLabel('Machine',{exact:true}).selectOption(agentB);await live()
  // A busy lease requires an explicit transfer and preserves the session ID.
  claimed=true;await page.reload()
  await expect(pane).toHaveAttribute('data-connection-state','taken_over')
@@ -168,5 +209,5 @@ try{
  await expect(page.getByRole('heading',{name:'Terminal access unavailable'})).toBeVisible()
  await expect(pane).toHaveCount(0)
  expect(errors).toEqual([])
- console.log('Terminal lifecycle passed: machine search/context, per-machine immutable retries, stale-poll fencing, rename targeting, pending end/retry, explicit takeover, quota and revocation.')
+ console.log('Terminal lifecycle passed: machine search/context, per-machine immutable retries, stale-poll fencing, rename targeting, pending end/retry, explicit takeover, quota, revocation and persistent closed-history removal without affecting another selected shell.')
 }catch(error){if(process.env.REET_UI_SCREENSHOTS){await mkdir(process.env.REET_UI_SCREENSHOTS,{recursive:true});await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/lifecycle-failure.png`,fullPage:true})}throw error}finally{await browser.close()}

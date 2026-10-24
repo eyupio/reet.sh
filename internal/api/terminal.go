@@ -28,6 +28,7 @@ func (s *server) registerTerminalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/terminal/sessions", s.terminal(s.terminalCreate))
 	mux.HandleFunc("PATCH /api/v2/terminal/sessions/{id}", s.terminal(s.terminalRename))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/end", s.terminal(s.terminalEnd))
+	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/archive", s.terminalAccess(s.terminalArchive, true))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/attachments", s.terminal(s.terminalAttachment))
 	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/history", s.terminal(s.terminalHistory))
 	mux.HandleFunc("GET /api/v2/terminal/socket", s.terminal(s.terminalSocket))
@@ -37,6 +38,12 @@ func (s *server) registerTerminalRoutes(mux *http.ServeMux) {
 // principals cannot inherit interactive shell access from the default owner.
 // No auth middleware bypass is required, even for the exact socket handler.
 func (s *server) terminal(next http.HandlerFunc) http.HandlerFunc {
+	return s.terminalAccess(next, false)
+}
+
+// Only controller-local archival opts out of execution availability. Account,
+// role, cookie-only and canonical-origin checks still apply to every route.
+func (s *server) terminalAccess(next http.HandlerFunc, allowDisabled bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -55,7 +62,7 @@ func (s *server) terminal(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		metadata := r.Method == http.MethodGet && (r.URL.Path == "/api/v2/terminal/status" || r.URL.Path == "/api/v2/terminal/machines" || r.URL.Path == "/api/v2/terminal/sessions")
-		if !metadata && !s.terminalEnabled() {
+		if !metadata && !allowDisabled && !s.terminalEnabled() {
 			writeErr(w, 403, "remote terminals are disabled by the server; monitoring and local shells remain available")
 			return
 		}
@@ -215,6 +222,22 @@ func (s *server) terminalEnd(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, session)
 }
+func (s *server) terminalArchive(w http.ResponseWriter, r *http.Request) {
+	var in struct{}
+	if !terminalJSON(w, r, &in) {
+		return
+	}
+	if err := s.st.ArchiveTerminalFor(s.uid(r), r.PathValue("id")); err != nil {
+		if errors.Is(err, store.ErrTerminalConflict) {
+			writeErr(w, 409, "Only ended, exited or lost sessions can be removed from history.")
+			return
+		}
+		terminalError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
 func (s *server) terminalAttachment(w http.ResponseWriter, r *http.Request) {
 	var in terminalbroker.Options
 	if !terminalJSON(w, r, &in) {

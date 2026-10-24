@@ -184,6 +184,7 @@ try {
   expect(errors).toEqual([])
   if (process.env.REET_BROWSER_ARTIFACT_DIR) { await mkdir(process.env.REET_BROWSER_ARTIFACT_DIR, { recursive: true }); await page.screenshot({ path: `${process.env.REET_BROWSER_ARTIFACT_DIR}/terminal-desktop.png`, fullPage: true }) }
   // Two enrolled hosts use independent real tmux servers and shell registries.
+  const primarySession=new URL(page.url()).searchParams.get('session')
   const builder=process.env.REET_BROWSER_BUILDER
   if(!builder)throw new Error('The browser lifecycle gate requires a second enrolled host')
   const fixture=action=>page.evaluate(async action=>{const response=await fetch(`/_test/${action}`,{method:action.startsWith('state')?'GET':'POST'});if(!response.ok)throw new Error('Fixture command failed');return response.json()},action)
@@ -257,6 +258,36 @@ try {
   expect((await state()).sessions).toBe(2)
   expect(builderOperations).toHaveLength(2)
   expect(errors).toEqual([])
+  // Remove only closed history while execution is disabled; preserve receipt identity.
+  // The store/API tests cover old end receipts; the actual browser gate replays
+  // the successful creation receipt and verifies that no tmux shell reappears.
+  await fixture('disable-terminals')
+  await page.goto(`${base}/terminals?agent=${builder}&session=${builderSession}`)
+  await expect(pane).toHaveAttribute('data-connection-state','ended')
+  await page.locator('.session-menu summary').click()
+  await expect(page.getByRole('button',{name:'Remove from history',exact:true})).toBeEnabled()
+  await page.getByRole('button',{name:'Remove from history',exact:true}).click()
+  await expect(page.getByRole('dialog')).toContainText('Files on the machine are kept')
+  await page.getByRole('dialog').getByRole('button',{name:'Remove from history',exact:true}).click()
+  await expect(pane).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByRole('navigation',{name:'Sessions on selected machine'}).getByRole('button',{name:/Builder renamed/})).toHaveCount(0)
+  expect((await state()).sessions).toBe(1)
+  expect((await state()).pid).toBe(original.pid)
+  await fixture('enable-terminals')
+  const replay=await page.evaluate(async operation=>{const response=await fetch('/api/v2/terminal/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(operation)});return{status:response.status,data:await response.json()}},builderOperations[0])
+  expect(replay.status).toBe(200)
+  expect(replay.data.id).toBe(builderSession)
+  expect(replay.data.state).toBe('ended')
+  expect((await fixture('state-builder')).pid).toBe('')
+  expect((await state()).sessions).toBe(1)
+  expect(builderOperations).toHaveLength(3)
+  await page.goto(`${base}/terminals?agent=${process.env.REET_BROWSER_AGENT}&session=${primarySession}`);await live()
+  await command("kill -0 \"$LONG_PID\" && printf '__archive_%s__\\n' 'other-safe'")
+  await expect(screen).toContainText('__archive_other-safe__')
+  expect((await state()).pid).toBe(original.pid)
+  expect(errors).toEqual([])
+  console.log('History archival passed: closed record hidden across reload, execution-disabled archival, original create receipt preserved, no recreated shell, other host job untouched.')
   console.log('Two-host lifecycle passed: distinct original PIDs, immutable ambiguous-create retry, context switching, explicit takeover, rename and pending offline end without affecting the other host.')
   console.log(`Browser terminal passed: original shell PID ${original.pid}, original primary job preserved through browser refresh, agent reconnect and the two-host lifecycle.`)
 } catch(error) {

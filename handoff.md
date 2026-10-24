@@ -4,9 +4,10 @@
 
 This is the current implementation baseline **and** the continuation plan. Current
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
-**T1 (terminal-first workspace UX) is merged through PR #140.**
-Review its evidence and publication state below. **T2 is implemented on
-`feat/terminal-lifecycle-controls`; T3 history maintenance is next.** S1 is merged through PR #139; do not repeat
+**T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
+state below. **T3 single-session archival is implemented on
+`feat/terminal-history-archive`. T4 terminal polish is the next user priority,
+followed by T5 initial-install/enrollment/upgrade terminal setup.** S1 is merged through PR #139; do not repeat
 it or start S2 ahead of the remaining terminal priorities. Do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -27,7 +28,65 @@ Read alongside:
   [controller terminal commands](docs/terminal-controller-commands.md).
 - CONTRIBUTING.md and [voice/copy](docs/voice-and-copy.md).
 
-## Immediate next priority — terminal workspace UX
+## Latest user priority — terminal polish and connection setup
+
+User steering, 24 October 2026: the terminal must behave like a professional SSH
+client, with correct bottom-edge typing/wrapping/scrolling, terminal themes, and
+saved CLI commands. The user explicitly chose **account-synced commands across
+browsers and machines**. Initial reet installation, new-machine enrollment and reet upgrades must offer the
+terminal connection wizard as a core setup step. A reported missing-tmux failure
+must have actionable diagnosis/setup guidance. These requests take priority over
+remaining skill/content work and bulk history cleanup.
+
+### T4 [ ] Modern terminal interaction, appearance and saved commands — NEXT TASK
+
+1. Reproduce ordinary-height, bottom-of-screen input after several screens of
+   output; verify host `stty size` matches xterm rows/columns before and after
+   sidebar/font/maximise/phone viewport changes. Keep the final prompt and wrapped
+   input visible. The negotiated-grid fix in PR #141 is already merged; do not
+   replace it with timeout changes, forced keystrokes or accessibility-mode hacks.
+2. Add a compact, coherent terminal toolbar and an Appearance surface with named,
+   contrasting terminal palettes and font/cursor preferences. Terminal appearance
+   is independent of app chrome. Persist non-secret preferences and preserve
+   reconnect/layout identity. Verify light and dark app chrome, desktop and phone.
+3. Add a private saved-command library persisted under the user's reet account,
+   reusable across browsers/machines. Support search, create/edit/delete and clear
+   empty/error/loading states. Preserve exact text; do not scrape shell output,
+   substitute credentials or auto-run commands when a card is selected.
+4. Use explicit insertion into the chosen live session with no extra Enter. Multiple
+   lines/control characters retain paste review and may execute only after the
+   existing explicit confirmation. Bind pending insertion to immutable session and
+   attachment generation; never carry it into a different connection silently.
+5. Add owner/viewer/other-account tests, reload/second-browser persistence, denied
+   requests and safe insertion/multiline/reconnect tests. Keep APIs metadata-only;
+   command management must not require a connected host or weaken shell gates.
+
+### T5 [ ] First-class terminal connection wizard during initial install, enrollment and upgrade
+
+Read `internal/scan/terminal_setup.go`, `agent.go`, `agent_terminal.go`,
+`internal/terminalhost/tmux.go`, `cmd/reet` install/upgrade dispatch, deployment
+workflows and machine connection UI/scripts before changing setup.
+
+1. Reuse the existing guided host setup: check tmux 3.3+, explicit local shell
+   consent (including root), independent services and readiness verification.
+   Offer it during initial `reet install` as a first-class setup step, immediately
+   after first enrollment, and after successful reet upgrade.
+   Do not silently enable consent, re-enroll an existing host or kill tmux sessions.
+2. Add a discoverable standalone host-terminal setup command for retry/repair.
+   Missing/unsupported tmux explains version/PATH and local package-manager steps.
+   Never weaken the minimum version to bypass the error.
+3. Interactive flows offer setup; automation never hangs waiting for input or
+   installs packages unexpectedly. Print exact follow-up commands when skipped.
+   Preserve successful install/enrollment/upgrade if optional terminal setup is declined
+   or remains pending. Preserve existing consent and running shell processes.
+4. Web Add machine shows terminal setup/readiness as a primary part of connecting,
+   with copyable guidance and truthful pending/offline/ready states. Do not mark a
+   machine remotely terminal-ready based only on successful local service install.
+5. Test real TTY questions, redirected input, skip/decline/repair, tmux unavailable
+   or old, existing root consent, service refresh and failed optional setup after a
+   successful install/upgrade. Document platform/runtime limits and exact verification.
+
+## Terminal-first workspace requirements and delivery
 
 **User steering, 24 October 2026:** terminals are becoming the primary everyday
 use case. Users should land directly in a usable terminal workspace, without
@@ -256,7 +315,7 @@ no regression in other routes and no hidden change to terminal authorization.
   implement its persistent history contract before exposing Remove from history.
   Do not repeat T1 or S1.
 
-### T2 [x] Session navigation and clear lifecycle controls — implemented in current branch
+### T2 [x] Session navigation and clear lifecycle controls — merged in PR #141
 
 Depends on T1. Reuse existing APIs and `TerminalConnection.detach/connect/recover`.
 
@@ -305,8 +364,9 @@ ordinary typing, control keys and multiline-paste confirmation still work.
 - Branch: `feat/terminal-lifecycle-controls`, based on main `5fca4f4` after PR #140
   passed its workflows and merged. Implementation commit: `c751e11`; PR
   [#141](https://github.com/eyupio/reet.sh/pull/141) opened on 24 October 2026.
-  This records branch implementation and local verification, not a release or
-  deployment. Check its PR state before continuing.
+  PR #141 merged as `b9630e87ae8c7b91400c4842c044ccedc911ae81` after all five
+  workflows passed on `9bd06b1`, including the negotiated-grid regression fix.
+  This does not establish release/deployment state.
 - Added Find machine: search enrolled host/shell-user names and retain unavailable
   hosts with setup/reconnect guidance. Returning to a machine restores its last
   selected session while mounted. User/host remains visible on phones; narrowing
@@ -351,7 +411,7 @@ ordinary typing, control keys and multiline-paste confirmation still work.
   Keep End session and Remove from history separate. Do not start S2 or agent
   lifecycle installation merely because the terminal layout is now primary.
 
-### T3 [ ] Remove closed sessions from history safely — NEXT TASK
+### T3 [x] Single-session removal from history — implemented in current branch
 
 Depends on T2. Add a small explicit lifecycle/API contract before exposing this UI.
 Read `internal/store/store_terminal.go`, the schema/migration definitions in
@@ -386,6 +446,50 @@ Tests: owner/viewer/other-account, already archived retry, stale active state,
 concurrent end/archive, offline machine, restart and old creation/end receipts.
 Gate: an archived closed record stays hidden after reload without killing another
 process, altering machine files, bypassing quota or making a shell recreatable.
+
+### T3 implementation record — 24 October 2026
+
+- Branch: `feat/terminal-history-archive`, based on main `b9630e8` after PR #141
+  merged. Implementation `88a2257`, PR [#142](https://github.com/eyupio/reet.sh/pull/142).
+  Single-session archival is implemented; bulk cleanup remains unchecked.
+  Verify branch/PR state before repeating work. No production deployment is implied.
+- [Archive contract](docs/terminal-history-archive.md): owner-scoped idempotent
+  POST `/api/v2/terminal/sessions/{id}/archive` with `{}`; only ended/exited/lost.
+  Active and pending states return 409. Cookie/account/write/origin checks remain.
+  This controller-only route works when terminal execution is disabled; the
+  exception does not enable create/rename/end/attachment/socket operations.
+- Added `terminal_session_archives` as a child/tombstone table. Normal history
+  excludes archived IDs, while internal identity/receipt/reconciliation reads
+  remain unchanged. The state check and archive write serialize in one transaction.
+  No terminal/operation record, machine file or host process is deleted.
+- UI exposes Manage → Remove from history only for closed records, captures exact
+  ID/title for confirmation, keeps failed entries visible, and preserves a newer
+  selected session when a delayed archive response returns. Replayed closed create
+  receipts do not optimistically reinsert archived entries into local history.
+- Tests cover all lifecycle states, viewer/other-account/disabled-user boundaries,
+  migration, restart, stable repeated archival timestamp, cross-handle end/archive
+  race, quota preservation and old create/end receipts. API tests cover disabled
+  execution, canonical Origin, token rejection and unchanged shell-operation gates.
+- Chromium lifecycle checks cover cancel, failure, retry, selection during delayed
+  archival, execution-disabled UI and reload. Real two-host browser checks remove
+  only the ended builder, replay its original creation receipt without recreating
+  a host shell, and prove the primary job/PID survives.
+- Validation: web checks/build, relevant store/API race tests, three synthetic
+  browser fixtures, real two-host/PTY browser fixture, Go vet/full race suite and
+  all 16 MCP tests. Record final command results with the PR. Vite's existing
+  bundle advisory remains. Physical mobile/IME, native cross-OS archive runtime
+  and production rollout are not claimed.
+- Migration creates a child table only. An older binary ignores tombstones and may
+  show closed records again; it retains identities/receipts. No undo or bulk API
+  exists in this first stage.
+- **Next user priority is T4**, then T5 below. Do not start S2 or bulk archival ahead
+  of the explicitly requested terminal interaction/onboarding work.
+
+### T3b [ ] Reviewed bulk removal of closed history
+
+After T4/T5 and single-session archival review: add explicit selection of closed
+records, show the exact count/titles, reject active/pending states transactionally,
+report per-item errors and preserve IDs/receipts. Do not label End as Remove.
 
 ### Baseline and publication state
 
@@ -1150,22 +1254,18 @@ working agent authentication or complete environment recovery.
 
 ## Ready-to-use continuation brief
 
-> Continue reet.sh from handoff.md. Inspect branch, worktree, latest main and PR
-> state without resetting edits. S1 and T1 are merged; T2 is implemented on
-> feat/terminal-lifecycle-controls. Review its evidence and PR before duplicating
-> work. The next bounded task is T3: safe single-session Remove from history.
-> Read internal/store/store_terminal.go and migrations, internal/api/terminal.go,
-> host registry/receipts, terminal/api.ts, TerminalWorkspace.svelte,
-> TerminalPane.svelte, terminal-lifecycle.e2e.mjs and the two-host real browser
-> fixture. Define a persistent account-owned archive/tombstone contract first.
-> Reject active/pending session removal in the store transaction; preserve quota,
-> receipt replay fences and reconciliation identity. Hide archived closed records
-> from normal history across reload/restart. Retrying an old create/end must never
-> recreate a shell. Keep End and Remove from history distinct; never delete host
-> files. Preserve consent, leases, clipboard fences and terminal-first layout.
-> Test owner/viewer/other account, stale active state, concurrent end/archive,
-> offline hosts, repeated archive, restart and old operation retries. Finish web
-> build before Go checks; run the three synthetic browser fixtures and real
-> two-host terminal gate. Record actual evidence, limitations, publication state
-> and the next task. Keep bulk removal, new transport, agent installation and S2
-> outside this first archival PR.
+> Continue reet.sh from handoff.md. Inspect branch, worktree, main and PR states
+> without resetting edits. T1/T2 are merged, including PR #141's negotiated-grid
+> race fix. T3 single-session history archival is implemented in its branch; save
+> and verify that bounded work rather than duplicating it. The user now prioritises
+> T4: correct bottom-edge terminal typing/scrolling, polished themes/controls and a
+> private account-synced saved CLI command library (explicitly chosen by the user).
+> Then T5: offer the terminal connection wizard on initial install/enrollment/upgrade and repair
+> missing-tmux guidance. Read the detailed T4/T5 steps near the top. Preserve local
+> shell consent, immutable IDs, leases, no input replay, explicit paste review and
+> canonical Origin/account boundaries. Do not auto-run a saved command or enable
+> shells silently. Validate host stty versus xterm at ordinary/full/phone sizes,
+> real shell process continuity, two-browser command persistence and actual TTY
+> setup questions. Finish web build before Go checks, record actual evidence and
+> limitations, update the handoff and create a reviewable PR for each bounded stage.
+> Keep S2 and bulk archival behind these user-requested terminal priorities.

@@ -505,7 +505,9 @@ button always sends Ctrl+C. Ctrl+V/Cmd+V pastes, Ctrl+X stays a shell/editor key
 and right-click opens Copy/Paste. Shift+right-click keeps the browser menu. Multiple
 lines, control characters and large pastes require review before sending.
 Disconnect leaves the shell running; **End session** stops its work. Removing
-closed sessions from history is planned and is not currently supported.
+a closed session from history is available under **Manage → Remove from history**.
+This hides its record without deleting machine files, and works while remote terminal
+execution is disabled. Active or pending sessions must be ended first.
 Terminals require controller opt-in (`reet terminal start` with HTTPS/accounts)
 and explicit host-local consent, including for root-owned enrollments. Sessions
 survive browser/agent disconnects while tmux remains running. See the

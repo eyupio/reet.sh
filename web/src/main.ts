@@ -2,4 +2,10 @@ import { mount } from 'svelte'
 import './app.css'
 import App from './App.svelte'
 
-export default mount(App, { target: document.getElementById('app')! })
+const target = document.getElementById('app')!
+
+// Remove the static crawler fallback from index.html before mounting the app.
+target.replaceChildren()
+document.getElementById('seo-fallback-style')?.remove()
+
+export default mount(App, { target })

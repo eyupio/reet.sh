@@ -979,6 +979,18 @@ change the public meaning of "in sync" or claim live content sync exists.**
 
 ### S2 [ ] Private immutable revision store and ownership
 
+Work in progress is saved on `feat/private-skill-revisions`; it is not ready for a PR.
+`internal/skillbundle/contents.go` builds exact upload manifests with S1 parity tests.
+`internal/store/store_private_skills.go` sketches owner-scoped SQLite blobs, immutable
+revisions, expected-base heads, request idempotency and quotas; its migration is
+wired in `store.go`. It compiles, but storage/API tests, transport routes, review,
+backup contract and final checks remain. Do not ship this partial implementation.
+Resume from that branch rather than duplicating it. Read preparation notes at
+`/workspace/work/reet-redesign/s2-preparation.md` if available, and the requirements
+below if that scratch file is absent. User's newer quick-terminal actions/reopen
+sidebar request takes priority; finish and merge that small UI PR, then resume S2.
+
+
 Depends on S1. One persistence/API-contract PR, without a remote apply UI.
 
 1. Inspect `internal/store/store.go`, `store_hosted.go`, `store_sync.go`,

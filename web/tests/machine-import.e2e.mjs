@@ -1,5 +1,5 @@
 import { chromium, expect } from '@playwright/test'
-const base=process.env.REET_UI_URL||'http://127.0.0.1:4183'
+const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
 const page=await browser.newPage({viewport:{width:1360,height:1000}})
 const now=Date.now(),errors=[],writes=[]

@@ -43,6 +43,8 @@ jobs:
             npx playwright install --with-deps chromium
           fi
       - name: Exercise dashboard and terminal workspace UI
+        env:
+          REET_UI_URL: http://127.0.0.1:4173
         run: |
           npm --prefix web run preview -- --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/terminal-ui.log" 2>&1 &
           ui_pid=$!

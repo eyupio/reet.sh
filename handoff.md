@@ -4,7 +4,7 @@
 
 **Resumed after [PR #171](https://github.com/eyupio/reet.sh/pull/171) merged as `1eb92c0`.**
 The user explicitly authorised continuation with one bounded S4 slice: the negotiated
-metadata-only machine content preview, in the pull request for `claude/gallant-darwin-n9oqfj` (branch
+metadata-only machine content preview, in [PR #172](https://github.com/eyupio/reet.sh/pull/172) (branch
 `claude/gallant-darwin-n9oqfj`). It is API and connector protocol only: no browser
 control, no filesystem write and no apply authority. Ownership receipts, adoption,
 reviewed execution and S5 are **not** started. Read
@@ -15,7 +15,7 @@ This is the current implementation baseline **and** the continuation plan. Curre
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 and CLI import in PR #164 (`7253663`). Central browser import merged in PR #168 (`7e2c992`) after all five workflows passed for `56aefe0fbb76d9cf9ce85bfec2591d58cdcc3eee`. S3 is complete. S4's pure content planner merged in PR #169 (`d494543`) after both workflows passed for `7595bc9b50f9d920da30fc4803f7720dfdc5af2a`. Optional owned revision pins/storage/API merged in PR #171 (`1eb92c0`). The negotiated metadata-only content preview is implemented in the pull request for `claude/gallant-darwin-n9oqfj` (API and connector channel only, no UI). No machine content apply is wired yet.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 and CLI import in PR #164 (`7253663`). Central browser import merged in PR #168 (`7e2c992`) after all five workflows passed for `56aefe0fbb76d9cf9ce85bfec2591d58cdcc3eee`. S3 is complete. S4's pure content planner merged in PR #169 (`d494543`) after both workflows passed for `7595bc9b50f9d920da30fc4803f7720dfdc5af2a`. Optional owned revision pins/storage/API merged in PR #171 (`1eb92c0`). The negotiated metadata-only content preview is implemented in [PR #172](https://github.com/eyupio/reet.sh/pull/172) (API and connector channel only, no UI). No machine content apply is wired yet.** S1 is merged through PR #139; do not repeat
 it. Preserve the terminal work and do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -107,7 +107,7 @@ The user requested a status report and continued roadmap delivery after PR #155.
 - **S4 pins merged:** optional owned private revision pins, separate storage/API
   in PR #171 (`1eb92c0`). Read
   [the API, boundaries and granular continuation](docs/skill-content-targets.md).
-- **S4 preview checkpoint:** the negotiated metadata-only content preview is in the pull request for `claude/gallant-darwin-n9oqfj`.
+- **S4 preview checkpoint:** the negotiated metadata-only content preview is in [PR #172](https://github.com/eyupio/reet.sh/pull/172).
   Read [its contract and continuation](docs/skill-content-preview.md). It observes and
   plans but never writes; with no ownership baseline every existing tree needs adoption.
   Ownership receipts/adoption, a review UI and the reviewed executor are separate
@@ -1362,7 +1362,7 @@ Read [docs/skill-content-targets.md](docs/skill-content-targets.md).
 #### S4 negotiated metadata-only content preview — resumed after PR #171
 
 Read [docs/skill-content-preview.md](docs/skill-content-preview.md). Branch
-`claude/gallant-darwin-n9oqfj`, the pull request for `claude/gallant-darwin-n9oqfj`.
+`claude/gallant-darwin-n9oqfj`, [PR #172](https://github.com/eyupio/reet.sh/pull/172).
 
 - **Task and scope.** S4 negotiated per-file metadata preview only. The user resumed
   explicitly after PR #171 merged. No browser control, filesystem write, approval,
@@ -1795,7 +1795,7 @@ working agent authentication or complete environment recovery.
 > resetting edits. Terminal T1–T9 are merged through PR #155. S2 private revisions merged
 > in PR #156; S3 is complete through PRs #161/#164/#168. S4's pure planner merged in
 > PR #169, owned revision pins in PR #171 (`1eb92c0`), and the negotiated metadata-only
-> content preview is in the pull request for `claude/gallant-darwin-n9oqfj` (confirm its final head/CI/merge through the link).
+> content preview is in [PR #172](https://github.com/eyupio/reet.sh/pull/172) (confirm its final head/CI/merge through the link).
 > PR #170's staged reet connector updates are integrated; they are not AI-agent
 > software maintenance. Read docs/skill-content-preview.md, docs/skill-content-targets.md
 > and docs/skill-content-planner.md. Nothing writes to a machine yet and no ownership

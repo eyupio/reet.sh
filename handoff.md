@@ -6,7 +6,7 @@ This is the current implementation baseline **and** the continuation plan. Curre
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 and CLI import in PR #164 (`7253663`). Central browser import is implemented in PR #168 (`feat/browser-machine-skill-import`), with local frontend/vet/race/MCP/browser validation passed and PR CI/merge pending. S4 starts with the pure content planner after this stage merges green.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 and CLI import in PR #164 (`7253663`). Central browser import merged in PR #168 (`7e2c992`) after all five workflows passed for `56aefe0fbb76d9cf9ce85bfec2591d58cdcc3eee`. S3 is complete. S4's pure content planner is implemented on `feat/content-plan-core`, locally validated, with PR CI/merge pending; it has no API, approval or filesystem writes.** S1 is merged through PR #139; do not repeat
 it. Preserve the terminal work and do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -73,8 +73,8 @@ sudo repair or silently restrict the approved normal OS-user terminal behaviour.
   recovery before calling this security work complete.
 
 This is a deferred roadmap item. No PIN preference or new authentication prompt
-is implemented by the current sudo fix. Resume the browser-import work next,
-then schedule this security design with the user at an appropriate checkpoint.
+is implemented by the current sudo fix. Continue the bounded S4 work, and
+schedule this security design with the user at an appropriate checkpoint.
 
 ## Current roadmap checkpoint — 24 October 2026
 
@@ -85,10 +85,13 @@ The user requested a status report and continued roadmap delivery after PR #155.
   storage/API merged in PR #156 (`ad1502a`), with all five workflows green for
   final head `7e4aeec090a0946cc1021aec8ce3b7e29b55fa27`. S2 has no new content
   UI or remote apply operation.
-- **Next:** finish publishing the S3 browser import slice. Its source/file review,
-  exact exclusions/approval, connector transfer and private history are implemented
-  in PR #168 (`feat/browser-machine-skill-import`). After final CI/merge, start only the pure
-  S4 content planner, then separate reviewed apply/receipts and S5 fleet rollout.
+- **S3 complete:** metadata observations, explicit CLI import and browser imports
+  merged through PRs #161/#164/#168. Final browser-import merge is `7e2c992`, all
+  five workflows green for `56aefe0`. Private revision history is available.
+- **Current:** S4 pure bounded planner on `feat/content-plan-core` (publication
+  pending). Read [its contract and granular continuation](docs/skill-content-planner.md).
+  Next add owned revision pins and negotiated metadata preview; keep reviewed
+  executor/journal/receipts in a separate slice. S4 and S5 remain incomplete.
 - **Later:** A1–A3 registered agent launch/activity/attention; W1–W3 projects,
   worktrees/diffs/structured tool review; L1–L4 AI software/MCP fleet maintenance
   and optional isolation. Existing machine inventory and setup snapshots are a
@@ -1151,7 +1154,7 @@ stale base; interrupted transaction; idempotent retry; upgrading an old database
 private import never changes public visibility. Gate: storage and API tests pass,
 with a documented compatibility path for old clients and restore/backups.
 
-### S3 [ ] Machine content observations and explicit import
+### S3 [x] Machine content observations and explicit import
 
 **Metadata slice merged in [PR #161](https://github.com/eyupio/reet.sh/pull/161), `dcef39cbd6cb172d0dc12a90b3730f78afc8852c`, after all five workflows passed for `39cb762931d5e0437acf59a1f906402bdf75d6ff`.** Read
 [the protocol and continuation contract](docs/machine-content-observations.md).
@@ -1200,7 +1203,7 @@ with a documented compatibility path for old clients and restore/backups.
   Tests also cover origin/account/enrollment/pause, bad digest, strict JSON/limits,
   old-controller negotiation, cancellation, changed review and SQL rollback.
   No production machines, services or terminal sessions were modified.
-- **Central browser import implemented in [PR #168](https://github.com/eyupio/reet.sh/pull/168), awaiting final CI/merge:** read
+- **Central browser import merged in [PR #168](https://github.com/eyupio/reet.sh/pull/168) as `7e2c992`, after all five workflows passed for `56aefe0fbb76d9cf9ce85bfec2591d58cdcc3eee`:** read
   [the complete browser contract](docs/browser-skill-import.md). Machines → Private
   skill imports and per-skill Import privately open a review panel with source,
   destination/base, file metadata, exact exclusions, hazard blocking, explicit
@@ -1233,9 +1236,9 @@ with a documented compatibility path for old clients and restore/backups.
   generation/pause/role/revoke/cancel fences, atomic receipt rollback and retries.
   Browser fixtures use synthetic API responses; no live user machines/services
   were modified and no physical cross-platform import rollout was performed.
-- Keep S3 unchecked until final validation/PR merge is recorded. Then start only
-  **S4's pure bounded planner**, with conflicts and no filesystem writes; reviewed
-  single-target apply/receipts are a following bounded stage. Do not jump to bulk apply.
+- S3 is now complete through the recorded PR #168 merge. Continue with S4 in
+  separate planner, negotiated preview and reviewed executor/receipt slices.
+  Do not jump to bulk apply or reuse an import approval for machine writes.
 
 
 Depends on S1/S2. Split observation metadata and payload transfer into separate
@@ -1265,7 +1268,29 @@ fixtures can import different revisions without changing the existing shelf API.
 
 ### S4 [ ] Content-aware preview and reviewed single-target apply
 
-Depends on S2/S3. First implement the planner, then the apply/receipt path.
+Depends on S2/S3, which are merged. **Pure planner implemented on
+`feat/content-plan-core`, locally validated with PR CI/merge pending.** Read
+[docs/skill-content-planner.md](docs/skill-content-planner.md) before continuing.
+
+- `internal/skillplan` has no filesystem/DB/network operations. Build takes an owned
+  pinned private revision, explicit recent observation, target/root/generation,
+  verified managed baseline and additive/managed mode. It returns sorted actions,
+  conflicts, preserved paths, installed/managed result manifests and a bound hash.
+- Existing roots without a verified baseline require adoption; shared/unknown roots,
+  local edits/deletions, unmanaged desired paths, stale/invalid observations and
+  combined result collisions block. No partial executable plan is exposed.
+- This slice does not add revision pins to storage, per-file connector preview,
+  API/UI review, approval, transfer, apply, locking, rollback or durable receipts.
+  S4 stays unchecked until real filesystem execution/recovery gates below pass.
+- Next bounded slice: optional owned revision pins and separately negotiated
+  metadata preview. Existing periodic aggregate content observations cannot provide
+  the required per-file tree or trustworthy absence. Follow the seven granular
+  continuation tasks in the planner document. Keep execution separate.
+- Validation: frontend check/build with zero Svelte diagnostics; full `go vet ./...`
+  and `go test -race ./...`; all 16 MCP tests. Focused planner race tests have
+  96.6% statement coverage. The first full run lacked tmux on PATH; after adding
+  the installed tmux 3.5a, the complete suite passed without source/test weakening.
+  No browser UI, live machine, service, session or remote filesystem was changed.
 
 1. Extend desired target state with a pinned bundle revision. Preserve legacy
    reference-based targets; mark their content-verification limits explicitly.
@@ -1635,10 +1660,10 @@ working agent authentication or complete environment recovery.
 > Continue reet.sh from handoff.md. Inspect branch, worktree, main and PR states
 > without resetting edits. Terminal T1–T9 priorities are merged through PR #155.
 > S2 private revision storage/API merged through PR #156. Read its storage contract.
-> S3 observations and CLI import merged through PRs #161/#164. Browser import is
-> implemented in PR #168 on feat/browser-machine-skill-import; verify its final PR/CI/merge state.
-> Read docs/browser-skill-import.md. Finish this bounded stage and close S3 only
-> once its gate passes, then take S4’s pure planner before any remote apply. Keep
+> S3 is complete through PRs #161/#164/#168; browser import merged as `7e2c992`.
+> S4 pure planner is implemented on feat/content-plan-core; verify its PR/CI/merge
+> state. Read docs/skill-content-planner.md. Next add owned revision pins and a
+> separately negotiated metadata preview, before a reviewed executor/receipt slice. Keep
 > ownership, exact byte/mode manifests, stable retry receipts, reviewed sync and
 > existing terminal sessions intact. Do not jump to remote apply or the whole roadmap.
 > Build the frontend before Go checks, record actual evidence, update this handoff

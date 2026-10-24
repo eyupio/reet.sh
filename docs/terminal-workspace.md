@@ -196,3 +196,22 @@ separate and manually curated.
 See [the command history contract](terminal-command-history.md) for the private
 extension, bounds, compatibility and verification. Existing agents keep their
 terminal connection and display an update prompt until upgraded and restarted.
+
+
+### Scrollback and viewing layouts
+
+**Scrollback** (or Shift+PageUp while the terminal has focus) opens earlier output
+inside the terminal panel. It reads the machine's most recent 2,000 lines / 256 KiB
+using the existing bounded output-history API. Scroll vertically/horizontally,
+select text, use Page Up/Down, or search and move between literal matches. It is a
+read-only snapshot; Refresh obtains newer output, and Back to live returns input
+focus to the same running shell. Nothing is saved in browser storage. The live
+xterm stays mounted and receives redraws behind the reader; no keystrokes from
+reading/search are forwarded. Scrolling an interactive app such as `top` remains
+under that app's control. Tmux's alternate-screen rendering means a browser-only
+xterm scrollbar cannot expose its machine-side history.
+
+**Theatre view** hides the session panel and workspace toolbar while retaining the
+site navigation. Exit theatre restores the previous panel layout. **Maximise**
+remains the separate viewport-filling view (Alt+Shift+M). Both fit the existing
+terminal/PTY; neither disconnects, creates a shell or changes saved panel width.

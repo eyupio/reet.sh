@@ -115,7 +115,7 @@ func processRemoteImportWith(ctx context.Context, c agentConfig, version, instan
 		}
 		return true, err
 	}
-	if work.Instance != instance || work.ExpiresAt < time.Now().UnixMilli() {
+	if work.Instance != instance {
 		return true, nil
 	}
 	root, _, err := skillImportRoot(c, work.Agent, work.Project, work.Name)
@@ -171,7 +171,7 @@ func processRemoteImportWith(ctx context.Context, c agentConfig, version, instan
 	if err = remoteImportPost(ctx, c, "work", map[string]any{"schemaVersion": skillimport.RemoteVersion, "instanceId": instance}, &current, version); err != nil {
 		return true, err
 	}
-	if current.SchemaVersion != skillimport.RemoteVersion || current.Work == nil || current.Work.ID != work.ID || current.Work.State != "uploading" || current.Work.Digest != m.Digest || current.Work.ExpiresAt < time.Now().UnixMilli() {
+	if current.SchemaVersion != skillimport.RemoteVersion || current.Work == nil || current.Work.ID != work.ID || current.Work.State != "uploading" || current.Work.Digest != m.Digest {
 		return true, nil
 	}
 	var result store.PrivateSkillResult

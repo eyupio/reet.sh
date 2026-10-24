@@ -6,7 +6,7 @@ This is the current implementation baseline **and** the continuation plan. Curre
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 and CLI import in PR #164 (`7253663`). Central browser import is implemented on `feat/browser-machine-skill-import`, with local frontend/vet/race/MCP/browser validation passed and PR CI/merge pending. S4 starts with the pure content planner after this stage merges green.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 and CLI import in PR #164 (`7253663`). Central browser import is implemented in PR #168 (`feat/browser-machine-skill-import`), with local frontend/vet/race/MCP/browser validation passed and PR CI/merge pending. S4 starts with the pure content planner after this stage merges green.** S1 is merged through PR #139; do not repeat
 it. Preserve the terminal work and do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -87,7 +87,7 @@ The user requested a status report and continued roadmap delivery after PR #155.
   UI or remote apply operation.
 - **Next:** finish publishing the S3 browser import slice. Its source/file review,
   exact exclusions/approval, connector transfer and private history are implemented
-  on `feat/browser-machine-skill-import`. After final CI/merge, start only the pure
+  in PR #168 (`feat/browser-machine-skill-import`). After final CI/merge, start only the pure
   S4 content planner, then separate reviewed apply/receipts and S5 fleet rollout.
 - **Later:** A1–A3 registered agent launch/activity/attention; W1–W3 projects,
   worktrees/diffs/structured tool review; L1–L4 AI software/MCP fleet maintenance
@@ -1200,7 +1200,7 @@ with a documented compatibility path for old clients and restore/backups.
   Tests also cover origin/account/enrollment/pause, bad digest, strict JSON/limits,
   old-controller negotiation, cancellation, changed review and SQL rollback.
   No production machines, services or terminal sessions were modified.
-- **Central browser import implemented, pending final checks/publication:** read
+- **Central browser import implemented in [PR #168](https://github.com/eyupio/reet.sh/pull/168), awaiting final CI/merge:** read
   [the complete browser contract](docs/browser-skill-import.md). Machines → Private
   skill imports and per-skill Import privately open a review panel with source,
   destination/base, file metadata, exact exclusions, hazard blocking, explicit
@@ -1636,7 +1636,7 @@ working agent authentication or complete environment recovery.
 > without resetting edits. Terminal T1–T9 priorities are merged through PR #155.
 > S2 private revision storage/API merged through PR #156. Read its storage contract.
 > S3 observations and CLI import merged through PRs #161/#164. Browser import is
-> implemented on feat/browser-machine-skill-import; verify its final PR/CI/merge state.
+> implemented in PR #168 on feat/browser-machine-skill-import; verify its final PR/CI/merge state.
 > Read docs/browser-skill-import.md. Finish this bounded stage and close S3 only
 > once its gate passes, then take S4’s pure planner before any remote apply. Keep
 > ownership, exact byte/mode manifests, stable retry receipts, reviewed sync and

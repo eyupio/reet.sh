@@ -76,7 +76,9 @@ agent/project metadata, snapshots the recent process generation and fixes destin
 and expected base. No caller-selected owner, source root, origin, raw data or publication
 flags are accepted. A matching creation key returns the original request; a changed
 payload under that key conflicts. Retained requests have a ten-minute deadline.
-Expired/cancelled work cannot be approved or committed. The browser reuses its original
+Expired/cancelled work cannot be approved or committed. Expiry is enforced by
+server time and the final authorization check, not by trusting an agent/browser
+wall clock that may be skewed. The browser reuses its original
 request key after uncertain creation and reconciles uncertain approval through GET.
 
 ## Connector reporting and atomic commit

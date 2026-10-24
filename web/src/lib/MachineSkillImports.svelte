@@ -116,7 +116,7 @@
  <footer>
   {#if selected}
    {#if selected.preview && selected.state === 'reviewing'}
-    <button class="primary" type="button" disabled={busy || !!error || blocked || !selected.preview.skillValid || Date.now() > selected.expiresAt} onclick={approve}>{busy ? 'Approving…' : `Import ${selectedFiles.length} files privately`}</button>
+    <button class="primary" type="button" disabled={busy || !!error || blocked || !selected.preview.skillValid} onclick={approve}>{busy ? 'Approving…' : `Import ${selectedFiles.length} files privately`}</button>
    {/if}
     <div class="actions"><button type="button" disabled={busy} onclick={() => void refresh()}>Refresh status</button><button type="button" disabled={busy} onclick={() => remove(selected!)}>{active(selected.state) ? 'Cancel import' : 'Dismiss import history'}</button><button type="button" disabled={busy} onclick={() => { generation++; selected = null; selectedID = ''; exclusions = []; requestKey = crypto.randomUUID() }}>Back to sources</button></div>
   {:else if !selectedID}

@@ -6,7 +6,7 @@ This is the current implementation baseline **and** the continuation plan. Curre
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 as `dcef39c`, after all five workflows passed for `39cb762`. Explicit CLI import is implemented on `feat/explicit-machine-skill-import`, locally validated and awaiting PR CI/merge; central browser import follows separately.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 as `dcef39c`, after all five workflows passed for `39cb762`. Explicit CLI import is implemented in PR #164 (`feat/explicit-machine-skill-import`), locally validated and awaiting final CI/merge; central browser import follows separately.** S1 is merged through PR #139; do not repeat
 it. Preserve the terminal work and do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -1127,7 +1127,7 @@ with a documented compatibility path for old clients and restore/backups.
   two-host lifecycle. Additional race tests cover byte-budget exhaustion,
   cancellation, legacy-schema reopen, expiry, role changes and rollback.
   No live user workloads or deployed connector installations were changed.
-- **Explicit CLI transfer implemented and locally validated, awaiting PR CI/merge:** read
+- **Explicit CLI transfer implemented and locally validated in [PR #164](https://github.com/eyupio/reet.sh/pull/164), awaiting final CI/merge:** read
   [the complete import contract and granular continuation](docs/machine-skill-import.md).
   `reet agent skill import` previews one locally enrolled scope/folder; `--upload`
   plus typed IMPORT or explicit `--yes` sends selected files. Exact exclusions,
@@ -1555,7 +1555,7 @@ working agent authentication or complete environment recovery.
 > without resetting edits. Terminal T1–T9 priorities are merged through PR #155.
 > S2 private revision storage/API merged through PR #156. Read its storage contract.
 > S3 metadata observations merged through PR #161. Explicit CLI import is implemented
-> on feat/explicit-machine-skill-import; verify its exact PR/check/merge state.
+> in PR #164 on feat/explicit-machine-skill-import; verify its exact PR/check/merge state.
 > Read docs/machine-skill-import.md and finish central browser preview/approval
 > and connector dispatch before closing S3 or starting S4. Keep
 > ownership, exact byte/mode manifests, stable retry receipts, reviewed sync and

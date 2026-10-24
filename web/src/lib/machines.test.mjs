@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 // Compile the pure comparison helper without a browser or an extra test dependency.
 const { outputText } = ts.transpileModule(readFileSync(new URL('./machines.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
-const { inventoryMachines, compareInventories, inventory, agentGroups, installationReports, installationStatus } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { inventoryMachines, compareInventories, inventory, agentGroups, installationReports, installationStatus, agentBuild, agentUpdateTarget, latestRelease, updateAvailable, versionLess } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 const now = Date.now()
 const skill = (id, source = 'org/repo') => ({ id, name: id, source, sourceType: source ? 'github' : 'local' })
 const group = (id, skills, changes = {}) => ({ id, agent: 'claude', skills, complete: true, scannedAt: now, ...changes })
@@ -59,4 +59,49 @@ test('shelf environments exclude server-only heartbeats but retain empty and sta
   ]
   assert.deepEqual(inventoryMachines(machines).map(machine => machine.host), ['empty-laptop', 'old-laptop', 'server-with-skills'])
   assert.equal(machines.length, 5)
+})
+
+
+test('agent builds show a short commit or say it is unknown', () => {
+  assert.equal(agentBuild({ version: 'dev', commit: '0123456789abcdef0123456789abcdef01234567' }), 'dev · 0123456789ab')
+  assert.equal(agentBuild({ version: 'dev', commit: 'unknown' }), 'dev · commit unknown')
+  assert.equal(agentBuild({ version: 'dev' }), 'dev · commit unknown')
+  assert.equal(agentBuild({ version: 'v1.4.2', commit: '0123456789abcdef0123456789abcdef01234567' }), 'v1.4.2 · 0123456789ab')
+  assert.equal(agentBuild({ version: 'v1.4.2' }), 'v1.4.2')
+})
+
+test('dev machines are current only when their commit matches the published pointer', () => {
+  const releases = {
+    dev: { version: 'dev', commit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' },
+    latest: { version: 'v1.4.2' },
+  }
+  assert.equal(updateAvailable({ version: 'dev', commit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }, releases), false)
+  assert.equal(updateAvailable({ version: 'dev', commit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, releases), true)
+  assert.equal(updateAvailable({ version: 'dev', commit: 'unknown' }, releases), true)
+  assert.equal(updateAvailable({ version: 'dev' }, releases), true)
+  assert.equal(latestRelease({ version: 'dev' }, releases).label, 'dev · bbbbbbbbbbbb')
+})
+
+test('release machines compare semantic versions and never downgrade newer builds', () => {
+  const releases = { dev: { commit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }, latest: { version: 'v1.4.2' } }
+  assert.equal(updateAvailable({ version: 'v1.2.9' }, releases), true)
+  assert.equal(updateAvailable({ version: 'v1.4.2' }, releases), false)
+  assert.equal(updateAvailable({ version: 'v1.5.0' }, releases), false)
+  assert.equal(updateAvailable({ version: 'v1.2.3', commit: 'whatever' }, releases), true)
+  assert.equal(agentUpdateTarget({ version: 'dev' }), 'dev')
+  assert.equal(agentUpdateTarget({ version: 'v1.4.2' }), 'latest')
+})
+
+test('unknown or failed channel checks do not claim an update is waiting', () => {
+  assert.equal(updateAvailable({ version: 'dev', commit: 'abc' }, undefined), false)
+  assert.equal(updateAvailable({ version: 'dev', commit: 'abc' }, { dev: { error: 'offline' } }), false)
+  assert.equal(updateAvailable({ version: 'v1.0.0' }, { latest: { error: 'offline' } }), false)
+  assert.equal(latestRelease({ version: 'dev' }, { dev: { error: 'offline' } }).error, 'offline')
+})
+
+test('semantic version comparison handles prereleases and unparseable builds', () => {
+  assert.equal(versionLess('v1.2.3', 'v1.2.4'), true)
+  assert.equal(versionLess('v1.2.10', 'v1.2.9'), false)
+  assert.equal(versionLess('v2.0.0-rc.1', 'v2.0.0'), true)
+  assert.equal(versionLess('not-a-version', 'v1.0.0'), false)
 })

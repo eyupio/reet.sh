@@ -303,8 +303,10 @@ ordinary typing, control keys and multiline-paste confirmation still work.
 ### T2 implementation record — 24 October 2026
 
 - Branch: `feat/terminal-lifecycle-controls`, based on main `5fca4f4` after PR #140
-  passed its workflows and merged. This records branch implementation and local
-  verification, not a release or deployment. Check its PR state before continuing.
+  passed its workflows and merged. Implementation commit: `c751e11`; PR
+  [#141](https://github.com/eyupio/reet.sh/pull/141) opened on 24 October 2026.
+  This records branch implementation and local verification, not a release or
+  deployment. Check its PR state before continuing.
 - Added Find machine: search enrolled host/shell-user names and retain unavailable
   hosts with setup/reconnect guidance. Returning to a machine restores its last
   selected session while mounted. User/host remains visible on phones; narrowing

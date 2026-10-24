@@ -408,7 +408,10 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 				failures = append(failures, err)
 			}
 		}
-		return errors.Join(failures...)
+		if err := errors.Join(failures...); err != nil {
+			return err
+		}
+		return reportContentObservations(ctx, c, version)
 	}
 	if reply.Job == nil {
 		if time.Since(*lastScan) >= time.Minute {

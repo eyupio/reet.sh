@@ -3,6 +3,7 @@
   import { syncCandidates, listLists, getList, saveDesired, reconcileDesired, adoptSyncSkills, queueSyncJob, controlSyncJob, deleteSyncTarget, type SyncState, type SyncSkill, type SharedList, type SyncTarget, type SyncJob } from './api'
   import { agentGroups, groupLabel, inventory, inventoryMachines } from './machines'
   import { elapsed } from './time'
+  import ContentObservation from './ContentObservation.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import CopyButton from './CopyButton.svelte'
   import FleetActions from './FleetActions.svelte'
@@ -210,10 +211,13 @@
       <div class="scope-head"><strong>Agent scopes · {selectedMachine === '*' ? 'all machines' : machine?.host}</strong><div><button type="button" class="link" onclick={() => (selectedAgents = selectableGroups.map(g => g.id))}>All</button><button type="button" class="link" onclick={() => (selectedAgents = [])}>None</button></div></div>
       <div class="scope-grid">
         {#each selectableGroups as env (env.id)}
+          <div>
           <label class="scope-option" class:selected={selectedAgents.includes(env.id)}>
             <input type="checkbox" checked={selectedAgents.includes(env.id)} onchange={() => toggleAgent(env.id)} disabled={busy} />
             <span><strong>{selectedMachine === '*' ? `${env.host} · ` : ''}{groupLabel(env)}</strong><small>{env.skillCount ?? 0} skills · {!env.complete ? 'Incomplete' : env.scannedAt <= Date.now() - 14 * 86400000 ? 'Out of date' : 'Recent complete'} scan</small></span>
           </label>
+          <ContentObservation content={env.content} />
+          </div>
         {/each}
       </div>
       {#if scanOnlyGroups.length}<p class="hint">Scan-only: {scanOnlyGroups.map(g => groupLabel(g)).join(', ')}. These scopes cannot receive sync jobs.</p>{/if}

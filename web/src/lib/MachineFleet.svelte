@@ -8,6 +8,7 @@
   import { agentGroups, groupLabel } from './machines'
   import { machineStatus, scanOnlyAgents, supportedAgents, syncLink } from './machineSetup'
   import MachineCommands from './MachineCommands.svelte'
+  import ContentObservation from './ContentObservation.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
 
   let {
@@ -214,6 +215,7 @@
                 <div class="agent-copy">
                   <strong>{groupLabel(group)}</strong>
                   <small>{group.skillCount ?? 0} {group.skillCount === 1 ? 'skill' : 'skills'} · {group.complete ? 'Last full report' : 'Incomplete report'} {new Date(group.scannedAt || group.lastSeen).toLocaleString()}</small>
+                  <ContentObservation content={group.content} />
                 </div>
                 <span class="scope-state">{groupState(group)}</span>
               </li>

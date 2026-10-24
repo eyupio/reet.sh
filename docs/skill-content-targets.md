@@ -39,7 +39,12 @@ permission for the controller to choose an arbitrary directory.
 Pins remain inspectable/removable while a connector is paused/offline. Revoking
 an enrollment or forgetting its environment cascades its pins; a replacement
 connector does not inherit them. Neither operation deletes private revisions.
-Ordinary process reconnects retain the same enrollment's intent; later previews
+Machine renames within the same enrollment preserve pin IDs and selected revisions,
+move their environment IDs and issue fresh versions so old reviews expire. Merging
+identical duplicate pins retains the destination pin with a fresh version;
+conflicting pins block and roll back the complete rename. Generic report merges
+into another scope require removing the source pins first; they cannot silently
+transfer private intent across roots. Ordinary process reconnects retain the same enrollment's intent; later previews
 must independently fence their current connection/process and inventory identity.
 
 ## API
@@ -120,7 +125,8 @@ content or pins. There is no new export/restore format in this slice.
 
 ## Granular continuation
 
-1. After this PR is green/merged, implement only the negotiated metadata preview
+1. The user requested a pause after this PR. Only when they explicitly resume,
+   implement the negotiated metadata preview
    channel. Read the pure planner's input/authority contract before adding types.
 2. Select the owned pin and exact immutable private revision server-side. Bind the
    pin ID/version, account, enrollment, current process/connection generation and
@@ -155,7 +161,8 @@ Real SQLite/store and HTTP tests cover pinned history and explicit rollback,
 metadata-only responses, account/token/origin/role isolation, stale version edits
 and deletes, unsupported/stale/incomplete scopes, pause/revocation, account/scope
 cascades, replacement enrollments, transaction rollback, competing connections,
-capacity, migration/reopen and unchanged legacy dispatch/state. These tests do not
+capacity, migration/reopen, rename preservation/conflict rollback, cross-scope
+merge fences and unchanged legacy dispatch/state. These tests do not
 establish remote file installation, ownership adoption, on-disk recovery or a live
 fleet rollout. No production machine or terminal service was changed.
 

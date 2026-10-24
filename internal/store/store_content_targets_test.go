@@ -409,3 +409,88 @@ func TestSkillContentTargetExplicitRevisionRollbackAndNoOp(t *testing.T) {
 		t.Fatal("rollback rewound library", b, e)
 	}
 }
+
+func TestSkillContentTargetMachineRenameAndScopeMerge(t *testing.T) {
+	s, u, a, in, b := contentTargetFixture(t)
+	p, e := s.SaveSkillContentTargetFor(u, in)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = s.MergeMachinesFor(u, a.Host, "renamed-laptop"); e != nil {
+		t.Fatal(e)
+	}
+	got, e := s.SkillContentTargetFor(u, p.ID)
+	if e != nil || got.EnvironmentID != EnvironmentIDFor(u, "renamed-laptop", "agents", "") || got.AgentID != a.ID || got.RevisionID != b.Revision.ID || got.Version == p.Version {
+		t.Fatal("rename lost intent/fence", got, e)
+	}
+	in.EnvironmentID = got.EnvironmentID
+	in.ExpectedVersion = &p.Version
+	in.Mode = "managed"
+	if _, e = s.SaveSkillContentTargetFor(u, in); !errors.Is(e, ErrSkillContentTargetConflict) {
+		t.Fatal("old review survived rename", e)
+	}
+	in.ExpectedVersion = &got.Version
+	if _, e = s.SaveSkillContentTargetFor(u, in); e != nil {
+		t.Fatal("renamed enrollment no longer usable", e)
+	}
+	if e = s.TouchEnvironmentFor(u, "renamed-laptop", "claude", "", ""); e != nil {
+		t.Fatal(e)
+	}
+	dest := EnvironmentIDFor(u, "renamed-laptop", "claude", "")
+	if _, e = s.MergeEnvironmentsFor(u, got.EnvironmentID, dest); e == nil {
+		t.Fatal("scope merge discarded private intent")
+	}
+	if _, e = s.SkillContentTargetFor(u, p.ID); e != nil {
+		t.Fatal("failed merge removed pin", e)
+	}
+}
+func TestSkillContentTargetRenameCollisionIsAtomic(t *testing.T) {
+	for _, same := range []bool{false, true} {
+		t.Run(fmt.Sprint(same), func(t *testing.T) {
+			s, u, a, in, _ := contentTargetFixture(t)
+			p, e := s.SaveSkillContentTargetFor(u, in)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if e = s.TouchEnvironmentFor(u, "preferred", "agents", "", ""); e != nil {
+				t.Fatal(e)
+			}
+			dest := EnvironmentIDFor(u, "preferred", "agents", "")
+			mode := "managed"
+			if same {
+				mode = in.Mode
+			}
+			// A persisted duplicate report may predate consolidation. Give it a pin to
+			// prove the rename never silently picks a winner or retains an old review.
+			destID, version := syncID(), syncID()
+			if _, e = s.db.Exec(`INSERT INTO skill_content_targets(id,user_id,environment_id,agent_id,name,bundle_id,revision_id,mode,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, destID, u, dest, a.ID, p.Name, p.BundleID, p.RevisionID, mode, version, now()); e != nil {
+				t.Fatal(e)
+			}
+			e = s.MergeMachinesFor(u, a.Host, "preferred")
+			if !same {
+				if e == nil {
+					t.Fatal("conflicting intent silently merged")
+				}
+				original, e := s.SkillContentTargetFor(u, p.ID)
+				if e != nil || !reflect.DeepEqual(original, p) {
+					t.Fatal("failed merge changed pin", original, e)
+				}
+				aliases, e := s.MachineAliasesFor(u)
+				if e != nil || len(aliases) != 0 {
+					t.Fatal("partial alias update", aliases, e)
+				}
+			} else {
+				if e != nil {
+					t.Fatal(e)
+				}
+				if _, e = s.SkillContentTargetFor(u, p.ID); !errors.Is(e, ErrSkillContentTargetMissing) {
+					t.Fatal("duplicate pin retained", e)
+				}
+				merged, e := s.SkillContentTargetFor(u, destID)
+				if e != nil || merged.Version == version || merged.EnvironmentID != dest {
+					t.Fatal("destination review not fenced", merged, e)
+				}
+			}
+		})
+	}
+}

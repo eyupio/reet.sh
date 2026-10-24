@@ -2,11 +2,17 @@
 
 ## Read this first — 24 October 2026
 
+**User-requested pause after [PR #171](https://github.com/eyupio/reet.sh/pull/171).**
+Finish that PR and merge only after its final checks are green, then stop. Do not
+start metadata preview, executor work or any other roadmap stage until the user
+explicitly resumes. The code/contract and restart points below are saved for that
+future session. The PR link is authoritative for its final head, CI and merge state.
+
 This is the current implementation baseline **and** the continuation plan. Current
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 and CLI import in PR #164 (`7253663`). Central browser import merged in PR #168 (`7e2c992`) after all five workflows passed for `56aefe0fbb76d9cf9ce85bfec2591d58cdcc3eee`. S3 is complete. S4's pure content planner merged in PR #169 (`d494543`) after both workflows passed for `7595bc9b50f9d920da30fc4803f7720dfdc5af2a`. Optional owned revision pins/storage/API are implemented in PR #171 (`feat/private-content-target-pins`), with full local validation passed and final CI/merge pending. No machine content preview/apply is wired yet.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 and CLI import in PR #164 (`7253663`). Central browser import merged in PR #168 (`7e2c992`) after all five workflows passed for `56aefe0fbb76d9cf9ce85bfec2591d58cdcc3eee`. S3 is complete. S4's pure content planner merged in PR #169 (`d494543`) after both workflows passed for `7595bc9b50f9d920da30fc4803f7720dfdc5af2a`. Optional owned revision pins/storage/API are implemented in PR #171 (`feat/private-content-target-pins`), with its implementation and continuation contract recorded below. No machine content preview/apply is wired yet.** S1 is merged through PR #139; do not repeat
 it. Preserve the terminal work and do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -90,11 +96,12 @@ The user requested a status report and continued roadmap delivery after PR #155.
   five workflows green for `56aefe0`. Private revision history is available.
 - **S4 foundation merged:** pure bounded planner in PR #169 (`d494543`), both
   workflows green for `7595bc9`. Read [its contract](docs/skill-content-planner.md).
-- **Current:** optional owned private revision pins, separate storage/API in PR #171
-  (`feat/private-content-target-pins`; full local validation passed, final CI/merge pending). Read
+- **Pause checkpoint:** optional owned private revision pins, separate storage/API
+  in PR #171 (`feat/private-content-target-pins`). Read
   [the API, boundaries and granular continuation](docs/skill-content-targets.md).
-  Next implement only negotiated per-file metadata preview; keep reviewed
-  executor/journal/receipts in a separate slice. S4 and S5 remain incomplete.
+  When the user resumes, implement only negotiated per-file metadata preview;
+  keep reviewed executor/journal/receipts in a separate slice. S4 and S5 remain
+  incomplete. Do not start this next stage after the current PR merges.
 - **Later:** A1–A3 registered agent launch/activity/attention; W1–W3 projects,
   worktrees/diffs/structured tool review; L1–L4 AI software/MCP fleet maintenance
   and optional isolation. Existing machine inventory and setup snapshots are a
@@ -1296,7 +1303,7 @@ passed for `7595bc9b50f9d920da30fc4803f7720dfdc5af2a`.** Read
   the installed tmux 3.5a, the complete suite passed without source/test weakening.
   No browser UI, live machine, service, session or remote filesystem was changed.
 
-#### S4 desired revision pins — implemented in PR #171, final CI/merge pending
+#### S4 desired revision pins — PR #171, pause checkpoint
 
 Read [docs/skill-content-targets.md](docs/skill-content-targets.md).
 [PR #171](https://github.com/eyupio/reet.sh/pull/171), branch `feat/private-content-target-pins`.
@@ -1319,7 +1326,10 @@ Read [docs/skill-content-targets.md](docs/skill-content-targets.md).
   expected version can recreate a removed pin; clients must not blindly retry it.
 - Removing pins affects only intent. Environment/enrollment/account cascades remove
   pins; replacement enrollments do not inherit them. Private revision bytes survive
-  pin removal and enrollment revocation. No new legacy job/terminal message exists.
+  pin removal and enrollment revocation. Same-enrollment machine rename preserves
+  pins and bumps versions; conflicting pins roll back the rename. Generic
+  cross-scope report merging blocks if source pins exist. No new legacy job or
+  terminal message exists.
 - Focused SQLite/HTTP race tests pass: ownership/token/origin/role fences, pinned
   history/rollback, old modes/scopes, stale edits/deletes, pause/revoke, cascades,
   replacement enrollment, rollback injection, concurrent Store connections,
@@ -1700,15 +1710,16 @@ failing case and recoverable state. "Code compiles", "API returned 200", a mocke
 success response or a green screenshot does not establish successful remote writes,
 working agent authentication or complete environment recovery.
 
-## Ready-to-use continuation brief
+## Ready-to-use continuation brief — only after the user resumes
 
-> Continue reet.sh from handoff.md. Inspect branch, worktree, main and PR states
+> Work is paused after PR #171 at the user's request. Do not start a new stage
+> until the user explicitly resumes. When resumed, continue reet.sh from handoff.md. Inspect branch, worktree, main and PR states
 > without resetting edits. Terminal T1–T9 priorities are merged through PR #155.
 > S2 private revision storage/API merged through PR #156. Read its storage contract.
 > S3 is complete through PRs #161/#164/#168; browser import merged as `7e2c992`.
 > S4 pure planner merged in PR #169 (`d494543`), both workflows green for `7595bc9`.
 > Owned revision pins/storage/API are implemented in PR #171 on feat/private-content-target-pins;
-> verify its final CI/merge. Read docs/skill-content-targets.md and the planner
+> confirm its final head/CI/merge through the PR link. This is the pause checkpoint. Read docs/skill-content-targets.md and the planner
 > contract. Next implement only negotiated metadata preview; executor/receipts follow. Keep
 > ownership, exact byte/mode manifests, stable retry receipts, reviewed sync and
 > existing terminal sessions intact. Do not jump to remote apply or the whole roadmap.

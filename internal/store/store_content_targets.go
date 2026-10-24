@@ -208,3 +208,47 @@ func (s *Store) DeleteSkillContentTargetFor(uid int64, id, version string) error
 		return e
 	})
 }
+
+// moveSkillContentTargets follows a machine rename within the same enrollment,
+// never a cross-scope adoption. Bumping versions fences every old review, including
+// the destination of an identical duplicate. Conflicts roll back the whole rename.
+func moveSkillContentTargets(tx *sql.Tx, uid int64, from, to string) error {
+	rows, err := tx.Query(`SELECT `+contentTargetCols+contentTargetJoin+` WHERE t.user_id=? AND t.environment_id=? ORDER BY t.id`, uid, from)
+	if err != nil {
+		return err
+	}
+	pins := []SkillContentTarget{}
+	for rows.Next() {
+		pin, e := scanContentTarget(rows)
+		if e != nil {
+			rows.Close()
+			return e
+		}
+		pins = append(pins, pin)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, pin := range pins {
+		other, e := scanContentTarget(tx.QueryRow(`SELECT `+contentTargetCols+contentTargetJoin+` WHERE t.user_id=? AND t.environment_id=? AND t.name=?`, uid, to, pin.Name))
+		if e != nil && !errors.Is(e, ErrSkillContentTargetMissing) {
+			return e
+		}
+		if e == nil {
+			if other.AgentID != pin.AgentID || other.BundleID != pin.BundleID || other.RevisionID != pin.RevisionID || other.Mode != pin.Mode {
+				return errors.New("these reports have different private skill pins; remove one pin before merging")
+			}
+			if _, err = tx.Exec(`UPDATE skill_content_targets SET version=?,updated_at=? WHERE user_id=? AND id=?`, syncID(), now(), uid, other.ID); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(`DELETE FROM skill_content_targets WHERE user_id=? AND id=?`, uid, pin.ID); err != nil {
+				return err
+			}
+		} else if _, err = tx.Exec(`UPDATE skill_content_targets SET environment_id=?,version=?,updated_at=? WHERE user_id=? AND id=?`, to, syncID(), now(), uid, pin.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}

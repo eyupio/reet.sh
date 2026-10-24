@@ -3,9 +3,11 @@
 `internal/skillplan.Build(snapshot, nowMillis)` computes a bounded, deterministic
 single-skill plan from metadata. It does not read files, access SQLite, call APIs,
 transfer bytes, run commands or write to machines. The
-[pinned desired-state API](skill-content-targets.md) now stores its future desired
-input, but nothing invokes Build from the product yet. S4 remains incomplete until
-reviewed execution and durable receipts are implemented and verified. S3 import approval cannot authorise a machine write.
+[pinned desired-state API](skill-content-targets.md) stores its desired input, and the
+[negotiated metadata preview](skill-content-preview.md) is the only product caller:
+it runs Build on storage plus a connector capture, with no baseline, and stores the
+resulting plan as a read-only review. S4 remains incomplete until reviewed execution
+and durable receipts are implemented and verified. S3 import approval cannot authorise a machine write.
 
 ## Inputs and authority
 
@@ -108,26 +110,24 @@ A repeated hash never permits replaying a completed or ambiguously executed writ
 Keep subsequent work in reviewable slices. Do not wire this library directly to
 legacy name-based sync jobs or terminal command messages.
 
-1. Optional owned private revision pins are implemented in the separate
-   [desired-state slice](skill-content-targets.md). Preserve reference-only targets
-   and `SyncSkill` hash semantics. Carry the pin version in future review identity;
-   identical content selected after an intervening change must not revive old approval.
-2. Design the negotiated per-file preview protocol. Authenticate account plus
-   enrollment; bind server-side request to the current inventory/generation and
-   reported local scope. Capture metadata from the configured local root using S1
-   no-follow reads. Negotiate before any content reads. Unsupported/failed/absent
-   roots need distinct states. A controller request must not select an arbitrary
-   absolute directory. Carry no file bytes in this review step.
-3. Define local physical-root identity/alias checks and verified ownership receipts.
-   Re-enrollment/root moves cannot silently inherit an old baseline. For initial
-   installations record no ownership until post-apply verification succeeds.
-   Existing unowned roots require a separate explicit adoption design; do not
-   bypass `adoption_required` just because fingerprints match.
-4. Feed owned private revisions, trusted observations and receipts into Build.
-   Return conflicts and exact actions without writes. Add API contract tests for
-   cross-account, reader, pause/revoke, old connector, generation, stale inventory,
-   root aliases, unknown absence and changed pinned revision. Persist exact review
-   preconditions/hash rather than rebuilding from mutable desired state at approval.
+1. Done: optional owned private revision pins ([desired-state slice](skill-content-targets.md)).
+   Preserve reference-only targets and `SyncSkill` hash semantics. The pin version is
+   carried in the preview's review identity; identical content selected after an
+   intervening change does not revive an old review.
+2. Done: the [negotiated per-file preview](skill-content-preview.md) authenticates
+   account plus enrolment, binds the server-side request to the pin, process and
+   inventory, and captures metadata from the connector's own configured root with S1
+   no-follow reads. It negotiates before any content read, distinguishes unsupported,
+   failed, absent and unknown, and carries no file bytes.
+3. Partly done: physical-root identity and alias checks exist (shared and unknown
+   roots block). Still to do: verified ownership receipts. Re-enrolment and root moves
+   must not silently inherit an old baseline. Initial installations record no ownership
+   until post-apply verification succeeds. Existing unowned roots need a separate
+   explicit adoption design; do not bypass `adoption_required` because fingerprints match.
+4. Done without a baseline: owned private revisions and trusted observations feed Build,
+   and the exact plan and hash are persisted as the review. Still to do: baseline input
+   from receipts, and an approval that binds the review hash and rechecks time,
+   identity and ownership rather than rebuilding from mutable desired state.
 5. In a separate executor slice, stage and hash the entire private payload, check
    selection policy, acquire the correct local lock and re-read preconditions.
    Journal/back up before replacements, including the current partially written

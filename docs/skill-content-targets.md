@@ -169,3 +169,7 @@ fleet rollout. No production machine or terminal service was changed.
 Full local validation passed: frontend check/build (zero Svelte diagnostics),
 `go vet ./...`, `go test -race ./...` with tmux 3.5a on PATH, and all 16 MCP tests.
 The published workflows must pass for the final PR head before merge.
+
+The final PR integrates main through the separately merged connector-update
+operation in PR #170 (`d040518`). Its staged binary update UI/protocol are preserved;
+they are separate from private content pins and future AI-agent maintenance.

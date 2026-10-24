@@ -96,6 +96,11 @@ The user requested a status report and continued roadmap delivery after PR #155.
   five workflows green for `56aefe0`. Private revision history is available.
 - **S4 foundation merged:** pure bounded planner in PR #169 (`d494543`), both
   workflows green for `7595bc9`. Read [its contract](docs/skill-content-planner.md).
+- **Additional merged baseline:** PR #170 (`d040518`) adds staged reet connector
+  binary updates, progress/outcome reporting and rollback handling. It was merged
+  separately and integrated into PR #171; preserve its `AgentUpdate.svelte`,
+  `store_sync_updates.go` and connector update-state/protocol code. This concerns
+  the reet connector binary, not the future AI-agent software/MCP maintenance stages.
 - **Pause checkpoint:** optional owned private revision pins, separate storage/API
   in PR #171 (`feat/private-content-target-pins`). Read
   [the API, boundaries and granular continuation](docs/skill-content-targets.md).
@@ -1340,9 +1345,9 @@ Read [docs/skill-content-targets.md](docs/skill-content-targets.md).
   `go vet ./...`, full `go test -race ./...` with tmux 3.5a on PATH, and all 16 MCP
   tests. No browser UI, live machines, services or sessions were changed. The
   published workflows must pass for the final PR head before merge. The final
-  implementation (including rename integration) is `43f083a`; later commits in
-  this PR update documentation only. PR #171 remains the authoritative record
-  of its final documentation head, published checks and merge state.
+  pin implementation (including rename integration) is `43f083a`; the PR also
+  integrates main through PR #170 (`d040518`). PR #171 remains the authoritative
+  record of its final integration/documentation head, published checks and merge.
 - Next: negotiated metadata-only capture bound to pin ID/version and current
   inventory/connection identities, local root identity/aliases, then trusted planner
   input and truthful review. A pin change away and back must invalidate old review
@@ -1723,6 +1728,8 @@ working agent authentication or complete environment recovery.
 > S2 private revision storage/API merged through PR #156. Read its storage contract.
 > S3 is complete through PRs #161/#164/#168; browser import merged as `7e2c992`.
 > S4 pure planner merged in PR #169 (`d494543`), both workflows green for `7595bc9`.
+> PR #170's staged reet connector updates (`d040518`) are also integrated; preserve
+> them without treating them as completion of AI-agent software maintenance.
 > Owned revision pins/storage/API are implemented in PR #171 on feat/private-content-target-pins;
 > confirm its final head/CI/merge through the PR link. This is the pause checkpoint.
 > Read docs/skill-content-targets.md and the planner contract. Next implement only negotiated metadata preview; executor/receipts follow. Keep

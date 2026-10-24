@@ -127,20 +127,8 @@ func (s *Store) SaveSkillContentTargetFor(uid int64, in SkillContentTargetWrite)
 			}
 			return e
 		}
-		var agent, project string
-		var complete bool
-		var scanned int64
-		e := tx.QueryRow(`SELECT e.agent,e.project,sc.complete,sc.scanned_at FROM environments e JOIN environment_scans sc ON sc.env_id=e.id JOIN sync_agents a ON a.user_id=e.user_id AND a.host=e.host COLLATE NOCASE WHERE e.user_id=? AND e.id=? AND a.id=?`, uid, in.EnvironmentID, in.AgentID).Scan(&agent, &project, &complete, &scanned)
-		if errors.Is(e, sql.ErrNoRows) {
-			return ErrSkillContentTargetScope
-		}
-		if e != nil {
+		if _, _, _, e := reportedPinScope(tx, uid, in.EnvironmentID, in.AgentID); e != nil {
 			return e
-		}
-		// Only adapter-supported, recently reported scopes can acquire private intent.
-		// This is not a content observation or proof that the skill itself is absent.
-		if !complete || scanned < time.Now().Add(-14*24*time.Hour).UnixMilli() || !Syncable(agent) || !contentobs.ValidScope(agent, project) || (project != "" && (project[0] != '/' || (agent != "claude" && agent != "agents"))) {
-			return ErrSkillContentTargetScope
 		}
 		bundle, e := privateSkillBundle(tx, uid, in.BundleID)
 		if e != nil {
@@ -181,6 +169,26 @@ func (s *Store) SaveSkillContentTargetFor(uid int64, in SkillContentTargetWrite)
 		return e
 	})
 	return
+}
+
+// reportedPinScope returns the agent, project and current inventory revision of a
+// scope that may carry private intent: complete, recently reported, owned, on the
+// connector's host and supported by a writable root adapter. Only adapter-supported
+// scopes qualify. This is not a content observation or proof that a skill is absent.
+func reportedPinScope(tx *sql.Tx, uid int64, environmentID, agentID string) (agent, project string, inventory int64, err error) {
+	var complete bool
+	var scanned int64
+	err = tx.QueryRow(`SELECT e.agent,e.project,sc.complete,sc.scanned_at,sc.inventory_revision FROM environments e JOIN environment_scans sc ON sc.env_id=e.id JOIN sync_agents a ON a.user_id=e.user_id AND a.host=e.host COLLATE NOCASE WHERE e.user_id=? AND e.id=? AND a.id=?`, uid, environmentID, agentID).Scan(&agent, &project, &complete, &scanned, &inventory)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", 0, ErrSkillContentTargetScope
+	}
+	if err != nil {
+		return "", "", 0, err
+	}
+	if !complete || scanned < time.Now().Add(-14*24*time.Hour).UnixMilli() || !Syncable(agent) || !contentobs.ValidScope(agent, project) || (project != "" && (project[0] != '/' || (agent != "claude" && agent != "agents"))) {
+		return "", "", 0, ErrSkillContentTargetScope
+	}
+	return agent, project, inventory, nil
 }
 
 // Removing intent never queues an uninstall or changes machine files. Keeping the

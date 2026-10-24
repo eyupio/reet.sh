@@ -20,7 +20,7 @@ type terminalBrowserCommand struct {
 	reply  chan map[string]any
 }
 
-func runTerminalBrowser(t *testing.T, base, cookie, agent string, commands <-chan terminalBrowserCommand, handle func(string) map[string]any) {
+func runTerminalBrowser(t *testing.T, base, cookie, agent, builder string, commands <-chan terminalBrowserCommand, handle func(string) map[string]any) {
 	t.Helper()
 	if _, err := os.Stat(filepath.Join("..", "..", "web", "dist", "index.html")); err != nil {
 		t.Fatal("build web before REET_BROWSER_TESTS=1", err)
@@ -32,7 +32,7 @@ func runTerminalBrowser(t *testing.T, base, cookie, agent string, commands <-cha
 		t.Fatal(err)
 	}
 	cmd := exec.CommandContext(ctx, "node", script)
-	cmd.Env = append(os.Environ(), "REET_BROWSER_URL="+base, "REET_BROWSER_COOKIE="+cookie, "REET_BROWSER_AGENT="+agent)
+	cmd.Env = append(os.Environ(), "REET_BROWSER_URL="+base, "REET_BROWSER_COOKIE="+cookie, "REET_BROWSER_AGENT="+agent, "REET_BROWSER_BUILDER="+builder)
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output

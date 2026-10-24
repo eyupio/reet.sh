@@ -496,7 +496,9 @@ Remote Linux/macOS terminals have a dedicated **Terminals** workspace. The activ
 band on **Control** links directly back to each existing shell. The screen fills the
 remaining viewport; session navigation, Disconnect/Reconnect and Manage actions stay
 close by, with machine health and setup under **Details & help**. Legacy Machines
-terminal links still work.
+terminal links still work. **Find** searches machines by host or shell user, and
+phone screens keep the selected user/host visible. Unconfirmed creation retries
+stay with their original machine and title while you work elsewhere.
 
 Ctrl+C interrupts (or copies selected output on Windows/Linux); the **Interrupt**
 button always sends Ctrl+C. Ctrl+V/Cmd+V pastes, Ctrl+X stays a shell/editor key,

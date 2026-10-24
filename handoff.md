@@ -5,7 +5,7 @@
 This is the current implementation baseline **and** the continuation plan. Current
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
-state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is implemented in `feat/terminal-workspace-polish`, pending PR verification and merge.
+state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
 T5 initial-install/enrollment/upgrade terminal setup is next.** S1 is merged through PR #139; do not repeat
 it or start S2 ahead of the remaining terminal priorities. Do not start the whole roadmap.
 Historical delivery evidence remains in
@@ -37,6 +37,15 @@ terminal connection wizard as a core setup step. A reported missing-tmux failure
 must have actionable diagnosis/setup guidance. These requests take priority over
 remaining skill/content work and bulk history cleanup.
 
+Product scope correction, 24 October: reet is an **AI fleet control room**, covering
+machines, installed agent usage, reusable AI setups, skills, reviewed sync and
+ongoing work. Terminals remain core, but do not narrow the product to a remote-shell
+app. Preserve the Yorkshire welcome and warm/bookish brand. Public copy must label
+agent installation/update/removal, richer run orchestration and fleet-wide agent
+configuration as planned until the corresponding roadmap stages actually ship.
+The entry-page illustration and home toolkit links should convey this breadth.
+See `docs/voice-and-copy.md`; keep the new scope when implementing T5 and S/A/W/L.
+
 ### Public entry points — terminal-first redesign
 
 The signed-out `/` and `/welcome` explain machines, persistent terminals and
@@ -57,7 +66,7 @@ web/tests/public-workspace.e2e.mjs`; optionally set `REET_UI_SCREENSHOTS` to ret
 screenshots. Keep public claims limited to shipped functionality when adding
 terminal appearance, account command libraries or future agent maintenance.
 
-### T4 [x] Modern terminal interaction, appearance and saved commands — verify PR before merging
+### T4 [x] Modern terminal interaction, appearance and saved commands — merged through PR #145
 
 1. Reproduce ordinary-height, bottom-of-screen input after several screens of
    output; verify host `stty size` matches xterm rows/columns before and after

@@ -6,7 +6,7 @@ This is the current implementation baseline **and** the continuation plan. Curre
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 as `dcef39c`, after all five workflows passed for `39cb762`. Explicit CLI import is implemented on `feat/explicit-machine-skill-import`, pending validation/publication; central browser import follows separately.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 as `dcef39c`, after all five workflows passed for `39cb762`. Explicit CLI import is implemented on `feat/explicit-machine-skill-import`, locally validated and awaiting PR CI/merge; central browser import follows separately.** S1 is merged through PR #139; do not repeat
 it. Preserve the terminal work and do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -36,8 +36,10 @@ The user requested a status report and continued roadmap delivery after PR #155.
   storage/API merged in PR #156 (`ad1502a`), with all five workflows green for
   final head `7e4aeec090a0946cc1021aec8ce3b7e29b55fa27`. S2 has no new content
   UI or remote apply operation.
-- **Next:** S3 owned machine-content observations, then explicit import; S4 reviewed
-  single-target content apply; S5 three-way review and fleet rollout UI.
+- **Next:** finish publishing the S3 CLI import slice, then central browser
+  preview/approval and connector dispatch using its capture/policy/store contracts.
+  S3 observations are already merged; S4 reviewed file apply and S5 fleet rollout
+  follow only after the browser import acceptance gate.
 - **Later:** A1–A3 registered agent launch/activity/attention; W1–W3 projects,
   worktrees/diffs/structured tool review; L1–L4 AI software/MCP fleet maintenance
   and optional isolation. Existing machine inventory and setup snapshots are a
@@ -1125,7 +1127,7 @@ with a documented compatibility path for old clients and restore/backups.
   two-host lifecycle. Additional race tests cover byte-budget exhaustion,
   cancellation, legacy-schema reopen, expiry, role changes and rollback.
   No live user workloads or deployed connector installations were changed.
-- **Explicit CLI transfer implemented, pending validation/PR:** read
+- **Explicit CLI transfer implemented and locally validated, awaiting PR CI/merge:** read
   [the complete import contract and granular continuation](docs/machine-skill-import.md).
   `reet agent skill import` previews one locally enrolled scope/folder; `--upload`
   plus typed IMPORT or explicit `--yes` sends selected files. Exact exclusions,
@@ -1141,6 +1143,14 @@ with a documented compatibility path for old clients and restore/backups.
   plus owned enrollment. Strict bounded JSON, received digest recomputation,
   expected-base CAS and original request-ID receipts preserve S2 semantics.
   A printed request ID permits an identical retry after a lost acknowledgment.
+- CLI import verification passed: frontend check/build (zero Svelte diagnostics),
+  full Go vet/race suite, all 16 MCP tests; additional targeted race tests after
+  integrating main through `ec1b6b5`. Two enrolled-machine fixtures create distinct
+  same-name private revisions, preserve binary bytes/CRLF/modes, omit excluded
+  credentials, recover identical retries and leave the public/shelf API unchanged.
+  Tests also cover origin/account/enrollment/pause, bad digest, strict JSON/limits,
+  old-controller negotiation, cancellation, changed review and SQL rollback.
+  No production machines, services or terminal sessions were modified.
 - **Still missing:** central browser preview/approval/dispatch and private-content
   library controls. Keep S3 unchecked until this control-room workflow meets the
   gate below. Next take that bounded browser/connector slice, preserving CLI

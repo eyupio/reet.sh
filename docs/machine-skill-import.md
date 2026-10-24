@@ -140,3 +140,16 @@ private-content export UI in this slice.
    excluded secrets, stale/changed previews, old connectors, revocation/role change,
    interruption/retry and absence of public/shelf changes. Only then close S3 and
    start the reviewed S4 file planner; do not jump to bulk apply.
+
+## Verification evidence
+
+Local frontend check/build passed with zero Svelte diagnostics, along with the
+full Go vet/race suite and all 16 MCP tests. Targeted race checks after integrating
+main through `ec1b6b5` cover the CLI-to-real-HTTP-to-private-SQLite flow for two
+enrolled synthetic machines, distinct same-name revisions, binary bytes/modes,
+exclusions, unchanged shelf contents, private account isolation and identical retry
+receipts. Other tests cover unsafe/changed captures returning no payload, common
+credential hazards, cancellation, source scope restrictions, older controllers,
+strict request bounds/fields/origins, bad digests, paused/revoked enrollments, stale
+expected bases and transaction rollback. No live user machine or service was changed.
+Published CI must pass for the final PR head before merge.

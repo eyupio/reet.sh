@@ -159,6 +159,9 @@ func runAgentSkillImport(args []string, in io.Reader, out io.Writer, version str
 	if *requestID != "" && !regexp.MustCompile(`^[A-Za-z0-9_-]{16,80}$`).MatchString(*requestID) {
 		return errors.New("request ID must contain 16–80 ASCII letters, digits, underscores or hyphens")
 	}
+	if (*bundle != "" && !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(*bundle)) || (*base != "" && !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(*base)) {
+		return errors.New("bundle and expected-base must be private 32-character hexadecimal IDs")
+	}
 	c, err := loadAgentConfig(*config)
 	if err != nil {
 		return err

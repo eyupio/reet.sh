@@ -4,6 +4,7 @@ package scan
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -205,6 +206,22 @@ func TestSkillImportTwoEnrolledMachinesVerifiedRetryAndIsolation(t *testing.T) {
 	bundles, err := st.PrivateSkillBundlesFor(uid)
 	if err != nil || len(bundles) != 2 || revisions[0].Revision.ManifestDigest == revisions[1].Revision.ManifestDigest {
 		t.Fatal(bundles, err)
+	}
+	request, err := http.NewRequest("GET", srv.URL+"/api/skills", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("X-Reet-Token", "personal")
+	response, err := srv.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var shelf struct {
+		Skills []json.RawMessage `json:"skills"`
+	}
+	if err = json.NewDecoder(response.Body).Decode(&shelf); err != nil || response.StatusCode != 200 || len(shelf.Skills) != 0 {
+		t.Fatal("import changed shelf", response.StatusCode, shelf, err)
 	}
 	other, err := st.CreateUser("other-import@example.test", "Other", "member", "hash")
 	if err != nil {

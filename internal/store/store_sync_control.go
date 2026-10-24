@@ -346,10 +346,12 @@ func (s *Store) QueueSyncJob(uid int64, agentID, targetID, kind string) (SyncJob
 		return SyncJob{}, ErrSync
 	}
 	j := SyncJob{ID: syncID(), AgentID: agentID, TargetID: targetID, Kind: kind, Status: "queued", Revision: revision, Plan: json.RawMessage(`{}`), CreatedAt: now(), UpdatedAt: now()}
-	// Only one active job per installation; retries always create a fresh preview.
+	// Distinct scopes may queue read-only previews together. Scans and applies
+	// remain exclusive, duplicate previews are rejected, and ClaimSyncJob
+	// serialises execution on each machine. Approval still requires an exact hash.
 	err := s.withTx(func(tx *sql.Tx) error {
 		var n int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE agent_id=? AND status IN ('queued','running','awaiting-approval')`, agentID).Scan(&n); err != nil {
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE agent_id=? AND status IN ('queued','running','awaiting-approval') AND (?='scan' OR kind!='preview' OR target_id=?)`, agentID, kind, targetID).Scan(&n); err != nil {
 			return err
 		}
 		if n > 0 {

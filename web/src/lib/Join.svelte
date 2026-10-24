@@ -57,7 +57,7 @@
     <p class="muted">Loading…</p>
   {:else if !invite}
     <p class="error" id="join-error" role="alert">{error || 'This invite is not valid any more.'}</p>
-    <p class="muted"><a href="/">Go to the shelf</a></p>
+    <p class="muted"><a href="/skills">Go to the shelf</a></p>
   {:else}
     <p class="role">Role: <strong>{invite.role}</strong></p>
     <form onsubmit={submit} aria-busy={busy} aria-describedby={error ? "join-error" : undefined}>

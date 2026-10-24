@@ -5,9 +5,9 @@
   <img src="brand/logo/horizontal-color-light.svg" alt="reet.sh" width="340">
 </picture>
 
-### Your own shelf for everything AI
+### One control centre for your machines, skills and agents
 
-Capture skills from [skills.sh](https://www.skills.sh) or host your own, sync agent setups and machine inventories, and add lists and teams when you need them.<br>
+Connect your machines, maintain a central skill library, review bidirectional sync, and use installed agents through remote terminals. Capture skills from [skills.sh](https://www.skills.sh) or host your own.<br>
 One Go binary. One SQLite file. No telemetry.
 
 [![CI](https://github.com/eyupio/reet.sh/actions/workflows/image.yml/badge.svg)](https://github.com/eyupio/reet.sh/actions/workflows/image.yml)
@@ -31,11 +31,18 @@ One Go binary. One SQLite file. No telemetry.
 
 [skills.sh](https://www.skills.sh) is a great directory of agent skills, but it has no accounts, likes or bookmarks. You find a skill, close the tab, and a month later cannot remember which one it was or whether you ever installed it.
 
-reet.sh is the missing personal layer for the rest of your AI stack. Capture a skill in two seconds, move it through **On the shelf → To test → In use**, then sync what every agent has installed across your machines. A new laptop becomes one click: **Copy missing installs**, or restore a portable setup.
+reet.sh is a self-hosted control centre for the machines where you use AI agents. Maintain a central skill library, choose what goes to one machine or all machines, bring machine discoveries back, and review changes before applying them. Open a browser terminal to work with agents already installed on a connected machine.
+
+The signed-in home is **Control**, with reported inventories, saved sync scopes, plans awaiting approval and fleet controls. **Machines** handles connections and inventory, **Skills** maintains the central library, **Sync** handles distribution and reconciliation, and **Terminals** opens remote shells when account access and local terminal opt-in allow it. Lists and portable setups are under **More**. Skill shelf stages remain personal organisation; they do not install or remove files.
+
+**Scan all** requests inventory from available enrolled machines. **Sync all · preview** queues previews for available saved targets. Review and approve each exact plan in Sync activity. Distinct scopes on one machine can queue previews together; execution stays serial. Offline, paused, stale/incomplete and already-pending targets are skipped with reasons. Individual queue failures are reported, with successful requests preserved. Agent software installation, update and removal are future work; current controls manage skills and terminal sessions.
 
 Nothing is sent to skills.sh except read-only page fetches for names and descriptions.
 
 ## Features
+
+- **Fleet-first control.** Home shows machines, reported skills, saved sync scopes and approval work. Start from one place to connect, scan, sync or open terminals.
+- **One or all machines.** In Sync, choose a library, list, published collection or reported machine scope as the source; select one destination or All machines, then adjust individual scopes. Differences are shown per destination. Saving desired state is separate from previewing and approving changes.
 
 - **Three-stage shelf.** On the shelf, To test, In use. Stage is derived from your flags, never stored out of step.
 - **List or board.** Choose Board for On the shelf → To test → In use columns on desktop, stacked on smaller screens. Move skills with the same keyboard- and touch-accessible buttons; the layout choice is saved to your account (or this browser without accounts). Moving a card changes shelf status, not installed files.
@@ -99,7 +106,7 @@ Use **Lists** to browse My lists, Shared with me and Teams & organisations. **Co
 
 The default `REET_AUTH=accounts` creates one owner through the setup page on first visit, then signs people in with email and password. Each account has its own shelf. Roles are owner, admin, member and viewer; viewers are read-only. Shared lists are where people work together without sharing a shelf. Sessions are HttpOnly, SameSite=Lax cookies; passwords are stored with argon2id; sign-in is rate-limited.
 
-The navbar also has **Profiles**, where server-synced AI setup profiles are listed and explained. Run `reet setup profile` for the interactive create/push wizard; creation, push and pull remain CLI commands. Use the **Account** menu (inside **Menu** on smaller screens). Its sections are **Profile** (name, theme, time zone and date order), **Password** (which ends every other session), **Sessions**, **Machines** (connect and inspect agent inventories), **Compare & sync** (comparison and reference snapshots), **API tokens** (shown once), **Backups** for your own shelf, and **Activity**. Admins get **Admin → Users** to invite people by link, reset passwords, disable accounts, change roles, revoke tokens and transfer ownership, and **Admin → Backups** for the instance. If `REET_TOKEN` is set it is required once on the setup page and works for `reet scan` only until a personal API token exists.
+**More → Portable setups** lists and explains server-synced AI setup profiles. Run `reet setup profile` for the interactive create/push wizard; creation, push and pull remain CLI commands. Use the **Account** menu (inside **Menu** on smaller screens). Its sections are **Profile** (name, theme, time zone and date order), **Password** (which ends every other session), **Sessions**, **Machines** (connect and inspect agent inventories), **Compare & sync** (comparison and reference snapshots), **API tokens** (shown once), **Backups** for your own shelf, and **Activity**. Admins get **Admin → Users** to invite people by link, reset passwords, disable accounts, change roles, revoke tokens and transfer ownership, and **Admin → Backups** for the instance. If `REET_TOKEN` is set it is required once on the setup page and works for `reet scan` only until a personal API token exists.
 
 - **Solo or trusted LAN:** `REET_AUTH=none` removes sign-in and maps everything to an implicit owner. Use it only on a network you trust.
 - **Legacy single token:** `REET_AUTH=token` keeps the single `REET_TOKEN` login card and requires it for the UI, API and bookmarklets.

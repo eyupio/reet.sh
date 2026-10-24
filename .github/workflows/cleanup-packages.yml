@@ -1,13 +1,17 @@
 name: Cleanup Old Container Images
 
-# image.yml updates the moving tag (latest) in place and leaves untagged package
-# versions behind. "Untagged" is not "unused": the platform and attestation
-# manifests under a multi-platform tag are untagged versions too, and deleting
-# them breaks `docker pull` with "manifest unknown".
+# image.yml updates the moving tags (latest, dev) in place and leaves untagged
+# package versions behind. "Untagged" is not "unused": the platform manifests
+# under a multi-platform tag are untagged versions too, and deleting them breaks
+# `docker pull` with "manifest unknown".
 #
-# .github/scripts/ghcr-prune.sh deletes an untagged version only when no tagged or
-# recent version refers to it, and deletes nothing when it cannot tell. Tagged
-# versions (latest, vX.Y.Z, sha-*) are never deleted.
+# Every commit also publishes a sha-<short> tag, so the package would otherwise
+# keep one tagged version (and its platform manifests) per commit for ever.
+# .github/scripts/ghcr-prune-tags.sh deletes a version only when every tag on it
+# is a per-commit tag, it is old, it is outside the newest commits, and no kept
+# version refers to it. .github/scripts/ghcr-prune.sh then deletes the untagged
+# versions that nothing refers to. Both fail closed: nothing is deleted when a
+# manifest or run cannot be read.
 #
 # A manual run is a dry run unless asked otherwise. Check the dry run output
 # before relying on the scheduled run, which deletes for real.
@@ -25,25 +29,43 @@ on:
         description: "Never delete an untagged version younger than this many days."
         type: string
         default: "14"
+      tag_keep_days:
+        description: "Never delete a per-commit tagged version younger than this many days."
+        type: string
+        default: "30"
+      tag_keep_commits:
+        description: "Always keep the versions of this many newest commits."
+        type: string
+        default: "20"
 
 permissions: {}
 
 concurrency:
   group: cleanup-packages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   cleanup:
     name: Cleanup reet.sh
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     permissions:
+      actions: read
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
       - name: Test the prune
         run: .github/scripts/ghcr-prune-test.sh
+      - name: Test the tag prune
+        run: .github/scripts/ghcr-prune-tags-test.sh
+      - name: Delete old per-commit tagged versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+          TAG_KEEP_DAYS: ${{ inputs.tag_keep_days || '30' }}
+          TAG_KEEP_COMMITS: ${{ inputs.tag_keep_commits || '20' }}
+        run: .github/scripts/ghcr-prune-tags.sh reet.sh
       - name: Delete unreferenced untagged versions
         env:
           GH_TOKEN: ${{ github.token }}
@@ -54,4 +76,4 @@ jobs:
         if: ${{ github.event_name == 'schedule' || !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: .github/scripts/ghcr-check-tags.sh reet.sh latest
+        run: .github/scripts/ghcr-check-tags.sh reet.sh latest dev

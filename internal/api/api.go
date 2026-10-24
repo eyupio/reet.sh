@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/agenthealth"
+	"github.com/eyupio/reet.sh/internal/agentupdate"
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/backup"
 	"github.com/eyupio/reet.sh/internal/mail"
@@ -56,6 +57,7 @@ type server struct {
 	backups      *backup.Service
 	mail         *mail.Mailer
 	notify       *notify.Service
+	releases     *agentupdate.Checker
 
 	privateSealer     *sealed.Sealer
 	privateRelayURL   string
@@ -105,6 +107,12 @@ func WithVersion(version, commit string) Option {
 			s.commit = commit
 		}
 	}
+}
+
+// WithReleaseChecker enables published-channel lookups for agent update status.
+// Without it the controller reports no available versions and never auto-updates.
+func WithReleaseChecker(c *agentupdate.Checker) Option {
+	return func(s *server) { s.releases = c }
 }
 
 // WithDebug enables per-fetch debug logging.

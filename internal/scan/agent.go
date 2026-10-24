@@ -109,6 +109,7 @@ func agentRequestContext(ctx context.Context, c agentConfig, path string, body a
 	req.Header.Set("X-Reet-Agent", c.ID)
 	req.Header.Set("X-Reet-Agent-Key", c.Secret)
 	req.Header.Set("X-Reet-Version", version)
+	req.Header.Set("X-Reet-Commit", buildCommit)
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
 		return err
@@ -225,7 +226,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			Agent  store.SyncAgent
 			Secret string
 		}
-		if err = agentRequest(c, "/api/v2/sync/agents", map[string]string{"host": *host, "version": version}, &result, version); err != nil {
+		if err = agentRequest(c, "/api/v2/sync/agents", map[string]string{"host": *host, "version": version, "commit": buildCommit}, &result, version); err != nil {
 			return err
 		}
 		c.ID = result.Agent.ID

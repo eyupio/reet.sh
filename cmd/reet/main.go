@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/agentupdate"
 	"github.com/eyupio/reet.sh/internal/api"
 	"github.com/eyupio/reet.sh/internal/backup"
 	"github.com/eyupio/reet.sh/internal/clientconfig"
@@ -57,6 +58,7 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	scan.SetBuildCommit(commit)
 	if cmd == "configure" || cmd == "install" || cmd == "init" || cmd == "upgrade" || cmd == "update" || cmd == "help" || cmd == "--help" || cmd == "-h" {
 		cliui.Banner(os.Stderr)
 	}
@@ -248,13 +250,16 @@ func serve() error {
 	signup := strings.EqualFold(strings.TrimSpace(os.Getenv("REET_SIGNUP")), "open") ||
 		strings.TrimSpace(os.Getenv("REET_SIGNUP")) == "1" ||
 		strings.EqualFold(strings.TrimSpace(os.Getenv("REET_SIGNUP")), "true")
+	releases := agentupdate.NewChecker()
+	go releases.Info(context.Background())
 	h := api.New(st, meta.Default(os.Getenv("SKILLS_SH_TOKEN")), os.Getenv("REET_TOKEN"),
 		api.WithRemoteTerminals(terminalControl.Enabled()),
 		api.WithAuthMode(mode), api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"),
 		api.WithTopics(os.Getenv("REET_TOPICS") != "off"), api.WithPublicURL(publicURL),
 		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"), api.WithBackups(backups),
 		api.WithSignup(signup), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")), api.WithMail(mailer), api.WithNotify(notifier),
-		api.WithPrivateConnection(bcfg.Sealer, os.Getenv("REET_RELAY_MAP_URL")))
+		api.WithPrivateConnection(bcfg.Sealer, os.Getenv("REET_RELAY_MAP_URL")),
+		api.WithReleaseChecker(releases))
 	defer func() { terminalControl.Close(); h.Close() }()
 	if err := terminalControl.Serve(h.SetRemoteTerminals, h.RemoteTerminalsAvailable, terminalcontrol.Options{Configure: h.ConfigureTerminalOrigin, Reason: h.RemoteTerminalsReason, PublicURL: h.RemoteTerminalPublicURL, AuthMode: h.RemoteTerminalAuthMode}); err != nil {
 		return err

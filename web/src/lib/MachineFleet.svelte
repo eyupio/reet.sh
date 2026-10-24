@@ -3,9 +3,9 @@
   import type { HealthResponse } from './terminal/api'
   import { getMachineHealth as machineHealth } from './api'
   import MachineHealthStrip from './terminal/MachineHealthStrip.svelte'
-  import type { Machine, SyncAgent, SyncEnvironment, SyncState } from './api'
+  import type { Machine, SyncAgent, SyncEnvironment, SyncJob, SyncState } from './api'
   import { controlSyncAgent, forgetEnvironment, forgetMachine, queueSyncJob, startSyncRun, updateSyncAgent } from './api'
-  import { agentGroups, groupLabel } from './machines'
+  import { agentBuild, agentGroups, agentUpdateTarget, groupLabel, latestRelease, updateAvailable } from './machines'
   import { machineStatus, scanOnlyAgents, supportedAgents, syncLink } from './machineSetup'
   import MachineCommands from './MachineCommands.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -64,6 +64,29 @@
   function agentSeen(agent: SyncAgent): string {
     return new Date(agent.lastSeen).toLocaleString()
   }
+  function latestFor(agent: SyncAgent) {
+    return latestRelease(agent, snapshot.releases)
+  }
+  function hasUpdate(agent: SyncAgent): boolean {
+    return updateAvailable(agent, snapshot.releases)
+  }
+  function lastUpdate(machine: Machine): SyncJob | undefined {
+    const agent = agentFor(machine)
+    if (!agent) return
+    return (snapshot.jobs ?? []).filter((job) => job.agentId === agent.id && job.kind === 'update').sort((a, b) => b.createdAt - a.createdAt)[0]
+  }
+  function updateJobLabel(job: SyncJob): string {
+    const when = new Date(job.createdAt).toLocaleString()
+    switch (job.status) {
+      case 'queued': return `Update queued ${when}`
+      case 'running': return 'Update in progress'
+      case 'awaiting-approval': return 'Update waiting for the agent'
+      case 'succeeded': return `Updated to ${job.revision || 'latest'} ${when}`
+      case 'failed': return `Update failed: ${job.message || 'unknown error'}`
+      case 'cancelled': return 'Update cancelled'
+      default: return `Update ${job.status}`
+    }
+  }
   function groupState(group: SyncEnvironment): string {
     if (!group.complete) return 'Incomplete'
     if (!fresh(group)) return 'Out of date'
@@ -101,9 +124,16 @@
     }
   }
   async function updateAgent(agent: SyncAgent) {
-    const version = agent.version === 'dev' ? 'dev' : 'latest'
+    const version = agentUpdateTarget(agent)
     if (await run(`update-${agent.id}`, () => updateSyncAgent(agent.id, version))) {
       onnotice(`Update to ${version} queued for ${agent.host}. The agent verifies the release, keeps the previous binary, then restarts.`)
+    }
+  }
+  async function toggleAutoUpdate(agent: SyncAgent, enabled: boolean) {
+    if (await run(`auto-update-${agent.id}`, () => controlSyncAgent(agent.id, enabled ? 'auto-update-on' : 'auto-update-off'))) {
+      onnotice(enabled
+        ? `Auto-update enabled for ${agent.host}. The controller will move it to the latest ${agentUpdateTarget(agent)} build automatically.`
+        : `Auto-update disabled for ${agent.host}. Manual updates still work.`)
     }
   }
   function askForgetMachine(machine: Machine) {
@@ -168,7 +198,7 @@
           <span><strong>{machine.skillCount}</strong> unique {machine.skillCount === 1 ? 'skill' : 'skills'}</span>
           <span><strong>{groups.length}</strong> agent {groups.length === 1 ? 'scope' : 'scopes'}</span>
           <span>Last report <strong>{lastSeen(machine)}</strong></span>
-          {#if enrolled}<span class="live"><span aria-hidden="true">●</span> {agentState(enrolled)} · {enrolled.version}</span>{/if}
+          {#if enrolled}<span class="live"><span aria-hidden="true">●</span> {agentState(enrolled)}</span><span class="build" title={enrolled.commit ? `commit ${enrolled.commit}` : undefined}>reet {agentBuild(enrolled)}</span>{#if hasUpdate(enrolled)}<span class="update-available">Update available</span>{/if}{/if}
           {#if activeRun(machine)}{@const run = activeRun(machine)!}<span class="sync-run">Sync run {run.cursor}/{run.targets.length}{run.status === 'review' ? ' · review needed' : ''}</span>{/if}
         </div>
         <div class="agent-chips" aria-label="Agent scopes">
@@ -176,6 +206,34 @@
           {#each scanOnly as group (group.id)}<span class="agent-chip muted">{groupLabel(group)}</span>{/each}
         </div>
         {#if enrolled&&health.machines.some(item=>item.agentId===enrolled.id)}<MachineHealthStrip compact health={health.machines.find(item=>item.agentId===enrolled.id)} serverNow={health.serverNow+healthElapsed} />{/if}
+
+        {#if enrolled}
+          {@const latest = latestFor(enrolled)}
+          {@const update = hasUpdate(enrolled)}
+          {@const updateJob = lastUpdate(machine)}
+          <div class="release-strip" aria-label="reet updates">
+            <div class="release-copy">
+              {#if latest?.error}
+                <span class="release-error">Release check failed</span>
+              {:else if latest}
+                <span title={latest.commit ? `commit ${latest.commit}` : undefined}>Latest {latest.label}</span>
+              {/if}
+              {#if update}<span class="release-badge">Update available</span>{/if}
+            </div>
+            {#if canWrite}
+              <div class="release-controls">
+                <label class="auto-update" title="Install new reet builds for this machine automatically">
+                  <input type="checkbox" checked={enrolled.autoUpdate} disabled={!!busy} onchange={(event) => toggleAutoUpdate(enrolled, event.currentTarget.checked)} />
+                  Auto-update
+                </label>
+                <button type="button" class="link" disabled={!!busy || enrolled.paused} onclick={() => updateAgent(enrolled)}>{busy === `update-${enrolled.id}` ? 'Updating…' : update ? `Update to ${agentUpdateTarget(enrolled)}` : 'Update reet'}</button>
+              </div>
+            {:else}
+              <span class="auto-update">Auto-update {enrolled.autoUpdate ? 'on' : 'off'}</span>
+            {/if}
+            {#if updateJob}<span class="release-job" class:bad={updateJob.status === 'failed'} class:good={updateJob.status === 'succeeded'}>{updateJobLabel(updateJob)}</span>{/if}
+          </div>
+        {/if}
 
         <div class="actions">
           {#if enrolled && savedTargets(machine).length}
@@ -192,7 +250,7 @@
                 {#if enrolled}
                   <button type="button" disabled={!!busy || enrolled.paused} onclick={() => scan(enrolled)}>{busy === `scan-${enrolled.id}` ? 'Queueing…' : 'Scan now'}</button>
                   {#if savedTargets(machine).length}<button type="button" disabled={!!busy || enrolled.paused} onclick={() => syncNow(machine, enrolled)}>Sync saved skills</button>{/if}
-                  <button type="button" disabled={!!busy} onclick={() => updateAgent(enrolled)}>{busy === `update-${enrolled.id}` ? 'Queueing update…' : 'Update reet'} <small>{enrolled.version === 'dev' ? 'dev' : 'latest'}</small></button>
+                  <button type="button" disabled={!!busy} onclick={() => updateAgent(enrolled)}>{busy === `update-${enrolled.id}` ? 'Queueing update…' : 'Update reet'} <small>{agentUpdateTarget(enrolled)}</small></button>
                   <button type="button" disabled={!!busy} onclick={() => pause(enrolled)}>{enrolled.paused ? 'Resume sync jobs' : 'Pause sync jobs'}</button>
                 {/if}
                 <button type="button" class="danger" onclick={() => askForgetMachine(machine)}>Forget machine</button>
@@ -247,7 +305,7 @@
     machine={commandsFor.host}
     {site}
     enrolled={!!agentFor(commandsFor)}
-    agentStatus={agentFor(commandsFor) ? `${agentState(agentFor(commandsFor)!)} · last seen ${agentSeen(agentFor(commandsFor)!)}` : ''}
+    agentStatus={agentFor(commandsFor) ? `${agentState(agentFor(commandsFor)!)} · reet ${agentBuild(agentFor(commandsFor)!)} · last seen ${agentSeen(agentFor(commandsFor)!)}` : ''}
     onclose={() => (commandsFor = null)}
   />
 {/if}
@@ -287,6 +345,17 @@
   .meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 0.75rem; }
   .meta strong { color: var(--ink); font-weight: 600; }
   .live { color: var(--good); }
+  .build { color: var(--ink); }
+  .update-available { color: var(--accent); font-weight: 600; }
+  .release-strip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); color: var(--muted); font-size: 0.72rem; }
+  .release-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+  .release-badge { padding: 2px 7px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); border-radius: 999px; color: var(--accent); }
+  .release-error { color: var(--bad); }
+  .release-controls { display: flex; align-items: center; gap: 10px; }
+  .auto-update { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+  .release-job { flex-basis: 100%; color: var(--muted); }
+  .release-job.bad { color: var(--bad); }
+  .release-job.good { color: var(--good); }
   .sync-run { color: var(--accent); }
   .agent-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .agent-chip { padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 0.69rem; }

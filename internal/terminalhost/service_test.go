@@ -77,6 +77,11 @@ func TestPlanServicesSeparatesUnitsAndFiltersEnvironment(t *testing.T) {
 		if !strings.Contains(agent, "ExecStart=") || !strings.Contains(agent, "Description=reet agent") {
 			t.Fatalf("agent unit: %s", agent)
 		}
+		for _, unit := range []string{agent, terminal} {
+			if !strings.Contains(unit, "NoNewPrivileges=false") || strings.Contains(unit, "NoNewPrivileges=true") {
+				t.Fatal("shells would inherit a restriction that prevents sudo", unit)
+			}
+		}
 		if !strings.Contains(agent, "UMask=0077") || strings.Contains(agent, "PartOf=") || strings.Contains(terminal, "PartOf=") {
 			t.Fatalf("unit safety: %s\n%s", agent, terminal)
 		}

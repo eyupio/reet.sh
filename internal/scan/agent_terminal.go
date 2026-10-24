@@ -187,10 +187,12 @@ func runAgentService(args []string, out io.Writer) error {
 		fmt.Fprintf(out, "Installed %s and %s.\n", plan.AgentName, plan.TerminalName)
 		fmt.Fprintln(out, terminalhost.LingerGuidance(context.Background()))
 		fmt.Fprintln(out, "A running terminal service is preserved during refresh. New tmux settings take effect after you explicitly restart it locally.")
+		warnTerminalPrivileges(plan, out)
 		return nil
 	case "status":
 		status := terminalhost.ReadStatus(context.Background(), plan)
 		fmt.Fprintf(out, "Agent unit: %s\nTerminal unit: %s\nInstalled: %t\nActive: %t\n", plan.AgentPath, plan.TerminalPath, status.Installed, status.Active)
+		warnTerminalPrivileges(plan, out)
 		if !status.ManagerAvailable {
 			fmt.Fprintln(out, "Service manager unavailable or user services are not enabled on this host.")
 		}
@@ -221,4 +223,12 @@ func terminalReadiness(configPath, agentID string, enabled bool) terminalproto.R
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 	return terminalhost.Readiness(ctx, layout, enabled)
+}
+
+func warnTerminalPrivileges(plan terminalhost.ServicePlan, out io.Writer) {
+	restricted, err := terminalhost.TerminalNoNewPrivileges(context.Background(), plan)
+	if err == nil && restricted {
+		fmt.Fprintln(out, "Existing terminal server has NoNewPrivileges set; sudo cannot elevate in its shells.")
+		fmt.Fprintln(out, "Refreshing units preserves that server and cannot clear the flag. Finish its terminal work, then plan a local terminal-service restart from a normal SSH/login shell. Restarting the terminal service ends its sessions and jobs.")
+	}
 }

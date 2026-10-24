@@ -283,3 +283,70 @@ func TestAuthenticateRemoteAgentUsesEnrollmentCredentialsOnly(t *testing.T) {
 		t.Fatal("disabled account accepted")
 	}
 }
+
+func TestFleetPreviewsArePerScopeAndExecutionStaysSerial(t *testing.T) {
+	s, uid, first := controlFixture(t)
+	s.TouchEnvironmentFor(uid, "laptop", "claude", "", "")
+	second := EnvironmentIDFor(uid, "laptop", "claude", "")
+	s.RecordInventoryFor(uid, second, true, MachineInfo{})
+	for _, id := range []string{first, second} {
+		if err := s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", SkillIDs: []string{"a/b/one"}, Mode: "additive"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	agent, _, err := s.EnrollSyncAgent(uid, "laptop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{first, second} {
+		if _, err := s.QueueSyncJob(uid, agent.ID, id, "preview"); err != nil {
+			t.Fatal("distinct scope must queue", err)
+		}
+	}
+	if _, err := s.QueueSyncJob(uid, agent.ID, first, "preview"); err == nil {
+		t.Fatal("duplicate active preview accepted")
+	}
+	if _, err := s.QueueSyncJob(uid, agent.ID, "", "scan"); err == nil {
+		t.Fatal("scan must wait for previews")
+	}
+	one, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || one == nil {
+		t.Fatal("first preview not claimed", err)
+	}
+	if other, err := s.ClaimSyncJob(uid, agent); err != nil || other != nil {
+		t.Fatal("parallel execution accepted", err)
+	}
+	hash := strings.Repeat("c", 64)
+	if err := s.FinishSyncJob(uid, agent.ID, one.ID, "awaiting-approval", hash, "", json.RawMessage(`{"actions":[]}`)); err != nil {
+		t.Fatal(err)
+	}
+	two, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || two == nil || two.TargetID == one.TargetID {
+		t.Fatal("second scope preview not claimed", err)
+	}
+	if err := s.FinishSyncJob(uid, agent.ID, two.ID, "awaiting-approval", hash, "", json.RawMessage(`{"actions":[]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if job, err := s.ClaimSyncJob(uid, agent); err != nil || job != nil {
+		t.Fatal("preview applied without approval", err)
+	}
+	if err := s.ControlSyncJob(uid, one.ID, "approve", "wrong"); err == nil {
+		t.Fatal("wrong hash approved")
+	}
+	if err := s.ControlSyncJob(uid, one.ID, "approve", hash); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ControlSyncJob(uid, two.ID, "cancel", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.QueueSyncJob(uid, agent.ID, two.TargetID, "preview"); err == nil {
+		t.Fatal("new preview queued while apply pending")
+	}
+	apply, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || apply == nil || apply.Kind != "apply" || apply.ID != one.ID {
+		t.Fatal("approved plan not claimed", err)
+	}
+	if job, err := s.ClaimSyncJob(uid, agent); err != nil || job != nil {
+		t.Fatal("parallel apply accepted", err)
+	}
+}

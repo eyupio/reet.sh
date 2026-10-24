@@ -25,7 +25,7 @@
       {#if build}
         <span class="version" title={build.commit !== 'unknown' ? `commit ${build.commit}` : undefined}>{build.version}</span>
       {/if}
-      <span class="descriptor">A reet good shelf for everything AI</span>
+      <span class="descriptor">A reet good workspace for your machines</span>
       <span class="meaning">reet: Yorkshire for “right”.</span>
     </span>
     <span class="end">

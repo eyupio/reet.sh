@@ -308,7 +308,7 @@
     <p class="eyebrow">Shared list</p>
     <h1>That list is not here.</h1>
     <p class="lede">{error || 'It may have been deleted, or it is private.'}</p>
-    <p><a class="back" href="/">Back to your shelf</a></p>
+    <p><a class="back" href="/skills">Back to your shelf</a></p>
   </section>
 {:else}
   <article class="listpage">

@@ -120,11 +120,11 @@
 <section class="fleet" aria-labelledby="fleet-title">
   <header class="fleet-head">
     <div>
-      <p class="eyebrow">Your machines</p>
+      <p class="eyebrow">Connected workspace</p>
       <h2 id="fleet-title">{machines.length} {machines.length === 1 ? 'machine' : 'machines'}, one clear view.</h2>
-      <p>Each machine is one unit. Its agent scopes live inside it, so you do not have to think in folders.</p>
+      <p>Choose a machine to sync its skills or continue working in its terminal. Expand a card to inspect its agent scopes.</p>
     </div>
-    <button class="btn" type="button" onclick={onadd}>Add a machine</button>
+    <button class="btn" type="button" onclick={onadd}>Connect a machine</button>
   </header>
 
   <div class="machine-grid">

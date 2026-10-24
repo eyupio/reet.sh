@@ -59,7 +59,7 @@ Matching is based on skill identity and source, not file contents or upstream co
 
 Machines provides **Scan now**, **Pause**, **Resume**, and **Revoke enrollment**. Pause prevents further jobs and periodic scans; an already running operation may complete. Revocation prevents later claims/authentication. Revoke an old enrollment before re-enrolling a machine with a replacement configuration.
 
-Queued or awaiting-approval jobs can be cancelled. Running operations are not presented as cancellable filesystem transactions. Failed or cancelled jobs offer **Retry with fresh preview/scan**, so an old approved plan is never blindly replayed. Only one active job per installation is allowed. Execution has an eight-minute command context; work with no result after ten minutes becomes failed and requires inspection and a new preview. A local result is persisted before acknowledgment; reconnecting resends the result rather than reinstalling skills.
+Queued or awaiting-approval jobs can be cancelled. Running operations are not presented as cancellable filesystem transactions. Failed or cancelled jobs offer **Retry with fresh preview/scan**, so an old approved plan is never blindly replayed. Distinct agent scopes may queue read-only previews together. Duplicate previews for a scope are blocked, scans wait for active work, and an active scan or apply blocks new previews. Execution remains serial on each installation. Each preview requires its own approval. Execution has an eight-minute command context; work with no result after ten minutes becomes failed and requires inspection and a new preview. A local result is persisted before acknowledgment; reconnecting resends the result rather than reinstalling skills.
 
 Removed entries are moved to `.reet-sync-backups/removed-*/SKILL` beside the selected skills directory. Sync activity includes **Copy restore command** for each successfully backed-up removal, including partial failures. Run it on the enrolled machine:
 
@@ -80,3 +80,5 @@ Local `reet sync --apply` also requires enrollment and verifies the actual local
 Unreadable scopes, permission errors on skill entries and broken symlinks produce scan errors. The controller preserves previous inventory, marks the report incomplete and exposes the error rather than pruning it as a confirmed absence. The CLI exits nonzero for incomplete scans. Existing shelf choices are preserved on import; first discoveries retain the original automatic In use behavior.
 
 Controller state, enrollment hashes, jobs/receipts, desired sets and baselines live in SQLite and survive restart. Use a consistent full database backup to retain them. Personal shelf JSON exports do not include these operational records. Keep each local enrollment configuration private and backed up separately.
+
+See [the control centre workflow](control-centre.md) for fleet controls and selecting all machines.

@@ -1,6 +1,7 @@
 <script lang="ts">
   import NavigationMenu from './lib/NavigationMenu.svelte'
   import Machines from './lib/Machines.svelte'
+  import ControlCenter from './lib/ControlCenter.svelte'
   import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
   import Community from './lib/Community.svelte'
   import SharedLists from './lib/SharedLists.svelte'
@@ -103,12 +104,16 @@
   let bulkRemoving = $state<Skill[]>([])
 
   const origin = location.origin
+  const isControl = location.pathname === '/' || location.pathname === '/control'
+  const isSkills = location.pathname === '/skills'
+  const isSync = location.pathname === '/sync'
+  const isTerminals = location.pathname === '/terminals'
   const isHosting = location.pathname === '/hosting'
   const isCommunity = location.pathname === '/community'
   const isShared = location.pathname === '/shared'
   const isSpaces = location.pathname === '/spaces'
   const isProfiles = ['/profiles', '/setups'].includes(location.pathname)
-  const isMachines = location.pathname === '/machines' || ['/account/machines', '/account/sync'].includes(location.pathname)
+  const isMachines = isSync || isTerminals || location.pathname === '/machines' || ['/account/machines', '/account/sync'].includes(location.pathname)
   const isAdmin = location.pathname.startsWith('/admin')
   const isAccount = location.pathname.startsWith('/account')
   const isMCPConsent = location.pathname === '/account/mcp/authorize'
@@ -136,12 +141,15 @@
   const canWrite = $derived(authMode !== 'accounts' || role !== 'viewer')
   const isAdminUser = $derived(authMode !== 'accounts' || role === 'owner' || role === 'admin')
   const mainNavigation = $derived([
-    { href: '/', label: 'Skills', current: !isMachines && !isHosting && !isAdmin && !isAccount && !isList && !isCommunity && !isShared && !isSpaces && !isProfiles && !isSupport && !isTicket && !isNotifications },
-    { href: '/shared', label: 'Lists', current: isShared || isList },
-    { href: '/profiles', label: 'Setups', current: isProfiles },
-    { href: '/machines', label: 'Machines', current: isMachines },
-    { href: '/community', label: 'More', current: isSpaces || isCommunity || isHosting || isSupport || isTicket || isNotifications,
+    { href: '/', label: 'Control', current: isControl },
+    { href: '/machines', label: 'Machines', current: isMachines && !isSync && !isTerminals && !location.search.includes('view=') },
+    { href: '/skills', label: 'Skills', current: isSkills },
+    { href: '/sync', label: 'Sync', current: isSync || location.search.includes('view=compare') },
+    ...(authMode === 'accounts' && canWrite ? [{ href: '/terminals', label: 'Terminals', current: isTerminals || location.search.includes('view=terminal') }] : []),
+    { href: '/community', label: 'More', current: isShared || isList || isProfiles || isSpaces || isCommunity || isHosting || isSupport || isTicket || isNotifications,
       children: [
+        { href: '/shared', label: 'Lists', current: isShared || isList },
+        { href: '/profiles', label: 'Portable setups', current: isProfiles },
         { href: '/community', label: 'Community', current: isCommunity },
         { href: '/support', label: 'Support', current: isSupport || isTicket },
         { href: '/notifications', label: unreadNotifications > 0 ? `Notifications (${unreadNotifications})` : 'Notifications', current: isNotifications },
@@ -730,7 +738,7 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser ? 'Your shelf for everything AI' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your machines, skills and agents' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isControl ? 'Control' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
   {/if}
 </svelte:head>
 
@@ -759,9 +767,9 @@
         {/if}
       </div>
     {:else if isPublicList || isCommunity || isJoin}
-      <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a class="entry-link" href="/">Open your shelf →</a></nav>
+      <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a class="entry-link" href="/">Open your workspace →</a></nav>
     {/if}
-    {#if (!authenticated || needsAuth) && !isPublicList && !isCommunity && !isJoin && !isWelcome}<span class="tag">Your shelf for AI</span>{/if}
+    {#if (!authenticated || needsAuth) && !isPublicList && !isCommunity && !isJoin && !isWelcome}<span class="tag">Your AI workspace</span>{/if}
   </div>
 </header>
 <main id="main-content" tabindex="-1" class:auth-page={!isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
@@ -794,8 +802,10 @@
     <Hosting {canWrite} />
   {:else if isShared}
     <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
+  {:else if isControl}
+    <ControlCenter {canWrite} terminalAccess={authMode === 'accounts' && canWrite} monitorAccess={authMode === 'accounts' || authMode === 'token'} />
   {:else if isMachines}
-    <Machines {canWrite} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={(location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} />
+    <Machines {canWrite} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} />
   {:else if isProfiles}
     <SetupProfiles {canWrite} onerror={fail} />
   {:else if isNotifications}
@@ -821,7 +831,8 @@
   {:else if isAdmin}
     <Admin onerror={fail} {role} accounts={authMode === 'accounts'} currentEmail={currentUser?.email ?? ''} />
   {:else}
-    <PageHeader eyebrow="Ey up. Your skill shelf." title="A reet good toolkit." lede="Keep the good finds, give new skills a go, and put the best to work.">
+    <PageHeader eyebrow="Ey up. Your skill shelf." title="Your central skill library." lede="Keep the good finds here, then choose which machines receive them. Shelf stages organise your library; Sync controls installation.">
+      {#snippet actions()}<a class="btn" href="/sync">Distribute skills</a>{#if canWrite}<a class="btn primary" href="/hosting">Create a skill</a>{/if}{/snippet}
     </PageHeader>
     {#if canWrite}
       <form class="add" onsubmit={add} aria-busy={adding}>
@@ -1048,7 +1059,7 @@
 {#if removePending}
   <ConfirmDialog
     title={`Remove ${removePending.name}?`}
-    body="This skill is on your scanner's list. It will come back on the next scan unless you ignore it."
+    body="This skill is on your scanner's list. It will come back on the next scan unless you ignore it. Installed files and saved sync sets stay as they are; review machine removals in Sync."
     confirmLabel="Remove"
     secondaryLabel="Remove and ignore"
     danger
@@ -1061,7 +1072,7 @@
 {#if bulkRemoveOpen}
   <ConfirmDialog
     title={`Remove ${bulkRemoving.length} ${bulkRemoving.length === 1 ? 'skill' : 'skills'}?`}
-    body="They will be removed from the shelf. Use Undo in the toast if you change your mind."
+    body="They will be removed from the library. Installed files and saved sync sets stay as they are; review machine removals in Sync. Use Undo in the toast if you change your mind."
     confirmLabel="Remove"
     danger
     onconfirm={confirmBulkRemove}

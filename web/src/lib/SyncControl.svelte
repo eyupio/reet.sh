@@ -5,17 +5,19 @@
   import { elapsed } from './time'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import CopyButton from './CopyButton.svelte'
+  import FleetActions from './FleetActions.svelte'
+  import { destinationScopes } from './fleet'
   let { snapshot, canWrite, onupdate, view = 'compare' }: { snapshot: SyncState; canWrite: boolean; onupdate: (s: SyncState) => void; view?: 'machines' | 'compare' } = $props()
   let source = $state('shelf'), selectedMachine = $state(''), selectedAgents = $state<string[]>([]), listId = $state(0), mode = $state('additive')
   let candidates = $state<SyncSkill[]>([]), selected = $state<string[]>([]), adopt = $state<string[]>([]), lists = $state<SharedList[]>([])
   let revision = $state(''), busy = $state(false), loading = $state(false), error = $state(''), notice = $state(''), query = $state('')
-  let listEditable = $state(false)
+  let listEditable = $state(false), sourceLoaded = $state(false)
   let conflicts = $state<string[]>([])
   let confirm = $state<{ title: string; body: string; action: () => Promise<void> } | null>(null)
   const groups = $derived(snapshot.environments.filter(e => !e.agent.startsWith('reet')))
   const fleet = $derived(inventoryMachines(snapshot.machines ?? []))
   const machine = $derived(fleet.find(m => m.host === selectedMachine) ?? null)
-  const machineGroups = $derived(machine ? agentGroups(machine) : [])
+  const machineGroups = $derived(destinationScopes(fleet, selectedMachine))
   const selectableGroups = $derived(machineGroups.filter(g => ['agents', 'claude', 'cursor', 'opencode'].includes(g.agent)))
   const scanOnlyGroups = $derived(machineGroups.filter(g => !['agents', 'claude', 'cursor', 'opencode'].includes(g.agent)))
   const targetEnvs = $derived(selectableGroups.filter(g => selectedAgents.includes(g.id)))
@@ -24,6 +26,7 @@
   const onlySource = $derived(desired.filter(s => !actual.some(a => a.id === s.id)))
   const onlyMachine = $derived(actual.filter(s => !desired.some(d => d.id === s.id)))
   const matching = $derived(desired.filter(s => actual.some(a => a.id === s.id)))
+  const scopeDifferences = $derived(targetEnvs.map(env => ({ env, missing: desired.filter(s => !env.skills.some(a => a.id === s.id)).length, extra: env.skills.filter(s => !desired.some(d => d.id === s.id)).length })))
   const sourceConflicts = $derived(desired.filter(s => actual.some(a => a.slug === s.slug && a.id !== s.id)))
   const unknown = $derived(desired.filter(s => !s.source || s.sourceType === 'local'))
   const ready = $derived(targetEnvs.length > 0 && targetEnvs.every(e => e.complete && e.scannedAt > Date.now() - 14 * 86400000))
@@ -45,7 +48,7 @@
   async function run(fn: () => Promise<void>) { if (busy) return; busy = true; error = ''; notice = ''; try { await fn() } catch (e) { error = e instanceof Error ? e.message : String(e) } finally { busy = false } }
   let request = 0
   async function loadSource() {
-    const generation = ++request; loading = true; error = ''; selected = []; adopt = []; conflicts = []; query = ''
+    const generation = ++request; loading = true; sourceLoaded = false; error = ''; candidates = []; selected = []; adopt = []; conflicts = []; query = ''
     try {
       let next: SyncSkill[]
       if (source === 'shelf' || source === 'hosted') {
@@ -54,39 +57,48 @@
         if (generation !== request) return
         listEditable = !detail || detail.canEdit
       } else { next = groups.find(e => e.id === source)?.skills ?? []; listEditable = false }
-      if (generation === request) candidates = next
+      if (generation === request) { candidates = next; sourceLoaded = true }
     } catch (e) { if (generation === request) error = String(e) } finally { if (generation === request) loading = false }
   }
   function selectMachine(host: string) {
     selectedMachine = host
-    const selected = fleet.find(m => m.host === host)
-    selectedAgents = selected ? agentGroups(selected).filter(g => ['agents', 'claude', 'cursor', 'opencode'].includes(g.agent)).map(g => g.id) : []
+    selectedAgents = destinationScopes(fleet, host).filter(g => ['agents', 'claude', 'cursor', 'opencode'].includes(g.agent)).map(g => g.id)
     revision = ''
     adopt = []
     conflicts = []
   }
   function toggleAgent(id: string) {
+    revision = ''
     selectedAgents = selectedAgents.includes(id) ? selectedAgents.filter(value => value !== id) : [...selectedAgents, id]
     adopt = []
     conflicts = []
   }
-  async function save() {
+  async function save(revisions: Map<string, string>) {
     await run(async () => {
-      if (!targetEnvs.length) throw new Error('Choose at least one agent scope on this machine.')
-      let next = snapshot
-      for (const env of targetEnvs) {
-        const current = snapshot.targets.find(t => t.target.id === env.id)?.revision ?? ''
-        next = await saveDesired({ targetId: env.id, sourceId: source, listId: source === 'shelf' ? listId : 0, skillIds: selected, mode, revision: current })
+      if (!sourceLoaded) throw new Error('Load and review the source before saving.')
+      if (!targetEnvs.length) throw new Error('Choose at least one destination scope.')
+      const destinations = [...targetEnvs]
+      let saved = 0
+      for (const env of destinations) {
+        const current = revisions.get(env.id) ?? ''
+        try {
+          const next = await saveDesired({ targetId: env.id, sourceId: source, listId: source === 'shelf' ? listId : 0, skillIds: selected, mode, revision: current })
+          onupdate(next)
+          if (destinations.length === 1) revision = next.targets.find(t => t.target.id === env.id)?.revision ?? ''
+          saved++
+        } catch (error) {
+          throw new Error(`${saved} of ${destinations.length} scopes saved. Could not save ${env.host} · ${groupLabel(env)}: ${error instanceof Error ? error.message : String(error)}. Review the saved sets before retrying.`)
+        }
       }
-      onupdate(next)
-      revision = next.targets.find(t => t.target.id === targetEnvs[0].id)?.revision ?? ''
-      notice = `Sorted. Desired skills saved for ${targetEnvs.length} agent ${targetEnvs.length === 1 ? 'scope' : 'scopes'} on ${selectedMachine}. Preview before approving changes.`
+      notice = `Sorted. Desired skills saved for ${saved} scopes across ${new Set(destinations.map(env => env.host)).size} machines. Preview before approving changes.`
     })
   }
   function reviewSave() {
+    const revisions = new Map(targetEnvs.map(env => [env.id, targetEnvs.length === 1 && revision ? revision : snapshot.targets.find(t => t.target.id === env.id)?.revision ?? '']))
+    const commit = () => save(revisions)
     if (mode !== 'additive' && onlyMachine.length) {
-      confirm = { title: 'Save a set that removes extra skills?', body: `${onlyMachine.length} installed skills are outside this selection. A later approved apply can remove them from the selected agent scopes, keeping local backups. Shelf entries and notes remain. Saving alone does not change installed files.`, action: save }
-    } else void save()
+      confirm = { title: 'Save a set that removes extra skills?', body: `${onlyMachine.length} installed skills are outside this selection. A later approved apply can remove them from the selected agent scopes, keeping local backups. Shelf entries and notes remain. Saving alone does not change installed files.`, action: commit }
+    } else void commit()
   }
   async function edit(item: SyncTarget) {
     selectedMachine = item.target.host
@@ -110,7 +122,22 @@
       notice = 'Local and web changes combined for review. Resolve conflicts, then save the selected set. No files changed.'
     })
   }
-  async function adoptSelected() { await run(async () => { const env = targetEnvs[0]; if (!env) throw new Error('Choose an agent scope first.'); await adoptSyncSkills(env.id, adopt, source === 'shelf' ? listId : 0); await loadSource(); notice = 'Selected skills added to reet.sh. Existing notes and shelf choices were preserved.' }) }
+  async function adoptSelected() {
+    await run(async () => {
+      const remaining = new Set(adopt)
+      let adopted = 0
+      for (const env of targetEnvs) {
+        const ids = env.skills.filter(skill => remaining.has(skill.id)).map(skill => skill.id)
+        if (!ids.length) continue
+        try { await adoptSyncSkills(env.id, ids, source === 'shelf' ? listId : 0) }
+        catch (error) { throw new Error(`${adopted} skills added before ${env.host} failed: ${error instanceof Error ? error.message : String(error)}. Review the library before retrying.`) }
+        ids.forEach(id => remaining.delete(id)); adopted += ids.length
+      }
+      if (remaining.size) throw new Error('Some selected skills are no longer reported. Refresh inventories and review again.')
+      await loadSource()
+      notice = `${adopted} selected skills added to reet.sh. Existing notes and shelf choices were preserved.`
+    })
+  }
   async function previewGroup(group: { host: string; items: SyncTarget[] }) {
     const agent = snapshot.agents?.find(a => a.host.toLowerCase() === group.host.toLowerCase())
     if (!agent) return
@@ -133,7 +160,8 @@
         await loadSource()
         const requestedMachine = params.get('machine') ?? ''
         const match = fleet.find(m => m.host === requestedMachine)
-        if (match) selectMachine(match.host)
+        if (requestedMachine === '*') selectMachine('*')
+        else if (match) selectMachine(match.host)
         else if (fleet.length === 1) selectMachine(fleet[0].host)
         else {
           const withTarget = fleet.find(m => agentGroups(m).some(g => snapshot.targets.some(t => t.target.id === g.id)))
@@ -147,45 +175,47 @@
 {#if error}<p class="feedback bad" role="alert">{error}</p>{/if}
 {#if notice}<p class="feedback" role="status">{notice}</p>{/if}
 {#if view === 'compare'}
+<FleetActions {snapshot} {canWrite} {onupdate} />
 <section id="sync-selection" class="control" aria-labelledby="selection-title">
-  <h3 id="selection-title">Reet.sh skills & your machines</h3>
+  <h3 id="selection-title">Choose skills. Choose where they go.</h3>
   <p>Choose skills from reet.sh, a list, or another machine. Compare, save the desired set, then preview and approve changes.</p>
   <div class="pickers">
     <label>Compare from<select aria-label="Compare from" bind:value={source} onchange={loadSource} disabled={busy}><option value="shelf">Reet.sh shelf &amp; lists</option><option value="hosted">My published reet.sh skills</option>{#each fleet as m (m.host)}<optgroup label={m.host}>{#each agentGroups(m) as g (g.id)}<option value={g.id}>{groupLabel(g)}</option>{/each}</optgroup>{/each}</select></label>
     {#if source === 'shelf'}<label>Skill collection<select aria-label="Skill collection" bind:value={listId} onchange={loadSource} disabled={busy}><option value={0}>My shelf</option>{#each lists as list}<option value={list.id}>{list.name}</option>{/each}</select></label>{/if}
-    <label>Machine<select aria-label="Machine" bind:value={selectedMachine} onchange={() => selectMachine(selectedMachine)} disabled={busy}><option value="">Choose a machine</option>{#each fleet as m (m.host)}<option value={m.host}>{m.host}</option>{/each}</select></label>
+    <label>Destination<select aria-label="Destination" bind:value={selectedMachine} onchange={() => selectMachine(selectedMachine)} disabled={busy}><option value="">Choose a machine</option><option value="*">All machines</option>{#each fleet as m (m.host)}<option value={m.host}>{m.host}</option>{/each}</select></label>
     <label>Sync mode<select aria-label="Sync mode" bind:value={mode} disabled={!canWrite || busy}><option value="additive">Additive</option><option value="bidirectional">Bidirectional review</option><option value="mirror">Exact set</option></select></label>
   </div>
-  {#if machine}
+  {#if machine || selectedMachine === '*'}
     <div class="agent-scopes">
-      <div class="scope-head"><strong>Agent scopes on {machine.host}</strong><div><button type="button" class="link" onclick={() => (selectedAgents = selectableGroups.map(g => g.id))}>All</button><button type="button" class="link" onclick={() => (selectedAgents = [])}>None</button></div></div>
+      <div class="scope-head"><strong>Agent scopes · {selectedMachine === '*' ? 'all machines' : machine?.host}</strong><div><button type="button" class="link" onclick={() => (selectedAgents = selectableGroups.map(g => g.id))}>All</button><button type="button" class="link" onclick={() => (selectedAgents = [])}>None</button></div></div>
       <div class="scope-grid">
         {#each selectableGroups as env (env.id)}
           <label class="scope-option" class:selected={selectedAgents.includes(env.id)}>
             <input type="checkbox" checked={selectedAgents.includes(env.id)} onchange={() => toggleAgent(env.id)} disabled={busy} />
-            <span><strong>{groupLabel(env)}</strong><small>{env.skillCount ?? 0} skills · {env.complete ? 'Current' : 'Incomplete'} scan</small></span>
+            <span><strong>{selectedMachine === '*' ? `${env.host} · ` : ''}{groupLabel(env)}</strong><small>{env.skillCount ?? 0} skills · {!env.complete ? 'Incomplete' : env.scannedAt <= Date.now() - 14 * 86400000 ? 'Out of date' : 'Recent complete'} scan</small></span>
           </label>
         {/each}
       </div>
       {#if scanOnlyGroups.length}<p class="hint">Scan-only: {scanOnlyGroups.map(g => groupLabel(g)).join(', ')}. These scopes cannot receive sync jobs.</p>{/if}
-      <p class="hint">Every selected scope receives the same desired set. Each keeps its own install target and review.</p>
+      <p class="hint">Every selected scope receives the same desired set. Each keeps its own install target and review. All machines selects reported inventory scopes, including machines that are currently offline.</p>
     </div>
   {/if}
   <p class="hint">{mode === 'additive' ? 'Install selected skills and keep local extras.' : mode === 'bidirectional' ? 'Review changes from both sides before applying. Removals need approval.' : 'Match this exact selection. Extra skills require reviewed removal.'}</p>
   <p class="hint">Bookmarks and “In use” are personal shelf choices. They never approve installation or removal. Matching here means skill identity/source, not file contents or versions.</p>
   <label>Find skills<input type="search" bind:value={query} placeholder="Name or source" /></label>
-  <div class="actions"><button class="btn quiet" disabled={loading || busy} onclick={() => selected = [...new Set([...selected, ...filtered.map(s => s.id)])]}>Select visible</button><button class="btn quiet" disabled={busy} onclick={() => selected = []}>Clear selection</button><span>{selected.length} selected</span></div>
+  <div class="actions"><button class="btn quiet" disabled={loading || busy || !sourceLoaded} onclick={() => selected = [...new Set([...selected, ...filtered.map(s => s.id)])]}>Select visible</button><button class="btn quiet" disabled={busy} onclick={() => selected = []}>Clear selection</button><span>{selected.length} selected</span></div>
   <div class="skill-options" aria-label="Skills to compare">
     {#if loading}<p role="status">Loading skills…</p>{:else}{#each filtered as skill (skill.id)}<label class="skill"><input type="checkbox" checked={selected.includes(skill.id)} onchange={() => toggle(skill.id)} disabled={busy} /><span><strong>{skill.name}</strong><small>{skill.source || 'Unknown source — link before syncing'}</small></span></label>{:else}<p>No skills here yet. Add skills to your shelf or report a machine inventory.</p>{/each}{/if}
   </div>
   {#if targetEnvs.length}
     <p class:bad={!ready} role="status">{ready ? `Selected scopes last reported ${ago(oldestScan)}.` : 'One or more selected scopes need a fresh complete scan. Rescan before saving or applying.'}</p>
     {#each targetEnvs.filter(e => e.error) as env (env.id)}<p class="bad">{groupLabel(env)}: {env.error}</p>{/each}
-    <div class="counts"><span>{targetEnvs.length} agent {targetEnvs.length === 1 ? 'scope' : 'scopes'} selected</span><span>{onlySource.length} only {['shelf','hosted'].includes(source) ? 'on reet.sh (selected)' : 'in reference selection'}</span><span>{onlyMachine.length} only on selected scopes</span><span>{matching.length} matching</span><span>{sourceConflicts.length} source conflicts</span><span>{unknown.length} unknown</span></div>
+    <div class="counts"><span>{targetEnvs.length} agent {targetEnvs.length === 1 ? 'scope' : 'scopes'} selected</span><span>{onlySource.length} only {['shelf','hosted'].includes(source) ? 'on reet.sh (selected)' : 'in reference selection'}</span><span>{onlyMachine.length} only on selected scopes</span><span>{matching.length} found in at least one selected scope</span><span>{sourceConflicts.length} source conflicts</span><span>{unknown.length} unknown</span></div>
+    <details><summary>Differences by destination</summary><ul>{#each scopeDifferences as difference (difference.env.id)}<li><strong>{difference.env.host} · {groupLabel(difference.env)}</strong>: {difference.missing} to install · {difference.extra} extra {mode === 'additive' ? '(kept)' : '(review removals)'}</li>{/each}</ul><p class="hint">The counts above combine unique skills across selected scopes. Each scope has its own changes below.</p></details>
     {#if sourceConflicts.length}<p class="bad">Source conflicts: {sourceConflicts.map(s => s.name).join(', ')}. Resolve the installed source before applying.</p>{/if}
     {#if conflicts.length}<p class="bad" role="alert">Concurrent changes: {conflicts.join(', ')}. Select the source you want for each conflict, or keep it absent, then <button class="btn quiet" onclick={() => conflicts = []}>Confirm conflict choices</button>.</p>{/if}
-    <details><summary>Only on selected scopes ({onlyMachine.length})</summary><p>Select skills to add to {listId && source === 'shelf' ? 'the selected reet.sh list' : 'your reet.sh shelf'}.</p>{#each onlyMachine as skill}<label class="skill"><input type="checkbox" value={skill.id} bind:group={adopt} disabled={!canWrite || busy} /><span>{skill.name}<small>{skill.source || 'Unknown source'}</small></span></label>{/each}{#if canWrite}<button class="btn" disabled={busy || !ready || !adopt.length || (source === 'shelf' && listId > 0 && !listEditable)} onclick={adoptSelected}>Add selected to reet.sh</button>{/if}</details>
-    {#if canWrite}<button class="btn primary" disabled={busy || loading || !ready || unknown.length > 0 || conflicts.length > 0} onclick={reviewSave}>{busy ? 'Saving…' : `Save to ${targetEnvs.length} agent ${targetEnvs.length === 1 ? 'scope' : 'scopes'}`}</button>{/if}
+    <details><summary>Only on selected scopes ({onlyMachine.length})</summary><p>Select skills to add to {listId && source === 'shelf' ? 'the selected reet.sh list' : 'your reet.sh shelf'}.</p>{#each onlyMachine as skill}<label class="skill"><input type="checkbox" value={skill.id} bind:group={adopt} disabled={!canWrite || busy} /><span>{skill.name}<small>{skill.source || 'Unknown source'}</small></span></label>{/each}{#if canWrite}<button class="btn" disabled={busy || loading || !sourceLoaded || !ready || !adopt.length || (source === 'shelf' && listId > 0 && !listEditable)} onclick={adoptSelected}>Add selected to reet.sh</button>{/if}</details>
+    {#if canWrite}<button class="btn primary" disabled={busy || loading || !sourceLoaded || !ready || unknown.length > 0 || sourceConflicts.length > 0 || conflicts.length > 0} onclick={reviewSave}>{busy ? 'Saving…' : `Save to ${targetEnvs.length} agent ${targetEnvs.length === 1 ? 'scope' : 'scopes'}`}</button>{/if}
   {:else if machine}
     <p class="hint">Choose at least one agent scope on {machine.host} to compare.</p>
   {/if}
@@ -218,7 +248,7 @@
 {/if}
 
 
-<section aria-labelledby="sync-jobs-title"><details class="history" open={(snapshot.jobs ?? []).some(j => ['queued','running','awaiting-approval'].includes(j.status))}><summary id="sync-jobs-title">Sync activity ({snapshot.jobs?.length ?? 0}){snapshot.jobs?.[0] ? ` · latest: ${snapshot.jobs[0].status.replaceAll('-', ' ')}` : ''}</summary>
+<section id="sync-jobs" aria-labelledby="sync-jobs-title"><details class="history" open={location.hash === '#sync-jobs' || (snapshot.jobs ?? []).some(j => ['queued','running','awaiting-approval'].includes(j.status))}><summary id="sync-jobs-title">Sync activity ({snapshot.jobs?.length ?? 0}){snapshot.jobs?.[0] ? ` · latest: ${snapshot.jobs[0].status.replaceAll('-', ' ')}` : ''}</summary>
 {#each snapshot.jobs ?? [] as job (job.id)}
  <article class="control"><h4>{snapshot.agents?.find(a => a.id === job.agentId)?.host || 'Machine'} · {job.kind}</h4><p role="status">{job.status.replaceAll('-', ' ')} · {ago(job.updatedAt)}</p>
  {#if job.message}<p class="bad">{job.message}</p>{/if}

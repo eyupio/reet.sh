@@ -173,7 +173,7 @@
             <div class="command"><pre>{refreshCommand(machine.host)}</pre><CopyButton text={refreshCommand(machine.host)} label={`Copy refresh for ${machine.host}`} /></div>
           </div>
         {/each}
-        <p class="hint">The controller cannot rescan machines remotely. After each command finishes, use Refresh status to see the reports received.</p>
+        <p class="hint">For enrolled machines, use Scan all from Control or Sync. For other machines, run the commands above, then refresh status.</p>
       </details>
       {#if serverMachines.length}
         <details class="maintenance">

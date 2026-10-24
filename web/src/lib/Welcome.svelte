@@ -12,9 +12,9 @@
 
 <section class="welcome" aria-labelledby="welcome-title">
   <div class="hero">
-    <p class="eyebrow">Ey up. Your shelf for everything AI</p>
-    <h1 id="welcome-title">Find a skill.<br />Give it a proper go.<br /><span>Keep the good ones.</span></h1>
-    <p class="lede">The self-hosted home for the AI skills, agents and setups you use. Start on your own, then bring your team when you need one. Capture from <a href="https://www.skills.sh" target="_blank" rel="noopener noreferrer">skills.sh</a> or host your own, and sync every agent and machine.</p>
+    <p class="eyebrow">Ey up. Your machines, together.</p>
+    <h1 id="welcome-title">Your machines.<br />Your skills.<br /><span>One control centre.</span></h1>
+    <p class="lede">Connect your machines to a self-hosted workspace. Maintain skills here, review changes in both directions, and use installed agents through a remote terminal. Capture from <a href="https://www.skills.sh" target="_blank" rel="noopener noreferrer">skills.sh</a> or host your own skills, then choose which machines receive them.</p>
     <div class="cta-row">
       {#if setupRequired}
         <a class="btn primary" href="/setup">Set up this instance</a>
@@ -52,28 +52,28 @@
   </figure>
 </section>
 
-<section class="how" aria-label="How the shelf works">
+<section class="how" aria-label="How your workspace works">
   <div>
     <span>01</span>
-    <h2>On the shelf</h2>
-    <p>Capture a good find in two seconds. Paste a skills.sh link, a slug, an <code>npx skills add</code> command, or host your own.</p>
+    <h2>Connect your machines</h2>
+    <p>Enroll a machine and report what its agents have installed. Keep an eye on inventories and private connection health.</p>
   </div>
   <div>
     <span>02</span>
-    <h2>To test</h2>
-    <p>Give it a proper go. Copy the install command, try it in your agent, then decide.</p>
+    <h2>Choose and sync</h2>
+    <p>Maintain a central skill library. Send a selection to one machine or all, bring skills back, and review installs and removals.</p>
   </div>
   <div>
     <span>03</span>
-    <h2>In use</h2>
-    <p>Keep the ones earning their keep. See what is installed on which machine and what is missing.</p>
+    <h2>Open a terminal</h2>
+    <p>Enable terminal access on a machine, then use its installed AI agents from your browser. Sessions stay on the host when you disconnect.</p>
   </div>
 </section>
 
 <section class="features" aria-labelledby="features-title">
   <div class="feature-head">
     <p class="eyebrow">More than a bookmark list</p>
-    <h2 id="features-title">A shelf of your own. Room for the team.</h2>
+    <h2 id="features-title">A workspace of your own. Room for the fleet.</h2>
     <p>Start with your own finds. Add lists, teams, hosted skills, agent sync and sealed backups when you need them. Every part is built in and self-hosted.</p>
   </div>
   <div class="feature-grid">
@@ -146,7 +146,6 @@
   .how span { color: var(--accent); font: 0.72rem var(--mono); }
   .how h2 { margin: 8px 0 6px; font: 500 1.35rem/1.2 var(--serif); }
   .how p { margin: 0; color: var(--muted); font-size: 0.85rem; line-height: 1.55; }
-  .how code { font-size: 0.92em; }
 
   .features { margin: 34px 0 0; }
   .feature-head { max-width: 760px; }

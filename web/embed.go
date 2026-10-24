@@ -2,6 +2,7 @@
 package web
 
 import (
+	"bytes"
 	"embed"
 	"io/fs"
 	"mime"
@@ -17,22 +18,139 @@ func init() {
 //go:embed all:dist
 var dist embed.FS
 
+const (
+	originToken   = "{{ORIGIN}}"
+	fallbackStart = "<!--seo-fallback:start-->"
+	fallbackEnd   = "<!--seo-fallback:end-->"
+)
+
 // Handler serves the SPA, falling back to index.html for client-side routes.
-func Handler() http.Handler {
-	sub, _ := fs.Sub(dist, "dist")
+// The crawler files are answered here so the SPA fallback cannot shadow them
+// with an HTML page, and index.html is served with the request origin applied.
+// baseURL is the configured public origin (REET_PUBLIC_URL); when empty the
+// origin is derived from the request.
+func Handler(baseURL string) http.Handler {
+	sub, err := fs.Sub(dist, "dist")
+	if err != nil {
+		panic("web: embedded dist is missing: " + err.Error())
+	}
 	files := http.FileServerFS(sub)
+	index, _ := fs.ReadFile(sub, "index.html")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/robots.txt":
+			writeRobots(w, origin(r, baseURL))
+			return
+		case "/sitemap.xml":
+			writeSitemap(w, origin(r, baseURL))
+			return
+		}
 		p := strings.TrimPrefix(r.URL.Path, "/")
-		if p == "" {
-			p = "index.html"
+		if p == "" || p == "index.html" {
+			serveIndex(w, index, r.URL.Path, origin(r, baseURL))
+			return
 		}
-		if _, err := fs.Stat(sub, p); err != nil {
-			if _, ierr := fs.Stat(sub, "index.html"); ierr != nil {
-				http.Error(w, "reet.sh UI is not built; run `npm run build` in web/", http.StatusNotFound)
-				return
-			}
-			r.URL.Path = "/"
+		if _, err := fs.Stat(sub, p); err == nil {
+			files.ServeHTTP(w, r)
+			return
 		}
-		files.ServeHTTP(w, r)
+		if index == nil {
+			http.Error(w, "reet.sh UI is not built; run `npm run build` in web/", http.StatusNotFound)
+			return
+		}
+		serveIndex(w, index, r.URL.Path, origin(r, baseURL))
 	})
+}
+
+// serveIndex serves the built index.html with the origin substituted. The
+// static crawler fallback is only kept on landing routes; every other route is
+// an app screen and does not need the marketing copy.
+func serveIndex(w http.ResponseWriter, index []byte, path, origin string) {
+	if index == nil {
+		http.Error(w, "reet.sh UI is not built; run `npm run build` in web/", http.StatusNotFound)
+		return
+	}
+	body := bytes.ReplaceAll(index, []byte(originToken), []byte(origin))
+	if path == "/" || path == "/welcome" {
+		body = bytes.ReplaceAll(body, []byte(fallbackStart), nil)
+		body = bytes.ReplaceAll(body, []byte(fallbackEnd), nil)
+	} else {
+		body = stripFallback(body)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write(body)
+}
+
+func stripFallback(body []byte) []byte {
+	start := bytes.Index(body, []byte(fallbackStart))
+	end := bytes.Index(body, []byte(fallbackEnd))
+	if start < 0 || end < start {
+		return body
+	}
+	out := make([]byte, 0, len(body))
+	out = append(out, body[:start]...)
+	out = append(out, body[end+len(fallbackEnd):]...)
+	return out
+}
+
+// origin is the absolute origin used in robots.txt, sitemap.xml and the
+// origin-tagged tags in index.html.
+func origin(r *http.Request, baseURL string) string {
+	if base := strings.TrimRight(strings.TrimSpace(baseURL), "/"); base != "" {
+		return base
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if proto := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]); proto != "" {
+		scheme = proto
+	}
+	return scheme + "://" + r.Host
+}
+
+const robotsTxt = `# reet.sh — self-hosted control room for AI agents
+# Search engines and AI search crawlers may index the public pages.
+# Model-training crawlers are not restricted by default; add your own
+# User-agent blocks if this instance should opt out of training.
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /quick
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: Claude-SearchBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+
+Sitemap: %s/sitemap.xml
+`
+
+func writeRobots(w http.ResponseWriter, origin string) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	_, _ = w.Write([]byte(strings.Replace(robotsTxt, "%s", origin, 1)))
+}
+
+const sitemapXML = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>%s/</loc>
+  </url>
+</urlset>
+`
+
+func writeSitemap(w http.ResponseWriter, origin string) {
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	_, _ = w.Write([]byte(strings.Replace(sitemapXML, "%s", origin, 1)))
 }

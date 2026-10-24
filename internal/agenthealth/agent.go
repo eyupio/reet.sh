@@ -35,6 +35,7 @@ const (
 // AgentConfig is the installed agent's private monitoring configuration. Health
 // reporting is independent of terminal opt-in.
 type AgentConfig struct {
+	commandHistory    bool
 	OnConnection      func(bool)
 	TerminalSession   TerminalFactory
 	control           func(context.Context, terminalproto.Message) error
@@ -198,7 +199,7 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 	sessionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	dialCtx, dialCancel := context.WithTimeout(sessionCtx, 15*time.Second)
-	conn, _, err := websocket.Dial(dialCtx, privateconn.Origin+"/private/v1/control", &websocket.DialOptions{
+	conn, response, err := websocket.Dial(dialCtx, privateconn.Origin+"/private/v1/control", &websocket.DialOptions{
 		HTTPClient: client.HTTPClient(),
 		HTTPHeader: authHeaders(cfg),
 	})
@@ -207,6 +208,7 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 		return false, errors.New("private control connection unavailable")
 	}
 	defer conn.CloseNow()
+	cfg.commandHistory = response != nil && terminalproto.SupportsCommandHistory(response.Header.Get(terminalproto.FeatureHeader))
 	conn.SetReadLimit(terminalproto.MaxControlBytes)
 
 	handshakeID, err := randomID()
@@ -257,7 +259,11 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 	}
 	if cfg.TerminalSession != nil {
 		var closeTerminal func()
-		cfg.control, closeTerminal = cfg.TerminalSession(sessionCtx, client.HTTPClient(), authHeaders(cfg), generation, send)
+		terminalHeaders := authHeaders(cfg)
+		if cfg.commandHistory {
+			terminalHeaders.Set(terminalproto.FeatureHeader, terminalproto.CommandHistoryFeature)
+		}
+		cfg.control, closeTerminal = cfg.TerminalSession(sessionCtx, client.HTTPClient(), terminalHeaders, generation, send)
 		defer closeTerminal()
 	}
 
@@ -491,6 +497,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 	}
 	return terminalproto.Capabilities{
 		TerminalControl: cfg.TerminalSession != nil,
+		CommandHistory:  cfg.commandHistory && cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin"),
 		ProtocolVersion: terminalproto.Version,
 		OS:              osName,
 		OSUser:          username,

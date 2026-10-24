@@ -73,7 +73,7 @@
   }
 </script>
 
-<AuthCard title="Sign in to your workspace" lede="Your machines and terminal sessions are waiting.">
+<AuthCard title="Sign in to your workspace" lede="Your fleet, agent toolkit and ongoing sessions are waiting.">
   <form onsubmit={submit} aria-busy={busy} aria-describedby={error ? "signin-error" : undefined}>
     <label for="signin-email">Email</label>
     <input id="signin-email" bind:this={emailInput} bind:value={email} type="email" required autocomplete="username" placeholder="you@example.com" />

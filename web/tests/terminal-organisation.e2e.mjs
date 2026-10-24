@@ -4,9 +4,11 @@ const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
 const context=await browser.newContext({viewport:{width:1440,height:1000},permissions:['clipboard-read','clipboard-write']})
 const page=await context.newPage(),errors=[],inputs=[],tickets=[],mutations=[],commands=[]
+let historyReads=0
+const savedHistory={entries:[{command:'git status',source:'bash',timestamp:Date.now()},{command:"printf 'first'\nprintf 'second'",source:'zsh'}],sources:[{source:'bash',available:true},{source:'zsh',available:true}],truncated:false,skipped:0}
 let profile={theme:'light',shelfView:'list',cardsExpanded:false,terminalRemoveOnClose:false},conflict=false
 const now=Date.now(),a='organisation-machine00001',b='organisation-machine00002'
-const machines=[{agentId:a,host:'Laptop',ready:true,serverEnabled:true,capabilities:{osUser:'developer',terminalEnabled:true,terminalControl:true,readiness:'ready'}},{agentId:b,host:'Builder',ready:false,serverEnabled:true,capabilities:{osUser:'builder',terminalEnabled:true,terminalControl:true,readiness:'ready'}}]
+const machines=[{agentId:a,host:'Laptop',ready:true,serverEnabled:true,capabilities:{osUser:'developer',terminalEnabled:true,terminalControl:true,commandHistory:true,readiness:'ready'}},{agentId:b,host:'Builder',ready:false,serverEnabled:true,capabilities:{osUser:'builder',terminalEnabled:true,terminalControl:true,commandHistory:true,readiness:'ready'}}]
 const sessions=[{id:'organisation-session0001',agentId:a,title:'Alpha shell',state:'running',createdAt:now-4,updatedAt:now,exitCode:null},{id:'organisation-session0002',agentId:b,title:'Build shell',state:'running',createdAt:now-3,updatedAt:now,exitCode:null},{id:'organisation-session0003',agentId:a,title:'Closed shell',state:'ended',createdAt:now-2,updatedAt:now,exitCode:null},{id:'organisation-session0004',agentId:a,title:'Zulu shell',state:'running',createdAt:now-1,updatedAt:now,exitCode:null}]
 page.on('pageerror',e=>errors.push(e.message))
 await context.route('**/api/**',async route=>{
@@ -22,6 +24,8 @@ await context.route('**/api/**',async route=>{
  else if(path==='/api/v2/terminal/machines')data={machines}
  else if(path==='/api/v2/machines/health')data={serverNow:Date.now(),machines:[],history:[]}
  else if(path==='/api/v2/terminal/sessions')data={sessions}
+ else if(path.endsWith('/command-history')){historyReads++;data=savedHistory}
+ else if(path.endsWith('/history'))return route.fulfill({body:'Read-only output snapshot'})
  else if(path.endsWith('/attachments')){tickets.push(path.split('/').at(-2));data={ticket:'organisation-ticket00001'}}
  else if(path==='/api/v2/terminal/commands'&&method==='GET')data={commands}
  else if(path.startsWith('/api/v2/terminal/commands')){
@@ -104,6 +108,32 @@ try{
  await sidebar.getByLabel('Machine',{exact:true}).selectOption('*')
  await expect(sidebar.locator('.session-row')).toHaveCount(3)
  await row('Alpha shell').click();await live()
+ await page.getByRole('button',{name:'Recent history',exact:true}).click()
+ await page.getByLabel('Search command history').fill('git status')
+ await expect(page.getByRole('list',{name:'Saved shell commands'}).locator('li')).toHaveCount(1)
+ const beforeRecall=inputs.length
+ await page.getByRole('button',{name:'Paste history command 1'}).click()
+ await expect.poll(()=>inputs.slice(beforeRecall).join('')).toBe('git status')
+ await page.getByRole('button',{name:'Interrupt shell',exact:true}).click()
+ await page.getByRole('button',{name:'Recent history',exact:true}).click()
+ await page.getByLabel('Search command history').fill('printf')
+ const beforeRun=inputs.length
+ await page.getByRole('button',{name:'Run history command 1'}).click()
+ await page.getByRole('button',{name:'Cancel',exact:true}).click()
+ await expect(page.getByLabel('Search command history')).toHaveValue('printf')
+ expect(inputs.length).toBe(beforeRun)
+ await page.getByRole('button',{name:'Run history command 1'}).click()
+ await page.getByRole('button',{name:'Run command',exact:true}).click()
+ await expect.poll(()=>inputs.slice(beforeRun).join('')).toBe("printf 'first'\rprintf 'second'\r")
+ machines[0].capabilities.commandHistory=false
+ await sidebar.getByRole('button',{name:'Refresh status',exact:true}).click()
+ await page.getByRole('button',{name:'Recent history',exact:true}).click()
+ await expect(page.getByRole('dialog')).toContainText('Update this machine’s reet agent')
+ const legacyReads=historyReads
+ await page.getByRole('button',{name:'Terminal output history →',exact:true}).click()
+ await expect(page.getByRole('dialog')).toContainText('Read-only output snapshot')
+ await page.getByRole('button',{name:'Close history',exact:true}).click()
+ expect(historyReads).toBe(legacyReads)
  await page.getByRole('button',{name:'Appearance',exact:true}).click()
  await page.getByRole('button',{name:'Use Graphite theme'}).click()
  await expect(page.getByRole('region',{name:'Remote terminal screen',exact:true})).toHaveCSS('background-color','rgb(28, 30, 34)')

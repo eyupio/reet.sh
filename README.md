@@ -5,9 +5,9 @@
   <img src="brand/logo/horizontal-color-light.svg" alt="reet.sh" width="340">
 </picture>
 
-### Your machines. Your terminals. One workspace.
+### Ey up. Your AI fleet, in good order.
 
-Connect laptops and servers, open remote terminals, and return to persistent shell sessions. Use the tools and agents already installed on each machine.<br>
+A self-hosted control room for your machine fleet, AI agents, skills and reusable setups. Connect your machines, use installed agents, review what gets synced, and return to ongoing work.<br>
 One Go binary. One SQLite file. No telemetry.
 
 [![CI](https://github.com/eyupio/reet.sh/actions/workflows/image.yml/badge.svg)](https://github.com/eyupio/reet.sh/actions/workflows/image.yml)
@@ -30,7 +30,7 @@ One Go binary. One SQLite file. No telemetry.
 
 ## Why
 
-Working across laptops and servers should not mean losing track of your shells or starting over when a browser closes. Keep your machines and ongoing sessions within reach in a workspace you host yourself.
+Your AI workspace spans machines, agents, skills, configuration and ongoing work. Keep the whole lot in good order in a control room you host yourself. Browser terminals put the agents already installed on each machine within reach; reusable setups and reviewed sync help bring the fleet together.
 
 reet.sh is a self-hosted workspace for the machines where you use AI agents. Open a browser terminal, continue ongoing shells, and work with agents already installed on each connected machine. Its supporting skill library lets you choose what goes to one machine or all machines, bring discoveries back, and review sync changes before applying them.
 
@@ -46,7 +46,7 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 
 - **Terminal-first control.** Home shows active shells and machine connections. Continue exact sessions, or connect and open a machine's terminals.
 - **An organised session workspace.** Filter across machines, sort and group, colour-code sessions, drag to reorder, resize or collapse the sidebar. Right-click or use keyboard-accessible row actions to rename, disconnect, stop and remove closed history. Layout stays in this browser, separately per account.
-- **Comfortable remote terminals.** Four colour palettes, font/cursor controls, search, clipboard and guarded paste. Save exact commands to your account and explicitly insert them into a live shell without an extra Enter. Stopping can remove history after the machine confirms closure; set its default in Account → Profile.
+- **Comfortable remote terminals.** Four colour palettes, font/cursor controls, search, clipboard and guarded paste. Search a machine’s saved Bash/Zsh history to paste/edit or explicitly review and rerun a command. Keep a separate account command library for reusable snippets, inserted without an extra Enter. Stopping can remove history after the machine confirms closure; set its default in Account → Profile.
 - **One or all machines.** In Sync, choose a library, list, published collection or reported machine scope as the source; select one destination or All machines, then adjust individual scopes. Differences are shown per destination. Saving desired state is separate from previewing and approving changes.
 
 - **Three-stage shelf.** On the shelf, To test, In use. Stage is derived from your flags, never stored out of step.

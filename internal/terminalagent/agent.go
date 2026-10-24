@@ -161,15 +161,28 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 				}
 				reply.Body = terminalproto.Result{Code: terminalproto.OK}
 				return respond(nil)
-			case *terminalproto.History:
-				if !terminalproto.ValidID(op.StreamToken) {
+			case *terminalproto.History, *terminalproto.CommandHistory:
+				var data []byte
+				var err error
+				var token string
+				switch request := op.(type) {
+				case *terminalproto.History:
+					token = request.StreamToken
+					data, err = m.History(callCtx, msg.SessionID, request.Lines)
+				case *terminalproto.CommandHistory:
+					if !terminalproto.SupportsCommandHistory(headers.Get(terminalproto.FeatureHeader)) {
+						return respond(terminalhost.ErrTerminalDisabled)
+					}
+					token = request.StreamToken
+					data, err = m.CommandHistory(callCtx, msg.SessionID)
+				}
+				if !terminalproto.ValidID(token) {
 					return terminalproto.ErrInvalid
 				}
-				data, err := m.History(callCtx, msg.SessionID, op.Lines)
 				if err != nil {
 					return respond(err)
 				}
-				c, err := stream(callCtx, client, headers, msg, op.StreamToken, "history")
+				c, err := stream(callCtx, client, headers, msg, token, "history")
 				if err != nil {
 					return respond(terminalhost.ErrNotRunning)
 				}

@@ -5,8 +5,8 @@
 This is the current implementation baseline **and** the continuation plan. Current
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
-state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is implemented in `feat/terminal-workspace-polish`, pending PR verification and merge.
-T5 initial-install/enrollment/upgrade terminal setup is next.** S1 is merged through PR #139; do not repeat
+state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
+T6 final-row clipping is merged through PR #147. Finish T7 command recall verification, then the saved T5 setup branch, before resuming the roadmap.** S1 is merged through PR #139; do not repeat
 it or start S2 ahead of the remaining terminal priorities. Do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -37,6 +37,81 @@ terminal connection wizard as a core setup step. A reported missing-tmux failure
 must have actionable diagnosis/setup guidance. These requests take priority over
 remaining skill/content work and bulk history cleanup.
 
+Product scope correction, 24 October: reet is an **AI fleet control room**, covering
+machines, installed agent usage, reusable AI setups, skills, reviewed sync and
+ongoing work. Terminals remain core, but do not narrow the product to a remote-shell
+app. Preserve the Yorkshire welcome and warm/bookish brand. Public copy must label
+agent installation/update/removal, richer run orchestration and fleet-wide agent
+configuration as planned until the corresponding roadmap stages actually ship.
+The entry-page illustration and home toolkit links should convey this breadth.
+See `docs/voice-and-copy.md`; keep the new scope when implementing T5 and S/A/W/L.
+
+### Latest terminal follow-ups — finish before returning to the roadmap
+
+The user still observed a clipped final row in `top`, requested correct colour
+handling, and asked for searchable **shell command history** with paste/edit and
+explicit rerun actions. Finish these and the setup work, merge when green, then
+resume S2 and the remaining handoff stages. Do not reopen the overall strategy.
+
+- **T6: final-row fit and colour verification — merged through PR #147.** The cause was `screen` padding:
+  xterm's FitAddon measures its immediate parent and subtracts xterm's own padding,
+  so padding on that parent produced a 20-pixel oversized grid. The old tests
+  checked text presence and outer bounds, allowing text to exist while clipped.
+  `fix/terminal-bottom-row` moves spacing to `screen-frame`, leaving the measured
+  `screen` host unpadded. Keep PR #141's negotiated-grid lock unchanged. New tests
+  compare the actual `.xterm-screen` rectangle against the clipping/content area
+  at desktop/tablet/phone/short heights. The real fixture checks a last-row TUI
+  marker while waiting for input, actual `top` through viewport changes, and ANSI
+  red from the real host under Midnight/Paper palettes. Those local checks pass.
+  Themes map text/palette colours; they do not invent highlighting for plain app
+  output. Appearance explains that `top` toggles its colour mode with `z`.
+- **T7: searchable command recall — implemented in `feat/terminal-command-history`, pending PR checks.** The existing History
+  is an output snapshot; the account Command library is manually saved snippets.
+  Neither is shell command history. Read the selected machine's Bash/Zsh history
+  on explicit user request, scoped to its enrolling OS user, without arbitrary
+  paths, subprocess `history` injection, screen scraping or keystroke logging.
+  Bound file bytes/entries and reject symlinks/foreign-owner files. Search and
+  display escaped command text; paste adds no Enter; rerun is an explicit reviewed
+  action bound to the immutable session and current attachment generation.
+  Keep history ephemeral unless the user explicitly saves a command. Label the
+  source and explain that open shells may not have saved their latest commands.
+  A new private-protocol request must be feature-gated without breaking old
+  agents. Consider an additive authenticated HTTP upgrade feature header so new
+  agents advertise a new capability only when the server supports it; preserve
+  strict message decoding and the existing wire version. Reuse bounded history
+  transfer and test old/new agent-server compatibility before exposing controls.
+  Implementation map: `terminalproto/command_history.go` defines bounded typed
+  records/strict codecs and the extension token. `api/private_control.go` advertises
+  `X-Reet-Terminal-Features: command-history-v1` after agent authentication.
+  `agenthealth/agent.go` advertises optional `commandHistory` only after that
+  upgrade header, keeping new agents compatible with old strict V1 servers.
+  `terminalbroker/bridge.go` refuses unsupported agents before dispatch; the
+  existing bounded history stream carries JSON separately from terminal output.
+  `terminalhost/command_history.go` reads only default Bash/Zsh history files in
+  the locally bound OS-user home, with O_NOFOLLOW/nonblocking opens, regular-file,
+  ownership, no-other-writer and single-link checks. Read caps are 256 KiB per
+  file, 500 returned entries, 16 KiB per command and 256 KiB encoded response.
+  Timestamped Bash and extended Zsh multiline records are parsed without executing
+  anything. Missing/custom/unsaved history is labelled; no file is written.
+  `api/terminal_command_history.go` rechecks the account before returning data.
+  `CommandHistory.svelte` owns search/source filtering, paste and reviewed rerun;
+  terminal output history remains reachable from the same drawer. Run confirmation
+  cancellation keeps search results; confirmation binds the original attachment
+  generation. No history text is stored in SQLite or browser storage.
+  Store/API/host/protocol compatibility tests and synthetic UI checks pass locally.
+  The real two-host fixture reads seeded shell files, verifies search/paste with no
+  Enter, Run cancellation/confirmation and reconnect fences, and preserves PIDs.
+  Local verification passed: frontend check/build (zero warnings), `go vet ./...`,
+  `go test -race ./...`, all 16 MCP tests, production Control/workspace/lifecycle/
+  organisation/public browser fixtures and the real two-host PTY fixture. PR CI
+  and merge state must still be checked for the published head.
+- **T5 implementation saved remotely:** `feat/terminal-connection-setup`, commit
+  `d48ccca`, contains the resumable CLI wizard, enrollment/initial-install/upgrade
+  offers, tmux diagnostics, web setup step and real-TTY tests. It is not merged
+  or in a PR yet. Targeted race/TTY tests and the new web readiness check passed.
+  Merge current main into it, finish docs/handoff and verify the full change;
+  do not duplicate those 18 files. Preserve the broader AI positioning from #146.
+
 ### Public entry points — terminal-first redesign
 
 The signed-out `/` and `/welcome` explain machines, persistent terminals and
@@ -57,7 +132,7 @@ web/tests/public-workspace.e2e.mjs`; optionally set `REET_UI_SCREENSHOTS` to ret
 screenshots. Keep public claims limited to shipped functionality when adding
 terminal appearance, account command libraries or future agent maintenance.
 
-### T4 [x] Modern terminal interaction, appearance and saved commands — verify PR before merging
+### T4 [x] Modern terminal interaction, appearance and saved commands — merged through PR #145
 
 1. Reproduce ordinary-height, bottom-of-screen input after several screens of
    output; verify host `stty size` matches xterm rows/columns before and after

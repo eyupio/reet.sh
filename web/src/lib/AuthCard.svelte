@@ -1,17 +1,17 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
 
-  let { title, lede, eyebrow = 'Your machine workspace', children }: { title: string; lede: string; eyebrow?: string; children: Snippet } = $props()
+  let { title, lede, eyebrow = 'Ey up. Your AI workspace', children }: { title: string; lede: string; eyebrow?: string; children: Snippet } = $props()
 </script>
 
 <section class="auth" aria-labelledby="auth-title">
   <aside class="intro" aria-label="About your workspace">
     <p class="eyebrow">{eyebrow}</p>
-    <p class="headline">Your machines.<br />Your place to work.</p>
-    <p class="intro-copy">Connect to your laptops and servers, open a terminal, and return to the work you left running.</p>
+    <p class="headline">Your AI workspace.<br />A reet good place to work.</p>
+    <p class="intro-copy">Bring your machines, AI agents, skills and setups together. Open a terminal to use your installed tools and return to ongoing work.</p>
     <ol class="stages" aria-label="How your workspace works">
-      <li><span aria-hidden="true">01</span><div><strong>Your machines</strong><small>One place to reach your laptops and servers.</small></div></li>
-      <li><span aria-hidden="true">02</span><div><strong>Your terminals</strong><small>Open a shell with the tools you already use.</small></div></li>
+      <li><span aria-hidden="true">01</span><div><strong>Your fleet</strong><small>One place to reach your laptops and servers.</small></div></li>
+      <li><span aria-hidden="true">02</span><div><strong>Your agent toolkit</strong><small>Skills, reusable setups and the tools you already use.</small></div></li>
       <li><span aria-hidden="true">03</span><div><strong>Your ongoing work</strong><small>Continue the same session when you return.</small></div></li>
     </ol>
     <p class="local">Self-hosted. No telemetry. AGPL-3.0.</p>

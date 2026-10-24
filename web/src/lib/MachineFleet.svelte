@@ -8,6 +8,7 @@
   import { agentBuild, agentGroups, agentUpdateTarget, groupLabel, latestRelease, updateAvailable } from './machines'
   import { machineStatus, scanOnlyAgents, supportedAgents, syncLink } from './machineSetup'
   import MachineCommands from './MachineCommands.svelte'
+  import ContentObservation from './ContentObservation.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
 
   let {
@@ -272,6 +273,7 @@
                 <div class="agent-copy">
                   <strong>{groupLabel(group)}</strong>
                   <small>{group.skillCount ?? 0} {group.skillCount === 1 ? 'skill' : 'skills'} · {group.complete ? 'Last full report' : 'Incomplete report'} {new Date(group.scannedAt || group.lastSeen).toLocaleString()}</small>
+                  <ContentObservation content={group.content} />
                 </div>
                 <span class="scope-state">{groupState(group)}</span>
               </li>
@@ -279,7 +281,7 @@
             {#each scanOnly as group (group.id)}
               <li class="scan-only">
                 <span class="dot empty" aria-hidden="true"></span>
-                <div class="agent-copy"><strong>{groupLabel(group)}</strong><small>Scan only. Sync to the shared agents folder or this agent's supported location.</small></div>
+                <div class="agent-copy"><strong>{groupLabel(group)}</strong><small>Scan only. Sync to the shared agents folder or this agent's supported location.</small><ContentObservation content={group.content} /></div>
                 <span class="scope-state">Scan only</span>
               </li>
             {/each}

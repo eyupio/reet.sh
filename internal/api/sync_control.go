@@ -11,6 +11,8 @@ import (
 )
 
 func (s *server) registerSyncControl(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/v2/sync/content-observations/prepare", s.requireWriter(s.contentObservation))
+	mux.HandleFunc("POST /api/v2/sync/content-observations", s.requireWriter(s.contentObservation))
 	mux.HandleFunc("GET /api/v2/sync/candidates", s.syncCandidates)
 	mux.HandleFunc("PUT /api/v2/sync/desired", s.requireWriter(s.saveDesired))
 	mux.HandleFunc("POST /api/v2/sync/reconcile", s.requireWriter(s.reconcileDesired))

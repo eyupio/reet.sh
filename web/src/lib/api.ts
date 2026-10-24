@@ -431,7 +431,8 @@ export async function getRollup(): Promise<Rollup> {
   return (await req('/api/admin/rollup')).json()
 }
 
-export type SyncEnvironment = Environment & { error?: string; project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string; skills: SyncSkill[] }
+export type ContentInventory = { state: string; schemaVersion?: number; observedAt?: number; receivedAt?: number; skills: { name: string; complete: boolean; digest?: string; files: number; bytes: number; issues?: string[] }[] }
+export type SyncEnvironment = Environment & { content?: ContentInventory; error?: string; project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string; skills: SyncSkill[] }
 export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source' | 'sourceType'>
 export type SyncTarget = { mode?: string; baseline?: SyncSkill[]; appliedRevision?: string; hostAliases?: string[]; targetAliases?: string[]; target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
 export type SetupProfileSummary = { name: string; revision: number; snapshotId: string; snapshotDigest: string; updatedAt: number }

@@ -6,8 +6,8 @@ This is the current implementation baseline **and** the continuation plan. Curre
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API is implemented on `feat/private-skill-revisions`, pending final checks and PR; S3 metadata observations come next after S2 merges green.** S1 is merged through PR #139; do not repeat
-it or start S2 ahead of the remaining terminal priorities. Do not start the whole roadmap.
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations are implemented in PR #161 (`feat/machine-content-observations`), locally validated and awaiting final CI/merge; explicit payload import follows separately.** S1 is merged through PR #139; do not repeat
+it. Preserve the terminal work and do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
 limitations. The previous handoff's "no controller-authorized terminal" statement
@@ -33,8 +33,8 @@ The user requested a status report and continued roadmap delivery after PR #155.
 - **Merged foundation:** terminal T1–T9, machine control, saved commands/history,
   setup/upgrade guidance, control-page actions and Yorkshire/AI-fleet positioning.
 - **Skill-content track:** S1 manifests merged in PR #139. S2 private revision
-  storage/API is implemented; full local frontend/vet/race/MCP checks pass. Verify
-  the published PR/CI state below before calling it merged. S2 has no new content
+  storage/API merged in PR #156 (`ad1502a`), with all five workflows green for
+  final head `7e4aeec090a0946cc1021aec8ce3b7e29b55fa27`. S2 has no new content
   UI or remote apply operation.
 - **Next:** S3 owned machine-content observations, then explicit import; S4 reviewed
   single-target content apply; S5 three-way review and fleet rollout UI.
@@ -1046,9 +1046,9 @@ change the public meaning of "in sync" or claim live content sync exists.**
 - **T1 is merged; T2 is implemented in the current branch; T3 is next.** Do not start S2
   merely because it is the next content dependency.
 
-### S2 [ ] Private immutable revision store and ownership
+### S2 [x] Private immutable revision store and ownership
 
-Implemented in `feat/private-skill-revisions`, pending final validation/PR.
+Merged in PR #156 as `ad1502adfd97e799a3e4947f03b70d62d5fb59c3`. All five workflows passed for `7e4aeec090a0946cc1021aec8ce3b7e29b55fa27`.
 Read [the storage/API contract](docs/private-skill-revisions.md) before changing it.
 - `skillbundle/contents.go` computes upload manifests with exact S1 filesystem parity;
   no byte/path normalization or local filesystem writes.
@@ -1070,7 +1070,7 @@ Read [the storage/API contract](docs/private-skill-revisions.md) before changing
 - Targeted race tests pass for parsing/parity, cross-account/role isolation, stale
   concurrent edits, stable retries, injected SQL rollback, all capacity bounds,
   old-schema reopen, public/private separation, account deletion and full DB restore.
-  Local verification passed: frontend check/build (zero diagnostics), full `go vet ./...`, full `go test -race ./...`, and all 16 MCP tests. Record published PR CI for the exact final head before marking S2 merged.
+  Local verification passed: frontend check/build (zero diagnostics), full `go vet ./...`, full `go test -race ./...`, and all 16 MCP tests. Published PR #156 passed all five workflows for final head `7e4aeec` before merging.
 
 After merging S2, take **S3 metadata observations**, then explicit content import.
 Do not jump to S4 apply or the whole roadmap. Preserve all merged terminal controls.
@@ -1101,6 +1101,34 @@ private import never changes public visibility. Gate: storage and API tests pass
 with a documented compatibility path for old clients and restore/backups.
 
 ### S3 [ ] Machine content observations and explicit import
+
+**Metadata slice implemented and locally validated in [PR #161](https://github.com/eyupio/reet.sh/pull/161); awaiting final CI/merge.** Read
+[the protocol and continuation contract](docs/machine-content-observations.md).
+- New authenticated prepare/report endpoints negotiate version 1 before file
+  hashing. Old controllers (404/405) and future schemas skip content reads.
+- Enrolled connectors hash only their configured local scopes after successful
+  legacy scans. Reports contain digests/counts/completeness/times/issue codes,
+  never file bytes or per-file paths. Limits: 64 scopes, 512 skills, 64 MiB reads
+  per cycle, with existing S1 per-skill limits and cancellation before dispatch.
+- Store rechecks owned active writer enrollment, pause state, expiring grant and
+  inventory generation transactionally. New legacy scans invalidate old hashes,
+  including after forget/recreate. Retries preserve original freshness; changed
+  retries conflict. Revocation cascades; omitted scopes remain unknown.
+- `SyncEnvironment.content` is separate from name/source desired-set identities.
+  Machines and Sync show unknown/incomplete/stale/paused/observed labels and
+  read-only fingerprint details; they do not claim contents are in sync.
+- Local checks passed after integrating main through `0c39e79`: frontend check
+  (zero errors/warnings) and build; `go vet ./...`; full `go test -race ./...`;
+  all 16 MCP tests; all five production browser fixtures (including new content
+  states/details and no writes on inspection); real browser/broker/tmux shell
+  lifecycle preserving the original shell and job through refresh/reconnect and
+  two-host lifecycle. Additional race tests cover byte-budget exhaustion,
+  cancellation, legacy-schema reopen, expiry, role changes and rollback.
+  No live user workloads or deployed connector installations were changed.
+- Explicit transfer/import, sensitive-content selection, private content UI and
+  content-aware apply are **not implemented** in this slice. Keep S3 unchecked
+  until explicit verified import meets its acceptance gate below.
+
 
 Depends on S1/S2. Split observation metadata and payload transfer into separate
 PRs if either becomes large.
@@ -1498,10 +1526,10 @@ working agent authentication or complete environment recovery.
 
 > Continue reet.sh from handoff.md. Inspect branch, worktree, main and PR states
 > without resetting edits. Terminal T1–T9 priorities are merged through PR #155.
-> S2 private revision storage/API is implemented on feat/private-skill-revisions;
-> verify its exact PR/check/merge state and read docs/private-skill-revisions.md.
-> If S2 is still open, finish it before starting S3. Once merged, take the S3
-> metadata-observation slice only, followed by explicit content import. Keep
+> S2 private revision storage/API merged through PR #156. Read its storage contract.
+> S3 metadata observations are implemented in PR #161 on feat/machine-content-observations;
+> verify its exact PR/check/merge state before calling it delivered. Finish this
+> bounded slice, then implement explicit S3 content import. Keep
 > ownership, exact byte/mode manifests, stable retry receipts, reviewed sync and
 > existing terminal sessions intact. Do not jump to remote apply or the whole roadmap.
 > Build the frontend before Go checks, record actual evidence, update this handoff

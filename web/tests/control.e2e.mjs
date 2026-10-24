@@ -12,6 +12,8 @@ const skill=id=>({id:`demo/toolkit/${id}`,name:id,slug:id,source:'demo/toolkit',
 const skills=[skill('code-review'),skill('testing'),skill('deployment')]
 const scope=(id,host,agent,items)=>({id,host,agent,name:host,skills:items,skillCount:items.length,complete:true,scannedAt:now,lastSeen:now,os:'linux',arch:'amd64',version:'test'})
 const environments=[scope('laptop-shared','dev-laptop','agents',skills.slice(0,2)),scope('laptop-claude','dev-laptop','claude',skills.slice(0,1)),scope('build-shared','build-server','agents',skills)]
+environments[0].content={state:'observed',schemaVersion:1,receivedAt:now,skills:[{name:'code-review',complete:true,digest:'a'.repeat(64),files:2,bytes:123}]}
+environments[1].content={state:'stale',schemaVersion:1,receivedAt:now-600000,skills:[{name:'code-review',complete:false,files:0,bytes:0,issues:['symlink']}]}
 let snapshot={environments,machines:['dev-laptop','build-server'].map(host=>({host,groups:environments.filter(e=>e.host===host),skillCount:host==='dev-laptop'?2:3})),agents:[{id:'a',host:'dev-laptop',version:'test',lastSeen:now,paused:false},{id:'b',host:'build-server',version:'test',lastSeen:now,paused:false}],targets:environments.map(target=>({target,sourceId:'shelf',sourceName:'Central library',mode:'additive',desired:skills,missing:skills.filter(s=>!target.skills.some(a=>a.id===s.id)),extra:[],revision:`rev-${target.id}`,updatedAt:now})),jobs:[]}
 let terminalReady=true
 let viewer=false, failQueue=false, failSave=false, failState=false, failSource=false
@@ -58,6 +60,16 @@ try {
  await expect(page.getByRole('button',{name:'Sync all · preview'})).toHaveCount(0)
  await noOverflow()
  if(process.env.REET_UI_SCREENSHOTS){await mkdir(process.env.REET_UI_SCREENSHOTS,{recursive:true});await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/control-desktop.png`,fullPage:true})}
+ await page.goto(`${base}/machines`)
+ await page.getByText('Agents on this machine',{exact:true}).first().click()
+ await page.getByText('Agents on this machine',{exact:true}).last().click()
+ await expect(page.getByText('Content not reported',{exact:true}).first()).toBeVisible()
+ await expect(page.getByText('Content report out of date · 1 skill',{exact:true})).toBeVisible()
+ await page.getByText('Content observed · 1 skill',{exact:true}).click()
+ await expect(page.getByText('a'.repeat(64),{exact:true})).toBeVisible()
+ await expect(page.getByText(/No skill files have been uploaded/).first()).toBeVisible()
+ expect(writes).toEqual([])
+ await noOverflow()
  await page.goto(`${base}/sync`)
  await expect(page.getByRole('button',{name:'Sync all · preview'})).toBeEnabled()
  await page.getByRole('button',{name:'Sync all · preview'}).click()

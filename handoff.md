@@ -5,9 +5,9 @@
 **Latest slice: S4 ownership receipts and adoption.** The user authorised stacked pull
 requests on branch `claude/gallant-darwin-n9oqfj`: [#173](https://github.com/eyupio/reet.sh/pull/173)
 (spec and plan), [#174](https://github.com/eyupio/reet.sh/pull/174) (planner, claim, storage,
-previews) and [#175](https://github.com/eyupio/reet.sh/pull/175) (adoption and lifecycle) are
-merged; [#176](https://github.com/eyupio/reet.sh/pull/176) (API, audit labels, typed refusals,
-documents and this record) is open. It is API only: no browser control, no MCP tool, no
+previews), [#175](https://github.com/eyupio/reet.sh/pull/175) (adoption and lifecycle) and
+[#176](https://github.com/eyupio/reet.sh/pull/176) (API, audit labels, typed refusals,
+documents and this record) are all merged. It is API only: no browser control, no MCP tool, no
 filesystem write and no apply authority. The reviewed executor, `applied` receipts and S5
 are **not** started. Read [the receipts contract](docs/skill-content-receipts.md) first. The
 PR links are authoritative for final heads, CI and merge state.
@@ -119,8 +119,8 @@ The user requested a status report and continued roadmap delivery after PR #155.
   Read [its contract and continuation](docs/skill-content-preview.md). It observes and
   plans but never writes; a slot with no ownership receipt needs adoption.
 - **S4 ownership receipts and adoption:** controller-attested receipts are the planner's
-  baseline and an explicit, hash-bound adoption creates them (PRs #173 to #175 merged,
-  [#176](https://github.com/eyupio/reet.sh/pull/176) open). Read
+  baseline and an explicit, hash-bound adoption creates them (PRs #173 to
+  [#176](https://github.com/eyupio/reet.sh/pull/176) merged). Read
   [the receipts contract](docs/skill-content-receipts.md). API only; nothing writes to a
   machine. A review UI and the reviewed executor are separate slices, in an order the
   user chooses. S4 and S5 remain incomplete.
@@ -1573,10 +1573,12 @@ Read [docs/skill-content-receipts.md](docs/skill-content-receipts.md). Branch
   `internal/store/store_content_receipts.go`, `skillContentReviewIdentity` in
   `internal/store/store_content_previews.go`). S4 cannot close, and S5 cannot start, before the
   executor and its gates pass.
-- **Publication / deployment state.** PRs #173 (merge `f1fee4c`), #174 (`d8af5e8`) and #175
-  (`4fcd9fa`) are merged; [#176](https://github.com/eyupio/reet.sh/pull/176) is open and its link
-  is authoritative for the final head, CI and merge. Nothing is deployed, and a merge is not
-  deployment.
+- **Publication / deployment state.** PRs #173 (merge `f1fee4c`), #174 (`d8af5e8`), #175
+  (`4fcd9fa`) and [#176](https://github.com/eyupio/reet.sh/pull/176) (`b486aa5`) are merged.
+  Every check on #176's merged head `efbb2b1` was green: `test`, `verify`, `web` and `source`,
+  the four release builds, the native service jobs and the tmux 3.2 minimum, the local relay
+  jobs on macOS and Ubuntu, the terminal browser job, and CodeQL with its four analyses
+  (`publish` is skipped on pull requests). Nothing is deployed, and a merge is not deployment.
 
 #### Remaining S4 integration and apply gates
 
@@ -1954,9 +1956,9 @@ working agent authentication or complete environment recovery.
 > in PR #156; S3 is complete through PRs #161/#164/#168. S4's pure planner merged in
 > PR #169, owned revision pins in PR #171 (`1eb92c0`), the negotiated metadata-only
 > content preview in [PR #172](https://github.com/eyupio/reet.sh/pull/172) (`ebf58f4`), and
-> ownership receipts with explicit adoption in PRs #173 to #175, with
-> [#176](https://github.com/eyupio/reet.sh/pull/176) open (confirm its final head/CI/merge
-> through the link). PR #170's staged reet connector updates are integrated; they are not
+> ownership receipts with explicit adoption in PRs #173 to
+> [#176](https://github.com/eyupio/reet.sh/pull/176) (`b486aa5`). PR #170's staged reet
+> connector updates are integrated; they are not
 > AI-agent software maintenance. Read docs/skill-content-receipts.md,
 > docs/skill-content-preview.md, docs/skill-content-targets.md and
 > docs/skill-content-planner.md. Nothing writes to a machine yet; the only baselines are

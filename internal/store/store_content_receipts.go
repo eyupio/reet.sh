@@ -49,7 +49,9 @@ type SkillContentReceiptEvidence struct {
 // library provably owns. It is an attestation by the controller from a captured
 // observation, never proof about the disk now, and it is independent of pins and
 // previews: removing either never changes ownership. Managed is set on item
-// reads only; summaries leave it out.
+// reads only; summaries leave it out. Damaged marks a listed row whose stored
+// columns could not be decoded: it carries only the identity and version needed
+// to release it, and every read that proves ownership refuses it.
 type SkillContentReceipt struct {
 	ID            string                      `json:"id"`
 	EnvironmentID string                      `json:"environmentId"`
@@ -60,6 +62,7 @@ type SkillContentReceipt struct {
 	ManagedDigest string                      `json:"managedDigest"`
 	FileCount     int                         `json:"fileCount"`
 	Managed       *skillbundle.Manifest       `json:"managed,omitempty"`
+	Damaged       bool                        `json:"damaged,omitempty"`
 	Provenance    string                      `json:"provenance"`
 	Verification  string                      `json:"verification"`
 	Evidence      SkillContentReceiptEvidence `json:"evidence"`
@@ -131,6 +134,17 @@ func (r storedReceipt) decode() (SkillContentReceipt, skillbundle.Manifest, erro
 	return out, managed, nil
 }
 
+// summary is the list view of a row. It reads the stored columns and nothing more:
+// it never compares the manifest with its revision, so it does not imply the
+// receipt has been verified. A row that does not decode is still returned, flagged
+// Damaged, with only its identity, slot and version so it can be found and released.
+func (r storedReceipt) summary() SkillContentReceipt {
+	if out, _, err := r.decode(); err == nil {
+		return out
+	}
+	return SkillContentReceipt{ID: r.ID, EnvironmentID: r.EnvironmentID, AgentID: r.AgentID, Name: r.Name, BundleID: r.BundleID, RevisionID: r.RevisionID, Version: r.Version, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, Damaged: true}
+}
+
 // verifyManaged is the integrity check for ownership. IsSubset alone is not
 // enough, since it accepts an empty or unvalidated manifest, so the stored
 // manifest must first be exactly what the S1 identity format builds from its own
@@ -152,17 +166,15 @@ func verifyManaged(managed, revision skillbundle.Manifest) error {
 }
 
 // verified decodes a receipt and proves its managed manifest against the revision
-// it records. Callers hold the account guard, so a revision that cannot be read
-// is reported as unavailable rather than as damage.
+// it records. An unreadable revision comes back as privateSkillRevision reports
+// it (ErrPrivateSkillMissing), for each caller to classify: an item read has
+// already passed the account guard, a baseline has a receipt row in hand.
 func (r storedReceipt) verified(q privateSkillQuery, uid int64) (SkillContentReceipt, error) {
 	out, managed, err := r.decode()
 	if err != nil {
 		return SkillContentReceipt{}, err
 	}
 	revision, err := privateSkillRevision(q, uid, r.BundleID, r.RevisionID, false)
-	if errors.Is(err, ErrPrivateSkillMissing) {
-		return SkillContentReceipt{}, ErrSkillContentReceiptMissing
-	}
 	if err != nil {
 		return SkillContentReceipt{}, err
 	}
@@ -176,7 +188,9 @@ func (r storedReceipt) verified(q privateSkillQuery, uid int64) (SkillContentRec
 // SkillContentReceiptsFor returns summaries: no managed files. Viewer, disabled
 // and foreign accounts see nothing. The managed manifest is parsed only to report
 // its digest and file count; comparing it with its revision happens on item reads
-// and when a receipt is used as a baseline.
+// and when a receipt is used as a baseline, so a summary is not a verification.
+// A damaged row does not hide the others: it is listed with Damaged set, because
+// its version is the only way to release it.
 func (s *Store) SkillContentReceiptsFor(uid int64) ([]SkillContentReceipt, error) {
 	rows, err := s.db.Query(`SELECT `+receiptCols+` FROM skill_content_receipts WHERE user_id=? AND `+privateSkillAccount+` ORDER BY environment_id,name,id`, uid, uid)
 	if err != nil {
@@ -189,11 +203,7 @@ func (s *Store) SkillContentReceiptsFor(uid int64) ([]SkillContentReceipt, error
 		if err != nil {
 			return nil, err
 		}
-		item, _, err := row.decode()
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, item)
+		out = append(out, row.summary())
 	}
 	return out, rows.Err()
 }
@@ -213,6 +223,9 @@ func (s *Store) SkillContentReceiptFor(uid int64, id string) (out SkillContentRe
 			return e
 		}
 		item, e := row.verified(tx, uid)
+		if errors.Is(e, ErrPrivateSkillMissing) {
+			return ErrSkillContentReceiptMissing
+		}
 		if e != nil {
 			return e
 		}
@@ -262,6 +275,10 @@ func skillContentReceiptBaseline(q privateSkillQuery, uid int64, environmentID, 
 		return nil, "", err
 	}
 	receipt, err := row.verified(q, uid)
+	if errors.Is(err, ErrPrivateSkillMissing) {
+		// The receipt exists, so an unreadable revision is damage, not an absent receipt.
+		return nil, "", errReceiptIntegrity
+	}
 	if err != nil {
 		return nil, "", err
 	}

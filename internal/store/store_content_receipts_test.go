@@ -298,19 +298,83 @@ func TestReceiptIntegrityOnRead(t *testing.T) {
 func TestReceiptListParsesManagedOnlyToSummarise(t *testing.T) {
 	e := previewFixture(t)
 	r := seedReceipt(t, e, e.pin.RevisionID, receiptManaged(t, e, "SKILL.md", "scripts/run.sh"), receiptRoot)
-	// The comparison with the revision belongs to item reads and baseline use.
+	// The comparison with the revision belongs to item reads and baseline use, so a
+	// manifest that parses but no longer matches its revision is still summarised
+	// here, and is not flagged: the list never claims to have verified anything.
 	if _, err := e.s.db.Exec(`UPDATE skill_content_receipts SET managed=json_remove(managed,'$.files[1]') WHERE id=?`, r.ID); err != nil {
 		t.Fatal(err)
 	}
 	list, err := e.s.SkillContentReceiptsFor(e.uid)
-	if err != nil || len(list) != 1 || list[0].FileCount != 1 {
+	if err != nil || len(list) != 1 || list[0].FileCount != 1 || list[0].Damaged {
 		t.Fatal(list, err)
 	}
-	if _, err = e.s.db.Exec(`UPDATE skill_content_receipts SET managed='not json' WHERE id=?`, r.ID); err != nil {
+	if err = e.s.ReleaseSkillContentReceiptFor(e.uid, r.ID, list[0].Version); err != nil {
 		t.Fatal(err)
 	}
-	if list, err = e.s.SkillContentReceiptsFor(e.uid); err == nil {
-		t.Fatal("an unreadable receipt must not be summarised quietly", list)
+}
+
+func TestReceiptListKeepsDamagedRowsReleasable(t *testing.T) {
+	for name, damage := range map[string]string{
+		"unreadable managed":                 `UPDATE skill_content_receipts SET managed='not json' WHERE id=?`,
+		"managed with an unknown field":      `UPDATE skill_content_receipts SET managed=json_set(managed,'$.note','x') WHERE id=?`,
+		"unreadable evidence":                `UPDATE skill_content_receipts SET evidence='not json' WHERE id=?`,
+		"provenance outside the adopted set": `UPDATE skill_content_receipts SET provenance='applied' WHERE id=?`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := previewFixture(t)
+			broken := seedReceipt(t, e, e.pin.RevisionID, receiptManaged(t, e, "SKILL.md"), receiptRoot)
+			if _, err := e.s.db.Exec(`UPDATE skill_content_receipts SET name='zeta' WHERE id=?`, broken.ID); err != nil {
+				t.Fatal(err)
+			}
+			healthy := seedReceipt(t, e, e.pin.RevisionID, receiptManaged(t, e, "SKILL.md", "scripts/run.sh"), receiptRoot)
+			if _, err := e.s.db.Exec(damage, broken.ID); err != nil {
+				t.Fatal(err)
+			}
+
+			// A damaged row is listed with only what identifies it and what releases it.
+			list, err := e.s.SkillContentReceiptsFor(e.uid)
+			if err != nil || len(list) != 2 {
+				t.Fatal("one damaged row must not hide the others:", list, err)
+			}
+			wantBroken := SkillContentReceipt{ID: broken.ID, EnvironmentID: broken.EnvironmentID, AgentID: broken.AgentID, Name: "zeta", BundleID: broken.BundleID, RevisionID: broken.RevisionID, Version: broken.Version, CreatedAt: broken.CreatedAt, UpdatedAt: broken.UpdatedAt, Damaged: true}
+			if !reflect.DeepEqual(list[0], healthy) || list[0].Damaged {
+				t.Fatalf("healthy row %+v, want %+v", list[0], healthy)
+			}
+			if !reflect.DeepEqual(list[1], wantBroken) {
+				t.Fatalf("damaged row %+v, want %+v", list[1], wantBroken)
+			}
+			for want, v := range map[bool]SkillContentReceipt{true: list[1], false: list[0]} {
+				raw, _ := json.Marshal(v)
+				if strings.Contains(string(raw), `"damaged":true`) != want {
+					t.Fatalf("damaged flag on the wire: %s", raw)
+				}
+			}
+
+			// Item reads and baseline use stay strict.
+			if got, err := e.s.SkillContentReceiptFor(e.uid, broken.ID); err == nil || err.Error() != "stored ownership receipt failed integrity validation" || got.ID != "" {
+				t.Fatal("a damaged receipt must still fail item reads:", got, err)
+			}
+			if b, v, err := skillContentReceiptBaseline(e.s.db, e.uid, broken.EnvironmentID, "zeta"); err == nil || b != nil || v != "" {
+				t.Fatal("a damaged receipt must still fail as a baseline:", b, v, err)
+			}
+
+			// The listed version is enough to release it; a stale one is still refused.
+			if err = e.s.ReleaseSkillContentReceiptFor(e.uid, broken.ID, strings.Repeat("e", 48)); !errors.Is(err, ErrSkillContentReceipt) {
+				t.Fatal("a stale version released a damaged receipt:", err)
+			}
+			if receiptRows(t, e) != 2 {
+				t.Fatal("a refused release removed a receipt")
+			}
+			if err = e.s.ReleaseSkillContentReceiptFor(e.uid, broken.ID, list[1].Version); err != nil {
+				t.Fatal("a damaged receipt could not be released:", err)
+			}
+			if b, v, err := skillContentReceiptBaseline(e.s.db, e.uid, broken.EnvironmentID, "zeta"); err != nil || b != nil || v != "" {
+				t.Fatal("the slot must be free after release", b, v, err)
+			}
+			if after, err := e.s.SkillContentReceiptsFor(e.uid); err != nil || len(after) != 1 || after[0].ID != healthy.ID {
+				t.Fatal(after, err)
+			}
+		})
 	}
 }
 
@@ -453,10 +517,14 @@ func TestReceiptBaselineLookup(t *testing.T) {
 	if v, err := currentReceiptVersion(e.s.db, e.uid, r.EnvironmentID, "another-skill"); err != nil || v != "" {
 		t.Fatal("another slot has no receipt", v, err)
 	}
-	if v, err := currentReceiptVersion(e.s.db, e.uid+1, r.EnvironmentID, r.Name); err != nil || v != "" {
+	other, err := e.s.CreateUser("receipt-baseline-other@example.test", "Other", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, err := currentReceiptVersion(e.s.db, other.ID, r.EnvironmentID, r.Name); err != nil || v != "" {
 		t.Fatal("another account has no receipt in this slot", v, err)
 	}
-	if b, v, err := skillContentReceiptBaseline(e.s.db, e.uid+1, r.EnvironmentID, r.Name); err != nil || b != nil || v != "" {
+	if b, v, err := skillContentReceiptBaseline(e.s.db, other.ID, r.EnvironmentID, r.Name); err != nil || b != nil || v != "" {
 		t.Fatal("another account has no baseline in this slot", b, v, err)
 	}
 
@@ -475,6 +543,34 @@ func TestReceiptBaselineLookup(t *testing.T) {
 		return nil
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReceiptBaselineWithoutReadableRevisionIsAnIntegrityFailureNotMissing(t *testing.T) {
+	// The receipt row exists, so a revision that cannot be read is damage or a
+	// caller that skipped the account guard, never "no receipt". A foreign key
+	// stops the revision row itself from vanishing, so the state reachable through
+	// the real schema is an account that can no longer read private skills.
+	e := previewFixture(t)
+	r := seedReceipt(t, e, e.pin.RevisionID, receiptManaged(t, e, "SKILL.md"), receiptRoot)
+	if _, err := e.s.db.Exec(`UPDATE users SET role='viewer' WHERE id=?`, e.uid); err != nil {
+		t.Fatal(err)
+	}
+	b, v, err := skillContentReceiptBaseline(e.s.db, e.uid, r.EnvironmentID, r.Name)
+	if err == nil || b != nil || v != "" {
+		t.Fatal(b, v, err)
+	}
+	for _, sentinel := range []error{ErrSkillContentReceiptInvalid, ErrSkillContentReceiptMissing, ErrSkillContentReceipt, ErrSkillContentReceiptCapacity, ErrPrivateSkillMissing} {
+		if errors.Is(err, sentinel) {
+			t.Fatalf("a baseline failure must not look like %q: %v", sentinel, err)
+		}
+	}
+	if err.Error() != "stored ownership receipt failed integrity validation" {
+		t.Fatal(err)
+	}
+	// An item read, which has already passed the account guard, still reports it as unavailable.
+	if _, err = e.s.SkillContentReceiptFor(e.uid, r.ID); !errors.Is(err, ErrSkillContentReceiptMissing) {
 		t.Fatal(err)
 	}
 }

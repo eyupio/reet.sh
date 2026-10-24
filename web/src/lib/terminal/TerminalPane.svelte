@@ -119,7 +119,10 @@
     // No terminal-controlled clipboard writes or active OSC hyperlinks.
     const clipboard = term.parser.registerOscHandler(52, () => true)
     const links = term.parser.registerOscHandler(8, () => true)
+    // Queued observers, redraws and connection notifications can outlive this
+    // pane during session removal. A disposed xterm has no render dimensions.
     function theme() {
+      if (!alive) return
       const choice = document.documentElement.dataset.theme
       const dark = choice === 'dark' || !choice && matchMedia('(prefers-color-scheme: dark)').matches
       const colors:ITheme=paletteFor(palette,dark)
@@ -135,11 +138,11 @@
     // The first host redraw uses the ticket's grid. Transient status/layout
     // changes must not resize xterm before that redraw has been parsed.
     let frame = 0, restoringGrid=false
-    function resize() { cancelAnimationFrame(frame); frame=requestAnimationFrame(()=>{if (restoringGrid || !element?.clientWidth || !element.clientHeight) return;fit.fit();const cols=Math.min(500,Math.max(2,term.cols)),rows=Math.min(300,Math.max(1,term.rows));if(cols!==term.cols||rows!==term.rows)term.resize(cols,rows);connection?.resize(cols,rows);term.refresh(0,term.rows-1)}) }
+    function resize() { if(!alive)return;cancelAnimationFrame(frame); frame=requestAnimationFrame(()=>{if (!alive || restoringGrid || !element?.clientWidth || !element.clientHeight) return;fit.fit();const cols=Math.min(500,Math.max(2,term.cols)),rows=Math.min(300,Math.max(1,term.rows));if(cols!==term.cols||rows!==term.rows)term.resize(cols,rows);connection?.resize(cols,rows);term.refresh(0,term.rows-1)}) }
     const sizes = new ResizeObserver(resize); sizes.observe(element);fit.fit()
     fitTerminal=resize
     // Refresh after parsing and fitting so accessibility rows match full redraws.
-    connection = new TerminalConnection({session:session.id,dimensions:()=>{const size={cols:Math.min(500,Math.max(2,term.cols)),rows:Math.min(300,Math.max(1,term.rows))};term.resize(size.cols,size.rows);restoringGrid=true;return size},renderer:{write:(bytes,reset,done)=>{if(reset)term.reset();term.write(bytes,()=>{term.refresh(0,term.rows-1);done()})}},onstate:(next,detail)=>{if(next!=='resynchronising'){restoringGrid=false;if(next==='live')resize()}generation++;modifier=null;if(next==='access_denied'){historyOpen=false;scrollbackOpen=false};connectionState=next;message=detail;term.options.disableStdin=next!=='live';if(next==='live'&&!scrollbackOpen&&!searching&&!pendingPaste&&!contextMenu&&!document.querySelector('dialog[open]'))term.focus()}})
+    connection = new TerminalConnection({session:session.id,dimensions:()=>{if(!alive)return {cols:80,rows:24};const size={cols:Math.min(500,Math.max(2,term.cols)),rows:Math.min(300,Math.max(1,term.rows))};term.resize(size.cols,size.rows);restoringGrid=true;return size},renderer:{write:(bytes,reset,done)=>{if(!alive)return;if(reset)term.reset();term.write(bytes,()=>{if(!alive)return;term.refresh(0,term.rows-1);done()})}},onstate:(next,detail)=>{if(!alive)return;if(next!=='resynchronising'){restoringGrid=false;if(next==='live')resize()}generation++;modifier=null;if(next==='access_denied'){historyOpen=false;scrollbackOpen=false};connectionState=next;message=detail;term.options.disableStdin=next!=='live';if(next==='live'&&!scrollbackOpen&&!searching&&!pendingPaste&&!contextMenu&&!document.querySelector('dialog[open]'))term.focus()}})
     term.options.disableStdin=true
     const input=term.onData((text)=>{if(scrollbackOpen)return;let value=text;if(modifier==='Ctrl'&&/^[a-zA-Z@\[\]\\^_]$/.test(text))value=String.fromCharCode(text.toUpperCase().charCodeAt(0)&31);else if(modifier==='Alt')value='\x1b'+text;modifier=null;connection?.text(value)})
     const binary=term.onBinary((data)=>!scrollbackOpen&&connection?.send(Uint8Array.from(data,c=>c.charCodeAt(0)&255)))

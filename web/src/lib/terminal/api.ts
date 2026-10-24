@@ -47,7 +47,7 @@ export function readiness(machine?: TerminalMachine): string {
   if (!caps) return 'Start the background agent on this machine to connect.'
   if (!caps.terminalControl) return 'Update the reet agent to enable terminal support.'
   if (!caps.terminalEnabled) return 'Enable terminal access locally on this machine.'
-  if (caps.readiness === 'tmux_unavailable') return 'Install tmux on this machine.'
+  if (caps.readiness === 'tmux_unavailable') return 'Run reet agent terminal setup on this machine to install or repair tmux 3.3+.'
   if (caps.readiness === 'supervisor_unavailable') return 'Install or start the independent terminal service on this machine.'
   if (!machine.ready) return 'The machine is reconnecting. Existing shells will be kept.'
   return ''

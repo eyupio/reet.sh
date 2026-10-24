@@ -156,3 +156,32 @@ func TestAgentControlNeverSignalsAnUnverifiedPID(t *testing.T) {
 		t.Fatal("credentials entered local status")
 	}
 }
+
+// Setup must refresh a supervised process still running a previous binary version;
+// presence of a healthy local socket alone is insufficient after an upgrade.
+func TestTerminalSetupRequiresCurrentNativeAgentVersion(t *testing.T) {
+	config := filepath.Join(shortScanDir(t), "agent.json")
+	lock, err := filelock.Acquire(config + ".lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	state := &agentRuntime{started: time.Now().UnixMilli(), version: "v1.0.0", supervised: true}
+	closeControl, err := serveAgentControl(config, state, func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeControl()
+	for _, test := range []struct {
+		version string
+		want    bool
+	}{{"v1.0.0", true}, {"v1.1.0", false}, {"", true}} {
+		got, err := localTerminalAgentNative(config, test.version)
+		if err != nil || got != test.want {
+			t.Fatalf("version %q: native current=%v, want %v: %v", test.version, got, test.want, err)
+		}
+	}
+	if err := localAgentCall(config, "GET", "/status", &agentLocalStatus{}); err != nil {
+		t.Fatal("version check interrupted the process", err)
+	}
+}

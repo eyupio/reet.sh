@@ -123,6 +123,13 @@ Upgrade preserves the previous executable as `reet.previous`. For a managed serv
 
 Managed files belong to this CLI. Existing system-level services, custom Compose projects and manually launched servers are not automatically adopted. Stop them first, back up their database and explicitly point a new deployment at its absolute data path; do not run two servers against one database. Run lifecycle operations for a deployment with the same `--state-dir`; concurrent operations there are rejected. After an interrupted operation, check its process has exited before removing `lifecycle.lock`. No uninstall, OS tuning, Docker installation or privileged system service changes run automatically.
 
+Interactive managed install and upgrade offer the resumable terminal connection
+wizard after deployment succeeds. Enrollment offers it after saving the machine.
+Resume with `reet agent terminal setup`; unattended runs (`--yes`, redirected
+input, `--skip-terminal-setup`) print follow-up guidance without granting shell
+consent or installing packages. Optional setup failure never rolls back a
+successful deployment. See [machine connection setup](terminal-controller-commands.md#first-class-machine-connection-setup).
+
 ## Upgrade channel selection and recovery
 
 An explicit `--version` takes precedence over `REET_VERSION`, which takes

@@ -1,7 +1,6 @@
 package lifecycle
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -25,13 +24,14 @@ type App struct {
 	In              io.Reader
 	Out             io.Writer
 	client          *http.Client
+	interactiveRun  func(context.Context, string, ...string) error
 	run             runner
 	executable      func() (string, error)
 	api, downloads  string
 }
 
 func New(version, commit string, in io.Reader, out io.Writer) *App {
-	return &App{Version: version, Commit: commit, In: in, Out: out, client: defaultClient(), run: execute, executable: os.Executable, api: releaseAPI, downloads: "https://github.com/eyupio/reet.sh/releases/download"}
+	return &App{Version: version, Commit: commit, In: in, Out: out, interactiveRun: interactiveCommand(in, out), client: defaultClient(), run: execute, executable: os.Executable, api: releaseAPI, downloads: "https://github.com/eyupio/reet.sh/releases/download"}
 }
 func (a *App) Run(command string, args []string) error {
 	switch command {
@@ -66,9 +66,8 @@ func (a *App) confirm(yes bool) error {
 	if yes {
 		return nil
 	}
-	fmt.Fprint(a.Out, "Apply these changes? Type yes: ")
-	line, _ := bufio.NewReader(io.LimitReader(a.In, 4096)).ReadString('\n')
-	if strings.TrimSpace(line) != "yes" {
+	line, err := clientconfig.Ask(a.In, a.Out, "Apply these changes? Type yes", "")
+	if err != nil || strings.TrimSpace(line) != "yes" {
 		return fmt.Errorf("cancelled; no deployment changes applied (use --yes for unattended operation)")
 	}
 	return nil
@@ -81,6 +80,7 @@ func (a *App) install(args []string) error {
 	dataArg := f.String("data-dir", dataDefault(), "server database directory (kept across upgrades)")
 	addr := f.String("addr", "127.0.0.1:8080", "server HOST:PORT (loopback by default)")
 	tag := f.String("version", "", "Compose release (default: REET_VERSION or latest); native installs this binary")
+	skipTerminalSetup := f.Bool("skip-terminal-setup", false, "skip the interactive terminal connection wizard")
 	noStart := f.Bool("no-start", false, "write configuration without starting/enabling the server")
 	yes := f.Bool("yes", false, "apply without prompting")
 	dry := f.Bool("dry-run", false, "show the plan without changing the deployment")
@@ -298,6 +298,7 @@ func (a *App) install(args []string) error {
 	if *noStart && d.Mode == "native" {
 		fmt.Fprintln(a.Out, "Start manually: systemctl --user daemon-reload && systemctl --user enable --now reet.service (Linux); launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/sh.reet.server.plist (macOS).")
 	}
+	a.offerTerminalSetup(d, state, !*noStart, *yes || *skipTerminalSetup)
 	return nil
 }
 
@@ -307,6 +308,7 @@ func (a *App) upgrade(args []string) error {
 	f := flags("upgrade", a.Out)
 	stateArg := f.String("state-dir", stateDefault(), "managed deployment configuration directory")
 	tag := f.String("version", os.Getenv("REET_VERSION"), "latest, dev or vX.Y.Z; default: REET_VERSION, then installed channel (explicit tags allow downgrade)")
+	skipTerminalSetup := f.Bool("skip-terminal-setup", false, "skip the interactive terminal connection wizard")
 	check := f.Bool("check", false, "resolve the published tag without downloading or changing the installation")
 	dry := f.Bool("dry-run", false, "download and verify, then show the plan without applying it")
 	yes := f.Bool("yes", false, "apply without prompting")
@@ -407,6 +409,9 @@ func (a *App) upgrade(args []string) error {
 	fmt.Fprintf(a.Out, "Verified: %s\n", strings.TrimSpace(build))
 	if d.Mode == "binary" && sameBinary(candidate, d.Binary) {
 		fmt.Fprintln(a.Out, "Already up to date.")
+		if !*dry {
+			a.offerTerminalSetup(d, state, false, *yes || *skipTerminalSetup)
+		}
 		return nil
 	}
 	fmt.Fprintln(a.Out, "Keep the previous binary; for managed servers, stop, back up SQLite, update, restart if previously running, and verify health. Restore the previous deployment on failure.")
@@ -540,5 +545,6 @@ func (a *App) upgrade(args []string) error {
 	} else if !running {
 		fmt.Fprintln(a.Out, "Server was stopped and remains stopped; its first start may migrate the database. Backup retained.")
 	}
+	a.offerTerminalSetup(&next, state, running, *yes || *skipTerminalSetup)
 	return nil
 }

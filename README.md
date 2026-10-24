@@ -229,6 +229,8 @@ or apply environment cleanup. See [MCP setup and access](docs/mcp.md) and the
 
   Once environments exist, the shelf gets an environment filter and a **Copy missing installs** action that copies the install commands for everything on the shelf that is not on that machine yet.
 
+Connect a machine’s terminal with `reet agent terminal setup`. Interactive install, enrollment and upgrades offer this resumable wizard; it checks tmux, asks for local shell consent and repairs native services while preserving running sessions. See [terminal connection setup](docs/terminal-controller-commands.md#first-class-machine-connection-setup).
+
 Manage the binary or a server with `reet install --mode binary|native|compose`, inspect updates with `reet upgrade --check`, apply a verified update with `reet upgrade` (`--version` overrides `REET_VERSION`/saved defaults; otherwise dev stays dev), and diagnose problems with `reet doctor [--json]`. Managed server upgrades preserve configuration, back up SQLite and restore the previous deployment on a failed restart. Use `reet healthcheck --url https://your-site.example` for a remote health check; without `--url` it uses `REET_URL`/saved defaults. Use `--local` for the local server. Commands preview their intent and require confirmation before applying; see [managed installation and upgrades](docs/binary-installation.md#managed-install-upgrade-and-doctor).
 
 **Account → Machines** groups agents under machines; **Account → Compare & sync** offers a two-machine comparison with shared/missing skills and explicit stale/incomplete scan warnings. Library filters follow the same machine → agent hierarchy.

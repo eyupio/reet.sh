@@ -26,6 +26,7 @@ func runTerminalInput(args []string, in io.Reader, out io.Writer) error {
 	fs.SetOutput(out)
 	dir := fs.String("data-dir", env("REET_DATA_DIR", "./data"), "controller data directory")
 	envFile := fs.String("env-file", "", "configuration file (default REET_ENV_FILE or .env)")
+	skipHostSetup := fs.Bool("skip-host-setup", false, "configure controller availability without offering local host enrollment")
 	agentConfig := fs.String("agent-config", "", "local machine enrollment file for guided host setup")
 	if err := fs.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -126,7 +127,7 @@ func runTerminalInput(args []string, in io.Reader, out io.Writer) error {
 		}
 	} else if status.Available {
 		fmt.Fprintln(out, "Availability: enabled.")
-		if (action == "start" || action == "restart") && clientconfig.Interactive(in) {
+		if (action == "start" || action == "restart") && !*skipHostSetup && clientconfig.Interactive(in) {
 			return scan.SetupTerminalHost(scan.TerminalSetupOptions{Config: *agentConfig, Server: publicURL, Token: lookup("REET_TOKEN"), Version: version, Ask: func(label, current string) (string, error) { return clientconfig.Ask(in, out, label, current) }}, in, out)
 		}
 	} else {

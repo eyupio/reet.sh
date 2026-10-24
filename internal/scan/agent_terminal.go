@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -18,8 +19,11 @@ import (
 var rootUser = func() bool { return os.Geteuid() == 0 }
 
 func runAgentTerminal(args []string, out io.Writer) error {
+	return runAgentTerminalInput(args, os.Stdin, out, "")
+}
+func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet agent terminal enable|disable|status|sessions|end [--config PATH]")
+		return errors.New("usage: reet agent terminal setup|enable|disable|status|sessions|end [--config PATH]")
 	}
 	action := args[0]
 	fs := flag.NewFlagSet("agent terminal "+action, flag.ContinueOnError)
@@ -40,6 +44,12 @@ func runAgentTerminal(args []string, out io.Writer) error {
 		return err
 	}
 	*config = absolute
+	if action == "setup" {
+		if !clientconfig.Interactive(in) {
+			return errors.New("terminal setup needs an interactive terminal; run reet agent terminal setup from your shell. For automation, use explicit terminal enable and service install commands")
+		}
+		return SetupTerminalHost(TerminalSetupOptions{Config: *config, Version: version, Ask: func(label, current string) (string, error) { return clientconfig.Ask(in, out, label, current) }}, in, out)
+	}
 	c, err := loadAgentConfig(*config)
 	if err != nil {
 		return err
@@ -84,7 +94,7 @@ func runAgentTerminal(args []string, out io.Writer) error {
 		if tmux, err := terminalhost.FindTmux(context.Background()); err == nil {
 			fmt.Fprintf(out, "tmux: %s (%s)\n", tmux.Path, tmux.Version)
 		} else {
-			fmt.Fprintf(out, "tmux: unavailable\n")
+			fmt.Fprintf(out, "tmux: %v\n", err)
 		}
 		fmt.Fprintf(out, "Private socket: %s\n", layout.Socket)
 		if plan, err := servicePlan(*config, layout, true); err == nil {

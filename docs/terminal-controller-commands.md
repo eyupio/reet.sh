@@ -73,3 +73,49 @@ failed persistence leaving runtime unchanged, ticket fencing without shell state
 changes, CLI parsing/output, and real browser/PTY/tmux stop/start through the Unix
 control socket with original shell/job preservation. Web check/build and Go race
 checks remain required. See the updated [operator runbook](remote-machine-operations.md).
+
+## First-class machine connection setup
+
+Run `reet agent terminal setup` in the machine's own interactive OS-user shell.
+Use `--config PATH` for a non-default enrollment. This resumable wizard handles
+missing enrollment, explicit local shell consent, tmux 3.3+, native service
+installation/repair and the private connection. Existing enrollment credentials
+and consent are reused. No root shell is enabled without explicit local consent.
+
+Interactive `reet agent enroll` offers this wizard after saving enrollment.
+Interactive managed `reet install` and successful `reet upgrade` offer it too,
+including an already-current upgrade. Declining or failing an optional step keeps
+the completed enrollment/deployment and prints a resume command. Noninteractive
+operation, `--yes`, `--skip-terminal-setup`, checks and dry runs never launch new
+consent/package-manager prompts. The shell download installer prints the resume
+command; it cannot conduct a wizard through piped stdin.
+
+For native/Compose controllers, setup first runs `reet terminal start` in the
+controller's namespace with `--skip-host-setup`; then it separately offers the
+host's `reet agent terminal setup`. A container is not treated as the host.
+A stopped controller remains stopped and gets follow-up instructions instead.
+The standalone `--skip-host-setup` flag skips only the host offer after a
+controller start/restart; it does not bypass account/public-URL requirements.
+
+A native agent still running a different version triggers service repair/refresh.
+Development builds share the `dev` label, so they always offer refresh to load
+the installed binary. Refresh asks first and preserves tmux sessions. The wizard
+checks local service/manager health and private connectivity; the web machine's
+live readiness remains the authority for opening a terminal.
+
+Add machine now has four primary steps: Install, Authenticate (or Restore setup),
+Connect terminal, and optional Inventory & sync. The connection step provides
+enrollment/setup commands and checks terminal readiness separately from inventory.
+A completed scan is never presented as proof that a terminal can connect.
+
+If tmux is missing, check `tmux -V` and the service PATH. Ubuntu/Debian operators
+can install it with `sudo apt install tmux`; macOS operators can use
+`brew install tmux`. Versions before 3.3 remain unsupported. The wizard offers a
+local package-manager install only after confirmation, then verifies the result.
+Readiness is not claimed for an unavailable service manager or disconnected peer.
+
+Validation includes real TTY install/upgrade/enrollment prompts and decline/skip
+paths, preservation after optional failure, stopped-controller behavior, Compose
+namespace separation, actionable tmux diagnostics, local daemon-version checks,
+and web readiness independent of scan inventory. Native Linux/macOS CI validates
+services; local Linux checks alone do not establish macOS package-manager behavior.

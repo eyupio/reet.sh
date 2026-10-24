@@ -127,12 +127,15 @@ func agentRequestContext(ctx context.Context, c agentConfig, path string, body a
 
 // RunAgent enrolls a scanner-only installation and processes typed controller jobs.
 func RunAgent(args []string, out io.Writer, version string) error {
+	return runAgentInput(args, os.Stdin, out, version)
+}
+func runAgentInput(args []string, in io.Reader, out io.Writer, version string) error {
 	if len(args) == 0 {
 		return errors.New("usage: reet agent enroll|start|stop|restart|status|run|restore|terminal|service [--config PATH]; run backgrounds by default; --foreground for debugging")
 	}
 	action := args[0]
 	if action == "terminal" {
-		return runAgentTerminal(args[1:], out)
+		return runAgentTerminalInput(args[1:], in, out, version)
 	}
 	if action == "service" {
 		return runAgentService(args[1:], out)
@@ -151,6 +154,7 @@ func RunAgent(args []string, out io.Writer, version string) error {
 	supervised := fs.Bool("supervised", false, "run under the installed native service manager")
 	servicePrefix := fs.String("service-prefix", "reet", "native service name prefix")
 	remoteStatus := fs.Bool("remote", false, "also request controller status (may wait for the network)")
+	skipTerminalSetup := fs.Bool("skip-terminal-setup", false, "skip the interactive terminal connection wizard after enrollment")
 	allow := fs.Bool("allow-apply", false, "allow this installation to execute plans approved in the web UI")
 	var projects multi
 	fs.Var(&projects, "project", "absolute project directory to track (repeatable at enrollment)")
@@ -174,7 +178,7 @@ func RunAgent(args []string, out io.Writer, version string) error {
 			return errors.New("configuration already exists; keep it or revoke the enrollment before replacing it")
 		}
 		if *server == "" {
-			value, err := clientconfig.ResolveURL("", os.Stdin, os.Stderr)
+			value, err := clientconfig.ResolveURL("", in, os.Stderr)
 			if err != nil {
 				return err
 			}
@@ -212,7 +216,7 @@ func RunAgent(args []string, out io.Writer, version string) error {
 			}
 			projects[i] = p
 		}
-		tokenValue, err := clientconfig.ResolveToken(*token, *tokenFile, os.Stdin, os.Stderr)
+		tokenValue, err := clientconfig.ResolveToken(*token, *tokenFile, in, os.Stderr)
 		if err != nil {
 			return err
 		}
@@ -231,21 +235,24 @@ func RunAgent(args []string, out io.Writer, version string) error {
 			return fmt.Errorf("enrolled but could not save configuration; revoke enrollment in Machines before retrying: %w", err)
 		}
 		fmt.Fprintf(out, "Enrolled %s. Private configuration: %s\nRun reet agent run --config %q to report inventories and process approved jobs. Remote apply enabled: %t\n", c.Host, *config, *config, c.AllowApply)
+		if !*skipTerminalSetup {
+			OfferTerminalHostSetup(TerminalSetupOptions{Config: *config, Version: version}, in, out)
+		}
 		return nil
 	case "restore":
 		c, err := loadAgentConfig(*config)
 		if err != nil {
 			return err
 		}
-		targetValue, err := clientconfig.Require(*targetID, "--target (target scope)", false, os.Stdin, os.Stderr)
+		targetValue, err := clientconfig.Require(*targetID, "--target (target scope)", false, in, os.Stderr)
 		if err != nil {
 			return err
 		}
-		backupValue, err := clientconfig.Require(*backup, "--backup (removed skill entry)", false, os.Stdin, os.Stderr)
+		backupValue, err := clientconfig.Require(*backup, "--backup (removed skill entry)", false, in, os.Stderr)
 		if err != nil {
 			return err
 		}
-		return restoreSkill(c, targetValue, backupValue, os.Stdin, out, version)
+		return restoreSkill(c, targetValue, backupValue, in, out, version)
 	case "status":
 		c, err := loadAgentConfig(*config)
 		if err != nil {

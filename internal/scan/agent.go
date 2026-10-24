@@ -370,6 +370,18 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	}
 }
 
+// permanentAgentError reports a controller refusal that will not change by
+// resending the same request.
+func permanentAgentError(err error) bool {
+	message := err.Error()
+	for _, code := range []string{"controller 400", "controller 403", "controller 404", "controller 409"} {
+		if strings.HasPrefix(message, code) {
+			return true
+		}
+	}
+	return false
+}
+
 type agentResult struct {
 	ID      string   `json:"id"`
 	Status  string   `json:"status"`
@@ -387,11 +399,21 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 			return err
 		}
 		if err = agentRequestContext(ctx, c, "/api/v2/sync/result", result, nil, version); err != nil {
+			// A controller that has already closed this job will never take the
+			// result, so drop it instead of blocking every later cycle on it.
+			if permanentAgentError(err) {
+				_ = os.Remove(config + ".result")
+			}
 			return err
 		}
 		if err = os.Remove(config + ".result"); err != nil {
 			return err
 		}
+	}
+	// A re-exec into a new build leaves a marker: prove the new build can reach
+	// the controller, or put the previous one back.
+	if _, err := checkPendingUpdate(c, config, version); err != nil {
+		return err
 	}
 	var reply struct {
 		Agent store.SyncAgent
@@ -434,7 +456,8 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 		if !allowRestart {
 			operationErr = errors.New("updating reet requires the long-running background or service agent")
 		} else {
-			result.Message, restartPath, operationErr = updateAgentBinary(ctx, j.Revision, version)
+			report := func(stage, detail string) { reportAgentStage(c, j.ID, stage, detail, version) }
+			result.Message, restartPath, operationErr = updateAgentBinary(ctx, config, j.ID, j.Revision, version, report)
 		}
 	} else {
 		target, err := fetchTarget(c.Server, c.Token, j.TargetID)
@@ -486,15 +509,13 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 		result.Message = operationErr.Error()
 	}
 	if restartPath != "" {
-		// Leave the successful result durable before replacing the process image.
-		// The new process sends it on its first cycle. If exec fails, record and
-		// send the failure from this process instead.
-		if err := writePrivate(config+".result", result); err != nil {
-			return err
-		}
+		// The pending marker is the durable state now: the new process proves
+		// itself and sends the result. If exec fails here, put the old binary
+		// back and report the failure from this process instead.
 		if err := restartAgent(restartPath); err != nil {
+			undoPendingUpdate(config)
 			result.Status = "failed"
-			result.Message = "Binary updated but the agent restart failed: " + err.Error()
+			result.Message = "The new binary was installed but the agent could not restart; the previous binary is in place. " + err.Error()
 		} else {
 			return nil
 		}

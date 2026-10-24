@@ -494,17 +494,6 @@ func TestSyncAgentBuildAndAutoUpdateSettings(t *testing.T) {
 	if !agents[0].AutoUpdate {
 		t.Fatalf("auto-update did not turn on: %+v", agents)
 	}
-	if _, err = s.QueueAgentUpdate(uid, a.ID, "dev"); err != nil {
-		t.Fatal(err)
-	}
-	recent, err := s.AgentUpdateAttemptedSince(uid, a.ID, time.Now().Add(-time.Minute).UnixMilli())
-	if err != nil || !recent {
-		t.Fatalf("recent update not detected: %t %v", recent, err)
-	}
-	old, err := s.AgentUpdateAttemptedSince(uid, a.ID, time.Now().Add(time.Minute).UnixMilli())
-	if err != nil || old {
-		t.Fatalf("future window reported an attempt: %t %v", old, err)
-	}
 }
 
 func TestOpenMigratesAgentBuildAndAutoUpdateColumns(t *testing.T) {

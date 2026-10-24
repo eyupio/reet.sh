@@ -54,6 +54,8 @@ export function eventLabel(e: Event): string {
   switch (e.action) {
     case 'merge-machines': return `Consolidated machine ${d.from || ''} as ${d.to || ''}`
     case 'forget-machine': return `Forgot machine ${d.host || ''}`
+    case 'sync-agent-update': return `Queued a reet update for ${d.name || 'a machine'}`
+    case 'sync-agent-auto-update': return `Queued a reet update for ${d.name || 'a machine'} automatically`
     case 'add':
       return `Added ${name}`
     case 'like':

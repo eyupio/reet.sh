@@ -236,6 +236,8 @@ type SyncJob struct {
 	Plan      json.RawMessage `json:"plan"`
 	Hash      string          `json:"hash"`
 	Message   string          `json:"message"`
+	Stage     string          `json:"stage,omitempty"`
+	Stages    []UpdateStage   `json:"stages,omitempty"`
 	CreatedAt int64           `json:"createdAt"`
 	UpdatedAt int64           `json:"updatedAt"`
 }
@@ -261,6 +263,28 @@ func (s *Store) migrateSyncAgents() error {
 			continue
 		}
 		if _, err = s.db.Exec(`ALTER TABLE sync_agents ADD COLUMN ` + c.ddl); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// migrateSyncJobs adds the update timeline to databases made before it. Old
+// jobs read as having no stages, which every reader treats as "not an update
+// timeline" rather than as an empty progress bar.
+func (s *Store) migrateSyncJobs() error {
+	for _, c := range []struct{ name, ddl string }{
+		{"stage", "stage TEXT NOT NULL DEFAULT ''"},
+		{"stages", "stages TEXT NOT NULL DEFAULT '[]'"},
+	} {
+		ok, err := hasColumn(s.db, "sync_jobs", c.name)
+		if err != nil {
+			return err
+		}
+		if ok {
+			continue
+		}
+		if _, err = s.db.Exec(`ALTER TABLE sync_jobs ADD COLUMN ` + c.ddl); err != nil {
 			return err
 		}
 	}
@@ -377,26 +401,19 @@ func (s *Store) ControlSyncAgent(uid int64, id, action string) error {
 	return errors.New("unknown machine action")
 }
 
-// AgentUpdateAttemptedSince reports whether an update job was queued for this
-// agent recently, so automatic updates back off after a failed attempt.
-func (s *Store) AgentUpdateAttemptedSince(uid int64, agentID string, since int64) (bool, error) {
-	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND kind='update' AND created_at>=?`, uid, agentID, since).Scan(&n)
-	return n > 0, err
-}
-
 func scanJob(row interface{ Scan(...any) error }) (SyncJob, error) {
 	var j SyncJob
-	var plan string
-	err := row.Scan(&j.ID, &j.AgentID, &j.TargetID, &j.Kind, &j.Status, &j.Revision, &plan, &j.Hash, &j.Message, &j.CreatedAt, &j.UpdatedAt)
+	var plan, stages string
+	err := row.Scan(&j.ID, &j.AgentID, &j.TargetID, &j.Kind, &j.Status, &j.Revision, &plan, &j.Hash, &j.Message, &j.Stage, &stages, &j.CreatedAt, &j.UpdatedAt)
 	j.Plan = json.RawMessage(plan)
+	j.Stages = decodeStages(stages)
 	return j, err
 }
 
-const jobCols = `id,agent_id,target_id,kind,status,revision,plan,hash,message,created_at,updated_at`
+const jobCols = `id,agent_id,target_id,kind,status,revision,plan,hash,message,stage,stages,created_at,updated_at`
 
 func (s *Store) SyncJobsFor(uid int64) ([]SyncJob, error) {
-	if _, err := s.db.Exec(`UPDATE sync_jobs SET status='failed',message='Agent disconnected or timed out; inspect local files and preview again.',updated_at=? WHERE user_id=? AND status='running' AND updated_at<?`, now(), uid, time.Now().Add(-10*time.Minute).UnixMilli()); err != nil {
+	if _, err := s.db.Exec(`UPDATE sync_jobs SET status='failed',message=CASE WHEN kind='update' THEN 'The machine did not report back. It may still be restarting; check its build and try again.' ELSE 'Agent disconnected or timed out; inspect local files and preview again.' END,updated_at=? WHERE user_id=? AND status='running' AND updated_at<?`, now(), uid, time.Now().Add(-10*time.Minute).UnixMilli()); err != nil {
 		return nil, err
 	}
 
@@ -486,7 +503,7 @@ func (s *Store) ClaimSyncJob(uid int64, a SyncAgent) (*SyncJob, error) {
 	var job *SyncJob
 	err := s.withTx(func(tx *sql.Tx) error {
 		// Expired work is never replayed automatically: it may have partially applied.
-		_, err := tx.Exec(`UPDATE sync_jobs SET status='failed',message='Agent disconnected or timed out; inspect local files and preview again.',updated_at=? WHERE agent_id=? AND status='running' AND updated_at<?`, now(), a.ID, time.Now().Add(-10*time.Minute).UnixMilli())
+		_, err := tx.Exec(`UPDATE sync_jobs SET status='failed',message=CASE WHEN kind='update' THEN 'The machine did not report back. It may still be restarting; check its build and try again.' ELSE 'Agent disconnected or timed out; inspect local files and preview again.' END,updated_at=? WHERE agent_id=? AND status='running' AND updated_at<?`, now(), a.ID, time.Now().Add(-10*time.Minute).UnixMilli())
 		if err != nil {
 			return err
 		}
@@ -511,6 +528,19 @@ func (s *Store) ClaimSyncJob(uid int64, a SyncAgent) (*SyncJob, error) {
 		}
 		_, err = tx.Exec(`UPDATE sync_jobs SET status='running',updated_at=? WHERE id=?`, now(), j.ID)
 		j.Status = "running"
+		if j.Kind == "update" {
+			// The agent is collecting the job now; the download is the first
+			// step it can be seen working on.
+			stages := j.Stages
+			if len(stages) == 0 {
+				stages = NewUpdateStages()
+			}
+			advanceStages(stages, UpdateStageDownload, "The machine is downloading the release.")
+			j.Stage, j.Stages = UpdateStageDownload, stages
+			if _, err = tx.Exec(`UPDATE sync_jobs SET stage=?,stages=? WHERE id=?`, j.Stage, encodeStages(stages), j.ID); err != nil {
+				return err
+			}
+		}
 		job = &j
 		return err
 	})
@@ -539,14 +569,20 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 			return nil
 		}
 		if j.Status != "running" {
-			if j.Status == "failed" && strings.HasPrefix(j.Message, "Agent disconnected or timed out") {
+			// An update the controller gave up on can still report the truth:
+			// the machine did restart, or it rolled itself back. Taking that
+			// late account is better than showing a failure that is not one.
+			if j.Status == "failed" && j.Kind == "update" && strings.HasPrefix(j.Message, "The machine did not report back") && (status == "succeeded" || status == "rolled_back") {
+				j.Status = "running"
+			} else if j.Status == "failed" && (strings.HasPrefix(j.Message, "Agent disconnected or timed out") || strings.HasPrefix(j.Message, "The machine did not report back")) {
 				// Preserve the unknown/partial outcome; a fresh scan and preview are required.
 				_, err = tx.Exec(`INSERT OR IGNORE INTO sync_receipts(job_id,status,hash) VALUES(?,?,?)`, id, status, hash)
 				return err
+			} else {
+				return errors.New("job is no longer running")
 			}
-			return errors.New("job is no longer running")
 		}
-		if status != "failed" && status != "succeeded" && !((j.Kind == "preview" || j.Kind == "auto") && status == "awaiting-approval" && len(hash) == 64) {
+		if status != "failed" && status != "succeeded" && !(j.Kind == "update" && status == "rolled_back") && !((j.Kind == "preview" || j.Kind == "auto") && status == "awaiting-approval" && len(hash) == 64) {
 			return errors.New("invalid job result")
 		}
 		if status == "succeeded" && j.Kind == "apply" {
@@ -584,7 +620,12 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 				message = "Removals need review before applying."
 			}
 		}
-		if _, err = tx.Exec(`UPDATE sync_jobs SET kind=?,status=?,plan=?,hash=?,message=?,updated_at=? WHERE id=?`, finalKind, finalStatus, string(plan), hash, message, now(), id); err != nil {
+		stage := j.Stage
+		stages := j.Stages
+		if j.Kind == "update" {
+			stage, stages = finishStages(stages, finalStatus, message)
+		}
+		if _, err = tx.Exec(`UPDATE sync_jobs SET kind=?,status=?,plan=?,hash=?,message=?,stage=?,stages=?,updated_at=? WHERE id=?`, finalKind, finalStatus, string(plan), hash, message, stage, encodeStages(stages), now(), id); err != nil {
 			return err
 		}
 		outcome := runNext

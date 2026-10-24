@@ -32,7 +32,12 @@ func (s *server) syncState(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"agents": agents, "jobs": jobs, "environments": envs, "machines": machines, "targets": targets, "canWrite": s.currentUser(r).Role != "viewer"})
+	runs, err := s.st.SyncRunsFor(s.uid(r))
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"agents": agents, "jobs": jobs, "runs": runs, "environments": envs, "machines": machines, "targets": targets, "canWrite": s.currentUser(r).Role != "viewer"})
 }
 func (s *server) saveSync(w http.ResponseWriter, r *http.Request) {
 	var in struct {

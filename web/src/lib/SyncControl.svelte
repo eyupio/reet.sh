@@ -7,6 +7,8 @@
   import CopyButton from './CopyButton.svelte'
   import FleetActions from './FleetActions.svelte'
   import { destinationScopes } from './fleet'
+  import { dedupeSkills, linked as isLinked, localDuplicates as findLocalDuplicates, sourceConflicts as findSourceConflicts } from './syncSelection'
+  import { startSyncRun } from './api'
   let { snapshot, canWrite, onupdate, view = 'compare' }: { snapshot: SyncState; canWrite: boolean; onupdate: (s: SyncState) => void; view?: 'machines' | 'compare' } = $props()
   let source = $state('shelf'), selectedMachine = $state(''), selectedAgents = $state<string[]>([]), listId = $state(0), mode = $state('additive')
   let candidates = $state<SyncSkill[]>([]), selected = $state<string[]>([]), adopt = $state<string[]>([]), lists = $state<SharedList[]>([])
@@ -22,12 +24,13 @@
   const scanOnlyGroups = $derived(machineGroups.filter(g => !['agents', 'claude', 'cursor', 'opencode'].includes(g.agent)))
   const targetEnvs = $derived(selectableGroups.filter(g => selectedAgents.includes(g.id)))
   const actual = $derived(inventory(targetEnvs))
-  const desired = $derived(candidates.filter(s => selected.includes(s.id)))
+  const desired = $derived(dedupeSkills(candidates.filter(s => selected.includes(s.id))))
   const onlySource = $derived(desired.filter(s => !actual.some(a => a.id === s.id)))
-  const onlyMachine = $derived(actual.filter(s => !desired.some(d => d.id === s.id)))
+  const onlyMachine = $derived(actual.filter(s => !desired.some(d => d.id === s.id || d.slug === s.slug)))
   const matching = $derived(desired.filter(s => actual.some(a => a.id === s.id)))
-  const scopeDifferences = $derived(targetEnvs.map(env => ({ env, missing: desired.filter(s => !env.skills.some(a => a.id === s.id)).length, extra: env.skills.filter(s => !desired.some(d => d.id === s.id)).length })))
-  const sourceConflicts = $derived(desired.filter(s => actual.some(a => a.slug === s.slug && a.id !== s.id)))
+  const scopeDifferences = $derived(targetEnvs.map(env => ({ env, missing: desired.filter(s => !env.skills.some(a => a.id === s.id)).length, extra: env.skills.filter(s => !desired.some(d => d.id === s.id || d.slug === s.slug)).length })))
+  const sourceConflicts = $derived(findSourceConflicts(desired, actual))
+  const localDuplicates = $derived(findLocalDuplicates(desired, actual))
   const unknown = $derived(desired.filter(s => !s.source || s.sourceType === 'local'))
   const ready = $derived(targetEnvs.length > 0 && targetEnvs.every(e => e.complete && e.scannedAt > Date.now() - 14 * 86400000))
   const oldestScan = $derived(targetEnvs.length ? Math.min(...targetEnvs.map(e => e.scannedAt)) : 0)
@@ -44,7 +47,16 @@
   function ago(at: number) { const value = elapsed(at); return value === 'just now' ? value : `${value} ago` }
   function quote(v: string) { return "'" + v.replaceAll("'", "'\\''") + "'" }
   function cli(item: SyncTarget) { return `reet sync --server ${quote(location.origin)} --env ${quote(item.target.host)} --target ${quote(item.target.id)}` }
-  function toggle(id: string) { selected = selected.includes(id) ? selected.filter(v => v !== id) : [...selected, id]; conflicts = conflicts.filter(name => candidates.find(s => s.id === id)?.slug !== name) }
+  function preferred(id: string): string {
+    const skill = candidates.find(s => s.id === id)
+    if (!skill || isLinked(skill)) return id
+    return candidates.find(s => s.slug === skill.slug && isLinked(s))?.id ?? id
+  }
+  function toggle(id: string) {
+    const choice = preferred(id)
+    selected = selected.includes(choice) ? selected.filter(v => v !== choice) : [...selected, choice]
+    conflicts = conflicts.filter(name => candidates.find(s => s.id === choice)?.slug !== name)
+  }
   async function run(fn: () => Promise<void>) { if (busy) return; busy = true; error = ''; notice = ''; try { await fn() } catch (e) { error = e instanceof Error ? e.message : String(e) } finally { busy = false } }
   let request = 0
   async function loadSource() {
@@ -138,6 +150,14 @@
       notice = `${adopted} selected skills added to reet.sh. Existing notes and shelf choices were preserved.`
     })
   }
+  async function syncGroup(group: { host: string; items: SyncTarget[] }) {
+    const agent = snapshot.agents?.find(a => a.host.toLowerCase() === group.host.toLowerCase())
+    if (!agent) return
+    await run(async () => {
+      onupdate(await startSyncRun(agent.id, group.items.map(item => item.target.id)))
+      notice = `Automatic sync started for ${group.host}. Additive plans apply on their own; removals wait for review.`
+    })
+  }
   async function previewGroup(group: { host: string; items: SyncTarget[] }) {
     const agent = snapshot.agents?.find(a => a.host.toLowerCase() === group.host.toLowerCase())
     if (!agent) return
@@ -203,15 +223,16 @@
   <p class="hint">{mode === 'additive' ? 'Install selected skills and keep local extras.' : mode === 'bidirectional' ? 'Review changes from both sides before applying. Removals need approval.' : 'Match this exact selection. Extra skills require reviewed removal.'}</p>
   <p class="hint">Bookmarks and “In use” are personal shelf choices. They never approve installation or removal. Matching here means skill identity/source, not file contents or versions.</p>
   <label>Find skills<input type="search" bind:value={query} placeholder="Name or source" /></label>
-  <div class="actions"><button class="btn quiet" disabled={loading || busy || !sourceLoaded} onclick={() => selected = [...new Set([...selected, ...filtered.map(s => s.id)])]}>Select visible</button><button class="btn quiet" disabled={busy} onclick={() => selected = []}>Clear selection</button><span>{selected.length} selected</span></div>
+  <div class="actions"><button class="btn quiet" disabled={loading || busy || !sourceLoaded} onclick={() => selected = [...new Set([...selected, ...filtered.map(s => preferred(s.id))])]}>Select visible</button><button class="btn quiet" disabled={busy} onclick={() => selected = []}>Clear selection</button><span>{selected.length} selected</span></div>
   <div class="skill-options" aria-label="Skills to compare">
     {#if loading}<p role="status">Loading skills…</p>{:else}{#each filtered as skill (skill.id)}<label class="skill"><input type="checkbox" checked={selected.includes(skill.id)} onchange={() => toggle(skill.id)} disabled={busy} /><span><strong>{skill.name}</strong><small>{skill.source || 'Unknown source — link before syncing'}</small></span></label>{:else}<p>No skills here yet. Add skills to your shelf or report a machine inventory.</p>{/each}{/if}
   </div>
   {#if targetEnvs.length}
     <p class:bad={!ready} role="status">{ready ? `Selected scopes last reported ${ago(oldestScan)}.` : 'One or more selected scopes need a fresh complete scan. Rescan before saving or applying.'}</p>
     {#each targetEnvs.filter(e => e.error) as env (env.id)}<p class="bad">{groupLabel(env)}: {env.error}</p>{/each}
-    <div class="counts"><span>{targetEnvs.length} agent {targetEnvs.length === 1 ? 'scope' : 'scopes'} selected</span><span>{onlySource.length} only {['shelf','hosted'].includes(source) ? 'on reet.sh (selected)' : 'in reference selection'}</span><span>{onlyMachine.length} only on selected scopes</span><span>{matching.length} found in at least one selected scope</span><span>{sourceConflicts.length} source conflicts</span><span>{unknown.length} unknown</span></div>
+    <div class="counts"><span>{targetEnvs.length} agent {targetEnvs.length === 1 ? 'scope' : 'scopes'} selected</span><span>{onlySource.length} only {['shelf','hosted'].includes(source) ? 'on reet.sh (selected)' : 'in reference selection'}</span><span>{onlyMachine.length} only on selected scopes</span><span>{matching.length} found in at least one selected scope</span><span>{sourceConflicts.length} source conflicts</span><span>{localDuplicates.length} local duplicates</span><span>{unknown.length} unknown</span></div>
     <details><summary>Differences by destination</summary><ul>{#each scopeDifferences as difference (difference.env.id)}<li><strong>{difference.env.host} · {groupLabel(difference.env)}</strong>: {difference.missing} to install · {difference.extra} extra {mode === 'additive' ? '(kept)' : '(review removals)'}</li>{/each}</ul><p class="hint">The counts above combine unique skills across selected scopes. Each scope has its own changes below.</p></details>
+    {#if localDuplicates.length}<p class="hint">Local copies of {localDuplicates.map(s => s.name).join(', ')} will be backed up and replaced automatically with the selected source.</p>{/if}
     {#if sourceConflicts.length}<p class="bad">Source conflicts: {sourceConflicts.map(s => s.name).join(', ')}. Resolve the installed source before applying.</p>{/if}
     {#if conflicts.length}<p class="bad" role="alert">Concurrent changes: {conflicts.join(', ')}. Select the source you want for each conflict, or keep it absent, then <button class="btn quiet" onclick={() => conflicts = []}>Confirm conflict choices</button>.</p>{/if}
     <details><summary>Only on selected scopes ({onlyMachine.length})</summary><p>Select skills to add to {listId && source === 'shelf' ? 'the selected reet.sh list' : 'your reet.sh shelf'}.</p>{#each onlyMachine as skill}<label class="skill"><input type="checkbox" value={skill.id} bind:group={adopt} disabled={!canWrite || busy} /><span>{skill.name}<small>{skill.source || 'Unknown source'}</small></span></label>{/each}{#if canWrite}<button class="btn" disabled={busy || loading || !sourceLoaded || !ready || !adopt.length || (source === 'shelf' && listId > 0 && !listEditable)} onclick={adoptSelected}>Add selected to reet.sh</button>{/if}</details>
@@ -227,7 +248,7 @@
     <article class="control machine-set">
       <header class="set-head">
         <div><h4>{group.host}</h4><p>{group.items.length} agent {group.items.length === 1 ? 'scope' : 'scopes'} configured</p></div>
-        {#if agent}<button class="btn primary" type="button" disabled={busy || agent.paused} onclick={() => previewGroup(group)}>Preview all on machine</button>{:else}<span class="hint">Local preview commands below</span>{/if}
+        {#if agent}<div class="actions"><button class="btn primary" type="button" disabled={busy || agent.paused} onclick={() => syncGroup(group)}>{busy ? 'Starting…' : 'Sync all now'}</button><button class="btn" type="button" disabled={busy || agent.paused} onclick={() => previewGroup(group)}>Preview all on machine</button></div>{:else}<span class="hint">Local preview commands below</span>{/if}
       </header>
       <div class="scope-sets">
         {#each group.items as item (item.target.id)}
@@ -237,7 +258,7 @@
             <p>{item.sourceName}</p>
             <p class:bad={!env?.complete || (env?.scannedAt ?? 0) < Date.now() - 14 * 86400000}>{env?.complete && env.scannedAt > Date.now() - 14 * 86400000 ? `${item.missing.length} to install · ${item.extra.length} extra${item.mode === 'additive' ? ' (kept)' : ' (review removals)'}` : 'Current differences unconfirmed — rescan required'}</p>
             <p class="hint">Last report: {env?.scannedAt ? ago(env.scannedAt) : 'none'} · {item.appliedRevision === item.revision ? 'Desired revision acknowledged' : 'Desired revision not yet acknowledged'}</p>
-            {#if canWrite}<div class="actions"><button class="btn" disabled={busy} onclick={() => edit(item)}>Edit selection</button><button class="btn" disabled={busy || !env?.complete} onclick={() => reconcile(item)}>Review local &amp; web changes</button>{#if agent}<button class="btn" disabled={busy || agent.paused} onclick={() => run(async () => { onupdate(await queueSyncJob(agent.id, item.target.id, 'preview')); notice = 'Preview queued. The machine will report its exact plan.' })}>Preview</button>{/if}<button class="btn quiet" disabled={busy} onclick={() => confirm = { title: 'Stop tracking this set?', body: 'This removes the desired set. Installed skills, shelf entries and notes remain.', action: () => run(async () => onupdate(await deleteSyncTarget(item.target.id))) }}>Stop tracking</button></div>{/if}
+            {#if canWrite}<div class="actions"><button class="btn" disabled={busy} onclick={() => edit(item)}>Edit selection</button><button class="btn" disabled={busy || !env?.complete} onclick={() => reconcile(item)}>Review local &amp; web changes</button>{#if agent}<button class="btn primary" disabled={busy || agent.paused} onclick={() => run(async () => { onupdate(await startSyncRun(agent.id, [item.target.id])); notice = 'Automatic sync started. Additive plans apply on their own; removals wait for review.' })}>Sync now</button><button class="btn" disabled={busy || agent.paused} onclick={() => run(async () => { onupdate(await queueSyncJob(agent.id, item.target.id, 'preview')); notice = 'Preview queued. The machine will report its exact plan.' })}>Preview</button>{/if}<button class="btn quiet" disabled={busy} onclick={() => confirm = { title: 'Stop tracking this set?', body: 'This removes the desired set. Installed skills, shelf entries and notes remain.', action: () => run(async () => onupdate(await deleteSyncTarget(item.target.id))) }}>Stop tracking</button></div>{/if}
             {#if !agent}<details class="local-preview"><summary>Local preview command</summary><div class="command"><code>{cli(item)}</code><CopyButton text={cli(item)} label="Copy local preview" /></div></details>{/if}
           </div>
         {/each}

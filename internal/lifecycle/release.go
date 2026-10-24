@@ -22,6 +22,10 @@ import (
 )
 
 const releaseAPI = "https://api.github.com/repos/eyupio/reet.sh/releases"
+
+// ReleaseDownloads is the public asset root used by the installed agent.
+const ReleaseDownloads = "https://github.com/eyupio/reet.sh/releases/download"
+
 const imageRepo = "ghcr.io/eyupio/reet.sh"
 
 var tagPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$`)
@@ -197,6 +201,24 @@ func fetchBinary(ctx context.Context, client *http.Client, root, tag, dir string
 	}
 	return path, nil
 }
+
+// ResolveRelease resolves latest, dev or a pinned tag to the published tag.
+func ResolveRelease(ctx context.Context, client *http.Client, tag string) (string, error) {
+	return resolveRelease(ctx, client, releaseAPI, tag)
+}
+
+// FetchReleaseBinary downloads and verifies a release archive, returning a
+// staged executable path inside dir.
+func FetchReleaseBinary(ctx context.Context, client *http.Client, root, tag, dir string) (string, error) {
+	return fetchBinary(ctx, client, root, tag, dir)
+}
+
+// ReplaceBinary atomically copies source over target.
+func ReplaceBinary(source, target string) error { return replaceBinary(source, target) }
+
+// SameBinary reports whether two files have identical bytes.
+func SameBinary(a, b string) bool { return sameBinary(a, b) }
+
 func sameBinary(a, b string) bool {
 	x, e := os.ReadFile(a)
 	if e != nil {

@@ -110,3 +110,60 @@ func TestEnrolledAgentPreviewApprovalApply(t *testing.T) {
 		t.Fatal("copied enrollment accepted on another machine")
 	}
 }
+
+func TestEnrolledAgentAutoSyncAppliesAdditivePlan(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("REET_TOKEN", "")
+	project := t.TempDir()
+	os.MkdirAll(filepath.Join(project, ".claude", "skills"), 0755)
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "npx"), []byte("#!/bin/sh\nmkdir -p .claude/skills/beta\nprintf '%s\\n' '# Beta' > .claude/skills/beta/SKILL.md\nprintf '%s\\n' '{\"skills\":{\"beta\":{\"source\":\"o/r\",\"sourceType\":\"github\"}}}' > skills-lock.json\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	uid, _ := st.DefaultOwner()
+	srv := httptest.NewServer(api.New(st, meta.Fetcher{}, "", api.WithAuthMode(api.AuthNone)))
+	defer srv.Close()
+	cfg := filepath.Join(t.TempDir(), "agent.json")
+	if err = RunAgent([]string{"enroll", "--server", srv.URL, "--env", "fixture", "--project", project, "--config", cfg, "--allow-apply"}, io.Discard, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err = RunAgent([]string{"run", "--once", "--config", cfg}, io.Discard, "test"); err != nil {
+		t.Fatal(err)
+	}
+	rf, _ := ref.Parse("o/r/beta")
+	st.UpsertFor(uid, rf, store.Patch{})
+	target := store.EnvironmentIDFor(uid, "fixture", "claude", project)
+	if err = st.SaveDesiredFor(uid, "owner", store.DesiredSelection{TargetID: target, SourceID: "shelf", SkillIDs: []string{rf.ID}, Mode: "additive"}); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ := st.SyncAgentsFor(uid)
+	if _, err = st.QueueSyncJob(uid, agents[0].ID, target, "auto"); err != nil {
+		t.Fatal(err)
+	}
+	if err = RunAgent([]string{"run", "--once", "--config", cfg}, io.Discard, "test"); err != nil {
+		t.Fatal(err)
+	}
+	jobs, _ := st.SyncJobsFor(uid)
+	if len(jobs) != 1 || jobs[0].Kind != "apply" || jobs[0].Status != "queued" {
+		t.Fatalf("additive plan was not auto-approved: %+v", jobs)
+	}
+	if _, err = os.Stat(filepath.Join(project, ".claude", "skills", "beta")); !os.IsNotExist(err) {
+		t.Fatal("preview installed files before approval")
+	}
+	if err = RunAgent([]string{"run", "--once", "--config", cfg}, io.Discard, "test"); err != nil {
+		t.Fatal(err)
+	}
+	jobs, _ = st.SyncJobsFor(uid)
+	if jobs[0].Status != "succeeded" {
+		t.Fatalf("auto apply: %+v", jobs)
+	}
+	if _, err = os.Stat(filepath.Join(project, ".claude", "skills", "beta", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+}

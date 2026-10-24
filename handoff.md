@@ -6,7 +6,7 @@ This is the current implementation baseline **and** the continuation plan. Curre
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations are implemented on `feat/machine-content-observations`, locally validated, awaiting published CI; explicit payload import follows separately.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations are implemented in PR #161 (`feat/machine-content-observations`), locally validated and awaiting final CI/merge; explicit payload import follows separately.** S1 is merged through PR #139; do not repeat
 it. Preserve the terminal work and do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -1102,7 +1102,7 @@ with a documented compatibility path for old clients and restore/backups.
 
 ### S3 [ ] Machine content observations and explicit import
 
-**Metadata slice implemented and locally validated; awaiting PR CI/merge.** Read
+**Metadata slice implemented and locally validated in [PR #161](https://github.com/eyupio/reet.sh/pull/161); awaiting final CI/merge.** Read
 [the protocol and continuation contract](docs/machine-content-observations.md).
 - New authenticated prepare/report endpoints negotiate version 1 before file
   hashing. Old controllers (404/405) and future schemas skip content reads.
@@ -1527,7 +1527,7 @@ working agent authentication or complete environment recovery.
 > Continue reet.sh from handoff.md. Inspect branch, worktree, main and PR states
 > without resetting edits. Terminal T1–T9 priorities are merged through PR #155.
 > S2 private revision storage/API merged through PR #156. Read its storage contract.
-> S3 metadata observations are implemented on feat/machine-content-observations;
+> S3 metadata observations are implemented in PR #161 on feat/machine-content-observations;
 > verify its exact PR/check/merge state before calling it delivered. Finish this
 > bounded slice, then implement explicit S3 content import. Keep
 > ownership, exact byte/mode manifests, stable retry receipts, reviewed sync and

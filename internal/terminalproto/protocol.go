@@ -112,6 +112,7 @@ const (
 )
 
 type Capabilities struct {
+	CommandHistory  bool      `json:"commandHistory,omitempty"`
 	TerminalControl bool      `json:"terminalControl,omitempty"`
 	ProtocolVersion int       `json:"protocolVersion"`
 	OS              string    `json:"os"`
@@ -122,6 +123,9 @@ type Capabilities struct {
 }
 
 func (c Capabilities) Validate() error {
+	if c.CommandHistory && !c.TerminalControl {
+		return ErrInvalid
+	}
 	if c.ProtocolVersion < 1 || c.ProtocolVersion > 65535 || !plainText(c.OSUser, 128) || strings.TrimSpace(c.OSUser) == "" {
 		return ErrInvalid
 	}
@@ -323,8 +327,8 @@ func (m Message) Validate() error {
 		return ErrInvalid
 	}
 	kind := m.Body.kind()
-	session := kind == "create" || kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "end" || kind == "history" || kind == "session_changed"
-	attachment := kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "history" || kind == "result" && m.AttachmentID != ""
+	session := kind == "create" || kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "end" || kind == "history" || kind == "command_history" || kind == "session_changed"
+	attachment := kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "history" || kind == "command_history" || kind == "result" && m.AttachmentID != ""
 	if session && !ValidID(m.SessionID) || !session && m.SessionID != "" && (kind != "result" || !ValidID(m.SessionID)) {
 		return ErrInvalid
 	}
@@ -380,6 +384,8 @@ func Decode(data []byte) (Message, error) {
 		b = &End{}
 	case "history":
 		b = &History{}
+	case "command_history":
+		b = &CommandHistory{}
 	case "probe":
 		b = &Probe{}
 	case "probe_result":

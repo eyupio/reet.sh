@@ -85,7 +85,8 @@ never changes an already requested stop. Files and operation receipts remain.
 | New session | Explicitly create a shell; preserve retry IDs on uncertain responses |
 | Manage → Rename | Change the title; preserve process identity |
 | Manage → End session | Confirm and request termination of the exact shell and its work |
-| Recent history | Read a bounded output snapshot |
+| History | Search saved Bash/Zsh commands; paste to edit or explicitly review and run |
+| History → Terminal output history | Read a bounded output snapshot |
 | Manage → Remove from history | Hide an ended/exited/lost record; keep machine files and operation identity |
 
 Intentional disconnect stays disconnected through online/visibility events.
@@ -175,3 +176,23 @@ accessibility tree. The real fixture also exercises `top` while resizing and a
 full-screen last-row marker before any input is sent to release it. ANSI colour
 checks read rendered foreground colours after real host SGR output and palette
 changes. Plain application output remains plain; `top` uses `z` for its colour mode.
+
+## Searchable shell command history
+
+History opens a drawer for the selected machine's saved Bash/Zsh commands. Search
+and source filters stay in memory. **Paste to edit** inserts without an extra
+Enter, retaining multiline/control paste review. **Run…** always shows the exact
+command and target before adding Enter. Be at a shell prompt: a foreground editor
+or full-screen program receives terminal input instead. Cancelling Run returns
+to the same search results. A reconnect invalidates pending confirmation; commands
+are never automatically replayed. Terminal output history is a separate action.
+
+Saved history comes from the enrolling OS user's default `.bash_history` and
+`.zsh_history`. Custom HISTFILE/ZDOTDIR locations and other shell formats are not
+read. Open shells may not have saved their latest commands; Ctrl+R at a Bash/Zsh
+prompt also searches current-session history. The account command library remains
+separate and manually curated.
+
+See [the command history contract](terminal-command-history.md) for the private
+extension, bounds, compatibility and verification. Existing agents keep their
+terminal connection and display an update prompt until upgraded and restarted.

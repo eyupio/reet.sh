@@ -46,7 +46,7 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 
 - **Terminal-first control.** Home shows active shells and machine connections. Continue exact sessions, or connect and open a machine's terminals.
 - **An organised session workspace.** Filter across machines, sort and group, colour-code sessions, drag to reorder, resize or collapse the sidebar. Right-click or use keyboard-accessible row actions to rename, disconnect, stop and remove closed history. Layout stays in this browser, separately per account.
-- **Comfortable remote terminals.** Four colour palettes, font/cursor controls, search, clipboard and guarded paste. Save exact commands to your account and explicitly insert them into a live shell without an extra Enter. Stopping can remove history after the machine confirms closure; set its default in Account → Profile.
+- **Comfortable remote terminals.** Four colour palettes, font/cursor controls, search, clipboard and guarded paste. Search a machine’s saved Bash/Zsh history to paste/edit or explicitly review and rerun a command. Keep a separate account command library for reusable snippets, inserted without an extra Enter. Stopping can remove history after the machine confirms closure; set its default in Account → Profile.
 - **One or all machines.** In Sync, choose a library, list, published collection or reported machine scope as the source; select one destination or All machines, then adjust individual scopes. Differences are shown per destination. Saving desired state is separate from previewing and approving changes.
 
 - **Three-stage shelf.** On the shelf, To test, In use. Stage is derived from your flags, never stored out of step.

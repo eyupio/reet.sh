@@ -3,6 +3,7 @@ package terminalbroker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"sync"
 	"time"
@@ -268,7 +269,15 @@ func write(ctx context.Context, c *websocket.Conn, kind websocket.MessageType, d
 	return c.Write(ctx, kind, data)
 }
 
+var ErrCommandHistoryUnsupported = errors.New("machine does not support shell command history")
+
+func (b *Broker) CommandHistory(ctx context.Context, uid int64, session string) ([]byte, error) {
+	return b.history(ctx, uid, session, 1, true)
+}
 func (b *Broker) History(ctx context.Context, uid int64, session string, lines int) ([]byte, error) {
+	return b.history(ctx, uid, session, lines, false)
+}
+func (b *Broker) history(ctx context.Context, uid int64, session string, lines int, commands bool) ([]byte, error) {
 	if !b.start() {
 		return nil, ErrOffline
 	}
@@ -284,13 +293,26 @@ func (b *Broker) History(ctx context.Context, uid int64, session string, lines i
 	if err != nil {
 		return nil, err
 	}
+	if commands {
+		caps, err := b.st.RemoteCapabilitiesFor(uid, s.AgentID)
+		if err != nil || caps.Generation != p.Generation {
+			return nil, ErrOffline
+		}
+		if !caps.Capabilities.CommandHistory {
+			return nil, ErrCommandHistoryUnsupported
+		}
+	}
 	h, e, err := p.expect(session, ID(), "history")
 	if err != nil {
 		return nil, err
 	}
 	defer p.forget(h)
 	defer e.close()
-	reply, err := p.call(ctx, message(h, terminalproto.History{Lines: lines, StreamToken: h.Token}))
+	var body terminalproto.Body = terminalproto.History{Lines: lines, StreamToken: h.Token}
+	if commands {
+		body = terminalproto.CommandHistory{StreamToken: h.Token}
+	}
+	reply, err := p.call(ctx, message(h, body))
 	if err != nil {
 		return nil, err
 	}

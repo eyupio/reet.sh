@@ -492,7 +492,18 @@ profiles show captured coverage, exclusions and revision comparisons, with a gui
 local recovery flow. Syncing a profile transfers metadata, not its encrypted snapshot.
 See [UX rebalance](docs/ux-rebalance.md) and [binary installation](docs/binary-installation.md).
 
-Remote Linux/macOS terminals and host health are available inside **Machines**.
+Remote Linux/macOS terminals have a dedicated **Terminals** workspace. The active-session
+band on **Control** links directly back to each existing shell. The screen fills the
+remaining viewport; session navigation, Disconnect/Reconnect and Manage actions stay
+close by, with machine health and setup under **Details & help**. Legacy Machines
+terminal links still work.
+
+Ctrl+C interrupts (or copies selected output on Windows/Linux); the **Interrupt**
+button always sends Ctrl+C. Ctrl+V/Cmd+V pastes, Ctrl+X stays a shell/editor key,
+and right-click opens Copy/Paste. Shift+right-click keeps the browser menu. Multiple
+lines, control characters and large pastes require review before sending.
+Disconnect leaves the shell running; **End session** stops its work. Removing
+closed sessions from history is planned and is not currently supported.
 Terminals require controller opt-in (`reet terminal start` with HTTPS/accounts)
 and explicit host-local consent, including for root-owned enrollments. Sessions
 survive browser/agent disconnects while tmux remains running. See the

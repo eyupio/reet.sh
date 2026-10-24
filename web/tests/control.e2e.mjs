@@ -106,7 +106,7 @@ try {
  await expect(page.getByRole('heading',{name:'Your central skill library.'})).toBeVisible()
  await expect(page.getByRole('link',{name:'Create a skill',exact:true})).toBeVisible()
  await page.goto(`${base}/terminals`)
- await expect(page.getByRole('heading',{name:'Your machine. Your shell.'})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'Terminals'})).toBeVisible()
  await page.goto(`${base}/machines?view=compare`)
  await expect(page.getByLabel('Destination',{exact:true})).toBeVisible()
  for(const width of [390,768,1440]){

@@ -42,6 +42,17 @@ jobs:
           else
             npx playwright install --with-deps chromium
           fi
+      - name: Exercise dashboard and terminal workspace UI
+        run: |
+          npm --prefix web run preview -- --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/terminal-ui.log" 2>&1 &
+          ui_pid=$!
+          trap 'kill "$ui_pid"' EXIT
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node web/tests/control.e2e.mjs
+          node web/tests/terminal-workspace.e2e.mjs
       - name: Exercise real browser, broker and persistent tmux shell
         env:
           REET_BROWSER_TESTS: '1'

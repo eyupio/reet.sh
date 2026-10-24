@@ -4,9 +4,11 @@
 
 This is the current implementation baseline **and** the continuation plan. Current
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
-**T1 (terminal-first workspace UX) is next.** S1 is implemented on the current
-implementation branch and recorded below; review/save it, then prioritise T1 before
-S2. Do not start the whole roadmap. Historical delivery evidence remains in
+**T1 (terminal-first workspace UX) is implemented on `feat/terminal-first-workspace`.**
+Review its evidence and publication state below. **T2 is next**, completing lifecycle
+edge cases before T3 history maintenance. S1 is merged through PR #139; do not repeat
+it or start S2 ahead of the remaining terminal priorities. Do not start the whole roadmap.
+Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
 limitations. The previous handoff's "no controller-authorized terminal" statement
 and old improvements-branch pointer are superseded by this file.
@@ -14,6 +16,7 @@ and old improvements-branch pointer are superseded by this file.
 Read alongside:
 
 - [Control-centre behaviour and boundaries](docs/control-centre.md).
+- [Terminal workspace behaviour and implementation map](docs/terminal-workspace.md).
 - [Controller sync](docs/controller-sync.md) and
   [verification evidence](docs/controller-sync-verification.md).
 - [Portable agent setup architecture](docs/agent-setup-plan.md), especially format,
@@ -30,9 +33,9 @@ Read alongside:
 use case. Users should land directly in a usable terminal workspace, without
 scrolling past a stack of setup/help/health sections. Session connection and
 maintenance actions need to be easy to find and unambiguous. This requirement
-moves **T1 next**, ahead of S2 and the remaining skill/agent-management roadmap.
-S1 has been implemented and checked as a separate bounded stage; review/save that
-work before T1. Do not discard it or expand it into S2 ahead of terminal UX.
+moved **T1 first**, ahead of S2 and the remaining skill/agent-management roadmap.
+T1 is now implemented in the current branch. S1 is merged as a separate bounded
+stage. Continue with the T2 remainder below; do not expand this terminal work into S2.
 
 ### Required product behaviour
 
@@ -149,7 +152,7 @@ T1/T2 reuse supported actions; implement the T3 contract before exposing persist
 history removal. Read-only observation/shared control are later permission work;
 do not relax current account ownership or viewer restrictions for this redesign.
 
-### T1 [ ] Terminal-first viewport and layout — NEXT TASK
+### T1 [x] Terminal-first viewport and layout — implemented in current branch
 
 Scope: improve the existing terminal route and active-session band using current
 session APIs. No
@@ -199,9 +202,72 @@ Include the Control active-band continuation and clipboard/interrupt cases above
 Gate: web checks/build and existing real terminal browser/lifecycle tests pass;
 no regression in other routes and no hidden change to terminal authorization.
 
-### T2 [ ] Session navigation and clear existing lifecycle controls
+### T1 implementation record — 24 October 2026
+
+- Branch: `feat/terminal-first-workspace`, based on main `cdafcd0` after PR #139
+  merged. This records implemented branch work, not a production deployment.
+  Check current GitHub PR/main state before continuing.
+- Added compact, full-width terminal chrome and a visual-viewport-sized workspace;
+  session navigation is beside the screen on desktop and toggleable on phones.
+  Help, machine health, setup and command reference are in a native dialog.
+- Added the Control active-session hero with exact machine/session continuation,
+  account/write gating, visible-only polling, last-known state and revoked-access
+  clearing. It makes no attachment or creation request until explicitly selected.
+- Added terminal-local Copy/Paste menu, native paste handling, shortcut classifier,
+  selected-output copy, explicit Interrupt and guarded paste focus/feedback.
+  Existing generation fences, quotas, consent and attachment leases remain intact.
+- Rename/End moved to Manage. Disconnect/Reconnect is visible and intentional
+  disconnect survives online/visibility events. No removal/archive API was added.
+- Real browser testing exposed blank screen-reader rows despite visible restored
+  output. Recreating xterm accessibility rows after reset fixes restoration;
+  the real fixture asserts the restored prompt and subsequent output.
+- Added `terminal-workspace.e2e.mjs` and CI production-preview browser coverage;
+  extended the real shell fixture for dashboard continuation, disconnect/reconnect,
+  usable screen bounds and updated toolbar/dialog controls. Resize checks wait for
+  the new dimensions rather than reusing a pre-maximise frame.
+- Checks passed: web unit/Svelte checks (zero errors/warnings), production build,
+  Go vet, full Go race suite, all 16 MCP tests, synthetic Control/workspace browser
+  fixtures and the real Linux tmux/PTY/browser lifecycle fixture. Vite retains its
+  existing bundle-size advisory. See [implementation map](docs/terminal-workspace.md)
+  and verification commands below.
+- Production-bundle synthetic measurements: screen top 214px / height 638px at
+  1360x900 (71%); top 193px / height 560px at 390x844 (66%); 390x420 remained usable
+  with a 136px screen and contained controls. No document scroll or horizontal
+  overflow. Synthetic continuation measured 450ms; real continuation also passed
+  the local under-two-second gate with the same original shell PID.
+- A dev-server timing attempt during concurrent Go compilation exceeded two
+  seconds; production-bundle measurement above was run without that contention.
+  These are local fixture timings, not a production network SLA.
+- Tested two-machine API fixtures, transient 503, denied session access, viewer
+  isolation, native Ctrl+C/Ctrl+X/Ctrl+V, selected-output copy, explicit interrupt,
+  ordinary-field cut, denied clipboard, right-click paste review/cancel, reconnect
+  paste fences, light/dark and desktop/tablet/phone layouts.
+- Not performed: physical phone/IME/OS keyboard testing, native macOS/Windows
+  runtime, production relay/fleet deployment or AI-agent activity detection.
+- **Exact next task: T2 remainder below.** After its gate, implement T3's persistent
+  history contract before exposing Remove from history. Do not repeat T1 or S1.
+
+### T2 [ ] Session navigation and clear existing lifecycle controls — NEXT TASK
 
 Depends on T1. Reuse existing APIs and `TerminalConnection.detach/connect/recover`.
+
+**Already delivered with T1:** machine selector, searchable per-machine session
+sidebar, selected/lifecycle labels, Manage → Rename/End, explicit New session,
+Disconnect/Reconnect, exact deep links, immutable confirmation IDs and intentional
+disconnect recovery test. Do not recreate these controls. T2 is a focused follow-up
+for the remaining coverage and navigation gaps:
+
+- Make machine selection searchable at larger fleet sizes; expose enough selected
+  host/user context when the phone sidebar is closed.
+- Exercise two real shells across machine/session switches, delayed poll/create
+  responses, offline pending end, quotas, revoked access and takeover using actual
+  controls. Preserve IDs, leases and the old shell throughout; fix evidenced races.
+- Confirm rename and successful End target only the immutable confirmed session
+  while selection changes. Add ambiguous-create-response UI retry coverage beyond
+  the existing in-flight machine-switch test.
+- Retain original requirements below as the acceptance checklist. T1 synthetic
+  coverage and transport/API tests do not by themselves complete this entire gate.
+
 
 1. Add a searchable machine/session list with clear selected context, session
    title, lifecycle state and attachment status. Keep unavailable machines and
@@ -441,8 +507,8 @@ Later steering prioritises the terminal workspace as the main everyday use case.
 Priorities, in order (terminal UX moved first by the user on 24 October):
 
 1. **T — Make terminals the primary usable workspace:** viewport layout, clear
-   session navigation/controls and safe history maintenance (T1–T3). Finish/save
-   completed S1 first; do not start S2 ahead of T1.
+   session navigation/controls and safe history maintenance (T1–T3). Finish
+   the T2 remainder next, then T3; do not start S2 ahead of terminal maintenance.
 2. **S — Complete the skill foundation:** versioned bundles, content-level drift,
    reviewed local edits, safe one/many-machine transfer and verification.
 3. **A — Make remote work convenient:** registered agent capabilities, project
@@ -473,7 +539,7 @@ recovery as a fully working recovered agent environment.
    base when network/authentication are available. Preserve existing edits.
    PR #135's branch is already merged; use a new branch from current main for the
    next implementation PR, carrying any authorised local edits safely.
-3. Pick **one unchecked task**, starting with T1 after saving the current S1 work. Do not build a later UI button
+3. Pick **one unchecked task**, starting with the T2 remainder after reviewing T1. Do not build a later UI button
    or remote mutation endpoint while its prerequisite is absent. Do not turn
    this whole roadmap into one PR.
 4. Before editing, state the task ID, files affected, expected behaviour and checks.
@@ -515,7 +581,7 @@ machine B and/or other targets, preview, approve, apply, and verify the expected
 contents. A conflicting edit on B must stop that destination without undoing or
 concealing success elsewhere. Nothing becomes publicly hosted merely by importing.
 
-### S1 [x] Read-only local bundle manifest — implemented in current branch; T1 next
+### S1 [x] Read-only local bundle manifest — merged in PR #139
 
 Scope: a deterministic manifest and local comparison helper with fixture tests.
 Do not add remote uploads, SQLite migrations, a web editor or filesystem writes.
@@ -567,9 +633,10 @@ change the public meaning of "in sync" or claim live content sync exists.**
 
 - Branch: `feat/skill-bundle-manifests`, rebased onto main `6c28b50` after the
   documentation PR [#137](https://github.com/eyupio/reet.sh/pull/137) merged.
-- Source implementation commit: `5f18459e26a7605217d2f6642f66ed879de29ddf`. This is branch
-  implementation, not a claim that S1 has merged or shipped. Check the implementation
-  PR state before building on it.
+- Source implementation commit: `5f18459e26a7605217d2f6642f66ed879de29ddf`.
+  PR [#139](https://github.com/eyupio/reet.sh/pull/139) was verified merged on
+  24 October 2026; main is `cdafcd0` at the start of T1 final verification.
+  Merged source does not establish production deployment.
 - Added `internal/skillbundle`: read-only bounded root-confined Scan, schema-v1
   SHA-256 manifests, POSIX executable-bit semantics, pure directional Compare and
   fail-closed unknown outcomes for incomplete/incompatible/malformed observations.
@@ -585,9 +652,8 @@ change the public meaning of "in sync" or claim live content sync exists.**
   cross-compilation. Cross-compilation is not native platform runtime validation.
 - No UI/session transport changed; no real machine, provider, release or production
   deployment was used. Vite retains its existing bundle-size advisory.
-- **Exact next task is T1**, including the Control active-session hero/quick links,
-  viewport-first terminal and the keyboard/mouse/clipboard contract. Do not start
-  S2 merely because it is the next content dependency.
+- **T1 is implemented in the current branch; T2 is next.** Do not start S2
+  merely because it is the next content dependency.
 
 ### S2 [ ] Private immutable revision store and ownership
 
@@ -948,6 +1014,7 @@ Then, from the repository root:
 
 ```sh
 node web/tests/control.e2e.mjs
+node web/tests/terminal-workspace.e2e.mjs
 ```
 
 `REET_UI_URL` can select another dev URL. `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`
@@ -1010,17 +1077,17 @@ working agent authentication or complete environment recovery.
 
 ## Ready-to-use continuation brief
 
-> Continue reet.sh from handoff.md. First inspect the branch, worktree and current
-> main without resetting edits. Save/review any existing S1 implementation; do not
-> duplicate it or proceed to S2. The next priority is T1: make /terminals a primary
-> viewport-filling workspace. Inspect App.svelte, Machines.svelte,
-> TerminalWorkspace.svelte, TerminalPane.svelte, TerminalCommandReference.svelte
-> and terminal browser fixtures. Keep the active terminal visible without page
-> scrolling; make context/actions compact and move health/help to secondary
-> panels. Add Control active-session quick links that resume the same shell and
-> familiar keyboard/right-click clipboard behaviour under the documented rules. Preserve the existing shell, attachment leases, disconnect/reconnect,
-> input safety and account/host consent. Do not add unsupported delete controls,
-> a new transport, an agent launcher or skill-content apply in this task. Verify
-> measured screen bounds at desktop/phone widths, actual terminal resize/focus
-> and the same shell process through layout changes. Run relevant checks, then
-> update task status, evidence and next step. Keep the PR limited to T1.
+> Continue reet.sh from handoff.md. Inspect the branch, worktree, current main and
+> PR state without resetting edits. S1 is merged; T1 is implemented in
+> feat/terminal-first-workspace. Review the T1 evidence and avoid duplicating it.
+> Take the T2 remainder as one bounded task: improve machine search/compact phone
+> context and prove lifecycle edge cases through actual controls. Read
+> TerminalWorkspace.svelte, TerminalPane.svelte, connection.ts, api.ts,
+> terminal-workspace.e2e.mjs, terminal.e2e.mjs and the Go terminal fixtures first.
+> Preserve viewport-first layout, the Control active-session hero, safe clipboard
+> behaviour, immutable session IDs, host consent and attachment leases. Exercise
+> delayed creation/polling, switch contexts, rename/end confirmation targeting,
+> offline pending end, quotas, denied access and takeover. Fix evidenced races;
+> do not rewrite working transport. Do not add history removal until T3 supplies
+> its persistent archive contract. Finish web build before Go checks, run the
+> browser fixtures, record evidence/limitations, and update the exact next task.

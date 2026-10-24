@@ -5,6 +5,7 @@
   import PageHeader from './PageHeader.svelte'
   import MachineFleet from './MachineFleet.svelte'
   import FleetActions from './FleetActions.svelte'
+  import ActiveSessions from './terminal/ActiveSessions.svelte'
   let { canWrite, terminalAccess, monitorAccess }: { canWrite: boolean; terminalAccess: boolean; monitorAccess: boolean } = $props()
   let snapshot = $state<SyncState>({ environments: [], targets: [] })
   let loading = $state(true), error = $state(''), notice = $state(''), received = $state(0), now = $state(Date.now())
@@ -32,6 +33,7 @@
 <PageHeader eyebrow="Ey up. Everything in hand." title="Your machines. One control centre." lede="Keep skills on reet.sh, sync them across your machines, and open a terminal wherever the work is.">
   {#snippet actions()}<a class="btn" href="/skills">Skill library</a>{#if canWrite}<a class="btn primary" href="/machines#connect-machine">Connect a machine</a>{/if}{/snippet}
 </PageHeader>
+{#if terminalAccess}<ActiveSessions />{/if}
 <nav class="workflow" aria-label="Control workflow"><a href="/skills"><span>01</span><strong>Maintain skills</strong><small>Your central library</small></a><b aria-hidden="true">↔</b><a href="/sync"><span>02</span><strong>Choose &amp; sync</strong><small>Reet ↔ machine ↔ machine</small></a><b aria-hidden="true">→</b><a href={terminalAccess ? '/terminals' : '/machines'}><span>03</span><strong>Put them to work</strong><small>{terminalAccess ? 'Open a remote terminal' : 'Inspect your machines'}</small></a></nav>
 {#if error}<div class="notice bad" role="alert">{error} <button class="btn" onclick={() => void refresh()}>Retry</button></div>{/if}
 {#if notice}<p role="status">{notice}</p>{/if}

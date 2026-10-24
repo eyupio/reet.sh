@@ -95,3 +95,32 @@ test('health preserves missing readings and distinguishes last-known observation
   assert.equal(uptime(null), '—')
   assert.equal(readiness({ready:true,capabilities:{osUser:'root',terminalControl:true,terminalEnabled:true,readiness:'ready'}}),'')
 })
+
+const { terminalShortcut } = await import(url(transpile('keyboard')))
+test('terminal shortcuts preserve interrupts and editor keys while using native paste exactly once', () => {
+  const key = (name, changes = {}) => ({ type:'keydown',key:name,ctrlKey:true,metaKey:false,shiftKey:false,altKey:false,...changes })
+  assert.equal(terminalShortcut(key('c'),false,false),'terminal')
+  assert.equal(terminalShortcut(key('c'),true,false),'copy')
+  assert.equal(terminalShortcut(key('c'),true,true),'terminal')
+  assert.equal(terminalShortcut(key('c',{shiftKey:true}),false,false),'copy')
+  assert.equal(terminalShortcut(key('c',{ctrlKey:false,metaKey:true}),true,true),'copy')
+  for (const mac of [true,false]) for (const shiftKey of [true,false]) assert.equal(terminalShortcut(key('v',{shiftKey}),false,mac),'native-paste')
+  assert.equal(terminalShortcut(key('v',{ctrlKey:false,metaKey:true}),false,true),'native-paste')
+  for (const name of ['x','a','d','z','Tab','Escape']) assert.equal(terminalShortcut(key(name),false,false),'terminal')
+  assert.equal(terminalShortcut(key('v',{type:'keyup'}),false,false),'terminal')
+  assert.equal(terminalShortcut(key('v',{altKey:true}),false,false),'terminal')
+})
+test('manual disconnect survives online/visibility recovery until explicitly reconnecting', async () => {
+  const f=fixture()
+  try {
+    let socket=await f.open();socket.message(new Uint8Array([65]).buffer);f.renders.at(-1).done()
+    f.connection.detach()
+    const count=f.sockets.length
+    f.connection.recover();f.connection.recover()
+    assert.equal(f.sockets.length,count)
+    assert.equal(f.states.at(-1),'detached')
+    assert.equal(f.connection.text('do not replay'),false)
+    socket=await f.open();socket.message(new Uint8Array([66]).buffer);f.renders.at(-1).done()
+    assert.equal(f.states.at(-1),'live')
+  } finally { f.cleanup() }
+})

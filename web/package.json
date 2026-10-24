@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "preview": "vite preview",
     "build": "vite build && touch dist/.gitkeep",
     "check": "npm run test && svelte-check --tsconfig ./tsconfig.json",
     "test": "node src/lib/machines.test.mjs && node src/lib/fleet.test.mjs && node src/lib/machineSetup.test.mjs && node src/lib/rebalance.test.mjs && node tests/terminal.test.mjs"

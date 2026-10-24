@@ -105,6 +105,6 @@ export class TerminalConnection {
   text(text: string): boolean { return this.send(new TextEncoder().encode(text)) }
   resize(cols: number, rows: number) { if (this.state === 'live' && this.socket?.readyState === WebSocket.OPEN) {try {this.socket.send(JSON.stringify({ type: 'resize', cols, rows }))}catch{this.interrupt(this.epoch,'Resize interrupted; restoring the existing shell.')}} }
   recover() { if (this.state === 'reconnecting' || this.state === 'connecting') { this.backoff = 1000; void this.connect() } }
-  detach() { this.manual = true; ++this.epoch; this.clear(); this.set('detached', 'Detached. The shell continues running on the machine.') }
+  detach() { this.manual = true; ++this.epoch; this.clear(); this.set('detached', 'Disconnected from this browser. The shell keeps running on the machine.') }
   dispose() { this.disposed = true; this.manual = true; ++this.epoch; this.clear() }
 }

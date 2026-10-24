@@ -992,11 +992,13 @@ recovery as a fully working recovered agent environment.
    branch state here are a dated baseline, not permission to reset local work.
 2. Run `git status --short`, inspect the current branch/log and fetch the current
    base when network/authentication are available. Preserve existing edits.
-   PR #135's branch is already merged; use a new branch from current main for the
-   next implementation PR, carrying any authorised local edits safely.
-3. Pick **one unchecked task**, starting with T3 after reviewing T2. Do not build a later UI button
-   or remote mutation endpoint while its prerequisite is absent. Do not turn
-   this whole roadmap into one PR.
+   Confirm the PR #171 checkpoint through its live PR/CI/merge record. The user
+   requested a pause after that PR; do not open a new implementation branch yet.
+   Only after the user resumes, start from current main and preserve local edits.
+3. After explicit resumption, pick **one bounded S4 metadata-preview slice** from
+   the current checkpoint and docs/skill-content-targets.md. T1–T9 and S1–S3 are
+   complete; do not restart T3 or earlier work. Do not build an execution/UI control
+   before its prerequisite is present or turn the whole roadmap into one PR.
 4. Before editing, state the task ID, files affected, expected behaviour and checks.
    Resolve routine implementation choices from existing conventions. If a domain
    decision genuinely remains open, record the question and continue independent
@@ -1337,7 +1339,10 @@ Read [docs/skill-content-targets.md](docs/skill-content-targets.md).
 - Full local validation passed: frontend check/build with zero Svelte diagnostics,
   `go vet ./...`, full `go test -race ./...` with tmux 3.5a on PATH, and all 16 MCP
   tests. No browser UI, live machines, services or sessions were changed. The
-  published workflows must pass for the final PR head before merge.
+  published workflows must pass for the final PR head before merge. The final
+  implementation (including rename integration) is `43f083a`; later commits in
+  this PR update documentation only. PR #171 remains the authoritative record
+  of its final documentation head, published checks and merge state.
 - Next: negotiated metadata-only capture bound to pin ID/version and current
   inventory/connection identities, local root identity/aliases, then trusted planner
   input and truthful review. A pin change away and back must invalidate old review
@@ -1713,14 +1718,14 @@ working agent authentication or complete environment recovery.
 ## Ready-to-use continuation brief — only after the user resumes
 
 > Work is paused after PR #171 at the user's request. Do not start a new stage
-> until the user explicitly resumes. When resumed, continue reet.sh from handoff.md. Inspect branch, worktree, main and PR states
-> without resetting edits. Terminal T1–T9 priorities are merged through PR #155.
+> until the user explicitly resumes. When resumed, continue reet.sh from handoff.md.
+> Inspect branch, worktree, main and PR states without resetting edits. Terminal T1–T9 priorities are merged through PR #155.
 > S2 private revision storage/API merged through PR #156. Read its storage contract.
 > S3 is complete through PRs #161/#164/#168; browser import merged as `7e2c992`.
 > S4 pure planner merged in PR #169 (`d494543`), both workflows green for `7595bc9`.
 > Owned revision pins/storage/API are implemented in PR #171 on feat/private-content-target-pins;
-> confirm its final head/CI/merge through the PR link. This is the pause checkpoint. Read docs/skill-content-targets.md and the planner
-> contract. Next implement only negotiated metadata preview; executor/receipts follow. Keep
+> confirm its final head/CI/merge through the PR link. This is the pause checkpoint.
+> Read docs/skill-content-targets.md and the planner contract. Next implement only negotiated metadata preview; executor/receipts follow. Keep
 > ownership, exact byte/mode manifests, stable retry receipts, reviewed sync and
 > existing terminal sessions intact. Do not jump to remote apply or the whole roadmap.
 > Build the frontend before Go checks, record actual evidence, update this handoff

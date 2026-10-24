@@ -54,6 +54,7 @@ async function live(){await expect(pane).toHaveAttribute('data-connection-state'
 async function bounds(width,height){
  await page.setViewportSize({width,height})
  await expect.poll(async()=>screen.evaluate(element=>Math.round(element.getBoundingClientRect().height))).toBeGreaterThan(height*(height<600?.2:width<650?.5:.6))
+ await expect.poll(async()=>screen.evaluate(element=>Math.round(element.getBoundingClientRect().bottom))).toBeLessThanOrEqual(height+1)
  const b=await screen.boundingBox()
  console.log(`Screen ${width}x${height}: top=${Math.round(b.y)}, height=${Math.round(b.height)} (${Math.round(b.height/height*100)}%)`)
  expect((await pane.boundingBox()).y).toBeLessThan(160)

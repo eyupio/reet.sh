@@ -225,7 +225,9 @@ no regression in other routes and no hidden change to terminal authorization.
 - Added `terminal-workspace.e2e.mjs` and CI production-preview browser coverage;
   extended the real shell fixture for dashboard continuation, disconnect/reconnect,
   usable screen bounds and updated toolbar/dialog controls. Resize checks wait for
-  the new dimensions rather than reusing a pre-maximise frame.
+  the new dimensions rather than reusing a pre-maximise frame. CI exposed a
+  viewport-shrink assertion race; the fixture now waits for the resized screen
+  bottom to fit as well as checking minimum usable height.
 - Checks passed: web unit/Svelte checks (zero errors/warnings), production build,
   Go vet, full Go race suite, all 16 MCP tests, synthetic Control/workspace browser
   fixtures and the real Linux tmux/PTY/browser lifecycle fixture. Vite retains its

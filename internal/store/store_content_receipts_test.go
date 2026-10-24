@@ -1202,6 +1202,53 @@ func TestAdoptIsIdempotentAndConsumesThePreview(t *testing.T) {
 	}
 }
 
+func TestAdoptOnceReportsWhetherThisCallCreatedTheReceipt(t *testing.T) {
+	e := previewFixture(t)
+	p := capturedPreview(t, e, "adopt_once_preview_000001", matching(e))
+	in := adoption("adopt_once_request_000001", p, e.pin.RevisionID)
+	first, created, err := e.s.AdoptSkillContentPreviewOnceFor(e.uid, in)
+	if err != nil || !created || first.ID == "" {
+		t.Fatal("the first adoption creates the receipt", first, created, err)
+	}
+
+	// An identical retry returns the original and says it created nothing; the
+	// older method keeps returning the same receipt without saying either.
+	again, created, err := e.s.AdoptSkillContentPreviewOnceFor(e.uid, in)
+	if err != nil || created || !reflect.DeepEqual(again, first) {
+		t.Fatalf("an identical retry must return the original without creating: %+v %v %v", again, created, err)
+	}
+	if plain, err := e.s.AdoptSkillContentPreviewFor(e.uid, in); err != nil || !reflect.DeepEqual(plain, first) {
+		t.Fatalf("the wrapper must keep its behaviour: %+v %v", plain, err)
+	}
+
+	// A refusal creates nothing and returns no receipt.
+	changed := in
+	changed.ReviewHash = strings.Repeat("0", 64)
+	if got, created, err := e.s.AdoptSkillContentPreviewOnceFor(e.uid, changed); !errors.Is(err, ErrSkillContentReceipt) || created || got.ID != "" {
+		t.Fatal("a changed request reused a key:", got, created, err)
+	}
+	if receiptRows(t, e) != 1 {
+		t.Fatal(receiptRows(t, e))
+	}
+
+	// After a release, a replay stays refused and a new preview is a new decision.
+	if err = e.s.ReleaseSkillContentReceiptFor(e.uid, first.ID, first.Version); err != nil {
+		t.Fatal(err)
+	}
+	if got, created, err := e.s.AdoptSkillContentPreviewOnceFor(e.uid, in); !errors.Is(err, ErrSkillContentReceipt) || created || got.ID != "" {
+		t.Fatal("a replay after release must not claim the folder again:", got, created, err)
+	}
+	fresh := capturedPreview(t, e, "adopt_once_preview_000002", matching(e))
+	next := adoption("adopt_once_request_000002", fresh, e.pin.RevisionID)
+	second, created, err := e.s.AdoptSkillContentPreviewOnceFor(e.uid, next)
+	if err != nil || !created || second.ID == first.ID {
+		t.Fatal("a new preview after a release is a new adoption", second, created, err)
+	}
+	if again, created, err = e.s.AdoptSkillContentPreviewOnceFor(e.uid, next); err != nil || created || !reflect.DeepEqual(again, second) {
+		t.Fatalf("and its own retry creates nothing: %+v %v %v", again, created, err)
+	}
+}
+
 func TestAdoptConcurrentRequestsCreateOneReceipt(t *testing.T) {
 	e := previewFixture(t)
 	first := capturedPreview(t, e, "adopt_concurrent_preview1", matching(e))

@@ -189,6 +189,52 @@ func TestSkillContentReceiptAPIAdoptsReleasesAndStaysMetadataOnly(t *testing.T) 
 	}
 }
 
+func TestSkillContentReceiptAPIReplayLogsOneAdoption(t *testing.T) {
+	h := newPreviewHarness(t)
+	h.negotiate()
+	p := h.captured("receipt_replay_preview_01")
+	body := h.adoptBody("receipt_replay_adopt_001", p)
+	var first, again store.SkillContentReceipt
+	for _, into := range []*store.SkillContentReceipt{&first, &again} {
+		w := h.browser("POST", receiptRoot, body)
+		if e := json.Unmarshal(w.Body.Bytes(), into); w.Code != 200 || e != nil || into.ID == "" {
+			t.Fatal(w.Code, w.Body.String(), e)
+		}
+	}
+	if !reflect.DeepEqual(again, first) {
+		t.Fatalf("an identical retry should answer with the original record: %+v %+v", again, first)
+	}
+	// A retry that is refused leaves no trace either.
+	changed := h.adoptBody("receipt_replay_adopt_001", p)
+	changed = strings.Replace(changed, p.ReviewHash, strings.Repeat("0", 64), 1)
+	if w := h.browser("POST", receiptRoot, changed); w.Code != 409 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if _, detail := receiptEvent(t, h.st, h.uid, "skill-content-adopt"); !reflect.DeepEqual(detail, map[string]any{"name": "demo", "files": float64(2), "receiptId": first.ID}) {
+		t.Fatal(detail)
+	}
+}
+
+// A receipt row so damaged that even the list cannot read it is still released,
+// and its event then carries no name for the label to guess at.
+func TestSkillContentReceiptAPIReleaseEventOmitsAnUnknownName(t *testing.T) {
+	h := newPreviewHarness(t)
+	h.negotiate()
+	receipt := h.adopt("receipt_noname_adopt_01", h.captured("receipt_noname_preview_1"))
+	if _, e := h.rawDB().Exec(`UPDATE skill_content_receipts SET schema_version='not a number' WHERE id=?`, receipt.ID); e != nil {
+		t.Fatal(e)
+	}
+	if w := h.browser("GET", receiptRoot, ""); w.Code != 500 {
+		t.Fatal("the fixture should make the list itself fail", w.Code, w.Body.String())
+	}
+	if w := h.browser("DELETE", receiptRoot+"/"+receipt.ID, fmt.Sprintf(`{"expectedVersion":%q}`, receipt.Version)); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if _, detail := receiptEvent(t, h.st, h.uid, "skill-content-release"); !reflect.DeepEqual(detail, map[string]any{"receiptId": receipt.ID}) {
+		t.Fatal("an unknown name should be left out, not recorded as empty", detail)
+	}
+}
+
 func TestSkillContentReceiptAPIBoundaries(t *testing.T) {
 	h := newPreviewHarness(t)
 	h.negotiate()
@@ -278,7 +324,7 @@ func TestSkillContentReceiptAPIBoundaries(t *testing.T) {
 	receipt := h.adopt(key, p)
 	path, release := receiptRoot+"/"+receipt.ID, fmt.Sprintf(`{"expectedVersion":%q}`, receipt.Version)
 	run([]boundary{
-		{"slot that already has a record", "POST", receiptRoot, h.adoptBody("receipt_boundary_adopt_02", p), h.cookie, origin, 409, conflict},
+		{"preview superseded by an existing record", "POST", receiptRoot, h.adoptBody("receipt_boundary_adopt_02", p), h.cookie, origin, 409, conflict},
 		{"foreign account's record", "GET", path, "", otherCookie, "", 404, missing},
 		{"foreign account's release", "DELETE", path, release, otherCookie, origin, 404, missing},
 		{"release without a version", "DELETE", path, `{}`, h.cookie, origin, 400, invalid},

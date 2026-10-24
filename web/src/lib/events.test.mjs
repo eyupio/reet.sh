@@ -10,6 +10,11 @@ test('ownership receipt events read as plain sentences from their metadata', () 
   assert.equal(eventLabel(event('skill-content-adopt', { name: 'demo', files: 3, receiptId: 'a'.repeat(48) })), 'Recorded ownership of 3 files of demo')
   assert.equal(eventLabel(event('skill-content-release', { name: 'demo', receiptId: 'a'.repeat(48) })), 'Released ownership of demo')
 })
+test('one adopted file reads as "1 file", and a release without a name still reads', () => {
+  assert.equal(eventLabel(event('skill-content-adopt', { name: 'demo', files: 1, receiptId: 'a'.repeat(48) })), 'Recorded ownership of 1 file of demo')
+  assert.equal(eventLabel(event('skill-content-release', { receiptId: 'a'.repeat(48) })), 'Released ownership of a skill')
+  assert.equal(eventLabel(event('skill-content-release')), 'Released ownership of a skill')
+})
 test('other activity labels are unchanged', () => {
   assert.equal(eventLabel(event('add', { name: 'demo' })), 'Added demo')
   assert.equal(eventLabel(event('merge-machines', { from: 'old', to: 'new' })), 'Consolidated machine old as new')

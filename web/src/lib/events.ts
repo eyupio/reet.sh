@@ -223,7 +223,7 @@ export function eventLabel(e: Event): string {
     case 'backup-remote-remove':
       return `Removed backup destination ${d.name || ''}`.trim()
     case 'skill-content-adopt':
-      return `Recorded ownership of ${d.files ?? 0} files of ${name}`
+      return `Recorded ownership of ${d.files === 1 ? '1 file' : `${d.files ?? 0} files`} of ${name}`
     case 'skill-content-release':
       return `Released ownership of ${name}`
   }

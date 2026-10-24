@@ -8,9 +8,10 @@ import (
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
-// Ownership records are the library's claim that a skill folder on one machine
-// holds files it provably published. Browsers adopt a reviewed preview and release
-// a record; neither can name a file, choose a path or touch a machine.
+// A receipt records which files of a skill folder on one machine the controller
+// attested were published from the library: verification is "controller_attested",
+// never a check of the disk. Browsers adopt a reviewed preview and release a record;
+// neither can name a file, choose a path or touch a machine.
 func (s *server) registerSkillContentReceipts(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/skill-content-receipts", s.privateSkillAccess(s.skillContentReceipts))
 	mux.HandleFunc("POST /api/v2/skill-content-receipts", s.privateSkillAccess(s.skillContentReceiptAdopt))
@@ -59,13 +60,16 @@ func (s *server) skillContentReceiptAdopt(w http.ResponseWriter, r *http.Request
 	if !decodeStrictJSON(w, r, 16<<10, &in, "Invalid or oversized ownership record request.") {
 		return
 	}
-	out, err := s.st.AdoptSkillContentPreviewFor(s.uid(r), in)
+	out, created, err := s.st.AdoptSkillContentPreviewOnceFor(s.uid(r), in)
 	if err != nil {
 		skillContentReceiptError(w, err)
 		return
 	}
 	// The record is already committed; the event is a convenience trail of ids and counts.
-	s.eventRequest(r, "skill-content-adopt", "", map[string]any{"name": out.Name, "files": out.FileCount, "receiptId": out.ID})
+	// An identical retry answers with the original record and logs nothing again.
+	if created {
+		s.eventRequest(r, "skill-content-adopt", "", map[string]any{"name": out.Name, "files": out.FileCount, "receiptId": out.ID})
+	}
 	writeJSON(w, 200, out)
 }
 
@@ -88,6 +92,7 @@ func (s *server) skillContentReceiptRelease(w http.ResponseWriter, r *http.Reque
 		for _, receipt := range receipts {
 			if receipt.ID == id {
 				name = receipt.Name
+				break
 			}
 		}
 	}
@@ -95,6 +100,11 @@ func (s *server) skillContentReceiptRelease(w http.ResponseWriter, r *http.Reque
 		skillContentReceiptError(w, err)
 		return
 	}
-	s.eventRequest(r, "skill-content-release", "", map[string]any{"name": name, "receiptId": id})
+	// A name that could not be read is left out, so the label falls back to "a skill".
+	detail := map[string]any{"receiptId": id}
+	if name != "" {
+		detail["name"] = name
+	}
+	s.eventRequest(r, "skill-content-release", "", detail)
 	writeJSON(w, 200, map[string]bool{"removed": true})
 }

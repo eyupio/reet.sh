@@ -417,16 +417,25 @@ func adoptionOffer(q privateSkillQuery, uid int64, p SkillContentPreview) (*Skil
 	return offer, nil
 }
 
-// AdoptSkillContentPreviewFor records which files of a reviewed skill folder this
-// account's library provably owns. The design's checks run in its order inside one
-// transaction whose first write takes the account lock, so two adoptions of one
+// AdoptSkillContentPreviewFor is AdoptSkillContentPreviewOnceFor for callers that
+// do not need to know whether this call created the receipt.
+func (s *Store) AdoptSkillContentPreviewFor(uid int64, in SkillContentAdopt) (SkillContentReceipt, error) {
+	out, _, err := s.AdoptSkillContentPreviewOnceFor(uid, in)
+	return out, err
+}
+
+// AdoptSkillContentPreviewOnceFor records which files of a reviewed skill folder
+// this account's library provably owns. The design's checks run in its order inside
+// one transaction whose first write takes the account lock, so two adoptions of one
 // slot cannot both succeed. The claim is computed here from the stored capture and
 // the stored revision: only files equal in path, size, digest and executable bit,
 // and SKILL.md among them. Adoption is create-only, consumes its preview and sends
-// nothing to the machine.
-func (s *Store) AdoptSkillContentPreviewFor(uid int64, in SkillContentAdopt) (out SkillContentReceipt, err error) {
+// nothing to the machine. created is true only when this call inserted the receipt:
+// an identical retry of a request key returns the original with created false, so a
+// caller can log the decision once.
+func (s *Store) AdoptSkillContentPreviewOnceFor(uid int64, in SkillContentAdopt) (out SkillContentReceipt, created bool, err error) {
 	if !privateSkillRequestID.MatchString(in.RequestKey) || !contentobs.ValidID(in.PreviewID) || !skillContentReviewHash.MatchString(in.ReviewHash) || !privateSkillID.MatchString(in.AdoptAsRevisionID) {
-		return out, ErrSkillContentReceiptInvalid
+		return out, false, ErrSkillContentReceiptInvalid
 	}
 	err = s.withTx(func(tx *sql.Tx) error {
 		// 1. An active writer. A repeated request key replays the original receipt
@@ -554,8 +563,12 @@ func (s *Store) AdoptSkillContentPreviewFor(uid int64, in SkillContentAdopt) (ou
 			return e
 		}
 		out, e = row.verified(tx, uid)
+		created = e == nil
 		return e
 	})
+	if err != nil {
+		created = false
+	}
 	return
 }
 

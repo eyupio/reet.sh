@@ -181,7 +181,7 @@ try{
  const terminalRequests=[]
  page.on('request',request=>{if(new URL(request.url()).pathname.startsWith('/api/v2/terminal/'))terminalRequests.push(request.url())})
  await page.goto(base)
- await expect(page.getByRole('heading',{name:'Your machines. One control centre.'})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'Your machines. Within reach.'})).toBeVisible()
  await expect(page.locator('#active-sessions')).toHaveCount(0)
  expect(terminalRequests).toEqual([])
  expect(errors).toEqual([])

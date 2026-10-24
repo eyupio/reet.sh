@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { Terminal, type ITheme } from '@xterm/xterm'
   import { FitAddon } from '@xterm/addon-fit'
   import { SearchAddon } from '@xterm/addon-search'
@@ -8,6 +8,12 @@
   import { TerminalConnection, type ConnectionState } from './connection'
   import { terminalHistory, terminalClosed, type TerminalSession } from './api'
   import { terminalShortcut } from './keyboard'
+  import WorkspaceDialog from './WorkspaceDialog.svelte'
+  import TerminalAppearance from './TerminalAppearance.svelte'
+  import CommandLibrary from './CommandLibrary.svelte'
+  import TerminalIcon from './TerminalIcon.svelte'
+  import {paletteFor,terminalPalettes,type CursorShape} from './themes'
+  import type {TerminalCommand} from './api'
 
   let { session, host, user = '', onrename, onend, onarchive, archiveDisabled=false, actionDisabled = false }: { session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; onarchive?:()=>void; archiveDisabled?:boolean; actionDisabled?: boolean } = $props()
   let element = $state<HTMLDivElement>()
@@ -22,16 +28,26 @@
   let feedback = $state(''), snapshot = $state<string|null>(null), historyBusy = $state(false)
   let pendingPaste = $state<{text:string;generation:number}|null>(null), generation=0, alive=true
   const historyAbort=new AbortController()
+  let appearanceOpen=$state(false),commandsOpen=$state(false),palette=$state('system'),cursor=$state<CursorShape>('bar')
+  let applyTheme:(()=>void)|undefined
   let modifier = $state<'Ctrl'|'Alt'|null>(null)
+  export function disconnect(){connection?.detach()}
+  function choosePalette(id:string){palette=id;try{localStorage.setItem('reet-terminal-palette',id)}catch{/* optional preference */}applyTheme?.()}
+  function chooseCursor(shape:CursorShape){cursor=shape;if(terminal)terminal.options.cursorStyle=shape;try{localStorage.setItem('reet-terminal-cursor',shape)}catch{/* optional preference */}}
+  async function insertSaved(item:TerminalCommand){
+    const intended=generation;commandsOpen=false;await tick()
+    if(!alive||intended!==generation||!live){feedback='Connection changed. Open Commands again after reconnecting; nothing was inserted.';return}
+    paste(item.command,/\t/.test(item.command));restoreFocus()
+  }
   function find(next=true) { found=!query||!!(next?search?.findNext(query,{caseSensitive:false,regex:false}):search?.findPrevious(query,{caseSensitive:false,regex:false})) }
   function changeFont(delta:number) { fontSize=Math.min(22,Math.max(10,fontSize+delta));if(terminal)terminal.options.fontSize=fontSize;try{localStorage.setItem('reet-terminal-font',String(fontSize))}catch{/* preferences are optional */}fitTerminal?.() }
   function restoreFocus() { if(alive&&!pendingPaste&&snapshot===null&&!document.querySelector('dialog[open]'))terminal?.focus() }
   async function copy() { const text=terminal?.getSelection();if(!text){feedback='Select terminal text first.';return}try{await navigator.clipboard.writeText(text);feedback='Selection copied.'}catch{feedback='Clipboard access was denied. Use your browser’s copy command.'}finally{restoreFocus()} }
-  function paste(text:string) {
+  function paste(text:string,review=false) {
     feedback=''
     if(!live){feedback='Reconnect before pasting. Nothing was sent.';return}
     if(new TextEncoder().encode(text).length>240*1024){feedback='Paste is too large. Limit it to 240 KiB.';return}
-    if(/[\r\n\x00-\x08\x0b-\x1f\x7f]/.test(text)||text.length>2000)pendingPaste={text,generation}
+    if(review||/[\r\n\x00-\x08\x0b-\x1f\x7f]/.test(text)||text.length>2000)pendingPaste={text,generation}
     else {modifier=null;terminal?.paste(text)}
   }
   function confirmPaste() { const pending=pendingPaste;pendingPaste=null;if(!pending)return;if(!live||pending.generation!==generation){feedback='Connection changed. Paste again after reconnecting; nothing was sent.';return}modifier=null;terminal?.paste(pending.text);terminal?.focus() }
@@ -70,7 +86,8 @@
     if (!element) return
     const fit = new FitAddon()
     try{const stored=Number(localStorage.getItem('reet-terminal-font'));if(stored>=10&&stored<=22)fontSize=stored}catch{/* optional preference */}
-    const term = new Terminal({ cursorBlink:true,fontSize:14,fontFamily:'"DejaVu Sans Mono", "SFMono-Regular", Consolas, monospace',scrollback:5000,screenReaderMode:true,allowProposedApi:false,windowOptions:{},minimumContrastRatio:4.5 })
+    try{const saved=localStorage.getItem('reet-terminal-palette');if(saved==='system'||terminalPalettes.some(item=>item.id===saved))palette=saved!;const shape=localStorage.getItem('reet-terminal-cursor');if(shape==='bar'||shape==='block'||shape==='underline')cursor=shape}catch{/* optional preferences */}
+    const term = new Terminal({ cursorStyle:cursor,cursorBlink:true,fontSize:14,fontFamily:'"DejaVu Sans Mono", "SFMono-Regular", Consolas, monospace',scrollback:5000,screenReaderMode:true,allowProposedApi:false,windowOptions:{},minimumContrastRatio:4.5 })
     terminal = term;term.options.fontSize=fontSize;term.loadAddon(fit);search=new SearchAddon();term.loadAddon(search);term.open(element)
     const onPaste=(event:ClipboardEvent)=>{event.preventDefault();event.stopImmediatePropagation();paste(event.clipboardData?.getData('text/plain')||'')}
     element.addEventListener('paste',onPaste,true)
@@ -88,10 +105,11 @@
     function theme() {
       const choice = document.documentElement.dataset.theme
       const dark = choice === 'dark' || !choice && matchMedia('(prefers-color-scheme: dark)').matches
-      const colors: ITheme = dark ? { background:'#1a1816',foreground:'#efece6',cursor:'#fb923c',selectionBackground:'#68503d',black:'#171513',brightBlack:'#81766b' } : { background:'#fffdf9',foreground:'#25221f',cursor:'#c2410c',selectionBackground:'#f3d4bd',black:'#25221f',brightBlack:'#756e63' }
+      const colors:ITheme=paletteFor(palette,dark)
       term.options.theme = colors
+      if(element)element.style.backgroundColor=colors.background||''
     }
-    theme()
+    applyTheme=theme;theme()
     const observer = new MutationObserver(theme); observer.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']})
     const media = matchMedia('(prefers-color-scheme: dark)'); media.addEventListener('change',theme)
     // The first host redraw uses the ticket's grid. Transient status/layout
@@ -108,7 +126,7 @@
     const online=()=>connection?.recover(),visible=()=>{if(document.visibilityState==='visible'){resize();connection?.recover()}}
     window.addEventListener('online',online);document.addEventListener('visibilitychange',visible)
     void connection.connect()
-    return ()=>{alive=false;element?.removeEventListener('paste',onPaste,true);search?.dispose();search=undefined;fitTerminal=undefined;connection?.dispose();connection=undefined;cancelAnimationFrame(frame);sizes.disconnect();observer.disconnect();media.removeEventListener('change',theme);window.removeEventListener('online',online);document.removeEventListener('visibilitychange',visible);selection.dispose();input.dispose();binary.dispose();clipboard.dispose();links.dispose();term.dispose();terminal=undefined}
+    return ()=>{alive=false;element?.removeEventListener('paste',onPaste,true);search?.dispose();search=undefined;fitTerminal=undefined;connection?.dispose();connection=undefined;cancelAnimationFrame(frame);sizes.disconnect();observer.disconnect();media.removeEventListener('change',theme);window.removeEventListener('online',online);document.removeEventListener('visibilitychange',visible);selection.dispose();input.dispose();binary.dispose();clipboard.dispose();links.dispose();applyTheme=undefined;term.dispose();terminal=undefined}
   })
 </script>
 
@@ -117,7 +135,18 @@
   <header><div class="identity"><span class="terminal-icon" aria-hidden="true">›_</span><strong>{session.title}</strong><span class="host" title={`${user ? user+'@' : ''}${host}`}>{user ? `${user}@` : ''}{host}</span></div><div class="controls"><span class="state" class:live><span aria-hidden="true">●</span> {stateLabel}</span>{#if live}<button type="button" onclick={()=>connection?.detach()}>Disconnect</button>{:else if connectionState==='taken_over'}<button type="button" class="continue" onclick={()=>void connection?.connect(true)}>Continue here</button>{:else if connectionState==='detached'}<button type="button" onclick={()=>void connection?.connect()}>Reconnect</button>{:else if connectionState==='reconnecting'}<button type="button" onclick={()=>connection?.recover()}>Retry now</button>{/if}{#if onrename||onend||onarchive&&terminalClosed(session.state)}<details class="session-menu"><summary>Manage</summary><div>{#if onrename}<button disabled={actionDisabled} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onrename?.()}}>Rename</button>{/if}{#if onend}<button class="end" disabled={actionDisabled||!['creating','running','end_requested'].includes(session.state)} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onend?.()}}>{session.state==='end_requested'?'Retry end request':'End session'}</button>{/if}{#if onarchive&&terminalClosed(session.state)}<button disabled={archiveDisabled} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onarchive?.()}}>Remove from history</button>{/if}</div></details>{/if}</div></header>
   {#if message}<p class="connection-message" role="status">{message}</p>{/if}
   {#if maximised}<p class="connection-message">Alt+Shift+M restores the workspace. Tab inside the terminal remains a shell key.</p>{/if}
-  <div class="tools" aria-label="Terminal tools"><button onclick={()=>searching=!searching} aria-expanded={searching}>Search</button><button onclick={()=>void copy()}>Copy selection</button><button onclick={()=>void readClipboard()} disabled={!live}>Paste</button><button onclick={()=>key("\x03")} disabled={!live} aria-label="Interrupt shell">Interrupt</button><button onclick={()=>changeFont(-1)} disabled={fontSize<=10} aria-label="Decrease terminal font">A−</button><span aria-label="Terminal font size">{fontSize}</span><button onclick={()=>changeFont(1)} disabled={fontSize>=22} aria-label="Increase terminal font">A+</button><button onclick={()=>void historySnapshot()} disabled={historyBusy}>{historyBusy?'Loading…':'Recent history'}</button><button onclick={()=>{maximised=!maximised;fitTerminal?.()}} aria-pressed={maximised}>{maximised?'Restore size':'Maximise'}</button></div>
+  <div class="tools terminal-toolbar" aria-label="Terminal tools">
+    <button onclick={()=>searching=!searching} aria-expanded={searching} aria-label="Search" title="Search terminal output"><TerminalIcon name="search"/><span class="tool-label">Search</span></button>
+    <button onclick={()=>void copy()} aria-label="Copy selection" title="Copy selected output"><TerminalIcon name="copy"/><span class="tool-label">Copy</span></button>
+    <button onclick={()=>void readClipboard()} disabled={!live} aria-label="Paste" title="Paste clipboard"><TerminalIcon name="paste"/><span class="tool-label">Paste</span></button>
+    <span class="tool-divider" aria-hidden="true"></span>
+    <button onclick={()=>key("\x03")} disabled={!live} aria-label="Interrupt shell" title="Interrupt · Ctrl+C"><TerminalIcon name="interrupt"/><span class="tool-label">Interrupt</span></button>
+    <button onclick={()=>commandsOpen=true} aria-label="Saved commands" title="Your saved commands"><TerminalIcon name="commands"/><span>Commands</span></button>
+    <span class="tool-space"></span>
+    <button onclick={()=>appearanceOpen=true} aria-label="Appearance" title="Theme, text size and cursor"><TerminalIcon name="appearance"/><span class="tool-label">Appearance</span></button>
+    <button onclick={()=>void historySnapshot()} disabled={historyBusy} aria-label="Recent history" title="Recent output history"><TerminalIcon name="history"/><span class="tool-label">{historyBusy?'Loading…':'History'}</span></button>
+    <button onclick={()=>{maximised=!maximised;fitTerminal?.()}} aria-pressed={maximised} aria-label={maximised?'Restore size':'Maximise'} title={maximised?'Restore size':'Maximise terminal'}><TerminalIcon name="expand"/></button>
+  </div>
   {#if searching}<form class="tools" onsubmit={e=>{e.preventDefault();find()}}><label>Find in terminal <input bind:this={searchInput} bind:value={query} maxlength="200" autocomplete="off" spellcheck="false" oninput={e=>{query=e.currentTarget.value;find()}} /></label><button>Next match</button><button type="button" onclick={()=>find(false)}>Previous match</button><button type="button" onclick={()=>{searching=false;search?.clearDecorations();terminal?.focus()}}>Close search</button><span role="status">{found?'':'No matches'}</span></form>{/if}
   {#if feedback}<p class="connection-message" role="status">{feedback}</p>{/if}
   <div class="screen" bind:this={element} role="region" aria-label="Remote terminal screen" oncontextmenu={openContext}></div>
@@ -126,6 +155,8 @@
 {#if contextMenu}<div class="clipboard-menu" role="menu" aria-label="Terminal clipboard" tabindex="-1" bind:this={menu} style={`left:${contextMenu.x}px;top:${contextMenu.y}px`} onkeydown={contextKey}><button role="menuitem" disabled={!hasSelection} onclick={()=>{contextMenu=null;void copy()}}>Copy selection</button><button role="menuitem" disabled={!live} onclick={()=>{contextMenu=null;void readClipboard()}}>Paste</button><button role="menuitem" onclick={closeContext}>Close menu</button></div>{/if}
 </section>
 
+{#if appearanceOpen}<WorkspaceDialog title="Terminal appearance" placement="drawer" onclose={()=>appearanceOpen=false}><TerminalAppearance {palette} {fontSize} {cursor} onpalette={choosePalette} onfont={changeFont} oncursor={chooseCursor}/></WorkspaceDialog>{/if}
+{#if commandsOpen}<CommandLibrary onclose={()=>commandsOpen=false} oninsert={item=>void insertSaved(item)} canInsert={live} context={`${user?user+'@':''}${host} · ${session.title}`}/>{/if}
 {#if pendingPaste}<ConfirmDialog title="Paste into the remote shell?" body="This text contains multiple lines, control characters, or a large block. It may execute commands immediately." details={pendingPaste.text.slice(0,2000)+(pendingPaste.text.length>2000?'\n… preview truncated':'')} confirmLabel="Paste text" onconfirm={confirmPaste} oncancel={()=>{pendingPaste=null;terminal?.focus()}} />{/if}
 {#if snapshot!==null}<ConfirmDialog title="Recent terminal history" body="Read-only snapshot, up to 2,000 lines / 256 KiB. It is separate from the live screen and may contain sensitive output." confirmLabel="Close history" onconfirm={()=>snapshot=null} oncancel={()=>snapshot=null}><pre class="snapshot">{snapshot}</pre></ConfirmDialog>{/if}
 
@@ -146,6 +177,7 @@
   button.continue {background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
   .tools {display:flex;gap:6px;align-items:center;flex-wrap:nowrap;overflow-x:auto;min-width:0;scrollbar-width:thin;padding:6px 10px;border-bottom:1px solid var(--line);font-size:.72rem}
   .tools>button,.tools label {flex-shrink:0}
+  .terminal-toolbar{background:var(--bg);padding:5px 8px;gap:2px}.terminal-toolbar button{display:flex;align-items:center;gap:6px;border-color:transparent;background:transparent;font-size:.72rem;padding:6px 8px;min-height:32px}.terminal-toolbar button:hover:not(:disabled){background:var(--card);border-color:var(--line)}.tool-space{flex:1}.tool-divider{height:16px;width:1px;background:var(--line);margin:0 5px;flex-shrink:0}
   .tools label {display:flex;gap:8px;align-items:center;min-width:0}
   .tools input {min-width:0;max-width:180px;font-size:.8rem}
   .tools button:hover:not(:disabled) {border-color:var(--accent);background:var(--tint)}
@@ -177,6 +209,7 @@
     .controls>button,.session-menu>summary {font-size:.67rem;padding:5px 7px;min-height:30px}
     .tools {padding:6px;gap:4px}
     .tools button {min-height:32px;font-size:.69rem;padding:5px 8px}
+    .terminal-toolbar .tool-label{display:none}.terminal-toolbar button{padding:6px;min-width:30px}.terminal-toolbar .tool-divider{margin:0 2px}.terminal-toolbar .tool-space{display:none}
     .tools.mobile-keys {display:flex}
     .mobile-keys button {min-width:34px;min-height:34px}
     .screen {padding:10px 6px}

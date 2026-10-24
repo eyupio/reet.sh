@@ -20,6 +20,10 @@ import (
 )
 
 func (s *server) registerTerminalRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v2/terminal/commands", s.terminalAccess(s.terminalCommands, true))
+	mux.HandleFunc("POST /api/v2/terminal/commands", s.terminalAccess(s.terminalCommandSave, true))
+	mux.HandleFunc("PATCH /api/v2/terminal/commands/{id}", s.terminalAccess(s.terminalCommandSave, true))
+	mux.HandleFunc("DELETE /api/v2/terminal/commands/{id}", s.terminalAccess(s.terminalCommandDelete, true))
 	mux.HandleFunc("GET /api/v2/terminal/status", s.terminal(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, s.terminalStatus())
 	}))
@@ -41,7 +45,7 @@ func (s *server) terminal(next http.HandlerFunc) http.HandlerFunc {
 	return s.terminalAccess(next, false)
 }
 
-// Only controller-local archival opts out of execution availability. Account,
+// Only controller-local metadata handlers opt out of execution availability. Account,
 // role, cookie-only and canonical-origin checks still apply to every route.
 func (s *server) terminalAccess(next http.HandlerFunc, allowDisabled bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -210,12 +214,13 @@ func (s *server) terminalRename(w http.ResponseWriter, r *http.Request) {
 }
 func (s *server) terminalEnd(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		RequestID string `json:"requestId"`
+		RequestID     string `json:"requestId"`
+		RemoveHistory bool   `json:"removeHistory"`
 	}
 	if !terminalJSON(w, r, &in) {
 		return
 	}
-	session, err := s.terminals.End(r.Context(), s.uid(r), r.PathValue("id"), in.RequestID)
+	session, err := s.terminals.End(r.Context(), s.uid(r), r.PathValue("id"), in.RequestID, in.RemoveHistory)
 	if err != nil {
 		terminalError(w, err)
 		return

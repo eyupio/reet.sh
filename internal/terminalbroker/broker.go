@@ -463,12 +463,12 @@ func (p *Peer) end(ctx context.Context, session, request string) error {
 	}
 	return p.b.st.ObserveTerminalStateFor(p.key.uid, p.key.agent, session, p.Generation, state.State, state.ExitCode)
 }
-func (b *Broker) End(ctx context.Context, uid int64, session, request string) (store.TerminalSession, error) {
+func (b *Broker) End(ctx context.Context, uid int64, session, request string, removeHistory ...bool) (store.TerminalSession, error) {
 	s, err := b.st.TerminalSessionFor(uid, session)
 	if err != nil {
 		return s, err
 	}
-	s, err = b.st.RequestTerminalEndFor(uid, s.AgentID, session, request)
+	s, err = b.st.RequestTerminalEndFor(uid, s.AgentID, session, request, removeHistory...)
 	if err != nil {
 		return s, err
 	}

@@ -42,7 +42,7 @@ await page.route('**/api/**',async route=>{
  }
  else if(path==='/api/v2/machines/health')data={serverNow:now,machines:[]}
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
- else if(path==='/api/v2/terminal/machines')data={machines:[]}
+ else if(path==='/api/v2/terminal/machines'){if(failState)return route.fulfill({status:503,json:{error:'Inventory unavailable'}});data={machines:snapshot.agents.map(item=>({agentId:item.id,host:item.host,ready:true,serverEnabled:true,capabilities:{osUser:'developer',terminalEnabled:true,readiness:'ready'}}))}}
  else if(path==='/api/v2/terminal/sessions')data={sessions:[]}
  else if(path==='/api/v2/notifications/count')data={unread:0}
  else if(path==='/api/version')data={version:'test',commit:'fixture'}
@@ -52,10 +52,13 @@ await page.route('**/api/**',async route=>{
 const noOverflow=async()=>expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
 try {
  await page.goto(base)
- await expect(page.getByRole('heading',{name:'Your machines. One control centre.'})).toBeVisible()
- await expect(page.getByRole('button',{name:'Sync all · preview'})).toBeEnabled()
+ await expect(page.getByRole('heading',{name:'Your machines. Within reach.'})).toBeVisible()
+ await expect(page.getByRole('article',{name:/^Machine /})).toHaveCount(2)
+ await expect(page.getByRole('button',{name:'Sync all · preview'})).toHaveCount(0)
  await noOverflow()
  if(process.env.REET_UI_SCREENSHOTS){await mkdir(process.env.REET_UI_SCREENSHOTS,{recursive:true});await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/control-desktop.png`,fullPage:true})}
+ await page.goto(`${base}/sync`)
+ await expect(page.getByRole('button',{name:'Sync all · preview'})).toBeEnabled()
  await page.getByRole('button',{name:'Sync all · preview'}).click()
  await expect(page.getByRole('dialog')).toContainText('3 jobs will be queued')
  await page.getByRole('button',{name:'Cancel',exact:true}).click()
@@ -112,7 +115,7 @@ try {
  for(const width of [390,768,1440]){
   await page.setViewportSize({width,height:900})
   await page.goto(base)
-  await expect(page.getByRole('button',{name:'Scan all',exact:true})).toBeVisible()
+  await expect(page.getByRole('article',{name:/^Machine /})).toHaveCount(2)
   await page.evaluate(()=>document.documentElement.dataset.theme='dark')
   await noOverflow()
   if(width===390&&process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/control-phone-dark.png`,fullPage:true})
@@ -127,7 +130,7 @@ try {
  failSource=false
  viewer=true
  await page.goto(base)
- await expect(page.getByRole('heading',{name:'Your machines. One control centre.'})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'Your machines. Within reach.'})).toBeVisible()
  await expect(page.getByRole('button',{name:'Scan all',exact:true})).toHaveCount(0)
  await expect(page.getByRole('link',{name:'Terminals',exact:true})).toHaveCount(0)
  viewer=false;failState=true

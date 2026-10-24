@@ -5,8 +5,8 @@
 This is the current implementation baseline **and** the continuation plan. Current
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
-state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is the next user priority,
-followed by T5 initial-install/enrollment/upgrade terminal setup.** S1 is merged through PR #139; do not repeat
+state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is implemented in `feat/terminal-workspace-polish`, pending PR verification and merge.
+T5 initial-install/enrollment/upgrade terminal setup is next.** S1 is merged through PR #139; do not repeat
 it or start S2 ahead of the remaining terminal priorities. Do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -57,7 +57,7 @@ web/tests/public-workspace.e2e.mjs`; optionally set `REET_UI_SCREENSHOTS` to ret
 screenshots. Keep public claims limited to shipped functionality when adding
 terminal appearance, account command libraries or future agent maintenance.
 
-### T4 [ ] Modern terminal interaction, appearance and saved commands — NEXT TASK
+### T4 [x] Modern terminal interaction, appearance and saved commands — verify PR before merging
 
 1. Reproduce ordinary-height, bottom-of-screen input after several screens of
    output; verify host `stty size` matches xterm rows/columns before and after
@@ -80,11 +80,67 @@ terminal appearance, account command libraries or future agent maintenance.
    requests and safe insertion/multiline/reconnect tests. Keep APIs metadata-only;
    command management must not require a connected host or weaken shell gates.
 
+### T4 implementation and latest user additions
+
+- `SessionSidebar.svelte` owns all/single/multiple-machine filtering, search,
+  custom/name/activity/created/state sorting, machine/state/colour grouping,
+  colour markers, native drag order and keyboard Move up/down. Right-click,
+  Shift+F10 and row action buttons share an accessible menu. The parent captures
+  the clicked ID/title, without changing the selected attachment. Stop, rename,
+  disconnect and closed-history removal reuse the existing action boundaries.
+- Desktop splitters support pointer capture and Left/Right/Home/End. Width,
+  collapse and organisation persist in browser storage under the signed-in user
+  ID. This is **browser-local**, not an account-wide layout sync feature.
+- The stop confirmation includes removal after host-confirmed closure and an
+  account-default toggle. `Profile.TerminalRemoveOnClose` migrates with default
+  false; `Account.svelte` exposes it. End-operation parameters bind the explicit
+  `removeHistory` choice to immutable retries. `archiveTerminalOnClose` inserts
+  the tombstone only on authenticated closure, including failed creation. Pending
+  sessions remain visible; receipts and host files are never deleted.
+- Command metadata: `terminal_commands` table, `store_terminal_commands.go`,
+  `api/terminal_commands.go`, `CommandLibrary.svelte`. Owner-serialized writes,
+  revision conflicts and exact UTF-8 text; account cookies/write roles only.
+  JSON bodies allow 128 KiB for escaped 16 KiB command text without increasing
+  the wire-protocol control-frame limit. No host dispatch from library APIs.
+- Appearance: `themes.ts`, `TerminalAppearance.svelte` and `TerminalPane.svelte`.
+  Compact toolbar, separate app/terminal colours, local font/cursor preferences.
+- Home now prioritises active sessions and terminal-ready machine cards. Skills
+  and Sync are under More; Sync retains existing bulk actions and review gates.
+- `terminal-organisation.e2e.mjs` covers cross-machine immutable row actions,
+  stop/removal defaults, keyboard menus, colour/sort/group, drag order, resize and
+  collapse persistence, themes, conflicts and guarded insertion. Add it to CI.
+  The real-shell fixture checks a separate browser sees account commands, no
+  implicit Enter, host tmux and shell `stty` dimensions, and bottom-row wrapping
+  after more than two screens of output. Retain existing continuity/lease tests.
+- User's latest sequencing: finish these terminal changes and T5, merge only
+  when green, then resume the missing capabilities in the roadmap. Take S2 as
+  the next content stage; keep agent capabilities/launch/activity (A1–A3), managed
+  workspaces (W1–W3) and software maintenance (L1–L4) as bounded follow-up PRs.
+
+T4 local validation on 24 October: frontend unit checks and svelte-check (zero
+errors/warnings), production build, all Go vet/race checks, 16 MCP tests, existing
+Control/workspace/lifecycle browser fixtures, the organisation fixture, and the
+real two-host PTY browser fixture passed. That real fixture preserves both original
+shell PIDs and the primary background job across reconnect/restart and checks
+account command persistence in a separate browser. CI/merge state must be checked
+for the exact published head; this local evidence does not imply deployment.
+
 ### T5 [ ] First-class terminal connection wizard during initial install, enrollment and upgrade
 
 Read `internal/scan/terminal_setup.go`, `agent.go`, `agent_terminal.go`,
-`internal/terminalhost/tmux.go`, `cmd/reet` install/upgrade dispatch, deployment
-workflows and machine connection UI/scripts before changing setup.
+`internal/terminalhost/tmux.go`, `cmd/reet/terminal.go`, and the actual deployment
+installer/upgrader in **`internal/lifecycle/cli.go`**. Also read `scripts/install.sh`
+and the machine connection UI. `internal/setup/installation.go` observes AI-agent
+installations; it is not the reet binary installer.
+
+Expose a resumable `reet agent terminal setup` entry point around the existing
+wizard. When enrollment itself offers that wizard, its internal enrollment call
+must explicitly skip the post-enrollment offer to prevent recursive prompts.
+Successful enrollment/install/upgrade must remain successful if optional terminal
+setup is declined or deferred; print a resume command and preserve the enrollment.
+Treat `--yes`, dry runs and noninteractive operation as unattended: do not install
+packages, grant shell consent or block on new wizard prompts. Test real controlling
+TTY behavior and missing/old tmux separately from fake service runners.
 
 1. Reuse the existing guided host setup: check tmux 3.3+, explicit local shell
    consent (including root), independent services and readiness verification.
@@ -113,7 +169,7 @@ scrolling past a stack of setup/help/health sections. Session connection and
 maintenance actions need to be easy to find and unambiguous. This requirement
 moved **T1 first**, ahead of S2 and the remaining skill/agent-management roadmap.
 T1 is merged. S1 is merged as a separate bounded
-stage. Review the T2 delivery below, then take T3; do not expand terminal work into S2.
+stage. Review the T4 delivery above, then take T5; do not expand terminal work into S2.
 
 ### Required product behaviour
 
@@ -330,7 +386,7 @@ no regression in other routes and no hidden change to terminal authorization.
   paste fences, light/dark and desktop/tablet/phone layouts.
 - Not performed: physical phone/IME/OS keyboard testing, native macOS/Windows
   runtime, production relay/fleet deployment or AI-agent activity detection.
-- T2 completed the follow-up below in the current branch. **T3 is now next:**
+- T2 completed the follow-up below in the current branch. **T3 is merged; historical contract:**
   implement its persistent history contract before exposing Remove from history.
   Do not repeat T1 or S1.
 
@@ -426,11 +482,11 @@ ordinary typing, control keys and multiline-paste confirmation still work.
   rollout were not exercised. Pending retry metadata and remembered per-machine
   selections are in memory for the mounted workspace, not durable browser storage.
   Reloads resume reported session IDs and never create a replacement implicitly.
-- **Exact next task: T3**, beginning with a persistent archive/store/API contract.
+- **T3 is merged.** Its persistent archive/store/API contract is retained below.
   Keep End session and Remove from history separate. Do not start S2 or agent
   lifecycle installation merely because the terminal layout is now primary.
 
-### T3 [x] Single-session removal from history — implemented in current branch
+### T3 [x] Single-session removal from history — merged through PR #142
 
 Depends on T2. Add a small explicit lifecycle/API contract before exposing this UI.
 Read `internal/store/store_terminal.go`, the schema/migration definitions in
@@ -501,7 +557,7 @@ process, altering machine files, bypassing quota or making a shell recreatable.
 - Migration creates a child table only. An older binary ignores tombstones and may
   show closed records again; it retains identities/receipts. No undo or bulk API
   exists in this first stage.
-- **Next user priority is T4**, then T5 below. Do not start S2 or bulk archival ahead
+- **T4 is implemented in the current feature branch; next is T5 above.** Do not start S2 or bulk archival ahead
   of the explicitly requested terminal interaction/onboarding work.
 
 ### T3b [ ] Reviewed bulk removal of closed history
@@ -1275,9 +1331,9 @@ working agent authentication or complete environment recovery.
 
 > Continue reet.sh from handoff.md. Inspect branch, worktree, main and PR states
 > without resetting edits. T1/T2 are merged, including PR #141's negotiated-grid
-> race fix. T3 single-session history archival is implemented in its branch; save
-> and verify that bounded work rather than duplicating it. The user now prioritises
-> T4: correct bottom-edge terminal typing/scrolling, polished themes/controls and a
+> race fix. T3 history archival and the public landing redesign are merged through
+> PRs #142/#144. Verify the T4 feature branch/PR before repeating its implementation.
+> T4 delivers: correct bottom-edge terminal typing/scrolling, polished themes/controls and a
 > private account-synced saved CLI command library (explicitly chosen by the user).
 > Then T5: offer the terminal connection wizard on initial install/enrollment/upgrade and repair
 > missing-tmux guidance. Read the detailed T4/T5 steps near the top. Preserve local

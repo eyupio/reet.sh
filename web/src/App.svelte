@@ -146,11 +146,11 @@
   const mainNavigation = $derived([
     { href: '/', label: 'Control', current: isControl },
     { href: '/machines', label: 'Machines', current: isMachines && !isSync && !isTerminals },
-    { href: '/skills', label: 'Skills', current: isSkills },
-    { href: '/sync', label: 'Sync', current: isSync },
     ...(authMode === 'accounts' && canWrite ? [{ href: '/terminals', label: 'Terminals', current: isTerminals }] : []),
-    { href: '/community', label: 'More', current: isShared || isList || isProfiles || isSpaces || isCommunity || isHosting || isSupport || isTicket || isNotifications,
+    { href: '/community', label: 'More', current: isShared || isList || isProfiles || isSpaces || isCommunity || isHosting || isSupport || isTicket || isNotifications || isSkills || isSync,
       children: [
+        { href: '/skills', label: 'Skills', current: isSkills },
+        { href: '/sync', label: 'Sync', current: isSync },
         { href: '/shared', label: 'Lists', current: isShared || isList },
         { href: '/profiles', label: 'Portable setups', current: isProfiles },
         { href: '/community', label: 'Community', current: isCommunity },
@@ -810,7 +810,7 @@
   {:else if isControl}
     <ControlCenter {canWrite} terminalAccess={authMode === 'accounts' && canWrite} monitorAccess={authMode === 'accounts' || authMode === 'token'} />
   {:else if isMachines}
-    <Machines {canWrite} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} />
+    <Machines userId={currentUser?.id??0} {canWrite} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} />
   {:else if isProfiles}
     <SetupProfiles {canWrite} onerror={fail} />
   {:else if isNotifications}

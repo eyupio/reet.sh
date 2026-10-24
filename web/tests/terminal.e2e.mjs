@@ -198,7 +198,7 @@ try {
   const secondPage=await secondContext.newPage()
   await secondPage.goto(base)
   await secondPage.getByRole('button',{name:/Your command library/}).click()
-  await expect(secondPage.getByRole('dialog').locator('pre')).toHaveText(savedText)
+  await expect(secondPage.getByRole('dialog').locator('code')).toHaveText(savedText)
   await secondContext.close()
   await page.getByRole('button',{name:'Insert Account shell check',exact:true}).click()
   await expect(screen).toContainText(savedText)

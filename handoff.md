@@ -6,7 +6,7 @@ This is the current implementation baseline **and** the continuation plan. Curre
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 as `dcef39c`, after all five workflows passed for `39cb762`. Explicit CLI import is implemented in PR #164 (`feat/explicit-machine-skill-import`), locally validated and awaiting final CI/merge; central browser import follows separately.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 and CLI import in PR #164 (`7253663`). Central browser import is implemented on `feat/browser-machine-skill-import`, with local frontend/vet/race/MCP/browser validation passed and PR CI/merge pending. S4 starts with the pure content planner after this stage merges green.** S1 is merged through PR #139; do not repeat
 it. Preserve the terminal work and do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -33,7 +33,7 @@ The user reported sudo failing with “no new privileges” in an Elitebook term
 Both generated Linux host units set `NoNewPrivileges=true`; tmux and its shells
 inherit this irreversibly. The user explicitly approved changing the generated
 agent and tmux templates to `NoNewPrivileges=false`. The fix is in
-[PR #165](https://github.com/eyupio/reet.sh/pull/165) (`fix/terminal-sudo-privileges`), pending final CI/merge. No live units or sessions have
+[PR #165](https://github.com/eyupio/reet.sh/pull/165), merged as `7a8ab4b` after all five workflows passed for `f5fd088d27812a892557eeeba9e0858e9a2530ce`. No live units or sessions have
 been changed. It preserves local sudo policy/password checks and does not grant
 root access. Install/status inspect the enrollment's server and explain any
 pending restart. Native Linux CI checks the real agent, tmux and child process
@@ -43,8 +43,10 @@ Read the [migration procedure](docs/terminal-controller-commands.md#sudo-in-a-ma
 An old live tmux server keeps the flag after a unit refresh; do not silently
 restart it. A planned exact terminal-service restart from normal SSH ends that
 service's sessions/jobs. Never use a shared/default tmux kill-server operation.
-The browser-import roadmap continues separately on `feat/browser-machine-skill-import`;
-keep its work isolated and resume it after this fix is saved/merged.
+Terminal callback-after-disposal guards merged separately in PR #167 as `144900b`,
+after all three workflows passed for `64a636e`. They fix the reproduced xterm
+“dimensions” error without weakening browser assertions. The browser-import
+branch has integrated both terminal fixes and the live machine wizard from PR #166.
 
 ### Later: user-controlled terminal security preferences
 
@@ -83,10 +85,10 @@ The user requested a status report and continued roadmap delivery after PR #155.
   storage/API merged in PR #156 (`ad1502a`), with all five workflows green for
   final head `7e4aeec090a0946cc1021aec8ce3b7e29b55fa27`. S2 has no new content
   UI or remote apply operation.
-- **Next:** finish publishing the S3 CLI import slice, then central browser
-  preview/approval and connector dispatch using its capture/policy/store contracts.
-  S3 observations are already merged; S4 reviewed file apply and S5 fleet rollout
-  follow only after the browser import acceptance gate.
+- **Next:** finish publishing the S3 browser import slice. Its source/file review,
+  exact exclusions/approval, connector transfer and private history are implemented
+  on `feat/browser-machine-skill-import`. After final CI/merge, start only the pure
+  S4 content planner, then separate reviewed apply/receipts and S5 fleet rollout.
 - **Later:** A1–A3 registered agent launch/activity/attention; W1–W3 projects,
   worktrees/diffs/structured tool review; L1–L4 AI software/MCP fleet maintenance
   and optional isolation. Existing machine inventory and setup snapshots are a
@@ -1174,7 +1176,7 @@ with a documented compatibility path for old clients and restore/backups.
   two-host lifecycle. Additional race tests cover byte-budget exhaustion,
   cancellation, legacy-schema reopen, expiry, role changes and rollback.
   No live user workloads or deployed connector installations were changed.
-- **Explicit CLI transfer implemented and locally validated in [PR #164](https://github.com/eyupio/reet.sh/pull/164), awaiting final CI/merge:** read
+- **Explicit CLI transfer merged in [PR #164](https://github.com/eyupio/reet.sh/pull/164), `7253663505baa11187f87baa5bea093e87197442`, after all five workflows passed for `717681ac41338c28266ee67fb71ae52cfd1d4410`:** read
   [the complete import contract and granular continuation](docs/machine-skill-import.md).
   `reet agent skill import` previews one locally enrolled scope/folder; `--upload`
   plus typed IMPORT or explicit `--yes` sends selected files. Exact exclusions,
@@ -1198,10 +1200,42 @@ with a documented compatibility path for old clients and restore/backups.
   Tests also cover origin/account/enrollment/pause, bad digest, strict JSON/limits,
   old-controller negotiation, cancellation, changed review and SQL rollback.
   No production machines, services or terminal sessions were modified.
-- **Still missing:** central browser preview/approval/dispatch and private-content
-  library controls. Keep S3 unchecked until this control-room workflow meets the
-  gate below. Next take that bounded browser/connector slice, preserving CLI
-  capture, policy and guarded storage; do not jump to S4 apply or bulk jobs.
+- **Central browser import implemented, pending final checks/publication:** read
+  [the complete browser contract](docs/browser-skill-import.md). Machines → Private
+  skill imports and per-skill Import privately open a review panel with source,
+  destination/base, file metadata, exact exclusions, hazard blocking, explicit
+  approval, cancellation, stable receipts and private bundle revision history.
+- Imports have a separate versioned channel, never the legacy sync queue/terminal
+  messages. Connector capability is recent for 90 seconds and tied to a per-process
+  nonce; requests expire after ten minutes. Old/unsupported connectors do not read
+  content. A process change, revoked/paused enrollment, role change, stale source,
+  changed selection/destination or cancellation prevents a later commit.
+- Preview API/browser history contain metadata only. Actual bytes are captured
+  again against the full source digest and selected policy, with a final metadata
+  authorization check before dispatch. Server recomputes selected byte/mode identity.
+  S2 private writes and request completion/receipt commit in one transaction through
+  before/after hooks. A completed-copy receipt remains visible if completion wins
+  a cancellation race. Dismissing history never deletes private copies.
+- Store/schema map: `store_remote_import.go`, `machine_import_capabilities` and
+  `machine_import_requests`; pure `skillbundle.FromMetadata`, shared preview/hash/
+  selection helpers; `api/remote_import.go`; `scan/remote_import.go`; browser
+  `MachineSkillImports.svelte`. Protocol/client/store/UI tests cover their contracts.
+- Limits are 128 retained requests/account plus unchanged S1/S2 bounds. Broader
+  private-content authoring, deletion/GC and export UI remain later work, rather
+  than implicit public editor/shelf mutations. The library currently browses heads
+  and revision metadata. No PIN or new authentication preference is implemented.
+- Local validation passed after integrating main through `144900b`: frontend
+  check/build (zero diagnostics), full Go vet/race suite, all 16 MCP tests and six
+  browser fixtures. The final phone layout keeps approval/cancellation visible.
+  Real HTTP/SQLite + synthetic connector fixtures prove metadata-only review,
+  two distinct same-name private copies, exact CRLF/binary/modes, explicit hazards/
+  exclusions, changed-source rejection, unsupported servers, ownership, expiry,
+  generation/pause/role/revoke/cancel fences, atomic receipt rollback and retries.
+  Browser fixtures use synthetic API responses; no live user machines/services
+  were modified and no physical cross-platform import rollout was performed.
+- Keep S3 unchecked until final validation/PR merge is recorded. Then start only
+  **S4's pure bounded planner**, with conflicts and no filesystem writes; reviewed
+  single-target apply/receipts are a following bounded stage. Do not jump to bulk apply.
 
 
 Depends on S1/S2. Split observation metadata and payload transfer into separate
@@ -1601,10 +1635,10 @@ working agent authentication or complete environment recovery.
 > Continue reet.sh from handoff.md. Inspect branch, worktree, main and PR states
 > without resetting edits. Terminal T1–T9 priorities are merged through PR #155.
 > S2 private revision storage/API merged through PR #156. Read its storage contract.
-> S3 metadata observations merged through PR #161. Explicit CLI import is implemented
-> in PR #164 on feat/explicit-machine-skill-import; verify its exact PR/check/merge state.
-> Read docs/machine-skill-import.md and finish central browser preview/approval
-> and connector dispatch before closing S3 or starting S4. Keep
+> S3 observations and CLI import merged through PRs #161/#164. Browser import is
+> implemented on feat/browser-machine-skill-import; verify its final PR/CI/merge state.
+> Read docs/browser-skill-import.md. Finish this bounded stage and close S3 only
+> once its gate passes, then take S4’s pure planner before any remote apply. Keep
 > ownership, exact byte/mode manifests, stable retry receipts, reviewed sync and
 > existing terminal sessions intact. Do not jump to remote apply or the whole roadmap.
 > Build the frontend before Go checks, record actual evidence, update this handoff

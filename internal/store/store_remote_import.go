@@ -13,6 +13,7 @@ import (
 )
 
 var ErrRemoteImport = errors.New("import changed, expired, unavailable or not approved")
+var ErrRemoteImportCapacity = errors.New("import request history full")
 
 type RemoteImport struct {
 	ID            string               `json:"id"`
@@ -179,7 +180,7 @@ func (s *Store) CreateRemoteImportFor(uid int64, in RemoteImportCreate) (out Rem
 			return err
 		}
 		if total >= 128 {
-			return ErrPrivateSkillCapacity
+			return ErrRemoteImportCapacity
 		}
 		if err = tx.QueryRow(`SELECT count(*) FROM machine_import_requests WHERE agent_id=? AND state IN ('queued','previewing','reviewing','approved','uploading')`, in.AgentID).Scan(&busy); err != nil {
 			return err
@@ -446,4 +447,27 @@ func (s *Store) RemoteImportFor(uid int64, id string) (RemoteImport, error) {
 		r.State = "expired"
 	}
 	return r, err
+}
+
+// StopRemoteImportFor revokes outstanding approval, but preserves an already
+// committed receipt when completion wins the race. Dismissing history is separate.
+func (s *Store) StopRemoteImportFor(uid int64, id string) (out RemoteImport, err error) {
+	err = s.withTx(func(tx *sql.Tx) error {
+		if err := privateSkillOwner(tx, uid); err != nil {
+			return err
+		}
+		r, err := readImport(tx, uid, id)
+		if err != nil {
+			return err
+		}
+		if activeImport(r.State) {
+			r.State = "cancelled"
+			if err = writeImport(tx, uid, r); err != nil {
+				return err
+			}
+		}
+		out = r
+		return nil
+	})
+	return
 }

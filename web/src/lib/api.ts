@@ -929,3 +929,5 @@ export async function approveImport(id: string, previewHash: string, excluded: s
 export async function cancelImport(id: string): Promise<void> { await req(`/api/v2/skill-imports/${encodeURIComponent(id)}`, { method: 'DELETE' }) }
 export async function getPrivateBundles(signal?: AbortSignal): Promise<{ bundles: PrivateBundle[] }> { return (await req('/api/v2/skill-bundles', { signal })).json() }
 export async function getPrivateRevisions(id: string, signal?: AbortSignal): Promise<{ revisions: PrivateRevision[] }> { return (await req(`/api/v2/skill-bundles/${encodeURIComponent(id)}/revisions`, { signal })).json() }
+
+export async function stopImport(id: string): Promise<ImportRequest> { return (await req(`/api/v2/skill-imports/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: json({}) })).json() }

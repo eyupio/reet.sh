@@ -32,6 +32,7 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/skill-imports'&&method==='POST'){
   writes.push({path,body});active={...body,id:`request-${++sequence}`,host:'workstation',agent:'agents',project:'',state:'queued',createdAt:now,updatedAt:now,expiresAt:now+600000,excluded:[]};data=active
  }
+ else if(path===`/api/v2/skill-imports/${active?.id}/cancel`){ writes.push({path,body});if(active.state!=='completed')active={...active,state:'cancelled'};data=active }
  else if(path===`/api/v2/skill-imports/${active?.id}/approve`){
   writes.push({path,body});expect(body).toEqual({previewHash:'preview-hash',excluded:['.env']});active={...active,state:'approved',excluded:body.excluded,digest:'f'.repeat(64)}
   if(loseApproval){loseApproval=false;await route.abort('failed');return};data=active
@@ -61,28 +62,43 @@ try{
  expect(writes[0].body).toMatchObject({agentId:'agent-0',environmentId:'scope-one',name:'demo',bundleId:'',expectedBase:''})
  expect(writes[0].body.files).toBeUndefined()
  active={...active,state:'reviewing',preview,previewHash:'preview-hash'}
- await page.getByRole('button',{name:'Refresh status'}).click()
+ await dialog.getByRole('button',{name:'Refresh status'}).click()
  await expect(page.getByLabel('Include SKILL.md')).toBeDisabled()
  await expect(page.getByRole('button',{name:'Import 3 files privately'})).toBeDisabled()
  await page.getByLabel('Include .env',{exact:true}).uncheck()
- await page.getByRole('button',{name:'Refresh status'}).click()
+ await dialog.getByRole('button',{name:'Refresh status'}).click()
  await expect(page.getByLabel('Include .env',{exact:true})).not.toBeChecked()
  await expect(page.getByRole('button',{name:'Import 2 files privately'})).toBeEnabled()
  await layout()
+ await page.setViewportSize({width:390,height:900});await page.emulateMedia({colorScheme:'dark'});await layout()
+ if(process.env.REET_IMPORT_SCREENSHOT)await page.screenshot({path:process.env.REET_IMPORT_SCREENSHOT,fullPage:false})
+ await page.setViewportSize({width:1360,height:1000});await page.emulateMedia({colorScheme:'light'})
  await page.getByRole('button',{name:'Import 2 files privately'}).click()
  await expect.poll(()=>writes.length).toBe(2)
- await page.getByRole('button',{name:'Refresh status'}).click()
+ await dialog.getByRole('button',{name:'Refresh status'}).click()
  await expect(dialog).toContainText('Waiting for the machine to recheck')
  expect(writes).toHaveLength(2)
  bundles=[{id:'bundle-first',name:'demo',head:'revision-first',createdAt:now}]
  active={...active,state:'completed',receipt:{bundle:bundles[0],revision:{id:'revision-first',manifestDigest:'f'.repeat(64)}}}
- await page.getByRole('button',{name:'Refresh status'}).click()
+ await dialog.getByRole('button',{name:'Refresh status'}).click()
  await expect(dialog).toContainText('Private copy saved: demo')
  await dialog.getByRole('button',{name:'demo',exact:true}).click()
  await expect(dialog.getByRole('listitem').filter({hasText:'revision-first'}).last()).toBeVisible()
  for(const width of [390,320]){await page.setViewportSize({width,height:900});await page.emulateMedia({colorScheme:'dark'});await layout();await expect(page.getByRole('button',{name:'Close skill imports'})).toBeVisible()}
  await page.getByRole('button',{name:'Dismiss import history'}).click()
  expect(bundles).toHaveLength(1)
+ // Completion can win a cancellation race. Preserve its receipt rather than
+ // reporting cancellation or silently deleting the completed history.
+ await dialog.getByRole('button',{name:'Request file preview'}).click()
+ await expect(dialog.getByRole('button',{name:'Cancel import'})).toBeVisible()
+ const second={id:'bundle-second',name:'demo',head:'revision-second',createdAt:now};bundles.push(second)
+ active={...active,state:'completed',receipt:{bundle:second,revision:{id:'revision-second',manifestDigest:'e'.repeat(64)}}}
+ await dialog.getByRole('button',{name:'Cancel import'}).click()
+ await expect(dialog).toContainText('revision-second')
+ await expect(dialog).toContainText('Saved privately in reet.')
+ expect(writes.at(-1).path).toMatch(/\/cancel$/)
+ await dialog.getByRole('button',{name:'Dismiss import history'}).click()
+ expect(bundles).toHaveLength(2)
  await page.getByRole('button',{name:'Close skill imports'}).click()
  viewer=true;await page.reload()
  await expect(page.getByRole('button',{name:'Private skill imports',exact:true})).toHaveCount(0)

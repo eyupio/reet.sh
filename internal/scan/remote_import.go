@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"runtime"
 	"sync"
 	"time"
 
@@ -82,6 +83,9 @@ func remoteImportPost(ctx context.Context, c agentConfig, path string, in, out a
 	return nil
 }
 func processRemoteImport(ctx context.Context, c agentConfig, version string) (bool, error) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		return false, nil
+	}
 	return processRemoteImportWith(ctx, c, version, remoteImportInstance())
 }
 func processRemoteImportWith(ctx context.Context, c agentConfig, version, instance string) (bool, error) {

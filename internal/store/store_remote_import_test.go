@@ -114,6 +114,9 @@ func TestRemoteImportReviewExclusionsAndAtomicReceipt(t *testing.T) {
 	if work, err = s.ClaimRemoteImportFor(uid, a.ID, r.Instance); err != nil || work != nil {
 		t.Fatal("completed upload replayed", work, err)
 	}
+	if completed, err := s.StopRemoteImportFor(uid, r.ID); err != nil || completed.State != "completed" || completed.Receipt == nil {
+		t.Fatal("cancellation hid completed receipt", completed, err)
+	}
 	if err = s.CancelRemoteImportFor(uid, r.ID); err != nil {
 		t.Fatal(err)
 	}

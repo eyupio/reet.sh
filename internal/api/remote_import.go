@@ -7,10 +7,11 @@ import (
 	"github.com/eyupio/reet.sh/internal/store"
 	"io"
 	"net/http"
+	"strings"
 )
 
 func (s *server) registerRemoteImports(mux *http.ServeMux) {
-	for _, route := range []string{"GET /api/v2/skill-imports", "GET /api/v2/skill-imports/{id}", "POST /api/v2/skill-imports", "POST /api/v2/skill-imports/{id}/approve", "DELETE /api/v2/skill-imports/{id}"} {
+	for _, route := range []string{"GET /api/v2/skill-imports", "GET /api/v2/skill-imports/{id}", "POST /api/v2/skill-imports", "POST /api/v2/skill-imports/{id}/approve", "POST /api/v2/skill-imports/{id}/cancel", "DELETE /api/v2/skill-imports/{id}"} {
 		mux.HandleFunc(route, s.privateSkillAccess(s.browserSkillImports))
 	}
 	for _, route := range []string{"POST /api/v2/sync/skill-import/work", "POST /api/v2/sync/skill-import/preview", "POST /api/v2/sync/skill-import/transfer", "POST /api/v2/sync/skill-import/failure"} {
@@ -44,6 +45,17 @@ func (s *server) browserSkillImports(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, 200, map[string]any{"requests": requests, "capabilities": caps})
+	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/cancel"):
+		var in struct{}
+		if !importDecode(w, r, 4096, &in) {
+			return
+		}
+		out, err := s.st.StopRemoteImportFor(uid, r.PathValue("id"))
+		if err != nil {
+			remoteImportError(w, err)
+			return
+		}
+		writeJSON(w, 200, out)
 	case r.Method == "DELETE":
 		if err := s.st.CancelRemoteImportFor(uid, r.PathValue("id")); err != nil {
 			remoteImportError(w, err)
@@ -78,6 +90,10 @@ func (s *server) browserSkillImports(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func remoteImportError(w http.ResponseWriter, err error) {
+	if err == store.ErrRemoteImportCapacity {
+		writeErr(w, 409, "Import history limit reached (128 requests). Finish or cancel pending work, then dismiss finished request history before creating another.")
+		return
+	}
 	if err == store.ErrRemoteImport || err == store.ErrContentObservationStale || err == store.ErrRemoteNotFound {
 		writeErr(w, 409, "Import is unavailable, blocked, changed or expired. Refresh the machine and request a new preview.")
 		return

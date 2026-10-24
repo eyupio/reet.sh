@@ -5,12 +5,15 @@ package scan
 import (
 	"context"
 	"encoding/json"
+	"github.com/eyupio/reet.sh/internal/skillbundle"
+	"github.com/eyupio/reet.sh/internal/skillimport"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/api"
 	"github.com/eyupio/reet.sh/internal/auth"
@@ -168,5 +171,40 @@ func TestRemoteImportUnsupportedControllerNeverReadsContent(t *testing.T) {
 	handled, err := processRemoteImportWith(context.Background(), agentConfig{Server: srv.URL, Home: "/unavailable"}, "test", strings.Repeat("a", 48))
 	if err != nil || handled || posts != 1 {
 		t.Fatal(handled, err, posts)
+	}
+}
+
+func TestRemoteImportCancellationBeforeTransferSendsNoContents(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".agents", "skills", "demo")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\ndescription: test\n---\nInstructions\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := skillbundle.Scan(root, skillbundle.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := skillimport.Preview{SchemaVersion: 1, SourceDigest: manifest.Digest, SkillValid: true, Files: []skillimport.PreviewFile{{File: manifest.Files[0]}}}
+	instance := strings.Repeat("a", 48)
+	calls := 0
+	uploads := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/sync/skill-import/work" {
+			uploads++
+			t.Error("sent contents after cancellation")
+		}
+		calls++
+		var work *store.RemoteImport
+		if calls == 1 {
+			work = &store.RemoteImport{ID: "cancel-fixture", Agent: "agents", Name: "demo", Instance: instance, State: "uploading", ExpiresAt: time.Now().Add(time.Minute).UnixMilli(), Preview: &p, Digest: manifest.Digest}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"schemaVersion": 1, "work": work})
+	}))
+	defer srv.Close()
+	if handled, err := processRemoteImportWith(context.Background(), agentConfig{Home: home, Server: srv.URL}, "test", instance); err != nil || !handled || calls != 2 || uploads != 0 {
+		t.Fatal(handled, err, calls, uploads)
 	}
 }

@@ -36,6 +36,11 @@ func (s *Store) migrateTerminal() error {
 				UNIQUE(id,agent_id,user_id),
 				FOREIGN KEY(agent_id,user_id) REFERENCES sync_agents(id,user_id) ON DELETE CASCADE)`,
 			`CREATE INDEX IF NOT EXISTS terminal_sessions_quota ON terminal_sessions(user_id,agent_id,state)`,
+			`CREATE TABLE IF NOT EXISTS terminal_commands (
+                id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL, command TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+                revision INTEGER NOT NULL CHECK(revision>0), created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+			`CREATE INDEX IF NOT EXISTS terminal_commands_owner ON terminal_commands(user_id)`,
 			`CREATE TABLE IF NOT EXISTS terminal_session_archives (
                 session_id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, agent_id TEXT NOT NULL,
                 archived_at INTEGER NOT NULL,
@@ -221,21 +226,22 @@ func currentGeneration(tx *sql.Tx, uid int64, agentID string, generation int64) 
 }
 
 type TerminalSession struct {
-	ID        string                     `json:"id"`
-	AgentID   string                     `json:"agentId"`
-	Title     string                     `json:"title"`
-	State     terminalproto.SessionState `json:"state"`
-	CreatedAt int64                      `json:"createdAt"`
-	UpdatedAt int64                      `json:"updatedAt"`
-	ExitCode  *int                       `json:"exitCode"`
+	RemoveHistory bool                       `json:"removeHistory"`
+	ID            string                     `json:"id"`
+	AgentID       string                     `json:"agentId"`
+	Title         string                     `json:"title"`
+	State         terminalproto.SessionState `json:"state"`
+	CreatedAt     int64                      `json:"createdAt"`
+	UpdatedAt     int64                      `json:"updatedAt"`
+	ExitCode      *int                       `json:"exitCode"`
 }
 
-const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code`
+const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}')`
 
 func readTerminal(row interface{ Scan(...any) error }) (TerminalSession, error) {
 	var t TerminalSession
 	var exit sql.NullInt64
-	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit)
+	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.RemoveHistory)
 	if exit.Valid {
 		n := int(exit.Int64)
 		t.ExitCode = &n
@@ -360,7 +366,12 @@ func (s *Store) ReserveTerminalCreateFor(uid int64, agentID, requestID string, g
 // RequestTerminalEndFor is deliberately independent of connection freshness or
 // local opt-in. An offline request remains pending and retains quota until the
 // host acknowledges an ended/exited/lost state. It never touches tmux itself.
-func (s *Store) RequestTerminalEndFor(uid int64, agentID, sessionID, requestID string) (TerminalSession, error) {
+func (s *Store) RequestTerminalEndFor(uid int64, agentID, sessionID, requestID string, removeHistory ...bool) (TerminalSession, error) {
+	remove := len(removeHistory) > 0 && removeHistory[0]
+	parameters := "{}"
+	if remove {
+		parameters = `{"removeHistory":true}`
+	}
 	var t TerminalSession
 	if !terminalproto.ValidID(requestID) || !terminalproto.ValidID(sessionID) || !terminalproto.ValidID(agentID) {
 		return t, terminalproto.ErrInvalid
@@ -369,10 +380,10 @@ func (s *Store) RequestTerminalEndFor(uid int64, agentID, sessionID, requestID s
 		if err := lockRemoteAgent(tx, uid, agentID, true); err != nil {
 			return err
 		}
-		var existing string
-		err := tx.QueryRow(`SELECT session_id FROM terminal_operations WHERE user_id=? AND agent_id=? AND kind='end' AND request_id=?`, uid, agentID, requestID).Scan(&existing)
+		var existing, stored string
+		err := tx.QueryRow(`SELECT session_id,parameters FROM terminal_operations WHERE user_id=? AND agent_id=? AND kind='end' AND request_id=?`, uid, agentID, requestID).Scan(&existing, &stored)
 		if err == nil {
-			if existing != sessionID {
+			if existing != sessionID || stored != parameters {
 				return ErrTerminalConflict
 			}
 			t, err = terminalForTx(tx, uid, agentID, sessionID)
@@ -394,7 +405,11 @@ func (s *Store) RequestTerminalEndFor(uid int64, agentID, sessionID, requestID s
 				return err
 			}
 		}
-		_, err = tx.Exec(`INSERT INTO terminal_operations(request_id,user_id,agent_id,session_id,kind,state,result_code,created_at,updated_at) VALUES(?,?,?,?,'end',?,?,?,?)`, requestID, uid, agentID, sessionID, state, code, now(), now())
+		_, err = tx.Exec(`INSERT INTO terminal_operations(request_id,user_id,agent_id,session_id,kind,state,result_code,parameters,created_at,updated_at) VALUES(?,?,?,?,'end',?,?,?,?,?)`, requestID, uid, agentID, sessionID, state, code, parameters, now(), now())
+		t.RemoveHistory = t.RemoveHistory || remove
+		if err == nil && !t.State.ReservesQuota() {
+			err = archiveTerminalOnClose(tx, uid, agentID, sessionID)
+		}
 		return err
 	})
 	return t, err
@@ -463,6 +478,12 @@ func (s *Store) PendingTerminalOperationsFor(uid int64, agentID string, generati
 	return out, err
 }
 
+// archiveTerminalOnClose only runs inside a transaction that has confirmed closure.
+func archiveTerminalOnClose(tx *sql.Tx, uid int64, agentID, sessionID string) error {
+	_, err := tx.Exec(`INSERT INTO terminal_session_archives(session_id,user_id,agent_id,archived_at) SELECT id,user_id,agent_id,? FROM terminal_sessions WHERE id=? AND user_id=? AND agent_id=? AND state IN ('ended','exited','lost') AND EXISTS(SELECT 1 FROM terminal_operations WHERE session_id=? AND user_id=? AND agent_id=? AND kind='end' AND parameters='{"removeHistory":true}') ON CONFLICT(session_id) DO NOTHING`, now(), sessionID, uid, agentID, sessionID, uid, agentID)
+	return err
+}
+
 // ObserveTerminalStateFor applies authenticated, generation-fenced reconciliation.
 // A late create acknowledgment cannot cancel an already durable end request.
 func (s *Store) ObserveTerminalStateFor(uid int64, agentID, sessionID string, generation int64, next terminalproto.SessionState, exitCode *int) error {
@@ -506,6 +527,9 @@ func (s *Store) ObserveTerminalStateFor(uid int64, agentID, sessionID string, ge
 		}
 		if !next.ReservesQuota() {
 			_, err = tx.Exec(`UPDATE terminal_operations SET state='succeeded',result_code='ok',updated_at=? WHERE user_id=? AND agent_id=? AND session_id=? AND kind='end' AND state='pending'`, now(), uid, agentID, sessionID)
+			if err == nil {
+				err = archiveTerminalOnClose(tx, uid, agentID, sessionID)
+			}
 		}
 		return err
 	})
@@ -553,6 +577,9 @@ func (s *Store) FailTerminalCreateFor(uid int64, agentID, requestID string, gene
 			return err
 		}
 		_, err = tx.Exec(`UPDATE terminal_operations SET state='succeeded',result_code='ok',updated_at=? WHERE user_id=? AND agent_id=? AND session_id=? AND kind='end' AND state='pending'`, now(), uid, agentID, sessionID)
+		if err == nil {
+			err = archiveTerminalOnClose(tx, uid, agentID, sessionID)
+		}
 		return err
 	})
 }

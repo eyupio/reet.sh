@@ -30,3 +30,19 @@ An archived deep link becomes unavailable without starting another shell.
 The migration creates only the new child table. Existing sessions remain visible
 until explicitly archived. Rolling back to an older binary can show closed records
 again because it ignores tombstones; session/receipt identities remain intact.
+
+## Remove after stopping
+
+The existing end endpoint additionally accepts `removeHistory: true`. Omitting it
+keeps history. The choice is part of the immutable end-operation parameters;
+changing it on a retry with the same request ID returns 409. Pending termination
+remains visible. Only an authenticated, generation-fenced ended/exited/lost
+observation (or confirmed failed creation) adds the archive tombstone, in the
+same transaction as closure. Controller restart preserves this decision. End
+still requires the existing execution/account/Origin gates; no automatic end is
+introduced by changing preferences.
+
+`terminalRemoveOnClose` in the account profile defaults to false and sets the
+checkbox's initial value for new stop confirmations. The user can override it per
+session. Saving that profile preference never removes history retroactively or
+changes pending end operations.

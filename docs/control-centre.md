@@ -1,12 +1,21 @@
 # Reet as the central control unit
 
-The main user task is to keep skills and remote work consistent across machines.
-The signed-in home is Control (`/` and `/control`). Skills moved to `/skills`;
-Machines stays at `/machines`; `/sync` and `/terminals` are first-class destinations.
-Existing machine comparison, terminal and account machine links continue to work.
-Lists and portable setups are under More.
+The main user task is to reach machines, open remote terminals and return to
+ongoing work. Control (`/` and `/control`) prioritises the active-session band and
+machine connection cards. Machines and Terminals are primary navigation; Skills,
+Sync, lists and portable setups remain under More with their existing routes.
+Legacy machine comparison, terminal and account links continue to work.
 
-## Everyday workflow
+## Terminal workspace
+
+Continue exact active sessions from the home band, or open a machine's terminals
+from its connection card. Ready, setup-needed, reconnecting and last-known states
+remain distinct. Resource readings preserve their freshness labels. Viewers see
+machine information without requesting private terminal data. The command library
+and connection help are secondary shortcuts. See [terminal workspace](terminal-workspace.md)
+for sidebar actions, appearance, account commands and close defaults.
+
+## Skill distribution workflow
 
 1. Connect a machine from Control or Machines. Install/authenticate the CLI,
    scan its agent scopes, and enroll its background agent for remote jobs.
@@ -27,7 +36,7 @@ Lists and portable setups are under More.
 
 ## Bulk operations
 
-Scan all queues one scan per recently reporting, unpaused enrollment. Sync all
+In More → Sync, Scan all queues one scan per recently reporting, unpaused enrollment. Sync all
 queues previews for saved targets with recent complete inventories and available
 agents. Pending work, offline/paused agents and stale/incomplete reports are
 listed as skipped. A preview on another scope does not block a distinct scope's
@@ -49,7 +58,7 @@ not silently replace it with the latest library.
 
 ## Agent maintenance next
 
-Control reserves a clearly labelled Planned area for agent software management.
+Agent software management remains planned; Control does not show functioning lifecycle buttons.
 Implementation should add reported installed versions, supported platform/package
 adapters, per-machine capability evidence, reviewed install/update/remove plans,
 and verified results to the existing machine model. Agent software lifecycle,
@@ -57,8 +66,8 @@ agent configuration snapshots and skill distribution need distinct operations
 and results. Copying binaries or credentials between machines is not implied by
 skill sync. No lifecycle buttons claim functionality before those adapters exist.
 
-Reet's product focus is a maintained central skill library, controlled distribution
-and reconciliation, and explicit execution across connected machines. Capability
+Reet's product focus is a machine and terminal workspace, with controlled skill
+distribution and reconciliation as supporting workflows. Capability
 claims must distinguish current behaviour from planned work and locally tested
 results from verified fleet deployment.
 

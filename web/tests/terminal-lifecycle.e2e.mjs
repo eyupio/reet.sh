@@ -160,7 +160,7 @@ try{
  await manage('Remove from history')
  await expect(page.getByRole('dialog')).toContainText('Files on the machine are kept')
  await page.getByRole('button',{name:'Cancel',exact:true}).click()
- const closedRow=page.getByRole('navigation',{name:'Sessions on selected machine'}).getByRole('button',{name:/^Renamed A/})
+ const closedRow=page.getByRole('navigation',{name:'Terminal sessions'}).getByRole('button',{name:/^Renamed A/})
  await expect(closedRow).toBeVisible();expect(archiveRequests).toHaveLength(0)
  failArchive=true
  await manage('Remove from history');await page.getByRole('dialog').getByRole('button',{name:'Remove from history',exact:true}).click()

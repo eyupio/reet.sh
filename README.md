@@ -5,9 +5,9 @@
   <img src="brand/logo/horizontal-color-light.svg" alt="reet.sh" width="340">
 </picture>
 
-### One control centre for your machines, skills and agents
+### Your machines. Your terminals. One workspace.
 
-Connect your machines, maintain a central skill library, review bidirectional sync, and use installed agents through remote terminals. Capture skills from [skills.sh](https://www.skills.sh) or host your own.<br>
+Connect laptops and servers, open remote terminals, and return to persistent shell sessions. Use the tools and agents already installed on each machine.<br>
 One Go binary. One SQLite file. No telemetry.
 
 [![CI](https://github.com/eyupio/reet.sh/actions/workflows/image.yml/badge.svg)](https://github.com/eyupio/reet.sh/actions/workflows/image.yml)
@@ -21,21 +21,22 @@ One Go binary. One SQLite file. No telemetry.
 <br>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/shelf-dark.png">
-  <img src="docs/images/shelf-light.png" alt="The reet.sh shelf: skills grouped by In use, To test and On the shelf, with install counts and weekly trend" width="860">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/control-dark.png">
+  <img src="docs/images/control-light.png" alt="The reet.sh machine workspace, with example connection data" width="860">
 </picture>
+<p><em>Example machine inventory.</em></p>
 
 </div>
 
 ## Why
 
-[skills.sh](https://www.skills.sh) is a great directory of agent skills, but it has no accounts, likes or bookmarks. You find a skill, close the tab, and a month later cannot remember which one it was or whether you ever installed it.
+Working across laptops and servers should not mean losing track of your shells or starting over when a browser closes. Keep your machines and ongoing sessions within reach in a workspace you host yourself.
 
-reet.sh is a self-hosted control centre for the machines where you use AI agents. Maintain a central skill library, choose what goes to one machine or all machines, bring machine discoveries back, and review changes before applying them. Open a browser terminal to work with agents already installed on a connected machine.
+reet.sh is a self-hosted workspace for the machines where you use AI agents. Open a browser terminal, continue ongoing shells, and work with agents already installed on each connected machine. Its supporting skill library lets you choose what goes to one machine or all machines, bring discoveries back, and review sync changes before applying them.
 
 The signed-out landing page introduces machines and persistent terminals, with routes to sign in, request an invite, create an account when enabled, or set up a new instance. Account signup, owner setup and token sign-in share the same workspace language. Public pages do not load private inventories.
 
-The signed-in home is **Control**, with reported inventories, saved sync scopes, plans awaiting approval and fleet controls. **Machines** handles connections and inventory, **Skills** maintains the central library, **Sync** handles distribution and reconciliation, and **Terminals** opens remote shells when account access and local terminal opt-in allow it. Lists and portable setups are under **More**. Skill shelf stages remain personal organisation; they do not install or remove files.
+The signed-in home is **Control**, with active sessions and machine connection cards. **Machines** handles connections and inventory; **Terminals** provides persistent remote shells. **More → Skills** maintains the central library and **More → Sync** handles reviewed distribution and reconciliation. Lists and portable setups also remain under More. Skill shelf stages are personal organisation; they do not install or remove files.
 
 **Scan all** requests inventory from available enrolled machines. **Sync all · preview** queues previews for available saved targets. Review and approve each exact plan in Sync activity. Distinct scopes on one machine can queue previews together; execution stays serial. Offline, paused, stale/incomplete and already-pending targets are skipped with reasons. Individual queue failures are reported, with successful requests preserved. Agent software installation, update and removal are future work; current controls manage skills and terminal sessions.
 
@@ -43,7 +44,9 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 
 ## Features
 
-- **Fleet-first control.** Home shows machines, reported skills, saved sync scopes and approval work. Start from one place to connect, scan, sync or open terminals.
+- **Terminal-first control.** Home shows active shells and machine connections. Continue exact sessions, or connect and open a machine's terminals.
+- **An organised session workspace.** Filter across machines, sort and group, colour-code sessions, drag to reorder, resize or collapse the sidebar. Right-click or use keyboard-accessible row actions to rename, disconnect, stop and remove closed history. Layout stays in this browser, separately per account.
+- **Comfortable remote terminals.** Four colour palettes, font/cursor controls, search, clipboard and guarded paste. Save exact commands to your account and explicitly insert them into a live shell without an extra Enter. Stopping can remove history after the machine confirms closure; set its default in Account → Profile.
 - **One or all machines.** In Sync, choose a library, list, published collection or reported machine scope as the source; select one destination or All machines, then adjust individual scopes. Differences are shown per destination. Saving desired state is separate from previewing and approving changes.
 
 - **Three-stage shelf.** On the shelf, To test, In use. Stage is derived from your flags, never stored out of step.

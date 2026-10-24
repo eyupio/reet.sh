@@ -14,14 +14,15 @@
     />
     <meta name="application-name" content="reet.sh" />
     <meta name="author" content="EyUp.io" />
+    <link rel="canonical" href="{{ORIGIN}}/" />
 
-    <!-- Open Graph / social previews. og:image must be an absolute URL, so this assumes the public origin https://reet.sh. -->
+    <!-- Open Graph / social previews. {{ORIGIN}} is replaced by the serving instance at request time. -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="reet.sh" />
     <meta property="og:title" content="reet.sh – your AI fleet control room" />
     <meta property="og:description" content="Your AI agents, machines, skills and reusable setups in one self-hosted control room." />
-    <meta property="og:url" content="https://reet.sh/" />
-    <meta property="og:image" content="https://reet.sh/og-image.png" />
+    <meta property="og:url" content="{{ORIGIN}}/" />
+    <meta property="og:image" content="{{ORIGIN}}/og-image.png" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
@@ -29,7 +30,7 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="reet.sh – your AI fleet control room" />
     <meta name="twitter:description" content="Your AI fleet, skills and setups in one workspace you control." />
-    <meta name="twitter:image" content="https://reet.sh/og-image.png" />
+    <meta name="twitter:image" content="{{ORIGIN}}/og-image.png" />
     <meta name="twitter:image:alt" content="reet.sh: Your AI agents. Your machines. One control room." />
 
     <!-- Icons: SVG for modern browsers (follows light/dark), ICO as the fallback, PNGs for iOS and installs. -->
@@ -37,9 +38,113 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "{{ORIGIN}}/#organization",
+            "name": "EyUp.io",
+            "url": "https://eyup.io",
+            "sameAs": ["https://github.com/eyupio/reet.sh"]
+          },
+          {
+            "@type": "WebSite",
+            "@id": "{{ORIGIN}}/#website",
+            "url": "{{ORIGIN}}/",
+            "name": "reet.sh",
+            "description": "A self-hosted control room for AI work across your machine fleet.",
+            "publisher": { "@id": "{{ORIGIN}}/#organization" }
+          },
+          {
+            "@type": "SoftwareApplication",
+            "name": "reet.sh",
+            "applicationCategory": "DeveloperApplication",
+            "operatingSystem": "Linux, macOS",
+            "url": "{{ORIGIN}}/",
+            "description": "Self-hosted control room for AI agents, machines, skills and reusable setups. One application, one SQLite file, no telemetry.",
+            "isAccessibleForFree": true,
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+            "publisher": { "@id": "{{ORIGIN}}/#organization" }
+          }
+        ]
+      }
+    </script>
+
+    <!--
+      Static copy of the landing page for crawlers that do not run JavaScript
+      (GPTBot, OAI-SearchBot, Claude-SearchBot, PerplexityBot). The SPA removes it
+      on mount. Keep it in sync with web/src/lib/Welcome.svelte.
+    -->
+    <style id="seo-fallback-style">
+      .crawl-fallback { max-width: 760px; margin: 0 auto; padding: 56px 20px 72px; font: 16px/1.7 system-ui, -apple-system, 'Segoe UI', sans-serif; color: #1d1c1a; background: #f7f6f2; }
+      .crawl-fallback a { color: #c2410c; }
+      .crawl-fallback .eyebrow { margin: 0 0 12px; font-size: .7rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: #c2410c; }
+      .crawl-fallback h1 { margin: 0 0 18px; font: 500 clamp(2rem, 4vw, 3rem)/1.1 Georgia, serif; letter-spacing: -.03em; }
+      .crawl-fallback h2 { margin: 40px 0 10px; font: 500 1.5rem/1.25 Georgia, serif; }
+      .crawl-fallback h3 { margin: 26px 0 6px; font-size: 1rem; }
+      .crawl-fallback p { margin: 0 0 12px; max-width: 66ch; }
+      .crawl-fallback .lede { font-size: 1.05rem; }
+      .crawl-fallback .cta { display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0 8px; }
+      .crawl-fallback .cta a { display: inline-block; padding: 10px 14px; border: 1px solid #dedbd2; border-radius: 8px; text-decoration: none; }
+      .crawl-fallback .cta a.primary { background: #c2410c; border-color: #c2410c; color: #fff; }
+      .crawl-fallback pre { padding: 16px; overflow-x: auto; border: 1px solid #dedbd2; border-radius: 8px; background: #fffdf9; font: 13px/1.6 ui-monospace, Consolas, monospace; }
+      .crawl-fallback ul { padding-left: 20px; }
+      @media (prefers-color-scheme: dark) {
+        .crawl-fallback { color: #efece6; background: #151413; }
+        .crawl-fallback a, .crawl-fallback .eyebrow { color: #fb923c; }
+        .crawl-fallback .cta a { border-color: #49453e; }
+        .crawl-fallback .cta a.primary { background: #fb923c; border-color: #fb923c; color: #1a1208; }
+        .crawl-fallback pre { border-color: #49453e; background: #1d1c1a; }
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app"><!--seo-fallback:start-->
+      <main class="crawl-fallback">
+        <p class="eyebrow">Ey up. Your AI control room.</p>
+        <h1>One control room. For your AI fleet.</h1>
+        <p class="lede">reet.sh brings your machines, AI agents, skills and setups into one self-hosted workspace. Connect your fleet, use the agents already installed on each machine, and choose what gets synced where.</p>
+        <div class="cta">
+          <a class="primary" href="/signin">Open your workspace →</a>
+          <a href="#self-host">Host it yourself</a>
+        </div>
+        <p>Self-hosted · Your fleet, your control · No telemetry</p>
+
+        <h2>How reet.sh works</h2>
+        <h3>Bring your fleet together.</h3>
+        <p>Connect laptops and servers, see their status, and choose the machine where you want to work.</p>
+        <h3>A reet good agent toolkit.</h3>
+        <p>Maintain skills and reusable AI setups. Bring another machine into the fold with a known setup, rather than rebuilding it from memory.</p>
+        <h3>Put your agents to work.</h3>
+        <p>Open a browser terminal to use installed agents, keep sessions running, and pick up where you left off.</p>
+
+        <h2>The workspace around your agents</h2>
+        <p>Machines, reusable setups, skills and ongoing work belong together. You decide what moves between them.</p>
+        <h3>Your fleet, in view.</h3>
+        <p>Reach your connected machines from one control room. See what is available and continue the work already running there.</p>
+        <h3>Setups worth keeping.</h3>
+        <p>Save and share named AI setup profiles through reet. Pull a known setup when preparing another machine, with restore and verification in the CLI.</p>
+        <h3>Skills that travel.</h3>
+        <p>Keep a central skill library, bring machine discoveries back, and choose a source and destinations for distribution.</p>
+        <h3>Sync, on your terms.</h3>
+        <p>Choose one machine or the fleet. Review exact plans and resolve conflicts before applying changes.</p>
+
+        <h2>Your infrastructure. Your call.</h2>
+        <p>Run reet.sh on your own infrastructure. Keep control of accounts, local shell consent, skills, setup profiles and reviewed fleet changes. One application, one SQLite file, with no telemetry.</p>
+
+        <h2 id="self-host">Give your machines a home.</h2>
+        <p>Install reet.sh, choose your deployment, then bring your first machine and its AI toolkit into the workspace.</p>
+        <pre>curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh
+reet install</pre>
+        <ul>
+          <li><a href="https://github.com/eyupio/reet.sh#quick-start">Installation guide</a></li>
+          <li><a href="https://github.com/eyupio/reet.sh">Source on GitHub</a></li>
+        </ul>
+      </main>
+    <!--seo-fallback:end--></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

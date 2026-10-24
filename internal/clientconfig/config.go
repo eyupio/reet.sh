@@ -191,6 +191,19 @@ func Prompt(in io.Reader, out io.Writer, key, current string) (string, error) {
 	if key == "REET_VERSION" {
 		label = "Release channel or version"
 	}
+	value, err := Ask(in, out, label, current)
+	if err != nil {
+		return "", err
+	}
+	if err = Validate(key, value); err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+// Ask reads one answer for an arbitrary setup question without consuming the
+// next answer. Callers validate their own domain-specific values.
+func Ask(in io.Reader, out io.Writer, label, current string) (string, error) {
 	if current != "" {
 		fmt.Fprintf(out, "%s [%s]: ", label, current)
 	} else {
@@ -218,8 +231,8 @@ func Prompt(in io.Reader, out io.Writer, key, current string) (string, error) {
 	if value == "" {
 		value = current
 	}
-	if err := Validate(key, value); err != nil {
-		return "", err
+	if len(value) > 4096 || strings.ContainsAny(value, "\r\n\x00") {
+		return "", errors.New("invalid or oversized answer")
 	}
 	return value, nil
 }

@@ -304,6 +304,71 @@ func controlAgent(action, config, prefix string, out io.Writer) error {
 	fmt.Fprintln(out, "To start automatically after login/reboot, install the native agent service.")
 	return nil
 }
+
+// Installation owns the same start lock as lifecycle commands, so an old
+// detached process cannot race the native service for the enrollment lock.
+func installAgentServices(plan terminalhost.ServicePlan, out io.Writer) error {
+	startup, err := filelock.Acquire(plan.ConfigPath + ".start.lock")
+	if err != nil {
+		return err
+	}
+	defer startup.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	if err = terminalhost.CheckInstall(ctx, plan); err != nil {
+		return err
+	}
+	running, err := agentRunning(plan.ConfigPath)
+	if err != nil {
+		return err
+	}
+	if running {
+		var state agentLocalStatus
+		if err = localAgentCall(plan.ConfigPath, "GET", "/status", &state); err != nil {
+			return errors.New("an older agent has no local control; stop that foreground process before installing services")
+		}
+		if state.Supervised && state.ServicePrefix != plan.Prefix {
+			return errors.New("this enrollment is supervised under another service prefix; use its --service-prefix")
+		}
+		if !state.Supervised {
+			fmt.Fprintln(out, "Switching the existing standalone agent to native supervision. Running tmux sessions are preserved.")
+			if err = stopLocalAgent(plan.ConfigPath, plan.Prefix, out); err != nil {
+				return err
+			}
+		}
+	}
+	if err = terminalhost.Install(ctx, plan); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		var state agentLocalStatus
+		if localAgentCall(plan.ConfigPath, "GET", "/status", &state) == nil && state.Supervised && state.ServicePrefix == plan.Prefix {
+			if !terminalhost.ReadStatus(ctx, plan).Active {
+				return errors.New("agent started but the terminal supervisor is not active; inspect service status")
+			}
+			fmt.Fprintln(out, "Verified: native agent and independent terminal supervisor are active.")
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return errors.New("services were installed but the native agent did not become ready; no successful handoff was verified")
+}
+func localTerminalAgentNative(config string) (bool, error) {
+	running, err := agentRunning(config)
+	if err != nil || !running {
+		return false, err
+	}
+	var state agentLocalStatus
+	if err = localAgentCall(config, "GET", "/status", &state); err != nil {
+		return false, errors.New("the existing agent has no local control; stop its older foreground process before continuing setup")
+	}
+	return state.Supervised, nil
+}
+func localTerminalAgentConnected(config string) bool {
+	var state agentLocalStatus
+	return localAgentCall(config, "GET", "/status", &state) == nil && state.Supervised && state.Connected
+}
 func stopLocalAgent(config, prefix string, out io.Writer) error {
 	running, err := agentRunning(config)
 	if err != nil {

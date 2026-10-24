@@ -333,20 +333,31 @@ func bootoutMac(ctx context.Context, label string) error {
 // Install writes both unit definitions and starts them through the native
 // service manager. The units remain independent: stopping the agent never
 // stops tmux or its sessions.
-func Install(ctx context.Context, plan ServicePlan) error {
+func CheckInstall(ctx context.Context, plan ServicePlan) error {
+	_, err := checkInstall(ctx, plan)
+	return err
+}
+func checkInstall(ctx context.Context, plan ServicePlan) (bool, error) {
 	// Never replace a running tmux supervisor as a side effect of refreshing
 	// the agent. A live service bound to another enrollment needs explicit local
 	// migration after its work is finished; do not silently kill/adopt it.
 	preserve := responsive(ctx, Tmux{Path: plan.TmuxPath}, plan.Layout)
 	active, err := terminalServiceActive(ctx, plan)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if active && !preserve {
-		return errors.New("terminal service is already active for a different or unavailable socket; preserve its work and stop or migrate that service explicitly before installing")
+		return false, errors.New("terminal service is already active for a different or unavailable socket; preserve its work and stop or migrate that service explicitly before installing")
 	}
 	if preserve && !active {
-		return errors.New("a tmux server is already running outside the terminal service; preserve its work and migrate it explicitly before installing")
+		return false, errors.New("a tmux server is already running outside the terminal service; preserve its work and migrate it explicitly before installing")
+	}
+	return preserve, nil
+}
+func Install(ctx context.Context, plan ServicePlan) error {
+	preserve, err := checkInstall(ctx, plan)
+	if err != nil {
+		return err
 	}
 	if err := Ensure(plan.Layout); err != nil {
 		return err
@@ -378,6 +389,9 @@ func Install(ctx context.Context, plan ServicePlan) error {
 	if err := runServiceCommand(ctx, "systemctl", "--user", "daemon-reload"); err != nil {
 		return err
 	}
+	// Fresh unit definitions may not be loaded until enable/start. Recovery is
+	// best-effort here; the actual start/restart must still succeed.
+	_ = runServiceCommand(ctx, "systemctl", "--user", "reset-failed", plan.AgentName, plan.TerminalName)
 	if err := runServiceCommand(ctx, "systemctl", "--user", "enable", plan.TerminalName); err != nil {
 		return err
 	}
@@ -450,6 +464,7 @@ func ControlAgentService(ctx context.Context, plan ServicePlan, action string) e
 		if err := runServiceCommand(ctx, "systemctl", "--user", "daemon-reload"); err != nil {
 			return err
 		}
+		_ = runServiceCommand(ctx, "systemctl", "--user", "reset-failed", plan.AgentName)
 	}
 	return runServiceCommand(ctx, "systemctl", "--user", action, plan.AgentName)
 }

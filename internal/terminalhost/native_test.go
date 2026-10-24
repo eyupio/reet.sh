@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -121,6 +122,32 @@ func TestNativeAgentKillKeepsTmuxSession(t *testing.T) {
 		}
 	}
 	firstAgent := mainPID(t, plan)
+	// Reproduce an installed service competing with an older standalone agent.
+	// CLI installation must hand off the enrollment lock without touching tmux.
+	if err := ControlAgentService(context.Background(), plan, "stop"); err != nil {
+		t.Fatal(err)
+	}
+	standalone := exec.Command(agentBinary, "agent", "run", "--foreground", "--config", config)
+	standalone.Stdout = io.Discard
+	standalone.Stderr = io.Discard
+	if err := standalone.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { standalone.Process.Kill(); standalone.Wait() })
+	if !waitForNative(t, 10*time.Second, func() bool {
+		output, err := exec.Command(agentBinary, "agent", "status", "--config", config).CombinedOutput()
+		return err == nil && strings.Contains(string(output), "background/foreground process")
+	}) {
+		t.Fatal("standalone regression fixture did not start")
+	}
+	output, err := exec.Command(agentBinary, "agent", "service", "install", "--config", config, "--service-prefix", prefix).CombinedOutput()
+	if err != nil || !strings.Contains(string(output), "Verified: native agent") {
+		t.Fatalf("standalone handoff: %s (%v)", output, err)
+	}
+	if !processAlive(pid) || panePID(t, tmux.Path, layout.Socket) != pid {
+		t.Fatal("standalone migration ended tmux work")
+	}
+	firstAgent = mainPID(t, plan)
 	if firstAgent == 0 {
 		t.Fatal("agent service has no main process")
 	}

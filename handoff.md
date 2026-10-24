@@ -43,6 +43,8 @@ The signed-out `/` and `/welcome` explain machines, persistent terminals and
 self-hosting. The illustrative workspace is explicitly labelled; its machine and
 session names are examples. Signup, owner setup, account/token sign-in, invitation
 copy, social metadata and the installed-app manifest use workspace language.
+The share-image source is `brand/og-image.html`; regenerate its committed
+`web/public/og-image.png` when changing the public positioning.
 Actual access rules, invite-only restrictions and bootstrap-token requirements
 are unchanged. Private inventories must never be fetched by these public pages.
 

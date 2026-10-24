@@ -75,6 +75,7 @@ await page.routeWebSocket('**/api/v2/terminal/socket',socket=>{
 const pane=page.locator('.pane')
 const selected=()=>new URL(page.url()).searchParams.get('session')
 async function live(){await expect(pane).toHaveAttribute('data-connection-state','live')}
+async function chooseMachine(id){const toggle=page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/});if(await toggle.getAttribute('aria-expanded')!=='true')await toggle.click();await page.getByLabel('Machine',{exact:true}).selectOption(id)}
 async function create(name){await page.getByRole('button',{name:'New session',exact:true}).click();await page.getByLabel('New session name').fill(name);await page.getByRole('button',{name:'New terminal',exact:true}).click()}
 async function refresh(){const toggle=page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/});if(await toggle.getAttribute('aria-expanded')!=='true')await toggle.click();await page.getByRole('button',{name:'Refresh status',exact:true}).click()}
 async function manage(name){await page.locator('.session-menu summary').click();await page.getByRole('button',{name,exact:true}).click()}
@@ -85,11 +86,11 @@ try{
  await expect(page.getByRole('dialog')).toContainText('Creation response interrupted')
  const originalOperation=operations[0]
  await page.getByRole('button',{name:'Close New terminal session'}).click()
- await page.getByLabel('Machine',{exact:true}).selectOption(agentB);await live()
+ await chooseMachine(agentB);await live()
  await create('Fresh B');await live();await expect(pane).toContainText('Fresh B')
  expect(operations[1].agentId).toBe(agentB)
  expect(operations[1].requestId).not.toBe(originalOperation.requestId)
- await page.getByLabel('Machine',{exact:true}).selectOption(agentA);await live()
+ await chooseMachine(agentA);await live()
  await page.getByRole('button',{name:'New session',exact:true}).click()
  await expect(page.getByLabel('New session name')).toHaveValue('Uncertain A')
  await expect(page.getByLabel('New session name')).toBeDisabled()
@@ -127,16 +128,16 @@ try{
  await expect(matches).toContainText('reconnecting')
  await page.getByRole('button',{name:'Close Find a machine'}).click()
  // Rename response arrives after switching machines; target and selection stay independent.
- await page.getByLabel('Machine',{exact:true}).selectOption(agentA);await live()
+ await chooseMachine(agentA);await live()
  const renamedId=selected(),renameGate=holdNextMutation()
  await manage('Rename');await page.getByRole('dialog').getByLabel('Session name').fill('Renamed A')
  await page.getByRole('button',{name:'Save name',exact:true}).click();await renameGate.entered
- await page.getByLabel('Machine',{exact:true}).selectOption(agentB);await live()
+ await chooseMachine(agentB);await live()
  renameGate.release()
  await expect.poll(()=>mutations.length).toBe(1)
  expect(mutations[0].id).toBe(renamedId)
  await expect(pane).toContainText('Fresh B')
- await page.getByLabel('Machine',{exact:true}).selectOption(agentA);await live()
+ await chooseMachine(agentA);await live()
  await expect(pane).toContainText('Renamed A')
  // Offline end stays pending. Retry reuses its ID; another shell is unaffected.
  machines[0].ready=false;await refresh()
@@ -149,12 +150,12 @@ try{
  await manage('Retry end request');await page.getByRole('dialog').getByRole('button',{name:'End session',exact:true}).click()
  await expect.poll(()=>mutations.filter(m=>m.kind==='end').length).toBe(2)
  const ends=mutations.filter(m=>m.kind==='end');expect(ends[0]).toEqual(ends[1]);expect(ends[0].id).toBe(renamedId)
- await page.getByLabel('Machine',{exact:true}).selectOption(agentB);await live()
+ await chooseMachine(agentB);await live()
  expect(sessions.find(item=>item.id===sessionB).state).toBe('running')
  machines[0].ready=true;sessions.find(item=>item.id===renamedId).state='ended'
  // Closed-history removal works while execution is disabled and preserves a newer selection.
  const builderBeforeArchive=selected()
- await page.getByLabel('Machine',{exact:true}).selectOption(agentA);await refresh()
+ await chooseMachine(agentA);await refresh()
  await expect(pane).toHaveAttribute('data-connection-state','ended')
  machines[0].serverEnabled=false;machines[0].ready=false;await refresh()
  await manage('Remove from history')
@@ -169,19 +170,19 @@ try{
  failArchive=false
  const archiveGate=holdNextMutation()
  await manage('Remove from history');await page.getByRole('dialog').getByRole('button',{name:'Remove from history',exact:true}).click();await archiveGate.entered
- await page.getByLabel('Machine',{exact:true}).selectOption(agentB);await live()
+ await chooseMachine(agentB);await live()
  archiveGate.release()
  await expect.poll(()=>archived.has(renamedId)).toBe(true)
  expect(archiveRequests).toEqual([renamedId,renamedId])
  expect(selected()).toBe(builderBeforeArchive);await live()
  machines[0].serverEnabled=true;machines[0].ready=true
  await page.reload();await live()
- await page.getByLabel('Machine',{exact:true}).selectOption(agentA);await live()
+ await chooseMachine(agentA);await live()
  await expect(closedRow).toHaveCount(0)
  await page.locator('.session-menu summary').click()
  await expect(page.getByRole('button',{name:'Remove from history',exact:true})).toHaveCount(0)
  await page.locator('.session-menu summary').click()
- await page.getByLabel('Machine',{exact:true}).selectOption(agentB);await live()
+ await chooseMachine(agentB);await live()
  // A busy lease requires an explicit transfer and preserves the session ID.
  claimed=true;await page.reload()
  await expect(pane).toHaveAttribute('data-connection-state','taken_over')
@@ -197,7 +198,7 @@ try{
  await expect(pane).toContainText('No replacement was created')
  expect(operations.length).toBe(beforeLost)
  // Quota blocks an extra creation, but existing sessions remain usable.
- await page.getByLabel('Machine',{exact:true}).selectOption(agentA)
+ await chooseMachine(agentA)
  for(let i=0;i<8;i++)sessions.push(makeSession(agentA,`Quota ${i}`))
  await refresh()
  await page.getByRole('button',{name:'New session',exact:true}).click()

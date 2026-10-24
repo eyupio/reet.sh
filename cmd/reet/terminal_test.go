@@ -8,12 +8,13 @@ import (
 )
 
 func TestTerminalCLIConfiguresNextControllerStart(t *testing.T) {
+	t.Setenv("REET_PUBLIC_URL", "https://reet.example")
 	dir, err := os.MkdirTemp("/tmp", "reet-cli-")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(dir)
-	for _, step := range []struct{ action, want string }{{"start", "started"}, {"status", "started"}, {"stop", "stopped"}, {"status", "stopped"}} {
+	for _, step := range []struct{ action, want string }{{"start", "configured on"}, {"status", "configured on"}, {"stop", "stopped"}, {"status", "stopped"}} {
 		var out bytes.Buffer
 		if err := runTerminal([]string{step.action, "--data-dir", dir}, &out); err != nil {
 			t.Fatal(err)

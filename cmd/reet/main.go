@@ -111,6 +111,7 @@ Run reet <command> --help for options. init/update alias install/upgrade.
 	case "serve":
 		f := flag.NewFlagSet("reet serve", flag.ExitOnError)
 		config := f.String("config", "", "managed deployment.json path")
+		envFile := f.String("env-file", "", "configuration file (default REET_ENV_FILE or .env)")
 		f.Usage = func() {
 			fmt.Fprintln(f.Output(), "Usage: reet serve [--config PATH]\n\nRun the web app. Open the listening address in your browser to create the owner account.\n\nOptions:")
 			f.PrintDefaults()
@@ -145,6 +146,9 @@ backup to preserve accounts, lists, teams and sync references.
 			if err := lifecycle.LoadServerConfig(*config); err != nil {
 				log.Fatal(err)
 			}
+		}
+		if err := applyServerEnvFile(*envFile); err != nil {
+			log.Fatal(err)
 		}
 		if err := serve(); err != nil {
 			log.Fatal(err)
@@ -189,6 +193,9 @@ func serve() error {
 	}
 	defer terminalControl.Close()
 	publicURL := os.Getenv("REET_PUBLIC_URL")
+	if publicURL == "" {
+		publicURL = terminalControl.PublicURL()
+	}
 	if publicURL != "" {
 		u, err := url.Parse(publicURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
@@ -205,6 +212,9 @@ func serve() error {
 	_ = st.PruneInvites(time.Now().UnixMilli())
 	_, _ = st.PruneMail()
 	mode := api.AuthMode(os.Getenv("REET_AUTH"))
+	if terminalControl.AuthMode() != "" {
+		mode = api.AuthMode(terminalControl.AuthMode())
+	}
 	switch mode {
 	case "":
 		mode = api.AuthAccounts
@@ -241,12 +251,12 @@ func serve() error {
 	h := api.New(st, meta.Default(os.Getenv("SKILLS_SH_TOKEN")), os.Getenv("REET_TOKEN"),
 		api.WithRemoteTerminals(terminalControl.Enabled()),
 		api.WithAuthMode(mode), api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"),
-		api.WithTopics(os.Getenv("REET_TOPICS") != "off"), api.WithPublicURL(os.Getenv("REET_PUBLIC_URL")),
+		api.WithTopics(os.Getenv("REET_TOPICS") != "off"), api.WithPublicURL(publicURL),
 		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"), api.WithBackups(backups),
 		api.WithSignup(signup), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")), api.WithMail(mailer), api.WithNotify(notifier),
 		api.WithPrivateConnection(bcfg.Sealer, os.Getenv("REET_RELAY_MAP_URL")))
 	defer func() { terminalControl.Close(); h.Close() }()
-	if err := terminalControl.Serve(h.SetRemoteTerminals, h.RemoteTerminalsAvailable); err != nil {
+	if err := terminalControl.Serve(h.SetRemoteTerminals, h.RemoteTerminalsAvailable, terminalcontrol.Options{Configure: h.ConfigureTerminalOrigin, Reason: h.RemoteTerminalsReason, PublicURL: h.RemoteTerminalPublicURL, AuthMode: h.RemoteTerminalAuthMode}); err != nil {
 		return err
 	}
 	mux := http.NewServeMux()

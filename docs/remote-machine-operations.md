@@ -15,6 +15,18 @@ reet terminal restart
 Use the same OS user and data directory as `reet serve`; pass
 `--data-dir /absolute/controller/data` (or `REET_DATA_DIR`) when needed. For Docker,
 execute the command inside the controller container with its mounted data directory.
+The commands automatically reuse `.env` (`REET_ENV_FILE` or `--env-file PATH`
+selects another file), including `REET_PUBLIC_URL`/`REET_URL` and `REET_DATA_DIR`.
+Exported settings and explicit flags win; a missing URL prompts interactively.
+The guided start/restart flow validates missing answers and persists them. It
+asks before saving accounts authentication if needed, and reuses saved or active
+controller values on subsequent runs. A confirmed authentication change applies
+on the next controller start and is reported as restart-required, never active.
+Start/restart can repair a running accounts controller's missing public origin
+from this configuration and persist it. `reet serve` loads the same `.env`
+defaults. A pre-existing server process must be restarted once after upgrading
+to this loader/control protocol; upgrading the on-disk binary alone cannot
+change the code already running in memory.
 These commands manage web terminal availability, not the controller process or
 the host agent. They require no browser token or public administration endpoint.
 Start/stop persist for subsequent controller starts; offline restart is rejected.

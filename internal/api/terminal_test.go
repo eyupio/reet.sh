@@ -41,7 +41,7 @@ func TestTerminalRequiresBrowserLoginAndCanonicalOrigin(t *testing.T) {
 		srv.ServeHTTP(w, r)
 		return w.Code
 	}
-	for _, path := range []string{"/api/v2/terminal/machines", "/api/v2/terminal/sessions"} {
+	for _, path := range []string{"/api/v2/terminal/status", "/api/v2/terminal/machines", "/api/v2/terminal/sessions"} {
 		if code := request("GET", path, "", "", "", token); code != 403 {
 			t.Fatal("API token granted terminal access", code)
 		}
@@ -89,6 +89,52 @@ func TestTerminalRequiresBrowserLoginAndCanonicalOrigin(t *testing.T) {
 		srv.s.token = "single-token"
 		if code := request("GET", "/api/v2/terminal/machines", "", cookie, "", "single-token"); code != 403 {
 			t.Fatal("non-account mode allowed", mode, code)
+		}
+	}
+}
+
+func TestTerminalStatusAndRuntimeOriginRepair(t *testing.T) {
+	srv, st, _, _, _ := privateFixture(t, AuthAccounts, "")
+	srv.s.publicURL = ""
+	srv.SetRemoteTerminals(true)
+	if srv.RemoteTerminalsReason() != "https_required" || srv.RemoteTerminalsAvailable() {
+		t.Fatal("missing origin not identified")
+	}
+	if err := srv.ConfigureTerminalOrigin("https://reet.example"); err != nil {
+		t.Fatal(err)
+	}
+	if !srv.RemoteTerminalsAvailable() || srv.RemoteTerminalsReason() != "" {
+		t.Fatal("runtime origin did not repair availability")
+	}
+	r := httptest.NewRequest("POST", "/", nil)
+	r.Header.Set("Origin", "https://reet.example")
+	if !srv.s.terminalOrigin(r) || !srv.s.sessionSecure(r) {
+		t.Fatal("repaired origin did not protect origin/cookies")
+	}
+	if err := srv.ConfigureTerminalOrigin("https://updated.example"); err != nil {
+		t.Fatal(err)
+	}
+	if srv.s.terminalOrigin(r) {
+		t.Fatal("explicit configured origin update left the old origin authorized")
+	}
+	r.Header.Set("Origin", "https://updated.example")
+	if !srv.s.terminalOrigin(r) {
+		t.Fatal("updated configured origin rejected")
+	}
+	uid, _ := st.DefaultOwner()
+	cookie := terminalLogin(t, st, uid)
+	for _, enabled := range []bool{false, true} {
+		srv.SetRemoteTerminals(enabled)
+		r := httptest.NewRequest("GET", "/api/v2/terminal/status", nil)
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, r)
+		var status struct {
+			Configured, Available bool
+			Reason                string
+		}
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &status) != nil || status.Configured != enabled || status.Available != enabled {
+			t.Fatal("status with empty fleet", w.Code, w.Body.String())
 		}
 	}
 }

@@ -20,6 +20,9 @@ import (
 )
 
 func (s *server) registerTerminalRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v2/terminal/status", s.terminal(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, s.terminalStatus())
+	}))
 	mux.HandleFunc("GET /api/v2/terminal/machines", s.terminal(s.terminalMachines))
 	mux.HandleFunc("GET /api/v2/terminal/sessions", s.terminal(s.terminalSessions))
 	mux.HandleFunc("POST /api/v2/terminal/sessions", s.terminal(s.terminalCreate))
@@ -51,7 +54,7 @@ func (s *server) terminal(next http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, 400, "terminal credentials must not appear in URLs")
 			return
 		}
-		metadata := r.Method == http.MethodGet && (r.URL.Path == "/api/v2/terminal/machines" || r.URL.Path == "/api/v2/terminal/sessions")
+		metadata := r.Method == http.MethodGet && (r.URL.Path == "/api/v2/terminal/status" || r.URL.Path == "/api/v2/terminal/machines" || r.URL.Path == "/api/v2/terminal/sessions")
 		if !metadata && !s.terminalEnabled() {
 			writeErr(w, 403, "remote terminals are disabled by the server; monitoring and local shells remain available")
 			return
@@ -65,22 +68,50 @@ func (s *server) terminal(next http.HandlerFunc) http.HandlerFunc {
 		next(w, r.WithContext(context.WithValue(r.Context(), userContextKey{}, u)))
 	}
 }
-func (s *server) terminalEnabled() bool {
+func (s *server) terminalConfigured() bool {
 	enabled := s.remoteTerminals
 	if override := s.terminalOverride.Load(); override != nil {
 		enabled = *override
 	}
-	if !enabled || s.authMode != AuthAccounts {
-		return false
-	}
-	u, err := url.Parse(s.publicURL)
+	return enabled
+}
+func (s *server) terminalEnabled() bool {
+	return s.terminalConfigured() && s.authMode == AuthAccounts && s.terminalOriginConfigured()
+}
+func (s *server) terminalOriginConfigured() bool { return validTerminalOrigin(s.publicOrigin()) }
+func validTerminalOrigin(origin string) bool {
+	u, err := url.Parse(origin)
 	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" {
 		return false
 	}
 	return u.Scheme == "https" || u.Scheme == "http" && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()).IsLoopback())
 }
+func (s *server) terminalUnavailableReason() string {
+	return s.terminalStatus().Reason
+}
+
+type terminalControllerStatus struct {
+	Configured bool   `json:"configured"`
+	Available  bool   `json:"available"`
+	Reason     string `json:"reason"`
+}
+
+func (s *server) terminalStatus() terminalControllerStatus {
+	status := terminalControllerStatus{Configured: s.terminalConfigured()}
+	switch {
+	case !status.Configured:
+		status.Reason = "disabled"
+	case s.authMode != AuthAccounts:
+		status.Reason = "accounts_required"
+	case !s.terminalOriginConfigured():
+		status.Reason = "https_required"
+	default:
+		status.Available = true
+	}
+	return status
+}
 func (s *server) terminalOrigin(r *http.Request) bool {
-	u, err := url.Parse(s.publicURL)
+	u, err := url.Parse(s.publicOrigin())
 	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Scheme != "https" && u.Scheme != "http" || u.Path != "" && u.Path != "/" {
 		return false
 	}
@@ -237,7 +268,7 @@ func serveTerminalHistory(w http.ResponseWriter, r *http.Request, data []byte) {
 func (s *server) terminalSocket(w http.ResponseWriter, r *http.Request) {
 	// The wrapper already checked the exact scheme and origin; the library
 	// also checks the explicit canonical host when running behind a proxy.
-	origin, _ := url.Parse(s.publicURL)
+	origin, _ := url.Parse(s.publicOrigin())
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{origin.Host}})
 	if err != nil {
 		return

@@ -3,6 +3,7 @@
 package terminalcontrol
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -19,13 +21,34 @@ import (
 )
 
 type State struct {
-	Enabled bool `json:"enabled"`
+	Enabled   bool   `json:"enabled"`
+	PublicURL string `json:"publicURL,omitempty"`
+	AuthMode  string `json:"authMode,omitempty"`
 }
 type Status struct {
-	Enabled   bool `json:"enabled"`
-	Available bool `json:"available"`
-	Running   bool `json:"running"`
+	Enabled         bool   `json:"enabled"`
+	Available       bool   `json:"available"`
+	Running         bool   `json:"running"`
+	Reason          string `json:"reason,omitempty"`
+	PublicURL       string `json:"publicURL,omitempty"`
+	AuthMode        string `json:"authMode,omitempty"`
+	RestartRequired bool   `json:"restartRequired,omitempty"`
 }
+type Options struct {
+	Configure func(string) error
+	Reason    func() string
+	PublicURL func() string
+	AuthMode  func() string
+}
+
+func ValidateOrigin(origin string) error {
+	u, err := url.Parse(origin)
+	if err != nil || len(origin) > 512 || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" || !(u.Scheme == "https" || u.Scheme == "http" && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()).IsLoopback())) {
+		return errors.New("public URL must be an HTTPS origin (loopback HTTP is allowed)")
+	}
+	return nil
+}
+
 type Control struct {
 	dir       string
 	lock      *os.File
@@ -65,7 +88,7 @@ func directory(dataDir string) (string, error) {
 func readState(dir string, fallback bool) (State, error) {
 	path := filepath.Join(dir, "state.json")
 	if _, err := os.Lstat(path); os.IsNotExist(err) {
-		return State{fallback}, nil
+		return State{Enabled: fallback}, nil
 	}
 	if err := checkPath(path, false, true); err != nil {
 		return State{}, err
@@ -81,12 +104,22 @@ func readState(dir string, fallback bool) (State, error) {
 	d := json.NewDecoder(io.LimitReader(f, 1024))
 	d.DisallowUnknownFields()
 	var state struct {
-		Enabled *bool `json:"enabled"`
+		Enabled   *bool  `json:"enabled"`
+		PublicURL string `json:"publicURL,omitempty"`
+		AuthMode  string `json:"authMode,omitempty"`
 	}
 	if d.Decode(&state) != nil || state.Enabled == nil || d.Decode(new(any)) != io.EOF {
 		return State{}, errors.New("invalid terminal availability state; inspect state.json")
 	}
-	return State{*state.Enabled}, nil
+	if state.PublicURL != "" {
+		if err := ValidateOrigin(state.PublicURL); err != nil {
+			return State{}, err
+		}
+	}
+	if state.AuthMode != "" && state.AuthMode != "accounts" {
+		return State{}, errors.New("invalid saved authentication mode")
+	}
+	return State{Enabled: *state.Enabled, PublicURL: state.PublicURL, AuthMode: state.AuthMode}, nil
 }
 func writeState(dir string, state State) error {
 	target := filepath.Join(dir, "state.json")
@@ -147,7 +180,13 @@ func (c *Control) Enabled() bool { c.mu.Lock(); defer c.mu.Unlock(); return c.st
 
 // Serve applies live changes only after durable persistence succeeds. apply
 // must fence active attachments; available also enforces accounts/HTTPS setup.
-func (c *Control) Serve(apply func(bool), available func() bool) error {
+func (c *Control) PublicURL() string { c.mu.Lock(); defer c.mu.Unlock(); return c.state.PublicURL }
+func (c *Control) AuthMode() string  { c.mu.Lock(); defer c.mu.Unlock(); return c.state.AuthMode }
+func (c *Control) Serve(apply func(bool), available func() bool, options ...Options) error {
+	var opt Options
+	if len(options) > 0 {
+		opt = options[0]
+	}
 	socket := filepath.Join(c.dir, "control.sock")
 	if info, err := os.Lstat(socket); err == nil {
 		if info.Mode()&os.ModeSocket == 0 {
@@ -183,7 +222,7 @@ func (c *Control) Serve(apply func(bool), available func() bool) error {
 			http.NotFound(w, r)
 			return
 		}
-		if r.URL.RawQuery != "" || r.ContentLength > 0 || r.ContentLength < 0 {
+		if r.URL.RawQuery != "" || r.ContentLength > 1024 || r.ContentLength < 0 || r.URL.Path == "/status" && r.ContentLength != 0 {
 			http.Error(w, "unexpected request data", 400)
 			return
 		}
@@ -197,22 +236,60 @@ func (c *Control) Serve(apply func(bool), available func() bool) error {
 				w.WriteHeader(405)
 				return
 			}
-			state := State{r.URL.Path != "/stop"}
+			state := c.state
+			state.Enabled = r.URL.Path != "/stop"
+			if r.ContentLength > 0 {
+				var config struct {
+					PublicURL string `json:"publicURL"`
+					AuthMode  string `json:"authMode,omitempty"`
+				}
+				d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
+				d.DisallowUnknownFields()
+				if d.Decode(&config) != nil || d.Decode(new(any)) != io.EOF || r.URL.Path == "/stop" || config.PublicURL != "" && ValidateOrigin(config.PublicURL) != nil || config.AuthMode != "" && config.AuthMode != "accounts" {
+					http.Error(w, "invalid terminal configuration", 400)
+					return
+				}
+				if config.PublicURL != "" {
+					state.PublicURL = config.PublicURL
+				}
+				if config.AuthMode != "" {
+					state.AuthMode = config.AuthMode
+				}
+			}
 			if err := writeState(c.dir, state); err != nil {
 				http.Error(w, "could not persist terminal availability", 500)
 				return
 			}
+			if state.PublicURL != "" && opt.Configure != nil {
+				if err := opt.Configure(state.PublicURL); err != nil {
+					http.Error(w, "could not apply public URL", 500)
+					return
+				}
+			}
 			if r.URL.Path == "/restart" {
 				apply(false)
 			}
-			if state.Enabled != c.state.Enabled || r.URL.Path == "/restart" {
+			if state.Enabled != c.state.Enabled || r.URL.Path == "/restart" || state.PublicURL != c.state.PublicURL {
 				apply(state.Enabled)
 			}
 			c.state = state
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(Status{c.state.Enabled, available(), true})
+		status := Status{Enabled: c.state.Enabled, Available: available(), Running: true}
+		status.PublicURL = c.state.PublicURL
+		status.AuthMode = c.state.AuthMode
+		if opt.PublicURL != nil {
+			status.PublicURL = opt.PublicURL()
+		}
+		if opt.AuthMode != nil {
+			status.AuthMode = opt.AuthMode()
+		}
+		status.RestartRequired = c.state.AuthMode == "accounts" && status.AuthMode != "" && status.AuthMode != "accounts"
+		if opt.Reason != nil {
+			status.Reason = opt.Reason()
+		}
+		_ = json.NewEncoder(w).Encode(status)
 	})}
 	go func() { defer close(c.done); _ = c.server.Serve(listener) }()
 	return nil
@@ -234,7 +311,23 @@ func (c *Control) Close() error {
 	return c.closeErr
 }
 
-func Command(ctx context.Context, dataDir, action string, fallback bool) (Status, error) {
+func Command(ctx context.Context, dataDir, action string, fallback bool, origin ...string) (Status, error) {
+	authMode := ""
+	if (action == "start" || action == "restart") && len(origin) > 1 {
+		authMode = origin[1]
+		if authMode != "" && authMode != "accounts" {
+			return Status{}, errors.New("terminal setup requires accounts authentication")
+		}
+	}
+	publicURL := ""
+	if (action == "start" || action == "restart") && len(origin) > 0 {
+		publicURL = origin[0]
+		if publicURL != "" {
+			if err := ValidateOrigin(publicURL); err != nil {
+				return Status{}, err
+			}
+		}
+	}
 	if action != "start" && action != "stop" && action != "restart" && action != "status" {
 		return Status{}, errors.New("use reet terminal start|stop|restart|status")
 	}
@@ -254,11 +347,17 @@ func Command(ctx context.Context, dataDir, action string, fallback bool) (Status
 		}
 		if action != "status" {
 			state.Enabled = action == "start"
+			if publicURL != "" {
+				state.PublicURL = publicURL
+			}
+			if authMode != "" {
+				state.AuthMode = authMode
+			}
 			if err = writeState(dir, state); err != nil {
 				return Status{}, err
 			}
 		}
-		return Status{Enabled: state.Enabled}, nil
+		return Status{Enabled: state.Enabled, PublicURL: state.PublicURL, AuthMode: state.AuthMode}, nil
 	}
 	if !errors.Is(err, filelock.ErrLocked) {
 		return Status{}, err
@@ -276,7 +375,12 @@ func Command(ctx context.Context, dataDir, action string, fallback bool) (Status
 	if action == "status" {
 		method = "GET"
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "http://localhost/"+action, nil)
+	var body io.Reader
+	if publicURL != "" || authMode != "" {
+		data, _ := json.Marshal(map[string]string{"publicURL": publicURL, "authMode": authMode})
+		body = bytes.NewReader(data)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, "http://localhost/"+action, body)
 	if err != nil {
 		return Status{}, err
 	}
@@ -286,6 +390,12 @@ func Command(ctx context.Context, dataDir, action string, fallback bool) (Status
 	}
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
+		if publicURL != "" && response.StatusCode == 400 {
+			message, _ := io.ReadAll(io.LimitReader(response.Body, 256))
+			if string(bytes.TrimSpace(message)) == "unexpected request data" {
+				return Status{}, errors.New("the running controller predates automatic .env configuration; restart the controller once after upgrading its binary")
+			}
+		}
 		return Status{}, fmt.Errorf("controller rejected terminal command (HTTP %d); no change confirmed", response.StatusCode)
 	}
 	var status Status

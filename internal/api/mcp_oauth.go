@@ -17,8 +17,8 @@ var pkceChallenge = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 var pkceVerifier = regexp.MustCompile(`^[A-Za-z0-9._~-]{43,128}$`)
 
 func (s *server) oauthBase(r *http.Request) string {
-	if s.publicURL != "" {
-		return strings.TrimRight(s.publicURL, "/")
+	if s.publicOrigin() != "" {
+		return strings.TrimRight(s.publicOrigin(), "/")
 	}
 	scheme := "http"
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {

@@ -9,6 +9,7 @@
   import { renameTerminal, endTerminal } from './api'
   import { TerminalError, validTerminalTitle } from './api'
   import { fresh, value } from './health'
+  import TerminalCommandReference from './TerminalCommandReference.svelte'
 
   let machines = $state<TerminalMachine[]>([]), sessions = $state<TerminalSession[]>([])
   let selectedAgent = $state(new URLSearchParams(location.search).get('agent') || '')
@@ -82,6 +83,7 @@
 
 <section class="workspace" aria-label="Remote terminal workspace">
   <div class="workspace-heading"><div><p class="eyebrow">Private workspace</p><h2>Your machine. Your shell.</h2><p>Run commands here. Close the browser and return to the same session.</p></div><span class="privacy"><span aria-hidden="true">◇</span> Private host connection</span></div>
+  <TerminalCommandReference />
   {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
   {#if loading}<div class="empty" role="status">Loading your machines…</div>
   {:else if !machines.length}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h3>Connect your first machine</h3><p>Enroll a machine and start its background agent. You can then enable terminal access locally.</p><a class="btn" href="/machines#connect-machine">Connect a machine</a></div>

@@ -64,6 +64,7 @@ type server struct {
 	terminals         *terminalbroker.Broker
 	remoteTerminals   bool
 	terminalOverride  atomic.Pointer[bool]
+	publicURLOverride atomic.Pointer[string]
 	terminalControlMu sync.Mutex
 }
 
@@ -185,6 +186,25 @@ func (s *Server) SetRemoteTerminals(enabled bool) {
 	s.s.terminals.ResetConnections()
 }
 func (s *Server) RemoteTerminalsAvailable() bool { return s.s.terminalEnabled() }
+func (s *Server) ConfigureTerminalOrigin(origin string) error {
+	if s.s.publicOrigin() == origin {
+		return nil
+	}
+	if !validTerminalOrigin(origin) {
+		return errors.New("a valid HTTPS public URL is required (loopback HTTP is allowed)")
+	}
+	s.s.publicURLOverride.Store(&origin)
+	return nil
+}
+func (s *Server) RemoteTerminalsReason() string   { return s.s.terminalUnavailableReason() }
+func (s *Server) RemoteTerminalPublicURL() string { return s.s.publicOrigin() }
+func (s *Server) RemoteTerminalAuthMode() string  { return string(s.s.authMode) }
+func (s *server) publicOrigin() string {
+	if origin := s.publicURLOverride.Load(); origin != nil {
+		return *origin
+	}
+	return s.publicURL
+}
 
 // Close stops the private listener and any of its active streams. It does not
 // close the store or background workers, as in earlier increments.
@@ -606,7 +626,7 @@ func (s *server) sessionSecure(r *http.Request) bool {
 	}
 	// A TLS-terminating proxy may omit forwarded headers. The configured HTTPS
 	// origin must still prevent this privileged browser cookie travelling over HTTP.
-	u, err := url.Parse(s.publicURL)
+	u, err := url.Parse(s.publicOrigin())
 	return err == nil && u.Scheme == "https" && u.Host != ""
 }
 

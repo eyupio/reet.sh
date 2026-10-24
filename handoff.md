@@ -27,6 +27,25 @@ Read alongside:
   [controller terminal commands](docs/terminal-controller-commands.md).
 - CONTRIBUTING.md and [voice/copy](docs/voice-and-copy.md).
 
+## Current terminal sudo repair
+
+The user reported sudo failing with “no new privileges” in an Elitebook terminal.
+Both generated Linux host units set `NoNewPrivileges=true`; tmux and its shells
+inherit this irreversibly. The user explicitly approved changing the generated
+agent and tmux templates to `NoNewPrivileges=false`. The fix is in
+`fix/terminal-sudo-privileges`, pending PR/checks. No live units or sessions have
+been changed. It preserves local sudo policy/password checks and does not grant
+root access. Install/status inspect the enrollment's server and explain any
+pending restart. Native Linux CI checks the real agent, tmux and child process
+flags; existing refresh/reconnect tests must continue preserving PIDs.
+
+Read the [migration procedure](docs/terminal-controller-commands.md#sudo-in-a-machine-terminal).
+An old live tmux server keeps the flag after a unit refresh; do not silently
+restart it. A planned exact terminal-service restart from normal SSH ends that
+service's sessions/jobs. Never use a shared/default tmux kill-server operation.
+The browser-import roadmap continues separately on `feat/browser-machine-skill-import`;
+keep its work isolated and resume it after this fix is saved/merged.
+
 ## Current roadmap checkpoint — 24 October 2026
 
 The user requested a status report and continued roadmap delivery after PR #155.

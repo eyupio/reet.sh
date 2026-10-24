@@ -130,3 +130,41 @@ files; SKILL.md remains required. This does not publish, install or execute the 
 The CLI and controller must support this feature and the enrollment must use an
 active account personal token. See [machine skill import](machine-skill-import.md)
 for project scopes, credential blocking, explicit revision bases and stable retries.
+
+## Sudo in a machine terminal
+
+A machine terminal runs as the enrolled OS user. `sudo` follows that account's
+host permissions and password policy; reet does not grant sudo access or bypass
+authentication. The native agent and tmux service templates use
+`NoNewPrivileges=false` so their shells retain those normal OS capabilities.
+Both units need this: agent recovery can also start a tmux server.
+
+Older unit templates set `NoNewPrivileges=true`, causing sudo to report that the
+“no new privileges” flag is set. It is inherited and cannot be cleared in an
+already running tmux server or its shells. Updating a unit and opening another
+session in the same server is insufficient. Service install/status detects a
+restricted server on Linux and explains the pending restart.
+
+After installing a build containing this fix, refresh units from a normal
+SSH/login shell as the enrolling user:
+
+```sh
+reet agent service install
+reet agent service status
+```
+
+Refresh preserves running tmux work. Finish or safely save that work before a
+planned terminal-host restart. For the default **user** service, perform this
+from the separate normal SSH/login shell:
+
+```sh
+systemctl --user restart reet-terminal.service
+```
+
+That restart ends the reet terminal service's sessions and jobs. Use the actual
+unit name for a custom service prefix; root enrollments use their system service
+instead. Reopen a new terminal afterwards. Keep normal SSH available for package
+maintenance until migration is complete. Never kill the machine's shared/default
+tmux server to repair this enrollment. A container or parent service that itself
+enforces no-new-privileges also needs its own host configuration addressed; a
+child unit cannot undo an inherited kernel flag.

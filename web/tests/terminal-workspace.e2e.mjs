@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises'
 const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
 const context=await browser.newContext({viewport:{width:1360,height:900},permissions:['clipboard-read','clipboard-write']})
-const page=await context.newPage(),errors=[],inputs=[],tickets=[],writes=[]
+const page=await context.newPage(),errors=[],inputs=[],tickets=[],ticketSizes=[],writes=[]
 page.on('pageerror',error=>errors.push(error.message))
 const now=Date.now(),agentA='connector-laptop000000001',agentB='connector-builder00000001',sessionA='session-build00000000001',sessionB='session-deploy0000000001'
 let failSessions=false,denied=false,viewer=false,websockets=0
@@ -35,17 +35,18 @@ await page.route('**/api/**',async route=>{
   if(failSessions||denied)return route.fulfill({status:denied?403:503,json:{error:'Unavailable'}})
   data={sessions}
  }
- else if(path.endsWith('/attachments')){tickets.push(path.split('/').at(-2));data={ticket:'fixture-ticket00000000000'}}
+ else if(path.endsWith('/attachments')){tickets.push(path.split('/').at(-2));ticketSizes.push(request.postDataJSON());data={ticket:'fixture-ticket00000000000'}}
  else if(path.endsWith('/history'))return route.fulfill({body:'Fixture read-only history'})
  else return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})
  await route.fulfill({json:data})
 })
+let releaseInitialRedraw,holdInitialRedraw=true
 await page.routeWebSocket('**/api/v2/terminal/socket',socket=>{
  websockets++
  socket.onMessage(message=>{
   if(typeof message==='string'){
    const data=JSON.parse(message)
-   if(data.ticket){socket.send('{"type":"ready"}');socket.send(Buffer.from('\x1b[?2026h\x1b[2J\x1b[HExisting persistent shell\r\nready> \x1b[?2026l'))}
+   if(data.ticket){socket.send('{"type":"ready"}');const redraw=()=>socket.send(Buffer.from('\x1b[?2026h\x1b[2J\x1b[HExisting persistent shell\r\nready> \x1b[?2026l'));if(holdInitialRedraw){holdInitialRedraw=false;releaseInitialRedraw=redraw}else redraw()}
   }else{inputs.push(message.toString());socket.send(message)}
  })
 })
@@ -80,6 +81,11 @@ try{
  await expect(hero.getByText('Last known',{exact:true})).toHaveCount(0)
  const started=Date.now()
  await hero.getByRole('link',{name:'Continue Build workspace on dev-laptop'}).click()
+ await expect(pane).toHaveAttribute('data-connection-state','resynchronising')
+ // Let the restoration status change the layout before the host redraw arrives.
+ await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))
+ expect(await page.locator('.xterm-accessibility-tree [role=listitem]').count()).toBe(ticketSizes[0].rows)
+ releaseInitialRedraw()
  await live()
  await expect(page.locator('.xterm-accessibility-tree')).toContainText('Existing persistent shell')
  console.log(`Synthetic continuation: ${Date.now()-started}ms`)

@@ -323,6 +323,12 @@ ordinary typing, control keys and multiline-paste confirmation still work.
 - Metadata 401/403 clears session/machine data, closes the attachment and explains
   lost access. Lost shells have explicit no-replacement guidance. No implicit
   shell creation, input replay, permission relaxation or transport rewrite.
+- CI and instrumented replay exposed an initial-grid race: a restoration status
+  message fitted xterm to 44 rows while the host's ticket still used 46. The first
+  redraw scrolled the prompt out of view; its accessibility tree correctly stayed
+  empty until a later host redraw. The pane now holds the negotiated xterm grid
+  during restoration and refits/sends current dimensions after becoming live.
+  Assertions, timeouts, input fencing and transport authorization are unchanged.
 - Added `web/tests/terminal-lifecycle.e2e.mjs` to terminal-browser CI: per-machine
   immutable retries, delayed list/rename responses, selection targeting, mobile
   context/control bounds, unavailable-host search, pending end/retry IDs, explicit

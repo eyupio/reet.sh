@@ -101,10 +101,13 @@ func (a *App) active(ctx context.Context, d *deployment, state string) (bool, er
 	}
 	return err == nil, nil
 }
-func (a *App) compose(ctx context.Context, state string, args ...string) (string, error) {
+func composeArgs(state string, args ...string) []string {
 	hash := sha256.Sum256([]byte(state))
 	base := []string{"compose", "--project-name", fmt.Sprintf("reet-%x", hash[:6]), "--project-directory", state, "-f", filepath.Join(state, "compose.json")}
-	return a.run(ctx, "docker", append(base, args...)...)
+	return append(base, args...)
+}
+func (a *App) compose(ctx context.Context, state string, args ...string) (string, error) {
+	return a.run(ctx, "docker", composeArgs(state, args...)...)
 }
 func composeConfig(d *deployment) ([]byte, error) {
 	host, port, err := net.SplitHostPort(d.Addr)

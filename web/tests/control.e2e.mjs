@@ -13,6 +13,7 @@ const skills=[skill('code-review'),skill('testing'),skill('deployment')]
 const scope=(id,host,agent,items)=>({id,host,agent,name:host,skills:items,skillCount:items.length,complete:true,scannedAt:now,lastSeen:now,os:'linux',arch:'amd64',version:'test'})
 const environments=[scope('laptop-shared','dev-laptop','agents',skills.slice(0,2)),scope('laptop-claude','dev-laptop','claude',skills.slice(0,1)),scope('build-shared','build-server','agents',skills)]
 let snapshot={environments,machines:['dev-laptop','build-server'].map(host=>({host,groups:environments.filter(e=>e.host===host),skillCount:host==='dev-laptop'?2:3})),agents:[{id:'a',host:'dev-laptop',version:'test',lastSeen:now,paused:false},{id:'b',host:'build-server',version:'test',lastSeen:now,paused:false}],targets:environments.map(target=>({target,sourceId:'shelf',sourceName:'Central library',mode:'additive',desired:skills,missing:skills.filter(s=>!target.skills.some(a=>a.id===s.id)),extra:[],revision:`rev-${target.id}`,updatedAt:now})),jobs:[]}
+let terminalReady=true
 let viewer=false, failQueue=false, failSave=false, failState=false, failSource=false
 await page.route('**/api/**',async route=>{
  const request=route.request(), path=new URL(request.url()).pathname
@@ -42,7 +43,7 @@ await page.route('**/api/**',async route=>{
  }
  else if(path==='/api/v2/machines/health')data={serverNow:now,machines:[]}
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
- else if(path==='/api/v2/terminal/machines'){if(failState)return route.fulfill({status:503,json:{error:'Inventory unavailable'}});data={machines:snapshot.agents.map(item=>({agentId:item.id,host:item.host,ready:true,serverEnabled:true,capabilities:{osUser:'developer',terminalEnabled:true,readiness:'ready'}}))}}
+ else if(path==='/api/v2/terminal/machines'){if(failState)return route.fulfill({status:503,json:{error:'Inventory unavailable'}});data={machines:snapshot.agents.map(item=>({agentId:item.id,host:item.host,ready:terminalReady,serverEnabled:true,capabilities:{terminalControl:true,osUser:'developer',terminalEnabled:true,readiness:'ready'}}))}}
  else if(path==='/api/v2/terminal/sessions')data={sessions:[]}
  else if(path==='/api/v2/notifications/count')data={unread:0}
  else if(path==='/api/version')data={version:'test',commit:'fixture'}
@@ -112,6 +113,18 @@ try {
  await expect(page.getByRole('heading',{name:'Terminals'})).toBeVisible()
  await page.goto(`${base}/machines?view=compare`)
  await expect(page.getByLabel('Destination',{exact:true})).toBeVisible()
+ // A scan is not proof of a live terminal connection. The wizard verifies both separately.
+ terminalReady=false
+ await page.goto(`${base}/machines#connect-machine`)
+ await page.getByLabel('Machine name',{exact:true}).fill('dev-laptop')
+ await page.getByRole('button',{name:'Continue to authentication →',exact:true}).click()
+ await page.getByRole('button',{name:'Continue to terminal connection →',exact:true}).click()
+ await expect(page.getByRole('heading',{name:'Bring this machine into your workspace.'})).toBeVisible()
+ await expect(page.getByText('Waiting for terminal readiness',{exact:true})).toBeVisible()
+ await expect(page.getByRole('link',{name:'Open terminals for dev-laptop →',exact:true})).toHaveCount(0)
+ terminalReady=true
+ await page.getByRole('button',{name:'Check terminal connection',exact:true}).click()
+ await expect(page.getByRole('link',{name:'Open terminals for dev-laptop →',exact:true})).toHaveAttribute('href','/terminals?agent=a')
  for(const width of [390,768,1440]){
   await page.setViewportSize({width,height:900})
   await page.goto(base)

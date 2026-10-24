@@ -139,10 +139,10 @@
     {#if reportedMachines.length}
       <SyncControl snapshot={syncState} {canWrite} {view} onupdate={updateState} />
     {:else}
-      <MachineSetup {site} {machines} {profiles} {token} {tokenSetup} {serverBuild} bind:open={setupOpen} initialMode={initialSetupMode} onrefresh={() => load()} />
+      <MachineSetup {terminalAccess} {site} {machines} {profiles} {token} {tokenSetup} {serverBuild} bind:open={setupOpen} initialMode={initialSetupMode} onrefresh={() => load()} />
     {/if}
   {:else}
-    <MachineSetup {site} {machines} {profiles} {token} {tokenSetup} {serverBuild} bind:open={setupOpen} initialMode={initialSetupMode} onrefresh={() => load()} />
+    <MachineSetup {terminalAccess} {site} {machines} {profiles} {token} {tokenSetup} {serverBuild} bind:open={setupOpen} initialMode={initialSetupMode} onrefresh={() => load()} />
     {#if machines.length}
       <MachineFleet {machines} snapshot={syncState} {site} {canWrite} {terminalAccess} {monitorAccess} onadd={openSetup} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e) }} onnotice={(message) => { notice = message }} />
     {/if}

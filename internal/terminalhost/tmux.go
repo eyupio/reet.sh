@@ -30,22 +30,22 @@ type Tmux struct {
 func FindTmux(ctx context.Context) (Tmux, error) {
 	path, err := exec.LookPath("tmux")
 	if err != nil {
-		return Tmux{}, ErrTmuxUnavailable
+		return Tmux{}, fmt.Errorf("%w: tmux was not found on PATH. Install tmux 3.3+ (Ubuntu/Debian: sudo apt install tmux; macOS: brew install tmux), then run reet agent terminal setup", ErrTmuxUnavailable)
 	}
 	path, err = filepath.Abs(path)
 	if err != nil {
-		return Tmux{}, ErrTmuxUnavailable
+		return Tmux{}, fmt.Errorf("%w: cannot resolve the tmux executable; check PATH, then run reet agent terminal setup", ErrTmuxUnavailable)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	output, err := exec.CommandContext(ctx, path, "-V").Output()
 	if err != nil {
-		return Tmux{}, ErrTmuxUnavailable
+		return Tmux{}, fmt.Errorf("%w: could not run tmux -V; check the executable and service PATH, then run reet agent terminal setup", ErrTmuxUnavailable)
 	}
 	version := strings.TrimSpace(string(output))
 	major, minor, err := parseTmuxVersion(version)
 	if err != nil || !supportedTmux(major, minor) {
-		return Tmux{}, fmt.Errorf("%w: tmux 3.3 or newer is required", ErrTmuxUnavailable)
+		return Tmux{}, fmt.Errorf("%w: tmux 3.3 or newer is required; update tmux, verify with tmux -V, then run reet agent terminal setup", ErrTmuxUnavailable)
 	}
 	return Tmux{Path: path, Version: version}, nil
 }

@@ -23,6 +23,23 @@ type TerminalSetupOptions struct {
 	Ask                            func(string, string) (string, error)
 }
 
+// OfferTerminalHostSetup preserves a completed enrollment when optional setup is
+// declined, unavailable or interrupted. Automation never gains shell consent.
+func OfferTerminalHostSetup(options TerminalSetupOptions, in io.Reader, out io.Writer) {
+	resume := fmt.Sprintf("reet agent terminal setup --config %q", options.Config)
+	if !clientconfig.Interactive(in) {
+		fmt.Fprintf(out, "Terminal access is a separate local opt-in. Run %s in your terminal to connect this machine.\n", resume)
+		return
+	}
+	fmt.Fprintln(out, "\nTerminal connection setup · your machine, your consent.")
+	if options.Ask == nil {
+		options.Ask = func(label, current string) (string, error) { return clientconfig.Ask(in, out, label, current) }
+	}
+	if err := SetupTerminalHost(options, in, out); err != nil {
+		fmt.Fprintf(out, "Enrollment is saved. Terminal setup paused: %v\nResume with: %s\n", err, resume)
+	}
+}
+
 // SetupTerminalHost offers explicit, persistent host opt-in after the controller
 // is enabled. It never grants root access or enrolls a machine without consent.
 func SetupTerminalHost(options TerminalSetupOptions, in io.Reader, out io.Writer) error {
@@ -61,7 +78,7 @@ func SetupTerminalHost(options TerminalSetupOptions, in io.Reader, out io.Writer
 			return err
 		}
 		if !yes {
-			fmt.Fprintln(out, "Controller access is active. This machine was not enrolled or granted shell access.")
+			fmt.Fprintln(out, "This machine was not enrolled or granted shell access. Resume with reet agent terminal setup.")
 			return nil
 		}
 		config, err = ask("Machine enrollment file", config)
@@ -87,7 +104,7 @@ func SetupTerminalHost(options TerminalSetupOptions, in io.Reader, out io.Writer
 			if token == "" {
 				return errors.New("a personal API token is required to enroll this host")
 			}
-			if err = RunAgent([]string{"enroll", "--config", config, "--server", server, "--token", token}, out, options.Version); err != nil {
+			if err = runAgentInput([]string{"enroll", "--config", config, "--server", server, "--token", token, "--skip-terminal-setup"}, in, out, options.Version); err != nil {
 				return err
 			}
 		}
@@ -112,7 +129,7 @@ func SetupTerminalHost(options TerminalSetupOptions, in io.Reader, out io.Writer
 			return err
 		}
 		if !yes {
-			fmt.Fprintln(out, "Local shell consent remains disabled. Controller access stays active.")
+			fmt.Fprintln(out, "Local shell consent remains disabled. The existing enrollment is kept.")
 			return nil
 		}
 		if _, err = terminalhost.FindTmux(context.Background()); err != nil {
@@ -209,7 +226,7 @@ func SetupTerminalHost(options TerminalSetupOptions, in io.Reader, out io.Writer
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	fmt.Fprintf(out, "Local terminal setup verified for %s. Consent is saved and native services are running.\n", c.Host)
+	fmt.Fprintf(out, "Local terminal setup verified for %s. Consent is saved and native services are running. Check this machine in Terminals for controller readiness.\n", c.Host)
 	return nil
 }
 

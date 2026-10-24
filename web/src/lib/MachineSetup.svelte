@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
+  import {terminalMachines,readiness,type TerminalMachine} from './terminal/api'
   import type { Machine, SetupProfileSummary } from './api'
   import { agentGroups } from './machines'
   import {
@@ -18,6 +19,7 @@
     serverBuild = null,
     open = $bindable(false),
     initialMode = 'connect',
+    terminalAccess=false,
     onrefresh,
   }: {
     site: string
@@ -28,6 +30,7 @@
     serverBuild?: { version: string; commit: string } | null
     open?: boolean
     initialMode?: 'connect' | 'scratch'
+    terminalAccess?:boolean
     onrefresh: () => Promise<void> | void
   } = $props()
 
@@ -41,7 +44,9 @@
   // svelte-ignore state_referenced_locally
   let profileName = $state(profiles[0]?.name ?? '')
   let allowApply = $state(false)
-  let checking = $state(false)
+  let checking = $state(false),terminalError=$state(''),terminalHosts=$state<TerminalMachine[]>([])
+  const terminalHost=$derived.by(()=>{const matches=terminalHosts.filter(item=>item.host.toLowerCase()===host.trim().toLowerCase());return matches.length===1?matches[0]:undefined})
+  const terminalReady=$derived(!!terminalHost?.ready&&!terminalError)
 
   const selectedProfile = $derived(profiles.find((profile) => profile.name === profileName))
   const revision = $derived(selectedProfile?.revision ?? 1)
@@ -60,8 +65,8 @@
     machine.host.toLowerCase() === host.trim().toLowerCase() &&
     agentGroups(machine).some((group) => group.complete && group.scannedAt > Date.now() - 14 * 86400000)))
   const steps = $derived(mode === 'connect'
-    ? [[1, 'Install'], [2, 'Authenticate'], [3, 'Scan & sync']]
-    : [[1, 'Install'], [2, 'Restore setup'], [3, 'Scan & sync']])
+    ? [[1, 'Install'], [2, 'Authenticate'], [3, 'Connect terminal'], [4, 'Inventory & sync']]
+    : [[1, 'Install'], [2, 'Restore setup'], [3, 'Connect terminal'], [4, 'Inventory & sync']])
 
   $effect(() => {
     if (!profileName && profiles.length > 0) profileName = profiles[0].name
@@ -69,6 +74,11 @@
   $effect(() => {
     if (!channelTouched && serverBuild?.version === 'dev' && channel !== 'dev') channel = 'dev'
   })
+
+  async function checkTerminal(signal?:AbortSignal){
+    try{const next=await terminalMachines(signal?AbortSignal.any([signal,AbortSignal.timeout(10000)]):AbortSignal.timeout(10000));if(!signal?.aborted){terminalHosts=next;terminalError=''}}catch(e){if(!signal?.aborted){terminalError=e instanceof Error?e.message:'Terminal connection status is unavailable.';terminalHosts=[]}}
+  }
+  $effect(()=>{if(open&&step===3&&terminalAccess){const request=new AbortController();void checkTerminal(request.signal);const timer=setInterval(()=>{if(document.visibilityState==='visible')void checkTerminal(request.signal)},15000);return()=>{request.abort();clearInterval(timer)}}})
 
   function chooseMode(next: Mode) {
     mode = next
@@ -83,6 +93,7 @@
     checking = true
     try {
       await onrefresh()
+      if(terminalAccess)await checkTerminal()
     } finally {
       checking = false
     }
@@ -94,7 +105,7 @@
     <span>
       <span class="eyebrow">Machine setup</span>
       <strong>Set up a machine</strong>
-      <small>Install reet, connect it, then sync skills and agent setups.</small>
+      <small>Connect your machine and terminal, then bring its AI toolkit into the fleet.</small>
     </span>
     <span class="summary-state">{machines.length ? `${machines.length} ${machines.length === 1 ? 'machine' : 'machines'} connected` : 'Start here'}</span>
     <span class="chevron" aria-hidden="true">›</span>
@@ -104,7 +115,7 @@
     <div class="modes" role="group" aria-label="Setup type">
       <button type="button" class:active={mode === 'connect'} aria-pressed={mode === 'connect'} onclick={() => chooseMode('connect')}>
         <span class="mode-icon" aria-hidden="true">↻</span>
-        <span><strong>Connect an existing machine</strong><small>It already has agents or skills. Scan it, then choose what to sync.</small></span>
+        <span><strong>Connect an existing machine</strong><small>It already has agents or skills. Connect its terminal, then choose what to sync.</small></span>
       </button>
       <button type="button" class:active={mode === 'scratch'} aria-pressed={mode === 'scratch'} onclick={() => chooseMode('scratch')}>
         <span class="mode-icon" aria-hidden="true">＋</span>
@@ -153,7 +164,7 @@
           <div class="command-copy"><span>Save the connection</span><CopyButton text={configure} label="Copy connection command" /></div>
           <pre>{configure}</pre>
         </div>
-        <div class="step-actions"><button class="btn" type="button" onclick={() => go(1)}>Back</button><button class="btn primary" type="button" onclick={() => go(3)} disabled={!host.trim()}>Continue to scan →</button></div>
+        <div class="step-actions"><button class="btn" type="button" onclick={() => go(1)}>Back</button><button class="btn primary" type="button" onclick={() => go(3)} disabled={!host.trim()}>Continue to terminal connection →</button></div>
       {:else if step === 2}
         <header>
           <p class="eyebrow">Step 2 · Restore setup</p>
@@ -187,10 +198,20 @@
           </div>
           <details class="advanced"><summary>Verify the restored files</summary><div class="command"><div class="command-copy"><span>Verify</span><CopyButton text={verify} label="Copy verify command" /></div><pre>{verify}</pre></div><p class="hint">Keep the journal for rollback. A file match does not prove the agents work.</p></details>
         {/if}
-        <div class="step-actions"><button class="btn" type="button" onclick={() => go(1)}>Back</button><button class="btn primary" type="button" onclick={() => go(3)} disabled={!profiles.length || !host.trim()}>Continue to scan →</button></div>
+        <div class="step-actions"><button class="btn" type="button" onclick={() => go(1)}>Back</button><button class="btn primary" type="button" onclick={() => go(3)} disabled={!host.trim()}>Continue to terminal connection →</button></div>
+      {:else if step===3}
+        <header><p class="eyebrow">Step 3 · Machine &amp; terminal connection</p><h3>Bring this machine into your workspace.</h3><p>Enroll once. The CLI offers a terminal wizard for local shell consent, tmux 3.3+, independent services and connection checks.</p></header>
+        {#if mode==='scratch'&&tokenSetup}{@render tokenSetup()}{/if}
+        <label class="check"><input type="checkbox" bind:checked={allowApply}/> Allow this machine to apply sync plans I approve here</label>
+        <div class="command"><div class="command-copy"><span>Enroll and connect</span><CopyButton text={enroll} label="Copy enrollment command"/></div><pre>{enroll}</pre></div>
+        <p class="hint">Run these commands in this machine’s terminal. When prompted, use its personal API token. Shell access stays disabled until you consent locally; declining still allows inventory reporting.</p>
+        <details class="advanced"><summary>Already enrolled, or setup was interrupted?</summary><div class="command"><div class="command-copy"><span>Resume terminal setup</span><CopyButton text="reet agent terminal setup" label="Copy terminal setup wizard"/></div><pre>reet agent terminal setup</pre></div><p class="hint">This reuses the enrollment. The wizard diagnoses missing tmux and offers service repair. Enable browser terminals on the controller with <code>reet terminal start</code> if needed.</p></details>
+        <div class="check-state" class:ready={terminalReady}><div><strong>{terminalReady?`${terminalHost?.host} is ready for terminals.`:'Waiting for terminal readiness'}</strong><p>{terminalError||(!terminalAccess?'Browser terminals require account sign-in with a write role.':terminalHost?readiness(terminalHost):'Readiness comes from this enrolled machine’s live connection; a completed scan alone does not establish it.')}</p></div><button class="btn" onclick={check} disabled={checking||!host.trim()}>{checking?'Checking…':'Check terminal connection'}</button></div>
+        {#if terminalReady&&terminalHost}<a class="btn primary" href={`/terminals?agent=${encodeURIComponent(terminalHost.agentId)}`}>Open terminals for {terminalHost.host} →</a>{/if}
+        <div class="step-actions"><button class="btn" type="button" onclick={()=>go(2)}>Back</button><button class="btn primary" type="button" onclick={()=>go(4)}>Continue to optional inventory &amp; sync →</button></div>
       {:else}
         <header>
-          <p class="eyebrow">Step 3 · Scan &amp; sync</p>
+          <p class="eyebrow">Step 4 · Inventory &amp; sync</p>
           <h3>Tell reet.sh what is on this machine.</h3>
           <p>Run the scan on the machine. It reads the agent skill folders and creates the machine inventory here.</p>
         </header>
@@ -199,12 +220,6 @@
           <div class="command-copy"><span>Scan this machine</span><CopyButton text={scan} label="Copy scan command" /></div>
           <pre>{scan}</pre>
         </div>
-        <details class="advanced">
-          <summary>Keep this machine reporting automatically</summary>
-          <p class="hint">Enroll once, then keep the agent running. It reports every minute and can run previews or approved applies. Add <code>--project /absolute/path</code> for each project you track.</p>
-          <label class="check"><input type="checkbox" bind:checked={allowApply} /> Allow this machine to apply plans I approve here</label>
-          <div class="command"><div class="command-copy"><span>Enroll and run</span><CopyButton text={enroll} label="Copy enrollment command" /></div><pre>{enroll}</pre></div>
-        </details>
         <div class="check-state" class:ready={!!connected}>
           <div>
             <strong>{connected ? `${connected.host} is connected.` : 'Waiting for the first scan'}</strong>
@@ -215,7 +230,7 @@
         {#if connected}
           <a class="btn primary sync-next" href={syncLink(connected.host)}>Open compare &amp; sync for {connected.host} →</a>
         {/if}
-        <div class="step-actions"><button class="btn" type="button" onclick={() => go(2)}>Back</button><a class="btn quiet" href="/profiles">Setups</a></div>
+        <div class="step-actions"><button class="btn" type="button" onclick={() => go(3)}>Back</button><a class="btn quiet" href="/profiles">Setups</a></div>
       {/if}
     </div>
 

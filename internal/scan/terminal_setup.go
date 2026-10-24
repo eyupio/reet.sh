@@ -26,7 +26,10 @@ type TerminalSetupOptions struct {
 // OfferTerminalHostSetup preserves a completed enrollment when optional setup is
 // declined, unavailable or interrupted. Automation never gains shell consent.
 func OfferTerminalHostSetup(options TerminalSetupOptions, in io.Reader, out io.Writer) {
-	resume := fmt.Sprintf("reet agent terminal setup --config %q", options.Config)
+	resume := "reet agent terminal setup"
+	if options.Config != "" {
+		resume += " --config '" + strings.ReplaceAll(options.Config, "'", "'\\''") + "'"
+	}
 	if !clientconfig.Interactive(in) {
 		fmt.Fprintf(out, "Terminal access is a separate local opt-in. Run %s in your terminal to connect this machine.\n", resume)
 		return
@@ -157,12 +160,14 @@ func SetupTerminalHost(options TerminalSetupOptions, in io.Reader, out io.Writer
 		return err
 	}
 	service := terminalhost.ReadStatus(context.Background(), plan)
-	native, err := localTerminalAgentNative(config)
+	native, err := localTerminalAgentNative(config, options.Version)
 	if err != nil {
 		return err
 	}
-	if !service.Active || !native {
-		yes, err := confirm("Install/repair native agent and terminal services now? Existing tmux jobs will be preserved.", "yes")
+	// Development releases share one version label across builds. Offer a
+	// service refresh even when that label matches so an upgraded binary is used.
+	if !service.Active || !native || options.Version == "dev" {
+		yes, err := confirm("Install/repair or refresh native agent and terminal services now? Existing tmux jobs will be preserved.", "yes")
 		if err != nil {
 			return err
 		}
@@ -197,7 +202,7 @@ func SetupTerminalHost(options TerminalSetupOptions, in io.Reader, out io.Writer
 	if ready != terminalproto.Ready {
 		return fmt.Errorf("host setup has not reached terminal readiness: %s", ready)
 	}
-	native, err = localTerminalAgentNative(config)
+	native, err = localTerminalAgentNative(config, options.Version)
 	if err != nil {
 		return err
 	}

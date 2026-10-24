@@ -354,7 +354,7 @@ func installAgentServices(plan terminalhost.ServicePlan, out io.Writer) error {
 	}
 	return errors.New("services were installed but the native agent did not become ready; no successful handoff was verified")
 }
-func localTerminalAgentNative(config string) (bool, error) {
+func localTerminalAgentNative(config, version string) (bool, error) {
 	running, err := agentRunning(config)
 	if err != nil || !running {
 		return false, err
@@ -363,7 +363,7 @@ func localTerminalAgentNative(config string) (bool, error) {
 	if err = localAgentCall(config, "GET", "/status", &state); err != nil {
 		return false, errors.New("the existing agent has no local control; stop its older foreground process before continuing setup")
 	}
-	return state.Supervised, nil
+	return state.Supervised && (version == "" || state.Version == version), nil
 }
 func localTerminalAgentConnected(config string) bool {
 	var state agentLocalStatus

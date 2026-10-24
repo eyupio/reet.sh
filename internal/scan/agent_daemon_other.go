@@ -31,7 +31,7 @@ func notifyAgentReady() error { return nil }
 func installAgentServices(terminalhost.ServicePlan, io.Writer) error {
 	return errors.New("native service installation requires Linux or macOS")
 }
-func localTerminalAgentNative(string) (bool, error) {
+func localTerminalAgentNative(string, string) (bool, error) {
 	return false, errors.New("native agents require Linux or macOS")
 }
 func localTerminalAgentConnected(string) bool { return false }

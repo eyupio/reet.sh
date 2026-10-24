@@ -6,7 +6,7 @@ This is the current implementation baseline **and** the continuation plan. Curre
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. Finish T7 command recall verification, then the saved T5 setup branch, before resuming the roadmap.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is in PR #152; finish T5 connection setup, then resume S2.** S1 is merged through PR #139; do not repeat
 it or start S2 ahead of the remaining terminal priorities. Do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -105,12 +105,7 @@ resume S2 and the remaining handoff stages. Do not reopen the overall strategy.
   `go test -race ./...`, all 16 MCP tests, production Control/workspace/lifecycle/
   organisation/public browser fixtures and the real two-host PTY fixture. PR CI
   and merge state must still be checked for the published head.
-- **T5 implementation saved remotely:** `feat/terminal-connection-setup`, commit
-  `d48ccca`, contains the resumable CLI wizard, enrollment/initial-install/upgrade
-  offers, tmux diagnostics, web setup step and real-TTY tests. It is not merged
-  or in a PR yet. Targeted race/TTY tests and the new web readiness check passed.
-  Merge current main into it, finish docs/handoff and verify the full change;
-  do not duplicate those 18 files. Preserve the broader AI positioning from #146.
+- **T5 implementation:** `feat/terminal-connection-setup`, originally saved as `d48ccca`, now integrated with merged main through PR #149. The CLI/wizard, enrollment/install/upgrade offers, web readiness step and tmux diagnostics are implemented. `localTerminalAgentNative(config, version)` verifies the supervised process version through the private local socket; a stale version offers service refresh. Shared-label dev builds always offer refresh so an updated binary is actually loaded. Consent, enrollment and tmux jobs survive optional decline/failure. Review `docs/terminal-controller-commands.md#first-class-machine-connection-setup` for behavior and tests. Final vet/race/browser/CI status must be recorded before marking T5 merged. Preserve #146 AI scope, #147 fitting, #148 skill editing/import, #149 recall and #152 scrollback/theatre.
 
 ### Public entry points — terminal-first redesign
 
@@ -200,7 +195,7 @@ shell PIDs and the primary background job across reconnect/restart and checks
 account command persistence in a separate browser. CI/merge state must be checked
 for the exact published head; this local evidence does not imply deployment.
 
-### T5 [ ] First-class terminal connection wizard during initial install, enrollment and upgrade
+### T5 [ ] Implemented, pending final verification/PR — First-class terminal connection wizard during initial install, enrollment and upgrade
 
 Read `internal/scan/terminal_setup.go`, `agent.go`, `agent_terminal.go`,
 `internal/terminalhost/tmux.go`, `cmd/reet/terminal.go`, and the actual deployment

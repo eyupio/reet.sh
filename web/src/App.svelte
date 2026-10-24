@@ -106,8 +106,10 @@
   const origin = location.origin
   const isControl = location.pathname === '/' || location.pathname === '/control'
   const isSkills = location.pathname === '/skills'
-  const isSync = location.pathname === '/sync'
-  const isTerminals = location.pathname === '/terminals'
+  const machineView = new URLSearchParams(location.search).get('view')
+  const legacyMachinePage = ['/machines', '/account/machines', '/account/sync'].includes(location.pathname)
+  const isTerminals = location.pathname === '/terminals' || legacyMachinePage && machineView === 'terminal'
+  const isSync = location.pathname === '/sync' || legacyMachinePage && !isTerminals && (machineView === 'compare' || location.pathname === '/account/sync')
   const isHosting = location.pathname === '/hosting'
   const isCommunity = location.pathname === '/community'
   const isShared = location.pathname === '/shared'
@@ -139,13 +141,14 @@
   const canLoad = $derived(authChecked && authenticated && !needsAuth && !isCommunity && !isPublicList)
   const role = $derived(currentUser?.role ?? (authMode === 'accounts' ? 'viewer' : 'owner'))
   const canWrite = $derived(authMode !== 'accounts' || role !== 'viewer')
+  const terminalLayout = $derived(isTerminals && authMode === 'accounts' && authenticated && canWrite && !needsAuth)
   const isAdminUser = $derived(authMode !== 'accounts' || role === 'owner' || role === 'admin')
   const mainNavigation = $derived([
     { href: '/', label: 'Control', current: isControl },
-    { href: '/machines', label: 'Machines', current: isMachines && !isSync && !isTerminals && !location.search.includes('view=') },
+    { href: '/machines', label: 'Machines', current: isMachines && !isSync && !isTerminals },
     { href: '/skills', label: 'Skills', current: isSkills },
-    { href: '/sync', label: 'Sync', current: isSync || location.search.includes('view=compare') },
-    ...(authMode === 'accounts' && canWrite ? [{ href: '/terminals', label: 'Terminals', current: isTerminals || location.search.includes('view=terminal') }] : []),
+    { href: '/sync', label: 'Sync', current: isSync },
+    ...(authMode === 'accounts' && canWrite ? [{ href: '/terminals', label: 'Terminals', current: isTerminals }] : []),
     { href: '/community', label: 'More', current: isShared || isList || isProfiles || isSpaces || isCommunity || isHosting || isSupport || isTicket || isNotifications,
       children: [
         { href: '/shared', label: 'Lists', current: isShared || isList },
@@ -743,7 +746,7 @@
 </svelte:head>
 
 <a class="skip" href="#main-content">Skip to content</a>
-<header class="site-header">
+<header class="site-header" class:terminal-chrome={terminalLayout}>
   <div class="header-inner">
     <div>
       <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
@@ -772,7 +775,7 @@
     {#if (!authenticated || needsAuth) && !isPublicList && !isCommunity && !isJoin && !isWelcome}<span class="tag">Your AI workspace</span>{/if}
   </div>
 </header>
-<main id="main-content" tabindex="-1" class:auth-page={!isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
+<main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout} class:auth-page={!isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
   {#if isCommunity}
     <Community canSave={authenticated && !needsAuth && canWrite} />
   {:else if isPublicList}
@@ -1042,12 +1045,12 @@
 </main>
 
 {#if authMode === 'accounts' && currentUser && !needsAuth && !isMCPConsent}<WebMCP />{/if}
-<Footer
+{#if !terminalLayout}<Footer
   signedIn={!isPublicList && authMode !== 'none' && authenticated && !needsAuth}
   showAdmin={!isPublicList && authenticated && !needsAuth && isAdminUser}
   userName={currentUser?.name ?? ''}
   onsignout={signOut}
-/>
+/>{/if}
 {#if newListOpen}
   <NewList
     {linkEnabled}
@@ -1313,4 +1316,10 @@
     .controls select { padding-left: 8px; padding-right: 26px; }
   }
   @media (pointer: coarse) { .filters button, .view-switch button { min-height: 44px; } }
+  main.terminal-layout {max-width:none;padding:8px 12px;min-height:0;flex:1;}
+  .terminal-chrome .header-inner {max-width:none;padding:6px 16px;gap:12px;min-height:56px;flex-wrap:nowrap;}
+  .terminal-chrome .home {display:flex;align-items:center;}
+  .terminal-chrome .home :global(.logo) {width:126px;}
+  .terminal-chrome .home :global(svg) {width:100%;height:auto;}
+  @media(max-width:700px){main.terminal-layout{padding:4px 6px}.terminal-chrome .header-inner{padding:4px 10px;min-height:54px}.terminal-chrome .notif-link{display:none}.terminal-chrome .home :global(.logo){width:110px}}
 </style>

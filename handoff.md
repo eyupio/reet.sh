@@ -24,18 +24,23 @@ Read alongside:
 
 ### Baseline and publication state
 
-- Local implementation baseline inspected: `183beb7569921ac3c687ec52171bebdf3a5d9461`
-  on `feat/fleet-control-centre`, based on main `72244c1` (PR #134).
+- Fleet redesign implementation inspected: `183beb7569921ac3c687ec52171bebdf3a5d9461`
+  (PR #135). The documentation branch was rebased onto main `2e7176e` on
+  24 October 2026, including the terminal setup/reference changes from PR #136.
 - [PR #135](https://github.com/eyupio/reet.sh/pull/135), the fleet-first redesign,
   was confirmed **merged** through GitHub on 24 October 2026; returned merge commit
-  `ed08496e3ef5097604fdaf019e7b08ff16d40f6c`. This local checkout was still on the
-  feature commit when this handoff was written. Refresh remote state next session.
+  `ed08496e3ef5097604fdaf019e7b08ff16d40f6c`. Refresh remote state next session;
+  do not assume this dated baseline remains the latest main.
 - PR #134 adds controller-side `reet terminal start|stop|restart|status`; these
-  manage browser-terminal availability, not AI application processes.
+  manage browser-terminal availability, not AI application processes. PR #136
+  adds guided persistent terminal setup and a live command reference; inspect
+  `cmd/reet/terminal_setup.go` and `TerminalCommandReference.svelte` before adding
+  related setup UI.
 - No production deployment, release artifact, real machine upgrade or live fleet
   content sync was verified in this conversation. A merge is not deployment.
-- This handoff-only update has not itself been published by writing this file.
-  Preserve it if changing branches. Do not append implementation to a merged PR.
+- This handoff is saved through a separate documentation PR. Check its actual
+  merge status before branching. Keep each implementation task on a separate
+  branch/PR; do not append implementation to a merged PR.
 
 ## Implemented baseline: preserve these behaviours
 

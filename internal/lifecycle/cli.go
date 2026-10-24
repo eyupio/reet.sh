@@ -316,6 +316,12 @@ func (a *App) upgrade(args []string) error {
 	if !ok {
 		return err
 	}
+	explicitVersion := false
+	f.Visit(func(v *flag.Flag) {
+		if v.Name == "version" {
+			explicitVersion = true
+		}
+	})
 	if *check && *dry {
 		return fmt.Errorf("choose --check or --dry-run")
 	}
@@ -386,6 +392,28 @@ func (a *App) upgrade(args []string) error {
 	if *check {
 		fmt.Fprintln(a.Out, "Tag lookup only. Use --dry-run to verify the binary and detect changes on the rolling dev channel.")
 		return nil
+	}
+	// REET_VERSION can have been inherited from an old saved preference. A
+	// generic "yes" must not silently replace the running dev CLI with stable
+	// and remove the very commands needed to recover it. Inspection stays usable;
+	// explicit --version still permits an intentional channel switch/downgrade.
+	if a.Version == "dev" && resolved != "dev" && d.Mode != "compose" && !explicitVersion {
+		path, e := a.executable()
+		if e != nil {
+			return fmt.Errorf("cannot identify running binary; select --version explicitly")
+		}
+		running, e := os.Stat(path)
+		target, targetErr := os.Stat(d.Binary)
+		if e != nil || targetErr != nil {
+			return fmt.Errorf("cannot inspect upgrade target; select --version explicitly")
+		}
+		if os.SameFile(running, target) {
+			warning := fmt.Sprintf("Configured release selects %s, but this executable is dev. Use --version dev to stay on dev, or --version %s to explicitly switch channels.", resolved, resolved)
+			if !*dry {
+				return fmt.Errorf("%s No installation files were changed", warning)
+			}
+			fmt.Fprintln(a.Out, "Channel change preview:", warning)
+		}
 	}
 	stage, err := os.MkdirTemp("", "reet-upgrade-*")
 	if err != nil {

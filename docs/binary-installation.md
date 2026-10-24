@@ -141,6 +141,17 @@ recorded version. Compose follows its recorded image version, independently of
 the CLI build. The preview labels the running CLI build and recorded deployment
 version separately; they may legitimately differ.
 
+A saved/environment stable preference can survive a manual dev reinstall. When
+upgrading the running dev executable itself, applying that stable preference now
+requires an explicit `--version latest` or `--version vX.Y.Z`. Otherwise the upgrade
+stops before downloading/replacing files or restarting services, with instructions
+to stay on dev. `--check` remains available and `--dry-run` warns about the channel
+change. A dev CLI managing a separate stable target or Compose deployment keeps
+that target's channel. `--yes` does not bypass the channel-selection guard.
+
+To keep this machine on dev, run `reet configure --version dev`, clear or update
+any exported `REET_VERSION`, and use `reet upgrade --version dev`.
+
 Older upgrade implementations always defaulted to latest stable. Running one from
 a dev binary could therefore replace it with an older stable release lacking
 `upgrade`, `doctor` and `setup`. If those commands have disappeared, reinstall the

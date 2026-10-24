@@ -76,15 +76,18 @@ is not a sandbox. Existing enrollments default to terminal access disabled.
 Install tmux 3.3 or newer, then:
 
 ```sh
-reet agent stop
 reet agent terminal enable
 reet agent service install
 reet agent status
 ```
 
-Stop the current standalone/background agent before installing native services,
-so it releases its lifetime lock. Stopping the agent preserves tmux shells. This
-avoids an older fallback process preventing the new service from starting.
+The installer performs the standalone-to-native handoff automatically
+and verifies the resulting native process. An interactive `reet terminal start`
+offers to complete missing local host steps instead of merely printing commands.
+It asks before enrollment, shell consent, package installation or service repair;
+saved consent is reused. `status` and `stop` remain noninteractive. A successful
+handoff reports native supervision; a still-running standalone process is not
+accepted as proof that native installation succeeded.
 
 Add `--config /absolute/path/agent.json` consistently for a non-default enrollment.
 The agent and tmux run as separate native services; stopping/restarting the agent

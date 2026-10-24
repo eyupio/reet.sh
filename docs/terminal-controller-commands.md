@@ -35,6 +35,23 @@ every 15 seconds while visible, and offers a manual status refresh. It remains
 available with an empty fleet. Host-local consent and live connection health are
 separate from controller availability.
 
+On an interactive start/restart, an available controller is followed by guided
+local-host setup. It inspects the existing enrollment and prompts for missing
+enrollment, explicit shell consent (including root), tmux installation and native
+service repair. Use `--agent-config PATH` for a non-default local enrollment.
+Declining a host step keeps controller access enabled and states which host work
+was deferred. Existing ready installations are verified without repeated consent
+questions. API tokens are reused or requested with hidden input; package-manager
+children do not inherit REET credentials.
+
+Service installation preflights existing tmux ownership, serializes lifecycle
+changes, stops an old standalone agent through its private control socket, and
+verifies a native agent and independent terminal supervisor before success. It
+never kills tmux as part of handoff. Host setup also validates manager state and
+checks private connectivity before claiming completion. A missing/unavailable
+service manager or unsafe/unmanaged tmux state remains an explicit error rather
+than silently adopting or deleting existing work.
+
 The controller owns a crash-released lifetime lock and private Unix socket below
 its data directory. There is no public settings endpoint and no browser/API token
 is required. The state file is strict, bounded JSON, checked for ownership,

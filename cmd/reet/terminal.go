@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/eyupio/reet.sh/internal/clientconfig"
+	"github.com/eyupio/reet.sh/internal/scan"
 	"github.com/eyupio/reet.sh/internal/terminalcontrol"
 	"io"
 	"os"
@@ -25,6 +26,7 @@ func runTerminalInput(args []string, in io.Reader, out io.Writer) error {
 	fs.SetOutput(out)
 	dir := fs.String("data-dir", env("REET_DATA_DIR", "./data"), "controller data directory")
 	envFile := fs.String("env-file", "", "configuration file (default REET_ENV_FILE or .env)")
+	agentConfig := fs.String("agent-config", "", "local machine enrollment file for guided host setup")
 	if err := fs.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -79,7 +81,7 @@ func runTerminalInput(args []string, in io.Reader, out io.Writer) error {
 		}
 		var ask func(string, string) (string, error)
 		if clientconfig.Interactive(in) {
-			ask = func(key, current string) (string, error) { return clientconfig.Prompt(in, out, key, current) }
+			ask = func(key, current string) (string, error) { return clientconfig.Ask(in, out, key, current) }
 		}
 		var auth string
 		publicURL, auth, err = prepareTerminalSetup(status, publicURL, lookup("REET_AUTH"), ask, out)
@@ -123,7 +125,10 @@ func runTerminalInput(args []string, in io.Reader, out io.Writer) error {
 			return errors.New("terminal access is configured on but prerequisites are not met")
 		}
 	} else if status.Available {
-		fmt.Fprintln(out, "Availability: enabled. Host-local terminal consent is still required.")
+		fmt.Fprintln(out, "Availability: enabled.")
+		if (action == "start" || action == "restart") && clientconfig.Interactive(in) {
+			return scan.SetupTerminalHost(scan.TerminalSetupOptions{Config: *agentConfig, Server: publicURL, Token: lookup("REET_TOKEN"), Version: version, Ask: func(label, current string) (string, error) { return clientconfig.Ask(in, out, label, current) }}, in, out)
+		}
 	} else {
 		fmt.Fprintln(out, "Availability: disabled. Running host shells are preserved.")
 	}

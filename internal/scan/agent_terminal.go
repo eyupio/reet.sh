@@ -143,6 +143,7 @@ func runAgentService(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("agent service "+action, flag.ContinueOnError)
 	fs.SetOutput(out)
 	config := fs.String("config", agentConfigPath(), "private machine enrollment file")
+	prefix := fs.String("service-prefix", "reet", "native service name prefix")
 	if err := fs.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -164,13 +165,13 @@ func runAgentService(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	plan, err := servicePlan(absolute, layout, action != "install")
+	plan, err := terminalhost.PlanServices(context.Background(), terminalhost.ServiceOptions{Prefix: *prefix, ConfigPath: absolute, Layout: layout, AllowMissingTmux: action != "install"})
 	if err != nil {
 		return err
 	}
 	switch action {
 	case "install":
-		if err := terminalhost.Install(context.Background(), plan); err != nil {
+		if err := installAgentServices(plan, out); err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "Installed %s and %s.\n", plan.AgentName, plan.TerminalName)

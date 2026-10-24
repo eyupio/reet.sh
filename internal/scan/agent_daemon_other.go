@@ -5,6 +5,7 @@ package scan
 import (
 	"context"
 	"errors"
+	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"io"
 	"sync/atomic"
 )
@@ -27,3 +28,10 @@ func serveAgentControl(string, *agentRuntime, context.CancelFunc) (func(), error
 	return func() {}, nil
 }
 func notifyAgentReady() error { return nil }
+func installAgentServices(terminalhost.ServicePlan, io.Writer) error {
+	return errors.New("native service installation requires Linux or macOS")
+}
+func localTerminalAgentNative(string) (bool, error) {
+	return false, errors.New("native agents require Linux or macOS")
+}
+func localTerminalAgentConnected(string) bool { return false }

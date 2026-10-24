@@ -9,8 +9,9 @@ response is labelled `verification: "not_verified"`.
 This slice supplies the persistent desired input for the
 [pure content planner](skill-content-planner.md). The
 [negotiated metadata-only preview](skill-content-preview.md) now reads a pin and
-observes one machine; ownership receipts, adoption, approval UI and reviewed execution
-remain separate stages. There is no new browser control in this slice.
+observes one machine, and [ownership receipts with explicit adoption](skill-content-receipts.md)
+have since been added; approval UI and reviewed execution remain separate stages. There is
+no new browser control in this slice.
 
 ## Ownership and scope
 
@@ -21,8 +22,8 @@ machine intent, and an explicit version-checked rollback can select an older
 revision without changing library history. Different owned bundles may share a
 name; selecting another bundle for that same scope/name slot also needs the current
 version. This changes intent only. Never retag an installed ownership receipt to
-match a newly selected bundle: the planner must still reject that baseline mismatch
-until a separately reviewed ownership transition exists.
+match a newly selected bundle: the planner rejects that baseline mismatch
+(`baseline_bundle_mismatch`) until a separately reviewed ownership transition exists.
 
 The selected enrollment and environment must belong to the same account and
 canonical host. A complete inventory within the previous fourteen days must
@@ -38,14 +39,20 @@ from the owned bundle. A reported project is a local adapter lookup key, never
 permission for the controller to choose an arbitrary directory.
 
 Pins remain inspectable/removable while a connector is paused/offline. Revoking
-an enrollment or forgetting its environment cascades its pins; a replacement
+an enrollment or forgetting its environment cascades its pins and its
+[ownership receipts](skill-content-receipts.md); a replacement
 connector does not inherit them. Neither operation deletes private revisions.
 Machine renames within the same enrollment preserve pin IDs and selected revisions,
-move their environment IDs and issue fresh versions so old reviews expire. Merging
+move their environment IDs and issue fresh versions so old reviews expire; ownership
+receipts move with them, also with fresh versions. Merging
 identical duplicate pins retains the destination pin with a fresh version;
-conflicting pins block and roll back the complete rename. Generic report merges
-into another scope require removing the source pins first; they cannot silently
-transfer private intent across roots. Ordinary process reconnects retain the same enrollment's intent; later previews
+conflicting pins block and roll back the complete rename (HTTP 409), as does a
+destination that already holds a receipt for the same skill name. Generic report merges
+into another scope require removing the source pins first (409 `environment_has_pins`)
+and releasing its receipts (409 `environment_has_receipts`); they cannot silently
+transfer private intent or ownership across roots, and the merge dry run previews the same
+refusal. A removed pin leaves its receipt in place. Ordinary process reconnects retain the
+same enrollment's intent; later previews
 must independently fence their current connection/process and inventory identity.
 
 ## API
@@ -91,7 +98,8 @@ cannot rewind a different newer selection.
 DELETE requires `{"expectedVersion":"CURRENT_VERSION"}`. A stale version returns
 409; a foreign/missing pin returns 404. Successful removal returns
 `{"removed":true}` and removes only the pin. It never requests an uninstall,
-removes a baseline, deletes private revisions or changes a legacy desired set.
+removes a baseline (an ownership receipt stays until it is released), deletes private
+revisions or changes a legacy desired set.
 
 POST/DELETE strictly reject unknown fields, extra JSON, missing/null versions and
 bodies above 16 KiB. Invalid inputs return 400; unavailable scopes, version conflicts
@@ -131,11 +139,13 @@ content or pins. There is no new export/restore format in this slice.
    revision, with physical-root identity and alias detection. See
    [the preview contract](skill-content-preview.md). A pin that changes away and back
    to the same revision has a new version and invalidates old reviews.
-2. **Still to do:** store future verified managed receipts separately from pins and
-   observations (no baseline exists, so every existing tree still needs adoption), and
-   design explicit adoption for existing unowned roots.
+2. **Done in a following slice:** ownership receipts, stored separately from pins and
+   observations, and explicit adoption for existing unowned roots. See
+   [the receipts contract](skill-content-receipts.md). Adopted receipts are
+   controller-attested; verified `applied` receipts remain for the executor, and a tree
+   with no receipt still needs adoption.
 3. **Still to do:** a review UI joined to pin selection, connected only to truthful
-   metadata states. Pins and previews both have API only.
+   metadata states. Pins, previews and receipts all have API only.
 4. Add reviewed execution as a subsequent slice: full payload staging, local locks,
    immediate precondition revalidation, recoverable journal/backups, installed
    verification and durable receipts. Do not close S4 or begin S5 fleet apply until

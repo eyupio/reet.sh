@@ -23,8 +23,9 @@ Success means all of these hold, and tests prove each:
    an older revision while the pin names a newer one yields a real upgrade plan.
 3. Matching names or matching bytes alone never create ownership. Only the explicit,
    hash-bound decision does.
-4. A receipt that no longer fits (root moved, other bundle pinned, re-enrolment, skill
-   deleted) blocks with a clear code instead of being reused or silently dropped.
+4. A receipt that no longer fits (root moved, other bundle pinned, skill deleted) blocks
+   with a clear code instead of being reused or silently dropped. Re-enrolment needs a
+   revoke first, which removes the receipt.
 5. Nothing in this slice writes to a machine, reuses import approval, or authorises
    an apply. A receipt is a claim; a future executor must re-observe under a local lock.
 
@@ -177,7 +178,7 @@ unchanged because no baseline-bearing plan has ever been produced or approved:
 
 | Condition | Result |
 | --- | --- |
-| `Baseline.Target` differs from the target (root moved, re-enrolled, adapter/schema) | block `baseline_target_mismatch` |
+| `Baseline.Target` differs from the target (root moved, adapter/schema; a re-enrolled connector cannot reach this, see Lifecycle) | block `baseline_target_mismatch` |
 | `Baseline.BundleID` differs from the desired bundle | block `baseline_bundle_mismatch` |
 | `Baseline.Target.OwnerID` differs (another account) | still an **error**: an integrity violation, not a benign mismatch |
 | Invalid baseline revision ID or manifest | still an error |
@@ -204,12 +205,14 @@ Nothing unproven is overwritten, and a deleted adopted skill never recreates its
 
 - **Machine rename** within one enrolment moves receipts to the new environment ID and
   bumps their versions, as pins do. Two receipts for the same slot conflict and roll the
-  whole rename back (`remove one receipt before merging`).
+  whole rename back with HTTP 409 (`release one before merging`).
 - **Generic report merge** into another scope is refused while the source has a receipt.
 - **Revoke, forget, account deletion** cascade.
 - **Pin removal or change, preview dismissal** never touch receipts.
-- **Root moved or re-enrolled:** the next preview reports `baseline_target_mismatch`;
-  the user releases and, if appropriate, adopts again.
+- **Root moved or adapter/schema changed:** the next preview reports
+  `baseline_target_mismatch`; the user releases and, if appropriate, adopts again.
+- **Re-enrolled:** one enrolment exists per host, so re-enrolling needs a revoke first,
+  which cascades the receipt. The next preview is `adoption_required` again.
 
 ## Errors
 

@@ -3,9 +3,12 @@
 A proper look at a machine before anything gets touched. An account can ask one
 enrolled connector what is on disk for one pinned skill, and gets back per-file
 metadata plus the [pure planner's](skill-content-planner.md) verdict. Nothing is
-installed, changed, removed or adopted, no file bytes travel, and the result is not
-permission to write. There is no browser control in this slice; the API below is the
-contract the review UI and the later executor will build on.
+installed, changed or removed, no file bytes travel, and the result is not permission
+to write. A preview never adopts anything: adoption is a separate, explicit decision
+bound to a preview's review hash, set out in the
+[ownership receipts contract](skill-content-receipts.md). There is no browser control
+in this slice; the API below is the contract the review UI and the later executor will
+build on.
 
 ## What a preview is and is not
 
@@ -13,11 +16,13 @@ contract the review UI and the later executor will build on.
 | --- | --- |
 | A bounded, no-follow, read-only observation of one skill folder | An atomic filesystem snapshot or proof of equality |
 | Per-file path, size, executable bit and digest, with explicit present / absent / unknown | File contents, local paths or a way to choose a directory |
-| The planner run on trusted storage plus that observation | An ownership receipt, adoption, approval or apply authority |
+| The planner run on trusted storage, that observation and the slot's receipt if it has one | An ownership receipt, adoption, approval or apply authority |
 | A review identity that binds the pin **version** | Reuse of an import approval, or a durable execution receipt |
 
 A matching name, source URL or even byte-identical files never establish ownership.
-There is no baseline yet, so any existing tree is reported as `adoption_required`.
+A slot with no [ownership receipt](skill-content-receipts.md) has no baseline, so any
+existing tree is reported as `adoption_required`. A receipt, which only an explicit
+adoption creates, is the baseline otherwise.
 
 ## Flow
 
@@ -38,7 +43,9 @@ There is no baseline yet, so any existing tree is reported as `adoption_required
    project root, captures that one skill folder and reports (`/report`). Failures use a
    short allow-listed code (`/failure`), never raw local errors.
 5. The server rechecks every fence inside the writing transaction, builds the planner
-   snapshot from storage and the validated capture, stores the plan and a review hash.
+   snapshot from storage, the validated capture and the slot's ownership receipt (the
+   baseline, when one exists), and stores the plan, the receipt version it saw and a
+   review hash.
 
 The whole claim-capture-report sequence runs inside one connector cycle, ahead of the
 legacy inventory scan, so a scan cannot slip in between. Import work goes first; a
@@ -52,6 +59,7 @@ running legacy sync job also holds preview work back.
 | Pin ID **and independent pin version** | creation | `superseded`: `pin_changed` / `pin_removed` |
 | Enrolment (connector) and its pause state | creation, every write | `superseded`: `connector_paused` / `connector_removed` |
 | Connector process generation (random per-process nonce) | creation | `superseded`: `process_changed` |
+| Version of the slot's ownership receipt (empty when none) | report | `superseded`: `receipt_changed` |
 | Inventory revision of the reported scope | claim | `superseded`: `inventory_changed` / `scope_removed` |
 | Request lifetime (ten minutes before capture) | creation | `expired` |
 | Capture age (five minutes, the planner's window) | report | `stale` (still readable, never shown as current) |
@@ -60,9 +68,16 @@ Pin versions are fresh random values on every meaningful change. A pin that move
 another revision and **back to identical content** has a different version, so a review
 made before the round trip is `superseded`. `reviewHash` binds the owner, request,
 pin ID/version, bundle, revision, manifest digest, mode, connector, process, inventory
-revision, capture hash and plan hash. A future approval must bind this value, not the
-plan hash alone. Machine renames, enrolment revocation and forgetting a scope already
-bump or remove the pin, so they invalidate previews through the same fence.
+revision, capture hash, plan hash and receipt version. A future approval must bind this
+value, not the plan hash alone. Machine renames, enrolment revocation and forgetting a
+scope already bump or remove the pin, so they invalidate previews through the same fence.
+
+Receipt versions are random too: a receipt that is released and adopted again with
+identical content supersedes older reviews, as a pin round trip does. A captured preview
+is `superseded` with `receipt_changed` when the slot's receipt is created, released or
+replaced, and adopting consumes the preview it used. The fences are live reads, with
+consequences the [receipts contract](skill-content-receipts.md#preview-binding) sets
+out.
 
 Why inventory binds at claim, not creation: every legacy inventory report draws a new
 random revision, and one can complete between a browser click and the connector's next
@@ -147,7 +162,7 @@ fields and trailing data rejected), no MCP allowlist change.
 | --- | --- | --- |
 | GET | `/api/v2/skill-content-previews` | `{previews, capabilities}`: bounded summaries (no capture or plan) |
 | POST | `/api/v2/skill-content-previews` | Create or retry `{requestKey, targetId, expectedTargetVersion}` (16 KiB) |
-| GET | `/api/v2/skill-content-previews/{id}` | One preview with capture, plan and review hash |
+| GET | `/api/v2/skill-content-previews/{id}` | One preview with capture, plan and review hash, plus an `adoption` offer when adoptable |
 | POST | `/api/v2/skill-content-previews/{id}/cancel` | `{}`; revokes outstanding work, leaves a recorded capture |
 | DELETE | `/api/v2/skill-content-previews/{id}` | Cancels live work, or dismisses finished history |
 
@@ -158,7 +173,15 @@ and travels as a **string**. Errors: 400 invalid input, 404 foreign or missing, 
 stale pin version, unavailable scope, no recent negotiation, paused connector, busy
 machine or full history.
 
-Dismissing history never touches the pin, the private revision or any machine file.
+A single-preview read of a `captured`, present, exclusive preview whose only conflict is
+`adoption_required` also carries an informational `adoption` block: the revisions of the
+pin's bundle that could prove ownership, best match first. It is computed on read, never
+stored, never listed, and absent from a `POST` replay. `adoption_required` therefore now
+has a resolution, the explicit adoption in the
+[receipts contract](skill-content-receipts.md#the-adoption-offer).
+
+Dismissing history never touches the pin, the private revision, an ownership receipt or
+any machine file.
 
 ## Storage and limits
 
@@ -177,13 +200,16 @@ limits, plus at most 32 issues.
 Old connectors never negotiate and never read content; new connectors facing old
 controllers skip the channel, as above. No field or hash meaning in `SyncSkill`,
 `SyncTarget`, legacy desired sets, observations, imports or terminal messages changed.
-The legacy poll never receives preview work, and a preview creates no job.
+The legacy poll never receives preview work, and a preview creates no job. The ownership
+receipts slice added the optional `receiptVersion` and the item-read `adoption` block;
+previews captured before it carry no receipt version and read as before.
 
 ## What this does not establish
 
-No filesystem write, staging, locking, journal, rollback or receipt exists, and none
-was exercised. No verified managed baseline exists, so no plan can update or remove
-anything and every existing tree needs adoption. Ownership beyond configured scopes,
+No filesystem write, staging, locking, journal, rollback or verified (`applied`) receipt
+exists, and none was exercised. The only baselines are controller-attested adoption
+receipts, so a folder with none still needs adoption, and a plan against an adopted
+folder is a proposal, never permission to write. Ownership beyond configured scopes,
 non-POSIX platforms, ACLs, empty directories and parent-directory safety are not
 modelled (the planner already says an executor must inspect every leaf and parent).
 Capture is a point-in-time read of a changing disk. Tests use synthetic homes, SQLite
@@ -195,15 +221,19 @@ physical cross-platform or fleet check was made.
 1. **Review UI.** Pins have no browser control yet, so add pin selection and a preview
    review together: truthful present / absent / unknown labels, the reasons list,
    `stale` and `superseded` handling, keyboard and phone layouts. Surface
-   `adoption_required` as a decision to be designed, never as a one-click default.
-2. **Ownership receipts and adoption design.** Store verified managed receipts in their
-   own table, separate from pins and observations, bound to account, connector,
-   root identity, slot, adapter and revision. Initial installs record nothing until
-   post-apply verification passes. Design explicit adoption for existing roots.
+   `adoption_required` and the `adoption` offer as a decision to be designed, never as a
+   one-click default.
+2. **Done in a following slice:** ownership receipts and explicit adoption, stored in
+   their own table bound to account, connector, root identity, slot, adapter and
+   revision. Adopted receipts are controller-attested. Initial installs still record
+   nothing until post-apply verification passes. See
+   [the receipts contract](skill-content-receipts.md).
 3. **Reviewed executor.** Full payload staging, local lock, immediate precondition
    revalidation against this review hash, journal and backup before replacement,
    installed verification and durable receipts, with temporary-filesystem
    failure/crash/recovery gates. Do not close S4 or start S5 fleet apply before they pass.
+   It must also re-read the slot's baseline through the store's validating lookup in its
+   own transaction, since a review's fences compare receipt versions only.
 
 Preserve terminal sessions and controls, the approved sudo template behaviour and the
 deferred user-controlled security/PIN preference noted in `handoff.md`.
@@ -221,3 +251,6 @@ controller and synthetic temporary homes, and show the machine's files unchanged
 for byte. A macOS build and vet pass; the whole-binary Windows build already fails on
 `main` for unrelated reasons. The published workflows must pass for the final pull
 request head before merge; the pull request is the record of that.
+
+The ownership receipts slice that followed records its own checks in
+[its contract](skill-content-receipts.md#validation-recorded-for-this-implementation).

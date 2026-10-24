@@ -211,6 +211,7 @@ try{
  expect(await target.evaluate(element=>element.dispatchEvent(new MouseEvent('contextmenu',{button:2,shiftKey:true,bubbles:true,cancelable:true})))).toBe(true)
  await expect(menu).toHaveCount(0)
  await target.click({button:'right'})
+ expect(await band.getByRole('list',{name:'Active terminal sessions'}).evaluate(element=>[...element.children].every(child=>child.tagName==='LI'))).toBe(true)
  await page.getByRole('menuitem',{name:'Rename session…',exact:true}).click()
  await page.getByLabel('Session name',{exact:true}).fill('Landing rename')
  await page.getByRole('button',{name:'Save name',exact:true}).click()

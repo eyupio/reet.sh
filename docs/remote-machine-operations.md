@@ -73,7 +73,7 @@ consent and private file ownership as any other account; the browser cannot
 choose another OS user or escalate an existing enrollment. A project directory
 is not a sandbox. Existing enrollments default to terminal access disabled.
 
-Install tmux 3.3 or newer, then:
+Install tmux 3.2 or newer, then:
 
 ```sh
 reet agent terminal enable

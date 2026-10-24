@@ -143,4 +143,4 @@ printf '\nVerified build: %s\nPrevious binary (when present): %s/reet.previous\n
 printf '\nCheck your installation:\n'
 quote "$install_dir/reet"
 printf ' --version\n\nConnect to an existing site: open Machines on that site, then Connect a machine.\nHost your own site: run reet install --mode native (user service), or --mode compose (Docker).\nFor an existing managed server, use reet upgrade for future updates.\n'
-printf '\nConnect a machine and set up its terminal with: reet agent terminal setup\nThe wizard checks tmux 3.3+, local shell consent and native services. Initial reet install and upgrade also offer connection setup in interactive sessions.\n'
+printf '\nConnect a machine and set up its terminal with: reet agent terminal setup\nThe wizard checks tmux 3.2+, local shell consent and native services. Initial reet install and upgrade also offer connection setup in interactive sessions.\n'

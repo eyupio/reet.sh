@@ -78,7 +78,7 @@ checks remain required. See the updated [operator runbook](remote-machine-operat
 
 Run `reet agent terminal setup` in the machine's own interactive OS-user shell.
 Use `--config PATH` for a non-default enrollment. This resumable wizard handles
-missing enrollment, explicit local shell consent, tmux 3.3+, native service
+missing enrollment, explicit local shell consent, tmux 3.2+, native service
 installation/repair and the private connection. Existing enrollment credentials
 and consent are reused. No root shell is enabled without explicit local consent.
 
@@ -110,7 +110,7 @@ A completed scan is never presented as proof that a terminal can connect.
 
 If tmux is missing, check `tmux -V` and the service PATH. Ubuntu/Debian operators
 can install it with `sudo apt install tmux`; macOS operators can use
-`brew install tmux`. Versions before 3.3 remain unsupported. The wizard offers a
+`brew install tmux`. Versions before 3.2 remain unsupported. The wizard offers a
 local package-manager install only after confirmation, then verifies the result.
 Readiness is not claimed for an unavailable service manager or disconnected peer.
 

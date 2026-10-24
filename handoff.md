@@ -282,7 +282,7 @@ Treat `--yes`, dry runs and noninteractive operation as unattended: do not insta
 packages, grant shell consent or block on new wizard prompts. Test real controlling
 TTY behavior and missing/old tmux separately from fake service runners.
 
-1. Reuse the existing guided host setup: check tmux 3.3+, explicit local shell
+1. Reuse the existing guided host setup: check tmux 3.2+, explicit local shell
    consent (including root), independent services and readiness verification.
    Offer it during initial `reet install` as a first-class setup step, immediately
    after first enrollment, and after successful reet upgrade.
@@ -1391,7 +1391,7 @@ required repository checks before PR handoff. Use tools from the current environ
 never assume a previous session's binaries or caches are present.
 
 Prerequisites: versions from `go.mod` and `web/package.json` (at this baseline Go
-1.27.1 and Node 22), dependency installation when missing, tmux 3.3+ for terminal
+1.27.1 and Node 22), dependency installation when missing, tmux 3.2+ for terminal
 service/integration tests, and a supported Chromium for browser tests. Read the
 managed environment runtime instructions before network/container work. Never
 print environment secrets, commit credentials or change global system directories

@@ -15,12 +15,16 @@ import (
 
 const (
 	minTmuxMajor = 3
-	minTmuxMinor = 3
+	minTmuxMinor = 2
 )
 
 var ErrNotRunning = errors.New("terminal tmux service is not running")
 
 var sessionName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+
+// tmux 3.2 rewrites literal tabs in format output to '_'; use a separator the
+// parsed fields cannot contain.
+const fieldSep = "|"
 
 type Tmux struct {
 	Path    string
@@ -30,7 +34,7 @@ type Tmux struct {
 func FindTmux(ctx context.Context) (Tmux, error) {
 	path, err := exec.LookPath("tmux")
 	if err != nil {
-		return Tmux{}, fmt.Errorf("%w: tmux was not found on PATH. Install tmux 3.3+ (Ubuntu/Debian: sudo apt install tmux; macOS: brew install tmux), then run reet agent terminal setup", ErrTmuxUnavailable)
+		return Tmux{}, fmt.Errorf("%w: tmux was not found on PATH. Install tmux 3.2+ (Ubuntu/Debian: sudo apt install tmux; macOS: brew install tmux), then run reet agent terminal setup", ErrTmuxUnavailable)
 	}
 	path, err = filepath.Abs(path)
 	if err != nil {
@@ -45,7 +49,7 @@ func FindTmux(ctx context.Context) (Tmux, error) {
 	version := strings.TrimSpace(string(output))
 	major, minor, err := parseTmuxVersion(version)
 	if err != nil || !supportedTmux(major, minor) {
-		return Tmux{}, fmt.Errorf("%w: tmux 3.3 or newer is required; update tmux, verify with tmux -V, then run reet agent terminal setup", ErrTmuxUnavailable)
+		return Tmux{}, fmt.Errorf("%w: tmux 3.2 or newer is required; update tmux, verify with tmux -V, then run reet agent terminal setup", ErrTmuxUnavailable)
 	}
 	return Tmux{Path: path, Version: version}, nil
 }
@@ -97,7 +101,7 @@ func Sessions(ctx context.Context, tmux Tmux, layout Layout) ([]Session, error) 
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, tmux.Path, "-S", layout.Socket, "list-sessions", "-F", "#{session_name}\t#{session_created}\t#{session_attached}\t#{session_windows}")
+	command := exec.CommandContext(ctx, tmux.Path, "-S", layout.Socket, "list-sessions", "-F", "#{session_name}"+fieldSep+"#{session_created}"+fieldSep+"#{session_attached}"+fieldSep+"#{session_windows}")
 	output, err := command.Output()
 	if err != nil {
 		if len(output) == 0 {
@@ -113,7 +117,7 @@ func Sessions(ctx context.Context, tmux Tmux, layout Layout) ([]Session, error) 
 		if line == "" {
 			continue
 		}
-		fields := strings.SplitN(line, "\t", 4)
+		fields := strings.SplitN(line, fieldSep, 4)
 		if len(fields) != 4 || !sessionName.MatchString(fields[0]) {
 			continue
 		}

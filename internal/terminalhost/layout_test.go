@@ -46,8 +46,12 @@ func TestEnsureCreatesPrivateLayout(t *testing.T) {
 	if err != nil || info.Mode().Perm() != 0600 || info.Size() == 0 {
 		t.Fatalf("config: %v %v", info, err)
 	}
-	if !strings.Contains(readFile(t, layout.Config), "history-limit 5000") || strings.Contains(readFile(t, layout.Config), "source-file") {
+	config := readFile(t, layout.Config)
+	if !strings.Contains(config, "history-limit 5000") || strings.Contains(config, "source-file") {
 		t.Fatal("tmux config is not minimal")
+	}
+	if !strings.Contains(config, "set -gq allow-passthrough off") {
+		t.Fatal("tmux config is not compatible with tmux 3.2")
 	}
 	if err := Check(layout); err != nil {
 		t.Fatal(err)

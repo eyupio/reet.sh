@@ -44,9 +44,9 @@
 </script>
 
 <AuthCard
-  eyebrow="Your shelf for AI"
+  eyebrow="Your machine workspace"
   title="Create your account"
-  lede="A shelf for the AI skills, agents and setups you use. Start on your own, bring your team when you need one, and keep every machine in sync."
+  lede="Connect your machines, open remote terminals, and keep your ongoing work within reach."
 >
   <form onsubmit={submit} aria-busy={busy} aria-describedby={error ? 'signup-error' : undefined}>
     <label for="signup-name">Your name</label>

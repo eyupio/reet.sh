@@ -1,18 +1,18 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
 
-  let { title, lede, eyebrow = 'Your shelf for AI', children }: { title: string; lede: string; eyebrow?: string; children: Snippet } = $props()
+  let { title, lede, eyebrow = 'Your machine workspace', children }: { title: string; lede: string; eyebrow?: string; children: Snippet } = $props()
 </script>
 
 <section class="auth" aria-labelledby="auth-title">
-  <aside class="intro" aria-label="About your shelf">
+  <aside class="intro" aria-label="About your workspace">
     <p class="eyebrow">{eyebrow}</p>
-    <p class="headline">A reet good home <br />for everything AI.</p>
-    <p class="intro-copy">Collect the AI skills, agents and setups you use. Start on your own, add your team when you need one, and keep what earns a place.</p>
-    <ol class="stages" aria-label="How the shelf works">
-      <li><span aria-hidden="true">01</span><div><strong>On the shelf</strong><small>Keep a good find for later.</small></div></li>
-      <li><span aria-hidden="true">02</span><div><strong>To test</strong><small>Give something new a go.</small></div></li>
-      <li><span aria-hidden="true">03</span><div><strong>In use</strong><small>The ones earning their keep.</small></div></li>
+    <p class="headline">Your machines.<br />Your place to work.</p>
+    <p class="intro-copy">Connect to your laptops and servers, open a terminal, and return to the work you left running.</p>
+    <ol class="stages" aria-label="How your workspace works">
+      <li><span aria-hidden="true">01</span><div><strong>Your machines</strong><small>One place to reach your laptops and servers.</small></div></li>
+      <li><span aria-hidden="true">02</span><div><strong>Your terminals</strong><small>Open a shell with the tools you already use.</small></div></li>
+      <li><span aria-hidden="true">03</span><div><strong>Your ongoing work</strong><small>Continue the same session when you return.</small></div></li>
     </ol>
     <p class="local">Self-hosted. No telemetry. AGPL-3.0.</p>
   </aside>

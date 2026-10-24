@@ -1,7 +1,7 @@
 {
   "name": "reet.sh",
   "short_name": "reet.sh",
-  "description": "Keep the reet good AI skills from skills.sh in one place.",
+  "description": "Your machines and persistent terminal sessions in one self-hosted workspace.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

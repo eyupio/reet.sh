@@ -55,7 +55,7 @@
   }
 </script>
 
-<AuthCard eyebrow="Ey up. Start here." title="Create your account" lede="You're setting up this reet.sh instance and will be its owner. Start with your own shelf; add lists, teams, agent sync and machine reports when you need them. Everything stays on this server: no telemetry, one SQLite file.">
+<AuthCard eyebrow="Ey up. Start here." title="Create your account" lede="You're setting up this reet.sh instance and will be its owner. Connect your first machine, enable terminal access with local consent, and open your workspace. Everything stays on this server: no telemetry, one SQLite file.">
   <form onsubmit={submit} aria-busy={busy} aria-describedby={error ? "setup-error" : undefined}>
     <label for="setup-name">Your name</label>
     <input id="setup-name" bind:this={nameInput} bind:value={name} autocomplete="name" placeholder="Sam" />

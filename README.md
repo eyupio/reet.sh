@@ -33,6 +33,8 @@ One Go binary. One SQLite file. No telemetry.
 
 reet.sh is a self-hosted control centre for the machines where you use AI agents. Maintain a central skill library, choose what goes to one machine or all machines, bring machine discoveries back, and review changes before applying them. Open a browser terminal to work with agents already installed on a connected machine.
 
+The signed-out landing page introduces machines and persistent terminals, with routes to sign in, request an invite, create an account when enabled, or set up a new instance. Account signup, owner setup and token sign-in share the same workspace language. Public pages do not load private inventories.
+
 The signed-in home is **Control**, with reported inventories, saved sync scopes, plans awaiting approval and fleet controls. **Machines** handles connections and inventory, **Skills** maintains the central library, **Sync** handles distribution and reconciliation, and **Terminals** opens remote shells when account access and local terminal opt-in allow it. Lists and portable setups are under **More**. Skill shelf stages remain personal organisation; they do not install or remove files.
 
 **Scan all** requests inventory from available enrolled machines. **Sync all · preview** queues previews for available saved targets. Review and approve each exact plan in Sync activity. Distinct scopes on one machine can queue previews together; execution stays serial. Offline, paused, stale/incomplete and already-pending targets are skipped with reasons. Individual queue failures are reported, with successful requests preserved. Agent software installation, update and removal are future work; current controls manage skills and terminal sessions.

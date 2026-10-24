@@ -157,6 +157,19 @@ func processRemoteImportWith(ctx context.Context, c agentConfig, version, instan
 	if err != nil || m.Digest != work.Digest {
 		return failure("source_changed")
 	}
+	// Recheck authorisation after local capture, before sending contents. This
+	// catches cancellation/expiry during disk reads; the write transaction still
+	// arbitrates a cancellation racing an already in-flight transfer.
+	var current struct {
+		SchemaVersion int                 `json:"schemaVersion"`
+		Work          *store.RemoteImport `json:"work"`
+	}
+	if err = remoteImportPost(ctx, c, "work", map[string]any{"schemaVersion": skillimport.RemoteVersion, "instanceId": instance}, &current, version); err != nil {
+		return true, err
+	}
+	if current.SchemaVersion != skillimport.RemoteVersion || current.Work == nil || current.Work.ID != work.ID || current.Work.State != "uploading" || current.Work.Digest != m.Digest || current.Work.ExpiresAt < time.Now().UnixMilli() {
+		return true, nil
+	}
 	var result store.PrivateSkillResult
 	err = remoteImportPost(ctx, c, "transfer", map[string]any{"id": work.ID, "instanceId": instance, "sourceDigest": work.Preview.SourceDigest, "files": selected}, &result, version)
 	if err == importHTTPError(409) || err == importHTTPError(400) {

@@ -74,7 +74,7 @@ defaults, mutation hints and return information. Successful calls return
 | `list_tags`, `tag_skill`, `create_tag` | Discover tag IDs; add names or remove IDs on a skill; create an empty tag. |
 | `rename_tag`, `delete_tag` | Rename a tag, or delete it from this account after a dry run and confirmation. |
 | `list_environments`, `get_environment` | Read scan summaries and paginated inventories, including scan time and completeness. Filter by `empty_only` and `agent`. |
-| `delete_environment`, `merge_environments` | Preview and apply environment-report deletion or merge. Defaults to dry run; deletion refuses non-empty reports unless `force`. |
+| `delete_environment`, `merge_environments` | Preview and apply environment-report deletion or merge. Defaults to dry run; deletion refuses non-empty reports, and reports that hold ownership records, unless `force`; merge refuses reports that hold private skill pins or ownership records. |
 | `list_sync_targets` | Inspect saved desired/missing/extra plans without applying changes. |
 | `list_lists`, `get_list` | Find accessible lists and read skills, list notes and permissions. |
 | `create_list`, `update_list`, `delete_list` | Create a personal list, rename/describe it, or delete it after a dry run and confirmation. |
@@ -136,7 +136,8 @@ permission, missing-resource, rate-limit, connectivity and JSON response problem
 Raw server error bodies and credential values are not returned. Check server
 logs for validation details. Structured failures return `code`, `field`,
 `message` and `hint`, for example `local_skill_not_allowed_in_list`,
-`ambiguous_skill_id`, `environment_has_skills` or `confirm_required`. A failed write
+`ambiguous_skill_id`, `environment_has_skills`, `environment_has_receipts`,
+`environment_has_pins` or `confirm_required`. A failed write
 request may have reached the server before a connection failure: inspect the
 current state before retrying a create operation.
 

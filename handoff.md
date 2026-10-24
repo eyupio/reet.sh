@@ -2,20 +2,28 @@
 
 ## Read this first — 24 October 2026
 
-**Resumed after [PR #171](https://github.com/eyupio/reet.sh/pull/171) merged as `1eb92c0`.**
+**Latest slice: S4 ownership receipts and adoption.** The user authorised stacked pull
+requests on branch `claude/gallant-darwin-n9oqfj`: [#173](https://github.com/eyupio/reet.sh/pull/173)
+(spec and plan), [#174](https://github.com/eyupio/reet.sh/pull/174) (planner, claim, storage,
+previews) and [#175](https://github.com/eyupio/reet.sh/pull/175) (adoption and lifecycle) are
+merged; [#176](https://github.com/eyupio/reet.sh/pull/176) (API, audit labels, typed refusals,
+documents and this record) is open. It is API only: no browser control, no MCP tool, no
+filesystem write and no apply authority. The reviewed executor, `applied` receipts and S5
+are **not** started. Read [the receipts contract](docs/skill-content-receipts.md) first. The
+PR links are authoritative for final heads, CI and merge state.
+
+**Before that: resumed after [PR #171](https://github.com/eyupio/reet.sh/pull/171) merged as `1eb92c0`.**
 The user explicitly authorised continuation with one bounded S4 slice: the negotiated
-metadata-only machine content preview, in [PR #172](https://github.com/eyupio/reet.sh/pull/172) (branch
-`claude/gallant-darwin-n9oqfj`). It is API and connector protocol only: no browser
-control, no filesystem write and no apply authority. Ownership receipts, adoption,
-reviewed execution and S5 are **not** started. Read
-[the preview contract](docs/skill-content-preview.md) first. The PR link is
-authoritative for its final head, CI and merge state.
+metadata-only machine content preview, in [PR #172](https://github.com/eyupio/reet.sh/pull/172)
+(merged as `ebf58f4`). It is API and connector protocol only: no browser
+control, no filesystem write and no apply authority. Read
+[the preview contract](docs/skill-content-preview.md) next.
 
 This is the current implementation baseline **and** the continuation plan. Current
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 and CLI import in PR #164 (`7253663`). Central browser import merged in PR #168 (`7e2c992`) after all five workflows passed for `56aefe0fbb76d9cf9ce85bfec2591d58cdcc3eee`. S3 is complete. S4's pure content planner merged in PR #169 (`d494543`) after both workflows passed for `7595bc9b50f9d920da30fc4803f7720dfdc5af2a`. Optional owned revision pins/storage/API merged in PR #171 (`1eb92c0`). The negotiated metadata-only content preview is implemented in [PR #172](https://github.com/eyupio/reet.sh/pull/172) (API and connector channel only, no UI). No machine content apply is wired yet.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 and CLI import in PR #164 (`7253663`). Central browser import merged in PR #168 (`7e2c992`) after all five workflows passed for `56aefe0fbb76d9cf9ce85bfec2591d58cdcc3eee`. S3 is complete. S4's pure content planner merged in PR #169 (`d494543`) after both workflows passed for `7595bc9b50f9d920da30fc4803f7720dfdc5af2a`. Optional owned revision pins/storage/API merged in PR #171 (`1eb92c0`). The negotiated metadata-only content preview merged in [PR #172](https://github.com/eyupio/reet.sh/pull/172) as `ebf58f4` (API and connector channel only, no UI). Ownership receipts and adoption followed in PRs #173, #174 and #175 (merged) and [#176](https://github.com/eyupio/reet.sh/pull/176) (open; API only, no UI). No machine content apply is wired yet.** S1 is merged through PR #139; do not repeat
 it. Preserve the terminal work and do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -107,11 +115,15 @@ The user requested a status report and continued roadmap delivery after PR #155.
 - **S4 pins merged:** optional owned private revision pins, separate storage/API
   in PR #171 (`1eb92c0`). Read
   [the API, boundaries and granular continuation](docs/skill-content-targets.md).
-- **S4 preview checkpoint:** the negotiated metadata-only content preview is in [PR #172](https://github.com/eyupio/reet.sh/pull/172).
+- **S4 preview checkpoint:** the negotiated metadata-only content preview merged in [PR #172](https://github.com/eyupio/reet.sh/pull/172).
   Read [its contract and continuation](docs/skill-content-preview.md). It observes and
-  plans but never writes; with no ownership baseline every existing tree needs adoption.
-  Ownership receipts/adoption, a review UI and the reviewed executor are separate
-  slices, in an order the user chooses. S4 and S5 remain incomplete.
+  plans but never writes; a slot with no ownership receipt needs adoption.
+- **S4 ownership receipts and adoption:** controller-attested receipts are the planner's
+  baseline and an explicit, hash-bound adoption creates them (PRs #173 to #175 merged,
+  [#176](https://github.com/eyupio/reet.sh/pull/176) open). Read
+  [the receipts contract](docs/skill-content-receipts.md). API only; nothing writes to a
+  machine. A review UI and the reviewed executor are separate slices, in an order the
+  user chooses. S4 and S5 remain incomplete.
 - **Later:** A1–A3 registered agent launch/activity/attention; W1–W3 projects,
   worktrees/diffs/structured tool review; L1–L4 AI software/MCP fleet maintenance
   and optional isolation. Existing machine inventory and setup snapshots are a
@@ -1414,17 +1426,163 @@ Read [docs/skill-content-preview.md](docs/skill-content-preview.md). Branch
   Inventory is bound at claim, not creation (reason above). Finished previews stay
   until dismissed, so a full history (64) needs dismissals via the API. A manual `reet`
   scan during capture supersedes the preview (fail-safe). There is no review UI, and
-  pins have none either, so both are API-only. `adoption_required` has no resolution yet.
-- **Next unchecked work and first files.** The user chooses the order of: review UI with
+  pins have none either, so both are API-only. `adoption_required` had no resolution in this
+  slice; the ownership receipts subsection below adds one.
+- **Next unchecked work and first files.** (Written at the time; ownership receipts have since
+  been delivered, see the next subsection.) The user chooses the order of: review UI with
   pin selection (`web/src/lib/api.ts`, `MachineSkillImports.svelte` for the pattern);
   ownership receipts and adoption design (`docs/skill-content-planner.md` items 3–4);
   reviewed executor with temporary-filesystem failure/crash/recovery gates.
 - **Publication / deployment state.** Not inferred: the PR link is authoritative.
 
+#### S4 ownership receipts and adoption — PRs #173 to #176
+
+Read [docs/skill-content-receipts.md](docs/skill-content-receipts.md). Branch
+`claude/gallant-darwin-n9oqfj`. The design is
+`docs/superpowers/specs/2026-10-24-ownership-receipts-adoption-design.md` and the task plan is
+`docs/superpowers/plans/2026-10-24-ownership-receipts-adoption.md`.
+
+- **Task and scope.** S4 ownership receipts and explicit adoption: the baseline the planner
+  has lacked, created only by a hash-bound decision. The user authorised stacking the work
+  into several pull requests and merging each when green. API only. No browser control, no
+  MCP tool, no filesystem write, no executor, no `applied` receipt, no ownership transfer
+  between bundles, no claiming of locally edited files (S5) and no fleet apply.
+- **Behaviour added.**
+  - `internal/skillplan`: a baseline that does not fit now blocks instead of erroring,
+    `baseline_target_mismatch` (root moved, adapter or schema changed) then
+    `baseline_bundle_mismatch`, plan version still 1. Another owner's baseline, an invalid
+    baseline revision ID and a non-canonical manifest stay errors. `ClaimSubset` (new
+    `claim.go`) claims only files whose path, size, digest and executable bit equal a
+    revision's, requires `SKILL.md` and returns counts; `IsSubset` compares a stored subset.
+  - `store_content_receipts.go`: table `skill_content_receipts`, one row per account,
+    environment and skill slot, with an independent random version, `provenance: adopted` and
+    `verification: controller_attested`. List (metadata only; a row that no longer decodes is
+    listed `damaged` and stays releasable), verified item read, version-checked release,
+    the planner baseline lookup, `ReceiptCountsFor`, and adoption: eight checks in one write
+    transaction, create-only, bound to the preview's review hash, consuming the preview,
+    idempotent by request key. The managed subset is computed server-side; the caller supplies
+    four values.
+  - `store_content_previews.go`: the slot's receipt is the baseline; `receiptVersion` is in the
+    review hash; fence `receipt_changed`; the informational `adoption` offer on single-preview
+    reads only (captured, present, exclusive, only conflict `adoption_required`; at most 16
+    candidates, best match then newest).
+  - Lifecycle: a machine rename carries receipts (fresh version, destination collision rolls
+    the rename back with 409); a generic scope merge is refused with 409
+    `environment_has_receipts` (pins: `environment_has_pins`) and its dry run previews the same
+    refusal; a non-forced environment delete refuses while receipts exist; typed sentinels and
+    `PinCountsFor` back these.
+  - `internal/api/content_receipts.go`: `GET`/`POST /api/v2/skill-content-receipts` and
+    `GET`/`DELETE /api/v2/skill-content-receipts/{id}` behind the private-skill boundary, the
+    status mapping, and audit events `skill-content-adopt` (logged once per decision) and
+    `skill-content-release`; `web/src/lib/events.ts` Activity labels. MCP tool descriptions,
+    `mcp/README.md` and `mcp_tools.json` name the new refusals.
+- **Compatibility / migration.** Additive `CREATE TABLE IF NOT EXISTS`, migrated after the
+  preview tables. No connector protocol change; old connectors are unaffected. No legacy desired
+  set, hash, job, observation, import or terminal message changed. Previews gain an optional
+  `receiptVersion`; earlier previews read as before. Planner version 1. Full SQLite backups
+  include the table; shelf exports do not.
+- **Checks actually run.**
+  - Every task was written test-first, red for the right reason and then green, on real SQLite
+    and HTTP with synthetic homes.
+  - Every task had an independent reviewer. Tasks 1, 2, 4, 6 and 7a were approved without a
+    fix round; Tasks 3, 5 and 7b each took one fix round (damaged-row listing, the adoption
+    offer, the merge dry run) and were re-reviewed clean (Task 7b's fix round was read and
+    accepted by the controller rather than re-reviewed by a separate reviewer).
+  - Mutation checks per task, each break made a named test fail and the file was restored
+    byte-identical: Task 1 had none of its own (red and green runs only; its baseline blocks
+    were broken in the closing pass below); Task 2 two (claim equality, the `SKILL.md` rule); Task 3 four (the subset
+    check, the identity rebuild, the release lock, the list guard); Task 4 one, plus the
+    controller's review-hash binding; Task 5 fifteen, fourteen caught (the survivor, dropping
+    the adoption step 5 pin check alone, is redundant defence because step 2 runs the same
+    query); Task 6 four, plus the controller's `updated_at` bump; Task 7a twelve, eleven killed
+    (the survivor, the `DELETE` nil check, is equivalent); Task 7b eighteen killed.
+  - Broad review of PR #175's range (`d8af5e8..79d6c53`): safe to merge as the storage and
+    adoption layer, no Critical finding. Its Minor findings were fixed with mutation checks
+    (the offer's bundle limit, the offer never persisted); its Important findings, which were
+    API-facing, were fixed in Task 7b.
+  - PR #175 head `79d6c53`, local: `npm run check` 228 files with 0 errors and 0 warnings and
+    `npm run build`; `go vet ./...` clean; `go test -race -count=1 ./...` 31 packages ok with no
+    failures or races (tmux 3.4 on PATH); MCP `npm test` 16/16; `git diff --check` clean. Its
+    published workflows were green on the head that merged (`be33e01`).
+  - Final full validation for this pull request, local on `11ba84d` with tmux 3.4 on PATH and
+    Go 1.27.1, in the required order: `npm run check` 228 files with 0 errors and 0 warnings,
+    `npm run build`, `node src/lib/events.test.mjs`; `go vet ./...` and `go build ./...`
+    clean; `go test -race -count=1 ./...` 31 packages ok with no failures or races; MCP
+    `npm test` 16/16; `git diff --check` clean.
+  - Closing mutation pass on `11ba84d`, in an isolated worktree with every file restored: both
+    planner baseline blocks, claim equality (path only), the `SKILL.md` rule, create-only
+    adoption, the review-hash binding, the `receipt_changed` fence and the receipt rename move
+    were each broken in turn, and named tests failed every time (eight of eight).
+  - Broad review of the PR #176 range (Tasks 7a, 7b, 8): no Critical finding; every new route is
+    behind the shared boundary and the MCP path is refused; once-only audit, typed 409s and the
+    receipt-aware delete confirmed. Its one Important finding, a documentation sentence
+    claiming a mutation check that had not been run for the planner baseline blocks, is fixed
+    (the check has now been run, and the sentence says when). Its Minor findings are fixed where
+    they were wording and listed as follow-ups where they were code.
+  - Published workflows on `11ba84d`: all five green (`test`, `verify`, `web` and `source`, the
+    four release builds, the native service jobs and the tmux 3.2 minimum, the local relay jobs
+    on macOS and Ubuntu, the terminal browser job, and CodeQL with its four analyses;
+    `publish` is skipped on pull requests). The pull request is authoritative for the head
+    that merges.
+- **Not performed.** No live machine, production service, terminal session or physical
+  cross-platform or fleet check. No browser UI. Nothing writes to a machine, so no recovery gate
+  applies yet. Tests use synthetic homes, SQLite and HTTP. The whole-binary Windows build fails
+  on untouched `main` in `internal/scan/terminal_setup.go`; that is pre-existing and not a CI
+  target.
+- **Known limitations and decisions.**
+  - A receipt is the controller's attestation from a capture of at most five minutes old and the
+    owner's say-so, never a check of the disk. `adopted` is the only provenance; no `applied`
+    receipt exists, and initial installs record nothing until a future executor verifies.
+  - Adoption claims only files equal to the chosen revision's, with `SKILL.md` among them. It is
+    create-only, so re-adopting is release, preview again, adopt. Identical replay while the
+    receipt exists returns the original (HTTP 200) and logs no second event; replay after a
+    release conflicts; the same key with a new preview after a release is a new decision (keys
+    end with their row; no tombstone).
+  - The list shows digest and file count from the stored manifest without verifying it against
+    its revision. The item read of a damaged row fails with the plain integrity error (HTTP 500
+    "Could not access private skill storage."); the list flags it `damaged` and it can be
+    released. Any error building a preview plan, a damaged receipt included, ends the request as
+    `failed` / `plan_unavailable`; a transient database error is currently treated the same way.
+  - Fences are live: only the preview used for adoption is persisted as consumed, so another
+    preview of the slot that read `superseded` because a receipt existed can read `captured`
+    again after release (bounded by the five-minute window and the inventory fence; it never
+    allows two receipts for one slot). Fences compare versions only: a future executor must
+    re-read the baseline through the store's validating lookup in its own transaction.
+  - `POST /skill-content-previews` replaying a captured request returns no `adoption` block;
+    `GET /{id}` does. A re-enrolled machine cannot reach `baseline_target_mismatch` (re-enrolment
+    needs a revoke, which cascades receipts), so its next preview is `adoption_required`.
+  - A forced environment delete, forgetting a machine or environment, revoking an enrolment and
+    deleting an account still cascade receipts, by design; removing a pin does not remove the
+    receipt. Not guarded: the automatic prune of empty server-side reports (practically
+    unreachable) and the receipt count in a non-forced delete, read just before the transaction.
+  - Limits: 1,024 receipts per account, 256 managed files per receipt, 16 KiB adopt body, 4 KiB
+    release body.
+  - Follow-ups: machine-merge 409s have no `code` field, so MCP and stdio clients lose the
+    message; a receipts-aware guard for the empty-report prune; optionally persist `superseded`
+    on every captured preview of the slot at adoption; an offer cost prefilter; transient
+    database errors in plan building; a review UI and MCP exposure for receipts. From the last
+    broad review: name the release audit event with a single-row lookup; record the receipts a
+    forced environment delete cascades; a test with both skills and a receipt on one report to
+    pin dry-run and delete ordering; the browser's per-report Forget drops receipts, which the
+    review UI should surface; `AdoptSkillContentPreviewFor` now has no production caller.
+- **Next unchecked work and first files.** The user chooses the order of: the review UI with pin
+  selection and receipt review (`web/src/lib/api.ts`, `web/src/lib/MachineSkillImports.svelte`
+  for the pattern, `docs/skill-content-receipts.md`); the reviewed executor with
+  temporary-filesystem failure/crash/recovery gates (`docs/skill-content-planner.md` items 5 to
+  7, `internal/skillplan/plan.go`, `skillContentReceiptBaseline` in
+  `internal/store/store_content_receipts.go`, `skillContentReviewIdentity` in
+  `internal/store/store_content_previews.go`). S4 cannot close, and S5 cannot start, before the
+  executor and its gates pass.
+- **Publication / deployment state.** PRs #173 (merge `f1fee4c`), #174 (`d8af5e8`) and #175
+  (`4fcd9fa`) are merged; [#176](https://github.com/eyupio/reet.sh/pull/176) is open and its link
+  is authoritative for the final head, CI and merge. Nothing is deployed, and a merge is not
+  deployment.
+
 #### Remaining S4 integration and apply gates
 
-The preview slice meets item 1 and the review-only part of item 2 below. Approval
-binding, ownership, execution and everything after remain open.
+The preview slice meets item 1 and the review-only part of item 2 below, and the ownership
+receipts slice supplies a controller-attested baseline for item 3. Approval binding, verified
+ownership, execution and everything after remain open.
 
 1. Feed owned pinned desired revisions into negotiated review. Preserve legacy
    reference-based targets; mark their content-verification limits explicitly.
@@ -1794,13 +1952,16 @@ working agent authentication or complete environment recovery.
 > Continue reet.sh from handoff.md. Inspect branch, worktree, main and PR states without
 > resetting edits. Terminal T1–T9 are merged through PR #155. S2 private revisions merged
 > in PR #156; S3 is complete through PRs #161/#164/#168. S4's pure planner merged in
-> PR #169, owned revision pins in PR #171 (`1eb92c0`), and the negotiated metadata-only
-> content preview is in [PR #172](https://github.com/eyupio/reet.sh/pull/172) (confirm its final head/CI/merge through the link).
-> PR #170's staged reet connector updates are integrated; they are not AI-agent
-> software maintenance. Read docs/skill-content-preview.md, docs/skill-content-targets.md
-> and docs/skill-content-planner.md. Nothing writes to a machine yet and no ownership
-> baseline exists, so existing trees need adoption. The next slice is the user's choice:
-> review UI with pin selection, ownership receipts and adoption design, or the reviewed
+> PR #169, owned revision pins in PR #171 (`1eb92c0`), the negotiated metadata-only
+> content preview in [PR #172](https://github.com/eyupio/reet.sh/pull/172) (`ebf58f4`), and
+> ownership receipts with explicit adoption in PRs #173 to #175, with
+> [#176](https://github.com/eyupio/reet.sh/pull/176) open (confirm its final head/CI/merge
+> through the link). PR #170's staged reet connector updates are integrated; they are not
+> AI-agent software maintenance. Read docs/skill-content-receipts.md,
+> docs/skill-content-preview.md, docs/skill-content-targets.md and
+> docs/skill-content-planner.md. Nothing writes to a machine yet; the only baselines are
+> controller-attested adoption receipts, and a tree with none needs adoption. The next slice
+> is the user's choice: review UI with pin selection and receipt review, or the reviewed
 > executor. Keep terminal sessions, the deferred user-controlled PIN/security preference,
 > exact byte/mode manifests and stable retry receipts intact; do not jump to remote apply
 > or the whole roadmap. Build the frontend before Go checks, record actual evidence,

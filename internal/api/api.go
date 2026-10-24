@@ -855,19 +855,21 @@ func writeErrCode(w http.ResponseWriter, code int, errCode, field, msg, hint str
 }
 
 const (
-	errConfirmRequired      = "confirm_required"
-	errEnvironmentHasSkills = "environment_has_skills"
-	errEnvironmentNotFound  = "environment_not_found"
-	errLocalSkillInList     = "local_skill_not_allowed_in_list"
-	errAmbiguousSkillID     = "ambiguous_skill_id"
-	errSkillNotFound        = "skill_not_found"
-	errListNotFound         = "list_not_found"
-	errTagNotFound          = "tag_not_found"
-	errInvalidArgument      = "invalid_argument"
-	errReadOnly             = "read_only"
-	errConflict             = "conflict"
-	errNoMatchingSkills     = "no_matching_skills"
-	errInvalidField         = "invalid_field"
+	errConfirmRequired        = "confirm_required"
+	errEnvironmentHasSkills   = "environment_has_skills"
+	errEnvironmentHasReceipts = "environment_has_receipts"
+	errEnvironmentHasPins     = "environment_has_pins"
+	errEnvironmentNotFound    = "environment_not_found"
+	errLocalSkillInList       = "local_skill_not_allowed_in_list"
+	errAmbiguousSkillID       = "ambiguous_skill_id"
+	errSkillNotFound          = "skill_not_found"
+	errListNotFound           = "list_not_found"
+	errTagNotFound            = "tag_not_found"
+	errInvalidArgument        = "invalid_argument"
+	errReadOnly               = "read_only"
+	errConflict               = "conflict"
+	errNoMatchingSkills       = "no_matching_skills"
+	errInvalidField           = "invalid_field"
 )
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {

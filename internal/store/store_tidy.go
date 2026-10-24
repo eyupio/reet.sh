@@ -21,11 +21,19 @@ type EnvironmentChange struct {
 }
 
 // DeleteEnvironmentsFor removes environment reports, refusing non-empty ones
-// unless force is set. Shelf skills are never deleted, only their install links.
+// unless force is set. A report that still holds ownership receipts is refused
+// the same way, since deleting it would silently forget them. Shelf skills are
+// never deleted, only their install links.
 func (s *Store) DeleteEnvironmentsFor(userID int64, ids []string, force bool) ([]Environment, []EnvironmentChange, error) {
 	envs, err := s.ListEnvironmentsFor(userID)
 	if err != nil {
 		return nil, nil, err
+	}
+	receipts := map[string]int{}
+	if !force {
+		if receipts, err = s.ReceiptCountsFor(userID, ids); err != nil {
+			return nil, nil, err
+		}
 	}
 	index := make(map[string]Environment, len(envs))
 	for _, env := range envs {
@@ -42,6 +50,10 @@ func (s *Store) DeleteEnvironmentsFor(userID int64, ids []string, force bool) ([
 		}
 		if env.SkillCount > 0 && !force {
 			blocked = append(blocked, EnvironmentChange{ID: id, Name: env.Name, SkillCount: env.SkillCount, Code: "environment_has_skills", Message: "environment still has skills"})
+			continue
+		}
+		if receipts[id] > 0 {
+			blocked = append(blocked, EnvironmentChange{ID: id, Name: env.Name, Code: "environment_has_receipts", Message: "environment still holds ownership receipts; release them first"})
 			continue
 		}
 		deleted = append(deleted, env)
@@ -88,14 +100,14 @@ func (s *Store) MergeEnvironmentsFor(userID int64, fromID, toID string) (int, er
 			return err
 		}
 		if contentPins > 0 {
-			return errors.New("remove private skill pins before merging this report into a different scope")
+			return ErrSkillContentTargetScopeMerge
 		}
 		var receipts int
 		if err := tx.QueryRow(`SELECT count(*) FROM skill_content_receipts WHERE user_id=? AND environment_id=?`, userID, fromID).Scan(&receipts); err != nil {
 			return err
 		}
 		if receipts > 0 {
-			return errors.New("release private skill ownership receipts before merging this report into a different scope")
+			return ErrSkillContentReceiptScope
 		}
 		res, err := tx.Exec(`INSERT OR IGNORE INTO skill_envs(skill_id,env_id,installed_at,last_seen,source_path)
 			SELECT skill_id,?,installed_at,last_seen,source_path FROM skill_envs WHERE env_id=?`, toID, fromID)

@@ -5,9 +5,11 @@ single-skill plan from metadata. It does not read files, access SQLite, call API
 transfer bytes, run commands or write to machines. The
 [pinned desired-state API](skill-content-targets.md) stores its desired input, and the
 [negotiated metadata preview](skill-content-preview.md) is the only product caller:
-it runs Build on storage plus a connector capture, with no baseline, and stores the
-resulting plan as a read-only review. S4 remains incomplete until reviewed execution
-and durable receipts are implemented and verified. S3 import approval cannot authorise a machine write.
+it runs Build on storage plus a connector capture, with the slot's
+[ownership receipt](skill-content-receipts.md) as the baseline when it has one, and
+stores the resulting plan as a read-only review. S4 remains incomplete until reviewed
+execution and verified (`applied`) receipts are implemented and verified. S3 import
+approval cannot authorise a machine write.
 
 ## Inputs and authority
 
@@ -39,10 +41,31 @@ An existing root requires a verified managed baseline bound to the same account,
 connector/generation/environment/root/slot/adapter and private bundle. Baseline
 revision identity is pinned too. A baseline is the last verified **managed subset**;
 it is not inferred from a matching name, source URL or matching file bytes.
-Future receipt storage must establish its provenance. There is no adoption path
-in this slice. With no baseline, an existing root is blocked even if its contents
-match; a complete absent root permits a new installation. Missing previously
-managed roots require review rather than automatic recreation.
+The only baselines stored today are controller-attested receipts created by explicit
+adoption ([contract](skill-content-receipts.md)); the planner itself still knows nothing
+about provenance and has no adoption path. With no baseline, an existing root is blocked
+even if its contents match; a complete absent root permits a new installation. Missing
+previously managed roots require review rather than automatic recreation.
+
+A baseline that does not fit the snapshot is ordinary state and blocks the plan, with the
+plan version unchanged:
+
+| Condition | Result |
+| --- | --- |
+| The baseline's target differs (root moved or replaced, adapter or schema changed, another connector or generation) | Blocked `baseline_target_mismatch` |
+| The baseline's bundle differs from the desired bundle | Blocked `baseline_bundle_mismatch` |
+| The baseline belongs to another owner | Error: an integrity violation, not a mismatch |
+| The baseline revision ID is invalid or its manifest is not canonical | Error |
+
+These are checked after the adapter, root ownership, generation, inventory, unknown
+observation and staleness blocks, and before the presence logic that yields
+`managed_target_missing` and `adoption_required`.
+
+The package also holds `ClaimSubset`, the pure computation adoption uses. It returns the
+files of an observed manifest that equal the same path of a revision manifest in size,
+digest and executable bit, with counts of what was not claimed, and refuses unless
+`SKILL.md` is among them. `IsSubset` checks a stored managed manifest against its
+revision. Neither reads anything, and neither decides ownership on its own.
 
 Desired, baseline and observed present manifests must pass S1 schema, path,
 case/directory collision, count, byte and canonical digest validation. The planner
@@ -120,14 +143,18 @@ legacy name-based sync jobs or terminal command messages.
    no-follow reads. It negotiates before any content read, distinguishes unsupported,
    failed, absent and unknown, and carries no file bytes.
 3. Partly done: physical-root identity and alias checks exist (shared and unknown
-   roots block). Still to do: verified ownership receipts. Re-enrolment and root moves
-   must not silently inherit an old baseline. Initial installations record no ownership
-   until post-apply verification succeeds. Existing unowned roots need a separate
-   explicit adoption design; do not bypass `adoption_required` because fingerprints match.
-4. Done without a baseline: owned private revisions and trusted observations feed Build,
-   and the exact plan and hash are persisted as the review. Still to do: baseline input
-   from receipts, and an approval that binds the review hash and rechecks time,
-   identity and ownership rather than rebuilding from mutable desired state.
+   roots block), and [ownership receipts with explicit adoption](skill-content-receipts.md)
+   are stored separately from pins and observations. Root moves block with
+   `baseline_target_mismatch` and re-enrolment needs a revoke that removes the receipts, so
+   neither inherits an old baseline. Still to do: verified (`applied`) receipts. Initial
+   installations record no ownership until post-apply verification succeeds. Do not
+   bypass `adoption_required` because fingerprints match.
+4. Done: owned private revisions, trusted observations and the slot's receipt feed Build,
+   and the exact plan and hash are persisted as the review. Still to do: an approval that
+   binds the review hash and rechecks time, identity and ownership rather than rebuilding
+   from mutable desired state. A fence compares receipt versions only, so the executor
+   must re-read the baseline through the store's validating lookup inside its own
+   transaction.
 5. In a separate executor slice, stage and hash the entire private payload, check
    selection policy, acquire the correct local lock and re-read preconditions.
    Journal/back up before replacements, including the current partially written
@@ -161,3 +188,7 @@ statement coverage. The full suite was rerun with installed tmux 3.5a on PATH
 after an initial environment-only failure. No new browser fixture is needed for
 this unconnected pure package; existing UI and protocol behaviour are unchanged.
 Published PR workflows must pass for the final head before merge.
+
+The receipt-baseline cases (the two block codes and the errors that stay errors) and the
+claim computation are covered by the package's own tests; the ownership receipts contract
+records how the rest was validated.

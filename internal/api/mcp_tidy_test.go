@@ -2,11 +2,16 @@ package api
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/eyupio/reet.sh/internal/ref"
+	"github.com/eyupio/reet.sh/internal/skillbundle"
+	"github.com/eyupio/reet.sh/internal/skillpreview"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -291,5 +296,87 @@ func TestMCPCompactSkillsFitsOnePage(t *testing.T) {
 	}
 	if _, ok := first["notes"]; ok {
 		t.Fatalf("compact item leaked notes: %+v", first)
+	}
+}
+
+// An MCP client can neither list nor release ownership records, so the codes that
+// refuse its delete and merge must name them and say what to do instead.
+func TestMCPEnvironmentRefusalsNameOwnershipReceiptsAndPins(t *testing.T) {
+	ts, st, browser, uid := mcpAccounts(t)
+	agent, _, err := st.EnrollSyncAgent(uid, "laptop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = st.TouchEnvironmentFor(uid, "laptop", "agents", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	env := store.EnvironmentIDFor(uid, "laptop", "agents", "")
+	if err = st.RecordInventoryFor(uid, env, true, store.MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	base, empty := "", ""
+	bundle, err := st.SavePrivateSkillRevisionFor(uid, "", store.PrivateSkillWrite{RequestID: "mcp_receipt_bundle_01", ExpectedBase: &base, Name: "demo",
+		Files: []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("---\nname: demo\ndescription: Private instructions\n---\nMCP_PRIVATE\n")}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin, err := st.SaveSkillContentTargetFor(uid, store.SkillContentTargetWrite{EnvironmentID: env, AgentID: agent.ID, BundleID: bundle.Bundle.ID, RevisionID: bundle.Revision.ID, Mode: "additive", ExpectedVersion: &empty})
+	if err != nil {
+		t.Fatal(err)
+	}
+	managed, _ := json.Marshal(bundle.Revision.Manifest)
+	evidence, _ := json.Marshal(store.SkillContentReceiptEvidence{PinID: pin.ID, PinVersion: pin.Version, AdoptedBy: uid})
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(st.Path(), "reet.db")+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	id := strings.Repeat("a", 48)
+	if _, err = db.Exec(`INSERT INTO skill_content_receipts(id,user_id,environment_id,agent_id,name,bundle_id,revision_id,root_id,adapter,schema_version,managed,provenance,evidence,request_key,version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		id, uid, env, agent.ID, "demo", bundle.Bundle.ID, bundle.Revision.ID, strings.Repeat("d", 64), skillpreview.Adapter, 1, string(managed), "adopted", string(evidence), "mcp_receipt_request_1", strings.Repeat("b", 48), 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err = st.TouchEnvironmentFor(uid, "workstation", "claude", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	dest := store.EnvironmentIDFor(uid, "workstation", "claude", "")
+
+	token, _ := mcpManual(t, browser, ts, "write")
+	session := mcpSession(t, ts, token)
+
+	// Merging is refused for the pin first, then for the record once the pin is gone,
+	// and the preview the tool runs by default says so before anything is confirmed.
+	if preview := mcpError(t, session, "reet_merge_environments", map[string]any{"from_id": env, "to_id": dest}); !strings.Contains(preview, "environment_has_pins") {
+		t.Fatalf("preview of a merge of a pinned report: %s", preview)
+	}
+	refused := mcpError(t, session, "reet_merge_environments", map[string]any{"from_id": env, "to_id": dest, "dry_run": false, "confirm": true})
+	if !strings.Contains(refused, "environment_has_pins") || !strings.Contains(refused, "Remove the private skill pin first.") {
+		t.Fatalf("merge of a pinned report: %s", refused)
+	}
+	if err = st.DeleteSkillContentTargetFor(uid, pin.ID, pin.Version); err != nil {
+		t.Fatal(err)
+	}
+	refused = mcpError(t, session, "reet_merge_environments", map[string]any{"from_id": env, "to_id": dest, "dry_run": false, "confirm": true})
+	if !strings.Contains(refused, "environment_has_receipts") || !strings.Contains(refused, "Release the ownership record first.") {
+		t.Fatalf("merge of a report that holds an ownership record: %s", refused)
+	}
+
+	if preview := mcpError(t, session, "reet_merge_environments", map[string]any{"from_id": env, "to_id": dest}); !strings.Contains(preview, "environment_has_receipts") {
+		t.Fatalf("preview of a merge of a report that holds an ownership record: %s", preview)
+	}
+
+	// Deleting previews the refusal, applies it, and force forgets the record.
+	preview := mcpData(t, session, "reet_delete_environment", map[string]any{"id": env})
+	blocked, _ := preview["blocked"].([]any)
+	if len(blocked) != 1 || blocked[0].(map[string]any)["code"] != "environment_has_receipts" || len(preview["would_delete"].([]any)) != 0 {
+		t.Fatalf("delete preview: %+v", preview)
+	}
+	refused = mcpError(t, session, "reet_delete_environment", map[string]any{"id": env, "dry_run": false, "confirm": true})
+	if !strings.Contains(refused, "environment_has_receipts") || !strings.Contains(refused, "force=true") {
+		t.Fatalf("delete of a report that holds an ownership record: %s", refused)
+	}
+	forced := mcpData(t, session, "reet_delete_environment", map[string]any{"id": env, "dry_run": false, "confirm": true, "force": true})
+	if int(forced["deleted"].(float64)) != 1 {
+		t.Fatalf("forced delete: %+v", forced)
 	}
 }

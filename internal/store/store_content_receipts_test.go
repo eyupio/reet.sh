@@ -1202,6 +1202,53 @@ func TestAdoptIsIdempotentAndConsumesThePreview(t *testing.T) {
 	}
 }
 
+func TestAdoptOnceReportsWhetherThisCallCreatedTheReceipt(t *testing.T) {
+	e := previewFixture(t)
+	p := capturedPreview(t, e, "adopt_once_preview_000001", matching(e))
+	in := adoption("adopt_once_request_000001", p, e.pin.RevisionID)
+	first, created, err := e.s.AdoptSkillContentPreviewOnceFor(e.uid, in)
+	if err != nil || !created || first.ID == "" {
+		t.Fatal("the first adoption creates the receipt", first, created, err)
+	}
+
+	// An identical retry returns the original and says it created nothing; the
+	// older method keeps returning the same receipt without saying either.
+	again, created, err := e.s.AdoptSkillContentPreviewOnceFor(e.uid, in)
+	if err != nil || created || !reflect.DeepEqual(again, first) {
+		t.Fatalf("an identical retry must return the original without creating: %+v %v %v", again, created, err)
+	}
+	if plain, err := e.s.AdoptSkillContentPreviewFor(e.uid, in); err != nil || !reflect.DeepEqual(plain, first) {
+		t.Fatalf("the wrapper must keep its behaviour: %+v %v", plain, err)
+	}
+
+	// A refusal creates nothing and returns no receipt.
+	changed := in
+	changed.ReviewHash = strings.Repeat("0", 64)
+	if got, created, err := e.s.AdoptSkillContentPreviewOnceFor(e.uid, changed); !errors.Is(err, ErrSkillContentReceipt) || created || got.ID != "" {
+		t.Fatal("a changed request reused a key:", got, created, err)
+	}
+	if receiptRows(t, e) != 1 {
+		t.Fatal(receiptRows(t, e))
+	}
+
+	// After a release, a replay stays refused and a new preview is a new decision.
+	if err = e.s.ReleaseSkillContentReceiptFor(e.uid, first.ID, first.Version); err != nil {
+		t.Fatal(err)
+	}
+	if got, created, err := e.s.AdoptSkillContentPreviewOnceFor(e.uid, in); !errors.Is(err, ErrSkillContentReceipt) || created || got.ID != "" {
+		t.Fatal("a replay after release must not claim the folder again:", got, created, err)
+	}
+	fresh := capturedPreview(t, e, "adopt_once_preview_000002", matching(e))
+	next := adoption("adopt_once_request_000002", fresh, e.pin.RevisionID)
+	second, created, err := e.s.AdoptSkillContentPreviewOnceFor(e.uid, next)
+	if err != nil || !created || second.ID == first.ID {
+		t.Fatal("a new preview after a release is a new adoption", second, created, err)
+	}
+	if again, created, err = e.s.AdoptSkillContentPreviewOnceFor(e.uid, next); err != nil || created || !reflect.DeepEqual(again, second) {
+		t.Fatalf("and its own retry creates nothing: %+v %v %v", again, created, err)
+	}
+}
+
 func TestAdoptConcurrentRequestsCreateOneReceipt(t *testing.T) {
 	e := previewFixture(t)
 	first := capturedPreview(t, e, "adopt_concurrent_preview1", matching(e))
@@ -1541,6 +1588,9 @@ func TestReceiptRenameCollisionIsAtomic(t *testing.T) {
 	if err == nil || err.Error() != "these reports have different ownership receipts; release one before merging" {
 		t.Fatal("two receipts for one slot were silently merged", err)
 	}
+	if !errors.Is(err, ErrSkillContentReceiptMerge) {
+		t.Fatal("the collision should be the typed refusal, so callers can answer it", err)
+	}
 	list, err := e.s.SkillContentReceiptsFor(e.uid)
 	if err != nil || len(list) != 2 {
 		t.Fatal("a failed rename changed the receipts", list, err)
@@ -1584,6 +1634,9 @@ func TestReceiptBlocksScopeMerge(t *testing.T) {
 	if err == nil || err.Error() != "release private skill ownership receipts before merging this report into a different scope" {
 		t.Fatal("scope merge discarded ownership", err)
 	}
+	if !errors.Is(err, ErrSkillContentReceiptScope) {
+		t.Fatal("the scope refusal should be typed, so callers can answer it", err)
+	}
 	if got, err := e.s.SkillContentReceiptFor(e.uid, r.ID); err != nil || got.EnvironmentID != r.EnvironmentID || got.Version != r.Version {
 		t.Fatal("a refused merge changed the receipt", got, err)
 	}
@@ -1598,5 +1651,201 @@ func TestReceiptBlocksScopeMerge(t *testing.T) {
 	}
 	if _, err = e.s.MergeEnvironmentsFor(e.uid, r.EnvironmentID, dest); err != nil {
 		t.Fatal("a released receipt must not block the merge", err)
+	}
+}
+
+// environmentOf is the listed report with that ID.
+func environmentOf(t *testing.T, e previewEnv, id string) Environment {
+	t.Helper()
+	envs, err := e.s.ListEnvironmentsFor(e.uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, env := range envs {
+		if env.ID == id {
+			return env
+		}
+	}
+	t.Fatal("no such report", id)
+	return Environment{}
+}
+
+func TestDeleteEnvironmentsRefusesWhileOwnershipReceiptsExist(t *testing.T) {
+	const message = "environment still holds ownership receipts; release them first"
+	// A report that holds a receipt and no skills: the only thing in the way.
+	setup := func(t *testing.T) (previewEnv, SkillContentReceipt, Environment) {
+		t.Helper()
+		e := previewFixture(t)
+		r := e.adopted(t)
+		env := environmentOf(t, e, r.EnvironmentID)
+		if env.SkillCount != 0 {
+			t.Fatal("the fixture report should list no skills", env)
+		}
+		return e, r, env
+	}
+	stands := func(t *testing.T, e previewEnv, r SkillContentReceipt) {
+		t.Helper()
+		environmentOf(t, e, r.EnvironmentID)
+		if got, err := e.s.SkillContentReceiptFor(e.uid, r.ID); err != nil || got.Version != r.Version {
+			t.Fatal("the refused delete changed the receipt", got, err)
+		}
+	}
+
+	t.Run("refused", func(t *testing.T) {
+		e, r, env := setup(t)
+		deleted, blocked, err := e.s.DeleteEnvironmentsFor(e.uid, []string{r.EnvironmentID}, false)
+		want := []EnvironmentChange{{ID: r.EnvironmentID, Name: env.Name, Code: "environment_has_receipts", Message: message}}
+		if err != nil || len(deleted) != 0 || !reflect.DeepEqual(blocked, want) {
+			t.Fatalf("deleted %+v blocked %+v err %v, want %+v", deleted, blocked, err, want)
+		}
+		stands(t, e, r)
+	})
+
+	t.Run("a report with skills is still refused for its skills first", func(t *testing.T) {
+		e, r, _ := setup(t)
+		if _, err := e.s.UpsertLocalFor(e.uid, "installed", Patch{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.s.RecordEnvironmentFor(e.uid, "local/installed", e.agent.Host, "agents", "", "", ""); err != nil {
+			t.Fatal(err)
+		}
+		env := environmentOf(t, e, r.EnvironmentID)
+		if env.SkillCount == 0 {
+			t.Fatal("the report should list the skill", env)
+		}
+		_, blocked, err := e.s.DeleteEnvironmentsFor(e.uid, []string{r.EnvironmentID}, false)
+		want := []EnvironmentChange{{ID: r.EnvironmentID, Name: env.Name, SkillCount: env.SkillCount, Code: "environment_has_skills", Message: "environment still has skills"}}
+		if err != nil || !reflect.DeepEqual(blocked, want) {
+			t.Fatalf("blocked %+v err %v, want %+v", blocked, err, want)
+		}
+		stands(t, e, r)
+	})
+
+	t.Run("forced delete forgets the receipt with the report", func(t *testing.T) {
+		e, r, _ := setup(t)
+		deleted, blocked, err := e.s.DeleteEnvironmentsFor(e.uid, []string{r.EnvironmentID}, true)
+		if err != nil || len(blocked) != 0 || len(deleted) != 1 || deleted[0].ID != r.EnvironmentID {
+			t.Fatal(deleted, blocked, err)
+		}
+		if n := receiptRows(t, e); n != 0 {
+			t.Fatal("the receipt outlived its report", n)
+		}
+		envs, err := e.s.ListEnvironmentsFor(e.uid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, env := range envs {
+			if env.ID == r.EnvironmentID {
+				t.Fatal("the forced delete kept the report")
+			}
+		}
+		if _, err = e.s.PrivateSkillRevisionFor(e.uid, e.bundle.Bundle.ID, e.bundle.Revision.ID); err != nil {
+			t.Fatal("forgetting ownership removed private bytes", err)
+		}
+	})
+
+	t.Run("releasing the receipt unblocks the delete", func(t *testing.T) {
+		e, r, _ := setup(t)
+		if err := e.s.ReleaseSkillContentReceiptFor(e.uid, r.ID, r.Version); err != nil {
+			t.Fatal(err)
+		}
+		deleted, blocked, err := e.s.DeleteEnvironmentsFor(e.uid, []string{r.EnvironmentID}, false)
+		if err != nil || len(blocked) != 0 || len(deleted) != 1 || deleted[0].ID != r.EnvironmentID {
+			t.Fatal(deleted, blocked, err)
+		}
+	})
+
+	t.Run("one refusal does not hold back the rest of the batch", func(t *testing.T) {
+		e, r, env := setup(t)
+		if err := e.s.TouchEnvironmentFor(e.uid, "spare", "claude", "", ""); err != nil {
+			t.Fatal(err)
+		}
+		spare := EnvironmentIDFor(e.uid, "spare", "claude", "")
+		deleted, blocked, err := e.s.DeleteEnvironmentsFor(e.uid, []string{r.EnvironmentID, spare, "no-such-report"}, false)
+		want := []EnvironmentChange{
+			{ID: r.EnvironmentID, Name: env.Name, Code: "environment_has_receipts", Message: message},
+			{ID: "no-such-report", Code: "environment_not_found", Message: "environment not found"},
+		}
+		if err != nil || len(deleted) != 1 || deleted[0].ID != spare || !reflect.DeepEqual(blocked, want) {
+			t.Fatalf("deleted %+v blocked %+v err %v, want %+v", deleted, blocked, err, want)
+		}
+		stands(t, e, r)
+	})
+}
+
+func TestReceiptCountsFor(t *testing.T) {
+	e := previewFixture(t)
+	r := e.adopted(t)
+	// A second report holding two receipts, copied from the first with other names.
+	if err := e.s.TouchEnvironmentFor(e.uid, "second", "agents", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	second := EnvironmentIDFor(e.uid, "second", "agents", "")
+	if err := e.s.TouchEnvironmentFor(e.uid, "empty", "agents", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	empty := EnvironmentIDFor(e.uid, "empty", "agents", "")
+	clone := func(uid int64, env, agent, bundle, revision, name string) {
+		t.Helper()
+		id := syncID()
+		if _, err := e.s.db.Exec(`INSERT INTO skill_content_receipts(id,user_id,environment_id,agent_id,name,bundle_id,revision_id,root_id,adapter,schema_version,managed,provenance,evidence,request_key,version,created_at,updated_at) SELECT ?,?,?,?,?,?,?,root_id,adapter,schema_version,managed,provenance,evidence,?,?,created_at,updated_at FROM skill_content_receipts WHERE id=?`,
+			id, uid, env, agent, name, bundle, revision, "seed_"+id, syncID(), r.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	clone(e.uid, second, r.AgentID, r.BundleID, r.RevisionID, "demo")
+	clone(e.uid, second, r.AgentID, r.BundleID, r.RevisionID, "other")
+
+	// Another account's receipt, in a report of its own.
+	other, err := e.s.CreateUser("receipt-count-other@example.test", "Other", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherAgent, _, err := e.s.EnrollSyncAgent(other.ID, "elsewhere", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherBundle, err := e.s.SavePrivateSkillRevisionFor(other.ID, "", privateWrite("receipt_count_bundle_1", "", "OTHER_PRIVATE_BYTES"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = e.s.TouchEnvironmentFor(other.ID, "elsewhere", "agents", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	foreign := EnvironmentIDFor(other.ID, "elsewhere", "agents", "")
+	clone(other.ID, foreign, otherAgent.ID, otherBundle.Bundle.ID, otherBundle.Revision.ID, "demo")
+	if n := receiptRows(t, e); n != 4 {
+		t.Fatal("the fixture should hold four receipts in all", n)
+	}
+
+	got, err := e.s.ReceiptCountsFor(e.uid, []string{r.EnvironmentID, second, empty, foreign, "no-such-report"})
+	if want := map[string]int{r.EnvironmentID: 1, second: 2}; err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("%v %v, want %v: another account's receipts must never count", got, err, want)
+	}
+	if got, err = e.s.ReceiptCountsFor(other.ID, []string{r.EnvironmentID, second, foreign}); err != nil || !reflect.DeepEqual(got, map[string]int{foreign: 1}) {
+		t.Fatalf("%v %v: an account counts only its own receipts", got, err)
+	}
+	// Asking twice for one report neither fails nor counts it twice.
+	if got, err = e.s.ReceiptCountsFor(e.uid, []string{second, second}); err != nil || !reflect.DeepEqual(got, map[string]int{second: 2}) {
+		t.Fatal(got, err)
+	}
+	if err = e.s.ReleaseSkillContentReceiptFor(e.uid, r.ID, r.Version); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = e.s.ReceiptCountsFor(e.uid, []string{r.EnvironmentID, second}); err != nil || !reflect.DeepEqual(got, map[string]int{second: 2}) {
+		t.Fatal("a released receipt still counts", got, err)
+	}
+
+	// Nothing asked, nothing queried: a closed database proves the query never runs.
+	if err = e.s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, ids := range [][]string{nil, {}} {
+		if got, err = e.s.ReceiptCountsFor(e.uid, ids); err != nil || got == nil || len(got) != 0 {
+			t.Fatalf("empty input should answer an empty map without a query: %v %v", got, err)
+		}
+	}
+	if _, err = e.s.ReceiptCountsFor(e.uid, []string{second}); err == nil {
+		t.Fatal("a non-empty request should have reached the closed database")
 	}
 }

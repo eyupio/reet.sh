@@ -1,6 +1,8 @@
 # Ownership receipts and adoption (S4 design)
 
-Date: 2026-10-24. Status: design for review; no code written.
+Date: 2026-10-24. Status: implemented; this is the design record. The shipped contract,
+including where the code differs from this text, is
+[skill-content-receipts.md](../../skill-content-receipts.md).
 
 Nowt gets called ours without proof. This slice lets an account record which files on
 a machine reet manages, and lets an existing, unowned skill folder be brought under
@@ -23,8 +25,9 @@ Success means all of these hold, and tests prove each:
    an older revision while the pin names a newer one yields a real upgrade plan.
 3. Matching names or matching bytes alone never create ownership. Only the explicit,
    hash-bound decision does.
-4. A receipt that no longer fits (root moved, other bundle pinned, re-enrolment, skill
-   deleted) blocks with a clear code instead of being reused or silently dropped.
+4. A receipt that no longer fits (root moved, other bundle pinned, skill deleted) blocks
+   with a clear code instead of being reused or silently dropped. Re-enrolment needs a
+   revoke first, which removes the receipt.
 5. Nothing in this slice writes to a machine, reuses import approval, or authorises
    an apply. A receipt is a claim; a future executor must re-observe under a local lock.
 
@@ -81,10 +84,11 @@ skill_content_receipts(
 ```
 
 - `managed` is the planner's `Baseline.Manifest`: complete, canonical, at most 256 files,
-  validated through the S1 identity format on write and on every read, and checked on
-  every read against the recorded revision (each managed file must equal that revision's
-  file). A failure ends the preview as `plan_unavailable`; a damaged receipt is never
-  accepted quietly.
+  validated through the S1 identity format on write and whenever a receipt is read
+  individually or used as a baseline, and checked on those reads against the recorded
+  revision (each managed file must equal that revision's file). The list only summarises
+  and flags a row it cannot decode as damaged. A failure ends the preview as
+  `plan_unavailable`; a damaged receipt is never accepted quietly.
 - Mode (`additive` or `managed`) is not stored: it comes from the pin when each plan is
   built, so changing it never needs a new receipt.
 - `evidence` holds preview ID, review hash, capture hash, observed manifest digest,
@@ -177,7 +181,7 @@ unchanged because no baseline-bearing plan has ever been produced or approved:
 
 | Condition | Result |
 | --- | --- |
-| `Baseline.Target` differs from the target (root moved, re-enrolled, adapter/schema) | block `baseline_target_mismatch` |
+| `Baseline.Target` differs from the target (root moved, adapter/schema; a re-enrolled connector cannot reach this, see Lifecycle) | block `baseline_target_mismatch` |
 | `Baseline.BundleID` differs from the desired bundle | block `baseline_bundle_mismatch` |
 | `Baseline.Target.OwnerID` differs (another account) | still an **error**: an integrity violation, not a benign mismatch |
 | Invalid baseline revision ID or manifest | still an error |
@@ -204,12 +208,14 @@ Nothing unproven is overwritten, and a deleted adopted skill never recreates its
 
 - **Machine rename** within one enrolment moves receipts to the new environment ID and
   bumps their versions, as pins do. Two receipts for the same slot conflict and roll the
-  whole rename back (`remove one receipt before merging`).
+  whole rename back with HTTP 409 (`release one before merging`).
 - **Generic report merge** into another scope is refused while the source has a receipt.
 - **Revoke, forget, account deletion** cascade.
 - **Pin removal or change, preview dismissal** never touch receipts.
-- **Root moved or re-enrolled:** the next preview reports `baseline_target_mismatch`;
-  the user releases and, if appropriate, adopts again.
+- **Root moved or adapter/schema changed:** the next preview reports
+  `baseline_target_mismatch`; the user releases and, if appropriate, adopts again.
+- **Re-enrolled:** one enrolment exists per host, so re-enrolling needs a revoke first,
+  which cascades the receipt. The next preview is `adoption_required` again.
 
 ## Errors
 

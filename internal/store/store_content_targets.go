@@ -222,6 +222,13 @@ func (s *Store) DeleteSkillContentTargetFor(uid int64, id, version string) error
 	})
 }
 
+// PinCountsFor counts this account's private skill pins per report, the way
+// ReceiptCountsFor counts receipts: one query, absent when none, no query for no
+// IDs. Callers keep the list to 500 IDs.
+func (s *Store) PinCountsFor(userID int64, environmentIDs []string) (map[string]int, error) {
+	return s.countByEnvironment("skill_content_targets", userID, environmentIDs)
+}
+
 // moveSkillContentTargets follows a machine rename within the same enrollment,
 // never a cross-scope adoption. Bumping versions fences every old review, including
 // the destination of an identical duplicate. Conflicts roll back the whole rename.

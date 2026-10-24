@@ -273,6 +273,12 @@ func (s *Store) ReleaseSkillContentReceiptFor(uid int64, id, version string) err
 // query. Callers keep the list to 500 IDs, as the environment tidy endpoints do.
 // It counts rows whatever the account may read, since it guards stored ownership.
 func (s *Store) ReceiptCountsFor(userID int64, environmentIDs []string) (map[string]int, error) {
+	return s.countByEnvironment("skill_content_receipts", userID, environmentIDs)
+}
+
+// countByEnvironment is the one query behind ReceiptCountsFor and PinCountsFor.
+// The table is always a constant of this package, never a caller's value.
+func (s *Store) countByEnvironment(table string, userID int64, environmentIDs []string) (map[string]int, error) {
 	counts := map[string]int{}
 	if len(environmentIDs) == 0 {
 		return counts, nil
@@ -281,7 +287,7 @@ func (s *Store) ReceiptCountsFor(userID int64, environmentIDs []string) (map[str
 	for _, id := range environmentIDs {
 		args = append(args, id)
 	}
-	rows, err := s.db.Query(`SELECT environment_id,count(*) FROM skill_content_receipts WHERE user_id=? AND environment_id IN (`+placeholders(len(environmentIDs))+`) GROUP BY environment_id`, args...)
+	rows, err := s.db.Query(`SELECT environment_id,count(*) FROM `+table+` WHERE user_id=? AND environment_id IN (`+placeholders(len(environmentIDs))+`) GROUP BY environment_id`, args...)
 	if err != nil {
 		return nil, err
 	}

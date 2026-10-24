@@ -500,3 +500,76 @@ func TestSkillContentTargetRenameCollisionIsAtomic(t *testing.T) {
 		})
 	}
 }
+
+func TestPinCountsFor(t *testing.T) {
+	s, uid, a, in, _ := contentTargetFixture(t)
+	p, e := s.SaveSkillContentTargetFor(uid, in)
+	if e != nil {
+		t.Fatal(e)
+	}
+	// A second report holding two pins, copied from the first with other names.
+	for _, host := range []string{"second", "empty"} {
+		if e = s.TouchEnvironmentFor(uid, host, "agents", "", ""); e != nil {
+			t.Fatal(e)
+		}
+	}
+	second, empty := EnvironmentIDFor(uid, "second", "agents", ""), EnvironmentIDFor(uid, "empty", "agents", "")
+	clone := func(user int64, env, agent, bundle, revision, name string) {
+		t.Helper()
+		if _, e := s.db.Exec(`INSERT INTO skill_content_targets(id,user_id,environment_id,agent_id,name,bundle_id,revision_id,mode,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+			syncID(), user, env, agent, name, bundle, revision, p.Mode, syncID(), now()); e != nil {
+			t.Fatal(e)
+		}
+	}
+	clone(uid, second, a.ID, p.BundleID, p.RevisionID, "demo")
+	clone(uid, second, a.ID, p.BundleID, p.RevisionID, "other")
+
+	// Another account's pin, in a report of its own.
+	other, e := s.CreateUser("pin-count-other@example.test", "Other", "member", "hash")
+	if e != nil {
+		t.Fatal(e)
+	}
+	otherAgent, _, e := s.EnrollSyncAgent(other.ID, "elsewhere", "test")
+	if e != nil {
+		t.Fatal(e)
+	}
+	otherBundle, e := s.SavePrivateSkillRevisionFor(other.ID, "", privateWrite("pin_count_bundle_0001", "", "OTHER_PRIVATE_BYTES"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = s.TouchEnvironmentFor(other.ID, "elsewhere", "agents", "", ""); e != nil {
+		t.Fatal(e)
+	}
+	foreign := EnvironmentIDFor(other.ID, "elsewhere", "agents", "")
+	clone(other.ID, foreign, otherAgent.ID, otherBundle.Bundle.ID, otherBundle.Revision.ID, "demo")
+
+	got, e := s.PinCountsFor(uid, []string{p.EnvironmentID, second, empty, foreign, "no-such-report"})
+	if want := map[string]int{p.EnvironmentID: 1, second: 2}; e != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("%v %v, want %v: another account's pins must never count", got, e, want)
+	}
+	if got, e = s.PinCountsFor(other.ID, []string{p.EnvironmentID, second, foreign}); e != nil || !reflect.DeepEqual(got, map[string]int{foreign: 1}) {
+		t.Fatalf("%v %v: an account counts only its own pins", got, e)
+	}
+	if got, e = s.PinCountsFor(uid, []string{second, second}); e != nil || !reflect.DeepEqual(got, map[string]int{second: 2}) {
+		t.Fatal(got, e)
+	}
+	if e = s.DeleteSkillContentTargetFor(uid, p.ID, p.Version); e != nil {
+		t.Fatal(e)
+	}
+	if got, e = s.PinCountsFor(uid, []string{p.EnvironmentID, second}); e != nil || !reflect.DeepEqual(got, map[string]int{second: 2}) {
+		t.Fatal("a removed pin still counts", got, e)
+	}
+
+	// Nothing asked, nothing queried: a closed database proves the query never runs.
+	if e = s.Close(); e != nil {
+		t.Fatal(e)
+	}
+	for _, ids := range [][]string{nil, {}} {
+		if got, e = s.PinCountsFor(uid, ids); e != nil || got == nil || len(got) != 0 {
+			t.Fatalf("empty input should answer an empty map without a query: %v %v", got, e)
+		}
+	}
+	if _, e = s.PinCountsFor(uid, []string{second}); e == nil {
+		t.Fatal("a non-empty request should have reached the closed database")
+	}
+}

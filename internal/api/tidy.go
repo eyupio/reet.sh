@@ -145,6 +145,25 @@ func (s *server) mergeEnvironments(w http.ResponseWriter, r *http.Request) {
 			writeErrCode(w, 404, errEnvironmentNotFound, "from_id", "environment not found", "Use IDs from reet_list_environments.")
 			return
 		}
+		// The preview answers a refusal the confirmed merge would, in its order: pins, then receipts.
+		pins, err := s.st.PinCountsFor(s.uid(r), []string{from})
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		if pins[from] > 0 {
+			writeEnvironmentMergeError(w, store.ErrSkillContentTargetScopeMerge)
+			return
+		}
+		receipts, err := s.st.ReceiptCountsFor(s.uid(r), []string{from})
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		if receipts[from] > 0 {
+			writeEnvironmentMergeError(w, store.ErrSkillContentReceiptScope)
+			return
+		}
 		writeJSON(w, 200, map[string]any{"dry_run": true, "from": source, "to": target, "skills_moved": source.SkillCount})
 		return
 	}
@@ -154,20 +173,26 @@ func (s *server) mergeEnvironments(w http.ResponseWriter, r *http.Request) {
 	}
 	moved, err := s.st.MergeEnvironmentsFor(s.uid(r), from, to)
 	if err != nil {
-		switch {
-		case errors.Is(err, store.ErrSkillContentTargetScopeMerge):
-			writeErrCode(w, 409, errEnvironmentHasPins, "from_id", err.Error(), "Remove the private skill pin first.")
-		case errors.Is(err, store.ErrSkillContentReceiptScope):
-			writeErrCode(w, 409, errEnvironmentHasReceipts, "from_id", err.Error(), "Release the ownership record first.")
-		case strings.Contains(strings.ToLower(err.Error()), "not found"):
-			writeErrCode(w, 404, errEnvironmentNotFound, "from_id", err.Error(), "Use IDs from reet_list_environments.")
-		default:
-			writeErr(w, 500, err.Error())
-		}
+		writeEnvironmentMergeError(w, err)
 		return
 	}
 	s.eventRequest(r, "environment-merge", "", map[string]any{"from": from, "to": to, "skills_moved": moved})
 	writeJSON(w, 200, map[string]any{"dry_run": false, "from": from, "to": to, "skills_moved": moved})
+}
+
+// writeEnvironmentMergeError answers what MergeEnvironmentsFor refuses, for the
+// confirmed merge and for its preview alike.
+func writeEnvironmentMergeError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, store.ErrSkillContentTargetScopeMerge):
+		writeErrCode(w, 409, errEnvironmentHasPins, "from_id", err.Error(), "Remove the private skill pin first.")
+	case errors.Is(err, store.ErrSkillContentReceiptScope):
+		writeErrCode(w, 409, errEnvironmentHasReceipts, "from_id", err.Error(), "Release the ownership record first.")
+	case strings.Contains(strings.ToLower(err.Error()), "not found"):
+		writeErrCode(w, 404, errEnvironmentNotFound, "from_id", err.Error(), "Use IDs from reet_list_environments.")
+	default:
+		writeErr(w, 500, err.Error())
+	}
 }
 
 type listResolveError struct {

@@ -344,7 +344,11 @@ func TestMCPEnvironmentRefusalsNameOwnershipReceiptsAndPins(t *testing.T) {
 	token, _ := mcpManual(t, browser, ts, "write")
 	session := mcpSession(t, ts, token)
 
-	// Merging is refused for the pin first, then for the record once the pin is gone.
+	// Merging is refused for the pin first, then for the record once the pin is gone,
+	// and the preview the tool runs by default says so before anything is confirmed.
+	if preview := mcpError(t, session, "reet_merge_environments", map[string]any{"from_id": env, "to_id": dest}); !strings.Contains(preview, "environment_has_pins") {
+		t.Fatalf("preview of a merge of a pinned report: %s", preview)
+	}
 	refused := mcpError(t, session, "reet_merge_environments", map[string]any{"from_id": env, "to_id": dest, "dry_run": false, "confirm": true})
 	if !strings.Contains(refused, "environment_has_pins") || !strings.Contains(refused, "Remove the private skill pin first.") {
 		t.Fatalf("merge of a pinned report: %s", refused)
@@ -355,6 +359,10 @@ func TestMCPEnvironmentRefusalsNameOwnershipReceiptsAndPins(t *testing.T) {
 	refused = mcpError(t, session, "reet_merge_environments", map[string]any{"from_id": env, "to_id": dest, "dry_run": false, "confirm": true})
 	if !strings.Contains(refused, "environment_has_receipts") || !strings.Contains(refused, "Release the ownership record first.") {
 		t.Fatalf("merge of a report that holds an ownership record: %s", refused)
+	}
+
+	if preview := mcpError(t, session, "reet_merge_environments", map[string]any{"from_id": env, "to_id": dest}); !strings.Contains(preview, "environment_has_receipts") {
+		t.Fatalf("preview of a merge of a report that holds an ownership record: %s", preview)
 	}
 
 	// Deleting previews the refusal, applies it, and force forgets the record.

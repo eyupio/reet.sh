@@ -622,6 +622,90 @@ func TestEnvironmentMergeRefusesPinsAndReceiptsWith409(t *testing.T) {
 	}
 }
 
+// A preview must not promise a merge the confirmed request will refuse.
+func TestEnvironmentMergeDryRunPreviewsTheSameRefusal(t *testing.T) {
+	h := newPreviewHarness(t)
+	h.negotiate()
+	if e := h.st.TouchEnvironmentFor(h.uid, "laptop", "claude", "", ""); e != nil {
+		t.Fatal(e)
+	}
+	dest := store.EnvironmentIDFor(h.uid, "laptop", "claude", "")
+	const path = "/api/v2/environments/merge"
+	body := func(from string, dry bool) string {
+		return fmt.Sprintf(`{"from_id":%q,"to_id":%q,"dry_run":%t,"confirm":%t}`, from, dest, dry, !dry)
+	}
+	source := h.pin.EnvironmentID
+	// refused expects the dry run and the confirmed merge to answer with one and the same 409.
+	refused := func(code, message, hint string) {
+		t.Helper()
+		dry, real := h.browser("POST", path, body(source, true)), h.browser("POST", path, body(source, false))
+		var out map[string]string
+		want := map[string]string{"error": message, "code": code, "message": message, "field": "from_id", "hint": hint}
+		if e := json.Unmarshal(dry.Body.Bytes(), &out); dry.Code != 409 || e != nil || !reflect.DeepEqual(out, want) {
+			t.Fatalf("dry run: %d %s %v, want 409 %v", dry.Code, dry.Body.String(), e, want)
+		}
+		if real.Code != 409 || real.Body.String() != dry.Body.String() {
+			t.Fatalf("the preview and the merge disagree: %d %s vs %d %s", dry.Code, dry.Body.String(), real.Code, real.Body.String())
+		}
+	}
+	const (
+		pinMessage     = "remove private skill pins before merging this report into a different scope"
+		receiptMessage = "release private skill ownership receipts before merging this report into a different scope"
+	)
+
+	// A report holding a pin.
+	refused("environment_has_pins", pinMessage, "Remove the private skill pin first.")
+
+	// A pin and a receipt: the pin is answered first, as the merge does.
+	receipt := h.adopt("merge_dry_adopt_00001", h.captured("merge_dry_preview_0001"))
+	refused("environment_has_pins", pinMessage, "Remove the private skill pin first.")
+
+	// Only a receipt.
+	if e := h.st.DeleteSkillContentTargetFor(h.uid, h.pin.ID, h.pin.Version); e != nil {
+		t.Fatal(e)
+	}
+	refused("environment_has_receipts", receiptMessage, "Release the ownership record first.")
+
+	// An unknown source or destination is still a 404.
+	for name, b := range map[string]string{
+		"source":      body("no-such-report", true),
+		"destination": fmt.Sprintf(`{"from_id":%q,"to_id":"no-such-report","dry_run":true}`, source),
+	} {
+		var out map[string]string
+		if w := h.browser("POST", path, b); w.Code != 404 || json.Unmarshal(w.Body.Bytes(), &out) != nil || out["code"] != "environment_not_found" {
+			t.Fatal("unknown "+name, w.Code, w.Body.String())
+		}
+	}
+
+	// Neither: the preview is the unchanged 200 and changes nothing.
+	if e := h.st.ReleaseSkillContentReceiptFor(h.uid, receipt.ID, receipt.Version); e != nil {
+		t.Fatal(e)
+	}
+	w := h.browser("POST", path, body(source, true))
+	var preview struct {
+		DryRun     bool              `json:"dry_run"`
+		From       store.Environment `json:"from"`
+		To         store.Environment `json:"to"`
+		SkillsMove *int              `json:"skills_moved"`
+	}
+	if e := json.Unmarshal(w.Body.Bytes(), &preview); w.Code != 200 || e != nil || !preview.DryRun || preview.From.ID != source || preview.To.ID != dest || preview.SkillsMove == nil || *preview.SkillsMove != 0 {
+		t.Fatal(w.Code, w.Body.String(), e)
+	}
+	envs, e := h.st.ListEnvironmentsFor(h.uid)
+	if e != nil {
+		t.Fatal(e)
+	}
+	listed := 0
+	for _, env := range envs {
+		if env.ID == source || env.ID == dest {
+			listed++
+		}
+	}
+	if listed != 2 || eventsOf(t, h.st, h.uid, "environment-merge") != 0 {
+		t.Fatal("a preview changed something", listed)
+	}
+}
+
 // envChange is the part of a blocked entry the person acts on.
 type envChange struct {
 	ID      string `json:"id"`

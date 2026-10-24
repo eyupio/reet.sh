@@ -132,9 +132,12 @@ func RunAgent(args []string, out io.Writer, version string) error {
 }
 func runAgentInput(args []string, in io.Reader, out io.Writer, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet agent enroll|start|stop|restart|status|run|restore|terminal|service [--config PATH]; run backgrounds by default; --foreground for debugging")
+		return errors.New("usage: reet agent enroll|start|stop|restart|status|run|restore|terminal|service|skill [--config PATH]; run backgrounds by default; --foreground for debugging")
 	}
 	action := args[0]
+	if action == "skill" {
+		return runAgentSkillImport(args[1:], in, out, version)
+	}
 	if action == "terminal" {
 		return runAgentTerminalInput(args[1:], in, out, version)
 	}

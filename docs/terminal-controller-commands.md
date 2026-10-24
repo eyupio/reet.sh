@@ -119,3 +119,14 @@ paths, preservation after optional failure, stopped-controller behavior, Compose
 namespace separation, actionable tmux diagnostics, local daemon-version checks,
 and web readiness independent of scan inventory. Native Linux/macOS CI validates
 services; local Linux checks alone do not establish macOS package-manager behavior.
+
+## Bring a local skill into reet privately
+
+Inside the machine's normal shell or reet terminal, use
+`reet agent skill import --agent agents --name NAME` for a local file preview.
+Repeat with `--upload`, then type `IMPORT` to copy the reviewed files into your
+account's private revision store. Use `--exclude RELATIVE_FILE` to omit supporting
+files; SKILL.md remains required. This does not publish, install or execute the skill.
+The CLI and controller must support this feature and the enrollment must use an
+active account personal token. See [machine skill import](machine-skill-import.md)
+for project scopes, credential blocking, explicit revision bases and stable retries.

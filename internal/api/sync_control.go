@@ -11,6 +11,8 @@ import (
 )
 
 func (s *server) registerSyncControl(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v2/sync/skill-import", s.privateSkillAccess(s.machineSkillImport))
+	mux.HandleFunc("POST /api/v2/sync/skill-import", s.privateSkillAccess(s.machineSkillImport))
 	mux.HandleFunc("POST /api/v2/sync/content-observations/prepare", s.requireWriter(s.contentObservation))
 	mux.HandleFunc("POST /api/v2/sync/content-observations", s.requireWriter(s.contentObservation))
 	mux.HandleFunc("GET /api/v2/sync/candidates", s.syncCandidates)

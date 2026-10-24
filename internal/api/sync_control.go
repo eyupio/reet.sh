@@ -14,6 +14,8 @@ func (s *server) registerSyncControl(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v2/sync/desired", s.requireWriter(s.saveDesired))
 	mux.HandleFunc("POST /api/v2/sync/reconcile", s.requireWriter(s.reconcileDesired))
 	mux.HandleFunc("POST /api/v2/sync/adopt", s.requireWriter(s.adoptSyncSkills))
+	mux.HandleFunc("POST /api/v2/sync/run", s.requireWriter(s.startSyncRun))
+	mux.HandleFunc("POST /api/v2/sync/agents/update", s.requireWriter(s.updateSyncAgent))
 	mux.HandleFunc("POST /api/v2/sync/agents", s.requireWriter(s.enrollSyncAgent))
 	mux.HandleFunc("PATCH /api/v2/sync/agents", s.requireWriter(s.controlSyncAgent))
 	mux.HandleFunc("POST /api/v2/sync/jobs", s.requireWriter(s.queueSyncJob))
@@ -80,6 +82,36 @@ func (s *server) reconcileDesired(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeErr(w, 409, "target needs a complete recent scan")
+}
+func (s *server) startSyncRun(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		AgentID   string   `json:"agentId"`
+		TargetIDs []string `json:"targetIds"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if _, err := s.st.StartSyncRun(s.uid(r), in.AgentID, in.TargetIDs); err != nil {
+		writeErr(w, 409, err.Error())
+		return
+	}
+	s.eventRequest(r, "sync-run", "", map[string]string{"agent": in.AgentID})
+	s.syncState(w, r)
+}
+func (s *server) updateSyncAgent(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ID      string `json:"id"`
+		Version string `json:"version"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if _, err := s.st.QueueAgentUpdate(s.uid(r), in.ID, in.Version); err != nil {
+		writeErr(w, 409, err.Error())
+		return
+	}
+	s.eventRequest(r, "sync-agent-update", "", map[string]string{"agent": in.ID, "version": in.Version})
+	s.syncState(w, r)
 }
 func (s *server) adoptSyncSkills(w http.ResponseWriter, r *http.Request) {
 	var in struct {

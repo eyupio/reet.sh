@@ -26,8 +26,9 @@ import (
 )
 
 type syncAction struct {
-	Add   bool            `json:"add"`
-	Skill store.SyncSkill `json:"skill"`
+	Add     bool            `json:"add"`
+	Replace bool            `json:"replace,omitempty"`
+	Skill   store.SyncSkill `json:"skill"`
 }
 type SyncPlan struct {
 	Target    string       `json:"target"`
@@ -102,7 +103,13 @@ func planSync(desired []store.SyncSkill, actual []Found) ([]syncAction, error) {
 			actions = append(actions, syncAction{Add: true, Skill: sk})
 			continue
 		}
-		if installed.Source == "" || canonicalSource(installed.Source) != canonicalSource(sk.Source) {
+		if installed.Source == "" {
+			// The local copy has no provenance. Replace it with the reviewed
+			// source-linked skill; apply moves the old folder into the backup.
+			actions = append(actions, syncAction{Add: true, Replace: true, Skill: sk})
+			continue
+		}
+		if canonicalSource(installed.Source) != canonicalSource(sk.Source) {
 			return nil, fmt.Errorf("source conflict for %s; inspect its local lock file before syncing", name)
 		}
 	}
@@ -330,7 +337,12 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		for _, desired := range target.Desired {
 			for _, found := range inventory.Found {
 				if found.Project == target.Target.Project && found.Agent != target.Target.Agent && found.Host == *host && found.Name == desired.Slug && canonicalSource(found.Source) != canonicalSource(desired.Source) {
-					return nil, fmt.Errorf("%s is shared with %s from a different or unknown source; resolve it before syncing", found.Name, found.Agent)
+					// An unlinked local copy in another agent scope does not block
+					// replacing this scope's copy. Known, different sources still do.
+					if found.Source == "" {
+						continue
+					}
+					return nil, fmt.Errorf("%s is shared with %s from a different source; resolve it before syncing", found.Name, found.Agent)
 				}
 			}
 		}
@@ -445,7 +457,9 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	fmt.Fprintf(out, "Controller: %s\nTarget: %s\nDirectory: %s\nReference snapshot: %s\n", *server, target.Target.Name, targetPath, target.SourceName)
 	for _, action := range actions {
 		verb := "REMOVE"
-		if action.Add {
+		if action.Add && action.Replace {
+			verb = "REPLACE"
+		} else if action.Add {
 			verb = "INSTALL"
 		}
 		fmt.Fprintf(out, "  %s %s (%s)\n", verb, action.Skill.Slug, action.Skill.Source)
@@ -502,32 +516,22 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	for _, action := range actions {
 		var operationErr error
 		if action.Add {
-			source, err := syncSource(action.Skill)
-			if err != nil {
-				return err
+			if action.Replace {
+				operationErr = backupSkillEntry(targetPath, action.Skill.Slug, out, options.onBackup)
 			}
-			command := []string{"--yes", "skills@1.7.4", "add", source, "--skill", action.Skill.Slug, "--agent", agent, "--yes"}
-			if target.Target.Project == "" {
-				command = append(command, "--global")
-			}
-			operationErr = execute(command, cwd)
-		} else {
-			// Move only the selected directory entry. Symlinks are moved as symlinks;
-			// their canonical skill content stays intact for other agents.
-			root := filepath.Join(filepath.Dir(targetPath), ".reet-sync-backups")
-			if err := os.MkdirAll(root, 0700); err != nil {
-				operationErr = err
-			} else if backup, err := os.MkdirTemp(root, "removed-"); err != nil {
-				operationErr = err
-			} else {
-				operationErr = os.Rename(filepath.Join(targetPath, action.Skill.Slug), filepath.Join(backup, action.Skill.Slug))
-				if operationErr == nil {
-					fmt.Fprintf(out, "Backed up removed entry to %s\n", filepath.Join(backup, action.Skill.Slug))
-					if options.onBackup != nil {
-						options.onBackup(filepath.Join(backup, action.Skill.Slug))
-					}
+			if operationErr == nil {
+				source, err := syncSource(action.Skill)
+				if err != nil {
+					return err
 				}
+				command := []string{"--yes", "skills@1.7.4", "add", source, "--skill", action.Skill.Slug, "--agent", agent, "--yes"}
+				if target.Target.Project == "" {
+					command = append(command, "--global")
+				}
+				operationErr = execute(command, cwd)
 			}
+		} else {
+			operationErr = backupSkillEntry(targetPath, action.Skill.Slug, out, options.onBackup)
 		}
 		if operationErr != nil {
 			_ = rescan()
@@ -546,6 +550,28 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		return errors.New("commands completed but differences remain; inspect the agent installation and preview again")
 	}
 	fmt.Fprintln(out, "Sync complete. Updated inventory persisted on the controller.")
+	return nil
+}
+
+func backupSkillEntry(targetPath, slug string, out io.Writer, onBackup func(string)) error {
+	// Move only the selected directory entry. Symlinks are moved as symlinks;
+	// their canonical skill content stays intact for other agents.
+	root := filepath.Join(filepath.Dir(targetPath), ".reet-sync-backups")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		return err
+	}
+	backup, err := os.MkdirTemp(root, "removed-")
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(backup, slug)
+	if err = os.Rename(filepath.Join(targetPath, slug), path); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "Backed up existing entry to %s\n", path)
+	if onBackup != nil {
+		onBackup(path)
+	}
 	return nil
 }
 

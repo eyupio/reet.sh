@@ -10,7 +10,7 @@ const machinesURL = `data:text/javascript;base64,${Buffer.from(transpile('./mach
 const setupSource = transpile('./machineSetup.ts').replace("from './machines'", `from '${machinesURL}'`)
 const {
   enrollCommands, machineStatus, profileFetchCommand, profilePullCommand,
-  scanCommand, shellQuote, supportedAgents, syncLink,
+  machineLink, scanCommand, shellQuote, supportedAgents, syncLink,
 } = await import(`data:text/javascript;base64,${Buffer.from(setupSource).toString('base64')}`)
 
 const now = Date.now()
@@ -38,6 +38,11 @@ test('commands are shell-quoted and machine-specific', () => {
   assert.match(enrollCommands('https://reet.sh', 'studio', true), /--allow-apply\nreet agent run/)
   assert.match(profilePullCommand('https://reet.sh', 'work'), /reet setup profile pull 'work' --server 'https:\/\/reet.sh'/)
   assert.match(profileFetchCommand('work', 4), /--profile 'work' --revision 4/)
+})
+
+test('machine links open the focused machine view', () => {
+  assert.equal(machineLink('PROD_Snicket'), '/machines?machine=PROD_Snicket')
+  assert.match(machineLink('studio / west'), /machine=studio%20%2F%20west/)
 })
 
 test('machine sync links preselect the machine without inventing an agent target', () => {

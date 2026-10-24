@@ -4,7 +4,7 @@
   import { getMachineHealth as machineHealth } from './api'
   import MachineHealthStrip from './terminal/MachineHealthStrip.svelte'
   import type { Machine, SyncAgent, SyncEnvironment, SyncState } from './api'
-  import { controlSyncAgent, forgetEnvironment, forgetMachine, queueSyncJob } from './api'
+  import { controlSyncAgent, forgetEnvironment, forgetMachine, queueSyncJob, startSyncRun, updateSyncAgent } from './api'
   import { agentGroups, groupLabel } from './machines'
   import { machineStatus, scanOnlyAgents, supportedAgents, syncLink } from './machineSetup'
   import MachineCommands from './MachineCommands.svelte'
@@ -88,6 +88,24 @@
   function pause(agent: SyncAgent) {
     return run(`pause-${agent.id}`, () => controlSyncAgent(agent.id, agent.paused ? 'resume' : 'pause'))
   }
+  function savedTargets(machine: Machine) {
+    return snapshot.targets.filter(item => item.target.host.toLowerCase() === machine.host.toLowerCase())
+  }
+  function activeRun(machine: Machine) {
+    const agent = agentFor(machine)
+    return agent ? (snapshot.runs ?? []).find(run => run.agentId === agent.id && ['running', 'review'].includes(run.status)) : undefined
+  }
+  async function syncNow(machine: Machine, agent: SyncAgent) {
+    if (await run(`sync-${agent.id}`, () => startSyncRun(agent.id, savedTargets(machine).map(item => item.target.id)))) {
+      onnotice(`Automatic sync started for ${machine.host}. Additive plans apply on their own; removals wait for review.`)
+    }
+  }
+  async function updateAgent(agent: SyncAgent) {
+    const version = agent.version === 'dev' ? 'dev' : 'latest'
+    if (await run(`update-${agent.id}`, () => updateSyncAgent(agent.id, version))) {
+      onnotice(`Update to ${version} queued for ${agent.host}. The agent verifies the release, keeps the previous binary, then restarts.`)
+    }
+  }
   function askForgetMachine(machine: Machine) {
     confirm = {
       title: `Forget ${machine.host}?`,
@@ -151,6 +169,7 @@
           <span><strong>{groups.length}</strong> agent {groups.length === 1 ? 'scope' : 'scopes'}</span>
           <span>Last report <strong>{lastSeen(machine)}</strong></span>
           {#if enrolled}<span class="live"><span aria-hidden="true">●</span> {agentState(enrolled)} · {enrolled.version}</span>{/if}
+          {#if activeRun(machine)}{@const run = activeRun(machine)!}<span class="sync-run">Sync run {run.cursor}/{run.targets.length}{run.status === 'review' ? ' · review needed' : ''}</span>{/if}
         </div>
         <div class="agent-chips" aria-label="Agent scopes">
           {#each supported as group (group.id)}<span class="agent-chip">{groupLabel(group)} <strong>{group.skillCount ?? 0}</strong></span>{/each}
@@ -159,7 +178,11 @@
         {#if enrolled&&health.machines.some(item=>item.agentId===enrolled.id)}<MachineHealthStrip compact health={health.machines.find(item=>item.agentId===enrolled.id)} serverNow={health.serverNow+healthElapsed} />{/if}
 
         <div class="actions">
-          <a class="btn primary" href={syncLink(machine.host)}>Sync this machine</a>
+          {#if enrolled && savedTargets(machine).length}
+            <button class="btn primary" type="button" disabled={!!busy || enrolled.paused} onclick={() => syncNow(machine, enrolled)}>{busy === `sync-${enrolled.id}` ? 'Starting…' : savedTargets(machine).length > 1 ? 'Sync saved skills' : 'Sync this machine'}</button>
+          {:else}
+            <a class="btn primary" href={syncLink(machine.host)}>Choose skills to sync</a>
+          {/if}
           {#if terminalAccess&&enrolled}<a class="btn" href={`/machines?view=terminal&agent=${encodeURIComponent(enrolled.id)}`}>Open terminal</a>{/if}
           <button class="btn" type="button" onclick={() => (commandsFor = machine)}>Commands</button>
           {#if canWrite}
@@ -168,6 +191,8 @@
               <div class="manage-menu">
                 {#if enrolled}
                   <button type="button" disabled={!!busy || enrolled.paused} onclick={() => scan(enrolled)}>{busy === `scan-${enrolled.id}` ? 'Queueing…' : 'Scan now'}</button>
+                  {#if savedTargets(machine).length}<button type="button" disabled={!!busy || enrolled.paused} onclick={() => syncNow(machine, enrolled)}>Sync saved skills</button>{/if}
+                  <button type="button" disabled={!!busy} onclick={() => updateAgent(enrolled)}>{busy === `update-${enrolled.id}` ? 'Queueing update…' : 'Update reet'} <small>{enrolled.version === 'dev' ? 'dev' : 'latest'}</small></button>
                   <button type="button" disabled={!!busy} onclick={() => pause(enrolled)}>{enrolled.paused ? 'Resume sync jobs' : 'Pause sync jobs'}</button>
                 {/if}
                 <button type="button" class="danger" onclick={() => askForgetMachine(machine)}>Forget machine</button>
@@ -262,6 +287,7 @@
   .meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 0.75rem; }
   .meta strong { color: var(--ink); font-weight: 600; }
   .live { color: var(--good); }
+  .sync-run { color: var(--accent); }
   .agent-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .agent-chip { padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 0.69rem; }
   .agent-chip strong { color: var(--ink); font-weight: 600; }

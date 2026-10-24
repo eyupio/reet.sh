@@ -109,20 +109,39 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 	for _, id := range in.SkillIDs {
 		selected[id] = true
 	}
-	desired := []SyncSkill{}
-	slugs := map[string]bool{}
+	// A local copy and a source-linked copy can share a name. The linked copy is
+	// the one that can be installed, so saving deduplicates them automatically.
+	// Two different linked sources with the same name remain ambiguous.
+	bySlug := map[string][]SyncSkill{}
+	order := []string{}
 	for _, sk := range candidates {
-		if selected[sk.ID] {
-			if sk.Source == "" || sk.SourceType == "local" || slugs[sk.Slug] {
-				return errors.New("link unknown sources and resolve duplicate names before saving")
-			}
-			slugs[sk.Slug] = true
-			desired = append(desired, sk)
-			delete(selected, sk.ID)
+		if !selected[sk.ID] {
+			continue
 		}
+		if _, ok := bySlug[sk.Slug]; !ok {
+			order = append(order, sk.Slug)
+		}
+		bySlug[sk.Slug] = append(bySlug[sk.Slug], sk)
+		delete(selected, sk.ID)
 	}
 	if len(selected) > 0 {
 		return errors.New("selected skills are unavailable; refresh and review again")
+	}
+	desired := []SyncSkill{}
+	for _, slug := range order {
+		linked := []SyncSkill{}
+		for _, sk := range bySlug[slug] {
+			if sk.Source != "" && sk.SourceType != "local" {
+				linked = append(linked, sk)
+			}
+		}
+		if len(linked) == 0 {
+			return errors.New("link unknown sources before saving; local copies cannot be installed")
+		}
+		if len(linked) > 1 && (linked[0].Source != linked[1].Source || linked[0].SourceType != linked[1].SourceType) {
+			return errors.New("resolve duplicate names before saving; more than one source is selected")
+		}
+		desired = append(desired, linked[0])
 	}
 	return s.withTx(func(tx *sql.Tx) error {
 		var complete bool
@@ -326,8 +345,8 @@ func (s *Store) SyncJobsFor(uid int64) ([]SyncJob, error) {
 	return out, rows.Err()
 }
 func (s *Store) QueueSyncJob(uid int64, agentID, targetID, kind string) (SyncJob, error) {
-	if kind != "scan" && kind != "preview" {
-		return SyncJob{}, errors.New("queue a scan or preview before approving changes")
+	if kind != "scan" && kind != "preview" && kind != "auto" {
+		return SyncJob{}, errors.New("queue a scan, preview or automatic sync")
 	}
 	var host string
 	if err := s.db.QueryRow(`SELECT host FROM sync_agents WHERE id=? AND user_id=?`, agentID, uid).Scan(&host); err != nil {
@@ -456,7 +475,7 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 			}
 			return errors.New("job is no longer running")
 		}
-		if status != "failed" && status != "succeeded" && !(j.Kind == "preview" && status == "awaiting-approval" && len(hash) == 64) {
+		if status != "failed" && status != "succeeded" && !((j.Kind == "preview" || j.Kind == "auto") && status == "awaiting-approval" && len(hash) == 64) {
 			return errors.New("invalid job result")
 		}
 		if status == "succeeded" && j.Kind == "apply" {
@@ -479,8 +498,38 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 		if _, err = tx.Exec(`INSERT INTO sync_receipts(job_id,status,hash) VALUES(?,?,?)`, id, originalStatus, hash); err != nil {
 			return err
 		}
-		_, err = tx.Exec(`UPDATE sync_jobs SET status=?,plan=?,hash=?,message=?,updated_at=? WHERE id=?`, status, string(plan), hash, message, now(), id)
-		return err
+		finalKind, finalStatus := j.Kind, status
+		if j.Kind == "auto" && status == "awaiting-approval" {
+			if additivePlan(plan) {
+				finalKind = "apply"
+				if len(planActions(plan)) == 0 {
+					finalStatus = "succeeded"
+					message = "Already in sync."
+				} else {
+					finalStatus = "queued"
+					message = "Additive plan approved automatically; applying."
+				}
+			} else {
+				message = "Removals need review before applying."
+			}
+		}
+		if _, err = tx.Exec(`UPDATE sync_jobs SET kind=?,status=?,plan=?,hash=?,message=?,updated_at=? WHERE id=?`, finalKind, finalStatus, string(plan), hash, message, now(), id); err != nil {
+			return err
+		}
+		outcome := runNext
+		switch {
+		case finalStatus == "failed":
+			outcome = runFailed
+		case finalStatus == "cancelled":
+			outcome = runCancelled
+		case finalKind == "auto" && finalStatus == "awaiting-approval":
+			outcome = runReview
+		case finalStatus == "succeeded" && (j.Kind == "auto" || j.Kind == "apply"):
+			outcome = runNext
+		default:
+			return nil
+		}
+		return s.finishSyncRun(tx, uid, id, outcome)
 	})
 }
 

@@ -51,7 +51,7 @@ func TestSyncControlsRequireAccountAndEnrollment(t *testing.T) {
 	if code != 200 || len(state.Agents) != 0 || len(state.Jobs) != 0 {
 		t.Fatal("cross-account control state leaked", body)
 	}
-	for _, path := range []string{"/api/v2/sync/agents", "/api/v2/sync/jobs", "/api/v2/sync/poll", "/api/v2/sync/adopt"} {
+	for _, path := range []string{"/api/v2/sync/agents", "/api/v2/sync/jobs", "/api/v2/sync/poll", "/api/v2/sync/adopt", "/api/v2/sync/run", "/api/v2/sync/agents/update"} {
 		if code, _ := call("POST", path, `{}`, "fixture-viewer"); code != 403 {
 			t.Fatalf("viewer %s: %d", path, code)
 		}

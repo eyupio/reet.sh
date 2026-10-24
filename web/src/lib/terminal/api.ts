@@ -28,6 +28,8 @@ export async function terminalRequest(path: string, init: RequestInit = {}): Pro
   return response
 }
 export async function terminalMachines(signal?: AbortSignal): Promise<TerminalMachine[]> { return (await (await terminalRequest('/api/v2/terminal/machines', { signal })).json()).machines }
+export type TerminalControllerStatus={configured:boolean;available:boolean;reason:string}
+export async function terminalControllerStatus(signal?:AbortSignal):Promise<TerminalControllerStatus>{return (await terminalRequest('/api/v2/terminal/status',{signal})).json()}
 export async function terminalSessions(signal?: AbortSignal): Promise<TerminalSession[]> { return (await (await terminalRequest('/api/v2/terminal/sessions', { signal })).json()).sessions }
 export async function createTerminal(agentId: string, requestId: string, title: string, cols = 100, rows = 30): Promise<TerminalSession> { return (await terminalRequest('/api/v2/terminal/sessions', { method: 'POST', body: JSON.stringify({ agentId, requestId, title, cols, rows }) })).json() }
 export async function terminalTicket(session: string, cols: number, rows: number, takeover: boolean, signal?: AbortSignal): Promise<string> { return (await (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(session)}/attachments`, { method: 'POST', body: JSON.stringify({ cols, rows, takeover }), signal })).json()).ticket }

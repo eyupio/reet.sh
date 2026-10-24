@@ -6,7 +6,7 @@ This is the current implementation baseline **and** the continuation plan. Curre
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. Finish T9 quick actions, then resume the saved S2 branch.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API is implemented on `feat/private-skill-revisions`, pending final checks and PR; S3 metadata observations come next after S2 merges green.** S1 is merged through PR #139; do not repeat
 it or start S2 ahead of the remaining terminal priorities. Do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -26,6 +26,44 @@ Read alongside:
   [stage 9](docs/remote-machine-stage9.md), and
   [controller terminal commands](docs/terminal-controller-commands.md).
 - CONTRIBUTING.md and [voice/copy](docs/voice-and-copy.md).
+
+## Current roadmap checkpoint — 24 October 2026
+
+The user requested a status report and continued roadmap delivery after PR #155.
+- **Merged foundation:** terminal T1–T9, machine control, saved commands/history,
+  setup/upgrade guidance, control-page actions and Yorkshire/AI-fleet positioning.
+- **Skill-content track:** S1 manifests merged in PR #139. S2 private revision
+  storage/API is implemented; full local frontend/vet/race/MCP checks pass. Verify
+  the published PR/CI state below before calling it merged. S2 has no new content
+  UI or remote apply operation.
+- **Next:** S3 owned machine-content observations, then explicit import; S4 reviewed
+  single-target content apply; S5 three-way review and fleet rollout UI.
+- **Later:** A1–A3 registered agent launch/activity/attention; W1–W3 projects,
+  worktrees/diffs/structured tool review; L1–L4 AI software/MCP fleet maintenance
+  and optional isolation. Existing machine inventory and setup snapshots are a
+  baseline, not completion of those stages. Stage sizes differ; do not invent an
+  overall completion percentage or claim full bidirectional file sync today.
+
+### Reported terminal-stop incident — unresolved, separate from S2
+
+The user reported that Stop/End with removal enabled interrupted independently
+running tmux-backed work on the same machine. They resumed that work and declined
+further incident diagnostics; do not disturb it or ask them to reproduce a stop.
+Code inspection shows the removal flag changes only controller history metadata;
+private End messages are identical with/without removal. Host End targets one
+exact `reet-<hash>` session using an explicit enrollment-private socket. No
+production end/archive path issues kill-server/pkill/killall.
+
+An isolated local probe through the actual host Manager.End kept original PIDs
+for a second managed session, unmanaged work on the same server, and work on a
+separate server. This does **not** establish the cause on the user's machine or
+prove the incident fixed. A separate probe showed inherited TMUX can put new
+windows inside a parent session, but the user's independent-start clarification
+means that explanation must not be asserted for this incident. If it recurs,
+collect metadata about whether processes ended or merely paused, installed versus
+running agent versions, target IDs/sockets and service events through normal SSH.
+No broad cleanup, process killing or speculative lifecycle fix. Continue the
+roadmap as the user requested, keeping any proven terminal fix in a separate PR.
 
 ## Latest user priority — terminal polish and connection setup
 
@@ -196,9 +234,9 @@ shell PIDs and the primary background job across reconnect/restart and checks
 account command persistence in a separate browser. CI/merge state must be checked
 for the exact published head; this local evidence does not imply deployment.
 
-### T9 [ ] Latest user request: quick terminal actions on workspace and control page
+### T9 [x] Merged through PR #155 — quick terminal actions on workspace and control page
 
-Implemented in `feat/terminal-quick-actions`; publish/verify its PR and merge only when green. All five synthetic UI fixtures and frontend check/build pass locally; final Go/real-PTY/CI evidence is still pending.
+Merged as `b15bb5c` after all three workflows passed for `e1ab64e`. Frontend check/build, all five production UI fixtures, full vet/race and the real two-host PTY fixture passed. Preserve these controls when continuing the roadmap.
 - `SessionSidebar.svelte`: visible + beside machine headings (including enrolled
   machines without sessions) and selected-machine picker; right-click/ellipsis
   machine menu. Disable new shells for unready/disabled/quota-limited machines.
@@ -223,11 +261,9 @@ Implemented in `feat/terminal-quick-actions`; publish/verify its PR and merge on
   landing rename/stop/default preservation and saved-command menus. Existing layout,
   clipboard, ownership and persistence tests stay enabled. Record final CI evidence.
 
-S2 progress is saved separately on remote `feat/private-skill-revisions`, commit
-`9dceac1`. It is **incomplete and has no PR**: exact-content manifest builder/parity
-checks plus initial private-store schema/CAS/idempotency code compile, but API routes,
-storage/role/concurrency/rollback tests and final review are unfinished. Do not merge
-that WIP. Resume it after T9 rather than duplicate it; follow S2 requirements below.
+S2 now continues on `feat/private-skill-revisions` with the original WIP integrated
+with main through PR #155. The WIP implementation is no longer the continuation
+baseline; use the S2 implementation map and publication/check status below.
 
 ### T5 [x] Merged through PR #153 — First-class terminal connection wizard during initial install, enrollment and upgrade
 
@@ -1012,17 +1048,32 @@ change the public meaning of "in sync" or claim live content sync exists.**
 
 ### S2 [ ] Private immutable revision store and ownership
 
-Work in progress is saved on `feat/private-skill-revisions`; it is not ready for a PR.
-`internal/skillbundle/contents.go` builds exact upload manifests with S1 parity tests.
-`internal/store/store_private_skills.go` sketches owner-scoped SQLite blobs, immutable
-revisions, expected-base heads, request idempotency and quotas; its migration is
-wired in `store.go`. It compiles, but storage/API tests, transport routes, review,
-backup contract and final checks remain. Do not ship this partial implementation.
-Resume from that branch rather than duplicating it. Read preparation notes at
-`/workspace/work/reet-redesign/s2-preparation.md` if available, and the requirements
-below if that scratch file is absent. User's newer quick-terminal actions/reopen
-sidebar request takes priority; finish and merge that small UI PR, then resume S2.
+Implemented in `feat/private-skill-revisions`, pending final validation/PR.
+Read [the storage/API contract](docs/private-skill-revisions.md) before changing it.
+- `skillbundle/contents.go` computes upload manifests with exact S1 filesystem parity;
+  no byte/path normalization or local filesystem writes.
+- `store_private_skills.go` adds owner-scoped blobs, immutable random revision IDs,
+  separate manifest digests, immutable provenance, explicit expected-base head CAS,
+  idempotent account request IDs and transactional account capacity limits.
+- Retries return original receipts even after head advancement; the returned receipt
+  head is historical. GET the bundle separately for current head. Do not rewind it.
+- `api/private_skills.go` exposes bounded JSON GET/POST account routes under
+  `/api/v2/skill-bundles`. Browser writes need same-origin Origin; personal API tokens
+  use their own account. No default-owner fallback, public hosting mutation, remote
+  dispatch or MCP allowlist expansion. Complete reads verify stored integrity.
+- SKILL.md uses an isolated hosted-validation copy (2 MiB markdown maximum); all
+  original bytes/modes are retained. Full revision limit is 8 MiB / 256 files;
+  per-account limits are 128 bundles, 256 revisions, 64 MiB unique blob data.
+- This stage is append-only and has no content UI/deletion/GC. Full controller DB
+  backups include payloads; personal shelf JSON/personal backups exclude them.
+  A separate account-content export contract is needed before UI backup claims.
+- Targeted race tests pass for parsing/parity, cross-account/role isolation, stale
+  concurrent edits, stable retries, injected SQL rollback, all capacity bounds,
+  old-schema reopen, public/private separation, account deletion and full DB restore.
+  Local verification passed: frontend check/build (zero diagnostics), full `go vet ./...`, full `go test -race ./...`, and all 16 MCP tests. Record published PR CI for the exact final head before marking S2 merged.
 
+After merging S2, take **S3 metadata observations**, then explicit content import.
+Do not jump to S4 apply or the whole roadmap. Preserve all merged terminal controls.
 
 Depends on S1. One persistence/API-contract PR, without a remote apply UI.
 
@@ -1446,17 +1497,12 @@ working agent authentication or complete environment recovery.
 ## Ready-to-use continuation brief
 
 > Continue reet.sh from handoff.md. Inspect branch, worktree, main and PR states
-> without resetting edits. T1/T2 are merged, including PR #141's negotiated-grid
-> race fix. T3 history archival and the public landing redesign are merged through
-> PRs #142/#144. Verify the T4 feature branch/PR before repeating its implementation.
-> T4 delivers: correct bottom-edge terminal typing/scrolling, polished themes/controls and a
-> private account-synced saved CLI command library (explicitly chosen by the user).
-> Then T5: offer the terminal connection wizard on initial install/enrollment/upgrade and repair
-> missing-tmux guidance. Read the detailed T4/T5 steps near the top. Preserve local
-> shell consent, immutable IDs, leases, no input replay, explicit paste review and
-> canonical Origin/account boundaries. Do not auto-run a saved command or enable
-> shells silently. Validate host stty versus xterm at ordinary/full/phone sizes,
-> real shell process continuity, two-browser command persistence and actual TTY
-> setup questions. Finish web build before Go checks, record actual evidence and
-> limitations, update the handoff and create a reviewable PR for each bounded stage.
-> Keep S2 and bulk archival behind these user-requested terminal priorities.
+> without resetting edits. Terminal T1–T9 priorities are merged through PR #155.
+> S2 private revision storage/API is implemented on feat/private-skill-revisions;
+> verify its exact PR/check/merge state and read docs/private-skill-revisions.md.
+> If S2 is still open, finish it before starting S3. Once merged, take the S3
+> metadata-observation slice only, followed by explicit content import. Keep
+> ownership, exact byte/mode manifests, stable retry receipts, reviewed sync and
+> existing terminal sessions intact. Do not jump to remote apply or the whole roadmap.
+> Build the frontend before Go checks, record actual evidence, update this handoff
+> and publish one reviewable PR per bounded stage.

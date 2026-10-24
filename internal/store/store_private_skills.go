@@ -167,6 +167,8 @@ func (s *Store) SavePrivateSkillRevisionFor(uid int64, id string, in PrivateSkil
 			if err != nil {
 				return err
 			}
+			// The receipt describes the original write, not a later head movement.
+			out.Bundle.Head = priorRevision
 			out.Revision, err = privateSkillRevision(tx, uid, priorBundle, priorRevision, false)
 			return err
 		}
@@ -325,6 +327,9 @@ func privateSkillRevision(q privateSkillQuery, uid int64, bundle, id string, con
 		if err = rows.Scan(&f.Path, &f.Data, &f.Executable); err != nil {
 			rows.Close()
 			return r, err
+		}
+		if f.Data == nil {
+			f.Data = []byte{}
 		}
 		r.Files = append(r.Files, f)
 	}

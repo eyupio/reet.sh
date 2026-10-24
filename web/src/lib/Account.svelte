@@ -37,7 +37,7 @@
 
   const startConnect = location.hash === '#connect-machine'
   let section = $state<Section>(sectionFromHash())
-  let profile = $state<Profile>({ theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list', cardsExpanded: false, updatedAt: 0 })
+  let profile = $state<Profile>({ theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list', cardsExpanded: false, hostedPrefix: 'reet-', updatedAt: 0 })
   let sessions = $state<ProfileSession[]>([])
   let events = $state<Event[]>([])
   let tokens = $state<APIToken[]>([])
@@ -51,6 +51,8 @@
 
   // svelte-ignore state_referenced_locally
   let profileForm = $state({ name: user.name, theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list' as 'list' | 'board', cardsExpanded: false, terminalRemoveOnClose: false })
+  let prefixEnabled = $state(true)
+  let prefixValue = $state('reet-')
   let passwordForm = $state({ current: '', password: '', confirm: '' })
 
   function sectionFromHash(): Section {
@@ -79,6 +81,8 @@
       who = r.user
       profile = r.profile
       profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat, shelfView: r.profile.shelfView, cardsExpanded: r.profile.cardsExpanded, terminalRemoveOnClose: r.profile.terminalRemoveOnClose??false }
+      prefixEnabled = r.profile.hostedPrefix !== ''
+      prefixValue = r.profile.hostedPrefix || 'reet-'
       applyTheme(r.profile.theme)
       error = ''
     } catch (e) {
@@ -120,9 +124,12 @@
     notice = ''
     try {
       const { name, ...preferences } = profileForm
-      const r = await saveProfile(canWrite ? profileForm : preferences)
+      const hostedPrefix = prefixEnabled ? (prefixValue.trim() || 'reet-') : ''
+      const r = await saveProfile({ ...(canWrite ? profileForm : preferences), hostedPrefix })
       who = r.user
       profile = r.profile
+      prefixEnabled = r.profile.hostedPrefix !== ''
+      prefixValue = r.profile.hostedPrefix || 'reet-'
       onuserchange?.(r.user)
       applyTheme(r.profile.theme)
       notice = 'Reet, defaults saved. Your preferences follow you to every browser you sign in from.'
@@ -318,6 +325,13 @@
             <select bind:value={profileForm.cardsExpanded}><option value={false}>Collapsed — quick actions and core data</option><option value={true}>Expanded — all details</option></select>
             <small>Individual cards and Expand all / Collapse all can override this during your visit.</small>
           </label>
+          <div class="wide field"><span>Hosted skill name prefix</span>
+            <div class="prefix-row">
+              <span class="prefix-toggle"><input id="hosted-prefix-toggle" type="checkbox" bind:checked={prefixEnabled} /><label for="hosted-prefix-toggle">Prefix new and renamed hosted skills</label></span>
+              <input class="prefix-input" bind:value={prefixValue} placeholder="reet-" maxlength="33" disabled={!prefixEnabled} aria-label="Hosted skill name prefix" />
+            </div>
+            <small>Reet adds this to skills you host so they stand out from imports. Type a custom prefix such as <code>acme-</code>, or turn it off to use the bare skill name. Existing names are not changed automatically.</small>
+          </div>
         </div>
         <div class="formacts">
           <button type="submit" class="btn primary" disabled={busy === 'profile'}>{busy === 'profile' ? 'Saving…' : 'Save profile'}</button>
@@ -456,9 +470,14 @@
   form { display: grid; gap: 14px; margin-top: 16px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   .grid2 label { display: grid; gap: 4px; font-size: 0.84rem; color: var(--muted); }
-  .grid2 label.wide { grid-column: 1 / -1; }
+  .grid2 label.wide, .grid2 .field.wide { grid-column: 1 / -1; }
+  .grid2 .field { display: grid; gap: 4px; font-size: 0.84rem; color: var(--muted); }
   .grid2 small { color: var(--muted); font-size: 0.76rem; }
   .formacts { display: flex; justify-content: flex-end; }
+  .prefix-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .prefix-toggle { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 0.84rem; }
+  .prefix-toggle input { width: auto; }
+  .prefix-input { flex: 1; min-width: 120px; max-width: 220px; }
   .rows { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
   .rows li { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .rows small { display: block; color: var(--muted); font-size: 0.78rem; }

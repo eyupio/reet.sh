@@ -22,10 +22,10 @@ func TestShelfDefaultsMigrateAndSurviveReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, err := st.ProfileFor(user.ID)
-	if err != nil || p.ShelfView != "list" || p.CardsExpanded || p.TerminalRemoveOnClose || p.Theme != "dark" || p.Timezone != "Europe/London" || p.DateFormat != "dmy" {
+	if err != nil || p.ShelfView != "list" || p.CardsExpanded || p.TerminalRemoveOnClose || p.HostedPrefix != DefaultHostedPrefix || p.Theme != "dark" || p.Timezone != "Europe/London" || p.DateFormat != "dmy" {
 		t.Fatalf("migration lost preferences: %+v %v", p, err)
 	}
-	p.ShelfView, p.CardsExpanded, p.TerminalRemoveOnClose = "board", true, true
+	p.ShelfView, p.CardsExpanded, p.TerminalRemoveOnClose, p.HostedPrefix = "board", true, true, "acme-"
 	if err := st.SaveProfileFor(user.ID, p); err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestShelfDefaultsMigrateAndSurviveReopen(t *testing.T) {
 	}
 	defer st.Close()
 	p, err = st.ProfileFor(user.ID)
-	if err != nil || p.ShelfView != "board" || !p.CardsExpanded || !p.TerminalRemoveOnClose {
+	if err != nil || p.ShelfView != "board" || !p.CardsExpanded || !p.TerminalRemoveOnClose || p.HostedPrefix != "acme-" {
 		t.Fatalf("defaults did not survive reopen: %+v %v", p, err)
 	}
 }

@@ -73,3 +73,18 @@ func TestHostedStorageSurvivesReopenAndShelfRestore(t *testing.T) {
 		t.Fatal("accepted mismatched hosted URL")
 	}
 }
+
+func TestHostedPrefixNormalization(t *testing.T) {
+	good := map[string]string{"": "", "reet": "reet-", "Reet--": "reet-", " acme ": "acme-", "my-team-": "my-team-"}
+	for in, want := range good {
+		got, err := NormalizeHostedPrefix(in)
+		if err != nil || got != want {
+			t.Errorf("NormalizeHostedPrefix(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"bad name", "a--b", "-lead", "way-too-long-prefix-that-exceeds-the-limit"} {
+		if _, err := NormalizeHostedPrefix(in); err == nil {
+			t.Errorf("NormalizeHostedPrefix(%q) accepted", in)
+		}
+	}
+}

@@ -205,8 +205,9 @@ no regression in other routes and no hidden change to terminal authorization.
 ### T1 implementation record — 24 October 2026
 
 - Branch: `feat/terminal-first-workspace`, based on main `cdafcd0` after PR #139
-  merged. This records implemented branch work, not a production deployment.
-  Check current GitHub PR/main state before continuing.
+  merged. Implementation commit: `6bc7a78`. PR [#140](https://github.com/eyupio/reet.sh/pull/140)
+  was opened on 24 October 2026. This records implemented branch work, not a
+  production deployment. Check current GitHub PR/main state before continuing.
 - Added compact, full-width terminal chrome and a visual-viewport-sized workspace;
   session navigation is beside the screen on desktop and toggleable on phones.
   Help, machine health, setup and command reference are in a native dialog.

@@ -3,8 +3,10 @@
 ## Read this first — 24 October 2026
 
 This is the current implementation baseline **and** the continuation plan. Current
-capabilities below are implemented; unchecked S/A/W/L tasks are future work. Start
-with **S1**, not the whole roadmap. Historical delivery evidence remains in
+capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
+**T1 (terminal-first workspace UX) is next.** S1 is implemented on the current
+implementation branch and recorded below; review/save it, then prioritise T1 before
+S2. Do not start the whole roadmap. Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
 limitations. The previous handoff's "no controller-authorized terminal" statement
 and old improvements-branch pointer are superseded by this file.
@@ -21,6 +23,231 @@ Read alongside:
   [stage 9](docs/remote-machine-stage9.md), and
   [controller terminal commands](docs/terminal-controller-commands.md).
 - CONTRIBUTING.md and [voice/copy](docs/voice-and-copy.md).
+
+## Immediate next priority — terminal workspace UX
+
+**User steering, 24 October 2026:** terminals are becoming the primary everyday
+use case. Users should land directly in a usable terminal workspace, without
+scrolling past a stack of setup/help/health sections. Session connection and
+maintenance actions need to be easy to find and unambiguous. This requirement
+moves **T1 next**, ahead of S2 and the remaining skill/agent-management roadmap.
+S1 has been implemented and checked as a separate bounded stage; review/save that
+work before T1. Do not discard it or expand it into S2 ahead of terminal UX.
+
+### Required product behaviour
+
+- `/terminals` is a primary workspace, not a form with a terminal appended below.
+  Use the available width and remaining viewport height. A selected active shell
+  appears immediately on desktop and phone without scrolling the page to find it.
+- Keep machine, session, host user, connection status and primary actions in a
+  compact persistent workspace header. Put machine/session navigation beside the
+  screen on desktop and in a usable drawer/sheet on phones. Preserve the existing
+  Control dashboard; improving terminal prominence does not silently change the
+  home route or remove the skill library.
+- Help, command reference, setup, quotas and detailed machine health belong in
+  secondary panels/drawers. A blocking readiness problem gets a concise visible
+  explanation and a clear setup action; long instructions must not push an
+  existing usable terminal below the fold.
+- Distinguish **browser attachment**, **host shell lifecycle**, **machine connector
+  status**, and future **AI agent activity**. "Disconnected" does not mean the shell
+  stopped. An online connector does not mean the selected shell is attached.
+- Existing terminals already have Detach/Reconnect, Rename, End session, Search,
+  Copy/Paste, font controls and Maximise. Improve their naming, placement and
+  discoverability. Do not rebuild working transport because the controls are hard
+  to find. Maximise should be optional; users should not need it to get a useful
+  default workspace.
+
+### Active-session hero band on Control
+
+The main page must make ongoing work visible before general inventory and setup
+cards. Add a compact, prominent active-session band near the top of Control with
+an active count and direct links/cards for the user's sessions, grouped or labelled
+by machine. Each item shows session title, machine, shell lifecycle and whether
+connection information is current. Use plain shell/session labels; working/waiting
+AI-agent status must wait for a real semantic adapter.
+
+A click deep-links to `/terminals?agent=CONNECTOR_ID&session=SESSION_ID` and resumes
+that existing session immediately. No new-session wizard, duplicate shell or scroll
+hunt. Preserve the selected session on refresh and provide a Back to active sessions
+route. Anchor links may jump to an already-rendered workspace; do not use an anchor
+as a substitute for selecting the correct immutable machine/session IDs.
+
+Use existing account-scoped terminal session APIs, rather than counting sync jobs
+as sessions or inventing state from health. Respect account/write access and do not
+request private session data for viewers. Poll only when visible, label stale or
+unavailable data, and preserve last-known entries on transient failure; an API error
+must not become "no active sessions". Creating and end-requested sessions remain
+visible with their actual state. Do not label a generic record's updated timestamp
+as live terminal activity. Keep quick links usable on mobile and with many sessions.
+
+Fixture acceptance: create sessions on two machines, return to Control, see both
+without scrolling, open either exact session with one click, and prove its original
+PID and output remain. A delayed/offline session gives reconnect guidance without
+creating a replacement. In a local healthy fixture target attachment within two
+seconds after selection; report real timings and do not claim that as a remote
+network SLA. Switching contexts must not terminate the previous session.
+
+### SSH-style keyboard, mouse and clipboard interaction
+
+The user explicitly requested familiar SSH-terminal behaviour for Ctrl+C,
+Ctrl+V/Ctrl+X and right-click paste. Apply these rules to existing remote terminals
+and preserve them for any future SSH session adapter. Do not replace the current
+private transport or claim direct SSH host support merely by changing the UI.
+
+- **Interrupt:** Ctrl+C must reliably reach the live shell as interrupt when no
+  terminal text is selected. With selected terminal output, provide copy-selection
+  behaviour and a clearly visible Interrupt/Send Ctrl+C action so interrupt is
+  always available. Ctrl+Shift+C remains an explicit copy shortcut. On macOS,
+  Cmd+C copies; Ctrl+C retains terminal interrupt behaviour.
+- **Paste:** Ctrl+V and Cmd+V use native paste events where supported; provide
+  Ctrl+Shift+V and an explicit Paste action. Send pasted text once only: do not
+  process the same input through both a key handler and a paste event. Clipboard
+  permission denial gives a useful fallback, never a silent no-op.
+- **Cut:** Ctrl+X/Cmd+X works normally in editable app fields. Terminal output is
+  read-only and cannot be "cut"; inside a shell/editor, preserve Ctrl+X as terminal
+  input where appropriate. Do not erase scrollback, send delete/kill commands or
+  pretend to know the remote line editor's buffer to implement desktop-style cut.
+- **Right click:** provide a terminal-local Copy/Paste context menu. A paste-on-right-
+  click preference may be offered explicitly, using the same safety checks; Shift+
+  right-click should still allow the browser's native menu. Do not suppress context
+  menus globally or surprise-paste when the user is simply selecting output.
+- Preserve bracketed-paste semantics where the terminal supports them. Existing
+  multiline/large/control-character paste review applies equally to keyboard,
+  toolbar, mobile and context-menu paste. Cancellation sends no bytes. Never paste
+  while disconnected or replay it when a connection comes back.
+- Keep focus predictable: copy/menus do not lose the selected session; paste and
+  explicit terminal actions return focus appropriately. App shortcuts must not
+  steal Ctrl+C, Ctrl+X, editor keys or ordinary typing from a focused terminal.
+
+Test Windows/Linux modifier conventions and macOS equivalents where runners are
+available; use browser event/clipboard fixtures for deterministic coverage. Verify
+copy with/without a selection, real shell interrupt, editable-field cut, shell
+Ctrl+X forwarding, clipboard denial, context-menu paste, duplicate-paste prevention,
+multiline approval/cancel, disconnected input and mobile long-press behaviour.
+
+Direct SSH host connections, if required later, need a separate adapter contract:
+host-key verification, machine-local key/agent references, authentication, resize/
+signal forwarding and persistence guarantees. A raw SSH connection does not promise
+survival across disconnects without a host session manager. Never introduce central
+private-key copying or weaken host verification as a UI convenience.
+
+### Action vocabulary and consequences
+
+| User action | Required consequence |
+| --- | --- |
+| Connect / Reconnect | Attach to the selected existing session; no implicit new shell |
+| Disconnect | Detach this browser; shell and its work keep running; intentional disconnect stays disconnected through polling/online events |
+| Switch session/machine | Move browser attachment to the chosen context; preserve the previous shell |
+| Rename | Change display name only; preserve shell/process identity |
+| End session | Explicitly stop the shell and its running work; confirm the exact selected session; offline requests remain visibly pending |
+| Remove from history | Hide/archive a confirmed terminal session that is ended/exited/lost; preserve durable IDs/receipts; must not kill a live shell or remove machine files |
+| Forget machine / revoke enrollment | Separate machine-level management with existing consequences; never substitute either for disconnecting a terminal |
+
+The current API does **not** provide session-history removal. Do not label the
+existing End action Delete/Remove or invent a successful local-only deletion.
+T1/T2 reuse supported actions; implement the T3 contract before exposing persistent
+history removal. Read-only observation/shared control are later permission work;
+do not relax current account ownership or viewer restrictions for this redesign.
+
+### T1 [ ] Terminal-first viewport and layout — NEXT TASK
+
+Scope: improve the existing terminal route and active-session band using current
+session APIs. No
+agent launcher, new transport, history-deletion endpoint or unrelated app redesign.
+
+Read first: `web/src/App.svelte` (main/header/footer widths and route classes),
+`web/src/app.css`, `web/src/lib/Machines.svelte`, then
+`web/src/lib/terminal/TerminalWorkspace.svelte`, `TerminalPane.svelte`,
+`TerminalCommandReference.svelte`, `connection.ts`, `HealthHistory.svelte`,
+`MachineHealthStrip.svelte`, and `web/tests/terminal.e2e.mjs`. Also inspect `ControlCenter.svelte` and
+`web/src/lib/terminal/api.ts` for the active-session band.
+
+1. Reproduce the current stacked layout with synthetic data and one active session.
+   Record where the screen begins and which elements consume the first viewport.
+   Include the PR #136 command-reference addition in this inspection.
+2. Add a terminal-route layout class so app/main/footer padding and content-width
+   constraints do not letterbox the workspace or force document scrolling. Keep
+   navigation/account access available in a compact form. Do not change other
+   pages' layout as a side effect.
+3. Use a viewport-height flex/grid workspace with `min-height: 0` and contained
+   scrolling: compact toolbar, optional navigation column, remaining space for
+   the live screen. The terminal output buffer scrolls within xterm; secondary
+   panels scroll independently. Move the decorative heading/help stack out of
+   the critical path.
+4. Add the active-session band on Control and exact-session quick links, following
+   the visibility, freshness, ownership and continuation contract above. Move
+   command reference and detailed health into explicit drawers/panels while
+   retaining local setup commands, read-only diagnostics and offline guidance.
+   Avoid tall always-open panels above an active terminal.
+5. Fit the existing xterm instance when its container, drawer/sidebar or visual
+   viewport changes. Keep session identity stable during status refreshes; do not
+   unmount/recreate a shell attachment just because health or layout changed.
+6. Implement/verify the SSH-style interaction contract above while preserving
+   focus/copy/paste confirmation, safe clipboard/link handling, UTF-8,
+   accessibility, font controls and mobile extra keys. App shortcuts must not
+   consume normal shell keys. Keyboard opening must resize the usable screen
+   rather than hide the active prompt behind the phone keyboard.
+
+Acceptance: at 1360x900 the active terminal is visible at page scroll position 0
+and its screen uses at least 60% of viewport height. At 390x844 with keyboard closed,
+its screen uses at least 50%, with primary context/actions available without
+scrolling down the document. Validate narrower/shorter screens with usable contained
+scrolling rather than clipping. Sidebar/help toggles and resize keep the same shell
+process. Check light/dark, keyboard focus, phone rotation and long session names.
+Use measured browser bounds plus screenshots; a screenshot alone is not a fit test.
+Include the Control active-band continuation and clipboard/interrupt cases above.
+Gate: web checks/build and existing real terminal browser/lifecycle tests pass;
+no regression in other routes and no hidden change to terminal authorization.
+
+### T2 [ ] Session navigation and clear existing lifecycle controls
+
+Depends on T1. Reuse existing APIs and `TerminalConnection.detach/connect/recover`.
+
+1. Add a searchable machine/session list with clear selected context, session
+   title, lifecycle state and attachment status. Keep unavailable machines and
+   existing sessions visible with reasons. Avoid a long list of unlabelled tabs.
+2. Put Connect/Reconnect, Disconnect, New terminal, Rename and End session in a
+   predictable toolbar/context menu. Keep End visually distinct; explain its
+   effect in confirmation. Creation must remain explicit and preserve retry IDs.
+3. Retain deep links and selected IDs across appropriate navigation/reloads without
+   storing terminal text or credentials in browser storage. Returning to a session
+   uses the existing shell; polling never steals a user's selection.
+4. Make intentional Disconnect sticky until the user reconnects. Preserve takeover
+   controls and single-controller lease semantics. Do not auto-replay keystrokes
+   or reconnect after an intentional disconnect merely because the network wakes.
+5. Handle cancel, failure, pending end, lost shell, quota and revoked access visibly.
+   Bind confirmations to immutable session ID, not whatever row is selected later.
+
+Tests: create once under an ambiguous response; switch between two machines/shells;
+disconnect/reconnect preserves PID; online/visibility events do not undo deliberate
+disconnect; rename preserves process; End affects only the confirmed session;
+pending offline end is not shown as completed; takeover and denied access stay safe.
+Gate: browser tests exercise the actual controls, not only mocked state labels;
+ordinary typing, control keys and multiline-paste confirmation still work.
+
+### T3 [ ] Remove closed sessions from history safely
+
+Depends on T2. Add a small explicit lifecycle/API contract before exposing this UI.
+Read `internal/store/store_terminal.go`, `internal/api/terminal.go`, host registry
+and receipts, `web/src/lib/terminal/api.ts` and the integration fixtures.
+
+1. Choose an archive/tombstone model for account-owned terminal history. Reject
+   removal of creating/running/end-requested sessions, even if a browser believes
+   they are closed. Do not delete durable operation receipts or free active quota
+   through archiving. Do not confuse unknown/offline with confirmed terminal end.
+2. Add owner-scoped, role-checked, idempotent API support. Archive visibility must
+   survive reloads/controller restarts. Preserve pending operations, replay fences
+   and host-registry identity, so a stale creation retry cannot recreate a shell.
+3. UI uses the exact label Remove from history and explains that this does not
+   remove host files. Offer End first for live sessions. Keep errors visible; a
+   failed removal must not disappear only from local component state.
+4. Add reviewed bulk cleanup for selected closed sessions only after single-session
+   removal works. Report per-item failures; never include active sessions by default.
+
+Tests: owner/viewer/other-account, already archived retry, stale active state,
+concurrent end/archive, offline machine, restart and old creation/end receipts.
+Gate: an archived closed record stays hidden after reload without killing another
+process, altering machine files, bypassing quota or making a shell recreatable.
 
 ### Baseline and publication state
 
@@ -142,6 +369,7 @@ Extend these foundations instead of rebuilding capabilities that already exist.
 | Desired sets/jobs/receipts | `internal/store/store_sync.go`, `store_sync_control.go`; `internal/api/sync.go`, `sync_control.go` |
 | Store/migrations and route registration | `internal/store/store.go`, `internal/api/api.go`; inspect feature-local initialisation too |
 | Hosted bundle validation/editor | `internal/store/store_hosted.go`, `internal/api/hosted.go`, `web/src/lib/Hosting.svelte` |
+| Read-only content manifests (S1) | `internal/skillbundle`, [contract](docs/skill-bundle-manifests.md); independent of live sync/snapshot formats |
 | Snapshot whole-skill collection/verification | `internal/setup/skills.go`, `skills_verify.go`, `snapshot.go`, `restore_apply.go`, `rollback.go` |
 | Agent adapters/discovery/evidence | `internal/setup/adapters.go`, `discovery.go`, `installation.go`, `health.go`, config/policy files and tests |
 | Setup profiles | `internal/setup/profile.go`, `internal/profilehistory`, `internal/store/store_setup_profiles.go`, `internal/api/setup_profiles.go` |
@@ -208,28 +436,32 @@ the central-control roadmap on 24 October 2026 and requested this detailed hando
 This records the accepted direction; this turn authorises the handoff update,
 not implementation of every milestone or production changes. Future sessions
 should implement the task requested within this direction, and verify its gate.
+Later steering prioritises the terminal workspace as the main everyday use case.
 
-Priorities, in order:
+Priorities, in order (terminal UX moved first by the user on 24 October):
 
-1. **S — Complete the skill foundation:** versioned bundles, content-level drift,
+1. **T — Make terminals the primary usable workspace:** viewport layout, clear
+   session navigation/controls and safe history maintenance (T1–T3). Finish/save
+   completed S1 first; do not start S2 ahead of T1.
+2. **S — Complete the skill foundation:** versioned bundles, content-level drift,
    reviewed local edits, safe one/many-machine transfer and verification.
-2. **A — Make remote work convenient:** registered agent capabilities, project
+3. **A — Make remote work convenient:** registered agent capabilities, project
    selection, explicit launch, semantic activity and an attention queue.
-3. **W — Make parallel work reviewable:** managed worktrees, files/diffs and
+4. **W — Make parallel work reviewable:** managed worktrees, files/diffs and
    structured agent interaction where supported.
-4. **L — Fleet lifecycle:** observed agent versions, reviewed install/update/remove,
+5. **L — Fleet lifecycle:** observed agent versions, reviewed install/update/remove,
    desired MCP configuration and optional isolated agent sessions.
 
 Conversation resume/fork, granular machine/project permissions, read-only terminal
 observation and OIDC login are valuable later extensions. A full terminal TUI,
 themes, sound effects and a broad plugin marketplace are lower priority than the
-four outcomes above. Keep the warm Reet branding, Yorkshire rose and familiar
+outcomes above. Keep the warm Reet branding, Yorkshire rose and familiar
 navigation; read [voice and copy](docs/voice-and-copy.md) for user-facing changes.
 
 The older setup plan records an earlier delivery order (backup/restore, profiles,
 maintenance). Preserve its data-safety and recovery requirements. This roadmap is
-the newer ordering for the central-control product; do not attempt complete setup
-recovery before the next bounded skill-content task. Do not label partial file
+the newer ordering for the central-control product, with terminal UX now first;
+do not attempt complete setup recovery before the bounded workspace/content tasks. Do not label partial file
 recovery as a fully working recovered agent environment.
 
 ## Execution rules for the next session
@@ -241,7 +473,7 @@ recovery as a fully working recovered agent environment.
    base when network/authentication are available. Preserve existing edits.
    PR #135's branch is already merged; use a new branch from current main for the
    next implementation PR, carrying any authorised local edits safely.
-3. Pick **one unchecked task**, starting with S1. Do not build a later UI button
+3. Pick **one unchecked task**, starting with T1 after saving the current S1 work. Do not build a later UI button
    or remote mutation endpoint while its prerequisite is absent. Do not turn
    this whole roadmap into one PR.
 4. Before editing, state the task ID, files affected, expected behaviour and checks.
@@ -283,7 +515,7 @@ machine B and/or other targets, preview, approve, apply, and verify the expected
 contents. A conflicting edit on B must stop that destination without undoing or
 concealing success elsewhere. Nothing becomes publicly hosted merely by importing.
 
-### S1 [ ] Read-only local bundle manifest — START HERE
+### S1 [x] Read-only local bundle manifest — implemented in current branch; T1 next
 
 Scope: a deterministic manifest and local comparison helper with fixture tests.
 Do not add remote uploads, SQLite migrations, a web editor or filesystem writes.
@@ -330,6 +562,32 @@ change. The test must fail if a same-source content edit is treated as equal.
 Gate: targeted Go tests and race tests pass, snapshot compatibility is preserved,
 and no test/command writes outside its temporary fixture. **S1 alone must not
 change the public meaning of "in sync" or claim live content sync exists.**
+
+### S1 implementation record — 24 October 2026
+
+- Branch: `feat/skill-bundle-manifests`, rebased onto main `6c28b50` after the
+  documentation PR [#137](https://github.com/eyupio/reet.sh/pull/137) merged.
+- Source implementation commit: `5f18459e26a7605217d2f6642f66ed879de29ddf`. This is branch
+  implementation, not a claim that S1 has merged or shipped. Check the implementation
+  PR state before building on it.
+- Added `internal/skillbundle`: read-only bounded root-confined Scan, schema-v1
+  SHA-256 manifests, POSIX executable-bit semantics, pure directional Compare and
+  fail-closed unknown outcomes for incomplete/incompatible/malformed observations.
+- Added fixtures for exact bytes, scripts/modes/line endings, add/remove/rename,
+  unreadable/missing/incomplete data, traversal/case collisions, limits, read-time
+  changes, FIFO replacement, failed-read aggregate budgets and canonical hashing.
+- Existing encrypted setup/snapshot digests and shared scanner behaviour are
+  unchanged. There are no new endpoints, CLI commands, migrations or remote writes.
+- Contract and limits: [skill bundle manifests](docs/skill-bundle-manifests.md).
+- Checks passed: new package race tests (90% statement coverage), setup/scan/store
+  race regressions, web checks (zero Svelte errors/warnings) and build, Go vet,
+  full Go race suite, all 16 MCP tests, and Darwin arm64/Windows amd64 package/test
+  cross-compilation. Cross-compilation is not native platform runtime validation.
+- No UI/session transport changed; no real machine, provider, release or production
+  deployment was used. Vite retains its existing bundle-size advisory.
+- **Exact next task is T1**, including the Control active-session hero/quick links,
+  viewport-first terminal and the keyboard/mouse/clipboard contract. Do not start
+  S2 merely because it is the next content dependency.
 
 ### S2 [ ] Private immutable revision store and ownership
 
@@ -447,7 +705,7 @@ alone do not establish fleet transfer or filesystem correctness.
 ## A — Agent sessions and attention
 
 Start after the content foundation; work on independent read-only discovery is
-possible earlier, but it must not expand the next S1 PR.
+possible earlier, but it must not expand a bounded terminal or content-stage PR.
 
 ### A1 [ ] Registered AI agent capabilities and project selection
 
@@ -752,13 +1010,17 @@ working agent authentication or complete environment recovery.
 
 ## Ready-to-use continuation brief
 
-> Continue reet.sh from handoff.md. First inspect the actual branch, worktree and
-> current main without resetting any edits. Implement only S1: a deterministic,
-> bounded, read-only local skill-bundle manifest and pure file-diff helper, reusing
-> appropriate snapshot code and preserving old formats. Read the S1 files and
-> existing tests before choosing the package/API. Test same-source/different-byte
-> skills, supporting scripts, executable bits, incomplete reads, limits and path
-> safety. Do not add remote uploads, database writes, content apply, agent launch,
-> real-machine changes or production publication in this task. Run the relevant
-> tests and repository gates, then update task status, evidence and exact next
-> step in handoff.md. Keep any resulting PR limited to S1.
+> Continue reet.sh from handoff.md. First inspect the branch, worktree and current
+> main without resetting edits. Save/review any existing S1 implementation; do not
+> duplicate it or proceed to S2. The next priority is T1: make /terminals a primary
+> viewport-filling workspace. Inspect App.svelte, Machines.svelte,
+> TerminalWorkspace.svelte, TerminalPane.svelte, TerminalCommandReference.svelte
+> and terminal browser fixtures. Keep the active terminal visible without page
+> scrolling; make context/actions compact and move health/help to secondary
+> panels. Add Control active-session quick links that resume the same shell and
+> familiar keyboard/right-click clipboard behaviour under the documented rules. Preserve the existing shell, attachment leases, disconnect/reconnect,
+> input safety and account/host consent. Do not add unsupported delete controls,
+> a new transport, an agent launcher or skill-content apply in this task. Verify
+> measured screen bounds at desktop/phone widths, actual terminal resize/focus
+> and the same shell process through layout changes. Run relevant checks, then
+> update task status, evidence and next step. Keep the PR limited to T1.

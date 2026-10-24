@@ -195,6 +195,9 @@ try{
  await expect(sidebar).toBeHidden()
  await page.locator('.terminal-toolbar').getByRole('button',{name:'Show sessions',exact:true}).click()
  await expect(sidebar).toBeVisible();await expect(page.locator('.workspace')).not.toHaveClass(/theatre/)
+ await page.getByRole('button',{name:'Maximise',exact:true}).click()
+ await page.locator('.terminal-toolbar').getByRole('button',{name:'Show sessions',exact:true}).click()
+ await expect(sidebar).toBeVisible();await expect(pane).not.toHaveClass(/maximised/)
  const beforeMenuInput=inputs.length
  await page.getByRole('region',{name:'Remote terminal screen',exact:true}).click({button:'right'})
  await page.getByRole('menu',{name:'Terminal actions',exact:true}).getByRole('menuitem',{name:'Saved commands…',exact:true}).click()

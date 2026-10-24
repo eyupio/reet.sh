@@ -1430,6 +1430,12 @@ func TestReceiptFollowsMachineRename(t *testing.T) {
 	if err != nil || before == nil {
 		t.Fatal(before, err)
 	}
+	// Backdate the receipt so the rename's updated_at bump is visible even when the
+	// whole test runs inside one millisecond.
+	r.UpdatedAt -= 60_000
+	if _, err = e.s.db.Exec(`UPDATE skill_content_receipts SET updated_at=? WHERE id=?`, r.UpdatedAt, r.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	if err = e.s.MergeMachinesFor(e.uid, e.agent.Host, "renamed-laptop"); err != nil {
 		t.Fatal(err)
@@ -1442,7 +1448,7 @@ func TestReceiptFollowsMachineRename(t *testing.T) {
 	if got.EnvironmentID != renamed || got.AgentID != r.AgentID || got.Name != r.Name || got.BundleID != r.BundleID || got.RevisionID != r.RevisionID {
 		t.Fatalf("only the slot's environment may move: %+v", got)
 	}
-	if got.Version == r.Version || len(got.Version) != 48 || got.UpdatedAt < r.UpdatedAt || got.CreatedAt != r.CreatedAt {
+	if got.Version == r.Version || len(got.Version) != 48 || got.UpdatedAt <= r.UpdatedAt || got.CreatedAt != r.CreatedAt {
 		t.Fatalf("the rename must draw a new version and keep the receipt's age: %+v from %+v", got, r)
 	}
 	if got.ManagedDigest != r.ManagedDigest || got.FileCount != r.FileCount || got.Provenance != r.Provenance || got.Evidence != r.Evidence {

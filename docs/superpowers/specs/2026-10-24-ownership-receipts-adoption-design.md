@@ -1,6 +1,8 @@
 # Ownership receipts and adoption (S4 design)
 
-Date: 2026-10-24. Status: design for review; no code written.
+Date: 2026-10-24. Status: implemented; this is the design record. The shipped contract,
+including where the code differs from this text, is
+[skill-content-receipts.md](../../skill-content-receipts.md).
 
 Nowt gets called ours without proof. This slice lets an account record which files on
 a machine reet manages, and lets an existing, unowned skill folder be brought under
@@ -82,10 +84,11 @@ skill_content_receipts(
 ```
 
 - `managed` is the planner's `Baseline.Manifest`: complete, canonical, at most 256 files,
-  validated through the S1 identity format on write and on every read, and checked on
-  every read against the recorded revision (each managed file must equal that revision's
-  file). A failure ends the preview as `plan_unavailable`; a damaged receipt is never
-  accepted quietly.
+  validated through the S1 identity format on write and whenever a receipt is read
+  individually or used as a baseline, and checked on those reads against the recorded
+  revision (each managed file must equal that revision's file). The list only summarises
+  and flags a row it cannot decode as damaged. A failure ends the preview as
+  `plan_unavailable`; a damaged receipt is never accepted quietly.
 - Mode (`additive` or `managed`) is not stored: it comes from the pin when each plan is
   built, so changing it never needs a new receipt.
 - `evidence` holds preview ID, review hash, capture hash, observed manifest digest,

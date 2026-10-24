@@ -118,7 +118,7 @@ func agentRequestContext(ctx context.Context, c agentConfig, path string, body a
 	if resp.StatusCode >= 300 {
 		var e struct{ Error string }
 		_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&e)
-		return fmt.Errorf("controller %s: %s", resp.Status, e.Error)
+		return controllerError{Status: resp.StatusCode, Message: e.Error}
 	}
 	if result == nil {
 		return nil
@@ -370,6 +370,31 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	}
 }
 
+// controllerError is a refusal or failure the controller answered with. The
+// status separates a permanent refusal from a server that is restarting.
+type controllerError struct {
+	Status  int
+	Message string
+}
+
+func (e controllerError) Error() string {
+	return fmt.Sprintf("controller %d %s: %s", e.Status, http.StatusText(e.Status), e.Message)
+}
+
+// permanentAgentError reports a controller refusal that will not change by
+// resending the same request.
+func permanentAgentError(err error) bool {
+	var refusal controllerError
+	if !errors.As(err, &refusal) {
+		return false
+	}
+	switch refusal.Status {
+	case http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict:
+		return true
+	}
+	return false
+}
+
 type agentResult struct {
 	ID      string   `json:"id"`
 	Status  string   `json:"status"`
@@ -387,11 +412,21 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 			return err
 		}
 		if err = agentRequestContext(ctx, c, "/api/v2/sync/result", result, nil, version); err != nil {
+			// A controller that has already closed this job will never take the
+			// result, so drop it instead of blocking every later cycle on it.
+			if permanentAgentError(err) {
+				_ = os.Remove(config + ".result")
+			}
 			return err
 		}
 		if err = os.Remove(config + ".result"); err != nil {
 			return err
 		}
+	}
+	// A re-exec into a new build leaves a marker: prove the new build can reach
+	// the controller, or put the previous one back.
+	if _, err := checkPendingUpdate(c, config, version); err != nil {
+		return err
 	}
 	if handled, err := processRemoteImport(ctx, c, version); handled {
 		return err
@@ -439,7 +474,8 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 		if !allowRestart {
 			operationErr = errors.New("updating reet requires the long-running background or service agent")
 		} else {
-			result.Message, restartPath, operationErr = updateAgentBinary(ctx, j.Revision, version)
+			report := func(stage, detail string) { reportAgentStage(c, j.ID, stage, detail, version) }
+			result.Message, restartPath, operationErr = updateAgentBinary(ctx, config, j.ID, j.Revision, version, report)
 		}
 	} else {
 		target, err := fetchTarget(c.Server, c.Token, j.TargetID)
@@ -491,15 +527,13 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 		result.Message = operationErr.Error()
 	}
 	if restartPath != "" {
-		// Leave the successful result durable before replacing the process image.
-		// The new process sends it on its first cycle. If exec fails, record and
-		// send the failure from this process instead.
-		if err := writePrivate(config+".result", result); err != nil {
-			return err
-		}
+		// The pending marker is the durable state now: the new process proves
+		// itself and sends the result. If exec fails here, put the old binary
+		// back and report the failure from this process instead.
 		if err := restartAgent(restartPath); err != nil {
+			undoPendingUpdate(config)
 			result.Status = "failed"
-			result.Message = "Binary updated but the agent restart failed: " + err.Error()
+			result.Message = "The new binary was installed but the agent could not restart; the previous binary is in place. " + err.Error()
 		} else {
 			return nil
 		}

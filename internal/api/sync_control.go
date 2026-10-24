@@ -22,6 +22,7 @@ func (s *server) registerSyncControl(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/sync/adopt", s.requireWriter(s.adoptSyncSkills))
 	mux.HandleFunc("POST /api/v2/sync/run", s.requireWriter(s.startSyncRun))
 	mux.HandleFunc("POST /api/v2/sync/agents/update", s.requireWriter(s.updateSyncAgent))
+	mux.HandleFunc("POST /api/v2/sync/agents/update/stage", s.requireWriter(s.reportUpdateStage))
 	mux.HandleFunc("POST /api/v2/sync/agents", s.requireWriter(s.enrollSyncAgent))
 	mux.HandleFunc("PATCH /api/v2/sync/agents", s.requireWriter(s.controlSyncAgent))
 	mux.HandleFunc("POST /api/v2/sync/jobs", s.requireWriter(s.queueSyncJob))
@@ -203,8 +204,10 @@ func (s *server) syncIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// autoUpdateCooldown prevents a failed or offline update from being queued on
-// every poll while still retrying a transient release-download failure.
+// autoUpdateCooldown keeps a failed, rolled-back or ineffective update from
+// being queued on every poll. A successful update usually makes the agent
+// current, so the wait costs nothing there; it only matters when the machine
+// still reports the old build afterwards.
 const autoUpdateCooldown = time.Hour
 
 func (s *server) maybeAutoUpdateAgent(r *http.Request, a store.SyncAgent) {
@@ -215,13 +218,32 @@ func (s *server) maybeAutoUpdateAgent(r *http.Request, a store.SyncAgent) {
 	if !update {
 		return
 	}
-	recent, err := s.st.AgentUpdateAttemptedSince(s.uid(r), a.ID, time.Now().Add(-autoUpdateCooldown).UnixMilli())
+	recent, err := s.st.AgentUpdateSettledSince(s.uid(r), a.ID, time.Now().Add(-autoUpdateCooldown).UnixMilli())
 	if err != nil || recent {
 		return
 	}
 	if _, err = s.st.QueueAgentUpdate(s.uid(r), a.ID, target); err == nil {
 		s.eventRequest(r, "sync-agent-auto-update", "", map[string]string{"agent": a.ID, "version": target, "commit": a.Commit})
 	}
+}
+
+// reportUpdateStage lets the enrolled agent narrate its own update. The
+// controller keeps the timeline the person watches; it never supplies the
+// binary or its stages' outcome.
+func (s *server) reportUpdateStage(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.agentIdentity(w, r)
+	if !ok {
+		return
+	}
+	var in struct{ ID, Stage, Detail string }
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := s.st.SetAgentUpdateStage(s.uid(r), a.ID, in.ID, in.Stage, in.Detail); err != nil {
+		writeErr(w, 409, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
 func (s *server) pollSyncAgent(w http.ResponseWriter, r *http.Request) {

@@ -6,7 +6,7 @@ This is the current implementation baseline **and** the continuation plan. Curre
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152; finish T5 connection setup, then resume S2.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. Finish T9 quick actions, then resume the saved S2 branch.** S1 is merged through PR #139; do not repeat
 it or start S2 ahead of the remaining terminal priorities. Do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -106,7 +106,7 @@ resume S2 and the remaining handoff stages. Do not reopen the overall strategy.
   organisation/public browser fixtures and the real two-host PTY fixture. All five PR workflows passed for `cad5466`; PR #149 merged as `d14b428`.
 - **T8: visible output scrollback and theatre view — merged through PR #152 after all three workflows passed.** Latest user steering asks for earlier output to be scrollable and a wide theatre layout alongside Maximise. Tmux paints an alternate screen, so xterm's browser scrollback alone cannot expose machine-side history. `OutputScrollback.svelte` reads the existing bounded `/history?lines=2000` snapshot on demand, with native vertical/horizontal scrollbars, Page Up/Down, text selection and literal search/match navigation. It labels the snapshot as read-only, keeps old output marked after refresh failure, clears it on denied access and aborts requests on dismissal. Never persist it. `TerminalPane.svelte` retains the same live xterm DOM/connection behind an inert hidden screen; reading/selection sends no input. The Scrollback toolbar button or Shift+PageUp opens it; Back to live restores terminal focus. The command-recall drawer's output link opens the same reader. No wheel interception: full-screen applications keep their own mouse/scroll behavior.
   `TerminalWorkspace.svelte` owns a bound theatre flag: hide the workspace toolbar and session panel without changing saved panel preferences or replacing the terminal component. Site navigation remains visible, screen fitting resizes the existing PTY, and Exit theatre restores the workspace. Existing Maximise remains a separate viewport overlay. Synthetic tests cover real overflow, keyboard scrolling/search, failed-refresh preservation, no shell input/reattachment, theatre/maximise restoration and saved panel state. Local verification passed: frontend check/build (zero diagnostics), all five production UI fixtures, native mouse-wheel/keyboard scrolling and a real two-host PTY test. It confirms output outside the current screen, search, live return and theatre preserve original shell/background PIDs. All three PR workflows passed for `55f3624`; PR #152 merged as `51a2997`. After T5 merges green, return to S2; do not expand this terminal detour.
-- **T5 implementation:** `feat/terminal-connection-setup`, originally saved as `d48ccca`, now integrated with merged main through PR #152 (including the separate sync/agent-update improvements from PR #150). The CLI/wizard, enrollment/install/upgrade offers, web readiness step and tmux diagnostics are implemented. `localTerminalAgentNative(config, version)` verifies the supervised process version through the private local socket; a stale version offers service refresh. Shared-label dev builds always offer refresh so an updated binary is actually loaded. Consent, enrollment and tmux jobs survive optional decline/failure. Review `docs/terminal-controller-commands.md#first-class-machine-connection-setup` for behavior and tests. Final vet/race/browser/CI status must be recorded before marking T5 merged. Preserve #146 AI scope, #147 fitting, #148 skill editing/import, #149 recall and #152 scrollback/theatre.
+- **T5 implementation:** `feat/terminal-connection-setup`, originally saved as `d48ccca`, now integrated with merged main through PR #152 (including the separate sync/agent-update improvements from PR #150). The CLI/wizard, enrollment/install/upgrade offers, web readiness step and tmux diagnostics are implemented. `localTerminalAgentNative(config, version)` verifies the supervised process version through the private local socket; a stale version offers service refresh. Shared-label dev builds always offer refresh so an updated binary is actually loaded. Consent, enrollment and tmux jobs survive optional decline/failure. Review `docs/terminal-controller-commands.md#first-class-machine-connection-setup` for behavior and tests. Integrated frontend check/build, full vet/race, all five production UI suites and the real two-host PTY fixture passed. All five PR workflows passed for `9cd770c`; PR #153 merged as `442d3a7`. Preserve #146 AI scope, #147 fitting, #148 skill editing/import, #149 recall and #152 scrollback/theatre.
 
 ### Public entry points — terminal-first redesign
 
@@ -196,7 +196,40 @@ shell PIDs and the primary background job across reconnect/restart and checks
 account command persistence in a separate browser. CI/merge state must be checked
 for the exact published head; this local evidence does not imply deployment.
 
-### T5 [ ] Implemented, pending final verification/PR — First-class terminal connection wizard during initial install, enrollment and upgrade
+### T9 [ ] Latest user request: quick terminal actions on workspace and control page
+
+Implemented in `feat/terminal-quick-actions`; publish/verify its PR and merge only when green. All five synthetic UI fixtures and frontend check/build pass locally; final Go/real-PTY/CI evidence is still pending.
+- `SessionSidebar.svelte`: visible + beside machine headings (including enrolled
+  machines without sessions) and selected-machine picker; right-click/ellipsis
+  machine menu. Disable new shells for unready/disabled/quota-limited machines.
+- `TerminalWorkspace.svelte`: explicit quick-create uses one immutable request ID
+  per machine, default Shell title and existing quota/retry logic. Switch directly
+  to the new operation without first attaching another existing shell. A failed
+  response retains its operation; retry cannot accidentally create a second shell.
+- Clear Show sessions controls in the workspace header and terminal toolbar when
+  hidden; the latter also exits theatre and restores the panel. Preserve saved width.
+- Terminal right-click menu exposes saved commands, command history, output history
+  and appearance alongside clipboard controls. Shift+right-click keeps native menus.
+- `QuickTerminalButton.svelte` and `TerminalCardActions.svelte` add the same + and
+  right-click/ellipsis actions to control-page machine and active-session cards.
+  Continue/New/Commands/Manage target the exact card. Session cards also offer
+  rename and reviewed stop with remove-after-confirmed-closure/account-default options.
+  Commands on the control page can be maintained/copied; inserting still requires
+  an attached terminal. Merely opening menus must never attach, create or send input.
+- `ActiveSessions.svelte` fences observations across card mutations so an older poll
+  cannot overwrite confirmed changes. Viewers/logged-out pages get no private actions.
+- Browser tests verify explicit target IDs, empty/unready machines, ambiguous create
+  retries, no intermediate attachments, panel reopening from collapse/theatre,
+  landing rename/stop/default preservation and saved-command menus. Existing layout,
+  clipboard, ownership and persistence tests stay enabled. Record final CI evidence.
+
+S2 progress is saved separately on remote `feat/private-skill-revisions`, commit
+`9dceac1`. It is **incomplete and has no PR**: exact-content manifest builder/parity
+checks plus initial private-store schema/CAS/idempotency code compile, but API routes,
+storage/role/concurrency/rollback tests and final review are unfinished. Do not merge
+that WIP. Resume it after T9 rather than duplicate it; follow S2 requirements below.
+
+### T5 [x] Merged through PR #153 — First-class terminal connection wizard during initial install, enrollment and upgrade
 
 Read `internal/scan/terminal_setup.go`, `agent.go`, `agent_terminal.go`,
 `internal/terminalhost/tmux.go`, `cmd/reet/terminal.go`, and the actual deployment

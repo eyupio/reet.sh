@@ -450,7 +450,8 @@ process, altering machine files, bypassing quota or making a shell recreatable.
 ### T3 implementation record — 24 October 2026
 
 - Branch: `feat/terminal-history-archive`, based on main `b9630e8` after PR #141
-  merged. Single-session archival is implemented; bulk cleanup remains unchecked.
+  merged. Implementation `88a2257`, PR [#142](https://github.com/eyupio/reet.sh/pull/142).
+  Single-session archival is implemented; bulk cleanup remains unchecked.
   Verify branch/PR state before repeating work. No production deployment is implied.
 - [Archive contract](docs/terminal-history-archive.md): owner-scoped idempotent
   POST `/api/v2/terminal/sessions/{id}/archive` with `{}`; only ended/exited/lost.

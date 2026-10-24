@@ -27,6 +27,53 @@ Read alongside:
   [controller terminal commands](docs/terminal-controller-commands.md).
 - CONTRIBUTING.md and [voice/copy](docs/voice-and-copy.md).
 
+## Current terminal sudo repair
+
+The user reported sudo failing with “no new privileges” in an Elitebook terminal.
+Both generated Linux host units set `NoNewPrivileges=true`; tmux and its shells
+inherit this irreversibly. The user explicitly approved changing the generated
+agent and tmux templates to `NoNewPrivileges=false`. The fix is in
+[PR #165](https://github.com/eyupio/reet.sh/pull/165) (`fix/terminal-sudo-privileges`), pending final CI/merge. No live units or sessions have
+been changed. It preserves local sudo policy/password checks and does not grant
+root access. Install/status inspect the enrollment's server and explain any
+pending restart. Native Linux CI checks the real agent, tmux and child process
+flags; existing refresh/reconnect tests must continue preserving PIDs.
+
+Read the [migration procedure](docs/terminal-controller-commands.md#sudo-in-a-machine-terminal).
+An old live tmux server keeps the flag after a unit refresh; do not silently
+restart it. A planned exact terminal-service restart from normal SSH ends that
+service's sessions/jobs. Never use a shared/default tmux kill-server operation.
+The browser-import roadmap continues separately on `feat/browser-machine-skill-import`;
+keep its work isolated and resume it after this fix is saved/merged.
+
+### Later: user-controlled terminal security preferences
+
+The user explicitly requested a later security pass for privilege-capable browser
+terminals, with **user preferences for PIN enablement or a similar mechanism**.
+Work with the user to agree the interaction and defaults before implementing it;
+PIN is a candidate, not a settled requirement. Do not fold this into the current
+sudo repair or silently restrict the approved normal OS-user terminal behaviour.
+
+- Consider an opt-in account preference for a PIN, password or passkey challenge
+  before opening/resuming/taking control of a terminal, with per-machine policy
+  where useful. Decide which actions require reauthentication with the user.
+- Design clear locked/unlocked states, manual lock, idle expiry, reconnect and
+  browser/device behaviour, including safe recovery if the PIN is forgotten.
+- Enforce the gate on the server at authorization/control boundaries. Inspecting
+  strings such as `sudo` in terminal input cannot reliably enforce privileges:
+  scripts, aliases and other programs can perform the same actions.
+- A PIN is an additional application access gate. It must not grant OS privileges,
+  replace sudo's own policy/password checks, or collect/cache sudo passwords.
+  If PINs are chosen, use secure verification, attempt throttling and a reviewed
+  recovery path; never store a plaintext PIN or leak it into logs/terminal history.
+- Preserve terminal sessions/jobs when locking or requiring reauthentication.
+  Test expiry, disconnect/reconnect, takeover, cross-account/machine isolation and
+  recovery before calling this security work complete.
+
+This is a deferred roadmap item. No PIN preference or new authentication prompt
+is implemented by the current sudo fix. Resume the browser-import work next,
+then schedule this security design with the user at an appropriate checkpoint.
+
 ## Current roadmap checkpoint — 24 October 2026
 
 The user requested a status report and continued roadmap delivery after PR #155.

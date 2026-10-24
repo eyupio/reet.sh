@@ -189,9 +189,12 @@ func (p ServicePlan) cleanEnvironment(executable string) []string {
 	return append([]string{envPath, "-i"}, append(append([]string{}, p.Env...), executable)...)
 }
 
+// Both units can start tmux, including agent recovery. Shells must retain the
+// OS user's normal sudo/setuid rights instead of inheriting an irreversible
+// no-new-privileges flag. The host's sudo policy and authentication still apply.
 func (p ServicePlan) systemdUnit(description, after string, command []string) string {
 	args := append(p.cleanEnvironment(command[0]), command[1:]...)
-	return "[Unit]\nDescription=" + description + "\n" + after + "\n\n[Service]\nType=simple\nExecStart=" + systemdExec(args) + "\nRestart=on-failure\nRestartSec=5\nUMask=0077\nNoNewPrivileges=true\n\n[Install]\nWantedBy=default.target\n"
+	return "[Unit]\nDescription=" + description + "\n" + after + "\n\n[Service]\nType=simple\nExecStart=" + systemdExec(args) + "\nRestart=on-failure\nRestartSec=5\nUMask=0077\nNoNewPrivileges=false\n\n[Install]\nWantedBy=default.target\n"
 }
 
 func (p ServicePlan) plist(label string, command []string, logPath string) string {

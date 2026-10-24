@@ -236,6 +236,8 @@ Private skill revisions have an [account-scoped storage/API contract](docs/priva
 
 Start a new shell with the + beside a machine in Control or Terminals. Right-click cards or terminal output for actions; Show sessions reopens a hidden session sidebar.
 
+Machine terminals retain the OS account’s usual sudo permissions and authentication. See [sudo setup and migration](docs/terminal-controller-commands.md#sudo-in-a-machine-terminal) for older restricted Linux service units.
+
 Connect a machine’s terminal with `reet agent terminal setup`. Interactive install, enrollment and upgrades offer this resumable wizard; it checks tmux, asks for local shell consent and repairs native services while preserving running sessions. See [terminal connection setup](docs/terminal-controller-commands.md#first-class-machine-connection-setup).
 
 Manage the binary or a server with `reet install --mode binary|native|compose`, inspect updates with `reet upgrade --check`, apply a verified update with `reet upgrade` (`--version` overrides `REET_VERSION`/saved defaults; otherwise dev stays dev; replacing the running dev CLI with stable requires an explicit `--version`), and diagnose problems with `reet doctor [--json]`. Managed server upgrades preserve configuration, back up SQLite and restore the previous deployment on a failed restart. Use `reet healthcheck --url https://your-site.example` for a remote health check; without `--url` it uses `REET_URL`/saved defaults. Use `--local` for the local server. Commands preview their intent and require confirmation before applying; see [managed installation and upgrades](docs/binary-installation.md#managed-install-upgrade-and-doctor).

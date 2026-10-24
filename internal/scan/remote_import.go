@@ -33,10 +33,17 @@ func remoteImportInstance() string {
 	return importInstance
 }
 
-type importHTTPError int
+type controllerHTTPError int
 
-func (e importHTTPError) Error() string { return fmt.Sprintf("import controller status %d", int(e)) }
+func (e controllerHTTPError) Error() string { return fmt.Sprintf("controller status %d", int(e)) }
 func remoteImportPost(ctx context.Context, c agentConfig, path string, in, out any, version string) error {
+	return controllerPost(ctx, c, "/api/v2/sync/skill-import/"+path, in, out, version, 16<<20)
+}
+
+// controllerPost is the shared versioned-channel transport: enrolment headers, no
+// redirects (they would forward the credentials), an HTTPS or loopback origin and
+// a bounded, strictly decoded response. A non-200 answer is a controllerHTTPError.
+func controllerPost(ctx context.Context, c agentConfig, route string, in, out any, version string, limit int) error {
 	if err := validateSkillImportController(c.Server); err != nil {
 		return err
 	}
@@ -44,10 +51,10 @@ func remoteImportPost(ctx context.Context, c agentConfig, path string, in, out a
 	if err != nil {
 		return err
 	}
-	if len(raw) > 16<<20 {
-		return errors.New("import transport limit exceeded")
+	if len(raw) > limit {
+		return errors.New("controller transport limit exceeded")
 	}
-	req, err := http.NewRequestWithContext(ctx, "POST", c.Server+"/api/v2/sync/skill-import/"+path, bytes.NewReader(raw))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.Server+route, bytes.NewReader(raw))
 	if err != nil {
 		return err
 	}
@@ -64,21 +71,21 @@ func remoteImportPost(ctx context.Context, c agentConfig, path string, in, out a
 	}
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
-		return importHTTPError(response.StatusCode)
+		return controllerHTTPError(response.StatusCode)
 	}
 	raw, err = io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
 	if err != nil {
 		return err
 	}
 	if len(raw) > 1<<20 {
-		return errors.New("import response too large")
+		return errors.New("controller response too large")
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
 	if err = d.Decode(out); err != nil {
 		return err
 	}
 	if d.Decode(new(any)) != io.EOF {
-		return errors.New("invalid import response")
+		return errors.New("invalid controller response")
 	}
 	return nil
 }
@@ -97,7 +104,7 @@ func processRemoteImportWith(ctx context.Context, c agentConfig, version, instan
 		Work          *store.RemoteImport `json:"work"`
 	}
 	err := remoteImportPost(ctx, c, "work", map[string]any{"schemaVersion": skillimport.RemoteVersion, "instanceId": instance}, &response, version)
-	if err == importHTTPError(404) || err == importHTTPError(405) || err == importHTTPError(403) {
+	if err == controllerHTTPError(404) || err == controllerHTTPError(405) || err == controllerHTTPError(403) {
 		return false, nil
 	}
 	if err != nil {
@@ -110,7 +117,7 @@ func processRemoteImportWith(ctx context.Context, c agentConfig, version, instan
 	failure := func(code string) (bool, error) {
 		var ack any
 		err := remoteImportPost(ctx, c, "failure", map[string]string{"id": work.ID, "instanceId": instance, "code": code}, &ack, version)
-		if err == importHTTPError(409) || err == importHTTPError(404) {
+		if err == controllerHTTPError(409) || err == controllerHTTPError(404) {
 			err = nil
 		}
 		return true, err
@@ -145,7 +152,7 @@ func processRemoteImportWith(ctx context.Context, c agentConfig, version, instan
 		}
 		var ack any
 		err = remoteImportPost(ctx, c, "preview", map[string]any{"id": work.ID, "instanceId": instance, "preview": p}, &ack, version)
-		if err == importHTTPError(409) || err == importHTTPError(404) {
+		if err == controllerHTTPError(409) || err == controllerHTTPError(404) {
 			err = nil
 		}
 		return true, err
@@ -176,7 +183,7 @@ func processRemoteImportWith(ctx context.Context, c agentConfig, version, instan
 	}
 	var result store.PrivateSkillResult
 	err = remoteImportPost(ctx, c, "transfer", map[string]any{"id": work.ID, "instanceId": instance, "sourceDigest": work.Preview.SourceDigest, "files": selected}, &result, version)
-	if err == importHTTPError(409) || err == importHTTPError(400) {
+	if err == controllerHTTPError(409) || err == controllerHTTPError(400) {
 		return failure("transfer_failed")
 	}
 	// An ambiguous response is retried using the same controller-owned request,

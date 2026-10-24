@@ -38,6 +38,7 @@ func privateSkillSameOrigin(r *http.Request) bool {
 }
 func (s *server) registerPrivateSkillRoutes(mux *http.ServeMux) {
 	s.registerSkillContentTargets(mux)
+	s.registerSkillContentPreviews(mux)
 	mux.HandleFunc("GET /api/v2/skill-bundles", s.privateSkillAccess(s.privateSkills))
 	mux.HandleFunc("POST /api/v2/skill-bundles", s.privateSkillAccess(s.privateSkillSave))
 	mux.HandleFunc("GET /api/v2/skill-bundles/{bundle}", s.privateSkillAccess(s.privateSkillGet))

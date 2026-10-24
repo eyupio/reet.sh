@@ -433,6 +433,13 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	} else if err != nil {
 		fmt.Fprintln(out, "Skill import channel unavailable; continuing inventory and sync work.")
 	}
+	// Metadata-only previews read files only after the controller names this
+	// process, and never write. They wait their turn behind an import, if any.
+	if handled, err := processContentPreview(ctx, c, version); handled {
+		return err
+	} else if err != nil {
+		fmt.Fprintln(out, "Skill content preview channel unavailable; continuing inventory and sync work.")
+	}
 	var reply struct {
 		Agent store.SyncAgent
 		Job   *store.SyncJob

@@ -24,14 +24,17 @@ import (
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
-func skillImportRoot(c agentConfig, agent, project, name string) (string, string, error) {
-	if !contentobs.ValidScope(agent, project) || name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\") || !contentobs.ValidText(name, 255) {
+// skillScopeRoot maps a reported scope onto this installation's own configured
+// root, never onto anything the controller supplied. For a project it also returns
+// the canonical enrolled project directory.
+func skillScopeRoot(c agentConfig, agent, project string) (string, string, error) {
+	if !contentobs.ValidScope(agent, project) {
 		return "", "", errors.New("choose a supported agent and one skill folder name")
 	}
 	if project == "" {
 		for _, d := range homeDirs {
 			if d.Agent == agent {
-				return filepath.Join(c.Home, d.Dir, name), "", nil
+				return filepath.Join(c.Home, d.Dir), "", nil
 			}
 		}
 	}
@@ -55,11 +58,21 @@ func skillImportRoot(c agentConfig, agent, project, name string) (string, string
 		}
 		for _, d := range projectDirs {
 			if d.Agent == agent {
-				return filepath.Join(canonical, d.Dir, name), canonical, nil
+				return filepath.Join(canonical, d.Dir), canonical, nil
 			}
 		}
 	}
 	return "", "", errors.New("this agent scope is not supported for import")
+}
+func skillImportRoot(c agentConfig, agent, project, name string) (string, string, error) {
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\") || !contentobs.ValidText(name, 255) {
+		return "", "", errors.New("choose a supported agent and one skill folder name")
+	}
+	root, canonical, err := skillScopeRoot(c, agent, project)
+	if err != nil {
+		return "", "", err
+	}
+	return filepath.Join(root, name), canonical, nil
 }
 func validateSkillImportController(server string) error {
 	u, err := url.Parse(server)

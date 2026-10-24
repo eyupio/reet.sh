@@ -62,6 +62,10 @@ new direct SSH adapter. Phone viewport emulation is not a physical keyboard test
 - `terminal/TerminalPane.svelte` owns xterm fitting, attachment controls, clipboard,
   focus and extra keys. `keyboard.ts` classifies terminal-only shortcuts.
   `connection.ts` retains lease, recovery, generation and input-replay boundaries.
+  The pane requests a full xterm refresh after each parsed batch and fit, keeping
+  accessibility rows current through full redraws and resize. xterm coalesces these
+  requests in its rendering frame. Terminal modes and screen-reader announcements
+  remain enabled; no DOM-only copy of remote output is maintained.
 
 Run `npm --prefix web run check` and `npm --prefix web run build`. Finish the build
 before Go checks because Go embeds its output. For production-bundle UI fixtures,

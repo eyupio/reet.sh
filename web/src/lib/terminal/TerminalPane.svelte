@@ -95,12 +95,11 @@
     const observer = new MutationObserver(theme); observer.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']})
     const media = matchMedia('(prefers-color-scheme: dark)'); media.addEventListener('change',theme)
     let frame = 0
-    function resize() { cancelAnimationFrame(frame); frame=requestAnimationFrame(()=>{if (!element?.clientWidth || !element.clientHeight) return;fit.fit();const cols=Math.min(500,Math.max(2,term.cols)),rows=Math.min(300,Math.max(1,term.rows));if(cols!==term.cols||rows!==term.rows)term.resize(cols,rows);connection?.resize(cols,rows)}) }
+    function resize() { cancelAnimationFrame(frame); frame=requestAnimationFrame(()=>{if (!element?.clientWidth || !element.clientHeight) return;fit.fit();const cols=Math.min(500,Math.max(2,term.cols)),rows=Math.min(300,Math.max(1,term.rows));if(cols!==term.cols||rows!==term.rows)term.resize(cols,rows);connection?.resize(cols,rows);term.refresh(0,term.rows-1)}) }
     const sizes = new ResizeObserver(resize); sizes.observe(element);fit.fit()
     fitTerminal=resize
-    // Recreate accessibility rows after screen restoration; refreshing pixels alone
-    // can leave xterm’s screen-reader tree showing the empty pre-restore buffer.
-    connection = new TerminalConnection({session:session.id,dimensions:()=>({cols:Math.min(500,Math.max(2,term.cols)),rows:Math.min(300,Math.max(1,term.rows))}),renderer:{write:(bytes,reset,done)=>{if(reset)term.reset();term.write(bytes,()=>{if(reset){term.options.screenReaderMode=false;term.options.screenReaderMode=true;term.refresh(0,term.rows-1);}done()})}},onstate:(next,detail)=>{generation++;modifier=null;connectionState=next;message=detail;term.options.disableStdin=next!=='live';if(next==='live'&&!searching&&!pendingPaste&&snapshot===null&&!contextMenu&&!document.querySelector('dialog[open]'))term.focus()}})
+    // Refresh after parsing and fitting so accessibility rows match full redraws.
+    connection = new TerminalConnection({session:session.id,dimensions:()=>({cols:Math.min(500,Math.max(2,term.cols)),rows:Math.min(300,Math.max(1,term.rows))}),renderer:{write:(bytes,reset,done)=>{if(reset)term.reset();term.write(bytes,()=>{term.refresh(0,term.rows-1);done()})}},onstate:(next,detail)=>{generation++;modifier=null;connectionState=next;message=detail;term.options.disableStdin=next!=='live';if(next==='live'&&!searching&&!pendingPaste&&snapshot===null&&!contextMenu&&!document.querySelector('dialog[open]'))term.focus()}})
     term.options.disableStdin=true
     const input=term.onData((text)=>{let value=text;if(modifier==='Ctrl'&&/^[a-zA-Z@\[\]\\^_]$/.test(text))value=String.fromCharCode(text.toUpperCase().charCodeAt(0)&31);else if(modifier==='Alt')value='\x1b'+text;modifier=null;connection?.text(value)})
     const binary=term.onBinary((data)=>connection?.send(Uint8Array.from(data,c=>c.charCodeAt(0)&255)))

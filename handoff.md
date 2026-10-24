@@ -219,9 +219,12 @@ no regression in other routes and no hidden change to terminal authorization.
   Existing generation fences, quotas, consent and attachment leases remain intact.
 - Rename/End moved to Manage. Disconnect/Reconnect is visible and intentional
   disconnect survives online/visibility events. No removal/archive API was added.
-- Real browser testing exposed blank screen-reader rows despite visible restored
-  output. Recreating xterm accessibility rows after reset fixes restoration;
-  the real fixture asserts the restored prompt and subsequent output.
+- Real browser/CI testing exposed blank screen-reader rows despite visible output.
+  The pane now refreshes xterm after every parsed output batch and fit, so a full
+  redraw and subsequent resize update accessibility rows as well as pixels.
+  Terminal modes remain supported. Four consecutive local real-shell browser
+  runs passed after this correction. The real fixture asserts the
+  restored prompt, subsequent output and alternate-screen restoration.
 - Added `terminal-workspace.e2e.mjs` and CI production-preview browser coverage;
   extended the real shell fixture for dashboard continuation, disconnect/reconnect,
   usable screen bounds and updated toolbar/dialog controls. Resize checks wait for

@@ -45,7 +45,7 @@ await page.routeWebSocket('**/api/v2/terminal/socket',socket=>{
  socket.onMessage(message=>{
   if(typeof message==='string'){
    const data=JSON.parse(message)
-   if(data.ticket){socket.send('{"type":"ready"}');socket.send(Buffer.from('\x1b[2J\x1b[HExisting persistent shell\r\nready> '))}
+   if(data.ticket){socket.send('{"type":"ready"}');socket.send(Buffer.from('\x1b[?2026h\x1b[2J\x1b[HExisting persistent shell\r\nready> \x1b[?2026l'))}
   }else{inputs.push(message.toString());socket.send(message)}
  })
 })
@@ -81,6 +81,7 @@ try{
  const started=Date.now()
  await hero.getByRole('link',{name:'Continue Build workspace on dev-laptop'}).click()
  await live()
+ await expect(page.locator('.xterm-accessibility-tree')).toContainText('Existing persistent shell')
  console.log(`Synthetic continuation: ${Date.now()-started}ms`)
  expect(Date.now()-started).toBeLessThan(2000)
  expect(tickets.at(-1)).toBe(sessionA)

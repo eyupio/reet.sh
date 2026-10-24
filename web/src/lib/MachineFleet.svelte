@@ -10,6 +10,7 @@
   import MachineCommands from './MachineCommands.svelte'
   import AgentUpdate from './AgentUpdate.svelte'
   import ContentObservation from './ContentObservation.svelte'
+  import MachineSkillImports from './MachineSkillImports.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
 
   let {
@@ -40,6 +41,7 @@
   let commandsFor = $state<Machine | null>(null)
   let confirm = $state<Pending | null>(null)
   let busy = $state('')
+  let importSource = $state<{ environmentId: string; name: string } | null>(null)
   let health=$state<HealthResponse>({serverNow:Date.now(),machines:[]}), healthElapsed=$state(0),healthReceived=performance.now()
   onMount(()=>{if(!monitorAccess)return;const abort=new AbortController();let busy=false;async function refreshHealth(){if(busy||document.visibilityState!=='visible')return;busy=true;try{const next=await machineHealth(abort.signal);if(!abort.signal.aborted){health=next;healthReceived=performance.now();healthElapsed=0}}catch{/* inventory remains usable when health is unavailable */}finally{busy=false}}void refreshHealth();const wake=()=>void refreshHealth();document.addEventListener('visibilitychange',wake);window.addEventListener('online',wake);const timer=setInterval(wake,15000),clock=setInterval(()=>healthElapsed=performance.now()-healthReceived,1000);return()=>{abort.abort();clearInterval(timer);clearInterval(clock);document.removeEventListener('visibilitychange',wake);window.removeEventListener('online',wake)}})
 
@@ -164,7 +166,7 @@
       <h2 id="fleet-title">{machines.length} {machines.length === 1 ? 'machine' : 'machines'}, one clear view.</h2>
       <p>Choose a machine to sync its skills or continue working in its terminal. Expand a card to inspect its agent scopes.</p>
     </div>
-    <button class="btn" type="button" onclick={onadd}>Connect a machine</button>
+    <div class="fleet-controls">{#if canWrite}<button type="button" onclick={() => importSource = {environmentId: '', name: ''}}>Private skill imports</button>{/if}<button class="btn" type="button" onclick={onadd}>Connect a machine</button></div>
   </header>
 
   <div class="machine-grid">
@@ -248,7 +250,7 @@
                 <div class="agent-copy">
                   <strong>{groupLabel(group)}</strong>
                   <small>{group.skillCount ?? 0} {group.skillCount === 1 ? 'skill' : 'skills'} · {group.complete ? 'Last full report' : 'Incomplete report'} {new Date(group.scannedAt || group.lastSeen).toLocaleString()}</small>
-                  <ContentObservation content={group.content} />
+                  <ContentObservation content={group.content} onimport={canWrite && enrolled ? (name) => importSource = { environmentId: group.id, name } : undefined} />
                 </div>
                 <span class="scope-state">{groupState(group)}</span>
               </li>
@@ -256,7 +258,7 @@
             {#each scanOnly as group (group.id)}
               <li class="scan-only">
                 <span class="dot empty" aria-hidden="true"></span>
-                <div class="agent-copy"><strong>{groupLabel(group)}</strong><small>Scan only. Sync to the shared agents folder or this agent's supported location.</small><ContentObservation content={group.content} /></div>
+                <div class="agent-copy"><strong>{groupLabel(group)}</strong><small>Scan only. Sync to the shared agents folder or this agent's supported location.</small><ContentObservation content={group.content} onimport={canWrite && enrolled ? (name) => importSource = { environmentId: group.id, name } : undefined} /></div>
                 <span class="scope-state">Scan only</span>
               </li>
             {/each}
@@ -276,6 +278,8 @@
     {/each}
   </div>
 </section>
+
+{#if importSource}<MachineSkillImports {snapshot} source={importSource} onclose={() => importSource = null} />{/if}
 
 {#if commandsFor}
   <MachineCommands
@@ -303,6 +307,7 @@
   .fleet-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; flex-wrap: wrap; margin-bottom: 16px; }
   .eyebrow { margin: 0 0 4px; color: var(--accent); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
   h2 { margin: 0; font: 500 clamp(1.5rem, 2.8vw, 1.85rem)/1.15 var(--serif); letter-spacing: -0.025em; }
+  .fleet-controls { display: flex; flex-wrap: wrap; gap: 8px; }
   .fleet-head p:last-child { margin: 6px 0 0; max-width: 62ch; color: var(--muted); font-size: 0.83rem; line-height: 1.55; }
   .machine-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr)); gap: 14px; }
   .machine { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); box-shadow: var(--shadow); min-width: 0; }

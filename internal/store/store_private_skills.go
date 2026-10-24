@@ -136,7 +136,10 @@ func validatePrivateSkill(in PrivateSkillWrite) (skillbundle.Manifest, error) {
 func (s *Store) SavePrivateSkillRevisionFor(uid int64, id string, in PrivateSkillWrite) (PrivateSkillResult, error) {
 	return s.savePrivateSkillRevisionFor(uid, id, in, nil)
 }
-func (s *Store) savePrivateSkillRevisionFor(uid int64, id string, in PrivateSkillWrite, guard func(*sql.Tx) error) (out PrivateSkillResult, err error) {
+func (s *Store) savePrivateSkillRevisionFor(uid int64, id string, in PrivateSkillWrite, guard func(*sql.Tx) error) (PrivateSkillResult, error) {
+	return s.savePrivateSkillRevisionWithReceipt(uid, id, in, guard, nil)
+}
+func (s *Store) savePrivateSkillRevisionWithReceipt(uid int64, id string, in PrivateSkillWrite, guard func(*sql.Tx) error, finish func(*sql.Tx, PrivateSkillResult) error) (out PrivateSkillResult, err error) {
 	if id != "" && !privateSkillID.MatchString(id) {
 		return out, ErrPrivateSkillMissing
 	}
@@ -178,6 +181,9 @@ func (s *Store) savePrivateSkillRevisionFor(uid int64, id string, in PrivateSkil
 			// The receipt describes the original write, not a later head movement.
 			out.Bundle.Head = priorRevision
 			out.Revision, err = privateSkillRevision(tx, uid, priorBundle, priorRevision, false)
+			if err == nil && finish != nil {
+				return finish(tx, out)
+			}
 			return err
 		}
 		if !errors.Is(e, sql.ErrNoRows) {
@@ -267,6 +273,9 @@ func (s *Store) savePrivateSkillRevisionFor(uid int64, id string, in PrivateSkil
 		}
 		b.Head = rid
 		out = PrivateSkillResult{Bundle: b, Revision: PrivateSkillRevision{ID: rid, BundleID: id, Parent: *in.ExpectedBase, ManifestDigest: m.Digest, Origin: in.Origin, CreatedAt: created, Manifest: &m}}
+		if finish != nil {
+			return finish(tx, out)
+		}
 		return nil
 	})
 	return out, err

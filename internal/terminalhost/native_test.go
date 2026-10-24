@@ -93,6 +93,19 @@ func TestNativeAgentKillKeepsTmuxSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	pid := panePID(t, tmux.Path, layout.Socket)
+	if runtime.GOOS == "linux" {
+		restricted, err := TerminalNoNewPrivileges(context.Background(), plan)
+		if err != nil || restricted {
+			t.Fatalf("native tmux prevents normal sudo: restricted=%t err=%v", restricted, err)
+		}
+		for _, process := range []int{pid, mainPID(t, plan)} {
+			restricted, err := processNoNewPrivileges(process)
+			if err != nil || restricted {
+				t.Fatalf("native child inherited no-new-privileges: pid=%d restricted=%t err=%v", process, restricted, err)
+			}
+		}
+	}
+
 	// Refreshing agent definitions must preserve the independently running
 	// server as well. This used to restart tmux as an install side effect.
 	if err := Install(context.Background(), plan); err != nil {

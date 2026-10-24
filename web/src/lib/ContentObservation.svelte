@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ContentInventory } from './api'
-  let { content }: { content?: ContentInventory } = $props()
+  let { content, onimport }: { content?: ContentInventory; onimport?: (name: string) => void } = $props()
   const labels: Record<string, string> = { observed: 'Content observed', incomplete: 'Content incomplete', stale: 'Content report out of date', paused: 'Content reporting paused' }
 </script>
 {#if !content || content.state === 'not_reported'}
@@ -14,6 +14,7 @@
       {#each content.skills as skill (skill.name)}
         <li><strong>{skill.name}</strong> · {skill.complete ? `${skill.files} files · ${skill.bytes} bytes` : 'Incomplete; contents cannot be compared'}
           {#if skill.complete && skill.digest}<code>{skill.digest}</code>{/if}
+          {#if onimport}<button type="button" onclick={() => onimport?.(skill.name)} aria-label={`Import ${skill.name} privately`}>Import privately</button>{/if}
           {#if skill.issues?.length}<span>{skill.issues.join(', ').replaceAll('_', ' ')}</span>{/if}
         </li>
       {/each}

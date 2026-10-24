@@ -212,6 +212,13 @@ terminal-service restart, which ends its shells. `reet agent service uninstall`
 stops both services and therefore ends tmux sessions; it is not the rollback
 procedure. Enrollment/consent and metadata remain for inspection.
 
+Native shells retain the enrolling OS user's normal sudo policy. Older Linux
+units applied an inherited no-new-privileges restriction; replacing templates
+does not clear it in a live tmux server. Service install/status reports a detected
+restricted server. Follow the [sudo migration procedure](terminal-controller-commands.md#sudo-in-a-machine-terminal)
+from normal SSH after finishing terminal work; no automatic service refresh
+restarts tmux or silently ends jobs.
+
 ## Pilot and release evidence
 
 Start with a small disposable fleet. Verify the displayed OS user (including root

@@ -43,6 +43,37 @@ export function upgradeCommands(channel: ReleaseChannel): string {
   return `reet upgrade --check\nreet upgrade${channel === 'dev' ? ' --version dev' : ''}\nreet doctor`
 }
 
+export const CONNECTION_POLL_MS = 3000
+export const CONNECTION_POLL_MAX_MS = 20000
+
+// A blinking controller should not turn into a request storm. Wait the normal
+// interval while things are healthy, then back off while checks keep failing.
+export function retryDelay(failures: number, base = CONNECTION_POLL_MS, maximum = CONNECTION_POLL_MAX_MS): number {
+  if (failures <= 0) return base
+  return Math.min(maximum, base * 2 ** Math.min(failures, 4))
+}
+
+export type ConnectionStage = 'blocked' | 'waiting' | 'needs-setup' | 'reconnecting' | 'ready'
+type ReadinessMachine = {
+  host: string
+  ready: boolean
+  serverEnabled?: boolean
+  capabilities?: { terminalControl?: boolean; terminalEnabled?: boolean; readiness?: string }
+}
+
+// One place that decides what the connection watch is actually saying, so the
+// words, the colour and the next action cannot disagree with each other.
+export function connectionStage(machine: ReadinessMachine | undefined, terminalAccess: boolean): ConnectionStage {
+  if (!terminalAccess) return 'blocked'
+  if (!machine) return 'waiting'
+  if (machine.serverEnabled === false) return 'blocked'
+  const capabilities = machine.capabilities
+  if (!capabilities || !capabilities.terminalControl || !capabilities.terminalEnabled) return 'needs-setup'
+  if (capabilities.readiness && capabilities.readiness !== 'ready') return 'needs-setup'
+  if (!machine.ready) return 'reconnecting'
+  return 'ready'
+}
+
 export function syncLink(host: string): string {
   return `/machines?view=compare&machine=${encodeURIComponent(host)}`
 }

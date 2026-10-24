@@ -6,7 +6,7 @@ This is the current implementation baseline **and** the continuation plan. Curre
 capabilities below are implemented; unchecked T/S/A/W/L tasks are future work.
 **T1 and T2 are merged through PRs #140/#141.** Review the evidence and publication
 state below. **T3 single-session archival is merged through PR #142. T4 terminal polish is merged through PR #145 after all five workflows passed.
-T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 and CLI import in PR #164 (`7253663`). Central browser import merged in PR #168 (`7e2c992`) after all five workflows passed for `56aefe0fbb76d9cf9ce85bfec2591d58cdcc3eee`. S3 is complete. S4's pure content planner is implemented on `feat/content-plan-core`, locally validated, with PR CI/merge pending; it has no API, approval or filesystem writes.** S1 is merged through PR #139; do not repeat
+T6 final-row clipping is merged through PR #147. T7 command recall is merged in PR #149. T8 scrollback/theatre view is merged in PR #152. T5 connection setup is merged in PR #153. T9 quick actions are merged through PR #155. S2 private revision storage/API merged in PR #156 (`ad1502a`) after all five workflows passed for `7e4aeec`. S3 metadata observations merged in PR #161 and CLI import in PR #164 (`7253663`). Central browser import merged in PR #168 (`7e2c992`) after all five workflows passed for `56aefe0fbb76d9cf9ce85bfec2591d58cdcc3eee`. S3 is complete. S4's pure content planner is implemented in PR #169 (`feat/content-plan-core`), locally validated with final CI/merge pending; it has no API, approval or filesystem writes.** S1 is merged through PR #139; do not repeat
 it. Preserve the terminal work and do not start the whole roadmap.
 Historical delivery evidence remains in
 [handoff-history.md](handoff-history.md); old stage notes are not current feature
@@ -88,8 +88,8 @@ The user requested a status report and continued roadmap delivery after PR #155.
 - **S3 complete:** metadata observations, explicit CLI import and browser imports
   merged through PRs #161/#164/#168. Final browser-import merge is `7e2c992`, all
   five workflows green for `56aefe0`. Private revision history is available.
-- **Current:** S4 pure bounded planner on `feat/content-plan-core` (publication
-  pending). Read [its contract and granular continuation](docs/skill-content-planner.md).
+- **Current:** S4 pure bounded planner in PR #169 on `feat/content-plan-core`
+  (final CI/merge pending). Read [its contract and granular continuation](docs/skill-content-planner.md).
   Next add owned revision pins and negotiated metadata preview; keep reviewed
   executor/journal/receipts in a separate slice. S4 and S5 remain incomplete.
 - **Later:** A1–A3 registered agent launch/activity/attention; W1–W3 projects,
@@ -1269,7 +1269,7 @@ fixtures can import different revisions without changing the existing shelf API.
 ### S4 [ ] Content-aware preview and reviewed single-target apply
 
 Depends on S2/S3, which are merged. **Pure planner implemented on
-`feat/content-plan-core`, locally validated with PR CI/merge pending.** Read
+[PR #169](https://github.com/eyupio/reet.sh/pull/169), locally validated with final CI/merge pending.** Read
 [docs/skill-content-planner.md](docs/skill-content-planner.md) before continuing.
 
 - `internal/skillplan` has no filesystem/DB/network operations. Build takes an owned
@@ -1661,7 +1661,7 @@ working agent authentication or complete environment recovery.
 > without resetting edits. Terminal T1–T9 priorities are merged through PR #155.
 > S2 private revision storage/API merged through PR #156. Read its storage contract.
 > S3 is complete through PRs #161/#164/#168; browser import merged as `7e2c992`.
-> S4 pure planner is implemented on feat/content-plan-core; verify its PR/CI/merge
+> S4 pure planner is implemented in PR #169 on feat/content-plan-core; verify its CI/merge
 > state. Read docs/skill-content-planner.md. Next add owned revision pins and a
 > separately negotiated metadata preview, before a reviewed executor/receipt slice. Keep
 > ownership, exact byte/mode manifests, stable retry receipts, reviewed sync and

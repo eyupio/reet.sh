@@ -393,6 +393,11 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 			return err
 		}
 	}
+	if handled, err := processRemoteImport(ctx, c, version); handled {
+		return err
+	} else if err != nil {
+		fmt.Fprintln(out, "Skill import channel unavailable; continuing inventory and sync work.")
+	}
 	var reply struct {
 		Agent store.SyncAgent
 		Job   *store.SyncJob

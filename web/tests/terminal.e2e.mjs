@@ -150,6 +150,9 @@ try {
   await expect(pane).toHaveClass(/maximised/)
   await expect.poll(()=>JSON.stringify(lastSize)).not.toBe(beforeMaximise)
   await expect.poll(()=>lastSize?.rows||0).toBeGreaterThan(35)
+  // A browser resize frame precedes tmux's asynchronous SIGWINCH handling.
+  // Wait for the actual host pane, then independently verify the shell PTY.
+  await expect.poll(async()=>{const remote=await page.evaluate(async()=>(await fetch('/_test/size')).json());return remote.grid===`${lastSize?.rows} ${lastSize?.cols}`},{timeout:10000}).toBe(true)
   const size={...lastSize}
   await command("set -- $(stty size); printf '__pty_size_%s_%s__\\n' \"$1\" \"$2\"")
   await expect(screen).toContainText(`__pty_size_${size.rows}_${size.cols}__`)

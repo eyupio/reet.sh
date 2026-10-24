@@ -166,6 +166,9 @@ func readPreview(q previewQuerier, uid int64, id string) (p SkillContentPreview,
 
 func writePreview(tx *sql.Tx, uid int64, p SkillContentPreview) error {
 	p.UpdatedAt = now()
+	// An adoption offer is derived on item reads; a caller holding one must never
+	// persist it.
+	p.Adoption = nil
 	raw, err := json.Marshal(p)
 	if err != nil {
 		return err

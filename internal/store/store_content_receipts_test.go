@@ -779,6 +779,32 @@ func TestAdoptOlderRevisionThenUpgradePlan(t *testing.T) {
 	}
 }
 
+func TestAdoptionOfferIsLimitedToThePinsBundle(t *testing.T) {
+	e := previewFixture(t)
+	secondBundle(t, e)
+	p := capturedPreview(t, e, "adopt_offer_bundle_00001", matching(e))
+	want := []AdoptionCandidate{{RevisionID: e.pin.RevisionID, Matched: 3}}
+	if p.Adoption == nil || !reflect.DeepEqual(p.Adoption.Candidates, want) {
+		t.Fatalf("a revision of another bundle must never be offered: %+v, want %+v", p.Adoption, want)
+	}
+}
+
+func TestAnAdoptionOfferIsNeverPersisted(t *testing.T) {
+	e := previewFixture(t)
+	p := capturedPreview(t, e, "adopt_offer_persist_0001", matching(e))
+	p.Adoption = &SkillContentAdoptionOffer{Candidates: []AdoptionCandidate{{RevisionID: e.pin.RevisionID, Matched: 3}}}
+	if err := e.s.withTx(func(tx *sql.Tx) error { return writePreview(tx, e.uid, p) }); err != nil {
+		t.Fatal(err)
+	}
+	var data string
+	if err := e.s.db.QueryRow(`SELECT data FROM skill_content_previews WHERE id=?`, p.ID).Scan(&data); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(data, `"adoption"`) {
+		t.Fatalf("an offer is computed on read and must never be stored: %s", data)
+	}
+}
+
 func TestAdoptCurrentRevisionIsANoOpPlan(t *testing.T) {
 	e := previewFixture(t)
 	p := capturedPreview(t, e, "adopt_current_preview_01", matching(e))

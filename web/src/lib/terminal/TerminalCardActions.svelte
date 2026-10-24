@@ -11,7 +11,7 @@
  const endKeys=new Map<string,{key:string;remove:boolean}>()
  const ready=$derived(machine.ready&&machine.serverEnabled!==false&&!disabled)
  const url=$derived(`/terminals?agent=${encodeURIComponent(machine.agentId)}${session?`&session=${encodeURIComponent(session.id)}`:''}`)
- async function show(event:MouseEvent|KeyboardEvent){event.preventDefault();event.stopPropagation();returnFocus=event.currentTarget as HTMLElement;const b=returnFocus.getBoundingClientRect();open={x:Math.max(8,Math.min('clientX'in event&&event.clientX?event.clientX:b.left,innerWidth-248)),y:Math.max(8,Math.min('clientY'in event&&event.clientY?event.clientY:b.bottom,innerHeight-(session?310:220)))};await tick();menu?.querySelector<HTMLElement>('a,button:not(:disabled)')?.focus()}
+ async function show(event:MouseEvent|KeyboardEvent){if(event instanceof MouseEvent&&event.shiftKey){close(false);return}event.preventDefault();event.stopPropagation();returnFocus=event.currentTarget as HTMLElement;const b=returnFocus.getBoundingClientRect();open={x:Math.max(8,Math.min('clientX'in event&&event.clientX?event.clientX:b.left,innerWidth-248)),y:Math.max(8,Math.min('clientY'in event&&event.clientY?event.clientY:b.bottom,innerHeight-(session?310:220)))};await tick();menu?.querySelector<HTMLElement>('a,button:not(:disabled)')?.focus()}
  function close(focus=true){open=null;if(focus)returnFocus?.focus({preventScroll:true})}
  function key(event:KeyboardEvent){if(event.key==='Escape'){event.preventDefault();close();return}if(event.key==='Tab'){close(false);return}if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;event.preventDefault();const items=[...menu!.querySelectorAll<HTMLElement>('a[href],button:not(:disabled)')],at=items.indexOf(document.activeElement as HTMLElement);items[event.key==='Home'?0:event.key==='End'?items.length-1:(at+(event.key==='ArrowDown'?1:-1)+items.length)%items.length]?.focus()}
  function begin(kind:'rename'|'end'){if(!session||busy)return;close(false);error='';action=kind;name=session.title;remove=endKeys.get(session.id)?.remove??(session.state==='end_requested'?session.removeHistory??false:removeDefault);saveDefault=false}
@@ -35,7 +35,7 @@
  <a role="menuitem" href={`/machines?machine=${encodeURIComponent(machine.host)}`}>Manage machine…</a>
  <button role="menuitem" onclick={()=>close()}>Close menu</button>
 </div>{/if}
-{#if commands}<CommandLibrary onclose={()=>commands=false} context={machine.host}/>{/if}
+{#if commands}<CommandLibrary onclose={()=>commands=false}/>{/if}
 {#if action}<ConfirmDialog title={action==='rename'?'Rename session':`End ${session?.title}?`} body={action==='rename'?'Change the display name. The running shell stays the same.':'This stops the shell and its jobs. An offline request remains pending until the machine confirms. Files are kept.'} confirmLabel={busy?'Sending…':action==='rename'?'Save name':'End session'} danger={action==='end'} onconfirm={()=>void perform()} oncancel={()=>action=null}>
  {#if error}<p class="error" role="alert">{error}</p>{/if}
  {#if action==='rename'}<label>Session name<input bind:value={name} maxlength="80" disabled={busy} required/></label>{:else}<div class="end-options"><label><input type="checkbox" bind:checked={remove} disabled={busy||!!session&&endKeys.has(session.id)||session?.state==='end_requested'}/> Remove from history when this session ends</label><p>Pending sessions stay visible until closure is confirmed.</p><label><input type="checkbox" bind:checked={saveDefault} disabled={busy}/> Use this as my account default</label></div>{/if}

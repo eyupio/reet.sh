@@ -205,6 +205,8 @@ try{
  await page.goto(base)
  const band=page.locator('#active-sessions'),target=band.getByRole('link',{name:'Continue Zulu shell on Laptop',exact:true})
  const landingTickets=tickets.length
+ expect(await target.evaluate(element=>element.dispatchEvent(new MouseEvent('contextmenu',{button:2,shiftKey:true,bubbles:true,cancelable:true})))).toBe(true)
+ await expect(menu).toHaveCount(0)
  await target.click({button:'right'})
  await page.getByRole('menuitem',{name:'Rename session…',exact:true}).click()
  await page.getByLabel('Session name',{exact:true}).fill('Landing rename')

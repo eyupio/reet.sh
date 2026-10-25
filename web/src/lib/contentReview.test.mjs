@@ -11,6 +11,7 @@ const {
   OWNERSHIP_SENTENCE, APPLY_NOTICE, FALLBACK,
   presenceLabel, ownershipNote, checkStateLabel, reasonText, failureText, planCodeText, preservedText,
   scopeEligibility, classifyCheck, adoptable, summarisePlan, candidatesFor, preselect, groupBreakdown, claimSummary, pollDelay, describeError, CLOSED_CODES,
+  asSeenFromPin, planVerdict, CONNECTOR_PROBLEM,
   connectorFor, groupBundles, preselectBundle, newestFirst, modeLabel, MODES, pinChangeNote, shortId, samePin, bundleLabel, revisionLabels, revisionLabel, missingNote,
 } = review
 
@@ -977,4 +978,35 @@ test('a refusal carrying the server text is passed on by describeError, and a ba
     reply = () => new Response('<!doctype html><title>x</title>', { status: 200 })
     await assert.rejects(api.getContentPins(), (e) => { assert.equal(e.name, 'SyntaxError'); assert.equal(describeError(e), 'Something went wrong. Try again.'); return true })
   } finally { reply = jsonReply }
+})
+
+test('asSeenFromPin: a check made for an older pin version is superseded by the pin, whatever the server last said', () => {
+  const captured = { state: 'captured', reasons: [], targetVersion: 'v1', capture: { presence: 'present' } }
+  const same = asSeenFromPin(captured, { version: 'v1' })
+  assert.equal(same, captured)
+  const moved = asSeenFromPin(captured, { version: 'v2' })
+  assert.equal(moved.state, 'superseded')
+  assert.deepEqual(moved.reasons, ['pin_changed'])
+  assert.equal(classifyCheck(moved, 0, 0).kind, 'stale')
+  assert.equal(classifyCheck(moved, 0, 0).canAdopt, false)
+  assert.equal(captured.state, 'captured', 'the input is not changed')
+  for (const state of ['queued', 'capturing', 'stale', 'superseded']) assert.equal(asSeenFromPin({ state, reasons: ['pin_changed'], targetVersion: 'v1' }, { version: 'v2' }).reasons.length, 1)
+  for (const state of ['failed', 'cancelled', 'expired']) assert.equal(asSeenFromPin({ state, targetVersion: 'v1' }, { version: 'v2' }).state, state)
+  assert.equal(asSeenFromPin(null, { version: 'v2' }), null)
+  assert.equal(asSeenFromPin(captured, undefined), captured)
+})
+
+test('planVerdict: up to date is only said of a folder that was found', () => {
+  const ready = { ready: true, actions: [], conflicts: [], preserved: [] }
+  assert.equal(planVerdict({ capture: { presence: 'present' }, plan: ready }).kind, 'up_to_date')
+  assert.equal(planVerdict({ capture: { presence: 'unknown' }, plan: ready }).kind, 'unknown')
+  assert.equal(planVerdict({ capture: { presence: 'absent' }, plan: ready }).kind, 'unknown')
+  assert.equal(planVerdict({ capture: undefined, plan: ready }).kind, 'unknown')
+  assert.equal(planVerdict({ capture: { presence: 'present' }, plan: undefined }).kind, 'unknown')
+  const create = { ready: true, actions: [{ path: 'a', kind: 'create' }], conflicts: [], preserved: [] }
+  assert.equal(planVerdict({ capture: { presence: 'absent' }, plan: create }).kind, 'changes')
+})
+
+test('the connector problem sentence is plain and carries no code', () => {
+  assert.match(CONNECTOR_PROBLEM, /^[A-Z][^_]*\.$/)
 })

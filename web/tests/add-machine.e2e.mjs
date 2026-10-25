@@ -60,19 +60,22 @@ await page.addInitScript(()=>{
 // The dialog's poll timers (3, 6, 12 and 20 seconds) are counted while they are pending, with the delay each asked for, and
 // fire after 50 ms so the file runs in seconds. The clock can be moved on (the watch cap, a scan that has aged).
 await page.addInitScript(()=>{
- window.__poll={pending:new Set(),fired:0,scheduled:0,delays:[]}
+ window.__poll={pending:new Set(),fired:0,scheduled:0,delays:[],max:0}
  const set=window.setTimeout.bind(window),clear=window.clearTimeout.bind(window)
  window.setTimeout=(fn,delay,...args)=>{
   if(![3000,6000,12000,20000].includes(delay))return set(fn,delay,...args)
   window.__poll.scheduled++;window.__poll.delays.push(delay)
   const id=set(()=>{window.__poll.pending.delete(id);window.__poll.fired++;fn(...args)},50)
-  window.__poll.pending.add(id);return id
+  window.__poll.pending.add(id);window.__poll.max=Math.max(window.__poll.max,window.__poll.pending.size);return id
  }
  window.clearTimeout=id=>{window.__poll.pending.delete(id);clear(id)}
  const real=Date.now.bind(Date);window.__skew=0;Date.now=()=>real()+window.__skew
 })
 const pendingPolls=()=>page.evaluate(()=>window.__poll.pending.size)
 const scheduled=()=>page.evaluate(()=>window.__poll.scheduled)
+const fired=()=>page.evaluate(()=>window.__poll.fired)
+const mostPending=()=>page.evaluate(()=>window.__poll.max)
+const resetMost=()=>page.evaluate(()=>{window.__poll.max=window.__poll.pending.size})
 const delays=()=>page.evaluate(()=>[...window.__poll.delays])
 const syncReads=()=>requests.filter(r=>r.method==='GET'&&r.path==='/api/v2/sync').length
 const afterRequests=()=>page.evaluate(()=>fetch('/api/version').then(r=>r.status))
@@ -85,6 +88,11 @@ const quiet=async()=>{
  await afterRequests()
  expect(await scheduled()).toBe(before+4)
  expect(await pendingPolls()).toBe(0)
+ // And no read is in flight or made: the page's own five-second read may land in the window, a watch would make one per turn.
+ const reads=syncReads()
+ await page.evaluate(()=>new Promise(done=>{let n=0;const turn=()=>++n<4?setTimeout(turn,3000):done();setTimeout(turn,3000)}))
+ await afterRequests()
+ expect(syncReads()-reads).toBeLessThanOrEqual(1)
 }
 const setHidden=hidden=>page.evaluate(h=>{for(const key of ['hidden','visibilityState'])Object.defineProperty(document,key,{configurable:true,get:()=>key==='hidden'?h:(h?'hidden':'visible')});document.dispatchEvent(new Event('visibilitychange'))},hidden)
 const skew=ms=>page.evaluate(m=>{window.__skew=m},ms)
@@ -133,7 +141,13 @@ try{
   await expect(p.anyUse).toHaveCount(0)
   await expect(p.status).not.toContainText('Waiting for it')
   await expect(p.status).not.toContainText('Ready')
+  // The commands wait too: run before the machines were read they could not be told from the machine that is already there.
+  await expect(dialog.getByText('Machines are still loading. The commands appear once they have been read.')).toBeVisible()
+  await expect(p.commands).toHaveCount(0)
+  await expect(dialog.getByRole('button',{name:/^Copy/})).toHaveCount(0)
   syncHold.resolve();syncHold=null
+  await expect(p.commands).toBeVisible()
+  await commandsAre(p,'workstation')
   // Once they are read, the name that already belongs to a reporting machine is said to be in use, not Ready.
   await expect(p.status).toContainText('A machine called workstation is already here.')
   await closeDialog(dialog)
@@ -150,6 +164,7 @@ try{
  const opener=addButton()
  const dialog=await open(),p=parts(dialog)
  expect(writes).toEqual([])
+ await expect(p.name).toBeFocused()
  await expect(p.name).toHaveValue('')
  await expect(dialog.getByText('Enter a name for the machine.')).toHaveCount(0)
  await expect(p.commands).toHaveCount(0)
@@ -304,8 +319,15 @@ try{
   await setHidden(false)
   await expect.poll(()=>syncReads()).toBeGreaterThan(reads)
   await expect.poll(()=>scheduled()).toBeGreaterThan(asked)
+  // The watch cap counts hidden time too, but coming back reads once before it is applied (the read is held, so it is seen).
+  await setHidden(true);await skew(16*60*1000)
+  const held=deferred();syncHold=held
+  const beforeWake=syncReads()
+  await setHidden(false)
+  await expect.poll(()=>syncReads()).toBeGreaterThan(beforeWake)
+  await expect(d2.getByText('Still waiting. Check again.')).toHaveCount(0)
+  held.resolve();syncHold=null
   // The watch cap: after fifteen minutes of waiting it stops and says so, and Check again starts it again.
-  await skew(16*60*1000)
   await expect(p2.status).toContainText('Still waiting. Check again.')
   await expect(d2.getByRole('button',{name:'Check again',exact:true})).toBeVisible()
   await quiet()
@@ -313,8 +335,13 @@ try{
   await d2.getByRole('button',{name:'Check again',exact:true}).click()
   await expect(d2.getByRole('button',{name:'Check again',exact:true})).toHaveCount(0)
   await expect.poll(()=>syncReads()).toBeGreaterThan(stopped)
-  await expect.poll(()=>pendingPolls()).toBe(1)
   await skew(0)
+  // One chain only: over several reads there is never more than one pending timer, and each read schedules one.
+  await resetMost()
+  const f0=await fired(),s0=await scheduled()
+  await expect.poll(()=>fired()).toBeGreaterThanOrEqual(f0+6)
+  expect(await mostPending()).toBe(1)
+  expect((await scheduled())-s0).toBeLessThanOrEqual((await fired())-f0+1)
   await closeDialog(d2)
   await quiet()
  }

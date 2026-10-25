@@ -1,9 +1,9 @@
 # Add a machine from the Machines page
 
-Right then: when the machine you want isn't listed, you can bring it in without leaving the page. The
+When the machine you want isn't listed, you can bring it in without leaving the page. The
 **Add a machine** dialog (`web/src/lib/AddMachineDialog.svelte`) shows one block of commands to paste on
 that machine, watches the controller for it, and takes you back to the Machines page with its card
-marked. Nowt on screen says more than the controller has been told. The design is in
+marked. Nothing on screen says more than the controller has been told. The design is in
 [the add-a-machine spec](superpowers/specs/2026-10-25-add-machine-in-context-design.md).
 
 ## Purpose and non-goals
@@ -32,7 +32,7 @@ The dialog is one screen with a fixed header, a scrolling body and a footer.
    shown once, is never stored in the browser, and is pasted when the CLI asks for it. Where the
    instance has no token creator, the same plain sentence as the step-by-step setup is shown. A failed
    or missing token never hides the commands; the dialog says the machine will ask for a token.
-3. **Run it.** One block with a *Copy commands* button, made of the three existing builders in order
+3. **Run it.** Once the machine list has been read, one block with a *Copy commands* button, made of the three existing builders in order
    (install, save the connection, enrol and run), separated by a blank line, so there is one paste and
    one prompt for the token. The name is quoted by the builders. The block is never given the token,
    and the button copies only the block. Beneath it: "Nothing happens on that machine until you run
@@ -72,7 +72,7 @@ While the dialog is open and the tab is visible it asks the page to read the mac
 after three seconds, then at the same pace, backing off to six, twelve and at most twenty seconds
 while reads keep failing and returning to three once one works. It pauses while the tab is hidden and
 reads at once on return, and on coming back online. It stops after fifteen minutes of waiting
-for one name (a new name starts the wait again) and shows **Still waiting. Check again.** with a
+for one name (a new name starts the wait again), counted while the tab is open or hidden, with one read when you come back, and shows **Still waiting. Check again.** with a
 *Check again* button. A lost sign-in stops everything at once, says "You've been signed out. Sign in
 again to continue.", and hands over to the page's sign-in card. Closing the dialog (the button or
 Escape) stops everything. Reads are fenced by the dialog's lifetime and a generation counter, so one
@@ -94,8 +94,7 @@ legacy sign-in modes do not see it.
 
 ## Known limitation
 
-If an old machine and a new enrolment share one name, a newer scan from the old machine counts as the
-newcomer's evidence; the dialog says the name is already in use and offers another name.
+If an old machine and a new enrolment share one name, the old machine's newer scan can make the new one look Ready; choose a distinct name.
 
 ## What this does not establish
 

@@ -68,7 +68,10 @@
  })
  const canUse = $derived(status.canUse && !signedOut)
  const waitingOut = $derived(capped && !signedOut && !canUse)
- const commands = $derived(host ? joinCommands(site, host, channel) : '')
+ // Held back until the machines have been read and what the name already had is decided, so a block run too early cannot
+ // be mistaken for the machine that was already there.
+ const decided = $derived(!!host && loaded && captured?.host === host)
+ const commands = $derived(decided ? joinCommands(site, host, channel) : '')
  const shown = $derived(touched && !checked.ok ? checked.reason : '')
 
  $effect.pre(() => {
@@ -93,10 +96,12 @@
  }
  function restart() { stop(); failures = 0; waitingSince = Date.now(); capped = false; arm(generation) }
  // One read at a time per generation. A failure backs the next one off; a lost sign-in stops everything.
- async function read(g: number) {
-  timer = undefined
+ // At most one timer is ever pending: a read starts by dropping the handle it may have been called in place of.
+ // `first` is the read made on coming back to the tab: it happens before the cap is applied.
+ async function read(g: number, first = false) {
+  clearTimeout(timer); timer = undefined
   if (!live(g) || signedOut || capped || document.hidden || readingGen === g) return
-  if (Date.now() - waitingSince >= JOIN_WATCH_CAP_MS) { capped = true; clock++; return }
+  if (!first && Date.now() - waitingSince >= JOIN_WATCH_CAP_MS) { capped = true; clock++; return }
   readingGen = g
   let stopped = false
   try {
@@ -123,7 +128,7 @@
  function wake() {
   if (life.signal.aborted || signedOut || capped) return
   clearTimeout(timer); timer = undefined
-  if (!document.hidden) void read(generation)
+  if (!document.hidden) void read(generation, true)
  }
 
  function shutdown(returnFocus: boolean) {
@@ -156,6 +161,7 @@
 
  onMount(() => {
   dialog?.showModal()
+  nameInput?.focus()
   arm(generation)
   document.addEventListener('visibilitychange', wake)
   window.addEventListener('online', wake)
@@ -202,7 +208,9 @@
 
   <section aria-labelledby={`${titleId}-run`}>
    <h3 id={`${titleId}-run`}><span class="num" aria-hidden="true">3</span>Run it</h3>
-   {#if host}
+   {#if host && !decided}
+    <p class="hint">Machines are still loading. The commands appear once they have been read.</p>
+   {:else if host}
     <p class="hint">Paste this once in a terminal on the machine. It installs reet, saves the connection, then enrols and runs the agent.</p>
     <div class="command"><pre class="commands">{commands}</pre><CopyButton text={commands} label="Copy commands" /></div>
     <p class="hint">The machine will ask for a token. Paste the machine token from step 2 when it does; a missing or failed token does not change the commands.</p>

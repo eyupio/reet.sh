@@ -4,8 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 )
 
 const WorktreeFeature = "worktree-v1"
@@ -44,13 +42,13 @@ func validWorktreeDetail(s string) bool {
 	return len(s) <= MaxWorktreeDetailBytes && plainText(s, MaxWorktreeDetailBytes)
 }
 
-// validWorktree: a worktree needs a tool, a run token and a Project slug; a
+// validWorktree: a worktree needs a tool, a folder (the repository root), a run token and a Project slug; a
 // Project slug is meaningless without a worktree.
 func (c Create) validWorktree() bool {
 	if c.Worktree == "" {
 		return c.Project == ""
 	}
-	return c.Tool != "" && ValidRunToken(c.Worktree) && ValidSlug(c.Project)
+	return c.Tool != "" && c.Dir != "" && ValidRunToken(c.Worktree) && ValidSlug(c.Project)
 }
 
 // ValidSlug accepts 1 to MaxSlugBytes of a-z and 0-9 in hyphen-separated
@@ -142,9 +140,10 @@ func ValidRunToken(s string) bool {
 }
 
 // validRepoName accepts a single directory name: 1-100 of letters, digits,
-// '.', '_' and '-', never "." or "..".
+// '.', '_' and '-', never "." or ".." and never a leading '-' (so git cannot
+// read it as an option).
 func validRepoName(s string) bool {
-	if s == "" || len(s) > 100 || s == "." || s == ".." {
+	if s == "" || len(s) > 100 || s == "." || s == ".." || s[0] == '-' {
 		return false
 	}
 	for i := 0; i < len(s); i++ {
@@ -159,17 +158,21 @@ func validRepoName(s string) bool {
 func validWorktreeCount(n int) bool { return n >= 0 && n <= maxWorktreeCount }
 
 type WorktreeStatus struct {
-	Run  string `json:"run"`
-	Repo string `json:"repo"`
+	Run     string `json:"run"`
+	Project string `json:"project"`
+	Repo    string `json:"repo"`
 }
 
-func (WorktreeStatus) kind() string  { return "worktree_status" }
-func (w WorktreeStatus) valid() bool { return ValidRunToken(w.Run) && validRepoName(w.Repo) }
+func (WorktreeStatus) kind() string { return "worktree_status" }
+func (w WorktreeStatus) valid() bool {
+	return ValidRunToken(w.Run) && ValidSlug(w.Project) && validRepoName(w.Repo)
+}
 
 // WorktreeRemove carries the counts the person was shown so that changes made
 // after they looked cannot be thrown away.
 type WorktreeRemove struct {
 	Run      string `json:"run"`
+	Project  string `json:"project"`
 	Repo     string `json:"repo"`
 	Changed  int    `json:"changed"`
 	Unpushed int    `json:"unpushed"`
@@ -177,7 +180,7 @@ type WorktreeRemove struct {
 
 func (WorktreeRemove) kind() string { return "worktree_remove" }
 func (w WorktreeRemove) valid() bool {
-	return ValidRunToken(w.Run) && validRepoName(w.Repo) && validWorktreeCount(w.Changed) && validWorktreeCount(w.Unpushed)
+	return ValidRunToken(w.Run) && ValidSlug(w.Project) && validRepoName(w.Repo) && validWorktreeCount(w.Changed) && validWorktreeCount(w.Unpushed)
 }
 
 type WorktreeState struct {
@@ -194,13 +197,8 @@ func (w WorktreeState) valid() bool {
 		return false
 	}
 	for _, p := range w.Paths {
-		if p == "" || len(p) > MaxWorktreePathBytes || !utf8.ValidString(p) {
+		if p == "" || len(p) > MaxWorktreePathBytes || !plainText(p, MaxWorktreePathBytes) {
 			return false
-		}
-		for _, r := range p {
-			if unicode.IsControl(r) {
-				return false
-			}
 		}
 	}
 	return true

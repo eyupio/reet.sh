@@ -83,6 +83,14 @@ func TestWorktreeTokens(t *testing.T) {
 	}
 }
 
+func TestWorktreeNeedsDir(t *testing.T) {
+	c := worktreeCreate()
+	c.Dir = ""
+	if c.Validate() == nil {
+		t.Fatal("worktree without dir accepted")
+	}
+}
+
 func TestWorktreeNeedsTool(t *testing.T) {
 	c := Create{Title: "A", Cols: 80, Rows: 24, Worktree: testRun}
 	if c.Validate() == nil {
@@ -118,7 +126,7 @@ func TestWorktreeCapability(t *testing.T) {
 }
 
 func TestValidRepoName(t *testing.T) {
-	for _, s := range []string{"", ".", "..", "a/b", "a b", "a\x00", "é", strings.Repeat("a", 101), "a;b"} {
+	for _, s := range []string{"", ".", "..", "-x", "--help", "-", "a/b", "a b", "a\x00", "é", strings.Repeat("a", 101), "a;b"} {
 		if validRepoName(s) {
 			t.Error("accepted", s)
 		}
@@ -132,8 +140,8 @@ func TestValidRepoName(t *testing.T) {
 
 func TestWorktreeMessagesStrict(t *testing.T) {
 	bodies := []Body{
-		WorktreeStatus{Run: testRun, Repo: "reet.sh"},
-		WorktreeRemove{Run: testRun, Repo: "reet.sh", Changed: 2, Unpushed: 1},
+		WorktreeStatus{Run: testRun, Project: "my-proj", Repo: "reet.sh"},
+		WorktreeRemove{Run: testRun, Project: "my-proj", Repo: "reet.sh", Changed: 2, Unpushed: 1},
 		WorktreeState{Path: "/home/a/.reet/worktrees/p/r/" + testRun, Branch: "reet/p-" + testRun, Changed: 1, Unpushed: 0, Paths: []string{"a.txt"}},
 		WorktreeState{Path: "/home/a/w", Branch: "b"},
 		WorktreeResult{Code: WorktreeChanged},
@@ -162,18 +170,31 @@ func TestWorktreeMessagesStrict(t *testing.T) {
 		}
 	}
 	for name, body := range map[string]Body{
-		"status bad run":    WorktreeStatus{Run: "ABC", Repo: "r"},
-		"status bad repo":   WorktreeStatus{Run: testRun, Repo: ".."},
-		"remove bad run":    WorktreeRemove{Run: "", Repo: "r"},
-		"remove bad repo":   WorktreeRemove{Run: testRun, Repo: "a/b"},
-		"remove negative":   WorktreeRemove{Run: testRun, Repo: "r", Changed: -1},
-		"remove negative u": WorktreeRemove{Run: testRun, Repo: "r", Unpushed: -1},
-		"state negative":    WorktreeState{Path: "/a", Branch: "b", Changed: -1},
-		"state no path":     WorktreeState{Branch: "b"},
-		"state relative":    WorktreeState{Path: "a", Branch: "b"},
-		"state control":     WorktreeState{Path: "/a\n", Branch: "b"},
-		"state branch ctrl": WorktreeState{Path: "/a", Branch: "b\x1b"},
-		"result unknown":    WorktreeResult{Code: "nope"},
+		"status bad run":        WorktreeStatus{Run: "ABC", Project: "p", Repo: "r"},
+		"status bad repo":       WorktreeStatus{Run: testRun, Project: "p", Repo: ".."},
+		"remove bad run":        WorktreeRemove{Run: "", Project: "p", Repo: "r"},
+		"remove bad repo":       WorktreeRemove{Run: testRun, Project: "p", Repo: "a/b"},
+		"remove negative":       WorktreeRemove{Run: testRun, Project: "p", Repo: "r", Changed: -1},
+		"remove negative u":     WorktreeRemove{Run: testRun, Project: "p", Repo: "r", Unpushed: -1},
+		"state negative":        WorktreeState{Path: "/a", Branch: "b", Changed: -1},
+		"state no path":         WorktreeState{Branch: "b"},
+		"state relative":        WorktreeState{Path: "a", Branch: "b"},
+		"state control":         WorktreeState{Path: "/a\n", Branch: "b"},
+		"state branch ctrl":     WorktreeState{Path: "/a", Branch: "b\x1b"},
+		"status no project":     WorktreeStatus{Run: testRun, Repo: "r"},
+		"status bad project":    WorktreeStatus{Run: testRun, Project: "My Proj", Repo: "r"},
+		"status dot project":    WorktreeStatus{Run: testRun, Project: "..", Repo: "r"},
+		"remove no project":     WorktreeRemove{Run: testRun, Repo: "r"},
+		"remove bad project":    WorktreeRemove{Run: testRun, Project: "a/b", Repo: "r"},
+		"remove long project":   WorktreeRemove{Run: testRun, Project: strings.Repeat("a", 41), Repo: "r"},
+		"status dash repo":      WorktreeStatus{Run: testRun, Project: "p", Repo: "--help"},
+		"remove dash repo":      WorktreeRemove{Run: testRun, Project: "p", Repo: "-x"},
+		"status count":          WorktreeRemove{Run: testRun, Project: "p", Repo: "r", Changed: 1<<30 + 1},
+		"remove unpushed count": WorktreeRemove{Run: testRun, Project: "p", Repo: "r", Unpushed: 1<<30 + 1},
+		"state changed count":   WorktreeState{Path: "/a", Branch: "b", Changed: 1<<30 + 1},
+		"state unpushed count":  WorktreeState{Path: "/a", Branch: "b", Unpushed: 1<<30 + 1},
+		"state empty branch":    WorktreeState{Path: "/a", Branch: ""},
+		"result unknown":        WorktreeResult{Code: "nope"},
 	} {
 		if testMessage(body).Validate() == nil {
 			t.Error("accepted:", name)
@@ -196,14 +217,20 @@ func TestWorktreePaths(t *testing.T) {
 		t.Fatal("good paths refused")
 	}
 	for name, paths := range map[string][]string{
-		"21 entries": append(append([]string{}, twenty...), "f"),
-		"256 bytes":  {strings.Repeat("a", 256)},
-		"newline":    {"a\nb"},
-		"escape":     {"a\x1b[31m"},
-		"NUL":        {"a\x00"},
-		"C1":         {"a\u0085b"},
-		"bad utf8":   {"a\xffb"},
-		"empty":      {""},
+		"21 entries":    append(append([]string{}, twenty...), "f"),
+		"256 bytes":     {strings.Repeat("a", 256)},
+		"newline":       {"a\nb"},
+		"escape":        {"a\x1b[31m"},
+		"NUL":           {"a\x00"},
+		"C1":            {"a\u0085b"},
+		"bad utf8":      {"a\xffb"},
+		"empty":         {""},
+		"bidi override": {"a\u202eb"},
+		"zero width":    {"a\u200bb"},
+		"isolate":       {"a\u2066b"},
+		"isolate end":   {"a\u2069b"},
+		"BOM":           {"\ufeffa"},
+		"line sep":      {"a\u2028b"},
 	} {
 		if state(paths).Validate() == nil {
 			t.Error("accepted:", name)

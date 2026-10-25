@@ -84,10 +84,13 @@ func safeNext(raw string) string {
 // the check sits on the very string that is redirected to, so no earlier step
 // has to be trusted to have made it safe.
 func redirectLocal(w http.ResponseWriter, r *http.Request, loc string) {
-	if loc == "" || loc[0] != '/' || (len(loc) > 1 && (loc[1] == '/' || loc[1] == '\\')) {
+	if loc == "" || loc[0] != '/' {
 		loc = "/"
 	}
-	http.Redirect(w, r, loc, http.StatusFound)
+	// One constant slash in front of what follows with every leading slash and
+	// backslash taken off, so the result cannot begin "//" or "/\\" whatever
+	// came in.
+	http.Redirect(w, r, "/"+strings.TrimLeft(loc, `/\`), http.StatusFound)
 }
 
 func withParam(path, key, value string) string {

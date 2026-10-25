@@ -205,6 +205,11 @@ func (s *server) ssoStart(w http.ResponseWriter, r *http.Request) {
 			s.ssoFail(w, r, "/", "signin_required")
 			return
 		}
+		if u.Role == "owner" {
+			// Ownership comes from setup and transfer, never from the provider.
+			s.ssoFail(w, r, "/", "not_linkable")
+			return
+		}
 		intent, userID = "link", u.ID
 	}
 	state, nonce, verifier, binding := oidc.Random(32), oidc.Random(32), oidc.Random(48), oidc.Random(32)
@@ -221,11 +226,7 @@ func (s *server) ssoStart(w http.ResponseWriter, r *http.Request) {
 		StateHash: auth.HashToken(state), BindingHash: auth.HashToken(binding), Nonce: nonce, Verifier: verifier,
 		Next: next, Intent: intent, UserID: userID, ExpiresAt: at.Add(ssoAttemptLife).UnixMilli(),
 	}, at.UnixMilli())
-	switch {
-	case errors.Is(err, store.ErrSSOBusy):
-		s.ssoFail(w, r, "/", "busy")
-		return
-	case err != nil:
+	if err != nil {
 		log.Printf("single sign-on: start: %v", err)
 		s.ssoFail(w, r, "/", "failed")
 		return
@@ -305,6 +306,10 @@ func (s *server) ssoLinkCallback(w http.ResponseWriter, r *http.Request, row sto
 		s.ssoFail(w, r, row.Next, "signin_required")
 		return
 	}
+	if cur.Role == "owner" {
+		s.ssoFail(w, r, row.Next, "not_linkable")
+		return
+	}
 	switch err := s.st.LinkSSOIdentity(s.sso.Issuer(), c.Subject, cur.ID); {
 	case errors.Is(err, store.ErrSSOLinkedElsewhere):
 		s.ssoFail(w, r, row.Next, "linked_elsewhere")
@@ -323,11 +328,16 @@ func (s *server) ssoLinkCallback(w http.ResponseWriter, r *http.Request, row sto
 
 func (s *server) ssoSignIn(w http.ResponseWriter, r *http.Request, row store.SSOLogin, c oidc.Claims) {
 	issuer := s.sso.Issuer()
-	email := strings.ToLower(strings.TrimSpace(c.Email))
+	email := asciiLower(strings.TrimSpace(c.Email))
 	user, found, err := s.st.SSOIdentityUser(issuer, c.Subject)
 	if err != nil {
 		log.Printf("single sign-on: lookup: %v", err)
 		s.ssoFail(w, r, "/", "failed")
+		return
+	}
+	if found && user.Role == "owner" {
+		// A link to the owner, however it came to exist, is not a way in.
+		s.ssoFail(w, r, "/", "not_linkable")
 		return
 	}
 	created := false
@@ -353,9 +363,20 @@ func (s *server) ssoSignIn(w http.ResponseWriter, r *http.Request, row store.SSO
 		case exists && !s.sso.LinkByEmail():
 			s.ssoFail(w, r, "/", "exists")
 			return
+		case exists && existing.Email != email:
+			// The address matched only after Unicode case folding, which the
+			// provider may not share: a different spelling is a different
+			// person until somebody who can tell says otherwise.
+			s.ssoFail(w, r, "/", "exists")
+			return
 		case exists && (existing.Role == "owner" || existing.Role == "admin"):
 			// Matching an address must never hand over the keys.
 			s.ssoFail(w, r, "/", "not_linkable")
+			return
+		case exists && existing.DisabledAt != 0:
+			// Refused before anything is linked, or enabling the account
+			// later would hand it to this identity.
+			s.ssoFail(w, r, "/", "disabled")
 			return
 		case exists:
 			switch err := s.st.LinkSSOIdentity(issuer, c.Subject, existing.ID); {
@@ -562,4 +583,17 @@ func nonNil(v []string) []string {
 		return []string{}
 	}
 	return v
+}
+
+// asciiLower folds A to Z only. strings.ToLower also folds the Kelvin sign
+// and a dotted capital I, which would let an address the provider treats as
+// distinct land on an existing person.
+func asciiLower(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			b[i] = c + 'a' - 'A'
+		}
+	}
+	return string(b)
 }

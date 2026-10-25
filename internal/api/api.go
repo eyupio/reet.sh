@@ -249,7 +249,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	s := &server{
 		st: st, f: f, token: token, version: "dev", commit: "unknown",
 		authMode: AuthToken, limiter: auth.NewLimiter(5, time.Minute), oauthLimiter: auth.NewLimiter(30, time.Minute), dummyHash: dummy,
-		ssoLimiter: auth.NewLimiter(20, time.Minute), logoutLimiter: auth.NewLimiter(60, time.Minute),
+		ssoLimiter: auth.NewLimiter(60, time.Minute), logoutLimiter: auth.NewLimiter(60, time.Minute),
 		queue: make(chan ref.Ref, 256),
 	}
 	for _, opt := range opts {
@@ -1906,13 +1906,14 @@ func (s *server) signIn(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "email or password is not correct")
 		return
 	}
-	if user.DisabledAt != 0 || !auth.VerifyPassword(user.PasswordHash, in.Password) {
+	good := auth.VerifyPassword(user.PasswordHash, in.Password)
+	// Where password sign-in is off for everyone but the owner, a right
+	// password is answered exactly as a wrong one: a different answer would
+	// tell anybody guessing whether a leaked password is still good. The sign-in
+	// page already points people at single sign-on.
+	passwordsOff := s.ssoOn() && !s.sso.PasswordLogin() && user.Role != "owner"
+	if user.DisabledAt != 0 || !good || passwordsOff {
 		writeErr(w, http.StatusUnauthorized, "email or password is not correct")
-		return
-	}
-	// Said only once the password is right, so it tells a guesser nothing.
-	if s.ssoOn() && !s.sso.PasswordLogin() && user.Role != "owner" {
-		writeErr(w, http.StatusForbidden, "password sign-in is turned off here; sign in with single sign-on")
 		return
 	}
 	if _, err := s.newSession(w, r, user); err != nil {

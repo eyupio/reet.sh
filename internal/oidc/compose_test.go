@@ -25,4 +25,9 @@ func TestEveryVariableTheConfigurationReadsReachesTheContainer(t *testing.T) {
 			t.Errorf("docker-compose.yml does not pass %s to the container", name)
 		}
 	}
+	// A secret is better read from a file than from the environment, and the
+	// documentation offers it: the container has to be able to receive it.
+	if !regexp.MustCompile(`(?m)^\s+REET_OIDC_CLIENT_SECRET_FILE:`).Match(compose) {
+		t.Error("docker-compose.yml does not pass REET_OIDC_CLIENT_SECRET_FILE to the container")
+	}
 }

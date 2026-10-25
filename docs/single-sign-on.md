@@ -120,13 +120,17 @@ anything the provider said:
 | `disabled` | The account is disabled. |
 | `already_linked`, `linked_elsewhere` | The account, or the identity, is already linked. |
 | `signin_required` | Linking needs the person to stay signed in here. |
-| `rate_limited`, `busy` | Too many sign-ins are starting. Try again shortly. |
+| `rate_limited` | Too many sign-ins are starting from this address. Try again shortly. |
 
 ## Behind the scenes
 
 - The sign-in is bound to the browser that began it by a short-lived cookie, and to the provider's
   answer by `state`, `nonce` and PKCE. An attempt works once and lasts ten minutes; at most 1,000 can
-  be waiting.
+  be waiting, and when that many are the oldest gives way to a new one, so a flood of starts cannot
+  keep real people out.
+- Starting a sign-in is limited to 60 a minute for each address the server sees. reet.sh does not read
+  forwarding headers, so behind a reverse proxy everyone shares the proxy's address; the allowance is
+  generous for that reason.
 - After sign-in the browser goes to the `next` path it began from, if that is a path on this site, so
   a sign-in that interrupts the connect-an-agent consent page resumes there.
 - The provider's discovery document and key set are fetched with a timeout, a size cap and no

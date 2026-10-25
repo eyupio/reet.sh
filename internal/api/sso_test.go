@@ -456,14 +456,23 @@ func TestWithPasswordSignInOffTheOwnerCanStillComeInWithAPassword(t *testing.T) 
 	hash, _ := auth.HashPassword("member password 123")
 	m, _ := e.st.CreateUser("member@example.com", "", "member", hash)
 	_ = m
-	if code, body := e.body(e.client(), "POST", "/api/v2/auth/sign-in", `{"email":"member@example.com","password":"member password 123"}`); code != http.StatusForbidden || !strings.Contains(body, "single sign-on") {
-		t.Fatalf("member with the right password = %d %s", code, body)
-	}
-	if code, body := e.body(e.client(), "POST", "/api/v2/auth/sign-in", `{"email":"member@example.com","password":"wrong"}`); code != http.StatusUnauthorized || strings.Contains(body, "single sign-on") {
-		t.Fatalf("a wrong password must not reveal the policy: %d %s", code, body)
-	}
 	if code, body := e.body(e.client(), "POST", "/api/v2/auth/sign-in", `{"email":"owner@example.com","password":"`+ownerPassword+`"}`); code != 200 {
 		t.Fatalf("owner = %d %s", code, body)
+	}
+}
+
+// Where password sign-in is off for members, a right password and a wrong one
+// must look the same, or the sign-in form tells anyone who guesses whether a
+// leaked password is still good.
+func TestWithPasswordSignInOffARightPasswordAndAWrongOneLookTheSame(t *testing.T) {
+	e := newSSOEnv(t, ssoOpts{env: map[string]string{"REET_OIDC_PASSWORD_LOGIN": "off"}})
+	hash, _ := auth.HashPassword("member password 123")
+	e.st.CreateUser("member@example.com", "", "member", hash)
+	rightCode, rightBody := e.body(e.client(), "POST", "/api/v2/auth/sign-in", `{"email":"member@example.com","password":"member password 123"}`)
+	wrongCode, wrongBody := e.body(e.client(), "POST", "/api/v2/auth/sign-in", `{"email":"member@example.com","password":"wrong"}`)
+	unknownCode, unknownBody := e.body(e.client(), "POST", "/api/v2/auth/sign-in", `{"email":"nobody@example.com","password":"wrong"}`)
+	if rightCode != http.StatusUnauthorized || rightCode != wrongCode || rightCode != unknownCode || rightBody != wrongBody || rightBody != unknownBody {
+		t.Fatalf("right = %d %s, wrong = %d %s, unknown = %d %s", rightCode, rightBody, wrongCode, wrongBody, unknownCode, unknownBody)
 	}
 }
 
@@ -589,11 +598,22 @@ func TestSingleSignOnRoutesAnswerNothingWithoutSingleSignOnOrAccounts(t *testing
 	}
 }
 
+// Behind a proxy every browser can share one address, so the allowance is
+// generous: it has to stop a flood, not an office signing in at nine.
+func TestAnOfficeSharingOneAddressCanAllStartASignInAtNine(t *testing.T) {
+	e := newSSOEnv(t, ssoOpts{})
+	for i := 0; i < 50; i++ {
+		if loc, resp := e.start(e.client(), ""); resp.StatusCode != http.StatusFound || errorCode(loc) != "" {
+			t.Fatalf("start %d = %d %q", i, resp.StatusCode, loc)
+		}
+	}
+}
+
 func TestStartingSignInIsRateLimitedPerAddress(t *testing.T) {
 	e := newSSOEnv(t, ssoOpts{})
 	c := e.client()
 	var last string
-	for i := 0; i < 40; i++ {
+	for i := 0; i < 100; i++ {
 		loc, resp := e.start(c, "")
 		if resp.StatusCode != http.StatusFound {
 			t.Fatalf("start %d = %d", i, resp.StatusCode)
@@ -604,7 +624,7 @@ func TestStartingSignInIsRateLimitedPerAddress(t *testing.T) {
 		}
 	}
 	if errorCode(last) != "rate_limited" {
-		t.Fatal("forty starts from one address were all allowed")
+		t.Fatal("a hundred starts from one address were all allowed")
 	}
 }
 
@@ -822,18 +842,11 @@ func TestWhereGroupsAreMappedTheProviderDecidesTheRoleAtEachSignIn(t *testing.T)
 	if role() != "member" {
 		t.Fatalf("by group: %q", role())
 	}
-	// The owner's role is never the provider's to change.
-	_ = e.st.LinkSSOIdentity(e.idp.Issuer, "sub-owner", e.owner.ID)
-	p := oidctest.Person{Subject: "sub-owner", Email: "owner@example.com", EmailVerified: true, Groups: []string{"somebody-else"}}
-	e.login(e.client(), p, "")
-	if got, _, _ := e.st.UserByID(e.owner.ID); got.Role != "owner" {
-		t.Fatalf("the owner became %q", got.Role)
-	}
 	// With no groups mapped, an administrator's choice stands.
 	none := newSSOEnv(t, ssoOpts{})
 	v := none.member("ada@example.com", "admin")
 	_ = none.st.LinkSSOIdentity(none.idp.Issuer, "sub-ada", v.ID)
-	p = ada("sub-ada")
+	p := ada("sub-ada")
 	p.Groups = []string{"anything"}
 	none.login(none.client(), p, "")
 	if got, _, _ := none.st.UserByID(v.ID); got.Role != "admin" {
@@ -868,5 +881,89 @@ func TestChangingAPasswordKeepsTheSessionAProvidersLogoutCanEnd(t *testing.T) {
 	}
 	if _, ok := e.signedInAs(c); ok {
 		t.Fatal("the session that replaced the provider's survived the provider's logout")
+	}
+}
+
+// Ownership never comes through the provider, in either direction: the owner
+// cannot link an identity, and a link that already exists for the owner (made
+// directly in the store, or by an earlier version) makes no session.
+func TestTheOwnerNeverSignsInOrLinksThroughTheProvider(t *testing.T) {
+	e := newSSOEnv(t, ssoOpts{})
+	c := e.client()
+	e.signIn(c, "owner@example.com", ownerPassword)
+	if loc, resp := e.start(c, "?intent=link"); resp.StatusCode != http.StatusFound || errorCode(loc) != "not_linkable" {
+		t.Fatalf("the owner linking = %d %q", resp.StatusCode, loc)
+	}
+	if _, ok, _ := e.st.SSOIdentityUser(e.idp.Issuer, "sub-owner"); ok {
+		t.Fatal("an identity was linked to the owner")
+	}
+
+	_ = e.st.LinkSSOIdentity(e.idp.Issuer, "sub-owner-old", e.owner.ID)
+	oc := e.client()
+	loc := e.login(oc, oidctest.Person{Subject: "sub-owner-old", Email: "owner@example.com", EmailVerified: true, SessionID: "sid-o"}, "")
+	if errorCode(loc) != "not_linkable" {
+		t.Fatalf("an existing owner link signed in: %q", loc)
+	}
+	if _, ok := e.signedInAs(oc); ok {
+		t.Fatal("a session was made for the owner through the provider")
+	}
+
+	// Administrators can still link their own identity.
+	e.memberWithPassword("admin@example.com", "admin", "admin password 123")
+	ac := e.client()
+	e.signIn(ac, "admin@example.com", "admin password 123")
+	if loc := e.login(ac, oidctest.Person{Subject: "sub-admin", Email: "admin@example.com", EmailVerified: true}, "?intent=link"); errorCode(loc) != "" {
+		t.Fatalf("an admin linking = %q", loc)
+	}
+}
+
+// Folding case is ASCII only. Unicode folds the Kelvin sign to k, so an
+// address the provider treats as a different person's would otherwise be
+// linked to an existing member.
+func TestAnAddressThatMatchesOnlyByUnicodeFoldingIsNotLinked(t *testing.T) {
+	e := newSSOEnv(t, ssoOpts{env: map[string]string{"REET_OIDC_LINK_BY_EMAIL": "on"}})
+	e.member("kate@example.com", "member")
+	p := oidctest.Person{Subject: "sub-stranger", Email: "\u212Aate@example.com", EmailVerified: true}
+	loc := e.login(e.client(), p, "")
+	if errorCode(loc) == "" {
+		t.Fatalf("signed in: %q", loc)
+	}
+	if _, ok, _ := e.st.SSOIdentityUser(e.idp.Issuer, "sub-stranger"); ok {
+		t.Fatal("a stranger was linked to the existing member")
+	}
+}
+
+// A disabled account is refused before anything is linked to it, or turning
+// it back on would hand it to whoever the provider vouched for meanwhile.
+func TestADisabledAccountIsNotLinkedByEmail(t *testing.T) {
+	e := newSSOEnv(t, ssoOpts{env: map[string]string{"REET_OIDC_LINK_BY_EMAIL": "on"}})
+	u := e.member("ada@example.com", "member")
+	if err := e.st.SetUserDisabled(u.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if loc := e.login(e.client(), ada("sub-ada"), ""); errorCode(loc) != "disabled" {
+		t.Fatalf("disabled member = %q", loc)
+	}
+	if _, ok, _ := e.st.SSOIdentityUser(e.idp.Issuer, "sub-ada"); ok {
+		t.Fatal("a disabled account was linked")
+	}
+}
+
+func TestOwnershipIsNotHandedToAnAccountThatHasNoPassword(t *testing.T) {
+	e := newSSOEnv(t, ssoOpts{})
+	// The owner signs in with a password only, so an account made by single
+	// sign-on has no way in once it is the owner.
+	u, err := e.st.CreateSSOUser(e.idp.Issuer, "sub-nopw-owner", "nopw-owner@example.com", "", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := e.client()
+	e.signIn(c, "owner@example.com", ownerPassword)
+	code, body := e.body(c, "POST", "/api/v2/admin/users/transfer", `{"id":`+strconv.FormatInt(u.ID, 10)+`}`)
+	if code != http.StatusBadRequest || !strings.Contains(body, "password") {
+		t.Fatalf("transfer to an account without a password = %d %s", code, body)
+	}
+	if got := mustUser(t, e, "owner@example.com"); got.Role != "owner" {
+		t.Fatalf("the owner is now %q", got.Role)
 	}
 }

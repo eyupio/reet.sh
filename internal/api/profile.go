@@ -233,7 +233,7 @@ func (s *server) newSessionFor(w http.ResponseWriter, r *http.Request, user stor
 	// provider has to find it.
 	var issuer, sid, subject string
 	if c, err := r.Cookie(sessionCookie); err == nil {
-		issuer, sid, subject, _ = s.st.SessionSSO(auth.HashToken(c.Value))
+		issuer, sid, subject, _ = s.st.SessionSSO(auth.HashToken(c.Value), user.ID, time.Now().UnixMilli())
 	}
 	if issuer != "" {
 		err = s.st.CreateSSOSession(auth.HashToken(token), user.ID, expires.UnixMilli(), r.UserAgent(), issuer, sid, subject)

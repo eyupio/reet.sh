@@ -856,10 +856,13 @@ export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; da
 export type ProfileInfo = { user: User; profile: Profile; sessionCount: number; accounts: boolean }
 export type ProfileSession = { id: string; device: string; createdAt: number; lastSeen: number; expiresAt: number; current: boolean }
 
+// Sent on window whenever the page theme changes, so a mounted form holding the theme follows instead of saving a stale one.
+export const THEME_EVENT = 'reet:theme'
 export function applyTheme(theme: string) {
   const root = document.documentElement
   if (theme === 'light' || theme === 'dark') root.dataset.theme = theme
   else delete root.dataset.theme
+  window.dispatchEvent(new CustomEvent<string>(THEME_EVENT, { detail: theme }))
 }
 export async function getProfile(): Promise<ProfileInfo> {
   return (await req('/api/v2/profile')).json()

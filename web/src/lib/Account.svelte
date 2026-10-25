@@ -9,7 +9,7 @@
   import PageHeader from './PageHeader.svelte'
   import {
     applyTheme, changePassword, createToken, endOtherProfileSessions, endProfileSession, getProfile, listEvents,
-    listProfileSessions, listTokens, revokeToken, saveProfile,
+    listProfileSessions, listTokens, revokeToken, saveProfile, THEME_EVENT,
     type APIToken, type Event, type Profile, type ProfileSession, type User,
   } from './api'
   import { eventLabel, eventTitle } from './events'
@@ -68,6 +68,10 @@
     if (section === 'sessions') void loadSessions()
     if (section === 'activity') void loadActivity()
     if (section === 'tokens') void loadTokens()
+    // The account menu can change the theme while this form is open; saving another preference must not put the old one back.
+    const followTheme = (e: unknown) => { profileForm.theme = (e as CustomEvent<string>).detail }
+    window.addEventListener(THEME_EVENT, followTheme)
+    return () => window.removeEventListener(THEME_EVENT, followTheme)
   })
 
   function fail(e: unknown) {

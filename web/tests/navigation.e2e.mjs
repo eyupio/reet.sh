@@ -101,6 +101,23 @@ try {
   await context.close()
  }
 
+ // A theme chosen in the menu is what the open Profile form saves next, so changing another preference does not put the old theme back.
+ if (run('theme-form')) {
+  const {context,page,state} = await open({width:1440})
+  await page.goto(`${base}/account/profile`)
+  const select = page.locator('label:has(> span:text-is("Theme")) select')
+  await expect(select).toHaveValue('light')
+  await page.locator('summary[aria-label^="Account menu"]').click()
+  await page.locator('.panel').getByRole('group',{name:'Theme'}).getByRole('button',{name:'Dark'}).click()
+  await expect(select).toHaveValue('dark')
+  await page.getByPlaceholder('Europe/London').fill('Europe/Paris')
+  await page.getByRole('button',{name:'Save profile'}).click()
+  await expect.poll(()=>state.patches.some(p=>p.timezone==='Europe/Paris')).toBe(true)
+  expect(state.patches.find(p=>p.timezone==='Europe/Paris').theme).toBe('dark')
+  expect(await page.evaluate(()=>document.documentElement.dataset.theme)).toBe('dark')
+  await context.close()
+ }
+
  // The signed-in header is one row on a phone and does not overflow at the widths either side of the menu breakpoint.
  if (run('header')) {
   for (const [width,maxHeight] of [[375,100],[1001,110],[1024,110]]) {

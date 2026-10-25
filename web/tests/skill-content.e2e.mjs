@@ -30,6 +30,22 @@ const mine=()=>pins.find(p=>p.environmentId==='scope-one'&&p.name==='demo')
 const serverEdit=change=>{pins=pins.map(p=>p===mine()?{...p,...change}:p)}
 const CONFLICT={error:'The content target changed. Refresh and review before saving again.'}
 
+// Checks. The server keeps full previews; the list returns summaries (no capture, plan or review hash), as the real one does.
+// A create is idempotent by requestKey, one check per connector is active at a time, and the list says whether the connector
+// has recently negotiated (internal/store/store_content_previews.go).
+let previewsDb=[],capReady=true,dropCreate=null,previewsBroken=false,previewGetHold=null,previewSeq=0
+const previewReads=[]
+const BUSY={error:'content preview changed, expired, busy or unavailable'}
+const summary=p=>{const{capture,plan,reviewHash,captureHash,adoption,...rest}=p;return rest}
+const mkPreview=(pin,requestKey)=>({id:`chk${String(++previewSeq).padStart(4,'0')}`,requestKey,targetId:pin.id,targetVersion:pin.version,environmentId:pin.environmentId,agentId:pin.agentId,agent:'agents',project:'',name:pin.name,bundleId:pin.bundleId,revisionId:pin.revisionId,manifestDigest:pin.manifestDigest,mode:pin.mode,instanceId:'instance-1',inventoryRevision:'4611686018427387904',state:'queued',reasons:[],createdAt:Date.now()+previewSeq,updatedAt:Date.now(),expiresAt:Date.now()+600000,authority:'preview_only'})
+const latest=()=>previewsDb.at(-1)
+const setLatest=over=>{Object.assign(latest(),over,{updatedAt:Date.now()})}
+const file=(path,bytes,executable=false)=>({path,bytes,digest:'a'.repeat(64),executable})
+const manifestOf=files=>({schemaVersion:1,algorithm:'sha256',modeSemantics:'executable-bit',complete:true,files,totalBytes:files.reduce((n,f)=>n+f.bytes,0)})
+const captureOf=(presence,over={})=>({schemaVersion:1,adapter:'agents',rootId:'r'.repeat(16),rootOwnership:'exclusive',presence,complete:presence==='present',issues:[],...over})
+const planOf=(over={})=>({version:1,preconditions:{},ready:true,actions:[],conflicts:[],preserved:[],hash:'p'.repeat(64),...over})
+const OWNED=manifestOf([file('SKILL.md',120)])
+
 // Machines. One host has four scopes: supported, scan-only Codex, a stale scan and (with a second, paused connector
 // listed first) a running connector. The others have a paused connector and no connector at all.
 const content={state:'observed',skills:[{name:'demo',complete:true,files:3,bytes:92,digest:'d'.repeat(64)},{name:'other',complete:true,files:1,bytes:10,digest:'e'.repeat(64)}]}
@@ -91,6 +107,37 @@ await page.route('**/api/**',async route=>{
   if(pin.version!==body.expectedVersion)return route.fulfill({status:409,json:CONFLICT})
   pins=pins.filter(p=>p!==pin);data={removed:true}
  }
+ else if(path==='/api/v2/skill-content-previews'&&method==='GET'){
+  if(previewsBroken)return route.fulfill({status:500,json:{error:'The checks could not be read right now.'}})
+  data={previews:previewsDb.map(summary),capabilities:[{agentId:'agent-0',ready:capReady,observedAt:now}]}
+ }
+ else if(path==='/api/v2/skill-content-previews'&&method==='POST'){
+  writes.push({method,path,body})
+  const replay=previewsDb.find(p=>p.requestKey===body.requestKey)
+  if(replay)data=replay
+  else{
+   if(dropCreate==='before'){dropCreate=null;return route.abort('failed')}
+   const pin=pins.find(p=>p.id===body.targetId)
+   if(!pin||pin.version!==body.expectedTargetVersion||!capReady||previewsDb.some(p=>['queued','capturing'].includes(p.state)))return route.fulfill({status:409,json:BUSY})
+   const created=mkPreview(pin,body.requestKey);previewsDb.push(created);data=created
+   if(dropCreate==='after'){dropCreate=null;return route.abort('failed')}
+  }
+ }
+ else if(path.match(/^\/api\/v2\/skill-content-previews\/[^/]+\/cancel$/)&&method==='POST'){
+  writes.push({method,path,body})
+  const p=previewsDb.find(x=>x.id===path.split('/')[4]);if(!p)return route.fulfill({status:404,json:{error:'content preview unavailable'}})
+  Object.assign(p,{state:'cancelled',updatedAt:Date.now()});data=p
+ }
+ else if(path.match(/^\/api\/v2\/skill-content-previews\/[^/]+$/)&&method==='GET'){
+  const id=path.split('/').pop();previewReads.push(id)
+  if(previewGetHold)await previewGetHold.promise
+  const p=previewsDb.find(x=>x.id===id);if(!p)return route.fulfill({status:404,json:{error:'content preview unavailable'}})
+  data=p
+ }
+ else if(path.match(/^\/api\/v2\/skill-content-previews\/[^/]+$/)&&method==='DELETE'){
+  writes.push({method,path,body})
+  const id=path.split('/').pop();previewsDb=previewsDb.filter(x=>x.id!==id);data={ok:true}
+ }
  else{unmocked.push(`${method} ${path}`);return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})}
  // A reply that never arrives: the server has kept the write, the browser sees the connection fail.
  if(dropNextSave&&method==='POST'&&path==='/api/v2/skill-content-targets'){dropNextSave=false;return route.abort('failed')}
@@ -102,6 +149,21 @@ await page.addInitScript(()=>{
  window.__storageCalls=[]
  for(const op of ['setItem','removeItem','clear']){const original=Storage.prototype[op];Storage.prototype[op]=function(...args){window.__storageCalls.push({area:this===window.localStorage?'local':this===window.sessionStorage?'session':'other',op,key:args[0]});return original.apply(this,args)}}
 })
+// The page's poll timers (3 and 10 seconds) are counted while they are pending, and the clock can be moved on, so a test can
+// wait for a timer to have fired or a read to have aged without sleeping.
+await page.addInitScript(()=>{
+ window.__poll={pending:new Set(),fired:0}
+ const set=window.setTimeout.bind(window),clear=window.clearTimeout.bind(window)
+ window.setTimeout=(fn,delay,...args)=>{
+  if(delay!==3000&&delay!==10000)return set(fn,delay,...args)
+  const id=set(()=>{window.__poll.pending.delete(id);window.__poll.fired++;fn(...args)},delay)
+  window.__poll.pending.add(id);return id
+ }
+ window.clearTimeout=id=>{window.__poll.pending.delete(id);clear(id)}
+ const real=Date.now.bind(Date);window.__skew=0;Date.now=()=>real()+window.__skew
+})
+const pendingPolls=()=>page.evaluate(()=>window.__poll.pending.size)
+const setHidden=hidden=>page.evaluate(h=>{for(const key of ['hidden','visibilityState'])Object.defineProperty(document,key,{configurable:true,get:()=>key==='hidden'?h:(h?'hidden':'visible')});document.dispatchEvent(new Event('visibilitychange'))},hidden)
 const layout=async()=>expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
 const storage=()=>page.evaluate(async()=>JSON.stringify({local:{...localStorage},session:{...sessionStorage},idb:(await indexedDB.databases()).map(d=>d.name).sort()}))
 const card=host=>page.locator('article').filter({has:page.getByRole('heading',{name:host,exact:true})})
@@ -413,12 +475,278 @@ try{
  await expect(dialog).toHaveCount(0)
  await expect(rowOther).toBeFocused()
 
+ // ---- The Check step ----
+ const POSTS='/api/v2/skill-content-previews'
+ const checkPosts=()=>writes.filter(w=>w.method==='POST'&&w.path===POSTS)
+ const reads=id=>previewReads.filter(r=>r===id).length
+ const checkHeading=dialog.getByRole('heading',{name:'Check this machine',exact:true})
+ const checkBtn=dialog.getByRole('button',{name:'Check this machine',exact:true})
+ const again=dialog.getByRole('button',{name:'Check again',exact:true})
+ const live=dialog.locator('.check-live')
+ const heading=name=>dialog.getByRole('heading',{name,exact:true})
+ const SECOND=15000
+ const askAgain=async()=>{const n=checkPosts().length;await again.click();await expect.poll(()=>checkPosts().length).toBe(n+1);return checkPosts()[n].body}
+ const keys=[]
+
+ // The connector has not recently negotiated: the check is switched off with the reason, a click forced past that sends
+ // nothing, and the button comes back by itself once the connector reports in.
+ capReady=false
+ await scopeButton('workstation',SHARED).evaluate(el=>el.click())
+ await expect(dialog).toBeVisible()
+ await expect(pinsList).toContainText('Last check: Not checked yet')
+ await pinsList.getByRole('button',{name:'Open check for demo'}).click()
+ await expect(checkHeading).toBeVisible()
+ await expect(dialog).toContainText('reads file names, sizes and digests only')
+ await expect(checkBtn).toBeDisabled()
+ await expect(dialog).toContainText("hasn't checked in recently")
+ await checkBtn.evaluate(el=>{el.disabled=false;el.click()})
+ await afterRequests()
+ expect(checkPosts()).toEqual([])
+ capReady=true
+ await expect(dialog).not.toContainText("hasn't checked in recently",{timeout:SECOND})
+ await expect(checkBtn).toBeEnabled()
+
+ // One click sends one request with exactly the three fields; a second click while it is under way sends nothing.
+ const demo=mine()
+ await checkBtn.evaluate(el=>{el.click();el.click()})
+ await expect(live).toContainText('Waiting for the machine')
+ await afterRequests()
+ expect(checkPosts()).toHaveLength(1)
+ const firstBody=checkPosts()[0].body
+ expect(Object.keys(firstBody).sort()).toEqual(['expectedTargetVersion','requestKey','targetId'])
+ expect(firstBody.requestKey).toMatch(/^[A-Za-z0-9_-]{16,80}$/)
+ expect(firstBody.targetId).toBe(demo.id);expect(firstBody.expectedTargetVersion).toBe(demo.version)
+ keys.push(firstBody.requestKey)
+ await expect(live).toBeVisible()
+ expect(await live.getAttribute('aria-live')).toBe('polite')
+ expect(await pendingPolls()).toBe(1)
+ // Queued, then capturing: the progress changes in the same polite live region.
+ setLatest({state:'capturing'})
+ await expect(live).toContainText('Reading the folder on this machine',{timeout:SECOND})
+ expect(await pendingPolls()).toBe(1)
+
+ // Captured, folder found, exclusive root: what was found (managed and not) and the plan in words, read-only.
+ const found=(over={})=>({state:'captured',capturedAt:Date.now(),reviewHash:'h'.repeat(64),captureHash:'c'.repeat(64),capture:captureOf('present',{manifest:manifestOf([file('SKILL.md',120),file('notes/mine.txt',12)])}),plan:planOf({preconditions:{baseline:{manifest:OWNED}},actions:[{path:'SKILL.md',kind:'update',before:file('SKILL.md',120),after:file('SKILL.md',130)}],preserved:[{path:'notes/mine.txt',reason:'local_only'}]}),...over})
+ setLatest(found())
+ await expect(heading('Found')).toBeVisible({timeout:SECOND})
+ const files=dialog.getByRole('table',{name:'Files found in the folder'})
+ await expect(files.getByRole('row',{name:/SKILL\.md/})).toContainText('Managed by reet')
+ await expect(files.getByRole('row',{name:/notes\/mine\.txt/})).toContainText('Not managed by reet')
+ await expect(dialog.getByRole('table',{name:'What a later apply would change'}).getByRole('row',{name:/SKILL\.md/})).toContainText('Would update')
+ await expect(dialog).toContainText("Applying changes isn't available yet.")
+ await expect(dialog).toContainText("Stays yours: this file isn't in the pinned revision")
+ await expect(dialog).not.toContainText('Another agent scope')
+ await expect(dialog.getByRole('button',{name:/apply|install|adopt|record ownership/i})).toHaveCount(0)
+ await expect(dialog).not.toContainText(/verified/i)
+ expect(await pendingPolls()).toBe(1)
+ // A found folder that the plan says is up to date.
+ keys.push((await askAgain()).requestKey)
+ setLatest(found({plan:planOf({preconditions:{baseline:{manifest:OWNED}}})}))
+ await expect(dialog.getByText('Up to date.',{exact:false})).toBeVisible({timeout:SECOND})
+ await expect(dialog.getByText("Applying changes isn't available yet.")).toHaveCount(0)
+ // Not there yet: the create actions are shown read-only.
+ keys.push((await askAgain()).requestKey)
+ setLatest({state:'captured',capturedAt:Date.now(),reviewHash:'h'.repeat(64),capture:captureOf('absent'),plan:planOf({actions:[{path:'SKILL.md',kind:'create',after:file('SKILL.md',130)},{path:'scripts/run.sh',kind:'create',after:file('scripts/run.sh',40,true)}]})})
+ await expect(heading('Not there yet')).toBeVisible({timeout:SECOND})
+ await expect(dialog.getByRole('table',{name:'What a later apply would change'}).getByRole('row',{name:/scripts\/run\.sh/})).toContainText('Would create')
+ await expect(dialog).toContainText("Applying changes isn't available yet.")
+ await expect(dialog.getByRole('table',{name:'Files found in the folder'})).toHaveCount(0)
+ await expect(dialog.getByRole('button',{name:/apply|install|create /i})).toHaveCount(0)
+ // Couldn't tell: the issues are listed.
+ keys.push((await askAgain()).requestKey)
+ setLatest({state:'captured',capturedAt:Date.now(),reviewHash:'h'.repeat(64),capture:captureOf('unknown',{issues:[{path:'',code:'scope_root_missing'}]}),plan:planOf({ready:false,conflicts:[{path:'',code:'observation_unknown'}]})})
+ await expect(heading("Couldn't tell")).toBeVisible({timeout:SECOND})
+ await expect(dialog).toContainText('scope root missing')
+ await expect(dialog).toContainText("The folder couldn't be read completely.")
+ await expect(dialog).not.toContainText('Up to date')
+ // A root another agent scope reaches: the folder warning once, and no actions at all.
+ keys.push((await askAgain()).requestKey)
+ setLatest({state:'captured',capturedAt:Date.now(),reviewHash:'h'.repeat(64),capture:captureOf('present',{rootOwnership:'shared',manifest:manifestOf([file('SKILL.md',120)])}),plan:planOf({ready:false,conflicts:[{path:'',code:'root_shared'}]})})
+ await expect(heading('Found')).toBeVisible({timeout:SECOND})
+ await expect(dialog.getByText('Another agent scope, or a link, reaches this same folder, so reet will not touch it.')).toHaveCount(1)
+ await expect(dialog.getByText("Applying changes isn't available yet.")).toHaveCount(0)
+ await expect(dialog.getByRole('table')).toHaveCount(0)
+ // The same for a root whose ownership could not be told.
+ keys.push((await askAgain()).requestKey)
+ setLatest({state:'captured',capturedAt:Date.now(),reviewHash:'h'.repeat(64),capture:captureOf('present',{rootOwnership:'unknown'}),plan:planOf({ready:false,conflicts:[{path:'',code:'root_unknown'}]})})
+ await expect(dialog.getByText("Couldn't tell whether another agent scope reaches this folder, so reet will not touch it.")).toHaveCount(1,{timeout:SECOND})
+ await expect(dialog.getByRole('table')).toHaveCount(0)
+
+ // Anything that is not a current capture shows its reason and Check again, never a verdict from its plan.
+ const withPlan={capture:found().capture,plan:found().plan,reviewHash:'h'.repeat(64)}
+ const ended=async(over,expectText,notFinal=false)=>{
+  keys.push((await askAgain()).requestKey)
+  setLatest(over)
+  for(const text of expectText)await expect(dialog.getByText(text,{exact:false}).first()).toBeVisible({timeout:SECOND})
+  await expect(again).toBeVisible()
+  for(const verdict of [heading('Found'),heading('Not there yet'),dialog.getByText('Up to date'),dialog.getByText("Applying changes isn't available yet."),dialog.getByRole('table')])await expect(verdict).toHaveCount(0)
+  if(!notFinal)expect(await pendingPolls()).toBe(0)
+ }
+ await ended({state:'stale',reasons:['stale'],...withPlan},['This check is out of date.','more than five minutes old'])
+ await ended({state:'superseded',reasons:['pin_changed','receipt_changed'],...withPlan},['The pin changed after this check was made.','The ownership record for this skill changed after this check was made.'])
+ await ended({state:'captured',reasons:['inventory_changed'],...withPlan},['The machine reported a newer scan after this check was made.'],true)
+ await ended({state:'expired',reasons:['expired']},['This check ran out of time.'])
+ await ended({state:'failed',error:'capture_failed'},["That check didn't finish.","The machine couldn't read this skill folder."])
+ await ended({state:'failed',error:'plan_unavailable'},["couldn't be worked out"])
+ await ended({state:'cancelled'},['This check was stopped.'])
+ await ended({state:'frobnicated'},['Something changed. Check again.'])
+ expect(new Set(keys).size).toBe(keys.length)
+
+ // The pin is read again before a check is made: one that moved elsewhere is not checked, and the screen says so.
+ const posts=checkPosts().length
+ serverEdit({version:'ver-moved-on',revisionId:R.d1})
+ await again.click()
+ await expect(dialog.getByRole('alert')).toContainText('changed')
+ await afterRequests()
+ expect(checkPosts()).toHaveLength(posts)
+ await again.click()
+ await expect.poll(()=>checkPosts().length).toBe(posts+1)
+ expect(checkPosts()[posts].body.expectedTargetVersion).toBe('ver-moved-on')
+ keys.push(checkPosts()[posts].body.requestKey)
+ await expect(dialog.getByRole('alert')).toHaveCount(0)
+ await expect(live).toContainText('Waiting for the machine')
+
+ // Polling pauses while the tab is hidden: a timer that fires then reads nothing, and coming back reads at once.
+ const queued=latest().id
+ await setHidden(true)
+ await afterRequests()
+ const readsBefore=reads(queued),firedBefore=await page.evaluate(()=>window.__poll.fired)
+ await page.waitForFunction(n=>window.__poll.fired>n,firedBefore,{timeout:SECOND})
+ await afterRequests()
+ expect(reads(queued)).toBe(readsBefore)
+ expect(await pendingPolls()).toBe(0)
+ setLatest({state:'capturing'})
+ await setHidden(false)
+ await expect(live).toContainText('Reading the folder on this machine',{timeout:SECOND})
+ expect(reads(queued)).toBe(readsBefore+1)
+ expect(await pendingPolls()).toBe(1)
+
+ // Closing the dialog stops polling: nothing is pending and nothing reads afterwards.
+ const readsAtClose=reads(queued)
+ await dialog.getByRole('button',{name:'Done'}).click()
+ await expect(dialog).toHaveCount(0)
+ expect(await pendingPolls()).toBe(0)
+ await afterRequests()
+ expect(reads(queued)).toBe(readsAtClose)
+
+ // A captured row in the list has no capture, so it is not shown until the check has been read in full.
+ setLatest(found())
+ previewGetHold=deferred()
+ await scopeButton('workstation',SHARED).evaluate(el=>el.click())
+ await expect(dialog).toBeVisible()
+ await expect(pinsList).toContainText('Last check: Checked')
+ await pinsList.getByRole('button',{name:'Open check for demo'}).click()
+ await expect(dialog.getByText('Reading the latest check')).toBeVisible()
+ await expect(heading('Found')).toHaveCount(0)
+ previewGetHold.resolve();previewGetHold=null
+ await expect(heading('Found')).toBeVisible()
+ await expect(files).toBeVisible()
+
+ // A captured read the browser has not renewed for thirty seconds is not shown as current. The clock is moved on while the
+ // tab is hidden (so nothing reads again), then put back and the read renewed.
+ await setHidden(true)
+ await page.evaluate(()=>{window.__skew=60000})
+ await expect(dialog.getByText('Updating this result')).toBeVisible({timeout:SECOND})
+ await expect(heading('Found')).toHaveCount(0)
+ await page.evaluate(()=>{window.__skew=0})
+ await setHidden(false)
+ await expect(heading('Found')).toBeVisible({timeout:SECOND})
+
+ // Stop and dismiss use the server's cancel and dismiss, and the dialog says what was done.
+ keys.push((await askAgain()).requestKey)
+ await dialog.getByRole('button',{name:'Stop this check'}).click()
+ await expect(live).toContainText('This check was stopped.')
+ const stopped=latest().id
+ expect(writes.at(-1)).toEqual({method:'POST',path:`${POSTS}/${stopped}/cancel`,body:{}})
+ const dismiss=dialog.getByRole('button',{name:'Dismiss this result'})
+ await dismiss.click()
+ await expect.poll(()=>previewsDb.some(p=>p.id===stopped)).toBe(false)
+ expect(writes.at(-1)).toEqual({method:'DELETE',path:`${POSTS}/${stopped}`,body:null})
+ await expect(live).not.toContainText('This check was stopped.')
+ // The one before it is shown next; dismissing them all leaves nothing to show.
+ while(previewsDb.length){const n=previewsDb.length;await dismiss.click();await expect.poll(()=>previewsDb.length).toBe(n-1)}
+ await expect(dialog.getByText('Nothing has been checked yet.')).toBeVisible()
+ await expect(checkBtn).toBeEnabled()
+ expect(await pendingPolls()).toBe(0)
+
+ // A reply that never arrives, the check was made, and the list can be read: the check is found and no second one is sent.
+ dropCreate='after'
+ const beforeLost=checkPosts().length
+ await checkBtn.click()
+ await expect(live).toContainText('Waiting for the machine')
+ expect(checkPosts()).toHaveLength(beforeLost+1)
+ expect(previewsDb.filter(p=>p.requestKey===checkPosts()[beforeLost].body.requestKey)).toHaveLength(1)
+ await expect(dialog.getByRole('alert')).toHaveCount(0)
+ keys.push(checkPosts()[beforeLost].body.requestKey)
+ setLatest(found({state:'failed',capture:undefined,plan:undefined,error:'capture_failed'}))
+ await expect(again).toBeVisible({timeout:SECOND})
+ // A reply that never arrives and the list cannot be read either: the same key is sent again and the server's own
+ // check is returned, so there is still only one.
+ dropCreate='after';previewsBroken=true
+ const sentLost=checkPosts().length,dbBefore=previewsDb.length
+ await again.click()
+ await expect(dialog.getByRole('alert')).toContainText("Couldn't reach reet")
+ expect(checkPosts()).toHaveLength(sentLost+1)
+ const lostKey=checkPosts()[sentLost].body.requestKey
+ previewsBroken=false
+ await again.click()
+ await expect.poll(()=>checkPosts().length).toBe(sentLost+2)
+ expect(checkPosts()[sentLost+1].body.requestKey).toBe(lostKey)
+ expect(previewsDb).toHaveLength(dbBefore+1)
+ await expect(live).toContainText('Waiting for the machine')
+ await expect(dialog.getByRole('alert')).toHaveCount(0)
+ keys.push(lostKey)
+ setLatest({state:'cancelled'})
+ await expect(again).toBeVisible({timeout:SECOND})
+ // A reply that never arrives and a real busy conflict: the same key is sent again, the machine answers busy, and the other
+ // check can be resumed (not adopted silently).
+ dropCreate='before';previewsBroken=true
+ const sentBusy=checkPosts().length
+ await again.click()
+ await expect(dialog.getByRole('alert')).toContainText("Couldn't reach reet")
+ const busyKey=checkPosts()[sentBusy].body.requestKey
+ previewsBroken=false
+ const elsewhere=mkPreview(mine(),'made-elsewhere-0123456789');previewsDb.push(elsewhere)
+ await again.click()
+ await expect.poll(()=>checkPosts().length).toBe(sentBusy+2)
+ expect(checkPosts()[sentBusy+1].body.requestKey).toBe(busyKey)
+ await expect(dialog.getByRole('alert')).toContainText('busy')
+ const resume=dialog.getByRole('button',{name:'Resume that check',exact:true})
+ await expect(resume).toBeVisible()
+ await resume.click()
+ await expect(live).toContainText('Waiting for the machine')
+ await expect(resume).toHaveCount(0)
+ expect(checkPosts()).toHaveLength(sentBusy+2)
+ setLatest(found())
+ await expect(heading('Found')).toBeVisible({timeout:SECOND})
+
+ // Layout: the result fits at every width, light and dark, with a long list of files inside its own scroll area.
+ const many=Array.from({length:60},(_,i)=>file(`references/${'a-very-long-unbroken-file-name-'.repeat(3)}${i}-ünïcödé.md`,100+i))
+ await again.click()
+ await expect.poll(()=>checkPosts().length).toBe(sentBusy+3)
+ setLatest(found({capture:captureOf('present',{manifest:manifestOf([file('SKILL.md',120),...many])})}))
+ await expect(heading('Found')).toBeVisible({timeout:SECOND})
+ for(const [width,height] of [[1360,1000],[390,844],[320,640]])for(const scheme of ['dark','light']){
+  await page.setViewportSize({width,height});await page.emulateMedia({colorScheme:scheme})
+  await layout();expect(await fits()).toBe(true)
+  await expect(dialog.getByRole('button',{name:'Close private skills'})).toBeInViewport()
+  await expect(dialog.getByRole('button',{name:'Done'})).toBeInViewport()
+ }
+ await page.setViewportSize({width:1360,height:1000});await page.emulateMedia({colorScheme:'light'})
+ await dialog.getByRole('button',{name:'Done'}).click()
+ await expect(dialog).toHaveCount(0)
+ expect(await pendingPolls()).toBe(0)
+
  // Pins, checks and ownership never touch browser storage: not one write, from the moment the dialog first opened, and the
  // stored state is what it was. Nothing ever asked for revision bytes or any other read of a skill's files.
  expect((await page.evaluate(()=>window.__storageCalls)).slice(storageCallsAtOpen)).toEqual([])
  expect(await storage()).toBe(before)
  expect(requests.filter(r=>/\/revisions\/[^/]/.test(r.path))).toEqual([])
- expect(requests.filter(r=>r.method==='GET'&&/skill-content-(previews|receipts)/.test(r.path))).toEqual([])
+ // Receipts belong to a later step, and no check can exist before a pin does: the checks are first read after the first pin was saved.
+ expect(requests.filter(r=>/skill-content-receipts/.test(r.path))).toEqual([])
+ const firstPinSave=requests.findIndex(r=>r.method==='POST'&&r.path==='/api/v2/skill-content-targets'),firstCheckRead=requests.findIndex(r=>r.method==='GET'&&r.path==='/api/v2/skill-content-previews')
+ expect(firstPinSave).toBeGreaterThan(-1)
+ expect(firstCheckRead).toBeGreaterThan(firstPinSave)
 
  // A viewer and a legacy sign-in mode see no Private skills actions at all (and a legacy mode keeps the existing imports button).
  viewer=true;await page.reload()
@@ -435,5 +763,5 @@ try{
  await expect(page.getByRole('button',{name:/^Pin a library revision/})).toHaveCount(0)
  expect(unmocked).toEqual([])
  expect(errors).toEqual([])
- console.log('Skill content UI passed: entry points and reasons, read-only open and retry, create/change/remove with versions, conflicts, lost replies and 404s, busy guard, connector lapse, newest revision, labels not ids, stale-response fencing, focus return, storage writes, responsive layouts and viewer/legacy isolation.')
+ console.log('Skill content UI passed: entry points and reasons, read-only open and retry, create/change/remove with versions, conflicts, lost replies and 404s, busy guard, connector lapse, newest revision, labels not ids, stale-response fencing, focus return, storage writes, responsive layouts and viewer/legacy isolation; checks: readiness, request body and key reuse, queued to captured polling, every presence and ownership result, stale/superseded/expired/failed/cancelled/unknown states, pin re-read, lost replies and busy resume, hidden pause, close stops polling, summary rows read in full, aged reads, stop and dismiss.')
 }finally{await browser.close()}

@@ -8,7 +8,7 @@
  // connector the shell will send the pin through, so a pin made through another one is not "the current pin".
  // saveBlocked is why saving is unavailable right now (empty when it is). revisionLists are the revisions the shell has
  // read, by library skill, so a pin can be described by when its revision was made rather than by an id.
- let { pins, bundles, preset = '', agentId, saveBlocked = '', busy, revisionLists, revisionsFor, onsave, onremove }: {
+ let { pins, bundles, preset = '', agentId, saveBlocked = '', busy, revisionLists, revisionsFor, statusFor, oncheck, onsave, onremove }: {
   pins: ContentPin[]
   bundles: PrivateBundle[]
   preset?: string
@@ -17,6 +17,9 @@
   busy: boolean
   revisionLists: Record<string, PrivateRevision[] | undefined>
   revisionsFor: (bundleId: string) => Promise<PrivateRevision[]>
+  // The status line from a pin's latest check, and the way into the Check step for it.
+  statusFor?: (pin: ContentPin) => string
+  oncheck?: (pin: ContentPin) => void
   onsave: (input: PinChoice) => Promise<void>
   onremove: (pin: ContentPin) => Promise<void>
  } = $props()
@@ -92,8 +95,10 @@
       <strong>{pin.name}</strong>
       <span>Revision {labelOf(pin)}{#if head && pin.revisionId !== head}<span class="where">· Not the newest in the library</span>{/if}</span>
       <span>{modeLabel(pin.mode)}</span>
+      {#if statusFor}<span>{statusFor(pin)}</span>{/if}
      </div>
      <div class="row-actions">
+      {#if oncheck}<button type="button" class="btn" disabled={busy} aria-label={`Open check for ${pin.name}`} onclick={() => oncheck(pin)}>Check</button>{/if}
       <button type="button" class="btn" disabled={busy} aria-label={`Change pin for ${pin.name}`} onclick={() => void change(pin)}>Change pin</button>
       <button type="button" class="btn" disabled={busy} aria-label={`Remove pin for ${pin.name}`} onclick={() => void remove(pin)}>Remove pin</button>
      </div>

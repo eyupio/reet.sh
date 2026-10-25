@@ -7,7 +7,7 @@
 <section class="auth" aria-labelledby="auth-title">
   <aside class="intro" aria-label="About your workspace">
     <p class="eyebrow">{eyebrow}</p>
-    <p class="headline">Your AI workspace.<br />A reet good place to work.</p>
+    <p class="headline">Your AI workspace. <br />A reet good place to work.</p>
     <p class="intro-copy">Bring your machines, AI agents, skills and setups together. Open a terminal to use your installed tools and return to ongoing work.</p>
     <ol class="stages" aria-label="How your workspace works">
       <li><span aria-hidden="true">01</span><div><strong>Your fleet</strong><small>One place to reach your laptops and servers.</small></div></li>
@@ -45,7 +45,9 @@
   .lede { margin: 8px 0 0; color: var(--muted); max-width: 40ch; }
   @media (max-width: 560px) {
     .auth { grid-template-columns: 1fr; margin-top: 24px; border-radius: 14px; }
-    .intro { padding: 22px; border-right: 0; border-bottom: 1px solid var(--line); }
+    /* The form and its button come first on a phone; the explanation follows it. */
+    .intro { order: 2; padding: 22px; border-right: 0; border-top: 1px solid var(--line); }
+    .form-panel { order: 1; }
     .headline { margin-top: 10px; font-size: 1.65rem; }
     .headline br { display: none; }
     .intro-copy { font-size: 0.84rem; }

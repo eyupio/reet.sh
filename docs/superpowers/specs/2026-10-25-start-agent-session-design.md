@@ -98,10 +98,10 @@ sentences:
 | Cause | Sentence |
 | --- | --- |
 | Machine offline or reconnecting | "That machine is reconnecting. Try again in a moment." |
-| Tool not installed (known to the controller from the capability) | "<Agent> isn't installed on that machine." |
+| Tool not installed (known to the controller from the capability) | "That agent isn't installed on that machine." (generic: the API answers with a code, `tool_not_installed`, and no table of display names, so the sentence does not name the agent) |
 | Machine too old for launch requests | "Update reet on that machine to start agents." |
 | Folder refused by the connector | "That folder isn't available on that machine." |
-| Session limit | "That machine already has the most sessions it allows." |
+| Session limit | "The terminal session limit has been reached. End a session and try again." (the server's 409 does not say whether the per-machine or the per-account limit was reached, so the sentence does not name the machine) |
 | Local consent switched off | "Browser terminals are switched off on that machine." |
 | Same request id, different parameters | "That request changed. Start it again." |
 | Anything else | "Something changed. Check again." |

@@ -77,6 +77,9 @@ await page.exposeFunction('__recordStorage',(op,key,value)=>{storageWrites.push(
 await page.addInitScript(()=>{
  window.__storageCalls=[]
  for(const op of ['setItem','removeItem','clear']){const original=Storage.prototype[op];Storage.prototype[op]=function(...args){window.__storageCalls.push({op,key:String(args[0]??''),value:String(args[1]??'')});window.__recordStorage(op,String(args[0]??''),String(args[1]??''));return original.apply(this,args)}}
+ // IndexedDB: opening or deleting a database and every write to a store, so an existing database cannot be written unseen.
+ for(const op of ['open','deleteDatabase']){const original=IDBFactory.prototype[op];IDBFactory.prototype[op]=function(...args){window.__recordStorage('idb-'+op,String(args[0]??''),'');return original.apply(this,args)}}
+ for(const op of ['put','add','delete','clear']){const original=IDBObjectStore.prototype[op];IDBObjectStore.prototype[op]=function(...args){let value='';try{value=JSON.stringify(args)}catch{value=String(args[0])}window.__recordStorage('idb-'+op,this.name,value);return original.apply(this,args)}}
  window.__urls=[]
  for(const op of ['pushState','replaceState']){const original=history[op].bind(history);history[op]=(state,title,url)=>{window.__urls.push(String(url??''));return original(state,title,url)}}
 })
@@ -112,6 +115,11 @@ const LOST="We didn't hear back, so the agent may have started. Check your sessi
 const LONG='a'.repeat(1998)+'é'
 const secrets=['fix the failing build please',LONG.slice(0,40),'opus-4.1','gpt-5-codex',SITE,'/home/dev/typed']
 const texts=async d=>{const t=await d.innerText();expect(t).not.toMatch(/verified|healthy/i);return t}
+// While a request is in flight or its outcome is unknown, nothing that would change the request can be touched.
+const locked=async p=>{
+ for(const field of [p.machine,p.model,p.folder,p.prompt,p.tool('Claude Code'),p.tool('Codex'),p.tool('Gemini CLI')])await expect(field).toBeDisabled()
+ for(const field of [p.other,p.path])if(await field.count())await expect(field).toBeDisabled()
+}
 const openFromSidebar=async()=>{await sidebarEntry().click();const d=dialog();await expect(d).toBeVisible();return d}
 
 try{
@@ -160,6 +168,8 @@ try{
  expect(posts).toHaveLength(0)
  await p.other.fill('  opus-4.1  ')
  await expect(d.getByText("That model name isn't one reet can pass on.",{exact:false})).toHaveCount(0)
+ // Editing the field takes the attempt's message out of the status line: it never outlives the mistake it named.
+ await expect(p.status).toHaveText('')
 
  // Prompt rules, with the byte counter.
  await expect(p.count).toHaveText("0 of 2,000 bytes. Secrets don't belong here.")
@@ -175,6 +185,7 @@ try{
  await expect(d.getByText('That prompt is too long. Use at most 2000 bytes; accented letters and emoji take more than one.',{exact:true})).toBeVisible()
  await p.prompt.fill(LONG)
  await expect(p.count).toHaveText("2,000 of 2,000 bytes. Secrets don't belong here.")
+ await expect(p.status).toHaveText('')
  await expect(d.getByText('That prompt is too long.',{exact:false})).toHaveCount(0)
  // One word could be read as a subcommand by claude and codex; gemini takes the prompt as a flag value, so one word is fine.
  await p.prompt.fill('purge')
@@ -197,6 +208,18 @@ try{
  await p.start.click()
  await expect(p.status).toHaveText('Use a full path that starts with /.')
  await expect(p.path).toBeFocused()
+ await p.path.fill('/home/dev/typed')
+ await expect(p.status).toHaveText('')
+ // The next attempt replaces the line too.
+ await p.path.fill('')
+ await p.start.click()
+ await expect(p.status).toHaveText('Use a full path that starts with /.')
+ await p.prompt.fill('-x marks the spot')
+ await p.path.fill('/home/dev/typed')
+ await p.start.click()
+ await expect(p.status).toHaveText('Start the prompt with a word, not a dash.')
+ await p.prompt.fill('')
+ await expect(p.status).toHaveText('')
  await p.path.fill('work/site')
  await expect(d.locator('p.reason').filter({hasText:/^Use a full path that starts with \/\.$/})).toHaveCount(1)
  await expect(p.path).toHaveAttribute('aria-invalid','true')
@@ -240,6 +263,29 @@ try{
  expect(posts[1]).toBe(JSON.stringify({agentId:A,requestId:plain.requestId,title:'Shell',cols:100,rows:30}))
  await expect(page).toHaveURL(new RegExp(`session=session-${plain.requestId.replaceAll('-','').slice(0,20)}`))
 
+ // ── A held first Start: every field locked, Close and Escape wait, a second submit sends nothing. ──
+ d=await openFromSidebar();p=parts(d)
+ await p.model.selectOption({label:'Other…'})
+ await p.other.fill('sonnet-4')
+ await p.folder.selectOption({label:'Type a path…'})
+ await p.path.fill('/home/dev/held')
+ await p.prompt.fill('wait for me please')
+ const firstHold=deferred();answers.push(firstHold)
+ const sentFirst=posts.length
+ await p.start.click()
+ await expect(p.starting).toBeDisabled()
+ await locked(p)
+ await expect(p.close).toBeDisabled()
+ await expect(p.status).toHaveText('Starting Claude Code on dev-laptop… this can take a few seconds.')
+ await submitAgain(d)
+ await page.keyboard.press('Escape')
+ await settle()
+ await expect(d).toBeVisible()
+ expect(posts.length).toBe(sentFirst+1)
+ firstHold.resolve()
+ await expect(d).toHaveCount(0)
+ expect(body(-1)).toEqual({agentId:A,requestId:body(-1).requestId,title:'Claude Code · held',cols:100,rows:30,tool:'claude',model:'sonnet-4',dir:'/home/dev/held',prompt:'wait for me please'})
+
  // ── A lost reply: plain words, Retry focused, the same request id and body; nothing changes while it is in flight. ──
  d=await openFromSidebar();p=parts(d)
  await p.tool('Codex').check()
@@ -249,8 +295,7 @@ try{
  await p.start.click()
  await expect(p.status).toHaveText(LOST)
  await expect(p.retry).toBeFocused()
- await expect(p.prompt).toBeDisabled()
- await expect(p.machine).toBeDisabled()
+ await locked(p)
  const lost=posts.at(-1)
  // A 5xx is no answer either.
  answers.push({status:502,json:{error:'Bad gateway'}})
@@ -263,6 +308,7 @@ try{
  await p.retry.click()
  await expect(p.starting).toBeDisabled()
  await expect(p.close).toBeDisabled()
+ await locked(p)
  await expect(p.status).toHaveText('Starting Codex on dev-laptop… this can take a few seconds.')
  await submitAgain(d);await submitAgain(d)
  await page.keyboard.press('Escape')
@@ -398,8 +444,12 @@ try{
  const addresses=[...urls,...await page.evaluate(()=>window.__urls)].join('\n')
  const written=storageWrites.join('\n')
  expect(written).toContain('reet-terminal-layout')   // the recorder works: the layout preference is written
- for(const secret of [...secrets,'tidy the readme','look around here','purge','-fix','"tool"'])for(const where of [kept,addresses,written])expect(where.includes(secret)).toBe(false)
+ for(const secret of [...secrets,'tidy the readme','look around here','wait for me please','sonnet-4','/home/dev/held','purge','-fix','"tool"'])for(const where of [kept,addresses,written])expect(where.includes(secret)).toBe(false)
  expect(JSON.parse(kept).idb).toEqual([])
+ expect(storageWrites.filter(w=>w.startsWith('idb-'))).toEqual([])
+ // The IndexedDB recorder works: a write made here is seen (and the probe database removed again).
+ await page.evaluate(()=>new Promise((resolve,reject)=>{const r=indexedDB.open('recorder-probe');r.onupgradeneeded=()=>r.result.createObjectStore('s');r.onsuccess=()=>{const tx=r.result.transaction('s','readwrite');tx.objectStore('s').put('x','k');tx.oncomplete=()=>{r.result.close();indexedDB.deleteDatabase('recorder-probe').onsuccess=resolve};tx.onerror=reject};r.onerror=reject}))
+ expect(storageWrites.filter(w=>w.startsWith('idb-'))).toEqual(['idb-open recorder-probe ','idb-put s ["x","k"]','idb-deleteDatabase recorder-probe '])
 
  // ── Activity reads the launch event, without any prompt. ──
  await page.goto(`${base}/account#activity`)
@@ -411,14 +461,20 @@ try{
  await expect(page.getByRole('heading',{name:'dev-laptop',exact:true})).toBeVisible()
  await expect(page.getByRole('button',{name:'Start an agent'})).toHaveCount(0)
  await page.goto(`${base}/terminals?agent=${A}`)
- await expect(page.locator('body')).toContainText('dev-laptop')
+ // The Terminals address shows the machines inventory instead of the workspace: its own heading is there, the workspace's is not.
+ await expect(page).toHaveTitle('Terminals · reet.sh')
+ await expect(page.getByRole('heading',{name:'3 machines, one clear view.',exact:true})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'Terminals',exact:true,level:1})).toHaveCount(0)
  await expect(page.getByRole('button',{name:'New agent session'})).toHaveCount(0)
  viewer=false;authMode='none'
  await page.goto(`${base}/machines`)
  await expect(page.getByRole('heading',{name:'dev-laptop',exact:true})).toBeVisible()
  await expect(page.getByRole('button',{name:'Start an agent'})).toHaveCount(0)
  await page.goto(`${base}/terminals?agent=${A}`)
- await expect(page.locator('body')).toContainText('dev-laptop')
+ // The Terminals address shows the machines inventory instead of the workspace: its own heading is there, the workspace's is not.
+ await expect(page).toHaveTitle('Terminals · reet.sh')
+ await expect(page.getByRole('heading',{name:'3 machines, one clear view.',exact:true})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'Terminals',exact:true,level:1})).toHaveCount(0)
  await expect(page.getByRole('button',{name:'New agent session'})).toHaveCount(0)
 
  expect(errors).toEqual([])

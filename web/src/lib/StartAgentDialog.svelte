@@ -33,6 +33,8 @@
  const switchedNote = $derived(agentId === opening.agentId ? opening.note : '')
  let tool = $state(''), modelChoice = $state(''), modelOther = $state(''), folderChoice = $state(''), typedDir = $state(''), prompt = $state('')
  let attempted = $state(false), busy = $state(false), message = $state(''), failed = $state(false)
+ // The status line holds an attempt's validation message only until the person edits a field: it never outlives the mistake it named.
+ let invalidMessage = false
  // One attempt: the request id and the exact parameters. Kept while its outcome is unknown, so Retry asks about the same start
  // and a lost reply can never start a second agent. Dropped only when the server has definitely refused it.
  type Operation = { agentId: string; host: string; requestId: string; title: string; launch: LaunchRequest }
@@ -105,7 +107,7 @@
    if (blocked || !machine) return
    // The errors are derived, so they already count this attempt; no await here, or a second press could slip past the busy guard.
    const invalid = modelError ? ['model-other', modelError] : dirError ? ['dir', dirError] : promptError ? ['prompt', promptError] : null
-   if (invalid) { failed = true; message = invalid[1]; field(invalid[0])?.focus(); return }
+   if (invalid) { failed = true; message = invalid[1]; invalidMessage = true; field(invalid[0])?.focus(); return }
    const launch: LaunchRequest = { tool: chosenTool }
    if (model) launch.model = model
    if (dir) launch.dir = dir
@@ -113,7 +115,7 @@
    operation = { agentId: machine.agentId, host: machine.host, requestId: crypto.randomUUID(), title: titleFor(chosenTool, dir), launch }
   }
   const op = operation
-  busy = true; failed = false
+  busy = true; failed = false; invalidMessage = false
   message = `Starting ${toolName(op.launch.tool)} on ${op.host}… this can take a few seconds.`
   try {
    const session = await createTerminal(op.agentId, op.requestId, op.title, 100, 30, AbortSignal.any([life.signal, AbortSignal.timeout(15000)]), op.launch)
@@ -141,6 +143,8 @@
   }
  }
 
+ function edited() { if (invalidMessage) { invalidMessage = false; message = ''; failed = false } }
+
  onMount(() => {
   dialog?.showModal()
   machineSelect?.focus()
@@ -157,7 +161,7 @@
   </div>
   <button type="button" class="btn" onclick={close} disabled={busy} aria-label="Close">Close ×</button>
  </header>
- <form class="body" onsubmit={(event) => { event.preventDefault(); void start() }}>
+ <form class="body" oninput={edited} onsubmit={(event) => { event.preventDefault(); void start() }}>
   <fieldset disabled={locked}>
    <div class="field">
     <label for={`${id}-machine`}>Machine</label>

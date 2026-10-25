@@ -49,6 +49,13 @@ Stage 3 must enforce instance/sequence/generation ordering and compute freshness
 from controller receipt time. Wire validation alone does not detect replay or
 prove a collector's reading is accurate.
 
+Launch requests. The create operation may carry four optional string fields,
+`tool`, `model`, `dir` and `prompt`, to start an installed agent CLI instead of a
+plain shell. They are sent only to a connector that advertised `launch-v1` and
+reported the `launch` capability; they change neither the protocol version nor the
+frame limits, and the whole create remains the idempotency key. See
+[launch requests](terminal-launch.md).
+
 ## Persistence and caller obligations
 
 The additive, transactional migration runs through `Store.Open` and creates:

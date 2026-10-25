@@ -38,6 +38,8 @@
   let machineChange = $state<{ from: string; to?: string } | null>(null)
   // svelte-ignore state_referenced_locally
   let setupOpen = $state(startConnect)
+  // Arrived on the Add a machine dialog: the step-by-step panel stays shut behind it until asked for.
+  const arrivedForDialog = typeof location !== 'undefined' && location.hash === '#add-machine'
   let setupHost = $state('')
   // The Add a machine dialog, with what opened it, and the machine it just brought in (highlighted for a few seconds).
   let joining = $state<{ context: JoinContext; opener: HTMLElement | null } | null>(null)
@@ -66,7 +68,7 @@
     ++loadGeneration
     syncState = next
     loaded = true
-    if (inventoryMachines(next.machines ?? []).length === 0) setupOpen = true
+    if (!arrivedForDialog && inventoryMachines(next.machines ?? []).length === 0) setupOpen = true
   }
   function fresh(env: SyncEnvironment): boolean { return env.scannedAt > now - (env.agent === 'reet-server' ? 5 * 60000 : 14 * 86400000) }
   function when(at: number): string { return at ? new Date(at).toLocaleString() : 'Not reported yet' }
@@ -118,7 +120,7 @@
       loaded = true
       loadFailure = undefined
       lastRefresh = Date.now()
-      if (!loadedOnce && inventoryMachines(next.machines ?? []).length === 0) setupOpen = true
+      if (!loadedOnce && !arrivedForDialog && inventoryMachines(next.machines ?? []).length === 0) setupOpen = true
       loadedOnce = true
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)

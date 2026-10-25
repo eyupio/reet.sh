@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
-  import { untrack } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import { terminalMachines, readiness, type TerminalMachine } from './terminal/api'
   import {
     updateSyncAgent,
@@ -264,6 +264,21 @@
     step = next
   }
 
+  // A name is needed before the commands mean anything. Say so, put the person on the field, and let the button stay pressable.
+  let nameError = $state('')
+  let nameInput = $state<HTMLInputElement>()
+  async function continueTo(next: number) {
+    if (!host.trim()) {
+      nameError = 'Name this machine to continue.'
+      step = 1
+      await tick()
+      nameInput?.focus()
+      return
+    }
+    nameError = ''
+    go(next)
+  }
+
   function ago(at: number): string {
     if (!at) return 'Not yet'
     const seconds = Math.max(0, Math.round((now - at) / 1000))
@@ -326,7 +341,7 @@
           <p>Install the reet binary once. It includes the scanner and the machine agent. No separate server is needed on this machine.</p>
         </header>
         <div class="fields">
-          <label>Machine name<input bind:value={host} list="known-machine-names" maxlength="200" placeholder="e.g. studio-laptop" autocomplete="off" /></label>
+          <label>Machine name<input bind:this={nameInput} bind:value={host} list="known-machine-names" maxlength="200" placeholder="e.g. studio-laptop" autocomplete="off" aria-invalid={nameError ? 'true' : undefined} aria-describedby={nameError ? 'machine-name-error' : undefined} oninput={() => (nameError = '')} /></label>
           <label>Release<select bind:value={channel} onchange={() => (channelTouched = true)}><option value="stable">Latest stable</option><option value="dev">Dev — latest main</option></select></label>
         </div>
         <datalist id="known-machine-names">{#each machines as machine}<option value={machine.host}></option>{/each}</datalist>
@@ -334,8 +349,9 @@
           <div class="command-copy"><span>Install and check</span><CopyButton text={install} label="Copy install command" compact /></div>
           <pre>{install}</pre>
         </div>
-        <p class="hint">The machine name is how this machine appears here. Keep it stable between scans.</p>
-        <div class="step-actions"><button class="btn primary" type="button" onclick={() => go(2)} disabled={!host.trim()}>Continue to {mode === 'scratch' ? 'setup restore' : 'authentication'} →</button></div>
+        {#if nameError}<p class="name-error" id="machine-name-error" role="alert">{nameError}</p>{/if}
+        <p class="hint">Required. The machine name is how this machine appears here. Keep it stable between scans.</p>
+        <div class="step-actions"><button class="btn primary" type="button" onclick={() => continueTo(2)}>Continue to {mode === 'scratch' ? 'setup restore' : 'authentication'} →</button></div>
       {:else if step === 2 && mode === 'connect'}
         <header>
           <p class="eyebrow">Step 2 · Authenticate</p>
@@ -351,7 +367,7 @@
           <div class="command-copy"><span>Save the connection</span><CopyButton text={configure} label="Copy connection command" compact /></div>
           <pre>{configure}</pre>
         </div>
-        <div class="step-actions"><button class="btn" type="button" onclick={() => go(1)}>Back</button><button class="btn primary" type="button" onclick={() => go(3)} disabled={!host.trim()}>Continue to terminal connection →</button></div>
+        <div class="step-actions"><button class="btn" type="button" onclick={() => go(1)}>Back</button><button class="btn primary" type="button" onclick={() => continueTo(3)}>Continue to terminal connection →</button></div>
       {:else if step === 2}
         <header>
           <p class="eyebrow">Step 2 · Restore setup</p>
@@ -385,7 +401,7 @@
           </div>
           <details class="advanced"><summary>Verify the restored files</summary><div class="command"><div class="command-copy"><span>Verify</span><CopyButton text={verify} label="Copy verify command" compact /></div><pre>{verify}</pre></div><p class="hint">Keep the journal for rollback. A file match does not prove the agents work.</p></details>
         {/if}
-        <div class="step-actions"><button class="btn" type="button" onclick={() => go(1)}>Back</button><button class="btn primary" type="button" onclick={() => go(3)} disabled={!host.trim()}>Continue to terminal connection →</button></div>
+        <div class="step-actions"><button class="btn" type="button" onclick={() => go(1)}>Back</button><button class="btn primary" type="button" onclick={() => continueTo(3)}>Continue to terminal connection →</button></div>
       {:else if step === 3}
         <header>
           <p class="eyebrow">Step 3 · Machine &amp; terminal connection</p>
@@ -541,6 +557,7 @@
   .command-copy { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 0.72rem; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; }
   .command pre { margin: 0; padding: 13px 14px; white-space: pre-wrap; overflow-wrap: anywhere; font: 0.78rem/1.6 var(--mono); }
   .hint { margin: 0; color: var(--muted); font-size: 0.78rem; line-height: 1.55; }
+  .name-error { margin: 6px 0 0; color: var(--bad); font-size: 0.84rem; }
   .inline-warning { margin: 0; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--line)); border-radius: 8px; color: var(--bad); background: color-mix(in srgb, var(--bad) 6%, var(--card)); font-size: 0.8rem; }
   .step-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 4px; }
   .step-actions .primary { margin-left: auto; }

@@ -988,7 +988,7 @@
             {/each}
           </ul>
           <div class="start-options">
-            {#if authMode === 'accounts'}<a class="btn" href="/account/machines#connect-machine" title="Install the reet CLI and scan your agent folders.">Connect this machine</a>{/if}
+            {#if authMode === 'accounts'}<a class="btn" href="/machines#add-machine" title="Install the reet CLI and scan your agent folders.">Connect this machine</a>{/if}
             <a class="btn" href="/community">Explore community</a>
             <a href="https://www.skills.sh/topic" target="_blank" rel="noopener noreferrer">Find a skill on skills.sh<span class="vh"> (opens in a new tab)</span></a>
             <a href="/hosting">Host your own skill</a>

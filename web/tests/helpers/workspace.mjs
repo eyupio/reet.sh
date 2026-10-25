@@ -22,6 +22,7 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/tags')return json({tags:[]})
   if(path==='/api/v2/lists')return json({lists:[],linkEnabled:false})
   if(path==='/api/v2/sync')return json({environments:[],machines:[],agents:[]})
+  if(path==='/api/v2/setup/profiles')return json({profiles:[]})
   if(path==='/api/v2/machines/health')return json({serverNow:Date.now(),machines:[]})
   if(path==='/api/v2/terminal/status')return json(terminalStatus)
   if(path==='/api/v2/terminal/machines')return json({machines:terminalMachines})

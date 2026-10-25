@@ -321,12 +321,12 @@ func TestTerminalPrivateLaunchStartsTheRecordedAgent(t *testing.T) {
 	for time.Now().Before(deadline) {
 		panes = strings.Split(tmuxOut("list-panes", "-a", "-F", "#{pane_current_command} #{pane_current_path}"), "\n")
 		sort.Strings(panes)
-		if len(panes) == 2 && panes[0] == "sh "+home && panes[1] == "sleep "+realSite {
+		if plainAndAgentPanes(panes, home, realSite) {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if len(panes) != 2 || panes[0] != "sh "+home || panes[1] != "sleep "+realSite {
+	if !plainAndAgentPanes(panes, home, realSite) {
 		t.Fatal("plain shell and agent panes", panes)
 	}
 	if len(readStarts(t, records)) != 1 {
@@ -378,4 +378,19 @@ func TestTerminalPrivateLaunchStartsTheRecordedAgent(t *testing.T) {
 	if len(events) != 1 || !strings.Contains(events[0].Detail, `"tool":"claude"`) || strings.Contains(events[0].Detail, "fix the bug") {
 		t.Fatal("launch audit", events)
 	}
+}
+
+// plainAndAgentPanes reports whether the panes are exactly one interactive
+// shell in home and the recorded agent in the launch folder. /bin/sh is dash on
+// some systems and bash on others, so the shell's own name is not compared.
+func plainAndAgentPanes(panes []string, home, site string) bool {
+	if len(panes) != 2 {
+		return false
+	}
+	shell, agent := panes[0], panes[1]
+	if strings.HasPrefix(shell, "sleep ") {
+		shell, agent = agent, shell
+	}
+	name, path, ok := strings.Cut(shell, " ")
+	return ok && name != "sleep" && path == home && agent == "sleep "+site
 }

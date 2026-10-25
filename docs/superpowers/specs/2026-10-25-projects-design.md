@@ -180,7 +180,7 @@ Plain and exact. One light Yorkshire phrase at most in a heading, lede or succes
 | Commits only on a detached HEAD | "Some commits in this worktree are not on any branch. Put them on a branch first, then check again." |
 | Another repository inside the worktree | "This worktree contains another git repository. Move or remove it first." |
 | Files git is told not to check | "Git is not tracking some edits in this worktree. Review them before removing." |
-| Worktree too large to check | "This worktree is too large for reet to check. Remove it yourself." |
+| Worktree could not be checked completely | "reet couldn't check all of this worktree. Remove it yourself." |
 | Something at the path git does not list | "Git doesn't list that folder as this run's worktree, so reet won't touch it." |
 | Nothing at the path | "That worktree isn't on that machine. It may have been removed already." |
 | Git failed during status or remove | "Git couldn't check that worktree." / "Git couldn't remove that worktree." (detail: git's first line) |

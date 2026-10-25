@@ -248,7 +248,7 @@ A remove is refused, and nothing is touched, when:
 | `hidden` is above zero | `hidden_changes` | 422 | Git is not tracking some edits in this worktree. Review them before removing. |
 | `unreferenced` is above zero | `unreferenced_commits` | 422 | Some commits in this worktree are not on any branch. Put them on a branch first, then check again. |
 | Another repository is inside (ignored ones included) | `nested_repository` | 422 | This worktree contains another git repository. Move or remove it first. |
-| The check was incomplete (for example more than 200,000 entries) | `check_incomplete` | 422 | This worktree is too large for reet to check. Remove it yourself. |
+| The check was incomplete (for example more than 200,000 entries) | `check_incomplete` | 422 | reet couldn't check all of this worktree. Remove it yourself. |
 | git refused (a lock, for example) | `git_failed` | 422 | Git couldn't remove that worktree. (`detail`: git's first line) |
 
 The checks run in that order. Only `unpushed` can be shown and then removed with:
@@ -276,6 +276,8 @@ Status (`POST /api/v2/terminal/worktrees/status`) and remove
 
 | Reason | Code | HTTP | Sentence |
 | --- | --- | --- | --- |
+| The machine is already running a worktree status or remove | `worktree_busy` | 409 | That machine is already working on a worktree. Try again in a minute. |
+| The machine answered but could not do it (unavailable, failed, capacity) | `worktree_unavailable` | 503 | That machine couldn't do that just now. Try again in a moment. |
 | Nothing is at the path (never made, or already removed) | `not_found` | 404 | That worktree isn't on that machine. It may have been removed already. |
 | Something is there, but git does not list it as this repository's worktree | `not_registered` | 422 | Git doesn't list that folder as this run's worktree, so reet won't touch it. |
 | A folder on the way is a link, another user's, or writable by others | `outside_home` | 422 | (as above) |

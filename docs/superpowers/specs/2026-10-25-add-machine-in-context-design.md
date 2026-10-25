@@ -84,9 +84,10 @@ Below the block sits a live status line (a polite live region) with a text label
 | State | Label | Means |
 | --- | --- | --- |
 | Waiting | Waiting for it | No connector for that name has reported in. |
-| Connected | Connected | A connector for that name is enrolled but not ready yet (paused, or the connector has not negotiated). The plain reason is given. |
+| Connected | Connected | A connector for that name is enrolled but paused. The plain reason is given; the Private skills dialog carries any later "connector not ready" reason itself. |
 | First scan | Waiting for its first scan | The connector is ready; no complete scan of an agent folder has arrived yet. |
 | Ready | Ready | Connected, not paused, with a complete scan of at least one supported agent folder in the last 14 days. |
+| Already here | A machine called \<name\> is already here. | The name belongs to a machine that was already reporting when the name was confirmed. *Use it* is offered at once, or the person chooses another name; it stays that way while that machine keeps reporting, and the normal states apply only if a new connector enrols under the name. |
 | Unknown | Something changed. Check again. | Any unrecognised state. |
 
 *Connected* is explicitly not *Ready*: both labels say what the controller has been told, and the

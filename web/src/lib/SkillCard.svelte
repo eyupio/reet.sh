@@ -79,6 +79,9 @@
     return rank[a.status] - rank[b.status] || a.host.localeCompare(b.host)
   }))
   const visibleInstallations = $derived(expanded ? installations : installations.slice(0, 3))
+  // Nothing has this skill yet: installing it is the step that does something, so it leads. Once a machine has it, the next shelf step does.
+  const installedSomewhere = $derived(installations.some(report => report.status === 'installed'))
+  const leadWithInstall = $derived(!!command && !installedSomewhere)
   const installationLabels = { installed: 'Installed', missing: 'Missing', unknown: 'Not confirmed' }
 
   $effect(() => {
@@ -224,12 +227,12 @@
   <div class="actions quick-actions" role="group" aria-label={`Quick actions for ${skill.name}`}>
     {#if canWrite}
       {#each moves(stage) as m, i}
-        <button type="button" class="chip" class:move={m.primary} data-act={'m' + i} onclick={() => onpatch(skill, m.flags, 'm' + i)}>{m.label}</button>
+        <button type="button" class="chip" class:move={m.primary && !leadWithInstall} data-act={'m' + i} onclick={() => onpatch(skill, m.flags, 'm' + i)}>{m.label}</button>
       {/each}
       <button type="button" class="chip heart" data-act="like" aria-label={`Like ${skill.name}`} aria-pressed={skill.liked} onclick={() => onpatch(skill, { liked: !skill.liked }, 'like')}><span aria-hidden="true">{skill.liked ? '♥' : '♡'}</span>Like</button>
     {/if}
-    {#if command}<CopyButton text={command} label="Copy install" ariaLabel={`Copy install command for ${skill.name}`} compact oncopy={() => void recordInstallCopy(skill.id).catch(() => {})} />{/if}
-    {#if prompt}<CopyButton text={prompt} label="Copy prompt" ariaLabel={`Copy prompt for ${skill.name}`} compact oncopy={() => void recordInstallCopy(skill.id).catch(() => {})} />{/if}
+    {#if command}<CopyButton text={command} label="Copy install" ariaLabel={`Copy install command for ${skill.name}`} compact primary={leadWithInstall} oncopy={() => void recordInstallCopy(skill.id).catch(() => {})} />{/if}
+    {#if prompt && expanded}<CopyButton text={prompt} label="Copy prompt" ariaLabel={`Copy prompt for ${skill.name}`} compact oncopy={() => void recordInstallCopy(skill.id).catch(() => {})} />{/if}
   </div>
 
   <div id={`skill-details-${skill.id}`} class="card-details" hidden={!expanded}>

@@ -340,6 +340,12 @@
 {:else if !canWrite}<p class="notice">Your account is read-only. Ask an admin for publishing access.</p>
 {:else if !username}
   <section class="panel">
+    <h2>What hosting gives you</h2>
+    <p>Write a skill here and reet.sh serves it at its own address, ready to install with one command. For example:</p>
+    <pre><code>npx skills add {location.origin}/your-username/skill-name</code></pre>
+    <p>Your username is the first part of that address.</p>
+  </section>
+  <section class="panel">
     <h2>Choose your publishing username</h2>
     <p>Your skills will live at <code>{location.host}/username/skill-name</code>. This username is permanent, so shared install links keep their owner.</p>
     <form onsubmit={claim}>
@@ -497,6 +503,8 @@
 <style>
   .panel { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 24px; min-width: 0; }
   .panel h2 { margin-top: 0; font-size: 1.1rem; }
+  .panel + .panel { margin-top: 16px; }
+  .panel pre { margin: 12px 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); overflow: auto; font: 0.82rem/1.6 var(--mono); }
   .toolbar, .actions, .file-row { display: flex; align-items: center; gap: 12px; }
   .toolbar { justify-content: space-between; margin-bottom: 16px; }
   .publisher { display: grid; gap: 6px; }

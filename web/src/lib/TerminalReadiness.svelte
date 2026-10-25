@@ -43,7 +43,7 @@
           <p>{machines === 1 ? 'One machine is connected.' : `${machines} machines are connected.`}</p>
         {:else}
           <p>Connect a laptop or server with the reet CLI. It takes about two minutes.</p>
-          {#if canWrite}<a class="btn primary" href="/machines#connect-machine">Connect your first machine</a>{/if}
+          {#if canWrite}<a class="btn primary" href="/machines#add-machine">Connect your first machine</a>{/if}
         {/if}
       </div>
     </li>

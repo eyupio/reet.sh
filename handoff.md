@@ -2,6 +2,15 @@
 
 ## Read this first — 24 October 2026
 
+**Single sign-on, pull request 2 of 3 (25 October 2026).** reet.sh can now sign people in through an
+OpenID Connect identity provider. The protocol package arrived earlier (`internal/oidc`); this slice
+adds the routes (`GET /api/v2/auth/oidc/start`, `GET .../callback`, `POST .../backchannel-logout`,
+`GET`/`DELETE .../identity`, `GET /api/v2/admin/sso`), the tables (`sso_identities`, `sso_logins`,
+`sessions.sso_*`), the `REET_OIDC_*` settings, `auth/status`'s `sso` object, and disabling an account
+now also closes its open terminals. Read [docs/single-sign-on.md](docs/single-sign-on.md). Not yet
+done: the sign-in button, linking on the Account page and the admin status panel (pull request 3).
+The owner keeps password sign-in, and nothing in setup, personal tokens or backups changed.
+
 **Latest slice (25 October 2026): S4 review UI, the Private skills dialog.** Delivered on
 branch `claude/gallant-darwin-n9oqfj` through pull requests #178 to #185 (the design and plan,
 the metadata-only adoption breakdown endpoint, the client API and pure review logic, the dialog

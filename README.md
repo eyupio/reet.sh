@@ -114,6 +114,7 @@ The default `REET_AUTH=accounts` creates one owner through the setup page on fir
 
 **More → Portable setups** lists and explains server-synced AI setup profiles. Run `reet setup profile` for the interactive create/push wizard; creation, push and pull remain CLI commands. Use the **Account** menu (inside **Menu** on smaller screens). Its sections are **Profile** (name, theme, time zone and date order), **Password** (which ends every other session), **Sessions**, **Machines** (connect and inspect agent inventories), **Compare & sync** (comparison and reference snapshots), **API tokens** (shown once), **Backups** for your own shelf, and **Activity**. Admins get **Admin → Users** to invite people by link, reset passwords, disable accounts, change roles, revoke tokens and transfer ownership, and **Admin → Backups** for the instance. If `REET_TOKEN` is set it is required once on the setup page and works for `reet scan` only until a personal API token exists.
 
+- **Single sign-on:** set `REET_OIDC_ISSUER` and a client to let people sign in through the identity provider they already use, with roles from its groups and sign-out from it ending their sessions. Passwords, the owner and personal tokens keep working. [Setup and rules](docs/single-sign-on.md).
 - **Solo or trusted LAN:** `REET_AUTH=none` removes sign-in and maps everything to an implicit owner. Use it only on a network you trust.
 - **Legacy single token:** `REET_AUTH=token` keeps the single `REET_TOKEN` login card and requires it for the UI, API and bookmarklets.
 - **Upgrading:** an existing shelf is kept and becomes the owner's shelf on first setup; flags, notes, tags and environments are carried over. Nothing is deleted.
@@ -128,6 +129,14 @@ The default `REET_AUTH=accounts` creates one owner through the setup page on fir
 | `REET_TOKEN` | empty | Accounts mode: setup bootstrap and fallback scan token until a personal token exists. Token mode: the only credential. Empty means no token. |
 | `REET_SIGNUP` | empty | Set to `open` to allow self-serve member accounts. Empty keeps accounts invite-only. |
 | `REET_CONTACT_EMAIL` | empty | Optional admin address shown on the sign-in screen for account and password-reset requests. |
+| `REET_OIDC_ISSUER`, `REET_OIDC_CLIENT_ID`, `REET_OIDC_CLIENT_SECRET` (or `_FILE`) | empty | Sign in through an OpenID Connect identity provider as well as by password. Setting the issuer turns it on; a half-set configuration stops the server with what to fix. Accounts mode only. See [single sign-on](docs/single-sign-on.md). |
+| `REET_OIDC_REDIRECT_URL` | `REET_PUBLIC_URL` + `/api/v2/auth/oidc/callback` | The address the provider sends people back to. |
+| `REET_OIDC_SCOPES`, `REET_OIDC_NAME_CLAIM`, `REET_OIDC_EMAIL_CLAIM`, `REET_OIDC_GROUPS_CLAIM` | `openid profile email`, `name`, `email`, `groups` | What to ask the provider for, and which claims carry the name, email address and groups. |
+| `REET_OIDC_ADMIN_GROUPS`, `REET_OIDC_MEMBER_GROUPS`, `REET_OIDC_VIEWER_GROUPS` | empty | Provider groups that give each role. The highest match wins; the owner is never given by a group. |
+| `REET_OIDC_DEFAULT_ROLE` | `viewer` | `member` or `viewer`, for a new person who matches no group. |
+| `REET_OIDC_AUTO_CREATE`, `REET_OIDC_LINK_BY_EMAIL` | `off` | Create accounts for people not met before; link a first sign-in to the account with the same verified email (never an owner or admin). |
+| `REET_OIDC_PASSWORD_LOGIN` | `on` | `off` refuses password sign-in for everyone except the owner. |
+| `REET_OIDC_BUTTON_LABEL`, `REET_OIDC` | empty | Text on the sign-in button; `REET_OIDC=off` switches single sign-on off without removing its settings. |
 | `REET_PUBLIC_URL` | empty | Canonical public origin, also the default for links in email. |
 | `REET_MAIL_OUTBOX_DIR` | empty | Local development only: write each email here as `.eml`/`.html` instead of sending it. Never set this on a public instance. |
 | `SKILLS_SH_TOKEN` | empty | Optional skills.sh API token (needs a Vercel OIDC token, so it can't be generated). Without it, reet reads the public skills.sh pages. |

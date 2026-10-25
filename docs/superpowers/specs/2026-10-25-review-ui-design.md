@@ -46,9 +46,9 @@ terminals, the PIN/security preference or the legacy sync flows.
 Entry points. Each supported agent scope on Machines gets a **Private skills** action. Each
 reported skill row in the scope's content list gets **Pin a library revision** beside
 **Import privately**. Both open `MachineSkillContent.svelte` for that machine and scope, the
-second with the skill name preselected. The action is absent, with a plain reason on a
-disabled control, for: scan-only Codex, a scope without a complete scan in the last 14 days, an
-unenrolled or paused connector, viewers and legacy auth modes.
+second with the skill name preselected. For viewers and legacy auth modes the action is absent.
+For scan-only Codex, a scope without a complete scan in the last 14 days, and an unenrolled or
+paused connector it is disabled, with the plain reason beside it.
 
 The dialog shows the scope's existing pins, each with its mode, selected revision, and a
 status line from the latest check. One skill at a time moves through three steps.
@@ -116,6 +116,10 @@ returning, for a captured, adoptable check and a revision of the pin's own bundl
   "matched": 1, "observedOnly": 1, "revisionOnly": 1
 }
 ```
+
+A path whose bytes or mode differ between the machine and the library appears twice, once as
+`stays_yours` (the machine's copy) and once as `library_only` (the library's copy), and the
+browser shows such a pair as one row, "edited on this machine".
 
 It is metadata only (no bytes, no private text), computed on the server from the stored check
 and the stored revision with the same claim function adoption uses, so the screen cannot

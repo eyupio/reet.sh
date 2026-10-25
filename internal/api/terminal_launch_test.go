@@ -30,6 +30,9 @@ type launchAPI struct {
 	mu      sync.Mutex
 	creates []terminalproto.Create
 	reply   func(terminalproto.Create) terminalproto.Body
+	// worktree answers worktree_status and worktree_remove; worktrees records them.
+	worktree  func(terminalproto.Body) terminalproto.Body
+	worktrees []terminalproto.Body
 }
 
 func (f *launchAPI) sent() []terminalproto.Create {
@@ -61,6 +64,15 @@ func launchAPIFixture(t *testing.T, caps terminalproto.Capabilities) *launchAPI 
 			respond := f.reply
 			f.mu.Unlock()
 			reply.Body = terminalproto.SessionChanged{State: terminalproto.Running}
+			if respond != nil {
+				reply.Body = respond(op)
+			}
+		case terminalproto.WorktreeStatus, terminalproto.WorktreeRemove:
+			f.mu.Lock()
+			f.worktrees = append(f.worktrees, op)
+			respond := f.worktree
+			f.mu.Unlock()
+			reply.Body = terminalproto.WorktreeResult{Code: terminalproto.Unavailable}
 			if respond != nil {
 				reply.Body = respond(op)
 			}

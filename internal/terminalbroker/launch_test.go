@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -18,6 +19,11 @@ type launchPeer struct {
 	mu      sync.Mutex
 	creates []terminalproto.Create
 	reply   func(terminalproto.Create) terminalproto.Body
+	// worktree answers worktree_status and worktree_remove; worktrees records them.
+	worktree  func(terminalproto.Body) terminalproto.Body
+	worktrees []terminalproto.Body
+	// delay, when set, delivers every reply that long after it was sent.
+	delay time.Duration
 }
 
 func (f *launchPeer) sent() []terminalproto.Create {
@@ -59,6 +65,15 @@ func launchFixture(t *testing.T, caps terminalproto.Capabilities) *launchPeer {
 			if respond != nil {
 				reply.Body = respond(op)
 			}
+		case terminalproto.WorktreeStatus, terminalproto.WorktreeRemove:
+			f.mu.Lock()
+			f.worktrees = append(f.worktrees, op)
+			respond := f.worktree
+			f.mu.Unlock()
+			reply.Body = terminalproto.WorktreeResult{Code: terminalproto.Unavailable}
+			if respond != nil {
+				reply.Body = respond(op)
+			}
 		default:
 			reply.Body = terminalproto.Result{Code: terminalproto.OK}
 		}
@@ -69,6 +84,13 @@ func launchFixture(t *testing.T, caps terminalproto.Capabilities) *launchPeer {
 		decoded, err := terminalproto.Decode(data)
 		if err != nil {
 			return err
+		}
+		f.mu.Lock()
+		delay := f.delay
+		f.mu.Unlock()
+		if delay > 0 {
+			go func() { time.Sleep(delay); _ = p.Receive(decoded) }()
+			return nil
 		}
 		return p.Receive(decoded)
 	})

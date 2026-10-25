@@ -25,7 +25,7 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "machine enrollment is missing or revoked")
 		return
 	}
-	w.Header().Set(terminalproto.FeatureHeader, terminalproto.CommandHistoryFeature+","+terminalproto.LaunchFeature)
+	w.Header().Set(terminalproto.FeatureHeader, terminalproto.CommandHistoryFeature+","+terminalproto.LaunchFeature+","+terminalproto.WorktreeFeature)
 	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
@@ -147,7 +147,7 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 				peerWorkers.Add(1)
 				go func() { defer peerWorkers.Done(); _ = peer.Synchronize(peerCtx) }()
 			}
-		case *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.SessionChanged:
+		case *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.SessionChanged, *terminalproto.WorktreeState, *terminalproto.WorktreeResult:
 			if !s.terminalEnabled() {
 				continue
 			}

@@ -314,14 +314,30 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 	}
 	// A response may arrive after a bounded RPC timeout. It is uncertain work,
 	// not permission to recreate it; the next reconciliation resolves it.
+	// A late worktree answer is likewise dropped: status is read again before
+	// any remove, and a remove's outcome is read again by asking for status.
 	switch m.Body.(type) {
-	case *terminalproto.Result, *terminalproto.Reconcile:
+	case *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.WorktreeState, *terminalproto.WorktreeResult:
 		return nil
 	}
 	return terminalproto.ErrInvalid
 }
+
+var (
+	// callTimeout bounds an ordinary control call.
+	callTimeout = 10 * time.Second
+	// worktreeCallTimeout bounds a worktree create, status or remove. The
+	// connector gives git one 60-second budget per request (then up to 30
+	// seconds to clean up a failed add) and walks the worktree for status, so
+	// the ordinary limit would report a slow repository as a reconnect.
+	worktreeCallTimeout = 100 * time.Second
+)
+
 func (p *Peer) call(ctx context.Context, m terminalproto.Message) (terminalproto.Message, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	return p.callWithin(ctx, m, callTimeout)
+}
+func (p *Peer) callWithin(ctx context.Context, m terminalproto.Message, limit time.Duration) (terminalproto.Message, error) {
+	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	m.Version = terminalproto.Version
 	m.Generation = p.Generation
@@ -432,8 +448,9 @@ var (
 )
 
 func launchRequested(in terminalproto.Create) bool {
-	return in.Tool != "" || in.Model != "" || in.Dir != "" || in.Prompt != ""
+	return in.Tool != "" || in.Model != "" || in.Dir != "" || in.Prompt != "" || worktreeRequested(in)
 }
+func worktreeRequested(in terminalproto.Create) bool { return in.Worktree != "" || in.Project != "" }
 
 func (b *Broker) Create(ctx context.Context, uid int64, agent, request string, in terminalproto.Create) (store.TerminalSession, error) {
 	s, _, err := b.CreateSession(ctx, uid, agent, request, in)
@@ -461,6 +478,11 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		if err != nil || caps.Generation != p.Generation {
 			return store.TerminalSession{}, false, ErrOffline
 		}
+		// A peer without worktree-v1 is never sent the worktree fields, and the
+		// launch is not started without its worktree.
+		if worktreeRequested(in) && !caps.Capabilities.Worktree {
+			return store.TerminalSession{}, false, ErrWorktreeUnsupported
+		}
 		if !caps.Capabilities.Launch {
 			return store.TerminalSession{}, false, ErrLaunchUnsupported
 		}
@@ -478,22 +500,38 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 			return s, err == nil && s.State != terminalproto.Creating && s.State != terminalproto.Lost, err
 		}
 		if s.State == terminalproto.Lost {
-			if op, err := b.st.TerminalOperationFor(uid, agent, "create", request); err == nil && op.State == "failed" && op.Code == terminalproto.LaunchFailed {
-				return s, false, ErrLaunchFailed
+			if op, err := b.st.TerminalOperationFor(uid, agent, "create", request); err == nil && op.State == "failed" {
+				switch op.Code {
+				case terminalproto.LaunchFailed:
+					return s, false, ErrLaunchFailed
+				case terminalproto.WorktreeRefused:
+					// Only the code is stored; the reason was reported to the
+					// call that learned it.
+					return s, false, ErrWorktreeRefused
+				}
 			}
 		}
 		return s, false, nil
 	}
-	reply, err := p.call(ctx, terminalproto.Message{RequestID: request, SessionID: s.ID, Body: in})
+	limit := callTimeout
+	if worktreeRequested(in) {
+		limit = worktreeCallTimeout
+	}
+	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: request, SessionID: s.ID, Body: in}, limit)
 	if err != nil {
 		return s, false, err
 	}
-	launchFailed := false
+	var refusal error
 	if state, ok := reply.Body.(*terminalproto.SessionChanged); ok {
 		err = b.st.ObserveTerminalStateFor(uid, agent, s.ID, p.Generation, state.State, state.ExitCode)
 	} else if r, ok := reply.Body.(*terminalproto.Result); ok && r.Code != terminalproto.OK && r.Code != terminalproto.Unavailable {
 		err = b.st.FailTerminalCreateFor(uid, agent, request, p.Generation, r.Code)
-		launchFailed = r.Code == terminalproto.LaunchFailed
+		switch r.Code {
+		case terminalproto.LaunchFailed:
+			refusal = ErrLaunchFailed
+		case terminalproto.WorktreeRefused:
+			refusal = &WorktreeError{Reason: r.Reason, Detail: r.Detail}
+		}
 	} else {
 		err = ErrOffline
 	}
@@ -501,8 +539,8 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		return s, false, err
 	}
 	s, err = b.st.TerminalSessionFor(uid, s.ID)
-	if err == nil && launchFailed {
-		err = ErrLaunchFailed
+	if err == nil && refusal != nil {
+		err = refusal
 	}
 	return s, err == nil && s.State != terminalproto.Creating && s.State != terminalproto.Lost, err
 }

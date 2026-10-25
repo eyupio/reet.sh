@@ -1609,6 +1609,16 @@ Read [docs/skill-content-review-ui.md](docs/skill-content-review-ui.md). Branch
   ownership. The user authorised stacking the work into several pull requests, each merged when
   green. No filesystem write, no MCP tool, no apply, no executor, no `applied` receipt, and no
   change to terminals, the security/PIN preference or the legacy sync flows.
+- **Merge history to know.** The user merged PRs #180 and #185 before their review fix rounds were pushed, so
+  `main` held the Task 2 client logic (#180) and the Adopt and Release steps (#185) for a short while
+  without those fixes; the fixes landed in #181 and in the closing pull request. The Adopt fix concerned
+  two Important review findings (a refused adoption whose cause the screen cannot see said "Something
+  changed" although the check still looked fine, and a lost reply with a failed records read left a
+  recorded ownership unlisted). Neither allowed ownership to be recorded from a stale check.
+- **Follow-ups from the broad review (not done).** Split the ~1,500-line `skill-content.e2e.mjs` into pin,
+  check and adopt/release files over a shared fixture module and consider running the 10-state layout matrix
+  nightly; cache revision lists per bundle across reloads; a receipts-aware prune guard and what the dialog
+  should say about Forget and merge dropping ownership records; MCP exposure and the reviewed executor.
 - **Behaviour added.**
   - `GET /api/v2/skill-content-previews/{id}/adoption/{revision}` (PR #179): a metadata-only,
     read-only breakdown of which files adoption would claim, computed with the claim function

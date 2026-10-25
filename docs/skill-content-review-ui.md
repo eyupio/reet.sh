@@ -107,13 +107,13 @@ changed, files not listed as claimed stay yours, and the record can be released 
 Confirming reads the check once more. Nothing is sent unless that read is still the same current,
 adoptable check with the same review hash and revision. Then one request goes out, with the hash
 exactly as the server gave it. When it succeeds the ownership records are read again, a new check
-starts so the screen can say what the folder looks like now, and focus moves to the Check step's
+starts (when the connector is ready to check) so the screen can say what the folder looks like now, and focus moves to the Check step's
 heading (the button that asked has gone).
 
 ### Ownership records and Release
 
 Below either step, **Ownership records in this folder** lists each record: skill, revision (by
-date, or "an older revision" when the library no longer lists it), file count, when it was
+date, or "an older revision" when the library no longer lists it or its list could not be read), file count, when it was
 recorded, and the ownership sentence. A record that cannot be read is listed by name only, with
 "This record can't be read. It can still be released." and no claims. **Release ownership** asks
 first, says it removes the record only (nothing on the machine changes and the files stay where
@@ -133,7 +133,7 @@ page has no words for reads **Something changed. Check again.** and never enable
 
 | Sentence | Where |
 | --- | --- |
-| **Recorded by reet from a recent check, not verified on the machine.** | Beside every ownership record, in the confirmation and in the success message. The word appears only to deny it. |
+| **Recorded by reet from a recent check, not verified on the machine.** | Beside each ownership record that can be read (a record that cannot be read shows no claims), in the confirmation and in the success message. The word appears only to deny it. |
 | **Applying changes isn't available yet.** | Under the read-only change list. |
 | **Something changed. Check again.** | The fallback for any unrecognised state, reason, code or mode, and when a confirmation finds the check has moved on. |
 
@@ -192,7 +192,9 @@ lifetime.
 - **Freshness.** The browser records the time each response *arrived* (`readAt`) and never compares
   its clock with the server's. A captured result whose last read was more than 30 seconds ago is
   only "refreshing", with the verdict and Adopt step hidden, until it has been read again. The Check
-  step asks again every second, so this happens on screen without a click.
+  step asks again every second, so this happens on screen without a click. If a read fails and
+  thirty seconds pass with no good one, an open Adopt step and any confirmation in it close, and the
+  person has to choose the revision again: it fails closed rather than letting an old answer stand.
 - **Fences.** Each read, and the watcher itself, carries a generation counter and an abort
   controller, and checks that the dialog is alive, the same pin is selected and the Check step is
   open. A late answer for a check the person has left changes nothing. Closing the dialog aborts

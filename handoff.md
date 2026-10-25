@@ -2164,3 +2164,56 @@ working agent authentication or complete environment recovery.
 > exact byte/mode manifests and stable retry receipts intact; do not jump to remote apply
 > or the whole roadmap. Build the frontend before Go checks, record actual evidence,
 > update this handoff and publish one reviewable PR per bounded stage.
+
+## Start an agent session — protocol and connector (PRs #193, #194)
+
+Added 25 October 2026. Design: `docs/superpowers/specs/2026-10-25-start-agent-session-design.md`.
+Contract: [docs/terminal-launch.md](docs/terminal-launch.md).
+
+**What exists.** A negotiated, optional launch request on the create-session call
+(header token `launch-v1`, capability `launch` plus `tools`, no version bump). Four flat
+string fields (`tool`, `model`, `dir`, `prompt`) keep `terminalproto.Create` comparable; the
+whole `Create` is the idempotency key. The connector holds an allowlisted preset table for
+`claude`, `codex`, `opencode` and `gemini`, offers a tool only if its binary is on `PATH`, and
+starts it through tmux as separate arguments in a folder it resolves inside the enrolled home.
+The API answers 422 `prompt_unsupported`, `tool_not_installed` and `folder_unavailable`, and
+409 `launch_unsupported`; a launch writes the audit action `terminal-launch` (never the
+prompt). There is no web dialog and no entry point yet.
+
+**What was checked.** Only what the task reports record: preset flags confirmed from the
+cited help text and documentation; argument vectors, folder policy and `#`/`;` escaping
+exercised against a real tmux with recording fake CLIs; a real two-host PTY test that
+asserts the recorded argv and working directory, no second start on retry, and that a plain
+create still opens a shell; mutation checks on the prompt rule, the capability check, audit on
+replay and the tool lookup. tmux 3.2 semantics were read from source, not run. Full
+validation results are recorded in the pull request.
+
+**Rulings made.**
+- The controller sends a tool id, never a program or shell string; the connector's built-in
+  table decides.
+- Prompt storage: the opening prompt is kept in the controller's create-operation row and the
+  machine's private registry (the idempotency record), never in audit, logs or browser storage,
+  and is visible in the machine's process list.
+- One-word prompts are refused for `claude` and `codex` (`prompt_unsupported`) because a bare
+  subcommand name after `--` would run; a leading `-` is refused for every tool.
+- Folder boundary is the enrolled home, symlinks followed; wider roots would be a deliberate
+  later setting.
+- A tool whose syntax cannot be confirmed is not offered (`pi` and `cursor` are not).
+- The audit action is hyphenated, `terminal-launch`, like the other actions.
+
+**What remains.**
+- The web dialog and entry points (Terminals workspace and the machine card), with the
+  refusal sentences mapped from the codes above.
+- The Activity label for `terminal-launch` in `web/src/lib/events.ts` (add `tool`, `model`
+  and `dir` to its `Detail` type).
+- The layout matrix (320, 375, 768 and 1440px, light and dark) and the browser fixture.
+- Projects.
+- Agent status, resuming a conversation, worktrees, MCP exposure and wider folder roots remain
+  out of scope.
+
+**Product direction.** The owner calls this core to the new reet.sh. The core roadmap is Start
+an agent session, then Projects: multi-repo named sets of repository folders across machines,
+with a default agent and worktrees.
+
+A started session means only that the connector started the program in tmux in that folder.
+It does not show that the agent is signed in, understands the prompt or is making progress.

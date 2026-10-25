@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -26,11 +27,13 @@ type ManagerOptions struct {
 }
 
 type Manager struct {
-	enrollment  string
-	layout      Layout
-	home        string
-	tmux        Tmux
-	consent     func() error
+	enrollment string
+	layout     Layout
+	home       string
+	tmux       Tmux
+	consent    func() error
+	// lookPath finds agent binaries for launch presets; tests replace it.
+	lookPath    func(string) (string, error)
 	mu          sync.Mutex
 	closed      bool
 	attachments map[string]*Attachment
@@ -55,7 +58,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, changed: make(chan struct{})}
+	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, lookPath: exec.LookPath, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, changed: make(chan struct{})}
 	// Validate a present registry even when tmux is offline. Never silently
 	// repair an unreadable file or adopt sessions from another enrollment.
 	lock, err := m.registryLock(ctx)
@@ -129,6 +132,18 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	if _, ok := r.Sessions[sessionID]; ok {
 		return ManagedSession{}, ErrOperationConflict
 	}
+	// Resolve the agent and folder before any intent is saved: a refused launch
+	// (ErrLaunchUnavailable, reported as launch_failed) leaves no registry entry,
+	// no receipt and no tmux session. A plain create keeps today's arguments.
+	dir, argv := m.home, []string(nil)
+	if in.Tool != "" {
+		if dir, err = ResolveDir(m.home, in.Dir); err != nil {
+			return ManagedSession{}, err
+		}
+		if argv, err = LaunchArgv(in, m.lookPath); err != nil {
+			return ManagedSession{}, err
+		}
+	}
 	if !responsive(ctx, m.tmux, m.layout) {
 		return ManagedSession{}, ErrNotRunning
 	}
@@ -162,7 +177,11 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	if err := m.allowed(); err != nil {
 		return s, err
 	}
-	if _, err := m.command(ctx, 0, "new-session", "-d", "-s", m.name(sessionID), "-x", integer(in.Cols), "-y", integer(in.Rows), "-c", m.home, "-e", "HOME="+m.home); err != nil {
+	args := append([]string{"new-session", "-d", "-s", m.name(sessionID), "-x", integer(in.Cols), "-y", integer(in.Rows), "-c", tmuxLiteral(dir), "-e", "HOME=" + m.home}, argv...)
+	for i := range args {
+		args[i] = tmuxArgument(args[i])
+	}
+	if _, err := m.command(ctx, 0, args...); err != nil {
 		return s, err
 	}
 	if err := m.reconcileLocked(ctx, &r); err != nil {

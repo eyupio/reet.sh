@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -189,16 +190,63 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		Title     string `json:"title"`
 		Cols      int    `json:"cols"`
 		Rows      int    `json:"rows"`
+		Tool      string `json:"tool"`
+		Model     string `json:"model"`
+		Dir       string `json:"dir"`
+		Prompt    string `json:"prompt"`
 	}
 	if !terminalJSON(w, r, &in) {
 		return
 	}
-	session, err := s.terminals.Create(r.Context(), s.uid(r), in.AgentID, in.RequestID, terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows})
+	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt}
+	uid := s.uid(r)
+	session, started, err := s.terminals.CreateSession(r.Context(), uid, in.AgentID, in.RequestID, create)
 	if err != nil {
-		terminalError(w, err)
+		s.terminalCreateError(w, err, uid, in.AgentID, in.Tool)
 		return
 	}
+	if started && create.Tool != "" {
+		s.auditTerminalLaunch(uid, in.AgentID, create)
+	}
 	writeJSON(w, 200, session)
+}
+
+// terminalCreateError maps launch refusals to stable codes and plain
+// sentences; every other error keeps its existing terminal mapping.
+func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64, agent, tool string) {
+	switch {
+	case errors.Is(err, terminalbroker.ErrPromptUnsupported):
+		writeErrCode(w, http.StatusUnprocessableEntity, "prompt_unsupported", "prompt", "Write the opening prompt as at least two words.", "")
+	case errors.Is(err, terminalbroker.ErrLaunchUnsupported):
+		writeErrCode(w, http.StatusConflict, "launch_unsupported", "", "Update reet on that machine to start agents.", "")
+	case errors.Is(err, terminalbroker.ErrLaunchFailed) && !s.terminalToolInstalled(uid, agent, tool):
+		writeErrCode(w, http.StatusUnprocessableEntity, "tool_not_installed", "tool", "That agent isn't installed on that machine.", "")
+	case errors.Is(err, terminalbroker.ErrLaunchFailed):
+		writeErrCode(w, http.StatusUnprocessableEntity, "folder_unavailable", "dir", "That folder isn't available on that machine.", "")
+	default:
+		terminalError(w, err)
+	}
+}
+
+// terminalToolInstalled reads the machine's reported tools: the connector's
+// launch_failed does not say whether the tool or the folder was refused.
+func (s *server) terminalToolInstalled(uid int64, agent, tool string) bool {
+	caps, err := s.st.RemoteCapabilitiesFor(uid, agent)
+	return err == nil && slices.Contains(caps.Capabilities.Tools, tool)
+}
+
+// auditTerminalLaunch records who started which agent where. The opening
+// prompt is deliberately absent: it is user text kept only with the session.
+func (s *server) auditTerminalLaunch(uid int64, agent string, in terminalproto.Create) {
+	host := ""
+	if agents, err := s.st.SyncAgentsFor(uid); err == nil {
+		for _, a := range agents {
+			if a.ID == agent {
+				host = a.Host
+			}
+		}
+	}
+	s.event(uid, "ui", "terminal-launch", "", map[string]string{"machine": agent, "host": host, "tool": in.Tool, "model": in.Model, "dir": in.Dir})
 }
 func (s *server) terminalRename(w http.ResponseWriter, r *http.Request) {
 	var in struct {

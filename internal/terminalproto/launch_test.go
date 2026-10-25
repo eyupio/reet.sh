@@ -152,3 +152,23 @@ func TestLaunchFailedResultCode(t *testing.T) {
 		t.Fatal("launch_failed code")
 	}
 }
+
+func TestPromptNeedsWordsForPositionalPrompts(t *testing.T) {
+	for _, tool := range []string{"claude", "codex"} {
+		for _, prompt := range []string{"purge", "update", "hello", "fix-it"} {
+			if !PromptNeedsWords(tool, prompt) {
+				t.Error("single word accepted", tool, prompt)
+			}
+		}
+		for _, prompt := range []string{"", "fix it", "fix\nit", "purge everything"} {
+			if PromptNeedsWords(tool, prompt) {
+				t.Error("prompt refused", tool, prompt)
+			}
+		}
+	}
+	for _, tool := range []string{"opencode", "gemini", "", "vim"} {
+		if PromptNeedsWords(tool, "hello") {
+			t.Error("flag-form or unknown tool refused a single word", tool)
+		}
+	}
+}

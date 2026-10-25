@@ -246,7 +246,7 @@ func (s *server) auditTerminalLaunch(uid int64, agent string, in terminalproto.C
 			}
 		}
 	}
-	s.event(uid, "ui", "terminal.launch", "", map[string]string{"machine": agent, "host": host, "tool": in.Tool, "model": in.Model, "dir": in.Dir})
+	s.event(uid, "ui", "terminal-launch", "", map[string]string{"machine": agent, "host": host, "tool": in.Tool, "model": in.Model, "dir": in.Dir})
 }
 func (s *server) terminalRename(w http.ResponseWriter, r *http.Request) {
 	var in struct {

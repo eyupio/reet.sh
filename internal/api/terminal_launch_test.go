@@ -139,7 +139,7 @@ func launchEvents(t *testing.T, st *store.Store, uid int64) []store.Event {
 	}
 	var out []store.Event
 	for _, e := range events {
-		if e.Action == "terminal.launch" {
+		if e.Action == "terminal-launch" {
 			out = append(out, e)
 		}
 	}
@@ -296,7 +296,7 @@ func TestTerminalLaunchAuditsOnceWithoutThePrompt(t *testing.T) {
 	}
 	// Activity reads the same rows through the events API.
 	code, _, raw = f.do(t, f.cookie, "GET", "/api/events?limit=100", nil)
-	if code != 200 || !strings.Contains(raw, "terminal.launch") || strings.Contains(raw, "flaky login") {
+	if code != 200 || !strings.Contains(raw, "terminal-launch") || strings.Contains(raw, "flaky login") {
 		t.Fatal("activity feed", code, raw)
 	}
 }

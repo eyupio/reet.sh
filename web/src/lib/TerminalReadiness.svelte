@@ -3,9 +3,11 @@
   import type { TerminalControllerStatus } from './terminal/api'
   import { controllerDetail } from './terminal/controllerStatus'
 
-  let { controller, machines, ready, canWrite, onhelp }: {
+  let { controller, machines, setUp, ready, canWrite, onhelp }: {
     controller: TerminalControllerStatus | null
     machines: number
+    /** Machines that have done their own part. Unlike `ready`, this does not depend on the server's terminal access. */
+    setUp: number
     ready: number
     canWrite: boolean
     onhelp: () => void
@@ -13,7 +15,7 @@
 
   const serverOn = $derived(controller?.available === true)
   const connected = $derived(machines > 0)
-  const allowed = $derived(ready > 0)
+  const allowed = $derived(setUp > 0)
 </script>
 
 <section class="readiness" aria-labelledby="readiness-title">
@@ -50,7 +52,7 @@
       <div>
         <strong>Allow a terminal on the machine{#if allowed}<span class="vh"> (done)</span>{/if}</strong>
         {#if allowed}
-          <p>{ready === 1 ? 'One machine is ready for terminals.' : `${ready} machines are ready for terminals.`}</p>
+          <p>{setUp === 1 ? 'One machine is set up for terminals.' : `${setUp} machines are set up for terminals.`}</p>
         {:else}
           <p>On the machine, install tmux 3.2 or newer, then run this. Shell access stays off until you consent there.</p>
           <div class="command"><code>reet agent terminal setup</code><CopyButton text="reet agent terminal setup" compact ariaLabel="Copy reet agent terminal setup" /></div>

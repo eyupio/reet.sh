@@ -66,6 +66,13 @@ export function readiness(machine?: TerminalMachine): string {
   return ''
 }
 
+/** True when the machine has done its own part: a current agent, local consent given, and tmux and the terminal service in place.
+ *  Says nothing about the server's terminal access or whether the machine is connected right now, which `ready` also needs. */
+export function machineSetUp(machine: TerminalMachine): boolean {
+  const caps = machine.capabilities
+  return !!caps && !!caps.terminalControl && !!caps.terminalEnabled && caps.readiness !== 'tmux_unavailable' && caps.readiness !== 'supervisor_unavailable'
+}
+
 /** A machine card's sentence: an enrolled machine the terminal list does not know yet has not connected for terminals. */
 export function cardReadiness(machine?: TerminalMachine): string {
   return machine ? readiness(machine) : "This machine hasn't connected for terminals yet."

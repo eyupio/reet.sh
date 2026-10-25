@@ -33,5 +33,6 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
  return {context, page, state, errors}
 }
 
-export const terminalMachine = (id, host, ready) => ({agentId:id,host,ready,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:ready,healthEnabled:false,readiness:ready?'ready':'terminal_disabled'}})
+// `consented` is the machine's own local consent and set-up; `ready` is the server's overall verdict, which also needs the server's terminal access on.
+export const terminalMachine = (id, host, ready, consented = ready) => ({agentId:id,host,ready,serverEnabled:true,capabilities:{protocolVersion:1,terminalControl:true,os:'linux',osUser:'dev',terminalEnabled:consented,healthEnabled:false,readiness:consented?'ready':'terminal_disabled'}})
 export const active = {configured:true,available:true,reason:''}

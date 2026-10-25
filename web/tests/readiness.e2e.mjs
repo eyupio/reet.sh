@@ -64,6 +64,29 @@ try {
   await context.close()
  }
 
+ // Terminals stopped on the server make every machine report "not ready", including one that already consented and is set up:
+ // that machine's step stays done, and only the server step asks for something.
+ if (run('consented')) {
+  const {context,page} = await open({width:1440,terminalMachines:[terminalMachine('a','dev-laptop',false,true)]})
+  await page.goto(base)
+  await expect(heading(page)).toBeVisible()
+  await expect(step(page,'controller')).toHaveAttribute('data-state','todo')
+  await expect(step(page,'machine')).toHaveAttribute('data-state','done')
+  await expect(step(page,'consent')).toHaveAttribute('data-state','done')
+  await expect(step(page,'consent')).not.toContainText('reet agent terminal setup')
+  await expect(step(page,'session')).toContainText('Available once the steps above are done')
+  await context.close()
+ }
+
+ // A set-up machine that is only reconnecting on a running server needs no instructions: its card says it is connecting.
+ if (run('reconnecting')) {
+  const {context,page} = await open({width:1440,terminalStatus:active,terminalMachines:[terminalMachine('a','dev-laptop',false,true)]})
+  await page.goto(base)
+  await expect(page.getByRole('article',{name:'Machine dev-laptop'})).toBeVisible()
+  await expect(heading(page)).toHaveCount(0)
+  await context.close()
+ }
+
  // A ready machine on a running server: no checklist, the working view.
  if (run('ready')) {
   const {context,page} = await open({width:1440,terminalStatus:active,terminalMachines:[terminalMachine('a','dev-laptop',true)]})

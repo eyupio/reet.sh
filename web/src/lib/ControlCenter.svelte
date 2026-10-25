@@ -8,16 +8,18 @@
  import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
  import TerminalCommandReference from './terminal/TerminalCommandReference.svelte'
  import TerminalReadiness from './TerminalReadiness.svelte'
- import {terminalMachines,machineHealth,terminalControllerStatus,readiness,TerminalError,type TerminalMachine,type MachineHealth,type TerminalControllerStatus} from './terminal/api'
+ import {terminalMachines,machineHealth,terminalControllerStatus,machineSetUp,readiness,TerminalError,type TerminalMachine,type MachineHealth,type TerminalControllerStatus} from './terminal/api'
  import {machineLink} from './machineSetup'
  let {canWrite,terminalAccess,monitorAccess}:{canWrite:boolean;terminalAccess:boolean;monitorAccess:boolean}=$props()
  let machines=$state<TerminalMachine[]>([]),health=$state<MachineHealth[]>([]),loading=$state(true),busy=$state(false),error=$state(''),checked=$state(0),now=$state(Date.now()),commandsOpen=$state(false),helpOpen=$state(false),controller=$state<TerminalControllerStatus|null>(null)
  let alive=true;const abort=new AbortController()
  const stale=$derived(!!error||checked>0&&now-checked>45000)
  const ready=$derived(machines.filter(item=>item.ready).length)
+ // A machine can have done its own part (consent, tmux) while the server's terminals are off, which makes every machine report not ready.
+ const setUp=$derived(machines.filter(machineSetUp).length)
  // First run: nothing connected yet. Show what stands between the owner and a terminal, and nothing that cannot work yet.
  const firstRun=$derived(terminalAccess&&!loading&&!error&&!machines.length)
- const showSetup=$derived(terminalAccess&&!loading&&!error&&(firstRun||(controller!==null&&!controller.available)||(machines.length>0&&ready===0)))
+ const showSetup=$derived(terminalAccess&&!loading&&!error&&(firstRun||(controller!==null&&!controller.available)||(machines.length>0&&setUp===0)))
  function memory(item:MachineHealth|undefined){const total=item?.connection?.report?.memory.totalBytes.value,available=item?.connection?.report?.memory.availableBytes.value;return total&&available!=null?`${Math.round((1-available/total)*100)}% memory`:'Memory unavailable'}
  async function refresh(){
   if(busy||!alive)return;busy=true
@@ -33,7 +35,7 @@
 <PageHeader eyebrow="Ey up. Your AI control room" title="Your fleet. Ready for work." lede="Reach your machines, use installed AI agents, and keep your toolkit and ongoing work in good order.">
  {#snippet actions()}{#if terminalAccess&&!firstRun}<a class="btn" href="/terminals">Open terminals →</a>{/if}{#if canWrite&&!firstRun}<a class="btn primary" href="/machines#connect-machine">Connect a machine</a>{/if}{/snippet}
 </PageHeader>
-{#if showSetup}<TerminalReadiness {controller} machines={machines.length} {ready} {canWrite} onhelp={()=>helpOpen=true}/>{/if}
+{#if showSetup}<TerminalReadiness {controller} machines={machines.length} {setUp} {ready} {canWrite} onhelp={()=>helpOpen=true}/>{/if}
 {#if terminalAccess&&!firstRun}<ActiveSessions/>{/if}
 {#if !firstRun}
 <section class="machines-section" aria-labelledby="connected-machines-title" aria-busy={loading}>

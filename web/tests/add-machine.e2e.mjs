@@ -6,19 +6,22 @@ const context=await browser.newContext({viewport:{width:1360,height:1000},permis
 const page=await context.newPage()
 const DAY=86400000,errors=[],writes=[],requests=[],unmocked=[]
 page.on('pageerror',e=>errors.push(e.message))
+const foreign=[]
+page.on('request',r=>{const u=r.url();if(!u.startsWith(base)&&!u.startsWith('data:')&&!u.startsWith('blob:'))foreign.push(u)})
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return{promise,resolve}}
 
 // Server state. Scan times only ever grow, as the controller's do, so "a newer scan" is always a later stamp.
 let aliasesOf={}   // saved aliases per canonical host, as the server keeps them after a rename or merge
-let authMode='accounts',viewer=false,seq=0,syncStatus=0,syncHold=null,tokenMode='ok'
+let authMode='accounts',viewer=false,seq=0,emptied=false,syncStatus=0,syncHold=null,tokenMode='ok'
 const stamp=()=>Date.now()+(++seq)
-const scope=(host,over={})=>({id:`scope-${host}`,host,name:host,kind:'agent',agent:'agents',project:'',complete:true,scannedAt:stamp(),lastSeen:stamp(),skills:[],skillCount:0,content:{state:'observed',skills:[]},os:'linux',arch:'amd64',version:'dev',...over})
+const scope=(host,over={})=>({id:`scope-${host}`,host,name:host,kind:'agent',agent:'agents',project:'',complete:true,scannedAt:stamp(),lastSeen:stamp(),skills:[],skillCount:1,content:{state:'observed',skills:[{name:'demo',complete:true,files:3,bytes:92,digest:'d'.repeat(64)}]},os:'linux',arch:'amd64',version:'dev',...over})
 const connector=(id,host,paused=false)=>({id,host,version:'dev',paused,autoUpdate:false,lastSeen:Date.now()})
 let scopes=[scope('workstation')],agents=[connector('agent-ws','workstation')]
 const machinesOf=()=>{const by=new Map();for(const s of scopes)by.set(s.host,[...(by.get(s.host)??[]),s]);return[...by].map(([host,groups])=>({host,groups,skillCount:0,...(aliasesOf[host]?{aliases:aliasesOf[host]}:{})}))}
 const reset=()=>{aliasesOf={};scopes=[scope('workstation')];agents=[connector('agent-ws','workstation')];syncStatus=0;syncHold=null;tokenMode='ok'}
 const TOO_LONG='That name is too long. Use at most 200 bytes; accented letters and emoji take more than one.'
 const SECRET='rst_SECRET_TOKEN_VALUE_9f3a'
+const BUNDLE='d'.repeat(32),REV='1'.repeat(32)
 
 await page.route('**/api/**',async route=>{
  const req=route.request(),path=new URL(req.url()).pathname,method=req.method(),body=method==='GET'?null:req.postDataJSON()
@@ -34,7 +37,7 @@ await page.route('**/api/**',async route=>{
   if(syncHold)await syncHold.promise
   if(syncStatus===401)return route.fulfill({status:401,json:{error:'missing or wrong token'}})
   if(syncStatus)return route.fulfill({status:syncStatus,json:{error:'The machines could not be read right now.'}})
-  data={environments:scopes,machines:machinesOf(),agents,targets:[],jobs:[]}
+  data=emptied?{environments:[],machines:[],agents:[],targets:[],jobs:[]}:{environments:scopes,machines:machinesOf(),agents,targets:[],jobs:[]}
  }
  else if(path==='/api/v2/machines/health')data={serverNow:Date.now(),machines:[]}
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
@@ -42,6 +45,11 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/terminal/sessions')data={sessions:[]}
  else if(path==='/api/v2/notifications/count')data={unread:0}
  else if(path==='/api/version')data={version:'v1.2.3',commit:'fixture'}
+ else if(path==='/api/v2/skill-bundles')data={bundles:[{id:BUNDLE,name:'demo',head:REV,createdAt:Date.now()}]}
+ else if(path===`/api/v2/skill-bundles/${BUNDLE}/revisions`)data={revisions:[{id:REV,createdAt:Date.now(),manifestDigest:'1'.repeat(64),origin:{kind:'user'}}]}
+ else if(path==='/api/v2/skill-content-targets'&&method==='GET')data={targets:[]}
+ else if(path==='/api/v2/skill-content-previews'&&method==='GET')data={previews:[],capabilities:[]}
+ else if(path==='/api/v2/skill-content-receipts'&&method==='GET')data={receipts:[]}
  else if(path==='/api/v2/tokens'&&method==='POST'){
   writes.push({method,path,body})
   if(tokenMode==='drop'){tokenMode='ok';return route.abort('failed')}
@@ -73,6 +81,22 @@ await page.addInitScript(()=>{
  window.clearTimeout=id=>{window.__poll.pending.delete(id);clear(id)}
  const real=Date.now.bind(Date);window.__skew=0;Date.now=()=>real()+window.__skew
 })
+// The three-second continue is held by the fixture instead of run: it is tagged, so only it is taken, and fired by hand.
+await page.addInitScript(()=>{
+ window.__auto={pending:new Map(),all:[],delays:[]}
+ const set=window.setTimeout,clear=window.clearTimeout
+ const wrapped=window.setTimeout
+ window.setTimeout=(fn,delay,...args)=>{
+  if(args[0]!=='reet-auto-continue')return wrapped(fn,delay,...args)
+  const id=set.call(window,()=>{},2147483647);window.__auto.pending.set(id,fn);window.__auto.all.push(fn);window.__auto.delays.push(delay);return id
+ }
+ const wrappedClear=window.clearTimeout
+ window.clearTimeout=id=>{window.__auto.pending.delete(id);wrappedClear(id)}
+})
+const autoPending=()=>page.evaluate(()=>window.__auto.pending.size)
+const autoDelays=()=>page.evaluate(()=>[...window.__auto.delays])
+const fireAuto=()=>page.evaluate(()=>{const run=[...window.__auto.pending.values()];window.__auto.pending.clear();run.forEach(fn=>fn('reet-auto-continue'))})
+const fireStale=()=>page.evaluate(()=>window.__auto.all.forEach(fn=>fn('reet-auto-continue')))
 const pendingPolls=()=>page.evaluate(()=>window.__poll.pending.size)
 const scheduled=()=>page.evaluate(()=>window.__poll.scheduled)
 const fired=()=>page.evaluate(()=>window.__poll.fired)
@@ -93,6 +117,9 @@ const quiet=async()=>{
  // And no read is in flight or made: the page's own five-second read may land in the window, a watch would make one per turn.
  const reads=syncReads()
  await page.evaluate(()=>new Promise(done=>{let n=0;const turn=()=>++n<4?setTimeout(turn,3000):done();setTimeout(turn,3000)}))
+ // The one deliberate wait of real time in this file ("nothing happens" cannot be shown any other way): the turns above run on
+ // quickened timers, so a read at a real pace could land after them.
+ await page.waitForTimeout(1000)
  await afterRequests()
  expect(syncReads()-reads).toBeLessThanOrEqual(1)
 }
@@ -129,7 +156,7 @@ const open=async()=>{
  await addButton().evaluate(el=>el.click())   // no focus moves, as on Safari and Firefox on a Mac
  const dialog=dialogOf();await expect(dialog).toBeVisible();return dialog
 }
-const closeDialog=async dialog=>{await dialog.getByRole('button',{name:'Close',exact:true}).click();await expect(dialog).toHaveCount(0)}
+const closeDialog=async dialog=>{await dialog.locator('header').getByRole('button',{name:'Close',exact:true}).click();await expect(dialog).toHaveCount(0)}
 
 try{
  // Before the machines are read, the entry is already offered in the header, and nothing is claimed about a name.
@@ -141,6 +168,7 @@ try{
   await p.name.fill('workstation')
   await expect(p.status).toContainText('Machines are still loading.')
   await expect(p.anyUse).toHaveCount(0)
+  await expect(p.status).toContainText('If they never load, the step-by-step setup below still works.')
   await expect(p.status).not.toContainText('Waiting for it')
   await expect(p.status).not.toContainText('Ready')
   // The commands wait too: run before the machines were read they could not be told from the machine that is already there.
@@ -501,6 +529,199 @@ try{
  await page.reload()
  await expect(card('workstation')).toBeVisible()
 
+
+ // ---- From the Private skills dialog ----
+ // The entry, the context it carries, and the landing: the new machine's matching folder opens with the skill chosen.
+ scopes.push(scope('bench',{id:'scope-bench',agent:'claude'}));agents.push(connector('agent-bench','bench'))
+ await page.reload()
+ await expect(card('bench')).toBeVisible()
+ const SHARED='Shared agents / Codex',NOT_LISTED='Not listed? Add a machine'
+ const privateOf=host=>page.getByRole('dialog',{name:`Private skills on ${host}`,exact:true})
+ const anyPrivate=()=>page.getByRole('dialog',{name:/^Private skills on/})
+ const pinButton=host=>card(host).getByRole('button',{name:'Pin a library revision for demo'}).first()
+ const expand=async host=>{for(const selector of ['details.agent-list','details.content-observation']){const details=card(host).locator(selector).first();if(!await details.evaluate(el=>el.open))await details.locator(':scope > summary').click()}}
+ const fromPrivate=async host=>{
+  await expand(host)
+  await pinButton(host).evaluate(el=>el.click())   // no focus moves, as on Safari and Firefox on a Mac
+  const d=privateOf(host);await expect(d).toBeVisible();await expect(d.getByLabel('Library skill',{exact:true})).toBeVisible();return d
+ }
+ const addFrom=async host=>{
+  const pd=await fromPrivate(host)
+  await pd.getByRole('button',{name:NOT_LISTED,exact:true}).click()
+  await expect(anyPrivate()).toHaveCount(0)
+  const d=dialogOf();await expect(d).toBeVisible();return{d,p:parts(d)}
+ }
+ const closePrivate=pd=>pd.getByRole('button',{name:'Close private skills'}).click()
+ const auto=d=>d.getByText(/^Opening the Private skills dialog for demo in 3 seconds\.$/)
+ const hold=d=>d.locator('.hold')
+ const noRequestToAMachine=()=>expect(foreign).toEqual([])
+ const writesBefore=writes.length
+ {
+  const pd=await fromPrivate('workstation')
+  const entry=pd.getByRole('button',{name:NOT_LISTED,exact:true})
+  await expect(entry).toBeVisible()
+  expect(writes.length).toBe(writesBefore)
+  // Pressing it closes the Private skills dialog and opens the add dialog; closing that returns to what was pressed.
+  await entry.click()
+  await expect(anyPrivate()).toHaveCount(0)
+  const d=dialogOf();await expect(d).toBeVisible()
+  await expect(parts(d).name).toBeFocused()
+  await expect(auto(d)).toHaveCount(0)
+  await closeDialog(d)
+  await expect(pinButton('workstation')).toBeFocused()
+  await expect(anyPrivate()).toHaveCount(0)
+  expect(await autoPending()).toBe(0)
+ }
+
+ // A machine that has reported in but cannot take a pin leaves the person in place, with the reason, whatever the cause.
+ // Nothing here ever opens the Private skills dialog or offers Use.
+ {
+  const {d,p:pp}=await addFrom('workstation')
+  await pp.name.fill('rack')
+  await expect(pp.status).toContainText('Waiting for it')
+  await expect(hold(d)).toHaveCount(0)
+  agents.push(connector('agent-rack','rack',true))
+  await expect(pp.status).toContainText('Connected')
+  await expect(hold(d)).toContainText("Private skills can't open on rack yet.")
+  await expect(hold(d)).toContainText("That machine isn't listed yet.")
+  await expect(hold(d).getByRole('button',{name:'Wait here',exact:true})).toBeVisible()
+  await expect(hold(d).getByRole('button',{name:'Close',exact:true})).toBeVisible()
+  await expect(pp.anyUse).toHaveCount(0)
+  // A scan-only agent folder is not a landing.
+  scopes.push(scope('rack',{id:'scope-rack-codex',agent:'codex'}))
+  await expect(hold(d)).toContainText('Its agent folders are scan-only')
+  // A paused connector is not a landing, even with a good scan.
+  scopes.push(scope('rack',{id:'scope-rack-claude',agent:'claude'}))
+  await expect(hold(d)).toContainText('The connector on this machine is paused.')
+  await expect(pp.anyUse).toHaveCount(0)
+  expect(await autoPending()).toBe(0)
+  // Running, but the only supported scan is a stale one: still not a landing.
+  scopes=scopes.map(s=>s.id==='scope-rack-claude'?{...s,scannedAt:Date.now()-15*DAY}:s)
+  agents=agents.map(a=>a.id==='agent-rack'?{...a,paused:false}:a)
+  await expect(pp.status).toContainText('Waiting for its first scan')
+  await expect(hold(d)).toContainText('last 14 days')
+  await expect(pp.anyUse).toHaveCount(0)
+  await expect(anyPrivate()).toHaveCount(0)
+  await words(d)
+  // Wait here keeps watching and says so; Close and Wait here are both there while nothing qualifies.
+  await hold(d).getByRole('button',{name:'Wait here',exact:true}).click()
+  await expect(hold(d)).toContainText('Waiting here.')
+  await expect(hold(d).getByRole('button',{name:'Wait here',exact:true})).toHaveCount(0)
+  const reads=syncReads()
+  await expect.poll(()=>syncReads()).toBeGreaterThan(reads+1)
+  expect(await autoPending()).toBe(0)
+  // The scan arrives: Ready, the hold goes, and the three-second continue is offered (and can be cancelled).
+  scopes=scopes.map(s=>s.id==='scope-rack-claude'?{...s,scannedAt:stamp()}:s)
+  await expect(pp.status).toContainText('Ready')
+  await expect(hold(d)).toHaveCount(0)
+  await expect(auto(d)).toBeVisible()
+  expect(await autoPending()).toBe(1)
+  expect((await autoDelays()).at(-1)).toBe(3000)
+  await d.getByRole('button',{name:'Cancel',exact:true}).click()
+  await expect(auto(d)).toHaveCount(0)
+  expect(await autoPending()).toBe(0)
+  await fireStale()
+  await afterRequests()
+  await expect(d).toBeVisible()
+  await expect(anyPrivate()).toHaveCount(0)
+  // Use opens the dialog on the new machine's folder, with the skill chosen and a note that says which folder.
+  await pp.use('rack').click()
+  await expect(d).toHaveCount(0)
+  const pd=privateOf('rack');await expect(pd).toBeVisible()
+  await expect(pd.locator('.eyebrow')).toContainText('Claude Code')
+  await expect(pd.getByLabel('Library skill',{exact:true})).toHaveValue(BUNDLE)
+  await expect(pd.getByRole('status').filter({hasText:'Opened on'})).toHaveText('Opened on Claude Code on rack.')
+  await expect(pd.getByRole('heading',{name:/^Private skills on/})).toBeFocused()
+  expect(writes.length).toBe(writesBefore)
+  await closePrivate(pd)
+  await expect(card('rack').getByRole('button',{name:'Private skills for Claude Code'})).toBeFocused()
+ }
+ // A paused connector with a good scan: Connected, and no landing.
+ {
+  const {d,p:pp}=await addFrom('workstation')
+  await pp.name.fill('nap')
+  agents.push(connector('agent-nap','nap',true));scopes.push(scope('nap',{id:'scope-nap',agent:'claude'}))
+  await expect(pp.status).toContainText('Connected')
+  await expect(hold(d)).toContainText('The connector on this machine is paused.')
+  await expect(pp.anyUse).toHaveCount(0)
+  await expect(anyPrivate()).toHaveCount(0)
+  await closeDialog(d)
+ }
+
+ // The same agent as the folder the person came from wins, though another is listed first.
+ {
+  const {d,p:pp}=await addFrom('bench')
+  await pp.name.fill('duo')
+  agents.push(connector('agent-duo','duo'))
+  scopes.push(scope('duo',{id:'scope-duo-cursor',agent:'cursor'}),scope('duo',{id:'scope-duo-claude',agent:'claude'}))
+  await expect(pp.status).toContainText('Ready')
+  await expect(auto(d)).toBeVisible()
+  await fireAuto()
+  await expect(d).toHaveCount(0)
+  const pd=privateOf('duo');await expect(pd).toBeVisible()
+  await expect(pd.locator('.eyebrow')).toContainText('Claude Code')
+  await expect(pd.getByRole('status').filter({hasText:'Opened on'})).toHaveText('Opened on Claude Code on duo. 1 other folder also qualifies; open it from the Machines page.')
+  await expect(pd.getByLabel('Library skill',{exact:true})).toHaveValue(BUNDLE)
+  await closePrivate(pd)
+ }
+ // Several qualify and none matches the agent: the first supported one, and the note counts the rest.
+ {
+  const {d,p:pp}=await addFrom('workstation')
+  await pp.name.fill('trio')
+  agents.push(connector('agent-trio','trio'))
+  scopes.push(scope('trio',{id:'scope-trio-claude',agent:'claude'}),scope('trio',{id:'scope-trio-cursor',agent:'cursor'}),scope('trio',{id:'scope-trio-agents',agent:'agents'}))
+  await expect(pp.status).toContainText('Ready')
+  expect(await autoPending()).toBe(1)
+  await pp.use('trio').click()
+  expect(await autoPending()).toBe(0)
+  const pd=privateOf('trio');await expect(pd).toBeVisible()
+  await expect(pd.locator('.eyebrow')).toContainText(SHARED)
+  await expect(pd.getByRole('status').filter({hasText:'Opened on'})).toHaveText(`Opened on ${SHARED} on trio. 2 other folders also qualify; open them from the Machines page.`)
+  await closePrivate(pd)
+ }
+ // A stale folder is never chosen, even when it is the agent the person came from.
+ {
+  const {d,p:pp}=await addFrom('bench')
+  await pp.name.fill('mix')
+  agents.push(connector('agent-mix','mix'))
+  scopes.push(scope('mix',{id:'scope-mix-claude',agent:'claude',scannedAt:Date.now()-15*DAY}),scope('mix',{id:'scope-mix-agents',agent:'agents'}))
+  await expect(pp.status).toContainText('Ready')
+  await pp.use('mix').click()
+  const pd=privateOf('mix');await expect(pd).toBeVisible()
+  await expect(pd.locator('.eyebrow')).toContainText(SHARED)
+  await expect(pd.getByRole('status').filter({hasText:'Opened on'})).toHaveText(`Opened on ${SHARED} on mix.`)
+  await expect(pd.getByRole('alert')).toHaveCount(0)
+  await closePrivate(pd)
+ }
+ // The landing is made once: when the fleet is drawn again (the list emptied, then back) it does not open again.
+ {
+  emptied=true
+  await page.getByRole('button',{name:'Refresh status'}).click()
+  await expect(card('mix')).toHaveCount(0)
+  emptied=false
+  await page.getByRole('button',{name:'Refresh status'}).click()
+  await expect(card('mix')).toBeVisible()
+  await afterRequests()
+  await expect(anyPrivate()).toHaveCount(0)
+ }
+ // Closing the add dialog while the continue is counting down stops it: it cannot fire afterwards.
+ {
+  const {d,p:pp}=await addFrom('workstation')
+  await pp.name.fill('late')
+  agents.push(connector('agent-late','late'));scopes.push(scope('late',{id:'scope-late',agent:'claude'}))
+  await expect(pp.status).toContainText('Ready')
+  await expect(auto(d)).toBeVisible()
+  expect(await autoPending()).toBe(1)
+  await closeDialog(d)
+  expect(await autoPending()).toBe(0)
+  await fireStale()
+  await afterRequests()
+  await expect(anyPrivate()).toHaveCount(0)
+  await expect(pinButton('workstation')).toBeFocused()
+  await quiet()
+ }
+ await noRequestToAMachine()
+
  // Layout: the dialog fits at 1360, 390 and 320px in light and dark, with no sideways scroll.
  for(const scheme of ['light','dark'])for(const [width,height] of [[1360,1000],[390,800],[320,640]]){
   await page.emulateMedia({colorScheme:scheme})
@@ -512,6 +733,25 @@ try{
   const fits=await d.evaluate(el=>{const r=el.getBoundingClientRect();const body=el.querySelector('.body');return{inside:r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight,noSideways:el.scrollWidth<=el.clientWidth&&body.scrollWidth<=body.clientWidth}})
   expect(fits).toEqual({inside:true,noSideways:true})
   await closeDialog(d)
+  // The Private skills entry is in view without scrolling; from it the add dialog fits; and so does the landing note.
+  const pd=await fromPrivate('workstation')
+  const entry=pd.getByRole('button',{name:NOT_LISTED,exact:true})
+  const box=await entry.boundingBox()
+  expect(box.x>=0&&box.x+box.width<=width&&box.y>=0&&box.y+box.height<=height).toBe(true)
+  expect(await pd.evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&el.querySelector('.body').scrollWidth<=el.querySelector('.body').clientWidth})).toBe(true)
+  await layout()
+  await entry.click()
+  const ad=dialogOf(),ap=parts(ad)
+  await expect(ad).toBeVisible()
+  await ap.name.fill('workstation')
+  await expect(ap.use('workstation')).toBeVisible()
+  expect(await ad.evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&el.querySelector('.body').scrollWidth<=el.querySelector('.body').clientWidth})).toBe(true)
+  await ap.use('workstation').click()
+  const landed=privateOf('workstation');await expect(landed).toBeVisible()
+  await expect(landed.getByRole('status').filter({hasText:'Opened on'})).toContainText(`Opened on ${SHARED} on workstation.`)
+  expect(await landed.evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&el.querySelector('.body').scrollWidth<=el.querySelector('.body').clientWidth})).toBe(true)
+  await layout()
+  await closePrivate(landed)
  }
  await page.emulateMedia({colorScheme:'light'});await page.setViewportSize({width:1360,height:1000})
 
@@ -523,10 +763,15 @@ try{
  viewer=true;await page.reload()
  await expect(card('workstation')).toBeVisible()
  await expect(addButton()).toHaveCount(0)
+ await expect(page.getByRole('button',{name:/^Private skills/})).toHaveCount(0)
+ await expect(page.getByRole('button',{name:NOT_LISTED,exact:true})).toHaveCount(0)
  viewer=false;authMode='none';await page.reload()
  await expect(card('workstation')).toBeVisible()
  await expect(addButton()).toHaveCount(0)
+ await expect(page.getByRole('button',{name:/^Private skills/})).toHaveCount(0)
+ await expect(page.getByRole('button',{name:NOT_LISTED,exact:true})).toHaveCount(0)
+ await noRequestToAMachine()
  expect(unmocked).toEqual([])
  expect(errors).toEqual([])
- console.log('Add a machine UI passed: entry beside the existing action and absent for viewers and legacy sign-in, the header entry before machines load with no state claimed for an unloaded list, no writes on open, name rules shown after touch, the block equal to the builders and free of the token, token refusal and dropped reply, copy of the block alone, Waiting/Connected/First scan/Ready in words, an aged scan judged by the clock now, back-off and recovery, already-here sticky until a new connector, step-by-step hand-over, close and Escape stopping the watch with focus returned, hidden pause and resume, the watch cap and Check again, Use landing with highlight, scroll and focus, sign-out hand-over, layouts and themes, and no browser storage.')
+ console.log('Add a machine UI passed: entry beside the existing action and absent for viewers and legacy sign-in, the header entry before machines load with no state claimed for an unloaded list, no writes on open, name rules shown after touch, the block equal to the builders and free of the token, token refusal and dropped reply, copy of the block alone, Waiting/Connected/First scan/Ready in words, an aged scan judged by the clock now, back-off and recovery, already-here sticky until a new connector, step-by-step hand-over, close and Escape stopping the watch with focus returned, hidden pause and resume, the watch cap and Check again, Use landing with highlight, scroll and focus, sign-out hand-over, the Not listed? entry in the Private skills dialog (writers only) closing it and opening the add dialog with focus returned, no landing for a paused connector, a stale scan or a scan-only agent (Wait here and Close, reason shown), the three-second continue cancelled, fired and stopped by Close, the landing on the preferred agent or the first eligible folder with a note naming it and counting the rest, never on a stale folder, once only across a redraw, no request to a machine, layouts and themes at 1360, 390 and 320, and no browser storage.')
 }finally{await browser.close()}

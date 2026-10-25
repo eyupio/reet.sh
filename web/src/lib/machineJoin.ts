@@ -148,3 +148,18 @@ export function landingFor(context: JoinContext, machine: Machine | undefined, a
 }
 
 export const joinDelay = (failures: number): number => retryDelay(failures, 3000, 20000)
+
+/** The pause before the dialog carries on by itself from the Private skills dialog. */
+export const JOIN_AUTO_MS = 3000
+
+/** True when the dialog was opened from the Private skills dialog: that carries the skill, or at least the agent of its folder. */
+export const fromPrivateSkills = (context: JoinContext): boolean => context.skill !== undefined || context.agent !== undefined
+
+/** One plain line saying which folder was chosen and how many others qualified. It says nothing more than that. */
+export function landingNote(host: string, landing: Extract<Landing, { kind: 'open' }>): string {
+  const opened = `Opened on ${landing.chosen} on ${host}.`
+  if (landing.others <= 0) return opened
+  return landing.others === 1
+    ? `${opened} 1 other folder also qualifies; open it from the Machines page.`
+    : `${opened} ${landing.others} other folders also qualify; open them from the Machines page.`
+}

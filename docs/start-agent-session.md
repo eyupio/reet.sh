@@ -23,8 +23,9 @@ local consent, and the session limits (8 per machine, 32 per account).
 - **Terminals → New agent session.** It appears under the machine picker in the sessions sidebar,
   in a machine's menu next to **New terminal**, and in the empty workspace next to **New terminal**.
   The machine you were on is preselected. On success the new session opens in the workspace.
-- **Machines → Start an agent** on a machine's card. While the machine isn't ready the button is
-  disabled and the reason is written underneath. If its readiness couldn't be read, it says
+- **Machines → Start an agent** on every enrolled machine's card. While the machine isn't ready the
+  button is disabled and the reason is written underneath; a machine the terminal list doesn't know
+  yet says "This machine hasn't connected for terminals yet." If its readiness couldn't be read, it says
   "Couldn't check this machine just now. Try again in a moment." On success you are taken to
   `/terminals?agent=…&session=…`.
 
@@ -79,12 +80,15 @@ moves focus to the field concerned. Your next Start is a new request:
 | Session limit (409) | "The terminal session limit has been reached. End a session and try again." The server doesn't say whether the per-machine or the per-account limit was reached. |
 | The same request with different details (409) | "That request changed. Start it again." |
 | Browser terminals switched off on the server (403) | "Browser terminals are switched off on this server." |
-| Anything else | "Something changed. Check again." |
+| Signed out (401) | "You've been signed out. Sign in again to continue." On the Machines page the sign-in card then takes over. |
+| Answered, but the machine didn't start it (a 200 whose session is `lost` or `ended`, for example when terminal access was switched off on the machine just before) | "That machine didn't start the agent. Check its terminal settings on that machine and try again." Nothing is running, so you can start again. |
+| Anything else (another 400, 403, 404 or 422) | "Something changed. Check again." |
 
 ## When the reply is lost
 
-If no answer comes back (the network drops, the 15 seconds run out, or the server answers with a
-5xx), the dialog can't know whether the agent started. It says:
+If no answer comes back (the network drops or the 15 seconds run out), or the server gives any
+reply other than a success or one of the definite refusals above (400, 401, 403, 404, 409 or 422),
+the dialog can't know whether the agent started. It says:
 
 > We didn't hear back, so the agent may have started. Check your sessions before starting another.
 > If you close this and start again, a second agent may start.

@@ -2218,7 +2218,7 @@ with a default agent and worktrees.
 A started session means only that the connector started the program in tmux in that folder.
 It does not show that the agent is signed in, understands the prompt or is making progress.
 
-### Start an agent session — web side (PR #195 and the closing pull request)
+### Start an agent session — web side (PR #195)
 
 Added 25 October 2026. Read [docs/start-agent-session.md](docs/start-agent-session.md) for what
 people see. This extends the "What remains" list above: the web items there are now done.
@@ -2230,12 +2230,13 @@ people see. This extends the "What remains" list above: the web items there are 
 - `web/src/lib/StartAgentDialog.svelte` is the dialog: one screen, one request id per attempt, a
   busy guard, and the existing 15-second abort.
 - Entry points: **New agent session** in the Terminals workspace (sidebar, machine menu, empty
-  state) and **Start an agent** on a ready machine's card.
+  state) and **Start an agent** on a machine's card (disabled, with the reason, while the machine
+  isn't ready).
 - Activity reads `terminal-launch` as "Started \<Agent\> [with \<model\>] in \<folder\> on
   \<machine\>".
 - Browser fixture: `web/tests/start-agent.e2e.mjs`, run in the terminal-browser workflow.
 
-The closing pull request adds:
+#195 also adds:
 - A status line that clears a validation message when the person edits a field.
 - A fixture hardened to check every field is locked while a request is held or its outcome is
   unknown, Escape on a held first Start, a positive heading anchor for viewers and legacy sign-in,
@@ -2259,7 +2260,14 @@ The closing pull request adds:
   again.", because the server's 409 doesn't say whether the machine's limit or the account's limit
   was reached. The tool refusal is the generic "That agent isn't installed on that machine.",
   because the API answers with a code and has no table of names. The spec's Words table was
-  amended to match.
+  amended to match `refusalText` row for row, and is kept that way.
+- A create that answers 200 with a session the machine did not start (`lost` or `ended`, for
+  example when local consent was switched off just before) is a definite outcome: the dialog says
+  "That machine didn't start the agent. Check its terminal settings on that machine and try
+  again." and the next Start is a new request. A 401 says "You've been signed out. Sign in again to
+  continue." and, on the Machines page, hands over to the sign-in card.
+- While a request is held or its outcome unknown, the tool, choices and sentence come from the
+  request itself; a machine-list refresh cannot change them.
 
 **What was checked.**
 - Only what was run for these tasks, in Chromium against synthetic API responses: the fixture's

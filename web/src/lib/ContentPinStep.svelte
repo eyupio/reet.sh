@@ -1,15 +1,21 @@
 <script lang="ts">
  import { onMount, tick } from 'svelte'
  import type { ContentPin, PrivateBundle, PrivateRevision } from './api'
- import { describeError, groupBundles, MODES, modeLabel, newestFirst, preselectBundle, shortId, type PinChoice } from './contentReview'
+ import { bundleLabel, describeError, groupBundles, MODES, modeLabel, newestFirst, preselectBundle, revisionLabel, revisionLabels, samePin, shortId, type PinChoice } from './contentReview'
 
  // Presentational: the shell loads the pins and the library, owns every write and says whether one is under way.
- // preset is the skill name the machine reported, when the dialog was opened from that skill's row.
- let { pins, bundles, preset = '', busy, revisionsFor, onsave, onremove }: {
+ // preset is the skill name the machine reported, when the dialog was opened from that skill's row. agentId is the
+ // connector the shell will send the pin through, so a pin made through another one is not "the current pin".
+ // saveBlocked is why saving is unavailable right now (empty when it is). revisionLists are the revisions the shell has
+ // read, by library skill, so a pin can be described by when its revision was made rather than by an id.
+ let { pins, bundles, preset = '', agentId, saveBlocked = '', busy, revisionLists, revisionsFor, onsave, onremove }: {
   pins: ContentPin[]
   bundles: PrivateBundle[]
   preset?: string
+  agentId: string
+  saveBlocked?: string
   busy: boolean
+  revisionLists: Record<string, PrivateRevision[] | undefined>
   revisionsFor: (bundleId: string) => Promise<PrivateRevision[]>
   onsave: (input: PinChoice) => Promise<void>
   onremove: (pin: ContentPin) => Promise<void>
@@ -24,9 +30,11 @@
  const bundle = $derived(bundles.find(b => b.id === bundleId))
  // A pin belongs to a scope and a skill name, so choosing a library skill of the same name changes that pin.
  const existing = $derived(bundle ? pins.find(p => p.name === bundle.name) : undefined)
- const unchanged = $derived(!!existing && existing.bundleId === bundleId && existing.revisionId === revisionId && existing.mode === mode)
+ const unchanged = $derived(samePin(existing, { agentId, bundleId, revisionId, mode }))
  const ready = $derived(!!bundle && revisionId !== '' && !revisionsLoading && revisionError === '' && MODES.some(m => m.value === mode))
  const headOf = (id: string) => bundles.find(b => b.id === id)?.head
+ const labels = $derived(revisionLabels(revisions, bundle?.head))
+ const labelOf = (pin: ContentPin) => revisionLabel(pin.revisionId, revisionLists[pin.bundleId], headOf(pin.bundleId))
 
  async function choose(id: string, wantedRevision = '', wantedMode = '') {
   const token = ++generation
@@ -53,7 +61,7 @@
  }
  async function submit(event: SubmitEvent) {
   event.preventDefault()
-  if (busy || !ready || unchanged) return
+  if (busy || !ready || unchanged || saveBlocked) return
   await onsave({ bundleId, revisionId, mode: mode as PinChoice['mode'], expectedVersion: existing?.version ?? '' })
  }
  async function remove(pin: ContentPin) {
@@ -82,7 +90,7 @@
     <li>
      <div class="info">
       <strong>{pin.name}</strong>
-      <span>Revision <code>{shortId(pin.revisionId)}</code>{#if head}<span class="where">· {pin.revisionId === head ? 'Newest in the library' : 'Not the newest in the library'}</span>{/if}</span>
+      <span>Revision {labelOf(pin)}{#if head && pin.revisionId !== head}<span class="where">· Not the newest in the library</span>{/if}</span>
       <span>{modeLabel(pin.mode)}</span>
      </div>
      <div class="row-actions">
@@ -108,10 +116,10 @@
     <select id={`${uid}-library`} bind:this={librarySelect} value={bundleId} onchange={(event) => void choose(event.currentTarget.value)}>
      <option value="">Choose a library skill</option>
      {#if groups.matching.length}
-      <optgroup label="Matches the skill reported on this machine">{#each groups.matching as b (b.id)}<option value={b.id}>{b.name} · {shortId(b.id)}</option>{/each}</optgroup>
-      {#if groups.others.length}<optgroup label="Other library skills">{#each groups.others as b (b.id)}<option value={b.id}>{b.name} · {shortId(b.id)}</option>{/each}</optgroup>{/if}
+      <optgroup label="Matches the skill reported on this machine">{#each groups.matching as b (b.id)}<option value={b.id}>{bundleLabel(b, bundles)}</option>{/each}</optgroup>
+      {#if groups.others.length}<optgroup label="Other library skills">{#each groups.others as b (b.id)}<option value={b.id}>{bundleLabel(b, bundles)}</option>{/each}</optgroup>{/if}
      {:else}
-      {#each groups.others as b (b.id)}<option value={b.id}>{b.name} · {shortId(b.id)}</option>{/each}
+      {#each groups.others as b (b.id)}<option value={b.id}>{bundleLabel(b, bundles)}</option>{/each}
      {/if}
     </select>
    </div>
@@ -119,7 +127,7 @@
     <label for={`${uid}-revision`}>Revision</label>
     <select id={`${uid}-revision`} value={revisionId} disabled={revisions.length === 0} onchange={(event) => { revisionId = event.currentTarget.value }}>
      {#if revisions.length === 0}<option value="">No revision to choose yet</option>{/if}
-     {#each revisions as r (r.id)}<option value={r.id}>{new Date(r.createdAt).toLocaleString()} · {shortId(r.id)}{r.id === bundle?.head ? ' · newest' : ''}</option>{/each}
+     {#each revisions as r (r.id)}<option value={r.id}>{labels.get(r.id) ?? shortId(r.id)}</option>{/each}
     </select>
     {#if revisionsLoading}<small role="status">Loading revisions…</small>{/if}
     {#if revisionError}<div class="inline"><small role="alert" class="error">{revisionError}</small><button type="button" class="btn" onclick={() => void choose(bundleId, '', mode)}>Try again</button></div>{/if}
@@ -132,9 +140,10 @@
     {/each}
    </fieldset>
    {#if existing && bundle}
-    <p class="hint">{#if unchanged}This is the current pin for {bundle.name}.{:else}This folder already has a pin for {bundle.name}: revision <code>{shortId(existing.revisionId)}</code>, {modeLabel(existing.mode)}. Saving changes it.{/if}{#if existing.bundleId !== bundleId} It points at a different library skill with the same name.{/if}</p>
+    <p class="hint">{#if unchanged}This is the current pin for {bundle.name}.{:else}This folder already has a pin for {bundle.name}: revision {labelOf(existing)}, {modeLabel(existing.mode)}. Saving changes it.{/if}{#if existing.bundleId !== bundleId} It points at a different library skill with the same name.{/if}{#if agentId && existing.agentId !== agentId} It was made through a different connector; saving moves it to this machine's running one.{/if}</p>
    {/if}
-   <div class="form-actions"><button type="submit" class="btn primary" disabled={busy || !ready || unchanged}>Save pin</button></div>
+   {#if saveBlocked}<p class="hint">Pins can't be saved right now. {saveBlocked} You can still review and remove pins.</p>{/if}
+   <div class="form-actions"><button type="submit" class="btn primary" disabled={busy || !ready || unchanged || !!saveBlocked}>Save pin</button></div>
   </form>
  {/if}
 </section>
@@ -149,7 +158,6 @@
  .hint, .empty { margin: 6px 0 12px; }
  small { display: block; }
  .error { color: var(--bad); overflow-wrap: anywhere; }
- code { font-size: .74rem; overflow-wrap: anywhere; }
  .pins { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
  .pins li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
  .info { display: grid; gap: 2px; min-width: 0; flex: 1 1 220px; font-size: .8rem; overflow-wrap: anywhere; }

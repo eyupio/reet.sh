@@ -11,7 +11,7 @@ const {
   OWNERSHIP_SENTENCE, APPLY_NOTICE, FALLBACK,
   presenceLabel, ownershipNote, checkStateLabel, reasonText, failureText, planCodeText, preservedText,
   scopeEligibility, classifyCheck, adoptable, summarisePlan, candidatesFor, preselect, groupBreakdown, claimSummary, pollDelay, describeError, CLOSED_CODES,
-  connectorFor, groupBundles, preselectBundle, newestFirst, modeLabel, MODES, pinChangeNote, shortId,
+  connectorFor, groupBundles, preselectBundle, newestFirst, modeLabel, MODES, pinChangeNote, shortId, samePin, bundleLabel, revisionLabels, revisionLabel, missingNote,
 } = review
 
 // The closed tables are read from the Go side, so a code the server starts to send fails loudly here instead of
@@ -786,6 +786,72 @@ test('pinChangeNote says what changed in plain words, and nothing when nothing d
   // Nothing differs, or there was never a pin: the server's own refusal is the better words.
   assert.equal(pinChangeNote(was, was, 'demo'), '')
   assert.equal(pinChangeNote(undefined, undefined, 'demo'), '')
+})
+
+test('samePin: a pin is the same only when connector, library skill, revision and mode all match', () => {
+  const p = pin()
+  const want = { agentId: p.agentId, bundleId: p.bundleId, revisionId: p.revisionId, mode: p.mode }
+  assert.equal(samePin(p, want), true)
+  assert.equal(samePin(p, { ...want, agentId: 'z'.repeat(48) }), false, 'a pin made through another connector is not the current pin')
+  assert.equal(samePin(p, { ...want, agentId: '' }), false)
+  assert.equal(samePin(p, { ...want, bundleId: 'z'.repeat(32) }), false)
+  assert.equal(samePin(p, { ...want, revisionId: 'z'.repeat(32) }), false)
+  assert.equal(samePin(p, { ...want, mode: 'managed' }), false)
+  assert.equal(samePin(undefined, want), false)
+})
+
+test('MODES is derived from the mode words, in order', () => {
+  assert.deepEqual(MODES.map(m => [m.value, m.label]), [['additive', modeLabel('additive')], ['managed', modeLabel('managed')]])
+})
+
+test('bundleLabel is the name, with the start of the id only when two library skills share a name', () => {
+  const list = [bundle('1', 'alpha'), bundle('2', 'twin'), bundle('3', 'twin'), bundle('4', 'zeta')]
+  assert.equal(bundleLabel(list[0], list), 'alpha')
+  assert.equal(bundleLabel(list[1], list), `twin · ${'2'.repeat(8)}`)
+  assert.equal(bundleLabel(list[2], list), `twin · ${'3'.repeat(8)}`)
+  assert.equal(bundleLabel(list[3], list), 'zeta')
+  assert.equal(bundleLabel(list[0], [list[0]]), 'alpha')
+})
+
+test('revisionLabels names each revision by when it was made and marks the newest', () => {
+  const at = (ms) => `t${ms}`
+  const r1 = revision('1', 1000), r2 = revision('2', 2000), r3 = revision('3', 3000)
+  const labels = revisionLabels([r3, r2, r1], r3.id, at)
+  assert.equal(labels.get(r3.id), 't3000 · Newest')
+  assert.equal(labels.get(r2.id), 't2000')
+  assert.equal(labels.get(r1.id), 't1000')
+  assert.equal(revisionLabels([r1, r2], undefined, at).get(r2.id), 't2000', 'no head, no Newest')
+  // Two that share a time carry the start of their id, and the newest is still marked.
+  const a = revision('a', 5000), b = revision('b', 5000), c = revision('c', 6000)
+  const shared = revisionLabels([a, b, c], b.id, at)
+  assert.equal(shared.get(a.id), `t5000 · ${'a'.repeat(8)}`)
+  assert.equal(shared.get(b.id), `t5000 · ${'b'.repeat(8)} · Newest`)
+  assert.equal(shared.get(c.id), 't6000')
+  // No raw id appears when the times differ, and the real clock format never shows one either.
+  for (const label of revisionLabels([r1, r2, r3], r3.id).values()) assert.doesNotMatch(label, /[0-9a-f]{8}/)
+  assert.equal(revisionLabels([], 'x').size, 0)
+})
+
+test('revisionLabel falls back to the start of the id only when the revision is not in a list that was read', () => {
+  const r1 = revision('1', NOW)
+  assert.match(revisionLabel(r1.id, [r1], r1.id), /Newest$/)
+  assert.equal(revisionLabel('9'.repeat(32), [r1], r1.id), '9'.repeat(8))
+  assert.equal(revisionLabel('9'.repeat(32), undefined, undefined), '9'.repeat(8))
+})
+
+test('pinChangeNote uses the revision words it is given, and the start of the id without them', () => {
+  const was = pin({ revisionId: '2'.repeat(32), mode: 'managed', version: 'v1' }), changed = pin({ revisionId: '1'.repeat(32), mode: 'additive', version: 'v2' })
+  const note = pinChangeNote(was, changed, 'demo', 'save', p => `from ${p.revisionId[0]} o'clock`)
+  assert.match(note, /revision from 1 o'clock \(Add and update\)/)
+  assert.match(note, /revision from 2 o'clock \(Also remove files reet owns/)
+  assert.doesNotMatch(note, /11111111|22222222/)
+  assert.match(pinChangeNote(was, changed, 'demo'), /11111111/)
+})
+
+test('missingNote says which thing is gone and that nothing was done', () => {
+  assert.match(missingNote('save'), /isn't there any more.*nothing was saved/)
+  assert.match(missingNote('remove'), /isn't there any more.*nothing was removed/)
+  for (const s of [missingNote('save'), missingNote('remove')]) assert.doesNotMatch(s, /installed|installs|\bapplied\b|up to date|verified|_/i)
 })
 
 test('the pin sentences name no raw code, claim no install, never call anything verified, and use plain British English', () => {

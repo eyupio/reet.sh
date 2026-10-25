@@ -319,12 +319,38 @@ const MODE_LABELS = {
   additive: 'Add and update',
   managed: 'Also remove files reet owns that a newer revision drops',
 } as const
-export const MODES: readonly { value: ContentPinWrite['mode']; label: string }[] = [
-  { value: 'additive', label: MODE_LABELS.additive },
-  { value: 'managed', label: MODE_LABELS.managed },
-]
+export const MODES: readonly { value: ContentPinWrite['mode']; label: string }[] = (Object.keys(MODE_LABELS) as ContentPinWrite['mode'][]).map(value => ({ value, label: MODE_LABELS[value] }))
 /** A mode this page has no words for is said to be unknown; it is never shown as a raw code. */
 export const modeLabel = (mode: string): string => (Object.prototype.hasOwnProperty.call(MODE_LABELS, mode) ? MODE_LABELS[mode as keyof typeof MODE_LABELS] : "A mode this page doesn't recognise")
+
+/** Whether a pin already says what is about to be saved: the same connector, library skill, revision and mode. */
+export function samePin(pin: ContentPin | undefined, want: { agentId: string; bundleId: string; revisionId: string; mode: string }): boolean {
+  return !!pin && pin.agentId === want.agentId && pin.bundleId === want.bundleId && pin.revisionId === want.revisionId && pin.mode === want.mode
+}
+
+/** A library skill is named by its name; two with the same name also carry the start of their id so they can be told apart. */
+export function bundleLabel(b: PrivateBundle, bundles: PrivateBundle[]): string {
+  return bundles.some(o => o !== b && o.name === b.name) ? `${b.name} · ${shortId(b.id)}` : b.name
+}
+
+const stampOf = (ms: number): string => new Date(ms).toLocaleString()
+
+/**
+ * What to call each revision on screen: when it was made, with the start of its id added only to tell two apart that
+ * share a time, and "Newest" on the bundle's head. The format is a parameter so a test can be exact.
+ */
+export function revisionLabels(revisions: PrivateRevision[], head: string | undefined, stamp: (ms: number) => string = stampOf): Map<string, string> {
+  const stamps = revisions.map(r => stamp(r.createdAt))
+  const labels = new Map<string, string>()
+  revisions.forEach((r, i) => {
+    const same = stamps.filter(x => x === stamps[i]).length > 1
+    labels.set(r.id, `${stamps[i]}${same ? ` · ${shortId(r.id)}` : ''}${r.id === head ? ' · Newest' : ''}`)
+  })
+  return labels
+}
+
+/** The revision's label from a list that has been read, or the start of its id when it is not in one. */
+export const revisionLabel = (id: string, list: PrivateRevision[] | undefined, head: string | undefined): string => (list ? revisionLabels(list, head).get(id) : undefined) ?? shortId(id)
 
 /** Bundles whose name is the reported skill's come first; each group keeps the library's own order. */
 export function groupBundles(bundles: PrivateBundle[], name?: string): { matching: PrivateBundle[]; others: PrivateBundle[] } {
@@ -348,19 +374,22 @@ export function newestFirst(revisions: PrivateRevision[], head?: string): Privat
   return [...revisions].sort((a, b) => lead(a) - lead(b) || b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
 }
 
-const pinWords = (p: ContentPin) => `revision ${shortId(p.revisionId)} (${modeLabel(p.mode)})`
+const pinWords = (p: ContentPin, text: (p: ContentPin) => string) => `revision ${text(p)} (${modeLabel(p.mode)})`
+
+/** The server's 404 says only that something is unavailable; this says which, and that nothing was done. */
+export const missingNote = (action: 'save' | 'remove'): string => (action === 'remove' ? "That pin isn't there any more, so nothing was removed." : "The library skill or revision you chose isn't there any more, so nothing was saved.")
 
 /**
  * What to tell the person when a pin write was refused because the pin is not as they last saw it: before is the pin
  * they were looking at, after is the pin read again, and action is what they were doing. Empty when nothing differs, so
  * the server's own refusal is shown.
  */
-export function pinChangeNote(before: ContentPin | undefined, after: ContentPin | undefined, name: string, action: 'save' | 'remove' = 'save'): string {
+export function pinChangeNote(before: ContentPin | undefined, after: ContentPin | undefined, name: string, action: 'save' | 'remove' = 'save', revisionText: (p: ContentPin) => string = p => shortId(p.revisionId)): string {
   const check = action === 'remove' ? 'Nothing was removed. Review it, then remove it again if you still want to.' : 'Nothing was saved. Review it, then save again if you still want your change.'
   if (!before && !after) return ''
   if (before && !after) return action === 'remove' ? `The pin for ${name} was already removed elsewhere, so there was nothing to remove.` : `The pin for ${name} was removed elsewhere. Nothing was saved.`
-  if (!before && after) return `${name} was pinned elsewhere, at ${pinWords(after)}. ${check}`
+  if (!before && after) return `${name} was pinned elsewhere, at ${pinWords(after, revisionText)}. ${check}`
   if (!before || !after || before.version === after.version) return ''
-  if (before.bundleId !== after.bundleId || before.revisionId !== after.revisionId || before.mode !== after.mode) return `The pin for ${name} changed elsewhere. It is now ${pinWords(after)}; it was ${pinWords(before)}. ${check}`
+  if (before.bundleId !== after.bundleId || before.revisionId !== after.revisionId || before.mode !== after.mode) return `The pin for ${name} changed elsewhere. It is now ${pinWords(after, revisionText)}; it was ${pinWords(before, revisionText)}. ${check}`
   return `The pin for ${name} was saved again elsewhere, with the same revision and mode. ${check}`
 }

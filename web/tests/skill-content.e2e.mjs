@@ -9,14 +9,17 @@ const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return{p
 // Server state. Pins are keyed by scope and library-skill name, versions are opaque and change on every real change,
 // exactly as the real store does (internal/store/store_content_targets.go).
 let authMode='accounts',viewer=false,hold=null,alphaHold=null,zetaBroken=true,sequence=0
+let pinsBroken=false,pinsHold=null,dropNextSave=false,failSave404=false,connectorsPaused=false
 const hex=c=>c.repeat(32)
-const B={demo:hex('d'),alpha:hex('a'),zeta:hex('e'),long:hex('f')}
+const B={demo:hex('d'),alpha:hex('a'),zeta:hex('e'),long:hex('f'),twinA:hex('7'),twinB:hex('8')}
 const R={d1:hex('1'),d2:hex('2'),d3:hex('3'),a1:hex('4'),z1:hex('5'),l1:hex('6')}
 const LONG_NAME='a-very-long-private-skill-name-that-has-no-spaces-so-it-must-wrap-or-scroll-inside-its-container-and-never-the-page'
 // The library lists bundles by name then id, and revisions oldest first.
-const bundles=[{id:B.long,name:LONG_NAME,head:R.l1,createdAt:now-DAY},{id:B.alpha,name:'alpha',head:R.a1,createdAt:now-DAY},{id:B.demo,name:'demo',head:R.d3,createdAt:now-DAY},{id:B.zeta,name:'zeta',head:R.z1,createdAt:now-DAY}]
+// Two library skills share the name twin, so only they may show the start of an id.
+const bundles=[{id:B.long,name:LONG_NAME,head:R.l1,createdAt:now-DAY},{id:B.alpha,name:'alpha',head:R.a1,createdAt:now-DAY},{id:B.demo,name:'demo',head:R.d3,createdAt:now-DAY},{id:B.twinA,name:'twin',head:hex('9'),createdAt:now-DAY},{id:B.twinB,name:'twin',head:hex('9'),createdAt:now-DAY},{id:B.zeta,name:'zeta',head:R.z1,createdAt:now-DAY}]
+const T={d1:now-3*DAY,d2:now-2*DAY,d3:now-DAY}
 const revisions={
- [B.demo]:[{id:R.d1,createdAt:now-3*DAY,manifestDigest:'1'.repeat(64),origin:{kind:'import'}},{id:R.d2,parent:R.d1,createdAt:now-2*DAY,manifestDigest:'2'.repeat(64),origin:{kind:'user'}},{id:R.d3,parent:R.d2,createdAt:now-DAY,manifestDigest:'3'.repeat(64),origin:{kind:'user'}}],
+ [B.demo]:[{id:R.d1,createdAt:T.d1,manifestDigest:'1'.repeat(64),origin:{kind:'import'}},{id:R.d2,parent:R.d1,createdAt:T.d2,manifestDigest:'2'.repeat(64),origin:{kind:'user'}},{id:R.d3,parent:R.d2,createdAt:T.d3,manifestDigest:'3'.repeat(64),origin:{kind:'user'}}],
  [B.alpha]:[{id:R.a1,createdAt:now-DAY,manifestDigest:'4'.repeat(64),origin:{kind:'import'}}],
  [B.zeta]:[{id:R.z1,createdAt:now-DAY,manifestDigest:'5'.repeat(64),origin:{kind:'user'}}],
  [B.long]:[{id:R.l1,createdAt:now-DAY,manifestDigest:'6'.repeat(64),origin:{kind:'user'}}],
@@ -48,7 +51,7 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/environments')data={environments:envs,machines}
  else if(path==='/api/tags')data={tags:[]}
  else if(path==='/api/v2/lists')data={lists:[],linkEnabled:false}
- else if(path==='/api/v2/sync')data=snapshot
+ else if(path==='/api/v2/sync')data={...snapshot,agents:snapshot.agents.map(a=>connectorsPaused&&a.host.toLowerCase()==='workstation'?{...a,paused:true}:a)}
  else if(path==='/api/v2/machines/health')data={serverNow:now,machines:[]}
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
  else if(path==='/api/v2/terminal/machines')data={machines:[]}
@@ -64,10 +67,15 @@ await page.route('**/api/**',async route=>{
   if(id===B.zeta&&zetaBroken)return route.fulfill({status:500,json:{error:'The library is unavailable right now.'}})
   data={revisions:revisions[id]??[]}
  }
- else if(path==='/api/v2/skill-content-targets'&&method==='GET')data={targets:pins}
+ else if(path==='/api/v2/skill-content-targets'&&method==='GET'){
+  if(pinsHold)await pinsHold.promise
+  if(pinsBroken)return route.fulfill({status:500,json:{error:'The pins could not be read right now.'}})
+  data={targets:pins}
+ }
  else if(path==='/api/v2/skill-content-targets'&&method==='POST'){
   writes.push({method,path,body})
   if(hold)await hold.promise
+  if(failSave404)return route.fulfill({status:404,json:{error:'Private skill unavailable.'}})
   const bundle=bundles.find(b=>b.id===body.bundleId),current=pins.find(p=>p.environmentId===body.environmentId&&p.name===bundle?.name)
   if(current&&current.agentId===body.agentId&&current.bundleId===body.bundleId&&current.revisionId===body.revisionId&&current.mode===body.mode)data=current
   else if((current&&current.version!==body.expectedVersion)||(!current&&body.expectedVersion!==''))return route.fulfill({status:409,json:CONFLICT})
@@ -84,9 +92,16 @@ await page.route('**/api/**',async route=>{
   pins=pins.filter(p=>p!==pin);data={removed:true}
  }
  else{unmocked.push(`${method} ${path}`);return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})}
+ // A reply that never arrives: the server has kept the write, the browser sees the connection fail.
+ if(dropNextSave&&method==='POST'&&path==='/api/v2/skill-content-targets'){dropNextSave=false;return route.abort('failed')}
  await route.fulfill({json:data})
 })
 
+// Every write to browser storage is recorded from before the page loads, so use of the dialog can be shown to make none.
+await page.addInitScript(()=>{
+ window.__storageCalls=[]
+ for(const op of ['setItem','removeItem','clear']){const original=Storage.prototype[op];Storage.prototype[op]=function(...args){window.__storageCalls.push({area:this===window.localStorage?'local':this===window.sessionStorage?'session':'other',op,key:args[0]});return original.apply(this,args)}}
+})
 const layout=async()=>expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
 const storage=()=>page.evaluate(async()=>JSON.stringify({local:{...localStorage},session:{...sessionStorage},idb:(await indexedDB.databases()).map(d=>d.name).sort()}))
 const card=host=>page.locator('article').filter({has:page.getByRole('heading',{name:host,exact:true})})
@@ -95,6 +110,10 @@ const scopeButton=(host,label)=>scopeRow(host,label).getByRole('button',{name:/^
 const expand=async host=>{const details=card(host).locator('details.agent-list');if(!await details.evaluate(el=>el.open))await details.locator(':scope > summary').click()}
 const post=expectedVersion=>({environmentId:'scope-one',agentId:'agent-0',bundleId:B.demo,revisionId:R.d3,mode:'additive',expectedVersion})
 const SHARED='Shared agents / Codex'
+const stamp=ms=>page.evaluate(t=>new Date(t).toLocaleString(),ms)
+// A request made now reaches the route after any made before it, so once it has, an earlier one would be in the log.
+const afterRequests=()=>page.evaluate(()=>fetch('/api/version').then(r=>r.status))
+const noIds=(...texts)=>{for(const text of texts)expect(text).not.toMatch(/[0-9a-f]{8}/)}
 
 try{
  await page.goto(`${base}/machines`)
@@ -123,34 +142,59 @@ try{
  }
  expect(writes).toEqual([])
 
- // Opening the dialog from the scope reads and never writes. Only this scope's pins are shown.
+ const L={d1:await stamp(T.d1),d2:await stamp(T.d2),d3:await stamp(T.d3)}
+ const NEWEST=`${L.d3} · Newest`
+
+ // Opening the dialog from the scope reads and never writes. The click is made without moving focus, as Safari and Firefox
+ // on a Mac do, so the dialog must hand focus back to what was pressed and not to what happened to be focused.
+ // The first read of the pins fails: the failure shows and nothing else can be used.
+ pinsBroken=true
  const opener=scopeButton('workstation',SHARED)
- await opener.click()
+ await opener.evaluate(el=>el.click())
  const dialog=page.getByRole('dialog',{name:'Private skills on workstation'})
  await expect(dialog).toBeVisible()
+ const storageCallsAtOpen=await page.evaluate(()=>window.__storageCalls.length)
+ const library=dialog.getByLabel('Library skill',{exact:true}),revision=dialog.getByLabel('Revision',{exact:true}),save=dialog.getByRole('button',{name:'Save pin',exact:true})
+ await expect(dialog.getByRole('alert')).toContainText('The pins could not be read right now.')
+ await expect(save).toHaveCount(0)
+ // Trying again shows that it is working, and once it succeeds the old failure is gone and the dialog can be used.
+ pinsBroken=false;pinsHold=deferred()
+ await dialog.getByRole('button',{name:'Try again'}).click()
+ await expect(dialog.getByText('Loading pins and your library')).toBeVisible()
+ await expect(dialog.getByRole('alert')).toHaveCount(1)
+ pinsHold.resolve();pinsHold=null
  await expect(dialog.getByText('Nothing is pinned to this folder yet.')).toBeVisible()
- await expect(dialog).not.toContainText('11111111')
+ await expect(dialog.getByRole('alert')).toHaveCount(0)
+ await expect(dialog.getByRole('button',{name:'Try again'})).toHaveCount(0)
+ await expect(dialog).not.toContainText(L.d1)
  await expect(dialog).toContainText('installs nothing and writes nothing to the machine')
  expect(writes).toEqual([])
- const library=dialog.getByLabel('Library skill',{exact:true}),revision=dialog.getByLabel('Revision',{exact:true}),save=dialog.getByRole('button',{name:'Save pin',exact:true})
  await expect(save).toBeDisabled()
  await expect(library).toHaveValue('')
+ // Library skills are named by their name; only the two that share one carry the start of an id.
+ const names=await library.evaluate(s=>[...s.options].map(o=>o.textContent.trim()))
+ expect(names).toEqual(expect.arrayContaining(['demo','alpha','zeta',LONG_NAME,`twin · ${'7'.repeat(8)}`,`twin · ${'8'.repeat(8)}`]))
+ expect(names.filter(n=>/[0-9a-f]{8}/.test(n))).toEqual([`twin · ${'7'.repeat(8)}`,`twin · ${'8'.repeat(8)}`])
 
  // Create: the newest revision is preselected, older ones stay available, and the default mode adds and updates.
  await library.selectOption(B.demo)
  await expect(revision).toHaveValue(R.d3)
  expect(await revision.evaluate(s=>[...s.options].map(o=>o.value))).toEqual([R.d3,R.d2,R.d1])
+ // Revisions are named by when they were made, newest first and marked, with no id on show.
+ expect(await revision.evaluate(s=>[...s.options].map(o=>o.textContent.trim()))).toEqual([NEWEST,L.d2,L.d1])
  await expect(dialog.getByRole('radio',{name:'Add and update'})).toBeChecked()
  await expect(dialog.getByRole('radio',{name:/^Also remove files reet owns that a newer revision drops/})).not.toBeChecked()
  await save.click()
  await expect(dialog.getByText(/^Sorted\./)).toContainText('demo')
+ await expect(dialog.getByText(/^Sorted\./)).toContainText(L.d3)
  expect(writes).toEqual([{method:'POST',path:'/api/v2/skill-content-targets',body:post('')}])
  const pinsList=dialog.getByRole('list',{name:'Pinned in this folder'})
  await expect(pinsList.getByRole('listitem')).toHaveCount(1)
- await expect(pinsList).toContainText('33333333')
+ await expect(pinsList).toContainText(NEWEST)
  await expect(pinsList).toContainText('Add and update')
- await expect(pinsList).toContainText('Newest in the library')
- await expect(pinsList).not.toContainText('11111111')
+ await expect(pinsList).not.toContainText('Not the newest')
+ await expect(pinsList).not.toContainText(L.d1)
+ noIds(await pinsList.innerText(),await dialog.locator('.live').innerText())
 
  // Change: the pin's current version goes with the write, here for a rollback with another mode.
  const first=mine().version
@@ -160,12 +204,13 @@ try{
  await revision.selectOption(R.d2)
  await dialog.getByRole('radio',{name:/^Also remove files reet owns that a newer revision drops/}).check()
  await save.click()
- await expect(dialog.getByText(/^Sorted\./)).toContainText('22222222')
+ await expect(dialog.getByText(/^Sorted\./)).toContainText(L.d2)
  expect(writes).toHaveLength(2)
  expect(writes[1]).toEqual({method:'POST',path:'/api/v2/skill-content-targets',body:{...post(first),revisionId:R.d2,mode:'managed'}})
- await expect(pinsList).toContainText('22222222')
+ await expect(pinsList).toContainText(L.d2)
  await expect(pinsList).toContainText('Also remove files reet owns that a newer revision drops')
  await expect(pinsList).toContainText('Not the newest in the library')
+ noIds(await pinsList.innerText(),await dialog.locator('.live').innerText())
 
  // Conflict: someone else changed the pin. The write is refused, the pin is read again and the screen says what changed.
  const known=mine().version
@@ -174,15 +219,16 @@ try{
  await revision.selectOption(R.d3)
  await save.click()
  await expect(dialog.getByRole('alert')).toContainText('changed')
- await expect(dialog.getByRole('alert')).toContainText('11111111')
+ await expect(dialog.getByRole('alert')).toContainText(L.d1)
  await expect(dialog.getByRole('alert')).toContainText('Add and update')
  await expect(dialog.getByRole('alert')).toContainText('Nothing was saved')
- await expect(pinsList).toContainText('11111111')
+ noIds(await dialog.getByRole('alert').innerText())
+ await expect(pinsList).toContainText(L.d1)
  expect(writes).toHaveLength(3)
  expect(writes[2].body).toEqual({...post(known),revisionId:R.d3,mode:'managed'})
  // After reading what changed, saving again sends the version that is current now, not the one that was refused.
  await save.click()
- await expect(dialog.getByText(/^Sorted\./)).toContainText('33333333')
+ await expect(dialog.getByText(/^Sorted\./)).toContainText(L.d3)
  expect(writes).toHaveLength(4)
  expect(writes[3].body).toEqual({...post('ver-elsewhere'),mode:'managed'})
 
@@ -196,20 +242,21 @@ try{
  await expect(save).toBeDisabled()
  await expect(pinsList.getByRole('button',{name:'Remove pin for demo'})).toBeDisabled()
  await save.evaluate(el=>{el.disabled=false;el.click()})
- await page.waitForTimeout(250)
+ await afterRequests()
  expect(writes).toHaveLength(5)
  expect(writes[4].body).toEqual({...post(current),revisionId:R.d2,mode:'managed'})
  hold.resolve();hold=null
- await expect(dialog.getByText(/^Sorted\./)).toContainText('22222222')
+ await expect(dialog.getByText(/^Sorted\./)).toContainText(L.d2)
  expect(writes).toHaveLength(5)
 
  // Remove asks first, says it removes intent only, then sends the current version.
  await pinsList.getByRole('button',{name:'Remove pin for demo'}).click()
  const confirm=page.getByRole('dialog',{name:'Remove the pin for demo?'})
  await expect(confirm).toBeVisible()
- await expect(confirm).toContainText('intent')
- await expect(confirm).toContainText('ownership record')
- await expect(confirm).toContainText('stays in place')
+ await expect(confirm).toContainText('removes intent only')
+ await expect(confirm).toContainText('changes nothing on the machine')
+ await expect(confirm).toContainText('any ownership record for it stays as it is')
+ await expect(confirm).not.toContainText(/release/i)
  await confirm.getByRole('button',{name:'Cancel'}).click()
  await expect(confirm).toHaveCount(0)
  expect(writes).toHaveLength(5)
@@ -218,45 +265,105 @@ try{
  await confirm.getByRole('button',{name:'Remove pin',exact:true}).click()
  await expect(dialog.getByText('Nothing is pinned to this folder yet.')).toBeVisible()
  await expect(dialog.getByRole('status').filter({hasText:'intent only'})).toBeVisible()
+ await expect(dialog.getByRole('status').filter({hasText:'any ownership record for it stays as it is'})).toBeVisible()
  expect(writes).toHaveLength(6)
  expect(writes[5]).toEqual({method:'DELETE',path:`/api/v2/skill-content-targets/${removing.id}`,body:{expectedVersion:removing.version}})
  expect(pins.some(p=>p.id===removing.id)).toBe(false)
 
- // A removal that finds the pin changed is refused, and the pin stays.
- await library.selectOption(B.demo)
+ // A save whose reply never arrives: the server kept it, so the pins are read again quietly (the plain message stays), and
+ // the next save carries the version the server holds instead of claiming the skill was pinned elsewhere.
+ await library.selectOption('');await library.selectOption(B.demo)
+ await expect(revision).toHaveValue(R.d3)
+ dropNextSave=true
  await save.click()
- await expect(dialog.getByText(/^Sorted\./)).toBeVisible()
+ await expect(dialog.getByRole('alert')).toContainText("Couldn't reach reet")
  expect(writes).toHaveLength(7)
  expect(writes[6].body).toEqual(post(''))
+ await expect(pinsList.getByRole('listitem')).toHaveCount(1)
+ await expect(pinsList).toContainText(NEWEST)
+ await expect(save).toBeDisabled()
+ const landed=mine().version
+ await revision.selectOption(R.d2)
+ await save.click()
+ await expect(dialog.getByText(/^Sorted\./)).toContainText(L.d2)
+ await expect(dialog.getByRole('alert')).toHaveCount(0)
+ expect(writes).toHaveLength(8)
+ expect(writes[7].body).toEqual({...post(landed),revisionId:R.d2})
+
+ // A removal that finds the pin changed is refused, and the pin stays.
  const created=mine().version
- serverEdit({version:'ver-moved',revisionId:R.d2})
+ serverEdit({version:'ver-moved',revisionId:R.d1})
  await pinsList.getByRole('button',{name:'Remove pin for demo'}).click()
  await confirm.getByRole('button',{name:'Remove pin',exact:true}).click()
  await expect(dialog.getByRole('alert')).toContainText('changed elsewhere')
- await expect(dialog.getByRole('alert')).toContainText('22222222')
+ await expect(dialog.getByRole('alert')).toContainText(L.d1)
  await expect(dialog.getByRole('alert')).toContainText('Nothing was removed')
  await expect(pinsList.getByRole('listitem')).toHaveCount(1)
- expect(writes).toHaveLength(8)
- expect(writes[7].body).toEqual({expectedVersion:created})
+ expect(writes).toHaveLength(9)
+ expect(writes[8].body).toEqual({expectedVersion:created})
  expect(mine()).toBeTruthy()
 
- // Closing returns focus to the button that opened the dialog.
+ // A save that finds the library skill gone says so in plain words (the server only says "unavailable"), and sends once.
+ await pinsList.getByRole('button',{name:'Change pin for demo'}).click()
+ await revision.selectOption(R.d3)
+ failSave404=true
+ await save.click()
+ await expect(dialog.getByRole('alert')).toContainText("The library skill or revision you chose isn't there any more, so nothing was saved.")
+ expect(writes).toHaveLength(10)
+ failSave404=false
+ // A removal that finds the pin already gone says so, and the list catches up.
+ pins=pins.filter(p=>p!==mine())
+ await pinsList.getByRole('button',{name:'Remove pin for demo'}).click()
+ await confirm.getByRole('button',{name:'Remove pin',exact:true}).click()
+ await expect(dialog.getByRole('alert')).toContainText('already removed elsewhere, so there was nothing to remove')
+ await expect(dialog.getByText('Nothing is pinned to this folder yet.')).toBeVisible()
+ expect(writes).toHaveLength(11)
+
+ // Closing returns focus to the button that opened the dialog, though it was never focused by the click.
  await dialog.getByRole('button',{name:'Close private skills'}).click()
  await expect(dialog).toHaveCount(0)
  await expect(opener).toBeFocused()
 
  // From a reported skill row: the matching library skill sorts first and is chosen for you; the newest revision follows.
- await scopeRow('workstation',SHARED).getByRole('button',{name:'Pin a library revision for demo'}).click()
+ // A pin made through another connector is not "the current pin": saving it re-points it at this machine's running connector.
+ pins=[...pins,{id:'pin-old',environmentId:'scope-one',agentId:'agent-old',name:'demo',bundleId:B.demo,revisionId:R.d3,manifestDigest:'3'.repeat(64),mode:'additive',version:'ver-old',updatedAt:now,verification:'not_verified'}]
+ const rowPin=scopeRow('workstation',SHARED).getByRole('button',{name:'Pin a library revision for demo'})
+ await rowPin.evaluate(el=>el.click())
  await expect(dialog).toBeVisible()
- expect(await library.evaluate(s=>[...s.options].map(o=>o.value).filter(Boolean))).toEqual([B.demo,B.long,B.alpha,B.zeta])
+ expect(await library.evaluate(s=>[...s.options].map(o=>o.value).filter(Boolean))).toEqual([B.demo,B.long,B.alpha,B.twinA,B.twinB,B.zeta])
  await expect(library).toHaveValue(B.demo)
  await expect(revision).toHaveValue(R.d3)
  await expect(pinsList).toContainText('demo')
- expect(writes).toHaveLength(8)
+ await expect(pinsList).toContainText(NEWEST)
+ noIds(await pinsList.innerText())
+ await expect(dialog).toContainText('It was made through a different connector')
+ await expect(dialog).not.toContainText('This is the current pin')
+ await expect(save).toBeEnabled()
+ expect(writes).toHaveLength(11)
+ // When the scope stops qualifying while the dialog is open (the page's own refresh sees the connector paused), saving is
+ // switched off with the reason beside it, a click forced past that sends nothing, and removing a pin still works.
+ connectorsPaused=true
+ await expect(save).toBeDisabled({timeout:15000})
+ await expect(dialog).toContainText("Pins can't be saved right now. The connector on this machine is paused.")
+ await expect(pinsList.getByRole('button',{name:'Remove pin for demo'})).toBeEnabled()
+ await save.evaluate(el=>{el.disabled=false;el.click()})
+ await afterRequests()
+ expect(writes).toHaveLength(11)
+ connectorsPaused=false
+ await expect(dialog).not.toContainText("Pins can't be saved right now",{timeout:15000})
+ await expect(save).toBeEnabled()
+ await save.click()
+ await expect(dialog.getByText(/^Sorted\./)).toContainText(NEWEST)
+ expect(writes).toHaveLength(12)
+ expect(writes[11].body).toEqual(post('ver-old'))
+ await expect(dialog).toContainText('This is the current pin for demo.')
+ await expect(save).toBeDisabled()
  await dialog.getByRole('button',{name:'Done'}).click()
  await expect(dialog).toHaveCount(0)
- // A reported skill that matches nothing in the library chooses nothing.
- await scopeRow('workstation',SHARED).getByRole('button',{name:'Pin a library revision for other'}).click()
+ // A reported skill that matches nothing in the library chooses nothing. This one is opened without moving focus too, and
+ // is the one whose button hands focus back at the end (the scope lapsed above, which replaced the buttons of the row before it).
+ const rowOther=scopeRow('workstation',SHARED).getByRole('button',{name:'Pin a library revision for other'})
+ await rowOther.evaluate(el=>el.click())
  await expect(library).toHaveValue('')
  await expect(save).toBeDisabled()
 
@@ -267,8 +374,11 @@ try{
  await expect(save).toBeDisabled()
  await library.selectOption(B.demo)
  await expect(revision).toHaveValue(R.d3)
+ const answered=page.waitForResponse(r=>r.url().includes(`/skill-bundles/${B.alpha}/revisions`))
  alphaHold.resolve();alphaHold=null
- await page.waitForTimeout(250)
+ await answered
+ // Give the page the turn it needs to act on the answer it has just received.
+ await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>setTimeout(r,0))))
  await expect(revision).toHaveValue(R.d3)
  expect(await revision.evaluate(s=>[...s.options].map(o=>o.value))).toEqual([R.d3,R.d2,R.d1])
  // A failed revision read says so, cannot be saved, and can be tried again.
@@ -284,8 +394,9 @@ try{
  await expect(revision).toHaveValue(R.l1)
  await save.click()
  await expect(pinsList.getByRole('listitem')).toHaveCount(2)
- expect(writes).toHaveLength(9)
- expect(writes[8].body).toEqual({environmentId:'scope-one',agentId:'agent-0',bundleId:B.long,revisionId:R.l1,mode:'additive',expectedVersion:''})
+ expect(writes).toHaveLength(13)
+ expect(writes[12].body).toEqual({environmentId:'scope-one',agentId:'agent-0',bundleId:B.long,revisionId:R.l1,mode:'additive',expectedVersion:''})
+ noIds(await pinsList.innerText(),await dialog.locator('.live').innerText())
  await pinsList.getByRole('button',{name:'Change pin for demo'}).click()
 
  // Layout: no horizontal page scroll, the dialog stays inside the window with its header and footer in view, light and dark.
@@ -299,8 +410,12 @@ try{
  }
  await page.setViewportSize({width:1360,height:1000});await page.emulateMedia({colorScheme:'light'})
  await dialog.getByRole('button',{name:'Done'}).click()
+ await expect(dialog).toHaveCount(0)
+ await expect(rowOther).toBeFocused()
 
- // Pins, checks and ownership never touch browser storage, and nothing ever asked for revision bytes or any other read of a skill's files.
+ // Pins, checks and ownership never touch browser storage: not one write, from the moment the dialog first opened, and the
+ // stored state is what it was. Nothing ever asked for revision bytes or any other read of a skill's files.
+ expect((await page.evaluate(()=>window.__storageCalls)).slice(storageCallsAtOpen)).toEqual([])
  expect(await storage()).toBe(before)
  expect(requests.filter(r=>/\/revisions\/[^/]/.test(r.path))).toEqual([])
  expect(requests.filter(r=>r.method==='GET'&&/skill-content-(previews|receipts)/.test(r.path))).toEqual([])
@@ -320,5 +435,5 @@ try{
  await expect(page.getByRole('button',{name:/^Pin a library revision/})).toHaveCount(0)
  expect(unmocked).toEqual([])
  expect(errors).toEqual([])
- console.log('Skill content UI passed: entry points and reasons, read-only open, create/change/remove with versions, conflicts, busy guard, newest revision, stale-response fencing, focus return, storage, responsive layouts and viewer/legacy isolation.')
+ console.log('Skill content UI passed: entry points and reasons, read-only open and retry, create/change/remove with versions, conflicts, lost replies and 404s, busy guard, connector lapse, newest revision, labels not ids, stale-response fencing, focus return, storage writes, responsive layouts and viewer/legacy isolation.')
 }finally{await browser.close()}

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ContentInventory } from './api'
-  let { content, onimport, onpin }: { content?: ContentInventory; onimport?: (name: string) => void; onpin?: (name: string) => void } = $props()
+  let { content, onimport, onpin }: { content?: ContentInventory; onimport?: (name: string) => void; onpin?: (name: string, opener: HTMLElement) => void } = $props()
   const labels: Record<string, string> = { observed: 'Content observed', incomplete: 'Content incomplete', stale: 'Content report out of date', paused: 'Content reporting paused' }
 </script>
 {#if !content || content.state === 'not_reported'}
@@ -17,7 +17,7 @@
           {#if onimport || onpin}
             <span class="skill-actions">
               {#if onimport}<button type="button" onclick={() => onimport?.(skill.name)} aria-label={`Import ${skill.name} privately`}>Import privately</button>{/if}
-              {#if onpin}<button type="button" onclick={() => onpin?.(skill.name)} aria-label={`Pin a library revision for ${skill.name}`}>Pin a library revision</button>{/if}
+              {#if onpin}<button type="button" onclick={(event) => onpin?.(skill.name, event.currentTarget)} aria-label={`Pin a library revision for ${skill.name}`}>Pin a library revision</button>{/if}
             </span>
           {/if}
           {#if skill.issues?.length}<span>{skill.issues.join(', ').replaceAll('_', ' ')}</span>{/if}

@@ -46,7 +46,7 @@
   let confirm = $state<Pending | null>(null)
   let busy = $state('')
   let importSource = $state<{ environmentId: string; name: string } | null>(null)
-  let contentSource = $state<{ environmentId: string; name?: string } | null>(null)
+  let contentSource = $state<{ environmentId: string; name?: string; opener: HTMLElement } | null>(null)
   let health=$state<HealthResponse>({serverNow:Date.now(),machines:[]}), healthElapsed=$state(0),healthReceived=performance.now()
   onMount(()=>{if(!monitorAccess)return;const abort=new AbortController();let busy=false;async function refreshHealth(){if(busy||document.visibilityState!=='visible')return;busy=true;try{const next=await machineHealth(abort.signal);if(!abort.signal.aborted){health=next;healthReceived=performance.now();healthElapsed=0}}catch{/* inventory remains usable when health is unavailable */}finally{busy=false}}void refreshHealth();const wake=()=>void refreshHealth();document.addEventListener('visibilitychange',wake);window.addEventListener('online',wake);const timer=setInterval(wake,15000),clock=setInterval(()=>healthElapsed=performance.now()-healthReceived,1000);return()=>{abort.abort();clearInterval(timer);clearInterval(clock);document.removeEventListener('visibilitychange',wake);window.removeEventListener('online',wake)}})
 
@@ -58,8 +58,8 @@
   function privateSkills(group: SyncEnvironment) {
     return canWrite && accounts ? scopeEligibility(group, snapshot.agents, { accounts, canWrite, now: Date.now() }) : null
   }
-  function pinOpener(group: SyncEnvironment): ((name: string) => void) | undefined {
-    return privateSkills(group)?.ok ? (name) => { contentSource = { environmentId: group.id, name } } : undefined
+  function pinOpener(group: SyncEnvironment): ((name: string, opener: HTMLElement) => void) | undefined {
+    return privateSkills(group)?.ok ? (name, opener) => { contentSource = { environmentId: group.id, name, opener } } : undefined
   }
   function agentFor(machine: Machine): SyncAgent | undefined {
     return snapshot.agents?.find((agent) => agent.host.toLowerCase() === machine.host.toLowerCase())
@@ -176,7 +176,7 @@
   {@const entry = privateSkills(group)}
   {#if entry}
     <div class="private-skills">
-      <button type="button" class="btn" disabled={!entry.ok} aria-label={`Private skills for ${groupLabel(group)}`} aria-describedby={entry.ok ? undefined : reasonId} onclick={() => (contentSource = { environmentId: group.id })}>Private skills</button>
+      <button type="button" class="btn" disabled={!entry.ok} aria-label={`Private skills for ${groupLabel(group)}`} aria-describedby={entry.ok ? undefined : reasonId} onclick={(event) => (contentSource = { environmentId: group.id, opener: event.currentTarget })}>Private skills</button>
       {#if !entry.ok}<small id={reasonId}>{entry.reason}</small>{/if}
     </div>
   {/if}
@@ -305,7 +305,7 @@
 
 {#if importSource}<MachineSkillImports {snapshot} source={importSource} onclose={() => importSource = null} />{/if}
 
-{#if contentSource}<MachineSkillContent {snapshot} source={contentSource} {canWrite} {accounts} onclose={() => contentSource = null} />{/if}
+{#if contentSource}<MachineSkillContent {snapshot} source={contentSource} opener={contentSource.opener} {canWrite} {accounts} onclose={() => contentSource = null} />{/if}
 
 {#if commandsFor}
   <MachineCommands

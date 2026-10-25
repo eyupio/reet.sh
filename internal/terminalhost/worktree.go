@@ -68,15 +68,16 @@ const (
 	gitTimeout     = 60 * time.Second
 	gitOutputLimit = 4 << 10
 	// gitListLimit bounds the read-only listings that grow with the
-	// repository (worktree list, status, ls-files); output this long may have
+	// repository (worktree list, status, ls-files, for-each-ref); output this long may have
 	// been cut short and is never trusted as complete.
 	gitListLimit = 4 << 20
 )
 
-// outputLimit is gitListLimit for the read-only listings and gitOutputLimit
+// outputLimit is gitListLimit for the read-only listings (including every
+// for-each-ref, which only reads) and gitOutputLimit
 // for every other git call.
 func outputLimit(args []string) int {
-	if len(args) > 0 && (args[0] == "status" || args[0] == "ls-files" || len(args) > 1 && args[0] == "worktree" && args[1] == "list") {
+	if len(args) > 0 && (args[0] == "status" || args[0] == "ls-files" || args[0] == "for-each-ref" || len(args) > 1 && args[0] == "worktree" && args[1] == "list") {
 		return gitListLimit
 	}
 	return gitOutputLimit
@@ -573,52 +574,133 @@ func worktreeState(ctx context.Context, w worktreeAt, git GitRunner) (terminalpr
 	if state.Unpushed, err = unpushedCount(ctx, w, git); err != nil {
 		return terminalproto.WorktreeState{}, err
 	}
-	if state.Unreferenced, err = gitCount(ctx, git, w.path, "rev-list", "--count", "HEAD", "--not", "--branches", "--remotes", "--tags"); err != nil {
+	tips, stash, complete, err := worktreeRefTips(ctx, git, w.path)
+	if err != nil {
+		return terminalproto.WorktreeState{}, err
+	}
+	state.Incomplete = !complete
+	args := append(append([]string{"rev-list", "--count", "HEAD"}, tips...), "--not", "--branches", "--remotes", "--tags")
+	args = append(args, stash...)
+	if state.Unreferenced, err = gitCount(ctx, git, w.path, args...); err != nil {
 		return terminalproto.WorktreeState{}, err
 	}
 	out, err = git(ctx, w.path, "ls-files", "-v", "-z")
 	if err != nil {
 		return terminalproto.WorktreeState{}, gitFailed(out, err)
 	}
-	state.Hidden = hiddenEntries(out)
+	state.Hidden = hiddenEntries(out, w.path)
 	if len(out) >= gitListLimit {
 		state.Incomplete = true
 	}
-	nested, incomplete := scanWorktree(w.path, maxScanEntries, maxScanDepth)
+	nested, incomplete := scanWorktree(ctx, w.path, scanEntryLimit, scanDepthLimit)
 	state.Nested = nested
 	state.Incomplete = state.Incomplete || incomplete
 	return state, nil
 }
 
-// hiddenEntries counts `ls-files -v -z` entries ("T path\0") whose tag is
-// "S" (skip-worktree, including everything outside a sparse checkout) or a
-// lower-case letter (assume-unchanged): git does not look at these files for
-// edits, so neither status nor `worktree remove` would see one.
-func hiddenEntries(out []byte) int {
+// hiddenEntries counts `ls-files -v -z` entries ("T path\0") that git does
+// not look at for edits, so neither status nor `worktree remove` would see
+// one: a lower-case tag (assume-unchanged) always, and "S" (skip-worktree)
+// when the file is on disk in the worktree. A skip-worktree file that is not
+// there (the usual case outside a sparse checkout) holds no edit.
+func hiddenEntries(out []byte, worktree string) int {
 	n := 0
 	for _, entry := range strings.Split(string(out), "\x00") {
-		if len(entry) >= 3 && entry[1] == ' ' && (entry[0] == 'S' || entry[0] >= 'a' && entry[0] <= 'z') {
+		if len(entry) < 3 || entry[1] != ' ' {
+			continue
+		}
+		switch {
+		case entry[0] >= 'a' && entry[0] <= 'z':
 			n++
+		case entry[0] == 'S':
+			if _, err := os.Lstat(filepath.Join(worktree, filepath.FromSlash(entry[2:]))); err == nil {
+				n++
+			}
 		}
 	}
 	return n
 }
 
-const (
-	maxScanEntries = 200_000
-	maxScanDepth   = 256
+// maxWorktreeRefTips bounds the per-worktree refs read as extra tips.
+const maxWorktreeRefTips = 1000
+
+// worktreeRefTips reads `for-each-ref --format=%(objectname) %(objecttype)
+// %(refname) refs/worktree refs/bisect refs/stash` in the worktree. Commits
+// and tags held by refs/worktree/* and refs/bisect/* (per-worktree refs,
+// deleted with it) are returned as tips whose commits count as unreferenced;
+// refs/stash (shared, it survives the remove) is returned as stash, a commit
+// it holds is protected. complete is false when the listing may be cut short
+// or there are more than maxWorktreeRefTips tips.
+func worktreeRefTips(ctx context.Context, git GitRunner, worktree string) (tips, stash []string, complete bool, err error) {
+	out, err := git(ctx, worktree, "for-each-ref", "--format=%(objectname) %(objecttype) %(refname)", "refs/worktree", "refs/bisect", "refs/stash")
+	if err != nil {
+		return nil, nil, false, gitFailed(out, err)
+	}
+	if len(out) >= gitListLimit {
+		return nil, nil, false, nil
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(string(out), "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.SplitN(line, " ", 3)
+		if len(fields) != 3 || !validHeadLine("HEAD "+fields[0]) {
+			return nil, nil, false, refuseWorktree(terminalproto.WorktreeGitFailed, "git listed refs unreadably")
+		}
+		if fields[1] != "commit" && fields[1] != "tag" {
+			continue
+		}
+		if fields[2] == "refs/stash" {
+			stash = append(stash, fields[0])
+		} else {
+			tips = append(tips, fields[0])
+		}
+	}
+	if len(tips) > maxWorktreeRefTips {
+		return nil, nil, false, nil
+	}
+	return tips, stash, true, nil
+}
+
+// The scan's caps; variables only so tests can lower them.
+var (
+	scanEntryLimit = 200_000
+	scanDepthLimit = 256
 )
 
-// scanWorktree walks the worktree without following symlinks and reports a
-// `.git` entry (file, folder or symlink) anywhere below its top level: another
-// repository or worktree, possibly ignored, that a remove would delete with
-// its own uncommitted work and commits. Only the worktree's own top-level
-// `.git` file is skipped. More than maxEntries entries, a path deeper than
-// maxDepth, or a folder that cannot be read makes the scan incomplete.
-func scanWorktree(path string, maxEntries, maxDepth int) (nested, incomplete bool) {
+// gitLikeName reports a name git or a person would use for a git directory:
+// ".git" in any letter case (a case-insensitive file system finds ".Git"
+// for ".git") or any name ending in ".git" (a bare repository, "keep.git").
+func gitLikeName(name string) bool {
+	return len(name) >= 4 && strings.EqualFold(name[len(name)-4:], ".git")
+}
+
+// hasGitDirLayout reports a folder laid out like a git directory: a HEAD
+// entry and objects and refs folders, as a bare repository of any name has.
+func hasGitDirLayout(dir string) bool {
+	if _, err := os.Lstat(filepath.Join(dir, "HEAD")); err != nil {
+		return false
+	}
+	for _, sub := range []string{"objects", "refs"} {
+		if info, err := os.Lstat(filepath.Join(dir, sub)); err != nil || !info.IsDir() {
+			return false
+		}
+	}
+	return true
+}
+
+// scanWorktree walks the worktree without following symlinks and reports,
+// anywhere below its top level, another repository or worktree (possibly
+// ignored) that a remove would delete with its own uncommitted work and
+// commits: an entry whose name is gitLikeName (file, folder or symlink), or a
+// folder with a git directory's layout (hasGitDirLayout). Only the
+// worktree's own top-level `.git` file is skipped. More than maxEntries
+// entries, a path deeper than maxDepth, a folder that cannot be read, or the
+// end of ctx (the operation's budget) makes the scan incomplete.
+func scanWorktree(ctx context.Context, path string, maxEntries, maxDepth int) (nested, incomplete bool) {
 	entries := 0
 	_ = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
+		if err != nil || ctx.Err() != nil {
 			incomplete = true
 			return fs.SkipAll
 		}
@@ -631,10 +713,10 @@ func scanWorktree(path string, maxEntries, maxDepth int) (nested, incomplete boo
 			incomplete = true
 			return fs.SkipAll
 		}
-		if d.Name() == ".git" {
-			if rel == ".git" {
-				return nil
-			}
+		if rel == ".git" {
+			return nil // the worktree's own .git file (checked by locateWorktree)
+		}
+		if gitLikeName(d.Name()) || d.IsDir() && hasGitDirLayout(p) {
 			nested = true
 			return fs.SkipAll
 		}

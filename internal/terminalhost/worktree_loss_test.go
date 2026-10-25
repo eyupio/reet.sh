@@ -134,29 +134,68 @@ func TestWorktreeRemoveRefusesHiddenEdits(t *testing.T) {
 	}
 }
 
-func TestWorktreeRemoveRefusesASparseCheckout(t *testing.T) {
-	home := worktreeHome(t)
-	repo := newRepo(t, home, "code/site")
-	if err := os.MkdirAll(filepath.Join(repo, "kept"), 0o700); err != nil {
-		t.Fatal(err)
+// A file outside a sparse checkout that is simply not there is not a hidden
+// edit, and a sparse worktree with nothing else is removed; an edit to that
+// file on disk is never lost.
+func TestWorktreeSparseCheckout(t *testing.T) {
+	sparse := func(t *testing.T) (string, string, Worktree) {
+		home := worktreeHome(t)
+		repo := newRepo(t, home, "code/site")
+		if err := os.MkdirAll(filepath.Join(repo, "kept"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(repo, "elsewhere"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		commitIn(t, repo, "kept/a")
+		commitIn(t, repo, "elsewhere/b") // cone mode always keeps top-level files
+		w := madeWorktree(t, home, repo, testRun)
+		testGit(t, w.Path, "sparse-checkout", "set", "kept")
+		if exists(filepath.Join(w.Path, "elsewhere", "b")) {
+			t.Skip("this git did not apply the sparse checkout")
+		}
+		if out := testGit(t, w.Path, "ls-files", "-v", "elsewhere/b"); !strings.HasPrefix(out, "S ") {
+			t.Fatalf("the out-of-cone file must be skip-worktree: %q", out)
+		}
+		return home, repo, w
 	}
-	if err := os.MkdirAll(filepath.Join(repo, "elsewhere"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	commitIn(t, repo, "kept/a")
-	commitIn(t, repo, "elsewhere/b") // cone mode always keeps top-level files
-	w := madeWorktree(t, home, repo, testRun)
-	testGit(t, w.Path, "sparse-checkout", "set", "kept")
-	if exists(filepath.Join(w.Path, "elsewhere", "b")) {
-		t.Skip("this git did not apply the sparse checkout")
-	}
-	s, err := removeAsShown(t, home)
-	if s.Hidden == 0 {
-		t.Fatalf("files outside the sparse checkout must be reported: %+v", s)
-	}
-	refusedWith(t, err, terminalproto.WorktreeHiddenChanges)
-	if !exists(filepath.Join(w.Path, "kept", "a")) {
-		t.Fatal("removed")
+	t.Run("absent out-of-cone file", func(t *testing.T) {
+		home, _, w := sparse(t)
+		s, err := removeAsShown(t, home)
+		if err != nil || s.Hidden != 0 || s.Changed != 0 || exists(w.Path) {
+			t.Fatalf("a sparse worktree with nothing else must be removed: %+v %v", s, err)
+		}
+	})
+	t.Run("edited out-of-cone file on disk", func(t *testing.T) {
+		home, _, w := sparse(t)
+		if err := os.MkdirAll(filepath.Join(w.Path, "elsewhere"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(w.Path, "elsewhere", "b"), "edited while skipped\n")
+		// git either keeps skipping it (Hidden) or, as git 2.43 does, clears the
+		// bit for a present file so status sees it (Changed); never neither.
+		s, err := removeAsShown(t, home)
+		if s.Hidden+s.Changed == 0 {
+			t.Fatalf("the edit must be reported: %+v", s)
+		}
+		var we *WorktreeError
+		if !errors.As(err, &we) || we.Reason != terminalproto.WorktreeHiddenChanges && we.Reason != terminalproto.WorktreeHasChanges {
+			t.Fatal(err)
+		}
+		if data, _ := os.ReadFile(filepath.Join(w.Path, "elsewhere", "b")); string(data) != "edited while skipped\n" {
+			t.Fatal("the edit was lost")
+		}
+	})
+}
+
+// hiddenEntries: assume-unchanged always counts; skip-worktree only when the
+// file is on disk.
+func TestHiddenEntries(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "present"), "x")
+	out := []byte("S present\x00S absent\x00h assumed\x00H normal\x00s present\x00")
+	if n := hiddenEntries(out, dir); n != 3 {
+		t.Fatal(n)
 	}
 }
 
@@ -166,10 +205,10 @@ func TestScanWorktreeBounds(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		writeFile(t, filepath.Join(dir, fmt.Sprintf("f%02d", i)), "x")
 	}
-	if nested, incomplete := scanWorktree(dir, 100, 10); nested || incomplete {
+	if nested, incomplete := scanWorktree(context.Background(), dir, 100, 10); nested || incomplete {
 		t.Fatal("plain worktree", nested, incomplete)
 	}
-	if _, incomplete := scanWorktree(dir, 10, 10); !incomplete {
+	if _, incomplete := scanWorktree(context.Background(), dir, 10, 10); !incomplete {
 		t.Fatal("past the entry cap the scan must say it is incomplete")
 	}
 	deep := dir
@@ -179,16 +218,16 @@ func TestScanWorktreeBounds(t *testing.T) {
 	if err := os.MkdirAll(deep, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, incomplete := scanWorktree(dir, 100, 3); !incomplete {
+	if _, incomplete := scanWorktree(context.Background(), dir, 100, 3); !incomplete {
 		t.Fatal("past the depth cap the scan must say it is incomplete")
 	}
-	if nested, incomplete := scanWorktree(dir, 100, 10); nested || incomplete {
+	if nested, incomplete := scanWorktree(context.Background(), dir, 100, 10); nested || incomplete {
 		t.Fatal("within the caps", nested, incomplete)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "a", "b", ".git"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if nested, _ := scanWorktree(dir, 100, 10); !nested {
+	if nested, _ := scanWorktree(context.Background(), dir, 100, 10); !nested {
 		t.Fatal("a nested .git folder")
 	}
 	if err := os.RemoveAll(filepath.Join(dir, "a")); err != nil {
@@ -197,13 +236,13 @@ func TestScanWorktreeBounds(t *testing.T) {
 	if err := os.Symlink("/nowhere", filepath.Join(dir, "d", ".git")); err != nil {
 		t.Fatal(err)
 	}
-	if nested, _ := scanWorktree(dir, 100, 10); !nested {
+	if nested, _ := scanWorktree(context.Background(), dir, 100, 10); !nested {
 		t.Fatal("a nested .git symlink")
 	}
 	if err := os.Remove(filepath.Join(dir, "d", ".git")); err != nil {
 		t.Fatal(err)
 	}
-	if _, incomplete := scanWorktree(filepath.Join(dir, "missing"), 100, 10); !incomplete {
+	if _, incomplete := scanWorktree(context.Background(), filepath.Join(dir, "missing"), 100, 10); !incomplete {
 		t.Fatal("a folder that cannot be read makes the scan incomplete")
 	}
 	if os.Getuid() != 0 {
@@ -215,7 +254,7 @@ func TestScanWorktreeBounds(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
-		if _, incomplete := scanWorktree(dir, 100, 10); !incomplete {
+		if _, incomplete := scanWorktree(context.Background(), dir, 100, 10); !incomplete {
 			t.Fatal("an unreadable folder makes the scan incomplete")
 		}
 	}
@@ -319,7 +358,7 @@ func TestWorktreeErrorWordingFitsEveryOperation(t *testing.T) {
 }
 
 func TestOnlyReadOnlyListingsGetTheLargerCap(t *testing.T) {
-	for _, args := range [][]string{{"worktree", "list", "--porcelain"}, {"status", "--porcelain=v1", "-z"}, {"ls-files", "-v", "-z"}} {
+	for _, args := range [][]string{{"worktree", "list", "--porcelain"}, {"status", "--porcelain=v1", "-z"}, {"ls-files", "-v", "-z"}, {"for-each-ref", "refs/worktree"}} {
 		if outputLimit(args) != gitListLimit {
 			t.Fatal(args)
 		}

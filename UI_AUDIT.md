@@ -10,6 +10,40 @@
 
 ---
 
+## Fix status
+
+Updated 2026-10-25 after the fixes merged. Each fix was written test-first, with a browser test that failed on the old code, and is run in the `terminal-browser` workflow. The findings below are left as written; this table says what became of them.
+
+| Finding | Status | Where |
+| --- | --- | --- |
+| C1 phone menu off-screen | Fixed | #197 |
+| C2 setup lands on the shelf; no 404 | Fixed | #197 |
+| C3 landing leads with the wrong action | Fixed | #200 |
+| C4 terminals off by default, not said | Fixed | #203 |
+| C5 three first-machine flows | Fixed | #205 |
+| H1 phone auth: typo, form below the fold | Fixed | #197 |
+| H2 autofocus on touch | **Mostly fixed.** The forms only take focus with a fine pointer on a wide screen. The double ring on a focused input (border plus outline, `app.css:31,34`) is unchanged. | #197 |
+| H3 first-run Control has three filled buttons | Fixed | #203 |
+| H4 Skills and Setups hidden in More; two-row header | Fixed | #202 |
+| H5 landing hero is a small-text mock-up | **Partly.** Text is at least 11px and wraps. It is still an illustration, not a real screenshot. | #200 |
+| H6 "See what's next" opens the handoff log | Fixed (opens `docs/roadmap.md`) | #199 |
+| H7 first Skills page competes with itself | **Mostly fixed.** Sync waits for a skill, "Create a skill" is secondary and hosting explains itself first. Shelf tools and the bookmarklet disclosure still show on an empty shelf. | #205 |
+| H8 Setups and Sync first screens | Fixed. Sync asks for a machine first. Setups keeps its CLI steps (setups are made from the CLI) and folds the storage note. | #205 |
+| H9 phone filters hidden; prefix field 28px | Fixed | #199 |
+| H10 skill card hierarchy and "Start using" | Fixed (label in #199, hierarchy in #205) | #199, #205 |
+| H11 dark theme warning colour | Fixed | #197 |
+| N1 terminology drift | Fixed | #202 |
+| N2 public footer links | Fixed. Docs, GitHub and AGPL-3.0; no Support link. | #199 |
+| N3 confirm-password field | Open | |
+| N4 success banner and raw error text | Open | |
+| N5 Notifications settings form | Open | |
+| N6 system serif font | Open (needs a font to self-host) | |
+| N7 theme toggle | Fixed | #205 |
+| N8 bare shelf loading text | Open | |
+| N9 small touch targets | **Partly.** The Show button fills its field. Machine-card buttons are still 34px high on touch. | #199 |
+
+---
+
 ## Context: there is no trial, paywall or upsell in this product
 
 I searched `web/src`, `internal`, `cmd` and `mcp/src` for pricing, billing, subscription, trial, paywall, premium, upgrade prompts and plan limits. The only hit is an unrelated "wait for install/upgrade to finish" message in `internal/lifecycle/doctor.go`. reet.sh is an AGPL, self-hosted app where every feature is free.
@@ -229,6 +263,8 @@ High-impact findings create significant friction or lost trust.
 
 # 4. Status of the 2026-10-23 audit
 
+This table is as the re-audit found it, with the rows updated where they pointed at a finding that has since been fixed. *Fix status* above is the current position for the new findings.
+
 | Old finding | Status now |
 | --- | --- |
 | C1 no landing page | **Fixed.** `Welcome.svelte` exists. Its calls to action are the new C3. |
@@ -237,28 +273,28 @@ High-impact findings create significant friction or lost trust.
 | C4 add input clipped on mobile | **Fixed.** The form stacks; the input is 343px at 375. |
 | C5 empty shelf has no examples | **Fixed.** Three suggestions with one-click Add. |
 | C6 bookmarklets buried | **Partly.** Now a first-run disclosure, still collapsed. |
-| C7 vague auth copy | **Partly.** Copy rewritten for the fleet product. The mobile `<br>` bug remains (H1). |
+| C7 vague auth copy | **Fixed.** Copy rewritten for the fleet product; the mobile `<br>` bug went in #197 (H1). |
 | C8 anchors styled as `.btn` in default blue | **Fixed.** `.btn` sets `color: var(--ink)`. |
 | C9 add button has no busy or validation state | **Fixed.** Disabled when empty, "Adding…" label, inline `role="alert"` error (verified). |
 | C10 "Scan this machine" mislabelled | **Fixed in label** ("Connect this machine", guided steps); the flow itself is now C5. |
 | H1 navigation front-loads advanced nouns | **Superseded** by H4. |
 | H2 "Filters & lists" noisy on first run | **Fixed.** Only shown when there is something to filter. |
 | H3 "Shelf tools" always shown | **Still open.** Collapsed, but visible on the empty shelf (H7). |
-| H4 three equal CTAs in the empty state | **Partly.** One filled primary now, but more controls overall (H7). |
-| H5 autofocus on mobile | **Still open** (H2). |
+| H4 three equal CTAs in the empty state | **Mostly fixed** in #205 (H7). The filled buttons are the add form's and "Add your first skill"; Shelf tools still show on an empty shelf. |
+| H5 autofocus on mobile | **Fixed** in #197 (H2). |
 | H6 raw add-form error | **Fixed.** |
-| H7 five equal-weight card actions | **Still open** (H10). |
-| H8 mobile filter row hidden | **Still open** (H9). |
+| H7 five equal-weight card actions | **Fixed** in #199 and #205 (H10). |
+| H8 mobile filter row hidden | **Fixed** in #199 (H9). |
 | H9 search zeroes tab counts | **Still open (source).** `App.svelte:862` counts from the filtered array. Not re-tested in the browser. |
 | H10 H1 is a slogan | **Fixed.** "Your central skill library." |
-| H11 "Start using" implies install | **Still open** (H10). |
+| H11 "Start using" implies install | **Fixed** in #199 (H10): the button is "Mark in use". |
 | N1 serif font | **Still open** (N6). |
 | N2 pluralisation | **Partly.** Filter summary fixed; other screens not re-checked. |
 | N3 skeletons | **Partly.** Control has one; the shelf does not (N8). |
 | N4 success banner | **Still open** (N4). |
 | N5 mobile auth logo and tagline | **Partly.** The tagline is gone in accounts mode; the logo size is unchanged. |
 | N6 duplicate counts | **Still open.** With one skill, the "All 1" tab, the "1 skill" line, the "On the shelf 1" tab and its section heading all show the same count. |
-| N7 theme toggle | **Still open** (N7). |
+| N7 theme toggle | **Fixed** in #205 (N7). |
 | N8 confirm password | **Still open** (N3). |
 | N9 double focus ring | **Still open** (H2). |
 | N10 Yorkshire voice in errors | **Mostly fine.** Empty-search copy now pairs "Nowt matches just yet." with a literal sentence. Sign-in errors are plain. |

@@ -44,9 +44,11 @@
  const host = $derived(checked.ok ? checked.name : '')
  // What the server saves the typed name under: a saved alias belongs to an existing machine. The commands keep the typed name.
  const canonical = $derived(host ? canonicalHost(host, machines) : '')
+ // The baseline is kept for this key: a refresh that leaves it unchanged never recomputes it; a saved alias appearing does, once.
+ const key = $derived(host ? host + '\0' + canonical : '')
 
- // What was already reporting under the name, captured from loaded data when the validated name changes and not again.
- let captured = $state<{ host: string; baseline: JoinBaseline } | undefined>()
+ // What was already reporting under the name, captured from loaded data when the validated name (or what it is saved under) changes and not again.
+ let captured = $state<{ key: string; baseline: JoinBaseline } | undefined>()
  // Bumped after each read, so the state is asked again against the clock as it is then.
  let clock = $state(0)
  let capped = $state(false), signedOut = $state(false)
@@ -58,7 +60,7 @@
  const loaded = $derived(snapshot !== undefined)
  const view = $derived.by(() => {
   void clock
-  if (!host || !snapshot || captured?.host !== host) return undefined
+  if (!host || !snapshot || captured?.key !== key) return undefined
   // A fresh clock reading every time the state is asked, never a value held from earlier.
   return joinState({ name: host, machines, agents: snapshot.agents ?? [], baseline: captured.baseline, now: Date.now() })
  })
@@ -72,16 +74,16 @@
  const waitingOut = $derived(capped && !signedOut && !canUse)
  // Held back until the machines have been read and what the name already had is decided, so a block run too early cannot
  // be mistaken for the machine that was already there.
- const decided = $derived(!!host && loaded && captured?.host === host)
+ const decided = $derived(!!host && loaded && captured?.key === key)
  const commands = $derived(decided ? joinCommands(site, host, channel) : '')
  const shown = $derived(touched && !checked.ok ? checked.reason : '')
 
  $effect.pre(() => {
-  const h = host, snap = snapshot
+  const h = host, k = key, snap = snapshot
   untrack(() => {
    if (!h) { captured = undefined; return }
-   if (!snap || captured?.host === h) return
-   captured = { host: h, baseline: joinBaseline(h, snap.agents ?? [], machines) }
+   if (!snap || captured?.key === k) return
+   captured = { key: k, baseline: joinBaseline(h, snap.agents ?? [], machines) }
    // A new name is a new wait.
    waitingSince = Date.now(); failures = 0
    if (capped) { capped = false; restart() }

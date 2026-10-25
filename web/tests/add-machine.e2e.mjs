@@ -343,6 +343,22 @@ try{
   aliasesOf={};scopes=scopes.filter(s=>s.host!=='lathe');agents=agents.filter(a=>a.id!=='agent-lathe')
  }
 
+ // An alias saved while the dialog is open is picked up once: the wait moves to the canonical name.
+ {
+  aliasesOf={};scopes.push(scope('press'))
+  await page.reload()
+  await expect(card('press')).toBeVisible()
+  const d=await open(),pp=parts(d)
+  await pp.name.fill('press-old')
+  await expect(pp.status).toContainText('Waiting for it')
+  await expect(pp.status).not.toContainText('will appear as')
+  aliasesOf={press:['press-old']}
+  await expect(pp.status).toContainText('The machine will appear as press.')
+  await commandsAre(pp,'press-old')
+  await closeDialog(d)
+  aliasesOf={};scopes=scopes.filter(s=>s.host!=='press')
+ }
+
  // Closing stops everything, returns focus to what opened it, and a tab left hidden does not poll.
  await page.reload()
  await expect(card('workstation')).toBeVisible()

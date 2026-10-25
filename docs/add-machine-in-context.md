@@ -24,10 +24,13 @@ from the Machines page only; the Private skills entry and landing are a later sl
 The dialog is one screen with a fixed header, a scrolling body and a footer.
 
 1. **Name it.** One field, *Machine name*, with the names already known offered as hints. The name is
-   trimmed. It is refused when empty, when longer than 200 characters, or when it holds a control
+   trimmed. It is refused when empty, when longer than 200 bytes (accented letters and emoji take more than one), or when it holds a control
    character or a text-direction override (a pasted newline or tab, for instance), each with its own
    plain reason. A reason shows only after the field has been touched. The last name typed is
    offered again if the dialog is closed without using it and reopened on the same page, held in memory only.
+   A name saved as an alias after a rename or merge is resolved to its saved machine. Known gap: an alias
+   whose machine has no reports left (after Forget) is not visible to the page, so the dialog keeps waiting
+   for the typed name until the fifteen-minute cap.
 2. **Give it a key.** The page's existing machine-token creator, with the same words: the token is
    shown once, is never stored in the browser, and is pasted when the CLI asks for it. Where the
    instance has no token creator, the same plain sentence as the step-by-step setup is shown. A failed

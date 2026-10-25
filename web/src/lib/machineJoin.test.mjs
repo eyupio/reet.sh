@@ -55,6 +55,8 @@ test('the name limit counts UTF-8 bytes, as the server does', () => {
   assert.deepEqual(validateMachineName('a'.repeat(201)), { ok: false, reason: tooLong })
   assert.equal(validateMachineName('é'.repeat(100)).ok, true) // 200 bytes
   assert.deepEqual(validateMachineName('é'.repeat(101)), { ok: false, reason: tooLong })
+  assert.equal(validateMachineName('研'.repeat(66)).ok, true) // 198 bytes
+  assert.deepEqual(validateMachineName('研'.repeat(67)), { ok: false, reason: tooLong }) // 201 bytes
   // Trimming happens before counting.
   assert.equal(validateMachineName(`  ${'a'.repeat(200)}  `).ok, true)
 })

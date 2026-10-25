@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { applyTheme, saveProfile } from './api'
+
   let { name = '', email = '', admin = false, accounts = true, active = false, unread = 0, onsignout }: {
     name?: string
     email?: string
@@ -28,6 +30,23 @@
     event.preventDefault()
   }
 
+  // Light, dark or follow the device. The page's current theme is read when the menu opens, because the saved one loads after sign-in.
+  type Theme = 'system' | 'light' | 'dark'
+  const themes: { id: Theme; label: string }[] = [{ id: 'system', label: 'Match this device' }, { id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }]
+  const currentTheme = (): Theme => {
+    const value = document.documentElement.dataset.theme
+    return value === 'light' || value === 'dark' ? value : 'system'
+  }
+  let theme = $state<Theme>(currentTheme())
+  async function chooseTheme(next: Theme) {
+    const previous = theme
+    theme = next
+    applyTheme(next)
+    // Only an account has somewhere to keep the choice; a sign-in without accounts keeps it for this visit.
+    if (!accounts) return
+    try { await saveProfile({ theme: next }) } catch { theme = previous; applyTheme(previous) }
+  }
+
   function signOut() {
     if (menu) menu.open = false
     onsignout()
@@ -41,7 +60,7 @@
 }} />
 
 <div class="account" bind:this={root}>
-  <details bind:this={menu}>
+  <details bind:this={menu} ontoggle={() => { if (menu?.open) theme = currentTheme() }}>
     <summary class:active aria-label={`Account menu for ${label}${unread > 0 ? `, ${unread} unread notifications` : ''}`}>
       <span class="avatar" aria-hidden="true">{initials}{#if unread > 0}<span class="badge">{unreadLabel}</span>{/if}</span>
       <span class="who"><strong>{name || 'Your account'}</strong>{#if email}<small>{email}</small>{/if}</span>
@@ -51,6 +70,11 @@
       <div class="panel-who">
         <strong>{name || 'Your account'}</strong>
         {#if email}<span>{email}</span>{/if}
+      </div>
+      <div class="theme" role="group" aria-label="Theme">
+        {#each themes as option (option.id)}
+          <button type="button" aria-pressed={theme === option.id} onclick={() => chooseTheme(option.id)}>{option.label}</button>
+        {/each}
       </div>
       <a href="/notifications">Notifications{#if unread > 0}<span class="count">{unreadLabel}</span>{/if}</a>
       {#if accounts}<a href="/account/profile">Account &amp; preferences</a>{/if}
@@ -110,6 +134,9 @@
     font: inherit; font-size: 0.82rem; text-align: left; text-decoration: none; cursor: pointer;
   }
   .panel a:hover, .panel button:hover { background: var(--tint); }
+  .theme { display: flex; gap: 4px; padding: 6px 4px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+  .panel .theme button { flex: 1; width: auto; min-height: 36px; justify-content: center; padding: 6px 4px; border: 1px solid var(--line); font-size: 0.74rem; text-align: center; }
+  .panel .theme button[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); font-weight: 650; }
   @media (max-width: 1000px) {
     .who { display: none; }
     summary { padding: 4px; border-radius: 50%; }

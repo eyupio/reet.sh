@@ -83,6 +83,24 @@ try {
   expect(tabs.map(t=>t.trim())).toEqual(['Inventory & connection','Sync','Terminals','Setups →'])
   await context.close()
  }
+ // Light, dark or system can be chosen from the account menu, takes effect at once, and is saved to the profile.
+ if (run('theme')) {
+  const {context,page,state} = await open({width:1440})
+  await page.goto(base)
+  await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
+  await page.locator('summary[aria-label^="Account menu"]').click()
+  const group = page.locator('.panel').getByRole('group',{name:'Theme'})
+  await expect(group.getByRole('button',{name:'Light'})).toHaveAttribute('aria-pressed','true')
+  await group.getByRole('button',{name:'Dark'}).click()
+  await expect(group.getByRole('button',{name:'Dark'})).toHaveAttribute('aria-pressed','true')
+  expect(await page.evaluate(()=>document.documentElement.dataset.theme)).toBe('dark')
+  await expect.poll(()=>state.patches).toContainEqual({theme:'dark'})
+  await group.getByRole('button',{name:'Match this device'}).click()
+  expect(await page.evaluate(()=>document.documentElement.dataset.theme)).toBeUndefined()
+  await expect.poll(()=>state.patches).toContainEqual({theme:'system'})
+  await context.close()
+ }
+
  // The signed-in header is one row on a phone and does not overflow at the widths either side of the menu breakpoint.
  if (run('header')) {
   for (const [width,maxHeight] of [[375,100],[1001,110],[1024,110]]) {

@@ -7,7 +7,7 @@ export const skill = id => ({id:`demo/toolkit/${id}`,name:id,slug:id,source:'dem
 export async function openWorkspace(browser, {width, height=812, theme='light', status, skills=[], unread=0, terminalStatus={configured:false,available:false,reason:'disabled'}, terminalMachines=[], hosting={username:'',prefix:'reet-',skills:[]}, sync={environments:[],machines:[],agents:[],targets:[],jobs:[],runs:[],updateJobs:[]}, inventory={environments:[],machines:[]}} = {}) {
  const context = await browser.newContext({viewport:{width,height}})
  const page = await context.newPage()
- const state = {status:{mode:'accounts',setupRequired:false,bootstrapRequired:false,signupEnabled:false,user:owner,...status}, theme, unexpected:[]}
+ const state = {patches:[],status:{mode:'accounts',setupRequired:false,bootstrapRequired:false,signupEnabled:false,user:owner,...status}, theme, unexpected:[]}
  const errors = []
  page.on('pageerror',e=>errors.push(e.message))
  await page.route('**/api/**',route=>{
@@ -15,7 +15,10 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   const json = data => route.fulfill({json:data})
   if(path==='/api/v2/auth/status')return json(state.status)
   if(path==='/api/v2/auth/setup'){state.status={...state.status,setupRequired:false,user:owner};return json(owner)}
-  if(path==='/api/v2/profile')return json({user:owner,sessionCount:1,accounts:true,profile:{theme:state.theme,timezone:'Europe/London',dateFormat:'',shelfView:'list',cardsExpanded:false,hostedPrefix:'reet-',updatedAt:now}})
+  if(path==='/api/v2/profile'){
+   if(route.request().method()==='PATCH'){const body=route.request().postDataJSON();state.patches.push(body);if(body.theme)state.theme=body.theme}
+   return json({user:owner,sessionCount:1,accounts:true,profile:{theme:state.theme,timezone:'Europe/London',dateFormat:'',shelfView:'list',cardsExpanded:false,hostedPrefix:'reet-',updatedAt:now}})
+  }
   if(path==='/api/version')return json({version:'test',commit:'fixture'})
   if(path==='/api/skills')return json({skills,counts:{all:skills.length,used:skills.filter(s=>s.used).length,liked:0,bookmarked:0}})
   if(path==='/api/environments')return json(inventory)

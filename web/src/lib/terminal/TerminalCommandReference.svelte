@@ -2,11 +2,12 @@
   import {onMount} from 'svelte'
   import CopyButton from '../CopyButton.svelte'
   import {terminalControllerStatus,type TerminalControllerStatus} from './api'
+  import {controllerDetail} from './controllerStatus'
   let status=$state<TerminalControllerStatus|null>(null),failed=$state(false),busy=$state(false),checkedAt=$state(0),now=$state(performance.now())
   let request:AbortController|undefined,disposed=false
   const stale=$derived(checkedAt>0&&now-checkedAt>45000)
   const label=$derived(failed?'Status unavailable':stale?'Status stale':!status?'Checking…':status.available?'Active':status.configured?'Blocked':'Inactive')
-  const description=$derived(status?.available?'Controller access is enabled. Each host still needs local terminal consent.':status?.reason==='https_required'?'Started, but the controller has no usable HTTPS public URL. Start/restart reads your existing .env configuration.':status?.reason==='accounts_required'?'Started, but the running controller is not using accounts authentication.':'Remote access is stopped. Existing host shells continue running.')
+  const description=$derived(controllerDetail(status))
   async function refresh(){
     if(busy||disposed)return;busy=true;const abort=new AbortController();request=abort;const timeout=setTimeout(()=>abort.abort(),5000)
     try{const next=await terminalControllerStatus(abort.signal);if(!disposed){status=next;failed=false;checkedAt=performance.now();now=checkedAt}}

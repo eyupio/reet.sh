@@ -7,18 +7,24 @@
  import CommandLibrary from './terminal/CommandLibrary.svelte'
  import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
  import TerminalCommandReference from './terminal/TerminalCommandReference.svelte'
- import {terminalMachines,machineHealth,readiness,TerminalError,type TerminalMachine,type MachineHealth} from './terminal/api'
+ import TerminalReadiness from './TerminalReadiness.svelte'
+ import {terminalMachines,machineHealth,terminalControllerStatus,machineSetUp,readiness,TerminalError,type TerminalMachine,type MachineHealth,type TerminalControllerStatus} from './terminal/api'
  import {machineLink} from './machineSetup'
  let {canWrite,terminalAccess,monitorAccess}:{canWrite:boolean;terminalAccess:boolean;monitorAccess:boolean}=$props()
- let machines=$state<TerminalMachine[]>([]),health=$state<MachineHealth[]>([]),loading=$state(true),busy=$state(false),error=$state(''),checked=$state(0),now=$state(Date.now()),commandsOpen=$state(false),helpOpen=$state(false)
+ let machines=$state<TerminalMachine[]>([]),health=$state<MachineHealth[]>([]),loading=$state(true),busy=$state(false),error=$state(''),checked=$state(0),now=$state(Date.now()),commandsOpen=$state(false),helpOpen=$state(false),controller=$state<TerminalControllerStatus|null>(null)
  let alive=true;const abort=new AbortController()
  const stale=$derived(!!error||checked>0&&now-checked>45000)
  const ready=$derived(machines.filter(item=>item.ready).length)
+ // A machine can have done its own part (consent, tmux) while the server's terminals are off, which makes every machine report not ready.
+ const setUp=$derived(machines.filter(machineSetUp).length)
+ // First run: nothing connected yet. Show what stands between the owner and a terminal, and nothing that cannot work yet.
+ const firstRun=$derived(terminalAccess&&!loading&&!error&&!machines.length)
+ const showSetup=$derived(terminalAccess&&!loading&&!error&&(firstRun||(controller!==null&&!controller.available)||(machines.length>0&&setUp===0)))
  function memory(item:MachineHealth|undefined){const total=item?.connection?.report?.memory.totalBytes.value,available=item?.connection?.report?.memory.availableBytes.value;return total&&available!=null?`${Math.round((1-available/total)*100)}% memory`:'Memory unavailable'}
  async function refresh(){
   if(busy||!alive)return;busy=true
   try{
-   if(terminalAccess){const[next,metrics]=await Promise.all([terminalMachines(AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])),machineHealth(AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])).catch(()=>null)]);if(!alive)return;machines=next;health=metrics?.machines||[]}
+   if(terminalAccess){const[next,metrics,status]=await Promise.all([terminalMachines(AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])),machineHealth(AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])).catch(()=>null),terminalControllerStatus(AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])).catch(()=>null)]);if(!alive)return;machines=next;health=metrics?.machines||[];controller=status}
    else if(monitorAccess){const state=await getSyncState();if(!alive)return;machines=(state.agents||[]).map(item=>({agentId:item.id,host:item.host,ready:!item.paused&&item.lastSeen>Date.now()-90000}))}
    checked=Date.now();error=''
   }catch(e){if(alive&&!abort.signal.aborted){if(e instanceof TerminalError&&[401,403].includes(e.status)){machines=[];health=[];checked=0}error=e instanceof Error?e.message:'Connection status is unavailable.'}}
@@ -27,9 +33,11 @@
  onMount(()=>{void refresh();const wake=()=>{now=Date.now();if(document.visibilityState==='visible')void refresh()};const timer=setInterval(wake,15000);document.addEventListener('visibilitychange',wake);return()=>{alive=false;abort.abort();clearInterval(timer);document.removeEventListener('visibilitychange',wake)}})
 </script>
 <PageHeader eyebrow="Ey up. Your AI control room" title="Your fleet. Ready for work." lede="Reach your machines, use installed AI agents, and keep your toolkit and ongoing work in good order.">
- {#snippet actions()}{#if terminalAccess}<a class="btn" href="/terminals">Open terminals →</a>{/if}{#if canWrite}<a class="btn primary" href="/machines#connect-machine">Connect a machine</a>{/if}{/snippet}
+ {#snippet actions()}{#if terminalAccess&&!firstRun}<a class="btn" href="/terminals">Open terminals →</a>{/if}{#if canWrite&&!firstRun}<a class="btn primary" href="/machines#connect-machine">Connect a machine</a>{/if}{/snippet}
 </PageHeader>
-{#if terminalAccess}<ActiveSessions/>{/if}
+{#if showSetup}<TerminalReadiness {controller} machines={machines.length} {setUp} {ready} {canWrite} onhelp={()=>helpOpen=true}/>{/if}
+{#if terminalAccess&&!firstRun}<ActiveSessions/>{/if}
+{#if !firstRun}
 <section class="machines-section" aria-labelledby="connected-machines-title" aria-busy={loading}>
  <header class="section-heading"><div><p class="eyebrow">One place to connect</p><h2 id="connected-machines-title">Your machines <span class="count">{machines.length}</span></h2><p>{loading?'Checking connections…':stale?'Showing the last received connection status.':terminalAccess?`${ready} ready for terminals`:'Machine connection overview'}</p></div><button class="btn quiet" aria-label="Refresh machine connections" disabled={busy} onclick={()=>void refresh()}>↻ Refresh</button></header>
  {#if error}<p class="connection-error" role="alert">{error} <button onclick={()=>void refresh()}>Try again</button></p>{/if}
@@ -44,9 +52,10 @@
    <footer>{#if terminalAccess}<a class="btn" class:open={item.ready} href={`/terminals?agent=${encodeURIComponent(item.agentId)}`} aria-label={`${item.ready?'Open terminal':'View terminal setup'} on ${item.host}`}>{item.ready?'Open terminal':'View setup'} <span aria-hidden="true">→</span></a>{:else}<a class="btn" href="/machines">View machine →</a>{/if}{#if metrics?.connection?.rttMillis!=null&&metrics.connection.connected}<span class="rtt">{Math.round(metrics.connection.rttMillis)} ms</span>{/if}</footer>
   </article>{/snippet}</TerminalCardActions>
  {/each}</div>
- {:else if !error}<div class="first-machine"><span class="first-mark" aria-hidden="true">›_</span><h3>Your first machine belongs here.</h3><p>Connect a laptop or server, allow terminal access locally, then open its shell from your browser.</p>{#if canWrite}<a class="btn primary" href="/machines#connect-machine">Connect your first machine</a>{/if}<button class="btn quiet" onclick={()=>helpOpen=true}>Terminal setup guide</button></div>{/if}
+ {:else if !error&&!terminalAccess}<div class="first-machine"><span class="first-mark" aria-hidden="true">›_</span><h3>Your first machine belongs here.</h3><p>Connect a laptop or server, allow terminal access locally, then open its shell from your browser.</p>{#if canWrite}<a class="btn primary" href="/machines#connect-machine">Connect your first machine</a>{/if}<button class="btn quiet" onclick={()=>helpOpen=true}>Terminal setup guide</button></div>{/if}
 </section>
-{#if terminalAccess}<section class="workspace-shortcuts" aria-label="Workspace shortcuts"><a href="/profiles"><span class="shortcut-symbol" aria-hidden="true">▤</span><span><strong>Setups</strong><small>Give another machine a known starting point.</small></span><b aria-hidden="true">→</b></a><a href="/sync"><span class="shortcut-symbol" aria-hidden="true">↔</span><span><strong>Sync</strong><small>Choose destinations, preview and review changes.</small></span><b aria-hidden="true">→</b></a><button onclick={()=>commandsOpen=true}><span class="shortcut-symbol" aria-hidden="true">⌘</span><span><strong>Your command library</strong><small>Save once. Reach for it on any machine.</small></span><b aria-hidden="true">→</b></button><button onclick={()=>helpOpen=true}><span class="shortcut-symbol" aria-hidden="true">?</span><span><strong>Connection help</strong><small>Terminal consent, services and reconnecting.</small></span><b aria-hidden="true">→</b></button></section>{/if}
+{/if}
+{#if terminalAccess&&!firstRun}<section class="workspace-shortcuts" aria-label="Workspace shortcuts"><a href="/profiles"><span class="shortcut-symbol" aria-hidden="true">▤</span><span><strong>Setups</strong><small>Give another machine a known starting point.</small></span><b aria-hidden="true">→</b></a><a href="/sync"><span class="shortcut-symbol" aria-hidden="true">↔</span><span><strong>Sync</strong><small>Choose destinations, preview and review changes.</small></span><b aria-hidden="true">→</b></a><button onclick={()=>commandsOpen=true}><span class="shortcut-symbol" aria-hidden="true">⌘</span><span><strong>Your command library</strong><small>Save once. Reach for it on any machine.</small></span><b aria-hidden="true">→</b></button><button onclick={()=>helpOpen=true}><span class="shortcut-symbol" aria-hidden="true">?</span><span><strong>Connection help</strong><small>Terminal consent, services and reconnecting.</small></span><b aria-hidden="true">→</b></button></section>{/if}
 {#if commandsOpen}<CommandLibrary onclose={()=>commandsOpen=false}/>{/if}
 {#if helpOpen}<WorkspaceDialog title="Terminal connection setup" onclose={()=>helpOpen=false}><p class="help-copy">Allow terminal access on each machine, then open it from your workspace. A browser disconnect leaves its shells running.</p><TerminalCommandReference/><p class="help-copy">On the machine, install tmux 3.2 or newer, then run:</p><pre>reet agent terminal setup</pre><a class="btn" href="/machines#connect-machine">Connect or finish setting up a machine →</a></WorkspaceDialog>{/if}
 <style>

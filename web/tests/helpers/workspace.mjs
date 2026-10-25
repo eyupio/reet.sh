@@ -4,7 +4,7 @@ export const owner = {id:1,name:'Sam',email:'sam@example.test',role:'owner'}
 const now = Date.now()
 export const skill = id => ({id:`demo/toolkit/${id}`,name:id,slug:id,source:'demo/toolkit',sourceType:'github',url:`https://www.skills.sh/demo/toolkit/${id}`,description:'Example skill for UI verification.',notes:'',installs:0,installsWeek:0,trend:[],liked:false,bookmarked:false,used:false,createdAt:now,updatedAt:now})
 
-export async function openWorkspace(browser, {width, height=812, theme='light', status, skills=[], unread=0} = {}) {
+export async function openWorkspace(browser, {width, height=812, theme='light', status, skills=[], unread=0, terminalStatus={configured:false,available:false,reason:'disabled'}, terminalMachines=[]} = {}) {
  const context = await browser.newContext({viewport:{width,height}})
  const page = await context.newPage()
  const state = {status:{mode:'accounts',setupRequired:false,bootstrapRequired:false,signupEnabled:false,user:owner,...status}, theme, unexpected:[]}
@@ -23,7 +23,8 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/lists')return json({lists:[],linkEnabled:false})
   if(path==='/api/v2/sync')return json({environments:[],machines:[],agents:[]})
   if(path==='/api/v2/machines/health')return json({serverNow:Date.now(),machines:[]})
-  if(path==='/api/v2/terminal/machines')return json({machines:[]})
+  if(path==='/api/v2/terminal/status')return json(terminalStatus)
+  if(path==='/api/v2/terminal/machines')return json({machines:terminalMachines})
   if(path==='/api/v2/terminal/sessions')return json({sessions:[]})
   if(path==='/api/v2/notifications/count')return json({unread})
   state.unexpected.push(path)
@@ -31,3 +32,7 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
  })
  return {context, page, state, errors}
 }
+
+// `consented` is the machine's own local consent and set-up; `ready` is the server's overall verdict, which also needs the server's terminal access on.
+export const terminalMachine = (id, host, ready, consented = ready) => ({agentId:id,host,ready,serverEnabled:true,capabilities:{protocolVersion:1,terminalControl:true,os:'linux',osUser:'dev',terminalEnabled:consented,healthEnabled:false,readiness:consented?'ready':'terminal_disabled'}})
+export const active = {configured:true,available:true,reason:''}

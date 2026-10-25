@@ -837,7 +837,7 @@
     <Admin onerror={fail} {role} accounts={authMode === 'accounts'} currentEmail={currentUser?.email ?? ''} />
   {:else if isSkills}
     <PageHeader eyebrow="Ey up. Your skill shelf." title="Skills." lede="Keep the good finds here, then choose which machines receive them. Shelf stages organise your library; Sync controls installation.">
-      {#snippet actions()}<a class="btn" href="/sync">Sync skills</a>{#if canWrite}<a class="btn primary" href="/hosting">Create a skill</a>{/if}{/snippet}
+      {#snippet actions()}{#if loading || counts.all > 0}<a class="btn" href="/sync">Sync skills</a>{/if}{#if canWrite}<a class="btn" href="/hosting">Create a skill</a>{/if}{/snippet}
     </PageHeader>
     {#if canWrite}
       <form class="add" onsubmit={add} aria-busy={adding}>
@@ -991,7 +991,6 @@
             {#if authMode === 'accounts'}<a class="btn" href="/machines#add-machine" title="Install the reet CLI and scan your agent folders.">Connect this machine</a>{/if}
             <a class="btn" href="/community">Explore community</a>
             <a href="https://www.skills.sh/topic" target="_blank" rel="noopener noreferrer">Find a skill on skills.sh<span class="vh"> (opens in a new tab)</span></a>
-            <a href="/hosting">Host your own skill</a>
           </div>
           {#if authMode === 'accounts'}<p class="start-note">Connecting a machine takes about 2 minutes and needs the reet CLI.</p>{/if}
           <details class="save-anywhere">

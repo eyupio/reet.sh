@@ -150,8 +150,12 @@ return the errors adoption would return.
 
 Client lifecycle rules (mirroring the import dialog). Request keys stay in memory and are
 reused after an uncertain create failure. Polling runs every three seconds while a check is
-queued or reading, pauses while the tab is hidden, stops on any final state, and is fenced by
-the dialog's lifetime and the selected check with abort controllers and a generation counter.
+queued or reading, pauses while the tab is hidden, stops on any final state other than
+`captured`, and is fenced by the dialog's lifetime and the selected check with abort controllers
+and a generation counter. A `captured` check is re-read every ten seconds while the Adopt step is
+open, so the server's `stale` or `superseded` verdict reaches the screen, and a captured read
+more than thirty seconds old is treated as out of date until re-read. Freshness is judged from
+when the browser received the response, never by comparing the browser's clock with the server's.
 One active check per machine: a busy answer becomes *Resume that check*. Every pin change and
 removal re-reads the pin and sends its current version; a version conflict reloads and says what
 changed. The review hash and receipt versions are opaque and are only passed back unchanged. The

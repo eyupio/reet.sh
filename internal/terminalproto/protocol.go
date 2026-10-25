@@ -125,7 +125,7 @@ type Capabilities struct {
 }
 
 func (c Capabilities) Validate() error {
-	if c.Launch && !c.TerminalControl || !validTools(c.Tools) {
+	if c.Launch && !c.TerminalControl || len(c.Tools) > 0 && !c.Launch || !validTools(c.Tools) {
 		return ErrInvalid
 	}
 	if c.CommandHistory && !c.TerminalControl {

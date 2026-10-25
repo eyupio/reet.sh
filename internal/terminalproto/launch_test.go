@@ -69,6 +69,8 @@ func TestLaunchLimits(t *testing.T) {
 		"model 101 bytes":     func(c *Create) { c.Model = strings.Repeat("a", 101) },
 		"dir relative":        func(c *Create) { c.Dir = "project" },
 		"dir 4097 bytes":      func(c *Create) { c.Dir = "/" + strings.Repeat("a", 4096) },
+		"dir bad utf8":        func(c *Create) { c.Dir = "/home/a\xffb" },
+		"dir C1 control":      func(c *Create) { c.Dir = "/home/a\u0085b" },
 		"dir NUL":             func(c *Create) { c.Dir = "/home/a\x00b" },
 		"dir newline":         func(c *Create) { c.Dir = "/home/a\nb" },
 		"prompt 2001 bytes":   func(c *Create) { c.Prompt = strings.Repeat("a", 2001) },
@@ -131,13 +133,17 @@ func TestLaunchCapabilities(t *testing.T) {
 		"duplicate": {"claude", "claude"},
 		"unknown":   {"claude", "vim"},
 		"unsorted":  {"codex", "claude"},
-		"too many":  {"claude", "codex", "gemini", "opencode", "a", "b", "c", "d", "e"},
 	} {
 		bad := c
 		bad.Tools = tools
 		if bad.Validate() == nil {
 			t.Error("accepted tools:", name)
 		}
+	}
+	noLaunch := c
+	noLaunch.Launch = false
+	if noLaunch.Validate() == nil {
+		t.Fatal("tools without launch accepted")
 	}
 }
 

@@ -10,7 +10,6 @@ const LaunchFeature = "launch-v1"
 const MaxModelBytes = 100
 const MaxDirBytes = 4096
 const MaxPromptBytes = 2000
-const MaxTools = 8
 
 var launchTools = map[string]bool{"claude": true, "codex": true, "opencode": true, "gemini": true}
 
@@ -28,9 +27,6 @@ func SupportsLaunch(features string) bool {
 func ValidTool(id string) bool { return launchTools[id] }
 
 func validTools(tools []string) bool {
-	if len(tools) > MaxTools {
-		return false
-	}
 	for i, tool := range tools {
 		if !ValidTool(tool) || i > 0 && tools[i-1] >= tool {
 			return false

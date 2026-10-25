@@ -77,6 +77,11 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 				}
 				return send(callCtx, reply)
 			}
+			// Launch fields are served only on a generation that negotiated
+			// launch-v1; a plain shell is never substituted for them.
+			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Tool != "" && !terminalproto.SupportsLaunch(headers.Get(terminalproto.FeatureHeader)) {
+				return respond(terminalhost.ErrLaunchUnavailable)
+			}
 			if managerErr != nil {
 				return send(callCtx, reply)
 			}

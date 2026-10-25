@@ -4,6 +4,8 @@ package scan
 
 import (
 	"errors"
+	"os/exec"
+
 	"github.com/eyupio/reet.sh/internal/agenthealth"
 	"github.com/eyupio/reet.sh/internal/terminalagent"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
@@ -25,3 +27,7 @@ func terminalControl(config string, c agentConfig) agenthealth.TerminalFactory {
 		return nil
 	}})
 }
+
+// launchTools reports the agent CLIs found on this connector's PATH from its
+// built-in launch presets.
+func launchTools() []string { return terminalhost.InstalledTools(exec.LookPath) }

@@ -79,3 +79,16 @@ func (c Create) validLaunch() bool {
 	}
 	return ValidTool(c.Tool) && (c.Model == "" || validModel(c.Model)) && (c.Dir == "" || validDir(c.Dir)) && (c.Prompt == "" || validPrompt(c.Prompt))
 }
+
+// positionalPromptTools take the opening prompt as a positional operand after
+// "--". Their parsers can still treat a bare first operand as a subcommand name
+// (claude dispatches `purge`, `update`, `install` that way), so such a prompt
+// must contain whitespace, which no command name does.
+var positionalPromptTools = map[string]bool{"claude": true, "codex": true}
+
+// PromptNeedsWords reports whether prompt is refused for tool because it is a
+// single word that the tool could read as a subcommand. The controller refuses
+// it before sending and the connector refuses it again before starting.
+func PromptNeedsWords(tool, prompt string) bool {
+	return positionalPromptTools[tool] && prompt != "" && !strings.ContainsAny(prompt, " \n")
+}

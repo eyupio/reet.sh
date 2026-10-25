@@ -119,7 +119,7 @@ func LaunchArgv(in terminalproto.Create, lookPath func(string) (string, error)) 
 		} else {
 			// A command name is one word, so a prompt with whitespace can never
 			// be dispatched as a subcommand.
-			if !strings.ContainsAny(in.Prompt, " \n") {
+			if terminalproto.PromptNeedsWords(in.Tool, in.Prompt) {
 				return nil, launchUnavailable("single-word prompt")
 			}
 			argv = append(argv, "--", in.Prompt)

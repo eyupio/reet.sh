@@ -309,3 +309,13 @@ func TestResolveDirHomeIsASymlink(t *testing.T) {
 		}
 	}
 }
+
+// The controller refuses single-word prompts with the shared rule before they
+// are sent; it must cover exactly the presets whose prompt is positional.
+func TestPromptNeedsWordsMatchesPositionalPresets(t *testing.T) {
+	for tool, p := range launchPresets {
+		if terminalproto.PromptNeedsWords(tool, "purge") != (p.promptFlag == "") {
+			t.Fatal("shared single-word rule disagrees with the preset", tool)
+		}
+	}
+}

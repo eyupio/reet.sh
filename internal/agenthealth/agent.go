@@ -13,6 +13,8 @@ import (
 	"os"
 	"os/user"
 	"runtime"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +38,7 @@ const (
 // reporting is independent of terminal opt-in.
 type AgentConfig struct {
 	commandHistory    bool
+	launch            bool
 	OnConnection      func(bool)
 	TerminalSession   TerminalFactory
 	control           func(context.Context, terminalproto.Message) error
@@ -50,6 +53,9 @@ type AgentConfig struct {
 	TerminalReadiness terminalproto.Readiness
 	// Consent is polled for local terminal opt-in and readiness changes.
 	Consent func() (enabled bool, readiness terminalproto.Readiness, err error)
+	// LaunchTools lists the agent CLIs this connector can start, from its
+	// built-in presets. Nil means the connector cannot start agents.
+	LaunchTools func() []string
 
 	Collector        Collector
 	HTTPClient       *http.Client
@@ -208,7 +214,11 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 		return false, errors.New("private control connection unavailable")
 	}
 	defer conn.CloseNow()
-	cfg.commandHistory = response != nil && terminalproto.SupportsCommandHistory(response.Header.Get(terminalproto.FeatureHeader))
+	advertised := ""
+	if response != nil {
+		advertised = response.Header.Get(terminalproto.FeatureHeader)
+	}
+	negotiateFeatures(&cfg, advertised)
 	conn.SetReadLimit(terminalproto.MaxControlBytes)
 
 	handshakeID, err := randomID()
@@ -260,9 +270,7 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 	if cfg.TerminalSession != nil {
 		var closeTerminal func()
 		terminalHeaders := authHeaders(cfg)
-		if cfg.commandHistory {
-			terminalHeaders.Set(terminalproto.FeatureHeader, terminalproto.CommandHistoryFeature)
-		}
+		setTerminalFeatures(terminalHeaders, cfg)
 		cfg.control, closeTerminal = cfg.TerminalSession(sessionCtx, client.HTTPClient(), terminalHeaders, generation, send)
 		defer closeTerminal()
 	}
@@ -464,6 +472,41 @@ func authHeaders(cfg AgentConfig) http.Header {
 	}
 }
 
+// negotiateFeatures records the optional extensions the controller advertised
+// on the control upgrade. A feature it did not advertise is never claimed.
+func negotiateFeatures(cfg *AgentConfig, advertised string) {
+	cfg.commandHistory = terminalproto.SupportsCommandHistory(advertised)
+	cfg.launch = terminalproto.SupportsLaunch(advertised)
+}
+
+// setTerminalFeatures tells the terminal dispatcher which negotiated
+// extensions it may serve on this connection generation.
+func setTerminalFeatures(headers http.Header, cfg AgentConfig) {
+	var features []string
+	if cfg.commandHistory {
+		features = append(features, terminalproto.CommandHistoryFeature)
+	}
+	if cfg.launch {
+		features = append(features, terminalproto.LaunchFeature)
+	}
+	if len(features) > 0 {
+		headers.Set(terminalproto.FeatureHeader, strings.Join(features, ","))
+	}
+}
+
+// launchTools returns the installed tools to report, keeping only known ids
+// in sorted order and within the protocol's bound.
+func launchTools(cfg AgentConfig) []string {
+	var tools []string
+	for _, tool := range cfg.LaunchTools() {
+		if terminalproto.ValidTool(tool) && !slices.Contains(tools, tool) {
+			tools = append(tools, tool)
+		}
+	}
+	sort.Strings(tools)
+	return tools
+}
+
 func capabilities(cfg AgentConfig) terminalproto.Capabilities {
 	if cfg.TerminalEnabled && cfg.TerminalReadiness == "" {
 		cfg.TerminalReadiness = terminalproto.SupervisorUnavailable
@@ -495,7 +538,14 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 	if current, err := user.Current(); err == nil && current.Username != "" {
 		username = current.Username
 	}
+	launch := cfg.launch && cfg.TerminalSession != nil && cfg.LaunchTools != nil && (osName == "linux" || osName == "darwin")
+	var tools []string
+	if launch {
+		tools = launchTools(cfg)
+	}
 	return terminalproto.Capabilities{
+		Launch:          launch,
+		Tools:           tools,
 		TerminalControl: cfg.TerminalSession != nil,
 		CommandHistory:  cfg.commandHistory && cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin"),
 		ProtocolVersion: terminalproto.Version,

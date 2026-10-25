@@ -418,39 +418,93 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 	p.mu.Unlock()
 	return nil
 }
+
+var (
+	// ErrLaunchUnsupported means the machine did not negotiate launch-v1; the
+	// launch fields were not sent and nothing was reserved.
+	ErrLaunchUnsupported = errors.New("machine does not support starting agents")
+	// ErrLaunchFailed means the connector refused to start the agent
+	// (launch_failed): the tool or the folder is unavailable there.
+	ErrLaunchFailed = errors.New("machine could not start that agent")
+	// ErrPromptUnsupported means the opening prompt is one word for a tool that
+	// could read it as a subcommand; it was refused before sending.
+	ErrPromptUnsupported = errors.New("opening prompt must be at least two words for that agent")
+)
+
+func launchRequested(in terminalproto.Create) bool {
+	return in.Tool != "" || in.Model != "" || in.Dir != "" || in.Prompt != ""
+}
+
 func (b *Broker) Create(ctx context.Context, uid int64, agent, request string, in terminalproto.Create) (store.TerminalSession, error) {
+	s, _, err := b.CreateSession(ctx, uid, agent, request, in)
+	return s, err
+}
+
+// CreateSession also reports whether this call is the one that learned the
+// session started (false for a replay of a known outcome), so callers can
+// record a launch exactly once.
+func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request string, in terminalproto.Create) (store.TerminalSession, bool, error) {
+	// A launch is checked in full before any peer state, so a malformed or
+	// refused launch never reserves a session or reaches the connector.
+	if launchRequested(in) && in.Validate() != nil {
+		return store.TerminalSession{}, false, terminalproto.ErrInvalid
+	}
+	if terminalproto.PromptNeedsWords(in.Tool, in.Prompt) {
+		return store.TerminalSession{}, false, ErrPromptUnsupported
+	}
 	p, err := b.peer(uid, agent, true)
 	if err != nil {
-		return store.TerminalSession{}, err
+		return store.TerminalSession{}, false, err
+	}
+	if launchRequested(in) {
+		caps, err := b.st.RemoteCapabilitiesFor(uid, agent)
+		if err != nil || caps.Generation != p.Generation {
+			return store.TerminalSession{}, false, ErrOffline
+		}
+		if !caps.Capabilities.Launch {
+			return store.TerminalSession{}, false, ErrLaunchUnsupported
+		}
 	}
 	s, created, err := b.st.ReserveTerminalCreateFor(uid, agent, request, p.Generation, in)
 	if err != nil {
-		return s, err
+		return s, false, err
 	}
 	if !created {
 		if s.State == terminalproto.Creating {
 			if err := p.Synchronize(ctx); err != nil {
-				return s, err
+				return s, false, err
 			}
-			return b.st.TerminalSessionFor(uid, s.ID)
+			s, err = b.st.TerminalSessionFor(uid, s.ID)
+			return s, err == nil && s.State != terminalproto.Creating && s.State != terminalproto.Lost, err
 		}
-		return s, nil
+		if s.State == terminalproto.Lost {
+			if op, err := b.st.TerminalOperationFor(uid, agent, "create", request); err == nil && op.State == "failed" && op.Code == terminalproto.LaunchFailed {
+				return s, false, ErrLaunchFailed
+			}
+		}
+		return s, false, nil
 	}
 	reply, err := p.call(ctx, terminalproto.Message{RequestID: request, SessionID: s.ID, Body: in})
 	if err != nil {
-		return s, err
+		return s, false, err
 	}
+	launchFailed := false
 	if state, ok := reply.Body.(*terminalproto.SessionChanged); ok {
 		err = b.st.ObserveTerminalStateFor(uid, agent, s.ID, p.Generation, state.State, state.ExitCode)
 	} else if r, ok := reply.Body.(*terminalproto.Result); ok && r.Code != terminalproto.OK && r.Code != terminalproto.Unavailable {
 		err = b.st.FailTerminalCreateFor(uid, agent, request, p.Generation, r.Code)
+		launchFailed = r.Code == terminalproto.LaunchFailed
 	} else {
 		err = ErrOffline
 	}
 	if err != nil {
-		return s, err
+		return s, false, err
 	}
-	return b.st.TerminalSessionFor(uid, s.ID)
+	s, err = b.st.TerminalSessionFor(uid, s.ID)
+	if err == nil && launchFailed {
+		err = ErrLaunchFailed
+	}
+	return s, err == nil && s.State != terminalproto.Creating && s.State != terminalproto.Lost, err
 }
 func (p *Peer) end(ctx context.Context, session, request string) error {
 	reply, err := p.call(ctx, terminalproto.Message{RequestID: request, SessionID: session, Body: terminalproto.End{}})

@@ -25,7 +25,7 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "machine enrollment is missing or revoked")
 		return
 	}
-	w.Header().Set(terminalproto.FeatureHeader, terminalproto.CommandHistoryFeature)
+	w.Header().Set(terminalproto.FeatureHeader, terminalproto.CommandHistoryFeature+","+terminalproto.LaunchFeature)
 	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return

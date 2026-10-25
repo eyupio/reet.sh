@@ -665,11 +665,11 @@ func TestManagerWorktreeOperationsNeedConsent(t *testing.T) {
 	if _, err := m.WorktreeStatus(context.Background(), terminalproto.WorktreeStatus{Run: testRun, Project: "p", Repo: "site"}); !errors.Is(err, ErrTerminalDisabled) {
 		t.Fatal(err)
 	}
-	if err := m.WorktreeRemove(context.Background(), terminalproto.WorktreeRemove{Run: testRun, Project: "p", Repo: "site"}); !errors.Is(err, ErrTerminalDisabled) || !exists(w.Path) {
+	if _, err := m.WorktreeRemove(context.Background(), terminalproto.WorktreeRemove{Run: testRun, Project: "p", Repo: "site"}); !errors.Is(err, ErrTerminalDisabled) || !exists(w.Path) {
 		t.Fatal(err)
 	}
 	m.consent = func() error { return nil }
-	if err := m.WorktreeRemove(context.Background(), terminalproto.WorktreeRemove{Run: testRun, Project: "p", Repo: "site"}); err != nil || exists(w.Path) {
+	if _, err := m.WorktreeRemove(context.Background(), terminalproto.WorktreeRemove{Run: testRun, Project: "p", Repo: "site"}); err != nil || exists(w.Path) {
 		t.Fatal(err)
 	}
 }

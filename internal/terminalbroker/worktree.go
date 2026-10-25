@@ -25,6 +25,9 @@ var (
 	// ErrWorktreeUnavailable means the machine answered but could not do it
 	// just now (unavailable, failed or capacity).
 	ErrWorktreeUnavailable = errors.New("machine could not do that worktree request just now")
+	// ErrWorktreeReplyLost means a remove was sent but no answer came; the
+	// machine may have removed the worktree. It is also ErrOffline.
+	ErrWorktreeReplyLost error = errReplyLost{}
 )
 
 // WorktreeError is a worktree refusal with the connector's reason and, for
@@ -125,21 +128,24 @@ func (b *Broker) WorktreeStatus(ctx context.Context, uid int64, agent, project, 
 }
 
 // WorktreeRemove asks the machine to remove a run's worktree, only if its
-// counts still equal the ones the person was shown. The branch is kept. A
-// lost reply is reported as a reconnect; asking for status again shows
-// whether the worktree is gone.
-func (b *Broker) WorktreeRemove(ctx context.Context, uid int64, agent, project, repo, run string, shown WorktreeCounts) error {
+// counts still equal the ones the person was shown, and reports the folder it
+// deleted and the branch it kept. A remove sent but never answered is
+// ErrWorktreeReplyLost; asking for status shows whether it happened.
+func (b *Broker) WorktreeRemove(ctx context.Context, uid int64, agent, project, repo, run string, shown WorktreeCounts) (terminalproto.WorktreeResult, error) {
 	body := terminalproto.WorktreeRemove{Run: run, Project: project, Repo: repo, Changed: shown.Changed, Unpushed: shown.Unpushed}
 	p, err := b.worktreePeer(uid, agent, body)
 	if err != nil {
-		return err
+		return terminalproto.WorktreeResult{}, err
 	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{Body: body}, worktreeCallTimeout)
 	if err != nil {
-		return err
+		return terminalproto.WorktreeResult{}, err
 	}
 	if r, ok := reply.Body.(*terminalproto.WorktreeResult); ok {
-		return worktreeError(r)
+		if err := worktreeError(r); err != nil {
+			return terminalproto.WorktreeResult{}, err
+		}
+		return *r, nil
 	}
-	return ErrOffline
+	return terminalproto.WorktreeResult{}, ErrOffline
 }

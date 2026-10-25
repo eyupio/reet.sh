@@ -284,7 +284,11 @@ func answerWorktree(ctx context.Context, m *terminalhost.Manager, body terminalp
 		}
 		return s
 	case *terminalproto.WorktreeRemove:
-		return worktreeResult(m.WorktreeRemove(ctx, *op))
+		removed, err := m.WorktreeRemove(ctx, *op)
+		if err != nil {
+			return worktreeResult(err)
+		}
+		return terminalproto.WorktreeResult{Code: terminalproto.OK, Path: removed.Path, Branch: removed.Branch}
 	}
 	return terminalproto.WorktreeResult{Code: terminalproto.Failed}
 }

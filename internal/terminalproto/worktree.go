@@ -248,9 +248,16 @@ type WorktreeResult struct {
 	Code   ResultCode     `json:"code"`
 	Reason WorktreeReason `json:"reason,omitempty"`
 	Detail string         `json:"detail,omitempty"`
+	// Path and Branch, set together and only on ok, say which folder a remove
+	// deleted and which branch it kept.
+	Path   string `json:"path,omitempty"`
+	Branch string `json:"branch,omitempty"`
 }
 
 func (WorktreeResult) kind() string { return "worktree_result" }
 func (w WorktreeResult) valid() bool {
+	if (w.Path == "") != (w.Branch == "") || w.Path != "" && (w.Code != OK || !validDir(w.Path) || !plainText(w.Branch, 255)) {
+		return false
+	}
 	return Result{Code: w.Code, Reason: w.Reason, Detail: w.Detail}.valid()
 }

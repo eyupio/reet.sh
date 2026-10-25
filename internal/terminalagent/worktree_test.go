@@ -191,7 +191,7 @@ func TestWorktreeStatusAndRemoveThroughTheConnector(t *testing.T) {
 		t.Fatal(err)
 	}
 	reply = worktreeCall(t, handle, got, &terminalproto.WorktreeRemove{Run: testRun, Project: "p", Repo: "site"})
-	if reply != (terminalproto.WorktreeResult{Code: terminalproto.OK}) {
+	if reply != (terminalproto.WorktreeResult{Code: terminalproto.OK, Path: w.Path, Branch: w.Branch}) {
 		t.Fatalf("remove: %#v", reply)
 	}
 	if _, err := os.Lstat(w.Path); !os.IsNotExist(err) {

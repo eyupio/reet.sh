@@ -49,7 +49,7 @@ func TestWorktreeIsNeverSentToAPeerWithoutTheWorktreeCapability(t *testing.T) {
 		if _, err := f.b.WorktreeStatus(t.Context(), f.uid, f.agent, testProject, "site", testRun); !errors.Is(err, ErrWorktreeUnsupported) {
 			t.Fatal(name, "status on an old peer", err)
 		}
-		if err := f.b.WorktreeRemove(t.Context(), f.uid, f.agent, testProject, "site", testRun, WorktreeCounts{}); !errors.Is(err, ErrWorktreeUnsupported) {
+		if _, err := f.b.WorktreeRemove(t.Context(), f.uid, f.agent, testProject, "site", testRun, WorktreeCounts{}); !errors.Is(err, ErrWorktreeUnsupported) {
 			t.Fatal(name, "remove on an old peer", err)
 		}
 		if sent := f.worktreeSent(); len(sent) != 0 {
@@ -162,14 +162,15 @@ func TestWorktreeStatusAndRemoveAreSentExactlyAndMapped(t *testing.T) {
 		if _, ok := body.(terminalproto.WorktreeStatus); ok {
 			return state
 		}
-		return terminalproto.WorktreeResult{Code: terminalproto.OK}
+		return terminalproto.WorktreeResult{Code: terminalproto.OK, Path: state.Path, Branch: state.Branch}
 	}
 	got, err := f.b.WorktreeStatus(t.Context(), f.uid, f.agent, testProject, "site", testRun)
 	if err != nil || got.Path != state.Path || got.Branch != state.Branch || got.Changed != 2 || got.Unpushed != 1 || len(got.Paths) != 2 || got.Hidden != 1 || !got.Nested {
 		t.Fatal("status", got, err)
 	}
-	if err := f.b.WorktreeRemove(t.Context(), f.uid, f.agent, testProject, "site", testRun, WorktreeCounts{Changed: 0, Unpushed: 1}); err != nil {
-		t.Fatal("remove", err)
+	removed, err := f.b.WorktreeRemove(t.Context(), f.uid, f.agent, testProject, "site", testRun, WorktreeCounts{Changed: 0, Unpushed: 1})
+	if err != nil || removed.Path != state.Path || removed.Branch != state.Branch {
+		t.Fatal("remove", removed, err)
 	}
 	sent := f.worktreeSent()
 	if len(sent) != 2 || sent[0] != (terminalproto.WorktreeStatus{Run: testRun, Project: testProject, Repo: "site"}) || sent[1] != (terminalproto.WorktreeRemove{Run: testRun, Project: testProject, Repo: "site", Changed: 0, Unpushed: 1}) {
@@ -202,13 +203,13 @@ func TestWorktreeStatusAndRemoveAreSentExactlyAndMapped(t *testing.T) {
 		if _, err := f.b.WorktreeStatus(t.Context(), f.uid, f.agent, testProject, "site", testRun); !tc.check(err) {
 			t.Fatal("status", tc.name, err)
 		}
-		if err := f.b.WorktreeRemove(t.Context(), f.uid, f.agent, testProject, "site", testRun, WorktreeCounts{}); !tc.check(err) {
+		if _, err := f.b.WorktreeRemove(t.Context(), f.uid, f.agent, testProject, "site", testRun, WorktreeCounts{}); !tc.check(err) {
 			t.Fatal("remove", tc.name, err)
 		}
 	}
 	// A state is never an answer to a remove.
 	f.worktree = func(terminalproto.Body) terminalproto.Body { return state }
-	if err := f.b.WorktreeRemove(t.Context(), f.uid, f.agent, testProject, "site", testRun, WorktreeCounts{}); !errors.Is(err, ErrOffline) {
+	if _, err := f.b.WorktreeRemove(t.Context(), f.uid, f.agent, testProject, "site", testRun, WorktreeCounts{}); !errors.Is(err, ErrOffline) {
 		t.Fatal("state answered a remove", err)
 	}
 }
@@ -225,11 +226,11 @@ func TestWorktreeRequestsAreValidatedBeforeSending(t *testing.T) {
 		if _, err := f.b.WorktreeStatus(t.Context(), f.uid, f.agent, args[0], args[1], args[2]); !errors.Is(err, terminalproto.ErrInvalid) {
 			t.Fatal("status", name, err)
 		}
-		if err := f.b.WorktreeRemove(t.Context(), f.uid, f.agent, args[0], args[1], args[2], WorktreeCounts{}); !errors.Is(err, terminalproto.ErrInvalid) {
+		if _, err := f.b.WorktreeRemove(t.Context(), f.uid, f.agent, args[0], args[1], args[2], WorktreeCounts{}); !errors.Is(err, terminalproto.ErrInvalid) {
 			t.Fatal("remove", name, err)
 		}
 	}
-	if err := f.b.WorktreeRemove(t.Context(), f.uid, f.agent, testProject, "site", testRun, WorktreeCounts{Changed: -1}); !errors.Is(err, terminalproto.ErrInvalid) {
+	if _, err := f.b.WorktreeRemove(t.Context(), f.uid, f.agent, testProject, "site", testRun, WorktreeCounts{Changed: -1}); !errors.Is(err, terminalproto.ErrInvalid) {
 		t.Fatal("negative count", err)
 	}
 	if sent := f.worktreeSent(); len(sent) != 0 {
@@ -250,7 +251,7 @@ func TestWorktreeRequestsNeedAReadyPeer(t *testing.T) {
 	if _, err := f.b.WorktreeStatus(t.Context(), f.uid, f.agent, testProject, "site", testRun); !errors.Is(err, ErrOffline) {
 		t.Fatal("status on a disabled peer", err)
 	}
-	if err := f.b.WorktreeRemove(t.Context(), f.uid, f.agent, testProject, "site", testRun, WorktreeCounts{}); !errors.Is(err, ErrOffline) {
+	if _, err := f.b.WorktreeRemove(t.Context(), f.uid, f.agent, testProject, "site", testRun, WorktreeCounts{}); !errors.Is(err, ErrOffline) {
 		t.Fatal("remove on a disabled peer", err)
 	}
 	if len(f.worktreeSent()) != 0 {
@@ -403,4 +404,23 @@ func TestWorktreeCreateRecordsWhereTheMachineMadeIt(t *testing.T) {
 	}
 	got, _ := f.st.TerminalSessionFor(f.uid, late.ID)
 	t.Fatal("a late create reply did not record the worktree", got)
+}
+
+// A remove whose reply never comes after it was sent is reported as a lost
+// reply (still a reconnect to callers that do not check), never as a refusal.
+func TestWorktreeRemoveReplyLostIsDistinguished(t *testing.T) {
+	ordinary := worktreeCallTimeout
+	worktreeCallTimeout = 150 * time.Millisecond
+	t.Cleanup(func() { worktreeCallTimeout = ordinary })
+	f := launchFixture(t, worktreeCapabilities("claude"))
+	f.worktree = func(terminalproto.Body) terminalproto.Body { return nil }
+	f.late = func(terminalproto.Message) {}
+	_, err := f.b.WorktreeRemove(t.Context(), f.uid, f.agent, testProject, "site", testRun, WorktreeCounts{})
+	if !errors.Is(err, ErrWorktreeReplyLost) || !errors.Is(err, ErrOffline) {
+		t.Fatal("lost remove reply", err)
+	}
+	// A request never sent (no ready peer) is a plain reconnect.
+	if _, err := f.b.WorktreeRemove(t.Context(), f.uid, "missing-agent", testProject, "site", testRun, WorktreeCounts{}); errors.Is(err, ErrWorktreeReplyLost) || !errors.Is(err, ErrOffline) {
+		t.Fatal("unsent remove", err)
+	}
 }

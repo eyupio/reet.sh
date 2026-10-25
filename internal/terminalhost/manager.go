@@ -543,11 +543,11 @@ func (m *Manager) WorktreeStatus(ctx context.Context, in terminalproto.WorktreeS
 // WorktreeRemove removes a run's worktree (see the package function). It holds
 // the manager lock like Create, so a create adopting the same worktree never
 // runs at the same time as its removal.
-func (m *Manager) WorktreeRemove(ctx context.Context, in terminalproto.WorktreeRemove) error {
+func (m *Manager) WorktreeRemove(ctx context.Context, in terminalproto.WorktreeRemove) (WorktreeRemoved, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := m.allowed(); err != nil {
-		return err
+		return WorktreeRemoved{}, err
 	}
-	return WorktreeRemove(ctx, m.home, in.Project, in.Repo, in.Run, WorktreeCounts{Changed: in.Changed, Unpushed: in.Unpushed}, m.git)
+	return RemoveWorktree(ctx, m.home, in.Project, in.Repo, in.Run, WorktreeCounts{Changed: in.Changed, Unpushed: in.Unpushed}, m.git)
 }

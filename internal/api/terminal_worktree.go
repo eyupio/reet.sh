@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -165,17 +167,24 @@ func (s *server) terminalWorktreeRemove(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	uid := s.uid(r)
-	// The machine reports the worktree's folder and branch only in status, so
-	// it is read first for the audit record. Remove checks everything again.
-	state, err := s.terminals.WorktreeStatus(r.Context(), uid, in.AgentID, in.Project, in.Repo, in.Run)
+	removed, err := s.terminals.WorktreeRemove(r.Context(), uid, in.AgentID, in.Project, in.Repo, in.Run, shown)
+	if errors.Is(err, terminalbroker.ErrWorktreeReplyLost) {
+		// The remove was sent but its answer never came. Ask for status once,
+		// on a budget of its own: nothing there means the remove happened.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Second)
+		_, statusErr := s.terminals.WorktreeStatus(ctx, uid, in.AgentID, in.Project, in.Repo, in.Run)
+		cancel()
+		if errors.Is(statusErr, terminalbroker.ErrWorktreeNotFound) {
+			branch := worktreeBranch(in.Project, in.Run)
+			s.event(uid, "ui", "worktree-remove", "", map[string]string{"machine": in.AgentID, "host": s.machineHost(uid, in.AgentID), "branch": branch, "confirmedBy": "status"})
+			writeJSON(w, 200, map[string]any{"ok": true, "branch": branch, "confirmedBy": "status"})
+			return
+		}
+	}
 	if err != nil {
 		worktreeError(w, err, worktreeRemoving)
 		return
 	}
-	if err := s.terminals.WorktreeRemove(r.Context(), uid, in.AgentID, in.Project, in.Repo, in.Run, shown); err != nil {
-		worktreeError(w, err, worktreeRemoving)
-		return
-	}
-	s.event(uid, "ui", "worktree-remove", "", map[string]string{"machine": in.AgentID, "host": s.machineHost(uid, in.AgentID), "path": state.Path, "branch": state.Branch})
-	writeJSON(w, 200, map[string]any{"ok": true, "path": state.Path, "branch": state.Branch})
+	s.event(uid, "ui", "worktree-remove", "", map[string]string{"machine": in.AgentID, "host": s.machineHost(uid, in.AgentID), "path": removed.Path, "branch": removed.Branch})
+	writeJSON(w, 200, map[string]any{"ok": true, "path": removed.Path, "branch": removed.Branch})
 }

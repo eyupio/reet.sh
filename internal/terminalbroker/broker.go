@@ -338,6 +338,14 @@ var (
 func (p *Peer) call(ctx context.Context, m terminalproto.Message) (terminalproto.Message, error) {
 	return p.callWithin(ctx, m, callTimeout)
 }
+
+// errReplyLost is ErrOffline for a request that was sent but never answered:
+// the machine may have done it.
+type errReplyLost struct{}
+
+func (errReplyLost) Error() string          { return ErrOffline.Error() }
+func (errReplyLost) Is(target error) bool { return target == ErrOffline }
+
 func (p *Peer) callWithin(ctx context.Context, m terminalproto.Message, limit time.Duration) (terminalproto.Message, error) {
 	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
@@ -365,9 +373,9 @@ func (p *Peer) callWithin(ctx context.Context, m terminalproto.Message, limit ti
 		}
 		return result, nil
 	case <-p.done:
-		return m, ErrOffline
+		return m, errReplyLost{}
 	case <-ctx.Done():
-		return m, ErrOffline
+		return m, errReplyLost{}
 	}
 }
 func resultOK(m terminalproto.Message) error {

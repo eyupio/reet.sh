@@ -2318,7 +2318,9 @@ this section was written.
   reply type other than result, reconcile and session change closed the connection). The API takes
   `worktree` and `project` on create, adds `POST /api/v2/terminal/worktrees/status` and
   `/remove`, maps every reason to a code and a sentence, and audits `worktree-remove` (machine,
-  host, path, branch) after a successful removal. `terminal-launch` gains `worktreeRun`, `project`,
+  host, path, branch) from the machine's `ok` answer, which since the fix round names the folder and
+  branch (a remove whose answer is lost is confirmed by one status call and audited with
+  `confirmedBy: status`). `terminal-launch` gains `worktreeRun`, `project`,
   `branch` and, since the fix round, `worktree` (the folder): the create reply now carries
   `worktreePath` and `worktreeRepo`, which are stored on the session and returned in its JSON.
 

@@ -471,3 +471,34 @@ func TestSessionChangedCarriesTheWorktree(t *testing.T) {
 		}
 	}
 }
+
+// A successful remove says which folder went and which branch was kept.
+func TestWorktreeResultOkCarriesWhatWasRemoved(t *testing.T) {
+	encode := func(body Body) ([]byte, error) {
+		return Encode(Message{Version: Version, RequestID: "request-0123456789", Generation: 1, Body: body})
+	}
+	ok := WorktreeResult{Code: OK, Path: "/home/u/.reet/worktrees/p/site/" + strings.Repeat("a", 24), Branch: "reet/p-" + strings.Repeat("a", 24)}
+	data, err := encode(ok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := Decode(data)
+	if err != nil || *m.Body.(*WorktreeResult) != ok {
+		t.Fatal("round trip", m, err)
+	}
+	if plain, _ := encode(WorktreeResult{Code: NotFound}); strings.Contains(string(plain), "path") {
+		t.Fatal("plain result changed", string(plain))
+	}
+	for name, bad := range map[string]WorktreeResult{
+		"path on a refusal": {Code: WorktreeRefused, Reason: WorktreeHasChanges, Path: ok.Path, Branch: ok.Branch},
+		"path on not found": {Code: NotFound, Path: ok.Path, Branch: ok.Branch},
+		"path alone":        {Code: OK, Path: ok.Path},
+		"branch alone":      {Code: OK, Branch: ok.Branch},
+		"relative path":     {Code: OK, Path: "x", Branch: ok.Branch},
+		"branch control":    {Code: OK, Path: ok.Path, Branch: "a\nb"},
+	} {
+		if _, err := encode(bad); err == nil {
+			t.Fatal(name, "was accepted")
+		}
+	}
+}

@@ -824,35 +824,56 @@ func plainPath(p string) string {
 // files are not counted and are deleted with the folder. Nothing at the path:
 // ErrWorktreeNotFound. Every git call shares one 60-second budget.
 func WorktreeRemove(ctx context.Context, home, project, repo, run string, shown WorktreeCounts, git GitRunner) error {
-	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	_, err := RemoveWorktree(ctx, home, project, repo, run, shown, git)
+	return err
+}
+
+// WorktreeRemoved says which folder a remove deleted and which branch it kept.
+type WorktreeRemoved struct {
+	Path   string
+	Branch string
+}
+
+// RemoveWorktree is WorktreeRemove reporting what it removed. The checks
+// share one gitTimeout budget that ends with ctx; the one changing call,
+// `git worktree remove`, then gets a gitTimeout budget of its own that the end
+// of ctx does not cut short, so a remove that has started is never stopped
+// half way through deleting the folder.
+func RemoveWorktree(ctx context.Context, home, project, repo, run string, shown WorktreeCounts, git GitRunner) (WorktreeRemoved, error) {
+	checkCtx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
-	w, err := locateWorktree(ctx, home, project, repo, run, git)
+	w, err := locateWorktree(checkCtx, home, project, repo, run, git)
 	if err != nil {
-		return err
+		return WorktreeRemoved{}, err
 	}
-	state, err := worktreeState(ctx, w, git)
+	state, err := worktreeState(checkCtx, w, git)
 	if err != nil {
-		return err
+		return WorktreeRemoved{}, err
 	}
 	if state.Changed != shown.Changed || state.Unpushed != shown.Unpushed {
-		return ErrWorktreeChanged
+		return WorktreeRemoved{}, ErrWorktreeChanged
 	}
 	switch {
 	case state.Changed > 0:
-		return refuseWorktree(terminalproto.WorktreeHasChanges, "")
+		return WorktreeRemoved{}, refuseWorktree(terminalproto.WorktreeHasChanges, "")
 	case state.Hidden > 0:
-		return refuseWorktree(terminalproto.WorktreeHiddenChanges, "")
+		return WorktreeRemoved{}, refuseWorktree(terminalproto.WorktreeHiddenChanges, "")
 	case state.Unreferenced > 0:
-		return refuseWorktree(terminalproto.WorktreeUnreferencedCommits, "")
+		return WorktreeRemoved{}, refuseWorktree(terminalproto.WorktreeUnreferencedCommits, "")
 	case state.Nested:
-		return refuseWorktree(terminalproto.WorktreeNestedRepository, "")
+		return WorktreeRemoved{}, refuseWorktree(terminalproto.WorktreeNestedRepository, "")
 	case state.Incomplete:
-		return refuseWorktree(terminalproto.WorktreeCheckIncomplete, "")
+		return WorktreeRemoved{}, refuseWorktree(terminalproto.WorktreeCheckIncomplete, "")
 	}
-	if out, err := git(ctx, w.root, "worktree", "remove", w.path); err != nil {
-		return gitFailed(out, err)
+	if checkCtx.Err() != nil {
+		return WorktreeRemoved{}, gitFailed(nil, checkCtx.Err())
 	}
-	return nil
+	removeCtx, cancelRemove := context.WithTimeout(context.WithoutCancel(ctx), gitTimeout)
+	defer cancelRemove()
+	if out, err := git(removeCtx, w.root, "worktree", "remove", w.path); err != nil {
+		return WorktreeRemoved{}, gitFailed(out, err)
+	}
+	return WorktreeRemoved{Path: w.path, Branch: w.branch}, nil
 }
 
 // locateWorktree finds a run's worktree and checks it before anything reads

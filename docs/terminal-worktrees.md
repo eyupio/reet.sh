@@ -136,7 +136,9 @@ In the worktree:
 ### Removing
 
 Status is computed again, then, only if nothing blocks it, in the repository root:
-`git worktree remove <worktree>`, **without** `--force`. git checks cleanliness and
+`git worktree remove <worktree>`, **without** `--force`, on a 60-second budget of
+its own (not what the checks left of theirs), which the end of the connection does
+not cut short, so a remove that has started is never stopped half way. git checks cleanliness and
 locks once more itself. `branch` and `prune` are never run.
 
 ### Hooks and repository configuration
@@ -157,7 +159,8 @@ started afterwards can run anything the user can, as it always could.
 ## Limits and budgets
 
 - Each git call is limited to 60 seconds. All the calls for one create, one
-  status or one remove share a single 60-second budget. Cleanup after a failed add
+  status, or one remove's checks share a single 60-second budget; the remove's
+  own `git worktree remove` has a separate 60 seconds. Cleanup after a failed add
   has its own 30-second budget.
 - On timeout the whole process group git started is killed (SIGKILL), and the
   process is waited for at most 2 more seconds. A helper that puts itself in a new
@@ -285,9 +288,13 @@ not a viewer, the canonical `Origin`, the remote-terminals switch on, strict JSO
   and answers `{path, branch, changed, unpushed, paths, unreferenced, hidden,
   nested, incomplete}` with every field present.
 - `POST /api/v2/terminal/worktrees/remove` takes the same plus `changed` and
-  `unpushed`, both required. The controller first asks for status (to learn the
-  folder and branch for the audit record), then sends the remove; the machine
-  computes status again and decides. It answers `{ok: true, path, branch}`.
+  `unpushed`, both required. The controller sends the remove; the machine
+  computes status again and decides, and its `ok` answer names the folder it
+  deleted and the branch it kept. It answers `{ok: true, path, branch}`.
+  If the remove was sent but no answer came, the controller asks for status
+  once: if nothing is there any more, it answers `{ok: true, branch,
+  confirmedBy: "status"}` (the folder is not known then); otherwise it answers
+  503 as a reconnect, and the person checks again.
 
 The session JSON returned by create (and listed by `GET /api/v2/terminal/sessions`)
 carries `worktreePath`, `worktreeRepo` and `worktreeBranch` for a session started
@@ -322,9 +329,9 @@ refusal (when no agent was started).
   the create's reply was lost and the session was resolved later, `worktree` is
   absent. The prompt is never included.
 - `worktree-remove`, source `ui`, with exactly `machine`, `host`, `path` and
-  `branch`, written only after the machine answered that the worktree was removed.
-  A refused remove writes nothing. If the reply to a successful remove is lost,
-  that removal is not audited.
+  `branch` from the machine's `ok` answer. A refused remove writes nothing. When
+  the answer was lost and status then found nothing there, the event has
+  `machine`, `host`, `branch` and `confirmedBy: "status"`, without `path`.
 
 ## Known limits
 

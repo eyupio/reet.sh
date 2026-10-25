@@ -1,11 +1,13 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/coder/websocket"
 
@@ -363,7 +365,8 @@ func TestTerminalWorktreeRemoveRefusalsMapToSentences(t *testing.T) {
 	} {
 		f.answer(func(body terminalproto.Body) terminalproto.Body {
 			if _, ok := body.(terminalproto.WorktreeStatus); ok {
-				return freshState()
+				t.Error("remove asked for status first")
+				return terminalproto.WorktreeResult{Code: terminalproto.Unavailable}
 			}
 			return tc.reply
 		})
@@ -403,18 +406,17 @@ func TestTerminalWorktreeRemoveAuditsOnlyASuccessfulRemoval(t *testing.T) {
 	f := launchAPIFixture(t, worktreeCaps("claude"))
 	f.answer(func(body terminalproto.Body) terminalproto.Body {
 		if _, ok := body.(terminalproto.WorktreeStatus); ok {
-			state := freshState()
-			state.Unpushed = 2
-			return state
+			t.Error("remove asked for status first")
+			return terminalproto.WorktreeResult{Code: terminalproto.Unavailable}
 		}
-		return terminalproto.WorktreeResult{Code: terminalproto.OK}
+		return terminalproto.WorktreeResult{Code: terminalproto.OK, Path: worktreeTestPath, Branch: worktreeTestBranch}
 	})
 	code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/terminal/worktrees/remove", worktreeRequest(f.agent.ID, map[string]any{"changed": 0, "unpushed": 2}))
 	if code != 200 || out["ok"] != true || out["path"] != worktreeTestPath || out["branch"] != worktreeTestBranch {
 		t.Fatal(code, raw)
 	}
 	sent := f.worktreeSent()
-	if len(sent) != 2 || sent[1] != (terminalproto.WorktreeRemove{Run: worktreeTestRun, Project: worktreeTestProject, Repo: "site", Changed: 0, Unpushed: 2}) {
+	if len(sent) != 1 || sent[0] != (terminalproto.WorktreeRemove{Run: worktreeTestRun, Project: worktreeTestProject, Repo: "site", Changed: 0, Unpushed: 2}) {
 		t.Fatal("remove request", sent)
 	}
 	events := worktreeEvents(t, f.st, f.uid, "worktree-remove")
@@ -464,5 +466,48 @@ func TestPrivateControlAdvertisesWorktreeBesideLaunch(t *testing.T) {
 	features := response.Header.Get(terminalproto.FeatureHeader)
 	if features != "command-history-v1,launch-v1,worktree-v1" || !terminalproto.SupportsWorktree(features) {
 		t.Fatal("features", features)
+	}
+}
+
+// When a remove's reply is lost, the controller asks for status once: not
+// found means the remove happened, and it is audited as confirmed by status.
+func TestTerminalWorktreeRemoveWithALostReplyIsConfirmedByStatus(t *testing.T) {
+	f := launchAPIFixture(t, worktreeCaps("claude"))
+	for _, tc := range []struct {
+		name   string
+		status terminalproto.Body
+		code   int
+		audits int
+	}{
+		{"gone", terminalproto.WorktreeResult{Code: terminalproto.NotFound}, 200, 1},
+		{"still there", freshState(), 503, 1},
+		{"busy", terminalproto.WorktreeResult{Code: terminalproto.Conflict}, 503, 1},
+	} {
+		f.answer(func(body terminalproto.Body) terminalproto.Body {
+			if _, ok := body.(terminalproto.WorktreeRemove); ok {
+				return nil // the reply never comes
+			}
+			return tc.status
+		})
+		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+		code, out, raw := f.doCtx(t, ctx, f.cookie, "POST", "/api/v2/terminal/worktrees/remove", worktreeRequest(f.agent.ID, map[string]any{"changed": 0, "unpushed": 0}))
+		cancel()
+		if code != tc.code {
+			t.Fatal(tc.name, code, raw)
+		}
+		if code == 200 && (out["ok"] != true || out["branch"] != worktreeTestBranch || out["confirmedBy"] != "status" || out["path"] != nil) {
+			t.Fatal(tc.name, raw)
+		}
+		if events := worktreeEvents(t, f.st, f.uid, "worktree-remove"); len(events) != tc.audits {
+			t.Fatal(tc.name, "audit rows", len(events))
+		}
+	}
+	events := worktreeEvents(t, f.st, f.uid, "worktree-remove")
+	var detail map[string]any
+	if err := json.Unmarshal([]byte(events[0].Detail), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail["confirmedBy"] != "status" || detail["branch"] != worktreeTestBranch || detail["machine"] != f.agent.ID || detail["path"] != nil {
+		t.Fatal("confirmed remove audit", events[0].Detail)
 	}
 }

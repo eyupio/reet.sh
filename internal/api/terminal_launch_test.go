@@ -76,6 +76,9 @@ func launchAPIFixture(t *testing.T, caps terminalproto.Capabilities) *launchAPI 
 			if respond != nil {
 				reply.Body = respond(op)
 			}
+			if reply.Body == nil {
+				return nil // no answer: the reply is lost
+			}
 		default:
 			reply.Body = terminalproto.Result{Code: terminalproto.OK}
 		}
@@ -100,6 +103,11 @@ func launchAPIFixture(t *testing.T, caps terminalproto.Capabilities) *launchAPI 
 
 func (f *launchAPI) do(t *testing.T, cookie, method, path string, body any) (int, map[string]any, string) {
 	t.Helper()
+	return f.doCtx(t, context.Background(), cookie, method, path, body)
+}
+
+func (f *launchAPI) doCtx(t *testing.T, ctx context.Context, cookie, method, path string, body any) (int, map[string]any, string) {
+	t.Helper()
 	var reader *strings.Reader
 	switch b := body.(type) {
 	case string:
@@ -108,7 +116,7 @@ func (f *launchAPI) do(t *testing.T, cookie, method, path string, body any) (int
 		data, _ := json.Marshal(b)
 		reader = strings.NewReader(string(data))
 	}
-	r := httptest.NewRequest(method, path, reader)
+	r := httptest.NewRequestWithContext(ctx, method, path, reader)
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Origin", "https://reet.example")
 	if cookie != "" {

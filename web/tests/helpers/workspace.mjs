@@ -4,7 +4,7 @@ export const owner = {id:1,name:'Sam',email:'sam@example.test',role:'owner'}
 const now = Date.now()
 export const skill = id => ({id:`demo/toolkit/${id}`,name:id,slug:id,source:'demo/toolkit',sourceType:'github',url:`https://www.skills.sh/demo/toolkit/${id}`,description:'Example skill for UI verification.',notes:'',installs:0,installsWeek:0,trend:[],liked:false,bookmarked:false,used:false,createdAt:now,updatedAt:now})
 
-export async function openWorkspace(browser, {width, height=812, theme='light', status, skills=[], unread=0, terminalStatus={configured:false,available:false,reason:'disabled'}, terminalMachines=[], hosting={username:'',prefix:'reet-',skills:[]}, sync={environments:[],machines:[],agents:[],targets:[],jobs:[],runs:[],updateJobs:[]}} = {}) {
+export async function openWorkspace(browser, {width, height=812, theme='light', status, skills=[], unread=0, terminalStatus={configured:false,available:false,reason:'disabled'}, terminalMachines=[], hosting={username:'',prefix:'reet-',skills:[]}, sync={environments:[],machines:[],agents:[],targets:[],jobs:[],runs:[],updateJobs:[]}, inventory={environments:[],machines:[]}} = {}) {
  const context = await browser.newContext({viewport:{width,height}})
  const page = await context.newPage()
  const state = {status:{mode:'accounts',setupRequired:false,bootstrapRequired:false,signupEnabled:false,user:owner,...status}, theme, unexpected:[]}
@@ -18,7 +18,7 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/profile')return json({user:owner,sessionCount:1,accounts:true,profile:{theme:state.theme,timezone:'Europe/London',dateFormat:'',shelfView:'list',cardsExpanded:false,hostedPrefix:'reet-',updatedAt:now}})
   if(path==='/api/version')return json({version:'test',commit:'fixture'})
   if(path==='/api/skills')return json({skills,counts:{all:skills.length,used:skills.filter(s=>s.used).length,liked:0,bookmarked:0}})
-  if(path==='/api/environments')return json({environments:[],machines:[]})
+  if(path==='/api/environments')return json(inventory)
   if(path==='/api/tags')return json({tags:[]})
   if(path==='/api/v2/lists')return json({lists:[],linkEnabled:false})
   if(path==='/api/v2/sync')return json(sync)
@@ -43,4 +43,10 @@ export const active = {configured:true,available:true,reason:''}
 export const freshInstanceSync = () => {
   const scope = {id:'srv',host:'controller',agent:'reet-server',name:'controller',skills:[],skillCount:0,complete:true,scannedAt:Date.now(),lastSeen:Date.now(),os:'linux',arch:'amd64',version:'test'}
   return {environments:[scope],machines:[{host:'controller',groups:[scope],skillCount:0}],agents:[],targets:[],jobs:[],runs:[],updateJobs:[]}
+}
+
+// A machine whose agent scan found these skills, as the shelf reads it from /api/environments.
+export const machineWith = (host, skills) => {
+  const scope = {id:`${host}-agents`,host,agent:'agents',name:host,skills,skillCount:skills.length,complete:true,scannedAt:Date.now(),lastSeen:Date.now(),os:'linux',arch:'amd64',version:'test'}
+  return {environments:[scope],machines:[{host,groups:[scope],skillCount:skills.length}]}
 }

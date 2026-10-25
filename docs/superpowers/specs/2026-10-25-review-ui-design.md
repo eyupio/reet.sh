@@ -119,7 +119,7 @@ returning, for a captured, adoptable check and a revision of the pin's own bundl
 
 A path whose bytes or mode differ between the machine and the library appears twice, once as
 `stays_yours` (the machine's copy) and once as `library_only` (the library's copy), and the
-browser shows such a pair as one row, "edited on this machine".
+browser shows such a pair as one row, "differs from this revision".
 
 It is metadata only (no bytes, no private text), computed on the server from the stored check
 and the stored revision with the same claim function adoption uses, so the screen cannot

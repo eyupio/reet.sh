@@ -14,7 +14,7 @@
  // reads, or records intent in reet; nothing is written to the machine. The Pin step records intent; the Check step asks
  // the machine what it holds (names, sizes and digests only). opener is the
  // element the person pressed to open this, which gets focus back on close (not every browser focuses a button on click).
- let { snapshot, source, canWrite, accounts, opener = null, onclose }: { snapshot: SyncState; source: { environmentId: string; name?: string }; canWrite: boolean; accounts: boolean; opener?: HTMLElement | null; onclose: () => void } = $props()
+ let { snapshot, source, canWrite, accounts, opener = null, onclose, onsignedout }: { snapshot: SyncState; source: { environmentId: string; name?: string }; canWrite: boolean; accounts: boolean; opener?: HTMLElement | null; onclose: () => void; onsignedout?: (e: unknown) => void } = $props()
  type Step = 'pin' | 'check'
  const titleId = $props.id()
  let dialog = $state<HTMLDialogElement>()
@@ -146,7 +146,7 @@
    await load()
    if (!alive) return
   }
-  error = describeFlowError(e)
+  fail(e)
  }
  async function save(choice: PinChoice): Promise<void> {
   if (busy) return
@@ -223,8 +223,15 @@
  // stay hidden; after that the person is told plainly that it could not be confirmed.
  let receiptsTimer: ReturnType<typeof setTimeout> | undefined, refreshedFor = '', receiptTries = 0, receiptsWaiting = false, signedOut = false
  // The adoption whose reply was lost: when its record turns up the message about it is replaced.
- let pendingAdopt: { previewId: string; revisionId: string; slot: string } | null = null
- function markSignedOut() { signedOut = true; clearTimeout(receiptsTimer); receiptsTimer = undefined; pendingAdopt = null; error = SIGNED_OUT }
+ let pendingAdopt: { previewId: string; revisionId: string; slot: string; said: string } | null = null
+ // A failure shows as the message, or hands over to the sign-in when the sign-in is what failed.
+ function fail(e: unknown) { if (isSignedOut(e)) markSignedOut(); else error = describeFlowError(e) }
+ // The sign-in is gone: stop retrying, say so, and hand it to the page, which clears the token and shows its sign-in card.
+ function markSignedOut() {
+  const first = !signedOut
+  signedOut = true; clearTimeout(receiptsTimer); receiptsTimer = undefined; pendingAdopt = null; error = SIGNED_OUT
+  if (first) onsignedout?.(new UnauthorizedError())
+ }
  function wantReceipts(fresh = true) {
   if (fresh) receiptTries = 0
   clearTimeout(receiptsTimer); receiptsTimer = undefined
@@ -257,7 +264,10 @@
    receipts = read.receipts; receiptsDown = false
    const waiting = pendingAdopt
    if (waiting && read.receipts.some(r => madeByAdoption(r, waiting.previewId, waiting.revisionId))) {
-    adoptKeys.delete(waiting.slot); pendingAdopt = null; error = ''; notice = 'That ownership was recorded.'
+    adoptKeys.delete(waiting.slot); pendingAdopt = null
+    // Only the messages about that lost reply go; anything else on screen stays.
+    if (error === waiting.said || error === UNSURE) error = ''
+    notice = 'That ownership was recorded.'
    }
    return true
   } catch (e) {
@@ -307,7 +317,7 @@
    if (!alive) return
    notice = `Sorted. Ownership of ${filesText(recorded.fileCount)} in ${recorded.name} is recorded. ${OWNERSHIP_SENTENCE} Nothing on the machine was changed.`
   } catch (e) {
-   if (alive) error = describeFlowError(e)
+   if (alive) fail(e)
   } finally {
    if (alive) busy = false
   }
@@ -342,7 +352,7 @@
   // No reply arrived, so the record may exist: look for it among the records. If it is not there, or they cannot be read,
   // the key is kept and the next press sends the same request.
   error = describeFlowError(e)
-  pendingAdopt = { previewId: again.id, revisionId, slot }
+  pendingAdopt = { previewId: again.id, revisionId, slot, said: error }
   try {
    const read = await getContentReceipts(life.signal)
    if (!alive) return undefined
@@ -374,7 +384,7 @@
     // When no reply came the release may still have landed: read again quietly and keep the plain message.
     if (!(e instanceof ApiError || e instanceof UnauthorizedError)) await load()
     if (!alive) return
-    error = describeFlowError(e)
+    fail(e)
    }
   } finally {
    if (alive) busy = false

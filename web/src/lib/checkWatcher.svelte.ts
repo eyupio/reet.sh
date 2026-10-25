@@ -61,6 +61,8 @@ export class CheckWatcher {
   private watchBusy = false
   // Reads of the watched check that failed in a row (backs the next one off), and checks the item read refused (404).
   private failures = 0
+  // Set once the sign-in is gone: nothing re-arms until the person acts again.
+  private stopped = false
   private gone = new Set<string>()
   private watchTimer: ReturnType<typeof setTimeout> | undefined
   private watchAbort: AbortController | undefined
@@ -128,11 +130,8 @@ export class CheckWatcher {
         if (this.watchFailed) { this.watchFailed = false; host.error = '' }
       } catch (e) {
         if (fenced() || abort.signal.aborted) return
-        if (isSignedOut(e) || e instanceof UnauthorizedError) {
-          // Nothing more can be read: stop, say so plainly, and do not ask again.
-          this.stopWatching(); this.watchFailed = false; host.error = SIGNED_OUT; host.signedOut()
-          return
-        }
+        // Nothing more can be read: stop, say so plainly, and do not ask again.
+        if (this.signedOutBy(e)) return
         if (e instanceof ApiError && e.status === 404) {
           // The list may keep a row the item read refuses: forget it, read the list once, and give up on that check if it returns.
           this.watchBusy = false
@@ -157,19 +156,20 @@ export class CheckWatcher {
   // Keep the watcher matched to what is on screen: nothing for a final check, a read at once for one not yet shown in full.
   syncWatch() {
     const row = this.check
-    if (!this.host.alive() || !this.host.inCheck() || !this.host.selectedPin() || !row) { this.stopWatching(); return }
+    if (!this.host.alive() || !this.host.inCheck() || !this.host.selectedPin() || !row || this.stopped) { this.stopWatching(); return }
     if (!this.usable) { this.watch(row.id, true); return }
     if (pollDelay(row.state, false) === null) { this.stopWatching(); return }
     if (this.watchId !== row.id) this.watch(row.id, true)
   }
   retryWatch() {
+    this.stopped = false
     this.host.error = ''; this.watchFailed = false
     if (this.check) this.watch(this.check.id, true)
   }
   // While the connector has not recently reported in, the list is read now and then so the button comes back by itself.
   scheduleCaps() {
     clearTimeout(this.capTimer); this.capTimer = undefined
-    if (!this.host.alive() || !this.host.inCheck() || this.connectorReady || document.hidden) return
+    if (!this.host.alive() || !this.host.inCheck() || this.connectorReady || document.hidden || this.stopped) return
     this.capTimer = setTimeout(async () => {
       this.capTimer = undefined
       if (!this.host.alive() || !this.host.inCheck()) return
@@ -177,7 +177,7 @@ export class CheckWatcher {
         const listed = await getContentPreviews(this.host.signal)
         if (this.host.alive()) { this.applyList(listed, Date.now()); this.host.checksDown = false }
       } catch (e) {
-        if (isSignedOut(e)) { this.host.error = SIGNED_OUT; this.host.signedOut(); return }
+        if (this.signedOutBy(e)) return
         /* the next try will do */
       }
       this.scheduleCaps()
@@ -185,12 +185,12 @@ export class CheckWatcher {
   }
   // Coming back to the tab reads a check that can still change at once, and the connector's readiness again.
   visibilityChanged() {
-    if (document.hidden) return
+    if (document.hidden || this.stopped) return
     this.scheduleCaps()
     if (this.watchWants && !this.watchBusy && this.watchRead) { clearTimeout(this.watchTimer); this.watchTimer = undefined; void this.watchRead() }
   }
   /** The person opened a pin's check (or left it). */
-  opened() { this.resumeCandidate = null; this.watchFailed = false; this.syncWatch(); this.scheduleCaps() }
+  opened() { this.stopped = false; this.resumeCandidate = null; this.watchFailed = false; this.syncWatch(); this.scheduleCaps() }
   left() { this.stopWatching(); clearTimeout(this.capTimer); this.capTimer = undefined; this.resumeCandidate = null; this.watchFailed = false }
   /** The dialog is closing or gone. */
   dispose() { this.stopWatching(); clearTimeout(this.capTimer); this.capTimer = undefined }
@@ -203,7 +203,16 @@ export class CheckWatcher {
   }
   private slotOf = (pin: ContentPin) => `${pin.id}:${pin.version}`
 
+  /** The sign-in is gone: stop every timer and read, say so, and let the shell take the person to sign in. */
+  private signedOutBy(e: unknown): boolean {
+    if (!isSignedOut(e) && !(e instanceof UnauthorizedError)) return false
+    this.stopped = true; this.stopWatching(); clearTimeout(this.capTimer); this.capTimer = undefined; this.watchFailed = false
+    this.host.error = SIGNED_OUT; this.host.signedOut()
+    return true
+  }
+
   async startCheck(): Promise<void> {
+    this.stopped = false
     const host = this.host
     const pin = host.selectedPin()
     if (host.busy || !pin || !host.checkReady()) return
@@ -238,6 +247,7 @@ export class CheckWatcher {
   }
   private async createFailed(e: unknown, pin: ContentPin, slot: string) {
     const host = this.host
+    if (this.signedOutBy(e)) return
     host.error = describeFlowError(e)
     if (e instanceof ApiError) {
       // The server answered, so that key is spent. Every refusal to make a check is a 409, whether the machine is busy, the
@@ -293,7 +303,7 @@ export class CheckWatcher {
       if (!host.alive()) return
       this.accept(stopped); this.syncWatch()
     } catch (e) {
-      if (host.alive()) { host.error = describeFlowError(e); await host.reload() }
+      if (host.alive() && !this.signedOutBy(e)) { host.error = describeFlowError(e); await host.reload() }
     } finally {
       if (host.alive()) host.busy = false
     }
@@ -308,7 +318,7 @@ export class CheckWatcher {
       this.forget(current.id)
       this.syncWatch()
     } catch (e) {
-      if (host.alive()) { host.error = describeFlowError(e); await host.reload() }
+      if (host.alive() && !this.signedOutBy(e)) { host.error = describeFlowError(e); await host.reload() }
     } finally {
       if (host.alive()) host.busy = false
     }

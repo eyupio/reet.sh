@@ -29,6 +29,7 @@
     onupdate,
     onerror,
     onnotice,
+    onsignedout,
   }: {
     machines: Machine[]
     snapshot: SyncState
@@ -41,6 +42,8 @@
     onupdate: (state: SyncState) => void
     onerror: (error: unknown) => void
     onnotice: (message: string) => void
+    // The sign-in ran out inside a dialog: the page clears it and shows its sign-in card.
+    onsignedout?: (error: unknown) => void
   } = $props()
 
   type Pending = { title: string; body: string; confirmLabel: string; danger?: boolean; action: () => Promise<void> }
@@ -320,7 +323,7 @@
 
 {#if importSource}<MachineSkillImports {snapshot} source={importSource} onclose={() => importSource = null} />{/if}
 
-{#if contentSource}<MachineSkillContent {snapshot} source={contentSource} opener={contentSource.opener} {canWrite} {accounts} onclose={() => contentSource = null} />{/if}
+{#if contentSource}<MachineSkillContent {snapshot} source={contentSource} opener={contentSource.opener} {canWrite} {accounts} {onsignedout} onclose={() => contentSource = null} />{/if}
 
 {#if commandsFor}
   <MachineCommands

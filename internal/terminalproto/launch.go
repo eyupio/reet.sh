@@ -26,6 +26,18 @@ func SupportsLaunch(features string) bool {
 
 func ValidTool(id string) bool { return launchTools[id] }
 
+// ValidModel, ValidDir and ValidPrompt expose the exact rules the connector
+// applies to Create fields, so the controller's stores and APIs never copy them.
+// Unlike the Create fields they refuse the empty value; callers skip optional
+// fields themselves.
+func ValidModel(model string) bool { return validModel(model) }
+
+// ValidDir accepts an absolute folder with no control characters.
+func ValidDir(dir string) bool { return validDir(dir) }
+
+// ValidPrompt accepts a non-empty opening prompt within MaxPromptBytes.
+func ValidPrompt(prompt string) bool { return validPrompt(prompt) }
+
 func validTools(tools []string) bool {
 	for i, tool := range tools {
 		if !ValidTool(tool) || i > 0 && tools[i-1] >= tool {

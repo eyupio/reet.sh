@@ -18,7 +18,7 @@ const joinSource = transpile('./machineJoin.ts')
 const join = await import(url(joinSource))
 const setup = await import(setupURL)
 const review = await import(reviewURL)
-const { MAX_MACHINE_NAME_BYTES, JOIN_WATCH_CAP_MS, validateMachineName, canonicalHost, joinCommands, joinBaseline, joinState, landingFor, joinDelay } = join
+const { MAX_MACHINE_NAME_BYTES, JOIN_WATCH_CAP_MS, validateMachineName, canonicalHost, joinCommands, joinBaseline, joinState, landingFor, joinDelay, JOIN_AUTO_MS, fromPrivateSkills, landingNote } = join
 
 const now = 1_800_000_000_000
 const DAY = 86_400_000
@@ -387,4 +387,18 @@ test('alias handling never throws on odd machines', () => {
     assert.doesNotThrow(() => joinBaseline('old', [agent()], ms))
     assert.doesNotThrow(() => view({ name: 'old', machines: ms }))
   }
+})
+
+test('the Private skills context is told apart from the Machines page, and the landing note says only what was chosen', () => {
+  assert.equal(JOIN_AUTO_MS, 3000)
+  assert.equal(fromPrivateSkills({}), false)
+  assert.equal(fromPrivateSkills({ skill: 'demo' }), true)
+  assert.equal(fromPrivateSkills({ agent: 'claude' }), true)
+  assert.equal(fromPrivateSkills({ bundleId: 'b' }), false)   // a bundle alone says nothing about where the person came from
+  assert.equal(fromPrivateSkills({ agent: 'claude', bundleId: 'b' }), true)   // an agent alone is enough
+  const open = (others) => ({ kind: 'open', environmentId: 'e', chosen: 'Claude Code', others })
+  assert.equal(landingNote('rack', open(0)), 'Opened on Claude Code on rack.')
+  assert.equal(landingNote('rack', open(1)), 'Opened on Claude Code on rack. 1 other folder also qualifies; open it from the Machines page.')
+  assert.equal(landingNote('rack', open(3)), 'Opened on Claude Code on rack. 3 other folders also qualify; open them from the Machines page.')
+  assert.doesNotMatch(landingNote('rack', open(2)), /verified|healthy/i)
 })

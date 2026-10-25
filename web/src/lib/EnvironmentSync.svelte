@@ -41,6 +41,9 @@
   let setupHost = $state('')
   // The Add a machine dialog, with what opened it, and the machine it just brought in (highlighted for a few seconds).
   let joining = $state<{ context: JoinContext; opener: HTMLElement | null } | null>(null)
+  // Set when the dialog was opened from the Private skills dialog and a folder was chosen for the new machine: the fleet opens
+  // the Private skills dialog on it once and clears this.
+  let landing = $state<{ environmentId: string; name?: string; note: string } | null>(null)
   let justAdded = $state('')
   let justAddedTimer: ReturnType<typeof setTimeout> | undefined
   const initialSetupMode = new URLSearchParams(location.search).get('setup') === 'scratch' ? 'scratch' : 'connect'
@@ -131,8 +134,9 @@
     await load(true)
     if (loadFailure !== undefined) throw loadFailure
   }
-  function openJoin(opener: HTMLElement | null) {
-    joining = { context: {}, opener }
+  // From the Machines page there is no context; the Private skills dialog passes the skill, bundle and agent it came with.
+  function openJoin(opener: HTMLElement | null, context: JoinContext = {}) {
+    joining = { context, opener }
   }
   // Closing the dialog hands focus to the entry that opened it; if that entry has moved (the machines were read while it was
   // open), to wherever the entry is now.
@@ -140,15 +144,17 @@
     const opener = joining?.opener
     joining = null
     void tick().then(() => {
-      if (opener?.isConnected) return
+      // Never take focus from a dialog that has just opened (the Private skills landing), or from the opener.
+      if (opener?.isConnected || landing || document.querySelector('dialog[open]')) return
       document.querySelector<HTMLElement>('[data-add-machine]')?.focus()
     })
   }
-  // The new machine is reported in and ready. From the Machines page that means showing it; the Private skills landing is the
-  // other branch (context.skill) and is added where that dialog opens this one.
-  function joinReady(r: { host: string; context: JoinContext }) {
-    if (r.context.skill !== undefined) {
-      // Not yet wired to a landing: fall back to showing the machine.
+  // The new machine is reported in and ready. From the Machines page that means showing it. From the Private skills dialog the
+  // dialog has already chosen the folder (at the moment Use was pressed), so the fleet opens the Private skills dialog on it.
+  function joinReady(r: { host: string; context: JoinContext; landing?: { environmentId: string; name?: string }; note?: string }) {
+    if (r.landing) {
+      landing = { environmentId: r.landing.environmentId, name: r.landing.name, note: r.note ?? '' }
+      return
     }
     void showMachine(r.host)
   }
@@ -217,7 +223,7 @@
   {:else}
     <MachineSetup {terminalAccess} {site} {machines} {profiles} {token} {tokenSetup} {serverBuild} snapshot={syncState} bind:open={setupOpen} bind:host={setupHost} initialMode={initialSetupMode} onrefresh={() => load()} />
     {#if visibleMachines.length}
-      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {accounts} {terminalAccess} {monitorAccess} onadd={openSetup} onjoin={canAdd ? openJoin : undefined} highlight={justAdded} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e) }} {onsignedout} onnotice={(message) => { notice = message }} />
+      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {accounts} {terminalAccess} {monitorAccess} onadd={openSetup} onjoin={canAdd ? openJoin : undefined} {landing} onlanded={() => { landing = null }} highlight={justAdded} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e) }} {onsignedout} onnotice={(message) => { notice = message }} />
     {/if}
   {/if}
 

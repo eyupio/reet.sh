@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import type { HealthResponse } from './terminal/api'
   import { getMachineHealth as machineHealth } from './api'
   import MachineHealthStrip from './terminal/MachineHealthStrip.svelte'
@@ -15,6 +15,7 @@
   import MachineSkillImports from './MachineSkillImports.svelte'
   import MachineSkillContent from './MachineSkillContent.svelte'
   import { scopeEligibility } from './contentReview'
+  import type { JoinContext } from './machineJoin'
   import ConfirmDialog from './ConfirmDialog.svelte'
 
   let {
@@ -27,6 +28,8 @@
     monitorAccess=false,
     onadd,
     onjoin,
+    landing = null,
+    onlanded,
     highlight = '',
     onupdate,
     onerror,
@@ -42,7 +45,11 @@
     monitorAccess?:boolean
     onadd: () => void
     /** Opens the Add a machine dialog; absent when the person cannot use it. Given the button, which gets focus back. */
-    onjoin?: (opener: HTMLElement) => void
+    onjoin?: (opener: HTMLElement | null, context?: JoinContext) => void
+    /** A folder the Add a machine dialog chose for the Private skills dialog to open on, with the note saying which. Used once. */
+    landing?: { environmentId: string; name?: string; note: string } | null
+    /** Called as soon as `landing` has been turned into the dialog, so it cannot open again when this is drawn again. */
+    onlanded?: () => void
     /** The machine just brought in by that dialog: its card is marked for a few seconds. */
     highlight?: string
     onupdate: (state: SyncState) => void
@@ -57,7 +64,7 @@
   let confirm = $state<Pending | null>(null)
   let busy = $state('')
   let importSource = $state<{ environmentId: string; name: string } | null>(null)
-  let contentSource = $state<{ environmentId: string; name?: string; opener: HTMLElement } | null>(null)
+  let contentSource = $state<{ environmentId: string; name?: string; opener: HTMLElement | null; note?: string } | null>(null)
   // The settings dialog and the review read the live snapshot by host and id,
   // so a change made inside them shows there at once instead of in a stale copy.
   let settingsHost = $state('')
@@ -77,6 +84,36 @@
   }
   function pinOpener(group: SyncEnvironment): ((name: string, opener: HTMLElement) => void) | undefined {
     return privateSkills(group)?.ok ? (name, opener) => { contentSource = { environmentId: group.id, name, opener } } : undefined
+  }
+  // The landing from the Add a machine dialog becomes the Private skills dialog once, then is handed back as used.
+  // The folder was chosen when Use was pressed; it is judged again here, against the snapshot and the clock as they are now.
+  $effect(() => {
+    const next = landing
+    if (!next) return
+    untrack(() => {
+      const group = snapshot.environments?.find((env) => env.id === next.environmentId)
+      if (!group || !privateSkills(group)?.ok) {
+        onnotice("Private skills can't open on that folder right now.")
+        onlanded?.()
+        return
+      }
+      // When the folder's own button is not drawn (the page is filtered to another machine), focus goes back to Add a machine.
+      const opener = document.querySelector<HTMLElement>(`[data-private-skills="${CSS.escape(next.environmentId)}"]`) ?? document.querySelector<HTMLElement>('[data-add-machine]')
+      // The folder is shown when the dialog is closed, so focus has somewhere to go back to.
+      for (let node = opener?.closest('details'); node; node = node.parentElement?.closest('details')) node.open = true
+      contentSource = { environmentId: next.environmentId, name: next.name, opener, note: next.note }
+      onlanded?.()
+    })
+  })
+  // The Private skills dialog's way into Add a machine (only for a writer in accounts mode, who is the one `onjoin` is given to):
+  // it closes, and the add dialog opens with what it came with, handing focus back to what was pressed if closed.
+  function addFromPrivate(source: { opener: HTMLElement | null }): ((context: JoinContext) => void) | undefined {
+    if (!onjoin || !accounts || !canWrite) return undefined
+    return (context) => {
+      const opener = source.opener
+      contentSource = null
+      onjoin(opener, context)
+    }
   }
   function agentFor(machine: Machine): SyncAgent | undefined {
     return snapshot.agents?.find((agent) => agent.host.toLowerCase() === machine.host.toLowerCase())
@@ -214,7 +251,7 @@
   {@const entry = privateSkills(group)}
   {#if entry}
     <div class="private-skills">
-      <button type="button" class="btn" disabled={!entry.ok} aria-label={`Private skills for ${groupLabel(group)}`} aria-describedby={entry.ok ? undefined : reasonId} onclick={(event) => (contentSource = { environmentId: group.id, opener: event.currentTarget })}>Private skills</button>
+      <button type="button" class="btn" disabled={!entry.ok} aria-label={`Private skills for ${groupLabel(group)}`} data-private-skills={group.id} aria-describedby={entry.ok ? undefined : reasonId} onclick={(event) => (contentSource = { environmentId: group.id, opener: event.currentTarget })}>Private skills</button>
       {#if !entry.ok}<small id={reasonId}>{entry.reason}</small>{/if}
     </div>
   {/if}
@@ -330,7 +367,7 @@
 
 {#if importSource}<MachineSkillImports {snapshot} source={importSource} onclose={() => importSource = null} />{/if}
 
-{#if contentSource}<MachineSkillContent {snapshot} source={contentSource} opener={contentSource.opener} {canWrite} {accounts} {onsignedout} onclose={() => contentSource = null} />{/if}
+{#if contentSource}<MachineSkillContent {snapshot} source={contentSource} opener={contentSource.opener} note={contentSource.note ?? ''} onaddmachine={addFromPrivate(contentSource)} {canWrite} {accounts} {onsignedout} onclose={() => contentSource = null} />{/if}
 
 {#if commandsFor}
   <MachineCommands

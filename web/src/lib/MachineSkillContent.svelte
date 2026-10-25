@@ -4,6 +4,7 @@
  import { CheckWatcher } from './checkWatcher.svelte'
  import { FALLBACK, OWNERSHIP_SENTENCE, SIGNED_OUT, isSignedOut, adoptRefusal, asSeenFromPin, candidatesFor, checkStateLabel, classifyCheck, connectorFor, describeFlowError, madeByAdoption, missingNote, modeLabel, pinChangeNote, receiptRevision, releaseNote, revisionLabel, revisionLabels, scopeEligibility, type PinChoice } from './contentReview'
  import { groupLabel } from './machines'
+ import type { JoinContext } from './machineJoin'
  import ConfirmDialog from './ConfirmDialog.svelte'
  import ContentAdoptStep from './ContentAdoptStep.svelte'
  import ContentCheckStep from './ContentCheckStep.svelte'
@@ -14,7 +15,10 @@
  // reads, or records intent in reet; nothing is written to the machine. The Pin step records intent; the Check step asks
  // the machine what it holds (names, sizes and digests only). opener is the
  // element the person pressed to open this, which gets focus back on close (not every browser focuses a button on click).
- let { snapshot, source, canWrite, accounts, opener = null, onclose, onsignedout }: { snapshot: SyncState; source: { environmentId: string; name?: string }; canWrite: boolean; accounts: boolean; opener?: HTMLElement | null; onclose: () => void; onsignedout?: (e: unknown) => void } = $props()
+ // note is a line from whatever opened this on a folder it chose for the person (the Add a machine landing), shown once and
+ // moved to with focus on the heading. onaddmachine is given only to a signed-in writer: it closes this and asks for the Add a
+ // machine dialog, carrying the skill, the library skill chosen and the agent of this folder.
+ let { snapshot, source, canWrite, accounts, opener = null, note = '', onaddmachine, onclose, onsignedout }: { snapshot: SyncState; source: { environmentId: string; name?: string }; canWrite: boolean; accounts: boolean; opener?: HTMLElement | null; note?: string; onaddmachine?: (context: JoinContext) => void; onclose: () => void; onsignedout?: (e: unknown) => void } = $props()
  type Step = 'pin' | 'check'
  const titleId = $props.id()
  let dialog = $state<HTMLDialogElement>()
@@ -24,6 +28,8 @@
  let revisionLists = $state<Record<string, PrivateRevision[] | undefined>>({})
  let loading = $state(true), loaded = $state(false), loadFailed = $state(false), busy = $state(false)
  let error = $state(''), notice = $state('')
+ // The library skill the Pin step has chosen now, kept for the Add a machine context.
+ let chosenBundle = $state('')
  let confirming = $state<{ pin: ContentPin; done: () => void } | null>(null)
  // Checks: the controller holds them (rows from the list are summaries, one is read in full before it is shown).
  let selectedPinId = $state('')
@@ -405,6 +411,13 @@
   releasing = null
   asked?.done()
  }
+ const addable = $derived(!!onaddmachine && accounts && canWrite)
+ function addMachine() {
+  if (!addable || busy) return
+  const bundleId = (step === 'check' ? selectedPin?.bundleId : chosenBundle) || undefined
+  const context: JoinContext = { skill: source.name, bundleId, agent: environment?.agent }
+  onaddmachine?.(context)
+ }
  function close() {
   watcher.dispose(); clearTimeout(receiptsTimer)
   dialog?.close()
@@ -413,10 +426,15 @@
  }
  onMount(() => {
   dialog?.showModal(); void load()
+  // Arrived from the Add a machine landing: say which folder was chosen, and start at the heading of this dialog.
+  // The note goes into the status region only after the region has been on the page for a moment (a region that is filled as it
+  // appears may not be announced); the heading takes focus at once.
+  let noteTimer: ReturnType<typeof setTimeout> | undefined
+  if (note) { titleEl?.focus(); void tick().then(() => { noteTimer = setTimeout(() => { if (alive) notice = note }, 50) }) }
   // Coming back to the tab reads a check that can still change at once, and the connector's readiness again.
   const visible = () => { watcher.visibilityChanged(); if (!document.hidden && receiptsWaiting) { receiptsWaiting = false; wantReceipts(false) } }
   document.addEventListener('visibilitychange', visible)
-  return () => { alive = false; generation++; loadAbort?.abort(); life.abort(); watcher.dispose(); clearTimeout(receiptsTimer); document.removeEventListener('visibilitychange', visible) }
+  return () => { alive = false; clearTimeout(noteTimer); generation++; loadAbort?.abort(); life.abort(); watcher.dispose(); clearTimeout(receiptsTimer); document.removeEventListener('visibilitychange', visible) }
  })
 </script>
 
@@ -430,6 +448,7 @@
  </header>
  <div class="body">
   <p class="intro">{step === 'check' ? 'Ask this machine what it holds for the pinned skill. Nothing on it is changed.' : 'Choose which private library revision this folder should have.'}</p>
+  {#if addable && step === 'pin'}<p class="add-machine"><button type="button" class="linklike" disabled={busy} onclick={addMachine}>Not listed? Add a machine</button></p>{/if}
   <div class="live" role="status" aria-live="polite">{notice}</div>
   {#if error}<div class="alert" role="alert"><p>{error}</p>{#if loadFailed}<button type="button" class="btn" onclick={() => void load()}>Try again</button>{:else if watcher.watchFailed}<button type="button" class="btn" onclick={() => watcher.retryWatch()}>Try again</button>{/if}</div>{/if}
   {#if loading}<p class="intro" role="status">Loading pins and your library…</p>{/if}
@@ -458,7 +477,7 @@
      {/snippet}
     </ContentCheckStep>
    {:else}
-    <ContentPinStep {pins} {bundles} preset={source.name ?? ''} agentId={connector?.id ?? ''} saveBlocked={eligibility.ok ? '' : eligibility.reason} {busy} {revisionLists} {revisionsFor} {statusFor} oncheck={openCheck} onsave={save} onremove={askRemove} />
+    <ContentPinStep bind:bundleId={chosenBundle} {pins} {bundles} preset={source.name ?? ''} agentId={connector?.id ?? ''} saveBlocked={eligibility.ok ? '' : eligibility.reason} {busy} {revisionLists} {revisionsFor} {statusFor} oncheck={openCheck} onsave={save} onremove={askRemove} />
    {/if}
    <ContentReceipts bind:this={recordsView} receipts={scopeReceipts} down={receiptsDown} {busy} revisionOf={receiptRevisionText} onrelease={askRelease} onretry={() => void load()} />
   {/if}
@@ -508,6 +527,9 @@
  .alert { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 14px; padding: 10px 12px; color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line)); border-radius: 8px; font-size: .85rem; }
  .alert p { margin: 0; overflow-wrap: anywhere; }
  .back { margin: 0 0 14px; }
+ .add-machine { margin: -6px 0 14px; }
+ .linklike { padding: 4px 0; min-height: 32px; font: inherit; font-size: .85rem; color: var(--accent); background: none; border: 0; text-decoration: underline; cursor: pointer; text-align: left; }
+ .linklike:disabled { color: var(--muted); cursor: default; }
  footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 14px 22px; border-top: 1px solid var(--line); background: var(--card); border-radius: 0 0 16px 16px; }
  footer small { margin: 0; }
  @media (max-width: 500px) { header, .body { padding: 16px; } footer { padding: 12px 16px; } h2 { font-size: 1.35rem; } }

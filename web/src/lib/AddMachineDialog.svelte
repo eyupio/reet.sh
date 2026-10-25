@@ -7,8 +7,8 @@
  import { onMount, untrack } from 'svelte'
  import type { Snippet } from 'svelte'
  import { UnauthorizedError, type Machine, type SyncState } from './api'
- import { SIGNED_OUT, isSignedOut } from './contentReview'
- import { JOIN_WATCH_CAP_MS, joinBaseline, joinCommands, joinDelay, joinState, validateMachineName, canonicalHost, type JoinBaseline, type JoinContext } from './machineJoin'
+ import { SIGNED_OUT, isSignedOut, sameHost } from './contentReview'
+ import { JOIN_AUTO_MS, JOIN_WATCH_CAP_MS, canonicalHost, fromPrivateSkills, joinBaseline, joinCommands, joinDelay, joinState, landingFor, landingNote, validateMachineName, type JoinBaseline, type JoinContext, type Landing } from './machineJoin'
  import type { ReleaseChannel } from './machineSetup'
  import CopyButton from './CopyButton.svelte'
 
@@ -29,7 +29,8 @@
   opener: HTMLElement | null
   channel?: ReleaseChannel
   onrefresh: () => Promise<void> | void
-  onready: (r: { host: string; context: JoinContext }) => void
+  /** `landing` is set when opened from the Private skills dialog: the folder to open it on, decided when Use was pressed. */
+  onready: (r: { host: string; context: JoinContext; landing?: Extract<Landing, { kind: 'open' }>; note?: string }) => void
   onstepbystep: (name: string) => void
   onsignedout?: (e: unknown) => void
   onclose: () => void
@@ -67,10 +68,29 @@
  const status = $derived.by(() => {
   if (signedOut) return { stage: 'unknown', label: SIGNED_OUT, detail: '', canUse: false }
   if (!host) return { stage: 'idle', label: 'Choose a name to start watching.', detail: '', canUse: false }
-  if (!loaded || !view) return { stage: 'idle', label: 'Machines are still loading.', detail: 'Nothing is claimed about this name until they have been read.', canUse: false }
+  if (!loaded || !view) return { stage: 'idle', label: 'Machines are still loading.', detail: 'Nothing is claimed about this name until they have been read. If they never load, the step-by-step setup below still works.', canUse: false }
   return view
  })
  const canUse = $derived(status.canUse && !signedOut)
+ // Opened from the Private skills dialog: Use carries on there, on the folder landingFor chooses from what is known now.
+ const priv = $derived(fromPrivateSkills(context))
+ // Asked again after every read (clock) and against the clock as it is then, from the machine and connectors as they are now.
+ const landing = $derived.by(() => {
+  void clock
+  if (!priv || !host) return undefined
+  return landingFor(context, machines.find(m => sameHost(m.host, canonical)), snapshot?.agents ?? [], { accounts, canWrite, now: Date.now() })
+ })
+ // Use was pressed and there was no folder to open: the person stays, with the reason, Wait here and Close.
+ let pressed = $state(''), waitingHere = $state(''), cancelledFor = $state('')
+ const held = $derived.by(() => {
+  if (!priv || signedOut || landing?.kind !== 'none') return undefined
+  const early = status.stage === 'connected' || status.stage === 'first_scan'
+  return pressed === host || early ? landing.reason : undefined
+ })
+ // The pause before it carries on by itself: only from a Private skills dialog that named a skill, only on Ready, only when
+ // there is a folder to open, and not once cancelled.
+ const autoOn = $derived(context.skill !== undefined && status.stage === 'ready' && !signedOut && cancelledFor !== host && landing?.kind === 'open')
+ const autoKey = $derived(autoOn ? host : '')
  const waitingOut = $derived(capped && !signedOut && !canUse)
  // Held back until the machines have been read and what the name already had is decided, so a block run too early cannot
  // be mistaken for the machine that was already there.
@@ -89,6 +109,18 @@
    if (capped) { capped = false; restart() }
   })
  })
+
+ // The tag is only a marker: it lets the browser fixture recognise this timer, hold it and fire it by hand instead of waiting three seconds.
+ // One timer for the pause, dropped on every way out: Close, Cancel, a new name, leaving Ready, and the dialog going away.
+ $effect(() => {
+  if (!autoKey) return
+  const timer = setTimeout(autoContinue, JOIN_AUTO_MS, 'reet-auto-continue')
+  return () => clearTimeout(timer)
+ })
+ function autoContinue(_tag?: string) {
+  if (life.signal.aborted || signedOut || !autoOn) return
+  use()
+ }
 
  const live = (g: number) => !life.signal.aborted && g === generation
  const lost = (e: unknown) => isSignedOut(e) || e instanceof UnauthorizedError
@@ -146,8 +178,18 @@
   onclose()
  }
  function use() {
-  if (!canUse || !host) return
+  if (!canUse || !host || life.signal.aborted) return
   const chosen = canonicalHost(host, machines)
+  if (priv) {
+   // Decided now, from the machine and connectors as they are now, never from what was seen earlier.
+   const now = landingFor(context, machines.find(m => sameHost(m.host, chosen)), snapshot?.agents ?? [], { accounts, canWrite, now: Date.now() })
+   if (now.kind === 'none') { pressed = host; return }
+   remembered = ''
+   shutdown(false)
+   onready({ host: chosen, context, landing: now, note: landingNote(chosen, now) })
+   onclose()
+   return
+  }
   remembered = ''
   shutdown(true)
   onready({ host: chosen, context })
@@ -233,6 +275,26 @@
     {#if waitingOut}<span class="detail">Still waiting. Check again.</span>{/if}
    </div>
   </div>
+  {#if held !== undefined}
+   <div class="hold">
+    <p><strong>Private skills can't open on {host} yet.</strong> {held}</p>
+    {#if waitingHere === host}
+     <p>Waiting here. This dialog keeps watching{context.skill !== undefined ? ` and carries on to ${context.skill} when ${host} is ready` : ''}.</p>
+    {/if}
+    <p class="actions">
+     {#if waitingHere !== host}<button type="button" class="btn" onclick={() => (waitingHere = host)}>Wait here</button>{/if}
+     <button type="button" class="btn" onclick={close}>Close</button>
+    </p>
+   </div>
+  {/if}
+  {#if autoOn}
+   <div class="auto" role="status">
+    <span>Opening the Private skills dialog for {context.skill} in 3 seconds.</span>
+    <button type="button" class="btn" onclick={() => (cancelledFor = host)}>Cancel</button>
+   </div>
+  {:else if context.skill !== undefined && cancelledFor === host && status.stage === 'ready'}
+   <p class="hint">Cancelled. Press Use {host} when you want to carry on.</p>
+  {/if}
   {#if waitingOut}<p class="again"><button type="button" class="btn" onclick={checkAgain}>Check again</button></p>{/if}
   <p class="hint">Connected and Ready only say what reet.sh has been told: that a connector reported in and a scan arrived. They do not show that the commands worked.</p>
  </div>
@@ -278,6 +340,9 @@
  .dot.ready { background: var(--good); }
  .dot.unknown { background: var(--bad); }
  .again { margin: -12px 0 0; }
+ .hold, .auto { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: .85rem; line-height: 1.5; }
+ .hold p, .auto span { margin: 0; overflow-wrap: anywhere; }
+ .hold .actions, .auto { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
  footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 14px 22px; border-top: 1px solid var(--line); border-radius: 0 0 16px 16px; }
  footer small { margin: 0; }
  .actions { display: flex; flex-wrap: wrap; gap: 10px; }

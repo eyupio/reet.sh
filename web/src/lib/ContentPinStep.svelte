@@ -8,7 +8,9 @@
  // connector the shell will send the pin through, so a pin made through another one is not "the current pin".
  // saveBlocked is why saving is unavailable right now (empty when it is). revisionLists are the revisions the shell has
  // read, by library skill, so a pin can be described by when its revision was made rather than by an id.
- let { pins, bundles, preset = '', agentId, saveBlocked = '', busy, revisionLists, revisionsFor, statusFor, oncheck, onsave, onremove }: {
+ let { bundleId = $bindable(''), pins, bundles, preset = '', agentId, saveBlocked = '', busy, revisionLists, revisionsFor, statusFor, oncheck, onsave, onremove }: {
+  /** The library skill chosen now, for a parent that wants to know. */
+  bundleId?: string
   pins: ContentPin[]
   bundles: PrivateBundle[]
   preset?: string
@@ -24,7 +26,7 @@
   onremove: (pin: ContentPin) => Promise<void>
  } = $props()
  const uid = $props.id()
- let bundleId = $state(''), revisionId = $state(''), mode = $state('additive')
+ let revisionId = $state(''), mode = $state('additive')
  let revisions = $state<PrivateRevision[]>([]), revisionsLoading = $state(false), revisionError = $state('')
  let librarySelect = $state<HTMLSelectElement>(), pinsHeading = $state<HTMLElement>()
  // Revision lists can arrive out of order; only the answer to the latest choice may be used.

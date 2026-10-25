@@ -47,6 +47,14 @@ The server decides again on every write; this table only saves the person a refu
 If the folder stops qualifying while the dialog is open, saving is switched off with the reason
 shown, and removing a pin and releasing a record still work.
 
+In the Pin step, a signed-in writer also sees **Not listed? Add a machine**, under the dialog's
+opening line. It closes this dialog and opens the [Add a machine](add-machine-in-context.md) dialog,
+carrying the skill, the library skill chosen and this folder's agent. When that machine reports in
+and a folder on it qualifies by the rules above, this dialog opens again on that folder (the one
+of the same agent when several qualify) with the skill chosen and a note saying which folder was
+chosen and how many others qualified. If no folder qualifies yet the person stays in the Add a
+machine dialog with the reason; this dialog never opens on a folder that fails the rules.
+
 ## The three steps
 
 The dialog has a fixed header and a fixed footer (**Done**), and a body that scrolls. It shows

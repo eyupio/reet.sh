@@ -840,3 +840,33 @@ func TestWhereGroupsAreMappedTheProviderDecidesTheRoleAtEachSignIn(t *testing.T)
 		t.Fatalf("with no groups mapped the role changed to %q", got.Role)
 	}
 }
+
+// Changing a password replaces the session it was changed from. The new one
+// is still the provider's session, or a later sign-out at the provider would
+// miss it and the browser would stay signed in.
+func TestChangingAPasswordKeepsTheSessionAProvidersLogoutCanEnd(t *testing.T) {
+	e := newSSOEnv(t, ssoOpts{})
+	hash, _ := auth.HashPassword("ada old password 1")
+	u, err := e.st.CreateUser("ada@example.com", "Ada", "member", hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = e.st.LinkSSOIdentity(e.idp.Issuer, "sub-ada", u.ID)
+	c := e.client()
+	e.login(c, oidctest.Person{Subject: "sub-ada", Email: "ada@example.com", EmailVerified: true, SessionID: "sid-ada"}, "")
+	if _, ok := e.signedInAs(c); !ok {
+		t.Fatal("not signed in")
+	}
+	if code, body := e.body(c, "POST", "/api/v2/profile/password", `{"current":"ada old password 1","password":"ada new password 2"}`); code != 200 {
+		t.Fatalf("password change = %d %s", code, body)
+	}
+	if _, ok := e.signedInAs(c); !ok {
+		t.Fatal("the password change ended this browser's session")
+	}
+	if code, _ := logoutPost(e, e.idp.LogoutToken("sub-ada", "sid-ada", "j-pw")); code != 200 {
+		t.Fatalf("logout = %d", code)
+	}
+	if _, ok := e.signedInAs(c); ok {
+		t.Fatal("the session that replaced the provider's survived the provider's logout")
+	}
+}

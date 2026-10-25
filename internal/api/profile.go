@@ -228,7 +228,19 @@ func (s *server) newSessionFor(w http.ResponseWriter, r *http.Request, user stor
 		return "", err
 	}
 	expires := time.Now().Add(sessionTTL)
-	if err := s.st.CreateSession(auth.HashToken(token), user.ID, expires.UnixMilli(), r.UserAgent()); err != nil {
+	// A session that replaces another is the same sign-in, so it stays the
+	// provider's session when the one it replaces was: a later sign-out at the
+	// provider has to find it.
+	var issuer, sid, subject string
+	if c, err := r.Cookie(sessionCookie); err == nil {
+		issuer, sid, subject, _ = s.st.SessionSSO(auth.HashToken(c.Value))
+	}
+	if issuer != "" {
+		err = s.st.CreateSSOSession(auth.HashToken(token), user.ID, expires.UnixMilli(), r.UserAgent(), issuer, sid, subject)
+	} else {
+		err = s.st.CreateSession(auth.HashToken(token), user.ID, expires.UnixMilli(), r.UserAgent())
+	}
+	if err != nil {
 		return "", err
 	}
 	s.setSession(w, r, token, expires)

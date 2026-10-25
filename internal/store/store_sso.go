@@ -234,6 +234,16 @@ func (s *Store) CreateSSOSession(id string, userID, expiresAt int64, ua, issuer,
 	return err
 }
 
+// SessionSSO is the provider session a session began under, empty for a
+// session made with a password.
+func (s *Store) SessionSSO(id string) (issuer, sid, subject string, err error) {
+	err = s.db.QueryRow(`SELECT COALESCE(sso_issuer,''),COALESCE(sso_sid,''),COALESCE(sso_subject,'') FROM sessions WHERE id=?`, id).Scan(&issuer, &sid, &subject)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", "", nil
+	}
+	return issuer, sid, subject, err
+}
+
 // DeleteSSOSessions ends the sessions a provider's logout names and returns
 // their ids. A session id and a subject together name one session of one
 // person; either alone names every session it matches; neither names none.

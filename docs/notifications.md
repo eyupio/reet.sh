@@ -55,9 +55,9 @@ outage costs a retry, not the notification.
 
 ## The centre
 
-The bell in the header shows unread notifications. **Notifications** lists
-them newest first, marks one read when it is opened, and has **Mark all read**.
-A staff ticket notification opens the ticket in the admin queue; a person's
+The account menu shows an unread count on your avatar. **Notifications**, in
+that menu, lists them newest first, marks one read when it is opened, and has
+**Mark all read**. A staff ticket notification opens the ticket in the admin queue; a person's
 ticket notification opens their ticket page. Read rows are removed after 90
 days; unread rows are kept.
 

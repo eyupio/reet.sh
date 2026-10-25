@@ -33,7 +33,7 @@
  onMount(()=>{void refresh();const wake=()=>{now=Date.now();if(document.visibilityState==='visible')void refresh()};const timer=setInterval(wake,15000);document.addEventListener('visibilitychange',wake);return()=>{alive=false;abort.abort();clearInterval(timer);document.removeEventListener('visibilitychange',wake)}})
 </script>
 <PageHeader eyebrow="Ey up. Your AI control room" title="Your fleet. Ready for work." lede="Reach your machines, use installed AI agents, and keep your toolkit and ongoing work in good order.">
- {#snippet actions()}{#if terminalAccess&&!firstRun}<a class="btn" href="/terminals">Open terminals →</a>{/if}{#if canWrite&&!firstRun}<a class="btn primary" href="/machines#connect-machine">Connect a machine</a>{/if}{/snippet}
+ {#snippet actions()}{#if terminalAccess&&!firstRun}<a class="btn" href="/terminals">Open terminals →</a>{/if}{#if canWrite&&!firstRun}<a class="btn primary" href={terminalAccess?"/machines#add-machine":"/machines#connect-machine"}>Connect a machine</a>{/if}{/snippet}
 </PageHeader>
 {#if showSetup}<TerminalReadiness {controller} machines={machines.length} {setUp} {ready} {canWrite} onhelp={()=>helpOpen=true}/>{/if}
 {#if terminalAccess&&!firstRun}<ActiveSessions/>{/if}

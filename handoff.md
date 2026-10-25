@@ -1690,7 +1690,7 @@ Read [docs/skill-content-review-ui.md](docs/skill-content-review-ui.md). Branch
   the closing pull request carries the final head, the workflow results and the merge. Nothing is
   deployed, and a merge is not deployment.
 
-#### Add a machine in context — PRs #188 to #190 and the closing pull request
+#### Add a machine in context — PRs #188 to #190 and the closing pull request #191
 
 Read [docs/add-machine-in-context.md](docs/add-machine-in-context.md). Branch
 `claude/gallant-darwin-n9oqfj`. The design is
@@ -1704,7 +1704,7 @@ Read [docs/add-machine-in-context.md](docs/add-machine-in-context.md). Branch
   security/PIN preference or legacy sync flow changed.
 - **Pull requests.** The design and the plan were [#188](https://github.com/eyupio/reet.sh/pull/188) and
   [#189](https://github.com/eyupio/reet.sh/pull/189). The dialog, the Machines page entry and the join
-  logic merged as [#190](https://github.com/eyupio/reet.sh/pull/190). Its review (Codex) found three
+  logic merged as [#190](https://github.com/eyupio/reet.sh/pull/190). Its review found three
   things, all fixed before the merge: a machine name is limited in bytes, as the server counts it, not
   in characters; a name saved as an alias after a rename or merge now resolves to its saved machine
   (the watch, the baseline and the Use button follow it); and landing a new machine on a Machines page
@@ -1738,7 +1738,7 @@ Read [docs/add-machine-in-context.md](docs/add-machine-in-context.md). Branch
   against the production build (53, 52, 56 and 52 seconds) with
   `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/pw-browsers/chromium` and
   `npm run preview -- --host 127.0.0.1 --port 4173`; the skill-content, machine-import, control and
-  public-workspace fixtures also passed. Each hardening assertion failed before its fix, and breaking the
+  public-workspace fixtures also passed. Each of the three behavioural fixes had a fixture assertion that failed before its fix, and breaking the
   command block's wrapping on purpose made the matrix fail. An `axe-core` 4.10.2 scan run from a
   temporary directory outside the repository (no dependency added) covered the eleven surfaces at 375
   and 1440px in light and dark, 44 scans, with no violations; `color-contrast` was reported as

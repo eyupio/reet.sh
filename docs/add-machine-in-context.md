@@ -170,6 +170,8 @@ machine button, or the Private skills button or skill row that opened the Privat
   not used: the landing finds the library skill by the skill's name and does not preselect the bundle.
 - When several folders of the new machine qualify, one is opened and the note counts the others; the
   person is not offered a choice.
+- Landing from the Private skills dialog on a Machines page filtered to another machine
+  (`?machine=`) leaves the new card hidden; clear the filter to see it. Focus is kept safe.
 - The pause before the automatic continue is three seconds and is not adjustable.
 
 ## What this does not establish

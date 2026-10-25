@@ -230,7 +230,7 @@ again at the instant it opens the Private skills dialog (a folder that has stopp
 nothing and the page says "Private skills can't open on that folder right now."); focus falls back to
 the **Add a machine** button when the folder's own button is not drawn; and the landing note goes into
 a status region that is already on the page. Two comments (why a context with neither a skill nor an
-agent is a Machines-page context, and why the automatic-continue timer is tagged) and one unit
+agent is a Machines-page context, and why the automatic-continue timer is tagged) and two unit
 assertion on that context were added too.
 
 **Layout matrix.** Ten states of the dialog, each at 1360, 768, 390 and 320px wide in light and dark

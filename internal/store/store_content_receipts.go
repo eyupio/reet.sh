@@ -459,9 +459,10 @@ const (
 // same stored capture and manifest, so nothing shown as claimed can be refused. It
 // requires of the preview what adoption does (current, captured and adoptable; the
 // fences already cover the pin and the connector) and of the revision that it is the
-// pin's bundle's with a matching SKILL.md, and it answers with adoption's errors. A
-// malformed ID is a miss answered without a query. Rows run by path, then claimed,
-// stays_yours and library_only.
+// pin's bundle's with a matching SKILL.md, and it answers with adoption's errors,
+// except that the revision is looked up first and the account's receipt limit is not
+// checked here. A malformed ID is a miss answered without a query. Rows run by path,
+// then claimed, stays_yours and library_only.
 func (s *Store) SkillContentAdoptionBreakdownFor(uid int64, previewID, revisionID string) (out SkillContentAdoptionBreakdown, err error) {
 	if !contentobs.ValidID(previewID) {
 		return out, ErrSkillContentPreviewMissing

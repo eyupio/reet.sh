@@ -177,7 +177,7 @@ must not fetch to draw a table.
 | --- | --- |
 | `claimed` | A file adoption would record: the same path, size, digest and executable bit on the machine and in the revision |
 | `stays_yours` | The machine's copy of a file adoption would not claim: one the revision lacks, or one whose bytes or mode differ. It stays unmanaged |
-| `library_only` | The revision's copy of a file the folder does not hold identically: missing, edited or in another mode. A later plan creates or updates it |
+| `library_only` | The revision's copy of a file the folder does not hold identically: missing, edited or in another mode. If the folder lacks the file, a later plan creates it. If the folder holds a different copy, that copy is `stays_yours` and a later plan against a revision containing the path stops with `unmanaged_path` until the person resolves it; an unclaimed file is never updated |
 
 - A path whose bytes or mode differ appears twice, once as `stays_yours` (the machine's
   copy) and once as `library_only` (the library's). Rows are sorted by path, then
@@ -190,13 +190,20 @@ must not fetch to draw a table.
   claim function adoption uses, so the screen cannot promise a claim adoption would
   refuse. It stores, consumes and audits nothing.
 - It asks for what adoption asks of the preview and the revision, and answers with the
-  same errors. 404: an unknown, foreign or malformed preview or revision ID, or an account
-  that can no longer read the library. 409: a preview that is not a current `captured`
+  same kinds of error. It looks the revision up before reading the preview, so a 404 can
+  carry either message ("Private skill unavailable." or "Ownership record or preview
+  unavailable.") when both IDs are wrong; each message depends only on the caller's own
+  rows, so neither reveals anything about another account. 404: an unknown, foreign or
+  malformed preview or revision ID, or an account that can no longer read the library. 409: a preview that is not a current `captured`
   check of a present folder in an exclusive root whose only conflict is
   `adoption_required` (already receipted, superseded, stale and the rest), a revision of
   another bundle than the pin's, or a revision whose `SKILL.md` differs (the adoption
   message). A revision whose stored manifest is damaged is the same 500 fault as an
-  adoption of it.
+  adoption of it. The 409 text is shared with adoption ("release existing ownership
+  before adopting again"), so a client should act on the status and the screen's own
+  words, not on that text. The breakdown does not check the 1,024-receipt limit, so an
+  account at the limit sees claims that adoption would then refuse with its capacity
+  message.
 - Same boundary as the other routes here: accounts mode, an active writer (a viewer is
   403), no query parameters, `no-store`, and not on the MCP allowlist.
 

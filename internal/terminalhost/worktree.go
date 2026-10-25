@@ -81,6 +81,19 @@ func ExecGit(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	return runGit(ctx, path, gitTimeout, gitOutputLimit, dir, args...)
 }
 
+// newExecGit is ExecGit with another per-call timeout, for tests.
+func newExecGit(timeout time.Duration) GitRunner {
+	return func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		path, err := exec.LookPath("git")
+		if err != nil || !filepath.IsAbs(path) {
+			return nil, errGitMissing
+		}
+		return runGit(ctx, path, timeout, gitOutputLimit, dir, args...)
+	}
+}
+
+const cleanupTimeout = 30 * time.Second
+
 func runGit(ctx context.Context, path string, timeout time.Duration, limit int, dir string, args ...string) ([]byte, error) {
 	if !filepath.IsAbs(dir) {
 		return nil, errors.New("git folder is not absolute")
@@ -91,6 +104,7 @@ func runGit(ctx context.Context, path string, timeout time.Duration, limit int, 
 	cmd.Env = gitEnvironment(os.Environ())
 	out := &truncatingBuffer{limit: limit}
 	cmd.Stdout, cmd.Stderr = out, out
+	killGroupOnCancel(cmd)
 	cmd.WaitDelay = 2 * time.Second
 	err := cmd.Run()
 	if ctx.Err() != nil && err != nil {
@@ -194,7 +208,7 @@ func (w Worktree) Undo(ctx context.Context, git GitRunner) error {
 }
 
 // busyMarkers are the files git keeps while an operation is half done.
-var busyMarkers = []string{"MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG"}
+var busyMarkers = []string{"MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG", "sequencer"}
 
 // PrepareWorktree makes, or on a retry adopts, the worktree for one run of a
 // Project in repo:
@@ -217,6 +231,15 @@ var busyMarkers = []string{"MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY
 // Refusals are *WorktreeError (errors.Is ErrWorktreeRefused); a folder that
 // ResolveDir refuses keeps its ErrLaunchUnavailable error.
 func PrepareWorktree(ctx context.Context, home, repo, project, run string, git GitRunner) (Worktree, error) {
+	return prepareWorktree(ctx, home, repo, project, run, git, gitTimeout, cleanupTimeout)
+}
+
+// prepareWorktree bounds every git call it makes by one budget (60 s in
+// PrepareWorktree; runGit also caps each call); cleaning up a failed add has
+// its own budget so it still runs after that one has ended.
+func prepareWorktree(ctx context.Context, home, repo, project, run string, git GitRunner, budget, cleanupBudget time.Duration) (Worktree, error) {
+	ctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
 	if !terminalproto.ValidRunToken(run) || git == nil {
 		return Worktree{}, terminalproto.ErrInvalid
 	}
@@ -262,7 +285,7 @@ func PrepareWorktree(ctx context.Context, home, repo, project, run string, git G
 		if errors.Is(err, errGitMissing) || ctx.Err() != nil {
 			return Worktree{}, gitFailed(out, err)
 		}
-		return Worktree{}, refuseWorktree(terminalproto.WorktreeGitFailed, "HEAD does not point at a commit yet")
+		return Worktree{}, refuseWorktree(terminalproto.WorktreeNotRepoRoot, "HEAD does not point at a commit yet")
 	}
 
 	projectSlug := terminalproto.Slug(project, "project")
@@ -287,12 +310,12 @@ func PrepareWorktree(ctx context.Context, home, repo, project, run string, git G
 	if err != nil {
 		return Worktree{}, err
 	}
-	listed, onBranch, err := gitWorktreeListed(ctx, git, repoPath, dest, branch)
+	listed, adoptable, err := gitWorktreeListed(ctx, git, repoPath, dest, branch)
 	if err != nil {
 		return Worktree{}, err
 	}
 	if destExists || branchExists || listed {
-		if destExists && destInfo.IsDir() && destInfo.Mode()&os.ModeSymlink == 0 && branchExists && listed && onBranch {
+		if destExists && destInfo.IsDir() && destInfo.Mode()&os.ModeSymlink == 0 && branchExists && adoptable {
 			return w, nil
 		}
 		return Worktree{}, refuseWorktree(terminalproto.WorktreeExists, "")
@@ -300,7 +323,7 @@ func PrepareWorktree(ctx context.Context, home, repo, project, run string, git G
 
 	out, err = git(ctx, repoPath, "-c", "core.hooksPath=/dev/null", "worktree", "add", "-b", branch, dest, "HEAD")
 	if err != nil {
-		cleanupFailedAdd(ctx, git, w)
+		cleanupFailedAdd(ctx, git, w, cleanupBudget)
 		return Worktree{}, gitFailed(out, err)
 	}
 	w.Created = true
@@ -320,9 +343,17 @@ func gitFailed(out []byte, err error) error {
 // cleanupFailedAdd removes what a failed `worktree add` may have left: the
 // destination when git lists it, an empty destination folder, and the
 // branch, which did not exist before this call.
-func cleanupFailedAdd(ctx context.Context, git GitRunner, w Worktree) {
-	ctx = context.WithoutCancel(ctx)
+//
+// The destination did not exist before this call, so a worktree git left
+// there (possibly still "locked initializing" after a killed add) is this
+// call's: it is unlocked and then force-removed. `branch -D` is safe only
+// because the branch name contains the run token, so it can be no one
+// else's branch, and it did not exist when this call checked.
+func cleanupFailedAdd(ctx context.Context, git GitRunner, w Worktree, budget time.Duration) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), budget)
+	defer cancel()
 	if listed, _, err := gitWorktreeListed(ctx, git, w.repo, w.Path, w.Branch); err == nil && listed {
+		_, _ = git(ctx, w.repo, "worktree", "unlock", w.Path)
 		_, _ = git(ctx, w.repo, "worktree", "remove", "--force", w.Path)
 	} else {
 		_ = os.Remove(w.Path) // only an empty folder
@@ -346,28 +377,65 @@ func gitBranchExists(ctx context.Context, git GitRunner, repo, branch string) (b
 	return false, nil
 }
 
-// gitWorktreeListed reports whether `git worktree list --porcelain` lists
-// path, and whether that entry is on branch.
-func gitWorktreeListed(ctx context.Context, git GitRunner, repo, path, branch string) (listed, onBranch bool, err error) {
+// gitWorktreeListed reports whether `git worktree list --porcelain` has a
+// line naming path, and whether it may be adopted: the whole listing parses
+// as records that each start with a "worktree" line, exactly one record names
+// path, and that record is exactly worktree, HEAD <hash> and branch lines on
+// branch: not locked, not prunable, not detached. The listing is not -z
+// (git 2.34 is supported), so a worktree path containing a newline can print
+// extra lines or records; the strict shape keeps those from ever making a
+// path adoptable, and a path with a newline is never adoptable itself.
+func gitWorktreeListed(ctx context.Context, git GitRunner, repo, path, branch string) (listed, adoptable bool, err error) {
 	out, err := git(ctx, repo, "worktree", "list", "--porcelain")
 	if err != nil {
 		return false, false, gitFailed(out, err)
 	}
-	current := false
+	wellFormed := true
+	matches := 0
+	exact := false
+	var record []string
+	finish := func() {
+		if len(record) == 0 {
+			return
+		}
+		if !strings.HasPrefix(record[0], "worktree ") {
+			wellFormed = false
+		} else if strings.TrimPrefix(record[0], "worktree ") == path {
+			matches++
+			exact = len(record) == 3 && validHeadLine(record[1]) && record[2] == "branch refs/heads/"+branch
+		}
+		record = nil
+	}
 	for _, line := range strings.Split(string(out), "\n") {
-		switch {
-		case strings.HasPrefix(line, "worktree "):
-			current = strings.TrimPrefix(line, "worktree ") == path
-			listed = listed || current
-		case current && line == "branch refs/heads/"+branch:
-			onBranch = true
+		if line == "worktree "+path {
+			listed = true
+		}
+		if line == "" {
+			finish()
+			continue
+		}
+		record = append(record, line)
+	}
+	finish()
+	return listed, wellFormed && matches == 1 && exact && !hasControl(path), nil
+}
+
+func validHeadLine(line string) bool {
+	hash, ok := strings.CutPrefix(line, "HEAD ")
+	if !ok || len(hash) != 40 && len(hash) != 64 {
+		return false
+	}
+	for i := 0; i < len(hash); i++ {
+		if !(hash[i] >= '0' && hash[i] <= '9' || hash[i] >= 'a' && hash[i] <= 'f') {
+			return false
 		}
 	}
-	return listed, onBranch, nil
+	return true
 }
 
 // ensureWorktreeDirs makes every folder from home down to dir, refusing a
-// symlink, a non-directory, or a folder another user owns at any step.
+// symlink, a non-directory, a folder another user owns, or one that group or
+// others can write, at any step.
 func ensureWorktreeDirs(home, dir string) error {
 	rel, err := filepath.Rel(home, dir)
 	if err != nil || rel == "." || !filepath.IsLocal(rel) {
@@ -383,7 +451,7 @@ func ensureWorktreeDirs(home, dir string) error {
 			}
 			info, err = os.Lstat(current)
 		}
-		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || ownedByCurrentUser(info) != nil {
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || ownedByCurrentUser(info) != nil || info.Mode().Perm()&0o022 != 0 {
 			return refuseWorktree(terminalproto.WorktreeOutsideHome, filepath.Join("~", strings.TrimPrefix(current, home))+" is not a folder of yours")
 		}
 	}
@@ -396,9 +464,11 @@ func inside(dir, path string) bool {
 	return err == nil && (rel == "." || filepath.IsLocal(rel))
 }
 
+// hasControl reports control characters and invisible format characters
+// (bidi overrides and the like), which a path shown to a person must not hold.
 func hasControl(s string) bool {
 	for _, r := range s {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
 			return true
 		}
 	}

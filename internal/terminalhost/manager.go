@@ -173,6 +173,11 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	// before the intent is saved, and the agent starts in it. Until tmux has
 	// shown that no session was started, a worktree this call created is
 	// removed again on any failure; an adopted one is never touched.
+	// A new request id with the SAME run token (and Project and repository)
+	// adopts the existing worktree and starts another agent in it. Preventing
+	// that is the orchestrator's job: it derives request ids from run,
+	// position and attempt, and uses a new attempt only after a definite
+	// refusal, when no agent was started.
 	var worktree Worktree
 	started := false
 	if in.Worktree != "" {
@@ -182,7 +187,9 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 		dir = worktree.Path
 		defer func() {
 			if !started {
-				_ = worktree.Undo(context.WithoutCancel(ctx), m.git)
+				undoCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+				defer cancel()
+				_ = worktree.Undo(undoCtx, m.git)
 			}
 		}()
 	}

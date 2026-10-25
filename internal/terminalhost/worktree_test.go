@@ -274,7 +274,7 @@ func TestPrepareWorktreeRefusesUnbornHead(t *testing.T) {
 	os.MkdirAll(dir, 0o700)
 	testGit(t, dir, "init", "-q", "-b", "main")
 	_, err := PrepareWorktree(context.Background(), home, dir, "p", testRun, ExecGit)
-	refusedWith(t, err, terminalproto.WorktreeGitFailed)
+	refusedWith(t, err, terminalproto.WorktreeNotRepoRoot)
 	if _, err := os.Lstat(filepath.Join(home, ".reet")); err == nil {
 		t.Fatal("~/.reet made for a refused repository")
 	}

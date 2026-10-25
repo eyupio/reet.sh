@@ -24,10 +24,12 @@
   import ConfirmDialog from './lib/ConfirmDialog.svelte'
   import CopyButton from './lib/CopyButton.svelte'
   import Footer from './lib/Footer.svelte'
+  import { canAutoFocus } from './lib/focus'
   import Join from './lib/Join.svelte'
   import ListView from './lib/ListView.svelte'
   import Logo from './lib/Logo.svelte'
   import NewList from './lib/NewList.svelte'
+  import NotFound from './lib/NotFound.svelte'
   import PublicList from './lib/PublicList.svelte'
   import ResetPassword from './lib/ResetPassword.svelte'
   import PageHeader from './lib/PageHeader.svelte'
@@ -129,6 +131,8 @@
   const isWelcome = location.pathname === '/' || location.pathname === '/welcome'
   const isSignIn = location.pathname === '/signin'
   const isSignUp = location.pathname === '/signup'
+  // Addresses that only make sense before sign-in. Finishing sign-in or setup on one of them continues at Control.
+  const entryPaths = ['/welcome', '/signin', '/signup', '/setup']
   const listMatch = location.pathname.match(/^\/lists\/(\d+)\/?$/)
   const isList = listMatch !== null
   const listId = listMatch ? Number(listMatch[1]) : 0
@@ -315,7 +319,7 @@
       contactEmail = status.contactEmail ?? ''
       passwordReset = status.passwordReset ?? false
       currentUser = status.user
-      if (status.user && location.pathname === '/welcome') {
+      if (status.user && entryPaths.includes(location.pathname)) {
         location.replace('/')
         return
       }
@@ -355,7 +359,7 @@
     needsAuth = false
     token = ''
     clearToken()
-    if (['/signin', '/signup', '/welcome'].includes(location.pathname)) {
+    if (entryPaths.includes(location.pathname)) {
       location.replace('/')
       return
     }
@@ -365,7 +369,7 @@
     await loadMeta()
     await loadNotificationCount()
     await tick()
-    addEl?.focus()
+    if (canAutoFocus()) addEl?.focus()
   }
 
   async function afterJoin(user: User) {
@@ -380,7 +384,7 @@
       token = getToken()
       message = ''
       await tick()
-      addEl?.focus()
+      if (canAutoFocus()) addEl?.focus()
       return null
     }
     if (needsAuth) return 'That token was not accepted.'
@@ -741,7 +745,7 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isControl ? 'Control' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isControl ? 'Control' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Your shelf' : 'Page not found'} · reet.sh</title>
   {/if}
 </svelte:head>
 
@@ -835,7 +839,7 @@
     <p class="notice bad" role="alert">Admins only. Your account does not have access to this page.</p>
   {:else if isAdmin}
     <Admin onerror={fail} {role} accounts={authMode === 'accounts'} currentEmail={currentUser?.email ?? ''} />
-  {:else}
+  {:else if isSkills}
     <PageHeader eyebrow="Ey up. Your skill shelf." title="Your central skill library." lede="Keep the good finds here, then choose which machines receive them. Shelf stages organise your library; Sync controls installation.">
       {#snippet actions()}<a class="btn" href="/sync">Distribute skills</a>{#if canWrite}<a class="btn primary" href="/hosting">Create a skill</a>{/if}{/snippet}
     </PageHeader>
@@ -1043,6 +1047,8 @@
         />
       {/key}
     {/if}
+  {:else}
+    <NotFound />
   {/if}
 </main>
 
@@ -1111,7 +1117,7 @@
   main.auth-page { max-width: 960px; }
   main:focus { outline: none; }
   .site-header { border-bottom: 1px solid var(--line); }
-  .header-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: var(--content-width); margin: auto; padding: 24px 40px; }
+  .header-inner { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: var(--content-width); margin: auto; padding: 24px 40px; }
   .app-nav { display: flex; align-items: center; gap: 8px; min-width: 0; margin-left: auto; }
   .notif-link { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.78rem; font-weight: 600; text-decoration: none; white-space: nowrap; }
   .notif-link:hover { color: var(--ink); border-color: var(--muted); }

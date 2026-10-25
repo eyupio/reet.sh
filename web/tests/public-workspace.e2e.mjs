@@ -38,7 +38,9 @@ try {
    await expect(page.getByRole('heading',{name:'Give your machines a home.'})).toBeInViewport()
    await page.getByRole('link',{name:'Open your workspace'}).click()
    await expect(page.getByRole('heading',{name:'Sign in to your workspace'})).toBeVisible()
-   await expect(page.locator('#signin-email')).toBeFocused()
+   // A wide screen with a keyboard starts in the field; a phone is not handed its soft keyboard on load.
+   if(width>=700)await expect(page.locator('#signin-email')).toBeFocused()
+   else await expect(page.locator('#signin-email')).not.toBeFocused()
    await page.locator('#signin-email').fill('engineer@example.test')
    await page.getByLabel('Password',{exact:true}).fill('incorrect-fixture')
    await page.getByRole('button',{name:'Sign in',exact:true}).click()

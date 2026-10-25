@@ -2,6 +2,7 @@
   import { tick } from 'svelte'
   import { forgotPassword, signInAccount, type User } from './api'
   import AuthCard from './AuthCard.svelte'
+  import { canAutoFocus } from './focus'
   import PasswordInput from './PasswordInput.svelte'
 
   let { onsuccess, signupEnabled = false, contactEmail = '', passwordReset = false }: {
@@ -29,7 +30,7 @@
   let resetBusy = $state(false)
 
   $effect(() => {
-    emailInput?.focus()
+    if (canAutoFocus()) emailInput?.focus()
   })
 
   async function submit(e: SubmitEvent) {

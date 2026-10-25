@@ -54,7 +54,9 @@
     details[open] summary svg { transform: rotate(180deg); }
     .links { display: grid; gap: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); box-shadow: 0 12px 28px rgb(0 0 0 / 0.1); margin-top: 6px; }
     .group-links { position: static; min-width: 0; box-shadow: none; margin: 4px 0; border: 0; padding: 0 0 0 12px; }
-    .primary .links { position: absolute; z-index: 20; right: 0; min-width: min(260px, calc(100vw - 32px)); }
+    /* Anchored to the header, not the button: the button sits mid-screen, so a button-anchored panel ran off the left edge. */
+    .primary .mobile { position: static; }
+    .primary .links { position: absolute; z-index: 20; top: 100%; left: 16px; right: 16px; margin: 6px 0 0 auto; max-width: 320px; }
     .primary summary span { display: none; }
   }
 </style>

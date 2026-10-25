@@ -423,6 +423,111 @@ func adoptionOffer(q privateSkillQuery, uid int64, p SkillContentPreview) (*Skil
 	return offer, nil
 }
 
+// AdoptionFile is one row of an adoption breakdown. It is metadata only, never the
+// file's bytes. Claimed rows are files adoption would record as the library's;
+// stays_yours rows are the machine's copy of a file that is left alone; and
+// library_only rows are the library's copy of a file the folder does not hold
+// identically. A path whose bytes or mode differ is listed twice, once for each side.
+type AdoptionFile struct {
+	Path       string `json:"path"`
+	Bytes      int64  `json:"bytes"`
+	Digest     string `json:"digest"`
+	Executable bool   `json:"executable"`
+	Status     string `json:"status"`
+}
+
+// SkillContentAdoptionBreakdown explains one adoption candidate file by file. The
+// counts are the offer's for that revision.
+type SkillContentAdoptionBreakdown struct {
+	RevisionID   string         `json:"revisionId"`
+	Files        []AdoptionFile `json:"files"`
+	Matched      int            `json:"matched"`
+	ObservedOnly int            `json:"observedOnly"`
+	RevisionOnly int            `json:"revisionOnly"`
+}
+
+const (
+	adoptionClaimed     = "claimed"
+	adoptionStaysYours  = "stays_yours"
+	adoptionLibraryOnly = "library_only"
+)
+
+// SkillContentAdoptionBreakdownFor lists every file of a captured folder and of one
+// library revision as adoption would treat it: claimed, left with the machine, or
+// only in the library. It is a read, so a review can explain a candidate without
+// fetching the revision's bytes, and the claim is adoption's own, computed from the
+// same stored capture and manifest, so nothing shown as claimed can be refused. It
+// requires of the preview what adoption does (current, captured and adoptable; the
+// fences already cover the pin and the connector) and of the revision that it is the
+// pin's bundle's with a matching SKILL.md, and it answers with adoption's errors,
+// except that the revision is looked up first and the account's receipt limit is not
+// checked here. A malformed ID is a miss answered without a query. Rows run by path,
+// then claimed, stays_yours and library_only.
+func (s *Store) SkillContentAdoptionBreakdownFor(uid int64, previewID, revisionID string) (out SkillContentAdoptionBreakdown, err error) {
+	if !contentobs.ValidID(previewID) {
+		return out, ErrSkillContentPreviewMissing
+	}
+	if !privateSkillID.MatchString(revisionID) {
+		return out, ErrPrivateSkillMissing
+	}
+	err = s.withTx(func(tx *sql.Tx) error {
+		// The revision comes first, behind the account guard, so an account that may
+		// no longer read the library learns nothing about its checks either.
+		var bundle string
+		switch e := tx.QueryRow(`SELECT bundle_id FROM private_skill_revisions WHERE user_id=? AND id=? AND `+privateSkillAccount, uid, revisionID, uid).Scan(&bundle); {
+		case errors.Is(e, sql.ErrNoRows):
+			return ErrPrivateSkillMissing
+		case e != nil:
+			return e
+		}
+		p, e := currentPreview(tx, uid, previewID)
+		if e != nil {
+			return e
+		}
+		if p.State != "captured" || !adoptable(p) || bundle != p.BundleID {
+			return ErrSkillContentReceipt
+		}
+		revision, e := privateSkillRevision(tx, uid, bundle, revisionID, false)
+		if e != nil {
+			return e
+		}
+		claimed, counts, e := skillplan.ClaimSubset(*p.Capture.Manifest, *revision.Manifest)
+		if e != nil {
+			return e
+		}
+		kept := map[string]skillbundle.File{}
+		for _, f := range claimed.Files {
+			kept[f.Path] = f
+		}
+		out = SkillContentAdoptionBreakdown{RevisionID: revisionID, Files: []AdoptionFile{}, Matched: counts.Matched, ObservedOnly: counts.ObservedOnly, RevisionOnly: counts.RevisionOnly}
+		row := func(f skillbundle.File, status string) {
+			out.Files = append(out.Files, AdoptionFile{Path: f.Path, Bytes: f.Bytes, Digest: f.Digest, Executable: f.Executable, Status: status})
+		}
+		for _, f := range claimed.Files {
+			row(f, adoptionClaimed)
+		}
+		// A file that differs in either side is not claimed, so it is listed once for
+		// each copy.
+		for _, f := range p.Capture.Manifest.Files {
+			if kept[f.Path] != f {
+				row(f, adoptionStaysYours)
+			}
+		}
+		for _, f := range revision.Manifest.Files {
+			if kept[f.Path] != f {
+				row(f, adoptionLibraryOnly)
+			}
+		}
+		// Rows were added in status order, which a stable sort keeps within one path.
+		sort.SliceStable(out.Files, func(i, j int) bool { return out.Files[i].Path < out.Files[j].Path })
+		return nil
+	})
+	if err != nil {
+		out = SkillContentAdoptionBreakdown{}
+	}
+	return
+}
+
 // AdoptSkillContentPreviewFor is AdoptSkillContentPreviewOnceFor for callers that
 // do not need to know whether this call created the receipt.
 func (s *Store) AdoptSkillContentPreviewFor(uid int64, in SkillContentAdopt) (SkillContentReceipt, error) {

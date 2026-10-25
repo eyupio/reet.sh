@@ -1492,6 +1492,448 @@ func TestAdoptionOfferOnlyWhereAdoptable(t *testing.T) {
 	})
 }
 
+// adoptionRow is a breakdown row for a file as one side holds it.
+func adoptionRow(f skillbundle.File, status string) AdoptionFile {
+	return AdoptionFile{Path: f.Path, Bytes: f.Bytes, Digest: f.Digest, Executable: f.Executable, Status: status}
+}
+
+// manifestFile is the metadata a manifest holds for one path.
+func manifestFile(t *testing.T, m skillbundle.Manifest, path string) skillbundle.File {
+	t.Helper()
+	for _, f := range m.Files {
+		if f.Path == path {
+			return f
+		}
+	}
+	t.Fatalf("%s is not in the manifest", path)
+	return skillbundle.File{}
+}
+
+// folderOf is the fixture revision's files after change, plus a file of the
+// person's own, as a capture of the machine would list them.
+func folderOf(t *testing.T, e previewEnv, change func(*skillbundle.File)) skillbundle.Manifest {
+	t.Helper()
+	files := []skillbundle.File{}
+	for _, f := range e.bundle.Revision.Manifest.Files {
+		change(&f)
+		files = append(files, f)
+	}
+	m, err := skillbundle.FromMetadata(append(files, skillbundle.File{Path: "notes/mine.txt", Bytes: 3, Digest: strings.Repeat("f", 64)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// receiptsAndPreviews is every row a read must leave alone, as one comparable value.
+func receiptsAndPreviews(t *testing.T, e previewEnv) [][]string {
+	t.Helper()
+	return [][]string{
+		rowsOf(t, e, `SELECT id||' '||version||' '||name||' '||managed||' '||evidence FROM skill_content_receipts ORDER BY id`),
+		rowsOf(t, e, `SELECT id||' '||state||' '||data FROM skill_content_previews ORDER BY id`),
+	}
+}
+
+func TestAdoptionBreakdownListsEveryFileOnce(t *testing.T) {
+	e := previewFixture(t)
+	revision := *e.bundle.Revision.Manifest
+	observed := folderOf(t, e, func(f *skillbundle.File) {
+		switch f.Path {
+		case "scripts/run.sh":
+			f.Bytes, f.Digest = f.Bytes+1, strings.Repeat("e", 64) // edited on the machine
+		case "assets/empty":
+			f.Executable = !f.Executable // identical bytes, different mode
+		}
+	})
+	p := capturedPreview(t, e, "breakdown_listing_prev01", presentOf(observed, "exclusive"))
+	if p.Adoption == nil || len(p.Adoption.Candidates) == 0 || p.Adoption.Candidates[0].RevisionID != e.pin.RevisionID {
+		t.Fatalf("fixture needs the pinned revision offered: %+v", p.Adoption)
+	}
+	before := receiptsAndPreviews(t, e)
+
+	got, err := e.s.SkillContentAdoptionBreakdownFor(e.uid, p.ID, e.pin.RevisionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Machine copies carry the machine's metadata and library copies the library's;
+	// a path that differs is listed once for each side, in a fixed order.
+	want := []AdoptionFile{
+		adoptionRow(manifestFile(t, revision, "SKILL.md"), "claimed"),
+		adoptionRow(manifestFile(t, observed, "assets/empty"), "stays_yours"),
+		adoptionRow(manifestFile(t, revision, "assets/empty"), "library_only"),
+		adoptionRow(manifestFile(t, observed, "notes/mine.txt"), "stays_yours"),
+		adoptionRow(manifestFile(t, observed, "scripts/run.sh"), "stays_yours"),
+		adoptionRow(manifestFile(t, revision, "scripts/run.sh"), "library_only"),
+	}
+	if got.RevisionID != e.pin.RevisionID || !reflect.DeepEqual(got.Files, want) {
+		t.Fatalf("breakdown %+v, want %+v", got, want)
+	}
+	// The counts are the offer's, and every row is counted exactly once.
+	if offer := p.Adoption.Candidates[0]; (AdoptionCandidate{RevisionID: got.RevisionID, Matched: got.Matched, ObservedOnly: got.ObservedOnly, RevisionOnly: got.RevisionOnly}) != offer {
+		t.Fatalf("counts %+v differ from the offer %+v", got, offer)
+	}
+	if got.Matched != 1 || got.ObservedOnly != 3 || got.RevisionOnly != 2 || len(got.Files) != got.Matched+got.ObservedOnly+got.RevisionOnly {
+		t.Fatalf("%+v", got)
+	}
+	perPath := map[string]int{}
+	for _, f := range got.Files {
+		perPath[f.Path]++
+	}
+	if !reflect.DeepEqual(perPath, map[string]int{"SKILL.md": 1, "assets/empty": 2, "notes/mine.txt": 1, "scripts/run.sh": 2}) {
+		t.Fatalf("each differing path appears twice and the rest once: %v", perPath)
+	}
+
+	// Metadata only: five fields per row, no bytes and no private text.
+	raw, _ := json.Marshal(got)
+	var wire struct {
+		Files []map[string]any `json:"files"`
+	}
+	if err = json.Unmarshal(raw, &wire); err != nil || len(wire.Files) != len(want) {
+		t.Fatalf("%s %v", raw, err)
+	}
+	for _, row := range wire.Files {
+		keys := []string{}
+		for k := range row {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if !reflect.DeepEqual(keys, []string{"bytes", "digest", "executable", "path", "status"}) {
+			t.Fatalf("a row carries more than metadata: %v", row)
+		}
+	}
+	if strings.Contains(string(raw), `"data"`) || strings.Contains(string(raw), "PRIVATE_PIN_BYTES") {
+		t.Fatalf("a breakdown carries file bytes: %s", raw)
+	}
+
+	// A read: nothing is stored, consumed or superseded by asking.
+	if !reflect.DeepEqual(receiptsAndPreviews(t, e), before) {
+		t.Fatal("reading a breakdown changed a receipt or a preview")
+	}
+	if again := e.state(t, p.ID); again.State != "captured" || again.ReviewHash != p.ReviewHash {
+		t.Fatalf("%+v", again)
+	}
+}
+
+func TestAdoptionBreakdownAgreesWithAdoption(t *testing.T) {
+	e := previewFixture(t)
+	observed := folderOf(t, e, func(f *skillbundle.File) {
+		if f.Path == "scripts/run.sh" {
+			f.Bytes, f.Digest = f.Bytes+1, strings.Repeat("e", 64)
+		}
+	})
+	p := capturedPreview(t, e, "breakdown_agrees_prev01", presentOf(observed, "exclusive"))
+	b, err := e.s.SkillContentAdoptionBreakdownFor(e.uid, p.ID, e.pin.RevisionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, others := []skillbundle.File{}, []string{}
+	for _, f := range b.Files {
+		if f.Status == "claimed" {
+			claimed = append(claimed, skillbundle.File{Path: f.Path, Bytes: f.Bytes, Digest: f.Digest, Executable: f.Executable})
+		} else {
+			others = append(others, f.Path)
+		}
+	}
+
+	r, err := e.s.AdoptSkillContentPreviewFor(e.uid, adoption("breakdown_agrees_adopt1", p, e.pin.RevisionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// What the screen showed as claimed is what the receipt holds, nothing more.
+	if r.Managed == nil || !reflect.DeepEqual(claimed, r.Managed.Files) || b.Matched != r.FileCount || b.Matched != 2 {
+		t.Fatalf("breakdown claims %+v (%d), receipt holds %+v (%d)", claimed, b.Matched, r.Managed, r.FileCount)
+	}
+	raw, _ := json.Marshal(r)
+	for _, path := range others {
+		if path != "scripts/run.sh" && strings.Contains(string(raw), path) {
+			t.Fatalf("the receipt mentions %s, which the breakdown left with the machine: %s", path, raw)
+		}
+	}
+	for _, f := range r.Managed.Files {
+		if f.Path == "scripts/run.sh" || f.Path == "notes/mine.txt" {
+			t.Fatalf("the receipt claims %s", f.Path)
+		}
+	}
+}
+
+func TestAdoptionBreakdownRefusals(t *testing.T) {
+	type attempt struct {
+		uid               int64
+		preview, revision string
+	}
+	current := func(t *testing.T, e previewEnv) SkillContentPreview {
+		return capturedPreview(t, e, "breakdown_refusal_prev1", matching(e))
+	}
+	mine := func(e previewEnv, p SkillContentPreview) attempt { return attempt{e.uid, p.ID, e.pin.RevisionID} }
+	with := func(t *testing.T, e previewEnv, change func(*attempt)) attempt {
+		a := mine(e, current(t, e))
+		change(&a)
+		return a
+	}
+	exec := func(t *testing.T, e previewEnv, query string, args ...any) {
+		t.Helper()
+		if _, err := e.s.db.Exec(query, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// stranger is another account holding a revision of its own.
+	stranger := func(t *testing.T, e previewEnv) (int64, string) {
+		t.Helper()
+		other, err := e.s.CreateUser("breakdown-other@example.test", "Other", "member", "hash")
+		if err != nil {
+			t.Fatal(err)
+		}
+		theirs, err := e.s.SavePrivateSkillRevisionFor(other.ID, "", privateWrite("breakdown_foreign_rev01", "", "PRIVATE_PIN_BYTES"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return other.ID, theirs.Revision.ID
+	}
+
+	cases := []struct {
+		name  string
+		setup func(*testing.T, previewEnv) attempt
+		want  error
+	}{
+		{"malformed preview ID", func(t *testing.T, e previewEnv) attempt {
+			return with(t, e, func(a *attempt) { a.preview = "not-an-id" })
+		}, ErrSkillContentPreviewMissing},
+		{"preview ID too short", func(t *testing.T, e previewEnv) attempt {
+			return with(t, e, func(a *attempt) { a.preview = a.preview[:47] })
+		}, ErrSkillContentPreviewMissing},
+		{"preview ID in capitals", func(t *testing.T, e previewEnv) attempt {
+			return with(t, e, func(a *attempt) { a.preview = strings.Repeat("A", 48) })
+		}, ErrSkillContentPreviewMissing},
+		{"unknown preview ID", func(t *testing.T, e previewEnv) attempt {
+			return with(t, e, func(a *attempt) { a.preview = strings.Repeat("0", 48) })
+		}, ErrSkillContentPreviewMissing},
+		{"malformed revision ID", func(t *testing.T, e previewEnv) attempt {
+			return with(t, e, func(a *attempt) { a.revision = "not-an-id" })
+		}, ErrPrivateSkillMissing},
+		{"revision ID too short", func(t *testing.T, e previewEnv) attempt {
+			return with(t, e, func(a *attempt) { a.revision = a.revision[:31] })
+		}, ErrPrivateSkillMissing},
+		{"revision ID in capitals", func(t *testing.T, e previewEnv) attempt {
+			return with(t, e, func(a *attempt) { a.revision = strings.Repeat("A", 32) })
+		}, ErrPrivateSkillMissing},
+		{"digest as revision ID", func(t *testing.T, e previewEnv) attempt {
+			return with(t, e, func(a *attempt) { a.revision = e.pin.ManifestDigest })
+		}, ErrPrivateSkillMissing},
+		{"unknown revision ID", func(t *testing.T, e previewEnv) attempt {
+			return with(t, e, func(a *attempt) { a.revision = strings.Repeat("0", 32) })
+		}, ErrPrivateSkillMissing},
+		{"foreign account's preview", func(t *testing.T, e previewEnv) attempt {
+			uid, theirs := stranger(t, e)
+			a := mine(e, current(t, e))
+			a.uid, a.revision = uid, theirs
+			return a
+		}, ErrSkillContentPreviewMissing},
+		{"foreign account's revision", func(t *testing.T, e previewEnv) attempt {
+			_, theirs := stranger(t, e)
+			return with(t, e, func(a *attempt) { a.revision = theirs })
+		}, ErrPrivateSkillMissing},
+		{"foreign account's preview and revision", func(t *testing.T, e previewEnv) attempt {
+			uid, _ := stranger(t, e)
+			a := mine(e, current(t, e))
+			a.uid = uid
+			return a
+		}, ErrPrivateSkillMissing},
+		// The library's own account guard answers first, so a person who may no
+		// longer read it learns nothing about the check either.
+		{"viewer", func(t *testing.T, e previewEnv) attempt {
+			a := mine(e, current(t, e))
+			exec(t, e, `UPDATE users SET role='viewer' WHERE id=?`, e.uid)
+			return a
+		}, ErrPrivateSkillMissing},
+		{"disabled account", func(t *testing.T, e previewEnv) attempt {
+			a := mine(e, current(t, e))
+			exec(t, e, `UPDATE users SET disabled_at=1 WHERE id=?`, e.uid)
+			return a
+		}, ErrPrivateSkillMissing},
+		{"queued", func(t *testing.T, e previewEnv) attempt {
+			return mine(e, e.create(t, "breakdown_refusal_prev1"))
+		}, ErrSkillContentReceipt},
+		{"capturing", func(t *testing.T, e previewEnv) attempt {
+			p := e.create(t, "breakdown_refusal_prev1")
+			e.claim(t)
+			return mine(e, p)
+		}, ErrSkillContentReceipt},
+		{"expired", func(t *testing.T, e previewEnv) attempt {
+			p := e.create(t, "breakdown_refusal_prev1")
+			e.edit(t, p.ID, func(p *SkillContentPreview) { p.ExpiresAt = now() - 1 })
+			return mine(e, p)
+		}, ErrSkillContentReceipt},
+		{"failed", func(t *testing.T, e previewEnv) attempt {
+			p := e.create(t, "breakdown_refusal_prev1")
+			e.claim(t)
+			if err := e.s.FailSkillContentPreviewFor(e.uid, e.agent.ID, p.ID, previewInstance, "capture_failed"); err != nil {
+				t.Fatal(err)
+			}
+			return mine(e, p)
+		}, ErrSkillContentReceipt},
+		{"cancelled", func(t *testing.T, e previewEnv) attempt {
+			p := e.create(t, "breakdown_refusal_prev1")
+			e.claim(t)
+			if err := e.s.StopSkillContentPreviewFor(e.uid, p.ID); err != nil {
+				t.Fatal(err)
+			}
+			return mine(e, p)
+		}, ErrSkillContentReceipt},
+		{"stale", func(t *testing.T, e previewEnv) attempt {
+			p := current(t, e)
+			e.edit(t, p.ID, func(p *SkillContentPreview) { p.CapturedAt = now() - skillplan.MaxAgeMillis - 1000 })
+			return mine(e, p)
+		}, ErrSkillContentReceipt},
+		{"superseded after a pin change", func(t *testing.T, e previewEnv) attempt {
+			p := current(t, e)
+			e.repin(t, func(in *SkillContentTargetWrite) { in.Mode = "managed" })
+			return mine(e, p)
+		}, ErrSkillContentReceipt},
+		{"superseded after the pin was removed", func(t *testing.T, e previewEnv) attempt {
+			p := current(t, e)
+			if err := e.s.DeleteSkillContentTargetFor(e.uid, e.pin.ID, e.pin.Version); err != nil {
+				t.Fatal(err)
+			}
+			return mine(e, p)
+		}, ErrSkillContentReceipt},
+		{"superseded by a new inventory", func(t *testing.T, e previewEnv) attempt {
+			p := current(t, e)
+			if err := e.s.RecordInventoryFor(e.uid, e.write.EnvironmentID, true, MachineInfo{}); err != nil {
+				t.Fatal(err)
+			}
+			return mine(e, p)
+		}, ErrSkillContentReceipt},
+		{"paused connector", func(t *testing.T, e previewEnv) attempt {
+			p := current(t, e)
+			if err := e.s.ControlSyncAgent(e.uid, e.agent.ID, "pause"); err != nil {
+				t.Fatal(err)
+			}
+			return mine(e, p)
+		}, ErrSkillContentReceipt},
+		{"absent folder", func(t *testing.T, e previewEnv) attempt {
+			return mine(e, capturedPreview(t, e, "breakdown_refusal_prev1", exclusiveAbsent()))
+		}, ErrSkillContentReceipt},
+		{"unreadable folder", func(t *testing.T, e previewEnv) attempt {
+			return mine(e, capturedPreview(t, e, "breakdown_refusal_prev1", unknownCapture("exclusive", skillpreview.Issue{Path: "demo", Code: "skill_symlink"})))
+		}, ErrSkillContentReceipt},
+		{"shared root", func(t *testing.T, e previewEnv) attempt {
+			return mine(e, capturedPreview(t, e, "breakdown_refusal_prev1", presentOf(*e.bundle.Revision.Manifest, "shared")))
+		}, ErrSkillContentReceipt},
+		{"root ownership unknown", func(t *testing.T, e previewEnv) attempt {
+			return mine(e, capturedPreview(t, e, "breakdown_refusal_prev1", presentOf(*e.bundle.Revision.Manifest, "unknown")))
+		}, ErrSkillContentReceipt},
+		{"receipt created after the check", func(t *testing.T, e previewEnv) attempt {
+			p := current(t, e)
+			e.adopted(t)
+			return mine(e, p)
+		}, ErrSkillContentReceipt},
+		{"check made after a receipt exists", func(t *testing.T, e previewEnv) attempt {
+			e.adopted(t)
+			return mine(e, capturedPreview(t, e, "breakdown_refusal_prev1", matching(e)))
+		}, ErrSkillContentReceipt},
+		{"check consumed by adoption, then released", func(t *testing.T, e previewEnv) attempt {
+			p := current(t, e)
+			r, err := e.s.AdoptSkillContentPreviewFor(e.uid, adoption("breakdown_refusal_adopt", p, e.pin.RevisionID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = e.s.ReleaseSkillContentReceiptFor(e.uid, r.ID, r.Version); err != nil {
+				t.Fatal(err)
+			}
+			return mine(e, p)
+		}, ErrSkillContentReceipt},
+		{"revision from another bundle", func(t *testing.T, e previewEnv) attempt {
+			second := secondBundle(t, e)
+			return with(t, e, func(a *attempt) { a.revision = second.Revision.ID })
+		}, ErrSkillContentReceipt},
+		{"SKILL.md differs from the revision", func(t *testing.T, e previewEnv) attempt {
+			differs, err := e.s.SavePrivateSkillRevisionFor(e.uid, e.bundle.Bundle.ID, privateWrite("breakdown_skill_md_diff", e.bundle.Revision.ID, "DIFFERENT"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return with(t, e, func(a *attempt) { a.revision = differs.Revision.ID })
+		}, skillplan.ErrNotClaimable},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := previewFixture(t)
+			a := tc.setup(t, e)
+			before := receiptsAndPreviews(t, e)
+			got, err := e.s.SkillContentAdoptionBreakdownFor(a.uid, a.preview, a.revision)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("got %v, want %v", err, tc.want)
+			}
+			if !reflect.DeepEqual(got, SkillContentAdoptionBreakdown{}) {
+				t.Fatalf("a refusal returned a breakdown: %+v", got)
+			}
+			if !reflect.DeepEqual(receiptsAndPreviews(t, e), before) {
+				t.Fatal("a refused breakdown changed a receipt or a preview")
+			}
+		})
+	}
+
+	// A malformed ID is answered before the database is asked anything: with the
+	// database closed, a well-formed pair fails on the database and a malformed one
+	// still gets its own refusal.
+	t.Run("malformed IDs are answered without a query", func(t *testing.T) {
+		e := previewFixture(t)
+		p := current(t, e)
+		if err := e.s.db.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.s.SkillContentAdoptionBreakdownFor(e.uid, p.ID, e.pin.RevisionID); err == nil || errors.Is(err, ErrSkillContentPreviewMissing) || errors.Is(err, ErrPrivateSkillMissing) || errors.Is(err, ErrSkillContentReceipt) {
+			t.Fatalf("fixture needs a well-formed pair to reach the database: %v", err)
+		}
+		if _, err := e.s.SkillContentAdoptionBreakdownFor(e.uid, "not-an-id", e.pin.RevisionID); !errors.Is(err, ErrSkillContentPreviewMissing) {
+			t.Fatal(err)
+		}
+		if _, err := e.s.SkillContentAdoptionBreakdownFor(e.uid, p.ID, "not-an-id"); !errors.Is(err, ErrPrivateSkillMissing) {
+			t.Fatal(err)
+		}
+	})
+}
+
+// A revision whose stored manifest cannot be trusted is a fault to surface, not a
+// breakdown, and it is the very error adoption would answer.
+func TestAdoptionBreakdownOfADamagedRevisionFailsAsAdoptionDoes(t *testing.T) {
+	for name, damage := range map[string]string{
+		"a manifest that is not JSON":     `UPDATE private_skill_revisions SET manifest='not json' WHERE id=?`,
+		"a manifest that fails its check": `UPDATE private_skill_revisions SET manifest=json_set(manifest,'$.digest','` + strings.Repeat("0", 64) + `') WHERE id=?`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := previewFixture(t)
+			w := privateWrite("breakdown_damaged_rev001", e.pin.RevisionID, "PRIVATE_PIN_BYTES")
+			w.Files[1].Data = []byte("#!/bin/sh\nprintf damaged\n")
+			sibling, err := e.s.SavePrivateSkillRevisionFor(e.uid, e.bundle.Bundle.ID, w)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := capturedPreview(t, e, "breakdown_damaged_prev01", matching(e))
+			if _, err = e.s.SkillContentAdoptionBreakdownFor(e.uid, p.ID, sibling.Revision.ID); err != nil {
+				t.Fatalf("fixture must break down before it is damaged: %v", err)
+			}
+			if _, err = e.s.db.Exec(damage, sibling.Revision.ID); err != nil {
+				t.Fatal(err)
+			}
+			before := receiptsAndPreviews(t, e)
+
+			got, err := e.s.SkillContentAdoptionBreakdownFor(e.uid, p.ID, sibling.Revision.ID)
+			_, adoptErr := e.s.AdoptSkillContentPreviewFor(e.uid, adoption("breakdown_damaged_adopt", p, sibling.Revision.ID))
+			if err == nil || adoptErr == nil || err.Error() != adoptErr.Error() {
+				t.Fatalf("breakdown %v, adoption %v", err, adoptErr)
+			}
+			for _, sentinel := range []error{ErrPrivateSkillMissing, ErrSkillContentReceipt, ErrSkillContentPreviewMissing, skillplan.ErrNotClaimable} {
+				if errors.Is(err, sentinel) {
+					t.Fatalf("a damaged revision is a fault, not %v: %v", sentinel, err)
+				}
+			}
+			if !reflect.DeepEqual(got, SkillContentAdoptionBreakdown{}) || !reflect.DeepEqual(receiptsAndPreviews(t, e), before) {
+				t.Fatalf("%+v", got)
+			}
+		})
+	}
+}
+
 func TestReceiptFollowsMachineRename(t *testing.T) {
 	e := previewFixture(t)
 	r := e.adopted(t)

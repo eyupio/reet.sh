@@ -9,9 +9,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"github.com/eyupio/reet.sh/internal/skillplan"
 	"github.com/eyupio/reet.sh/internal/store"
 	_ "modernc.org/sqlite"
@@ -478,6 +480,205 @@ func TestSkillContentReceiptAPIRejectsLegacyAuthModes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// breakdownPath is the read of one check against one library revision.
+func breakdownPath(previewID, revisionID string) string {
+	return previewRoot + "/" + previewID + "/adoption/" + revisionID
+}
+
+// breakdownRow is the metadata one manifest holds for path, listed with status.
+func breakdownRow(t *testing.T, m *skillbundle.Manifest, path, status string) store.AdoptionFile {
+	t.Helper()
+	for _, f := range m.Files {
+		if f.Path == path {
+			return store.AdoptionFile{Path: f.Path, Bytes: f.Bytes, Digest: f.Digest, Executable: f.Executable, Status: status}
+		}
+	}
+	t.Fatalf("%s is not in the manifest", path)
+	return store.AdoptionFile{}
+}
+
+func TestSkillContentAdoptionBreakdownAPI(t *testing.T) {
+	h := newPreviewHarness(t)
+	h.negotiate()
+	viewer, e := h.st.CreateUser("breakdown-viewer@example.test", "Reader", "viewer", "hash")
+	if e != nil {
+		t.Fatal(e)
+	}
+	other, e := h.st.CreateUser("breakdown-other@example.test", "Other", "member", "hash")
+	if e != nil {
+		t.Fatal(e)
+	}
+	viewerCookie, otherCookie := terminalLogin(t, h.st, viewer.ID), terminalLogin(t, h.st, other.ID)
+
+	// The folder holds exactly the pinned revision. A sibling shares its SKILL.md but
+	// not the rest; another keeps the name and differs in SKILL.md; a third bundle
+	// has the pinned bytes; and another account has a revision of its own.
+	skill := []byte("---\nname: demo\ndescription: Private instructions\n---\nPRIVATE_PIN_CONTENT\n")
+	save := func(owner int64, key, base, bundle string, files ...skillbundle.ContentFile) store.PrivateSkillResult {
+		t.Helper()
+		out, e := h.st.SavePrivateSkillRevisionFor(owner, bundle, store.PrivateSkillWrite{RequestID: key, ExpectedBase: &base, Name: "demo", Files: files})
+		if e != nil {
+			t.Fatal(e)
+		}
+		return out
+	}
+	pinned := h.bundle.Revision
+	sibling := save(h.uid, "breakdown_api_sibling_01", pinned.ID, h.bundle.Bundle.ID,
+		skillbundle.ContentFile{Path: "SKILL.md", Data: skill}, skillbundle.ContentFile{Path: "data.bin", Data: []byte{9}}, skillbundle.ContentFile{Path: "extra.txt", Data: []byte("hello")})
+	differs := save(h.uid, "breakdown_api_differs_01", sibling.Revision.ID, h.bundle.Bundle.ID, skillbundle.ContentFile{Path: "SKILL.md", Data: []byte("---\nname: demo\ndescription: Private instructions\n---\nA_DIFFERENT_SKILL_TEXT\n")})
+	another := save(h.uid, "breakdown_api_bundle_02", "", "", skillbundle.ContentFile{Path: "SKILL.md", Data: skill}, skillbundle.ContentFile{Path: "data.bin", Data: []byte{0, 255, 1}})
+	theirs := save(other.ID, "breakdown_api_foreign_01", "", "", skillbundle.ContentFile{Path: "SKILL.md", Data: skill})
+
+	p := h.captured("breakdown_api_preview_01")
+	unknownID := strings.Repeat("0", 48)
+	events := func() int {
+		t.Helper()
+		list, e := h.st.ListEventsFor(h.uid, 0, "")
+		if e != nil {
+			t.Fatal(e)
+		}
+		return len(list)
+	}
+	eventsBefore := events()
+
+	const (
+		missing  = "Ownership record or preview unavailable."
+		noSkill  = "Private skill unavailable."
+		conflict = "This ownership record is unavailable, blocked, changed or already exists. Preview again, and release existing ownership before adopting again."
+		notClaim = "That revision does not match this folder's SKILL.md, so nothing can be claimed."
+	)
+	for _, tc := range []struct {
+		name, path, cookie string
+		status             int
+		message            string
+	}{
+		{"anonymous", breakdownPath(p.ID, pinned.ID), "", 401, ""},
+		{"viewer", breakdownPath(p.ID, pinned.ID), viewerCookie, 403, ""},
+		{"query string", breakdownPath(p.ID, pinned.ID) + "?x=1", h.cookie, 400, ""},
+		{"empty query string", breakdownPath(p.ID, pinned.ID) + "?", h.cookie, 400, ""},
+		{"foreign account's preview", breakdownPath(p.ID, theirs.Revision.ID), otherCookie, 404, missing},
+		{"foreign account's revision", breakdownPath(p.ID, theirs.Revision.ID), h.cookie, 404, noSkill},
+		{"unknown preview", breakdownPath(unknownID, pinned.ID), h.cookie, 404, missing},
+		{"malformed preview ID", breakdownPath("not-an-id", pinned.ID), h.cookie, 404, missing},
+		{"unknown revision", breakdownPath(p.ID, strings.Repeat("0", 32)), h.cookie, 404, noSkill},
+		{"malformed revision ID", breakdownPath(p.ID, "not-an-id"), h.cookie, 404, noSkill},
+		{"revision of another bundle", breakdownPath(p.ID, another.Revision.ID), h.cookie, 409, conflict},
+		{"revision that does not match the folder", breakdownPath(p.ID, differs.Revision.ID), h.cookie, 409, notClaim},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := privateSkillHTTP(t, h.srv, "GET", tc.path, "", tc.cookie, "", "")
+			if w.Code != tc.status || !strings.Contains(w.Body.String(), tc.message) {
+				t.Fatal(w.Code, w.Body.String())
+			}
+			if w.Header().Get("Cache-Control") != "no-store" && w.Code != 401 {
+				t.Fatal("refusal cached")
+			}
+		})
+	}
+
+	t.Run("legacy auth modes", func(t *testing.T) {
+		for _, mode := range []AuthMode{AuthNone, AuthToken} {
+			srv, _, _, _, _ := privateFixture(t, mode, "legacy-token")
+			if w := privateSkillHTTP(t, srv, "GET", breakdownPath(strings.Repeat("a", 48), strings.Repeat("a", 32)), "", "", "", "legacy-token"); w.Code != 403 {
+				t.Fatal(mode, w.Code, w.Body.String())
+			}
+		}
+	})
+
+	// None of this is reachable by an MCP client.
+	for _, method := range []string{"GET", "POST", "DELETE"} {
+		if mcpAPIPath(method, breakdownPath(p.ID, pinned.ID)) {
+			t.Fatalf("MCP allowlist expanded: %s", method)
+		}
+	}
+
+	// A sibling that shares only SKILL.md: the differing data.bin appears once for
+	// each side, extra.txt only in the library, and the counts are the offer's.
+	var bodies []string
+	read := func(revisionID, cookie, token string) (store.SkillContentAdoptionBreakdown, string) {
+		t.Helper()
+		w := privateSkillHTTP(t, h.srv, "GET", breakdownPath(p.ID, revisionID), "", cookie, "", token)
+		var out store.SkillContentAdoptionBreakdown
+		if e := json.Unmarshal(w.Body.Bytes(), &out); w.Code != 200 || e != nil || w.Header().Get("Cache-Control") != "no-store" {
+			t.Fatal(w.Code, w.Body.String(), e, w.Header())
+		}
+		bodies = append(bodies, w.Body.String())
+		return out, w.Body.String()
+	}
+	got, raw := read(sibling.Revision.ID, h.cookie, "")
+	want := store.SkillContentAdoptionBreakdown{RevisionID: sibling.Revision.ID, Matched: 1, ObservedOnly: 1, RevisionOnly: 2, Files: []store.AdoptionFile{
+		breakdownRow(t, pinned.Manifest, "SKILL.md", "claimed"),
+		breakdownRow(t, pinned.Manifest, "data.bin", "stays_yours"),
+		breakdownRow(t, sibling.Revision.Manifest, "data.bin", "library_only"),
+		breakdownRow(t, sibling.Revision.Manifest, "extra.txt", "library_only"),
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("%s\nwant %+v", raw, want)
+	}
+	if !strings.HasPrefix(raw, `{"revisionId":"`+sibling.Revision.ID+`","files":[{"path":"SKILL.md","bytes":`) || !strings.Contains(raw, `"matched":1,"observedOnly":1,"revisionOnly":2}`) {
+		t.Fatalf("the wire shape is the contract: %s", raw)
+	}
+	if offer := (store.AdoptionCandidate{RevisionID: got.RevisionID, Matched: got.Matched, ObservedOnly: got.ObservedOnly, RevisionOnly: got.RevisionOnly}); !slices.Contains(p.Adoption.Candidates, offer) {
+		t.Fatalf("the breakdown's counts should be the offer's: %+v", p.Adoption)
+	}
+
+	// The pinned revision claims everything, and a personal token reads it too.
+	claimedAll, _ := read(pinned.ID, h.cookie, "")
+	viaToken, _ := read(pinned.ID, "", h.token)
+	if !reflect.DeepEqual(claimedAll, viaToken) || claimedAll.Matched != 2 || claimedAll.ObservedOnly != 0 || claimedAll.RevisionOnly != 0 || len(claimedAll.Files) != 2 {
+		t.Fatalf("%+v %+v", claimedAll, viaToken)
+	}
+
+	// Nothing on the wire carries bytes, private text, a secret or a host path.
+	absolute := regexp.MustCompile(`"(/|[A-Za-z]:\\)`)
+	for _, body := range bodies {
+		for _, leaked := range []string{"PRIVATE_PIN_CONTENT", "Private instructions", "hello", `"data"`, h.secret, h.token, h.st.Path()} {
+			if strings.Contains(body, leaked) {
+				t.Fatalf("response leaks %q: %s", leaked, body)
+			}
+		}
+		if absolute.MatchString(body) {
+			t.Fatal("response carries an absolute path", body)
+		}
+	}
+	if events() != eventsBefore {
+		t.Fatal("a read was audited")
+	}
+	if again := h.browser("GET", previewRoot+"/"+p.ID, ""); !strings.Contains(again.Body.String(), `"state":"captured"`) {
+		t.Fatal("reading a breakdown changed the check", again.Body.String())
+	}
+
+	// What the screen showed as claimed is what the receipt that follows holds.
+	claimed := []string{}
+	for _, f := range claimedAll.Files {
+		if f.Status == "claimed" {
+			claimed = append(claimed, f.Path)
+		}
+	}
+	receipt := h.adopt("breakdown_api_adopt_01", p)
+	managed := []string{}
+	for _, f := range receipt.Managed.Files {
+		managed = append(managed, f.Path)
+	}
+	if !reflect.DeepEqual(claimed, managed) || claimedAll.Matched != receipt.FileCount {
+		t.Fatalf("claimed %v (%d), receipt holds %v (%d)", claimed, claimedAll.Matched, managed, receipt.FileCount)
+	}
+	// Adoption consumed the check, so there is nothing left to explain.
+	if w := privateSkillHTTP(t, h.srv, "GET", breakdownPath(p.ID, pinned.ID), "", h.cookie, "", ""); w.Code != 409 || !strings.Contains(w.Body.String(), conflict) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+
+	// A person demoted since loses the read, by session and by token.
+	if e = h.st.UpdateUserRole(h.uid, "viewer"); e != nil {
+		t.Fatal(e)
+	}
+	for name, as := range map[string][2]string{"session": {h.cookie, ""}, "token": {"", h.token}} {
+		if w := privateSkillHTTP(t, h.srv, "GET", breakdownPath(p.ID, pinned.ID), "", as[0], "", as[1]); w.Code != 403 {
+			t.Fatalf("a demoted account reached the breakdown by %s: %d %s", name, w.Code, w.Body.String())
+		}
 	}
 }
 

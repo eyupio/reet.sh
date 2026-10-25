@@ -17,6 +17,7 @@ func (s *server) registerSkillContentReceipts(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/skill-content-receipts", s.privateSkillAccess(s.skillContentReceiptAdopt))
 	mux.HandleFunc("GET /api/v2/skill-content-receipts/{id}", s.privateSkillAccess(s.skillContentReceiptGet))
 	mux.HandleFunc("DELETE /api/v2/skill-content-receipts/{id}", s.privateSkillAccess(s.skillContentReceiptRelease))
+	mux.HandleFunc("GET /api/v2/skill-content-previews/{id}/adoption/{revision}", s.privateSkillAccess(s.skillContentAdoptionBreakdown))
 }
 
 func skillContentReceiptError(w http.ResponseWriter, err error) {
@@ -48,6 +49,18 @@ func (s *server) skillContentReceipts(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) skillContentReceiptGet(w http.ResponseWriter, r *http.Request) {
 	out, err := s.st.SkillContentReceiptFor(s.uid(r), r.PathValue("id"))
+	if err != nil {
+		skillContentReceiptError(w, err)
+		return
+	}
+	writeJSON(w, 200, out)
+}
+
+// skillContentAdoptionBreakdown explains one adoption candidate file by file, so a
+// review can show what adoption would claim without fetching the revision's bytes.
+// It is a read: metadata only, no audit event, and the errors are adoption's.
+func (s *server) skillContentAdoptionBreakdown(w http.ResponseWriter, r *http.Request) {
+	out, err := s.st.SkillContentAdoptionBreakdownFor(s.uid(r), r.PathValue("id"), r.PathValue("revision"))
 	if err != nil {
 		skillContentReceiptError(w, err)
 		return

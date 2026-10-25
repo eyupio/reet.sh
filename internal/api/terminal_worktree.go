@@ -32,7 +32,7 @@ var worktreeRefusals = map[terminalproto.WorktreeReason]struct{ code, sentence s
 	terminalproto.WorktreeUnreferencedCommits: {"unreferenced_commits", "Some commits in this worktree are not on any branch. Put them on a branch first, then check again."},
 	terminalproto.WorktreeNestedRepository:    {"nested_repository", "This worktree contains another git repository. Move or remove it first."},
 	terminalproto.WorktreeHiddenChanges:       {"hidden_changes", "Git is not tracking some edits in this worktree. Review them before removing."},
-	terminalproto.WorktreeCheckIncomplete:     {"check_incomplete", "This worktree is too large for reet to check. Remove it yourself."},
+	terminalproto.WorktreeCheckIncomplete:     {"check_incomplete", "reet couldn't check all of this worktree. Remove it yourself."},
 }
 
 // worktreeReasons lists which reasons each request can be refused with; any
@@ -95,6 +95,10 @@ func worktreeError(w http.ResponseWriter, err error, op worktreeOperation) {
 		writeErrCode(w, http.StatusNotFound, "not_found", "", "That worktree isn't on that machine. It may have been removed already.", "")
 	case errors.Is(err, terminalbroker.ErrWorktreeRefused):
 		writeWorktreeRefusal(w, err, op)
+	case errors.Is(err, terminalbroker.ErrWorktreeBusy):
+		writeErrCode(w, http.StatusConflict, "worktree_busy", "", "That machine is already working on a worktree. Try again in a minute.", "")
+	case errors.Is(err, terminalbroker.ErrWorktreeUnavailable):
+		writeErrCode(w, http.StatusServiceUnavailable, "worktree_unavailable", "", "That machine couldn't do that just now. Try again in a moment.", "")
 	default:
 		terminalError(w, err)
 	}

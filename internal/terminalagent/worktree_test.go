@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -38,7 +39,16 @@ func TestWorktreeResultMapping(t *testing.T) {
 	}
 }
 
-func worktreeCall(t *testing.T, handle func(context.Context, terminalproto.Message) error, got *terminalproto.Message, body terminalproto.Body) terminalproto.Body {
+// replies collects what the connector sends; worktree answers arrive from
+// their own goroutine.
+type replies chan terminalproto.Message
+
+func (r replies) send(_ context.Context, m terminalproto.Message) error {
+	r <- m
+	return nil
+}
+
+func worktreeCall(t *testing.T, handle func(context.Context, terminalproto.Message) error, got replies, body terminalproto.Body) terminalproto.Body {
 	t.Helper()
 	msg := terminalproto.Message{Version: terminalproto.Version, Generation: 1, RequestID: "request-0123456789", Body: body}
 	if err := msg.Validate(); err != nil {
@@ -47,13 +57,19 @@ func worktreeCall(t *testing.T, handle func(context.Context, terminalproto.Messa
 	if err := handle(t.Context(), msg); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := terminalproto.Encode(*got); err != nil {
-		t.Fatalf("reply is not a valid message: %+v", got.Body)
+	var reply terminalproto.Message
+	select {
+	case reply = <-got:
+	case <-time.After(30 * time.Second):
+		t.Fatal("no reply")
 	}
-	if got.RequestID != msg.RequestID || got.SessionID != "" {
-		t.Fatal("reply envelope", got)
+	if _, err := terminalproto.Encode(reply); err != nil {
+		t.Fatalf("reply is not a valid message: %+v", reply.Body)
 	}
-	return got.Body
+	if reply.RequestID != msg.RequestID || reply.SessionID != "" {
+		t.Fatal("reply envelope", reply)
+	}
+	return reply.Body
 }
 
 // A connection that did not negotiate worktree-v1 is refused plainly and
@@ -73,14 +89,13 @@ func TestWorktreeMessagesRequireNegotiatedFeature(t *testing.T) {
 			&terminalproto.WorktreeStatus{Run: testRun, Project: "p", Repo: "site"},
 			&terminalproto.WorktreeRemove{Run: testRun, Project: "p", Repo: "site"},
 		} {
-			var got terminalproto.Message
-			send := func(_ context.Context, m terminalproto.Message) error { got = m; return nil }
+			got := make(replies, 4)
 			headers := http.Header{}
 			if tc.features != "" {
 				headers.Set(terminalproto.FeatureHeader, tc.features)
 			}
-			handle, cleanup := Factory(terminalhost.ManagerOptions{})(t.Context(), http.DefaultClient, headers, 1, send)
-			reply := worktreeCall(t, handle, &got, body)
+			handle, cleanup := Factory(terminalhost.ManagerOptions{})(t.Context(), http.DefaultClient, headers, 1, got.send)
+			reply := worktreeCall(t, handle, got, body)
 			cleanup()
 			if r, ok := reply.(terminalproto.WorktreeResult); !ok || r != (terminalproto.WorktreeResult{Code: tc.want}) {
 				t.Fatal(tc.features, reply)
@@ -150,33 +165,32 @@ func TestWorktreeStatusAndRemoveThroughTheConnector(t *testing.T) {
 	if err := terminalhost.Ensure(layout); err != nil {
 		t.Fatal(err)
 	}
-	var got terminalproto.Message
-	send := func(_ context.Context, m terminalproto.Message) error { got = m; return nil }
+	got := make(replies, 4)
 	headers := http.Header{}
 	headers.Set(terminalproto.FeatureHeader, terminalproto.LaunchFeature+","+terminalproto.WorktreeFeature)
-	handle, cleanup := Factory(terminalhost.ManagerOptions{EnrollmentID: id, Layout: layout, Home: home, Consent: func() error { return nil }})(t.Context(), http.DefaultClient, headers, 1, send)
+	handle, cleanup := Factory(terminalhost.ManagerOptions{EnrollmentID: id, Layout: layout, Home: home, Consent: func() error { return nil }})(t.Context(), http.DefaultClient, headers, 1, got.send)
 	defer cleanup()
 
 	if err := os.WriteFile(filepath.Join(w.Path, "draft"), []byte("d\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	reply := worktreeCall(t, handle, &got, &terminalproto.WorktreeStatus{Run: testRun, Project: "p", Repo: "site"})
+	reply := worktreeCall(t, handle, got, &terminalproto.WorktreeStatus{Run: testRun, Project: "p", Repo: "site"})
 	state, ok := reply.(terminalproto.WorktreeState)
 	if !ok || state.Path != w.Path || state.Branch != w.Branch || state.Changed != 1 || state.Unpushed != 0 || len(state.Paths) != 1 || state.Paths[0] != "draft" {
 		t.Fatalf("status: %#v", reply)
 	}
-	reply = worktreeCall(t, handle, &got, &terminalproto.WorktreeRemove{Run: testRun, Project: "p", Repo: "site"})
+	reply = worktreeCall(t, handle, got, &terminalproto.WorktreeRemove{Run: testRun, Project: "p", Repo: "site"})
 	if reply != (terminalproto.WorktreeResult{Code: terminalproto.WorktreeChanged}) {
 		t.Fatalf("stale counts: %#v", reply)
 	}
-	reply = worktreeCall(t, handle, &got, &terminalproto.WorktreeRemove{Run: testRun, Project: "p", Repo: "site", Changed: 1})
+	reply = worktreeCall(t, handle, got, &terminalproto.WorktreeRemove{Run: testRun, Project: "p", Repo: "site", Changed: 1})
 	if reply != (terminalproto.WorktreeResult{Code: terminalproto.WorktreeRefused, Reason: terminalproto.WorktreeHasChanges}) {
 		t.Fatalf("uncommitted changes: %#v", reply)
 	}
 	if err := os.Remove(filepath.Join(w.Path, "draft")); err != nil {
 		t.Fatal(err)
 	}
-	reply = worktreeCall(t, handle, &got, &terminalproto.WorktreeRemove{Run: testRun, Project: "p", Repo: "site"})
+	reply = worktreeCall(t, handle, got, &terminalproto.WorktreeRemove{Run: testRun, Project: "p", Repo: "site"})
 	if reply != (terminalproto.WorktreeResult{Code: terminalproto.OK}) {
 		t.Fatalf("remove: %#v", reply)
 	}
@@ -186,11 +200,11 @@ func TestWorktreeStatusAndRemoveThroughTheConnector(t *testing.T) {
 	if git(t, repo, "rev-parse", "--verify", "-q", "refs/heads/"+w.Branch) == "" {
 		t.Fatal("the branch was deleted")
 	}
-	reply = worktreeCall(t, handle, &got, &terminalproto.WorktreeRemove{Run: testRun, Project: "p", Repo: "site"})
+	reply = worktreeCall(t, handle, got, &terminalproto.WorktreeRemove{Run: testRun, Project: "p", Repo: "site"})
 	if reply != (terminalproto.WorktreeResult{Code: terminalproto.NotFound}) {
 		t.Fatalf("already gone: %#v", reply)
 	}
-	reply = worktreeCall(t, handle, &got, &terminalproto.WorktreeStatus{Run: testRun, Project: "p", Repo: "site"})
+	reply = worktreeCall(t, handle, got, &terminalproto.WorktreeStatus{Run: testRun, Project: "p", Repo: "site"})
 	if reply != (terminalproto.WorktreeResult{Code: terminalproto.NotFound}) {
 		t.Fatalf("status of a removed worktree: %#v", reply)
 	}

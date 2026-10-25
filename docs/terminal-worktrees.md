@@ -173,9 +173,22 @@ started afterwards can run anything the user can, as it always could.
 - The controller waits up to 100 seconds for a worktree create, status or remove
   (10 seconds for every other control call), because the connector's budget plus
   cleanup can take 90.
-- The connector serves control messages one at a time on one reader, so while
-  git runs for a worktree request, that machine's other control messages wait
-  (up to the budget).
+- The connector answers the controller's health probes on its reader and hands
+  every other control message, in order, to one dispatcher over a bounded queue
+  (64). A worktree status or remove then runs on its own goroutine, so the
+  dispatcher and the probes never wait for git. One worktree status or remove runs
+  at a time per machine: a second is answered at once with `conflict`, which the
+  API reports as 409 `worktree_busy`, "That machine is already working on a
+  worktree. Try again in a minute." A worktree create still runs on the
+  dispatcher, as every create does, so the machine's next session operations wait
+  for it (probes do not). A remove holds the manager lock, so a create or end
+  arriving during a remove waits for it.
+- Before this change the connector ran every request on the reader itself, so a
+  worktree request that ran for longer than about a minute and a half could leave
+  three probes unanswered, and the controller would mark the machine unreachable
+  and disconnect it.
+- When the connection ends, a running status is cancelled (git is killed) and
+  answers nothing; the connector's cleanup waits for it.
 
 ## What the counts mean
 
@@ -320,8 +333,8 @@ refusal (when no agent was started).
 - A worktree of a different repository with the same folder name, placed at the
   path by hand, passes the checks; the protocol carries the repository's name, not
   its path.
-- While git runs, the machine answers its other control messages late (see
-  budgets); a slow repository can show as missed health probes.
+- While a worktree create runs, that machine's other session operations wait for
+  it (up to the budget); probes are still answered.
 - Windows is not supported.
 
 ## What this does not establish

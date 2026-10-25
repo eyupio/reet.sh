@@ -2,6 +2,7 @@ package terminalbroker
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -190,7 +191,10 @@ func TestWorktreeStatusAndRemoveAreSentExactlyAndMapped(t *testing.T) {
 			return errors.As(err, &refusal) && refusal.Reason == terminalproto.WorktreeGitFailed && refusal.Detail == "fatal: locked"
 		}},
 		{"denied", terminalproto.WorktreeResult{Code: terminalproto.Denied}, func(err error) bool { return errors.Is(err, ErrDenied) }},
-		{"unavailable", terminalproto.WorktreeResult{Code: terminalproto.Unavailable}, func(err error) bool { return errors.Is(err, ErrOffline) }},
+		{"busy", terminalproto.WorktreeResult{Code: terminalproto.Conflict}, func(err error) bool { return errors.Is(err, ErrWorktreeBusy) }},
+		{"unavailable", terminalproto.WorktreeResult{Code: terminalproto.Unavailable}, func(err error) bool { return errors.Is(err, ErrWorktreeUnavailable) }},
+		{"failed", terminalproto.WorktreeResult{Code: terminalproto.Failed}, func(err error) bool { return errors.Is(err, ErrWorktreeUnavailable) }},
+		{"capacity", terminalproto.WorktreeResult{Code: terminalproto.Capacity}, func(err error) bool { return errors.Is(err, ErrWorktreeUnavailable) }},
 		{"wrong reply type", terminalproto.Result{Code: terminalproto.OK}, func(err error) bool { return errors.Is(err, ErrOffline) }},
 	} {
 		f.worktree = func(terminalproto.Body) terminalproto.Body { return tc.reply }
@@ -295,5 +299,67 @@ func TestLateWorktreeRepliesAreIgnored(t *testing.T) {
 	}
 	if err := p.Receive(terminalproto.Message{Version: terminalproto.Version, RequestID: ID(), Generation: p.Generation, Body: &terminalproto.Probe{Sequence: 1, Nonce: ID()}}); err == nil {
 		t.Fatal("an unexpected message type was accepted")
+	}
+}
+
+// A machine answers a second worktree request busy at once, so a burst of
+// status requests while one is running never fills the 32 call slots.
+func TestWorktreeStatusBurstWhileOneRunsGetsBusyNotSlotExhaustion(t *testing.T) {
+	f := launchFixture(t, worktreeCapabilities("claude"))
+	release := make(chan struct{})
+	var once sync.Once
+	p, err := f.b.peer(f.uid, f.agent, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.worktree = func(body terminalproto.Body) terminalproto.Body {
+		first := false
+		once.Do(func() { first = true })
+		if first {
+			return nil // answered below, after the burst
+		}
+		return terminalproto.WorktreeResult{Code: terminalproto.Conflict}
+	}
+	// The fixture sends nothing for a nil answer; deliver the first state late.
+	f.late = func(m terminalproto.Message) {
+		go func() {
+			<-release
+			m.Body = &terminalproto.WorktreeState{Path: "/home/test/.reet/worktrees/my-project/site/" + testRun, Branch: "reet/my-project-" + testRun}
+			_ = p.Receive(m)
+		}()
+	}
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := f.b.WorktreeStatus(t.Context(), f.uid, f.agent, testProject, "site", testRun)
+		firstDone <- err
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for len(f.worktreeSent()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 64)
+	start := time.Now()
+	for i := 0; i < 64; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := f.b.WorktreeStatus(t.Context(), f.uid, f.agent, testProject, "site", testRun)
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	if time.Since(start) > 2*time.Second {
+		t.Fatal("busy answers were slow", time.Since(start))
+	}
+	for err := range errs {
+		if !errors.Is(err, ErrWorktreeBusy) {
+			t.Fatal("a request in the burst was not answered busy", err)
+		}
+	}
+	close(release)
+	if err := <-firstDone; err != nil {
+		t.Fatal("the running request", err)
 	}
 }

@@ -24,6 +24,8 @@ type launchPeer struct {
 	worktrees []terminalproto.Body
 	// delay, when set, delivers every reply that long after it was sent.
 	delay time.Duration
+	// late receives a worktree request whose answer was nil, to deliver it.
+	late func(terminalproto.Message)
 }
 
 func (f *launchPeer) sent() []terminalproto.Create {
@@ -73,6 +75,10 @@ func launchFixture(t *testing.T, caps terminalproto.Capabilities) *launchPeer {
 			reply.Body = terminalproto.WorktreeResult{Code: terminalproto.Unavailable}
 			if respond != nil {
 				reply.Body = respond(op)
+			}
+			if reply.Body == nil {
+				f.late(reply)
+				return nil
 			}
 		default:
 			reply.Body = terminalproto.Result{Code: terminalproto.OK}

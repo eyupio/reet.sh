@@ -63,6 +63,10 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 			}()
 		}
 		attachments := map[string]*terminalhost.Attachment{}
+		// worktreeSlot allows one worktree status or remove at a time on this
+		// machine. It runs on its own goroutine so the dispatcher, and the
+		// controller's other requests, never wait for git.
+		worktreeSlot := make(chan struct{}, 1)
 		// Dispatch is called by one control reader; only stream workers use their
 		// own immutable attachment. Cleanup happens after that reader has stopped.
 		handler := func(callCtx context.Context, msg terminalproto.Message) error {
@@ -100,8 +104,26 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 					reply.Body = terminalproto.WorktreeResult{Code: terminalproto.Unavailable}
 					return send(callCtx, reply)
 				}
-				reply.Body = answerWorktree(callCtx, m, msg.Body)
-				return send(callCtx, reply)
+				select {
+				case worktreeSlot <- struct{}{}:
+				default:
+					reply.Body = terminalproto.WorktreeResult{Code: terminalproto.Conflict}
+					return send(callCtx, reply)
+				}
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					defer func() { <-worktreeSlot }()
+					body := answerWorktree(callCtx, m, msg.Body)
+					// A request whose connection has ended answers nothing: the
+					// controller has already given up on it and reads status again.
+					if callCtx.Err() != nil {
+						return
+					}
+					reply.Body = body
+					_ = send(callCtx, reply)
+				}()
+				return nil
 			}
 			if managerErr != nil {
 				return send(callCtx, reply)

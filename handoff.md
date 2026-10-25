@@ -2356,8 +2356,12 @@ work when this was written.
 - Ignored files (`.env`, `node_modules`) are deleted with the worktree; ignored nested repositories
   and worktrees with more than 200,000 entries are refused instead.
 - A helper that daemonizes escapes the process-group kill on timeout.
-- The connector handles control messages one at a time, so a slow git delays that machine's other
-  control messages (and health probes) for up to the budget.
+- Fixed in the PR 1 fix round: the connector used to run every control message on its reader, so a
+  long worktree request could leave health probes unanswered until the controller marked the
+  machine unreachable and disconnected it. Probes are now answered on the reader, other messages go
+  to one dispatcher, worktree status and remove run on their own goroutine, and a second concurrent
+  worktree request is refused at once as `worktree_busy`. A worktree create still occupies the
+  dispatcher while git runs.
 - A retry of a refused create reports `worktree_refused` without the reason, which is not stored.
 - Status and remove name the repository by the folder name the machine used; for a member folder
   that is itself a symlink, that name can differ from the saved path's.

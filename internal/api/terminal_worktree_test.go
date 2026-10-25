@@ -344,13 +344,16 @@ func TestTerminalWorktreeRemoveRefusalsMapToSentences(t *testing.T) {
 		{"unreferenced", terminalproto.WorktreeResult{Code: terminalproto.WorktreeRefused, Reason: terminalproto.WorktreeUnreferencedCommits}, 422, "unreferenced_commits", "Some commits in this worktree are not on any branch. Put them on a branch first, then check again."},
 		{"nested", terminalproto.WorktreeResult{Code: terminalproto.WorktreeRefused, Reason: terminalproto.WorktreeNestedRepository}, 422, "nested_repository", "This worktree contains another git repository. Move or remove it first."},
 		{"hidden", terminalproto.WorktreeResult{Code: terminalproto.WorktreeRefused, Reason: terminalproto.WorktreeHiddenChanges}, 422, "hidden_changes", "Git is not tracking some edits in this worktree. Review them before removing."},
-		{"incomplete", terminalproto.WorktreeResult{Code: terminalproto.WorktreeRefused, Reason: terminalproto.WorktreeCheckIncomplete}, 422, "check_incomplete", "This worktree is too large for reet to check. Remove it yourself."},
+		{"incomplete", terminalproto.WorktreeResult{Code: terminalproto.WorktreeRefused, Reason: terminalproto.WorktreeCheckIncomplete}, 422, "check_incomplete", "reet couldn't check all of this worktree. Remove it yourself."},
 		{"not registered", terminalproto.WorktreeResult{Code: terminalproto.WorktreeRefused, Reason: terminalproto.WorktreeNotRegistered}, 422, "not_registered", "Git doesn't list that folder as this run's worktree, so reet won't touch it."},
 		{"outside home", terminalproto.WorktreeResult{Code: terminalproto.WorktreeRefused, Reason: terminalproto.WorktreeOutsideHome}, 422, "outside_home", "The folder ~/.reet/worktrees on that machine is a link, belongs to another user or can be changed by others. Fix it, then try again."},
 		{"git failed", terminalproto.WorktreeResult{Code: terminalproto.WorktreeRefused, Reason: terminalproto.WorktreeGitFailed, Detail: "fatal: worktree is locked"}, 422, "git_failed", "Git couldn't remove that worktree."},
 		{"not found", terminalproto.WorktreeResult{Code: terminalproto.NotFound}, 404, "not_found", "That worktree isn't on that machine. It may have been removed already."},
 		{"unexpected reason", terminalproto.WorktreeResult{Code: terminalproto.WorktreeRefused, Reason: terminalproto.WorktreeRepoBusy}, 422, "worktree_refused", "That machine refused to remove the worktree."},
 		{"denied", terminalproto.WorktreeResult{Code: terminalproto.Denied}, 403, "", "terminal access denied"},
+		{"busy", terminalproto.WorktreeResult{Code: terminalproto.Conflict}, 409, "worktree_busy", "That machine is already working on a worktree. Try again in a minute."},
+		{"unavailable", terminalproto.WorktreeResult{Code: terminalproto.Unavailable}, 503, "worktree_unavailable", "That machine couldn't do that just now. Try again in a moment."},
+		{"failed", terminalproto.WorktreeResult{Code: terminalproto.Failed}, 503, "worktree_unavailable", "That machine couldn't do that just now. Try again in a moment."},
 	} {
 		f.answer(func(body terminalproto.Body) terminalproto.Body {
 			if _, ok := body.(terminalproto.WorktreeStatus); ok {
@@ -376,6 +379,8 @@ func TestTerminalWorktreeRemoveRefusalsMapToSentences(t *testing.T) {
 		{terminalproto.WorktreeResult{Code: terminalproto.NotFound}, 404, "not_found", "That worktree isn't on that machine. It may have been removed already."},
 		{terminalproto.WorktreeResult{Code: terminalproto.WorktreeRefused, Reason: terminalproto.WorktreeGitFailed, Detail: "git is not installed"}, 422, "git_failed", "Git couldn't check that worktree."},
 		{terminalproto.WorktreeResult{Code: terminalproto.WorktreeRefused, Reason: terminalproto.WorktreeNotRegistered}, 422, "not_registered", "Git doesn't list that folder as this run's worktree, so reet won't touch it."},
+		{terminalproto.WorktreeResult{Code: terminalproto.Conflict}, 409, "worktree_busy", "That machine is already working on a worktree. Try again in a minute."},
+		{terminalproto.WorktreeResult{Code: terminalproto.Capacity}, 503, "worktree_unavailable", "That machine couldn't do that just now. Try again in a moment."},
 	} {
 		f.answer(func(terminalproto.Body) terminalproto.Body { return tc.reply })
 		code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/terminal/worktrees/status", worktreeRequest(f.agent.ID, nil))

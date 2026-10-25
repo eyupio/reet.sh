@@ -316,44 +316,85 @@ func readConsent(read func() (bool, terminalproto.Readiness, error)) (bool, term
 	return enabled, readiness
 }
 
+// terminalQueueSize bounds the terminal messages waiting for the terminal
+// dispatcher. The controller keeps at most 32 calls outstanding per machine,
+// plus a few late replies, so a full queue means the connection is unusable.
+const terminalQueueSize = 64
+
 func readControl(ctx context.Context, conn *websocket.Conn, generation int64, send Sender, errorsSeen chan<- error) {
 	readControlWithTerminal(ctx, conn, generation, send, errorsSeen, nil)
 }
+// readControlWithTerminal answers probes on the reader itself and hands every
+// other message to one dispatcher goroutine, in arrival order, over a bounded
+// queue. A slow terminal request (a worktree's git, for example) therefore
+// never delays a probe answer, and the terminal handler still sees one
+// message at a time, as its attachment bookkeeping requires.
 func readControlWithTerminal(ctx context.Context, conn *websocket.Conn, generation int64, send Sender, errorsSeen chan<- error, terminal func(context.Context, terminalproto.Message) error) {
+	report := func(err error) {
+		select {
+		case errorsSeen <- err:
+		default: // an error is already waiting; the session ends on the first
+		}
+	}
+	var queue chan terminalproto.Message
+	if terminal != nil {
+		queue = make(chan terminalproto.Message, terminalQueueSize)
+		var dispatcher sync.WaitGroup
+		dispatcher.Add(1)
+		go func() {
+			defer dispatcher.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case message := <-queue:
+					if err := terminal(ctx, message); err != nil {
+						report(err)
+						return
+					}
+				}
+			}
+		}()
+		// The reader reports its own error before this wait, so the session
+		// cancels ctx and the dispatcher's current request ends.
+		defer dispatcher.Wait()
+	}
 	for {
 		readCtx, cancel := context.WithTimeout(ctx, controlReadTimeout)
 		kind, data, err := conn.Read(readCtx)
 		cancel()
 		if err != nil {
-			errorsSeen <- errors.New("private control connection lost")
+			report(errors.New("private control connection lost"))
 			return
 		}
 		if kind != websocket.MessageText {
-			errorsSeen <- terminalproto.ErrInvalid
+			report(terminalproto.ErrInvalid)
 			return
 		}
 		message, err := terminalproto.Decode(data)
 		if err != nil || message.Generation != generation {
-			errorsSeen <- terminalproto.ErrInvalid
+			report(terminalproto.ErrInvalid)
 			return
 		}
 		probe, ok := message.Body.(*terminalproto.Probe)
 		if !ok {
-			if terminal != nil {
-				if err := terminal(ctx, message); err != nil {
-					errorsSeen <- err
-					return
-				}
-				continue
+			if queue == nil {
+				report(terminalproto.ErrInvalid)
+				return
 			}
-			errorsSeen <- terminalproto.ErrInvalid
-			return
+			select {
+			case queue <- message:
+				continue
+			default:
+				report(errors.New("private control requests are not being handled"))
+				return
+			}
 		}
 		result := terminalproto.ProbeResult(*probe)
 		if err := send(ctx, terminalproto.Message{
 			Version: terminalproto.Version, RequestID: message.RequestID, Generation: generation, Body: result,
 		}); err != nil {
-			errorsSeen <- err
+			report(err)
 			return
 		}
 	}

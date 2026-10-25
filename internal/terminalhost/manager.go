@@ -24,6 +24,8 @@ type ManagerOptions struct {
 	// Consent must re-read locally bound enrollment/opt-in. A controller cannot
 	// supply it. Later network callers must additionally authenticate the owner.
 	Consent func() error
+	// Git runs git for worktrees; nil means ExecGit. Only tests set it.
+	Git GitRunner
 }
 
 type Manager struct {
@@ -60,7 +62,11 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, lookPath: exec.LookPath, git: ExecGit, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, changed: make(chan struct{})}
+	git := opts.Git
+	if git == nil {
+		git = ExecGit
+	}
+	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, lookPath: exec.LookPath, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, changed: make(chan struct{})}
 	// Validate a present registry even when tmux is offline. Never silently
 	// repair an unreadable file or adopt sessions from another enrollment.
 	lock, err := m.registryLock(ctx)

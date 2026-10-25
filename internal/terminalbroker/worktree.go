@@ -19,6 +19,12 @@ var (
 	ErrWorktreeNotFound = errors.New("worktree not found on that machine")
 	// ErrWorktreeChanged means the counts the person was shown no longer match.
 	ErrWorktreeChanged = errors.New("worktree changed since it was shown")
+	// ErrWorktreeBusy means the machine is already running a worktree status
+	// or remove; it answers a second one at once instead of queueing it.
+	ErrWorktreeBusy = errors.New("machine is already working on a worktree")
+	// ErrWorktreeUnavailable means the machine answered but could not do it
+	// just now (unavailable, failed or capacity).
+	ErrWorktreeUnavailable = errors.New("machine could not do that worktree request just now")
 )
 
 // WorktreeError is a worktree refusal with the connector's reason and, for
@@ -87,6 +93,10 @@ func worktreeError(r *terminalproto.WorktreeResult) error {
 		return &WorktreeError{Reason: r.Reason, Detail: r.Detail}
 	case terminalproto.Denied:
 		return ErrDenied
+	case terminalproto.Conflict:
+		return ErrWorktreeBusy
+	case terminalproto.Unavailable, terminalproto.Failed, terminalproto.Capacity:
+		return ErrWorktreeUnavailable
 	}
 	return ErrOffline
 }

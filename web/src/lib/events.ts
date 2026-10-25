@@ -1,4 +1,5 @@
 import type { Event } from './api'
+import { launchActivity } from './agentLaunch'
 
 type Detail = {
   host?: string
@@ -34,6 +35,9 @@ type Detail = {
   by?: string
   subject?: string
   group?: string
+  tool?: string
+  model?: string
+  dir?: string
 }
 
 function detail(e: Event): Detail {
@@ -55,6 +59,7 @@ export function eventLabel(e: Event): string {
   switch (e.action) {
     case 'merge-machines': return `Consolidated machine ${d.from || ''} as ${d.to || ''}`
     case 'forget-machine': return `Forgot machine ${d.host || ''}`
+    case 'terminal-launch': return launchActivity(d)
     case 'sync-agent-update': return `Queued a reet update for ${d.name || 'a machine'}`
     case 'sync-agent-auto-update': return `Queued a reet update for ${d.name || 'a machine'} automatically`
     case 'add':

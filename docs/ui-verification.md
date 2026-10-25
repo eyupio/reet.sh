@@ -283,3 +283,124 @@ the landing note was not heard; the note is only shown to arrive after its regio
 second look is exercised by moving the browser clock on past the 14-day window between pressing
 **Use** and the page drawing the landing, not by pausing a connector in the same instant. Touch target
 sizes were not measured. No production data, machine, terminal session or deployment was involved.
+
+## Start an agent session: layout, focus and motion matrix — 25 October 2026
+
+This section was built on `f7e47ae` plus the hardening commit `0d09906` and the matrix commit
+`721988a`. It records three things for the [Start an agent dialog](start-agent-session.md):
+
+- what the browser fixture `web/tests/start-agent.e2e.mjs` checks;
+- what an accessibility scan found;
+- what was not checked.
+
+**Defects found and fixed.** The matrix and the scan found three defects. Each fix has a fixture
+assertion that failed before the change.
+
+1. **The footer covered fields on narrow screens.** The footer with the status line and **Start**
+   was sticky inside the scrolling form. At 390 and 320px, a field scrolled into view (the Folder
+   select first) sat underneath it, so a hit test at its centre landed on **Start**. The footer now
+   sits below the scrolling fields, outside the scrolling part.
+2. **The "Not installed on this machine." reason failed contrast.** It sat in a row faded to 75%
+   opacity, and axe reported a `color-contrast` violation in 21 of the dialog scans. Now only the
+   agent's name is dimmed, and the reason keeps full contrast.
+3. **The locked form couldn't be scrolled by keyboard.** While a request was held or its outcome
+   unknown, every field in the scrolling part was disabled, so a keyboard user couldn't reach it to
+   scroll (axe `scrollable-region-focusable`, 12 dialog scans). While locked, it is now a focusable
+   region named "Your choices".
+
+An earlier review had also found that a validation message stayed in the status line after the
+field was fixed. It is now cleared as soon as a field is edited, and replaced on the next attempt.
+
+**Layout matrix.** 24 states, each at 1360, 768, 390 and 320px wide in light and dark (eight size
+and theme pairs per state):
+
+- both closed entry points (the Terminals sidebar's **New agent session**, and the machine cards'
+  **Start an agent**, including a disabled one);
+- the dialog as it opens, with OpenCode not installed;
+- a machine with a 60-character unbroken name and a project folder of about 130 characters, with
+  three agents not installed;
+- the sentence line with a prompt (the process-list line);
+- the machine you came from not ready;
+- no machine ready;
+- an old machine;
+- **Other…** with its message;
+- a typed relative path with its message;
+- a 2,001-byte prompt with its counter;
+- the leading-dash rule in the status line;
+- **Starting…** while held;
+- the lost reply with **Try the same request again**;
+- the landing on the new session;
+- the nine refusals: folder, agent not installed, one-word prompt, update reet, session limit,
+  request changed, access refused, terminals switched off on the server, and reconnecting (kept for
+  retry).
+
+For each state:
+
+- the page does not scroll sideways;
+- the dialog sits inside the window;
+- neither the dialog, its scrolling part, nor any element inside it reaches past the dialog's edges;
+- each primary action for that state is scrolled into view, and a hit test at its centre lands on
+  it. The primary actions are **Start**, **Try the same request again**, **Starting…**, **Close**,
+  the field the message is about, the status line, the entry buttons, or the session pane.
+
+For the long names, the machine and folder selects show what fits. The fixture checks that the
+whole value is the selected option's text and that the sentence line, which wraps, holds both in
+full. The dark surface is checked to differ from the light one, so the scheme change is real.
+
+Three mutants made the fixture fail:
+
+- `white-space: pre` on the sentence line;
+- a fixed `min-width: 640px` on the dialog;
+- putting the sticky footer back.
+
+Removing only the `min(…)` cap did not make it fail, because the browser's own dialog style still
+caps the width.
+
+**Focus and Escape.** At each of the eight size and theme pairs, the dialog is opened from the
+Terminals sidebar and then from the long-named machine's card. A prompt is typed and Escape pressed.
+The dialog closes, focus returns to the button that opened it, and no request is sent. Earlier parts
+of the file check **Close**, Escape on a held first **Start** and on a held retry (both wait), and
+focus after each refusal.
+
+**Reduced motion.** Without the preference, the dialog's buttons have a press (transform)
+transition, so the check is not empty. With `prefers-reduced-motion: reduce`, no element in the
+open dialog has an animation or a transform transition, and none is running.
+
+**Storage.** During the matrix, nothing was written to browser storage under a key that hadn't
+already been written before it: only the workspace's layout preference and the sign-in token's
+clean-up. Nothing about a prompt, model or folder was written. The whole file also records IndexedDB
+opens, deletes and store writes, and finds none apart from its own recorder self-check.
+
+**Runs.** Four consecutive local runs of the fixture passed against the production build (50, 50,
+47 and 49 seconds; the file took about 8 seconds before the matrix), with
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/pw-browsers/chromium` and the preview server on port 4173.
+The public-workspace, control, machine-import, skill-content, add-machine, terminal-workspace,
+terminal-lifecycle and terminal-organisation fixtures also passed. Full validation results are
+recorded in the pull request.
+
+**Accessibility scan.**
+- **Setup.** `axe-core` 4.10.2 was installed with `npm` in a temporary directory outside the
+  repository. Nothing was added to `package.json` or the lock file.
+- **How it ran.** It ran through Playwright over a copy of the same walk, with the `wcag2a`,
+  `wcag2aa`, `wcag21a`, `wcag21aa` and `wcag22aa` rule tags. Each scan waited 700 milliseconds
+  first and covered the open dialog, or the whole page for the closed entry points and the landing.
+- **Scope.** 96 scans: the 24 states at 375 and 1440px in light and dark.
+- **The dialog, after the fixes.** 84 dialog scans, no violations.
+- **The page.**
+  - In 4 of the 12 page scans (the Terminals page and the landing, at 375px), axe reported
+    `scrollable-region-focusable` on the terminal pane's mobile key row, `.mobile-keys`. That is
+    outside this dialog and was not changed.
+  - Axe reported `aria-prohibited-attr` as "incomplete" in all 12 page scans: on the terminal
+    toolbar and the machine cards' agent chips. I did not review those.
+- **Contrast.** Axe reported `color-contrast` as "incomplete" (it couldn't decide) in all 96 scans.
+  I did not review those or measure the contrast ratios by hand, so contrast is not shown to pass.
+- **Status.** The scan is not a CI gate, and the script is not part of the repository.
+
+**Not checked.**
+- No physical phone or tablet, no screen reader, no Safari or Firefox. Only Chromium, driven by a
+  fixture that answers every API call with synthetic data.
+- Whether a screen reader announces the status line or the locked region's name was not heard.
+- Touch target sizes were not measured.
+- Landscape phone sizes were not in the matrix.
+- No live machine, agent CLI, production service or deployment was involved, so nothing here shows
+  an agent starting.

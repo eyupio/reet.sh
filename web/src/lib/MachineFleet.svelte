@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
-  import type { HealthResponse } from './terminal/api'
+  import { cardReadiness, terminalMachines, type HealthResponse, type TerminalMachine, type TerminalSession } from './terminal/api'
+  import StartAgentDialog from './StartAgentDialog.svelte'
   import { getMachineHealth as machineHealth } from './api'
   import MachineHealthStrip from './terminal/MachineHealthStrip.svelte'
   import type { Machine, SyncAgent, SyncEnvironment, SyncJob, SyncState } from './api'
@@ -73,6 +74,41 @@
   const reviewAgent = $derived(review ? snapshot.agents?.find((agent) => agent.id === review?.agentId) : undefined)
   let health=$state<HealthResponse>({serverNow:Date.now(),machines:[]}), healthElapsed=$state(0),healthReceived=performance.now()
   onMount(()=>{if(!monitorAccess)return;const abort=new AbortController();let busy=false;async function refreshHealth(){if(busy||document.visibilityState!=='visible')return;busy=true;try{const next=await machineHealth(abort.signal);if(!abort.signal.aborted){health=next;healthReceived=performance.now();healthElapsed=0}}catch{/* inventory remains usable when health is unavailable */}finally{busy=false}}void refreshHealth();const wake=()=>void refreshHealth();document.addEventListener('visibilitychange',wake);window.addEventListener('online',wake);const timer=setInterval(wake,15000),clock=setInterval(()=>healthElapsed=performance.now()-healthReceived,1000);return()=>{abort.abort();clearInterval(timer);clearInterval(clock);document.removeEventListener('visibilitychange',wake);window.removeEventListener('online',wake)}})
+
+  // Terminal readiness for Start an agent, read only for a writer in accounts mode (the people terminalAccess is given to).
+  // Undefined until the first read; a failed read keeps what was last known.
+  let terminals = $state<TerminalMachine[] | undefined>()
+  // The last read failed: said on the card (and the button stays disabled) until a read succeeds. Reads keep the 15-second pace.
+  let terminalsFailed = $state(false)
+  let startAgent = $state<{ agent: string; opener: HTMLElement | null } | null>(null)
+  onMount(() => {
+    if (!terminalAccess) return
+    const abort = new AbortController()
+    let reading = false
+    async function read() {
+      if (reading || document.visibilityState !== 'visible') return
+      reading = true
+      try { const next = await terminalMachines(AbortSignal.any([abort.signal, AbortSignal.timeout(10000)])); if (!abort.signal.aborted) { terminals = next; terminalsFailed = false } } catch { if (!abort.signal.aborted) terminalsFailed = true } finally { reading = false }
+    }
+    void read()
+    const wake = () => void read()
+    document.addEventListener('visibilitychange', wake); window.addEventListener('online', wake)
+    const timer = setInterval(wake, 15000)
+    return () => { abort.abort(); clearInterval(timer); document.removeEventListener('visibilitychange', wake); window.removeEventListener('online', wake) }
+  })
+  function agentReadiness(agentId: string): string {
+    if (terminalsFailed) return "Couldn't check this machine just now. Try again in a moment."
+    if (!terminals) return 'Checking whether this machine is ready for terminals.'
+    return cardReadiness(terminals.find((item) => item.agentId === agentId))
+  }
+  function agentStarted(session: TerminalSession) {
+    location.assign(`/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`)
+  }
+  // From Start an agent, Not listed? closes it and opens Add a machine, which hands focus back to Start an agent's button.
+  function addFromStart(source: { opener: HTMLElement | null }): (() => void) | undefined {
+    if (!onjoin || !accounts || !canWrite) return undefined
+    return () => onjoin(source.opener)
+  }
 
   function fresh(group: SyncEnvironment): boolean {
     return group.scannedAt > Date.now() - 14 * 86400000
@@ -319,9 +355,11 @@
             <a class="btn primary" href={syncLink(machine.host)}>Choose skills to sync</a>
           {/if}
           {#if terminalAccess&&enrolled}<a class="btn" href={`/machines?view=terminal&agent=${encodeURIComponent(enrolled.id)}`}>Open terminal</a>{/if}
+          {#if terminalAccess&&enrolled}{@const why = agentReadiness(enrolled.id)}<button class="btn" type="button" disabled={!!why} aria-describedby={why ? `start-agent-${m}` : undefined} onclick={(event) => (startAgent = { agent: enrolled.id, opener: event.currentTarget })}>Start an agent</button>{/if}
           <button class="btn" type="button" onclick={() => (commandsFor = machine)}>Commands</button>
           {#if canWrite}<button class="btn" type="button" onclick={() => (settingsHost = machine.host)}>Settings</button>{/if}
         </div>
+        {#if terminalAccess&&enrolled&&agentReadiness(enrolled.id)}<p class="start-reason" id={`start-agent-${m}`}>{agentReadiness(enrolled.id)}</p>{/if}
 
         <details class="agent-list">
           <summary>
@@ -364,6 +402,8 @@
     {/each}
   </div>
 </section>
+
+{#if startAgent && terminalAccess && terminals}<StartAgentDialog machines={terminals} snapshot={snapshot.machines ?? []} initialAgent={startAgent.agent} opener={startAgent.opener} onstarted={agentStarted} onaddmachine={addFromStart(startAgent)} {onsignedout} onclose={() => (startAgent = null)} />{/if}
 
 {#if importSource}<MachineSkillImports {snapshot} source={importSource} onclose={() => importSource = null} />{/if}
 
@@ -447,6 +487,7 @@
   .agent-chip strong { color: var(--ink); font-weight: 600; }
   .agent-chip.muted { opacity: 0.78; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .start-reason { margin: -6px 0 0; color: var(--muted); font-size: 0.75rem; line-height: 1.5; overflow-wrap: anywhere; }
   .agent-list { border-top: 1px solid var(--line); padding-top: 12px; }
   .agent-list > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px; cursor: pointer; font-size: 0.8rem; font-weight: 650; }
   .agent-list > summary span:last-child { color: var(--muted); font-weight: 400; }

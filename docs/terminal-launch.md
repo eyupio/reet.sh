@@ -12,7 +12,7 @@ The connector looks that id up in a table built into its own binary and decides
 the program and arguments itself.
 
 This document describes what the code does. The web dialog and the entry points
-that call it are not part of this change (see "What this does not establish").
+that call it are described in [Start an agent session](start-agent-session.md).
 
 ## Compatible private extension
 
@@ -206,7 +206,6 @@ access, understands the prompt or is making progress, and it does not show that 
 model name exists; the agent will say so itself. It does not stop a person typing
 something else into the session afterwards.
 
-The web dialog, its entry points (the Terminals workspace and the machine card),
-the Activity label for `terminal-launch` and the layout checks are not part of
-this change. Until the Activity label is added, Activity shows its default label
-for the action.
+The web dialog, its entry points (the Terminals workspace and the machine card)
+and the Activity label for `terminal-launch` are described in
+[Start an agent session](start-agent-session.md).

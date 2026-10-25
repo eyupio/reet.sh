@@ -186,6 +186,14 @@
     }
   }
   onMount(() => {
+    // Start an agent's "Not listed? Add a machine" from the Terminals page arrives as #add-machine: the dialog opens once and
+    // the marker is dropped, so a reload does not open it again. Only a writer in accounts mode gets it, as for the button.
+    if (location.hash === '#add-machine') {
+      const url = new URL(location.href)
+      url.hash = ''
+      history.replaceState(history.state, '', url)
+      if (canAdd) openJoin(null)
+    }
     void getBuildInfo().then((build) => { serverBuild = build }).catch(() => {})
     void load()
     void loadProfiles()

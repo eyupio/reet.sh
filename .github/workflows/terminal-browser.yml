@@ -59,6 +59,7 @@ jobs:
           node web/tests/machine-import.e2e.mjs
           node web/tests/skill-content.e2e.mjs
           node web/tests/add-machine.e2e.mjs
+          node web/tests/start-agent.e2e.mjs
           node web/tests/terminal-workspace.e2e.mjs
           node web/tests/terminal-lifecycle.e2e.mjs
           node web/tests/terminal-organisation.e2e.mjs

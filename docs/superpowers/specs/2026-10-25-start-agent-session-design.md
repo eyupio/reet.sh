@@ -97,14 +97,18 @@ sentences:
 
 | Cause | Sentence |
 | --- | --- |
-| Machine offline or reconnecting | "That machine is reconnecting. Try again in a moment." |
-| Tool not installed (known to the controller from the capability) | "<Agent> isn't installed on that machine." |
-| Machine too old for launch requests | "Update reet on that machine to start agents." |
-| Folder refused by the connector | "That folder isn't available on that machine." |
-| Session limit | "That machine already has the most sessions it allows." |
-| Local consent switched off | "Browser terminals are switched off on that machine." |
-| Same request id, different parameters | "That request changed. Start it again." |
-| Anything else | "Something changed. Check again." |
+| Local terminal access off, known before Start (the machine's readiness) | "Enable terminal access locally on this machine." (shown on the machine field; Start is off) |
+| Machine reconnecting during a request (503) | "That machine is reconnecting. Try again in a moment." (the dialog adds that the agent may have started and keeps the request for a retry) |
+| The create answered 200 but the machine did not start it (session `lost` or `ended`; for example local consent switched off between the readiness read and the create) | "That machine didn't start the agent. Check its terminal settings on that machine and try again." |
+| Tool not installed (422 `tool_not_installed`, known to the controller from the capability) | "That agent isn't installed on that machine." (generic: the API answers with a code and has no table of display names, so the sentence does not name the agent) |
+| Machine too old for launch requests (409 `launch_unsupported`) | "Update reet on that machine to start agents." |
+| Folder refused by the connector (422 `folder_unavailable`) | "That folder isn't available on that machine." |
+| One-word prompt for `claude` or `codex` (422 `prompt_unsupported`) | "Write the opening prompt as at least two words." |
+| Session limit (409 "terminal session limit reached") | "The terminal session limit has been reached. End a session and try again." (the server's 409 does not say whether the per-machine or the per-account limit was reached, so the sentence does not name the machine) |
+| Same request id, different parameters (any other 409) | "That request changed. Start it again." |
+| Signed out (401) | "You've been signed out. Sign in again to continue." (on the Machines page the sign-in card then takes over) |
+| Browser terminals switched off on the server (403 "disabled by the server") | "Browser terminals are switched off on this server." |
+| Anything else (other 400, 403, 404 or 422) | "Something changed. Check again." |
 
 ## The launch request
 

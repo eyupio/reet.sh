@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onMount, untrack } from 'svelte'
  import { getAdoptionBreakdown, type AdoptionBreakdown, type ContentPreview } from './api'
- import { BREAKDOWN_LABELS, OWNERSHIP_SENTENCE, breakdownNote, candidateCounts, candidatesFor, claimSummary, groupBreakdown, preselect } from './contentReview'
+ import { BREAKDOWN_LABELS, tableMatches, OWNERSHIP_SENTENCE, breakdownNote, candidateCounts, candidatesFor, claimSummary, groupBreakdown, preselect } from './contentReview'
  import ConfirmDialog from './ConfirmDialog.svelte'
 
  // Shown by the Check step only while the check is current and adoptable, so it is mounted exactly then: it is gone the
@@ -9,12 +9,16 @@
  // the file breakdown. Nothing is chosen for the person unless the library holds exactly one matching revision, and even
  // then the breakdown and the confirmation still follow. onadopt is told which preview and review hash the person saw;
  // the shell reads the check once more before it sends anything.
- let { check, busy, labelFor, onadopt }: {
+ let { check, busy, blocked = '', labelFor, onadopt, onlapse }: {
   check: ContentPreview
   busy: boolean
+  // Why recording is unavailable right now (empty when it is): the scope no longer qualifies.
+  blocked?: string
   // A revision in words (the date it was made); empty when it is not in a list that has been read.
   labelFor: (revisionId: string) => string
   onadopt: (revisionId: string, seen: { previewId: string; reviewHash: string }) => Promise<void>
+  // The step went away while its confirmation was open (the check lapsed): the shell says so.
+  onlapse?: () => void
  } = $props()
  const uid = $props.id()
  const candidates = $derived(candidatesFor(check.adoption))
@@ -28,7 +32,7 @@
  const rows = $derived(breakdown && breakdown.revisionId === chosen ? groupBreakdown(breakdown) : [])
  const summary = $derived(breakdown && breakdown.revisionId === chosen ? claimSummary(breakdown) : undefined)
  const loaded = $derived(!!summary && !loadingBreakdown && breakdownError === '')
- const canRecord = $derived(loaded && !!summary && summary.claimed > 0 && chosen !== '' && !busy && !!loadedFor && loadedFor.previewId === check.id && loadedFor.reviewHash === check.reviewHash && loadedFor.revisionId === chosen && loadedFor.reviewHash !== '')
+ const canRecord = $derived(loaded && !!summary && summary.claimed > 0 && chosen !== '' && !busy && blocked === '' && tableMatches(loadedFor, check, chosen))
  const nameOf = (id: string, i: number) => labelFor(id) || `Another revision (${i + 1})`
  const chosenName = $derived(nameOf(chosen, Math.max(0, candidates.findIndex(c => c.revisionId === chosen))))
  const size = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`)
@@ -72,7 +76,7 @@
    void loadBreakdown()
   })
  })
- onMount(() => () => { abort?.abort(); generation++ })
+ onMount(() => () => { abort?.abort(); generation++; if (asking && !sending) onlapse?.() })
 
  async function confirmed() {
   asking = false
@@ -85,7 +89,7 @@
 
 <section class="adopt" aria-labelledby={`${uid}-h`}>
  <h4 id={`${uid}-h`}>Record ownership</h4>
- <p class="hint">Recording ownership says which of these files reet published from your library. It changes nothing on the machine.</p>
+ <p class="hint">Recording ownership says which of these files are identical to a revision in your library. It changes nothing on the machine.</p>
  {#if candidates.length === 0}
   <p class="verdict">No revision of this library skill matches the files in this folder, so there is nothing to record.</p>
  {:else}
@@ -121,8 +125,9 @@
  {/if}
 
  <div class="actions">
-  <button type="button" class="btn primary" disabled={!canRecord} onclick={() => { asking = true }}>Record ownership</button>
+  <button type="button" class="btn primary" disabled={!canRecord} aria-describedby={blocked ? `${uid}-why` : undefined} onclick={() => { asking = true }}>Record ownership</button>
  </div>
+ {#if blocked}<p class="hint" id={`${uid}-why`}>{blocked}</p>{/if}
 </section>
 
 {#if asking && chosen}

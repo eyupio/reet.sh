@@ -369,6 +369,20 @@ export function pollDelay(state: string, hidden: boolean): number | null {
   return null
 }
 
+/** What to say once the server has stopped accepting the sign-in. Never the server's wording. */
+export const SIGNED_OUT = "You've been signed out. Sign in again to continue."
+export const isSignedOut = (e: unknown): boolean => typeof e === 'object' && e !== null && (e as { name?: unknown }).name === 'UnauthorizedError'
+/** describeError for the private skills flows: a sign-out is said plainly, anything else as before. */
+export const describeFlowError = (e: unknown): string => (isSignedOut(e) ? SIGNED_OUT : describeError(e))
+
+/** How long to wait after a read of a check failed: 3 s, then 10 s, then 30 s, however many more fail. */
+export const backoffDelay = (failures: number): number => (failures <= 1 ? 3000 : failures === 2 ? 10000 : 30000)
+
+/** Whether the table on screen was read for this check, this review hash and this revision. The hash that is sent comes from the same key. */
+export function tableMatches(loaded: { previewId: string; reviewHash: string; revisionId: string } | null, check: { id: string; reviewHash?: string }, chosen: string): boolean {
+  return !!loaded && chosen !== '' && loaded.reviewHash !== '' && loaded.previewId === check.id && loaded.reviewHash === check.reviewHash && loaded.revisionId === chosen
+}
+
 /** The server's own words when it gave some, otherwise a plain sentence. Never a stack, a status line or browser jargon. */
 export function describeError(e: unknown): string {
   const name = typeof e === 'object' && e !== null && typeof (e as { name?: unknown }).name === 'string' ? (e as { name: string }).name : ''

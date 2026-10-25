@@ -12,7 +12,7 @@ const {
   presenceLabel, ownershipNote, checkStateLabel, reasonText, failureText, planCodeText, preservedText,
   scopeEligibility, classifyCheck, adoptable, summarisePlan, candidatesFor, preselect, groupBreakdown, claimSummary, pollDelay, describeError, CLOSED_CODES,
   asSeenFromPin, planVerdict, CONNECTOR_PROBLEM,
-  BREAKDOWN_LABELS, candidateCounts, breakdownNote, adoptRefusal, releaseNote, receiptRevision, madeByAdoption,
+  BREAKDOWN_LABELS, SIGNED_OUT, describeFlowError, backoffDelay, tableMatches, candidateCounts, breakdownNote, adoptRefusal, releaseNote, receiptRevision, madeByAdoption,
   connectorFor, groupBundles, preselectBundle, newestFirst, modeLabel, MODES, pinChangeNote, shortId, samePin, bundleLabel, revisionLabels, revisionLabel, missingNote,
 } = review
 
@@ -1057,4 +1057,23 @@ test('release notes say what changed, and a record is recognised as the one an a
   assert.equal(receiptRevision('abcdef0123456789', undefined, undefined), 'an older revision')
   assert.equal(receiptRevision('abcdef0123456789', [{ id: 'zzz', createdAt: 1 }], undefined), 'an older revision')
   assert.match(receiptRevision('zzz', [{ id: 'zzz', createdAt: 1 }], undefined), /^revision \S/)
+})
+
+test('the table gate holds the check, review hash and revision together', () => {
+  const loaded = { previewId: 'p', reviewHash: ' H ', revisionId: 'r' }
+  assert.equal(tableMatches(loaded, { id: 'p', reviewHash: ' H ' }, 'r'), true)
+  assert.equal(tableMatches(loaded, { id: 'p', reviewHash: 'H' }, 'r'), false)
+  assert.equal(tableMatches(loaded, { id: 'q', reviewHash: ' H ' }, 'r'), false)
+  assert.equal(tableMatches(loaded, { id: 'p', reviewHash: ' H ' }, 's'), false)
+  assert.equal(tableMatches(loaded, { id: 'p', reviewHash: ' H ' }, ''), false)
+  assert.equal(tableMatches(null, { id: 'p', reviewHash: ' H ' }, 'r'), false)
+  assert.equal(tableMatches({ ...loaded, reviewHash: '' }, { id: 'p', reviewHash: '' }, 'r'), false)
+  assert.equal(tableMatches({ ...loaded, reviewHash: '' }, { id: 'p' }, 'r'), false)
+})
+
+test('a sign-out is said plainly and read failures back off', () => {
+  assert.equal(describeFlowError(new api.UnauthorizedError('missing or wrong token')), SIGNED_OUT)
+  assert.equal(describeFlowError(new api.ApiError('The pins could not be read right now.', 500)), 'The pins could not be read right now.')
+  assert.ok(!/token/i.test(SIGNED_OUT))
+  assert.deepEqual([1, 2, 3, 4, 50].map(backoffDelay), [3000, 10000, 30000, 30000, 30000])
 })

@@ -2,7 +2,7 @@
  import { onMount, tick, untrack } from 'svelte'
  import { ApiError, UnauthorizedError, adoptContent, getContentPins, getContentPreview, getContentPreviews, getContentReceipts, releaseContentReceipt, getPrivateBundles, getPrivateRevisions, removeContentPin, saveContentPin, type ContentPin, type ContentPreview, type ContentPreviewCapability, type ContentReceipt, type PrivateBundle, type PrivateRevision, type SyncState } from './api'
  import { CheckWatcher } from './checkWatcher.svelte'
- import { FALLBACK, OWNERSHIP_SENTENCE, adoptRefusal, asSeenFromPin, candidatesFor, checkStateLabel, classifyCheck, connectorFor, describeError, madeByAdoption, missingNote, modeLabel, pinChangeNote, receiptRevision, releaseNote, revisionLabel, revisionLabels, scopeEligibility, type PinChoice } from './contentReview'
+ import { FALLBACK, OWNERSHIP_SENTENCE, SIGNED_OUT, isSignedOut, adoptRefusal, asSeenFromPin, candidatesFor, checkStateLabel, classifyCheck, connectorFor, describeFlowError, madeByAdoption, missingNote, modeLabel, pinChangeNote, receiptRevision, releaseNote, revisionLabel, revisionLabels, scopeEligibility, type PinChoice } from './contentReview'
  import { groupLabel } from './machines'
  import ConfirmDialog from './ConfirmDialog.svelte'
  import ContentAdoptStep from './ContentAdoptStep.svelte'
@@ -55,6 +55,7 @@
   pinWords,
   reload: () => load(),
   leave: () => leaveCheck(),
+  signedOut: () => markSignedOut(),
   signal: life.signal,
  })
 
@@ -63,6 +64,7 @@
   loadAbort?.abort()
   const abort = new AbortController(); loadAbort = abort
   const token = ++generation
+  signedOut = false
   // A first read that is being tried again shows that it is working; the old failure stays until something succeeds.
   if (!loaded) loading = true
   try {
@@ -95,7 +97,7 @@
    else watcher.syncWatch()
    return true
   } catch (e) {
-   if (alive && token === generation) { error = describeError(e); loadFailed = true }
+   if (alive && token === generation) { if (isSignedOut(e)) markSignedOut(); else { error = describeFlowError(e); loadFailed = true } }
    return false
   } finally {
    if (alive && token === generation) loading = false
@@ -105,7 +107,8 @@
  const checkReady: boolean = $derived(watcher.connectorReady && eligibility.ok && !checksDown)
  const CHECKS_DOWN = "Checks aren't available right now."
  const statusFor = (pin: ContentPin): string => {
-  const row = watcher.latestFor(pin)
+  // The same overlay the Check step uses, so a check made for an older pin never reads as current here.
+  const row = asSeenFromPin(watcher.latestFor(pin), pin) ?? undefined
   if (!row) return checksDown ? 'Last check: Unavailable' : 'Last check: Not checked yet'
   return `Last check: ${checkStateLabel(row.state === 'captured' && row.reasons?.length ? 'superseded' : row.state)}`
  }
@@ -136,14 +139,14 @@
    const fresh = await load()
    if (!alive) return
    const changed = fresh ? pinChangeNote(before, pins.find(p => p.name === name), name, action, revisionText) : ''
-   error = changed || (e.status === 404 ? missingNote(action) : describeError(e))
+   error = changed || (e.status === 404 ? missingNote(action) : describeFlowError(e))
    return
   }
   if (!(e instanceof ApiError || e instanceof UnauthorizedError)) {
    await load()
    if (!alive) return
   }
-  error = describeError(e)
+  error = describeFlowError(e)
  }
  async function save(choice: PinChoice): Promise<void> {
   if (busy) return
@@ -214,17 +217,31 @@
   return `adopt-${[...bytes].map(b => b.toString(16).padStart(2, '0')).join('')}`
  }
  const BUSY_NOW = 'Another action is still under way. Try again in a moment.'
+ const UNSURE = "Couldn't confirm whether that was recorded. Check the list below, or try again."
  // The records are read again when something may have changed them and the last read failed or was skipped. A failed read is
- // tried again now and then until it works, so a record that was made but not listed does not stay hidden.
- let receiptsTimer: ReturnType<typeof setTimeout> | undefined, refreshedFor = ''
- function wantReceipts() {
-  clearTimeout(receiptsTimer)
+ // tried again now and then (about six times, never while the tab is hidden) so a record that was made but not listed does not
+ // stay hidden; after that the person is told plainly that it could not be confirmed.
+ let receiptsTimer: ReturnType<typeof setTimeout> | undefined, refreshedFor = '', receiptTries = 0, receiptsWaiting = false, signedOut = false
+ // The adoption whose reply was lost: when its record turns up the message about it is replaced.
+ let pendingAdopt: { previewId: string; revisionId: string; slot: string } | null = null
+ function markSignedOut() { signedOut = true; clearTimeout(receiptsTimer); receiptsTimer = undefined; pendingAdopt = null; error = SIGNED_OUT }
+ function wantReceipts(fresh = true) {
+  if (fresh) receiptTries = 0
+  clearTimeout(receiptsTimer); receiptsTimer = undefined
+  if (!alive || signedOut) return
   receiptsTimer = setTimeout(async () => {
    receiptsTimer = undefined
-   if (alive && !(await refreshReceipts())) wantReceipts()
+   if (!alive || signedOut) return
+   if (document.hidden) { receiptsWaiting = true; return }
+   receiptTries++
+   if (await refreshReceipts() || !alive || signedOut) return
+   if (receiptTries >= 6) { if (pendingAdopt) error = UNSURE; return }
+   wantReceipts(false)
   }, 10000)
  }
- async function syncReceipts() { if (!(await refreshReceipts()) && alive) wantReceipts() }
+ async function syncReceipts() { if (!(await refreshReceipts()) && alive && !signedOut) wantReceipts() }
+ // Something that can be lost while it is waited for, such as a busy message, goes when the thing it waited for has finished.
+ $effect(() => { if (!busy) untrack(() => { if (error === BUSY_NOW) error = '' }) })
  // The server consumes a check when it records ownership. When the check being watched turns out to have been overtaken by
  // a changed record, the records are read again (once for that check).
  $effect(() => {
@@ -238,8 +255,13 @@
    const read = await getContentReceipts(life.signal)
    if (!alive) return false
    receipts = read.receipts; receiptsDown = false
+   const waiting = pendingAdopt
+   if (waiting && read.receipts.some(r => madeByAdoption(r, waiting.previewId, waiting.revisionId))) {
+    adoptKeys.delete(waiting.slot); pendingAdopt = null; error = ''; notice = 'That ownership was recorded.'
+   }
    return true
-  } catch {
+  } catch (e) {
+   if (isSignedOut(e)) markSignedOut()
    return false
   }
  }
@@ -247,9 +269,12 @@
  // still current and adoptable; the review hash goes exactly as the server gave it.
  async function recordOwnership(revisionId: string, seen: { previewId: string; reviewHash: string }): Promise<void> {
   const pin = selectedPin
-  if (!pin || !eligibility.ok) return
+  if (!pin) return
+  signedOut = false
+  // The scope can stop qualifying while the step is open (a connector paused elsewhere): say why, send nothing.
+  if (!eligibility.ok) { error = eligibility.reason; return }
   if (busy) { error = BUSY_NOW; return }
-  busy = true; error = ''; notice = ''
+  busy = true; error = ''; notice = ''; pendingAdopt = null
   let slot = ''
   let recorded: ContentReceipt | undefined
   try {
@@ -282,7 +307,7 @@
    if (!alive) return
    notice = `Sorted. Ownership of ${filesText(recorded.fileCount)} in ${recorded.name} is recorded. ${OWNERSHIP_SENTENCE} Nothing on the machine was changed.`
   } catch (e) {
-   if (alive) error = describeError(e)
+   if (alive) error = describeFlowError(e)
   } finally {
    if (alive) busy = false
   }
@@ -290,7 +315,7 @@
  }
  // A failed request. Returns the receipt when a lost reply turns out to have landed.
  async function adoptFailed(e: unknown, again: ContentPreview, revisionId: string, slot: string): Promise<ContentReceipt | undefined> {
-  if (e instanceof UnauthorizedError) { error = describeError(e); return undefined }
+  if (e instanceof UnauthorizedError) { markSignedOut(); return undefined }
   if (e instanceof ApiError) {
    // The server answered, so that key is spent. What to say comes from the status and from what the check and the records
    // say now, never from the server's shared refusal text.
@@ -310,20 +335,22 @@
     const adoptableNow = !!settled && classifyCheck(settled, Date.now(), Date.now()).canAdopt
     error = adoptRefusal(e.status, again.name, { owned: scopeReceipts.some(r => r.name === again.name), reasons, adoptable: adoptableNow, records: receipts.length })
    } else {
-    error = adoptRefusal(e.status, again.name, { owned: false, reasons: [], adoptable: false, records: receipts.length }) || describeError(e)
+    error = adoptRefusal(e.status, again.name, { owned: false, reasons: [], adoptable: false, records: receipts.length }) || describeFlowError(e)
    }
    return undefined
   }
   // No reply arrived, so the record may exist: look for it among the records. If it is not there, or they cannot be read,
   // the key is kept and the next press sends the same request.
-  error = describeError(e)
+  error = describeFlowError(e)
+  pendingAdopt = { previewId: again.id, revisionId, slot }
   try {
    const read = await getContentReceipts(life.signal)
    if (!alive) return undefined
    const landed = read.receipts.find(r => madeByAdoption(r, again.id, revisionId))
    receipts = read.receipts; receiptsDown = false
-   if (landed) { adoptKeys.delete(slot); error = ''; return landed }
-  } catch {
+   if (landed) { adoptKeys.delete(slot); pendingAdopt = null; error = ''; return landed }
+  } catch (err) {
+   if (isSignedOut(err)) { markSignedOut(); return undefined }
    // Keep the key and the message, and keep trying to read the records: the one that may exist must not stay unlisted.
    wantReceipts()
   }
@@ -347,7 +374,7 @@
     // When no reply came the release may still have landed: read again quietly and keep the plain message.
     if (!(e instanceof ApiError || e instanceof UnauthorizedError)) await load()
     if (!alive) return
-    error = describeError(e)
+    error = describeFlowError(e)
    }
   } finally {
    if (alive) busy = false
@@ -377,7 +404,7 @@
  onMount(() => {
   dialog?.showModal(); void load()
   // Coming back to the tab reads a check that can still change at once, and the connector's readiness again.
-  const visible = () => watcher.visibilityChanged()
+  const visible = () => { watcher.visibilityChanged(); if (!document.hidden && receiptsWaiting) { receiptsWaiting = false; wantReceipts(false) } }
   document.addEventListener('visibilitychange', visible)
   return () => { alive = false; generation++; loadAbort?.abort(); life.abort(); watcher.dispose(); clearTimeout(receiptsTimer); document.removeEventListener('visibilitychange', visible) }
  })
@@ -417,7 +444,7 @@
      ondismiss={() => void watcher.dismissCheck()}
     >
      {#snippet adopt()}
-      {#if watcher.check}<ContentAdoptStep check={watcher.check} {busy} labelFor={candidateLabel} onadopt={recordOwnership} />{/if}
+      {#if watcher.check}<ContentAdoptStep check={watcher.check} {busy} labelFor={candidateLabel} blocked={eligibility.ok ? '' : eligibility.reason} onadopt={recordOwnership} onlapse={() => { if (alive) error = 'That check is out of date. Check again.' }} />{/if}
      {/snippet}
     </ContentCheckStep>
    {:else}

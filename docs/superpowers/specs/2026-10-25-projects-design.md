@@ -38,7 +38,11 @@ consented to browser terminals.
 
 Git-remote repository identity, one session spanning several repositories, agent status (working,
 waiting, idle), resuming a past conversation, merging, pushing or pull requests, a worktree outside
-`~/.reet/worktrees`, deleting branches, reet.sh running git for anything but the three calls below,
+`~/.reet/worktrees`, deleting branches, reet.sh running git for anything but the calls listed in
+[Worktrees](../../terminal-worktrees.md) (amended: the one `worktree add`, read-only `rev-parse`,
+`for-each-ref`, `worktree list`, `status`, `symbolic-ref`, `rev-list` and `ls-files`, the one
+`worktree remove` without `--force`, and on a failed create only `worktree unlock`,
+`worktree remove --force` and `branch -D` of what that same call created),
 Windows, MCP exposure of Projects, and any change to the security/PIN preference or sync flows.
 
 ## The model
@@ -112,8 +116,12 @@ When `worktree` is set the connector, before it starts the agent:
    connector itself just created, and a failed branch is deleted only if the connector created it in
    this call.
 
-Because the repository's own hooks are disabled for the call and no commit is made, creating the
-worktree cannot run repository code; the agent that is started afterwards can, as it always could.
+The repository's own hooks are disabled for the call and no commit is made. *Amended after
+implementation:* this does not mean creating the worktree runs no repository-configured program.
+The repository's configuration still applies, so a smudge or clean filter (git-lfs, for example) or
+`core.fsmonitor` can run a program during the add's checkout and during status. That configuration
+is the user's own local setup, not cloned content, and the fixed command lines rule out overriding
+it. The agent that is started afterwards can run anything, as it always could.
 
 **Status and remove** are two further negotiated requests under the same feature
 (`WorktreeStatus{Run, Repo}` and `WorktreeRemove{Run, Repo}`; strict, comparable, replies are small
@@ -126,6 +134,16 @@ typed results):
   (so changes made after the person looked cannot be thrown away), then runs
   `git worktree remove <path>` **without `--force`**. The branch is never deleted. Both refuse any
   path that is not registered by `git worktree list` and under `~/.reet/worktrees/`.
+
+*Amended after implementation* (see [Worktrees](../../terminal-worktrees.md) for the exact
+commands): status also runs `--untracked-files=all --ignore-submodules=none`, counts commits only
+`HEAD` holds (`unreferenced`), files git is told not to check (`hidden`), and walks the folder for a
+nested repository (at most 200,000 entries). Remove refuses, whatever was shown, while anything is
+uncommitted (`has_changes` always blocks: the sheet shows the paths and tells the person to commit,
+stash or discard in the worktree and Check again), while there are hidden edits, unreferenced
+commits or a nested repository, or when the check was incomplete. Only unpushed commits can be
+shown and then removed with, because they stay on the branch. Ignored files (`.env`,
+`node_modules`) are deleted with the folder. Listings are capped at 4 MiB, not 4 KiB.
 
 Codes: `launch_failed` gains reasons that map to the new sentences below; `worktree_changed` (409) for
 a remove whose counts no longer match.
@@ -141,8 +159,17 @@ Plain and exact. One light Yorkshire phrase at most in a heading, lede or succes
 | Repository in the middle of something | "That repository is in the middle of a merge, rebase or similar. Finish or abort it first." |
 | Worktree could not be made | "Git couldn't make a worktree there." (detail: first line of git's message, plain text, 200 bytes) |
 | Machine too old for worktrees | "Update reet on that machine to start agents with worktrees." |
-| Remove blocked by changes | "This worktree has changes you haven't saved. Review them before removing." |
+| Destination or branch already there and not this run's | "A worktree or branch with this run's name is already on that machine, so nothing was started." |
+| reet's worktree folder is a link, another user's or writable by others | "The folder ~/.reet/worktrees on that machine is a link, belongs to another user or can be changed by others. Fix it, then try again." |
+| Remove blocked by changes (always blocks) | "This worktree has changes you haven't saved. Commit, stash or discard them in the worktree, then check again." |
 | Remove after the counts changed | "That worktree changed since you looked. Check again." |
+| Commits only on a detached HEAD | "Some commits in this worktree are not on any branch. Put them on a branch first, then check again." |
+| Another repository inside the worktree | "This worktree contains another git repository. Move or remove it first." |
+| Files git is told not to check | "Git is not tracking some edits in this worktree. Review them before removing." |
+| Worktree too large to check | "This worktree is too large for reet to check. Remove it yourself." |
+| Something at the path git does not list | "Git doesn't list that folder as this run's worktree, so reet won't touch it." |
+| Nothing at the path | "That worktree isn't on that machine. It may have been removed already." |
+| Git failed during status or remove | "Git couldn't check that worktree." / "Git couldn't remove that worktree." (detail: git's first line) |
 | Branch kept | "The branch reet/… is kept." |
 | Everything else | the existing `refusalText` sentences |
 

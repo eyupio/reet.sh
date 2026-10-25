@@ -391,7 +391,7 @@
       {/if}
     </section>
   {:else if section === 'machines'}
-    <EnvironmentSync {canWrite} token={freshToken} {startConnect} view="machines">
+    <EnvironmentSync {canWrite} accounts token={freshToken} {startConnect} view="machines">
       {#snippet tokenSetup()}{@render tokenForm()}{/snippet}
     </EnvironmentSync>
   {:else if section === 'sync'}

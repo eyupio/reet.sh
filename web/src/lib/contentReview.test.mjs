@@ -6,18 +6,47 @@ import ts from 'typescript'
 const compile = (file) => ts.transpileModule(readFileSync(new URL(file, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
 const load = (file) => import(`data:text/javascript;base64,${Buffer.from(compile(file)).toString('base64')}`)
 const review = await load('./contentReview.ts')
+const api = await load('./api.ts')
 const {
   OWNERSHIP_SENTENCE, APPLY_NOTICE, FALLBACK,
   presenceLabel, ownershipNote, checkStateLabel, reasonText, failureText, planCodeText, preservedText,
-  scopeEligibility, classifyCheck, adoptable, summarisePlan, candidatesFor, preselect, groupBreakdown, claimSummary, pollDelay, describeError,
+  scopeEligibility, classifyCheck, adoptable, summarisePlan, candidatesFor, preselect, groupBreakdown, claimSummary, pollDelay, describeError, CLOSED_CODES,
+  connectorFor, groupBundles, preselectBundle, newestFirst, modeLabel, MODES, pinChangeNote, shortId, samePin, bundleLabel, revisionLabels, revisionLabel, missingNote,
 } = review
 
-// The closed tables, copied from the Go side. A new server code must fail loudly here.
-const STATES = ['queued', 'capturing', 'captured', 'failed', 'cancelled', 'expired', 'superseded', 'stale']
-const FENCE_REASONS = ['pin_changed', 'pin_removed', 'connector_paused', 'connector_removed', 'process_changed', 'inventory_changed', 'scope_removed', 'receipt_changed', 'expired', 'stale']
-const FAILURE_CODES = ['capture_failed', 'scope_unavailable', 'plan_unavailable']
-const PLAN_CODES = ['adapter_unsupported', 'root_shared', 'root_unknown', 'generation_changed', 'inventory_changed', 'observation_unknown', 'observation_stale', 'observation_invalid', 'adoption_required', 'unmanaged_path', 'managed_target_missing', 'local_modified', 'both_modified', 'local_deleted', 'result_invalid', 'baseline_target_mismatch', 'baseline_bundle_mismatch']
-const PRESERVED_REASONS = ['local_only', 'additive_managed']
+// The closed tables are read from the Go side, so a code the server starts to send fails loudly here instead of
+// reading as "Something changed". Paths are relative to this file; every extractor is asserted non-empty in the
+// "Go sources" test below, so a regex that silently stops matching cannot shrink a list unnoticed.
+const go = (path) => readFileSync(new URL(`../../../internal/${path}`, import.meta.url), 'utf8')
+const planGo = go('skillplan/plan.go')
+const previewGo = go('store/store_content_previews.go')
+const literals = (text, re) => [...text.matchAll(re)].map(m => m[1]) // the first capture group of every match
+const unique = (xs) => [...new Set(xs)].sort()
+// Planner block and conflict codes: block("x"), conflict("x") and the one Conflict{... Code: "x"} literal.
+// "root_"+ownership is built at run time, so root_shared and root_unknown are named here, once the source is seen to build them.
+const buildsRootCodes = /block\("root_"\s*\+\s*s\.RootOwnership\)/.test(planGo)
+const PLAN_CODES = unique([
+  ...literals(planGo, /\b(?:block|conflict)\("([a-z_]+)"\)/g),
+  ...literals(planGo, /Conflict\{[^}]*Code:\s*"([a-z_]+)"/g),
+  ...(buildsRootCodes ? ['root_shared', 'root_unknown'] : []),
+])
+// Preserved{... Reason: "x"}
+const PRESERVED_REASONS = unique(literals(planGo, /Preserved\{[^}]*Reason:\s*"([a-z_]+)"/g))
+// Preview states: `State: "x"` in a literal, and the first string after the `=` of any statement that sets or compares a State
+// (this reaches `p.State, p.Error = "failed", ...` and `p.InventoryRevision, p.State = revision, "capturing"` too).
+const STATES = unique([...literals(previewGo, /\bState:\s*"([a-z_0-9]+)"/g), ...literals(previewGo, /\bState\b[^=\n"]*=[^\n]*?"([a-z_0-9]+)"/g)])
+// Failure codes: the connector may report the cases of the switch in FailSkillContentPreviewFor; the controller itself records plan_unavailable.
+const FAILURE_CODES = unique([
+  ...literals(previewGo, /switch code \{([\s\S]*?)default:/g).flatMap(list => literals(list, /"([a-z_]+)"/g)),
+  ...literals(previewGo, /p\.State, p\.Error = "failed", "([a-z_]+)"/g),
+])
+// Fence reasons: every reasons = append(reasons, "x") inside previewFence.
+const fenceStart = previewGo.indexOf('func previewFence(')
+const fenceBody = previewGo.slice(fenceStart, previewGo.indexOf('\nfunc ', fenceStart + 1))
+const GO_FENCE_REASONS = unique(literals(fenceBody, /reasons = append\(reasons, "([a-z_]+)"\)/g))
+// The reasons table also words two reasons that come from a state rather than the fence: a check can be "expired" or "stale".
+const STATE_REASONS = ['expired', 'stale']
+const FENCE_REASONS = unique([...GO_FENCE_REASONS, ...STATE_REASONS])
 const TABLES = [
   ['checkStateLabel', checkStateLabel, STATES],
   ['reasonText', reasonText, FENCE_REASONS],
@@ -49,6 +78,53 @@ test('the three exact constants', () => {
   assert.equal(FALLBACK, 'Something changed. Check again.')
 })
 
+test('the Go sources: every extractor found something, and the closed tables hold exactly the codes the server can send', () => {
+  assert.ok(buildsRootCodes, 'plan.go no longer builds root_shared and root_unknown from RootOwnership; update this test')
+  const found = { states: STATES, reasons: GO_FENCE_REASONS, failures: FAILURE_CODES, planCodes: PLAN_CODES, preserved: PRESERVED_REASONS }
+  for (const [name, codes] of Object.entries(found)) assert.ok(codes.length > 0, `nothing was extracted for ${name}: a regex has stopped matching`)
+  // The two reasons the table words beyond the fence are real states.
+  for (const r of STATE_REASONS) assert.ok(STATES.includes(r), `${r} is not a preview state`)
+  assert.deepEqual([...CLOSED_CODES.states].sort(), STATES)
+  assert.deepEqual([...CLOSED_CODES.reasons].sort(), FENCE_REASONS)
+  assert.deepEqual([...CLOSED_CODES.failures].sort(), FAILURE_CODES)
+  assert.deepEqual([...CLOSED_CODES.planCodes].sort(), PLAN_CODES)
+  assert.deepEqual([...CLOSED_CODES.preserved].sort(), PRESERVED_REASONS)
+})
+
+// One distinguishing word per sentence, written out by hand from the sentences themselves, so that swapping two rows of a
+// table (or rewording one into another's meaning) fails. Each pattern must match its own sentence and no other in its table.
+const KEYWORDS = {
+  checkStateLabel: {
+    queued: /waiting/i, capturing: /reading/i, captured: /^Checked$/, failed: /^Couldn't check$/,
+    cancelled: /stopped/i, expired: /ran out of time/i, superseded: /out of date/i, stale: /too old/i,
+  },
+  reasonText: {
+    pin_changed: /pin changed/i, pin_removed: /pin was removed/i, connector_paused: /paused/i, connector_removed: /connector.*was removed/i,
+    process_changed: /restarted or stopped reporting/i, inventory_changed: /newer scan/i, scope_removed: /no longer reports/i,
+    receipt_changed: /ownership record.*changed/i, expired: /ran out of time/i, stale: /five minutes/i,
+  },
+  failureText: { capture_failed: /couldn't read/i, scope_unavailable: /can't use this folder/i, plan_unavailable: /couldn't be worked out/i },
+  planCodeText: {
+    adapter_unsupported: /layout isn't supported/i, root_shared: /or a link, reaches this same folder/i, root_unknown: /couldn't tell whether/i,
+    generation_changed: /connector restarted/i, inventory_changed: /newer scan/i, observation_unknown: /couldn't be read completely/i,
+    observation_stale: /too long ago/i, observation_invalid: /files found/i, adoption_required: /not recorded as owned/i,
+    unmanaged_path: /doesn't own it/i, managed_target_missing: /folder isn't there now/i, local_modified: /has changed since ownership was recorded/i,
+    both_modified: /on the machine and in the pinned revision/i, local_deleted: /missing from the machine/i, result_invalid: /planned result/i,
+    baseline_target_mismatch: /different folder or layout/i, baseline_bundle_mismatch: /different library skill/i,
+  },
+  preservedText: { local_only: /stays yours/i, additive_managed: /no longer has this file/i },
+}
+
+for (const [name, fn, codes] of TABLES) {
+  test(`${name}: each sentence says what its code means, and no other sentence in the table does`, () => {
+    const keywords = KEYWORDS[name]
+    assert.deepEqual(Object.keys(keywords).sort(), codes, 'the keyword table must name every code the server can send')
+    for (const code of codes) for (const other of codes) {
+      assert.equal(keywords[code].test(fn(other)), code === other, `${name}: /${keywords[code].source}/ against the sentence for ${other}`)
+    }
+  })
+}
+
 for (const [name, fn, codes] of TABLES) {
   test(`${name}: every known code maps to its own plain, non-fallback sentence`, () => {
     const seen = new Set()
@@ -75,17 +151,17 @@ test('presence reads Found, Not there yet or Couldn\'t tell, and never anything 
   assert.equal(presenceLabel(null), '')
 })
 
-test('folder ownership: exclusive says nothing, shared and unknown say so, anything else falls back', () => {
+test('folder ownership: only exclusive says nothing; shared says so; anything missing or unrecognised reads as unknown', () => {
   assert.equal(ownershipNote('exclusive'), '')
-  assert.equal(ownershipNote(undefined), '')
-  assert.equal(ownershipNote(''), '')
   const shared = ownershipNote('shared'), unknown = ownershipNote('unknown')
-  assert.match(shared, /another agent scope reaches (the|this) same folder/i)
+  assert.match(shared, /another agent scope, or a link, reaches this same folder/i)
   assert.match(shared, /will not touch it/)
   assert.match(unknown, /couldn't tell/i)
   assert.notEqual(shared, unknown)
-  assert.equal(ownershipNote('exclusivee'), FALLBACK)
-  assert.equal(ownershipNote('constructor'), FALLBACK)
+  // Silence means "this scope has the folder to itself", so it is never the answer to missing or odd input.
+  for (const odd of [undefined, '', 'exclusivee', 'Exclusive', ' exclusive', 'constructor']) assert.equal(ownershipNote(odd), unknown, JSON.stringify(odd))
+  assert.equal(shared, planCodeText('root_shared'))
+  assert.equal(unknown, planCodeText('root_unknown'))
 })
 
 test('scopeEligibility passes a supported, recently scanned scope with an enrolled, running connector', () => {
@@ -103,6 +179,7 @@ test('scopeEligibility gives each failure its own plain reason, in order', () =>
     projectAgent: reasonOf(scopeEligibility(env({ agent: 'cursor', project: '/home/me/app' }), [agent()], opts())),
     projectPath: reasonOf(scopeEligibility(env({ agent: 'claude', project: 'app' }), [agent()], opts())),
     scan: reasonOf(scopeEligibility(env({ complete: false }), [agent()], opts())),
+    loading: reasonOf(scopeEligibility(env(), undefined, opts())),
     unenrolled: reasonOf(scopeEligibility(env(), [], opts())),
     paused: reasonOf(scopeEligibility(env(), [agent({ paused: true })], opts())),
   }
@@ -114,6 +191,8 @@ test('scopeEligibility gives each failure its own plain reason, in order', () =>
   assert.match(reasons.codex, /scan-only/i)
   assert.match(reasons.scan, /14 days/)
   assert.match(reasons.unenrolled, /enrolled/i)
+  assert.equal(reasons.loading, 'Machines are still loading.')
+  assert.doesNotMatch(reasons.loading, /enrolled/i)
   assert.match(reasons.paused, /paused/i)
   // The first failing rule wins.
   assert.equal(reasonOf(scopeEligibility(env({ agent: 'codex', complete: false }), [], opts({ accounts: false, canWrite: false }))), reasons.accounts)
@@ -155,6 +234,22 @@ test('scopeEligibility: the connector is matched by host without regard to case'
   assert.equal(scopeEligibility(env({ host: 'workstation' }), undefined, opts()).ok, false)
 })
 
+test('scopeEligibility: agents that have not loaded yet are not the same as no enrolled connector', () => {
+  for (const notLoaded of [undefined, null]) assert.equal(reasonOf(scopeEligibility(env(), notLoaded, opts())), 'Machines are still loading.')
+  assert.notEqual(reasonOf(scopeEligibility(env(), [], opts())), 'Machines are still loading.')
+  // Earlier rules still win while the machines load.
+  assert.notEqual(reasonOf(scopeEligibility(env({ complete: false }), undefined, opts())), 'Machines are still loading.')
+})
+
+test('scopeEligibility: host names are compared the way the database does, folding ASCII letters only', () => {
+  assert.equal(scopeEligibility(env({ host: 'HOST' }), [agent({ host: 'host' })], opts()).ok, true)
+  assert.equal(scopeEligibility(env({ host: 'host' }), [agent({ host: 'HOST' })], opts()).ok, true)
+  assert.equal(scopeEligibility(env({ host: 'ZOë' }), [agent({ host: 'zoë' })], opts()).ok, true)
+  // A non-ASCII letter in a different case is a different host to the database, so it is to us.
+  assert.equal(scopeEligibility(env({ host: 'Zoë' }), [agent({ host: 'ZoË' })], opts()).ok, false)
+  assert.equal(scopeEligibility(env({ host: '\u212Aelvin' }), [agent({ host: 'kelvin' })], opts()).ok, false) // U+212A KELVIN SIGN lower-cases to k in Unicode, not in ASCII
+})
+
 test('scopeEligibility: a paused connector blocks the scope, but a running one on the same host does not', () => {
   assert.equal(scopeEligibility(env(), [agent({ paused: true })], opts()).ok, false)
   assert.equal(scopeEligibility(env(), [agent({ host: 'WORKSTATION', paused: true })], opts()).ok, false)
@@ -171,6 +266,9 @@ test('adoptable needs a present folder, an exclusive root, a complete manifest a
   assert.equal(adoptable(preview({ capture: capture({ manifest: undefined }) })), false)
   assert.equal(adoptable(preview({ capture: capture({ manifest: manifest([file('SKILL.md')], { complete: false }) }) })), false)
   assert.equal(adoptable(preview({ capture: undefined })), false)
+  // Adoption is bound to the review hash, so a check without one cannot be adopted.
+  assert.equal(adoptable(preview({ reviewHash: '' })), false)
+  assert.equal(adoptable(preview({ reviewHash: undefined })), false)
   assert.equal(adoptable(preview({ plan: undefined })), false)
   assert.equal(adoptable(preview({ plan: plan({ conflicts: [] , ready: true }) })), false)
   assert.equal(adoptable(preview({ plan: plan({ conflicts: [{ path: '.', code: 'root_shared' }] }) })), false)
@@ -226,6 +324,24 @@ test('classifyCheck: the browser read, not the server clock, decides; 30 seconds
   assert.equal(classifyCheck(p, NOW, Number.NaN).canAdopt, false)
   // Reading it again makes it current again.
   assert.equal(classifyCheck(p, NOW + 31_000, NOW + 31_000).canAdopt, true)
+})
+
+test('classifyCheck: a read from the future, or at an unusable time, is never fresh and never adoptable', () => {
+  const p = preview()
+  // The read happened "after" the question was asked: the clocks cannot be trusted, so wait for a fresh read.
+  for (const readAt of [NOW + 3_600_000, NOW + 1, Infinity, -Infinity, Number.NaN]) {
+    const c = classifyCheck(p, readAt, NOW)
+    assert.equal(c.kind, 'refreshing', String(readAt))
+    assert.equal(c.canAdopt, false, String(readAt))
+    assert.equal(c.canCheckAgain, true, String(readAt))
+  }
+  for (const now of [Infinity, -Infinity, Number.NaN]) {
+    const c = classifyCheck(p, NOW, now)
+    assert.equal(c.kind, 'refreshing', String(now))
+    assert.equal(c.canAdopt, false, String(now))
+  }
+  assert.equal(classifyCheck(p, NOW, NOW).canAdopt, true)
+  assert.equal(classifyCheck(p, NOW - 1, NOW).canAdopt, true)
 })
 
 test('classifyCheck: a captured check that cannot be adopted is still current but offers no adoption', () => {
@@ -302,6 +418,12 @@ test("classifyCheck: a failed check is blocked and says why in the failure code'
     assert.equal(c.canCheckAgain, true, code)
     assert.deepEqual(c.reasons, [failureText(code)], code)
   }
+  // The headline is true whichever code follows: plan_unavailable means the machine was read, so it must not blame the machine.
+  for (const code of FAILURE_CODES) {
+    const headline = classifyCheck(preview({ state: 'failed', error: code }), NOW, NOW).headline
+    assert.equal(headline, "That check didn't finish.", code)
+    assert.doesNotMatch(headline, /machine|couldn't be checked/i, code)
+  }
   assert.deepEqual(classifyCheck(preview({ state: 'failed', error: 'a_new_code' }), NOW, NOW).reasons, [FALLBACK])
   assert.deepEqual(classifyCheck(preview({ state: 'failed' }), NOW, NOW).reasons, [FALLBACK])
 })
@@ -338,20 +460,20 @@ test('summarisePlan', () => {
   assert.deepEqual(changes.preserved, preserved)
   assert.deepEqual(changes.conflicts, [])
   const conflicts = [{ path: 'a.md', code: 'local_modified' }, { path: 'b.md', code: 'both_modified' }]
-  const blocked = summarisePlan(plan({ ready: false, conflicts }))
-  assert.equal(blocked.kind, 'blocked')
-  assert.deepEqual(blocked.conflicts, conflicts)
-  assert.deepEqual(blocked.actions, [])
-  assert.equal(summarisePlan(plan({ conflicts: [{ path: '.', code: 'root_shared' }] })).kind, 'blocked')
+  const withConflicts = summarisePlan(plan({ ready: false, conflicts }))
+  assert.equal(withConflicts.kind, 'conflicts')
+  assert.deepEqual(withConflicts.conflicts, conflicts)
+  assert.deepEqual(withConflicts.actions, [])
+  assert.equal(summarisePlan(plan({ conflicts: [{ path: '.', code: 'root_shared' }] })).kind, 'conflicts')
   const adoption = summarisePlan(plan())
   assert.equal(adoption.kind, 'adoption')
   assert.deepEqual(adoption.conflicts, [{ path: '.', code: 'adoption_required' }])
-  // adoption_required alongside any other conflict is a block, not an offer.
-  assert.equal(summarisePlan(plan({ conflicts: [{ path: '.', code: 'adoption_required' }, { path: 'x', code: 'unmanaged_path' }] })).kind, 'blocked')
+  // adoption_required alongside any other conflict is a set of conflicts, not an offer.
+  assert.equal(summarisePlan(plan({ conflicts: [{ path: '.', code: 'adoption_required' }, { path: 'x', code: 'unmanaged_path' }] })).kind, 'conflicts')
   // A plan that is neither ready nor explained is never reassuring.
   assert.equal(summarisePlan(plan({ ready: false, conflicts: [] })).kind, 'unknown')
   // A ready plan that still lists a conflict is never up to date.
-  assert.equal(summarisePlan(plan({ ready: true, conflicts: [{ path: 'x', code: 'local_modified' }] })).kind, 'blocked')
+  assert.equal(summarisePlan(plan({ ready: true, conflicts: [{ path: 'x', code: 'local_modified' }] })).kind, 'conflicts')
 })
 
 test('candidatesFor keeps the server order, and an absent offer has none', () => {
@@ -388,7 +510,7 @@ test('groupBreakdown merges a stays-yours and library-only pair into one differs
     ],
   })
   assert.deepEqual(rows.map(r => [r.path, r.state]), [['SKILL.md', 'claimed'], ['notes/mine.txt', 'stays_yours'], ['scripts/run.sh', 'differs'], ['z-new.md', 'library_only']])
-  // The merged row describes the machine's copy: that is the file that was edited and stays yours.
+  // The merged row describes the machine's copy: that is the file that differs from the revision and stays yours.
   assert.deepEqual(rows[2], { path: 'scripts/run.sh', state: 'differs', bytes: 80, executable: false, digest: digest('m') })
   assert.deepEqual(rows[0], { path: 'SKILL.md', state: 'claimed', bytes: 10, executable: false, digest: digest('a') })
   assert.deepEqual(rows[1], { path: 'notes/mine.txt', state: 'stays_yours', bytes: 12, executable: false, digest: digest('n') })
@@ -452,10 +574,10 @@ test('claimSummary counts what is claimed, what stays yours and what is only in 
   assert.equal(s.staysYours, 1)
   assert.equal(s.differs, 1)
   assert.equal(s.libraryOnly, 1)
-  assert.equal(s.text, '2 files would be recorded as owned by reet. 1 file was edited on this machine and stays yours. 1 file is only on this machine and stays yours. 1 file is only in the library.')
+  assert.equal(s.text, '2 files would be recorded as owned by reet. 1 file differs from this revision and stays yours. 1 file is only on this machine and stays yours. 1 file is only in the library.')
   assert.equal(claimSummary({ revisionId: 'c'.repeat(32), matched: 1, observedOnly: 0, revisionOnly: 0, files: [row('SKILL.md', 'claimed')] }).text, '1 file would be recorded as owned by reet.')
   assert.equal(claimSummary({ revisionId: 'c'.repeat(32), matched: 0, observedOnly: 3, revisionOnly: 2, files: [row('a', 'stays_yours'), row('b', 'stays_yours'), row('c', 'stays_yours'), row('d', 'library_only'), row('e', 'library_only')] }).text, 'No files would be recorded as owned by reet. 3 files are only on this machine and stay yours. 2 files are only in the library.')
-  assert.equal(claimSummary({ revisionId: 'c'.repeat(32), matched: 0, observedOnly: 0, revisionOnly: 0, files: [row('a', 'stays_yours'), row('a', 'library_only'), row('b', 'stays_yours'), row('b', 'library_only')] }).text, 'No files would be recorded as owned by reet. 2 files were edited on this machine and stay yours.')
+  assert.equal(claimSummary({ revisionId: 'c'.repeat(32), matched: 0, observedOnly: 0, revisionOnly: 0, files: [row('a', 'stays_yours'), row('a', 'library_only'), row('b', 'stays_yours'), row('b', 'library_only')] }).text, 'No files would be recorded as owned by reet. 2 files differ from this revision and stay yours.')
   const empty = claimSummary({ revisionId: 'c'.repeat(32), matched: 0, observedOnly: 0, revisionOnly: 0, files: [] })
   assert.deepEqual([empty.claimed, empty.staysYours, empty.differs, empty.libraryOnly, empty.claimedBytes], [0, 0, 0, 0, 0])
   assert.equal(empty.text, 'No files would be recorded as owned by reet.')
@@ -471,13 +593,31 @@ test('pollDelay: three seconds while queued or reading, ten while captured, othe
 
 test('describeError gives the server text when there is some, and a plain sentence otherwise', () => {
   assert.equal(describeError(new Error('Private skill unavailable.')), 'Private skill unavailable.')
-  assert.equal(describeError(Object.assign(new Error('missing or wrong token'), { name: 'UnauthorizedError' })), 'missing or wrong token')
+  assert.equal(describeError(new api.UnauthorizedError('missing or wrong token')), 'missing or wrong token')
+  assert.equal(describeError(new api.ApiError('That pin changed.', 409)), 'That pin changed.')
   assert.equal(describeError({ error: 'That pin changed.' }), 'That pin changed.')
   assert.equal(describeError('Content preview history is full (64 requests). Dismiss finished previews, then try again.'), 'Content preview history is full (64 requests). Dismiss finished previews, then try again.')
   const generic = 'Something went wrong. Try again.'
   for (const e of [null, undefined, 42, {}, [], new Error(''), new Error('   '), { error: '' }, { error: 7 }]) assert.equal(describeError(e), generic, String(JSON.stringify(e)))
   // The client's own fallback when a refusal carried no text.
   for (const m of ['409 Conflict', '500 Internal Server Error', '404 ', '403']) assert.equal(describeError(new Error(m)), generic, m)
+})
+
+test('describeError passes on the message of an Error, ApiError or UnauthorizedError, and of no other kind of error', () => {
+  const generic = 'Something went wrong. Try again.'
+  // What req throws: the server's own text, or its status line (which is not shown).
+  assert.equal(describeError(new Error('Private skill unavailable.')), 'Private skill unavailable.')
+  assert.equal(describeError(new api.ApiError('Private skill unavailable.', 404)), 'Private skill unavailable.')
+  assert.equal(describeError(new api.ApiError('404 Not Found', 404)), generic)
+  assert.equal(describeError(new api.UnauthorizedError()), 'missing or wrong token')
+  // Everything else is a fault in the browser, not something the server said. A page that answers 200 with HTML ends here.
+  const others = [
+    new SyntaxError("Unexpected token '<', \"<!doctype \"... is not valid JSON"),
+    new ReferenceError('machine is not defined'), new RangeError('Invalid array length'), new EvalError('eval'), new URIError('URI malformed'),
+    new DOMException('The string did not match the expected pattern.', 'SyntaxError'), new DOMException('The operation was aborted.', 'AbortError'),
+    new DOMException('Network down', 'NetworkError'), Object.assign(new Error('Plain text from a library'), { name: 'LibraryError' }),
+  ]
+  for (const e of others) assert.equal(describeError(e), generic, `${e.name}: ${e.message}`)
 })
 
 test('describeError never shows stack text, raw browser errors or very long messages', () => {
@@ -510,7 +650,7 @@ test('no sentence says an ownership record was verified, names a dialect word or
   sentences.push(
     reasonOf(scopeEligibility(e, a, opts({ accounts: false }))), reasonOf(scopeEligibility(e, a, opts({ canWrite: false }))), reasonOf(scopeEligibility(env({ agent: 'codex' }), a, opts())),
     reasonOf(scopeEligibility(env({ agent: 'reet' }), a, opts())), reasonOf(scopeEligibility(env({ agent: 'cursor', project: '/x' }), a, opts())), reasonOf(scopeEligibility(env({ project: 'x' }), a, opts())),
-    reasonOf(scopeEligibility(env({ complete: false }), a, opts())), reasonOf(scopeEligibility(e, [], opts())), reasonOf(scopeEligibility(e, [agent({ paused: true })], opts())),
+    reasonOf(scopeEligibility(env({ complete: false }), a, opts())), reasonOf(scopeEligibility(e, undefined, opts())), reasonOf(scopeEligibility(e, [], opts())), reasonOf(scopeEligibility(e, [agent({ paused: true })], opts())),
   )
   const claim = claimSummary({ revisionId: 'c'.repeat(32), matched: 1, observedOnly: 2, revisionOnly: 2, files: [row('SKILL.md', 'claimed'), row('a', 'stays_yours'), row('b', 'stays_yours'), row('b', 'library_only'), row('c', 'library_only')] })
   sentences.push(claim.text)
@@ -530,8 +670,209 @@ test('no sentence says an ownership record was verified, names a dialect word or
 })
 
 // ----------------------------------------------------------------------------------------------
+// Pins: the connector, the library choice, the newest revision and the words for a refused write.
+const bundle = (id, name, o = {}) => ({ id: id.repeat(32), name, head: 'h'.repeat(32), createdAt: NOW, ...o })
+const revision = (id, createdAt, o = {}) => ({ id: id.repeat(32), manifestDigest: digest(id), createdAt, origin: { kind: 'user' }, ...o })
+const pin = (o = {}) => ({ id: 'p'.repeat(48), environmentId: '1/workstation/agents', agentId: 'a'.repeat(48), name: 'demo', bundleId: 'b'.repeat(32), revisionId: 'c'.repeat(32), manifestDigest: digest('m'), mode: 'additive', version: 'v'.repeat(48), updatedAt: NOW, verification: 'not_verified', ...o })
+
+test('connectorFor: a running connector on the same host, case-folded the way the database does', () => {
+  const running = agent({ id: 'r'.repeat(48) }), paused = agent({ id: 'p'.repeat(48), paused: true })
+  assert.equal(connectorFor(env(), [running]), running)
+  assert.equal(connectorFor(env({ host: 'WORKSTATION' }), [agent({ host: 'workstation' })])?.host, 'workstation')
+  assert.equal(connectorFor(env(), [paused]), undefined)
+  assert.equal(connectorFor(env(), [agent({ host: 'elsewhere' })]), undefined)
+  // Only ASCII letters fold: a Kelvin sign is not a k.
+  assert.equal(connectorFor(env({ host: '\u212Aelvin' }), [agent({ host: 'kelvin' })]), undefined)
+  for (const none of [undefined, null, []]) assert.equal(connectorFor(env(), none), undefined)
+})
+
+test('connectorFor skips a paused connector even when it is listed first or seen last, and prefers the most recently seen', () => {
+  const paused = agent({ id: 'p'.repeat(48), paused: true, lastSeen: NOW + 5000 }), old = agent({ id: 'o'.repeat(48), lastSeen: NOW - 5000 }), live = agent({ id: 'l'.repeat(48), lastSeen: NOW })
+  assert.equal(connectorFor(env(), [paused, old, live]), live)
+  assert.equal(connectorFor(env(), [live, old]), live)
+  assert.equal(connectorFor(env(), [old, live]), live)
+  // A tie goes to the first listed.
+  const twin = agent({ id: 't'.repeat(48), lastSeen: NOW })
+  assert.equal(connectorFor(env(), [live, twin]), live)
+  assert.equal(connectorFor(env(), [twin, live]), twin)
+})
+
+test('connectorFor and scopeEligibility agree: a scope can be offered exactly when a connector is found', () => {
+  const cases = [[], [agent()], [agent({ paused: true })], [agent({ paused: true }), agent({ id: 'b'.repeat(48) })], [agent({ host: 'other' })], [agent({ host: 'WORKSTATION', paused: true })], [agent({ host: 'WORKSTATION' })]]
+  for (const agents of cases) assert.equal(scopeEligibility(env(), agents, opts()).ok, connectorFor(env(), agents) !== undefined, JSON.stringify(agents))
+})
+
+test('groupBundles puts the reported skill first and keeps the library order within each group', () => {
+  const list = [bundle('1', 'alpha'), bundle('2', 'demo'), bundle('3', 'demo'), bundle('4', 'zeta')]
+  const g = groupBundles(list, 'demo')
+  assert.deepEqual(g.matching.map(b => b.id[0]), ['2', '3'])
+  assert.deepEqual(g.others.map(b => b.id[0]), ['1', '4'])
+  for (const none of [undefined, '', 'nothing', 'DEMO', 'dem']) assert.deepEqual(groupBundles(list, none), { matching: [], others: list }, JSON.stringify(none))
+  assert.deepEqual(groupBundles([], 'demo'), { matching: [], others: [] })
+  assert.equal(list.length, 4)
+})
+
+test('preselectBundle chooses only when exactly one library skill has the reported name', () => {
+  const list = [bundle('1', 'alpha'), bundle('2', 'demo'), bundle('3', 'zeta')]
+  assert.equal(preselectBundle(list, 'demo'), '2'.repeat(32))
+  assert.equal(preselectBundle([...list, bundle('4', 'demo')], 'demo'), '')
+  for (const none of [undefined, '', 'other', 'Demo']) assert.equal(preselectBundle(list, none), '', JSON.stringify(none))
+  assert.equal(preselectBundle([], 'demo'), '')
+})
+
+test('newestFirst puts the bundle head first and the oldest last, whatever order the library listed them in', () => {
+  const r1 = revision('1', NOW - 3000), r2 = revision('2', NOW - 2000), r3 = revision('3', NOW - 1000)
+  assert.deepEqual(newestFirst([r1, r2, r3], r3.id).map(r => r.id[0]), ['3', '2', '1'])
+  assert.deepEqual(newestFirst([r3, r1, r2], r3.id).map(r => r.id[0]), ['3', '2', '1'])
+  // The head leads even when its creation time disagrees, and with no known head the creation time decides.
+  assert.deepEqual(newestFirst([r1, r2, r3], r1.id).map(r => r.id[0]), ['1', '3', '2'])
+  assert.deepEqual(newestFirst([r1, r2, r3]).map(r => r.id[0]), ['3', '2', '1'])
+  assert.deepEqual(newestFirst([r1, r2, r3], 'z'.repeat(32)).map(r => r.id[0]), ['3', '2', '1'])
+  assert.deepEqual(newestFirst([], 'x'), [])
+})
+
+test('newestFirst orders revisions made in the same millisecond by id, and does not change its input', () => {
+  const a = revision('a', NOW), b = revision('b', NOW), c = revision('c', NOW)
+  assert.deepEqual(newestFirst([b, a, c]).map(r => r.id[0]), ['c', 'b', 'a'])
+  assert.deepEqual(newestFirst([a, b, c]).map(r => r.id[0]), ['c', 'b', 'a'])
+  const input = [a, b, c]
+  newestFirst(input, a.id)
+  assert.deepEqual(input.map(r => r.id[0]), ['a', 'b', 'c'])
+  // A missing or odd creation time never makes the order unstable.
+  assert.deepEqual(newestFirst([revision('1', Number.NaN), revision('2', Number.NaN)]).map(r => r.id[0]), ['2', '1'])
+})
+
+test('mode words: Add and update, and the managed mode in the spec\'s own words; anything else is not a raw code', () => {
+  assert.equal(modeLabel('additive'), 'Add and update')
+  assert.equal(modeLabel('managed'), 'Also remove files reet owns that a newer revision drops')
+  assert.deepEqual(MODES.map(m => m.value), ['additive', 'managed'])
+  assert.deepEqual(MODES.map(m => m.label), ['Add and update', 'Also remove files reet owns that a newer revision drops'])
+  for (const odd of ['', 'mirror', 'bidirectional', 'Additive', 'constructor', 'toString', '__proto__']) {
+    const text = modeLabel(odd)
+    assert.equal(text, "A mode this page doesn't recognise", JSON.stringify(odd))
+    assert.doesNotMatch(text, /_/)
+  }
+  assert.equal(shortId('abcdef0123456789'), 'abcdef01')
+  assert.equal(shortId('abc'), 'abc')
+})
+
+test('pinChangeNote says what changed in plain words, and nothing when nothing did', () => {
+  const was = pin({ revisionId: '2'.repeat(32), mode: 'managed', version: 'v1' })
+  const changed = pin({ revisionId: '1'.repeat(32), mode: 'additive', version: 'v2' })
+  const note = pinChangeNote(was, changed, 'demo')
+  assert.match(note, /changed elsewhere/)
+  assert.match(note, /11111111/)
+  assert.match(note, /Add and update/)
+  assert.match(note, /22222222/)
+  assert.match(note, /Also remove files reet owns/)
+  assert.match(note, /Nothing was saved/)
+  assert.match(pinChangeNote(was, undefined, 'demo'), /removed elsewhere/)
+  assert.match(pinChangeNote(was, undefined, 'demo'), /Nothing was saved/)
+  const created = pinChangeNote(undefined, changed, 'demo')
+  assert.match(created, /was pinned elsewhere/)
+  assert.match(created, /11111111/)
+  assert.match(created, /Nothing was saved/)
+  assert.match(pinChangeNote(was, pin({ ...was, version: 'v3' }), 'demo'), /saved again elsewhere, with the same revision and mode/)
+  assert.match(pinChangeNote(was, pin({ ...was, bundleId: 'z'.repeat(32), version: 'v3' }), 'demo'), /changed elsewhere/)
+  // A removal says nothing was removed, never that anything was saved.
+  const removing = pinChangeNote(was, changed, 'demo', 'remove')
+  assert.match(removing, /changed elsewhere/)
+  assert.match(removing, /Nothing was removed/)
+  assert.match(removing, /remove it again/)
+  assert.doesNotMatch(removing, /saved\b(?! again)/)
+  assert.match(pinChangeNote(was, undefined, 'demo', 'remove'), /already removed elsewhere, so there was nothing to remove/)
+  assert.match(pinChangeNote(was, pin({ ...was, version: 'v3' }), 'demo', 'remove'), /saved again elsewhere.*Nothing was removed/)
+  assert.equal(pinChangeNote(was, was, 'demo', 'remove'), '')
+  // Nothing differs, or there was never a pin: the server's own refusal is the better words.
+  assert.equal(pinChangeNote(was, was, 'demo'), '')
+  assert.equal(pinChangeNote(undefined, undefined, 'demo'), '')
+})
+
+test('samePin: a pin is the same only when connector, library skill, revision and mode all match', () => {
+  const p = pin()
+  const want = { agentId: p.agentId, bundleId: p.bundleId, revisionId: p.revisionId, mode: p.mode }
+  assert.equal(samePin(p, want), true)
+  assert.equal(samePin(p, { ...want, agentId: 'z'.repeat(48) }), false, 'a pin made through another connector is not the current pin')
+  assert.equal(samePin(p, { ...want, agentId: '' }), false)
+  assert.equal(samePin(p, { ...want, bundleId: 'z'.repeat(32) }), false)
+  assert.equal(samePin(p, { ...want, revisionId: 'z'.repeat(32) }), false)
+  assert.equal(samePin(p, { ...want, mode: 'managed' }), false)
+  assert.equal(samePin(undefined, want), false)
+})
+
+test('MODES is derived from the mode words, in order', () => {
+  assert.deepEqual(MODES.map(m => [m.value, m.label]), [['additive', modeLabel('additive')], ['managed', modeLabel('managed')]])
+})
+
+test('bundleLabel is the name, with the start of the id only when two library skills share a name', () => {
+  const list = [bundle('1', 'alpha'), bundle('2', 'twin'), bundle('3', 'twin'), bundle('4', 'zeta')]
+  assert.equal(bundleLabel(list[0], list), 'alpha')
+  assert.equal(bundleLabel(list[1], list), `twin · ${'2'.repeat(8)}`)
+  assert.equal(bundleLabel(list[2], list), `twin · ${'3'.repeat(8)}`)
+  assert.equal(bundleLabel(list[3], list), 'zeta')
+  assert.equal(bundleLabel(list[0], [list[0]]), 'alpha')
+})
+
+test('revisionLabels names each revision by when it was made and marks the newest', () => {
+  const at = (ms) => `t${ms}`
+  const r1 = revision('1', 1000), r2 = revision('2', 2000), r3 = revision('3', 3000)
+  const labels = revisionLabels([r3, r2, r1], r3.id, at)
+  assert.equal(labels.get(r3.id), 't3000 · Newest')
+  assert.equal(labels.get(r2.id), 't2000')
+  assert.equal(labels.get(r1.id), 't1000')
+  assert.equal(revisionLabels([r1, r2], undefined, at).get(r2.id), 't2000', 'no head, no Newest')
+  // Two that share a time carry the start of their id, and the newest is still marked.
+  const a = revision('a', 5000), b = revision('b', 5000), c = revision('c', 6000)
+  const shared = revisionLabels([a, b, c], b.id, at)
+  assert.equal(shared.get(a.id), `t5000 · ${'a'.repeat(8)}`)
+  assert.equal(shared.get(b.id), `t5000 · ${'b'.repeat(8)} · Newest`)
+  assert.equal(shared.get(c.id), 't6000')
+  // No raw id appears when the times differ, and the real clock format never shows one either.
+  for (const label of revisionLabels([r1, r2, r3], r3.id).values()) assert.doesNotMatch(label, /[0-9a-f]{8}/)
+  assert.equal(revisionLabels([], 'x').size, 0)
+})
+
+test('revisionLabel falls back to the start of the id only when the revision is not in a list that was read', () => {
+  const r1 = revision('1', NOW)
+  assert.match(revisionLabel(r1.id, [r1], r1.id), /Newest$/)
+  assert.equal(revisionLabel('9'.repeat(32), [r1], r1.id), '9'.repeat(8))
+  assert.equal(revisionLabel('9'.repeat(32), undefined, undefined), '9'.repeat(8))
+})
+
+test('pinChangeNote uses the revision words it is given, and the start of the id without them', () => {
+  const was = pin({ revisionId: '2'.repeat(32), mode: 'managed', version: 'v1' }), changed = pin({ revisionId: '1'.repeat(32), mode: 'additive', version: 'v2' })
+  const note = pinChangeNote(was, changed, 'demo', 'save', p => `from ${p.revisionId[0]} o'clock`)
+  assert.match(note, /revision from 1 o'clock \(Add and update\)/)
+  assert.match(note, /revision from 2 o'clock \(Also remove files reet owns/)
+  assert.doesNotMatch(note, /11111111|22222222/)
+  assert.match(pinChangeNote(was, changed, 'demo'), /11111111/)
+})
+
+test('missingNote says which thing is gone and that nothing was done', () => {
+  assert.match(missingNote('save'), /isn't there any more.*nothing was saved/)
+  assert.match(missingNote('remove'), /isn't there any more.*nothing was removed/)
+  for (const s of [missingNote('save'), missingNote('remove')]) assert.doesNotMatch(s, /installed|installs|\bapplied\b|up to date|verified|_/i)
+})
+
+test('the pin sentences name no raw code, claim no install, never call anything verified, and use plain British English', () => {
+  const was = pin({ revisionId: '2'.repeat(32), mode: 'managed', version: 'v1' }), changed = pin({ revisionId: '1'.repeat(32), mode: 'additive', version: 'v2' })
+  const sentences = [
+    ...MODES.map(m => m.label), modeLabel('odd'),
+    pinChangeNote(was, changed, 'demo'), pinChangeNote(was, undefined, 'demo'), pinChangeNote(undefined, changed, 'demo'), pinChangeNote(was, pin({ ...was, version: 'v3' }), 'demo'),
+    pinChangeNote(was, changed, 'demo', 'remove'), pinChangeNote(was, undefined, 'demo', 'remove'),
+    pinChangeNote(pin({ mode: 'what', version: 'a' }), pin({ mode: 'else', version: 'b' }), 'demo'),
+  ]
+  for (const s of sentences) {
+    assert.ok(s.length > 0)
+    assert.doesNotMatch(s, /installed|installs|\bapplied\b|up to date|verified/i, `"${s}" implies a change or a check that did not happen`)
+    assert.doesNotMatch(s, /_/, `"${s}" shows a raw code`)
+    assert.doesNotMatch(s, /\b(nowt|owt|summat|reight|ey up|lass|lad|thee|tha)\b/i, `"${s}" uses dialect`)
+    assert.doesNotMatch(s, /\b(color|authoriz\w*|organiz\w*|recogniz\w*|behavior|center|gray)\b/i, `"${s}" is not British spelling`)
+  }
+})
+
+// ----------------------------------------------------------------------------------------------
 // The API client: thin wrappers over `req`. Run them against a recording fetch.
-const api = await load('./api.ts')
 const calls = []
 let reply = () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } })
 globalThis.fetch = async (url, init = {}) => { calls.push({ url: String(url), method: init.method ?? 'GET', body: init.body, signal: init.signal, contentType: new Headers(init.headers).get('Content-Type') }); return reply() }
@@ -587,12 +928,53 @@ test('the wrappers encode ids into the path and never call the revision read tha
   for (const l of wrappers) { assert.doesNotMatch(l, /skill-bundles|revisions/, l); assert.match(l, /\/api\/v2\/skill-content-(targets|previews|receipts)/, l) }
 })
 
-test('a refusal surfaces as an Error carrying the server text, which describeError passes on', async () => {
-  reply = () => new Response(JSON.stringify({ error: 'This ownership record is unavailable, blocked, changed or already exists.' }), { status: 409 })
-  await assert.rejects(api.adoptContent({ requestKey: 'k'.repeat(20), previewId: 'p'.repeat(48), reviewHash: digest('r'), adoptAsRevisionId: 'c'.repeat(32) }), (e) => {
-    assert.equal(describeError(e), 'This ownership record is unavailable, blocked, changed or already exists.')
-    return true
-  })
-  reply = () => new Response('', { status: 500, statusText: 'Internal Server Error' })
-  await assert.rejects(api.getContentPins(), (e) => { assert.equal(describeError(e), 'Something went wrong. Try again.'); return true })
+const jsonReply = () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+const previewInput = { requestKey: 'k'.repeat(20), targetId: 't'.repeat(48), expectedTargetVersion: 'v'.repeat(48) }
+
+test('a refusal is an ApiError carrying the server text and the HTTP status', async () => {
+  try {
+    reply = () => new Response(JSON.stringify({ error: 'x' }), { status: 409 })
+    await assert.rejects(api.requestContentPreview(previewInput), (e) => {
+      assert.ok(e instanceof api.ApiError, 'an ApiError')
+      assert.ok(e instanceof Error, 'still an Error, so callers that read e.message are unchanged')
+      assert.equal(e.status, 409)
+      assert.equal(e.message, 'x')
+      assert.equal(e.name, 'ApiError')
+      return true
+    })
+    // No JSON body: the message is the status line, exactly as before, and the status is still kept.
+    reply = () => new Response('', { status: 500, statusText: 'Internal Server Error' })
+    await assert.rejects(api.requestContentPreview(previewInput), (e) => { assert.ok(e instanceof api.ApiError); assert.equal(e.status, 500); assert.equal(e.message, '500 Internal Server Error'); return true })
+    reply = () => new Response('<html>bad gateway</html>', { status: 502, statusText: 'Bad Gateway' })
+    await assert.rejects(api.getContentPins(), (e) => { assert.ok(e instanceof api.ApiError); assert.equal(e.status, 502); assert.equal(e.message, '502 Bad Gateway'); return true })
+    // Any non-ok, non-401 status, through any wrapper.
+    for (const status of [400, 403, 404, 409, 500, 503]) {
+      reply = () => new Response(JSON.stringify({ error: `refused ${status}` }), { status })
+      await assert.rejects(api.removeContentPin('x'.repeat(48), 'v'.repeat(48)), (e) => { assert.ok(e instanceof api.ApiError, String(status)); assert.equal(e.status, status); assert.equal(e.message, `refused ${status}`); return true })
+    }
+  } finally { reply = jsonReply }
+})
+
+test('a 401 is still an UnauthorizedError and is not an ApiError', async () => {
+  try {
+    reply = () => new Response(JSON.stringify({ error: 'sign in again' }), { status: 401 })
+    await assert.rejects(api.getContentPins(), (e) => { assert.ok(e instanceof api.UnauthorizedError); assert.ok(!(e instanceof api.ApiError)); assert.equal(e.message, 'sign in again'); return true })
+    reply = () => new Response('', { status: 401, statusText: 'Unauthorized' })
+    await assert.rejects(api.getContentPins(), (e) => { assert.ok(e instanceof api.UnauthorizedError); assert.ok(!(e instanceof api.ApiError)); assert.equal(e.message, 'missing or wrong token'); return true })
+  } finally { reply = jsonReply }
+})
+
+test('a refusal carrying the server text is passed on by describeError, and a bare status line is not', async () => {
+  try {
+    reply = () => new Response(JSON.stringify({ error: 'This ownership record is unavailable, blocked, changed or already exists.' }), { status: 409 })
+    await assert.rejects(api.adoptContent({ requestKey: 'k'.repeat(20), previewId: 'p'.repeat(48), reviewHash: digest('r'), adoptAsRevisionId: 'c'.repeat(32) }), (e) => {
+      assert.equal(describeError(e), 'This ownership record is unavailable, blocked, changed or already exists.')
+      return true
+    })
+    reply = () => new Response('', { status: 500, statusText: 'Internal Server Error' })
+    await assert.rejects(api.getContentPins(), (e) => { assert.equal(describeError(e), 'Something went wrong. Try again.'); return true })
+    // A 200 that is not JSON (a proxy's page, say) is a SyntaxError from the wrapper's own .json(), never shown as text.
+    reply = () => new Response('<!doctype html><title>x</title>', { status: 200 })
+    await assert.rejects(api.getContentPins(), (e) => { assert.equal(e.name, 'SyntaxError'); assert.equal(describeError(e), 'Something went wrong. Try again.'); return true })
+  } finally { reply = jsonReply }
 })

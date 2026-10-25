@@ -13,6 +13,8 @@
   import UpdateReview from './UpdateReview.svelte'
   import ContentObservation from './ContentObservation.svelte'
   import MachineSkillImports from './MachineSkillImports.svelte'
+  import MachineSkillContent from './MachineSkillContent.svelte'
+  import { scopeEligibility } from './contentReview'
   import ConfirmDialog from './ConfirmDialog.svelte'
 
   let {
@@ -20,6 +22,7 @@
     snapshot,
     site,
     canWrite,
+    accounts=false,
     terminalAccess=false,
     monitorAccess=false,
     onadd,
@@ -31,6 +34,7 @@
     snapshot: SyncState
     site: string
     canWrite: boolean
+    accounts?: boolean
     terminalAccess?:boolean
     monitorAccess?:boolean
     onadd: () => void
@@ -44,6 +48,7 @@
   let confirm = $state<Pending | null>(null)
   let busy = $state('')
   let importSource = $state<{ environmentId: string; name: string } | null>(null)
+  let contentSource = $state<{ environmentId: string; name?: string; opener: HTMLElement } | null>(null)
   // The settings dialog and the review read the live snapshot by host and id,
   // so a change made inside them shows there at once instead of in a stale copy.
   let settingsHost = $state('')
@@ -55,6 +60,14 @@
 
   function fresh(group: SyncEnvironment): boolean {
     return group.scannedAt > Date.now() - 14 * 86400000
+  }
+  // Private skills (pins) are for a signed-in account that can write; for anyone else the action is not there at all.
+  // For the rest, scopeEligibility says plainly when it cannot be used yet, and the reason shows beside a disabled button.
+  function privateSkills(group: SyncEnvironment) {
+    return canWrite && accounts ? scopeEligibility(group, snapshot.agents, { accounts, canWrite, now: Date.now() }) : null
+  }
+  function pinOpener(group: SyncEnvironment): ((name: string, opener: HTMLElement) => void) | undefined {
+    return privateSkills(group)?.ok ? (name, opener) => { contentSource = { environmentId: group.id, name, opener } } : undefined
   }
   function agentFor(machine: Machine): SyncAgent | undefined {
     return snapshot.agents?.find((agent) => agent.host.toLowerCase() === machine.host.toLowerCase())
@@ -188,6 +201,16 @@
   }
 </script>
 
+{#snippet privateSkillsAction(group: SyncEnvironment, reasonId: string)}
+  {@const entry = privateSkills(group)}
+  {#if entry}
+    <div class="private-skills">
+      <button type="button" class="btn" disabled={!entry.ok} aria-label={`Private skills for ${groupLabel(group)}`} aria-describedby={entry.ok ? undefined : reasonId} onclick={(event) => (contentSource = { environmentId: group.id, opener: event.currentTarget })}>Private skills</button>
+      {#if !entry.ok}<small id={reasonId}>{entry.reason}</small>{/if}
+    </div>
+  {/if}
+{/snippet}
+
 <section class="fleet" aria-labelledby="fleet-title">
   <header class="fleet-head">
     <div>
@@ -199,7 +222,7 @@
   </header>
 
   <div class="machine-grid">
-    {#each machines as machine (machine.host)}
+    {#each machines as machine, m (machine.host)}
       {@const enrolled = agentFor(machine)}
       {@const groups = agentGroups(machine)}
       {@const supported = supportedAgents(machine)}
@@ -259,21 +282,22 @@
             <span>{groups.length} {groups.length === 1 ? 'scope' : 'scopes'}</span>
           </summary>
           <ul>
-            {#each supported as group (group.id)}
+            {#each supported as group, i (group.id)}
               <li>
                 <span class="dot {group.complete && fresh(group) ? 'current' : group.complete ? 'stale' : 'partial'}" aria-hidden="true"></span>
                 <div class="agent-copy">
                   <strong>{groupLabel(group)}</strong>
                   <small>{group.skillCount ?? 0} {group.skillCount === 1 ? 'skill' : 'skills'} · {group.complete ? 'Last full report' : 'Incomplete report'} {new Date(group.scannedAt || group.lastSeen).toLocaleString()}</small>
-                  <ContentObservation content={group.content} onimport={canWrite && enrolled ? (name) => importSource = { environmentId: group.id, name } : undefined} />
+                  {@render privateSkillsAction(group, `private-skills-${m}-${i}`)}
+                  <ContentObservation content={group.content} onimport={canWrite && enrolled ? (name) => importSource = { environmentId: group.id, name } : undefined} onpin={pinOpener(group)} />
                 </div>
                 <span class="scope-state">{groupState(group)}</span>
               </li>
             {/each}
-            {#each scanOnly as group (group.id)}
+            {#each scanOnly as group, i (group.id)}
               <li class="scan-only">
                 <span class="dot empty" aria-hidden="true"></span>
-                <div class="agent-copy"><strong>{groupLabel(group)}</strong><small>Scan only. Sync to the shared agents folder or this agent's supported location.</small><ContentObservation content={group.content} onimport={canWrite && enrolled ? (name) => importSource = { environmentId: group.id, name } : undefined} /></div>
+                <div class="agent-copy"><strong>{groupLabel(group)}</strong><small>Scan only. Sync to the shared agents folder or this agent's supported location.</small>{@render privateSkillsAction(group, `private-skills-${m}-scan-${i}`)}<ContentObservation content={group.content} onimport={canWrite && enrolled ? (name) => importSource = { environmentId: group.id, name } : undefined} onpin={pinOpener(group)} /></div>
                 <span class="scope-state">Scan only</span>
               </li>
             {/each}
@@ -295,6 +319,8 @@
 </section>
 
 {#if importSource}<MachineSkillImports {snapshot} source={importSource} onclose={() => importSource = null} />{/if}
+
+{#if contentSource}<MachineSkillContent {snapshot} source={contentSource} opener={contentSource.opener} {canWrite} {accounts} onclose={() => contentSource = null} />{/if}
 
 {#if commandsFor}
   <MachineCommands
@@ -380,6 +406,9 @@
   .agent-copy { display: grid; gap: 2px; min-width: 0; flex: 1; }
   .agent-copy strong { font-size: 0.8rem; }
   .agent-copy small { color: var(--muted); font-size: 0.72rem; line-height: 1.45; }
+  .private-skills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 4px 0 2px; }
+  .private-skills .btn { min-height: 34px; padding: 5px 12px; font-size: 0.78rem; }
+  .private-skills small { flex: 1 1 200px; min-width: 0; }
   .scope-state { flex: none; color: var(--muted); font-size: 0.7rem; }
   .scan-only { opacity: 0.82; }
   .empty-row { color: var(--muted); font-size: 0.8rem; }

@@ -1615,6 +1615,14 @@ Read [docs/skill-content-review-ui.md](docs/skill-content-review-ui.md). Branch
   two Important review findings (a refused adoption whose cause the screen cannot see said "Something
   changed" although the check still looked fine, and a lost reply with a failed records read left a
   recorded ownership unlisted). Neither allowed ownership to be recorded from a stale check.
+- **Product direction (user, 25 October 2026).** The aim is a better multi-machine version of the website and
+  the open-source app: agents, MCP servers and skills synced through reet.sh, with a professional UX and UI, and
+  the ability to add a machine just in time so work with an AI agent can continue there. This slice is the
+  groundwork for the skills part (per-machine pins, checks and controller-attested ownership). Candidate next
+  slices, in the order I would suggest: add a machine in context from the dialog or Machines page; the reviewed
+  executor that applies a pinned revision with rollback and verified receipts; a fleet overview with status
+  per machine and per agent; MCP exposure of pins, checks and receipts. The order is the user's to choose.
+  Do not name other products in the repository's docs or UI.
 - **Follow-ups from the broad review (not done).** Split the ~1,500-line `skill-content.e2e.mjs` into pin,
   check and adopt/release files over a shared fixture module and consider running the 10-state layout matrix
   nightly; cache revision lists per bundle across reloads; a receipts-aware prune guard and what the dialog

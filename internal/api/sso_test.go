@@ -948,3 +948,22 @@ func TestADisabledAccountIsNotLinkedByEmail(t *testing.T) {
 		t.Fatal("a disabled account was linked")
 	}
 }
+
+func TestOwnershipIsNotHandedToAnAccountThatHasNoPassword(t *testing.T) {
+	e := newSSOEnv(t, ssoOpts{})
+	// The owner signs in with a password only, so an account made by single
+	// sign-on has no way in once it is the owner.
+	u, err := e.st.CreateSSOUser(e.idp.Issuer, "sub-nopw-owner", "nopw-owner@example.com", "", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := e.client()
+	e.signIn(c, "owner@example.com", ownerPassword)
+	code, body := e.body(c, "POST", "/api/v2/admin/users/transfer", `{"id":`+strconv.FormatInt(u.ID, 10)+`}`)
+	if code != http.StatusBadRequest || !strings.Contains(body, "password") {
+		t.Fatalf("transfer to an account without a password = %d %s", code, body)
+	}
+	if got := mustUser(t, e, "owner@example.com"); got.Role != "owner" {
+		t.Fatalf("the owner is now %q", got.Role)
+	}
+}

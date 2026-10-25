@@ -1240,13 +1240,19 @@ func (s *Store) TransferOwner(currentOwnerID, targetID int64) error {
 		return errors.New("already the owner")
 	}
 	return s.withTx(func(tx *sql.Tx) error {
-		var role string
+		var role, hash string
 		var disabled int64
-		if err := tx.QueryRow(`SELECT role,disabled_at FROM users WHERE id=?`, targetID).Scan(&role, &disabled); err != nil {
+		if err := tx.QueryRow(`SELECT role,password_hash,disabled_at FROM users WHERE id=?`, targetID).Scan(&role, &hash, &disabled); err != nil {
 			return err
 		}
 		if disabled != 0 {
 			return errors.New("the target account is disabled")
+		}
+		// The owner signs in with a password and never through a provider, and
+		// a passwordless account cannot add one, so the transfer would leave
+		// the new owner with no way in.
+		if hash == "" {
+			return errors.New("the target account has no password; the owner signs in with one")
 		}
 		if _, err := tx.Exec(`UPDATE users SET role='admin' WHERE id=?`, currentOwnerID); err != nil {
 			return err

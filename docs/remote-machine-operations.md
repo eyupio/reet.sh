@@ -63,9 +63,10 @@ available. A relay outage pauses remote access; it does not end host tmux shells
 
 Use the same updated reet binary on controller and hosts. The UI identifies old
 agents and missing tmux/supervision, and shows each machine's reported build next
-to the latest published build, with the update's steps and outcome. Automatic
-updates are on by default per machine; they wait an hour after an attempt that
-ended. Turning them off leaves **Update reet** available manually. An update
+to the latest published build, with the update's steps while it runs and its
+outcome afterwards. Automatic updates are on by default per machine and are set
+in the machine's **Settings**; they wait an hour after an attempt that ended.
+Turning them off leaves **Review update** on the card for a deliberate one. An update
 keeps the previous binary and restores it automatically if the new build cannot
 report to the controller. New terminal control is negotiated separately from
 health; older health-only agents keep monitoring without gaining shells.

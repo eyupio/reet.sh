@@ -9,6 +9,8 @@
   import { machineStatus, scanOnlyAgents, supportedAgents, syncLink } from './machineSetup'
   import MachineCommands from './MachineCommands.svelte'
   import AgentUpdate from './AgentUpdate.svelte'
+  import MachineSettings from './MachineSettings.svelte'
+  import UpdateReview from './UpdateReview.svelte'
   import ContentObservation from './ContentObservation.svelte'
   import MachineSkillImports from './MachineSkillImports.svelte'
   import MachineSkillContent from './MachineSkillContent.svelte'
@@ -47,6 +49,12 @@
   let busy = $state('')
   let importSource = $state<{ environmentId: string; name: string } | null>(null)
   let contentSource = $state<{ environmentId: string; name?: string; opener: HTMLElement } | null>(null)
+  // The settings dialog and the review read the live snapshot by host and id,
+  // so a change made inside them shows there at once instead of in a stale copy.
+  let settingsHost = $state('')
+  let review = $state<{ agentId: string; initial: 'dev' | 'latest' } | null>(null)
+  const settingsMachine = $derived(machines.find((machine) => machine.host === settingsHost))
+  const reviewAgent = $derived(review ? snapshot.agents?.find((agent) => agent.id === review?.agentId) : undefined)
   let health=$state<HealthResponse>({serverNow:Date.now(),machines:[]}), healthElapsed=$state(0),healthReceived=performance.now()
   onMount(()=>{if(!monitorAccess)return;const abort=new AbortController();let busy=false;async function refreshHealth(){if(busy||document.visibilityState!=='visible')return;busy=true;try{const next=await machineHealth(abort.signal);if(!abort.signal.aborted){health=next;healthReceived=performance.now();healthElapsed=0}}catch{/* inventory remains usable when health is unavailable */}finally{busy=false}}void refreshHealth();const wake=()=>void refreshHealth();document.addEventListener('visibilitychange',wake);window.addEventListener('online',wake);const timer=setInterval(wake,15000),clock=setInterval(()=>healthElapsed=performance.now()-healthReceived,1000);return()=>{abort.abort();clearInterval(timer);clearInterval(clock);document.removeEventListener('visibilitychange',wake);window.removeEventListener('online',wake)}})
 
@@ -135,6 +143,27 @@
   }
   function machineOf(job: SyncJob): Machine | undefined {
     return machines.find(machine => agentFor(machine)?.id === job.agentId)
+  }
+  function openReview(agent: SyncAgent, initial: 'dev' | 'latest') {
+    settingsHost = ''
+    review = { agentId: agent.id, initial }
+  }
+  // The settings close before the confirmation opens, and the selection is
+  // what the dialog derives from, so the machine is read before it is cleared.
+  function forgetFromSettings() {
+    const machine = settingsMachine
+    settingsHost = ''
+    if (machine) askForgetMachine(machine)
+  }
+  function revokeFromSettings() {
+    const agent = settingsMachine && agentFor(settingsMachine)
+    settingsHost = ''
+    if (agent) askRevoke(agent)
+  }
+  function confirmReview(version: string) {
+    const agent = reviewAgent
+    review = null
+    if (agent) void updateAgent(agent, version)
   }
   async function toggleAutoUpdate(agent: SyncAgent, enabled: boolean) {
     if (await run(`auto-update-${agent.id}`, () => controlSyncAgent(agent.id, enabled ? 'auto-update-on' : 'auto-update-off'))) {
@@ -231,8 +260,7 @@
             releases={snapshot.releases}
             {canWrite}
             busy={!!busy}
-            onupdate={(version) => updateAgent(enrolled, version)}
-            onpolicy={(enabled) => toggleAutoUpdate(enrolled, enabled)}
+            onreview={() => openReview(enrolled, enrolled.version === 'dev' ? 'dev' : 'latest')}
             oncancel={() => { const update = lastUpdate(machine); if (update) void cancelUpdate(update) }}
           />
         {/if}
@@ -245,20 +273,7 @@
           {/if}
           {#if terminalAccess&&enrolled}<a class="btn" href={`/machines?view=terminal&agent=${encodeURIComponent(enrolled.id)}`}>Open terminal</a>{/if}
           <button class="btn" type="button" onclick={() => (commandsFor = machine)}>Commands</button>
-          {#if canWrite}
-            <details class="manage">
-              <summary>Manage</summary>
-              <div class="manage-menu">
-                {#if enrolled}
-                  <button type="button" disabled={!!busy || enrolled.paused} onclick={() => scan(enrolled)}>{busy === `scan-${enrolled.id}` ? 'Queueing…' : 'Scan now'}</button>
-                  {#if savedTargets(machine).length}<button type="button" disabled={!!busy || enrolled.paused} onclick={() => syncNow(machine, enrolled)}>Sync saved skills</button>{/if}
-                  <button type="button" disabled={!!busy} onclick={() => pause(enrolled)}>{enrolled.paused ? 'Resume sync jobs' : 'Pause sync jobs'}</button>
-                {/if}
-                <button type="button" class="danger" onclick={() => askForgetMachine(machine)}>Forget machine</button>
-                {#if enrolled}<button type="button" onclick={() => askRevoke(enrolled)}>Revoke live access</button>{/if}
-              </div>
-            </details>
-          {/if}
+          {#if canWrite}<button class="btn" type="button" onclick={() => (settingsHost = machine.host)}>Settings</button>{/if}
         </div>
 
         <details class="agent-list">
@@ -317,6 +332,27 @@
   />
 {/if}
 
+{#if settingsMachine}
+  {@const enrolled = agentFor(settingsMachine)}
+  <MachineSettings
+    machine={settingsMachine}
+    agent={enrolled}
+    releases={snapshot.releases}
+    busy={!!busy}
+    onautoupdate={(enabled) => { if (enrolled) void toggleAutoUpdate(enrolled, enabled) }}
+    onpause={() => { if (enrolled) void pause(enrolled) }}
+    onscan={() => { if (enrolled) void scan(enrolled) }}
+    onswitch={() => { if (enrolled) openReview(enrolled, enrolled.version === 'dev' ? 'latest' : 'dev') }}
+    onrevoke={revokeFromSettings}
+    onforget={forgetFromSettings}
+    onclose={() => (settingsHost = '')}
+  />
+{/if}
+
+{#if review && reviewAgent}
+  <UpdateReview agent={reviewAgent} releases={snapshot.releases} initial={review.initial} onconfirm={confirmReview} oncancel={() => (review = null)} />
+{/if}
+
 {#if confirm}
   <ConfirmDialog
     title={confirm.title}
@@ -360,14 +396,6 @@
   .agent-chip strong { color: var(--ink); font-weight: 600; }
   .agent-chip.muted { opacity: 0.78; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-  .manage { position: relative; }
-  .manage > summary { list-style: none; display: inline-flex; align-items: center; min-height: 42px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); font-size: 0.82rem; cursor: pointer; }
-  .manage > summary::-webkit-details-marker { display: none; }
-  .manage > summary:hover { color: var(--ink); border-color: var(--muted); }
-  .manage-menu { position: absolute; right: 0; top: calc(100% + 5px); z-index: 12; display: grid; min-width: 190px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); box-shadow: 0 12px 28px rgb(0 0 0 / 0.14); }
-  .manage-menu button { border: 0; border-radius: 7px; padding: 9px 10px; background: none; color: var(--ink); text-align: left; font: inherit; font-size: 0.8rem; cursor: pointer; }
-  .manage-menu button:hover { background: var(--tint); }
-  .manage-menu .danger { color: var(--bad); }
   .agent-list { border-top: 1px solid var(--line); padding-top: 12px; }
   .agent-list > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px; cursor: pointer; font-size: 0.8rem; font-weight: 650; }
   .agent-list > summary span:last-child { color: var(--muted); font-weight: 400; }
@@ -390,8 +418,5 @@
     @media (max-width: 560px) {
     .machine { padding: 14px; }
     .actions .btn { flex: 1 1 auto; }
-    .manage { flex: 1 1 auto; }
-    .manage > summary { justify-content: center; width: 100%; }
-    .manage-menu { left: 0; right: auto; width: min(240px, calc(100vw - 64px)); }
   }
 </style>

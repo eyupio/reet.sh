@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { ReleaseInfo, SyncAgent, SyncJob } from './api'
-  import { agentBuild, agentUpdateState, shortCommit, updateAvailable, updateProgress, updateStateLabel } from './machines'
-  import ConfirmDialog from './ConfirmDialog.svelte'
+  import { agentBuild, agentUpdateState, channelBuild, updateAction, updateAvailable, updateProgress, updateStateLabel, updateStepsShown } from './machines'
 
   let {
     agent,
@@ -9,8 +8,7 @@
     releases,
     canWrite,
     busy,
-    onupdate,
-    onpolicy,
+    onreview,
     oncancel,
   }: {
     agent: SyncAgent
@@ -18,8 +16,7 @@
     releases?: ReleaseInfo
     canWrite: boolean
     busy: boolean
-    onupdate: (version: string) => void
-    onpolicy: (enabled: boolean) => void
+    onreview: () => void
     oncancel: () => void
   } = $props()
 
@@ -31,10 +28,11 @@
   const stages = $derived((relevant?.stages ?? []).map((stage) =>
     relevant?.status === 'failed' && stage.status === 'running' ? { ...stage, status: 'failed' as const } : stage,
   ))
+  const steps = $derived(updateStepsShown(relevant))
   const progress = $derived(updateProgress(relevant))
   const onDev = $derived(agent.version === 'dev')
-  const stableLabel = $derived(releases?.latest?.version ?? '')
-  const devLabel = $derived(releases?.dev?.commit ? `dev · ${shortCommit(releases.dev.commit)}` : releases?.dev?.version === 'dev' ? 'dev' : '')
+  const stableLabel = $derived(channelBuild(releases, 'latest'))
+  const devLabel = $derived(channelBuild(releases, 'dev'))
   const checkError = $derived(releases?.latest?.error || releases?.dev?.error || '')
   const currentTarget = $derived(onDev ? devLabel : stableLabel)
   const otherTarget = $derived(onDev ? stableLabel : devLabel)
@@ -57,24 +55,7 @@
   // failed release check therefore blocks automatic updates, not a person's
   // deliberate one.
   const canReview = $derived(canWrite && !busy && !agent.paused)
-
-  let choosing = $state(false)
-  let target = $state('')
-
-  function openReview() {
-    target = onDev ? 'dev' : 'latest'
-    choosing = true
-  }
-
-  function confirm() {
-    const chosen = target
-    choosing = false
-    onupdate(chosen)
-  }
-
-  function targetLabel(value: string): string {
-    return value === 'dev' ? devLabel || 'the development build' : stableLabel || 'the latest release'
-  }
+  const action = $derived(updateAction(phase, { autoUpdate: agent.autoUpdate, updateWaiting }))
 
   const tone = $derived(
     phase === 'failed'
@@ -90,6 +71,8 @@
               : 'quiet',
   )
 
+  // The policy left the card for the machine's settings, so the card says
+  // which way it is set; otherwise a quiet machine would not say why it waits.
   const explanation = $derived.by(() => {
     if (agent.paused) return 'Sync is paused for this machine, so updates wait until it is resumed.'
     if (phase === 'running') return `The agent is ${switching ? 'switching to' : 'installing'} ${jobTarget}. It keeps the current binary and restarts into the verified one.`
@@ -100,7 +83,7 @@
     if (phase === 'unknown') return checkError ? `The release channel could not be checked: ${checkError}. Automatic updates wait until it is reachable.` : 'The release channel has not been checked yet.'
     if (phase === 'available' && agent.autoUpdate) return `Automatic updates are on. While this machine is online, the controller will install ${targetBuild} and verify it before reporting back.`
     if (phase === 'available') return `Automatic updates are off. Review ${targetBuild} when you are ready; the agent verifies the release and keeps the current binary.`
-    return `Running the newest build on the ${onDev ? 'development' : 'release'} channel.`
+    return `Running the newest build on the ${onDev ? 'development' : 'release'} channel. Automatic updates are ${agent.autoUpdate ? 'on' : 'off'}.`
   })
 
   function pillLabel(): string {
@@ -122,6 +105,21 @@
   }
 </script>
 
+{#snippet stageList()}
+  <ol class="stages">
+    {#each stages as stage (stage.key)}
+      <li class={stage.status}>
+        <span class="dot" aria-hidden="true"></span>
+        <span class="stage-copy">
+          <span class="stage-label">{stage.label}</span>
+          {#if stage.detail}<span class="stage-detail">{stage.detail}</span>{/if}
+        </span>
+        <span class="vh">{stage.status}</span>
+      </li>
+    {/each}
+  </ol>
+{/snippet}
+
 <section class="updater" aria-label={`reet updates for ${agent.host}`}>
   <header class="head">
     <div class="identity">
@@ -142,7 +140,7 @@
 
   <p class="explain">{explanation}</p>
 
-  {#if relevant && stages.length && relevant.status !== 'cancelled'}
+  {#if relevant && steps === 'live'}
     <div
       class="bar"
       role="progressbar"
@@ -151,20 +149,9 @@
       aria-valuemax={progress.total}
       aria-valuenow={progress.done}
     >
-      <span class:failed={relevant.status === 'failed'} class:rolled={relevant.status === 'rolled_back'} style={`transform: scaleX(${progress.value})`}></span>
+      <span style={`transform: scaleX(${progress.value})`}></span>
     </div>
-    <ol class="stages">
-      {#each stages as stage (stage.key)}
-        <li class={stage.status}>
-          <span class="dot" aria-hidden="true"></span>
-          <span class="stage-copy">
-            <span class="stage-label">{stage.label}</span>
-            {#if stage.detail}<span class="stage-detail">{stage.detail}</span>{/if}
-          </span>
-          <span class="vh">{stage.status}</span>
-        </li>
-      {/each}
-    </ol>
+    {@render stageList()}
   {/if}
 
   {#if relevant && (relevant.status === 'failed' || relevant.status === 'rolled_back' || relevant.status === 'cancelled' || relevant.status === 'succeeded')}
@@ -174,96 +161,25 @@
       {#if (relevant.status === 'failed' || relevant.status === 'rolled_back') && agent.autoUpdate}
         <p class="outcome-note">Automatic updates wait an hour after an attempt before trying again.</p>
       {/if}
+      {#if steps === 'folded'}
+        <details class="steps">
+          <summary>Show the steps</summary>
+          {@render stageList()}
+        </details>
+      {/if}
     </div>
   {/if}
 
-  <footer class="actions">
-    {#if canWrite}
-      {#if relevant?.status === 'queued'}
-        <button class="btn quiet" type="button" disabled={busy} onclick={oncancel}>Cancel update</button>
-      {/if}
-      {#if phase === 'running' || phase === 'queued'}
-        <button class="btn primary" type="button" disabled>{phase === 'queued' ? 'Waiting for the machine…' : 'Updating…'}</button>
+  {#if canWrite && action}
+    <footer class="actions">
+      {#if action.intent === 'cancel'}
+        <button class="btn" type="button" disabled={busy} onclick={oncancel}>{action.label}</button>
       {:else}
-        <button class="btn primary" type="button" disabled={!canReview} onclick={openReview}>
-          {phase === 'failed' || phase === 'rolled_back'
-            ? 'Try again…'
-            : updateWaiting
-              ? `Review ${onDev ? 'dev update' : 'update'}…`
-              : 'Update reet…'}
-        </button>
+        <button class="btn" class:primary={action.emphasis === 'primary'} type="button" disabled={!canReview} onclick={onreview}>{action.label}</button>
       {/if}
-      <label class="auto" title="Install new reet builds for this machine without a review">
-        <input type="checkbox" checked={agent.autoUpdate} disabled={busy} onchange={(event) => onpolicy(event.currentTarget.checked)} />
-        <span>Update automatically</span>
-      </label>
-    {:else}
-      <span class="read-only">Automatic updates {agent.autoUpdate ? 'on' : 'off'}</span>
-    {/if}
-  </footer>
+    </footer>
+  {/if}
 </section>
-
-{#if choosing}
-  <ConfirmDialog
-    title={`Update reet on ${agent.host}`}
-    body="The agent downloads the published release and verifies its checksum and build before changing anything. It keeps the current binary and restarts into the new one; if the new build cannot reach the controller, the previous binary is put back automatically."
-    confirmLabel={`Update to ${targetLabel(target)}`}
-    onconfirm={confirm}
-    oncancel={() => (choosing = false)}
-  >
-    <div class="review">
-      <div class="diff" aria-label={`From ${agentBuild(agent)} to ${targetLabel(target)}`}>
-        <div><span class="lab">Runs now</span><code>{agentBuild(agent)}</code></div>
-        <span class="arrow" aria-hidden="true">→</span>
-        <div><span class="lab">After</span><code class="to">{targetLabel(target)}</code></div>
-      </div>
-      {#if target !== 'dev' && releases?.latest?.version}
-        <a class="notes" href={`https://github.com/eyupio/reet.sh/releases/tag/${releases.latest.version}`} target="_blank" rel="noopener noreferrer">{releases.latest.version} release notes ↗</a>
-      {/if}
-      <fieldset class="targets">
-        <legend>Which build</legend>
-        <label class="target" class:chosen={target === (onDev ? 'dev' : 'latest')}>
-          <input type="radio" name="target" value={onDev ? 'dev' : 'latest'} bind:group={target} />
-          <span>
-            <strong>{currentTarget || (onDev ? 'Development (dev)' : 'Latest release')}</strong>
-            <small>{currentTarget
-              ? onDev ? 'Stay on the development channel.' : 'Stay on the release channel.'
-              : 'The controller has not checked this channel; the agent resolves it from GitHub.'}</small>
-          </span>
-        </label>
-        {#if otherTarget}
-          <label class="target" class:chosen={target === (onDev ? 'latest' : 'dev')}>
-            <input type="radio" name="target" value={onDev ? 'latest' : 'dev'} bind:group={target} />
-            <span>
-              <strong>{otherTarget}</strong>
-              <small>{onDev ? 'Switch to the latest stable release.' : 'Switch to the development channel, built from main.'}</small>
-            </span>
-          </label>
-        {/if}
-      </fieldset>
-      {#if target && target !== (onDev ? 'dev' : 'latest')}
-        <p class="warn">This changes channel. Development follows main and a release follows tagged builds, so the build you choose may be older than the one running now. Skills and enrollment are unaffected.</p>
-      {/if}
-      <div class="side">
-        <div class="kept">
-          <p>Kept</p>
-          <ul>
-            <li>This enrollment and its project scopes</li>
-            <li>Installed skills and their files</li>
-            <li>The current binary, as reet.previous</li>
-          </ul>
-        </div>
-        <div class="interrupted">
-          <p>Interrupted</p>
-          <ul>
-            <li>Sync pauses for the few seconds the agent restarts</li>
-            <li>A running job on this machine must finish first</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  </ConfirmDialog>
-{/if}
 
 <style>
   .updater { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
@@ -285,8 +201,6 @@
   .explain { margin: 0; color: var(--muted); font-size: 0.72rem; line-height: 1.5; }
   .bar { height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; }
   .bar span { display: block; height: 100%; background: var(--accent); transform-origin: left; transition: transform 400ms var(--ease-out); }
-  .bar span.failed { background: var(--bad); }
-  .bar span.rolled { background: var(--warn, #b45309); }
   .stages { list-style: none; display: grid; gap: 5px; margin: 0; padding: 0; }
   .stages li { display: flex; align-items: flex-start; gap: 7px; color: var(--muted); font-size: 0.7rem; line-height: 1.4; }
   .dot { flex: none; width: 9px; height: 9px; margin-top: 3px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); }
@@ -303,30 +217,12 @@
   .outcome.bad { border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); background: color-mix(in srgb, var(--bad) 6%, transparent); }
   .outcome-title { margin: 0; font-size: 0.74rem; font-weight: 650; }
   .outcome-body, .outcome-note { margin: 0; color: var(--muted); font-size: 0.69rem; line-height: 1.45; overflow-wrap: anywhere; }
+  .steps { margin-top: 4px; }
+  .steps > summary { cursor: pointer; color: var(--muted); font-size: 0.69rem; }
+  .steps > summary:hover { color: var(--ink); }
+  .steps[open] > summary { margin-bottom: 6px; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
   .actions .btn { min-height: 34px; padding: 6px 11px; font-size: 0.76rem; }
-  .auto { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 0.72rem; cursor: pointer; }
-  .read-only { color: var(--muted); font-size: 0.72rem; }
-  .review { display: grid; gap: 14px; margin-top: 16px; }
-  .diff { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); }
-  .diff > div { display: grid; gap: 1px; }
-  .lab { color: var(--muted); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-  .diff code { font-size: 0.78rem; }
-  .diff code.to { color: var(--accent); }
-  .notes { justify-self: start; font-size: 0.72rem; }
-  .targets { display: grid; gap: 7px; margin: 0; padding: 0; border: 0; }
-  .targets legend { margin-bottom: 2px; color: var(--muted); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-  .target { display: flex; align-items: flex-start; gap: 9px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); cursor: pointer; }
-  .target.chosen { border-color: var(--accent); background: var(--tint); }
-  .target > span { display: grid; gap: 1px; min-width: 0; }
-  .target strong { font-size: 0.78rem; }
-  .target small { color: var(--muted); font-size: 0.67rem; }
-  .side { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 10px; }
-  .side > div { padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px; }
-  .side p { margin: 0 0 3px; font-size: 0.7rem; font-weight: 650; }
-  .side ul { margin: 0; padding-left: 16px; color: var(--muted); font-size: 0.68rem; line-height: 1.45; }
-  .interrupted { color: var(--muted); }
-  .warn { margin: 0; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--warn, #b45309) 35%, var(--line)); border-radius: 8px; background: color-mix(in srgb, var(--warn, #b45309) 6%, transparent); color: var(--warn, #b45309); font-size: 0.7rem; line-height: 1.45; }
   @media (max-width: 560px) {
     .updater { padding: 10px; }
     .actions .btn.primary { flex: 1 1 auto; }

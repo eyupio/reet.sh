@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 // Compile the pure comparison helper without a browser or an extra test dependency.
 const { outputText } = ts.transpileModule(readFileSync(new URL('./machines.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
-const { inventoryMachines, compareInventories, inventory, agentGroups, installationReports, installationStatus, agentBuild, agentUpdateTarget, latestRelease, updateAvailable, versionLess, updateJobFor, updateProgress, agentUpdateState, updateStateLabel } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { inventoryMachines, compareInventories, inventory, agentGroups, installationReports, installationStatus, agentBuild, agentUpdateTarget, latestRelease, updateAvailable, versionLess, updateJobFor, updateProgress, agentUpdateState, updateStateLabel, updateStepsShown, updateAction, channelBuild } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 const now = Date.now()
 const skill = (id, source = 'org/repo') => ({ id, name: id, source, sourceType: source ? 'github' : 'local' })
 const group = (id, skills, changes = {}) => ({ id, agent: 'claude', skills, complete: true, scannedAt: now, ...changes })
@@ -148,3 +148,47 @@ test('the machine update state follows the last job, then the published channel'
   assert.equal(agentUpdateState(agent, undefined), 'unknown')
   assert.equal(updateStateLabel('rolled_back'), 'Rolled back')
 })
+
+test('the steps leave the card when an update ends well and fold away when it does not', () => {
+  const job = (status) => ({ id: 'j', agentId: 'a', kind: 'update', status, stages: [{ key: 'a', status: 'done' }] })
+  // While the agent works, the steps are the only way to see where it is.
+  assert.equal(updateStepsShown(job('queued')), 'live')
+  assert.equal(updateStepsShown(job('running')), 'live')
+  // A finished update is one line of history; the steps would only say what the pill already does.
+  assert.equal(updateStepsShown(job('succeeded')), 'hidden')
+  assert.equal(updateStepsShown(job('cancelled')), 'hidden')
+  // A failure is diagnosed by the step it stopped at, so those stay reachable without staying in the way.
+  assert.equal(updateStepsShown(job('failed')), 'folded')
+  assert.equal(updateStepsShown(job('rolled_back')), 'folded')
+  assert.equal(updateStepsShown(undefined), 'hidden')
+  assert.equal(updateStepsShown({ ...job('running'), stages: [] }), 'hidden')
+})
+
+test('the card offers a button only when a person has something to do', () => {
+  const action = (phase, autoUpdate, updateWaiting = phase === 'available') => updateAction(phase, { autoUpdate, updateWaiting })
+  assert.equal(action('current', true), undefined)
+  assert.equal(action('current', false), undefined)
+  assert.equal(action('running', true), undefined)
+  assert.deepEqual(action('queued', true), { intent: 'cancel', emphasis: 'quiet', label: 'Cancel update' })
+  // With automatic updates on the controller will install it anyway, so the offer is quiet.
+  assert.deepEqual(action('available', true), { intent: 'review', emphasis: 'quiet', label: 'Update now…' })
+  assert.deepEqual(action('available', false), { intent: 'review', emphasis: 'primary', label: 'Review update…' })
+  assert.deepEqual(action('failed', true), { intent: 'review', emphasis: 'primary', label: 'Try again…' })
+  assert.deepEqual(action('rolled_back', false), { intent: 'review', emphasis: 'primary', label: 'Try again…' })
+  // A cancelled attempt is history: what matters is whether an update still waits.
+  assert.deepEqual(action('cancelled', false, true), { intent: 'review', emphasis: 'primary', label: 'Review update…' })
+  assert.equal(action('cancelled', false, false), undefined)
+  // The controller could not read the channel, but the agent resolves the release itself, so a deliberate update is still possible.
+  assert.deepEqual(action('unknown', true), { intent: 'review', emphasis: 'quiet', label: 'Update reet…' })
+})
+
+test('a channel is named by the build it points at, and says nothing it has not checked', () => {
+  const releases = { dev: { version: 'dev', commit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }, latest: { version: 'v1.4.2' } }
+  assert.equal(channelBuild(releases, 'latest'), 'v1.4.2')
+  assert.equal(channelBuild(releases, 'dev'), 'dev · bbbbbbbbbbbb')
+  // An old controller publishes the dev pointer without a commit; the channel still has a name.
+  assert.equal(channelBuild({ dev: { version: 'dev' } }, 'dev'), 'dev')
+  assert.equal(channelBuild({ latest: { version: 'v1.4.2' } }, 'dev'), '')
+  assert.equal(channelBuild(undefined, 'latest'), '')
+})
+

@@ -319,3 +319,22 @@ func TestPromptNeedsWordsMatchesPositionalPresets(t *testing.T) {
 		}
 	}
 }
+
+func TestTmuxArgument(t *testing.T) {
+	for in, want := range map[string]string{
+		"":              "",
+		"new-session":   "new-session",
+		"a;b c":         "a;b c",
+		";a":            ";a",
+		"a;":            `a\;`,
+		";":             `\;`,
+		`a\;`:           "a\\\\;", // a, two backslashes, ';' reaches the program as `a\;`
+		"x;;":           `x;\;`,
+		`a\`:            `a\`,
+		"/home/d/work;": `/home/d/work\;`,
+	} {
+		if got := tmuxArgument(in); got != want {
+			t.Fatalf("tmuxArgument(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

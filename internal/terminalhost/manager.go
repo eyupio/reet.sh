@@ -178,6 +178,9 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 		return s, err
 	}
 	args := append([]string{"new-session", "-d", "-s", m.name(sessionID), "-x", integer(in.Cols), "-y", integer(in.Rows), "-c", tmuxLiteral(dir), "-e", "HOME=" + m.home}, argv...)
+	for i := range args {
+		args[i] = tmuxArgument(args[i])
+	}
 	if _, err := m.command(ctx, 0, args...); err != nil {
 		return s, err
 	}

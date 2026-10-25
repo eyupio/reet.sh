@@ -177,3 +177,18 @@ func ResolveDir(home, dir string) (string, error) {
 // -c directory: without it a folder named "a#(cmd)" runs cmd and "#S" or
 // "#{...}" rewrite the path. Doubling every '#' makes tmux read it literally.
 func tmuxLiteral(s string) string { return strings.ReplaceAll(s, "#", "##") }
+
+// tmuxArgument protects one argument handed to a tmux command. tmux reads an
+// argument that ends in ';' as a command separator, unless the character before
+// that ';' is a backslash, which it then replaces by ';' (cmd-parse.y,
+// cmd_parse_from_arguments, unchanged from 3.2 to 3.4). Inserting a backslash
+// before a final ';' therefore yields the argument unchanged: "x;" -> "x\;"
+// reaches the program as "x;", and "x\;" -> "x\\;" as "x\;". A ';' anywhere
+// else is literal and left alone. This is independent of tmuxLiteral, which
+// handles format expansion of -c.
+func tmuxArgument(s string) string {
+	if strings.HasSuffix(s, ";") {
+		return s[:len(s)-1] + `\;`
+	}
+	return s
+}

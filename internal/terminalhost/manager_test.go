@@ -571,3 +571,59 @@ func TestManagerLaunchDirectoryIsNotFormatExpanded(t *testing.T) {
 		t.Fatalf("agent working directory:\n got %q\nwant %q", got, realFolder)
 	}
 }
+
+// TestManagerLaunchKeepsTrailingSemicolons: tmux reads an argument that ends in
+// ';' as a command separator, so every new-session argument must survive one.
+func TestManagerLaunchKeepsTrailingSemicolons(t *testing.T) {
+	cases := []struct {
+		name     string
+		folder   string // created inside home when set
+		in       terminalproto.Create
+		wantArgv []string
+	}{
+		{"folder", "work;", terminalproto.Create{Tool: "claude"}, []string{""}},
+		{"folder twice", "a;;", terminalproto.Create{Tool: "claude"}, []string{""}},
+		{"positional prompt", "", terminalproto.Create{Tool: "claude", Prompt: "fix it;"}, []string{"--", "fix it;"}},
+		{"flag prompt only semicolon", "", terminalproto.Create{Tool: "gemini", Prompt: ";"}, []string{"--prompt-interactive", ";"}},
+		{"flag prompt opencode", "", terminalproto.Create{Tool: "opencode", Prompt: "a; b;"}, []string{"--prompt", "a; b;"}},
+		{"escaped semicolon", "", terminalproto.Create{Tool: "claude", Prompt: `a b\;`}, []string{"--", `a b\;`}},
+		{"middle semicolon", "", terminalproto.Create{Tool: "claude", Model: "m", Prompt: "a;b c"}, []string{"--model", "m", "--", "a;b c"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, opts := managerFixture(t)
+			agent, record := fakeAgent(t)
+			m.lookPath = func(string) (string, error) { return agent, nil }
+			in := tc.in
+			in.Title, in.Cols, in.Rows = "a", 80, 24
+			want := opts.Home
+			if tc.folder != "" {
+				in.Dir = filepath.Join(opts.Home, tc.folder)
+				if err := os.MkdirAll(in.Dir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				want, _ = filepath.EvalSymlinks(in.Dir)
+			}
+			s, err := m.Create(context.Background(), testRequestID(1), testSessionID(1), in)
+			if err != nil || s.State != terminalproto.Running {
+				t.Fatal(s, err)
+			}
+			var data []byte
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				if data, err = os.ReadFile(record); err == nil {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if err != nil {
+				t.Fatal("fake agent did not start", err)
+			}
+			got := strings.Split(strings.TrimSuffix(string(data), "\n"), "\x00")
+			wantFields := append(append([]string{}, tc.wantArgv...), want)
+			if !reflect.DeepEqual(got, wantFields) {
+				t.Fatalf("agent argv and cwd:\n got %q\nwant %q", got, wantFields)
+			}
+		})
+	}
+}

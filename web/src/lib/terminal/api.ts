@@ -66,6 +66,11 @@ export function readiness(machine?: TerminalMachine): string {
   return ''
 }
 
+/** A machine card's sentence: an enrolled machine the terminal list does not know yet has not connected for terminals. */
+export function cardReadiness(machine?: TerminalMachine): string {
+  return machine ? readiness(machine) : "This machine hasn't connected for terminals yet."
+}
+
 export type TerminalCommand={id:string;name:string;command:string;description:string;revision:number;createdAt:number;updatedAt:number}
 export async function savedCommands(signal?:AbortSignal):Promise<TerminalCommand[]>{return(await(await terminalRequest('/api/v2/terminal/commands',{signal:signal?AbortSignal.any([signal,AbortSignal.timeout(15000)]):AbortSignal.timeout(15000)})).json()).commands}
 export async function saveCommand(item:Pick<TerminalCommand,'name'|'command'|'description'>,current?:TerminalCommand):Promise<TerminalCommand>{return(await terminalRequest('/api/v2/terminal/commands'+(current?`/${encodeURIComponent(current.id)}`:''),{method:current?'PATCH':'POST',signal:AbortSignal.timeout(15000),body:JSON.stringify({...item,revision:current?.revision||0})})).json()}

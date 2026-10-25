@@ -7,7 +7,7 @@ const source = ts.transpileModule(readFileSync(new URL('./agentLaunch.ts', impor
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText
 const m = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
-const { cleanModel, validateDir, TOOLS, MAX_PROMPT_BYTES, modelSuggestions, validateModel, validatePrompt, folderChoices, launchSentence, refusalText, titleFor } = m
+const { cleanModel, validateDir, TOOLS, MAX_PROMPT_BYTES, modelSuggestions, validateModel, validatePrompt, folderChoices, launchSentence, refusalText, titleFor, notStartedText } = m
 
 test('tools are the four built-in ids', () => {
   assert.deepEqual(TOOLS, [{ id: 'claude', name: 'Claude Code' }, { id: 'codex', name: 'Codex' }, { id: 'opencode', name: 'OpenCode' }, { id: 'gemini', name: 'Gemini CLI' }])
@@ -237,4 +237,16 @@ test('refusalField names the field a refusal is about', () => {
   assert.equal(m.refusalField(409, 'launch_unsupported'), 'machine')
   assert.equal(m.refusalField(409, undefined), '')
   assert.equal(m.refusalField(400, 'folder_unavailable'), '')
+})
+
+test('a 401 says the person was signed out', () => {
+  assert.equal(refusalText(401), "You've been signed out. Sign in again to continue.")
+  assert.equal(refusalText(401, undefined, 'unauthorized'), "You've been signed out. Sign in again to continue.")
+})
+
+test('a 200 for a session the machine did not start is said plainly; a started one says nothing', () => {
+  const said = "That machine didn't start the agent. Check its terminal settings on that machine and try again."
+  assert.equal(notStartedText('lost'), said)
+  assert.equal(notStartedText('ended'), said)
+  for (const state of ['creating', 'running', 'end_requested', 'exited']) assert.equal(notStartedText(state), '')
 })

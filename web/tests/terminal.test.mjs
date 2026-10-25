@@ -8,7 +8,7 @@ const url = source => `data:text/javascript;base64,${Buffer.from(source).toStrin
 const apiURL = url(transpile('api'))
 const { TerminalConnection } = await import(url(transpile('connection').replace("from './api'", `from '${apiURL}'`)))
 const { value, percent, fresh, uptime } = await import(url(transpile('health')))
-const { readiness, validTerminalTitle } = await import(apiURL)
+const { readiness, cardReadiness, validTerminalTitle } = await import(apiURL)
 test('session titles reject terminal controls, format controls and overlong names before creating a retry key',()=>{
   for(const title of ['', '   ', 'a'.repeat(81),'bad\x1btitle','bad\u202etitle','bad\u2028title'])assert.equal(validTerminalTitle(title),false)
   for(const title of ['Root build','Café 💥','a'.repeat(80)])assert.equal(validTerminalTitle(title),true)
@@ -94,6 +94,13 @@ test('health preserves missing readings and distinguishes last-known observation
   assert.equal(fresh({ connection: { connected: false, reportFresh: true, reportAt: 1000 } }, 2000), false)
   assert.equal(uptime(null), '—')
   assert.equal(readiness({ready:true,capabilities:{osUser:'root',terminalControl:true,terminalEnabled:true,readiness:'ready'}}),'')
+})
+
+test('a machine card says plainly when the terminal list does not know the machine yet', () => {
+  assert.equal(cardReadiness(undefined), "This machine hasn't connected for terminals yet.")
+  assert.equal(cardReadiness({ready:true,capabilities:{osUser:'root',terminalControl:true,terminalEnabled:true,readiness:'ready'}}),'')
+  assert.equal(cardReadiness({ready:false,capabilities:{osUser:'root',terminalControl:true,terminalEnabled:true,readiness:'ready'}}),'The machine is reconnecting. Existing shells will be kept.')
+  assert.equal(readiness(undefined), 'Choose an enrolled machine.')
 })
 
 const { terminalShortcut } = await import(url(transpile('keyboard')))

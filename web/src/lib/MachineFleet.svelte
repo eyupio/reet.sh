@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
-  import { readiness, terminalMachines, type HealthResponse, type TerminalMachine, type TerminalSession } from './terminal/api'
+  import { cardReadiness, terminalMachines, type HealthResponse, type TerminalMachine, type TerminalSession } from './terminal/api'
   import StartAgentDialog from './StartAgentDialog.svelte'
   import { getMachineHealth as machineHealth } from './api'
   import MachineHealthStrip from './terminal/MachineHealthStrip.svelte'
@@ -99,7 +99,7 @@
   function agentReadiness(agentId: string): string {
     if (terminalsFailed) return "Couldn't check this machine just now. Try again in a moment."
     if (!terminals) return 'Checking whether this machine is ready for terminals.'
-    return readiness(terminals.find((item) => item.agentId === agentId))
+    return cardReadiness(terminals.find((item) => item.agentId === agentId))
   }
   function agentStarted(session: TerminalSession) {
     location.assign(`/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`)
@@ -403,7 +403,7 @@
   </div>
 </section>
 
-{#if startAgent && terminalAccess && terminals}<StartAgentDialog machines={terminals} snapshot={snapshot.machines ?? []} initialAgent={startAgent.agent} opener={startAgent.opener} onstarted={agentStarted} onaddmachine={addFromStart(startAgent)} onclose={() => (startAgent = null)} />{/if}
+{#if startAgent && terminalAccess && terminals}<StartAgentDialog machines={terminals} snapshot={snapshot.machines ?? []} initialAgent={startAgent.agent} opener={startAgent.opener} onstarted={agentStarted} onaddmachine={addFromStart(startAgent)} {onsignedout} onclose={() => (startAgent = null)} />{/if}
 
 {#if importSource}<MachineSkillImports {snapshot} source={importSource} onclose={() => importSource = null} />{/if}
 

@@ -1,14 +1,14 @@
 <script lang="ts">
  import { onMount, tick, untrack } from 'svelte'
- import type { Machine } from './api'
+ import { UnauthorizedError, type Machine } from './api'
  import { createTerminal, readiness, TerminalError, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
- import { MAX_PROMPT_BYTES, cleanModel, folderChoices, launchSentence, modelSuggestions, preselect, refusalField, refusalText, rekey, titleFor, toolChoices, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
+ import { MAX_PROMPT_BYTES, cleanModel, notStartedText, folderChoices, launchSentence, modelSuggestions, preselect, refusalField, refusalText, rekey, titleFor, toolChoices, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
 
  // Start an agent CLI in a new terminal session on one machine. One screen, one press. The page names a tool id, a model, a
  // folder and a prompt; the machine decides the program and its flags. Nothing here is kept in browser storage or the URL, and
  // the prompt lives only in this component: it is cleared when the dialog closes.
  // opener is the element the person pressed to open this, which gets focus back on close.
- let { machines, snapshot, initialAgent = '', opener = null, onstarted, onaddmachine, onclose }: {
+ let { machines, snapshot, initialAgent = '', opener = null, onstarted, onaddmachine, onsignedout, onclose }: {
   /** The machines from /api/v2/terminal/machines, with their readiness and launch capabilities. */
   machines: TerminalMachine[]
   /** The machines' reported folders (from the sync state), or undefined while they are unknown: the home folder and a typed path still work. */
@@ -19,6 +19,8 @@
   onstarted: (session: TerminalSession) => void
   /** Opens the add-a-machine flow. The dialog closes first. */
   onaddmachine?: () => void
+  /** Hands a lost sign-in to the page, as the other dialogs do. Without it the dialog only says so. */
+  onsignedout?: (e: unknown) => void
   onclose: () => void
  } = $props()
 
@@ -37,18 +39,21 @@
  let invalidMessage = false
  // One attempt: the request id and the exact parameters. Kept while its outcome is unknown, so Retry asks about the same start
  // and a lost reply can never start a second agent. Dropped only when the server has definitely refused it.
- type Operation = { agentId: string; host: string; requestId: string; title: string; launch: LaunchRequest }
+ type Operation = { agentId: string; host: string; requestId: string; title: string; launch: LaunchRequest & { tool: string } }
  let operation = $state<Operation | null>(null)
  const life = new AbortController()
 
  const machine = $derived(machines.find(m => m.agentId === agentId))
  const choices = $derived(toolChoices(machine?.capabilities))
- const chosenTool = $derived(choices.find(c => c.id === tool && c.available)?.id ?? choices.find(c => c.available)?.id ?? '')
+ // While a request is held or its outcome unknown, the tool is the one it asked for: a machine-list refresh can't change it.
+ const chosenTool = $derived(operation ? operation.launch.tool : choices.find(c => c.id === tool && c.available)?.id ?? choices.find(c => c.available)?.id ?? '')
  // A new machine or agent starts the model and folder afresh: no blank select and no earlier choice coming back.
  let choiceKey = ''
  $effect.pre(() => {
   const key = agentId + '\u0000' + chosenTool
   untrack(() => {
+   // Nothing that would change the held request is reset while it is held.
+   if (operation) return
    const next = rekey({ key: choiceKey, model: modelChoice, folder: folderChoice }, key)
    if (next.key === choiceKey) return
    choiceKey = next.key; modelChoice = next.model; folderChoice = next.folder; modelOther = ''; typedDir = ''
@@ -72,7 +77,8 @@
  const dirError = $derived(folderChoice === TYPED && (attempted || typedDir !== '') ? validateDir(typedDir) ?? '' : '')
  const promptError = $derived(chosenTool ? validatePrompt(chosenTool, prompt) ?? '' : '')
  const locked = $derived(busy || operation !== null)
- const sentence = $derived(machine && chosenTool ? launchSentence(chosenTool, dir, machine.host, prompt !== '') : '')
+ // While a request is held, the line says what was asked for, not what the current machine list would offer.
+ const sentence = $derived(operation ? launchSentence(operation.launch.tool, operation.launch.dir ?? '', operation.host, !!operation.launch.prompt) : machine && chosenTool ? launchSentence(chosenTool, dir, machine.host, prompt !== '') : '')
 
  function shutdown(returnFocus: boolean) {
   life.abort()
@@ -108,7 +114,7 @@
    // The errors are derived, so they already count this attempt; no await here, or a second press could slip past the busy guard.
    const invalid = modelError ? ['model-other', modelError] : dirError ? ['dir', dirError] : promptError ? ['prompt', promptError] : null
    if (invalid) { failed = true; message = invalid[1]; invalidMessage = true; field(invalid[0])?.focus(); return }
-   const launch: LaunchRequest = { tool: chosenTool }
+   const launch: LaunchRequest & { tool: string } = { tool: chosenTool }
    if (model) launch.model = model
    if (dir) launch.dir = dir
    if (prompt) launch.prompt = prompt
@@ -120,6 +126,13 @@
   try {
    const session = await createTerminal(op.agentId, op.requestId, op.title, 100, 30, AbortSignal.any([life.signal, AbortSignal.timeout(15000)]), op.launch)
    if (life.signal.aborted) return
+   // Answered, but the machine did not start it: nothing is running, so this request is done and the next Start is a new one.
+   const notStarted = notStartedText(session.state)
+   if (notStarted) {
+    operation = null; failed = true; message = notStarted; busy = false
+    void focusAfter(() => startButton)
+    return
+   }
    const started = onstarted
    shutdown(false)
    started(session)
@@ -132,6 +145,7 @@
     operation = null
     message = refusalText(err.status, err.code, err.message)
     busy = false
+    if (err.status === 401 && onsignedout) { const signedOut = onsignedout; shutdown(false); onclose(); signedOut(new UnauthorizedError()); return }
     void focusAfter(() => focusFor(refusalField(err.status, err.code)))
    } else {
     message = e instanceof TerminalError && e.status === 503 ? `${refusalText(503)} ${LOST_TAIL}` : LOST

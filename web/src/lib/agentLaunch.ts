@@ -131,6 +131,7 @@ export function titleFor(tool: string, dir: string): string {
 export function refusalText(status: number, code?: string, message?: string): string {
   const c = code ?? ''
   const msg = (message ?? '').toLowerCase()
+  if (status === 401) return "You've been signed out. Sign in again to continue."
   if (status === 409 && c === 'launch_unsupported') return 'Update reet on that machine to start agents.'
   if (status === 422 && c === 'tool_not_installed') return "That agent isn't installed on that machine."
   if (status === 422 && c === 'folder_unavailable') return "That folder isn't available on that machine."
@@ -140,6 +141,15 @@ export function refusalText(status: number, code?: string, message?: string): st
   if (status === 503) return 'That machine is reconnecting. Try again in a moment.'
   if (status === 403 && msg.includes('disabled by the server')) return 'Browser terminals are switched off on this server.'
   return SOMETHING_CHANGED
+}
+
+/**
+ * A create can answer 200 with a session the machine did not start: the broker records it as lost when the machine refused it
+ * (local terminal consent switched off between the readiness read and the create, for instance). That is a definite outcome:
+ * nothing is running, so the person may start again. An exited session did start, and is landed on so its exit status shows.
+ */
+export function notStartedText(state: string): string {
+  return state === 'lost' || state === 'ended' ? "That machine didn't start the agent. Check its terminal settings on that machine and try again." : ''
 }
 
 /**

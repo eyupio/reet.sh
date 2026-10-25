@@ -13,7 +13,7 @@ const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return{p
 // Server state.
 const A='connector-laptop000000001',B='connector-oldbox00000001',C='connector-spare000000001'
 const HOME_A='/home/dev',SITE='/home/dev/work/site'
-let authMode='accounts',viewer=false,machinesFail=false,theme='light'
+let authMode='accounts',viewer=false,machinesFail=false,theme='light',machineReads=0
 const tmachines=[
  {agentId:A,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,tools:['claude','codex','gemini']}},
  // An older connector: no launch capability. The tools list is there only to show that it is not enough on its own.
@@ -43,7 +43,7 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/sync')data={environments:scopes,machines:machinesOf(),agents,targets:[],jobs:[]}
  else if(path==='/api/v2/machines/health')data={serverNow:Date.now(),machines:[]}
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
- else if(path==='/api/v2/terminal/machines'){if(machinesFail)return route.fulfill({status:503,json:{error:'terminal machine is reconnecting; retry after it reconnects'}});data={machines:tmachines}}
+ else if(path==='/api/v2/terminal/machines'){machineReads++;if(machinesFail)return route.fulfill({status:503,json:{error:'terminal machine is reconnecting; retry after it reconnects'}});data={machines:tmachines}}
  else if(path==='/api/v2/terminal/status')data={available:true,configured:true,reason:''}
  else if(path==='/api/v2/notifications/count')data={unread:0}
  else if(path==='/api/version')data={version:'v1.2.3',commit:'fixture'}
@@ -54,6 +54,8 @@ await page.route('**/api/**',async route=>{
   const answer=answers.shift()??'ok'
   if(answer&&answer.promise){await answer.promise;return reply(route,body)}
   if(answer==='drop')return route.abort('failed')
+  // A 200 whose session the machine did not start (the broker marks it lost, as when local consent was switched off just before).
+  if(answer&&answer.state){const b=JSON.parse(body);return route.fulfill({json:{id:`session-${b.requestId.replaceAll('-','').slice(0,20)}`,agentId:b.agentId,title:b.title,state:answer.state,createdAt:Date.now(),updatedAt:Date.now(),exitCode:null}})}
   if(typeof answer==='object')return route.fulfill({status:answer.status,json:answer.json})
   return reply(route,body)
  }
@@ -298,6 +300,19 @@ try{
  await expect(p.status).toHaveText(LOST)
  await expect(p.retry).toBeFocused()
  await locked(p)
+ // The machine list refreshes while the outcome is unknown and Codex is no longer reported: nothing shown or sent changes.
+ const heldSentence=await p.sentence.textContent()
+ expect(heldSentence).toContain('Starts Codex in the home folder on dev-laptop.')
+ const readsBefore=machineReads
+ tmachines[0].capabilities.tools=['claude','gemini']
+ await page.evaluate(()=>window.dispatchEvent(new Event('online')))
+ await expect.poll(()=>machineReads).toBeGreaterThan(readsBefore)
+ await settle()
+ await expect(p.sentence).toHaveText(heldSentence)
+ await expect(p.tool('Codex')).toBeChecked()
+ await expect(p.model).toHaveValue('gpt-5-codex')
+ await expect(p.prompt).toHaveValue('tidy the readme')
+ await locked(p)
  // With every field disabled, the scrolling part can still be reached from the keyboard to read the choices.
  await expect(d.locator('.body')).toHaveAttribute('tabindex','0')
  await expect(d.locator('.body')).toHaveAccessibleName('Your choices')
@@ -323,6 +338,7 @@ try{
  hold.resolve()
  await expect(d).toHaveCount(0)
  expect(posts.slice(-3)).toEqual([lost,lost,lost])
+ tmachines[0].capabilities.tools=['claude','codex','gemini']
  expect(JSON.parse(lost)).toEqual({agentId:A,requestId:JSON.parse(lost).requestId,title:'Codex',cols:100,rows:30,tool:'codex',model:'gpt-5-codex',prompt:'tidy the readme'})
 
  // ── Definite refusals: the exact sentence, the field concerned focused, and the next Start is a new request. ──
@@ -338,6 +354,7 @@ try{
   {answer:{status:409,json:{error:'terminal session limit reached'}},text:'The terminal session limit has been reached. End a session and try again.',focus:p.start},
   {answer:{status:409,json:{error:'terminal operation conflicts with current state'}},text:'That request changed. Start it again.',focus:p.start},
   {answer:{status:403,json:{error:'terminal access denied'}},text:'Something changed. Check again.',focus:p.start},
+  {answer:{status:401,json:{error:'unauthorized'}},text:"You've been signed out. Sign in again to continue.",focus:p.start},
  ]
  const ids=[]
  for(const r of refusals){
@@ -351,6 +368,20 @@ try{
  }
  expect(new Set(ids).size).toBe(refusals.length)
  expect(body(-1)).toEqual({agentId:A,requestId:ids.at(-1),title:'Claude Code · typed',cols:100,rows:30,tool:'claude',dir:'/home/dev/typed',prompt:'look around here'})
+ // A 200 for a session the machine did not start: a definite outcome, said plainly, no landing, and the next Start is a new request.
+ const urlBefore=page.url()
+ answers.push({state:'lost'})
+ await p.start.click()
+ await expect(p.status).toHaveText("That machine didn't start the agent. Check its terminal settings on that machine and try again.")
+ await expect(d).toBeVisible()
+ await expect(p.start).toBeFocused()
+ await expect(p.prompt).toBeEnabled()
+ expect(page.url()).toBe(urlBefore)
+ const lostId=body(-1).requestId
+ answers.push({status:409,json:{error:'terminal operation conflicts with current state'}})
+ await p.start.click()
+ await expect(p.status).toHaveText('That request changed. Start it again.')
+ expect(body(-1).requestId).not.toBe(lostId)
  // A reconnecting machine (503) may still have been asked: it keeps the request, like a lost reply.
  answers.push({status:503,json:{error:'terminal machine is reconnecting; retry after it reconnects'}})
  await p.start.click()
@@ -433,6 +464,19 @@ try{
  await expect(page).toHaveURL(`${base}/machines`)
  await page.keyboard.press('Escape')
 
+ // A 401 from the card's dialog hands over to the sign-in card, as the page's other dialogs do.
+ await page.goto(`${base}/machines`)
+ await cardEntry('dev-laptop').click()
+ d=dialog();p=parts(d)
+ answers.push({status:401,json:{error:'unauthorized'}})
+ await p.start.click()
+ await expect(page.getByRole('heading',{name:'Sign in to your workspace'})).toBeVisible()
+ // An enrolled machine the terminal list does not know yet is said plainly, not as a choice to make.
+ scopes.push(scope('fresh-box','/srv/fresh','s9'));agents.push({id:'connector-fresh00000001',host:'fresh-box',version:'dev',paused:false,autoUpdate:false,lastSeen:Date.now()})
+ await page.goto(`${base}/machines`)
+ await expect(cardEntry('fresh-box')).toBeDisabled()
+ await expect(cardEntry('fresh-box')).toHaveAccessibleDescription("This machine hasn't connected for terminals yet.")
+ scopes.pop();agents.pop()
  // A failed readiness read is said on the card until a read succeeds.
  machinesFail=true
  await page.goto(`${base}/machines`)

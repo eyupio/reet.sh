@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -342,4 +344,177 @@ func TestManagerExitCodeAndCleanup(t *testing.T) {
 	sessions, _ := m.List(context.Background())
 	panes, _ := m.panes(context.Background(), s.ID)
 	t.Fatalf("shell exit was not observed: sessions=%+v panes=%+v", sessions, panes)
+}
+
+const tmuxCallEnd = "--reet-test-call-end--"
+
+// recordingTmux wraps the real tmux binary and appends each invocation's
+// arguments, NUL-separated, to a log, so tests see the exact argv Create sends.
+func recordingTmux(t *testing.T, m *Manager) func() [][]string {
+	t.Helper()
+	dir := shortTempDir(t)
+	log := filepath.Join(dir, "tmux.log")
+	script := "#!/bin/sh\nprintf '%s\\0' \"$@\" >> '" + log + "'\nprintf '%s\\0' '" + tmuxCallEnd + "' >> '" + log + "'\nexec '" + m.tmux.Path + "' \"$@\"\n"
+	wrapper := filepath.Join(dir, "tmux")
+	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	m.tmux.Path = wrapper
+	return func() [][]string {
+		data, err := os.ReadFile(log)
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		calls, call := [][]string{}, []string{}
+		for _, arg := range strings.Split(string(data), "\x00") {
+			if arg == tmuxCallEnd {
+				calls = append(calls, call)
+				call = []string{}
+			} else {
+				call = append(call, arg)
+			}
+		}
+		return calls
+	}
+}
+
+func newSessionCalls(calls [][]string) [][]string {
+	out := [][]string{}
+	for _, c := range calls {
+		if len(c) > 2 && c[2] == "new-session" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// fakeAgent is a recording stand-in for an agent CLI: it writes its argv
+// (NUL-separated) and working directory, then stays alive like a TUI.
+func fakeAgent(t *testing.T) (path, record string) {
+	t.Helper()
+	dir := shortTempDir(t)
+	record = filepath.Join(dir, "argv")
+	path = filepath.Join(dir, "claude")
+	script := "#!/bin/sh\nprintf '%s\\0' \"$@\" > '" + record + ".tmp'\npwd >> '" + record + ".tmp'\nmv '" + record + ".tmp' '" + record + "'\nexec sleep 60\n"
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path, record
+}
+
+func TestManagerPlainCreateArgumentsUnchanged(t *testing.T) {
+	m, opts := managerFixture(t)
+	m.lookPath = func(string) (string, error) { t.Fatal("a plain create must not look up any agent"); return "", nil }
+	calls := recordingTmux(t, m)
+	s, err := m.Create(context.Background(), testRequestID(1), testSessionID(1), terminalproto.Create{Title: "Shell", Cols: 80, Rows: 24})
+	if err != nil || s.State != terminalproto.Running {
+		t.Fatal(s, err)
+	}
+	created := newSessionCalls(calls())
+	want := []string{"-S", opts.Layout.Socket, "new-session", "-d", "-s", m.name(testSessionID(1)), "-x", "80", "-y", "24", "-c", opts.Home, "-e", "HOME=" + opts.Home}
+	if len(created) != 1 || !reflect.DeepEqual(created[0], want) {
+		t.Fatalf("plain create arguments changed:\n got %q\nwant %q", created, want)
+	}
+}
+
+func TestManagerLaunchAppendsPresetAfterEnvironment(t *testing.T) {
+	m, opts := managerFixture(t)
+	agent, record := fakeAgent(t)
+	m.lookPath = func(name string) (string, error) {
+		if name == "claude" {
+			return agent, nil
+		}
+		return "", errors.New("not found")
+	}
+	calls := recordingTmux(t, m)
+	work := filepath.Join(opts.Home, "work", "site")
+	if err := os.MkdirAll(work, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	realWork, _ := filepath.EvalSymlinks(work)
+	prompt := "x -- --help \"q\" $(id)\nand -rf"
+	in := terminalproto.Create{Title: "Claude", Cols: 100, Rows: 30, Tool: "claude", Model: "sonnet", Dir: work + "/", Prompt: prompt}
+	s, err := m.Create(context.Background(), testRequestID(1), testSessionID(1), in)
+	if err != nil || s.State != terminalproto.Running {
+		t.Fatal(s, err)
+	}
+	want := []string{"-S", opts.Layout.Socket, "new-session", "-d", "-s", m.name(testSessionID(1)), "-x", "100", "-y", "30", "-c", realWork, "-e", "HOME=" + opts.Home, agent, "--model", "sonnet", "--", prompt}
+	created := newSessionCalls(calls())
+	if len(created) != 1 || !reflect.DeepEqual(created[0], want) {
+		t.Fatalf("launch arguments:\n got %q\nwant %q", created, want)
+	}
+	var data []byte
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if data, err = os.ReadFile(record); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatal("fake agent did not start", err)
+	}
+	gotArgv := strings.Split(string(data), "\x00")
+	wantArgv := []string{"--model", "sonnet", "--", prompt, realWork + "\n"}
+	if !reflect.DeepEqual(gotArgv, wantArgv) {
+		t.Fatalf("agent argv/cwd:\n got %q\nwant %q", gotArgv, wantArgv)
+	}
+	// A retry with identical fields starts nothing new.
+	again, err := m.Create(context.Background(), testRequestID(1), testSessionID(1), in)
+	if err != nil || again.ID != s.ID || len(newSessionCalls(calls())) != 1 {
+		t.Fatal("retry started a second process", again, err)
+	}
+	changed := in
+	changed.Prompt = "something else entirely"
+	if _, err := m.Create(context.Background(), testRequestID(1), testSessionID(1), changed); !errors.Is(err, ErrOperationConflict) {
+		t.Fatal("changed launch fields must conflict", err)
+	}
+}
+
+func TestManagerRefusedLaunchLeavesNothingBehind(t *testing.T) {
+	m, opts := managerFixture(t)
+	agent, _ := fakeAgent(t)
+	m.lookPath = func(name string) (string, error) {
+		if name == "claude" {
+			return agent, nil
+		}
+		return "", errors.New("not found")
+	}
+	calls := recordingTmux(t, m)
+	outside := shortTempDir(t)
+	if err := os.Symlink(outside, filepath.Join(opts.Home, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(opts.Home, "file"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refused := []terminalproto.Create{
+		{Title: "a", Cols: 80, Rows: 24, Tool: "claude", Dir: filepath.Join(opts.Home, "escape")},
+		{Title: "a", Cols: 80, Rows: 24, Tool: "claude", Dir: filepath.Join(opts.Home, "file")},
+		{Title: "a", Cols: 80, Rows: 24, Tool: "claude", Dir: filepath.Join(opts.Home, "missing")},
+		{Title: "a", Cols: 80, Rows: 24, Tool: "claude", Dir: outside},
+		{Title: "a", Cols: 80, Rows: 24, Tool: "gemini"},
+		{Title: "a", Cols: 80, Rows: 24, Tool: "claude", Prompt: "purge"},
+	}
+	for i, in := range refused {
+		_, err := m.Create(context.Background(), testRequestID(i+1), testSessionID(i+1), in)
+		if !errors.Is(err, ErrLaunchUnavailable) || LaunchResultCode(err) != terminalproto.LaunchFailed {
+			t.Fatal("launch must be refused as launch_failed", in, err)
+		}
+		names, nerr := m.sessionNames(context.Background())
+		if nerr != nil || names[m.name(testSessionID(i+1))] {
+			t.Fatal("a refused launch left a tmux session", nerr)
+		}
+	}
+	if sessions, err := m.List(context.Background()); err != nil || len(sessions) != 0 {
+		t.Fatal("a refused launch left a registry entry", sessions, err)
+	}
+	if created := newSessionCalls(calls()); len(created) != 0 {
+		t.Fatal("a refused launch reached tmux new-session", created)
+	}
+	// The request ids were never recorded, so a corrected retry may proceed.
+	r, err := m.loadRegistry()
+	if err != nil || len(r.Operations) != 0 {
+		t.Fatal("a refused launch saved an operation receipt", r.Operations, err)
+	}
 }

@@ -215,6 +215,9 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 	}
 }
 func code(err error) terminalproto.ResultCode {
+	if c := terminalhost.LaunchResultCode(err); c != "" {
+		return c
+	}
 	switch {
 	case errors.Is(err, terminalhost.ErrTerminalDisabled):
 		return terminalproto.Denied

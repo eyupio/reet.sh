@@ -228,6 +228,8 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 		writeErrCode(w, http.StatusConflict, "worktree_unsupported", "", "Update reet on that machine to start agents with worktrees.", "")
 	case errors.Is(err, terminalbroker.ErrWorktreeRefused):
 		writeWorktreeRefusal(w, err, worktreeCreating)
+	case errors.Is(err, terminalbroker.ErrWorktreeMismatch):
+		writeErrCode(w, http.StatusServiceUnavailable, "worktree_mismatch", "", "That machine's answer did not match the request. Check again.", "")
 	case errors.Is(err, terminalbroker.ErrLaunchUnsupported):
 		writeErrCode(w, http.StatusConflict, "launch_unsupported", "", "Update reet on that machine to start agents.", "")
 	case errors.Is(err, terminalbroker.ErrLaunchFailed) && !s.terminalToolInstalled(uid, agent, tool):

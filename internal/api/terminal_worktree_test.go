@@ -542,3 +542,69 @@ func TestTerminalWorktreeRoutesAreScopedToTheOwner(t *testing.T) {
 		t.Fatal("owner", code, raw)
 	}
 }
+
+// A machine that answers about a different folder or branch is not
+// believed: nothing is recorded or audited and the person is asked to check.
+func TestTerminalWorktreeAnswersThatDoNotMatchAreRefused(t *testing.T) {
+	f := launchAPIFixture(t, worktreeCaps("claude"))
+	f.answer(func(terminalproto.Body) terminalproto.Body {
+		return terminalproto.WorktreeResult{Code: terminalproto.OK, Path: "/home/tester/elsewhere", Branch: "main"}
+	})
+	code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/terminal/worktrees/remove", worktreeRequest(f.agent.ID, map[string]any{"changed": 0, "unpushed": 0}))
+	if code != 503 || out["code"] != "worktree_mismatch" || out["error"] != "That machine's answer did not match the request. Check again." {
+		t.Fatal("remove", code, raw)
+	}
+	f.reply = func(terminalproto.Create) terminalproto.Body {
+		return terminalproto.SessionChanged{State: terminalproto.Running, WorktreePath: "/home/tester/elsewhere", WorktreeRepo: "site"}
+	}
+	code, out, raw = f.create(t, worktreeLaunchBody(f.agent.ID, terminalbroker.ID()))
+	if code != 503 || out["code"] != "worktree_mismatch" {
+		t.Fatal("create", code, raw)
+	}
+	if len(worktreeEvents(t, f.st, f.uid, "worktree-remove")) != 0 || len(launchEvents(t, f.st, f.uid)) != 0 {
+		t.Fatal("a mismatched answer was audited")
+	}
+}
+
+// A remove's ok answer that arrives after the controller gave up is still
+// audited, marked late.
+func TestTerminalWorktreeLateRemoveIsAudited(t *testing.T) {
+	ordinary := terminalbroker.WorktreeCallTimeout
+	terminalbroker.WorktreeCallTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { terminalbroker.WorktreeCallTimeout = ordinary })
+	f := launchAPIFixture(t, worktreeCaps("claude"))
+	f.answer(func(body terminalproto.Body) terminalproto.Body {
+		if _, ok := body.(terminalproto.WorktreeRemove); ok {
+			return nil
+		}
+		return terminalproto.WorktreeResult{Code: terminalproto.Conflict} // the slot is still held
+	})
+	f.mu.Lock()
+	f.late = func(m terminalproto.Message) {
+		go func() {
+			time.Sleep(600 * time.Millisecond)
+			m.Body = &terminalproto.WorktreeResult{Code: terminalproto.OK, Path: worktreeTestPath, Branch: worktreeTestBranch}
+			_ = f.peer.Receive(m)
+		}()
+	}
+	f.mu.Unlock()
+	code, _, raw := f.do(t, f.cookie, "POST", "/api/v2/terminal/worktrees/remove", worktreeRequest(f.agent.ID, map[string]any{"changed": 0, "unpushed": 0}))
+	if code != 503 {
+		t.Fatal("the remove's answer was lost and status was busy", code, raw)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for len(worktreeEvents(t, f.st, f.uid, "worktree-remove")) == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	events := worktreeEvents(t, f.st, f.uid, "worktree-remove")
+	if len(events) != 1 {
+		t.Fatal("late removal audited", len(events))
+	}
+	var detail map[string]any
+	if err := json.Unmarshal([]byte(events[0].Detail), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail["late"] != "true" || detail["path"] != worktreeTestPath || detail["branch"] != worktreeTestBranch || detail["machine"] != f.agent.ID || detail["host"] != f.agent.Host {
+		t.Fatal("late removal audit", events[0].Detail)
+	}
+}

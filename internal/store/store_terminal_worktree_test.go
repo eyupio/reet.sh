@@ -27,6 +27,10 @@ func TestTerminalSessionRecordsWhereItsWorktreeIs(t *testing.T) {
 		"control":       {"/home/u/a\nb", "site"},
 		"repo path":     {path, "../site"},
 		"no repo":       {path, ""},
+		"other run":     {"/home/u/.reet/worktrees/demo/site/fedcba9876543210fedcba98", "site"},
+		"other project": {"/home/u/.reet/worktrees/other/site/" + storeRun, "site"},
+		"other repo":    {"/home/u/.reet/worktrees/demo/other/" + storeRun, "site"},
+		"outside reet":  {"/home/u/site", "site"},
 	} {
 		if err := s.RecordTerminalWorktreeFor(uid, a.ID, session.ID, bad[0], bad[1]); !errors.Is(err, terminalproto.ErrInvalid) {
 			t.Fatal(name, err)
@@ -38,7 +42,7 @@ func TestTerminalSessionRecordsWhereItsWorktreeIs(t *testing.T) {
 	if err := s.RecordTerminalWorktreeFor(uid, a.ID, session.ID, path, "site"); err != nil {
 		t.Fatal("same worktree again", err)
 	}
-	if err := s.RecordTerminalWorktreeFor(uid, a.ID, session.ID, path+"x", "site"); !errors.Is(err, ErrTerminalConflict) {
+	if err := s.RecordTerminalWorktreeFor(uid, a.ID, session.ID, "/home/v/.reet/worktrees/demo/site/"+storeRun, "site"); !errors.Is(err, ErrTerminalConflict) {
 		t.Fatal("a different worktree replaced the recorded one", err)
 	}
 	got, err := s.TerminalSessionFor(uid, session.ID)

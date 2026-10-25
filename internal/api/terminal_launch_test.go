@@ -33,6 +33,9 @@ type launchAPI struct {
 	// worktree answers worktree_status and worktree_remove; worktrees records them.
 	worktree  func(terminalproto.Body) terminalproto.Body
 	worktrees []terminalproto.Body
+	// late, when set, receives a worktree request that got no answer.
+	late func(terminalproto.Message)
+	peer *terminalbroker.Peer
 }
 
 func (f *launchAPI) sent() []terminalproto.Create {
@@ -77,7 +80,13 @@ func launchAPIFixture(t *testing.T, caps terminalproto.Capabilities) *launchAPI 
 				reply.Body = respond(op)
 			}
 			if reply.Body == nil {
-				return nil // no answer: the reply is lost
+				f.mu.Lock()
+				late := f.late
+				f.mu.Unlock()
+				if late != nil {
+					late(reply)
+				}
+				return nil // no answer now: the reply is lost or comes late
 			}
 		default:
 			reply.Body = terminalproto.Result{Code: terminalproto.OK}
@@ -98,6 +107,7 @@ func launchAPIFixture(t *testing.T, caps terminalproto.Capabilities) *launchAPI 
 	if err = p.Synchronize(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+	f.peer = p
 	return f
 }
 

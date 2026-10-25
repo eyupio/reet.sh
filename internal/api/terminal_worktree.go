@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -97,6 +96,8 @@ func worktreeError(w http.ResponseWriter, err error, op worktreeOperation) {
 		writeErrCode(w, http.StatusNotFound, "not_found", "", "That worktree isn't on that machine. It may have been removed already.", "")
 	case errors.Is(err, terminalbroker.ErrWorktreeRefused):
 		writeWorktreeRefusal(w, err, op)
+	case errors.Is(err, terminalbroker.ErrWorktreeMismatch):
+		writeErrCode(w, http.StatusServiceUnavailable, "worktree_mismatch", "", "That machine's answer did not match the request. Check again.", "")
 	case errors.Is(err, terminalbroker.ErrWorktreeBusy):
 		writeErrCode(w, http.StatusConflict, "worktree_busy", "", "That machine is already working on a worktree. Try again in a minute.", "")
 	case errors.Is(err, terminalbroker.ErrWorktreeUnavailable):
@@ -171,7 +172,7 @@ func (s *server) terminalWorktreeRemove(w http.ResponseWriter, r *http.Request) 
 	if errors.Is(err, terminalbroker.ErrWorktreeReplyLost) {
 		// The remove was sent but its answer never came. Ask for status once,
 		// on a budget of its own: nothing there means the remove happened.
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), terminalbroker.WorktreeCallTimeout)
 		_, statusErr := s.terminals.WorktreeStatus(ctx, uid, in.AgentID, in.Project, in.Repo, in.Run)
 		cancel()
 		if errors.Is(statusErr, terminalbroker.ErrWorktreeNotFound) {
@@ -187,4 +188,11 @@ func (s *server) terminalWorktreeRemove(w http.ResponseWriter, r *http.Request) 
 	}
 	s.event(uid, "ui", "worktree-remove", "", map[string]string{"machine": in.AgentID, "host": s.machineHost(uid, in.AgentID), "path": removed.Path, "branch": removed.Branch})
 	writeJSON(w, 200, map[string]any{"ok": true, "path": removed.Path, "branch": removed.Branch})
+}
+
+// auditLateWorktreeRemoval records a removal whose ok answer reached the
+// controller only after the request had given up. The broker has already
+// checked that the folder and branch are the requested run's.
+func (s *server) auditLateWorktreeRemoval(uid int64, target terminalbroker.WorktreeTarget, result terminalproto.WorktreeResult) {
+	s.event(uid, "ui", "worktree-remove", "", map[string]string{"machine": target.Agent, "host": s.machineHost(uid, target.Agent), "path": result.Path, "branch": result.Branch, "late": "true"})
 }

@@ -28,7 +28,94 @@ var (
 	// ErrWorktreeReplyLost means a remove was sent but no answer came; the
 	// machine may have removed the worktree. It is also ErrOffline.
 	ErrWorktreeReplyLost error = errReplyLost{}
+	// ErrWorktreeMismatch means the machine answered about a folder or branch
+	// that is not the requested run's; nothing was recorded.
+	ErrWorktreeMismatch = errors.New("machine's worktree answer did not match the request")
 )
+
+// WorktreeTarget names one run's worktree on one machine.
+type WorktreeTarget struct {
+	Agent   string
+	Project string
+	Repo    string
+	Run     string
+}
+
+// Branch is the branch the machine makes for the run.
+func (t WorktreeTarget) Branch() string { return "reet/" + t.Project + "-" + t.Run }
+
+// Matches reports whether a remove's ok answer is about this run: the branch
+// is the run's branch and the folder is the run's folder under
+// ~/.reet/worktrees (the machine names the repository by its slug).
+func (t WorktreeTarget) Matches(r terminalproto.WorktreeResult) bool {
+	suffix := "/.reet/worktrees/" + t.Project + "/" + terminalproto.Slug(t.Repo, "repo") + "/" + t.Run
+	return r.Code == terminalproto.OK && r.Branch == t.Branch() && len(r.Path) > len(suffix) && r.Path[len(r.Path)-len(suffix):] == suffix
+}
+
+// maxLateRemoves bounds the removes a peer remembers while their answer is
+// outstanding or lost.
+const maxLateRemoves = 32
+
+// OnLateWorktreeRemoval sets fn to hear of a remove whose ok answer arrived
+// after its call gave up, so the removal can still be audited. fn runs on the
+// peer's observer goroutine and must not block for long.
+func (b *Broker) OnLateWorktreeRemoval(fn func(uid int64, target WorktreeTarget, result terminalproto.WorktreeResult)) {
+	b.mu.Lock()
+	b.lateRemoved = fn
+	b.mu.Unlock()
+}
+
+func (b *Broker) lateRemoval(uid int64, request string, r terminalproto.WorktreeResult, p *Peer) {
+	target, ok := p.lateTarget(request)
+	if !ok || !target.Matches(r) {
+		return
+	}
+	b.mu.Lock()
+	fn := b.lateRemoved
+	b.mu.Unlock()
+	if fn != nil {
+		fn(uid, target, r)
+	}
+}
+
+// rememberRemove records an outstanding remove; it is false when the peer
+// already remembers too many.
+func (p *Peer) rememberRemove(request string, target WorktreeTarget) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.removes) >= maxLateRemoves {
+		return false
+	}
+	p.removes[request] = target
+	return true
+}
+
+// forgetRemove drops a remembered remove and returns it (nil when unknown),
+// keeping it for lateTarget.
+func (p *Peer) forgetRemove(request string) *WorktreeTarget {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	t, ok := p.removes[request]
+	if !ok {
+		return nil
+	}
+	delete(p.removes, request)
+	if p.lateTargets == nil {
+		p.lateTargets = map[string]WorktreeTarget{}
+	}
+	if len(p.lateTargets) < maxLateRemoves {
+		p.lateTargets[request] = t
+	}
+	return &t
+}
+
+func (p *Peer) lateTarget(request string) (WorktreeTarget, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	t, ok := p.lateTargets[request]
+	delete(p.lateTargets, request)
+	return t, ok
+}
 
 // WorktreeError is a worktree refusal with the connector's reason and, for
 // git_failed, the first plain line of git's message.
@@ -112,7 +199,7 @@ func (b *Broker) WorktreeStatus(ctx context.Context, uid int64, agent, project, 
 	if err != nil {
 		return terminalproto.WorktreeState{}, err
 	}
-	reply, err := p.callWithin(ctx, terminalproto.Message{Body: body}, worktreeCallTimeout)
+	reply, err := p.callWithin(ctx, terminalproto.Message{Body: body}, WorktreeCallTimeout)
 	if err != nil {
 		return terminalproto.WorktreeState{}, err
 	}
@@ -137,13 +224,25 @@ func (b *Broker) WorktreeRemove(ctx context.Context, uid int64, agent, project, 
 	if err != nil {
 		return terminalproto.WorktreeResult{}, err
 	}
-	reply, err := p.callWithin(ctx, terminalproto.Message{Body: body}, worktreeCallTimeout)
+	target := WorktreeTarget{Agent: agent, Project: project, Repo: repo, Run: run}
+	request := ID()
+	remembered := p.rememberRemove(request, target)
+	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: request, Body: body}, WorktreeCallTimeout)
+	if !errors.Is(err, ErrWorktreeReplyLost) && remembered {
+		// Answered, or never sent: there is nothing late to wait for.
+		p.mu.Lock()
+		delete(p.removes, request)
+		p.mu.Unlock()
+	}
 	if err != nil {
 		return terminalproto.WorktreeResult{}, err
 	}
 	if r, ok := reply.Body.(*terminalproto.WorktreeResult); ok {
 		if err := worktreeError(r); err != nil {
 			return terminalproto.WorktreeResult{}, err
+		}
+		if !target.Matches(*r) {
+			return terminalproto.WorktreeResult{}, ErrWorktreeMismatch
 		}
 		return *r, nil
 	}

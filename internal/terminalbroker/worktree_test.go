@@ -262,9 +262,9 @@ func TestWorktreeRequestsNeedAReadyPeer(t *testing.T) {
 // Worktree requests can run git for up to a minute on the machine, so they
 // wait longer than the ordinary ten-second control call.
 func TestWorktreeRequestsWaitLongerThanOrdinaryCalls(t *testing.T) {
-	ordinary, worktree := callTimeout, worktreeCallTimeout
-	callTimeout, worktreeCallTimeout = 100*time.Millisecond, 5*time.Second
-	t.Cleanup(func() { callTimeout, worktreeCallTimeout = ordinary, worktree })
+	ordinary, worktree := callTimeout, WorktreeCallTimeout
+	callTimeout, WorktreeCallTimeout = 100*time.Millisecond, 5*time.Second
+	t.Cleanup(func() { callTimeout, WorktreeCallTimeout = ordinary, worktree })
 	f := launchFixture(t, worktreeCapabilities("claude"))
 	f.mu.Lock()
 	f.delay = 400 * time.Millisecond
@@ -382,14 +382,15 @@ func TestWorktreeCreateRecordsWhereTheMachineMadeIt(t *testing.T) {
 		t.Fatal("replay lost the worktree", again, err)
 	}
 	// A late reply (after the call gave up) still records it.
-	ordinary := worktreeCallTimeout
-	worktreeCallTimeout = 100 * time.Millisecond
-	t.Cleanup(func() { worktreeCallTimeout = ordinary })
+	ordinary := WorktreeCallTimeout
+	WorktreeCallTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { WorktreeCallTimeout = ordinary })
 	f.mu.Lock()
 	f.delay = 400 * time.Millisecond
 	f.mu.Unlock()
 	in := worktreeCreate()
 	in.Worktree = "fedcba9876543210fedcba98"
+	path = "/home/test/.reet/worktrees/my-project/site/" + in.Worktree
 	late, _, err := f.b.CreateSession(t.Context(), f.uid, f.agent, ID(), in)
 	if !errors.Is(err, ErrOffline) {
 		t.Fatal("expected the call to give up", err)
@@ -409,9 +410,9 @@ func TestWorktreeCreateRecordsWhereTheMachineMadeIt(t *testing.T) {
 // A remove whose reply never comes after it was sent is reported as a lost
 // reply (still a reconnect to callers that do not check), never as a refusal.
 func TestWorktreeRemoveReplyLostIsDistinguished(t *testing.T) {
-	ordinary := worktreeCallTimeout
-	worktreeCallTimeout = 150 * time.Millisecond
-	t.Cleanup(func() { worktreeCallTimeout = ordinary })
+	ordinary := WorktreeCallTimeout
+	WorktreeCallTimeout = 150 * time.Millisecond
+	t.Cleanup(func() { WorktreeCallTimeout = ordinary })
 	f := launchFixture(t, worktreeCapabilities("claude"))
 	f.worktree = func(terminalproto.Body) terminalproto.Body { return nil }
 	f.late = func(terminalproto.Message) {}
@@ -422,5 +423,111 @@ func TestWorktreeRemoveReplyLostIsDistinguished(t *testing.T) {
 	// A request never sent (no ready peer) is a plain reconnect.
 	if _, err := f.b.WorktreeRemove(t.Context(), f.uid, "missing-agent", testProject, "site", testRun, WorktreeCounts{}); errors.Is(err, ErrWorktreeReplyLost) || !errors.Is(err, ErrOffline) {
 		t.Fatal("unsent remove", err)
+	}
+}
+
+// The controller waits long enough for a remove queued behind a create.
+func TestWorktreeCallTimeoutCoversACreateThenARemove(t *testing.T) {
+	if WorktreeCallTimeout != 180*time.Second {
+		t.Fatal(WorktreeCallTimeout)
+	}
+}
+
+// A remove's ok answer that arrives after the call gave up is still
+// reported, so the removal can be audited; nothing else is.
+func TestLateRemoveAnswerIsReported(t *testing.T) {
+	ordinary := WorktreeCallTimeout
+	WorktreeCallTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { WorktreeCallTimeout = ordinary })
+	f := launchFixture(t, worktreeCapabilities("claude"))
+	p, err := f.b.peer(f.uid, f.agent, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type report struct {
+		uid    int64
+		target WorktreeTarget
+		result terminalproto.WorktreeResult
+	}
+	reports := make(chan report, 4)
+	f.b.OnLateWorktreeRemoval(func(uid int64, target WorktreeTarget, result terminalproto.WorktreeResult) {
+		reports <- report{uid, target, result}
+	})
+	path := "/home/test/.reet/worktrees/my-project/site/" + testRun
+	branch := "reet/my-project-" + testRun
+	var answer terminalproto.WorktreeResult
+	f.worktree = func(terminalproto.Body) terminalproto.Body { return nil }
+	f.late = func(m terminalproto.Message) {
+		late := answer
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			m.Body = &late
+			_ = p.Receive(m)
+		}()
+	}
+	for _, tc := range []struct {
+		name     string
+		answer   terminalproto.WorktreeResult
+		reported bool
+	}{
+		{"ok", terminalproto.WorktreeResult{Code: terminalproto.OK, Path: path, Branch: branch}, true},
+		{"refused", terminalproto.WorktreeResult{Code: terminalproto.WorktreeRefused, Reason: terminalproto.WorktreeHasChanges}, false},
+		{"wrong branch", terminalproto.WorktreeResult{Code: terminalproto.OK, Path: path, Branch: "main"}, false},
+		{"wrong folder", terminalproto.WorktreeResult{Code: terminalproto.OK, Path: "/home/test/elsewhere", Branch: branch}, false},
+	} {
+		answer = tc.answer
+		if _, err := f.b.WorktreeRemove(t.Context(), f.uid, f.agent, testProject, "site", testRun, WorktreeCounts{}); !errors.Is(err, ErrWorktreeReplyLost) {
+			t.Fatal(tc.name, err)
+		}
+		select {
+		case r := <-reports:
+			if !tc.reported {
+				t.Fatal(tc.name, "was reported", r)
+			}
+			if r.uid != f.uid || r.target != (WorktreeTarget{Agent: f.agent, Project: testProject, Repo: "site", Run: testRun}) || r.result != tc.answer {
+				t.Fatal(tc.name, r)
+			}
+		case <-time.After(time.Second):
+			if tc.reported {
+				t.Fatal(tc.name, "late ok was not reported")
+			}
+		}
+	}
+	// An ok for a request this peer never sent is not reported.
+	if err := p.Receive(terminalproto.Message{Version: terminalproto.Version, RequestID: ID(), Generation: p.Generation, Body: &terminalproto.WorktreeResult{Code: terminalproto.OK, Path: path, Branch: branch}}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case r := <-reports:
+		t.Fatal("an unrequested ok was reported", r)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+// The controller checks what the machine reports against the request.
+func TestWorktreeAnswersMustMatchTheRequest(t *testing.T) {
+	f := launchFixture(t, worktreeCapabilities("claude"))
+	path := "/home/test/.reet/worktrees/my-project/site/" + testRun
+	for name, answer := range map[string]terminalproto.WorktreeResult{
+		"wrong branch":  {Code: terminalproto.OK, Path: path, Branch: "reet/other-" + testRun},
+		"wrong folder":  {Code: terminalproto.OK, Path: "/home/test/.reet/worktrees/my-project/other/" + testRun, Branch: "reet/my-project-" + testRun},
+		"outside reet":  {Code: terminalproto.OK, Path: "/home/test/site", Branch: "reet/my-project-" + testRun},
+		"other run dir": {Code: terminalproto.OK, Path: "/home/test/.reet/worktrees/my-project/site/" + testRun + "x", Branch: "reet/my-project-" + testRun},
+	} {
+		f.worktree = func(terminalproto.Body) terminalproto.Body { return answer }
+		if _, err := f.b.WorktreeRemove(t.Context(), f.uid, f.agent, testProject, "site", testRun, WorktreeCounts{}); !errors.Is(err, ErrWorktreeMismatch) {
+			t.Fatal(name, err)
+		}
+	}
+	// A create whose reply names a folder that is not this run's is not recorded.
+	f.reply = func(terminalproto.Create) terminalproto.Body {
+		return terminalproto.SessionChanged{State: terminalproto.Running, WorktreePath: "/home/test/elsewhere", WorktreeRepo: "site"}
+	}
+	s, _, err := f.b.CreateSession(t.Context(), f.uid, f.agent, ID(), worktreeCreate())
+	if !errors.Is(err, ErrWorktreeMismatch) {
+		t.Fatal("create with a mismatched folder", err)
+	}
+	if got, _ := f.st.TerminalSessionFor(f.uid, s.ID); got.WorktreePath != "" {
+		t.Fatal("a mismatched folder was recorded", got)
 	}
 }

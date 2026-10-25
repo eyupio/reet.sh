@@ -35,6 +35,8 @@ type Broker struct {
 	tickets map[string]ticket
 	bridges map[string]*Bridge
 	closed  bool
+	// lateRemoved hears of a remove whose ok answer came after its call.
+	lateRemoved func(uid int64, target WorktreeTarget, result terminalproto.WorktreeResult)
 }
 type Peer struct {
 	b            *Broker
@@ -51,7 +53,12 @@ type Peer struct {
 	streams      map[string]*expected
 	next         int64
 	observations chan terminalproto.Message
-	traffic      func(int64, int64, time.Time)
+	// removes remembers removes whose answer has not come, by request id, so
+	// an ok that arrives after the call gave up can still be reported.
+	removes map[string]WorktreeTarget
+	// lateTargets holds removes whose late answer is waiting for the observer.
+	lateTargets map[string]WorktreeTarget
+	traffic     func(int64, int64, time.Time)
 }
 
 func (p *Peer) SetTrafficObserver(fn func(int64, int64, time.Time)) {
@@ -202,7 +209,7 @@ func (b *Broker) Connect(uid int64, agent string, generation int64, enabled bool
 	if old != nil {
 		old.closeLocked()
 	}
-	p := &Peer{b: b, key: k, Generation: generation, send: send, done: make(chan struct{}), enabled: enabled, calls: map[string]chan terminalproto.Message{}, streams: map[string]*expected{}, observations: make(chan terminalproto.Message, 64)}
+	p := &Peer{b: b, key: k, Generation: generation, send: send, done: make(chan struct{}), enabled: enabled, calls: map[string]chan terminalproto.Message{}, streams: map[string]*expected{}, observations: make(chan terminalproto.Message, 64), removes: map[string]WorktreeTarget{}}
 	b.peers[k] = p
 	b.wg.Add(1)
 	go func() { defer b.wg.Done(); p.observe() }()
@@ -220,6 +227,10 @@ func (p *Peer) observe() {
 		case <-p.done:
 			return
 		case m := <-p.observations:
+			if r, ok := m.Body.(*terminalproto.WorktreeResult); ok {
+				p.b.lateRemoval(p.key.uid, m.RequestID, *r, p)
+				continue
+			}
 			s := m.Body.(*terminalproto.SessionChanged)
 			err := p.b.st.ObserveTerminalStateFor(p.key.uid, p.key.agent, m.SessionID, p.Generation, s.State, s.ExitCode)
 			if err != nil && !errors.Is(err, store.ErrRemoteNotFound) && !errors.Is(err, store.ErrTerminalConflict) {
@@ -227,7 +238,7 @@ func (p *Peer) observe() {
 				return
 			}
 			// A worktree create's reply that came after its call gave up.
-			p.b.recordWorktree(p.key.uid, p.key.agent, m.SessionID, s)
+			_ = p.b.recordWorktree(p.key.uid, p.key.agent, m.SessionID, s)
 		}
 	}
 }
@@ -306,6 +317,13 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 			return ErrConflict
 		}
 	}
+	if _, ok := m.Body.(*terminalproto.WorktreeResult); ok && p.forgetRemove(m.RequestID) != nil {
+		select {
+		case p.observations <- m:
+		default: // a late answer is reported only when there is room
+		}
+		return nil
+	}
 	if _, ok := m.Body.(*terminalproto.SessionChanged); ok {
 		select {
 		case p.observations <- m:
@@ -328,11 +346,12 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 var (
 	// callTimeout bounds an ordinary control call.
 	callTimeout = 10 * time.Second
-	// worktreeCallTimeout bounds a worktree create, status or remove. The
-	// connector gives git one 60-second budget per request (then up to 30
-	// seconds to clean up a failed add) and walks the worktree for status, so
-	// the ordinary limit would report a slow repository as a reconnect.
-	worktreeCallTimeout = 100 * time.Second
+	// WorktreeCallTimeout bounds a worktree create, status or remove, and is
+	// the one limit the API uses for them. On the machine a create takes at
+	// most 90 seconds (60 for git, 30 to clean up a failed add) and a remove
+	// at most 60, and the connector runs a create before a remove queued
+	// behind it, so 180 seconds covers both back to back with a margin.
+	WorktreeCallTimeout = 180 * time.Second
 )
 
 func (p *Peer) call(ctx context.Context, m terminalproto.Message) (terminalproto.Message, error) {
@@ -343,7 +362,7 @@ func (p *Peer) call(ctx context.Context, m terminalproto.Message) (terminalproto
 // the machine may have done it.
 type errReplyLost struct{}
 
-func (errReplyLost) Error() string          { return ErrOffline.Error() }
+func (errReplyLost) Error() string        { return ErrOffline.Error() }
 func (errReplyLost) Is(target error) bool { return target == ErrOffline }
 
 func (p *Peer) callWithin(ctx context.Context, m terminalproto.Message, limit time.Duration) (terminalproto.Message, error) {
@@ -526,7 +545,7 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	}
 	limit := callTimeout
 	if worktreeRequested(in) {
-		limit = worktreeCallTimeout
+		limit = WorktreeCallTimeout
 	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: request, SessionID: s.ID, Body: in}, limit)
 	if err != nil {
@@ -535,8 +554,10 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	var refusal error
 	if state, ok := reply.Body.(*terminalproto.SessionChanged); ok {
 		err = b.st.ObserveTerminalStateFor(uid, agent, s.ID, p.Generation, state.State, state.ExitCode)
-		if err == nil && worktreeRequested(in) {
-			b.recordWorktree(uid, agent, s.ID, state)
+		if err == nil && worktreeRequested(in) && b.recordWorktree(uid, agent, s.ID, state) != nil {
+			// The agent started, but the machine's report of where does not
+			// match this run; nothing is recorded.
+			refusal = ErrWorktreeMismatch
 		}
 	} else if r, ok := reply.Body.(*terminalproto.Result); ok && r.Code != terminalproto.OK && r.Code != terminalproto.Unavailable {
 		err = b.st.FailTerminalCreateWithResultFor(uid, agent, request, p.Generation, *r)
@@ -681,13 +702,16 @@ func (b *Broker) Bind(ctx context.Context, uid int64, agent string, h terminalpr
 }
 
 // recordWorktree stores where the machine made a session's worktree, from a
-// worktree create's reply. The session has started either way, so a record
-// that cannot be written (a reply for a session whose create asked for no
-// worktree, or a second, different report) is dropped; worktree status by
-// the repository name still works.
-func (b *Broker) recordWorktree(uid int64, agent, session string, s *terminalproto.SessionChanged) {
+// worktree create's reply. It answers ErrInvalid when the report does not
+// match the session's own run (the folder must be that run's folder under
+// ~/.reet/worktrees); a second, different report is a conflict and dropped.
+func (b *Broker) recordWorktree(uid int64, agent, session string, s *terminalproto.SessionChanged) error {
 	if s.WorktreePath == "" {
-		return
+		return nil
 	}
-	_ = b.st.RecordTerminalWorktreeFor(uid, agent, session, s.WorktreePath, s.WorktreeRepo)
+	err := b.st.RecordTerminalWorktreeFor(uid, agent, session, s.WorktreePath, s.WorktreeRepo)
+	if errors.Is(err, terminalproto.ErrInvalid) {
+		return err
+	}
+	return nil
 }

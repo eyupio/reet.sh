@@ -701,6 +701,10 @@ func (s *Store) RecordTerminalWorktreeFor(uid int64, agentID, sessionID, path, r
 		if json.Unmarshal([]byte(raw), &in) != nil || in.Worktree == "" {
 			return ErrTerminalConflict
 		}
+		// The folder must be this run's folder under ~/.reet/worktrees.
+		if !strings.HasSuffix(path, "/.reet/worktrees/"+in.Project+"/"+repo+"/"+in.Worktree) {
+			return terminalproto.ErrInvalid
+		}
 		if storedPath != "" {
 			if storedPath == path && storedRepo == repo {
 				return nil

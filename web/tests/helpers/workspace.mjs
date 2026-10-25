@@ -4,14 +4,17 @@ export const owner = {id:1,name:'Sam',email:'sam@example.test',role:'owner'}
 const now = Date.now()
 export const skill = id => ({id:`demo/toolkit/${id}`,name:id,slug:id,source:'demo/toolkit',sourceType:'github',url:`https://www.skills.sh/demo/toolkit/${id}`,description:'Example skill for UI verification.',notes:'',installs:0,installsWeek:0,trend:[],liked:false,bookmarked:false,used:false,createdAt:now,updatedAt:now})
 
-export async function openWorkspace(browser, {width, height=812, theme='light', status, skills=[], unread=0, terminalStatus={configured:false,available:false,reason:'disabled'}, terminalMachines=[], hosting={username:'',prefix:'reet-',skills:[]}, sync={environments:[],machines:[],agents:[],targets:[],jobs:[],runs:[],updateJobs:[]}, inventory={environments:[],machines:[]}, routes={}} = {}) {
- const context = await browser.newContext({viewport:{width,height}})
+export async function openWorkspace(browser, {width, height=812, theme='light', status, skills=[], unread=0, terminalStatus={configured:false,available:false,reason:'disabled'}, terminalMachines=[], hosting={username:'',prefix:'reet-',skills:[]}, sync={environments:[],machines:[],agents:[],targets:[],jobs:[],runs:[],updateJobs:[]}, inventory={environments:[],machines:[]}, routes={}, touch=false, gates={}} = {}) {
+ // `touch` is a phone: a coarse pointer, so the touch-size rules apply.
+ const context = await browser.newContext({viewport:{width,height},hasTouch:touch,isMobile:touch})
  const page = await context.newPage()
  const state = {patches:[],status:{mode:'accounts',setupRequired:false,bootstrapRequired:false,signupEnabled:false,user:owner,...status}, theme, unexpected:[]}
  const errors = []
  page.on('pageerror',e=>errors.push(e.message))
- await page.route('**/api/**',route=>{
+ // `gates` maps an API path to a promise the answer waits for, so a test can look at the loading state.
+ await page.route('**/api/**',async route=>{
   const path = new URL(route.request().url()).pathname
+  if(gates[path])await gates[path]
   const json = data => route.fulfill({json:data})
   if(path==='/api/v2/auth/status')return json(state.status)
   if(path==='/api/v2/auth/setup'){state.status={...state.status,setupRequired:false,user:owner};return json(owner)}

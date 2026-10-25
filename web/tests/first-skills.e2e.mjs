@@ -36,6 +36,47 @@ try {
   await context.close()
  }
 
+ // On an empty shelf the tools are one quiet button, not a section with its own heading, and restore and import stay reachable.
+ // With skills on the shelf the section is unchanged.
+ if (run('tools')) {
+  const empty = await open({width:1440})
+  await empty.page.goto(`${base}/skills`)
+  await expect(empty.page.getByRole('heading',{name:'Put the first skill on your shelf.'})).toBeVisible()
+  await expect(empty.page.getByRole('heading',{name:'Shelf tools'})).toHaveCount(0)
+  await empty.page.getByRole('button',{name:'Import or restore a backup'}).click()
+  await expect(empty.page.getByRole('heading',{name:'Import what you have installed'})).toBeVisible()
+  await expect(empty.page.getByRole('button',{name:'Restore from JSON'})).toBeVisible()
+  await expect(empty.page.getByRole('heading',{name:'Keep a good find'}), 'the start card already offers the bookmarklets').toHaveCount(0)
+  await empty.context.close()
+
+  const full = await open({width:1440,skills:[skill('code-review')]})
+  await full.page.goto(`${base}/skills`)
+  await expect(full.page.getByRole('heading',{name:'Shelf tools'})).toBeVisible()
+  await expect(full.page.getByRole('button',{name:'Import or restore a backup'})).toHaveCount(0)
+  await full.page.getByRole('button',{name:/Show bookmarklets and tools/}).click()
+  await expect(full.page.getByRole('button',{name:'Restore from JSON'})).toBeVisible()
+  await expect(full.page.getByRole('heading',{name:'Keep a good find'})).toBeVisible()
+  await full.context.close()
+ }
+
+ // While the shelf loads it shows placeholder cards rather than a bare "Loading…" line, and they give way to the skills.
+ if (run('loading')) {
+  let release
+  const gate = new Promise(resolve=>{release=resolve})
+  const {context,page,errors} = await open({width:1440,skills:[skill('code-review')],gates:{'/api/skills':gate}})
+  await page.goto(`${base}/skills`)
+  const loading = page.getByRole('status',{name:'Loading your shelf'})
+  await expect(loading).toBeVisible()
+  await expect(loading).toHaveAttribute('aria-busy','true')
+  await expect(loading.locator('[data-skeleton]')).toHaveCount(3)
+  await expect(page.getByText('Loading…',{exact:true})).toHaveCount(0)
+  release()
+  await expect(page.getByRole('heading',{name:'code-review'})).toBeVisible()
+  await expect(loading).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // Hosting: what it gives you comes first, then the username form.
  if (run('hosting')) {
   const {context,page} = await open({width:1440})
@@ -50,5 +91,5 @@ try {
   await expect(page.getByText(/This username is permanent/)).toBeVisible()
   await context.close()
  }
- console.log('First skills: add leads on an empty shelf, sync appears with content, hosting explains itself before the username.')
+ console.log('First skills: add leads on an empty shelf, quiet tools on an empty shelf, a skeleton while it loads, sync appears with content, hosting explains itself before the username.')
 } finally {await browser.close()}

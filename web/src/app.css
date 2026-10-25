@@ -32,6 +32,8 @@ input:not([type='checkbox']):not([type='radio']):focus, select:focus, textarea:f
 input[type='checkbox'], input[type='radio'] { accent-color: var(--accent); }
 input[aria-invalid='true'] { border-color: var(--bad); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* A field already turns its border to the accent on focus, so the outline joins that border rather than floating beside it as a second ring. */
+input:not([type='checkbox']):not([type='radio']):focus-visible, select:focus-visible, textarea:focus-visible { outline-offset: 0; }
 button, input, select, textarea { font: inherit; color: inherit; }
 input:not([type='checkbox']):not([type='radio']), select, textarea { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-height: 42px; min-width: 0; }
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }

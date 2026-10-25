@@ -86,6 +86,35 @@ try {
   }
  }
 
+ // A focused field shows one ring: its outline touches its border instead of floating beside it as a second ring.
+ // Checkboxes and radios have no border to join, so they keep their offset.
+ if (run('ring')) {
+  const {context,page} = await open({width:1440,status:{user:null}})
+  await page.goto(`${base}/signin`)
+  await expect(page.locator('#signin-email')).toBeVisible()
+  const rings = await page.evaluate(()=>{
+   const out = {}
+   for (const [name,html] of [['input','<input type="text">'],['select','<select><option>a</option></select>'],['textarea','<textarea></textarea>'],['checkbox','<input type="checkbox">']]) {
+    const wrap = document.createElement('div')
+    wrap.innerHTML = html
+    document.body.append(wrap)
+    const el = wrap.firstElementChild
+    el.focus()
+    const s = getComputedStyle(el)
+    out[name] = {visible:el.matches(':focus-visible'),style:s.outlineStyle,offset:parseFloat(s.outlineOffset)}
+    wrap.remove()
+   }
+   return out
+  })
+  for (const name of ['input','select','textarea']) {
+   expect(rings[name].visible, `${name} matches :focus-visible`).toBe(true)
+   expect(rings[name].style, `${name} outline style`).not.toBe('none')
+   expect(rings[name].offset, `${name} outline offset`).toBeLessThanOrEqual(0)
+  }
+  expect(rings.checkbox.offset, 'checkbox outline offset').toBe(2)
+  await context.close()
+ }
+
  // An explicit dark theme keeps a readable warning colour, same as the system dark theme.
  if (run('dark')) {
   const {context,page} = await open({width:1440,theme:'dark'})
@@ -95,5 +124,5 @@ try {
   expect(await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--warn').trim())).toBe('#fbbf24')
   await context.close()
  }
- console.log('First run: phone menu on screen, setup ends on Control, unknown routes, phone auth fit, touch focus and dark warning colour passed.')
+ console.log('First run: phone menu on screen, setup ends on Control, unknown routes, phone auth fit, touch focus, one focus ring and dark warning colour passed.')
 } finally {await browser.close()}

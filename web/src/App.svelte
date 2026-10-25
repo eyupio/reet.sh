@@ -981,7 +981,10 @@
 
     <div id="sections" class:board={view === 'board' && !loading && counts.all > 0 && total > 0} class:single-stage={show !== 'all'}>
       {#if loading}
-        <p class="empty" role="status">Loading…</p>
+        <div class="shelf-skeleton" role="status" aria-busy="true" aria-label="Loading your shelf">
+          <span class="vh">Loading your shelf…</span>
+          {#each [0, 1, 2] as n (n)}<div class="skeleton-card" data-skeleton aria-hidden="true"><i></i><i></i><i></i></div>{/each}
+        </div>
       {:else if counts.all === 0 && !filtering && !canWrite}
         <section class="start" aria-labelledby="start-title">
           <p class="eyebrow">Read-only</p>
@@ -1053,7 +1056,7 @@
         <Tools
           onchange={reloadAll} {ok} {fail} {token} canManageTags={isAdminUser}
           filters={{ tab: onlyLiked ? 'liked' : 'all', q, sort, tags: selectedTags, env: selectedEnv, machine: selectedMachine, only: onlyOne ? 'one-machine' : '', stage: show === 'all' ? '' : show }}
-          startOpen={false}
+          startOpen={false} quiet={counts.all === 0}
         />
       {/key}
     {/if}
@@ -1230,6 +1233,11 @@
   .no-matches { padding: 48px 20px; text-align: center; }
   .no-matches h2 { display: block; }
   .no-matches p { color: var(--muted); }
+  .shelf-skeleton { display: grid; gap: 12px; margin-top: 8px; }
+  .skeleton-card { display: grid; align-content: start; gap: 14px; height: 112px; padding: 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+  .skeleton-card i { display: block; height: 14px; border-radius: 5px; background: var(--line); }
+  .skeleton-card i:first-child { width: 36%; height: 18px; }
+  .skeleton-card i:last-child { width: 70%; }
   .empty { text-align: center; color: var(--muted); font: italic 1.15rem/1.5 var(--serif); padding: 56px 0; }
 
   .start {

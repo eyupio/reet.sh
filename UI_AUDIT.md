@@ -22,12 +22,12 @@ Updated 2026-10-25 after the fixes merged. Each fix was written test-first, with
 | C4 terminals off by default, not said | Fixed | #203 |
 | C5 three first-machine flows | Fixed | #205 |
 | H1 phone auth: typo, form below the fold | Fixed | #197 |
-| H2 autofocus on touch | **Mostly fixed.** The forms only take focus with a fine pointer on a wide screen. The double ring on a focused input (border plus outline, `app.css:31,34`) is unchanged. | #197 |
+| H2 autofocus on touch | Fixed. The forms only take focus with a fine pointer on a wide screen (#197), and a focused field has one ring, not two (#208). | #197, #208 |
 | H3 first-run Control has three filled buttons | Fixed | #203 |
 | H4 Skills and Setups hidden in More; two-row header | Fixed | #202 |
 | H5 landing hero is a small-text mock-up | **Partly.** Text is at least 11px and wraps. It is still an illustration, not a real screenshot. | #200 |
 | H6 "See what's next" opens the handoff log | Fixed (opens `docs/roadmap.md`) | #199 |
-| H7 first Skills page competes with itself | **Mostly fixed.** Sync waits for a skill, "Create a skill" is secondary and hosting explains itself first. Shelf tools and the bookmarklet disclosure still show on an empty shelf. | #205 |
+| H7 first Skills page competes with itself | Fixed, with one choice. Sync waits for a skill, "Create a skill" is secondary, hosting explains itself first, and an empty shelf's tools are one quiet "Import or restore a backup" button instead of a section. They are not hidden outright because that would also hide Restore from JSON, the only way to upload a JSON backup. The start card keeps its bookmarklet disclosure. | #205, #208 |
 | H8 Setups and Sync first screens | Fixed. Sync asks for a machine first. Setups keeps its CLI steps (setups are made from the CLI) and folds the storage note. | #205 |
 | H9 phone filters hidden; prefix field 28px | Fixed | #199 |
 | H10 skill card hierarchy and "Start using" | Fixed (label in #199, hierarchy in #205) | #199, #205 |
@@ -39,8 +39,8 @@ Updated 2026-10-25 after the fixes merged. Each fix was written test-first, with
 | N5 Notifications settings form | Open | |
 | N6 system serif font | Open (needs a font to self-host) | |
 | N7 theme toggle | Fixed | #205 |
-| N8 bare shelf loading text | Open | |
-| N9 small touch targets | **Partly.** The Show button fills its field. Machine-card buttons are still 34px high on touch. | #199 |
+| N8 bare shelf loading text | Fixed. The shelf draws placeholder cards while it loads. The brief auth-check "Loading…" is unchanged. | #208 |
+| N9 small touch targets | Fixed. The Show button fills its field (#199), and the machine card's three buttons are 44px on touch (#208). | #199, #208 |
 
 ---
 
@@ -279,8 +279,8 @@ This table is as the re-audit found it, with the rows updated where they pointed
 | C10 "Scan this machine" mislabelled | **Fixed in label** ("Connect this machine", guided steps); the flow itself is now C5. |
 | H1 navigation front-loads advanced nouns | **Superseded** by H4. |
 | H2 "Filters & lists" noisy on first run | **Fixed.** Only shown when there is something to filter. |
-| H3 "Shelf tools" always shown | **Still open.** Collapsed, but visible on the empty shelf (H7). |
-| H4 three equal CTAs in the empty state | **Mostly fixed** in #205 (H7). The filled buttons are the add form's and "Add your first skill"; Shelf tools still show on an empty shelf. |
+| H3 "Shelf tools" always shown | **Mostly fixed** in #208 (H7). An empty shelf shows one quiet "Import or restore a backup" button, not the section. |
+| H4 three equal CTAs in the empty state | **Fixed** in #205 and #208 (H7). The filled buttons are the add form's and "Add your first skill". |
 | H5 autofocus on mobile | **Fixed** in #197 (H2). |
 | H6 raw add-form error | **Fixed.** |
 | H7 five equal-weight card actions | **Fixed** in #199 and #205 (H10). |
@@ -290,13 +290,13 @@ This table is as the re-audit found it, with the rows updated where they pointed
 | H11 "Start using" implies install | **Fixed** in #199 (H10): the button is "Mark in use". |
 | N1 serif font | **Still open** (N6). |
 | N2 pluralisation | **Partly.** Filter summary fixed; other screens not re-checked. |
-| N3 skeletons | **Partly.** Control has one; the shelf does not (N8). |
+| N3 skeletons | **Fixed** in #208 (N8). Control and the shelf both have one. |
 | N4 success banner | **Still open** (N4). |
 | N5 mobile auth logo and tagline | **Partly.** The tagline is gone in accounts mode; the logo size is unchanged. |
 | N6 duplicate counts | **Still open.** With one skill, the "All 1" tab, the "1 skill" line, the "On the shelf 1" tab and its section heading all show the same count. |
 | N7 theme toggle | **Fixed** in #205 (N7). |
 | N8 confirm password | **Still open** (N3). |
-| N9 double focus ring | **Still open** (H2). |
+| N9 double focus ring | **Fixed** in #208 (H2). |
 | N10 Yorkshire voice in errors | **Mostly fine.** Empty-search copy now pairs "Nowt matches just yet." with a literal sentence. Sign-in errors are plain. |
 
 ---

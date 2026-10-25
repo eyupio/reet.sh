@@ -5,7 +5,7 @@
   import ConfirmDialog from './ConfirmDialog.svelte'
   import ManageTags from './ManageTags.svelte'
 
-  let { onchange, ok, fail, token, filters, canManageTags = true, startOpen = false, hideBookmarklets = false }: {
+  let { onchange, ok, fail, token, filters, canManageTags = true, startOpen = false, hideBookmarklets = false, quiet = false }: {
     onchange: () => Promise<void>
     ok: (message: string) => void
     fail: (e: unknown) => void
@@ -14,6 +14,8 @@
     canManageTags?: boolean
     startOpen?: boolean
     hideBookmarklets?: boolean
+    // An empty shelf shows one small button instead of a section; its own start card already offers the bookmarklets.
+    quiet?: boolean
   } = $props()
 
   let open = $state(false)
@@ -24,7 +26,9 @@
   let ignored = $state<Ignored[]>([])
   let showTags = $state(false)
   let restoreInput = $state<HTMLInputElement>()
-  const title = $derived(hideBookmarklets ? 'tools' : 'bookmarklets and tools')
+  const noBookmarklets = $derived(hideBookmarklets || quiet)
+  const title = $derived(noBookmarklets ? 'tools' : 'bookmarklets and tools')
+  const toggle = () => { open = !open; if (open) void loadIgnored() }
 
   onMount(() => {
     open = startOpen
@@ -105,13 +109,19 @@
   }
 </script>
 
-<section class="tools" aria-labelledby="tools-title">
-  <div class="tools-heading">
-    <div><p class="eyebrow">Make it yours</p><h2 id="tools-title">Shelf tools</h2></div>
-    <button type="button" class="btn" onclick={() => { open = !open; if (open) void loadIgnored() }} aria-expanded={open} aria-controls="tools-panel">
-      {open ? 'Hide' : 'Show'} {title}
+<section class="tools" class:quiet aria-labelledby={quiet ? undefined : 'tools-title'} aria-label={quiet ? 'Shelf tools' : undefined}>
+  {#if quiet}
+    <button type="button" class="btn quiet" onclick={toggle} aria-expanded={open} aria-controls="tools-panel">
+      {open ? 'Hide import and restore' : 'Import or restore a backup'}
     </button>
-  </div>
+  {:else}
+    <div class="tools-heading">
+      <div><p class="eyebrow">Make it yours</p><h2 id="tools-title">Shelf tools</h2></div>
+      <button type="button" class="btn" onclick={toggle} aria-expanded={open} aria-controls="tools-panel">
+        {open ? 'Hide' : 'Show'} {title}
+      </button>
+    </div>
+  {/if}
   {#if open}
     <div class="panel" id="tools-panel">
       <section class="tool-card import" aria-labelledby="import-title">
@@ -121,7 +131,7 @@
         <textarea id="import-box" rows="4" bind:value={importBox} placeholder="find-skills&#10;anthropics/skills/pptx"></textarea>
         <button type="button" class="btn primary" onclick={runImport} disabled={!importBox.trim()}>Import as in use</button>
       </section>
-      {#if !hideBookmarklets}
+      {#if !noBookmarklets}
         <section class="tool-card" aria-labelledby="bookmarklets-title">
           <h3 id="bookmarklets-title">Keep a good find</h3>
           <p>Drag these bookmarklets to your bookmarks bar. On any skills.sh skill page, click one to send it here.</p>
@@ -191,6 +201,7 @@
 
 <style>
   .tools { margin-top: 48px; padding-top: 28px; border-top: 1px solid var(--line); }
+  .tools.quiet { margin-top: 24px; padding-top: 0; border-top: 0; }
   .tools-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
   .eyebrow { margin: 0 0 6px; color: var(--accent); font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; }
   h2 { margin: 0; font: 500 1.8rem/1.2 var(--serif); letter-spacing: -0.025em; }

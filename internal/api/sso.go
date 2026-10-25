@@ -80,6 +80,16 @@ func safeNext(raw string) string {
 	return raw
 }
 
+// redirectLocal sends the browser to a path on this site and to nothing else:
+// the check sits on the very string that is redirected to, so no earlier step
+// has to be trusted to have made it safe.
+func redirectLocal(w http.ResponseWriter, r *http.Request, loc string) {
+	if loc == "" || loc[0] != '/' || (len(loc) > 1 && (loc[1] == '/' || loc[1] == '\\')) {
+		loc = "/"
+	}
+	http.Redirect(w, r, loc, http.StatusFound)
+}
+
 func withParam(path, key, value string) string {
 	u, err := url.Parse(path)
 	if err != nil {
@@ -108,7 +118,7 @@ func (s *server) ssoGone(w http.ResponseWriter) bool {
 
 func (s *server) ssoFail(w http.ResponseWriter, r *http.Request, back, code string) {
 	ssoNoStore(w)
-	http.Redirect(w, r, withParam(back, "sso_error", code), http.StatusFound)
+	redirectLocal(w, r, withParam(back, "sso_error", code))
 }
 
 func (s *server) ssoClearBinding(w http.ResponseWriter, r *http.Request) {
@@ -253,7 +263,7 @@ func (s *server) ssoLinkCallback(w http.ResponseWriter, r *http.Request, row sto
 		return
 	}
 	s.event(cur.ID, "ui", "sso-link", "", map[string]any{"name": cur.Name, "email": cur.Email})
-	http.Redirect(w, r, row.Next, http.StatusFound)
+	redirectLocal(w, r, row.Next)
 }
 
 func (s *server) ssoSignIn(w http.ResponseWriter, r *http.Request, row store.SSOLogin, c oidc.Claims) {
@@ -353,7 +363,7 @@ func (s *server) ssoSignIn(w http.ResponseWriter, r *http.Request, row store.SSO
 		s.emitNewAccount(user)
 	}
 	s.event(user.ID, "ui", "sso-sign-in", "", map[string]any{"name": user.Name, "email": user.Email})
-	http.Redirect(w, r, row.Next, http.StatusFound)
+	redirectLocal(w, r, row.Next)
 }
 
 // ssoBackchannelLogout ends the sessions an identity provider names when

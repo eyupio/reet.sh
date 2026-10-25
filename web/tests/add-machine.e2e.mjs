@@ -430,6 +430,62 @@ try{
   await quiet()
  }
 
+ // On a Machines page filtered to one machine (?machine=), landing a different new machine clears the filter first, so its card
+ // exists to be shown; other parameters and the hash stay, and the machine already shown stays too.
+ {
+  reset()
+  await page.goto(`${base}/machines?machine=workstation&keep=1#top`)
+  await expect(card('workstation')).toBeVisible()
+  await expect(card('annexe')).toHaveCount(0)
+  await page.evaluate(()=>{window.__scrolled.length=0})
+  const d=await open(),pp=parts(d)
+  await pp.name.fill('annexe')
+  await expect(pp.status).toContainText('Waiting for it')
+  agents.push(connector('agent-annexe','annexe'))
+  scopes.push(scope('annexe'))
+  await expect(pp.status).toContainText('Ready')
+  await pp.use('annexe').click()
+  await expect(d).toHaveCount(0)
+  await expect(card('annexe')).toBeVisible()
+  await expect(card('annexe')).toHaveClass(/just-added/)
+  await expect(card('workstation')).toBeVisible()
+  await expect(card('workstation')).not.toHaveClass(/just-added/)
+  await expect.poll(()=>page.url()).not.toContain('machine=')
+  const url=new URL(page.url())
+  expect(url.searchParams.get('keep')).toBe('1')
+  expect(url.searchParams.has('machine')).toBe(false)
+  expect(url.hash).toBe('#top')
+  await expect(page.locator('.machine-focus')).toHaveCount(0)
+  expect(await page.evaluate(()=>window.__scrolled)).toContain('machine-annexe')
+  await expect.poll(()=>card('annexe').evaluate(el=>{const r=el.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight})).toBe(true)
+  await expect(addButton()).toBeFocused()
+  await quiet()
+ }
+ // Landing the machine the page is already filtered to leaves the filter where it is.
+ {
+  reset()
+  await page.goto(`${base}/machines?machine=annexe&keep=1`)
+  await expect(card('workstation')).toBeVisible()
+  await expect(page.getByText('No machine named annexe is connected.')).toBeVisible()
+  const d=await open(),pp=parts(d)
+  await pp.name.fill('annexe')
+  await expect(pp.status).toContainText('Waiting for it')
+  agents.push(connector('agent-annexe','annexe'))
+  scopes.push(scope('annexe'))
+  await expect(pp.status).toContainText('Ready')
+  await pp.use('annexe').click()
+  await expect(d).toHaveCount(0)
+  await expect(card('annexe')).toBeVisible()
+  await expect(card('annexe')).toHaveClass(/just-added/)
+  await expect(card('workstation')).toHaveCount(0)
+  expect(new URL(page.url()).searchParams.get('machine')).toBe('annexe')
+  expect(new URL(page.url()).searchParams.get('keep')).toBe('1')
+  await expect(page.locator('.machine-focus')).toBeVisible()
+  await quiet()
+ }
+ await page.goto(`${base}/machines`)
+ await expect(card('workstation')).toBeVisible()
+
  // A signed-out session stops the watch at once and hands over to the sign-in card; nothing is read again.
  {
   const d=await open(),pp=parts(d)

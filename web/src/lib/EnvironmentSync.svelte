@@ -45,7 +45,8 @@
   let justAddedTimer: ReturnType<typeof setTimeout> | undefined
   const initialSetupMode = new URLSearchParams(location.search).get('setup') === 'scratch' ? 'scratch' : 'connect'
   const site = location.origin
-  const focusHost = new URLSearchParams(location.search).get('machine') ?? ''
+  // The machine the page is filtered to (?machine=), cleared when a machine added from the dialog is not the one shown.
+  let focusHost = $state(new URLSearchParams(location.search).get('machine') ?? '')
   const focusedMachine = $derived(focusHost ? machines.find(machine => machine.host.toLowerCase() === focusHost.toLowerCase()) : undefined)
   const visibleMachines = $derived(focusedMachine ? [focusedMachine] : machines)
   // Offered to a signed-in account that can write, on the Machines view only (never to a viewer or in a legacy sign-in mode).
@@ -154,6 +155,12 @@
   async function showMachine(host: string) {
     const machine = machines.find(m => sameHost(m.host, host))
     if (!machine) return
+    if (focusedMachine && !sameHost(focusedMachine.host, machine.host)) {
+      focusHost = ''
+      const url = new URL(location.href)
+      url.searchParams.delete('machine')
+      history.replaceState(history.state, '', url)
+    }
     justAdded = machine.host
     clearTimeout(justAddedTimer)
     justAddedTimer = setTimeout(() => { justAdded = '' }, 8000)

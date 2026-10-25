@@ -1038,7 +1038,7 @@
         <Tools
           onchange={reloadAll} {ok} {fail} {token} canManageTags={isAdminUser}
           filters={{ tab: onlyLiked ? 'liked' : 'all', q, sort, tags: selectedTags, env: selectedEnv, machine: selectedMachine, only: onlyOne ? 'one-machine' : '', stage: show === 'all' ? '' : show }}
-          startOpen={false}
+          startOpen={false} quiet={counts.all === 0}
         />
       {/key}
     {/if}

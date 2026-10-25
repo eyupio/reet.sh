@@ -21,6 +21,8 @@ type Provider struct {
 	keys      map[string]jwk
 	keysAt    time.Time
 	keysTry   time.Time
+	keysGen   uint64     // counts successful key fetches
+	fetchMu   sync.Mutex // one key fetch at a time
 	seenLogin map[string]time.Time
 }
 

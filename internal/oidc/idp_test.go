@@ -36,8 +36,10 @@ type fakeIDP struct {
 	discoveryIssuer string
 	// jwksOverride replaces the key set document.
 	jwksOverride func() any
-	lastAuth     string
-	lastForm     map[string][]string
+	// jwksDelay makes the key set slow, so callers overlap.
+	jwksDelay time.Duration
+	lastAuth  string
+	lastForm  map[string][]string
 }
 
 func newFakeIDP(t *testing.T) *fakeIDP {
@@ -65,6 +67,7 @@ func newFakeIDP(t *testing.T) *fakeIDP {
 	})
 	mux.HandleFunc("/jwks", func(w http.ResponseWriter, r *http.Request) {
 		f.hit("jwks")
+		time.Sleep(f.jwksDelay)
 		if f.jwksOverride != nil {
 			json.NewEncoder(w).Encode(f.jwksOverride())
 			return

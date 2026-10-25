@@ -436,3 +436,29 @@ func TestAnIssuerWithATrailingSlashSignsPeopleIn(t *testing.T) {
 		t.Fatalf("FromEnv rewrote the issuer: %q, %v", p2.Issuer(), err)
 	}
 }
+
+// Several people signing in at once, before the key set has been fetched,
+// share one fetch. A caller that arrives while another is fetching waits for
+// that answer; it is not turned away as if the keys could not be had.
+func TestSignInsThatOverlapShareOneKeyFetch(t *testing.T) {
+	f := newFakeIDP(t)
+	f.jwksDelay = 150 * time.Millisecond
+	p, now := f.provider(nil)
+	const n = 8
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			tok := f.token("RS256", f.kid, f.idClaims(*now, "nonce-1"))
+			_, err := p.verify(context.Background(), tok)
+			errs <- err
+		}()
+	}
+	for i := 0; i < n; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("a verification that overlapped another's key fetch failed: %v", err)
+		}
+	}
+	if got := f.count("jwks"); got != 1 {
+		t.Fatalf("the key set was fetched %d times for %d overlapping sign-ins, want once", got, n)
+	}
+}

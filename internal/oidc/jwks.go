@@ -76,7 +76,7 @@ func (k *jwk) parse() error {
 // stranger being able to make this server call out on demand.
 func (p *Provider) key(ctx context.Context, kid, alg string) (*jwk, error) {
 	p.mu.Lock()
-	known := p.keys
+	known, gen := p.keys, p.keysGen
 	fresh := known != nil && p.now().Sub(p.keysAt) < keysLife
 	p.mu.Unlock()
 	if fresh {
@@ -84,7 +84,7 @@ func (p *Provider) key(ctx context.Context, kid, alg string) (*jwk, error) {
 			return k, nil
 		}
 	}
-	if err := p.refreshKeys(ctx); err != nil {
+	if err := p.refreshKeys(ctx, gen); err != nil {
 		if k := pick(known, kid, alg); k != nil {
 			return k, nil
 		}
@@ -124,7 +124,19 @@ func pick(keys map[string]jwk, kid, alg string) *jwk {
 	return found
 }
 
-func (p *Provider) refreshKeys(ctx context.Context) error {
+// refreshKeys fetches the key set unless someone else already has since the
+// caller looked (gen is the count of fetches it saw). Callers that arrive
+// together queue behind one fetch and use its answer, rather than one fetching
+// and the rest being refused as too soon.
+func (p *Provider) refreshKeys(ctx context.Context, gen uint64) error {
+	p.fetchMu.Lock()
+	defer p.fetchMu.Unlock()
+	p.mu.Lock()
+	if p.keysGen != gen {
+		p.mu.Unlock()
+		return nil
+	}
+	p.mu.Unlock()
 	d, err := p.discover(ctx)
 	if err != nil {
 		return err
@@ -162,6 +174,7 @@ func (p *Provider) refreshKeys(ctx context.Context) error {
 	}
 	p.mu.Lock()
 	p.keys, p.keysAt = keys, now
+	p.keysGen++
 	p.mu.Unlock()
 	return nil
 }

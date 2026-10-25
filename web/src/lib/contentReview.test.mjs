@@ -11,6 +11,7 @@ const {
   OWNERSHIP_SENTENCE, APPLY_NOTICE, FALLBACK,
   presenceLabel, ownershipNote, checkStateLabel, reasonText, failureText, planCodeText, preservedText,
   scopeEligibility, classifyCheck, adoptable, summarisePlan, candidatesFor, preselect, groupBreakdown, claimSummary, pollDelay, describeError, CLOSED_CODES,
+  connectorFor, groupBundles, preselectBundle, newestFirst, modeLabel, MODES, pinChangeNote, shortId, samePin, bundleLabel, revisionLabels, revisionLabel, missingNote,
 } = review
 
 // The closed tables are read from the Go side, so a code the server starts to send fails loudly here instead of
@@ -33,10 +34,10 @@ const PLAN_CODES = unique([
 const PRESERVED_REASONS = unique(literals(planGo, /Preserved\{[^}]*Reason:\s*"([a-z_]+)"/g))
 // Preview states: `State: "x"` in a literal, and the first string after the `=` of any statement that sets or compares a State
 // (this reaches `p.State, p.Error = "failed", ...` and `p.InventoryRevision, p.State = revision, "capturing"` too).
-const STATES = unique([...literals(previewGo, /\bState:\s*"([a-z]+)"/g), ...literals(previewGo, /\bState\b[^=\n"]*=[^\n]*?"([a-z]+)"/g)])
+const STATES = unique([...literals(previewGo, /\bState:\s*"([a-z_0-9]+)"/g), ...literals(previewGo, /\bState\b[^=\n"]*=[^\n]*?"([a-z_0-9]+)"/g)])
 // Failure codes: the connector may report the cases of the switch in FailSkillContentPreviewFor; the controller itself records plan_unavailable.
 const FAILURE_CODES = unique([
-  ...literals(previewGo, /switch code \{\s*case ("[a-z_]+"(?:,\s*"[a-z_]+")*):/g).flatMap(list => literals(list, /"([a-z_]+)"/g)),
+  ...literals(previewGo, /switch code \{([\s\S]*?)default:/g).flatMap(list => literals(list, /"([a-z_]+)"/g)),
   ...literals(previewGo, /p\.State, p\.Error = "failed", "([a-z_]+)"/g),
 ])
 // Fence reasons: every reasons = append(reasons, "x") inside previewFence.
@@ -509,7 +510,7 @@ test('groupBreakdown merges a stays-yours and library-only pair into one differs
     ],
   })
   assert.deepEqual(rows.map(r => [r.path, r.state]), [['SKILL.md', 'claimed'], ['notes/mine.txt', 'stays_yours'], ['scripts/run.sh', 'differs'], ['z-new.md', 'library_only']])
-  // The merged row describes the machine's copy: that is the file that was edited and stays yours.
+  // The merged row describes the machine's copy: that is the file that differs from the revision and stays yours.
   assert.deepEqual(rows[2], { path: 'scripts/run.sh', state: 'differs', bytes: 80, executable: false, digest: digest('m') })
   assert.deepEqual(rows[0], { path: 'SKILL.md', state: 'claimed', bytes: 10, executable: false, digest: digest('a') })
   assert.deepEqual(rows[1], { path: 'notes/mine.txt', state: 'stays_yours', bytes: 12, executable: false, digest: digest('n') })
@@ -666,6 +667,208 @@ test('no sentence says an ownership record was verified, names a dialect word or
   }
   // The only mention of verification denies it.
   for (const s of sentences.filter(s => /verified/i.test(s))) assert.match(s, /\bnot verified\b/)
+})
+
+// ----------------------------------------------------------------------------------------------
+// Pins: the connector, the library choice, the newest revision and the words for a refused write.
+const bundle = (id, name, o = {}) => ({ id: id.repeat(32), name, head: 'h'.repeat(32), createdAt: NOW, ...o })
+const revision = (id, createdAt, o = {}) => ({ id: id.repeat(32), manifestDigest: digest(id), createdAt, origin: { kind: 'user' }, ...o })
+const pin = (o = {}) => ({ id: 'p'.repeat(48), environmentId: '1/workstation/agents', agentId: 'a'.repeat(48), name: 'demo', bundleId: 'b'.repeat(32), revisionId: 'c'.repeat(32), manifestDigest: digest('m'), mode: 'additive', version: 'v'.repeat(48), updatedAt: NOW, verification: 'not_verified', ...o })
+
+test('connectorFor: a running connector on the same host, case-folded the way the database does', () => {
+  const running = agent({ id: 'r'.repeat(48) }), paused = agent({ id: 'p'.repeat(48), paused: true })
+  assert.equal(connectorFor(env(), [running]), running)
+  assert.equal(connectorFor(env({ host: 'WORKSTATION' }), [agent({ host: 'workstation' })])?.host, 'workstation')
+  assert.equal(connectorFor(env(), [paused]), undefined)
+  assert.equal(connectorFor(env(), [agent({ host: 'elsewhere' })]), undefined)
+  // Only ASCII letters fold: a Kelvin sign is not a k.
+  assert.equal(connectorFor(env({ host: '\u212Aelvin' }), [agent({ host: 'kelvin' })]), undefined)
+  for (const none of [undefined, null, []]) assert.equal(connectorFor(env(), none), undefined)
+})
+
+test('connectorFor skips a paused connector even when it is listed first or seen last, and prefers the most recently seen', () => {
+  const paused = agent({ id: 'p'.repeat(48), paused: true, lastSeen: NOW + 5000 }), old = agent({ id: 'o'.repeat(48), lastSeen: NOW - 5000 }), live = agent({ id: 'l'.repeat(48), lastSeen: NOW })
+  assert.equal(connectorFor(env(), [paused, old, live]), live)
+  assert.equal(connectorFor(env(), [live, old]), live)
+  assert.equal(connectorFor(env(), [old, live]), live)
+  // A tie goes to the first listed.
+  const twin = agent({ id: 't'.repeat(48), lastSeen: NOW })
+  assert.equal(connectorFor(env(), [live, twin]), live)
+  assert.equal(connectorFor(env(), [twin, live]), twin)
+})
+
+test('connectorFor and scopeEligibility agree: a scope can be offered exactly when a connector is found', () => {
+  const cases = [[], [agent()], [agent({ paused: true })], [agent({ paused: true }), agent({ id: 'b'.repeat(48) })], [agent({ host: 'other' })], [agent({ host: 'WORKSTATION', paused: true })], [agent({ host: 'WORKSTATION' })]]
+  for (const agents of cases) assert.equal(scopeEligibility(env(), agents, opts()).ok, connectorFor(env(), agents) !== undefined, JSON.stringify(agents))
+})
+
+test('groupBundles puts the reported skill first and keeps the library order within each group', () => {
+  const list = [bundle('1', 'alpha'), bundle('2', 'demo'), bundle('3', 'demo'), bundle('4', 'zeta')]
+  const g = groupBundles(list, 'demo')
+  assert.deepEqual(g.matching.map(b => b.id[0]), ['2', '3'])
+  assert.deepEqual(g.others.map(b => b.id[0]), ['1', '4'])
+  for (const none of [undefined, '', 'nothing', 'DEMO', 'dem']) assert.deepEqual(groupBundles(list, none), { matching: [], others: list }, JSON.stringify(none))
+  assert.deepEqual(groupBundles([], 'demo'), { matching: [], others: [] })
+  assert.equal(list.length, 4)
+})
+
+test('preselectBundle chooses only when exactly one library skill has the reported name', () => {
+  const list = [bundle('1', 'alpha'), bundle('2', 'demo'), bundle('3', 'zeta')]
+  assert.equal(preselectBundle(list, 'demo'), '2'.repeat(32))
+  assert.equal(preselectBundle([...list, bundle('4', 'demo')], 'demo'), '')
+  for (const none of [undefined, '', 'other', 'Demo']) assert.equal(preselectBundle(list, none), '', JSON.stringify(none))
+  assert.equal(preselectBundle([], 'demo'), '')
+})
+
+test('newestFirst puts the bundle head first and the oldest last, whatever order the library listed them in', () => {
+  const r1 = revision('1', NOW - 3000), r2 = revision('2', NOW - 2000), r3 = revision('3', NOW - 1000)
+  assert.deepEqual(newestFirst([r1, r2, r3], r3.id).map(r => r.id[0]), ['3', '2', '1'])
+  assert.deepEqual(newestFirst([r3, r1, r2], r3.id).map(r => r.id[0]), ['3', '2', '1'])
+  // The head leads even when its creation time disagrees, and with no known head the creation time decides.
+  assert.deepEqual(newestFirst([r1, r2, r3], r1.id).map(r => r.id[0]), ['1', '3', '2'])
+  assert.deepEqual(newestFirst([r1, r2, r3]).map(r => r.id[0]), ['3', '2', '1'])
+  assert.deepEqual(newestFirst([r1, r2, r3], 'z'.repeat(32)).map(r => r.id[0]), ['3', '2', '1'])
+  assert.deepEqual(newestFirst([], 'x'), [])
+})
+
+test('newestFirst orders revisions made in the same millisecond by id, and does not change its input', () => {
+  const a = revision('a', NOW), b = revision('b', NOW), c = revision('c', NOW)
+  assert.deepEqual(newestFirst([b, a, c]).map(r => r.id[0]), ['c', 'b', 'a'])
+  assert.deepEqual(newestFirst([a, b, c]).map(r => r.id[0]), ['c', 'b', 'a'])
+  const input = [a, b, c]
+  newestFirst(input, a.id)
+  assert.deepEqual(input.map(r => r.id[0]), ['a', 'b', 'c'])
+  // A missing or odd creation time never makes the order unstable.
+  assert.deepEqual(newestFirst([revision('1', Number.NaN), revision('2', Number.NaN)]).map(r => r.id[0]), ['2', '1'])
+})
+
+test('mode words: Add and update, and the managed mode in the spec\'s own words; anything else is not a raw code', () => {
+  assert.equal(modeLabel('additive'), 'Add and update')
+  assert.equal(modeLabel('managed'), 'Also remove files reet owns that a newer revision drops')
+  assert.deepEqual(MODES.map(m => m.value), ['additive', 'managed'])
+  assert.deepEqual(MODES.map(m => m.label), ['Add and update', 'Also remove files reet owns that a newer revision drops'])
+  for (const odd of ['', 'mirror', 'bidirectional', 'Additive', 'constructor', 'toString', '__proto__']) {
+    const text = modeLabel(odd)
+    assert.equal(text, "A mode this page doesn't recognise", JSON.stringify(odd))
+    assert.doesNotMatch(text, /_/)
+  }
+  assert.equal(shortId('abcdef0123456789'), 'abcdef01')
+  assert.equal(shortId('abc'), 'abc')
+})
+
+test('pinChangeNote says what changed in plain words, and nothing when nothing did', () => {
+  const was = pin({ revisionId: '2'.repeat(32), mode: 'managed', version: 'v1' })
+  const changed = pin({ revisionId: '1'.repeat(32), mode: 'additive', version: 'v2' })
+  const note = pinChangeNote(was, changed, 'demo')
+  assert.match(note, /changed elsewhere/)
+  assert.match(note, /11111111/)
+  assert.match(note, /Add and update/)
+  assert.match(note, /22222222/)
+  assert.match(note, /Also remove files reet owns/)
+  assert.match(note, /Nothing was saved/)
+  assert.match(pinChangeNote(was, undefined, 'demo'), /removed elsewhere/)
+  assert.match(pinChangeNote(was, undefined, 'demo'), /Nothing was saved/)
+  const created = pinChangeNote(undefined, changed, 'demo')
+  assert.match(created, /was pinned elsewhere/)
+  assert.match(created, /11111111/)
+  assert.match(created, /Nothing was saved/)
+  assert.match(pinChangeNote(was, pin({ ...was, version: 'v3' }), 'demo'), /saved again elsewhere, with the same revision and mode/)
+  assert.match(pinChangeNote(was, pin({ ...was, bundleId: 'z'.repeat(32), version: 'v3' }), 'demo'), /changed elsewhere/)
+  // A removal says nothing was removed, never that anything was saved.
+  const removing = pinChangeNote(was, changed, 'demo', 'remove')
+  assert.match(removing, /changed elsewhere/)
+  assert.match(removing, /Nothing was removed/)
+  assert.match(removing, /remove it again/)
+  assert.doesNotMatch(removing, /saved\b(?! again)/)
+  assert.match(pinChangeNote(was, undefined, 'demo', 'remove'), /already removed elsewhere, so there was nothing to remove/)
+  assert.match(pinChangeNote(was, pin({ ...was, version: 'v3' }), 'demo', 'remove'), /saved again elsewhere.*Nothing was removed/)
+  assert.equal(pinChangeNote(was, was, 'demo', 'remove'), '')
+  // Nothing differs, or there was never a pin: the server's own refusal is the better words.
+  assert.equal(pinChangeNote(was, was, 'demo'), '')
+  assert.equal(pinChangeNote(undefined, undefined, 'demo'), '')
+})
+
+test('samePin: a pin is the same only when connector, library skill, revision and mode all match', () => {
+  const p = pin()
+  const want = { agentId: p.agentId, bundleId: p.bundleId, revisionId: p.revisionId, mode: p.mode }
+  assert.equal(samePin(p, want), true)
+  assert.equal(samePin(p, { ...want, agentId: 'z'.repeat(48) }), false, 'a pin made through another connector is not the current pin')
+  assert.equal(samePin(p, { ...want, agentId: '' }), false)
+  assert.equal(samePin(p, { ...want, bundleId: 'z'.repeat(32) }), false)
+  assert.equal(samePin(p, { ...want, revisionId: 'z'.repeat(32) }), false)
+  assert.equal(samePin(p, { ...want, mode: 'managed' }), false)
+  assert.equal(samePin(undefined, want), false)
+})
+
+test('MODES is derived from the mode words, in order', () => {
+  assert.deepEqual(MODES.map(m => [m.value, m.label]), [['additive', modeLabel('additive')], ['managed', modeLabel('managed')]])
+})
+
+test('bundleLabel is the name, with the start of the id only when two library skills share a name', () => {
+  const list = [bundle('1', 'alpha'), bundle('2', 'twin'), bundle('3', 'twin'), bundle('4', 'zeta')]
+  assert.equal(bundleLabel(list[0], list), 'alpha')
+  assert.equal(bundleLabel(list[1], list), `twin · ${'2'.repeat(8)}`)
+  assert.equal(bundleLabel(list[2], list), `twin · ${'3'.repeat(8)}`)
+  assert.equal(bundleLabel(list[3], list), 'zeta')
+  assert.equal(bundleLabel(list[0], [list[0]]), 'alpha')
+})
+
+test('revisionLabels names each revision by when it was made and marks the newest', () => {
+  const at = (ms) => `t${ms}`
+  const r1 = revision('1', 1000), r2 = revision('2', 2000), r3 = revision('3', 3000)
+  const labels = revisionLabels([r3, r2, r1], r3.id, at)
+  assert.equal(labels.get(r3.id), 't3000 · Newest')
+  assert.equal(labels.get(r2.id), 't2000')
+  assert.equal(labels.get(r1.id), 't1000')
+  assert.equal(revisionLabels([r1, r2], undefined, at).get(r2.id), 't2000', 'no head, no Newest')
+  // Two that share a time carry the start of their id, and the newest is still marked.
+  const a = revision('a', 5000), b = revision('b', 5000), c = revision('c', 6000)
+  const shared = revisionLabels([a, b, c], b.id, at)
+  assert.equal(shared.get(a.id), `t5000 · ${'a'.repeat(8)}`)
+  assert.equal(shared.get(b.id), `t5000 · ${'b'.repeat(8)} · Newest`)
+  assert.equal(shared.get(c.id), 't6000')
+  // No raw id appears when the times differ, and the real clock format never shows one either.
+  for (const label of revisionLabels([r1, r2, r3], r3.id).values()) assert.doesNotMatch(label, /[0-9a-f]{8}/)
+  assert.equal(revisionLabels([], 'x').size, 0)
+})
+
+test('revisionLabel falls back to the start of the id only when the revision is not in a list that was read', () => {
+  const r1 = revision('1', NOW)
+  assert.match(revisionLabel(r1.id, [r1], r1.id), /Newest$/)
+  assert.equal(revisionLabel('9'.repeat(32), [r1], r1.id), '9'.repeat(8))
+  assert.equal(revisionLabel('9'.repeat(32), undefined, undefined), '9'.repeat(8))
+})
+
+test('pinChangeNote uses the revision words it is given, and the start of the id without them', () => {
+  const was = pin({ revisionId: '2'.repeat(32), mode: 'managed', version: 'v1' }), changed = pin({ revisionId: '1'.repeat(32), mode: 'additive', version: 'v2' })
+  const note = pinChangeNote(was, changed, 'demo', 'save', p => `from ${p.revisionId[0]} o'clock`)
+  assert.match(note, /revision from 1 o'clock \(Add and update\)/)
+  assert.match(note, /revision from 2 o'clock \(Also remove files reet owns/)
+  assert.doesNotMatch(note, /11111111|22222222/)
+  assert.match(pinChangeNote(was, changed, 'demo'), /11111111/)
+})
+
+test('missingNote says which thing is gone and that nothing was done', () => {
+  assert.match(missingNote('save'), /isn't there any more.*nothing was saved/)
+  assert.match(missingNote('remove'), /isn't there any more.*nothing was removed/)
+  for (const s of [missingNote('save'), missingNote('remove')]) assert.doesNotMatch(s, /installed|installs|\bapplied\b|up to date|verified|_/i)
+})
+
+test('the pin sentences name no raw code, claim no install, never call anything verified, and use plain British English', () => {
+  const was = pin({ revisionId: '2'.repeat(32), mode: 'managed', version: 'v1' }), changed = pin({ revisionId: '1'.repeat(32), mode: 'additive', version: 'v2' })
+  const sentences = [
+    ...MODES.map(m => m.label), modeLabel('odd'),
+    pinChangeNote(was, changed, 'demo'), pinChangeNote(was, undefined, 'demo'), pinChangeNote(undefined, changed, 'demo'), pinChangeNote(was, pin({ ...was, version: 'v3' }), 'demo'),
+    pinChangeNote(was, changed, 'demo', 'remove'), pinChangeNote(was, undefined, 'demo', 'remove'),
+    pinChangeNote(pin({ mode: 'what', version: 'a' }), pin({ mode: 'else', version: 'b' }), 'demo'),
+  ]
+  for (const s of sentences) {
+    assert.ok(s.length > 0)
+    assert.doesNotMatch(s, /installed|installs|\bapplied\b|up to date|verified/i, `"${s}" implies a change or a check that did not happen`)
+    assert.doesNotMatch(s, /_/, `"${s}" shows a raw code`)
+    assert.doesNotMatch(s, /\b(nowt|owt|summat|reight|ey up|lass|lad|thee|tha)\b/i, `"${s}" uses dialect`)
+    assert.doesNotMatch(s, /\b(color|authoriz\w*|organiz\w*|recogniz\w*|behavior|center|gray)\b/i, `"${s}" is not British spelling`)
+  }
 })
 
 // ----------------------------------------------------------------------------------------------

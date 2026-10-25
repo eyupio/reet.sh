@@ -18,12 +18,12 @@ var (
 	// ErrSSOAlreadyLinked is returned when the account already has an
 	// identity at that provider.
 	ErrSSOAlreadyLinked = errors.New("this account is already linked to an identity at that provider")
-	// ErrSSOBusy is returned when too many sign-ins are waiting to finish.
-	ErrSSOBusy = errors.New("too many single sign-on attempts are waiting")
 )
 
 // SSOLoginCap bounds the sign-ins waiting to finish, so a flood of starts
-// cannot grow the table without limit.
+// cannot grow the table without limit. At the cap the oldest attempt gives
+// way: refusing the newest would let anybody who can send starts keep every
+// real person out.
 const SSOLoginCap = 1000
 
 // SSOIdentity is one provider subject linked to an account.
@@ -182,7 +182,8 @@ func (s *Store) CreateSSOUser(issuer, subject, email, name, role string) (User, 
 }
 
 // CreateSSOLogin records a started sign-in. Expired attempts are cleared
-// first; if the table is still at its cap the attempt is refused.
+// first; if the table is still at its cap the oldest attempts are dropped to
+// make room.
 func (s *Store) CreateSSOLogin(l SSOLogin, at int64) error {
 	return s.withTx(func(tx *sql.Tx) error {
 		if _, err := tx.Exec(`DELETE FROM sso_logins WHERE expires_at<=?`, at); err != nil {
@@ -193,7 +194,9 @@ func (s *Store) CreateSSOLogin(l SSOLogin, at int64) error {
 			return err
 		}
 		if n >= SSOLoginCap {
-			return ErrSSOBusy
+			if _, err := tx.Exec(`DELETE FROM sso_logins WHERE rowid IN (SELECT rowid FROM sso_logins ORDER BY rowid LIMIT ?)`, n-SSOLoginCap+1); err != nil {
+				return err
+			}
 		}
 		_, err := tx.Exec(`INSERT INTO sso_logins(state_hash,binding_hash,nonce,verifier,next,intent,user_id,expires_at) VALUES(?,?,?,?,?,?,?,?)`,
 			l.StateHash, l.BindingHash, l.Nonce, l.Verifier, l.Next, l.Intent, l.UserID, l.ExpiresAt)
@@ -235,9 +238,11 @@ func (s *Store) CreateSSOSession(id string, userID, expiresAt int64, ua, issuer,
 }
 
 // SessionSSO is the provider session a session began under, empty for a
-// session made with a password.
-func (s *Store) SessionSSO(id string) (issuer, sid, subject string, err error) {
-	err = s.db.QueryRow(`SELECT COALESCE(sso_issuer,''),COALESCE(sso_sid,''),COALESCE(sso_subject,'') FROM sessions WHERE id=?`, id).Scan(&issuer, &sid, &subject)
+// session made with a password. A session counts only for the person it was
+// made for and only while it lasts: a browser can carry a cookie that is
+// somebody else's or has expired.
+func (s *Store) SessionSSO(id string, userID, at int64) (issuer, sid, subject string, err error) {
+	err = s.db.QueryRow(`SELECT COALESCE(sso_issuer,''),COALESCE(sso_sid,''),COALESCE(sso_subject,'') FROM sessions WHERE id=? AND user_id=? AND expires_at>?`, id, userID, at).Scan(&issuer, &sid, &subject)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", "", "", nil
 	}

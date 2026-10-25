@@ -116,20 +116,80 @@ func TestALoginAttemptCanBeSpentOnce(t *testing.T) {
 	}
 }
 
-func TestLoginAttemptsAreCappedAndTheExpiredOnesFreeRoom(t *testing.T) {
+// A flood of starts must not turn real people away: at the cap the oldest
+// waiting attempt gives way, so the table stays bounded and a new sign-in
+// still begins.
+func TestAtTheCapTheOldestLoginAttemptGivesWayToANewOne(t *testing.T) {
 	s := newStore(t)
 	at := time.Now().UnixMilli()
 	for i := 0; i < SSOLoginCap; i++ {
-		l := SSOLogin{StateHash: "s" + string(rune('a'+i%26)) + itoa(i), BindingHash: "b", Nonce: "n", Verifier: "v", ExpiresAt: at + 60_000}
+		l := SSOLogin{StateHash: "s" + string(rune('a'+i%26)) + itoa(i), BindingHash: "b", Nonce: "n", Verifier: "v", ExpiresAt: at + 60_000 + int64(i)}
 		if err := s.CreateSSOLogin(l, at); err != nil {
 			t.Fatalf("attempt %d: %v", i, err)
 		}
 	}
-	if err := s.CreateSSOLogin(SSOLogin{StateHash: "over", BindingHash: "b", Nonce: "n", Verifier: "v", ExpiresAt: at + 60_000}, at); !errors.Is(err, ErrSSOBusy) {
+	oldest := "s" + string(rune('a'+0%26)) + itoa(0)
+	if err := s.CreateSSOLogin(SSOLogin{StateHash: "over", BindingHash: "b", Nonce: "n", Verifier: "v", ExpiresAt: at + 90_000}, at); err != nil {
 		t.Fatalf("over the cap: %v", err)
+	}
+	if _, ok, _ := s.ConsumeSSOLogin("over", at); !ok {
+		t.Fatal("the new attempt was not kept")
+	}
+	if _, ok, _ := s.ConsumeSSOLogin(oldest, at); ok {
+		t.Fatal("the oldest attempt survived a full table")
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sso_logins`).Scan(&n); err != nil || n != SSOLoginCap-1 {
+		t.Fatalf("rows = %d %v", n, err)
+	}
+}
+
+func TestExpiredLoginAttemptsFreeRoomBeforeAnythingIsEvicted(t *testing.T) {
+	s := newStore(t)
+	at := time.Now().UnixMilli()
+	for i := 0; i < SSOLoginCap; i++ {
+		l := SSOLogin{StateHash: "s" + itoa(i), BindingHash: "b", Nonce: "n", Verifier: "v", ExpiresAt: at + 60_000}
+		if err := s.CreateSSOLogin(l, at); err != nil {
+			t.Fatalf("attempt %d: %v", i, err)
+		}
 	}
 	if err := s.CreateSSOLogin(SSOLogin{StateHash: "later", BindingHash: "b", Nonce: "n", Verifier: "v", ExpiresAt: at + 200_000}, at+120_000); err != nil {
 		t.Fatalf("after the first batch expired: %v", err)
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sso_logins`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("rows = %d %v", n, err)
+	}
+}
+
+// A browser can carry another person's provider cookie. The provider link of
+// a session belongs to the person the session was made for, and only while
+// it lasts.
+func TestAProviderSessionBelongsToItsPersonAndToItsLifetime(t *testing.T) {
+	s := newStore(t)
+	ada, err := s.CreateUser("ada@example.com", "", "member", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := s.CreateUser("bob@example.com", "", "member", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now().UnixMilli()
+	if err := s.CreateSSOSession("live", ada.ID, at+60_000, "ua", "https://idp", "sid-1", "sub-ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateSSOSession("old", ada.ID, at-1, "ua", "https://idp", "sid-2", "sub-ada"); err != nil {
+		t.Fatal(err)
+	}
+	if iss, sid, sub, _ := s.SessionSSO("live", ada.ID, at); iss != "https://idp" || sid != "sid-1" || sub != "sub-ada" {
+		t.Fatalf("her own live session = %q %q %q", iss, sid, sub)
+	}
+	if iss, _, _, _ := s.SessionSSO("live", bob.ID, at); iss != "" {
+		t.Fatalf("somebody else's session gave %q", iss)
+	}
+	if iss, _, _, _ := s.SessionSSO("old", ada.ID, at); iss != "" {
+		t.Fatalf("an expired session gave %q", iss)
 	}
 }
 

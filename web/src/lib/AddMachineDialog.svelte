@@ -8,7 +8,7 @@
  import type { Snippet } from 'svelte'
  import { UnauthorizedError, type Machine, type SyncState } from './api'
  import { SIGNED_OUT, isSignedOut } from './contentReview'
- import { JOIN_WATCH_CAP_MS, joinBaseline, joinCommands, joinDelay, joinState, validateMachineName, type JoinBaseline, type JoinContext } from './machineJoin'
+ import { JOIN_WATCH_CAP_MS, joinBaseline, joinCommands, joinDelay, joinState, validateMachineName, canonicalHost, type JoinBaseline, type JoinContext } from './machineJoin'
  import type { ReleaseChannel } from './machineSetup'
  import CopyButton from './CopyButton.svelte'
 
@@ -42,6 +42,8 @@
  let touched = $state(false)
  const checked = $derived(validateMachineName(name))
  const host = $derived(checked.ok ? checked.name : '')
+ // What the server saves the typed name under: a saved alias belongs to an existing machine. The commands keep the typed name.
+ const canonical = $derived(host ? canonicalHost(host, machines) : '')
 
  // What was already reporting under the name, captured from loaded data when the validated name changes and not again.
  let captured = $state<{ host: string; baseline: JoinBaseline } | undefined>()
@@ -143,7 +145,7 @@
  }
  function use() {
   if (!canUse || !host) return
-  const chosen = host
+  const chosen = canonicalHost(host, machines)
   remembered = ''
   shutdown(true)
   onready({ host: chosen, context })
@@ -235,7 +237,7 @@
  <footer>
   <small>Nothing here changes a machine.</small>
   <div class="actions">
-   {#if canUse}<button type="button" class="btn primary" onclick={use}>Use {host}</button>{/if}
+   {#if canUse}<button type="button" class="btn primary" onclick={use}>Use {canonical}</button>{/if}
   </div>
  </footer>
 </dialog>

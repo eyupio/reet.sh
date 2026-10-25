@@ -9,13 +9,15 @@ page.on('pageerror',e=>errors.push(e.message))
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return{promise,resolve}}
 
 // Server state. Scan times only ever grow, as the controller's do, so "a newer scan" is always a later stamp.
+let aliasesOf={}   // saved aliases per canonical host, as the server keeps them after a rename or merge
 let authMode='accounts',viewer=false,seq=0,syncStatus=0,syncHold=null,tokenMode='ok'
 const stamp=()=>Date.now()+(++seq)
 const scope=(host,over={})=>({id:`scope-${host}`,host,name:host,kind:'agent',agent:'agents',project:'',complete:true,scannedAt:stamp(),lastSeen:stamp(),skills:[],skillCount:0,content:{state:'observed',skills:[]},os:'linux',arch:'amd64',version:'dev',...over})
 const connector=(id,host,paused=false)=>({id,host,version:'dev',paused,autoUpdate:false,lastSeen:Date.now()})
 let scopes=[scope('workstation')],agents=[connector('agent-ws','workstation')]
-const machinesOf=()=>{const by=new Map();for(const s of scopes)by.set(s.host,[...(by.get(s.host)??[]),s]);return[...by].map(([host,groups])=>({host,groups,skillCount:0}))}
-const reset=()=>{scopes=[scope('workstation')];agents=[connector('agent-ws','workstation')];syncStatus=0;syncHold=null;tokenMode='ok'}
+const machinesOf=()=>{const by=new Map();for(const s of scopes)by.set(s.host,[...(by.get(s.host)??[]),s]);return[...by].map(([host,groups])=>({host,groups,skillCount:0,...(aliasesOf[host]?{aliases:aliasesOf[host]}:{})}))}
+const reset=()=>{aliasesOf={};scopes=[scope('workstation')];agents=[connector('agent-ws','workstation')];syncStatus=0;syncHold=null;tokenMode='ok'}
+const TOO_LONG='That name is too long. Use at most 200 bytes; accented letters and emoji take more than one.'
 const SECRET='rst_SECRET_TOKEN_VALUE_9f3a'
 
 await page.route('**/api/**',async route=>{
@@ -182,11 +184,20 @@ try{
  await paste(p.name,'next\u0085line')
  await expect(dialog.getByText('Use a name without line breaks or other control characters.')).toBeVisible()
  await p.name.fill('x'.repeat(201))
- await expect(dialog.getByText('Use 200 characters or fewer.')).toBeVisible()
+ await expect(dialog.getByText(TOO_LONG)).toBeVisible()
  await expect(p.commands).toHaveCount(0)
  await expect(dialog.getByRole('button',{name:/^Copy/})).toHaveCount(0)
+ // The limit is the server's, in bytes: 51 emoji are 204 bytes and are refused here rather than waited for for ever; 50 are 200.
+ await p.name.fill('😀'.repeat(51))
+ await expect(dialog.getByText(TOO_LONG)).toBeVisible()
+ await expect(p.commands).toHaveCount(0)
+ await expect(dialog.getByRole('button',{name:/^Copy/})).toHaveCount(0)
+ await expect(p.status).not.toContainText('Waiting for it')
+ await p.name.fill('😀'.repeat(50))
+ await expect(dialog.getByText(TOO_LONG)).toHaveCount(0)
+ await commandsAre(p,'😀'.repeat(50))
  await p.name.fill('  studio  ')
- await expect(dialog.getByText('Use 200 characters or fewer.')).toHaveCount(0)
+ await expect(dialog.getByText(TOO_LONG)).toHaveCount(0)
  await expect(p.name).not.toHaveAttribute('aria-invalid','true')
  // The block is the three builders' text for the trimmed name, and holds no token.
  await commandsAre(p,'studio')
@@ -296,6 +307,41 @@ try{
   await quiet()
  }
  agents=agents.filter(a=>a.id!=='agent-ws-new')
+
+ // A saved alias (kept after a rename or merge) is the same machine: the enrolment reports under the canonical name.
+ {
+  aliasesOf={workstation:['old-workstation'],lathe:['lathe-old']}
+  scopes.push(scope('lathe',{scannedAt:Date.now()-60000}))
+  await page.reload()
+  await expect(card('lathe')).toBeVisible()
+  const d=await open(),pp=parts(d)
+  await pp.name.fill('Old-Workstation')
+  await expect(pp.status).toContainText('A machine called workstation is already here.')
+  await expect(pp.status).toContainText('You typed Old-Workstation; reet.sh saved it under workstation.')
+  await expect(pp.use('workstation')).toBeVisible()
+  await commandsAre(pp,'Old-Workstation')   // the command keeps what was typed: the server resolves it
+  await words(d)
+  // An alias of a machine whose connector is not there yet waits under the canonical name, then walks to Ready.
+  await pp.name.fill('lathe-old')
+  await expect(pp.status).toContainText('Waiting for it')
+  await expect(pp.status).toContainText('The machine will appear as lathe.')
+  await expect(pp.anyUse).toHaveCount(0)
+  await commandsAre(pp,'lathe-old')
+  agents.push(connector('agent-lathe','lathe'))
+  await expect(pp.status).toContainText('Waiting for its first scan')
+  scopes=scopes.map(s=>s.host==='lathe'?{...s,scannedAt:stamp(),lastSeen:stamp()}:s)
+  await expect(pp.status).toContainText('Ready')
+  await expect(pp.use('lathe')).toBeVisible()
+  await words(d)
+  await pp.use('lathe').click()
+  await expect(d).toHaveCount(0)
+  await expect(card('lathe')).toHaveClass(/just-added/)
+  await expect(card('lathe')).toContainText('Just added')
+  await expect(card('workstation')).not.toHaveClass(/just-added/)
+  expect(await page.evaluate(()=>window.__scrolled)).toContain('machine-lathe')
+  await quiet()
+  aliasesOf={};scopes=scopes.filter(s=>s.host!=='lathe');agents=agents.filter(a=>a.id!=='agent-lathe')
+ }
 
  // Closing stops everything, returns focus to what opened it, and a tab left hidden does not poll.
  await page.reload()

@@ -18,7 +18,7 @@ const joinSource = transpile('./machineJoin.ts')
 const join = await import(url(joinSource))
 const setup = await import(setupURL)
 const review = await import(reviewURL)
-const { MAX_MACHINE_NAME, JOIN_WATCH_CAP_MS, validateMachineName, joinCommands, joinBaseline, joinState, landingFor, joinDelay } = join
+const { MAX_MACHINE_NAME_BYTES, JOIN_WATCH_CAP_MS, validateMachineName, canonicalHost, joinCommands, joinBaseline, joinState, landingFor, joinDelay } = join
 
 const now = 1_800_000_000_000
 const DAY = 86_400_000
@@ -31,7 +31,7 @@ const view = (changes = {}) => joinState({ name: 'studio', machines: [readyMachi
 
 test('validateMachineName trims and refuses empty, too long and control characters, each with its own reason', () => {
   assert.deepEqual(validateMachineName('  studio  '), { ok: true, name: 'studio' })
-  assert.equal(MAX_MACHINE_NAME, 200)
+  assert.equal(MAX_MACHINE_NAME_BYTES, 200)
   const reasons = new Set()
   for (const bad of ['', '   ', 'a'.repeat(201), 'a\nb', 'a\tb', 'a\0b', 'a\x7fb', 'a\x85b', 'a\u2028b']) {
     const r = validateMachineName(bad)
@@ -45,8 +45,18 @@ test('validateMachineName trims and refuses empty, too long and control characte
   assert.equal(validateMachineName('\n').ok, false)
   assert.deepEqual(validateMachineName(' Zoë Ünï 研究 '), { ok: true, name: 'Zoë Ünï 研究' })
   assert.deepEqual(validateMachineName("Paul's Mac"), { ok: true, name: "Paul's Mac" })
-  assert.equal(validateMachineName('😀'.repeat(200)).ok, true)
-  assert.equal(validateMachineName('😀'.repeat(201)).ok, false)
+})
+
+test('the name limit counts UTF-8 bytes, as the server does', () => {
+  const tooLong = 'That name is too long. Use at most 200 bytes; accented letters and emoji take more than one.'
+  assert.equal(validateMachineName('😀'.repeat(50)).ok, true) // 200 bytes
+  assert.deepEqual(validateMachineName('😀'.repeat(51)), { ok: false, reason: tooLong }) // 204 bytes
+  assert.equal(validateMachineName('a'.repeat(200)).ok, true)
+  assert.deepEqual(validateMachineName('a'.repeat(201)), { ok: false, reason: tooLong })
+  assert.equal(validateMachineName('é'.repeat(100)).ok, true) // 200 bytes
+  assert.deepEqual(validateMachineName('é'.repeat(101)), { ok: false, reason: tooLong })
+  // Trimming happens before counting.
+  assert.equal(validateMachineName(`  ${'a'.repeat(200)}  `).ok, true)
 })
 
 test('joinCommands is install, configure and enrol in order with a blank line between, and never holds a token', () => {
@@ -296,4 +306,83 @@ test('joinCommands only quotes: refusing control characters is validateMachineNa
 
 test('landingFor passes on the sign-in reason when accounts are off', () => {
   assert.deepEqual(landingFor({}, readyMachine(), [agent()], opts({ accounts: false })), { kind: 'none', reason: 'Private skills need a signed-in account.' })
+})
+
+const aliased = (host, aliases, groups = [group('claude', { host })]) => ({ host, aliases, groups, skillCount: 0 })
+
+test('canonicalHost maps a saved alias to its machine and leaves other names alone', () => {
+  const ms = [aliased('studio', ['old-studio', 'mac-1']), machine([group('claude')], 'other')]
+  assert.equal(canonicalHost('old-studio', ms), 'studio')
+  assert.equal(canonicalHost('  Old-Studio ', ms), 'studio') // aliases are stored lower case
+  assert.equal(canonicalHost('MAC-1', ms), 'studio')
+  assert.equal(canonicalHost('studio', ms), 'studio')
+  assert.equal(canonicalHost('  brand-new ', ms), 'brand-new')
+  assert.equal(canonicalHost('old-studio', []), 'old-studio')
+  // Aliases are compared exactly once lower-cased: no partial match, no stored upper case.
+  assert.equal(canonicalHost('old', ms), 'old')
+  assert.equal(canonicalHost('x', [aliased('studio', ['X'])]), 'x')
+})
+
+test('canonicalHost never throws on odd input', () => {
+  for (const ms of [null, undefined, 'x', 3, {}, [null], [undefined, 4, 'x'], [{ host: 'h', aliases: 'a' }], [{ host: 'h', aliases: [1, null, {}] }], [{ aliases: ['a'] }], [{ host: 5, aliases: ['a'] }]]) {
+    assert.equal(canonicalHost('a', ms), 'a', JSON.stringify(ms))
+  }
+  assert.equal(canonicalHost(undefined, []), '')
+  assert.equal(canonicalHost(null, []), '')
+})
+
+test('joinState: an alias of a machine that is already reporting is already_here, and says what was typed', () => {
+  const machines = [aliased('studio', ['old-studio'])]
+  const agents = [agent()]
+  const baseline = joinBaseline('old-studio', agents, machines)
+  assert.deepEqual(baseline, { agentIds: ['a1'], scannedAt: baseline.scannedAt })
+  const v = view({ name: 'Old-Studio', machines, agents, baseline })
+  assert.equal(v.stage, 'already_here')
+  assert.equal(v.label, 'A machine called studio is already here.')
+  assert.equal(v.canUse, true)
+  assert.match(v.detail, /You typed Old-Studio; reet\.sh saved it under studio\./)
+  // The same machine typed by its own name has no such sentence.
+  const plain = view({ name: 'studio', machines, agents, baseline: joinBaseline('studio', agents, machines) })
+  assert.equal(plain.label, 'A machine called studio is already here.')
+  assert.doesNotMatch(plain.detail, /You typed/)
+  // The sentence also shows when the machine cannot be used.
+  const paused = view({ name: 'old-studio', machines, agents: [agent({ paused: true })], baseline })
+  assert.match(paused.detail, /paused/)
+  assert.match(paused.detail, /You typed old-studio; reet\.sh saved it under studio\./)
+})
+
+test('joinState: an alias of a machine with no connector yet waits, then walks to ready under the canonical host', () => {
+  const old = aliased('studio', ['old-studio'], [group('claude', { scannedAt: now - 1000 })])
+  const baseline = joinBaseline('old-studio', [], [old])
+  assert.deepEqual(baseline, { agentIds: [], scannedAt: now - 1000 })
+  const at = (changes) => view({ name: 'old-studio', baseline, machines: [old], agents: [], ...changes })
+  const waiting = at({})
+  assert.equal(waiting.stage, 'waiting')
+  assert.match(waiting.detail, /The machine will appear as studio\./)
+  assert.equal(at({ agents: [agent({ host: 'other' })] }).stage, 'waiting')
+  assert.equal(at({ agents: [agent({ paused: true })] }).stage, 'connected')
+  assert.equal(at({ agents: [agent()] }).stage, 'first_scan')
+  const fresh = aliased('studio', ['old-studio'], [group('claude', { scannedAt: now })])
+  const ready = at({ agents: [agent()], machines: [fresh] })
+  assert.deepEqual([ready.stage, ready.canUse], ['ready', true])
+  // A machine with no groups at all behaves the same.
+  const bare = aliased('studio', ['old-studio'], [])
+  assert.equal(view({ name: 'old-studio', machines: [bare], agents: [], baseline: joinBaseline('old-studio', [], [bare]) }).stage, 'waiting')
+  assert.equal(view({ name: 'old-studio', machines: [aliased('studio', ['old-studio'], [group('claude')])], agents: [agent()], baseline: null }).stage, 'ready')
+})
+
+test('joinState: a name that is not an alias is unchanged, with no alias wording', () => {
+  const machines = [aliased('studio', ['old-studio'])]
+  const v = view({ name: 'annexe', machines, agents: [], baseline: null })
+  assert.equal(v.stage, 'waiting')
+  assert.doesNotMatch(v.detail, /will appear as/)
+  assert.equal(view({ name: 'studio', machines, agents: [agent()], baseline: null }).stage, 'ready')
+  assert.deepEqual(joinBaseline('annexe', [agent()], machines), null)
+})
+
+test('alias handling never throws on odd machines', () => {
+  for (const ms of [[{ host: 'studio', groups: [], aliases: 'old' }], [{ host: 'studio', groups: [], aliases: [null, 3] }]]) {
+    assert.doesNotThrow(() => joinBaseline('old', [agent()], ms))
+    assert.doesNotThrow(() => view({ name: 'old', machines: ms }))
+  }
 })

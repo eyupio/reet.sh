@@ -142,22 +142,26 @@ test('the host fold is the one contentReview uses', () => {
 })
 
 test('joinBaseline lists the connector ids under the name, or null', () => {
-  assert.equal(joinBaseline('studio', []), null)
-  assert.equal(joinBaseline('studio', [agent({ host: 'other' })]), null)
-  assert.deepEqual(joinBaseline(' STUDIO ', [agent({ id: 'a1' }), agent({ id: 'a2', host: 'other' }), agent({ id: 'a3', host: 'studio', paused: true })]), { agentIds: ['a1', 'a3'] })
+  assert.equal(joinBaseline('studio', [], []), null)
+  assert.equal(joinBaseline('studio', [agent({ host: 'other' })], [machine([group('claude')], 'other')]), null)
+  assert.deepEqual(joinBaseline(' STUDIO ', [agent({ id: 'a1' }), agent({ id: 'a2', host: 'other' }), agent({ id: 'a3', host: 'studio', paused: true })], []), { agentIds: ['a1', 'a3'], scannedAt: 0 })
+  // Scans alone make a baseline; only complete scans of supported folders count, and the newest wins.
+  const scanned = machine([group('claude', { scannedAt: now - 5000 }), group('cursor', { scannedAt: now - 2000 }), group('codex', { scannedAt: now }), group('opencode', { complete: false, scannedAt: now })])
+  assert.deepEqual(joinBaseline('studio', [], [scanned]), { agentIds: [], scannedAt: now - 2000 })
+  assert.equal(joinBaseline('studio', [], [machine([group('codex')])]), null)
 })
 
 test('joinState: a baseline that matches a healthy machine is already_here and usable', () => {
   const agents = [agent()]
-  const v = view({ agents, baseline: joinBaseline('studio', agents) })
+  const v = view({ agents, baseline: joinBaseline('studio', agents, [readyMachine()]) })
   assert.equal(v.stage, 'already_here')
   assert.equal(v.label, 'A machine called studio is already here.')
   assert.equal(v.canUse, true)
-  assert.equal(view({ name: '  studio ', agents, baseline: { agentIds: ['a1'] } }).label, 'A machine called studio is already here.')
+  assert.equal(view({ name: '  studio ', agents, baseline: { agentIds: ['a1'], scannedAt: now - 1000 } }).label, 'A machine called studio is already here.')
 })
 
 test('joinState: already_here cannot be used when the existing machine is paused, stale or unscanned, and says why', () => {
-  const base = { agentIds: ['a1'] }
+  const base = { agentIds: ['a1'], scannedAt: now - 1000 }
   const paused = view({ agents: [agent({ paused: true })], baseline: base })
   assert.deepEqual([paused.stage, paused.canUse], ['already_here', false])
   assert.match(paused.detail, /paused/)
@@ -169,7 +173,7 @@ test('joinState: already_here cannot be used when the existing machine is paused
 })
 
 test('joinState: already_here is sticky while lastSeen moves, and ends only when a connector outside the baseline appears', () => {
-  const baseline = { agentIds: ['a1'] }
+  const baseline = { agentIds: ['a1'], scannedAt: now - 1000 }
   for (const lastSeen of [now - 5 * DAY, now - 1, now, now + 60_000, now + 10 * DAY]) {
     assert.equal(view({ agents: [agent({ lastSeen })], baseline }).stage, 'already_here', String(lastSeen))
   }
@@ -178,7 +182,8 @@ test('joinState: already_here is sticky while lastSeen moves, and ends only when
   // A connector for a different name does not end it.
   assert.equal(view({ agents: [agent(), agent({ id: 'zz', host: 'other' })], baseline }).stage, 'already_here')
   // A fresh enrolment under the name does, and the normal states then apply to it.
-  assert.equal(view({ agents: [agent(), agent({ id: 'a2' })], baseline }).stage, 'ready')
+  assert.equal(view({ agents: [agent(), agent({ id: 'a2' })], baseline }).stage, 'first_scan') // the old scan is not evidence about the newcomer
+  assert.equal(view({ agents: [agent(), agent({ id: 'a2' })], machines: [machine([group('claude', { scannedAt: now })])], baseline }).stage, 'ready')
   assert.equal(view({ agents: [agent(), agent({ id: 'a2', paused: true })], baseline }).stage, 'connected')
   assert.equal(view({ agents: [agent(), agent({ id: 'a2' })], machines: [], baseline }).stage, 'first_scan')
   // With no baseline the normal states apply from the start.
@@ -237,4 +242,58 @@ test('joinDelay starts at 3000, grows and is capped at 20000; the watch cap is f
   assert.equal(joinDelay(50), 20000)
   assert.equal(joinDelay(2), setup.retryDelay(2, 3000, 20000))
   assert.equal(JOIN_WATCH_CAP_MS, 900000)
+})
+
+test('joinState: an old scan never makes a new enrolment ready; only a strictly newer one does', () => {
+  const old = machine([group('claude', { scannedAt: now - 1000 })])
+  // A scan-only name (no connector yet) is a baseline with scans: waiting, then first_scan, then ready on a newer scan.
+  const baseline = joinBaseline('studio', [], [old])
+  assert.deepEqual(baseline, { agentIds: [], scannedAt: now - 1000 })
+  assert.equal(view({ agents: [], machines: [old], baseline }).stage, 'waiting')
+  const newcomer = view({ agents: [agent()], machines: [old], baseline })
+  assert.deepEqual([newcomer.stage, newcomer.label, newcomer.canUse], ['first_scan', 'Waiting for its first scan', false])
+  assert.equal(view({ agents: [agent()], machines: [machine([group('claude', { scannedAt: now - 1000 })])], baseline }).stage, 'first_scan') // equal is not newer
+  assert.equal(view({ agents: [agent()], machines: [machine([group('claude', { scannedAt: now - 999 })])], baseline }).stage, 'ready')
+  assert.equal(view({ agents: [agent()], machines: [machine([group('claude', { scannedAt: now - 1000 }), group('cursor', { scannedAt: now })])], baseline }).stage, 'ready')
+  // A paused newcomer is connected whatever the scan.
+  assert.equal(view({ agents: [agent({ paused: true })], machines: [old], baseline }).stage, 'connected')
+  // An old healthy machine plus a new connector id: first_scan until a newer scan arrives.
+  const healthy = [agent()]
+  const base = joinBaseline('studio', healthy, [old])
+  assert.equal(view({ agents: [...healthy, agent({ id: 'a2' })], machines: [old], baseline: base }).stage, 'first_scan')
+  assert.equal(view({ agents: [...healthy, agent({ id: 'a2' })], machines: [machine([group('claude', { scannedAt: now })])], baseline: base }).stage, 'ready')
+  // A fresh name (null baseline) behaves as before.
+  assert.equal(view({ baseline: null }).stage, 'ready')
+})
+
+test('malformed machines and groups are unknown, never a throw', () => {
+  for (const bad of [{ host: 'studio', groups: [null] }, { host: 'studio', groups: [{ id: 'x', scannedAt: now, complete: true }] }, { host: 'studio', groups: [{ agent: 3 }] }]) {
+    const v = view({ machines: [bad] })
+    assert.equal(v.stage, 'unknown', JSON.stringify(bad))
+    const l = landingFor({}, bad, [agent()], opts())
+    assert.equal(l.kind, 'none')
+    assert.match(l.reason, /\S/)
+  }
+  assert.equal(joinBaseline('studio', [agent()], [{ host: 'studio', groups: [null] }]).scannedAt, 0)
+  assert.equal(landingFor({}, readyMachine(), [null], opts()).kind, 'none')
+})
+
+test('names with text-direction overrides are refused, but zero-width joiners are allowed', () => {
+  const reasons = new Set()
+  for (const c of ['\u202a', '\u202b', '\u202c', '\u202d', '\u202e', '\u2066', '\u2067', '\u2068', '\u2069']) {
+    const r = validateMachineName(`a${c}b`)
+    assert.equal(r.ok, false, c)
+    reasons.add(r.reason)
+  }
+  assert.equal(reasons.size, 1)
+  assert.notEqual([...reasons][0], validateMachineName('a\nb').reason)
+  assert.equal(validateMachineName('a\u200db\u200c').ok, true)
+})
+
+test('joinCommands only quotes: refusing control characters is validateMachineName\'s job, not the builder\'s', () => {
+  assert.match(joinCommands('https://reet.example', 'a\nb', 'stable'), /--env 'a\nb'\n/)
+})
+
+test('landingFor passes on the sign-in reason when accounts are off', () => {
+  assert.deepEqual(landingFor({}, readyMachine(), [agent()], opts({ accounts: false })), { kind: 'none', reason: 'Private skills need a signed-in account.' })
 })

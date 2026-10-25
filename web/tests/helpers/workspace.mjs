@@ -4,7 +4,7 @@ export const owner = {id:1,name:'Sam',email:'sam@example.test',role:'owner'}
 const now = Date.now()
 export const skill = id => ({id:`demo/toolkit/${id}`,name:id,slug:id,source:'demo/toolkit',sourceType:'github',url:`https://www.skills.sh/demo/toolkit/${id}`,description:'Example skill for UI verification.',notes:'',installs:0,installsWeek:0,trend:[],liked:false,bookmarked:false,used:false,createdAt:now,updatedAt:now})
 
-export async function openWorkspace(browser, {width, height=812, theme='light', status, skills=[], unread=0, terminalStatus={configured:false,available:false,reason:'disabled'}, terminalMachines=[]} = {}) {
+export async function openWorkspace(browser, {width, height=812, theme='light', status, skills=[], unread=0, terminalStatus={configured:false,available:false,reason:'disabled'}, terminalMachines=[], routes={}} = {}) {
  const context = await browser.newContext({viewport:{width,height}})
  const page = await context.newPage()
  const state = {status:{mode:'accounts',setupRequired:false,bootstrapRequired:false,signupEnabled:false,user:owner,...status}, theme, unexpected:[]}
@@ -27,6 +27,8 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/terminal/machines')return json({machines:terminalMachines})
   if(path==='/api/v2/terminal/sessions')return json({sessions:[]})
   if(path==='/api/v2/notifications/count')return json({unread})
+  // A test's own answers: a function gets the request and the state and returns {status?, json}, or just the JSON to send.
+  if(routes[path]!==undefined){const answer=typeof routes[path]==='function'?routes[path](route.request(),state):routes[path];return route.fulfill({status:answer?.status||200,json:answer?.json!==undefined?answer.json:answer})}
   state.unexpected.push(path)
   return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})
  })

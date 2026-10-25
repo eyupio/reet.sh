@@ -58,6 +58,7 @@ jobs:
           node web/tests/phone-layout.e2e.mjs
           node web/tests/navigation.e2e.mjs
           node web/tests/readiness.e2e.mjs
+          node web/tests/single-sign-on.e2e.mjs
           node web/tests/control.e2e.mjs
           node web/tests/machine-import.e2e.mjs
           node web/tests/skill-content.e2e.mjs

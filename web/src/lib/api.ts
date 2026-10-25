@@ -92,6 +92,7 @@ export type AuthStatus = {
   signupEnabled?: boolean
   contactEmail?: string
   passwordReset?: boolean
+  sso?: import('./sso').SsoStatus
   user: User | null
 }
 export type APIToken = { id: number; name: string; createdAt: number; lastUsedAt?: number }
@@ -219,6 +220,15 @@ export async function signUpAccount(data: { name: string; email: string; passwor
 }
 export async function signInAccount(email: string, password: string): Promise<User> {
   return (await req('/api/v2/auth/sign-in', { method: 'POST', body: json({ email, password }) })).json()
+}
+export async function getSsoIdentity(): Promise<import('./sso').SsoIdentity> {
+  return (await req('/api/v2/auth/oidc/identity')).json()
+}
+export async function unlinkSsoIdentity(): Promise<void> {
+  await req('/api/v2/auth/oidc/identity', { method: 'DELETE' })
+}
+export async function getAdminSso(): Promise<import('./sso').AdminSso> {
+  return (await req('/api/v2/admin/sso')).json()
 }
 export async function signOutAccount(): Promise<void> {
   await req('/api/v2/auth/sign-out', { method: 'POST', body: json({}) })

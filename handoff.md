@@ -2,13 +2,20 @@
 
 ## Read this first — 24 October 2026
 
+**Single sign-on, pull request 3 of 3 (25 October 2026).** The interface is in: the sign-in button (with the
+password form folded away where password sign-in is off, so the owner can still use it), one plain sentence
+for each `sso_error` code, link and unlink on Account → Single sign-on, and a read-only status panel under
+Admin → Users. The words and the decisions live in `web/src/lib/sso.ts` (tested by `sso.test.mjs`), and
+`web/tests/single-sign-on.e2e.mjs` answers the API from fixtures. Nothing remains of this feature but a real
+identity provider run against a real instance, which has not been done here.
+
 **Single sign-on, pull request 2 of 3 (25 October 2026).** reet.sh can now sign people in through an
 OpenID Connect identity provider. The protocol package arrived earlier (`internal/oidc`); this slice
 adds the routes (`GET /api/v2/auth/oidc/start`, `GET .../callback`, `POST .../backchannel-logout`,
 `GET`/`DELETE .../identity`, `GET /api/v2/admin/sso`), the tables (`sso_identities`, `sso_logins`,
 `sessions.sso_*`), the `REET_OIDC_*` settings, `auth/status`'s `sso` object, and disabling an account
-now also closes its open terminals. Read [docs/single-sign-on.md](docs/single-sign-on.md). Not yet
-done: the sign-in button, linking on the Account page and the admin status panel (pull request 3).
+now also closes its open terminals. Read [docs/single-sign-on.md](docs/single-sign-on.md). The
+interface for it came in pull request 3.
 The owner keeps password sign-in, and nothing in setup, personal tokens or backups changed.
 
 **Latest slice (25 October 2026): S4 review UI, the Private skills dialog.** Delivered on

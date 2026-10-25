@@ -44,6 +44,7 @@
   import SkillCard from './lib/SkillCard.svelte'
   import Bookmarklets from './lib/Bookmarklets.svelte'
   import Toast from './lib/Toast.svelte'
+  import { ssoErrorFromSearch, ssoErrorMessage, withoutSsoError, type SsoStatus } from './lib/sso'
   import Tools from './lib/Tools.svelte'
   import { copyText } from './lib/clipboard'
   import { installCommand } from './lib/install'
@@ -75,6 +76,7 @@
   let signupEnabled = $state(false)
   let contactEmail = $state('')
   let passwordReset = $state(false)
+  let sso = $state<SsoStatus | undefined>(undefined)
   let unreadNotifications = $state(0)
   let currentUser = $state<User | null>(null)
   let search = $state<HTMLInputElement>()
@@ -317,7 +319,20 @@
       signupEnabled = status.signupEnabled ?? false
       contactEmail = status.contactEmail ?? ''
       passwordReset = status.passwordReset ?? false
+      sso = status.sso
       currentUser = status.user
+      // The server sends a sign-in that could not finish to the home page, which for someone signed out is the welcome page:
+      // take the code to the sign-in page, where it is said in words.
+      if (!status.user && status.mode === 'accounts' && ssoErrorFromSearch(location.search) && location.pathname !== '/signin') {
+        location.replace('/signin' + location.search)
+        return
+      }
+      // A link that could not finish lands on a signed-in page with a code in the address: say it once.
+      const ssoProblem = ssoErrorMessage(ssoErrorFromSearch(location.search))
+      if (status.user && ssoProblem) {
+        showToast(ssoProblem)
+        window.history.replaceState(null, '', withoutSsoError(location.pathname + location.search + location.hash))
+      }
       if (status.user && entryPaths.includes(location.pathname)) {
         location.replace('/')
         return
@@ -796,7 +811,7 @@
     {:else if isSignUp && signupEnabled}
       <SignUp onsuccess={afterAuth} />
     {:else}
-      <AccountSignIn onsuccess={afterAuth} {signupEnabled} {contactEmail} {passwordReset} />
+      <AccountSignIn onsuccess={afterAuth} {signupEnabled} {contactEmail} {passwordReset} {sso} />
     {/if}
   {:else if authMode === 'token' && needsAuth}
     <SignIn onattempt={attemptSignIn} />

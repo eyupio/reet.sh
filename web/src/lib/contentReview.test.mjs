@@ -11,6 +11,7 @@ const {
   OWNERSHIP_SENTENCE, APPLY_NOTICE, FALLBACK,
   presenceLabel, ownershipNote, checkStateLabel, reasonText, failureText, planCodeText, preservedText,
   scopeEligibility, classifyCheck, adoptable, summarisePlan, candidatesFor, preselect, groupBreakdown, claimSummary, pollDelay, describeError, CLOSED_CODES,
+  connectorFor, groupBundles, preselectBundle, newestFirst, modeLabel, MODES, pinChangeNote, shortId,
 } = review
 
 // The closed tables are read from the Go side, so a code the server starts to send fails loudly here instead of
@@ -666,6 +667,142 @@ test('no sentence says an ownership record was verified, names a dialect word or
   }
   // The only mention of verification denies it.
   for (const s of sentences.filter(s => /verified/i.test(s))) assert.match(s, /\bnot verified\b/)
+})
+
+// ----------------------------------------------------------------------------------------------
+// Pins: the connector, the library choice, the newest revision and the words for a refused write.
+const bundle = (id, name, o = {}) => ({ id: id.repeat(32), name, head: 'h'.repeat(32), createdAt: NOW, ...o })
+const revision = (id, createdAt, o = {}) => ({ id: id.repeat(32), manifestDigest: digest(id), createdAt, origin: { kind: 'user' }, ...o })
+const pin = (o = {}) => ({ id: 'p'.repeat(48), environmentId: '1/workstation/agents', agentId: 'a'.repeat(48), name: 'demo', bundleId: 'b'.repeat(32), revisionId: 'c'.repeat(32), manifestDigest: digest('m'), mode: 'additive', version: 'v'.repeat(48), updatedAt: NOW, verification: 'not_verified', ...o })
+
+test('connectorFor: a running connector on the same host, case-folded the way the database does', () => {
+  const running = agent({ id: 'r'.repeat(48) }), paused = agent({ id: 'p'.repeat(48), paused: true })
+  assert.equal(connectorFor(env(), [running]), running)
+  assert.equal(connectorFor(env({ host: 'WORKSTATION' }), [agent({ host: 'workstation' })])?.host, 'workstation')
+  assert.equal(connectorFor(env(), [paused]), undefined)
+  assert.equal(connectorFor(env(), [agent({ host: 'elsewhere' })]), undefined)
+  // Only ASCII letters fold: a Kelvin sign is not a k.
+  assert.equal(connectorFor(env({ host: '\u212Aelvin' }), [agent({ host: 'kelvin' })]), undefined)
+  for (const none of [undefined, null, []]) assert.equal(connectorFor(env(), none), undefined)
+})
+
+test('connectorFor skips a paused connector even when it is listed first or seen last, and prefers the most recently seen', () => {
+  const paused = agent({ id: 'p'.repeat(48), paused: true, lastSeen: NOW + 5000 }), old = agent({ id: 'o'.repeat(48), lastSeen: NOW - 5000 }), live = agent({ id: 'l'.repeat(48), lastSeen: NOW })
+  assert.equal(connectorFor(env(), [paused, old, live]), live)
+  assert.equal(connectorFor(env(), [live, old]), live)
+  assert.equal(connectorFor(env(), [old, live]), live)
+  // A tie goes to the first listed.
+  const twin = agent({ id: 't'.repeat(48), lastSeen: NOW })
+  assert.equal(connectorFor(env(), [live, twin]), live)
+  assert.equal(connectorFor(env(), [twin, live]), twin)
+})
+
+test('connectorFor and scopeEligibility agree: a scope can be offered exactly when a connector is found', () => {
+  const cases = [[], [agent()], [agent({ paused: true })], [agent({ paused: true }), agent({ id: 'b'.repeat(48) })], [agent({ host: 'other' })], [agent({ host: 'WORKSTATION', paused: true })], [agent({ host: 'WORKSTATION' })]]
+  for (const agents of cases) assert.equal(scopeEligibility(env(), agents, opts()).ok, connectorFor(env(), agents) !== undefined, JSON.stringify(agents))
+})
+
+test('groupBundles puts the reported skill first and keeps the library order within each group', () => {
+  const list = [bundle('1', 'alpha'), bundle('2', 'demo'), bundle('3', 'demo'), bundle('4', 'zeta')]
+  const g = groupBundles(list, 'demo')
+  assert.deepEqual(g.matching.map(b => b.id[0]), ['2', '3'])
+  assert.deepEqual(g.others.map(b => b.id[0]), ['1', '4'])
+  for (const none of [undefined, '', 'nothing', 'DEMO', 'dem']) assert.deepEqual(groupBundles(list, none), { matching: [], others: list }, JSON.stringify(none))
+  assert.deepEqual(groupBundles([], 'demo'), { matching: [], others: [] })
+  assert.equal(list.length, 4)
+})
+
+test('preselectBundle chooses only when exactly one library skill has the reported name', () => {
+  const list = [bundle('1', 'alpha'), bundle('2', 'demo'), bundle('3', 'zeta')]
+  assert.equal(preselectBundle(list, 'demo'), '2'.repeat(32))
+  assert.equal(preselectBundle([...list, bundle('4', 'demo')], 'demo'), '')
+  for (const none of [undefined, '', 'other', 'Demo']) assert.equal(preselectBundle(list, none), '', JSON.stringify(none))
+  assert.equal(preselectBundle([], 'demo'), '')
+})
+
+test('newestFirst puts the bundle head first and the oldest last, whatever order the library listed them in', () => {
+  const r1 = revision('1', NOW - 3000), r2 = revision('2', NOW - 2000), r3 = revision('3', NOW - 1000)
+  assert.deepEqual(newestFirst([r1, r2, r3], r3.id).map(r => r.id[0]), ['3', '2', '1'])
+  assert.deepEqual(newestFirst([r3, r1, r2], r3.id).map(r => r.id[0]), ['3', '2', '1'])
+  // The head leads even when its creation time disagrees, and with no known head the creation time decides.
+  assert.deepEqual(newestFirst([r1, r2, r3], r1.id).map(r => r.id[0]), ['1', '3', '2'])
+  assert.deepEqual(newestFirst([r1, r2, r3]).map(r => r.id[0]), ['3', '2', '1'])
+  assert.deepEqual(newestFirst([r1, r2, r3], 'z'.repeat(32)).map(r => r.id[0]), ['3', '2', '1'])
+  assert.deepEqual(newestFirst([], 'x'), [])
+})
+
+test('newestFirst orders revisions made in the same millisecond by id, and does not change its input', () => {
+  const a = revision('a', NOW), b = revision('b', NOW), c = revision('c', NOW)
+  assert.deepEqual(newestFirst([b, a, c]).map(r => r.id[0]), ['c', 'b', 'a'])
+  assert.deepEqual(newestFirst([a, b, c]).map(r => r.id[0]), ['c', 'b', 'a'])
+  const input = [a, b, c]
+  newestFirst(input, a.id)
+  assert.deepEqual(input.map(r => r.id[0]), ['a', 'b', 'c'])
+  // A missing or odd creation time never makes the order unstable.
+  assert.deepEqual(newestFirst([revision('1', Number.NaN), revision('2', Number.NaN)]).map(r => r.id[0]), ['2', '1'])
+})
+
+test('mode words: Add and update, and the managed mode in the spec\'s own words; anything else is not a raw code', () => {
+  assert.equal(modeLabel('additive'), 'Add and update')
+  assert.equal(modeLabel('managed'), 'Also remove files reet owns that a newer revision drops')
+  assert.deepEqual(MODES.map(m => m.value), ['additive', 'managed'])
+  assert.deepEqual(MODES.map(m => m.label), ['Add and update', 'Also remove files reet owns that a newer revision drops'])
+  for (const odd of ['', 'mirror', 'bidirectional', 'Additive', 'constructor', 'toString', '__proto__']) {
+    const text = modeLabel(odd)
+    assert.equal(text, "A mode this page doesn't recognise", JSON.stringify(odd))
+    assert.doesNotMatch(text, /_/)
+  }
+  assert.equal(shortId('abcdef0123456789'), 'abcdef01')
+  assert.equal(shortId('abc'), 'abc')
+})
+
+test('pinChangeNote says what changed in plain words, and nothing when nothing did', () => {
+  const was = pin({ revisionId: '2'.repeat(32), mode: 'managed', version: 'v1' })
+  const changed = pin({ revisionId: '1'.repeat(32), mode: 'additive', version: 'v2' })
+  const note = pinChangeNote(was, changed, 'demo')
+  assert.match(note, /changed elsewhere/)
+  assert.match(note, /11111111/)
+  assert.match(note, /Add and update/)
+  assert.match(note, /22222222/)
+  assert.match(note, /Also remove files reet owns/)
+  assert.match(note, /Nothing was saved/)
+  assert.match(pinChangeNote(was, undefined, 'demo'), /removed elsewhere/)
+  assert.match(pinChangeNote(was, undefined, 'demo'), /Nothing was saved/)
+  const created = pinChangeNote(undefined, changed, 'demo')
+  assert.match(created, /was pinned elsewhere/)
+  assert.match(created, /11111111/)
+  assert.match(created, /Nothing was saved/)
+  assert.match(pinChangeNote(was, pin({ ...was, version: 'v3' }), 'demo'), /saved again elsewhere, with the same revision and mode/)
+  assert.match(pinChangeNote(was, pin({ ...was, bundleId: 'z'.repeat(32), version: 'v3' }), 'demo'), /changed elsewhere/)
+  // A removal says nothing was removed, never that anything was saved.
+  const removing = pinChangeNote(was, changed, 'demo', 'remove')
+  assert.match(removing, /changed elsewhere/)
+  assert.match(removing, /Nothing was removed/)
+  assert.match(removing, /remove it again/)
+  assert.doesNotMatch(removing, /saved\b(?! again)/)
+  assert.match(pinChangeNote(was, undefined, 'demo', 'remove'), /already removed elsewhere, so there was nothing to remove/)
+  assert.match(pinChangeNote(was, pin({ ...was, version: 'v3' }), 'demo', 'remove'), /saved again elsewhere.*Nothing was removed/)
+  assert.equal(pinChangeNote(was, was, 'demo', 'remove'), '')
+  // Nothing differs, or there was never a pin: the server's own refusal is the better words.
+  assert.equal(pinChangeNote(was, was, 'demo'), '')
+  assert.equal(pinChangeNote(undefined, undefined, 'demo'), '')
+})
+
+test('the pin sentences name no raw code, claim no install, never call anything verified, and use plain British English', () => {
+  const was = pin({ revisionId: '2'.repeat(32), mode: 'managed', version: 'v1' }), changed = pin({ revisionId: '1'.repeat(32), mode: 'additive', version: 'v2' })
+  const sentences = [
+    ...MODES.map(m => m.label), modeLabel('odd'),
+    pinChangeNote(was, changed, 'demo'), pinChangeNote(was, undefined, 'demo'), pinChangeNote(undefined, changed, 'demo'), pinChangeNote(was, pin({ ...was, version: 'v3' }), 'demo'),
+    pinChangeNote(was, changed, 'demo', 'remove'), pinChangeNote(was, undefined, 'demo', 'remove'),
+    pinChangeNote(pin({ mode: 'what', version: 'a' }), pin({ mode: 'else', version: 'b' }), 'demo'),
+  ]
+  for (const s of sentences) {
+    assert.ok(s.length > 0)
+    assert.doesNotMatch(s, /installed|installs|\bapplied\b|up to date|verified/i, `"${s}" implies a change or a check that did not happen`)
+    assert.doesNotMatch(s, /_/, `"${s}" shows a raw code`)
+    assert.doesNotMatch(s, /\b(nowt|owt|summat|reight|ey up|lass|lad|thee|tha)\b/i, `"${s}" uses dialect`)
+    assert.doesNotMatch(s, /\b(color|authoriz\w*|organiz\w*|recogniz\w*|behavior|center|gray)\b/i, `"${s}" is not British spelling`)
+  }
 })
 
 // ----------------------------------------------------------------------------------------------

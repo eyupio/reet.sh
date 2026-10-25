@@ -1,4 +1,4 @@
-import type { AdoptionBreakdown, AdoptionOffer, ContentPlan, ContentPreview, SyncAgent, SyncEnvironment } from './api'
+import type { AdoptionBreakdown, AdoptionOffer, ContentPin, ContentPinWrite, ContentPlan, ContentPreview, PrivateBundle, PrivateRevision, SyncAgent, SyncEnvironment } from './api'
 
 // What is true about a pin, a check and an ownership record, in words. Pure: no DOM, no fetch, no clock of its own.
 // Nothing here may say more than the machine has told us: an unknown code or state falls back to FALLBACK, and the
@@ -114,6 +114,17 @@ export function ownershipNote(rootOwnership: string | undefined): string {
 // The database folds ASCII letters only when it compares hosts (SQLite NOCASE), so this does too: toLowerCase() would
 // also fold letters such as "Ë" and "K" (Kelvin sign) that the server treats as different.
 const foldAscii = (s: string): string => s.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0) + 32))
+const sameHost = (a: string, b: string): boolean => foldAscii(a) === foldAscii(b)
+
+/**
+ * The connector a pin or check for this scope goes through: one that is not paused, on the scope's host. When more than
+ * one qualifies the one seen most recently is the live one. scopeEligibility is true exactly when this finds one.
+ */
+export function connectorFor(env: SyncEnvironment, agents: SyncAgent[] | null | undefined): SyncAgent | undefined {
+  let best: SyncAgent | undefined
+  for (const a of agents ?? []) if (!a.paused && sameHost(a.host, env.host) && (!best || a.lastSeen > best.lastSeen)) best = a
+  return best
+}
 
 export type Eligibility = { ok: true } | { ok: false; reason: string }
 const no = (reason: string): Eligibility => ({ ok: false, reason })
@@ -136,10 +147,8 @@ export function scopeEligibility(env: SyncEnvironment, agents: SyncAgent[] | nul
   if (!env.complete || !(env.scannedAt > 0) || !(opts.now - env.scannedAt <= SCAN_WINDOW_MS)) return no("This machine hasn't reported a complete scan of this folder in the last 14 days.")
   // Before the machines have loaded nothing is known about connectors; that is not the same as none being enrolled.
   if (!agents) return no('Machines are still loading.')
-  const host = foldAscii(env.host)
-  const connectors = agents.filter(a => foldAscii(a.host) === host)
-  if (connectors.length === 0) return no("No connector is enrolled on this machine, so it can't be checked.")
-  if (connectors.every(a => a.paused)) return no('The connector on this machine is paused. Resume it to check this machine.')
+  if (!agents.some(a => sameHost(a.host, env.host))) return no("No connector is enrolled on this machine, so it can't be checked.")
+  if (!connectorFor(env, agents)) return no('The connector on this machine is paused. Resume it to check this machine.')
   return { ok: true }
 }
 
@@ -295,4 +304,63 @@ export function describeError(e: unknown): string {
   // The client's own "404 Not Found" when a refusal carried no text, a stringified error class, or a stack frame.
   if (/^\d{3}(\s|$)/.test(line) || /^[A-Za-z]*Error:/.test(line) || /(^|\s)at\s+\S.*:\d+:\d+\)?$/.test(line)) return GENERIC_ERROR
   return line
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Pins: choosing a library skill and revision, the mode words, and what changed when a write is refused.
+
+/** What the Pin step sends: the shell adds the scope and the connector, which only it knows. */
+export type PinChoice = Omit<ContentPinWrite, 'environmentId' | 'agentId'>
+
+/** The first eight characters of an id, enough to tell revisions apart on screen. */
+export const shortId = (id: string): string => id.slice(0, 8)
+
+const MODE_LABELS = {
+  additive: 'Add and update',
+  managed: 'Also remove files reet owns that a newer revision drops',
+} as const
+export const MODES: readonly { value: ContentPinWrite['mode']; label: string }[] = [
+  { value: 'additive', label: MODE_LABELS.additive },
+  { value: 'managed', label: MODE_LABELS.managed },
+]
+/** A mode this page has no words for is said to be unknown; it is never shown as a raw code. */
+export const modeLabel = (mode: string): string => (Object.prototype.hasOwnProperty.call(MODE_LABELS, mode) ? MODE_LABELS[mode as keyof typeof MODE_LABELS] : "A mode this page doesn't recognise")
+
+/** Bundles whose name is the reported skill's come first; each group keeps the library's own order. */
+export function groupBundles(bundles: PrivateBundle[], name?: string): { matching: PrivateBundle[]; others: PrivateBundle[] } {
+  const matching = name ? bundles.filter(b => b.name === name) : []
+  return { matching, others: bundles.filter(b => !matching.includes(b)) }
+}
+
+/** The bundle to choose for the person: the reported skill's, but only when the library holds exactly one of that name. */
+export function preselectBundle(bundles: PrivateBundle[], name?: string): string {
+  const { matching } = groupBundles(bundles, name)
+  return matching.length === 1 ? matching[0].id : ''
+}
+
+/**
+ * Newest first, so the first entry is the one to preselect and the rest are there for a rollback. The library lists
+ * oldest first and two revisions can share a millisecond, so the bundle's head (the revision most recently appended)
+ * leads, then creation time, then id for a stable order.
+ */
+export function newestFirst(revisions: PrivateRevision[], head?: string): PrivateRevision[] {
+  const lead = (r: PrivateRevision) => (r.id === head ? 0 : 1)
+  return [...revisions].sort((a, b) => lead(a) - lead(b) || b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+}
+
+const pinWords = (p: ContentPin) => `revision ${shortId(p.revisionId)} (${modeLabel(p.mode)})`
+
+/**
+ * What to tell the person when a pin write was refused because the pin is not as they last saw it: before is the pin
+ * they were looking at, after is the pin read again, and action is what they were doing. Empty when nothing differs, so
+ * the server's own refusal is shown.
+ */
+export function pinChangeNote(before: ContentPin | undefined, after: ContentPin | undefined, name: string, action: 'save' | 'remove' = 'save'): string {
+  const check = action === 'remove' ? 'Nothing was removed. Review it, then remove it again if you still want to.' : 'Nothing was saved. Review it, then save again if you still want your change.'
+  if (!before && !after) return ''
+  if (before && !after) return action === 'remove' ? `The pin for ${name} was already removed elsewhere, so there was nothing to remove.` : `The pin for ${name} was removed elsewhere. Nothing was saved.`
+  if (!before && after) return `${name} was pinned elsewhere, at ${pinWords(after)}. ${check}`
+  if (!before || !after || before.version === after.version) return ''
+  if (before.bundleId !== after.bundleId || before.revisionId !== after.revisionId || before.mode !== after.mode) return `The pin for ${name} changed elsewhere. It is now ${pinWords(after)}; it was ${pinWords(before)}. ${check}`
+  return `The pin for ${name} was saved again elsewhere, with the same revision and mode. ${check}`
 }

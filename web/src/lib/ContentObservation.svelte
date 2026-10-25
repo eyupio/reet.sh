@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ContentInventory } from './api'
-  let { content, onimport }: { content?: ContentInventory; onimport?: (name: string) => void } = $props()
+  let { content, onimport, onpin }: { content?: ContentInventory; onimport?: (name: string) => void; onpin?: (name: string) => void } = $props()
   const labels: Record<string, string> = { observed: 'Content observed', incomplete: 'Content incomplete', stale: 'Content report out of date', paused: 'Content reporting paused' }
 </script>
 {#if !content || content.state === 'not_reported'}
@@ -14,7 +14,12 @@
       {#each content.skills as skill (skill.name)}
         <li><strong>{skill.name}</strong> · {skill.complete ? `${skill.files} files · ${skill.bytes} bytes` : 'Incomplete; contents cannot be compared'}
           {#if skill.complete && skill.digest}<code>{skill.digest}</code>{/if}
-          {#if onimport}<button type="button" onclick={() => onimport?.(skill.name)} aria-label={`Import ${skill.name} privately`}>Import privately</button>{/if}
+          {#if onimport || onpin}
+            <span class="skill-actions">
+              {#if onimport}<button type="button" onclick={() => onimport?.(skill.name)} aria-label={`Import ${skill.name} privately`}>Import privately</button>{/if}
+              {#if onpin}<button type="button" onclick={() => onpin?.(skill.name)} aria-label={`Pin a library revision for ${skill.name}`}>Pin a library revision</button>{/if}
+            </span>
+          {/if}
           {#if skill.issues?.length}<span>{skill.issues.join(', ').replaceAll('_', ' ')}</span>{/if}
         </li>
       {/each}
@@ -27,4 +32,5 @@
   p { margin: .4rem 0; }
   ul { padding-left: 1.2rem; }
   code { display: block; overflow-wrap: anywhere; font-size: .68rem; }
+  .skill-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 </style>

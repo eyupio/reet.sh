@@ -33,7 +33,9 @@ type Manager struct {
 	tmux       Tmux
 	consent    func() error
 	// lookPath finds agent binaries for launch presets; tests replace it.
-	lookPath    func(string) (string, error)
+	lookPath func(string) (string, error)
+	// git runs git for worktrees (ExecGit); tests replace it.
+	git         GitRunner
 	mu          sync.Mutex
 	closed      bool
 	attachments map[string]*Attachment
@@ -58,7 +60,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, lookPath: exec.LookPath, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, changed: make(chan struct{})}
+	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, lookPath: exec.LookPath, git: ExecGit, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, changed: make(chan struct{})}
 	// Validate a present registry even when tmux is offline. Never silently
 	// repair an unreadable file or adopt sessions from another enrollment.
 	lock, err := m.registryLock(ctx)
@@ -167,6 +169,23 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	if err := m.defaults(ctx); err != nil {
 		return ManagedSession{}, err
 	}
+	// A worktree is made (or, on a retry with a new request id, adopted) last
+	// before the intent is saved, and the agent starts in it. Until tmux has
+	// shown that no session was started, a worktree this call created is
+	// removed again on any failure; an adopted one is never touched.
+	var worktree Worktree
+	started := false
+	if in.Worktree != "" {
+		if worktree, err = PrepareWorktree(ctx, m.home, dir, in.Project, in.Worktree, m.git); err != nil {
+			return ManagedSession{}, err
+		}
+		dir = worktree.Path
+		defer func() {
+			if !started {
+				_ = worktree.Undo(context.WithoutCancel(ctx), m.git)
+			}
+		}()
+	}
 	at := time.Now().UnixMilli()
 	s := ManagedSession{ID: sessionID, Title: in.Title, State: terminalproto.Creating, CreatedAt: at, UpdatedAt: at, CreateRequestID: requestID}
 	r.Sessions[sessionID] = s
@@ -182,8 +201,13 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 		args[i] = tmuxArgument(args[i])
 	}
 	if _, err := m.command(ctx, 0, args...); err != nil {
+		// Keep the worktree unless tmux proves the agent was not started.
+		if names, nerr := m.sessionNames(context.WithoutCancel(ctx)); nerr != nil || names[m.name(sessionID)] {
+			started = true
+		}
 		return s, err
 	}
+	started = true
 	if err := m.reconcileLocked(ctx, &r); err != nil {
 		return s, err
 	}

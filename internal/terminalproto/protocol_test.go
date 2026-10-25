@@ -33,7 +33,7 @@ func TestRoundTripEveryOperation(t *testing.T) {
 	for _, body := range []Body{
 		Hello{testID, testCapabilities()}, Reconcile{Complete: true, Sessions: []SessionSnapshot{{ID: testID, Title: "Shell", State: Running}}},
 		Create{Title: "Shell", Cols: 80, Rows: 24}, Attach{Cols: 80, Rows: 24, LeaseSeconds: 60}, Resize{100, 30}, RenewAttachment{60}, Detach{}, End{}, History{Lines: 2000},
-		Probe{1, testID}, ProbeResult{1, testID}, testHealth(), Result{OK}, SessionChanged{State: Running},
+		Probe{1, testID}, ProbeResult{1, testID}, testHealth(), Result{Code: OK}, SessionChanged{State: Running},
 	} {
 		t.Run(body.kind(), func(t *testing.T) {
 			m := testMessage(body)

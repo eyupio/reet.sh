@@ -12,6 +12,7 @@ const testRun = "0123456789abcdef0123456789abcdef"
 func worktreeCreate() Create {
 	c := launchCreate()
 	c.Worktree = testRun
+	c.Project = "reet-sh"
 	return c
 }
 
@@ -76,7 +77,7 @@ func TestWorktreeTokens(t *testing.T) {
 		}
 	}
 	c := worktreeCreate()
-	c.Worktree = ""
+	c.Worktree, c.Project = "", ""
 	if c.Validate() != nil {
 		t.Fatal("launch create without worktree invalid")
 	}
@@ -207,5 +208,127 @@ func TestWorktreePaths(t *testing.T) {
 		if state(paths).Validate() == nil {
 			t.Error("accepted:", name)
 		}
+	}
+}
+
+func TestWorktreeProjectField(t *testing.T) {
+	c := worktreeCreate()
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	c.Project = ""
+	if c.Validate() == nil {
+		t.Fatal("worktree without project accepted")
+	}
+	for _, bad := range []string{"Reet", "reet.sh", "a/b", "-a", "a-", "a--b", "..", strings.Repeat("a", MaxSlugBytes+1), "é", "a b"} {
+		c.Project = bad
+		if c.Validate() == nil {
+			t.Error("bad project slug accepted", bad)
+		}
+	}
+	plain := launchCreate()
+	plain.Project = "reet-sh"
+	if plain.Validate() == nil {
+		t.Fatal("project without worktree accepted")
+	}
+	for _, c := range []Create{{Title: "Shell", Cols: 80, Rows: 24}, launchCreate()} {
+		data, _ := json.Marshal(c)
+		if bytes.Contains(data, []byte(`"project"`)) {
+			t.Fatal("create carries project", string(data))
+		}
+	}
+	a, b := worktreeCreate(), worktreeCreate()
+	b.Project = "other"
+	if a == b {
+		t.Fatal("project difference not seen")
+	}
+	encoded, err := Encode(testMessage(worktreeCreate()))
+	if err != nil || !bytes.Contains(encoded, []byte(`"project":"reet-sh"`)) {
+		t.Fatal(string(encoded), err)
+	}
+}
+
+func TestSlug(t *testing.T) {
+	long := strings.Repeat("abcdefghij", 10)
+	cases := map[string]struct{ name, fallback, want string }{
+		"plain":       {"reet", "project", "reet"},
+		"upper":       {"Reet.SH", "project", "reet-sh"},
+		"dots":        {"..", "repo", ""},
+		"dot segment": {"../etc", "repo", "etc"},
+		"separators":  {"a/b\\c", "repo", "a-b-c"},
+		"spaces":      {"  My   Project  ", "project", "my-project"},
+		"unicode mix": {"Café Ünïcode", "project", "caf-n-code"},
+		"empty":       {"", "project", "project"},
+		"hyphens":     {"--a--b--", "repo", "a-b"},
+		"underscore":  {"my_repo", "repo", "my-repo"},
+	}
+	for name, tc := range cases {
+		got := Slug(tc.name, tc.fallback)
+		if tc.want != "" && got != tc.want {
+			t.Errorf("%s: Slug(%q) = %q, want %q", name, tc.name, got, tc.want)
+		}
+		if !ValidSlug(got) {
+			t.Errorf("%s: Slug(%q) = %q is not a valid slug", name, tc.name, got)
+		}
+	}
+	// Names with nothing usable fall back to the fallback plus a hash of the
+	// name, so two different unicode names do not share a folder.
+	a, b := Slug("日本", "repo"), Slug("中国", "repo")
+	if !strings.HasPrefix(a, "repo-") || a == b || !ValidSlug(a) || !ValidSlug(b) {
+		t.Fatal("unicode fallback", a, b)
+	}
+	if Slug("..", "repo") != Slug("..", "repo") || !strings.HasPrefix(Slug("..", "repo"), "repo-") {
+		t.Fatal("fallback not deterministic")
+	}
+	// Long names are bounded and keep a hash so they stay distinct.
+	x, y := Slug(long+"x", "repo"), Slug(long+"y", "repo")
+	if len(x) > MaxSlugBytes || x == y || !ValidSlug(x) || !strings.HasPrefix(x, "abcdefghij") {
+		t.Fatal("long names", x, y)
+	}
+	exact := strings.Repeat("a", MaxSlugBytes)
+	if Slug(exact, "repo") != exact {
+		t.Fatal("a name at the limit changed", Slug(exact, "repo"))
+	}
+	for _, s := range []string{"a", "a-b", "0", strings.Repeat("z", MaxSlugBytes)} {
+		if !ValidSlug(s) {
+			t.Error("valid slug refused", s)
+		}
+	}
+}
+
+func TestResultWorktreeReason(t *testing.T) {
+	good := []Result{
+		{Code: WorktreeRefused, Reason: WorktreeNotRepoRoot},
+		{Code: WorktreeRefused, Reason: WorktreeRepoBusy},
+		{Code: WorktreeRefused, Reason: WorktreeExists},
+		{Code: WorktreeRefused, Reason: WorktreeGitFailed, Detail: "fatal: invalid reference: HEAD"},
+		{Code: WorktreeRefused, Reason: WorktreeOutsideHome},
+		{Code: WorktreeRefused},
+	}
+	for _, r := range good {
+		encoded, err := Encode(testMessage(r))
+		if err != nil {
+			t.Fatal(r, err)
+		}
+		decoded, err := Decode(encoded)
+		if err != nil || decoded.Body.(*Result).Reason != r.Reason || decoded.Body.(*Result).Detail != r.Detail {
+			t.Fatal(r, decoded, err)
+		}
+	}
+	for name, r := range map[string]Result{
+		"reason with other code": {Code: LaunchFailed, Reason: WorktreeExists},
+		"unknown reason":         {Code: WorktreeRefused, Reason: "nope"},
+		"detail without reason":  {Code: WorktreeRefused, Detail: "x"},
+		"detail too long":        {Code: WorktreeRefused, Reason: WorktreeGitFailed, Detail: strings.Repeat("a", MaxWorktreeDetailBytes+1)},
+		"detail control":         {Code: WorktreeRefused, Reason: WorktreeGitFailed, Detail: "a\nb"},
+		"detail escape":          {Code: WorktreeRefused, Reason: WorktreeGitFailed, Detail: "a\x1b[2J"},
+	} {
+		if _, err := Encode(testMessage(r)); err == nil {
+			t.Error("invalid result accepted:", name)
+		}
+	}
+	data, _ := json.Marshal(Result{Code: OK})
+	if string(data) != `{"code":"ok"}` {
+		t.Fatal("plain result changed", string(data))
 	}
 }

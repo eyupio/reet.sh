@@ -1,6 +1,8 @@
 package terminalproto
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -10,6 +12,101 @@ const WorktreeFeature = "worktree-v1"
 const MaxWorktreePaths = 20
 const MaxWorktreePathBytes = 255
 const maxWorktreeCount = 1 << 30
+
+// MaxSlugBytes bounds a Project or repository slug.
+const MaxSlugBytes = 40
+
+// MaxWorktreeDetailBytes bounds the detail of a refused worktree.
+const MaxWorktreeDetailBytes = 200
+
+// WorktreeReason says why a worktree was refused (Result.Reason).
+type WorktreeReason string
+
+const (
+	// WorktreeNotRepoRoot: the folder is not the top of a normal git working tree.
+	WorktreeNotRepoRoot WorktreeReason = "not_repo_root"
+	// WorktreeRepoBusy: a merge, rebase, cherry-pick, revert or bisect is in progress.
+	WorktreeRepoBusy WorktreeReason = "repo_busy"
+	// WorktreeExists: the destination or branch exists and is not this run's.
+	WorktreeExists WorktreeReason = "exists"
+	// WorktreeGitFailed: git could not make the worktree (Detail says why).
+	WorktreeGitFailed WorktreeReason = "git_failed"
+	// WorktreeOutsideHome: reet's worktree folder is not a real directory of
+	// this user inside home (a symlink, another owner, a file).
+	WorktreeOutsideHome WorktreeReason = "outside_home"
+)
+
+func (r WorktreeReason) Valid() bool {
+	return r == WorktreeNotRepoRoot || r == WorktreeRepoBusy || r == WorktreeExists || r == WorktreeGitFailed || r == WorktreeOutsideHome
+}
+
+func validWorktreeDetail(s string) bool {
+	return len(s) <= MaxWorktreeDetailBytes && plainText(s, MaxWorktreeDetailBytes)
+}
+
+// validWorktree: a worktree needs a tool, a run token and a Project slug; a
+// Project slug is meaningless without a worktree.
+func (c Create) validWorktree() bool {
+	if c.Worktree == "" {
+		return c.Project == ""
+	}
+	return c.Tool != "" && ValidRunToken(c.Worktree) && ValidSlug(c.Project)
+}
+
+// ValidSlug accepts 1 to MaxSlugBytes of a-z and 0-9 in hyphen-separated
+// words: no dot, separator, leading, trailing or doubled hyphen.
+func ValidSlug(s string) bool {
+	if s == "" || len(s) > MaxSlugBytes || s[0] == '-' || s[len(s)-1] == '-' || strings.Contains(s, "--") {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if !(b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// Slug makes a folder- and branch-safe name: ASCII letters are lower-cased,
+// digits kept, every other character (dots, separators, spaces, non-ASCII)
+// becomes one hyphen, and hyphens are trimmed. A name longer than
+// MaxSlugBytes keeps its first part and gains 8 hex digits of its SHA-256; a
+// name with nothing usable becomes fallback plus those 8 digits (or fallback
+// alone when name is empty). The result always satisfies ValidSlug when
+// fallback does.
+func Slug(name, fallback string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z' || r >= '0' && r <= '9':
+			b.WriteRune(r)
+			dash = false
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r + 'a' - 'A')
+			dash = false
+		default:
+			if !dash && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			dash = true
+		}
+	}
+	s := strings.TrimRight(b.String(), "-")
+	if name == "" {
+		return fallback
+	}
+	sum := sha256.Sum256([]byte(name))
+	tag := hex.EncodeToString(sum[:4])
+	if s == "" {
+		return fallback + "-" + tag
+	}
+	if len(s) > MaxSlugBytes {
+		s = strings.TrimRight(s[:MaxSlugBytes-len(tag)-1], "-") + "-" + tag
+	}
+	return s
+}
 
 // Worktree outcomes beyond the generic result codes.
 const (

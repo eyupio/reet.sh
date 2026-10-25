@@ -73,13 +73,18 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 			reply.Body = terminalproto.Result{Code: terminalproto.Unavailable}
 			respond := func(err error) error {
 				if err != nil {
-					reply.Body = terminalproto.Result{Code: code(err)}
+					reply.Body = result(err)
 				}
 				return send(callCtx, reply)
 			}
 			// Launch fields are served only on a generation that negotiated
 			// launch-v1; a plain shell is never substituted for them.
 			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Tool != "" && !terminalproto.SupportsLaunch(headers.Get(terminalproto.FeatureHeader)) {
+				return respond(terminalhost.ErrLaunchUnavailable)
+			}
+			// Likewise a worktree is made only on a generation that negotiated
+			// worktree-v1; without it the agent is never started in the folder.
+			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Worktree != "" && !terminalproto.SupportsWorktree(headers.Get(terminalproto.FeatureHeader)) {
 				return respond(terminalhost.ErrLaunchUnavailable)
 			}
 			if managerErr != nil {
@@ -219,7 +224,20 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 		}
 	}
 }
+
+// result answers a failed request; a refused worktree keeps its reason and
+// detail for the controller.
+func result(err error) terminalproto.Result {
+	if r, ok := terminalhost.WorktreeResult(err); ok {
+		return r
+	}
+	return terminalproto.Result{Code: code(err)}
+}
+
 func code(err error) terminalproto.ResultCode {
+	if errors.Is(err, terminalhost.ErrWorktreeRefused) {
+		return terminalproto.WorktreeRefused
+	}
 	if c := terminalhost.LaunchResultCode(err); c != "" {
 		return c
 	}

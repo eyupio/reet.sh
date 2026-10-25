@@ -227,12 +227,16 @@ type Create struct {
 	Prompt string `json:"prompt,omitempty"`
 	// Worktree is a run token; the connector makes the agent's own git worktree.
 	Worktree string `json:"worktree,omitempty"`
+	// Project is the Project's slug (see Slug), required with Worktree and
+	// refused without it. It names the worktree folder and branch on the
+	// machine: ~/.reet/worktrees/<project>/<repo>/<worktree>, reet/<project>-<worktree>.
+	Project string `json:"project,omitempty"`
 }
 
 func (Create) kind() string  { return "create" }
 func (c Create) valid() bool { return c.Validate() == nil }
 func (c Create) Validate() error {
-	if !ValidTitle(c.Title) || !ValidDimensions(c.Cols, c.Rows) || !c.validLaunch() || c.Worktree != "" && (c.Tool == "" || !ValidRunToken(c.Worktree)) {
+	if !ValidTitle(c.Title) || !ValidDimensions(c.Cols, c.Rows) || !c.validLaunch() || !c.validWorktree() {
 		return ErrInvalid
 	}
 	return nil
@@ -321,10 +325,22 @@ func (c ResultCode) Valid() bool {
 
 type Result struct {
 	Code ResultCode `json:"code"`
+	// Reason and Detail explain a worktree_refused answer; they are never set
+	// on any other code, so every other result encodes exactly as before.
+	Reason WorktreeReason `json:"reason,omitempty"`
+	Detail string         `json:"detail,omitempty"`
 }
 
-func (Result) kind() string  { return "result" }
-func (r Result) valid() bool { return r.Code.Valid() }
+func (Result) kind() string { return "result" }
+func (r Result) valid() bool {
+	if !r.Code.Valid() {
+		return false
+	}
+	if r.Reason != "" && (r.Code != WorktreeRefused || !r.Reason.Valid()) {
+		return false
+	}
+	return r.Detail == "" || r.Reason != "" && validWorktreeDetail(r.Detail)
+}
 
 type SessionChanged struct {
 	State    SessionState `json:"state"`

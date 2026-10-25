@@ -317,9 +317,25 @@ func readConsent(read func() (bool, terminalproto.Readiness, error)) (bool, term
 }
 
 // terminalQueueSize bounds the terminal messages waiting for the terminal
-// dispatcher. The controller keeps at most 32 calls outstanding per machine,
-// plus a few late replies, so a full queue means the connection is unusable.
+// dispatcher. The controller holds at most 32 calls per machine at once, but
+// it gives up on a call after its timeout while the message may still wait
+// here (behind a slow worktree create, for example), so its retries can fill
+// the queue. A request that finds the queue full is answered unavailable by
+// the reader; the connection is kept.
 const terminalQueueSize = 64
+
+// unavailable is the answer to a request the dispatcher cannot take: a
+// worktree request gets a worktree_result, every other request a result,
+// with the request's own envelope.
+func unavailable(m terminalproto.Message) terminalproto.Message {
+	switch m.Body.(type) {
+	case *terminalproto.WorktreeStatus, *terminalproto.WorktreeRemove:
+		m.Body = terminalproto.WorktreeResult{Code: terminalproto.Unavailable}
+	default:
+		m.Body = terminalproto.Result{Code: terminalproto.Unavailable}
+	}
+	return m
+}
 
 func readControl(ctx context.Context, conn *websocket.Conn, generation int64, send Sender, errorsSeen chan<- error) {
 	readControlWithTerminal(ctx, conn, generation, send, errorsSeen, nil)
@@ -384,11 +400,13 @@ func readControlWithTerminal(ctx context.Context, conn *websocket.Conn, generati
 			}
 			select {
 			case queue <- message:
-				continue
 			default:
-				report(errors.New("private control requests are not being handled"))
-				return
+				if err := send(ctx, unavailable(message)); err != nil {
+					report(err)
+					return
+				}
 			}
+			continue
 		}
 		result := terminalproto.ProbeResult(*probe)
 		if err := send(ctx, terminalproto.Message{

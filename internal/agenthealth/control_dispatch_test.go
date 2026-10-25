@@ -3,6 +3,7 @@ package agenthealth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -157,34 +158,116 @@ func TestTerminalHandlerErrorEndsTheConnection(t *testing.T) {
 	}
 }
 
-// The queue in front of the terminal handler is bounded: a controller that
-// floods a stuck handler ends the connection instead of growing memory.
-func TestTerminalQueueIsBounded(t *testing.T) {
+// When the queue in front of a stuck terminal handler is full, the reader
+// answers the next request unavailable itself and keeps the connection: the
+// controller gives up on a call after ten seconds while the message still
+// waits here, so retries during a slow worktree create can fill the queue.
+func TestFullTerminalQueueAnswersUnavailableAndKeepsTheConnection(t *testing.T) {
 	client, peer := controlPair(t)
 	errorsSeen := make(chan error, 3)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
+	release := make(chan struct{})
+	var mu sync.Mutex
+	var handled []string
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		readControlWithTerminal(ctx, client, 1, clientSender(client), errorsSeen, func(ctx context.Context, _ terminalproto.Message) error {
-			<-ctx.Done()
+		readControlWithTerminal(ctx, client, 1, clientSender(client), errorsSeen, func(ctx context.Context, m terminalproto.Message) error {
+			mu.Lock()
+			handled = append(handled, m.RequestID)
+			first := len(handled) == 1
+			mu.Unlock()
+			if first {
+				select {
+				case <-release:
+				case <-ctx.Done():
+				}
+			}
 			return nil
 		})
 	}()
-	for i := 0; i < terminalQueueSize+2; i++ {
-		id := "request-" + strings.Repeat("a", 8) + string(rune('a'+i%26)) + strings.Repeat("b", 4) + string(rune('a'+i/26))
-		if peer.Write(t.Context(), websocket.MessageText, controlMessage(t, id, &terminalproto.Reconcile{})) != nil {
+	id := func(i int) string { return fmt.Sprintf("request-%012d", i) }
+	write := func(i int, body terminalproto.Body, session string) {
+		t.Helper()
+		data, err := terminalproto.Encode(terminalproto.Message{Version: terminalproto.Version, RequestID: id(i), SessionID: session, Generation: 1, Body: body})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := peer.Write(t.Context(), websocket.MessageText, data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// One message in the handler, terminalQueueSize waiting.
+	for i := 0; i <= terminalQueueSize; i++ {
+		write(i, &terminalproto.Reconcile{}, "")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		mu.Lock()
+		n := len(handled)
+		mu.Unlock()
+		if n == 1 || time.Now().After(deadline) {
 			break
 		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	read := func() terminalproto.Message {
+		t.Helper()
+		readCtx, readCancel := context.WithTimeout(t.Context(), time.Second)
+		defer readCancel()
+		_, data, err := peer.Read(readCtx)
+		if err != nil {
+			t.Fatal("no answer", err)
+		}
+		m, err := terminalproto.Decode(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	// The queue is full: a session request and a worktree request are each
+	// answered unavailable at once, by the reader.
+	overflowA, overflowB := terminalQueueSize+1, terminalQueueSize+2
+	write(overflowA, &terminalproto.End{}, "session-0123456789ab")
+	if m := read(); m.RequestID != id(overflowA) || m.SessionID != "session-0123456789ab" || *m.Body.(*terminalproto.Result) != (terminalproto.Result{Code: terminalproto.Unavailable}) {
+		t.Fatal("overflowing session request", m)
+	}
+	write(overflowB, &terminalproto.WorktreeStatus{Run: "0123456789abcdef0123", Project: "p", Repo: "site"}, "")
+	if m := read(); m.RequestID != id(overflowB) || *m.Body.(*terminalproto.WorktreeResult) != (terminalproto.WorktreeResult{Code: terminalproto.Unavailable}) {
+		t.Fatal("overflowing worktree request", m)
+	}
+	// Probes are still answered and the session goes on.
+	write(overflowB+1, &terminalproto.Probe{Sequence: 1, Nonce: "nonce-0123456789ab"}, "")
+	if m := read(); m.RequestID != id(overflowB+1) {
+		t.Fatal("probe", m)
 	}
 	select {
 	case err := <-errorsSeen:
-		if err == nil {
-			t.Fatal("nil error")
+		t.Fatal("a full queue ended the session", err)
+	default:
+	}
+	close(release)
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		mu.Lock()
+		n := len(handled)
+		mu.Unlock()
+		if n == terminalQueueSize+1 || time.Now().After(deadline) {
+			break
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("an overflowing queue was not reported")
+		time.Sleep(5 * time.Millisecond)
+	}
+	mu.Lock()
+	got := append([]string(nil), handled...)
+	mu.Unlock()
+	if len(got) != terminalQueueSize+1 {
+		t.Fatal("queued requests handled", len(got))
+	}
+	for i, r := range got {
+		if r != id(i) {
+			t.Fatal("queued requests out of order at", i, r)
+		}
 	}
 	cancel()
 	select {

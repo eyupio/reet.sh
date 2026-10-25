@@ -286,6 +286,7 @@ func TestTerminalPrivateLaunchStartsTheRecordedAgent(t *testing.T) {
 		t.Fatal("agent did not start once", starts)
 	}
 	realSite, _ := filepath.EvalSymlinks(site)
+	realHome, _ := filepath.EvalSymlinks(home) // /tmp is a symlink on macOS
 	if starts[0].argv0 != filepath.Join(bin, "claude") || starts[0].dir != realSite || !slices.Equal(starts[0].args, []string{"--model", "sonnet", "--", prompt}) {
 		t.Fatalf("recorded start %#v", starts[0])
 	}
@@ -321,12 +322,12 @@ func TestTerminalPrivateLaunchStartsTheRecordedAgent(t *testing.T) {
 	for time.Now().Before(deadline) {
 		panes = strings.Split(tmuxOut("list-panes", "-a", "-F", "#{pane_current_command} #{pane_current_path}"), "\n")
 		sort.Strings(panes)
-		if plainAndAgentPanes(panes, home, realSite) {
+		if plainAndAgentPanes(panes, realHome, realSite) {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if !plainAndAgentPanes(panes, home, realSite) {
+	if !plainAndAgentPanes(panes, realHome, realSite) {
 		t.Fatal("plain shell and agent panes", panes)
 	}
 	if len(readStarts(t, records)) != 1 {

@@ -2313,7 +2313,7 @@ this section was written.
   shown and nothing uncommitted, hidden, unreferenced or nested would be lost, then runs
   `git worktree remove` without `--force`. The branch is never deleted.
 - Controller: the broker sends worktree fields and requests only to a connection whose stored
-  capabilities report `worktree`, waits up to 100 seconds for them, keeps the refusal reason, and
+  capabilities report `worktree`, waits up to 180 seconds for them (raised from 100 in fix round 2), keeps the refusal reason, and
   drops late worktree replies; the control connection routes worktree replies (before this, any
   reply type other than result, reconcile and session change closed the connection). The API takes
   `worktree` and `project` on create, adds `POST /api/v2/terminal/worktrees/status` and
@@ -2363,7 +2363,15 @@ work when this was written.
   machine unreachable and disconnected it. Probes are now answered on the reader, other messages go
   to one dispatcher, worktree status and remove run on their own goroutine, and a second concurrent
   worktree request is refused at once as `worktree_busy`. A worktree create still occupies the
-  dispatcher while git runs.
+  dispatcher while git runs: that machine's other creates and ends, worktree status and remove,
+  and attachment renewals (every 5 seconds, given up after 10) wait or fail, so open terminals on
+  that machine may detach during a slow create and during a remove that waits behind one.
+- Fix round 2: a request that finds the connector's 64-message queue full is answered
+  `unavailable` by the reader and the connection is kept (it used to end the session). A remove
+  takes at most 60 seconds on the machine (30 for checks, 30 for `git worktree remove`); a late
+  `ok` is still audited with `late: "true"`; if the connection is lost before the controller hears
+  the result, the removal may not be audited. The controller refuses answers whose folder or
+  branch is not the requested run's (`worktree_mismatch`).
 - Status and remove must name the repository by the session's `worktreeRepo` (the name the machine
   used); a name recomputed from a symlinked member folder answers `not_found`. A create whose reply
   is lost entirely has no recorded folder.

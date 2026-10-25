@@ -145,8 +145,9 @@ In the worktree:
 ### Removing
 
 Status is computed again, then, only if nothing blocks it, in the repository root:
-`git worktree remove <worktree>`, **without** `--force`, on a 60-second budget of
-its own (not what the checks left of theirs), which the end of the connection does
+`git worktree remove <worktree>`, **without** `--force`, on a 30-second budget of
+its own (not what the checks left of theirs; the checks share 30 seconds, so a
+remove takes at most a minute), which the end of the connection does
 not cut short, so a remove that has started is never stopped half way. git checks cleanliness and
 locks once more itself. `branch` and `prune` are never run.
 
@@ -167,9 +168,9 @@ started afterwards can run anything the user can, as it always could.
 
 ## Limits and budgets
 
-- Each git call is limited to 60 seconds. All the calls for one create, one
-  status, or one remove's checks share a single 60-second budget; the remove's
-  own `git worktree remove` has a separate 60 seconds. Cleanup after a failed add
+- Each git call is limited to 60 seconds. All the calls for one create or one
+  status share a single 60-second budget. A remove's checks share 30 seconds and
+  its `git worktree remove` has a separate 30, so a remove takes at most 60. Cleanup after a failed add
   has its own 30-second budget.
 - On timeout the whole process group git started is killed (SIGKILL), and the
   process is waited for at most 2 more seconds. A helper that puts itself in a new
@@ -189,9 +190,9 @@ started afterwards can run anything the user can, as it always could.
   out like a git directory (`HEAD`, `objects` and `refs`), marks it as containing
   another repository. Going past a cap, a folder that cannot be read, or the end of
   the request's budget marks the check incomplete.
-- The controller waits up to 100 seconds for a worktree create, status or remove
-  (10 seconds for every other control call), because the connector's budget plus
-  cleanup can take 90.
+- The controller waits up to 180 seconds for a worktree create, status or remove
+  (10 seconds for every other control call): a create can take 90 seconds on the
+  machine and a remove queued behind it 60 more.
 - The connector answers the controller's health probes on its reader and hands
   every other control message, in order, to one dispatcher over a bounded queue
   (64). A worktree status or remove then runs on its own goroutine, so the
@@ -202,6 +203,18 @@ started afterwards can run anything the user can, as it always could.
   dispatcher, as every create does, so the machine's next session operations wait
   for it (probes do not). A remove holds the manager lock, so a create or end
   arriving during a remove waits for it.
+- **While a worktree create runs, that machine's other terminal work waits.** The
+  create occupies the dispatcher, so everything else for that machine queues
+  behind it: other creates and ends, worktree status and remove, and attachment
+  renewals. An open terminal renews its attachment every 5 seconds and gives up
+  after 10, so open terminals on that machine may detach during a slow create, and
+  during a remove that waits behind one; the person reattaches afterwards. Probes
+  are still answered, so the machine is not marked unreachable.
+- The dispatcher's queue holds 64 messages. The controller gives up on an ordinary
+  call after 10 seconds while the message may still wait in that queue, so retries
+  during a slow create can fill it. A request that finds the queue full is answered
+  `unavailable` at once by the reader (a `result` or a `worktree_result`), the
+  connection is kept, and the queued requests are still handled in order.
 - Before this change the connector ran every request on the reader itself, so a
   worktree request that ran for longer than about a minute and a half could leave
   three probes unanswered, and the controller would mark the machine unreachable
@@ -351,7 +364,17 @@ are not caught by the controller.
 - `worktree-remove`, source `ui`, with exactly `machine`, `host`, `path` and
   `branch` from the machine's `ok` answer. A refused remove writes nothing. When
   the answer was lost and status then found nothing there, the event has
-  `machine`, `host`, `branch` and `confirmedBy: "status"`, without `path`.
+  `machine`, `host`, `branch` and `confirmedBy: "status"`, without `path`. An
+  `ok` that arrives after the controller gave up on the call is still audited,
+  with `late: "true"`, from the answer. If the connection is lost before the
+  controller hears the result, the removal may not be audited: the answer can only
+  come over the same connection.
+- The controller checks what the machine reports: a create's folder must be the
+  run's folder under `~/.reet/worktrees` and a remove's folder and branch the
+  requested run's. Otherwise nothing is recorded or audited and the API answers
+  503 `worktree_mismatch`, "That machine's answer did not match the request. Check
+  again." For a create the agent may already be running; its session is listed
+  without a worktree folder.
 
 ## Known limits
 

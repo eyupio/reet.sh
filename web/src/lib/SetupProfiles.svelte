@@ -227,7 +227,7 @@
     <p>Or save and push in steps:</p>
     <pre><code>reet setup profile save work
 reet setup profile push work</code></pre>
-    <p>The synced profile is metadata, not the encrypted snapshot. On another machine, pull the profile first, then copy the snapshot or fetch it from your configured S3 destination.</p><a class="btn quiet" href="/machines#connect-machine">Install or connect the CLI →</a>
+    <details class="stored"><summary>How setups are stored</summary><p>The synced profile is metadata, not the encrypted snapshot. On another machine, pull the profile first, then copy the snapshot or fetch it from your configured S3 destination.</p></details><a class="btn quiet" href="/machines#connect-machine">Install or connect the CLI →</a>
   </section>
 {:else}
   <div class="profiles">
@@ -604,6 +604,9 @@ reet setup profile push work</code></pre>
   .empty-state { border: 1px dashed var(--line); border-radius: 12px; padding: 24px; }
   .empty-state h2 { margin-top: 0; }
   .empty-state p { color: var(--muted); max-width: 60ch; }
+  .stored { margin: 6px 0 12px; }
+  .stored summary { display: inline-flex; align-items: center; min-height: 32px; color: var(--muted); font-weight: 600; cursor: pointer; }
+  .stored summary:hover { color: var(--ink); }
   pre { overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
   @media (max-width: 900px) {
     .profiles { grid-template-columns: 1fr; }

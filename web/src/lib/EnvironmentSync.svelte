@@ -18,6 +18,8 @@
   let machines = $derived(inventoryMachines(syncState.machines ?? []))
   let serverMachines = $derived((syncState.machines ?? []).filter((machine) => agentGroups(machine).length === 0))
   let reportedMachines = $derived(syncState.machines ?? [])
+  // A fresh instance reports its own server scan; that is not a machine anyone connected, so it does not count here.
+  const hasConnectedMachine = $derived(inventoryMachines(syncState.machines ?? []).length > 0)
   let profiles = $state<SetupProfileSummary[]>([])
   let loading = $state(true)
   let busy = $state(false)
@@ -225,10 +227,14 @@
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
 
   {#if view === 'compare'}
-    {#if reportedMachines.length}
+    {#if hasConnectedMachine}
       <SyncControl snapshot={syncState} {canWrite} {view} onupdate={updateState} />
     {:else}
-      <MachineSetup {terminalAccess} {site} {machines} {profiles} {token} {tokenSetup} {serverBuild} snapshot={syncState} bind:open={setupOpen} initialMode={initialSetupMode} onrefresh={() => load()} />
+      <section class="sync-empty" aria-labelledby="sync-empty-title">
+        <h3 id="sync-empty-title">Connect a machine to start syncing</h3>
+        <p>Sync compares your skills with what a machine has installed, then lets you review every change before it is applied. It needs at least one connected machine.</p>
+        {#if canWrite}<a class="btn primary" href={accounts ? '/machines#add-machine' : '/machines#connect-machine'}>Connect a machine</a>{/if}
+      </section>
     {/if}
   {:else}
     <MachineSetup {terminalAccess} {site} {machines} {profiles} {token} {tokenSetup} {serverBuild} snapshot={syncState} bind:open={setupOpen} bind:host={setupHost} initialMode={initialSetupMode} onrefresh={() => load()} />
@@ -287,6 +293,9 @@
 {/if}
 
 <style>
+  .sync-empty { border: 1px dashed var(--line); border-radius: 12px; padding: 24px; background: var(--card); }
+  .sync-empty h3 { margin: 0 0 8px; font: 500 1.4rem/1.2 var(--serif); letter-spacing: -0.02em; }
+  .sync-empty p { margin: 0 0 16px; max-width: 60ch; color: var(--muted); font-size: 0.86rem; line-height: 1.7; }
   .sync { margin-top: 24px; padding: clamp(18px, 3vw, 28px); border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
   .head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }

@@ -50,6 +50,13 @@ func (g *gatedGit) run(ctx context.Context, dir string, args ...string) ([]byte,
 // connector whose manager uses git.
 func connectorWorktree(t *testing.T, git terminalhost.GitRunner) (func(context.Context, terminalproto.Message) error, replies, func(), string) {
 	t.Helper()
+	got := make(replies, 16)
+	handle, cleanup, path := connectorWorktreeSending(t, git, got.send)
+	return handle, got, cleanup, path
+}
+
+func connectorWorktreeSending(t *testing.T, git terminalhost.GitRunner, send func(context.Context, terminalproto.Message) error) (func(context.Context, terminalproto.Message) error, func(), string) {
+	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not on PATH; the worktree tests need real git")
 	}
@@ -92,11 +99,10 @@ func connectorWorktree(t *testing.T, git terminalhost.GitRunner) (func(context.C
 	if err := terminalhost.Ensure(layout); err != nil {
 		t.Fatal(err)
 	}
-	got := make(replies, 16)
 	headers := http.Header{}
 	headers.Set(terminalproto.FeatureHeader, terminalproto.LaunchFeature+","+terminalproto.WorktreeFeature)
-	handle, cleanup := Factory(terminalhost.ManagerOptions{EnrollmentID: id, Layout: layout, Home: home, Consent: func() error { return nil }, Git: git})(t.Context(), http.DefaultClient, headers, 1, got.send)
-	return handle, got, cleanup, w.Path
+	handle, cleanup := Factory(terminalhost.ManagerOptions{EnrollmentID: id, Layout: layout, Home: home, Consent: func() error { return nil }, Git: git})(t.Context(), http.DefaultClient, headers, 1, send)
+	return handle, cleanup, w.Path
 }
 
 func gitT(t *testing.T, dir string, args ...string) { t.Helper(); git(t, dir, args...) }
@@ -205,5 +211,49 @@ func TestWorktreeRequestIsCancelledWithTheConnection(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal("a cancelled status touched the worktree", err)
+	}
+}
+
+// The slot is free by the time an answer is sent: a request made while the
+// answer is being sent (as a controller does once it has it) is never busy.
+// The check runs inside send, so it does not depend on timing.
+func TestWorktreeSlotIsFreeWhenTheAnswerIsSent(t *testing.T) {
+	var handle func(context.Context, terminalproto.Message) error
+	var mu sync.Mutex
+	var during []terminalproto.Message
+	checked := make(chan struct{})
+	var once sync.Once
+	send := func(ctx context.Context, m terminalproto.Message) error {
+		if _, ok := m.Body.(terminalproto.WorktreeState); ok && m.RequestID == "request-first-00001" {
+			once.Do(func() {
+				// While this answer is being sent, ask again. A held slot
+				// answers conflict right here, inside this call.
+				_ = handle(ctx, message("request-second-0001", &terminalproto.WorktreeStatus{Run: testRun, Project: "p", Repo: "site"}))
+				close(checked)
+			})
+			return nil
+		}
+		mu.Lock()
+		during = append(during, m)
+		mu.Unlock()
+		return nil
+	}
+	h, cleanup, _ := connectorWorktreeSending(t, terminalhost.ExecGit, send)
+	defer cleanup()
+	handle = h
+	if err := handle(t.Context(), message("request-first-00001", &terminalproto.WorktreeStatus{Run: testRun, Project: "p", Repo: "site"})); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-checked:
+	case <-time.After(30 * time.Second):
+		t.Fatal("no answer")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, m := range during {
+		if m.Body == (terminalproto.WorktreeResult{Code: terminalproto.Conflict}) {
+			t.Fatal("a request made while the answer was sent was busy")
+		}
 	}
 }

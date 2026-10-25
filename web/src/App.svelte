@@ -774,7 +774,7 @@
         {/if}
       </div>
     {:else if !authenticated && authMode==='accounts' && !isPublicList && !isCommunity && !isJoin}
-      <nav class="site-nav" aria-label="Public navigation"><a href="/welcome">Workspace</a><a href="/welcome#self-host">Self-host</a><a class="entry-link" href="/signin">Sign in →</a></nav>
+      <nav class="site-nav" aria-label="Public navigation">{#if !isWelcome}<a href="/welcome">Workspace</a>{/if}<a href="/welcome#self-host">Self-host</a>{#if !setupRequired}<a class="entry-link" href="/signin">Sign in →</a>{/if}</nav>
     {:else if isPublicList || isCommunity || isJoin}
       <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a class="entry-link" href="/">Open your workspace →</a></nav>
     {/if}

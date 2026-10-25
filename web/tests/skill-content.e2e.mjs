@@ -247,6 +247,8 @@ const SHARED='Shared agents / Codex'
 const stamp=ms=>page.evaluate(t=>new Date(t).toLocaleString(),ms)
 // A request made now reaches the route after any made before it, so once it has, an earlier one would be in the log.
 const afterRequests=()=>page.evaluate(()=>fetch('/api/version').then(r=>r.status))
+// A read that was already under way when the tab was hidden has landed: it would otherwise be stamped with the moved clock.
+const settleReads=async()=>{await afterRequests();await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>setTimeout(r,0))))}
 const noIds=(...texts)=>{for(const text of texts)expect(text).not.toMatch(/[0-9a-f]{8}/)}
 
 try{
@@ -776,6 +778,7 @@ try{
  // A captured read the browser has not renewed for thirty seconds is not shown as current. The clock is moved on while the
  // tab is hidden (so nothing reads again), then put back and the read renewed.
  await setHidden(true)
+ await settleReads()
  await page.evaluate(()=>{window.__skew=60000})
  await expect(dialog.getByText('Updating this result')).toBeVisible({timeout:SECOND})
  await expect(heading('Found')).toHaveCount(0)
@@ -1073,7 +1076,7 @@ try{
  {
   const n=checkPosts().length;await again.click();await expect.poll(()=>checkPosts().length).toBe(n+1)
   setLatest(adoptCheck());await expect(recordHeading).toBeVisible({timeout:SECOND})
-  await setHidden(true);await page.evaluate(()=>{window.__skew=60000})
+  await setHidden(true);await settleReads();await page.evaluate(()=>{window.__skew=60000})
   await expect(dialog.getByText('Updating this result')).toBeVisible({timeout:SECOND})
   await expect(recordBtn).toHaveCount(0);await expect(recordHeading).toHaveCount(0)
   await page.evaluate(()=>{window.__skew=0});await setHidden(false)
@@ -1354,6 +1357,161 @@ try{
  await dialog.getByRole('button',{name:'Done'}).click()
  await expect(dialog).toHaveCount(0)
  await quiet()
+
+ // ---- Layout, focus and motion across sizes and themes ----
+ // Every step and both confirmations at four widths in light and dark: the page never scrolls sideways, the dialog stays inside the
+ // window with its header and footer in view, and each primary action can be reached (scrolled to inside the dialog's own body and
+ // not covered by anything). Focus goes back to what opened the dialog, or to a control that is still there, after each confirmation;
+ // Escape closes only the top dialog and writes nothing; with reduced motion nothing in the dialogs animates or transitions.
+ const SIZES=[[1360,1000],[768,1024],[390,844],[320,640]],SCHEMES=['light','dark']
+ let home=[1360,1000,'light']
+ const setView=async(width,height,scheme)=>{await page.setViewportSize({width,height});await page.emulateMedia({colorScheme:scheme})}
+ const reachable=async target=>{
+  await target.scrollIntoViewIfNeeded()
+  await expect(target).toBeInViewport()
+  expect(await target.evaluate(el=>{const r=el.getBoundingClientRect(),hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return !!hit&&(hit===el||el.contains(hit))})).toBe(true)
+ }
+ // top: the confirmation is the dialog on top, so it is the one that must sit inside the window.
+ const holds=async(targets,{top=false}={})=>{
+  await layout()
+  if(top)expect(await page.evaluate(()=>{const d=[...document.querySelectorAll('dialog[open]')].at(-1),r=d.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+.5&&r.top>=0&&r.bottom<=innerHeight+.5&&d.scrollWidth<=d.clientWidth+1})).toBe(true)
+  else{
+   expect(await fits()).toBe(true)
+   await expect(dialog.getByRole('button',{name:'Close private skills'})).toBeInViewport()
+   await expect(dialog.getByRole('button',{name:'Done'})).toBeInViewport()
+  }
+  for(const target of targets)await reachable(target)
+  expect(await page.evaluate(()=>[...document.querySelectorAll('dialog[open] [role=region]')].every(el=>el.scrollWidth<=el.clientWidth+1))).toBe(true)
+ }
+ const sweep=async(targets,opts)=>{
+  for(const [width,height] of SIZES)for(const scheme of SCHEMES){await setView(width,height,scheme);await holds(targets,opts)}
+  await setView(...home)
+ }
+ // What is animating or could transition inside any open dialog. Computed styles are read, so the answer does not depend on timing.
+ const motion=()=>page.evaluate(()=>{
+  const running=document.getAnimations().filter(a=>a.playState==='running'&&a.effect?.target?.closest?.('dialog')).length
+  const styled=[...document.querySelectorAll('dialog[open]')].flatMap(d=>[d,...d.querySelectorAll('*')]).filter(el=>{const s=getComputedStyle(el);return s.animationName!=='none'||s.transitionDuration.split(',').some(x=>parseFloat(x)>0)}).length
+  return {running,styled}
+ })
+ const matrixPin=(name,bundleId,revisionId)=>({id:`pin-matrix-${name.length}`,environmentId:'scope-one',agentId:'agent-0',name,bundleId,revisionId,manifestDigest:'0'.repeat(64),mode:'additive',version:`ver-matrix-${name.length}`,updatedAt:now,verification:'not_verified'})
+ const matrixRecords=()=>[{id:'rcpolder',environmentId:'scope-one',agentId:'agent-0',name:'older',bundleId:B.demo,revisionId:hex('9'),managedDigest:'m'.repeat(64),fileCount:1,provenance:'adopted',verification:'controller_attested',evidence:{previewId:'x',reviewHash:'y',captureHash:'c',observedDigest:'o',pinId:'p',pinVersion:'v',capturedAt:1,adoptedAt:1,adoptedBy:1},version:'rv-older',createdAt:Date.now(),updatedAt:Date.now()},{id:'rcpdamaged',environmentId:'scope-one',agentId:'agent-0',name:'ghost',bundleId:'',revisionId:'',managedDigest:'',fileCount:0,provenance:'',verification:'',evidence:{},version:'rv-damaged',createdAt:0,updatedAt:0,damaged:true}]
+ const bulk=Array.from({length:60},(_,i)=>file(`references/${'a-very-long-unbroken-file-name-'.repeat(3)}${i}-ünïcödé.md`,100+i))
+
+ // One walk through the dialog: open, every step, both confirmations (cancelled with Escape, cancelled with the button, then
+ // confirmed), the records list with a damaged record, and the two ways to close. full sweeps all eight size and theme pairs at
+ // every state; otherwise the state is held to the size and theme it is run at.
+ const lifecycle=async(label,[width,height,scheme],{full=false,reduce=false}={})=>{
+  home=[width,height,scheme]
+  await setView(width,height,scheme)
+  await page.emulateMedia({reducedMotion:reduce?'reduce':'no-preference'})
+  authMode='accounts';viewer=false;connectorsPaused=false;capReady=true;previewsBroken=false;pinsBroken=false;receiptsBroken=false
+  adoptFail=0;adoptRefuse=false;dropAdopt=null;dropCreate=null;releaseRefuse=false;releaseHold=null;adoptHold=null;breakdownHold={};hold=null;pinsHold=null;previewGetHold=null
+  pins=[...pins.filter(p=>p.id==='pin-elsewhere'),matrixPin('demo',B.demo,R.d3),matrixPin(LONG_NAME,B.long,R.l1)]
+  previewsDb=[];receiptsDb=matrixRecords();receiptKeys=new Map()
+  const stays=async()=>{if(reduce)expect(await motion()).toEqual({running:0,styled:0})}
+  const state=async(targets,opts)=>{await (full?sweep:holds)(targets,opts);await stays()}
+  const sent=()=>writes.length
+
+  await expand('workstation')
+  await opener.click()
+  await expect(dialog).toBeVisible()
+  await expect(pinsList.getByRole('listitem')).toHaveCount(2)
+  const rows=records.getByRole('listitem')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.filter({hasText:'ghost'})).toContainText("This record can't be read. It can still be released.")
+  await state([dialog.getByRole('button',{name:'Save pin'}),rows.first().getByRole('button',{name:/^Release ownership/}),rows.last().getByRole('button',{name:/^Release ownership/})])
+  // Not vacuous: without the preference the buttons do transition, so the reduced run below proves something.
+  if(!reduce)expect((await motion()).styled).toBeGreaterThan(0)
+
+  // Check step: nothing checked yet, waiting for the machine, then a found folder with a long list of files.
+  await pinsList.getByRole('button',{name:'Open check for demo'}).click()
+  await expect(checkBtn).toBeEnabled()
+  await expect(checkHeading).toBeFocused()
+  await state([checkBtn])
+  const made=checkPosts().length
+  await checkBtn.click()
+  await expect.poll(()=>checkPosts().length).toBe(made+1)
+  await expect(live).toContainText('Waiting for the machine')
+  await state([dialog.getByRole('button',{name:'Stop this check',exact:true})])
+  setLatest(found({capture:captureOf('present',{manifest:manifestOf([file('SKILL.md',120),...bulk])})}))
+  await expect(heading('Found')).toBeVisible({timeout:SECOND})
+  await state([again,dialog.getByRole('button',{name:'Dismiss this result'})])
+
+  // Adopt step: nothing chosen, then 256 files with a very long path, then the confirmation.
+  await adoptable()
+  await state([recordBtn])
+  await choose(2)
+  await expect(bdTable.locator('tbody tr')).toHaveCount(256)
+  await expect(recordBtn).toBeEnabled()
+  await state([recordBtn])
+  await recordBtn.click()
+  await expect(asking).toBeVisible()
+  await state([asking.getByRole('button',{name:'Cancel'}),confirmRecord],{top:true})
+  if(!reduce)expect((await motion()).styled).toBeGreaterThan(0)
+  // Escape closes the confirmation only: the dialog stays, focus returns to the button that asked, and nothing was written.
+  let before=sent()
+  await page.keyboard.press('Escape')
+  await expect(asking).toHaveCount(0)
+  await expect(dialog).toBeVisible()
+  await expect(recordBtn).toBeFocused()
+  expect(sent()).toBe(before)
+  await recordBtn.click()
+  await expect(asking).toBeVisible()
+  await asking.getByRole('button',{name:'Cancel'}).click()
+  await expect(asking).toHaveCount(0)
+  await expect(recordBtn).toBeFocused()
+  expect(sent()).toBe(before)
+  // Confirming records once, and focus goes to the Check step's heading because the button that asked has gone.
+  const recorded=receiptPosts().length
+  await recordBtn.click()
+  await confirmRecord.click()
+  await expect.poll(()=>receiptPosts().length).toBe(recorded+1)
+  await expect(recordBtn).toHaveCount(0)
+  await expect(checkHeading).toBeFocused()
+  await settled()
+  await expect(rows).toHaveCount(3)
+  await state([again,rows.filter({has:page.getByText('demo',{exact:true})}).getByRole('button',{name:'Release ownership of demo'})])
+
+  // Release: the same three ways out of the confirmation. Releasing leaves focus on the records heading, which is still there.
+  const releaseDemo=rows.filter({has:page.getByText('demo',{exact:true})}).getByRole('button',{name:'Release ownership of demo'})
+  await releaseDemo.click()
+  await expect(releaseAsk).toBeVisible()
+  await state([releaseAsk.getByRole('button',{name:'Cancel'}),releaseAsk.getByRole('button',{name:'Release ownership',exact:true})],{top:true})
+  before=sent()
+  await page.keyboard.press('Escape')
+  await expect(releaseAsk).toHaveCount(0)
+  await expect(dialog).toBeVisible()
+  await expect(releaseDemo).toBeFocused()
+  await releaseDemo.click()
+  await releaseAsk.getByRole('button',{name:'Cancel'}).click()
+  await expect(releaseDemo).toBeFocused()
+  expect(sent()).toBe(before)
+  await releaseDemo.click()
+  await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
+  await expect(rows).toHaveCount(2)
+  await expect(records.getByRole('heading',{name:'Ownership records in this folder'})).toBeFocused()
+  await state([again])
+
+  // Closing: Escape writes nothing and hands focus back to the opener; so does Done on the next opening.
+  before=sent()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
+  expect(sent()).toBe(before)
+  await opener.click()
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button',{name:'Done'}).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
+  await quiet()
+  await stays()
+ }
+ await lifecycle('desktop, light',[1360,1000,'light'],{full:true})
+ await lifecycle('tablet, dark',[768,1024,'dark'])
+ await lifecycle('phone, light',[390,844,'light'])
+ await lifecycle('narrow phone, dark, reduced motion',[320,640,'dark'],{reduce:true})
+ await page.emulateMedia({reducedMotion:'no-preference'})
+ await setView(1360,1000,'light')
 
  // Pins, checks and ownership never touch browser storage: not one write, from the moment the dialog first opened, and the
  // stored state is what it was. Nothing ever asked for revision bytes or any other read of a skill's files.

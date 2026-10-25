@@ -518,3 +518,56 @@ func TestManagerRefusedLaunchLeavesNothingBehind(t *testing.T) {
 		t.Fatal("a refused launch saved an operation receipt", r.Operations, err)
 	}
 }
+
+func TestManagerLaunchDirectoryIsNotFormatExpanded(t *testing.T) {
+	m, opts := managerFixture(t)
+	agent, record := fakeAgent(t)
+	m.lookPath = func(name string) (string, error) {
+		if name == "claude" {
+			return agent, nil
+		}
+		return "", errors.New("not found")
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(opts.Home, "a#(touch reet-format-marker)#S#{session_name}#H")
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	realFolder, _ := filepath.EvalSymlinks(folder)
+	markers := []string{filepath.Join(opts.Home, "reet-format-marker"), filepath.Join(cwd, "reet-format-marker"), filepath.Join(folder, "reet-format-marker"), filepath.Join(opts.Layout.Dir, "reet-format-marker"), "/reet-format-marker"}
+	t.Cleanup(func() {
+		for _, mk := range markers {
+			_ = os.Remove(mk)
+		}
+	})
+	s, err := m.Create(context.Background(), testRequestID(1), testSessionID(1), terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "claude", Dir: folder})
+	if err != nil || s.State != terminalproto.Running {
+		t.Fatal(s, err)
+	}
+	var data []byte
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if data, err = os.ReadFile(record); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatal("fake agent did not start", err)
+	}
+	// Give a format job, had one been started, time to run.
+	time.Sleep(300 * time.Millisecond)
+	for _, mk := range markers {
+		if _, err := os.Stat(mk); err == nil {
+			t.Fatal("tmux ran a format job from the folder name", mk)
+		}
+	}
+	// With no arguments the fake writes one empty argv field before its cwd.
+	fields := strings.Split(strings.TrimSuffix(string(data), "\n"), "\x00")
+	if got := fields[len(fields)-1]; len(fields) != 2 || got != realFolder {
+		t.Fatalf("agent working directory:\n got %q\nwant %q", got, realFolder)
+	}
+}

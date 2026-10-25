@@ -262,3 +262,50 @@ func TestLaunchResultCode(t *testing.T) {
 		t.Fatal("other errors are not launch failures")
 	}
 }
+
+func TestTmuxLiteral(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                       "",
+		"/home/dev/site":         "/home/dev/site",
+		"/h/a#(touch x)#S":       "/h/a##(touch x)##S",
+		"##":                     "####",
+		"/h/#{session_name} é$x": "/h/##{session_name} é$x",
+	} {
+		if got := tmuxLiteral(in); got != want {
+			t.Fatalf("tmuxLiteral(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestResolveDirRelativeThatExistsFromCwd(t *testing.T) {
+	// "." always exists relative to the cwd; a cwd-relative folder inside home
+	// must still be refused for being relative.
+	home := t.TempDir()
+	if err := os.Mkdir(filepath.Join(home, "work"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(home)
+	for _, dir := range []string{".", "work", "./work"} {
+		if got, err := ResolveDir(home, dir); !errors.Is(err, ErrLaunchUnavailable) {
+			t.Fatalf("relative %q resolved to %q, %v", dir, got, err)
+		}
+	}
+}
+
+func TestResolveDirHomeIsASymlink(t *testing.T) {
+	root := t.TempDir()
+	realHome := filepath.Join(root, "real-home")
+	if err := os.MkdirAll(filepath.Join(realHome, "work"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(root, "home-link")
+	if err := os.Symlink(realHome, home); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := filepath.EvalSymlinks(filepath.Join(realHome, "work"))
+	for _, dir := range []string{filepath.Join(home, "work"), filepath.Join(realHome, "work")} {
+		if got, err := ResolveDir(home, dir); err != nil || got != want {
+			t.Fatalf("ResolveDir(%q, %q) = %q, %v; want %q", home, dir, got, err, want)
+		}
+	}
+}

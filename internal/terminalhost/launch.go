@@ -76,7 +76,8 @@ var launchPresets = map[string]launchPreset{
 }
 
 // tmux hands a single-argument command to the shell (`sh -c`), so a binary
-// path is restricted to characters no shell treats specially.
+// path is restricted to characters no shell or tmux format treats specially.
+// The leading '/' also makes it absolute.
 var safeBinaryPath = regexp.MustCompile(`^/[A-Za-z0-9._+@/-]+$`)
 
 func resolveBinary(p launchPreset, lookPath func(string) (string, error)) (string, bool) {
@@ -84,7 +85,7 @@ func resolveBinary(p launchPreset, lookPath func(string) (string, error)) (strin
 		return "", false
 	}
 	path, err := lookPath(p.binary)
-	if err != nil || !filepath.IsAbs(path) || !safeBinaryPath.MatchString(path) {
+	if err != nil || !safeBinaryPath.MatchString(path) {
 		return "", false
 	}
 	return path, true
@@ -171,3 +172,8 @@ func ResolveDir(home, dir string) (string, error) {
 	}
 	return resolved, nil
 }
+
+// tmuxLiteral escapes a value that tmux format-expands, such as new-session's
+// -c directory: without it a folder named "a#(cmd)" runs cmd and "#S" or
+// "#{...}" rewrite the path. Doubling every '#' makes tmux read it literally.
+func tmuxLiteral(s string) string { return strings.ReplaceAll(s, "#", "##") }

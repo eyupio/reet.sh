@@ -2217,3 +2217,68 @@ with a default agent and worktrees.
 
 A started session means only that the connector started the program in tmux in that folder.
 It does not show that the agent is signed in, understands the prompt or is making progress.
+
+### Start an agent session — web side (PR #195 and the closing pull request)
+
+Added 25 October 2026. Read [docs/start-agent-session.md](docs/start-agent-session.md) for what
+people see. This extends the "What remains" list above: the web items there are now done.
+
+**What exists now.**
+- `web/src/lib/agentLaunch.ts` (pure, unit tested in `agentLaunch.test.mjs`) holds the tool names,
+  model suggestions, the model, folder and prompt rules, folder choices, the sentence line,
+  `refusalText`, the title and the Activity line.
+- `web/src/lib/StartAgentDialog.svelte` is the dialog: one screen, one request id per attempt, a
+  busy guard, and the existing 15-second abort.
+- Entry points: **New agent session** in the Terminals workspace (sidebar, machine menu, empty
+  state) and **Start an agent** on a ready machine's card.
+- Activity reads `terminal-launch` as "Started \<Agent\> [with \<model\>] in \<folder\> on
+  \<machine\>".
+- Browser fixture: `web/tests/start-agent.e2e.mjs`, run in the terminal-browser workflow.
+
+The closing pull request adds:
+- A status line that clears a validation message when the person edits a field.
+- A fixture hardened to check every field is locked while a request is held or its outcome is
+  unknown, Escape on a held first Start, a positive heading anchor for viewers and legacy sign-in,
+  and IndexedDB opens and writes.
+- The layout, focus and motion matrix.
+- Three layout and accessibility fixes it found: the footer covered fields on narrow screens, the
+  "Not installed" reason was faded below contrast, and the locked form could not be scrolled by
+  keyboard.
+- This documentation.
+
+**Rulings recorded.**
+- A 503 keeps the request id, like a lost reply: the machine may already have been asked. Retry
+  sends the same id and body.
+- Lost-reply caveat: closing the dialog after a lost reply forgets the request, because the prompt
+  must not outlive the dialog. The dialog says plainly that a second agent may start if the person
+  closes it and starts again, and to check their sessions first.
+- One-word prompt rule: Claude Code and Codex need at least two words ("Write the opening prompt
+  as at least two words."). It is checked in the page and refused by the server as
+  `prompt_unsupported`.
+- Session-limit wording: "The terminal session limit has been reached. End a session and try
+  again.", because the server's 409 doesn't say whether the machine's limit or the account's limit
+  was reached. The tool refusal is the generic "That agent isn't installed on that machine.",
+  because the API answers with a code and has no table of names. The spec's Words table was
+  amended to match.
+
+**What was checked.**
+- Only what was run for these tasks, in Chromium against synthetic API responses: the fixture's
+  states and refusals, the matrix (24 states at 1360, 768, 390 and 320px in light and dark),
+  Escape at every size from both entry points, a reduced-motion run, and no browser storage.
+- An `axe-core` scan from a temporary directory. Results and limits are in
+  [docs/ui-verification.md](docs/ui-verification.md).
+- No screen reader, Safari, Firefox or physical device.
+- Full validation results are recorded in the pull request.
+
+**What remains.**
+- Projects.
+- Agent status (working, waiting, idle).
+- Resuming an earlier agent conversation.
+- Wider folder roots as a deliberate setting.
+- Worktrees and MCP exposure stay out of scope.
+- The terminal pane's mobile key row is a scrolling region that can't be reached by keyboard. An
+  axe scan flagged it on the Terminals page at 375px. It is outside this dialog and was not changed.
+
+**Product direction.** The core roadmap is Start an agent session, which is now in place from the
+browser, and then Projects: named sets of repository folders across machines, with a default agent
+and worktrees, reusing the folder list and the launch request.

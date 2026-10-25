@@ -1,39 +1,13 @@
 // First-run and phone-width contract: the menu stays on screen, setup ends on Control, unknown routes say so,
 // auth screens fit a phone, and touch devices are not handed a keyboard on load.
 import { chromium, expect } from '@playwright/test'
+import { openWorkspace } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 // REET_E2E_ONLY=<section> runs one section, so each can be watched failing before its fix.
 const only = process.env.REET_E2E_ONLY
 const run = name => !only || only === name
-const owner = {id:1,name:'Sam',email:'sam@example.test',role:'owner'}
-
-async function open({width, height=812, theme='light', status}) {
- const context = await browser.newContext({viewport:{width,height}})
- const page = await context.newPage()
- const state = {status:{mode:'accounts',setupRequired:false,bootstrapRequired:false,signupEnabled:false,user:owner,...status}, theme, unexpected:[]}
- const errors = []
- page.on('pageerror',e=>errors.push(e.message))
- await page.route('**/api/**',route=>{
-  const path = new URL(route.request().url()).pathname
-  if(path==='/api/v2/auth/status')return route.fulfill({json:state.status})
-  if(path==='/api/v2/auth/setup'){state.status={...state.status,setupRequired:false,user:owner};return route.fulfill({json:owner})}
-  if(path==='/api/v2/profile')return route.fulfill({json:{profile:{theme:state.theme,shelfView:'list',cardsExpanded:false}}})
-  if(path==='/api/version')return route.fulfill({json:{version:'test',commit:'fixture'}})
-  if(path==='/api/skills')return route.fulfill({json:{skills:[],counts:{all:0,used:0,liked:0,bookmarked:0}}})
-  if(path==='/api/environments')return route.fulfill({json:{environments:[],machines:[]}})
-  if(path==='/api/tags')return route.fulfill({json:{tags:[]}})
-  if(path==='/api/v2/lists')return route.fulfill({json:{lists:[],linkEnabled:false}})
-  if(path==='/api/v2/sync')return route.fulfill({json:{environments:[],machines:[],agents:[]}})
-  if(path==='/api/v2/machines/health')return route.fulfill({json:{serverNow:Date.now(),machines:[]}})
-  if(path==='/api/v2/terminal/machines')return route.fulfill({json:{machines:[]}})
-  if(path==='/api/v2/terminal/sessions')return route.fulfill({json:{sessions:[]}})
-  if(path==='/api/v2/notifications/count')return route.fulfill({json:{unread:0}})
-  state.unexpected.push(path)
-  return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})
- })
- return {context, page, state, errors}
-}
+const open = options => openWorkspace(browser, options)
 
 try {
  // The phone menu opens inside the screen at every width where the compact menu is used.

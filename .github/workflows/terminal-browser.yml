@@ -55,6 +55,7 @@ jobs:
           done
           node web/tests/public-workspace.e2e.mjs
           node web/tests/first-run.e2e.mjs
+          node web/tests/phone-layout.e2e.mjs
           node web/tests/control.e2e.mjs
           node web/tests/machine-import.e2e.mjs
           node web/tests/skill-content.e2e.mjs

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { getBuildInfo } from './api'
-  import { DEVELOPER_NAME, DEVELOPER_URL } from './links'
+  import { DEVELOPER_NAME, DEVELOPER_URL, DOCS_URL, LICENSE_URL, REPO_URL } from './links'
 
   let {
     signedIn = false, showAdmin = false, userName = '', onsignout,
@@ -29,6 +29,13 @@
       <span class="meaning">reet: Yorkshire for “right”.</span>
     </span>
     <span class="end">
+      {#if !signedIn}
+        <span class="public-links">
+          <a href={DOCS_URL} target="_blank" rel="noopener noreferrer">Docs<span class="vh"> (opens in a new tab)</span></a>
+          <a href={REPO_URL} target="_blank" rel="noopener noreferrer">GitHub<span class="vh"> (opens in a new tab)</span></a>
+          <a href={LICENSE_URL} target="_blank" rel="noopener noreferrer">AGPL-3.0<span class="vh"> (opens in a new tab)</span></a>
+        </span>
+      {/if}
       {#if signedIn && userName}<a class="user" href="/account">{userName}</a>{/if}
       {#if showAdmin}<a class="admin" href="/admin">Admin</a>{/if}
       {#if signedIn}<button type="button" class="signout" onclick={() => onsignout?.()}>Sign out</button>{/if}
@@ -53,6 +60,9 @@
   .meaning { font-size: 0.75rem; }
   .descriptor { letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.75rem; }
   .end { display: inline-flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .public-links { display: inline-flex; flex-wrap: wrap; gap: 4px 16px; }
+  .public-links a { color: var(--muted); font-weight: 500; text-underline-offset: 3px; }
+  .public-links a:hover, .public-links a:focus-visible { color: var(--ink); text-decoration: underline; }
   .credit { white-space: nowrap; }
   .credit a { color: var(--muted); font-weight: 500; text-underline-offset: 3px; }
   .credit a:hover, .credit a:focus-visible { color: var(--ink); text-decoration: underline; }

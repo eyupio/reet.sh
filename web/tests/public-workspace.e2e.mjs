@@ -32,6 +32,12 @@ try {
    await expect(page.getByRole('link',{name:'Request an invite'})).toHaveAttribute('href',/^mailto:owner@example.test/)
    await expect(page.getByRole('link',{name:'Create an account'})).toHaveCount(0)
    await expect(page.getByRole('figure')).toContainText('Illustration.')
+   // Public pages carry the help and trust links, and the roadmap link opens a short roadmap, not an internal log.
+   const footer=page.getByRole('contentinfo')
+   await expect(footer.getByRole('link',{name:'GitHub'})).toHaveAttribute('href','https://github.com/eyupio/reet.sh')
+   await expect(footer.getByRole('link',{name:'Docs'})).toHaveAttribute('href','https://github.com/eyupio/reet.sh#quick-start')
+   await expect(footer.getByRole('link',{name:'AGPL-3.0'})).toHaveAttribute('href','https://github.com/eyupio/reet.sh/blob/main/LICENSE')
+   await expect(page.getByRole('link',{name:/See what.s next/})).toHaveAttribute('href','https://github.com/eyupio/reet.sh/blob/main/docs/roadmap.md')
    await layout(); await noOldPitch()
    if(screenshots)await page.screenshot({path:`${screenshots}/public-${width}-${colorScheme}.png`,fullPage:true})
    await page.getByRole('link',{name:'Host it yourself',exact:true}).click()

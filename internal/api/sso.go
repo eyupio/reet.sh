@@ -53,7 +53,15 @@ func (s *server) ssoStatus() map[string]any {
 // safeNext is where a sign-in resumes: a path on this site, and nothing a
 // browser could read as another address. Anything else becomes the home page.
 func safeNext(raw string) string {
-	if raw == "" || len(raw) > 2048 || raw[0] != '/' || strings.HasPrefix(raw, "//") || strings.ContainsAny(raw, "\\") {
+	if raw == "" || len(raw) > 2048 || raw[0] != '/' {
+		return "/"
+	}
+	// A browser reads "//host" and "/\host" as another site, so the second
+	// character is checked by itself, and a backslash anywhere is refused.
+	if len(raw) > 1 && (raw[1] == '/' || raw[1] == '\\') {
+		return "/"
+	}
+	if strings.ContainsAny(raw, "\\") {
 		return "/"
 	}
 	for _, r := range raw {

@@ -1,10 +1,11 @@
 <script lang="ts">
-  let { name = '', email = '', admin = false, accounts = true, active = false, onsignout }: {
+  let { name = '', email = '', admin = false, accounts = true, active = false, unread = 0, onsignout }: {
     name?: string
     email?: string
     admin?: boolean
     accounts?: boolean
     active?: boolean
+    unread?: number
     onsignout: () => void
   } = $props()
 
@@ -18,6 +19,7 @@
     .slice(0, 2)
     .toUpperCase())
   const label = $derived(name.trim() || 'your account')
+  const unreadLabel = $derived(unread > 99 ? '99+' : String(unread))
 
   function close(event: KeyboardEvent) {
     if (event.key !== 'Escape' || !menu?.open) return
@@ -40,16 +42,17 @@
 
 <div class="account" bind:this={root}>
   <details bind:this={menu}>
-    <summary class:active aria-label={`Account menu for ${label}`}>
-      <span class="avatar" aria-hidden="true">{initials}</span>
-      <span class="who"><strong>{name || 'Your shelf'}</strong>{#if email}<small>{email}</small>{/if}</span>
+    <summary class:active aria-label={`Account menu for ${label}${unread > 0 ? `, ${unread} unread notifications` : ''}`}>
+      <span class="avatar" aria-hidden="true">{initials}{#if unread > 0}<span class="badge">{unreadLabel}</span>{/if}</span>
+      <span class="who"><strong>{name || 'Your account'}</strong>{#if email}<small>{email}</small>{/if}</span>
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6" /></svg>
     </summary>
     <div class="panel">
       <div class="panel-who">
-        <strong>{name || 'Your shelf'}</strong>
+        <strong>{name || 'Your account'}</strong>
         {#if email}<span>{email}</span>{/if}
       </div>
+      <a href="/notifications">Notifications{#if unread > 0}<span class="count">{unreadLabel}</span>{/if}</a>
       {#if accounts}<a href="/account/profile">Account &amp; preferences</a>{/if}
       {#if admin}<a href="/admin/overview">Instance administration</a>{/if}
       <button type="button" onclick={signOut}>Sign out</button>
@@ -69,9 +72,18 @@
   summary:hover, summary.active { border-color: var(--muted); }
   summary.active .avatar { background: var(--accent); color: var(--accent-ink); }
   .avatar {
-    width: 30px; height: 30px; display: grid; place-items: center; flex: none;
+    position: relative; width: 30px; height: 30px; display: grid; place-items: center; flex: none;
     border-radius: 50%; background: var(--tint); color: var(--accent);
     font-size: 0.7rem; font-weight: 700; letter-spacing: 0.03em;
+  }
+  .badge {
+    position: absolute; top: -5px; right: -7px; min-width: 18px; height: 18px; padding: 0 5px; display: grid; place-items: center;
+    border-radius: 999px; background: var(--accent); color: var(--accent-ink); border: 2px solid var(--card);
+    font-size: 0.62rem; font-weight: 700; letter-spacing: 0; line-height: 1;
+  }
+  .count {
+    margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; display: inline-grid; place-items: center;
+    border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 0.7rem; font-weight: 700;
   }
   .who { display: grid; line-height: 1.15; min-width: 0; }
   .who strong {

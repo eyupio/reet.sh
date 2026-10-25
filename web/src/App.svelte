@@ -151,15 +151,14 @@
     { href: '/', label: 'Control', current: isControl },
     { href: '/machines', label: 'Machines', current: isMachines && !isSync && !isTerminals },
     ...(authMode === 'accounts' && canWrite ? [{ href: '/terminals', label: 'Terminals', current: isTerminals }] : []),
-    { href: '/community', label: 'More', current: isShared || isList || isProfiles || isSpaces || isCommunity || isHosting || isSupport || isTicket || isNotifications || isSkills || isSync,
+    { href: '/skills', label: 'Skills', current: isSkills },
+    { href: '/profiles', label: 'Setups', current: isProfiles },
+    { href: '/community', label: 'More', current: isShared || isList || isSpaces || isCommunity || isHosting || isSupport || isTicket || isSync,
       children: [
-        { href: '/skills', label: 'Skills', current: isSkills },
         { href: '/sync', label: 'Sync', current: isSync },
         { href: '/shared', label: 'Lists', current: isShared || isList },
-        { href: '/profiles', label: 'Portable setups', current: isProfiles },
         { href: '/community', label: 'Community', current: isCommunity },
         { href: '/support', label: 'Support', current: isSupport || isTicket },
-        { href: '/notifications', label: unreadNotifications > 0 ? `Notifications (${unreadNotifications})` : 'Notifications', current: isNotifications },
         { href: '/spaces', label: 'Teams & organisations', current: isSpaces },
         ...(canWrite ? [{ href: '/hosting', label: 'Host skills', current: isHosting }] : []),
       ],
@@ -745,7 +744,7 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isControl ? 'Control' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Your shelf' : 'Page not found'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isControl ? 'Control' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found'} · reet.sh</title>
   {/if}
 </svelte:head>
 
@@ -758,17 +757,14 @@
     {#if authenticated && !needsAuth && !isPublicList && !isJoin}
       <div class="app-nav">
         <NavigationMenu label="Main navigation" primary items={mainNavigation} />
-        <a class="notif-link" href="/notifications" aria-label={unreadNotifications > 0 ? `Notifications, ${unreadNotifications} unread` : 'Notifications'}>
-          <span>Notifications</span>
-          {#if unreadNotifications > 0}<span class="notif-count">{unreadNotifications > 99 ? '99+' : unreadNotifications}</span>{/if}
-        </a>
         {#if authMode !== 'none'}
           <AccountMenu
             name={currentUser?.name ?? ''}
             email={currentUser?.email ?? ''}
             admin={isAdminUser}
             accounts={authMode === 'accounts'}
-            active={isAccount || isAdmin}
+            active={isAccount || isAdmin || isNotifications}
+            unread={unreadNotifications}
             onsignout={signOut}
           />
         {/if}
@@ -840,8 +836,8 @@
   {:else if isAdmin}
     <Admin onerror={fail} {role} accounts={authMode === 'accounts'} currentEmail={currentUser?.email ?? ''} />
   {:else if isSkills}
-    <PageHeader eyebrow="Ey up. Your skill shelf." title="Your central skill library." lede="Keep the good finds here, then choose which machines receive them. Shelf stages organise your library; Sync controls installation.">
-      {#snippet actions()}<a class="btn" href="/sync">Distribute skills</a>{#if canWrite}<a class="btn primary" href="/hosting">Create a skill</a>{/if}{/snippet}
+    <PageHeader eyebrow="Ey up. Your skill shelf." title="Skills." lede="Keep the good finds here, then choose which machines receive them. Shelf stages organise your library; Sync controls installation.">
+      {#snippet actions()}<a class="btn" href="/sync">Sync skills</a>{#if canWrite}<a class="btn primary" href="/hosting">Create a skill</a>{/if}{/snippet}
     </PageHeader>
     {#if canWrite}
       <form class="add" onsubmit={add} aria-busy={adding}>
@@ -1119,9 +1115,6 @@
   .site-header { border-bottom: 1px solid var(--line); }
   .header-inner { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: var(--content-width); margin: auto; padding: 24px 40px; }
   .app-nav { display: flex; align-items: center; gap: 8px; min-width: 0; margin-left: auto; }
-  .notif-link { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.78rem; font-weight: 600; text-decoration: none; white-space: nowrap; }
-  .notif-link:hover { color: var(--ink); border-color: var(--muted); }
-  .notif-count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 0.68rem; }
   .site-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
   .site-nav a, .entry-link { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--muted); font-size: 0.8rem; font-weight: 600; text-decoration: none; border-radius: 8px; }
   .site-nav a:hover, .entry-link:hover { color: var(--ink); background: var(--card); }
@@ -1329,5 +1322,5 @@
   .terminal-chrome .home {display:flex;align-items:center;}
   .terminal-chrome .home :global(.logo) {width:126px;}
   .terminal-chrome .home :global(svg) {width:100%;height:auto;}
-  @media(max-width:700px){main.terminal-layout{padding:4px 6px}.terminal-chrome .header-inner{padding:4px 10px;min-height:54px}.terminal-chrome .notif-link{display:none}.terminal-chrome .home :global(.logo){width:110px}}
+  @media(max-width:700px){main.terminal-layout{padding:4px 6px}.terminal-chrome .header-inner{padding:4px 10px;min-height:54px}.terminal-chrome .home :global(.logo){width:110px}}
 </style>

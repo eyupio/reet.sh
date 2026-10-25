@@ -932,3 +932,76 @@ export async function getPrivateBundles(signal?: AbortSignal): Promise<{ bundles
 export async function getPrivateRevisions(id: string, signal?: AbortSignal): Promise<{ revisions: PrivateRevision[] }> { return (await req(`/api/v2/skill-bundles/${encodeURIComponent(id)}/revisions`, { signal })).json() }
 
 export async function stopImport(id: string): Promise<ImportRequest> { return (await req(`/api/v2/skill-imports/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: json({}) })).json() }
+
+// Private skill content: pins, checks and ownership records. The types mirror the Go JSON exactly (see
+// docs/skill-content-targets.md, skill-content-preview.md and skill-content-receipts.md); optional fields are
+// omitempty on the server. The wrappers hold no logic. None of them reads a revision's file bytes: the
+// library's revision read is deliberately absent, and revision lists come from getPrivateRevisions (metadata).
+export type ContentIssue = { path: string; code: string }
+export type ContentFile = { path: string; bytes: number; digest: string; executable: boolean }
+export type ContentManifest = { schemaVersion: number; algorithm: string; modeSemantics: string; complete: boolean; files: ContentFile[]; totalBytes: number; digest?: string; issues?: ContentIssue[] }
+export type ContentPin = { id: string; environmentId: string; agentId: string; name: string; bundleId: string; revisionId: string; manifestDigest: string; mode: string; version: string; updatedAt: number; verification: string }
+export type ContentPinWrite = { environmentId: string; agentId: string; bundleId: string; revisionId: string; mode: 'additive' | 'managed'; expectedVersion: string }
+export type ContentCapture = { schemaVersion: number; adapter: string; rootId: string; rootOwnership: string; presence: string; complete: boolean; manifest?: ContentManifest; issues: ContentIssue[] }
+export type ContentTarget = { ownerId: number; agentId: string; environmentId: string; generation: string; rootId: string; skillName: string; adapter: string; schema: number }
+// The planner's snapshot carries its inventoryRevision as a JSON number, which a browser cannot hold exactly
+// for a 63-bit value. Nothing here compares it; ContentPreview.inventoryRevision is the string to use.
+export type ContentSnapshot = {
+  inventoryRevision: number
+  target: ContentTarget
+  desired: { ownerId: number; bundleId: string; revisionId: string; name: string; manifest: ContentManifest }
+  observation: { inventoryRevision: number; generation: string; presence: string; complete: boolean; receivedAt: number; manifest?: ContentManifest }
+  baseline?: { target: ContentTarget; bundleId: string; revisionId: string; manifest: ContentManifest }
+  rootOwnership: string
+  mode: string
+}
+export type ContentPlan = {
+  version: number
+  preconditions: ContentSnapshot
+  ready: boolean
+  actions: { path: string; kind: string; before?: ContentFile; after?: ContentFile }[]
+  conflicts: { path: string; code: string }[]
+  preserved: { path: string; reason: string }[]
+  expectedInstalled?: ContentManifest
+  expectedManaged?: ContentManifest
+  hash: string
+}
+export type AdoptionCandidate = { revisionId: string; matched: number; observedOnly: number; revisionOnly: number }
+export type AdoptionOffer = { candidates: AdoptionCandidate[] }
+export type AdoptionFile = { path: string; bytes: number; digest: string; executable: boolean; status: 'claimed' | 'stays_yours' | 'library_only' }
+export type AdoptionBreakdown = { revisionId: string; files: AdoptionFile[]; matched: number; observedOnly: number; revisionOnly: number }
+export type ContentPreview = {
+  id: string; requestKey: string; targetId: string; targetVersion: string; environmentId: string; agentId: string; agent: string; project: string; name: string
+  bundleId: string; revisionId: string; manifestDigest: string; mode: string
+  instanceId: string
+  // A 63-bit random value, so it travels as a string.
+  inventoryRevision: string
+  state: string; reasons: string[]; createdAt: number; updatedAt: number; expiresAt: number
+  capturedAt?: number; capture?: ContentCapture; captureHash?: string; receiptVersion?: string; plan?: ContentPlan; reviewHash?: string
+  authority: string; error?: string
+  // Item reads only, never listed.
+  adoption?: AdoptionOffer
+}
+export type ContentPreviewCapability = { agentId: string; ready: boolean; observedAt: number }
+export type ContentReceipt = {
+  id: string; environmentId: string; agentId: string; name: string; bundleId: string; revisionId: string; managedDigest: string; fileCount: number
+  // Item reads only.
+  managed?: ContentManifest
+  // Listed rows whose stored data no longer decodes: only the identity and version are good, and it can still be released.
+  damaged?: boolean
+  provenance: string; verification: string
+  evidence: { previewId: string; reviewHash: string; captureHash: string; observedDigest: string; pinId: string; pinVersion: string; capturedAt: number; adoptedAt: number; adoptedBy: number }
+  version: string; createdAt: number; updatedAt: number
+}
+export async function getContentPins(signal?: AbortSignal): Promise<{ targets: ContentPin[] }> { return (await req('/api/v2/skill-content-targets', { signal })).json() }
+export async function saveContentPin(input: ContentPinWrite): Promise<ContentPin> { return (await req('/api/v2/skill-content-targets', { method: 'POST', body: json(input) })).json() }
+export async function removeContentPin(id: string, expectedVersion: string): Promise<{ removed: boolean }> { return (await req(`/api/v2/skill-content-targets/${encodeURIComponent(id)}`, { method: 'DELETE', body: json({ expectedVersion }) })).json() }
+export async function getContentPreviews(signal?: AbortSignal): Promise<{ previews: ContentPreview[]; capabilities: ContentPreviewCapability[] }> { return (await req('/api/v2/skill-content-previews', { signal })).json() }
+export async function getContentPreview(id: string, signal?: AbortSignal): Promise<ContentPreview> { return (await req(`/api/v2/skill-content-previews/${encodeURIComponent(id)}`, { signal })).json() }
+export async function requestContentPreview(input: { requestKey: string; targetId: string; expectedTargetVersion: string }): Promise<ContentPreview> { return (await req('/api/v2/skill-content-previews', { method: 'POST', body: json(input) })).json() }
+export async function stopContentPreview(id: string): Promise<ContentPreview> { return (await req(`/api/v2/skill-content-previews/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: json({}) })).json() }
+export async function dismissContentPreview(id: string): Promise<{ ok: boolean }> { return (await req(`/api/v2/skill-content-previews/${encodeURIComponent(id)}`, { method: 'DELETE' })).json() }
+export async function getContentReceipts(signal?: AbortSignal): Promise<{ receipts: ContentReceipt[] }> { return (await req('/api/v2/skill-content-receipts', { signal })).json() }
+export async function adoptContent(input: { requestKey: string; previewId: string; reviewHash: string; adoptAsRevisionId: string }): Promise<ContentReceipt> { return (await req('/api/v2/skill-content-receipts', { method: 'POST', body: json(input) })).json() }
+export async function releaseContentReceipt(id: string, expectedVersion: string): Promise<{ removed: boolean }> { return (await req(`/api/v2/skill-content-receipts/${encodeURIComponent(id)}`, { method: 'DELETE', body: json({ expectedVersion }) })).json() }
+export async function getAdoptionBreakdown(previewId: string, revisionId: string, signal?: AbortSignal): Promise<AdoptionBreakdown> { return (await req(`/api/v2/skill-content-previews/${encodeURIComponent(previewId)}/adoption/${encodeURIComponent(revisionId)}`, { signal })).json() }

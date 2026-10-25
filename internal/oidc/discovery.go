@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -52,7 +53,9 @@ func (p *Provider) discover(ctx context.Context) (*discovery, error) {
 }
 
 func (p *Provider) fetchDiscovery(ctx context.Context) (*discovery, error) {
-	body, err := p.get(ctx, p.cfg.Issuer+"/.well-known/openid-configuration")
+	// The terminating slash is dropped for this request only (OpenID Connect
+	// Discovery 4.1); the issuer itself is compared exactly as configured.
+	body, err := p.get(ctx, strings.TrimRight(p.cfg.Issuer, "/")+"/.well-known/openid-configuration")
 	if err != nil {
 		return nil, err
 	}

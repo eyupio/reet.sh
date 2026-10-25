@@ -113,7 +113,7 @@ func FromEnv(getenv func(string) string) (*Provider, error) {
 		return def
 	}
 	cfg := Config{
-		Issuer:        strings.TrimRight(str("REET_OIDC_ISSUER"), "/"),
+		Issuer:        str("REET_OIDC_ISSUER"),
 		ClientID:      str("REET_OIDC_CLIENT_ID"),
 		ClientSecret:  Secret(str("REET_OIDC_CLIENT_SECRET")),
 		RedirectURL:   str("REET_OIDC_REDIRECT_URL"),

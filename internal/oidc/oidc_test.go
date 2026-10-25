@@ -415,3 +415,24 @@ func TestTheAddressGuardRefusesLinkLocalAndUnspecifiedButNotLoopbackOrPrivate(t 
 		}
 	}
 }
+
+// An issuer identifier that ends in a slash is a different identifier from
+// the same address without one. It is compared as configured; only the
+// discovery request drops the terminating slash.
+func TestAnIssuerWithATrailingSlashSignsPeopleIn(t *testing.T) {
+	f := newFakeIDP(t)
+	f.issuer += "/"
+	p, now := f.provider(nil)
+	if p.cfg.Issuer != f.srv.URL+"/" {
+		t.Fatalf("the configured issuer was rewritten to %q", p.cfg.Issuer)
+	}
+	c, err := exchange(t, f, p, f.idClaims(*now, "nonce-1"), "RS256", f.kid)
+	if err != nil || c.Subject != "subject-1" {
+		t.Fatalf("a sign-in through an issuer ending in a slash = %+v, %v", c, err)
+	}
+	e := goodEnv()
+	p2, err := FromEnv(env(e))
+	if err != nil || p2.Issuer() != "https://idp.example.test/" {
+		t.Fatalf("FromEnv rewrote the issuer: %q, %v", p2.Issuer(), err)
+	}
+}

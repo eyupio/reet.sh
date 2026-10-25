@@ -83,3 +83,10 @@ func (p *Provider) fetchDiscovery(ctx context.Context) (*discovery, error) {
 	}
 	return &d, nil
 }
+
+// Check says whether the provider can be reached and describes itself
+// properly, for a status page. It uses the same cached answer a sign-in would.
+func (p *Provider) Check(ctx context.Context) error {
+	_, err := p.discover(ctx)
+	return err
+}

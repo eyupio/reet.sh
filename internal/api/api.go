@@ -29,6 +29,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/mail"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/notify"
+	"github.com/eyupio/reet.sh/internal/oidc"
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/sealed"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -58,6 +59,11 @@ type server struct {
 	mail         *mail.Mailer
 	notify       *notify.Service
 	releases     *agentupdate.Checker
+
+	sso                *oidc.Provider
+	ssoLimiter         *auth.Limiter
+	logoutLimiter      *auth.Limiter
+	afterSessionsEnded func(ids []string) // a test seam: which sessions were just ended
 
 	privateSealer     *sealed.Sealer
 	privateRelayURL   string
@@ -243,6 +249,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	s := &server{
 		st: st, f: f, token: token, version: "dev", commit: "unknown",
 		authMode: AuthToken, limiter: auth.NewLimiter(5, time.Minute), oauthLimiter: auth.NewLimiter(30, time.Minute), dummyHash: dummy,
+		ssoLimiter: auth.NewLimiter(20, time.Minute), logoutLimiter: auth.NewLimiter(60, time.Minute),
 		queue: make(chan ref.Ref, 256),
 	}
 	for _, opt := range opts {
@@ -322,6 +329,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v2/auth/me", s.me)
 	mux.HandleFunc("GET /api/v2/auth/invite", s.inviteInfo)
 	mux.HandleFunc("POST /api/v2/auth/join", s.join)
+	s.registerSSORoutes(mux)
 	mux.HandleFunc("GET /api/v2/tokens", s.requireWriter(s.listTokens))
 	mux.HandleFunc("POST /api/v2/tokens", s.requireWriter(s.createToken))
 	mux.HandleFunc("DELETE /api/v2/tokens", s.requireWriter(s.revokeToken))
@@ -437,7 +445,8 @@ func guardedPath(path string) bool {
 
 func openAuthPath(path string) bool {
 	switch path {
-	case "/api/version", "/api/v2/auth/status", "/api/v2/auth/setup", "/api/v2/auth/signup", "/api/v2/auth/sign-in", "/api/v2/auth/sign-out", "/api/v2/auth/invite", "/api/v2/auth/join", "/api/v2/auth/forgot", "/api/v2/auth/reset":
+	case "/api/version", "/api/v2/auth/status", "/api/v2/auth/setup", "/api/v2/auth/signup", "/api/v2/auth/sign-in", "/api/v2/auth/sign-out", "/api/v2/auth/invite", "/api/v2/auth/join", "/api/v2/auth/forgot", "/api/v2/auth/reset",
+		"/api/v2/auth/oidc/start", "/api/v2/auth/oidc/callback", ssoLogoutPath:
 		return true
 	}
 	return path == "/api/community" || strings.HasPrefix(path, "/api/v2/public/lists/")
@@ -534,7 +543,9 @@ func (s *server) auth(next http.Handler) http.Handler {
 				writeErr(w, http.StatusForbidden, "cross-site requests are not allowed")
 				return
 			}
-			if (r.Method == http.MethodPost || r.Method == http.MethodPatch) &&
+			// An identity provider's logout call is a form post, by its standard;
+			// it is exempt on its exact path and nowhere else.
+			if (r.Method == http.MethodPost || r.Method == http.MethodPatch) && r.URL.Path != ssoLogoutPath &&
 				!strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
 				writeErr(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 				return
@@ -1708,6 +1719,7 @@ func (s *server) authStatus(w http.ResponseWriter, r *http.Request) {
 		"contactEmail":      s.contactEmail,
 		"passwordReset":     s.mail != nil && s.mail.Delivers(),
 		"user":              user,
+		"sso":               s.ssoStatus(),
 	})
 }
 
@@ -1898,6 +1910,11 @@ func (s *server) signIn(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "email or password is not correct")
 		return
 	}
+	// Said only once the password is right, so it tells a guesser nothing.
+	if s.ssoOn() && !s.sso.PasswordLogin() && user.Role != "owner" {
+		writeErr(w, http.StatusForbidden, "password sign-in is turned off here; sign in with single sign-on")
+		return
+	}
 	if _, err := s.newSession(w, r, user); err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not start a session")
 		return
@@ -1913,7 +1930,7 @@ func (s *server) signOut(w http.ResponseWriter, r *http.Request) {
 			s.event(user.ID, "ui", "sign-out", "", map[string]any{"name": user.Name, "email": user.Email})
 		}
 		_ = s.st.DeleteSession(hash)
-		s.terminals.RevokeSource(hash)
+		s.endSessions([]string{hash})
 	}
 	s.clearSession(w, r)
 	w.WriteHeader(http.StatusNoContent)
@@ -2074,8 +2091,11 @@ func (s *server) adminUserUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if *in.Disabled {
+			// Their open terminals are bound to the sessions being ended.
+			ids, _ := s.st.UserSessionIDs(target.ID)
 			_ = s.st.DeleteUserSessions(target.ID)
 			_ = s.st.RevokeUserTokens(target.ID)
+			s.endSessions(ids)
 		}
 		s.event(actor.ID, "ui", "user-disable", "", map[string]any{"name": target.Name, "email": target.Email, "disabled": *in.Disabled})
 	}
@@ -2096,10 +2116,12 @@ func (s *server) adminUserDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	ids, _ := s.st.UserSessionIDs(target.ID)
 	if err := s.st.DeleteUser(target.ID); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.endSessions(ids)
 	s.eventRequest(r, "user-delete", "", map[string]any{"name": target.Name, "email": target.Email})
 	w.WriteHeader(http.StatusNoContent)
 }

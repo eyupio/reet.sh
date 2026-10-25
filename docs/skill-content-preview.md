@@ -6,8 +6,9 @@ metadata plus the [pure planner's](skill-content-planner.md) verdict. Nothing is
 installed, changed or removed, no file bytes travel, and the result is not permission
 to write. A preview never adopts anything: adoption is a separate, explicit decision
 bound to a preview's review hash, set out in the
-[ownership receipts contract](skill-content-receipts.md). There is no browser control
-in this slice; the API below is the contract the review UI and the later executor will
+[ownership receipts contract](skill-content-receipts.md). This slice added no browser
+control; the API below is the contract the [Private skills dialog](skill-content-review-ui.md)
+now uses (it asks for a check, reads it, and says what it means) and the later executor will
 build on.
 
 ## What a preview is and is not
@@ -218,11 +219,11 @@ physical cross-platform or fleet check was made.
 
 ## Granular continuation
 
-1. **Review UI.** Pins have no browser control yet, so add pin selection and a preview
-   review together: truthful present / absent / unknown labels, the reasons list,
-   `stale` and `superseded` handling, keyboard and phone layouts. Surface
-   `adoption_required` and the `adoption` offer as a decision to be designed, never as a
-   one-click default.
+1. **Done in a following slice:** the review UI. The [Private skills
+   dialog](skill-content-review-ui.md) has pin selection and the check together, with
+   truthful present / absent / unknown labels, the reasons list, `stale` and `superseded`
+   handling, and keyboard and phone layouts. It surfaces `adoption_required` and the
+   `adoption` offer as a decision to be made, never as a one-click default.
 2. **Done in a following slice:** ownership receipts and explicit adoption, stored in
    their own table bound to account, connector, root identity, slot, adapter and
    revision. Adopted receipts are controller-attested. Initial installs still record

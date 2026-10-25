@@ -6,9 +6,10 @@ explicit decision bound to a fresh [preview](skill-content-preview.md). That rec
 an ownership receipt, becomes the [planner's](skill-content-planner.md) baseline for
 the slot, so an adopted folder previews as a real plan instead of `adoption_required`.
 Adoption itself writes nothing to, reads nothing from and verifies nothing on any
-machine, dispatches no work, and a receipt is not permission to write. There is no browser control, no MCP tool
-and nothing for a user to click yet; the API below is the contract the review UI and
-the later executor will build on.
+machine, dispatches no work, and a receipt is not permission to write. There is no MCP tool
+for receipts. The [Private skills dialog](skill-content-review-ui.md) is the browser control
+for adoption and release; the API below is the contract it uses and the later executor will
+build on.
 
 ## What a receipt is and is not
 
@@ -362,11 +363,12 @@ a CI target.
 
 ## Granular continuation
 
-1. **Review UI.** Pin selection, preview review and receipt review together: truthful
-   labels (`controller_attested`, never "verified"), the `adoption` offer shown with its
-   matched, unmatched and revision-only counts as a decision to be designed and never a
-   one-click default, `damaged` rows with a release action, keyboard and phone layouts.
-   MCP exposure for receipts is a separate decision.
+1. **Done in a following slice:** the review UI. The [Private skills
+   dialog](skill-content-review-ui.md) has pin selection, check review and receipt review
+   together: truthful labels (`controller_attested`, never "verified"), the `adoption` offer
+   shown with its counts and a file breakdown as a decision and never a one-click default,
+   `damaged` rows with a release action, and keyboard and phone layouts. MCP exposure for
+   receipts is a separate decision.
 2. **Reviewed executor.** Full payload staging, a local lock, revalidation against the
    review hash, a baseline re-read through the store's validating lookup inside its own
    transaction, journal and backup before replacement, installed verification and durable
@@ -392,7 +394,7 @@ Known follow-ups, none of which blocks the above:
   report, as the real merge does, and a destination holding a pin or receipt must keep
   returning 200.
 - The browser's per-report Forget drops receipts with the report and says installed files
-  are unchanged; the review UI should surface that. `AdoptSkillContentPreviewFor` has no
+  are unchanged. The Private skills dialog does not mention that yet, so it is still to do. `AdoptSkillContentPreviewFor` has no
   production caller now that the API uses the once-only variant.
 
 Preserve terminal sessions and controls, the approved sudo template behaviour and the

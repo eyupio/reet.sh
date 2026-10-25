@@ -13,6 +13,8 @@ const FRESH_READ_MS = 30_000
 const SCAN_WINDOW_MS = 14 * 86_400_000
 const GENERIC_ERROR = 'Something went wrong. Try again.'
 const NETWORK_ERROR = "Couldn't reach reet. Check your connection and try again."
+// The only errors whose message is the server's own words: what req throws.
+const SERVER_VOICED = new Set(['Error', 'ApiError', 'UnauthorizedError'])
 // What fetch throws when no response arrives (Chromium, Firefox and Safari word it differently). Any other
 // TypeError is a fault in our own code and must not be blamed on the connection.
 const FETCH_FAILED = /^(Failed to fetch|NetworkError|Load failed|Network request failed)/i
@@ -40,7 +42,7 @@ const FENCE_REASONS = {
   pin_removed: 'The pin was removed after this check was made.',
   connector_paused: 'The connector on this machine is paused.',
   connector_removed: 'The connector on this machine was removed.',
-  process_changed: 'The connector restarted after this check was made.',
+  process_changed: 'The connector restarted or stopped reporting for this folder since the check.',
   inventory_changed: 'The machine reported a newer scan after this check was made.',
   scope_removed: 'The machine no longer reports this folder.',
   receipt_changed: 'The ownership record for this skill changed after this check was made.',
@@ -58,19 +60,19 @@ export const failureText = (code: string): string => lookup(FAILURES, code)
 
 const PLAN_CODES = {
   adapter_unsupported: "This folder layout isn't supported for private skills yet.",
-  root_shared: 'Another agent scope reaches this same folder, so reet will not touch it.',
+  root_shared: 'Another agent scope, or a link, reaches this same folder, so reet will not touch it.',
   root_unknown: "Couldn't tell whether another agent scope reaches this folder, so reet will not touch it.",
   generation_changed: 'The connector restarted after this folder was read.',
   inventory_changed: 'The machine reported a newer scan after this folder was read.',
   observation_unknown: "The folder couldn't be read completely.",
   observation_stale: 'The folder was read too long ago to rely on.',
   observation_invalid: "The files found don't make a valid skill folder.",
-  adoption_required: 'Files are already there and no ownership record covers them. Record ownership first.',
+  adoption_required: 'Files already there are not recorded as owned by reet yet.',
   unmanaged_path: "This file is already there, but reet doesn't own it, so it will not be changed.",
   managed_target_missing: "An ownership record exists, but the folder isn't there now. Release the record to clear this.",
-  local_modified: 'This file was edited on the machine after ownership was recorded.',
-  both_modified: 'This file was edited on the machine and changed in the pinned revision.',
-  local_deleted: 'This file was deleted on the machine after ownership was recorded.',
+  local_modified: 'This file on the machine has changed since ownership was recorded.',
+  both_modified: 'This file has changed on the machine and in the pinned revision.',
+  local_deleted: 'This file is missing from the machine; it was there when ownership was recorded.',
   result_invalid: "The planned result wouldn't be a valid skill folder.",
   baseline_target_mismatch: 'The ownership record is for a different folder or layout from the one just read.',
   baseline_bundle_mismatch: 'The ownership record is for a different library skill from the one pinned.',
@@ -83,6 +85,15 @@ const PRESERVED = {
 } as const
 export const preservedText = (reason: string): string => lookup(PRESERVED, reason)
 
+/** The codes each closed table words, so a test can hold them against the Go sources. */
+export const CLOSED_CODES = {
+  states: Object.keys(STATE_LABELS),
+  reasons: Object.keys(FENCE_REASONS),
+  failures: Object.keys(FAILURES),
+  planCodes: Object.keys(PLAN_CODES),
+  preserved: Object.keys(PRESERVED),
+} as const
+
 /** Found, Not there yet or Couldn't tell. Empty until a check has read the machine. */
 export function presenceLabel(p: ContentPreview | null | undefined): string {
   const presence = p?.capture?.presence
@@ -90,13 +101,19 @@ export function presenceLabel(p: ContentPreview | null | undefined): string {
   return presence === 'present' ? 'Found' : presence === 'absent' ? 'Not there yet' : "Couldn't tell"
 }
 
-/** What to say about who else reaches the folder. Nothing at all when this scope has it to itself. */
+/**
+ * What to say about who else reaches the folder. Silence means "this scope has it to itself", so only the literal
+ * "exclusive" is silent: a missing or unrecognised value reads as unknown, never as reassurance. Ask only once a
+ * check has read the folder.
+ */
 export function ownershipNote(rootOwnership: string | undefined): string {
-  if (!rootOwnership || rootOwnership === 'exclusive') return ''
-  if (rootOwnership === 'shared') return planCodeText('root_shared')
-  if (rootOwnership === 'unknown') return planCodeText('root_unknown')
-  return FALLBACK
+  if (rootOwnership === 'exclusive') return ''
+  return rootOwnership === 'shared' ? planCodeText('root_shared') : planCodeText('root_unknown')
 }
+
+// The database folds ASCII letters only when it compares hosts (SQLite NOCASE), so this does too: toLowerCase() would
+// also fold letters such as "Ë" and "K" (Kelvin sign) that the server treats as different.
+const foldAscii = (s: string): string => s.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0) + 32))
 
 export type Eligibility = { ok: true } | { ok: false; reason: string }
 const no = (reason: string): Eligibility => ({ ok: false, reason })
@@ -105,7 +122,7 @@ const no = (reason: string): Eligibility => ({ ok: false, reason })
  * Whether the Private skills action is offered for a reported scope, mirroring what the pin API will accept. Each
  * refusal has its own plain reason; the first rule that fails wins. The server still decides.
  */
-export function scopeEligibility(env: SyncEnvironment, agents: SyncAgent[] | undefined, opts: { accounts: boolean; canWrite: boolean; now: number }): Eligibility {
+export function scopeEligibility(env: SyncEnvironment, agents: SyncAgent[] | null | undefined, opts: { accounts: boolean; canWrite: boolean; now: number }): Eligibility {
   if (!opts.accounts) return no('Private skills need a signed-in account.')
   if (!opts.canWrite) return no("Your account can only view, so it can't pin or check private skills.")
   if (env.agent === 'codex') return no("This agent is scan-only, so private skills can't be pinned to it.")
@@ -117,8 +134,10 @@ export function scopeEligibility(env: SyncEnvironment, agents: SyncAgent[] | und
   }
   // Written so that a missing or non-numeric scan time fails rather than passes.
   if (!env.complete || !(env.scannedAt > 0) || !(opts.now - env.scannedAt <= SCAN_WINDOW_MS)) return no("This machine hasn't reported a complete scan of this folder in the last 14 days.")
-  const host = env.host.toLowerCase()
-  const connectors = (agents ?? []).filter(a => a.host.toLowerCase() === host)
+  // Before the machines have loaded nothing is known about connectors; that is not the same as none being enrolled.
+  if (!agents) return no('Machines are still loading.')
+  const host = foldAscii(env.host)
+  const connectors = agents.filter(a => foldAscii(a.host) === host)
   if (connectors.length === 0) return no("No connector is enrolled on this machine, so it can't be checked.")
   if (connectors.every(a => a.paused)) return no('The connector on this machine is paused. Resume it to check this machine.')
   return { ok: true }
@@ -127,10 +146,10 @@ export function scopeEligibility(env: SyncEnvironment, agents: SyncAgent[] | und
 export type CheckKind = 'none' | 'working' | 'current' | 'refreshing' | 'stale' | 'blocked' | 'ended'
 export type CheckView = { kind: CheckKind; headline: string; reasons: string[]; canAdopt: boolean; canCheckAgain: boolean }
 
-/** A present folder in an exclusive root whose only obstacle is that nothing owns it yet. */
+/** A present folder in an exclusive root whose only obstacle is that nothing owns it yet, with the review hash adoption binds to. */
 export function adoptable(p: ContentPreview): boolean {
   const capture = p.capture, conflicts = p.plan?.conflicts
-  return !!capture && capture.presence === 'present' && capture.rootOwnership === 'exclusive' && capture.manifest?.complete === true &&
+  return typeof p.reviewHash === 'string' && p.reviewHash !== '' && !!capture && capture.presence === 'present' && capture.rootOwnership === 'exclusive' && capture.manifest?.complete === true &&
     !!conflicts && conflicts.length === 1 && conflicts[0].code === 'adoption_required'
 }
 
@@ -152,8 +171,9 @@ export function classifyCheck(p: ContentPreview | null, readAt: number, now: num
     case 'captured': {
       // A captured check that still carries reasons has been overtaken; never trust it.
       if (reasons.length > 0) return view('stale', 'This check is out of date.', reasons)
-      // Not (age <= limit), so a read time that is not a number counts as old.
-      if (!(now - readAt <= FRESH_READ_MS)) return view('refreshing', 'Updating this result before it can be used.')
+      // Fresh only for two usable times with the read not after the question and no more than 30 seconds before it.
+      // A read "from the future" or at a time that is not a number means the clocks cannot be trusted: read again.
+      if (!(Number.isFinite(readAt) && Number.isFinite(now) && now >= readAt && now - readAt <= FRESH_READ_MS)) return view('refreshing', 'Updating this result before it can be used.')
       const presence = p.capture?.presence
       const headline = presence === 'present' ? 'Found on this machine.' : presence === 'absent' ? 'Not there yet on this machine.' : "Couldn't tell what is on this machine."
       return view('current', headline, [], adoptable(p))
@@ -162,25 +182,26 @@ export function classifyCheck(p: ContentPreview | null, readAt: number, now: num
     case 'stale': return view('stale', 'This check is out of date.', [...reasons, reasonText('stale')])
     case 'expired': return view('ended', 'This check ran out of time.', [reasonText('expired')])
     case 'cancelled': return view('ended', 'This check was stopped.')
-    case 'failed': return view('blocked', "The machine couldn't be checked.", [failureText(p.error ?? '')])
+    // True whichever failure follows (the machine may have been read and the changes still not worked out); the reason carries the detail.
+    case 'failed': return view('blocked', "That check didn't finish.", [failureText(p.error ?? '')])
     default: return view('blocked', FALLBACK)
   }
 }
 
 export type PlanSummary = {
-  kind: 'up_to_date' | 'changes' | 'blocked' | 'adoption' | 'unknown'
+  kind: 'up_to_date' | 'changes' | 'conflicts' | 'adoption' | 'unknown'
   actions: ContentPlan['actions']
   conflicts: ContentPlan['conflicts']
   preserved: ContentPlan['preserved']
 }
 
-/** The planner's verdict in one of five kinds. A plan that is neither ready nor explained is "unknown", never reassuring. */
+/** The planner's verdict in one of five kinds (the plan's conflicts are listed in the result). A plan that is neither ready nor explained is "unknown", never reassuring. */
 export function summarisePlan(plan?: ContentPlan): PlanSummary {
   if (!plan) return { kind: 'unknown', actions: [], conflicts: [], preserved: [] }
   const actions = plan.actions ?? [], conflicts = plan.conflicts ?? [], preserved = plan.preserved ?? []
   let kind: PlanSummary['kind']
   if (conflicts.length === 1 && conflicts[0].code === 'adoption_required') kind = 'adoption'
-  else if (conflicts.length > 0) kind = 'blocked'
+  else if (conflicts.length > 0) kind = 'conflicts'
   else if (!plan.ready) kind = 'unknown'
   else kind = actions.length > 0 ? 'changes' : 'up_to_date'
   return { kind, actions: kind === 'changes' ? actions : [], conflicts, preserved }
@@ -240,7 +261,7 @@ export function claimSummary(b: AdoptionBreakdown): ClaimSummary {
     else s.libraryOnly++
   }
   const parts = [s.claimed === 0 ? 'No files would be recorded as owned by reet.' : `${files(s.claimed)} would be recorded as owned by reet.`]
-  if (s.differs > 0) parts.push(`${files(s.differs)} ${s.differs === 1 ? 'was' : 'were'} edited on this machine and stay${s.differs === 1 ? 's' : ''} yours.`)
+  if (s.differs > 0) parts.push(`${files(s.differs)} ${s.differs === 1 ? 'differs' : 'differ'} from this revision and stay${s.differs === 1 ? 's' : ''} yours.`)
   if (s.staysYours > 0) parts.push(`${files(s.staysYours)} ${s.staysYours === 1 ? 'is' : 'are'} only on this machine and stay${s.staysYours === 1 ? 's' : ''} yours.`)
   if (s.libraryOnly > 0) parts.push(`${files(s.libraryOnly)} ${s.libraryOnly === 1 ? 'is' : 'are'} only in the library.`)
   s.text = parts.join(' ')
@@ -259,8 +280,10 @@ export function pollDelay(state: string, hidden: boolean): number | null {
 /** The server's own words when it gave some, otherwise a plain sentence. Never a stack, a status line or browser jargon. */
 export function describeError(e: unknown): string {
   const name = typeof e === 'object' && e !== null && typeof (e as { name?: unknown }).name === 'string' ? (e as { name: string }).name : ''
-  if (name === 'AbortError') return GENERIC_ERROR
   if (name === 'TypeError') return FETCH_FAILED.test(String((e as { message?: unknown }).message ?? '')) ? NETWORK_ERROR : GENERIC_ERROR
+  // Only what req throws carries the server's words. Any other named error (SyntaxError from a page that is not JSON,
+  // ReferenceError, DOMException, ...) is the browser's or our own, and is not for the person to read.
+  if (name !== '' && !SERVER_VOICED.has(name)) return GENERIC_ERROR
   let raw: unknown = e
   if (typeof e === 'object' && e !== null) {
     const { error, message } = e as { error?: unknown; message?: unknown }

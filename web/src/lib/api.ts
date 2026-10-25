@@ -138,6 +138,20 @@ export class UnauthorizedError extends Error {
   }
 }
 
+/**
+ * The server refused the request. The message is its own text (or the status line when it sent none), exactly as
+ * before, so callers that read e.message are unchanged; status lets a caller tell one refusal from another.
+ * A 401 is an UnauthorizedError instead.
+ */
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
 export function getToken(): string {
   try {
     return localStorage.getItem(KEY) ?? ''
@@ -185,7 +199,7 @@ async function req(path: string, init: RequestInit = {}): Promise<Response> {
     } catch {
       /* keep status text */
     }
-    throw new Error(msg)
+    throw new ApiError(msg, res.status)
   }
   return res
 }

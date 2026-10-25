@@ -26,6 +26,8 @@
     terminalAccess=false,
     monitorAccess=false,
     onadd,
+    onjoin,
+    highlight = '',
     onupdate,
     onerror,
     onnotice,
@@ -39,6 +41,10 @@
     terminalAccess?:boolean
     monitorAccess?:boolean
     onadd: () => void
+    /** Opens the Add a machine dialog; absent when the person cannot use it. Given the button, which gets focus back. */
+    onjoin?: (opener: HTMLElement) => void
+    /** The machine just brought in by that dialog: its card is marked for a few seconds. */
+    highlight?: string
     onupdate: (state: SyncState) => void
     onerror: (error: unknown) => void
     onnotice: (message: string) => void
@@ -221,7 +227,7 @@
       <h2 id="fleet-title">{machines.length} {machines.length === 1 ? 'machine' : 'machines'}, one clear view.</h2>
       <p>Choose a machine to sync its skills or continue working in its terminal. Expand a card to inspect its agent scopes.</p>
     </div>
-    <div class="fleet-controls">{#if canWrite}<button type="button" onclick={() => importSource = {environmentId: '', name: ''}}>Private skill imports</button>{/if}<button class="btn" type="button" onclick={onadd}>Connect a machine</button></div>
+    <div class="fleet-controls">{#if canWrite}<button type="button" onclick={() => importSource = {environmentId: '', name: ''}}>Private skill imports</button>{/if}{#if onjoin}<button class="btn" type="button" data-add-machine onclick={(event) => onjoin(event.currentTarget)}>Add a machine</button>{/if}<button class="btn" type="button" onclick={onadd}>Connect a machine</button></div>
   </header>
 
   <div class="machine-grid">
@@ -231,12 +237,13 @@
       {@const supported = supportedAgents(machine)}
       {@const scanOnly = scanOnlyAgents(machine)}
       {@const state = machineStatus(machine)}
-      <article class="machine" aria-labelledby={`machine-${machine.host}`}>
+      <article class="machine" class:just-added={highlight === machine.host} aria-current={highlight === machine.host ? 'true' : undefined} aria-labelledby={`machine-${machine.host}`}>
         <header class="machine-head">
           <div class="identity">
             <span class="dot {state}" aria-hidden="true"></span>
             <div>
               <h3 id={`machine-${machine.host}`}>{machine.host}</h3>
+              {#if highlight === machine.host}<p class="added-note">Just added</p>{/if}
               {#if machine.aliases?.length}<p class="alias">Also known as {machine.aliases.join(', ')}</p>{:else}<p class="alias">Machine inventory and agent scopes</p>{/if}
             </div>
           </div>
@@ -375,6 +382,10 @@
   .fleet-controls { display: flex; flex-wrap: wrap; gap: 8px; }
   .fleet-head p:last-child { margin: 6px 0 0; max-width: 62ch; color: var(--muted); font-size: 0.83rem; line-height: 1.55; }
   .machine-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr)); gap: 14px; }
+  .added-note { margin: 2px 0 0; color: var(--good); font-size: .78rem; font-weight: 650; }
+  .machine.just-added { border-color: var(--good); animation: just-added 6s ease-out; }
+  @keyframes just-added { from { background: color-mix(in srgb, var(--good) 22%, var(--card)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 45%, transparent); } to { background: var(--card); box-shadow: var(--shadow); } }
+  @media (prefers-reduced-motion: reduce) { .machine.just-added { animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 45%, transparent); } }
   .machine { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); box-shadow: var(--shadow); min-width: 0; }
   .machine-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
   .identity { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }

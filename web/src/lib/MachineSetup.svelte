@@ -23,6 +23,7 @@
     serverBuild = null,
     snapshot,
     open = $bindable(false),
+    host = $bindable(''),
     initialMode = 'connect',
     terminalAccess = false,
     onrefresh,
@@ -35,6 +36,8 @@
     serverBuild?: { version: string; commit: string } | null
     snapshot?: SyncState
     open?: boolean
+    /** The machine name field; the Add a machine dialog fills it in when the person asks for the step-by-step setup. */
+    host?: string
     initialMode?: 'connect' | 'scratch'
     terminalAccess?: boolean
     onrefresh: () => Promise<void> | void
@@ -44,7 +47,6 @@
   // svelte-ignore state_referenced_locally
   let mode = $state<Mode>(initialMode)
   let step = $state(1)
-  let host = $state('')
   let channel = $state<ReleaseChannel>('stable')
   let channelTouched = $state(false)
   // svelte-ignore state_referenced_locally

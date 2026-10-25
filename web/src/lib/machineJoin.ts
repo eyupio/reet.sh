@@ -12,8 +12,9 @@ export const MAX_MACHINE_NAME = 200
 export const JOIN_WATCH_CAP_MS = 15 * 60 * 1000
 const SCAN_WINDOW_MS = 14 * 86_400_000
 
-// C0, DEL, C1, and the two Unicode line separators.
+// The Unicode text-direction overrides and isolates, which can make a name read differently from what it is.
 const BIDI = (n: number): boolean => (n >= 0x202a && n <= 0x202e) || (n >= 0x2066 && n <= 0x2069)
+// C0, DEL, C1, and the two Unicode line separators.
 const hasControl = (s: string): boolean => [...s].some(c => { const n = c.codePointAt(0)!; return n <= 0x1f || (n >= 0x7f && n <= 0x9f) || n === 0x2028 || n === 0x2029 })
 
 export type NameCheck = { ok: true; name: string } | { ok: false; reason: string }
@@ -49,8 +50,8 @@ function scans(host: string, machines: Machine[]): SyncEnvironment[] {
 /** The connectors reporting under the name now and the newest complete supported scan; null when there is neither. */
 export function joinBaseline(name: string, agents: SyncAgent[], machines: Machine[]): JoinBaseline {
   const host = name.trim()
-  const ids = (agents ?? []).filter(a => isAgent(a) && sameHost(a.host, host)).map(a => a.id)
-  const scannedAt = Math.max(0, ...scans(host, (machines ?? []).filter(isMachine)).filter(g => g.complete === true && g.scannedAt > 0).map(g => g.scannedAt))
+  const ids = (Array.isArray(agents) ? agents : []).filter(a => isAgent(a) && sameHost(a.host, host)).map(a => a.id)
+  const scannedAt = Math.max(0, ...scans(host, (Array.isArray(machines) ? machines : []).filter(isMachine)).filter(g => g.complete === true && g.scannedAt > 0).map(g => g.scannedAt))
   return ids.length > 0 || scannedAt > 0 ? { agentIds: ids, scannedAt } : null
 }
 

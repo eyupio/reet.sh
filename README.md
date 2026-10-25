@@ -244,6 +244,8 @@ Manage the binary or a server with `reet install --mode binary|native|compose`, 
 
 **Account → Machines** groups agents under machines; an enrolled agent shows its build and update state, a waiting update is reviewed before it moves, and each machine's **Settings** hold its policies: automatic updates, which verify the new build and restore the previous binary if it cannot report back, its release channel and whether sync jobs are paused. **Account → Compare & sync** offers a two-machine comparison with shared/missing skills and explicit stale/incomplete scan warnings. Library filters follow the same machine → agent hierarchy.
 
+To bring another machine in without leaving the Machines page, choose **Add a machine**: it gives one block of commands to paste on that machine, then watches for it to report in and marks its card when you use it. See [add a machine](docs/add-machine-in-context.md).
+
 See [environment sync](docs/environment-sync.md) for account setup, confirmed installs/removals, server reporting and freshness advice. The rolling `dev` binary release and Docker `:dev` tag update from main after every merge; stable binary releases remain immutable.
 
 ## Backup

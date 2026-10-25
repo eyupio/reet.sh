@@ -114,7 +114,7 @@ export function ownershipNote(rootOwnership: string | undefined): string {
 // The database folds ASCII letters only when it compares hosts (SQLite NOCASE), so this does too: toLowerCase() would
 // also fold letters such as "Ë" and "K" (Kelvin sign) that the server treats as different.
 const foldAscii = (s: string): string => s.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0) + 32))
-const sameHost = (a: string, b: string): boolean => foldAscii(a) === foldAscii(b)
+export const sameHost = (a: string, b: string): boolean => foldAscii(a) === foldAscii(b)
 
 /**
  * The connector a pin or check for this scope goes through: one that is not paused, on the scope's host. When more than

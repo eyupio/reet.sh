@@ -2,6 +2,7 @@
   import EnvironmentSync from './EnvironmentSync.svelte'
   import PageHeader from './PageHeader.svelte'
   import { createToken } from './api'
+  import { describeError } from './contentReview'
   import { onMount, type Component } from 'svelte'
   let { canWrite, accounts, monitoring=false, compare = false, userId=0, onsignedout }: { canWrite: boolean; accounts: boolean; monitoring?:boolean; compare?: boolean;userId?:number; onsignedout?: (e: unknown) => void } = $props()
   let token = $state(''), name = $state('machine token'), busy = $state(false), error = $state('')
@@ -14,7 +15,7 @@
     if (busy) return
     busy = true; error = ''
     try { token = (await createToken(name.trim() || 'machine token')).token }
-    catch (e) { error = e instanceof Error ? e.message : String(e) }
+    catch (e) { error = describeError(e) }
     finally { busy = false }
   }
 </script>

@@ -20,6 +20,8 @@ export type CheckHost = {
   /** The shell's busy flag and message, shared with the pin actions. */
   busy: boolean
   error: string
+  /** The checks could not be read; cleared by the capability read when it succeeds again. */
+  checksDown: boolean
   /** Whether a check could be made now (connector ready, scope eligible, checks readable). */
   checkReady(): boolean
   /** The pin in words, for the message when it moved. */
@@ -152,7 +154,7 @@ export class CheckWatcher {
       if (!this.host.alive() || !this.host.inCheck()) return
       try {
         const listed = await getContentPreviews(this.host.signal)
-        if (this.host.alive()) this.capabilities = listed.capabilities
+        if (this.host.alive()) { this.applyList(listed, Date.now()); this.host.checksDown = false }
       } catch { /* the next try will do */ }
       this.scheduleCaps()
     }, 10000)
@@ -243,7 +245,7 @@ export class CheckWatcher {
       const active = listed.previews.find(p => (p.state === 'queued' || p.state === 'capturing') && p.agentId === pin.agentId)
       // The shell's pins decide whether the active check is one of ours to resume.
       if (active && host.hasPin(active.targetId)) { this.resumeCandidate = { row: active, at: arrived }; host.error = `This machine is already checking ${active.name}.`; return }
-      if (active) host.error = `${host.error.replace(/[.!?]?$/, '.')} A check for ${active.name} in another folder is running on this machine.`
+      if (active) host.error = `A check for ${active.name} in another folder is running on this machine. Try again when it has finished.`
     } catch { /* the message already says what the server said */ }
     // Read everything again in case the pin moved, but keep what the server said.
     const said = host.error

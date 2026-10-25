@@ -48,6 +48,22 @@ const captureOf=(presence,over={})=>({schemaVersion:1,adapter:'agents',rootId:'r
 const planOf=(over={})=>({version:1,preconditions:{},ready:true,actions:[],conflicts:[],preserved:[],hash:'p'.repeat(64),...over})
 const OWNED=manifestOf([file('SKILL.md',120)])
 
+// Ownership. The server records an adoption only for a captured check with no reasons whose review hash is the one sent, for a
+// candidate revision, in a slot with no record; the check it uses is consumed (superseded, receipt_changed). A repeated key is
+// answered with the first record. Releasing needs the record's current version (internal/store/store_content_receipts.go).
+const SHARED_409='This ownership record is unavailable, blocked, changed or already exists. Preview again, and release existing ownership before adopting again.'
+let receiptsDb=[],receiptKeys=new Map(),receiptSeq=0,receiptsBroken=false,adoptHold=null,adoptRefuse=false,dropAdopt=null,releaseHold=null
+let breakdownHold={}
+const breakdownReads=[]
+const bdFile=(path,status,bytes=10,executable=false)=>({path,bytes,digest:'a'.repeat(64),executable,status})
+const BIG_PATH=`deep/${'ünïcödé-segment-without-any-break-'.repeat(8)}last.md`
+const breakdowns={
+ // One path that differs between the machine and the library arrives twice, as the server sends it.
+ [R.d1]:()=>({revisionId:R.d1,files:[bdFile('SKILL.md','claimed',120),bdFile('extra.md','library_only'),bdFile('notes/mine.txt','stays_yours',12),bdFile('scripts/run.sh','stays_yours',41),bdFile('scripts/run.sh','library_only',40,true)],matched:1,observedOnly:2,revisionOnly:2}),
+ [R.d2]:()=>({revisionId:R.d2,files:[bdFile('SKILL.md','claimed',120),bdFile('notes/mine.txt','claimed',12),bdFile('scripts/run.sh','claimed',40,true)],matched:3,observedOnly:0,revisionOnly:0}),
+ [R.d3]:()=>({revisionId:R.d3,files:[bdFile('SKILL.md','claimed',120),...Array.from({length:254},(_,i)=>bdFile(`local/file-${String(i).padStart(3,'0')}.txt`,'stays_yours',100+i)),bdFile(BIG_PATH,'stays_yours',9)],matched:1,observedOnly:255,revisionOnly:0}),
+}
+
 // Machines. One host has four scopes: supported, scan-only Codex, a stale scan and (with a second, paused connector
 // listed first) a running connector. The others have a paused connector and no connector at all.
 const content={state:'observed',skills:[{name:'demo',complete:true,files:3,bytes:92,digest:'d'.repeat(64)},{name:'other',complete:true,files:1,bytes:10,digest:'e'.repeat(64)}]}
@@ -140,6 +156,44 @@ await page.route('**/api/**',async route=>{
  else if(path.match(/^\/api\/v2\/skill-content-previews\/[^/]+$/)&&method==='DELETE'){
   writes.push({method,path,body})
   const id=path.split('/').pop();previewsDb=previewsDb.filter(x=>x.id!==id);data={ok:true}
+ }
+ else if(path==='/api/v2/skill-content-receipts'&&method==='GET'){
+  if(receiptsBroken)return route.fulfill({status:500,json:{error:'The ownership records could not be read right now.'}})
+  data={receipts:receiptsDb}
+ }
+ else if(path==='/api/v2/skill-content-receipts'&&method==='POST'){
+  writes.push({method,path,body})
+  if(dropAdopt==='before'){dropAdopt=null;return route.abort('failed')}
+  if(adoptHold)await adoptHold.promise
+  const replayed=receiptsDb.find(r=>receiptKeys.get(r.id)===body.requestKey)
+  const p=previewsDb.find(x=>x.id===body.previewId)
+  if(replayed&&p&&replayed.evidence.previewId===body.previewId)data=replayed
+  else{
+   const ok=!adoptRefuse&&p&&p.state==='captured'&&!(p.reasons??[]).length&&p.reviewHash===body.reviewHash&&p.adoption?.candidates.some(c=>c.revisionId===body.adoptAsRevisionId)&&!receiptsDb.some(r=>r.name===p.name&&r.environmentId===p.environmentId)&&!replayed
+   if(!ok)return route.fulfill({status:409,json:{error:SHARED_409}})
+   const claimed=breakdowns[body.adoptAsRevisionId]().files.filter(f=>f.status==='claimed').length
+   const r={id:`rcp${String(++receiptSeq).padStart(4,'0')}`,environmentId:p.environmentId,agentId:p.agentId,name:p.name,bundleId:p.bundleId,revisionId:body.adoptAsRevisionId,managedDigest:'m'.repeat(64),fileCount:claimed,provenance:'adopted',verification:'controller_attested',evidence:{previewId:p.id,reviewHash:p.reviewHash,captureHash:'c'.repeat(64),observedDigest:'o'.repeat(64),pinId:p.targetId,pinVersion:p.targetVersion,capturedAt:Date.now(),adoptedAt:Date.now(),adoptedBy:1},version:`rv-${++receiptSeq}`,createdAt:Date.now(),updatedAt:Date.now()}
+   receiptsDb.push(r);receiptKeys.set(r.id,body.requestKey)
+   Object.assign(p,{state:'superseded',reasons:['receipt_changed'],updatedAt:Date.now()})
+   data=r
+   if(dropAdopt==='after'){dropAdopt=null;return route.abort('failed')}
+  }
+ }
+ else if(path.match(/^\/api\/v2\/skill-content-receipts\/[^/]+$/)&&method==='DELETE'){
+  writes.push({method,path,body})
+  if(releaseHold)await releaseHold.promise
+  const r=receiptsDb.find(x=>x.id===decodeURIComponent(path.split('/').pop()))
+  if(!r)return route.fulfill({status:404,json:{error:'Ownership record or preview unavailable.'}})
+  if(r.version!==body?.expectedVersion)return route.fulfill({status:409,json:{error:SHARED_409}})
+  receiptsDb=receiptsDb.filter(x=>x!==r);data={removed:true}
+ }
+ else if(path.match(/^\/api\/v2\/skill-content-previews\/[^/]+\/adoption\/[^/]+$/)&&method==='GET'){
+  const parts=path.split('/'),id=parts[4],rev=parts[6]
+  breakdownReads.push({id,rev})
+  if(breakdownHold[rev])await breakdownHold[rev].promise
+  const p=previewsDb.find(x=>x.id===id)
+  if(!p||p.state!=='captured'||(p.reasons??[]).length||!breakdowns[rev])return route.fulfill({status:409,json:{error:SHARED_409}})
+  return route.fulfill({json:breakdowns[rev]()}).catch(()=>{})
  }
  else{unmocked.push(`${method} ${path}`);return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})}
  // A reply that never arrives: the server has kept the write, the browser sees the connection fail.
@@ -520,6 +574,9 @@ try{
  await expect(dialog.getByText(/^Sorted\./)).toContainText(L.d2)
  expect(writes).toHaveLength(savesBefore+1)
  await expect(note).toBeVisible()
+ // Nothing can be said about the last check while the checks cannot be read.
+ await expect(pinsList).toContainText('Last check: Unavailable')
+ await expect(pinsList).not.toContainText('Not checked yet')
  await pinsList.getByRole('button',{name:'Open check for demo'}).click()
  await expect(dialog.getByRole('button',{name:'Check this machine',exact:true})).toBeDisabled()
  const whyId=await dialog.getByRole('button',{name:'Check this machine',exact:true}).getAttribute('aria-describedby')
@@ -528,6 +585,22 @@ try{
  previewsBroken=false
  await note.getByRole('button',{name:'Try again'}).click()
  await expect(note).toHaveCount(0)
+ await expect(pinsList).toContainText('Last check: Not checked yet')
+ // The same dialog can check now, without closing it first.
+ await pinsList.getByRole('button',{name:'Open check for demo'}).click()
+ await expect(dialog.getByRole('button',{name:'Check this machine',exact:true})).toBeEnabled()
+ await dialog.getByRole('button',{name:'Done'}).click()
+ await expect(dialog).toHaveCount(0)
+ // The checks come back by themselves: while the Check step is open and the connector has not reported in, the list is read
+ // now and then, and the note and the disabled button go once it can be read.
+ previewsBroken=true
+ await scopeButton('workstation',SHARED).evaluate(el=>el.click())
+ await expect(note).toBeVisible()
+ await pinsList.getByRole('button',{name:'Open check for demo'}).click()
+ await expect(dialog.getByRole('button',{name:'Check this machine',exact:true})).toBeDisabled()
+ previewsBroken=false
+ await expect(note).toHaveCount(0,{timeout:15000})
+ await expect(dialog.getByRole('button',{name:'Check this machine',exact:true})).toBeEnabled()
  await dialog.getByRole('button',{name:'Done'}).click()
  await expect(dialog).toHaveCount(0)
 
@@ -829,13 +902,365 @@ try{
  await expect(dialog).toHaveCount(0)
  await quiet()
 
+ // ---- The Adopt and Release steps ----
+ const RECEIPTS='/api/v2/skill-content-receipts'
+ const receiptPosts=()=>writes.filter(w=>w.method==='POST'&&w.path===RECEIPTS)
+ const receiptDeletes=()=>writes.filter(w=>w.method==='DELETE'&&w.path.startsWith(`${RECEIPTS}/`))
+ // The review hash is opaque to the page: this one has capitals and spaces around it, so any trimming, parsing or rebuilding shows.
+ const HASH=' 0F'+'ab'.repeat(31)+'Z '
+ const cand=(revisionId,matched,observedOnly,revisionOnly)=>({revisionId,matched,observedOnly,revisionOnly})
+ const adoptCheck=(over={})=>({state:'captured',capturedAt:Date.now(),reviewHash:HASH,captureHash:'c'.repeat(64),capture:captureOf('present',{manifest:manifestOf([file('SKILL.md',120),file('notes/mine.txt',12),file('scripts/run.sh',41,true)])}),plan:planOf({ready:false,conflicts:[{path:'',code:'adoption_required'}]}),adoption:{candidates:[cand(R.d1,1,2,2),cand(R.d2,3,0,0),cand(R.d3,1,255,0)]},...over})
+ const recordBtn=dialog.getByRole('button',{name:'Record ownership',exact:true})
+ const recordHeading=dialog.getByRole('heading',{name:'Record ownership',exact:true})
+ const radios=dialog.getByRole('radio')
+ const choices=dialog.locator('label.choice')
+ const bdTable=dialog.getByRole('table',{name:'What recording ownership would do to each file'})
+ const asking=page.getByRole('dialog',{name:'Record ownership of demo?'})
+ const confirmRecord=asking.getByRole('button',{name:'Confirm and record',exact:true})
+ const records=dialog.locator('section.records')
+ const releaseAsk=page.getByRole('dialog',{name:'Release ownership of demo?'})
+ const alertText=async()=>{const t=await dialog.getByRole('alert').innerText();noIds(t);expect(t).not.toMatch(/\b(40\d|50\d)\b|Conflict|SKILL\.md|already exists|release existing ownership/i);return t}
+ // A check made now, then replaced by what the machine "reports".
+ const adoptable=async(over={})=>{const n=checkPosts().length;await again.click();await expect.poll(()=>checkPosts().length).toBe(n+1);setLatest(adoptCheck(over));await expect(recordHeading).toBeVisible({timeout:SECOND});return latest().id}
+ // The check that follows a recording is waiting for the machine until the machine reports; it reports an owned folder.
+ const settled=async()=>{await expect.poll(()=>latest().state).toBe('queued');setLatest(found({plan:planOf({preconditions:{baseline:{manifest:OWNED}}})}));await expect(dialog.getByText('Up to date.',{exact:false})).toBeVisible({timeout:SECOND})}
+ const choose=async i=>{await radios.nth(i).check();await expect(bdTable).toBeVisible()}
+
+ // The records cannot be read when the dialog opens: the pins and the checks still work, a plain note offers a retry.
+ previewsDb=[];receiptsBroken=true
+ await scopeButton('workstation',SHARED).evaluate(el=>el.click())
+ await expect(dialog).toBeVisible()
+ await expect(records).toContainText("Ownership records couldn't be read right now.")
+ await expect(dialog.getByRole('alert')).toHaveCount(0)
+ await pinsList.getByRole('button',{name:'Open check for demo'}).click()
+ await expect(checkBtn).toBeEnabled()
+ await dialog.getByRole('button',{name:'Back to pins',exact:true}).click()
+ receiptsBroken=false
+ await records.getByRole('button',{name:'Try again'}).click()
+ await expect(records).toHaveCount(0)
+ await pinsList.getByRole('button',{name:'Open check for demo'}).click()
+ await expect(dialog.getByText('Nothing has been checked yet.')).toBeVisible()
+ await checkBtn.click()
+ await expect(live).toContainText('Waiting for the machine')
+
+ // A folder nothing owns yet, with three revisions that could be recorded: none is chosen for the person, nothing is read about
+ // a revision until one is chosen, and Record ownership cannot be pressed.
+ setLatest(adoptCheck())
+ await expect(recordHeading).toBeVisible({timeout:SECOND})
+ await expect(radios).toHaveCount(3)
+ for(let i=0;i<3;i++)await expect(radios.nth(i)).not.toBeChecked()
+ await expect(choices.nth(0)).toContainText(L.d1)
+ await expect(choices.nth(2)).toContainText(NEWEST)
+ await expect(choices.nth(1)).toContainText('3 files match')
+ await expect(dialog).toContainText('Choose a revision to see which files would be recorded.')
+ await expect(recordBtn).toBeDisabled()
+ expect(breakdownReads).toEqual([])
+ await recordBtn.evaluate(el=>{el.disabled=false;el.click()})
+ await expect(asking).toHaveCount(0)
+ await recordBtn.evaluate(el=>{el.disabled=true})
+ noIds(await dialog.locator('section.adopt').innerText())
+
+ // A slow answer for an earlier choice must not overwrite a later one, and Record ownership waits for the table.
+ breakdownHold={[R.d1]:deferred()}
+ await radios.nth(0).check()
+ await expect(dialog.getByText('Reading the file list for this revision')).toBeVisible()
+ await expect(recordBtn).toBeDisabled()
+ await radios.nth(1).check()
+ await expect(bdTable.getByRole('row',{name:/scripts\/run\.sh/})).toContainText('Claimed')
+ const answeredOld=page.waitForResponse(r=>r.url().includes(`/adoption/${R.d1}`)).catch(()=>{})
+ breakdownHold[R.d1].resolve();breakdownHold={}
+ await answeredOld
+ await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>setTimeout(r,0))))
+ await expect(bdTable.getByRole('row',{name:/extra\.md/})).toHaveCount(0)
+ await expect(radios.nth(1)).toBeChecked()
+ await expect(recordBtn).toBeEnabled()
+
+ // The table: one row per path, a path that differs between the machine and the library is one row, and nothing claims to
+ // know why it differs.
+ await choose(0)
+ await expect(bdTable.locator('tbody tr')).toHaveCount(4)
+ await expect(bdTable.getByRole('row',{name:/SKILL\.md/})).toContainText('Claimed')
+ await expect(bdTable.getByRole('row',{name:/notes\/mine\.txt/})).toContainText('Stays yours')
+ await expect(bdTable.getByRole('row',{name:/extra\.md/})).toContainText('Only in the library')
+ await expect(bdTable.getByRole('row',{name:/scripts\/run\.sh/})).toHaveCount(1)
+ await expect(bdTable.getByRole('row',{name:/scripts\/run\.sh/})).toContainText('Differs from this revision')
+ await expect(dialog.locator('section.adopt')).toContainText('1 file would be recorded as owned by reet.')
+ await expect(dialog).not.toContainText(/edited|modified on this machine/i)
+ await expect(dialog.getByRole('region',{name:/Files this revision would claim/})).toBeVisible()
+
+ // 256 files and a very long unicode path stay inside their own scroll area at every width.
+ await choose(2)
+ await expect(bdTable.locator('tbody tr')).toHaveCount(256)
+ await expect(bdTable.getByRole('row',{name:/last\.md/})).toHaveCount(1)
+ for(const [width,height] of [[1360,1000],[390,844],[320,640]]){
+  await page.setViewportSize({width,height})
+  await layout();expect(await fits()).toBe(true)
+  expect(await dialog.getByRole('region',{name:/Files this revision would claim/}).evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true)
+  await expect(dialog.getByRole('button',{name:'Done'})).toBeInViewport()
+ }
+ await page.setViewportSize({width:1360,height:1000})
+
+ // The confirmation says what is being recorded, in the exact words, and that nothing on the machine changes. Cancel sends nothing.
+ await choose(1)
+ await recordBtn.click()
+ await expect(asking).toBeVisible()
+ await expect(asking).toContainText('Recorded by reet from a recent check, not verified on the machine.')
+ await expect(asking).toContainText('Nothing on the machine is changed.')
+ await expect(asking).toContainText('Files that are not listed as claimed stay yours.')
+ await expect(asking).toContainText('release this record')
+ await expect(asking).toContainText(L.d2)
+ noIds(await asking.innerText())
+ await asking.getByRole('button',{name:'Cancel'}).click()
+ await expect(asking).toHaveCount(0)
+ expect(receiptPosts()).toEqual([])
+ await expect(recordBtn).toBeFocused()
+
+ // The check goes out of date between opening the confirmation and confirming it (the tab is hidden, so nothing re-reads on its
+ // own): the check is read once more, nothing is sent, and the screen says so.
+ await recordBtn.click()
+ await expect(asking).toBeVisible()
+ await setHidden(true)
+ setLatest({reasons:['inventory_changed']})
+ await confirmRecord.click()
+ await expect(dialog.getByRole('alert')).toHaveText('Something changed. Check again.')
+ await expect(dialog.getByText('The machine reported a newer scan after this check was made.')).toBeVisible()
+ await expect(recordBtn).toHaveCount(0)
+ await afterRequests()
+ expect(receiptPosts()).toEqual([])
+ await setHidden(false)
+
+ // Anything that is not a current, adoptable capture offers nothing: not even a disabled button.
+ const notOffered=async(over,why)=>{
+  const n=checkPosts().length;await again.click();await expect.poll(()=>checkPosts().length).toBe(n+1)
+  setLatest(adoptCheck(over))
+  await expect(dialog.getByText(why,{exact:false}).first()).toBeVisible({timeout:SECOND})
+  await expect(again).toBeVisible()
+  await expect(recordBtn).toHaveCount(0);await expect(recordHeading).toHaveCount(0);await expect(radios).toHaveCount(0)
+ }
+ await notOffered({state:'stale',reasons:['stale']},'more than five minutes old')
+ await notOffered({state:'superseded',reasons:['receipt_changed']},'The ownership record for this skill changed')
+ await notOffered({reasons:['pin_changed']},'The pin changed after this check was made.')
+ await notOffered({plan:planOf({ready:false,conflicts:[{path:'',code:'adoption_required'},{path:'x.md',code:'unmanaged_path'}]})},"reet doesn't own it")
+ await notOffered({capture:captureOf('present',{rootOwnership:'shared',manifest:manifestOf([file('SKILL.md',120)])})},'Another agent scope')
+ await notOffered({capture:captureOf('absent'),plan:planOf({actions:[{path:'SKILL.md',kind:'create',after:file('SKILL.md',130)}]})},'Not there yet')
+ await notOffered({reviewHash:undefined},'Files already there are not recorded as owned by reet yet.')
+ // A captured read the browser has not renewed for thirty seconds is only "refreshing": the step goes until it is read again.
+ {
+  const n=checkPosts().length;await again.click();await expect.poll(()=>checkPosts().length).toBe(n+1)
+  setLatest(adoptCheck());await expect(recordHeading).toBeVisible({timeout:SECOND})
+  await setHidden(true);await page.evaluate(()=>{window.__skew=60000})
+  await expect(dialog.getByText('Updating this result')).toBeVisible({timeout:SECOND})
+  await expect(recordBtn).toHaveCount(0);await expect(recordHeading).toHaveCount(0)
+  await page.evaluate(()=>{window.__skew=0});await setHidden(false)
+  await expect(recordHeading).toBeVisible({timeout:SECOND})
+  // It comes back with nothing chosen.
+  for(let i=0;i<3;i++)await expect(radios.nth(i)).not.toBeChecked()
+ }
+ // A server that has gone off the check is heard while the step is open: its verdict arrives on the next read and the step goes.
+ setLatest({state:'superseded',reasons:['inventory_changed']})
+ await expect(recordHeading).toHaveCount(0,{timeout:SECOND})
+ await expect(recordBtn).toHaveCount(0)
+
+ // One revision that matches is chosen for the person, but its table is still read first and Record ownership waits for it.
+ breakdownHold={[R.d2]:deferred()}
+ {
+  const n=checkPosts().length;await again.click();await expect.poll(()=>checkPosts().length).toBe(n+1)
+  setLatest(adoptCheck({adoption:{candidates:[cand(R.d2,3,0,0)]}}))
+  await expect(recordHeading).toBeVisible({timeout:SECOND})
+  await expect(radios).toHaveCount(1)
+  await expect(radios.nth(0)).toBeChecked()
+  await expect(dialog.getByText('Reading the file list for this revision')).toBeVisible()
+  await expect(recordBtn).toBeDisabled()
+  breakdownHold[R.d2].resolve();breakdownHold={}
+  await expect(bdTable).toBeVisible()
+  await expect(recordBtn).toBeEnabled()
+ }
+ // No revision matches: nothing to record, and no way to try.
+ await adoptable({adoption:{candidates:[]}})
+ await expect(dialog.getByText('No revision of this library skill matches the files in this folder')).toBeVisible()
+ await expect(radios).toHaveCount(0)
+ await expect(recordBtn).toBeDisabled()
+
+ // ---- Recording ownership ----
+ // One click on Confirm sends one request with exactly the four fields, the review hash as the server gave it, even when the
+ // button is pressed twice while the request is under way. The check is read again first (the tab is hidden so only that read can be it).
+ let checkId=await adoptable()
+ await choose(1)
+ await recordBtn.click()
+ await expect(asking).toBeVisible()
+ adoptHold=deferred()
+ await setHidden(true)
+ let mark=requests.length
+ await confirmRecord.evaluate(el=>{el.click();el.click()})
+ await expect.poll(()=>receiptPosts().length).toBe(1)
+ const fresh=requests.slice(mark),postAt=fresh.findIndex(r=>r.method==='POST'&&r.path===RECEIPTS)
+ expect(fresh.slice(0,postAt).some(r=>r.method==='GET'&&r.path===`${POSTS}/${checkId}`)).toBe(true)
+ await afterRequests()
+ expect(receiptPosts()).toHaveLength(1)
+ const sent=receiptPosts()[0].body
+ expect(Object.keys(sent).sort()).toEqual(['adoptAsRevisionId','previewId','requestKey','reviewHash'])
+ expect(sent.requestKey).toMatch(/^[A-Za-z0-9_-]{16,80}$/)
+ expect(sent.previewId).toBe(checkId);expect(sent.reviewHash).toBe(HASH);expect(sent.adoptAsRevisionId).toBe(R.d2)
+ // While it is under way nothing else can be started.
+ await expect(records.getByRole('button',{name:/Release ownership/})).toHaveCount(0)
+ await setHidden(false)
+ const checksBefore=checkPosts().length
+ adoptHold.resolve();adoptHold=null
+ await expect(records.getByRole('listitem')).toHaveCount(1)
+ expect(receiptPosts()).toHaveLength(1)
+ const item=records.getByRole('listitem').first()
+ await expect(item).toContainText('demo')
+ await expect(item).toContainText(L.d2)
+ await expect(item).toContainText('3 files')
+ await expect(item).toContainText('Recorded by reet from a recent check, not verified on the machine.')
+ noIds(await records.innerText())
+ const said=dialog.locator('.live')
+ await expect(said).toContainText('Sorted.')
+ await expect(said).toContainText('Ownership of 3 files in demo is recorded.')
+ await expect(said).toContainText('Nothing on the machine was changed.')
+ expect(((await said.innerText()).replace('Recorded by reet from a recent check, not verified on the machine.','')).match(/verified/i)).toBeNull()
+ noIds(await said.innerText())
+ expect(await said.getAttribute('aria-live')).toBe('polite')
+ // A new check is started for the person, the one that was used is not offered again, and focus has somewhere to be.
+ await expect.poll(()=>checkPosts().length).toBe(checksBefore+1)
+ await expect(recordBtn).toHaveCount(0)
+ await expect(checkHeading).toBeFocused()
+ // The next check shows the result as an owned folder: up to date, or the read-only change list.
+ setLatest(found({plan:planOf({preconditions:{baseline:{manifest:OWNED}}})}))
+ await expect(dialog.getByText('Up to date.',{exact:false})).toBeVisible({timeout:SECOND})
+ await expect(recordHeading).toHaveCount(0)
+ {
+  const n=checkPosts().length;await again.click();await expect.poll(()=>checkPosts().length).toBe(n+1)
+  setLatest(found())
+  await expect(dialog.getByRole('table',{name:'What a later apply would change'})).toBeVisible({timeout:SECOND})
+  await expect(dialog).toContainText("Applying changes isn't available yet.")
+ }
+
+ // Release asks first and says it removes the record only; cancel sends nothing.
+ const releaseBtn=records.getByRole('button',{name:/^Release ownership/})
+ await releaseBtn.click()
+ await expect(releaseAsk).toBeVisible()
+ await expect(releaseAsk).toContainText('removes the ownership record only')
+ await expect(releaseAsk).toContainText('Nothing on the machine is changed')
+ await expect(releaseAsk).toContainText('the files stay')
+ await releaseAsk.getByRole('button',{name:'Cancel'}).click()
+ expect(receiptDeletes()).toEqual([])
+ await expect(releaseBtn).toBeFocused()
+ // A version that moved on is refused: the records are read again and the screen says what changed, without the server's words.
+ const heldRecord=receiptsDb[0],oldVersion=heldRecord.version
+ heldRecord.version='rv-elsewhere'
+ await releaseBtn.click()
+ await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
+ await expect(dialog.getByRole('alert')).toContainText('The ownership record for demo changed elsewhere. Nothing was released.')
+ await alertText()
+ expect(receiptDeletes()).toHaveLength(1)
+ expect(receiptDeletes()[0].body).toEqual({expectedVersion:oldVersion})
+ await expect(item).toContainText('demo')
+ // Read again, the next release carries the version that is current now, and says what was done.
+ await releaseBtn.click()
+ await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
+ await expect(records).toHaveCount(0)
+ expect(receiptDeletes()).toHaveLength(2)
+ expect(receiptDeletes()[1]).toEqual({method:'DELETE',path:`${RECEIPTS}/${heldRecord.id}`,body:{expectedVersion:'rv-elsewhere'}})
+ await expect(said).toContainText('Ownership released for demo.')
+ await expect(said).toContainText('nothing on the machine changed')
+ await expect(dialog.getByRole('heading',{name:/^Private skills on/})).toBeFocused()
+ await expect(dialog.getByRole('alert')).toHaveCount(0)
+
+ // A reply that never arrives but the record was made: it is found among the records and no second request is sent.
+ checkId=await adoptable()
+ await choose(1)
+ dropAdopt='after'
+ let postsBefore=receiptPosts().length
+ const checksAtLost=checkPosts().length
+ await recordBtn.click();await confirmRecord.click()
+ await expect(records.getByRole('listitem')).toHaveCount(1)
+ expect(receiptPosts()).toHaveLength(postsBefore+1)
+ await expect(dialog.getByRole('alert')).toHaveCount(0)
+ await expect(said).toContainText('Ownership of 3 files in demo is recorded.')
+ await expect.poll(()=>checkPosts().length).toBe(checksAtLost+1)
+ setLatest(found({plan:planOf({preconditions:{baseline:{manifest:OWNED}}})}))
+ await expect(dialog.getByText('Up to date.',{exact:false})).toBeVisible({timeout:SECOND})
+ await records.getByRole('button',{name:/^Release ownership/}).click()
+ await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
+ await expect(records).toHaveCount(0)
+
+ // A reply that never arrives and the records cannot be read either: the message is plain, the key is kept, and the next press
+ // sends the same request, which the server answers once.
+ checkId=await adoptable()
+ await choose(1)
+ dropAdopt='before';receiptsBroken=true
+ postsBefore=receiptPosts().length
+ await recordBtn.click();await confirmRecord.click()
+ await expect(dialog.getByRole('alert')).toContainText("Couldn't reach reet")
+ expect(receiptPosts()).toHaveLength(postsBefore+1)
+ const lostAdoptKey=receiptPosts()[postsBefore].body.requestKey
+ receiptsBroken=false
+ await expect(recordBtn).toBeEnabled()
+ await recordBtn.click();await confirmRecord.click()
+ await expect(records.getByRole('listitem')).toHaveCount(1)
+ expect(receiptPosts()).toHaveLength(postsBefore+2)
+ expect(receiptPosts()[postsBefore+1].body.requestKey).toBe(lostAdoptKey)
+ expect(receiptsDb).toHaveLength(1)
+ await expect(dialog.getByRole('alert')).toHaveCount(0)
+ await settled()
+ await records.getByRole('button',{name:/^Release ownership/}).click()
+ await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
+ await expect(records).toHaveCount(0)
+
+ // The server refuses (a 409 whose text is shared by many causes): the screen says what happened in its own words, the dialog stays
+ // usable, and a new deliberate attempt is a new request key.
+ checkId=await adoptable()
+ await choose(1)
+ adoptRefuse=true
+ postsBefore=receiptPosts().length
+ await recordBtn.click();await confirmRecord.click()
+ await expect(dialog.getByRole('alert')).toContainText('Nothing was recorded.')
+ await expect(dialog.getByRole('alert')).toContainText('Check again.')
+ await alertText()
+ expect(receiptPosts()).toHaveLength(postsBefore+1)
+ await expect(again).toBeEnabled()
+ await expect(recordBtn).toBeEnabled()
+ adoptRefuse=false
+ await recordBtn.click();await confirmRecord.click()
+ await expect(records.getByRole('listitem')).toHaveCount(1)
+ expect(receiptPosts()).toHaveLength(postsBefore+2)
+ expect(receiptPosts()[postsBefore+1].body.requestKey).not.toBe(receiptPosts()[postsBefore].body.requestKey)
+ await expect(dialog.getByRole('alert')).toHaveCount(0)
+ // A slot that already holds a record says so, rather than the shared sentence.
+ await records.getByRole('button',{name:/^Release ownership/}).click()
+ await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
+ await expect(records).toHaveCount(0)
+
+ // A record that can no longer be read is released and nothing more is said about it; a record for another scope is not shown.
+ receiptsDb=[{id:'rcpdamaged',environmentId:'scope-one',agentId:'agent-0',name:'ghost',bundleId:'',revisionId:'',managedDigest:'',fileCount:0,provenance:'',verification:'',evidence:{},version:'rv-damaged',createdAt:0,updatedAt:0,damaged:true},{id:'rcpelsewhere',environmentId:'scope-stale',agentId:'agent-0',name:'other-scope',bundleId:B.demo,revisionId:R.d1,managedDigest:'m'.repeat(64),fileCount:2,provenance:'adopted',verification:'controller_attested',evidence:{previewId:'x',reviewHash:'y',captureHash:'c',observedDigest:'o',pinId:'p',pinVersion:'v',capturedAt:1,adoptedAt:1,adoptedBy:1},version:'rv-else',createdAt:1,updatedAt:1}]
+ await dialog.getByRole('button',{name:'Back to pins',exact:true}).click()
+ await dialog.getByRole('button',{name:'Done'}).click()
+ await expect(dialog).toHaveCount(0)
+ await scopeButton('workstation',SHARED).evaluate(el=>el.click())
+ await expect(records.getByRole('listitem')).toHaveCount(1)
+ const ghost=records.getByRole('listitem').first()
+ await expect(ghost).toContainText('ghost')
+ await expect(ghost).toContainText("This record can't be read. It can still be released.")
+ for(const word of [/file/i,/Recorded/,/revision/i,/verified/i])await expect(ghost).not.toContainText(word)
+ await expect(ghost.getByRole('button',{name:/^Release ownership/})).toBeVisible()
+ await expect(records).not.toContainText('other-scope')
+ await ghost.getByRole('button',{name:/^Release ownership/}).click()
+ await page.getByRole('dialog',{name:'Release ownership of ghost?'}).getByRole('button',{name:'Release ownership',exact:true}).click()
+ await expect(records).toHaveCount(0)
+ expect(receiptDeletes().at(-1)).toEqual({method:'DELETE',path:`${RECEIPTS}/rcpdamaged`,body:{expectedVersion:'rv-damaged'}})
+ await dialog.getByRole('button',{name:'Done'}).click()
+ await expect(dialog).toHaveCount(0)
+ await quiet()
+
  // Pins, checks and ownership never touch browser storage: not one write, from the moment the dialog first opened, and the
  // stored state is what it was. Nothing ever asked for revision bytes or any other read of a skill's files.
  expect((await page.evaluate(()=>window.__storageCalls)).slice(storageCallsAtOpen)).toEqual([])
  expect(await storage()).toBe(before)
  expect(requests.filter(r=>/\/revisions\/[^/]/.test(r.path))).toEqual([])
- // Receipts belong to a later step, and no check can exist before a pin does: the checks are first read after the first pin was saved.
- expect(requests.filter(r=>/skill-content-receipts/.test(r.path))).toEqual([])
+ // The breakdown is only ever read (GET, metadata), and no check can exist before a pin does: the checks are first read after the first pin was saved.
+ expect(requests.filter(r=>/\/adoption\//.test(r.path)).every(r=>r.method==='GET')).toBe(true)
+ expect(breakdownReads.length).toBeGreaterThan(0)
  const firstPinSave=requests.findIndex(r=>r.method==='POST'&&r.path==='/api/v2/skill-content-targets'),firstCheckRead=requests.findIndex(r=>r.method==='GET'&&r.path==='/api/v2/skill-content-previews')
  expect(firstPinSave).toBeGreaterThan(-1)
  expect(firstCheckRead).toBeGreaterThan(firstPinSave)
@@ -858,5 +1283,5 @@ try{
  await expect(page.getByRole('button',{name:/^Pin a library revision/})).toHaveCount(0)
  expect(unmocked).toEqual([])
  expect(errors).toEqual([])
- console.log('Skill content UI passed: entry points and reasons, read-only open and retry, create/change/remove with versions, conflicts, lost replies and 404s, busy guard, connector lapse, newest revision, labels not ids, stale-response fencing, focus return, storage writes, responsive layouts and viewer/legacy isolation; checks: readiness, request body and key reuse, queued to captured polling, every presence and ownership result, stale/superseded/expired/failed/cancelled/unknown states, pin re-read, lost replies and busy resume, hidden pause, close stops polling, summary rows read in full, aged reads, stop and dismiss.')
+ console.log('Skill content UI passed: entry points and reasons, read-only open and retry, create/change/remove with versions, conflicts, lost replies and 404s, busy guard, connector lapse, newest revision, labels not ids, stale-response fencing, focus return, storage writes, responsive layouts and viewer/legacy isolation; checks: readiness, request body and key reuse, queued to captured polling, every presence and ownership result, stale/superseded/expired/failed/cancelled/unknown states, pin re-read, lost replies and busy resume, hidden pause, close stops polling, summary rows read in full, aged reads, stop and dismiss; adopt and release: candidates with none chosen, one preselected, breakdown table with grouped differences at 256 files and 320px, stale-race fenced confirmation, exact request body and hash, double click, reply reconciled through the records, key reuse and renewal, plain refusals, release with versions, damaged records.')
 }finally{await browser.close()}

@@ -1,4 +1,4 @@
-import type { AdoptionBreakdown, AdoptionOffer, ContentPin, ContentPinWrite, ContentPlan, ContentPreview, PrivateBundle, PrivateRevision, SyncAgent, SyncEnvironment } from './api'
+import type { AdoptionBreakdown, AdoptionOffer, ContentPin, ContentReceipt, ContentPinWrite, ContentPlan, ContentPreview, PrivateBundle, PrivateRevision, SyncAgent, SyncEnvironment } from './api'
 
 // What is true about a pin, a check and an ownership record, in words. Pure: no DOM, no fetch, no clock of its own.
 // Nothing here may say more than the machine has told us: an unknown code or state falls back to FALLBACK, and the
@@ -300,6 +300,48 @@ export function claimSummary(b: AdoptionBreakdown): ClaimSummary {
   s.text = parts.join(' ')
   return s
 }
+
+/** The row words of the breakdown table. Exactly these four, whatever the server's status. */
+export const BREAKDOWN_LABELS = { claimed: 'Claimed', stays_yours: 'Stays yours', library_only: 'Only in the library', differs: 'Differs from this revision' } as const
+
+/** A candidate revision in a sentence of counts. The server only says bytes or mode differ, never why. */
+export function candidateCounts(c: { matched: number; observedOnly: number; revisionOnly: number }): string {
+  return `${files(c.matched)} ${c.matched === 1 ? 'matches' : 'match'} · ${files(c.observedOnly)} on this machine not claimed · ${files(c.revisionOnly)} in the library not matched`
+}
+
+/** Why a breakdown could not be shown, in plain words. The server's shared 409 text is never repeated. */
+export function breakdownNote(e: unknown): string {
+  const status = typeof e === 'object' && e !== null ? (e as { status?: unknown }).status : undefined
+  return status === 409 || status === 404 ? "This revision can't be compared with the folder any more. Check again." : describeError(e)
+}
+
+/**
+ * What to tell the person when recording ownership was refused. The shared 409 text is never shown: the status and what
+ * the check says now decide. owned is true when this scope now holds an ownership record for the skill; reasons are the
+ * fence reasons of the check read again (already in words).
+ */
+export function adoptRefusal(status: number, name: string, owned: boolean, reasons: string[]): string {
+  if (status === 403) return "Your account can only view, so it can't record ownership."
+  if (status === 409 || status === 404) {
+    if (owned) return `${name} already has an ownership record in this folder. Nothing was recorded. Release that record first if you want to record ownership again.`
+    if (reasons.length > 0) return `Nothing was recorded. ${reasons.join(' ')} Check again.`
+    return 'Nothing was recorded. Something changed since the check was made. Check again.'
+  }
+  return ''
+}
+
+/** What changed under a release that was refused: the record as it was shown, and as it is now (undefined once gone). */
+export function releaseNote(before: Pick<ContentReceipt, 'version'>, after: Pick<ContentReceipt, 'version'> | undefined, name: string): string {
+  if (!after) return `The ownership record for ${name} was already released elsewhere, so there was nothing to release.`
+  if (after.version !== before.version) return `The ownership record for ${name} changed elsewhere. Nothing was released. Review it, then release it again if you still want to.`
+  return ''
+}
+
+/** The label of a record's revision from a list that has been read; never the start of an id. */
+export const receiptRevision = (id: string, list: PrivateRevision[] | undefined, head: string | undefined): string => (list ? revisionLabels(list, head).get(id) : undefined) ?? 'a revision no longer listed'
+
+/** Whether a listed record is the one an adoption of this check and revision made (the way a lost reply is reconciled). */
+export const madeByAdoption = (r: ContentReceipt, previewId: string, revisionId: string): boolean => r.damaged !== true && r.evidence?.previewId === previewId && r.revisionId === revisionId
 
 /** How long to wait before reading a check again, or null to stop. Never while the tab is hidden. */
 export function pollDelay(state: string, hidden: boolean): number | null {

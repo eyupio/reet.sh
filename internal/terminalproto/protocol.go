@@ -112,6 +112,8 @@ const (
 )
 
 type Capabilities struct {
+	Launch          bool      `json:"launch,omitempty"`
+	Tools           []string  `json:"tools,omitempty"`
 	CommandHistory  bool      `json:"commandHistory,omitempty"`
 	TerminalControl bool      `json:"terminalControl,omitempty"`
 	ProtocolVersion int       `json:"protocolVersion"`
@@ -123,6 +125,9 @@ type Capabilities struct {
 }
 
 func (c Capabilities) Validate() error {
+	if c.Launch && !c.TerminalControl || !validTools(c.Tools) {
+		return ErrInvalid
+	}
 	if c.CommandHistory && !c.TerminalControl {
 		return ErrInvalid
 	}
@@ -214,12 +219,17 @@ type Create struct {
 	Title string `json:"title"`
 	Cols  int    `json:"cols"`
 	Rows  int    `json:"rows"`
+	// Launch fields stay plain strings so Create remains comparable.
+	Tool   string `json:"tool,omitempty"`
+	Model  string `json:"model,omitempty"`
+	Dir    string `json:"dir,omitempty"`
+	Prompt string `json:"prompt,omitempty"`
 }
 
 func (Create) kind() string  { return "create" }
 func (c Create) valid() bool { return c.Validate() == nil }
 func (c Create) Validate() error {
-	if !ValidTitle(c.Title) || !ValidDimensions(c.Cols, c.Rows) {
+	if !ValidTitle(c.Title) || !ValidDimensions(c.Cols, c.Rows) || !c.validLaunch() {
 		return ErrInvalid
 	}
 	return nil
@@ -298,10 +308,12 @@ const (
 	NotFound    ResultCode = "not_found"
 	Failed      ResultCode = "failed"
 	Conflict    ResultCode = "conflict"
+	// LaunchFailed means the requested agent could not be started.
+	LaunchFailed ResultCode = "launch_failed"
 )
 
 func (c ResultCode) Valid() bool {
-	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict
+	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict || c == LaunchFailed
 }
 
 type Result struct {

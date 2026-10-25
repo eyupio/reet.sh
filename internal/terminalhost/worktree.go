@@ -474,3 +474,360 @@ func hasControl(s string) bool {
 	}
 	return false
 }
+
+// ErrWorktreeNotFound means nothing is at the run's worktree path: it was
+// never made, or it has already been removed (by reet, by git or by hand). For
+// a remove the controller may treat it as already done; something that is at
+// the path but is not a registered worktree is refused instead
+// (not_registered), never reported as not found.
+var ErrWorktreeNotFound = errors.New("the worktree is not there")
+
+// ErrWorktreeChanged means a remove was refused because the worktree's counts
+// are no longer the ones the person was shown.
+var ErrWorktreeChanged = errors.New("the worktree changed since it was shown")
+
+// WorktreeCounts are the two numbers a person is shown before a remove.
+type WorktreeCounts struct{ Changed, Unpushed int }
+
+// worktreeAt is a run's worktree that passed every check in locateWorktree.
+type worktreeAt struct {
+	path, branch string
+	// root is the working tree of the repository the worktree belongs to.
+	root string
+}
+
+// WorktreeStatus reports a run's worktree without changing it:
+//
+//   - Changed counts the entries of
+//     `git -C <path> status --porcelain=v1 -z --untracked-files=all --ignore-submodules=none`
+//     (modified, staged, deleted, renamed and untracked files each count;
+//     ignored files do not). The two flags override a repository's
+//     status.showUntrackedFiles and submodule settings, which would otherwise
+//     hide files that a remove deletes. Output beyond 4 KiB is not read, so
+//     past roughly a hundred entries Changed is a lower bound; it is never 0
+//     when anything changed.
+//   - Paths are the first 20 of those paths, each at most 255 bytes, with
+//     invalid UTF-8 and control or format characters replaced by U+FFFD.
+//     File contents are never read.
+//   - Unpushed is `git -C <path> rev-list --count HEAD --not --remotes
+//     --exclude=<run's branch> [--exclude=<HEAD's branch>] --branches`:
+//     commits reachable from the worktree's HEAD that are on no
+//     remote-tracking branch and on no local branch other than the run's own
+//     branch and the branch checked out there (if any). A fresh
+//     worktree is 0, because its starting commit is on the branch it was made
+//     from; in a repository with no remote it is the commits made in the
+//     worktree since then. Commits the person also put on another local
+//     branch are not counted; neither is anything on a branch that removal
+//     keeps at risk, since the branch is never deleted.
+//
+// The path is ~/.reet/worktrees/<project>/<Slug(repo)>/<run>, derived exactly
+// as PrepareWorktree derives it, and must be a registered worktree of its
+// repository (see locateWorktree). Nothing at the path: ErrWorktreeNotFound.
+func WorktreeStatus(ctx context.Context, home, project, repo, run string, git GitRunner) (terminalproto.WorktreeState, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	w, err := locateWorktree(ctx, home, project, repo, run, git)
+	if err != nil {
+		return terminalproto.WorktreeState{}, err
+	}
+	return worktreeState(ctx, w, git)
+}
+
+func worktreeState(ctx context.Context, w worktreeAt, git GitRunner) (terminalproto.WorktreeState, error) {
+	out, err := git(ctx, w.path, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none")
+	if err != nil {
+		return terminalproto.WorktreeState{}, gitFailed(out, err)
+	}
+	changed, paths := parseStatus(out)
+	unpushed, err := unpushedCount(ctx, w, git)
+	if err != nil {
+		return terminalproto.WorktreeState{}, err
+	}
+	return terminalproto.WorktreeState{Path: w.path, Branch: w.branch, Changed: changed, Unpushed: unpushed, Paths: paths}, nil
+}
+
+// unpushedCount: see WorktreeStatus. The run's branch and HEAD's own branch
+// are left out of the local branches that hide a commit, so a commit counts
+// whether HEAD is on the run's branch, on another branch or detached.
+func unpushedCount(ctx context.Context, w worktreeAt, git GitRunner) (int, error) {
+	args := []string{"rev-list", "--count", "HEAD", "--not", "--remotes", "--exclude=" + w.branch}
+	out, err := git(ctx, w.path, "symbolic-ref", "-q", "HEAD")
+	if ref := strings.TrimSuffix(string(out), "\n"); err == nil && strings.HasPrefix(ref, "refs/heads/") && !strings.ContainsAny(ref, "*?[\\\n") {
+		if branch := strings.TrimPrefix(ref, "refs/heads/"); branch != w.branch {
+			args = append(args, "--exclude="+branch)
+		}
+	} else if err == nil || ctx.Err() != nil || errors.Is(err, errGitMissing) {
+		// symbolic-ref succeeded with something unexpected, or git itself failed.
+		return 0, gitFailed(out, err)
+	}
+	args = append(args, "--branches")
+	out, err = git(ctx, w.path, args...)
+	if err != nil {
+		return 0, gitFailed(out, err)
+	}
+	text := strings.TrimSuffix(string(out), "\n")
+	n := 0
+	for i := 0; i < len(text); i++ {
+		if text[i] < '0' || text[i] > '9' || n > 1<<30 {
+			return 0, refuseWorktree(terminalproto.WorktreeGitFailed, "git counted commits unreadably")
+		}
+		n = n*10 + int(text[i]-'0')
+	}
+	if text == "" || n > 1<<30 {
+		return 0, refuseWorktree(terminalproto.WorktreeGitFailed, "git counted commits unreadably")
+	}
+	return n, nil
+}
+
+// parseStatus counts `status --porcelain=v1 -z` entries ("XY path\0", plus
+// "orig\0" after a rename or copy) and keeps the first MaxWorktreePaths paths,
+// made plain. A truncated last entry still counts.
+func parseStatus(out []byte) (int, []string) {
+	fields := strings.Split(string(out), "\x00")
+	count := 0
+	var paths []string
+	for i := 0; i < len(fields); i++ {
+		entry := fields[i]
+		if len(entry) < 4 {
+			continue
+		}
+		count++
+		if len(paths) < terminalproto.MaxWorktreePaths {
+			paths = append(paths, plainPath(entry[3:]))
+		}
+		if entry[0] == 'R' || entry[0] == 'C' || entry[1] == 'R' || entry[1] == 'C' {
+			i++ // the original path
+		}
+	}
+	return count, paths
+}
+
+// plainPath makes a path safe to show: invalid UTF-8 and every control or
+// format character (newline, ESC, bidi overrides, U+2028/9) become U+FFFD,
+// and it is cut to MaxWorktreePathBytes on a rune boundary.
+func plainPath(p string) string {
+	var b strings.Builder
+	for _, r := range strings.ToValidUTF8(p, "�") {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == ' ' || r == ' ' {
+			r = '�'
+		}
+		if b.Len()+utf8.RuneLen(r) > terminalproto.MaxWorktreePathBytes {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// WorktreeRemove removes a run's worktree only when nothing would be lost
+// that the person was not shown:
+//
+//  1. The worktree is located and checked exactly as WorktreeStatus does.
+//  2. The status is computed again; unless both counts equal shown, the
+//     remove is refused with ErrWorktreeChanged, so changes made after the
+//     person looked are never thrown away.
+//  3. Any uncommitted change (Changed > 0) is refused as has_changes: git
+//     would refuse it without --force, and reet never forces.
+//  4. It runs exactly `git -C <repository root> worktree remove <path>`,
+//     never --force. The repository root comes from the worktree's
+//     `rev-parse --git-common-dir`. Git checks again that the worktree is
+//     clean and not locked, so a file written after step 2 is still kept.
+//
+// The branch is never deleted, so commits (Unpushed) stay on it. Ignored
+// files are not counted and are deleted with the folder. Nothing at the path:
+// ErrWorktreeNotFound. Every git call shares one 60-second budget.
+func WorktreeRemove(ctx context.Context, home, project, repo, run string, shown WorktreeCounts, git GitRunner) error {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	w, err := locateWorktree(ctx, home, project, repo, run, git)
+	if err != nil {
+		return err
+	}
+	state, err := worktreeState(ctx, w, git)
+	if err != nil {
+		return err
+	}
+	if state.Changed != shown.Changed || state.Unpushed != shown.Unpushed {
+		return ErrWorktreeChanged
+	}
+	if state.Changed > 0 {
+		return refuseWorktree(terminalproto.WorktreeHasChanges, "")
+	}
+	if out, err := git(ctx, w.root, "worktree", "remove", w.path); err != nil {
+		return gitFailed(out, err)
+	}
+	return nil
+}
+
+// locateWorktree finds a run's worktree and checks it before anything reads
+// or removes it:
+//
+//   - the path is <real home>/.reet/worktrees/<project>/<Slug(repo)>/<run>,
+//     every folder from home down to it a real directory (no symlink), the
+//     folders above it owned by this user and not writable by others, and the
+//     resolved path inside ~/.reet/worktrees: otherwise outside_home;
+//   - nothing at the path (or any folder above it missing): ErrWorktreeNotFound;
+//   - the path must be a linked worktree: `.git` a regular file,
+//     `rev-parse --show-toplevel` the path itself, `rev-parse --git-common-dir`
+//     the `.git` folder of a normal repository whose folder name slugs to
+//     Slug(repo), and `worktree list --porcelain` naming that repository first
+//     and the path exactly once, not first and not prunable: otherwise
+//     not_registered.
+func locateWorktree(ctx context.Context, home, project, repo, run string, git GitRunner) (worktreeAt, error) {
+	if !terminalproto.ValidRunToken(run) || !terminalproto.ValidSlug(project) || repo == "" || git == nil {
+		return worktreeAt{}, terminalproto.ErrInvalid
+	}
+	realHome, err := filepath.EvalSymlinks(home)
+	if err != nil || !filepath.IsAbs(realHome) {
+		return worktreeAt{}, refuseWorktree(terminalproto.WorktreeOutsideHome, "the home folder is unavailable")
+	}
+	worktrees := filepath.Join(realHome, ".reet", "worktrees")
+	projectSlug := terminalproto.Slug(project, "project")
+	repoSlug := terminalproto.Slug(repo, "repo")
+	path := filepath.Join(worktrees, projectSlug, repoSlug, run)
+	w := worktreeAt{path: path, branch: "reet/" + projectSlug + "-" + run}
+	if hasControl(path) {
+		return worktreeAt{}, refuseWorktree(terminalproto.WorktreeOutsideHome, "the home folder's path cannot hold a worktree")
+	}
+	if err := checkWorktreePath(realHome, path); err != nil {
+		return worktreeAt{}, err
+	}
+	// Belt and braces after the walk: the fully resolved path must still be
+	// under ~/.reet/worktrees and be the path itself.
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil || !inside(worktrees, resolved) || resolved == worktrees {
+		return worktreeAt{}, refuseWorktree(terminalproto.WorktreeOutsideHome, "the worktree is not under ~/.reet/worktrees")
+	}
+	if resolved != path {
+		return worktreeAt{}, refuseWorktree(terminalproto.WorktreeOutsideHome, "the worktree folder is not a real folder")
+	}
+	notRegistered := func(detail string) error { return refuseWorktree(terminalproto.WorktreeNotRegistered, detail) }
+	if info, err := os.Lstat(filepath.Join(path, ".git")); err != nil || !info.Mode().IsRegular() {
+		return worktreeAt{}, notRegistered("the folder is not a git worktree")
+	}
+	readFailed := func(out []byte, err error) error {
+		if errors.Is(err, errGitMissing) || ctx.Err() != nil {
+			return gitFailed(out, err)
+		}
+		return notRegistered("git does not see a worktree there")
+	}
+	out, err := git(ctx, path, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return worktreeAt{}, readFailed(out, err)
+	}
+	if top, err := filepath.EvalSymlinks(strings.TrimSuffix(string(out), "\n")); err != nil || top != path {
+		return worktreeAt{}, notRegistered("the folder is not the top of a worktree")
+	}
+	out, err = git(ctx, path, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return worktreeAt{}, readFailed(out, err)
+	}
+	common := strings.TrimSuffix(string(out), "\n")
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(path, common)
+	}
+	common, err = filepath.EvalSymlinks(common)
+	if err != nil || filepath.Base(common) != ".git" {
+		return worktreeAt{}, notRegistered("the worktree does not belong to a normal repository")
+	}
+	w.root = filepath.Dir(common)
+	if w.root == path || inside(worktrees, w.root) || terminalproto.Slug(filepath.Base(w.root), "repo") != repoSlug {
+		return worktreeAt{}, notRegistered("the worktree belongs to another repository")
+	}
+	out, err = git(ctx, path, "worktree", "list", "--porcelain")
+	if err != nil {
+		return worktreeAt{}, readFailed(out, err)
+	}
+	if !registeredWorktree(string(out), w.root, path) {
+		return worktreeAt{}, notRegistered("git does not list this worktree")
+	}
+	return w, nil
+}
+
+// registeredWorktree reports whether a `worktree list --porcelain` listing is
+// well formed (every record starts with a worktree line), names root first
+// and names path in exactly one later record that is not prunable.
+func registeredWorktree(listing, root, path string) bool {
+	var records [][]string
+	var record []string
+	for _, line := range strings.Split(listing, "\n") {
+		if line == "" {
+			if len(record) > 0 {
+				records = append(records, record)
+			}
+			record = nil
+			continue
+		}
+		record = append(record, line)
+	}
+	if len(record) > 0 {
+		records = append(records, record)
+	}
+	if len(records) < 2 {
+		return false
+	}
+	matches := 0
+	for i, r := range records {
+		name, ok := strings.CutPrefix(r[0], "worktree ")
+		if !ok {
+			return false
+		}
+		if i == 0 {
+			if resolved, err := filepath.EvalSymlinks(name); err != nil || resolved != root {
+				return false
+			}
+			if name == path {
+				return false
+			}
+			continue
+		}
+		if name != path {
+			continue
+		}
+		matches++
+		for _, line := range r[1:] {
+			if line == "prunable" || strings.HasPrefix(line, "prunable ") || line == "bare" {
+				return false
+			}
+		}
+	}
+	return matches == 1
+}
+
+// checkWorktreePath walks from home down to path without creating anything.
+// A missing folder is ErrWorktreeNotFound; a symlink anywhere, a non-folder
+// above the path, or a folder above it that another user owns or others can
+// write, is outside_home. The path itself must be a real folder of this user;
+// a file there is not_registered.
+func checkWorktreePath(home, path string) error {
+	rel, err := filepath.Rel(home, path)
+	if err != nil || rel == "." || !filepath.IsLocal(rel) {
+		return refuseWorktree(terminalproto.WorktreeOutsideHome, "")
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	current := home
+	for i, part := range parts {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			return ErrWorktreeNotFound
+		}
+		shown := filepath.Join("~", strings.TrimPrefix(current, home))
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return refuseWorktree(terminalproto.WorktreeOutsideHome, shown+" is not a folder of yours")
+		}
+		if i == len(parts)-1 {
+			if !info.IsDir() {
+				return refuseWorktree(terminalproto.WorktreeNotRegistered, "the folder is not a git worktree")
+			}
+			if ownedByCurrentUser(info) != nil {
+				return refuseWorktree(terminalproto.WorktreeOutsideHome, shown+" is not a folder of yours")
+			}
+			continue
+		}
+		if !info.IsDir() || ownedByCurrentUser(info) != nil || info.Mode().Perm()&0o022 != 0 {
+			return refuseWorktree(terminalproto.WorktreeOutsideHome, shown+" is not a folder of yours")
+		}
+	}
+	return nil
+}

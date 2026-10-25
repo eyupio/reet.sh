@@ -32,10 +32,20 @@ const (
 	// WorktreeOutsideHome: reet's worktree folder is not a real directory of
 	// this user inside home (a symlink, another owner, a file).
 	WorktreeOutsideHome WorktreeReason = "outside_home"
+	// WorktreeNotRegistered: something is at the run's worktree path but git
+	// does not list it as a worktree of its repository (status and remove).
+	WorktreeNotRegistered WorktreeReason = "not_registered"
+	// WorktreeHasChanges: the worktree has uncommitted changes (modified,
+	// staged or untracked files), so it is never removed (remove only).
+	WorktreeHasChanges WorktreeReason = "has_changes"
 )
 
 func (r WorktreeReason) Valid() bool {
-	return r == WorktreeNotRepoRoot || r == WorktreeRepoBusy || r == WorktreeExists || r == WorktreeGitFailed || r == WorktreeOutsideHome
+	switch r {
+	case WorktreeNotRepoRoot, WorktreeRepoBusy, WorktreeExists, WorktreeGitFailed, WorktreeOutsideHome, WorktreeNotRegistered, WorktreeHasChanges:
+		return true
+	}
+	return false
 }
 
 func validWorktreeDetail(s string) bool {
@@ -205,10 +215,15 @@ func (w WorktreeState) valid() bool {
 }
 
 // WorktreeResult answers a remove (ok, worktree_changed, worktree_refused,
-// not_found, failed) or refuses a status.
+// not_found, ...) or refuses a status. Reason and Detail explain a
+// worktree_refused answer exactly as on Result, and are never set otherwise.
 type WorktreeResult struct {
-	Code ResultCode `json:"code"`
+	Code   ResultCode     `json:"code"`
+	Reason WorktreeReason `json:"reason,omitempty"`
+	Detail string         `json:"detail,omitempty"`
 }
 
-func (WorktreeResult) kind() string  { return "worktree_result" }
-func (w WorktreeResult) valid() bool { return w.Code.Valid() }
+func (WorktreeResult) kind() string { return "worktree_result" }
+func (w WorktreeResult) valid() bool {
+	return Result{Code: w.Code, Reason: w.Reason, Detail: w.Detail}.valid()
+}

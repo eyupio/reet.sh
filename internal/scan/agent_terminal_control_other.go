@@ -8,3 +8,6 @@ func terminalControl(string, agentConfig) agenthealth.TerminalFactory { return n
 
 // launchTools is nil where the connector cannot start terminal sessions.
 var launchTools func() []string
+
+// gitAvailable is nil where the connector cannot make run worktrees.
+var gitAvailable func() bool

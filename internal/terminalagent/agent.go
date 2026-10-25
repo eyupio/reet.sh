@@ -87,6 +87,22 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Worktree != "" && !terminalproto.SupportsWorktree(headers.Get(terminalproto.FeatureHeader)) {
 				return respond(terminalhost.ErrLaunchUnavailable)
 			}
+			// Worktree status and remove are served only on a generation that
+			// negotiated worktree-v1, and are always answered with a
+			// worktree_state or worktree_result.
+			switch msg.Body.(type) {
+			case *terminalproto.WorktreeStatus, *terminalproto.WorktreeRemove:
+				reply.Body = terminalproto.WorktreeResult{Code: terminalproto.Denied}
+				if !terminalproto.SupportsWorktree(headers.Get(terminalproto.FeatureHeader)) {
+					return send(callCtx, reply)
+				}
+				if managerErr != nil {
+					reply.Body = terminalproto.WorktreeResult{Code: terminalproto.Unavailable}
+					return send(callCtx, reply)
+				}
+				reply.Body = answerWorktree(callCtx, m, msg.Body)
+				return send(callCtx, reply)
+			}
 			if managerErr != nil {
 				return send(callCtx, reply)
 			}
@@ -234,9 +250,43 @@ func result(err error) terminalproto.Result {
 	return terminalproto.Result{Code: code(err)}
 }
 
+// answerWorktree runs a worktree status or remove: a status is answered with
+// the worktree_state, everything else with a worktree_result.
+func answerWorktree(ctx context.Context, m *terminalhost.Manager, body terminalproto.Body) terminalproto.Body {
+	switch op := body.(type) {
+	case *terminalproto.WorktreeStatus:
+		s, err := m.WorktreeStatus(ctx, *op)
+		if err != nil {
+			return worktreeResult(err)
+		}
+		return s
+	case *terminalproto.WorktreeRemove:
+		return worktreeResult(m.WorktreeRemove(ctx, *op))
+	}
+	return terminalproto.WorktreeResult{Code: terminalproto.Failed}
+}
+
+// worktreeResult maps a worktree status or remove outcome: nil is ok, a
+// worktree that is not there not_found, counts that moved worktree_changed, a
+// refusal worktree_refused with its reason and detail, and anything else the
+// usual code.
+func worktreeResult(err error) terminalproto.WorktreeResult {
+	if err == nil {
+		return terminalproto.WorktreeResult{Code: terminalproto.OK}
+	}
+	r := result(err)
+	return terminalproto.WorktreeResult{Code: r.Code, Reason: r.Reason, Detail: r.Detail}
+}
+
 func code(err error) terminalproto.ResultCode {
 	if errors.Is(err, terminalhost.ErrWorktreeRefused) {
 		return terminalproto.WorktreeRefused
+	}
+	if errors.Is(err, terminalhost.ErrWorktreeChanged) {
+		return terminalproto.WorktreeChanged
+	}
+	if errors.Is(err, terminalhost.ErrWorktreeNotFound) {
+		return terminalproto.NotFound
 	}
 	if c := terminalhost.LaunchResultCode(err); c != "" {
 		return c

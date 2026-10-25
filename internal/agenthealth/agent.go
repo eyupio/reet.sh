@@ -39,6 +39,7 @@ const (
 type AgentConfig struct {
 	commandHistory    bool
 	launch            bool
+	worktree          bool
 	OnConnection      func(bool)
 	TerminalSession   TerminalFactory
 	control           func(context.Context, terminalproto.Message) error
@@ -56,6 +57,9 @@ type AgentConfig struct {
 	// LaunchTools lists the agent CLIs this connector can start, from its
 	// built-in presets. Nil means the connector cannot start agents.
 	LaunchTools func() []string
+	// GitAvailable reports whether git is on this connector's PATH, for run
+	// worktrees. Nil means the connector cannot make worktrees.
+	GitAvailable func() bool
 
 	Collector        Collector
 	HTTPClient       *http.Client
@@ -477,6 +481,7 @@ func authHeaders(cfg AgentConfig) http.Header {
 func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.commandHistory = terminalproto.SupportsCommandHistory(advertised)
 	cfg.launch = terminalproto.SupportsLaunch(advertised)
+	cfg.worktree = terminalproto.SupportsWorktree(advertised)
 }
 
 // setTerminalFeatures tells the terminal dispatcher which negotiated
@@ -488,6 +493,9 @@ func setTerminalFeatures(headers http.Header, cfg AgentConfig) {
 	}
 	if cfg.launch {
 		features = append(features, terminalproto.LaunchFeature)
+	}
+	if cfg.worktree {
+		features = append(features, terminalproto.WorktreeFeature)
 	}
 	if len(features) > 0 {
 		headers.Set(terminalproto.FeatureHeader, strings.Join(features, ","))
@@ -544,8 +552,11 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		tools = launchTools(cfg)
 	}
 	return terminalproto.Capabilities{
-		Launch:          launch,
-		Tools:           tools,
+		Launch: launch,
+		Tools:  tools,
+		// Worktrees need launch (a run starts an agent in one), the negotiated
+		// worktree-v1 and git on PATH.
+		Worktree:        launch && cfg.worktree && cfg.GitAvailable != nil && cfg.GitAvailable(),
 		TerminalControl: cfg.TerminalSession != nil,
 		CommandHistory:  cfg.commandHistory && cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin"),
 		ProtocolVersion: terminalproto.Version,

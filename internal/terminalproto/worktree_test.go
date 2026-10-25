@@ -359,3 +359,42 @@ func TestResultWorktreeReason(t *testing.T) {
 		t.Fatal("plain result changed", string(data))
 	}
 }
+
+func TestWorktreeResultCarriesReason(t *testing.T) {
+	good := []WorktreeResult{
+		{Code: OK},
+		{Code: NotFound},
+		{Code: WorktreeChanged},
+		{Code: WorktreeRefused, Reason: WorktreeOutsideHome},
+		{Code: WorktreeRefused, Reason: WorktreeNotRegistered},
+		{Code: WorktreeRefused, Reason: WorktreeHasChanges},
+		{Code: WorktreeRefused, Reason: WorktreeGitFailed, Detail: "fatal: 'x' is locked"},
+	}
+	for _, r := range good {
+		encoded, err := Encode(Message{Version: Version, RequestID: "request-0123456789", Generation: 1, Body: r})
+		if err != nil {
+			t.Fatal(r, err)
+		}
+		decoded, err := Decode(encoded)
+		if err != nil || *decoded.Body.(*WorktreeResult) != r {
+			t.Fatal(r, decoded, err)
+		}
+	}
+	for name, r := range map[string]WorktreeResult{
+		"reason with ok":        {Code: OK, Reason: WorktreeHasChanges},
+		"reason with changed":   {Code: WorktreeChanged, Reason: WorktreeHasChanges},
+		"unknown reason":        {Code: WorktreeRefused, Reason: "nope"},
+		"detail without reason": {Code: WorktreeRefused, Detail: "x"},
+		"detail control":        {Code: WorktreeRefused, Reason: WorktreeGitFailed, Detail: "a\nb"},
+		"detail bidi":           {Code: WorktreeRefused, Reason: WorktreeGitFailed, Detail: "a‮b"},
+		"detail too long":       {Code: WorktreeRefused, Reason: WorktreeGitFailed, Detail: strings.Repeat("a", MaxWorktreeDetailBytes+1)},
+	} {
+		if _, err := Encode(Message{Version: Version, RequestID: "request-0123456789", Generation: 1, Body: r}); err == nil {
+			t.Error("invalid worktree result accepted:", name)
+		}
+	}
+	data, _ := json.Marshal(WorktreeResult{Code: NotFound})
+	if string(data) != `{"code":"not_found"}` {
+		t.Fatal("plain worktree result changed", string(data))
+	}
+}

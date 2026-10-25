@@ -518,3 +518,27 @@ func (m *Manager) Close() error {
 	}
 	return nil
 }
+
+// WorktreeStatus reports a run's worktree (see the package function) after
+// the same local consent check as every other operation.
+func (m *Manager) WorktreeStatus(ctx context.Context, in terminalproto.WorktreeStatus) (terminalproto.WorktreeState, error) {
+	m.mu.Lock()
+	err := m.allowed()
+	m.mu.Unlock()
+	if err != nil {
+		return terminalproto.WorktreeState{}, err
+	}
+	return WorktreeStatus(ctx, m.home, in.Project, in.Repo, in.Run, m.git)
+}
+
+// WorktreeRemove removes a run's worktree (see the package function). It holds
+// the manager lock like Create, so a create adopting the same worktree never
+// runs at the same time as its removal.
+func (m *Manager) WorktreeRemove(ctx context.Context, in terminalproto.WorktreeRemove) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.allowed(); err != nil {
+		return err
+	}
+	return WorktreeRemove(ctx, m.home, in.Project, in.Repo, in.Run, WorktreeCounts{Changed: in.Changed, Unpushed: in.Unpushed}, m.git)
+}

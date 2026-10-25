@@ -34,10 +34,10 @@ const PLAN_CODES = unique([
 const PRESERVED_REASONS = unique(literals(planGo, /Preserved\{[^}]*Reason:\s*"([a-z_]+)"/g))
 // Preview states: `State: "x"` in a literal, and the first string after the `=` of any statement that sets or compares a State
 // (this reaches `p.State, p.Error = "failed", ...` and `p.InventoryRevision, p.State = revision, "capturing"` too).
-const STATES = unique([...literals(previewGo, /\bState:\s*"([a-z]+)"/g), ...literals(previewGo, /\bState\b[^=\n"]*=[^\n]*?"([a-z]+)"/g)])
+const STATES = unique([...literals(previewGo, /\bState:\s*"([a-z_0-9]+)"/g), ...literals(previewGo, /\bState\b[^=\n"]*=[^\n]*?"([a-z_0-9]+)"/g)])
 // Failure codes: the connector may report the cases of the switch in FailSkillContentPreviewFor; the controller itself records plan_unavailable.
 const FAILURE_CODES = unique([
-  ...literals(previewGo, /switch code \{\s*case ("[a-z_]+"(?:,\s*"[a-z_]+")*):/g).flatMap(list => literals(list, /"([a-z_]+)"/g)),
+  ...literals(previewGo, /switch code \{([\s\S]*?)default:/g).flatMap(list => literals(list, /"([a-z_]+)"/g)),
   ...literals(previewGo, /p\.State, p\.Error = "failed", "([a-z_]+)"/g),
 ])
 // Fence reasons: every reasons = append(reasons, "x") inside previewFence.
@@ -510,7 +510,7 @@ test('groupBreakdown merges a stays-yours and library-only pair into one differs
     ],
   })
   assert.deepEqual(rows.map(r => [r.path, r.state]), [['SKILL.md', 'claimed'], ['notes/mine.txt', 'stays_yours'], ['scripts/run.sh', 'differs'], ['z-new.md', 'library_only']])
-  // The merged row describes the machine's copy: that is the file that was edited and stays yours.
+  // The merged row describes the machine's copy: that is the file that differs from the revision and stays yours.
   assert.deepEqual(rows[2], { path: 'scripts/run.sh', state: 'differs', bytes: 80, executable: false, digest: digest('m') })
   assert.deepEqual(rows[0], { path: 'SKILL.md', state: 'claimed', bytes: 10, executable: false, digest: digest('a') })
   assert.deepEqual(rows[1], { path: 'notes/mine.txt', state: 'stays_yours', bytes: 12, executable: false, digest: digest('n') })

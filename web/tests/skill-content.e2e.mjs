@@ -53,7 +53,7 @@ const OWNED=manifestOf([file('SKILL.md',120)])
 // answered with the first record. Releasing needs the record's current version (internal/store/store_content_receipts.go).
 const SHARED_409='This ownership record is unavailable, blocked, changed or already exists. Preview again, and release existing ownership before adopting again.'
 let receiptsDb=[],receiptKeys=new Map(),receiptSeq=0,receiptsBroken=false,adoptHold=null,adoptRefuse=false,dropAdopt=null,releaseHold=null
-let breakdownHold={}
+let breakdownHold={},adoptFail=0,releaseRefuse=false
 const breakdownReads=[]
 const bdFile=(path,status,bytes=10,executable=false)=>({path,bytes,digest:'a'.repeat(64),executable,status})
 const BIG_PATH=`deep/${'ünïcödé-segment-without-any-break-'.repeat(8)}last.md`
@@ -164,6 +164,7 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/skill-content-receipts'&&method==='POST'){
   writes.push({method,path,body})
   if(dropAdopt==='before'){dropAdopt=null;return route.abort('failed')}
+  if(adoptFail)return route.fulfill({status:adoptFail,json:{error:'Private skill unavailable.'}})
   if(adoptHold)await adoptHold.promise
   const replayed=receiptsDb.find(r=>receiptKeys.get(r.id)===body.requestKey)
   const p=previewsDb.find(x=>x.id===body.previewId)
@@ -182,6 +183,7 @@ await page.route('**/api/**',async route=>{
  else if(path.match(/^\/api\/v2\/skill-content-receipts\/[^/]+$/)&&method==='DELETE'){
   writes.push({method,path,body})
   if(releaseHold)await releaseHold.promise
+  if(releaseRefuse)return route.fulfill({status:409,json:{error:SHARED_409}})
   const r=receiptsDb.find(x=>x.id===decodeURIComponent(path.split('/').pop()))
   if(!r)return route.fulfill({status:404,json:{error:'Ownership record or preview unavailable.'}})
   if(r.version!==body?.expectedVersion)return route.fulfill({status:409,json:{error:SHARED_409}})
@@ -924,6 +926,8 @@ try{
  const adoptable=async(over={})=>{const n=checkPosts().length;await again.click();await expect.poll(()=>checkPosts().length).toBe(n+1);setLatest(adoptCheck(over));await expect(recordHeading).toBeVisible({timeout:SECOND});return latest().id}
  // The check that follows a recording is waiting for the machine until the machine reports; it reports an owned folder.
  const settled=async()=>{await expect.poll(()=>latest().state).toBe('queued');setLatest(found({plan:planOf({preconditions:{baseline:{manifest:OWNED}}})}));await expect(dialog.getByText('Up to date.',{exact:false})).toBeVisible({timeout:SECOND})}
+ // The tab is hidden for the two clicks so no poll can land between them, then shown again.
+ const attempt=async()=>{await setHidden(true);await recordBtn.click();await confirmRecord.click();await setHidden(false)}
  const choose=async i=>{await radios.nth(i).check();await expect(bdTable).toBeVisible()}
 
  // The records cannot be read when the dialog opens: the pins and the checks still work, a plain note offers a retry.
@@ -1014,6 +1018,27 @@ try{
  await expect(asking).toHaveCount(0)
  expect(receiptPosts()).toEqual([])
  await expect(recordBtn).toBeFocused()
+
+ // The check is still captured but its review hash is another one by the time it is confirmed: what the person saw is not what
+ // would be recorded, so nothing is sent and the records are read again.
+ await recordBtn.click()
+ await expect(asking).toBeVisible()
+ await setHidden(true)
+ const recordReads=()=>requests.filter(r=>r.method==='GET'&&r.path===RECEIPTS).length,readsBeforeHash=recordReads()
+ setLatest({reviewHash:'1'+HASH})
+ await confirmRecord.click()
+ await expect(dialog.getByRole('alert')).toHaveText('Something changed. Check again.')
+ await afterRequests()
+ expect(receiptPosts()).toEqual([])
+ expect(recordReads()).toBeGreaterThan(readsBeforeHash)
+ await setHidden(false)
+ // The table is read again for the new hash, and Record ownership waits for it.
+ breakdownHold={[R.d2]:deferred()}
+ setLatest({reviewHash:'2'+HASH})
+ await expect(recordBtn).toBeDisabled()
+ await expect(dialog.getByText('Reading the file list for this revision')).toBeVisible()
+ breakdownHold[R.d2].resolve();breakdownHold={}
+ await expect(recordBtn).toBeEnabled()
 
  // The check goes out of date between opening the confirmation and confirming it (the tab is hidden, so nothing re-reads on its
  // own): the check is read once more, nothing is sent, and the screen says so.
@@ -1146,6 +1171,25 @@ try{
  await releaseAsk.getByRole('button',{name:'Cancel'}).click()
  expect(receiptDeletes()).toEqual([])
  await expect(releaseBtn).toBeFocused()
+ // A refusal with the version unchanged says nothing was released, not "check again".
+ releaseRefuse=true
+ await releaseBtn.click()
+ await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
+ await expect(dialog.getByRole('alert')).toHaveText('Nothing was released. Try again.')
+ releaseRefuse=false
+ expect(receiptDeletes()).toHaveLength(1)
+ // Confirming after something else has become busy says so, rather than doing nothing.
+ await releaseBtn.click()
+ await expect(releaseAsk).toBeVisible()
+ pinsHold=deferred()
+ await again.evaluate(el=>el.click())
+ await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
+ await expect(dialog.getByRole('alert')).toHaveText('Another action is still under way. Try again in a moment.')
+ expect(receiptDeletes()).toHaveLength(1)
+ pinsHold.resolve();pinsHold=null
+ await expect.poll(()=>latest().state).toBe('queued')
+ setLatest(found({plan:planOf({preconditions:{baseline:{manifest:OWNED}}})}))
+ await expect(dialog.getByText('Up to date.',{exact:false})).toBeVisible({timeout:SECOND})
  // A version that moved on is refused: the records are read again and the screen says what changed, without the server's words.
  const heldRecord=receiptsDb[0],oldVersion=heldRecord.version
  heldRecord.version='rv-elsewhere'
@@ -1153,15 +1197,15 @@ try{
  await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
  await expect(dialog.getByRole('alert')).toContainText('The ownership record for demo changed elsewhere. Nothing was released.')
  await alertText()
- expect(receiptDeletes()).toHaveLength(1)
- expect(receiptDeletes()[0].body).toEqual({expectedVersion:oldVersion})
+ expect(receiptDeletes()).toHaveLength(2)
+ expect(receiptDeletes()[1].body).toEqual({expectedVersion:oldVersion})
  await expect(item).toContainText('demo')
  // Read again, the next release carries the version that is current now, and says what was done.
  await releaseBtn.click()
  await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
  await expect(records).toHaveCount(0)
- expect(receiptDeletes()).toHaveLength(2)
- expect(receiptDeletes()[1]).toEqual({method:'DELETE',path:`${RECEIPTS}/${heldRecord.id}`,body:{expectedVersion:'rv-elsewhere'}})
+ expect(receiptDeletes()).toHaveLength(3)
+ expect(receiptDeletes()[2]).toEqual({method:'DELETE',path:`${RECEIPTS}/${heldRecord.id}`,body:{expectedVersion:'rv-elsewhere'}})
  await expect(said).toContainText('Ownership released for demo.')
  await expect(said).toContainText('nothing on the machine changed')
  await expect(dialog.getByRole('heading',{name:/^Private skills on/})).toBeFocused()
@@ -1173,7 +1217,7 @@ try{
  dropAdopt='after'
  let postsBefore=receiptPosts().length
  const checksAtLost=checkPosts().length
- await recordBtn.click();await confirmRecord.click()
+ await attempt()
  await expect(records.getByRole('listitem')).toHaveCount(1)
  expect(receiptPosts()).toHaveLength(postsBefore+1)
  await expect(dialog.getByRole('alert')).toHaveCount(0)
@@ -1185,19 +1229,36 @@ try{
  await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
  await expect(records).toHaveCount(0)
 
+ // The reply is lost AND the records cannot be read: the record that exists is not listed yet, nothing is sent twice, and it appears
+ // by itself once the records can be read.
+ checkId=await adoptable()
+ await choose(1)
+ dropAdopt='after';receiptsBroken=true
+ postsBefore=receiptPosts().length
+ await attempt()
+ await expect(dialog.getByRole('alert')).toContainText("Couldn't reach reet")
+ expect(receiptPosts()).toHaveLength(postsBefore+1)
+ await expect(records).toHaveCount(0)
+ receiptsBroken=false
+ await expect(records.getByRole('listitem')).toHaveCount(1,{timeout:SECOND})
+ expect(receiptPosts()).toHaveLength(postsBefore+1)
+ await records.getByRole('button',{name:/^Release ownership/}).click()
+ await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
+ await expect(records).toHaveCount(0)
+
  // A reply that never arrives and the records cannot be read either: the message is plain, the key is kept, and the next press
  // sends the same request, which the server answers once.
  checkId=await adoptable()
  await choose(1)
  dropAdopt='before';receiptsBroken=true
  postsBefore=receiptPosts().length
- await recordBtn.click();await confirmRecord.click()
+ await attempt()
  await expect(dialog.getByRole('alert')).toContainText("Couldn't reach reet")
  expect(receiptPosts()).toHaveLength(postsBefore+1)
  const lostAdoptKey=receiptPosts()[postsBefore].body.requestKey
  receiptsBroken=false
  await expect(recordBtn).toBeEnabled()
- await recordBtn.click();await confirmRecord.click()
+ await attempt()
  await expect(records.getByRole('listitem')).toHaveCount(1)
  expect(receiptPosts()).toHaveLength(postsBefore+2)
  expect(receiptPosts()[postsBefore+1].body.requestKey).toBe(lostAdoptKey)
@@ -1208,38 +1269,76 @@ try{
  await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
  await expect(records).toHaveCount(0)
 
+ // At the account's limit of 1,024 records the refusal says so.
+ checkId=await adoptable()
+ await choose(1)
+ receiptsDb=Array.from({length:1024},(_,i)=>({id:`bulk${i}`,environmentId:'scope-stale',agentId:'agent-0',name:`bulk-${i}`,bundleId:B.demo,revisionId:R.d1,managedDigest:'m'.repeat(64),fileCount:1,provenance:'adopted',verification:'controller_attested',evidence:{previewId:`x${i}`,reviewHash:'y',captureHash:'c',observedDigest:'o',pinId:'p',pinVersion:'v',capturedAt:1,adoptedAt:1,adoptedBy:1},version:`rv-bulk-${i}`,createdAt:1,updatedAt:1}))
+ adoptRefuse=true
+ await attempt()
+ await expect(dialog.getByRole('alert')).toContainText('This account already holds the most ownership records it can (1,024).')
+ expect(await alertText()).not.toMatch(/check again/i)
+ receiptsDb=[];adoptRefuse=false
+
  // The server refuses (a 409 whose text is shared by many causes): the screen says what happened in its own words, the dialog stays
  // usable, and a new deliberate attempt is a new request key.
  checkId=await adoptable()
  await choose(1)
  adoptRefuse=true
  postsBefore=receiptPosts().length
- await recordBtn.click();await confirmRecord.click()
- await expect(dialog.getByRole('alert')).toContainText('Nothing was recorded.')
- await expect(dialog.getByRole('alert')).toContainText('Check again.')
- await alertText()
+ await attempt()
+ // Nothing explains the refusal and the check read again is as it was: it does not send the person off to check again.
+ await expect(dialog.getByRole('alert')).toContainText("Nothing was recorded. reet couldn't record ownership this time. Try again; if it keeps happening, release a record you no longer need.")
+ expect(await alertText()).not.toMatch(/check again/i)
  expect(receiptPosts()).toHaveLength(postsBefore+1)
  await expect(again).toBeEnabled()
  await expect(recordBtn).toBeEnabled()
  adoptRefuse=false
- await recordBtn.click();await confirmRecord.click()
+ await attempt()
  await expect(records.getByRole('listitem')).toHaveCount(1)
  expect(receiptPosts()).toHaveLength(postsBefore+2)
  expect(receiptPosts()[postsBefore+1].body.requestKey).not.toBe(receiptPosts()[postsBefore].body.requestKey)
  await expect(dialog.getByRole('alert')).toHaveCount(0)
- // A slot that already holds a record says so, rather than the shared sentence.
+ await settled()
  await records.getByRole('button',{name:/^Release ownership/}).click()
  await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
  await expect(records).toHaveCount(0)
 
+ // Somebody else recorded the skill meanwhile: the refusal says the folder already has a record, and the record is listed.
+ checkId=await adoptable()
+ await choose(1)
+ receiptsDb=[{id:'rcptaken',environmentId:'scope-one',agentId:'agent-0',name:'demo',bundleId:B.demo,revisionId:R.d1,managedDigest:'m'.repeat(64),fileCount:2,provenance:'adopted',verification:'controller_attested',evidence:{previewId:'x',reviewHash:'y',captureHash:'c',observedDigest:'o',pinId:'p',pinVersion:'v',capturedAt:1,adoptedAt:1,adoptedBy:1},version:'rv-taken',createdAt:Date.now(),updatedAt:Date.now()}]
+ await attempt()
+ await expect(dialog.getByRole('alert')).toContainText('demo already has an ownership record in this folder.')
+ await alertText()
+ await expect(records.getByRole('listitem')).toHaveCount(1)
+ await records.getByRole('button',{name:/^Release ownership/}).click()
+ await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
+ await expect(records).toHaveCount(0)
+ // A viewer's refusal and an unavailable check have their own words, and neither shows the server's.
+ checkId=await adoptable()
+ await choose(1)
+ adoptFail=403
+ await attempt()
+ await expect(dialog.getByRole('alert')).toHaveText("Your account can only view, so it can't record ownership.")
+ adoptFail=404
+ await attempt()
+ await expect(dialog.getByRole('alert')).toContainText('Nothing was recorded.')
+ expect(await alertText()).not.toMatch(/unavailable/i)
+ adoptFail=0
+
  // A record that can no longer be read is released and nothing more is said about it; a record for another scope is not shown.
- receiptsDb=[{id:'rcpdamaged',environmentId:'scope-one',agentId:'agent-0',name:'ghost',bundleId:'',revisionId:'',managedDigest:'',fileCount:0,provenance:'',verification:'',evidence:{},version:'rv-damaged',createdAt:0,updatedAt:0,damaged:true},{id:'rcpelsewhere',environmentId:'scope-stale',agentId:'agent-0',name:'other-scope',bundleId:B.demo,revisionId:R.d1,managedDigest:'m'.repeat(64),fileCount:2,provenance:'adopted',verification:'controller_attested',evidence:{previewId:'x',reviewHash:'y',captureHash:'c',observedDigest:'o',pinId:'p',pinVersion:'v',capturedAt:1,adoptedAt:1,adoptedBy:1},version:'rv-else',createdAt:1,updatedAt:1}]
+ receiptsDb=[{id:'rcpolder',environmentId:'scope-one',agentId:'agent-0',name:'older',bundleId:B.demo,revisionId:hex('9'),managedDigest:'m'.repeat(64),fileCount:1,provenance:'adopted',verification:'controller_attested',evidence:{previewId:'x',reviewHash:'y',captureHash:'c',observedDigest:'o',pinId:'p',pinVersion:'v',capturedAt:1,adoptedAt:1,adoptedBy:1},version:'rv-older',createdAt:Date.now(),updatedAt:Date.now()},{id:'rcpdamaged',environmentId:'scope-one',agentId:'agent-0',name:'ghost',bundleId:'',revisionId:'',managedDigest:'',fileCount:0,provenance:'',verification:'',evidence:{},version:'rv-damaged',createdAt:0,updatedAt:0,damaged:true},{id:'rcpelsewhere',environmentId:'scope-stale',agentId:'agent-0',name:'other-scope',bundleId:B.demo,revisionId:R.d1,managedDigest:'m'.repeat(64),fileCount:2,provenance:'adopted',verification:'controller_attested',evidence:{previewId:'x',reviewHash:'y',captureHash:'c',observedDigest:'o',pinId:'p',pinVersion:'v',capturedAt:1,adoptedAt:1,adoptedBy:1},version:'rv-else',createdAt:1,updatedAt:1}]
  await dialog.getByRole('button',{name:'Back to pins',exact:true}).click()
  await dialog.getByRole('button',{name:'Done'}).click()
  await expect(dialog).toHaveCount(0)
  await scopeButton('workstation',SHARED).evaluate(el=>el.click())
- await expect(records.getByRole('listitem')).toHaveCount(1)
- const ghost=records.getByRole('listitem').first()
+ await expect(records.getByRole('listitem')).toHaveCount(2)
+ // A record whose revision the library no longer lists is "an older revision", never a fragment of an id.
+ const older=records.getByRole('listitem').filter({hasText:'older'}).first()
+ await expect(older).toContainText('An older revision · 1 file')
+ await expect(older).not.toContainText(/Revision an/i)
+ noIds(await older.innerText())
+ const ghost=records.getByRole('listitem').filter({hasText:'ghost'}).first()
  await expect(ghost).toContainText('ghost')
  await expect(ghost).toContainText("This record can't be read. It can still be released.")
  for(const word of [/file/i,/Recorded/,/revision/i,/verified/i])await expect(ghost).not.toContainText(word)
@@ -1247,8 +1346,11 @@ try{
  await expect(records).not.toContainText('other-scope')
  await ghost.getByRole('button',{name:/^Release ownership/}).click()
  await page.getByRole('dialog',{name:'Release ownership of ghost?'}).getByRole('button',{name:'Release ownership',exact:true}).click()
+ await expect(records.getByRole('listitem')).toHaveCount(1)
+ await older.getByRole('button',{name:/^Release ownership/}).click()
+ await page.getByRole('dialog',{name:'Release ownership of older?'}).getByRole('button',{name:'Release ownership',exact:true}).click()
  await expect(records).toHaveCount(0)
- expect(receiptDeletes().at(-1)).toEqual({method:'DELETE',path:`${RECEIPTS}/rcpdamaged`,body:{expectedVersion:'rv-damaged'}})
+ expect(receiptDeletes().find(d=>d.path.endsWith('rcpdamaged'))).toEqual({method:'DELETE',path:`${RECEIPTS}/rcpdamaged`,body:{expectedVersion:'rv-damaged'}})
  await dialog.getByRole('button',{name:'Done'}).click()
  await expect(dialog).toHaveCount(0)
  await quiet()

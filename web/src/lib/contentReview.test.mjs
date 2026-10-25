@@ -1014,18 +1014,26 @@ test('the connector problem sentence is plain and carries no code', () => {
 
 test('adoption refusals are said in our own words and never repeat the shared 409 text', () => {
   const shared = 'This ownership record is unavailable, blocked, changed or already exists. Preview again, and release existing ownership before adopting again.'
+  const ctx = (over = {}) => ({ owned: false, reasons: [], adoptable: true, records: 3, ...over })
   for (const status of [404, 409]) {
-    for (const [owned, reasons] of [[false, []], [false, ['The pin changed after this check was made.']], [true, []]]) {
-      const text = adoptRefusal(status, 'demo', owned, reasons)
+    for (const c of [ctx(), ctx({ reasons: ['The pin changed after this check was made.'] }), ctx({ owned: true }), ctx({ adoptable: false }), ctx({ records: 1024 })]) {
+      const text = adoptRefusal(status, 'demo', c)
       assert.notEqual(text, '')
       assert.ok(!text.includes(shared) && !/\b(40\d|50\d)\b/.test(text) && !/[0-9a-f]{8}/.test(text))
     }
   }
-  assert.match(adoptRefusal(409, 'demo', false, ['The pin changed after this check was made.']), /^Nothing was recorded\. The pin changed after this check was made\. Check again\.$/)
-  assert.match(adoptRefusal(409, 'demo', true, []), /already has an ownership record/)
-  assert.match(adoptRefusal(409, 'demo', false, []), /Check again\.$/)
-  assert.match(adoptRefusal(403, 'demo', false, []), /only view/)
-  assert.equal(adoptRefusal(500, 'demo', false, []), '')
+  assert.equal(adoptRefusal(409, 'demo', ctx({ reasons: ['The pin changed after this check was made.'] })), 'Nothing was recorded. The pin changed after this check was made. Check again.')
+  assert.match(adoptRefusal(409, 'demo', ctx({ owned: true })), /already has an ownership record/)
+  // The check is read again and nothing is wrong with it: the copy must not send the person to check again.
+  const unseen = adoptRefusal(409, 'demo', ctx())
+  assert.equal(unseen, "Nothing was recorded. reet couldn't record ownership this time. Try again; if it keeps happening, release a record you no longer need.")
+  assert.ok(!/check again/i.test(unseen))
+  const limit = adoptRefusal(409, 'demo', ctx({ records: 1024 }))
+  assert.match(limit, /1,024/); assert.ok(!/check again/i.test(limit))
+  assert.match(adoptRefusal(409, 'demo', ctx({ records: 1023 })), /couldn't record ownership this time/)
+  assert.match(adoptRefusal(409, 'demo', ctx({ adoptable: false })), /Check again\.$/)
+  assert.match(adoptRefusal(403, 'demo', ctx()), /only view/)
+  assert.equal(adoptRefusal(500, 'demo', ctx()), '')
 })
 
 test('breakdown labels, candidate counts and notes carry no ids and no cause for a difference', () => {
@@ -1046,6 +1054,7 @@ test('release notes say what changed, and a record is recognised as the one an a
   assert.equal(madeByAdoption(r, 'p1', 'r2'), false)
   assert.equal(madeByAdoption({ ...r, damaged: true }, 'p1', 'r1'), false)
   assert.equal(madeByAdoption({ revisionId: 'r1' }, 'p1', 'r1'), false)
-  assert.equal(receiptRevision('abcdef0123456789', undefined, undefined), 'a revision no longer listed')
-  assert.equal(receiptRevision('abcdef0123456789', [{ id: 'zzz', createdAt: 1 }], undefined), 'a revision no longer listed')
+  assert.equal(receiptRevision('abcdef0123456789', undefined, undefined), 'an older revision')
+  assert.equal(receiptRevision('abcdef0123456789', [{ id: 'zzz', createdAt: 1 }], undefined), 'an older revision')
+  assert.match(receiptRevision('zzz', [{ id: 'zzz', createdAt: 1 }], undefined), /^revision \S/)
 })

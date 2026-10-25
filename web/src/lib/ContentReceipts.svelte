@@ -14,6 +14,7 @@
  } = $props()
  const uid = $props.id()
  let heading = $state<HTMLElement>()
+ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
  const when = (ms: number) => new Date(ms).toLocaleString()
  /** Focus has nowhere to stay once the button that was pressed is gone: the shell puts it here. */
  export function focus(): boolean { heading?.focus(); return !!heading }
@@ -34,7 +35,7 @@
        {#if r.damaged}
         <span>This record can't be read. It can still be released.</span>
        {:else}
-        <span>Revision {revisionOf(r)} · {r.fileCount} {r.fileCount === 1 ? 'file' : 'files'} · Recorded {when(r.createdAt)}</span>
+        <span>{cap(revisionOf(r))} · {r.fileCount} {r.fileCount === 1 ? 'file' : 'files'} · Recorded {when(r.createdAt)}</span>
         <small>{OWNERSHIP_SENTENCE}</small>
        {/if}
       </div>

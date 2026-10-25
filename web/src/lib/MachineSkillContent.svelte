@@ -1,5 +1,5 @@
 <script lang="ts">
- import { onMount, tick } from 'svelte'
+ import { onMount, tick, untrack } from 'svelte'
  import { ApiError, UnauthorizedError, adoptContent, getContentPins, getContentPreview, getContentPreviews, getContentReceipts, releaseContentReceipt, getPrivateBundles, getPrivateRevisions, removeContentPin, saveContentPin, type ContentPin, type ContentPreview, type ContentPreviewCapability, type ContentReceipt, type PrivateBundle, type PrivateRevision, type SyncState } from './api'
  import { CheckWatcher } from './checkWatcher.svelte'
  import { FALLBACK, OWNERSHIP_SENTENCE, adoptRefusal, asSeenFromPin, candidatesFor, checkStateLabel, classifyCheck, connectorFor, describeError, madeByAdoption, missingNote, modeLabel, pinChangeNote, receiptRevision, releaseNote, revisionLabel, revisionLabels, scopeEligibility, type PinChoice } from './contentReview'
@@ -213,6 +213,26 @@
   const bytes = c.getRandomValues(new Uint8Array(16))
   return `adopt-${[...bytes].map(b => b.toString(16).padStart(2, '0')).join('')}`
  }
+ const BUSY_NOW = 'Another action is still under way. Try again in a moment.'
+ // The records are read again when something may have changed them and the last read failed or was skipped. A failed read is
+ // tried again now and then until it works, so a record that was made but not listed does not stay hidden.
+ let receiptsTimer: ReturnType<typeof setTimeout> | undefined, refreshedFor = ''
+ function wantReceipts() {
+  clearTimeout(receiptsTimer)
+  receiptsTimer = setTimeout(async () => {
+   receiptsTimer = undefined
+   if (alive && !(await refreshReceipts())) wantReceipts()
+  }, 10000)
+ }
+ async function syncReceipts() { if (!(await refreshReceipts()) && alive) wantReceipts() }
+ // The server consumes a check when it records ownership. When the check being watched turns out to have been overtaken by
+ // a changed record, the records are read again (once for that check).
+ $effect(() => {
+  const c = watcher.check
+  untrack(() => {
+   if (c && c.state === 'superseded' && c.reasons?.includes('receipt_changed') && refreshedFor !== c.id) { refreshedFor = c.id; void syncReceipts() }
+  })
+ })
  async function refreshReceipts(): Promise<boolean> {
   try {
    const read = await getContentReceipts(life.signal)
@@ -227,7 +247,8 @@
  // still current and adoptable; the review hash goes exactly as the server gave it.
  async function recordOwnership(revisionId: string, seen: { previewId: string; reviewHash: string }): Promise<void> {
   const pin = selectedPin
-  if (busy || !pin || !eligibility.ok) return
+  if (!pin || !eligibility.ok) return
+  if (busy) { error = BUSY_NOW; return }
   busy = true; error = ''; notice = ''
   let slot = ''
   let recorded: ContentReceipt | undefined
@@ -240,6 +261,8 @@
    const hash = again.reviewHash
    if (!classifyCheck(current, at, Date.now()).canAdopt || typeof hash !== 'string' || hash !== seen.reviewHash || !candidatesFor(again.adoption).some(c => c.revisionId === revisionId)) {
     error = FALLBACK
+    // The check moved on under the person, and a record may be why: show the records as they are.
+    await syncReceipts()
     return
    }
    slot = `${again.id}:${hash}:${revisionId}`
@@ -275,15 +298,19 @@
    if (e.status === 409 || e.status === 404) {
     await load()
     let reasons: string[] = []
+    let settled: ContentPreview | undefined
     try {
      const latest = await getContentPreview(again.id, life.signal)
-     watcher.accept(latest)
-     reasons = classifyCheck(asSeenFromPin(latest, selectedPin) ?? latest, Date.now(), Date.now()).reasons
+     const at = Date.now()
+     watcher.accept(latest, at)
+     settled = asSeenFromPin(latest, selectedPin) ?? latest
+     reasons = classifyCheck(settled, at, Date.now()).reasons
     } catch { /* the plain sentence will do */ }
     if (!alive) return undefined
-    error = adoptRefusal(e.status, again.name, scopeReceipts.some(r => r.name === again.name), reasons)
+    const adoptableNow = !!settled && classifyCheck(settled, Date.now(), Date.now()).canAdopt
+    error = adoptRefusal(e.status, again.name, { owned: scopeReceipts.some(r => r.name === again.name), reasons, adoptable: adoptableNow, records: receipts.length })
    } else {
-    error = adoptRefusal(e.status, again.name, false, []) || describeError(e)
+    error = adoptRefusal(e.status, again.name, { owned: false, reasons: [], adoptable: false, records: receipts.length }) || describeError(e)
    }
    return undefined
   }
@@ -294,12 +321,16 @@
    const read = await getContentReceipts(life.signal)
    if (!alive) return undefined
    const landed = read.receipts.find(r => madeByAdoption(r, again.id, revisionId))
-   if (landed) { adoptKeys.delete(slot); receipts = read.receipts; receiptsDown = false; error = ''; return landed }
-  } catch { /* keep the key and the message */ }
+   receipts = read.receipts; receiptsDown = false
+   if (landed) { adoptKeys.delete(slot); error = ''; return landed }
+  } catch {
+   // Keep the key and the message, and keep trying to read the records: the one that may exist must not stay unlisted.
+   wantReceipts()
+  }
   return undefined
  }
  async function release(r: ContentReceipt): Promise<void> {
-  if (busy) return
+  if (busy) { error = BUSY_NOW; return }
   busy = true; notice = ''; error = ''
   try {
    await releaseContentReceipt(r.id, r.version)
@@ -311,7 +342,7 @@
    if (e instanceof ApiError && (e.status === 409 || e.status === 404)) {
     const fresh = await load()
     if (!alive) return
-    error = (fresh ? releaseNote(r, scopeReceipts.find(x => x.id === r.id), r.name) : '') || (e.status === 404 ? `The ownership record for ${r.name} isn't there any more, so nothing was released.` : FALLBACK)
+    error = (fresh ? releaseNote(r, scopeReceipts.find(x => x.id === r.id), r.name) : '') || (e.status === 404 ? `The ownership record for ${r.name} isn't there any more, so nothing was released.` : 'Nothing was released. Try again.')
    } else {
     // When no reply came the release may still have landed: read again quietly and keep the plain message.
     if (!(e instanceof ApiError || e instanceof UnauthorizedError)) await load()
@@ -338,7 +369,7 @@
   asked?.done()
  }
  function close() {
-  watcher.dispose()
+  watcher.dispose(); clearTimeout(receiptsTimer)
   dialog?.close()
   if (opener?.isConnected) opener.focus()
   onclose()
@@ -348,7 +379,7 @@
   // Coming back to the tab reads a check that can still change at once, and the connector's readiness again.
   const visible = () => watcher.visibilityChanged()
   document.addEventListener('visibilitychange', visible)
-  return () => { alive = false; generation++; loadAbort?.abort(); life.abort(); watcher.dispose(); document.removeEventListener('visibilitychange', visible) }
+  return () => { alive = false; generation++; loadAbort?.abort(); life.abort(); watcher.dispose(); clearTimeout(receiptsTimer); document.removeEventListener('visibilitychange', visible) }
  })
 </script>
 

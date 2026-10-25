@@ -35,6 +35,15 @@ worktree on a connection that did not negotiate `worktree-v1` is answered
 `launch_failed` and no agent starts; a status or remove is answered `denied`.
 There is no protocol version bump.
 
+Mixed versions are compatible. `worktree` and `project` are omitted from every
+create that does not ask for a worktree, and a controller sends them, and the
+status and remove requests, only to a connection that negotiated `worktree-v1`.
+The new reply fields (`worktreePath`, `worktreeRepo`, and `path` and `branch` on
+a remove's answer) are only ever sent in answer to those new requests, so an older
+controller never receives them. Both sides still decode strictly: a connector
+refuses a message with a field it does not know, which is why nothing new is sent
+to a connector that did not ask for it.
+
 ## Wire fields
 
 `terminalproto.Create` gains two flat optional strings, so it stays a comparable
@@ -321,6 +330,15 @@ the same run token adopts the worktree and starts a second agent in it. The
 Projects run must therefore derive one request id per member and reuse it for every
 retry whose outcome is unknown, and use a new request id only after a definite
 refusal (when no agent was started).
+
+The run token is derived per member (from the run and the member's position), never
+one token for a whole run: two members on one machine whose folders are the same
+repository then still get separate worktrees and branches. The Projects run takes
+the repository name for status and remove from the create reply's `worktreeRepo`,
+never recomputing it from the saved folder. Members with the same machine and the
+same folder are refused as a duplicate repository when the Project is saved and
+started; two different saved folders that resolve to one repository on the machine
+are not caught by the controller.
 
 ## Audit
 

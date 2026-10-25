@@ -2369,6 +2369,13 @@ work when this was written.
   is lost entirely has no recorded folder.
 - A create with a new request id and the same run token adopts the worktree and starts a second
   agent; the Projects run must reuse each member's derived request id for unknown outcomes.
+- For PR 2 (recorded in the plan's Task 7): the worktree run token is derived per member,
+  `derive(run, position)`, never one per run; members with the same machine and folder are refused
+  as a duplicate repository at save and start (folders that only resolve to the same repository on
+  the machine are not caught, but get separate worktrees); status and remove use the create reply's
+  `worktreeRepo`.
+- Mixed controller and connector versions are compatible: worktree fields and requests are only
+  sent after `worktree-v1` is negotiated, and the new reply fields only answer those requests.
 
 **What remains.** PR 2: the controller (store, Project API and audit, run orchestration with
 derived request ids). PR 3: the web (Projects page, Project page, dialogs, browser fixture). PR 4:

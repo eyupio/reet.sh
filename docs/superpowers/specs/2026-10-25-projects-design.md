@@ -124,12 +124,18 @@ is the user's own local setup, not cloned content, and the fixed command lines r
 it. The agent that is started afterwards can run anything, as it always could.
 
 **Status and remove** are two further negotiated requests under the same feature
-(`WorktreeStatus{Run, Repo}` and `WorktreeRemove{Run, Repo}`; strict, comparable, replies are small
+(`WorktreeStatus{Run, Project, Repo}` and `WorktreeRemove{Run, Project, Repo, Changed, Unpushed}`
+as amended: both carry the Project slug the folder depends on; strict, comparable, replies are small
 typed results):
 
-- *Status* runs `git -C <worktree> status --porcelain=v1 -z` and a count of commits not on any remote
-  branch (`git rev-list --count HEAD --not --remotes`), and returns the counts and the first 20
-  paths (each at most 255 bytes, control characters replaced), never file contents.
+- *Status* runs `git -C <worktree> status --porcelain=v1 -z` and counts commits, and returns the
+  counts and the first 20 paths (each at most 255 bytes, control characters replaced), never file
+  contents. *Amended:* **unpushed** is the commits reachable from the worktree's `HEAD` that are on
+  no remote-tracking branch and on no local branch other than the run's branch and the branch
+  checked out there (they stay on the run's branch after a remove); **unreferenced** is the commits
+  reachable from `HEAD` or from the worktree's own `refs/worktree/*` and `refs/bisect/*` that no
+  branch, tag or remote-tracking branch holds, with what `refs/stash` holds protected (they would
+  become unreachable, so they block removal).
 - *Remove* first repeats the status and refuses unless the request carries the counts it was shown
   (so changes made after the person looked cannot be thrown away), then runs
   `git worktree remove <path>` **without `--force`**. The branch is never deleted. Both refuse any
@@ -145,8 +151,16 @@ commits or a nested repository, or when the check was incomplete. Only unpushed 
 shown and then removed with, because they stay on the branch. Ignored files (`.env`,
 `node_modules`) are deleted with the folder. Listings are capped at 4 MiB, not 4 KiB.
 
-Codes: `launch_failed` gains reasons that map to the new sentences below; `worktree_changed` (409) for
-a remove whose counts no longer match.
+Codes (*amended*): a refused worktree create is `worktree_refused` with a reason, and the API maps
+each reason to its own code and sentence (`not_repo_root`, `repo_busy`, `worktree_exists`,
+`git_failed`, `outside_home`; for status and remove also `not_registered`, `has_changes`,
+`unreferenced_commits`, `nested_repository`, `hidden_changes`, `check_incomplete`, 404 `not_found`);
+`launch_failed` keeps its folder and tool meaning. `worktree_changed` (409) for a remove whose counts
+no longer match. A machine runs one worktree status or remove at a time: a second is answered at
+once with `conflict`, which the API reports as 409 `worktree_busy`, and probes are still answered
+while git runs. The reply to a worktree create carries `worktreePath` and `worktreeRepo` (the
+folder and the repository name the machine used), which the controller stores on the session; a
+successful remove's answer names the folder it deleted and the branch it kept.
 
 ## Words
 

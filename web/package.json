@@ -8,7 +8,7 @@
     "preview": "vite preview",
     "build": "vite build && touch dist/.gitkeep",
     "check": "npm run test && svelte-check --tsconfig ./tsconfig.json",
-"test": "node src/lib/machines.test.mjs && node src/lib/fleet.test.mjs && node src/lib/machineSetup.test.mjs && node src/lib/syncSelection.test.mjs && node src/lib/rebalance.test.mjs && node tests/skillImport.test.mjs && node tests/terminal.test.mjs && node src/lib/events.test.mjs"
+"test": "node src/lib/machines.test.mjs && node src/lib/fleet.test.mjs && node src/lib/machineSetup.test.mjs && node src/lib/syncSelection.test.mjs && node src/lib/rebalance.test.mjs && node tests/skillImport.test.mjs && node tests/terminal.test.mjs && node src/lib/events.test.mjs && node src/lib/contentReview.test.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",

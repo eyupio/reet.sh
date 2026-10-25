@@ -273,6 +273,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 		log.Printf("machine health: "+format, args...)
 	}})
 	s.terminals = terminalbroker.New(st)
+	s.terminals.OnLateWorktreeRemoval(s.auditLateWorktreeRemoval)
 	s.configurePrivate()
 	return s
 }

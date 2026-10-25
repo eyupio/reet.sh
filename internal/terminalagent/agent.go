@@ -63,6 +63,10 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 			}()
 		}
 		attachments := map[string]*terminalhost.Attachment{}
+		// worktreeSlot allows one worktree status or remove at a time on this
+		// machine. It runs on its own goroutine so the dispatcher, and the
+		// controller's other requests, never wait for git.
+		worktreeSlot := make(chan struct{}, 1)
 		// Dispatch is called by one control reader; only stream workers use their
 		// own immutable attachment. Cleanup happens after that reader has stopped.
 		handler := func(callCtx context.Context, msg terminalproto.Message) error {
@@ -73,7 +77,7 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 			reply.Body = terminalproto.Result{Code: terminalproto.Unavailable}
 			respond := func(err error) error {
 				if err != nil {
-					reply.Body = terminalproto.Result{Code: code(err)}
+					reply.Body = result(err)
 				}
 				return send(callCtx, reply)
 			}
@@ -81,6 +85,47 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 			// launch-v1; a plain shell is never substituted for them.
 			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Tool != "" && !terminalproto.SupportsLaunch(headers.Get(terminalproto.FeatureHeader)) {
 				return respond(terminalhost.ErrLaunchUnavailable)
+			}
+			// Likewise a worktree is made only on a generation that negotiated
+			// worktree-v1; without it the agent is never started in the folder.
+			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Worktree != "" && !terminalproto.SupportsWorktree(headers.Get(terminalproto.FeatureHeader)) {
+				return respond(terminalhost.ErrLaunchUnavailable)
+			}
+			// Worktree status and remove are served only on a generation that
+			// negotiated worktree-v1, and are always answered with a
+			// worktree_state or worktree_result.
+			switch msg.Body.(type) {
+			case *terminalproto.WorktreeStatus, *terminalproto.WorktreeRemove:
+				reply.Body = terminalproto.WorktreeResult{Code: terminalproto.Denied}
+				if !terminalproto.SupportsWorktree(headers.Get(terminalproto.FeatureHeader)) {
+					return send(callCtx, reply)
+				}
+				if managerErr != nil {
+					reply.Body = terminalproto.WorktreeResult{Code: terminalproto.Unavailable}
+					return send(callCtx, reply)
+				}
+				select {
+				case worktreeSlot <- struct{}{}:
+				default:
+					reply.Body = terminalproto.WorktreeResult{Code: terminalproto.Conflict}
+					return send(callCtx, reply)
+				}
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					body := answerWorktree(callCtx, m, msg.Body)
+					// Free the slot before answering, so a request the
+					// controller sends once it has this answer is not busy.
+					<-worktreeSlot
+					// A request whose connection has ended answers nothing: the
+					// controller has already given up on it and reads status again.
+					if callCtx.Err() != nil {
+						return
+					}
+					reply.Body = body
+					_ = send(callCtx, reply)
+				}()
+				return nil
 			}
 			if managerErr != nil {
 				return send(callCtx, reply)
@@ -119,7 +164,8 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 				if err != nil {
 					return respond(err)
 				}
-				reply.Body = terminalproto.SessionChanged{State: s.State, ExitCode: s.ExitCode}
+				// Only a worktree create's session has a worktree to report.
+				reply.Body = terminalproto.SessionChanged{State: s.State, ExitCode: s.ExitCode, WorktreePath: s.WorktreePath, WorktreeRepo: s.WorktreeRepo}
 				return respond(nil)
 			case *terminalproto.End:
 				s, err := m.End(callCtx, msg.RequestID, msg.SessionID)
@@ -219,7 +265,58 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 		}
 	}
 }
+
+// result answers a failed request; a refused worktree keeps its reason and
+// detail for the controller.
+func result(err error) terminalproto.Result {
+	if r, ok := terminalhost.WorktreeResult(err); ok {
+		return r
+	}
+	return terminalproto.Result{Code: code(err)}
+}
+
+// answerWorktree runs a worktree status or remove: a status is answered with
+// the worktree_state, everything else with a worktree_result.
+func answerWorktree(ctx context.Context, m *terminalhost.Manager, body terminalproto.Body) terminalproto.Body {
+	switch op := body.(type) {
+	case *terminalproto.WorktreeStatus:
+		s, err := m.WorktreeStatus(ctx, *op)
+		if err != nil {
+			return worktreeResult(err)
+		}
+		return s
+	case *terminalproto.WorktreeRemove:
+		removed, err := m.WorktreeRemove(ctx, *op)
+		if err != nil {
+			return worktreeResult(err)
+		}
+		return terminalproto.WorktreeResult{Code: terminalproto.OK, Path: removed.Path, Branch: removed.Branch}
+	}
+	return terminalproto.WorktreeResult{Code: terminalproto.Failed}
+}
+
+// worktreeResult maps a worktree status or remove outcome: nil is ok, a
+// worktree that is not there not_found, counts that moved worktree_changed, a
+// refusal worktree_refused with its reason and detail, and anything else the
+// usual code.
+func worktreeResult(err error) terminalproto.WorktreeResult {
+	if err == nil {
+		return terminalproto.WorktreeResult{Code: terminalproto.OK}
+	}
+	r := result(err)
+	return terminalproto.WorktreeResult{Code: r.Code, Reason: r.Reason, Detail: r.Detail}
+}
+
 func code(err error) terminalproto.ResultCode {
+	if errors.Is(err, terminalhost.ErrWorktreeRefused) {
+		return terminalproto.WorktreeRefused
+	}
+	if errors.Is(err, terminalhost.ErrWorktreeChanged) {
+		return terminalproto.WorktreeChanged
+	}
+	if errors.Is(err, terminalhost.ErrWorktreeNotFound) {
+		return terminalproto.NotFound
+	}
 	if c := terminalhost.LaunchResultCode(err); c != "" {
 		return c
 	}

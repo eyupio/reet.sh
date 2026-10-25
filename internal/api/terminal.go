@@ -38,6 +38,8 @@ func (s *server) registerTerminalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/history", s.terminal(s.terminalHistory))
 	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/command-history", s.terminal(s.terminalCommandHistory))
 	mux.HandleFunc("GET /api/v2/terminal/socket", s.terminal(s.terminalSocket))
+	mux.HandleFunc("POST /api/v2/terminal/worktrees/status", s.terminal(s.terminalWorktreeStatus))
+	mux.HandleFunc("POST /api/v2/terminal/worktrees/remove", s.terminal(s.terminalWorktreeRemove))
 }
 
 // Deliberately accounts-only in v1. Single-token, anonymous, API and MCP
@@ -194,11 +196,16 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		Model     string `json:"model"`
 		Dir       string `json:"dir"`
 		Prompt    string `json:"prompt"`
+		// Worktree is a run token chosen by the caller (the Projects run
+		// derives it), never generated here: a retried request must carry the
+		// same token so the machine adopts the worktree it already made.
+		Worktree string `json:"worktree"`
+		Project  string `json:"project"`
 	}
 	if !terminalJSON(w, r, &in) {
 		return
 	}
-	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt}
+	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project}
 	uid := s.uid(r)
 	session, started, err := s.terminals.CreateSession(r.Context(), uid, in.AgentID, in.RequestID, create)
 	if err != nil {
@@ -206,7 +213,7 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if started && create.Tool != "" {
-		s.auditTerminalLaunch(uid, in.AgentID, create)
+		s.auditTerminalLaunch(uid, in.AgentID, create, session)
 	}
 	writeJSON(w, 200, session)
 }
@@ -217,6 +224,12 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 	switch {
 	case errors.Is(err, terminalbroker.ErrPromptUnsupported):
 		writeErrCode(w, http.StatusUnprocessableEntity, "prompt_unsupported", "prompt", "Write the opening prompt as at least two words.", "")
+	case errors.Is(err, terminalbroker.ErrWorktreeUnsupported):
+		writeErrCode(w, http.StatusConflict, "worktree_unsupported", "", "Update reet on that machine to start agents with worktrees.", "")
+	case errors.Is(err, terminalbroker.ErrWorktreeRefused):
+		writeWorktreeRefusal(w, err, worktreeCreating)
+	case errors.Is(err, terminalbroker.ErrWorktreeMismatch):
+		writeErrCode(w, http.StatusServiceUnavailable, "worktree_mismatch", "", "That machine's answer did not match the request. Check again.", "")
 	case errors.Is(err, terminalbroker.ErrLaunchUnsupported):
 		writeErrCode(w, http.StatusConflict, "launch_unsupported", "", "Update reet on that machine to start agents.", "")
 	case errors.Is(err, terminalbroker.ErrLaunchFailed) && !s.terminalToolInstalled(uid, agent, tool):
@@ -237,16 +250,30 @@ func (s *server) terminalToolInstalled(uid int64, agent, tool string) bool {
 
 // auditTerminalLaunch records who started which agent where. The opening
 // prompt is deliberately absent: it is user text kept only with the session.
-func (s *server) auditTerminalLaunch(uid int64, agent string, in terminalproto.Create) {
-	host := ""
+func (s *server) auditTerminalLaunch(uid int64, agent string, in terminalproto.Create, session store.TerminalSession) {
+	host := s.machineHost(uid, agent)
+	detail := map[string]string{"machine": agent, "host": host, "tool": in.Tool, "model": in.Model, "dir": in.Dir}
+	// For a worktree launch: the run token, project and branch, and the
+	// folder the machine reported making (absent only if that report was lost).
+	if in.Worktree != "" {
+		detail["worktreeRun"] = in.Worktree
+		detail["project"] = in.Project
+		detail["branch"] = worktreeBranch(in.Project, in.Worktree)
+		if session.WorktreePath != "" {
+			detail["worktree"] = session.WorktreePath
+		}
+	}
+	s.event(uid, "ui", "terminal-launch", "", detail)
+}
+func (s *server) machineHost(uid int64, agent string) string {
 	if agents, err := s.st.SyncAgentsFor(uid); err == nil {
 		for _, a := range agents {
 			if a.ID == agent {
-				host = a.Host
+				return a.Host
 			}
 		}
 	}
-	s.event(uid, "ui", "terminal-launch", "", map[string]string{"machine": agent, "host": host, "tool": in.Tool, "model": in.Model, "dir": in.Dir})
+	return ""
 }
 func (s *server) terminalRename(w http.ResponseWriter, r *http.Request) {
 	var in struct {

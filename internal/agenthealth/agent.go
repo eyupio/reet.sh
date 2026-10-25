@@ -39,6 +39,7 @@ const (
 type AgentConfig struct {
 	commandHistory    bool
 	launch            bool
+	worktree          bool
 	OnConnection      func(bool)
 	TerminalSession   TerminalFactory
 	control           func(context.Context, terminalproto.Message) error
@@ -56,6 +57,9 @@ type AgentConfig struct {
 	// LaunchTools lists the agent CLIs this connector can start, from its
 	// built-in presets. Nil means the connector cannot start agents.
 	LaunchTools func() []string
+	// GitAvailable reports whether git is on this connector's PATH, for run
+	// worktrees. Nil means the connector cannot make worktrees.
+	GitAvailable func() bool
 
 	Collector        Collector
 	HTTPClient       *http.Client
@@ -312,44 +316,103 @@ func readConsent(read func() (bool, terminalproto.Readiness, error)) (bool, term
 	return enabled, readiness
 }
 
+// terminalQueueSize bounds the terminal messages waiting for the terminal
+// dispatcher. The controller holds at most 32 calls per machine at once, but
+// it gives up on a call after its timeout while the message may still wait
+// here (behind a slow worktree create, for example), so its retries can fill
+// the queue. A request that finds the queue full is answered unavailable by
+// the reader; the connection is kept.
+const terminalQueueSize = 64
+
+// unavailable is the answer to a request the dispatcher cannot take: a
+// worktree request gets a worktree_result, every other request a result,
+// with the request's own envelope.
+func unavailable(m terminalproto.Message) terminalproto.Message {
+	switch m.Body.(type) {
+	case *terminalproto.WorktreeStatus, *terminalproto.WorktreeRemove:
+		m.Body = terminalproto.WorktreeResult{Code: terminalproto.Unavailable}
+	default:
+		m.Body = terminalproto.Result{Code: terminalproto.Unavailable}
+	}
+	return m
+}
+
 func readControl(ctx context.Context, conn *websocket.Conn, generation int64, send Sender, errorsSeen chan<- error) {
 	readControlWithTerminal(ctx, conn, generation, send, errorsSeen, nil)
 }
+// readControlWithTerminal answers probes on the reader itself and hands every
+// other message to one dispatcher goroutine, in arrival order, over a bounded
+// queue. A slow terminal request (a worktree's git, for example) therefore
+// never delays a probe answer, and the terminal handler still sees one
+// message at a time, as its attachment bookkeeping requires.
 func readControlWithTerminal(ctx context.Context, conn *websocket.Conn, generation int64, send Sender, errorsSeen chan<- error, terminal func(context.Context, terminalproto.Message) error) {
+	report := func(err error) {
+		select {
+		case errorsSeen <- err:
+		default: // an error is already waiting; the session ends on the first
+		}
+	}
+	var queue chan terminalproto.Message
+	if terminal != nil {
+		queue = make(chan terminalproto.Message, terminalQueueSize)
+		var dispatcher sync.WaitGroup
+		dispatcher.Add(1)
+		go func() {
+			defer dispatcher.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case message := <-queue:
+					if err := terminal(ctx, message); err != nil {
+						report(err)
+						return
+					}
+				}
+			}
+		}()
+		// The reader reports its own error before this wait, so the session
+		// cancels ctx and the dispatcher's current request ends.
+		defer dispatcher.Wait()
+	}
 	for {
 		readCtx, cancel := context.WithTimeout(ctx, controlReadTimeout)
 		kind, data, err := conn.Read(readCtx)
 		cancel()
 		if err != nil {
-			errorsSeen <- errors.New("private control connection lost")
+			report(errors.New("private control connection lost"))
 			return
 		}
 		if kind != websocket.MessageText {
-			errorsSeen <- terminalproto.ErrInvalid
+			report(terminalproto.ErrInvalid)
 			return
 		}
 		message, err := terminalproto.Decode(data)
 		if err != nil || message.Generation != generation {
-			errorsSeen <- terminalproto.ErrInvalid
+			report(terminalproto.ErrInvalid)
 			return
 		}
 		probe, ok := message.Body.(*terminalproto.Probe)
 		if !ok {
-			if terminal != nil {
-				if err := terminal(ctx, message); err != nil {
-					errorsSeen <- err
+			if queue == nil {
+				report(terminalproto.ErrInvalid)
+				return
+			}
+			select {
+			case queue <- message:
+			default:
+				if err := send(ctx, unavailable(message)); err != nil {
+					report(err)
 					return
 				}
-				continue
 			}
-			errorsSeen <- terminalproto.ErrInvalid
-			return
+			continue
 		}
 		result := terminalproto.ProbeResult(*probe)
 		if err := send(ctx, terminalproto.Message{
 			Version: terminalproto.Version, RequestID: message.RequestID, Generation: generation, Body: result,
 		}); err != nil {
-			errorsSeen <- err
+			report(err)
 			return
 		}
 	}
@@ -477,6 +540,7 @@ func authHeaders(cfg AgentConfig) http.Header {
 func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.commandHistory = terminalproto.SupportsCommandHistory(advertised)
 	cfg.launch = terminalproto.SupportsLaunch(advertised)
+	cfg.worktree = terminalproto.SupportsWorktree(advertised)
 }
 
 // setTerminalFeatures tells the terminal dispatcher which negotiated
@@ -488,6 +552,9 @@ func setTerminalFeatures(headers http.Header, cfg AgentConfig) {
 	}
 	if cfg.launch {
 		features = append(features, terminalproto.LaunchFeature)
+	}
+	if cfg.worktree {
+		features = append(features, terminalproto.WorktreeFeature)
 	}
 	if len(features) > 0 {
 		headers.Set(terminalproto.FeatureHeader, strings.Join(features, ","))
@@ -544,8 +611,11 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		tools = launchTools(cfg)
 	}
 	return terminalproto.Capabilities{
-		Launch:          launch,
-		Tools:           tools,
+		Launch: launch,
+		Tools:  tools,
+		// Worktrees need launch (a run starts an agent in one), the negotiated
+		// worktree-v1 and git on PATH.
+		Worktree:        launch && cfg.worktree && cfg.GitAvailable != nil && cfg.GitAvailable(),
 		TerminalControl: cfg.TerminalSession != nil,
 		CommandHistory:  cfg.commandHistory && cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin"),
 		ProtocolVersion: terminalproto.Version,

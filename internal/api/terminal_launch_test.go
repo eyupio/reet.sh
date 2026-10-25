@@ -30,6 +30,12 @@ type launchAPI struct {
 	mu      sync.Mutex
 	creates []terminalproto.Create
 	reply   func(terminalproto.Create) terminalproto.Body
+	// worktree answers worktree_status and worktree_remove; worktrees records them.
+	worktree  func(terminalproto.Body) terminalproto.Body
+	worktrees []terminalproto.Body
+	// late, when set, receives a worktree request that got no answer.
+	late func(terminalproto.Message)
+	peer *terminalbroker.Peer
 }
 
 func (f *launchAPI) sent() []terminalproto.Create {
@@ -64,6 +70,24 @@ func launchAPIFixture(t *testing.T, caps terminalproto.Capabilities) *launchAPI 
 			if respond != nil {
 				reply.Body = respond(op)
 			}
+		case terminalproto.WorktreeStatus, terminalproto.WorktreeRemove:
+			f.mu.Lock()
+			f.worktrees = append(f.worktrees, op)
+			respond := f.worktree
+			f.mu.Unlock()
+			reply.Body = terminalproto.WorktreeResult{Code: terminalproto.Unavailable}
+			if respond != nil {
+				reply.Body = respond(op)
+			}
+			if reply.Body == nil {
+				f.mu.Lock()
+				late := f.late
+				f.mu.Unlock()
+				if late != nil {
+					late(reply)
+				}
+				return nil // no answer now: the reply is lost or comes late
+			}
 		default:
 			reply.Body = terminalproto.Result{Code: terminalproto.OK}
 		}
@@ -83,10 +107,16 @@ func launchAPIFixture(t *testing.T, caps terminalproto.Capabilities) *launchAPI 
 	if err = p.Synchronize(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+	f.peer = p
 	return f
 }
 
 func (f *launchAPI) do(t *testing.T, cookie, method, path string, body any) (int, map[string]any, string) {
+	t.Helper()
+	return f.doCtx(t, context.Background(), cookie, method, path, body)
+}
+
+func (f *launchAPI) doCtx(t *testing.T, ctx context.Context, cookie, method, path string, body any) (int, map[string]any, string) {
 	t.Helper()
 	var reader *strings.Reader
 	switch b := body.(type) {
@@ -96,7 +126,7 @@ func (f *launchAPI) do(t *testing.T, cookie, method, path string, body any) (int
 		data, _ := json.Marshal(b)
 		reader = strings.NewReader(string(data))
 	}
-	r := httptest.NewRequest(method, path, reader)
+	r := httptest.NewRequestWithContext(ctx, method, path, reader)
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Origin", "https://reet.example")
 	if cookie != "" {

@@ -5,6 +5,7 @@ package scan
 import (
 	"errors"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/eyupio/reet.sh/internal/agenthealth"
 	"github.com/eyupio/reet.sh/internal/terminalagent"
@@ -31,3 +32,10 @@ func terminalControl(config string, c agentConfig) agenthealth.TerminalFactory {
 // launchTools reports the agent CLIs found on this connector's PATH from its
 // built-in launch presets.
 func launchTools() []string { return terminalhost.InstalledTools(exec.LookPath) }
+
+// gitAvailable reports whether git is on this connector's PATH (as an
+// absolute path, the way the worktree runner finds it), for run worktrees.
+func gitAvailable() bool {
+	path, err := exec.LookPath("git")
+	return err == nil && filepath.IsAbs(path)
+}

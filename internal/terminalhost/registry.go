@@ -39,6 +39,11 @@ type ManagedSession struct {
 	ExitCode        *int                       `json:"exitCode"`
 	PaneID          string                     `json:"paneId,omitempty"`
 	CreateRequestID string                     `json:"createRequestId"`
+	// WorktreePath and WorktreeRepo record where a worktree create made the
+	// worktree (the folder, and the repository slug status and remove take),
+	// so a replay of the create reports them again.
+	WorktreePath string `json:"worktreePath,omitempty"`
+	WorktreeRepo string `json:"worktreeRepo,omitempty"`
 }
 
 type operationReceipt struct {
@@ -120,6 +125,9 @@ func (m *Manager) validateRegistry(r hostRegistry) error {
 			return ErrRegistry
 		}
 		if op, ok := r.Operations[receiptKey("create", s.CreateRequestID)]; !ok || op.SessionID != id {
+			return ErrRegistry
+		}
+		if (s.WorktreePath == "") != (s.WorktreeRepo == "") || s.WorktreePath != "" && (!filepath.IsAbs(s.WorktreePath) || hasControl(s.WorktreePath) || !terminalproto.ValidSlug(s.WorktreeRepo)) {
 			return ErrRegistry
 		}
 	}

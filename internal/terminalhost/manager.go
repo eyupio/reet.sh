@@ -24,6 +24,8 @@ type ManagerOptions struct {
 	// Consent must re-read locally bound enrollment/opt-in. A controller cannot
 	// supply it. Later network callers must additionally authenticate the owner.
 	Consent func() error
+	// Git runs git for worktrees; nil means ExecGit. Only tests set it.
+	Git GitRunner
 }
 
 type Manager struct {
@@ -33,7 +35,9 @@ type Manager struct {
 	tmux       Tmux
 	consent    func() error
 	// lookPath finds agent binaries for launch presets; tests replace it.
-	lookPath    func(string) (string, error)
+	lookPath func(string) (string, error)
+	// git runs git for worktrees (ExecGit); tests replace it.
+	git         GitRunner
 	mu          sync.Mutex
 	closed      bool
 	attachments map[string]*Attachment
@@ -58,7 +62,11 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, lookPath: exec.LookPath, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, changed: make(chan struct{})}
+	git := opts.Git
+	if git == nil {
+		git = ExecGit
+	}
+	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, lookPath: exec.LookPath, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, changed: make(chan struct{})}
 	// Validate a present registry even when tmux is offline. Never silently
 	// repair an unreadable file or adopt sessions from another enrollment.
 	lock, err := m.registryLock(ctx)
@@ -167,8 +175,35 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	if err := m.defaults(ctx); err != nil {
 		return ManagedSession{}, err
 	}
+	// A worktree is made (or, on a retry with a new request id, adopted) last
+	// before the intent is saved, and the agent starts in it. Until tmux has
+	// shown that no session was started, a worktree this call created is
+	// removed again on any failure; an adopted one is never touched.
+	// A new request id with the SAME run token (and Project and repository)
+	// adopts the existing worktree and starts another agent in it. Preventing
+	// that is the orchestrator's job: it derives request ids from run,
+	// position and attempt, and uses a new attempt only after a definite
+	// refusal, when no agent was started.
+	var worktree Worktree
+	started := false
+	if in.Worktree != "" {
+		if worktree, err = PrepareWorktree(ctx, m.home, dir, in.Project, in.Worktree, m.git); err != nil {
+			return ManagedSession{}, err
+		}
+		dir = worktree.Path
+		defer func() {
+			if !started {
+				undoCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+				defer cancel()
+				_ = worktree.Undo(undoCtx, m.git)
+			}
+		}()
+	}
 	at := time.Now().UnixMilli()
 	s := ManagedSession{ID: sessionID, Title: in.Title, State: terminalproto.Creating, CreatedAt: at, UpdatedAt: at, CreateRequestID: requestID}
+	if in.Worktree != "" {
+		s.WorktreePath, s.WorktreeRepo = worktree.Path, filepath.Base(filepath.Dir(worktree.Path))
+	}
 	r.Sessions[sessionID] = s
 	r.Operations[key] = operationReceipt{RequestID: requestID, SessionID: sessionID, Kind: "create", Create: &in}
 	if err := m.saveRegistry(r); err != nil {
@@ -182,8 +217,13 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 		args[i] = tmuxArgument(args[i])
 	}
 	if _, err := m.command(ctx, 0, args...); err != nil {
+		// Keep the worktree unless tmux proves the agent was not started.
+		if names, nerr := m.sessionNames(context.WithoutCancel(ctx)); nerr != nil || names[m.name(sessionID)] {
+			started = true
+		}
 		return s, err
 	}
+	started = true
 	if err := m.reconcileLocked(ctx, &r); err != nil {
 		return s, err
 	}
@@ -486,4 +526,28 @@ func (m *Manager) Close() error {
 		_ = a.Close()
 	}
 	return nil
+}
+
+// WorktreeStatus reports a run's worktree (see the package function) after
+// the same local consent check as every other operation.
+func (m *Manager) WorktreeStatus(ctx context.Context, in terminalproto.WorktreeStatus) (terminalproto.WorktreeState, error) {
+	m.mu.Lock()
+	err := m.allowed()
+	m.mu.Unlock()
+	if err != nil {
+		return terminalproto.WorktreeState{}, err
+	}
+	return WorktreeStatus(ctx, m.home, in.Project, in.Repo, in.Run, m.git)
+}
+
+// WorktreeRemove removes a run's worktree (see the package function). It holds
+// the manager lock like Create, so a create adopting the same worktree never
+// runs at the same time as its removal.
+func (m *Manager) WorktreeRemove(ctx context.Context, in terminalproto.WorktreeRemove) (WorktreeRemoved, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.allowed(); err != nil {
+		return WorktreeRemoved{}, err
+	}
+	return RemoveWorktree(ctx, m.home, in.Project, in.Repo, in.Run, WorktreeCounts{Changed: in.Changed, Unpushed: in.Unpushed}, m.git)
 }

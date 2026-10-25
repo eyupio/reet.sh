@@ -326,6 +326,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			if err := agenthealth.RunAgent(ctx, agenthealth.AgentConfig{
 				TerminalSession: terminalControl(*config, c),
 				LaunchTools:     launchTools,
+				GitAvailable:    gitAvailable,
 				OnConnection:    state.connected.Store,
 				ServerURL:       c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,
 				Version: version, InstanceID: instance,

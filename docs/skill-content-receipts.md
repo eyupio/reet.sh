@@ -158,6 +158,48 @@ that re-reads it) gains an informational `adoption` block when the preview is
 Each offer decodes up to 256 stored manifests inside one read transaction. That is fine at
 the limits; a cheaper prefilter is a follow-up.
 
+### File breakdown
+
+`GET /api/v2/skill-content-previews/{id}/adoption/{revision}` explains one candidate file
+by file, so a review can show what adoption would claim and what it would leave. The offer
+carries counts only, and the library's revision read returns file bytes, which a browser
+must not fetch to draw a table.
+
+```json
+{"revisionId":"32 hex","files":[
+  {"path":"SKILL.md","bytes":120,"digest":"64 hex","executable":false,"status":"claimed"},
+  {"path":"notes/mine.txt","bytes":12,"digest":"64 hex","executable":false,"status":"stays_yours"},
+  {"path":"scripts/run.sh","bytes":80,"digest":"64 hex","executable":true,"status":"library_only"}],
+ "matched":1,"observedOnly":1,"revisionOnly":1}
+```
+
+| Status | Meaning |
+| --- | --- |
+| `claimed` | A file adoption would record: the same path, size, digest and executable bit on the machine and in the revision |
+| `stays_yours` | The machine's copy of a file adoption would not claim: one the revision lacks, or one whose bytes or mode differ. It stays unmanaged |
+| `library_only` | The revision's copy of a file the folder does not hold identically: missing, edited or in another mode. A later plan creates or updates it |
+
+- A path whose bytes or mode differ appears twice, once as `stays_yours` (the machine's
+  copy) and once as `library_only` (the library's). Rows are sorted by path, then
+  `claimed`, `stays_yours`, `library_only`, so a path has at most two rows and
+  `matched + observedOnly + revisionOnly` is the number of rows. The counts are the
+  offer's for that revision.
+- Metadata only: path, size, digest and executable bit. No file bytes, no private skill
+  text and no host path, which is why this exists instead of the revision read.
+- It is computed on read from the stored capture and the stored manifest with the same
+  claim function adoption uses, so the screen cannot promise a claim adoption would
+  refuse. It stores, consumes and audits nothing.
+- It asks for what adoption asks of the preview and the revision, and answers with the
+  same errors. 404: an unknown, foreign or malformed preview or revision ID, or an account
+  that can no longer read the library. 409: a preview that is not a current `captured`
+  check of a present folder in an exclusive root whose only conflict is
+  `adoption_required` (already receipted, superseded, stale and the rest), a revision of
+  another bundle than the pin's, or a revision whose `SKILL.md` differs (the adoption
+  message). A revision whose stored manifest is damaged is the same 500 fault as an
+  adoption of it.
+- Same boundary as the other routes here: accounts mode, an active writer (a viewer is
+  403), no query parameters, `no-store`, and not on the MCP allowlist.
+
 ## Planner codes and the upgrade case
 
 The slot's receipt is the planner baseline. Two former planner errors are now blocked,
@@ -245,6 +287,7 @@ receipts.
 | POST | `/api/v2/skill-content-receipts` | Adopt `{requestKey, previewId, reviewHash, adoptAsRevisionId}` (16 KiB). Answers 200 with the receipt, also for an identical replay |
 | GET | `/api/v2/skill-content-receipts/{id}` | One receipt with `managed` |
 | DELETE | `/api/v2/skill-content-receipts/{id}` | `{"expectedVersion":"..."}` required (4 KiB). Answers `{"removed":true}` |
+| GET | `/api/v2/skill-content-previews/{id}/adoption/{revision}` | The [file breakdown](#file-breakdown) of one captured check against one revision of the pin's bundle. Metadata only, no audit event |
 
 | Status | When |
 | --- | --- |

@@ -511,3 +511,34 @@ func TestTerminalWorktreeRemoveWithALostReplyIsConfirmedByStatus(t *testing.T) {
 		t.Fatal("confirmed remove audit", events[0].Detail)
 	}
 }
+
+// Another account naming this account's machine is refused on all three
+// worktree routes, and nothing reaches the machine.
+func TestTerminalWorktreeRoutesAreScopedToTheOwner(t *testing.T) {
+	f := launchAPIFixture(t, worktreeCaps("claude"))
+	f.answer(func(terminalproto.Body) terminalproto.Body { return freshState() })
+	other, err := f.st.CreateUser("other-owner@example.test", "Other", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie := terminalLogin(t, f.st, other.ID)
+	for path, body := range map[string]map[string]any{
+		"/api/v2/terminal/sessions":         worktreeLaunchBody(f.agent.ID, terminalbroker.ID()),
+		"/api/v2/terminal/worktrees/status": worktreeRequest(f.agent.ID, nil),
+		"/api/v2/terminal/worktrees/remove": worktreeRequest(f.agent.ID, map[string]any{"changed": 0, "unpushed": 0}),
+	} {
+		if code, _, raw := f.do(t, cookie, "POST", path, body); code == 200 || code < 400 {
+			t.Fatal("another account", path, code, raw)
+		}
+	}
+	if len(f.sent()) != 0 || len(f.worktreeSent()) != 0 {
+		t.Fatal("another account's request reached the machine", f.sent(), f.worktreeSent())
+	}
+	if len(launchEvents(t, f.st, f.uid)) != 0 || len(worktreeEvents(t, f.st, f.uid, "worktree-remove")) != 0 || len(worktreeEvents(t, f.st, other.ID, "worktree-remove")) != 0 {
+		t.Fatal("another account's request was audited")
+	}
+	// The owner still reaches it.
+	if code, _, raw := f.do(t, f.cookie, "POST", "/api/v2/terminal/worktrees/status", worktreeRequest(f.agent.ID, nil)); code != 200 {
+		t.Fatal("owner", code, raw)
+	}
+}

@@ -1306,8 +1306,8 @@
     .site-nav { flex-wrap: nowrap; width: 100%; min-width: 0; overflow-x: auto; padding-bottom: 8px; }
     .site-nav a { flex: none; justify-content: center; white-space: nowrap; border: 0; }
     .toolbar { position: static; padding: 10px 0; gap: 8px; }
-    .filters { flex-wrap: nowrap; overflow-x: auto; width: 100%; min-width: 0; }
-    .filters button { flex: none; white-space: nowrap; }
+    .filters { flex-wrap: wrap; width: 100%; min-width: 0; }
+    .filters button { white-space: nowrap; }
     .controls { display: flex; width: 100%; flex-wrap: nowrap; min-width: 0; }
     .controls input { flex: 1; width: 0; min-width: 50px; }
     .view-switch { flex: none; }

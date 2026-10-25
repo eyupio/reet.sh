@@ -477,7 +477,7 @@
   .prefix-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   .prefix-toggle { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 0.84rem; }
   .prefix-toggle input { width: auto; }
-  .prefix-input { flex: 1; min-width: 120px; max-width: 220px; }
+  .prefix-input { flex: 1 1 140px; max-width: 220px; }
   .rows { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
   .rows li { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .rows small { display: block; color: var(--muted); font-size: 0.78rem; }

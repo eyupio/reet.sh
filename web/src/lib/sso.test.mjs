@@ -82,9 +82,9 @@ test('a linked account says since when, and a last sign-in only if there was one
 test('the admin panel reads the status without ever naming a secret', () => {
   const rows = adminRows({ enabled: true, issuer: 'https://id.example', redirectUrl: 'https://reet.example/cb', label: 'Acme', passwordLogin: false, autoCreate: true, linkByEmail: false, defaultRole: 'viewer', groupsClaim: 'groups', adminGroups: ['ops'], memberGroups: [], viewerGroups: [], linked: 3, reachable: false, problem: 'dial tcp: refused' })
   const text = JSON.stringify(rows)
-  assert.ok(text.includes('https://id.example') && text.includes('ops') && text.includes('refused'))
   assert.ok(!/secret/i.test(text))
   const byLabel = Object.fromEntries(rows.map(r => [r.label, r.value]))
+  assert.equal(byLabel['Issuer'], 'https://id.example')
   assert.equal(byLabel['Provider'], 'Not reachable: dial tcp: refused')
   assert.equal(byLabel['Password sign-in'], 'Owner only')
   assert.equal(byLabel['New people'], 'Created automatically')

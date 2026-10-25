@@ -149,6 +149,11 @@ A negotiated, optional extension to the create-session call. Nothing changes for
   is unchanged for everything else.
 - **Quota and consent** are unchanged: 8 sessions per machine and 32 per account, the local consent
   re-read on every operation, owner-only access, viewers blocked, origin checks.
+- **Where the prompt is kept.** The whole `Create` is the idempotency record, so the opening prompt is
+  stored in the controller's database row for that create request and in the machine's private
+  registry file (owner-only, as the rest of that file). It is never written to audit, logs or
+  browser storage, and the dialog says it is kept with the session record as well as visible in the
+  process list.
 - **Audit.** A new audit event records a launch (account, machine, tool, model, folder; never the
   prompt) so Activity can say "Started Claude Code in ~/work/site on studio".
 

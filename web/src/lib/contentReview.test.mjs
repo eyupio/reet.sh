@@ -12,6 +12,7 @@ const {
   presenceLabel, ownershipNote, checkStateLabel, reasonText, failureText, planCodeText, preservedText,
   scopeEligibility, classifyCheck, adoptable, summarisePlan, candidatesFor, preselect, groupBreakdown, claimSummary, pollDelay, describeError, CLOSED_CODES,
   asSeenFromPin, planVerdict, CONNECTOR_PROBLEM,
+  BREAKDOWN_LABELS, candidateCounts, breakdownNote, adoptRefusal, releaseNote, receiptRevision, madeByAdoption,
   connectorFor, groupBundles, preselectBundle, newestFirst, modeLabel, MODES, pinChangeNote, shortId, samePin, bundleLabel, revisionLabels, revisionLabel, missingNote,
 } = review
 
@@ -1009,4 +1010,42 @@ test('planVerdict: up to date is only said of a folder that was found', () => {
 
 test('the connector problem sentence is plain and carries no code', () => {
   assert.match(CONNECTOR_PROBLEM, /^[A-Z][^_]*\.$/)
+})
+
+test('adoption refusals are said in our own words and never repeat the shared 409 text', () => {
+  const shared = 'This ownership record is unavailable, blocked, changed or already exists. Preview again, and release existing ownership before adopting again.'
+  for (const status of [404, 409]) {
+    for (const [owned, reasons] of [[false, []], [false, ['The pin changed after this check was made.']], [true, []]]) {
+      const text = adoptRefusal(status, 'demo', owned, reasons)
+      assert.notEqual(text, '')
+      assert.ok(!text.includes(shared) && !/\b(40\d|50\d)\b/.test(text) && !/[0-9a-f]{8}/.test(text))
+    }
+  }
+  assert.match(adoptRefusal(409, 'demo', false, ['The pin changed after this check was made.']), /^Nothing was recorded\. The pin changed after this check was made\. Check again\.$/)
+  assert.match(adoptRefusal(409, 'demo', true, []), /already has an ownership record/)
+  assert.match(adoptRefusal(409, 'demo', false, []), /Check again\.$/)
+  assert.match(adoptRefusal(403, 'demo', false, []), /only view/)
+  assert.equal(adoptRefusal(500, 'demo', false, []), '')
+})
+
+test('breakdown labels, candidate counts and notes carry no ids and no cause for a difference', () => {
+  assert.deepEqual(Object.values(BREAKDOWN_LABELS), ['Claimed', 'Stays yours', 'Only in the library', 'Differs from this revision'])
+  assert.equal(candidateCounts({ matched: 1, observedOnly: 0, revisionOnly: 2 }), '1 file matches · 0 files on this machine not claimed · 2 files in the library not matched')
+  assert.ok(!/edit|modif/i.test(Object.values(BREAKDOWN_LABELS).join(' ') + candidateCounts({ matched: 3, observedOnly: 1, revisionOnly: 1 })))
+  assert.match(breakdownNote({ status: 409 }), /Check again\.$/)
+  assert.match(breakdownNote({ status: 404 }), /Check again\.$/)
+})
+
+test('release notes say what changed, and a record is recognised as the one an adoption made', () => {
+  assert.match(releaseNote({ version: 'a' }, undefined, 'demo'), /already released elsewhere/)
+  assert.match(releaseNote({ version: 'a' }, { version: 'b' }, 'demo'), /changed elsewhere\. Nothing was released\./)
+  assert.equal(releaseNote({ version: 'a' }, { version: 'a' }, 'demo'), '')
+  const r = { revisionId: 'r1', evidence: { previewId: 'p1' } }
+  assert.equal(madeByAdoption(r, 'p1', 'r1'), true)
+  assert.equal(madeByAdoption(r, 'p2', 'r1'), false)
+  assert.equal(madeByAdoption(r, 'p1', 'r2'), false)
+  assert.equal(madeByAdoption({ ...r, damaged: true }, 'p1', 'r1'), false)
+  assert.equal(madeByAdoption({ revisionId: 'r1' }, 'p1', 'r1'), false)
+  assert.equal(receiptRevision('abcdef0123456789', undefined, undefined), 'a revision no longer listed')
+  assert.equal(receiptRevision('abcdef0123456789', [{ id: 'zzz', createdAt: 1 }], undefined), 'a revision no longer listed')
 })

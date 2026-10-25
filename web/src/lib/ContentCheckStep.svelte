@@ -1,5 +1,5 @@
 <script lang="ts">
- import { onMount, tick } from 'svelte'
+ import { onMount, tick, type Snippet } from 'svelte'
  import type { ContentPin, ContentPreview } from './api'
  import { APPLY_NOTICE, CONNECTOR_PROBLEM, classifyCheck, FALLBACK, modeLabel, ownershipNote, planCodeText, planVerdict, preservedText, presenceLabel } from './contentReview'
 
@@ -8,7 +8,7 @@
  // (read afresh each second) and shows a result only when that says the check is current: anything older, overtaken or
  // ended shows its reason and Check again, never the plan's verdict. ready says the connector can take a check now (why
  // says what is wrong when it cannot). loading is a check that is known but not yet read in full.
- let { pin, check, readAt, ready, why = '', busy, loading = false, resumeName = '', revision = '', madeFor = '', oncheck, onresume, oncancel, ondismiss }: {
+ let { pin, check, readAt, ready, why = '', busy, loading = false, resumeName = '', revision = '', madeFor = '', oncheck, onresume, oncancel, ondismiss, adopt }: {
   pin: ContentPin
   check: ContentPreview | null
   readAt: number
@@ -25,6 +25,8 @@
   onresume: () => void
   oncancel: () => void
   ondismiss: () => void
+  // The Record ownership step, drawn only while the check is current and adoptable (this step decides, once a second).
+  adopt?: Snippet
  } = $props()
  const uid = $props.id()
  let headingEl = $state<HTMLElement>()
@@ -120,6 +122,7 @@
       <p class="hint">{APPLY_NOTICE}</p>
      {:else if summary.kind === 'adoption'}
       <p class="verdict">{planCodeText('adoption_required')}</p>
+      {#if view.canAdopt && adopt}{@render adopt()}{/if}
      {:else if summary.kind === 'conflicts'}
       <ul class="issues">{#each summary.conflicts as c, i (i)}<li>{#if c.path}<code>{c.path}</code> {/if}{planCodeText(c.code)}</li>{/each}</ul>
      {:else}

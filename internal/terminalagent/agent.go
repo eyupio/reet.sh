@@ -113,8 +113,10 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					defer func() { <-worktreeSlot }()
 					body := answerWorktree(callCtx, m, msg.Body)
+					// Free the slot before answering, so a request the
+					// controller sends once it has this answer is not busy.
+					<-worktreeSlot
 					// A request whose connection has ended answers nothing: the
 					// controller has already given up on it and reads status again.
 					if callCtx.Err() != nil {

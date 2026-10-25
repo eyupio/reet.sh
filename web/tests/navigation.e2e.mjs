@@ -1,7 +1,7 @@
 // Navigation contract: the areas the landing page sells are one click away, notifications live in the account menu,
 // and each area keeps one name wherever it appears.
 import { chromium, expect } from '@playwright/test'
-import { openWorkspace, skill } from './helpers/workspace.mjs'
+import { openWorkspace, skill, terminalMachine, active } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 // REET_E2E_ONLY=<section> runs one section, so each can be watched failing before its fix.
@@ -63,7 +63,8 @@ try {
 
  // One name per area: Control, Skills, Setups, Sync.
  if (run('names')) {
-  const {context,page} = await open({width:1440,skills:[skill('code-review')]})
+  // A machine is connected, so Control shows its shortcut cards (a first-run Control shows only the setup steps).
+  const {context,page} = await open({width:1440,skills:[skill('code-review')],terminalStatus:active,terminalMachines:[terminalMachine('a','dev-laptop',true)]})
   await page.goto(`${base}/skills`)
   await expect(page.getByRole('heading',{name:'Skills.',exact:true})).toBeVisible()
   expect(await page.title()).toMatch(/^Skills ·/)

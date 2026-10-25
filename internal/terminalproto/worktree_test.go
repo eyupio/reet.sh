@@ -398,3 +398,43 @@ func TestWorktreeResultCarriesReason(t *testing.T) {
 		t.Fatal("plain worktree result changed", string(data))
 	}
 }
+
+func TestWorktreeStateReportsWhatBlocksRemoval(t *testing.T) {
+	msg := func(b Body) Message {
+		return Message{Version: Version, RequestID: "request-0123456789", Generation: 1, Body: b}
+	}
+	full := WorktreeState{Path: "/a", Branch: "b", Unreferenced: 2, Hidden: 3, Nested: true, Incomplete: true}
+	encoded, err := Encode(msg(full))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Decode(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := decoded.Body.(*WorktreeState); got.Unreferenced != 2 || got.Hidden != 3 || !got.Nested || !got.Incomplete {
+		t.Fatal(got)
+	}
+	data, _ := json.Marshal(WorktreeState{Path: "/a", Branch: "b"})
+	if string(data) != `{"path":"/a","branch":"b","changed":0,"unpushed":0}` {
+		t.Fatal("a clean state gained fields", string(data))
+	}
+	for name, s := range map[string]WorktreeState{
+		"negative unreferenced": {Path: "/a", Branch: "b", Unreferenced: -1},
+		"huge unreferenced":     {Path: "/a", Branch: "b", Unreferenced: 1<<30 + 1},
+		"negative hidden":       {Path: "/a", Branch: "b", Hidden: -1},
+		"huge hidden":           {Path: "/a", Branch: "b", Hidden: 1<<30 + 1},
+	} {
+		if _, err := Encode(msg(s)); err == nil {
+			t.Error("invalid state accepted:", name)
+		}
+	}
+	for _, r := range []WorktreeReason{WorktreeUnreferencedCommits, WorktreeNestedRepository, WorktreeHiddenChanges, WorktreeCheckIncomplete} {
+		if !r.Valid() {
+			t.Fatal(r)
+		}
+		if _, err := Encode(msg(WorktreeResult{Code: WorktreeRefused, Reason: r})); err != nil {
+			t.Fatal(r, err)
+		}
+	}
+}

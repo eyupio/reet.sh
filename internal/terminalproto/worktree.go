@@ -38,11 +38,26 @@ const (
 	// WorktreeHasChanges: the worktree has uncommitted changes (modified,
 	// staged or untracked files), so it is never removed (remove only).
 	WorktreeHasChanges WorktreeReason = "has_changes"
+	// WorktreeUnreferencedCommits: HEAD has commits that no branch, tag or
+	// remote-tracking branch holds (a detached HEAD); removing the worktree
+	// would leave them unreachable (remove only).
+	WorktreeUnreferencedCommits WorktreeReason = "unreferenced_commits"
+	// WorktreeNestedRepository: another repository or worktree (a .git entry)
+	// lies inside the worktree, perhaps ignored, and would be deleted with it.
+	WorktreeNestedRepository WorktreeReason = "nested_repository"
+	// WorktreeHiddenChanges: files are marked skip-worktree or
+	// assume-unchanged (or are outside a sparse checkout), so git does not
+	// check them for edits.
+	WorktreeHiddenChanges WorktreeReason = "hidden_changes"
+	// WorktreeCheckIncomplete: reet could not check the whole worktree (too
+	// many files, too deep, an unreadable folder, or too much for git to list).
+	WorktreeCheckIncomplete WorktreeReason = "check_incomplete"
 )
 
 func (r WorktreeReason) Valid() bool {
 	switch r {
-	case WorktreeNotRepoRoot, WorktreeRepoBusy, WorktreeExists, WorktreeGitFailed, WorktreeOutsideHome, WorktreeNotRegistered, WorktreeHasChanges:
+	case WorktreeNotRepoRoot, WorktreeRepoBusy, WorktreeExists, WorktreeGitFailed, WorktreeOutsideHome, WorktreeNotRegistered, WorktreeHasChanges,
+		WorktreeUnreferencedCommits, WorktreeNestedRepository, WorktreeHiddenChanges, WorktreeCheckIncomplete:
 		return true
 	}
 	return false
@@ -193,17 +208,29 @@ func (w WorktreeRemove) valid() bool {
 	return ValidRunToken(w.Run) && ValidSlug(w.Project) && validRepoName(w.Repo) && validWorktreeCount(w.Changed) && validWorktreeCount(w.Unpushed)
 }
 
+// WorktreeState is a worktree's status. Unreferenced, Hidden, Nested and
+// Incomplete each block a remove whatever counts the person was shown; they
+// are omitted when zero, so a clean state encodes as before.
 type WorktreeState struct {
 	Path     string   `json:"path"`
 	Branch   string   `json:"branch"`
 	Changed  int      `json:"changed"`
 	Unpushed int      `json:"unpushed"`
 	Paths    []string `json:"paths,omitempty"`
+	// Unreferenced counts commits on HEAD that no branch, tag or remote holds.
+	Unreferenced int `json:"unreferenced,omitempty"`
+	// Hidden counts files git is told not to check (skip-worktree,
+	// assume-unchanged, outside a sparse checkout).
+	Hidden int `json:"hidden,omitempty"`
+	// Nested is true when another repository or worktree lies inside.
+	Nested bool `json:"nested,omitempty"`
+	// Incomplete is true when the worktree could not be checked completely.
+	Incomplete bool `json:"incomplete,omitempty"`
 }
 
 func (WorktreeState) kind() string { return "worktree_state" }
 func (w WorktreeState) valid() bool {
-	if !validDir(w.Path) || !plainText(w.Branch, 255) || w.Branch == "" || !validWorktreeCount(w.Changed) || !validWorktreeCount(w.Unpushed) || len(w.Paths) > MaxWorktreePaths {
+	if !validDir(w.Path) || !plainText(w.Branch, 255) || w.Branch == "" || !validWorktreeCount(w.Changed) || !validWorktreeCount(w.Unpushed) || !validWorktreeCount(w.Unreferenced) || !validWorktreeCount(w.Hidden) || len(w.Paths) > MaxWorktreePaths {
 		return false
 	}
 	for _, p := range w.Paths {

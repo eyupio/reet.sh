@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,10 +18,11 @@ import (
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
-// ErrWorktreeRefused means a run's worktree could not be made safely. The
-// error is a *WorktreeError carrying the reason; the connector answers it as
+// ErrWorktreeRefused means a worktree operation (create, status or remove)
+// was refused because it could not be done safely. The error is a
+// *WorktreeError carrying the reason; the connector answers it as
 // terminalproto.WorktreeRefused with that reason (see WorktreeResult).
-var ErrWorktreeRefused = errors.New("the worktree cannot be made")
+var ErrWorktreeRefused = errors.New("the worktree operation was refused")
 
 // WorktreeError is the refusal: Reason is the wire enum, Detail is plain text
 // (at most terminalproto.MaxWorktreeDetailBytes, no control characters).
@@ -65,20 +67,35 @@ type GitRunner func(ctx context.Context, dir string, args ...string) ([]byte, er
 const (
 	gitTimeout     = 60 * time.Second
 	gitOutputLimit = 4 << 10
+	// gitListLimit bounds the read-only listings that grow with the
+	// repository (worktree list, status, ls-files); output this long may have
+	// been cut short and is never trusted as complete.
+	gitListLimit = 4 << 20
 )
+
+// outputLimit is gitListLimit for the read-only listings and gitOutputLimit
+// for every other git call.
+func outputLimit(args []string) int {
+	if len(args) > 0 && (args[0] == "status" || args[0] == "ls-files" || len(args) > 1 && args[0] == "worktree" && args[1] == "list") {
+		return gitListLimit
+	}
+	return gitOutputLimit
+}
 
 var errGitMissing = errors.New("git is not installed")
 
 // ExecGit runs git found by exec.LookPath as an argument vector, never through
 // a shell: `git -C dir args...`, stdin empty, environment exactly HOME, PATH
 // and LANG from this process (every GIT_* and every other variable removed),
-// a 60-second timeout and stdout and stderr together capped at 4 KiB.
+// a 60-second timeout and stdout and stderr together capped at 4 KiB (4 MiB
+// for the read-only listings `worktree list`, `status` and `ls-files`, see
+// outputLimit; the excess is discarded while reading, never buffered).
 func ExecGit(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	path, err := exec.LookPath("git")
 	if err != nil || !filepath.IsAbs(path) {
 		return nil, errGitMissing
 	}
-	return runGit(ctx, path, gitTimeout, gitOutputLimit, dir, args...)
+	return runGit(ctx, path, gitTimeout, outputLimit(args), dir, args...)
 }
 
 // newExecGit is ExecGit with another per-call timeout, for tests.
@@ -88,7 +105,7 @@ func newExecGit(timeout time.Duration) GitRunner {
 		if err != nil || !filepath.IsAbs(path) {
 			return nil, errGitMissing
 		}
-		return runGit(ctx, path, timeout, gitOutputLimit, dir, args...)
+		return runGit(ctx, path, timeout, outputLimit(args), dir, args...)
 	}
 }
 
@@ -390,6 +407,10 @@ func gitWorktreeListed(ctx context.Context, git GitRunner, repo, path, branch st
 	if err != nil {
 		return false, false, gitFailed(out, err)
 	}
+	if len(out) >= gitListLimit {
+		// Possibly cut short: the path may be missing or cut mid-line.
+		return false, false, refuseWorktree(terminalproto.WorktreeGitFailed, "git listed too many worktrees to read")
+	}
 	wellFormed := true
 	matches := 0
 	exact := false
@@ -503,9 +524,9 @@ type worktreeAt struct {
 //     (modified, staged, deleted, renamed and untracked files each count;
 //     ignored files do not). The two flags override a repository's
 //     status.showUntrackedFiles and submodule settings, which would otherwise
-//     hide files that a remove deletes. Output beyond 4 KiB is not read, so
-//     past roughly a hundred entries Changed is a lower bound; it is never 0
-//     when anything changed.
+//     hide files that a remove deletes. Output beyond 4 MiB (gitListLimit)
+//     is not read, so past tens of thousands of entries Changed is a lower
+//     bound; it is never 0 when anything changed.
 //   - Paths are the first 20 of those paths, each at most 255 bytes, with
 //     invalid UTF-8 and control or format characters replaced by U+FFFD.
 //     File contents are never read.
@@ -519,6 +540,15 @@ type worktreeAt struct {
 //     worktree since then. Commits the person also put on another local
 //     branch are not counted; neither is anything on a branch that removal
 //     keeps at risk, since the branch is never deleted.
+//   - Unreferenced is `rev-list --count HEAD --not --branches --remotes
+//     --tags`: commits (on a detached HEAD) that nothing but the worktree
+//     holds and that a remove would leave unreachable.
+//   - Hidden counts `ls-files -v -z` entries marked skip-worktree (also every
+//     file outside a sparse checkout) or assume-unchanged: edits to them are
+//     invisible to status and to `worktree remove`.
+//   - Nested is a `.git` entry below the top level (see scanWorktree): an
+//     ignored clone or worktree whose work a remove would delete.
+//   - Incomplete: the scan or the ls-files listing could not be read whole.
 //
 // The path is ~/.reet/worktrees/<project>/<Slug(repo)>/<run>, derived exactly
 // as PrepareWorktree derives it, and must be a registered worktree of its
@@ -539,11 +569,98 @@ func worktreeState(ctx context.Context, w worktreeAt, git GitRunner) (terminalpr
 		return terminalproto.WorktreeState{}, gitFailed(out, err)
 	}
 	changed, paths := parseStatus(out)
-	unpushed, err := unpushedCount(ctx, w, git)
-	if err != nil {
+	state := terminalproto.WorktreeState{Path: w.path, Branch: w.branch, Changed: changed, Paths: paths}
+	if state.Unpushed, err = unpushedCount(ctx, w, git); err != nil {
 		return terminalproto.WorktreeState{}, err
 	}
-	return terminalproto.WorktreeState{Path: w.path, Branch: w.branch, Changed: changed, Unpushed: unpushed, Paths: paths}, nil
+	if state.Unreferenced, err = gitCount(ctx, git, w.path, "rev-list", "--count", "HEAD", "--not", "--branches", "--remotes", "--tags"); err != nil {
+		return terminalproto.WorktreeState{}, err
+	}
+	out, err = git(ctx, w.path, "ls-files", "-v", "-z")
+	if err != nil {
+		return terminalproto.WorktreeState{}, gitFailed(out, err)
+	}
+	state.Hidden = hiddenEntries(out)
+	if len(out) >= gitListLimit {
+		state.Incomplete = true
+	}
+	nested, incomplete := scanWorktree(w.path, maxScanEntries, maxScanDepth)
+	state.Nested = nested
+	state.Incomplete = state.Incomplete || incomplete
+	return state, nil
+}
+
+// hiddenEntries counts `ls-files -v -z` entries ("T path\0") whose tag is
+// "S" (skip-worktree, including everything outside a sparse checkout) or a
+// lower-case letter (assume-unchanged): git does not look at these files for
+// edits, so neither status nor `worktree remove` would see one.
+func hiddenEntries(out []byte) int {
+	n := 0
+	for _, entry := range strings.Split(string(out), "\x00") {
+		if len(entry) >= 3 && entry[1] == ' ' && (entry[0] == 'S' || entry[0] >= 'a' && entry[0] <= 'z') {
+			n++
+		}
+	}
+	return n
+}
+
+const (
+	maxScanEntries = 200_000
+	maxScanDepth   = 256
+)
+
+// scanWorktree walks the worktree without following symlinks and reports a
+// `.git` entry (file, folder or symlink) anywhere below its top level: another
+// repository or worktree, possibly ignored, that a remove would delete with
+// its own uncommitted work and commits. Only the worktree's own top-level
+// `.git` file is skipped. More than maxEntries entries, a path deeper than
+// maxDepth, or a folder that cannot be read makes the scan incomplete.
+func scanWorktree(path string, maxEntries, maxDepth int) (nested, incomplete bool) {
+	entries := 0
+	_ = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			incomplete = true
+			return fs.SkipAll
+		}
+		if p == path {
+			return nil
+		}
+		entries++
+		rel, _ := filepath.Rel(path, p)
+		if entries > maxEntries || strings.Count(rel, string(filepath.Separator))+1 > maxDepth {
+			incomplete = true
+			return fs.SkipAll
+		}
+		if d.Name() == ".git" {
+			if rel == ".git" {
+				return nil
+			}
+			nested = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return nested, incomplete
+}
+
+// gitCount runs a `rev-list --count` and reads its number strictly.
+func gitCount(ctx context.Context, git GitRunner, dir string, args ...string) (int, error) {
+	out, err := git(ctx, dir, args...)
+	if err != nil {
+		return 0, gitFailed(out, err)
+	}
+	text := strings.TrimSuffix(string(out), "\n")
+	n := 0
+	for i := 0; i < len(text); i++ {
+		if text[i] < '0' || text[i] > '9' || n > 1<<30 {
+			return 0, refuseWorktree(terminalproto.WorktreeGitFailed, "git counted commits unreadably")
+		}
+		n = n*10 + int(text[i]-'0')
+	}
+	if text == "" || n > 1<<30 {
+		return 0, refuseWorktree(terminalproto.WorktreeGitFailed, "git counted commits unreadably")
+	}
+	return n, nil
 }
 
 // unpushedCount: see WorktreeStatus. The run's branch and HEAD's own branch
@@ -561,22 +678,7 @@ func unpushedCount(ctx context.Context, w worktreeAt, git GitRunner) (int, error
 		return 0, gitFailed(out, err)
 	}
 	args = append(args, "--branches")
-	out, err = git(ctx, w.path, args...)
-	if err != nil {
-		return 0, gitFailed(out, err)
-	}
-	text := strings.TrimSuffix(string(out), "\n")
-	n := 0
-	for i := 0; i < len(text); i++ {
-		if text[i] < '0' || text[i] > '9' || n > 1<<30 {
-			return 0, refuseWorktree(terminalproto.WorktreeGitFailed, "git counted commits unreadably")
-		}
-		n = n*10 + int(text[i]-'0')
-	}
-	if text == "" || n > 1<<30 {
-		return 0, refuseWorktree(terminalproto.WorktreeGitFailed, "git counted commits unreadably")
-	}
-	return n, nil
+	return gitCount(ctx, git, w.path, args...)
 }
 
 // parseStatus counts `status --porcelain=v1 -z` entries ("XY path\0", plus
@@ -627,7 +729,10 @@ func plainPath(p string) string {
 //     remove is refused with ErrWorktreeChanged, so changes made after the
 //     person looked are never thrown away.
 //  3. Any uncommitted change (Changed > 0) is refused as has_changes: git
-//     would refuse it without --force, and reet never forces.
+//     would refuse it without --force, and reet never forces. Hidden edits
+//     (hidden_changes), commits only HEAD holds (unreferenced_commits), a
+//     nested repository (nested_repository) and an incomplete check
+//     (check_incomplete) are refused whatever the person was shown.
 //  4. It runs exactly `git -C <repository root> worktree remove <path>`,
 //     never --force. The repository root comes from the worktree's
 //     `rev-parse --git-common-dir`. Git checks again that the worktree is
@@ -650,8 +755,17 @@ func WorktreeRemove(ctx context.Context, home, project, repo, run string, shown 
 	if state.Changed != shown.Changed || state.Unpushed != shown.Unpushed {
 		return ErrWorktreeChanged
 	}
-	if state.Changed > 0 {
+	switch {
+	case state.Changed > 0:
 		return refuseWorktree(terminalproto.WorktreeHasChanges, "")
+	case state.Hidden > 0:
+		return refuseWorktree(terminalproto.WorktreeHiddenChanges, "")
+	case state.Unreferenced > 0:
+		return refuseWorktree(terminalproto.WorktreeUnreferencedCommits, "")
+	case state.Nested:
+		return refuseWorktree(terminalproto.WorktreeNestedRepository, "")
+	case state.Incomplete:
+		return refuseWorktree(terminalproto.WorktreeCheckIncomplete, "")
 	}
 	if out, err := git(ctx, w.root, "worktree", "remove", w.path); err != nil {
 		return gitFailed(out, err)
@@ -692,8 +806,10 @@ func locateWorktree(ctx context.Context, home, project, repo, run string, git Gi
 	if err := checkWorktreePath(realHome, path); err != nil {
 		return worktreeAt{}, err
 	}
-	// Belt and braces after the walk: the fully resolved path must still be
-	// under ~/.reet/worktrees and be the path itself.
+	// Redundant guards, kept on purpose: checkWorktreePath has already refused
+	// every symlink, so these cannot fail today and a mutant that removes
+	// either one alone survives the tests. They keep the "never outside
+	// ~/.reet/worktrees" rule true if the walk above is ever changed.
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil || !inside(worktrees, resolved) || resolved == worktrees {
 		return worktreeAt{}, refuseWorktree(terminalproto.WorktreeOutsideHome, "the worktree is not under ~/.reet/worktrees")
@@ -738,7 +854,7 @@ func locateWorktree(ctx context.Context, home, project, repo, run string, git Gi
 	if err != nil {
 		return worktreeAt{}, readFailed(out, err)
 	}
-	if !registeredWorktree(string(out), w.root, path) {
+	if len(out) >= gitListLimit || !registeredWorktree(string(out), w.root, path) {
 		return worktreeAt{}, notRegistered("git does not list this worktree")
 	}
 	return w, nil

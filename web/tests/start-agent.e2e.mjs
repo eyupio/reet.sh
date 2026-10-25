@@ -1,0 +1,426 @@
+import { chromium, expect } from '@playwright/test'
+// Start an agent: the dialog from the Terminals workspace and from a machine card, against synthetic API responses. Every
+// create request the page sends is recorded, so what was sent (and that nothing was sent) is checked against the words.
+const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
+const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
+const context=await browser.newContext({viewport:{width:1360,height:900}})
+const page=await context.newPage()
+const errors=[],posts=[],unmocked=[],urls=[]
+page.on('pageerror',e=>errors.push(e.message))
+page.on('framenavigated',f=>{if(f===page.mainFrame())urls.push(f.url())})
+const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return{promise,resolve}}
+
+// Server state.
+const A='connector-laptop000000001',B='connector-oldbox00000001',C='connector-spare000000001'
+const HOME_A='/home/dev',SITE='/home/dev/work/site'
+let authMode='accounts',viewer=false,machinesFail=false
+const tmachines=[
+ {agentId:A,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,tools:['claude','codex','gemini']}},
+ // An older connector: no launch capability. The tools list is there only to show that it is not enough on its own.
+ {agentId:B,host:'old-box',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'old',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',tools:['claude']}},
+ {agentId:C,host:'spare-box',ready:false,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'spare',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,tools:['claude']}},
+]
+const now=Date.now()
+const scope=(host,project,id)=>({id,host,name:host,kind:'agent',agent:'claude',project,complete:true,scannedAt:now,lastSeen:now,skills:[],skillCount:1,os:'linux',arch:'amd64',version:'dev'})
+// Folders the machines reported: one project twice (with a trailing slash), one relative path that is never offered, and another machine's.
+const scopes=[scope('dev-laptop',SITE,'s1'),scope('dev-laptop',SITE+'/','s2'),scope('dev-laptop','work/relative','s3'),scope('dev-laptop','','s4'),scope('old-box','/srv/old','s5'),scope('spare-box','/srv/spare','s6')]
+const machinesOf=()=>{const by=new Map();for(const s of scopes)by.set(s.host,[...(by.get(s.host)??[]),s]);return[...by].map(([host,groups])=>({host,groups,skillCount:1}))}
+const agents=[A,B,C].map((id,i)=>({id,host:tmachines[i].host,version:'dev',paused:false,autoUpdate:false,lastSeen:Date.now()}))
+let sessions=[]
+// How the next create is answered: a queue of answers, each 'ok', 'drop', a held promise, or {status, json}.
+const answers=[]
+const launchEvent={id:7,at:now,source:'ui',action:'terminal-launch',detail:JSON.stringify({machine:A,host:'dev-laptop',tool:'claude',model:'opus',dir:SITE})}
+
+await page.route('**/api/**',async route=>{
+ const req=route.request(),path=new URL(req.url()).pathname,method=req.method()
+ let data={}
+ if(path==='/api/v2/auth/status')data=authMode==='accounts'?{mode:'accounts',setupRequired:false,bootstrapRequired:false,user:{id:1,name:'Operator',email:'operator@example.test',role:viewer?'viewer':'owner'}}:{mode:authMode,setupRequired:false,bootstrapRequired:false}
+ else if(path==='/api/v2/profile')data={user:{id:1,name:'Operator',email:'operator@example.test',role:viewer?'viewer':'owner'},profile:{theme:'light',shelfView:'list'},sessionCount:1,accounts:authMode==='accounts'}
+ else if(path==='/api/skills')data={skills:[],counts:{all:0,used:0}}
+ else if(path==='/api/environments')data={environments:scopes,machines:machinesOf()}
+ else if(path==='/api/tags')data={tags:[]}
+ else if(path==='/api/v2/lists')data={lists:[],linkEnabled:false}
+ else if(path==='/api/v2/sync')data={environments:scopes,machines:machinesOf(),agents,targets:[],jobs:[]}
+ else if(path==='/api/v2/machines/health')data={serverNow:Date.now(),machines:[]}
+ else if(path==='/api/v2/setup/profiles')data={profiles:[]}
+ else if(path==='/api/v2/terminal/machines'){if(machinesFail)return route.fulfill({status:503,json:{error:'terminal machine is reconnecting; retry after it reconnects'}});data={machines:tmachines}}
+ else if(path==='/api/v2/terminal/status')data={available:true,configured:true,reason:''}
+ else if(path==='/api/v2/notifications/count')data={unread:0}
+ else if(path==='/api/version')data={version:'v1.2.3',commit:'fixture'}
+ else if(path==='/api/events')data={events:[launchEvent]}
+ else if(path==='/api/v2/terminal/sessions'&&method==='GET')data={sessions}
+ else if(path==='/api/v2/terminal/sessions'&&method==='POST'){
+  const body=req.postData();posts.push(body)
+  const answer=answers.shift()??'ok'
+  if(answer&&answer.promise){await answer.promise;return reply(route,body)}
+  if(answer==='drop')return route.abort('failed')
+  if(typeof answer==='object')return route.fulfill({status:answer.status,json:answer.json})
+  return reply(route,body)
+ }
+ else if(path.endsWith('/attachments'))data={ticket:'fixture-ticket00000000000'}
+ else if(path.endsWith('/history'))return route.fulfill({body:''})
+ else if(path.endsWith('/command-history'))data={entries:[],sources:[],truncated:false,skipped:0}
+ else{unmocked.push(`${method} ${path}`);return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})}
+ await route.fulfill({json:data})
+})
+function reply(route,raw){
+ const body=JSON.parse(raw)
+ const s={id:`session-${body.requestId.replaceAll('-','').slice(0,20)}`,agentId:body.agentId,title:body.title,state:'running',createdAt:Date.now(),updatedAt:Date.now(),exitCode:null}
+ if(!sessions.some(x=>x.id===s.id))sessions=[...sessions,s]
+ return route.fulfill({json:s})
+}
+await page.routeWebSocket('**/api/v2/terminal/socket',socket=>{socket.onMessage(m=>{if(typeof m==='string'&&JSON.parse(m).ticket)socket.send('{"type":"ready"}')})})
+// Every write to browser storage and every URL the page sets for itself is recorded from before the page loads, and kept by
+// the fixture across page loads (a later write cannot hide an earlier one).
+const storageWrites=[]
+await page.exposeFunction('__recordStorage',(op,key,value)=>{storageWrites.push(`${op} ${key} ${value}`)})
+await page.addInitScript(()=>{
+ window.__storageCalls=[]
+ for(const op of ['setItem','removeItem','clear']){const original=Storage.prototype[op];Storage.prototype[op]=function(...args){window.__storageCalls.push({op,key:String(args[0]??''),value:String(args[1]??'')});window.__recordStorage(op,String(args[0]??''),String(args[1]??''));return original.apply(this,args)}}
+ window.__urls=[]
+ for(const op of ['pushState','replaceState']){const original=history[op].bind(history);history[op]=(state,title,url)=>{window.__urls.push(String(url??''));return original(state,title,url)}}
+})
+
+const dialog=()=>page.getByRole('dialog',{name:'Start an agent',exact:true})
+const parts=d=>({
+ machine:d.getByRole('combobox',{name:'Machine',exact:true}),
+ model:d.getByRole('combobox',{name:/^Model/}),
+ other:d.getByRole('textbox',{name:'Model name',exact:true}),
+ folder:d.getByRole('combobox',{name:'Folder',exact:true}),
+ path:d.getByRole('textbox',{name:'Folder path',exact:true}),
+ prompt:d.getByRole('textbox',{name:/^Opening prompt/}),
+ tool:name=>d.getByRole('radio',{name,exact:true}),
+ status:d.getByRole('status'),
+ sentence:d.locator('.sentence'),
+ count:d.locator('.count'),
+ start:d.getByRole('button',{name:'Start',exact:true}),
+ retry:d.getByRole('button',{name:'Try the same request again',exact:true}),
+ starting:d.getByRole('button',{name:'Starting…',exact:true}),
+ close:d.locator('header').getByRole('button',{name:'Close',exact:true}),
+ notListed:d.getByRole('button',{name:'Not listed? Add a machine',exact:true}),
+})
+const sidebarEntry=()=>page.locator('#terminal-sessions').getByRole('button',{name:'New agent session',exact:true})
+const card=host=>page.locator('article').filter({has:page.getByRole('heading',{name:host,exact:true})})
+const cardEntry=host=>card(host).getByRole('button',{name:'Start an agent',exact:true})
+// A round trip through the page, so every handler that a key or click started has finished before the next check.
+const settle=()=>page.evaluate(()=>fetch('/api/version').then(r=>r.status))
+// The form submitted without its button, as a second press would: proves the dialog's own guard, not just a disabled button.
+const submitAgain=d=>d.locator('form').evaluate(f=>f.requestSubmit())
+const body=i=>JSON.parse(posts.at(i))
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+const LOST="We didn't hear back, so the agent may have started. Check your sessions before starting another. If you close this and start again, a second agent may start."
+const LONG='a'.repeat(1998)+'é'
+const secrets=['fix the failing build please',LONG.slice(0,40),'opus-4.1','gpt-5-codex',SITE,'/home/dev/typed']
+const texts=async d=>{const t=await d.innerText();expect(t).not.toMatch(/verified|healthy/i);return t}
+const openFromSidebar=async()=>{await sidebarEntry().click();const d=dialog();await expect(d).toBeVisible();return d}
+
+try{
+ // ── From the Terminals workspace: the machine you came from is preselected and focused. ──
+ await page.goto(`${base}/terminals?agent=${A}`)
+ await expect(sidebarEntry()).toBeEnabled()
+ let d=await openFromSidebar(),p=parts(d)
+ await expect(p.machine).toHaveValue(A)
+ await expect(p.machine).toBeFocused()
+ await texts(d)
+ // Agents: what the machine reports, the rest listed and disabled with the reason.
+ await expect(p.tool('Claude Code')).toBeChecked()
+ await expect(p.tool('Codex')).toBeEnabled()
+ await expect(p.tool('Gemini CLI')).toBeEnabled()
+ await expect(p.tool('OpenCode')).toBeDisabled()
+ await expect(p.tool('OpenCode')).toHaveAccessibleDescription('Not installed on this machine.')
+ await expect(p.tool('Claude Code')).toHaveAccessibleDescription('')
+ // Machines: every machine listed; the one not ready cannot be chosen.
+ await expect(p.machine.locator('option')).toHaveText(['dev-laptop','old-box','spare-box · not ready'])
+ await expect(p.machine.locator(`option[value="${C}"]`)).toBeDisabled()
+ // Model suggestions per agent, Agent default first and Other last.
+ await expect(p.model.locator('option')).toHaveText(['Agent default','sonnet','opus','haiku','Other…'])
+ await p.tool('Codex').check()
+ await expect(p.model.locator('option')).toHaveText(['Agent default','gpt-5-codex','Other…'])
+ await p.tool('Gemini CLI').check()
+ await expect(p.model.locator('option')).toHaveText(['Agent default','gemini-2.5-pro','gemini-2.5-flash','Other…'])
+ await p.tool('Claude Code').check()
+ // Folders: home first, each reported project once, never a relative path or another machine's.
+ await expect(p.folder.locator('option')).toHaveText(['Home folder',SITE,'Type a path…'])
+ // The line that says what will happen, without and then with a prompt.
+ await expect(p.sentence).toHaveText('Starts Claude Code in the home folder on dev-laptop. Nothing runs until you press Start.')
+ await p.folder.selectOption(SITE)
+ await expect(p.sentence).toHaveText(`Starts Claude Code in ${SITE} on dev-laptop. Nothing runs until you press Start.`)
+
+ // Other: checked against the character rule, and a missing name is asked for only once Start is pressed.
+ await p.model.selectOption({label:'Other…'})
+ await expect(d).not.toContainText('Type a model name')
+ await p.start.click()
+ await expect(p.status).toHaveText('Type a model name, or choose Agent default.')
+ await expect(p.other).toBeFocused()
+ await expect(p.other).toHaveAttribute('maxlength','100')
+ for(const bad of ['bad model','-opus','opus;rm']){
+  await p.other.fill(bad)
+  await expect(d.getByText("That model name isn't one reet can pass on. Use letters, digits and . _ : / @ + -, up to 100 characters, starting with a letter or digit.",{exact:true})).toBeVisible()
+ }
+ expect(posts).toHaveLength(0)
+ await p.other.fill('  opus-4.1  ')
+ await expect(d.getByText("That model name isn't one reet can pass on.",{exact:false})).toHaveCount(0)
+
+ // Prompt rules, with the byte counter.
+ await expect(p.count).toHaveText("0 of 2,000 bytes. Secrets don't belong here.")
+ await p.prompt.fill('é')
+ await expect(p.count).toHaveText("2 of 2,000 bytes. Secrets don't belong here.")
+ await p.prompt.fill('-fix the build')
+ await expect(d.getByText('Start the prompt with a word, not a dash.',{exact:true})).toBeVisible()
+ await submitAgain(d)
+ await expect(p.status).toHaveText('Start the prompt with a word, not a dash.')
+ await expect(p.prompt).toBeFocused()
+ await p.prompt.fill(LONG+'b')
+ await expect(p.count).toHaveText("2,001 of 2,000 bytes. Secrets don't belong here.")
+ await expect(d.getByText('That prompt is too long. Use at most 2000 bytes; accented letters and emoji take more than one.',{exact:true})).toBeVisible()
+ await p.prompt.fill(LONG)
+ await expect(p.count).toHaveText("2,000 of 2,000 bytes. Secrets don't belong here.")
+ await expect(d.getByText('That prompt is too long.',{exact:false})).toHaveCount(0)
+ // One word could be read as a subcommand by claude and codex; gemini takes the prompt as a flag value, so one word is fine.
+ await p.prompt.fill('purge')
+ await expect(d.getByText('Write the opening prompt as at least two words.',{exact:true})).toBeVisible()
+ await p.tool('Codex').check()
+ await expect(d.getByText('Write the opening prompt as at least two words.',{exact:true})).toBeVisible()
+ await p.tool('Gemini CLI').check()
+ await expect(d.getByText('Write the opening prompt as at least two words.',{exact:true})).toHaveCount(0)
+ await expect(p.prompt).not.toHaveAttribute('aria-invalid','true')
+ // A different agent started the model and folder afresh; going back does not bring them back.
+ await expect(p.model).toHaveValue('')
+ await expect(p.folder).toHaveValue('')
+ await p.tool('Claude Code').check()
+ await expect(p.model).toHaveValue('')
+ await expect(p.folder).toHaveValue('')
+
+ // Type a path: absolute, checked as typed and when Start is pressed (focus goes to it).
+ await p.folder.selectOption({label:'Type a path…'})
+ await p.prompt.fill('')
+ await p.start.click()
+ await expect(p.status).toHaveText('Use a full path that starts with /.')
+ await expect(p.path).toBeFocused()
+ await p.path.fill('work/site')
+ await expect(d.locator('p.reason').filter({hasText:/^Use a full path that starts with \/\.$/})).toHaveCount(1)
+ await expect(p.path).toHaveAttribute('aria-invalid','true')
+ await p.path.fill('/home/dev/‮work')
+ await expect(d.getByText('Use a folder path without control or invisible characters.',{exact:true})).toBeVisible()
+ await p.path.fill('/'+'a'.repeat(4096))
+ await expect(d.getByText('That folder path is too long. Use at most 4096 bytes; accented letters and emoji take more than one.',{exact:true})).toBeVisible()
+ expect(posts).toHaveLength(0)
+
+ // ── A full start: exactly the fields chosen, a request id, and the session opens with its title. ──
+ await p.folder.selectOption(SITE)
+ await p.model.selectOption({label:'Other…'})
+ await p.other.fill('  opus-4.1  ')
+ await p.prompt.fill('fix the failing build please')
+ await expect(p.sentence).toHaveText(`Starts Claude Code in ${SITE} on dev-laptop. Nothing runs until you press Start. The prompt is kept with the session record and is visible to other users of that machine in its process list.`)
+ await p.start.click()
+ await expect(d).toHaveCount(0)
+ expect(posts).toHaveLength(1)
+ const first=body(0)
+ expect(first.requestId).toMatch(UUID)
+ expect(first).toEqual({agentId:A,requestId:first.requestId,title:'Claude Code · site',cols:100,rows:30,tool:'claude',model:'opus-4.1',dir:SITE,prompt:'fix the failing build please'})
+ const opened=`session-${first.requestId.replaceAll('-','').slice(0,20)}`
+ await expect(page).toHaveURL(new RegExp(`[?&]session=${opened}(&|$)`))
+ await expect(page.locator('#terminal-sessions').locator('.session-row[aria-current="true"]')).toContainText('Claude Code · site')
+ await expect(page.locator('.pane')).toBeVisible()
+
+ // Opened again, the prompt is gone (it lived only in the closed dialog). Escape closes and focus returns to the opener.
+ d=await openFromSidebar();p=parts(d)
+ await expect(p.prompt).toHaveValue('')
+ await expect(p.model).toHaveValue('')
+ await p.prompt.fill('fix the failing build please')
+ await page.keyboard.press('Escape')
+ await expect(d).toHaveCount(0)
+ await expect(sidebarEntry()).toBeFocused()
+
+ // A plain new terminal is unchanged: none of the launch keys.
+ await page.locator('#terminal-sessions').getByRole('button',{name:'New terminal on dev-laptop',exact:true}).first().click()
+ await expect.poll(()=>posts.length).toBe(2)
+ const plain=body(1)
+ expect(Object.keys(plain)).toEqual(['agentId','requestId','title','cols','rows'])
+ expect(posts[1]).toBe(JSON.stringify({agentId:A,requestId:plain.requestId,title:'Shell',cols:100,rows:30}))
+ await expect(page).toHaveURL(new RegExp(`session=session-${plain.requestId.replaceAll('-','').slice(0,20)}`))
+
+ // ── A lost reply: plain words, Retry focused, the same request id and body; nothing changes while it is in flight. ──
+ d=await openFromSidebar();p=parts(d)
+ await p.tool('Codex').check()
+ await p.model.selectOption('gpt-5-codex')
+ await p.prompt.fill('tidy the readme')
+ answers.push('drop')
+ await p.start.click()
+ await expect(p.status).toHaveText(LOST)
+ await expect(p.retry).toBeFocused()
+ await expect(p.prompt).toBeDisabled()
+ await expect(p.machine).toBeDisabled()
+ const lost=posts.at(-1)
+ // A 5xx is no answer either.
+ answers.push({status:502,json:{error:'Bad gateway'}})
+ await p.retry.click()
+ await expect(p.status).toHaveText(LOST)
+ await expect(p.retry).toBeFocused()
+ // Held in flight: Close and Escape wait, a second submit sends nothing.
+ const hold=deferred();answers.push(hold)
+ const sent=posts.length
+ await p.retry.click()
+ await expect(p.starting).toBeDisabled()
+ await expect(p.close).toBeDisabled()
+ await expect(p.status).toHaveText('Starting Codex on dev-laptop… this can take a few seconds.')
+ await submitAgain(d);await submitAgain(d)
+ await page.keyboard.press('Escape')
+ await settle()
+ await expect(d).toBeVisible()
+ expect(posts.length).toBe(sent+1)
+ hold.resolve()
+ await expect(d).toHaveCount(0)
+ expect(posts.slice(-3)).toEqual([lost,lost,lost])
+ expect(JSON.parse(lost)).toEqual({agentId:A,requestId:JSON.parse(lost).requestId,title:'Codex',cols:100,rows:30,tool:'codex',model:'gpt-5-codex',prompt:'tidy the readme'})
+
+ // ── Definite refusals: the exact sentence, the field concerned focused, and the next Start is a new request. ──
+ d=await openFromSidebar();p=parts(d)
+ await p.folder.selectOption({label:'Type a path…'})
+ await p.path.fill('/home/dev/typed')
+ await p.prompt.fill('look around here')
+ const refusals=[
+  {answer:{status:422,json:{error:"That folder isn't available on that machine.",code:'folder_unavailable',message:"That folder isn't available on that machine.",field:'dir'}},text:"That folder isn't available on that machine.",focus:p.path},
+  {answer:{status:422,json:{error:"That agent isn't installed on that machine.",code:'tool_not_installed',message:"That agent isn't installed on that machine.",field:'tool'}},text:"That agent isn't installed on that machine.",focus:p.tool('Claude Code')},
+  {answer:{status:422,json:{error:'Write the opening prompt as at least two words.',code:'prompt_unsupported',message:'Write the opening prompt as at least two words.',field:'prompt'}},text:'Write the opening prompt as at least two words.',focus:p.prompt},
+  {answer:{status:409,json:{error:'Update reet on that machine to start agents.',code:'launch_unsupported',message:'Update reet on that machine to start agents.'}},text:'Update reet on that machine to start agents.',focus:p.machine},
+  {answer:{status:409,json:{error:'terminal session limit reached'}},text:'The terminal session limit has been reached. End a session and try again.',focus:p.start},
+  {answer:{status:409,json:{error:'terminal operation conflicts with current state'}},text:'That request changed. Start it again.',focus:p.start},
+  {answer:{status:403,json:{error:'terminal access denied'}},text:'Something changed. Check again.',focus:p.start},
+ ]
+ const ids=[]
+ for(const r of refusals){
+  answers.push(r.answer)
+  await p.start.click()
+  await expect(p.status).toHaveText(r.text)
+  await expect(r.focus).toBeFocused()
+  await expect(p.start).toBeEnabled()
+  await expect(p.prompt).toBeEnabled()
+  ids.push(body(-1).requestId)
+ }
+ expect(new Set(ids).size).toBe(refusals.length)
+ expect(body(-1)).toEqual({agentId:A,requestId:ids.at(-1),title:'Claude Code · typed',cols:100,rows:30,tool:'claude',dir:'/home/dev/typed',prompt:'look around here'})
+ // A reconnecting machine (503) may still have been asked: it keeps the request, like a lost reply.
+ answers.push({status:503,json:{error:'terminal machine is reconnecting; retry after it reconnects'}})
+ await p.start.click()
+ await expect(p.status).toHaveText('That machine is reconnecting. Try again in a moment. Check your sessions before starting another. If you close this and start again, a second agent may start.')
+ await expect(p.retry).toBeFocused()
+ const reconnecting=posts.at(-1)
+ await p.retry.click()
+ await expect(d).toHaveCount(0)
+ expect(posts.at(-1)).toBe(reconnecting)
+
+ // ── The three disabled states. ──
+ d=await openFromSidebar();p=parts(d)
+ // An older machine: told to update, nothing offered, and nothing sent even if the form is submitted.
+ await p.machine.selectOption(B)
+ await expect(p.machine).toHaveAccessibleDescription('Update reet on this machine to start agents.')
+ await expect(d.locator('p.reason')).toHaveText(['Update reet on this machine to start agents.'])
+ for(const name of ['Claude Code','Codex','OpenCode','Gemini CLI']){await expect(p.tool(name)).toBeDisabled();await expect(p.tool(name)).toHaveAccessibleDescription('Update reet on this machine to start agents.')}
+ await expect(p.start).toBeDisabled()
+ await expect(p.sentence).toHaveCount(0)
+ const before=posts.length
+ await submitAgain(d)
+ await settle()
+ expect(posts.length).toBe(before)
+ await p.close.click()
+ await expect(d).toHaveCount(0)
+ await expect(sidebarEntry()).toBeFocused()
+ // The machine you came from is not ready: said plainly, another is chosen.
+ await page.goto(`${base}/terminals?agent=${C}`)
+ d=await openFromSidebar();p=parts(d)
+ await expect(p.machine).toHaveValue(A)
+ await expect(p.machine).toHaveAccessibleDescription("spare-box isn't ready, so dev-laptop is selected.")
+ await page.keyboard.press('Escape')
+ // Nothing ready: the existing readiness sentence and no Start.
+ for(const m of tmachines)m.ready=false
+ await page.goto(`${base}/terminals?agent=${A}`)
+ d=await openFromSidebar();p=parts(d)
+ await expect(p.machine).toHaveValue(A)
+ await expect(p.machine).toHaveAccessibleDescription('The machine is reconnecting. Existing shells will be kept.')
+ await expect(p.start).toBeDisabled()
+ await submitAgain(d)
+ await settle()
+ expect(posts.length).toBe(before)
+ await page.keyboard.press('Escape')
+ for(const m of tmachines)m.ready=m.agentId!==C
+
+ // ── From a machine card. ──
+ await page.goto(`${base}/machines`)
+ await expect(cardEntry('dev-laptop')).toBeEnabled()
+ await expect(cardEntry('old-box')).toBeEnabled()
+ // Not ready: disabled, with the plain readiness sentence.
+ await expect(cardEntry('spare-box')).toBeDisabled()
+ await expect(cardEntry('spare-box')).toHaveAccessibleDescription('The machine is reconnecting. Existing shells will be kept.')
+ await cardEntry('old-box').click()
+ d=dialog();p=parts(d)
+ await expect(p.machine).toHaveValue(B)
+ await p.close.click()
+ await expect(cardEntry('old-box')).toBeFocused()
+ // Not listed? hands over to Add a machine, which gives focus back to the card's button.
+ await cardEntry('dev-laptop').click()
+ await parts(dialog()).notListed.click()
+ const add=page.getByRole('dialog',{name:'Add a machine',exact:true})
+ await expect(add).toBeVisible()
+ await expect(dialog()).toHaveCount(0)
+ await page.keyboard.press('Escape')
+ await expect(cardEntry('dev-laptop')).toBeFocused()
+ // The simplest start: only the tool is sent, and the Terminals page opens on the new session.
+ await cardEntry('dev-laptop').click()
+ d=dialog();p=parts(d)
+ await expect(p.machine).toHaveValue(A)
+ await p.tool('Gemini CLI').check()
+ await p.start.click()
+ await expect(page).toHaveURL(/\/terminals\?/)
+ const simple=body(-1)
+ expect(posts.at(-1)).toBe(JSON.stringify({agentId:A,requestId:simple.requestId,title:'Gemini CLI',cols:100,rows:30,tool:'gemini'}))
+ await expect(page).toHaveURL(`${base}/terminals?agent=${A}&session=session-${simple.requestId.replaceAll('-','').slice(0,20)}`)
+ // From Terminals, Not listed? goes to the Machines page with Add a machine open, and leaves no marker in the address.
+ d=await openFromSidebar()
+ await parts(d).notListed.click()
+ await expect(add).toBeVisible()
+ await expect(page).toHaveURL(`${base}/machines`)
+ await page.keyboard.press('Escape')
+
+ // A failed readiness read is said on the card until a read succeeds.
+ machinesFail=true
+ await page.goto(`${base}/machines`)
+ await expect(card('dev-laptop')).toContainText("Couldn't check this machine just now. Try again in a moment.")
+ await expect(cardEntry('dev-laptop')).toBeDisabled()
+ await expect(cardEntry('dev-laptop')).toHaveAccessibleDescription("Couldn't check this machine just now. Try again in a moment.")
+ machinesFail=false
+ await page.evaluate(()=>window.dispatchEvent(new Event('online')))
+ await expect(cardEntry('dev-laptop')).toBeEnabled()
+ await expect(card('dev-laptop')).not.toContainText("Couldn't check")
+
+ // ── Nothing about prompts, models or folders in browser storage or any address. ──
+ const kept=await page.evaluate(async()=>JSON.stringify({local:{...localStorage},session:{...sessionStorage},calls:window.__storageCalls,idb:(await indexedDB.databases()).map(x=>x.name)}))
+ const addresses=[...urls,...await page.evaluate(()=>window.__urls)].join('\n')
+ const written=storageWrites.join('\n')
+ expect(written).toContain('reet-terminal-layout')   // the recorder works: the layout preference is written
+ for(const secret of [...secrets,'tidy the readme','look around here','purge','-fix','"tool"'])for(const where of [kept,addresses,written])expect(where.includes(secret)).toBe(false)
+ expect(JSON.parse(kept).idb).toEqual([])
+
+ // ── Activity reads the launch event, without any prompt. ──
+ await page.goto(`${base}/account#activity`)
+ await expect(page.getByText(`Started Claude Code with opus in ${SITE} on dev-laptop`,{exact:true})).toBeVisible()
+
+ // ── A viewer and a legacy sign-in mode see neither entry. ──
+ viewer=true
+ await page.goto(`${base}/machines`)
+ await expect(page.getByRole('heading',{name:'dev-laptop',exact:true})).toBeVisible()
+ await expect(page.getByRole('button',{name:'Start an agent'})).toHaveCount(0)
+ await page.goto(`${base}/terminals?agent=${A}`)
+ await expect(page.locator('body')).toContainText('dev-laptop')
+ await expect(page.getByRole('button',{name:'New agent session'})).toHaveCount(0)
+ viewer=false;authMode='none'
+ await page.goto(`${base}/machines`)
+ await expect(page.getByRole('heading',{name:'dev-laptop',exact:true})).toBeVisible()
+ await expect(page.getByRole('button',{name:'Start an agent'})).toHaveCount(0)
+ await page.goto(`${base}/terminals?agent=${A}`)
+ await expect(page.locator('body')).toContainText('dev-laptop')
+ await expect(page.getByRole('button',{name:'New agent session'})).toHaveCount(0)
+
+ expect(errors).toEqual([])
+ console.log(`Start an agent UI passed: both entry points with the machine preselected and focus returned, agents offered from what the machine reports (not installed, update reet, not ready), model suggestions and Other with cleanModel sent, folder choices and typed paths, prompt rules and byte counter, the sentence with and without a prompt, exact create bodies (launch fields only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, and no entry for viewers or legacy sign-in. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
+}finally{await browser.close()}

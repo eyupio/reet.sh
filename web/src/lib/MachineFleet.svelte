@@ -355,7 +355,7 @@
             <a class="btn primary" href={syncLink(machine.host)}>Choose skills to sync</a>
           {/if}
           {#if terminalAccess&&enrolled}<a class="btn" href={`/machines?view=terminal&agent=${encodeURIComponent(enrolled.id)}`}>Open terminal</a>{/if}
-          {#if terminalAccess&&enrolled}{@const why = agentReadiness(enrolled.id)}<button class="btn" type="button" disabled={!!why || !!startAgent} aria-describedby={why ? `start-agent-${m}` : undefined} onclick={(event) => (startAgent = { agent: enrolled.id, opener: event.currentTarget })}>Start an agent</button>{/if}
+          {#if terminalAccess&&enrolled}{@const why = agentReadiness(enrolled.id)}<button class="btn" type="button" disabled={!!why} aria-describedby={why ? `start-agent-${m}` : undefined} onclick={(event) => (startAgent = { agent: enrolled.id, opener: event.currentTarget })}>Start an agent</button>{/if}
           <button class="btn" type="button" onclick={() => (commandsFor = machine)}>Commands</button>
           {#if canWrite}<button class="btn" type="button" onclick={() => (settingsHost = machine.host)}>Settings</button>{/if}
         </div>

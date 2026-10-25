@@ -190,7 +190,7 @@
     {#if pendingCreation?.error}<p class="creation-error" role="alert">{pendingCreation.error} The creation is unconfirmed. Retry checks the original operation.</p>{/if}
     <label>New session name<input bind:value={title} disabled={busy || !!requestId} maxlength="80" required placeholder="Build, deploy, investigate…" /></label>
     <button class="btn primary" disabled={busy || !validTerminalTitle(title.trim()) || (selectedAgent ? !machine?.ready || atQuota && !requestId : !machines.length)}>{busy ? 'Creating…' : requestId ? 'Retry creation' : 'New terminal'}</button>
-    <button type="button" class="btn new-agent" disabled={!machines.length||!!agentStart} onclick={event=>openAgentStart(selectedAgent,event.currentTarget)}>New agent session</button>
+    <button type="button" class="btn new-agent" disabled={!machines.length} onclick={event=>openAgentStart(selectedAgent,event.currentTarget)}>New agent session</button>
     {#if !machine?.ready}<p class="create-reason" role="status">{setup || 'Choose a machine before creating a shell.'}</p>{/if}
     <p>{activeSessions.length} / 8 active on this machine · {accountActive} / 32 across your account{atQuota ? ' · Session limit reached' : ''}. Existing shells keep running when you switch or disconnect.</p>
   </form>

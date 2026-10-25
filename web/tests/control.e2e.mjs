@@ -14,7 +14,7 @@ const scope=(id,host,agent,items)=>({id,host,agent,name:host,skills:items,skillC
 const environments=[scope('laptop-shared','dev-laptop','agents',skills.slice(0,2)),scope('laptop-claude','dev-laptop','claude',skills.slice(0,1)),scope('build-shared','build-server','agents',skills)]
 environments[0].content={state:'observed',schemaVersion:1,receivedAt:now,skills:[{name:'code-review',complete:true,digest:'a'.repeat(64),files:2,bytes:123}]}
 environments[1].content={state:'stale',schemaVersion:1,receivedAt:now-600000,skills:[{name:'code-review',complete:false,files:0,bytes:0,issues:['symlink']}]}
-let snapshot={environments,machines:['dev-laptop','build-server'].map(host=>({host,groups:environments.filter(e=>e.host===host),skillCount:host==='dev-laptop'?2:3})),agents:[{id:'a',host:'dev-laptop',version:'test',lastSeen:now,paused:false},{id:'b',host:'build-server',version:'test',lastSeen:now,paused:false}],targets:environments.map(target=>({target,sourceId:'shelf',sourceName:'Central library',mode:'additive',desired:skills,missing:skills.filter(s=>!target.skills.some(a=>a.id===s.id)),extra:[],revision:`rev-${target.id}`,updatedAt:now})),jobs:[]}
+let snapshot={environments,machines:['dev-laptop','build-server'].map(host=>({host,groups:environments.filter(e=>e.host===host),skillCount:host==='dev-laptop'?2:3})),agents:[{id:'a',host:'dev-laptop',version:'test',lastSeen:now,paused:false,autoUpdate:true},{id:'b',host:'build-server',version:'test',lastSeen:now,paused:false,autoUpdate:false}],releases:{latest:{version:'v1.4.2'}},updateJobs:[{id:'u1',agentId:'a',targetId:'',kind:'update',status:'succeeded',revision:'latest',hash:'',plan:{},message:'Updated to test. The agent is reporting again.',createdAt:now-120000,updatedAt:now-60000,stages:[{key:'queued',label:'Queued for the machine',status:'done'},{key:'install',label:'Installing the new binary',status:'done'}]},{id:'u2',agentId:'b',targetId:'',kind:'update',status:'failed',revision:'latest',hash:'',plan:{},message:'The checksum did not match.',createdAt:now-120000,updatedAt:now-60000,stages:[{key:'queued',label:'Queued for the machine',status:'done'},{key:'verify',label:'Verifying the checksum and build',status:'failed',detail:'Checksum mismatch'}]}],targets:environments.map(target=>({target,sourceId:'shelf',sourceName:'Central library',mode:'additive',desired:skills,missing:skills.filter(s=>!target.skills.some(a=>a.id===s.id)),extra:[],revision:`rev-${target.id}`,updatedAt:now})),jobs:[]}
 let terminalReady=true
 let viewer=false, failQueue=false, failSave=false, failState=false, failSource=false
 await page.route('**/api/**',async route=>{
@@ -38,6 +38,8 @@ await page.route('**/api/**',async route=>{
   data=snapshot
  }
  else if(path==='/api/v2/sync/adopt'){writes.push({path,body});data={ok:true}}
+ else if(path==='/api/v2/sync/agents'){writes.push({path,body});const agent=snapshot.agents.find(item=>item.id===body.id);if(agent&&body.action.startsWith('auto-update-'))agent.autoUpdate=body.action==='auto-update-on';if(agent&&(body.action==='pause'||body.action==='resume'))agent.paused=body.action==='pause';data=snapshot}
+ else if(path==='/api/v2/sync/agents/update'){writes.push({path,body});data=snapshot}
  else if(path==='/api/v2/sync/jobs'){
   writes.push({path,body})
   if(failQueue&&body.agentId==='b')return route.fulfill({status:409,json:{error:'Machine busy'}})
@@ -69,6 +71,41 @@ try {
  await expect(page.getByText('a'.repeat(64),{exact:true})).toBeVisible()
  await expect(page.getByText(/No skill files have been uploaded/).first()).toBeVisible()
  expect(writes).toEqual([])
+ await noOverflow()
+ // The update card speaks about the machine as it is now: a finished update is one line, not its steps.
+ const laptop=page.getByRole('article',{name:'dev-laptop'}), laptopUpdates=laptop.getByRole('region',{name:'reet updates for dev-laptop'})
+ await expect(laptopUpdates).toContainText('Up to date')
+ await expect(laptopUpdates).toContainText('Updated to test')
+ await expect(laptopUpdates).toContainText('Automatic updates are on')
+ await expect(laptopUpdates.getByText('Queued for the machine')).toHaveCount(0)
+ await expect(laptopUpdates.getByRole('button')).toHaveCount(0)
+ await expect(laptop.getByRole('checkbox',{name:'Update automatically'})).toHaveCount(0)
+ // A failure keeps its steps, folded, because the step it stopped at is where diagnosis starts.
+ const server=page.getByRole('article',{name:'build-server'}), serverUpdates=server.getByRole('region',{name:'reet updates for build-server'})
+ await expect(serverUpdates).toContainText('Update did not finish')
+ await expect(serverUpdates.getByText('Verifying the checksum and build')).toBeHidden()
+ await serverUpdates.getByText('Show the steps').click()
+ await expect(serverUpdates.getByText('Verifying the checksum and build')).toBeVisible()
+ await expect(serverUpdates.getByRole('button',{name:'Try again…'})).toBeVisible()
+ // Policies live in the machine's settings, not beside the update button.
+ await expect(laptop.getByRole('button',{name:'Manage'})).toHaveCount(0)
+ if(process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/machines-desktop.png`,fullPage:true})
+ await laptop.getByRole('button',{name:'Settings'}).click()
+ const settings=page.getByRole('dialog',{name:'dev-laptop'})
+ await expect(settings.getByRole('switch',{name:'Automatic updates'})).toBeChecked()
+ if(process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/machine-settings.png`})
+ await settings.getByRole('switch',{name:'Automatic updates'}).click()
+ expect(writes.at(-1)).toEqual({path:'/api/v2/sync/agents',body:{id:'a',action:'auto-update-off'}})
+ await expect(settings.getByRole('switch',{name:'Automatic updates'})).not.toBeChecked()
+ await expect(settings).toContainText('v1.4.2')
+ await settings.getByRole('button',{name:'Switch channel…'}).click()
+ const review=page.getByRole('dialog',{name:'Update reet on dev-laptop'})
+ await expect(review.getByRole('radio',{name:/Development|development/})).toBeChecked()
+ await review.getByRole('button',{name:'Update to the development build'}).click()
+ expect(writes.at(-1)).toEqual({path:'/api/v2/sync/agents/update',body:{id:'a',version:'dev'}})
+ await expect(page.getByRole('status').filter({hasText:'Switch to the development build queued for dev-laptop'})).toBeVisible()
+ await expect(page.getByRole('dialog')).toHaveCount(0)
+ writes.length=0
  await noOverflow()
  await page.goto(`${base}/sync`)
  await expect(page.getByRole('button',{name:'Sync all · preview'})).toBeEnabled()
@@ -151,6 +188,14 @@ try {
   await page.evaluate(()=>document.documentElement.dataset.theme='dark')
   await noOverflow()
   if(width===390&&process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/control-phone-dark.png`,fullPage:true})
+  await page.goto(`${base}/machines`)
+  await page.evaluate(()=>document.documentElement.dataset.theme='dark')
+  await page.getByRole('article',{name:'dev-laptop'}).getByRole('button',{name:'Settings'}).click()
+  await expect(page.getByRole('dialog',{name:'dev-laptop'})).toBeVisible()
+  await noOverflow()
+  if(width===390&&process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/machine-settings-phone-dark.png`})
+  await page.getByRole('button',{name:'Close settings'}).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.goto(`${base}/sync?machine=*`)
   await expect(page.locator('.scope-option')).toHaveCount(3)
   await noOverflow()

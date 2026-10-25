@@ -180,3 +180,35 @@ export function updateStateLabel(state: AgentUpdateState): string {
     unknown: 'Not checked',
   })[state]
 }
+
+// A running update is read by its steps; an ended one by its outcome. The steps of a
+// failure stay reachable because the step it stopped at is where diagnosis starts.
+export function updateStepsShown(job?: SyncJob): 'live' | 'folded' | 'hidden' {
+  if (!job?.stages?.length) return 'hidden'
+  if (job.status === 'queued' || job.status === 'running') return 'live'
+  if (job.status === 'failed' || job.status === 'rolled_back') return 'folded'
+  return 'hidden'
+}
+
+export type UpdateAction = { intent: 'review' | 'cancel'; emphasis: 'primary' | 'quiet'; label: string }
+
+// The card carries a button only when a person has something to do. Automatic
+// updates make the install the controller's job, so the offer steps back to quiet.
+export function updateAction(phase: AgentUpdateState, policy: { autoUpdate: boolean; updateWaiting: boolean }): UpdateAction | undefined {
+  if (phase === 'queued') return { intent: 'cancel', emphasis: 'quiet', label: 'Cancel update' }
+  if (phase === 'running' || phase === 'current') return undefined
+  if (phase === 'failed' || phase === 'rolled_back') return { intent: 'review', emphasis: 'primary', label: 'Try again…' }
+  if (phase === 'unknown') return { intent: 'review', emphasis: 'quiet', label: 'Update reet…' }
+  if (!policy.updateWaiting) return undefined
+  return policy.autoUpdate
+    ? { intent: 'review', emphasis: 'quiet', label: 'Update now…' }
+    : { intent: 'review', emphasis: 'primary', label: 'Review update…' }
+}
+
+// The build a channel points at, as the UI names it everywhere: the card, the
+// review and the machine's settings all describe the same move with the same words.
+export function channelBuild(releases: ReleaseInfo | undefined, channel: 'dev' | 'latest'): string {
+  if (channel === 'latest') return releases?.latest?.version ?? ''
+  if (releases?.dev?.commit) return `dev · ${shortCommit(releases.dev.commit)}`
+  return releases?.dev?.version === 'dev' ? 'dev' : ''
+}

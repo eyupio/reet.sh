@@ -53,7 +53,7 @@ const OWNED=manifestOf([file('SKILL.md',120)])
 // answered with the first record. Releasing needs the record's current version (internal/store/store_content_receipts.go).
 const SHARED_409='This ownership record is unavailable, blocked, changed or already exists. Preview again, and release existing ownership before adopting again.'
 let receiptsDb=[],receiptKeys=new Map(),receiptSeq=0,receiptsBroken=false,adoptHold=null,adoptRefuse=false,dropAdopt=null,releaseHold=null
-let breakdownHold={},adoptFail=0,releaseRefuse=false
+let breakdownHold={},adoptFail=0,releaseRefuse=false,previewGetFail=0,itemMissing='',receiptsFail=0,listFail=0
 const breakdownReads=[]
 const bdFile=(path,status,bytes=10,executable=false)=>({path,bytes,digest:'a'.repeat(64),executable,status})
 const BIG_PATH=`deep/${'ünïcödé-segment-without-any-break-'.repeat(8)}last.md`
@@ -126,6 +126,7 @@ await page.route('**/api/**',async route=>{
   pins=pins.filter(p=>p!==pin);data={removed:true}
  }
  else if(path==='/api/v2/skill-content-previews'&&method==='GET'){
+  if(listFail)return route.fulfill({status:listFail,json:{error:'missing or wrong token'}})
   if(previewsBroken)return route.fulfill({status:500,json:{error:'The checks could not be read right now.'}})
   data={previews:previewsDb.map(summary),capabilities:[{agentId:'agent-0',ready:capReady,observedAt:now}]}
  }
@@ -148,6 +149,8 @@ await page.route('**/api/**',async route=>{
  }
  else if(path.match(/^\/api\/v2\/skill-content-previews\/[^/]+$/)&&method==='GET'){
   const id=path.split('/').pop();previewReads.push(id)
+  if(itemMissing===id)return route.fulfill({status:404,json:{error:'content preview unavailable'}})
+  if(previewGetFail)return route.fulfill({status:previewGetFail,json:{error:previewGetFail===401?'missing or wrong token':'The checks could not be read right now.'}})
   if(previewGetHold)await previewGetHold.promise
   const p=previewsDb.find(x=>x.id===id);if(!p)return route.fulfill({status:404,json:{error:'content preview unavailable'}})
   // The browser may have abandoned this request while it was held.
@@ -158,7 +161,7 @@ await page.route('**/api/**',async route=>{
   const id=path.split('/').pop();previewsDb=previewsDb.filter(x=>x.id!==id);data={ok:true}
  }
  else if(path==='/api/v2/skill-content-receipts'&&method==='GET'){
-  if(receiptsBroken)return route.fulfill({status:500,json:{error:'The ownership records could not be read right now.'}})
+  if(receiptsBroken||receiptsFail>0){if(receiptsFail>0)receiptsFail--;return route.fulfill({status:500,json:{error:'The ownership records could not be read right now.'}})}
   data={receipts:receiptsDb}
  }
  else if(path==='/api/v2/skill-content-receipts'&&method==='POST'){
@@ -903,8 +906,51 @@ try{
   await expect(dialog.getByRole('button',{name:'Done'})).toBeInViewport()
  }
  await page.setViewportSize({width:1360,height:1000});await page.emulateMedia({colorScheme:'light'})
+ // Plain text tapped in a long result: the clock asking again each second takes neither focus nor the scroll position.
+ await page.setViewportSize({width:390,height:600})
+ {
+  const body=dialog.locator('.body')
+  await body.evaluate(el=>{el.scrollTop=400})
+  const scrolled=await body.evaluate(el=>el.scrollTop)
+  expect(scrolled).toBeGreaterThan(100)
+  await page.evaluate(()=>document.activeElement?.blur())
+  const box=await body.boundingBox()
+  await page.mouse.click(box.x+4,box.y+box.height-4)
+  expect(await page.evaluate(()=>document.activeElement?.tagName)).not.toBe('H3')
+  await page.waitForTimeout(2600)
+  expect(await body.evaluate(el=>el.scrollTop)).toBe(scrolled)
+  expect(await page.evaluate(()=>document.activeElement?.tagName)).not.toBe('H3')
+ }
+ await page.setViewportSize({width:1360,height:1000})
  await dialog.getByRole('button',{name:'Done'}).click()
  await expect(dialog).toHaveCount(0)
+ await quiet()
+
+ // The list can keep a check that the item read refuses: it is read once more at most, not over and over, and the person is told.
+ {
+  const missing=latest().id,before=reads(missing)
+  itemMissing=missing
+  await scopeButton('workstation',SHARED).evaluate(el=>el.click())
+  await expect(dialog).toBeVisible()
+  await pinsList.getByRole('button',{name:'Open check for demo'}).click()
+  await expect(dialog.getByRole('alert')).toHaveText('Something changed. Check again.')
+  await expect(dialog.getByText('Reading the latest check')).toHaveCount(0)
+  await expect(dialog.getByRole('button',{name:/^Check (this machine|again)$/})).toBeVisible()
+  await page.waitForTimeout(1500)
+  expect(reads(missing)-before).toBeLessThanOrEqual(2)
+  itemMissing=''
+  // A pin row says "Out of date" for a check made for an older version of the pin, as the Check step does.
+  await dialog.getByRole('button',{name:'Back to pins',exact:true}).click()
+  await dialog.getByRole('button',{name:'Done'}).click()
+  await expect(dialog).toHaveCount(0)
+  setLatest({state:'captured',reasons:[],targetVersion:'ver-before-the-pin-moved'})
+  await scopeButton('workstation',SHARED).evaluate(el=>el.click())
+  await expect(dialog).toBeVisible()
+  await expect(pinsList).toContainText('Last check: Out of date')
+  await expect(pinsList).not.toContainText('Last check: Checked')
+  await dialog.getByRole('button',{name:'Done'}).click()
+  await expect(dialog).toHaveCount(0)
+ }
  await quiet()
 
  // ---- The Adopt and Release steps ----
@@ -955,6 +1001,8 @@ try{
  setLatest(adoptCheck())
  await expect(recordHeading).toBeVisible({timeout:SECOND})
  await expect(radios).toHaveCount(3)
+ await expect(dialog.locator('section.adopt')).toContainText('Recording ownership says which of these files are identical to a revision in your library. It changes nothing on the machine.')
+ await expect(dialog.locator('section.adopt')).not.toContainText('published')
  for(let i=0;i<3;i++)await expect(radios.nth(i)).not.toBeChecked()
  await expect(choices.nth(0)).toContainText(L.d1)
  await expect(choices.nth(2)).toContainText(NEWEST)
@@ -1026,7 +1074,7 @@ try{
  // would be recorded, so nothing is sent and the records are read again.
  await recordBtn.click()
  await expect(asking).toBeVisible()
- await setHidden(true)
+ await setHidden(true);await settleReads()
  const recordReads=()=>requests.filter(r=>r.method==='GET'&&r.path===RECEIPTS).length,readsBeforeHash=recordReads()
  setLatest({reviewHash:'1'+HASH})
  await confirmRecord.click()
@@ -1047,7 +1095,7 @@ try{
  // own): the check is read once more, nothing is sent, and the screen says so.
  await recordBtn.click()
  await expect(asking).toBeVisible()
- await setHidden(true)
+ await setHidden(true);await settleReads()
  setLatest({reasons:['inventory_changed']})
  await confirmRecord.click()
  await expect(dialog.getByRole('alert')).toHaveText('Something changed. Check again.')
@@ -1084,6 +1132,17 @@ try{
   // It comes back with nothing chosen.
   for(let i=0;i<3;i++)await expect(radios.nth(i)).not.toBeChecked()
  }
+ // A confirmation that is open when the check lapses closes with a plain sentence rather than vanishing.
+ {
+  await choose(1)
+  await recordBtn.click()
+  await expect(asking).toBeVisible()
+  await setHidden(true);await settleReads();await page.evaluate(()=>{window.__skew=60000})
+  await expect(dialog.getByRole('alert')).toHaveText('That check is out of date. Check again.',{timeout:SECOND})
+  await expect(asking).toHaveCount(0)
+  await page.evaluate(()=>{window.__skew=0});await setHidden(false)
+  await expect(recordHeading).toBeVisible({timeout:SECOND})
+ }
  // A server that has gone off the check is heard while the step is open: its verdict arrives on the next read and the step goes.
  setLatest({state:'superseded',reasons:['inventory_changed']})
  await expect(recordHeading).toHaveCount(0,{timeout:SECOND})
@@ -1108,6 +1167,60 @@ try{
  await expect(dialog.getByText('No revision of this library skill matches the files in this folder')).toBeVisible()
  await expect(radios).toHaveCount(0)
  await expect(recordBtn).toBeDisabled()
+
+ // The scope stops qualifying while the step is open (a connector is paused elsewhere): recording is switched off with the reason,
+ // and a confirmation that was already open sends nothing and says why.
+ await adoptable()
+ await choose(1)
+ await expect(recordBtn).toBeEnabled()
+ await recordBtn.click()
+ await expect(asking).toBeVisible()
+ connectorsPaused=true
+ await expect(recordBtn).toBeDisabled({timeout:15000})
+ await expect(dialog.locator('section.adopt')).toContainText('The connector on this machine is paused')
+ {
+  const sentBefore=receiptPosts().length
+  await confirmRecord.click()
+  await expect(dialog.getByRole('alert')).toContainText('The connector on this machine is paused')
+  await afterRequests()
+  expect(receiptPosts()).toHaveLength(sentBefore)
+ }
+ connectorsPaused=false
+ await expect(recordBtn).toBeEnabled({timeout:15000})
+
+ // Reads of the watched check that fail are tried again more and more slowly, and keep a Try again (a sign-out is tested at the end).
+ {
+  const watched=latest().id
+  previewGetFail=500
+  await expect(dialog.getByRole('alert')).toContainText('The checks could not be read right now.',{timeout:SECOND})
+  await page.waitForTimeout(400)
+  const settledReads=reads(watched)
+  await page.waitForTimeout(2000)
+  expect(reads(watched)-settledReads).toBeLessThanOrEqual(1)
+  previewGetFail=0
+  await dialog.getByRole('alert').getByRole('button',{name:'Try again'}).click()
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  previewGetFail=0
+ }
+
+ // Confirming after something else has become busy says so, sends nothing, and the message goes once the other action is done.
+ await adoptable()
+ await choose(1)
+ await recordBtn.click()
+ await expect(asking).toBeVisible()
+ pinsHold=deferred()
+ await again.evaluate(el=>el.click())
+ {
+  const sentBusy=receiptPosts().length
+  await confirmRecord.click()
+  await expect(dialog.getByRole('alert')).toHaveText('Another action is still under way. Try again in a moment.')
+  expect(receiptPosts()).toHaveLength(sentBusy)
+ }
+ pinsHold.resolve();pinsHold=null
+ await expect.poll(()=>latest().state).toBe('queued')
+ setLatest(adoptCheck())
+ await expect(recordHeading).toBeVisible({timeout:SECOND})
+ await expect(dialog.getByRole('alert')).toHaveCount(0)
 
  // ---- Recording ownership ----
  // One click on Confirm sends one request with exactly the four fields, the review hash as the server gave it, even when the
@@ -1236,18 +1349,44 @@ try{
  // by itself once the records can be read.
  checkId=await adoptable()
  await choose(1)
- dropAdopt='after';receiptsBroken=true
+ dropAdopt='after';receiptsFail=2
  postsBefore=receiptPosts().length
  await attempt()
  await expect(dialog.getByRole('alert')).toContainText("Couldn't reach reet")
  expect(receiptPosts()).toHaveLength(postsBefore+1)
  await expect(records).toHaveCount(0)
- receiptsBroken=false
  await expect(records.getByRole('listitem')).toHaveCount(1,{timeout:SECOND})
+ // The message about the lost reply gives way to one that says what happened.
+ await expect(dialog.getByRole('alert')).toHaveCount(0)
+ await expect(dialog.locator('.live')).toContainText('That ownership was recorded.')
  expect(receiptPosts()).toHaveLength(postsBefore+1)
  await records.getByRole('button',{name:/^Release ownership/}).click()
  await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
  await expect(records).toHaveCount(0)
+
+ // The records stay unreadable: after about six tries (and none while the tab is hidden) the person is told it could not be confirmed.
+ checkId=await adoptable()
+ await choose(1)
+ dropAdopt='after';receiptsBroken=true
+ postsBefore=receiptPosts().length
+ await setHidden(true)
+ await recordBtn.click();await confirmRecord.click()
+ await expect(dialog.getByRole('alert')).toContainText("Couldn't reach reet")
+ await settleReads()
+ {
+  const n=requests.filter(r=>r.method==='GET'&&r.path===RECEIPTS).length
+  await page.waitForTimeout(700)
+  expect(requests.filter(r=>r.method==='GET'&&r.path===RECEIPTS).length).toBe(n)
+ }
+ await setHidden(false)
+ await expect(dialog.getByRole('alert')).toHaveText("Couldn't confirm whether that was recorded. Check the list below, or try again.",{timeout:SECOND})
+ expect(receiptPosts()).toHaveLength(postsBefore+1)
+ {
+  const n=requests.filter(r=>r.method==='GET'&&r.path===RECEIPTS).length
+  await page.waitForTimeout(600)
+  expect(requests.filter(r=>r.method==='GET'&&r.path===RECEIPTS).length).toBe(n)
+ }
+ receiptsBroken=false;receiptsDb=[]
 
  // A reply that never arrives and the records cannot be read either: the message is plain, the key is kept, and the next press
  // sends the same request, which the server answers once.
@@ -1527,6 +1666,48 @@ try{
 
  // Polling asked for three seconds while a check could change and ten once it was captured, and for nothing else.
  expect(await page.evaluate(()=>[...window.__poll.delays].sort((x,y)=>x-y))).toEqual([3000,10000])
+
+ // A sign-in that ends mid-flow: every read and timer stops, the plain sentence is said, and the page's own sign-in card takes over.
+ // (1) a poll of the watched check gets a 401.
+ const openCheckFresh=async()=>{
+  await page.reload()
+  await expect(card('workstation')).toBeVisible();await expand('workstation')
+  await scopeButton('workstation',SHARED).evaluate(el=>el.click())
+  await expect(dialog).toBeVisible()
+  await pinsList.getByRole('button',{name:'Open check for demo'}).click()
+  const n=checkPosts().length
+  await dialog.getByRole('button',{name:/^Check (this machine|again)$/}).click()
+  await expect.poll(()=>checkPosts().length).toBe(n+1)
+  setLatest(found())
+  await expect(heading('Found')).toBeVisible({timeout:SECOND})
+  return latest().id
+ }
+ {
+  const watched=await openCheckFresh()
+  previewGetFail=401
+  await expect(page.getByRole('heading',{name:'Sign in to your workspace'})).toBeVisible({timeout:SECOND})
+  const after=reads(watched)
+  await page.waitForTimeout(1200)
+  expect(reads(watched)).toBe(after)
+  previewGetFail=0
+ }
+ // (2) the capabilities read (running because the connector has not reported in) gets a 401: nothing re-arms it.
+ {
+  capReady=false
+  await page.reload()
+  await expect(card('workstation')).toBeVisible();await expand('workstation')
+  await scopeButton('workstation',SHARED).evaluate(el=>el.click())
+  await expect(dialog).toBeVisible()
+  await pinsList.getByRole('button',{name:'Open check for demo'}).click()
+  await expect(dialog).toContainText("hasn't checked in recently")
+  listFail=401
+  await expect(page.getByRole('heading',{name:'Sign in to your workspace'})).toBeVisible({timeout:SECOND})
+  const listReads=()=>requests.filter(r=>r.method==='GET'&&r.path===POSTS).length
+  const listed=listReads()
+  await page.waitForTimeout(1200)
+  expect(listReads()).toBe(listed)
+  listFail=0;capReady=true
+ }
 
  // A viewer and a legacy sign-in mode see no Private skills actions at all (and a legacy mode keeps the existing imports button).
  viewer=true;await page.reload()

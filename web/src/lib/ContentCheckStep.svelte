@@ -43,16 +43,19 @@
  const KINDS: Record<string, string> = { create: 'Would create', update: 'Would update', remove: 'Would remove' }
  const kindText = (kind: string) => (Object.prototype.hasOwnProperty.call(KINDS, kind) ? KINDS[kind] : 'Would change')
  const size = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`)
+ // Primitive values only, so the effect below runs when something changes and not each time the clock is asked again.
+ const kind = $derived(view.kind)
+ const checkId = $derived(check?.id)
  const progress = $derived(loading ? 'Reading the latest check…' : view.headline)
 
  // An action swaps the button that was pressed for another, which would leave focus nowhere: put it on the heading.
  let mounted = false
  $effect(() => {
-  void view.kind; void check?.id; void canResume; void busy
+  void kind; void checkId; void canResume; void busy
   if (!mounted) return
   void tick().then(() => {
    const a = document.activeElement
-   if (!a || a === document.body || a.tagName === 'DIALOG' || !a.isConnected || (a instanceof HTMLButtonElement && a.disabled)) headingEl?.focus()
+   if (!a || a === document.body || a.tagName === 'DIALOG' || !a.isConnected || (a instanceof HTMLButtonElement && a.disabled)) headingEl?.focus({ preventScroll: true })
   })
  })
  onMount(() => {

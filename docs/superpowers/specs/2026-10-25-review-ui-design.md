@@ -168,7 +168,7 @@ revision read that returns bytes is never called.
 - Native `<dialog>` with focus returned to its opener, a polite live region for check
   progress, captioned tables, keyboard-only operation, status shown in text as well as colour,
   reduced motion respected.
-- Fixed header and action footer with a scrolling body, no horizontal page scroll at 320, 375,
+- Fixed header and a footer holding **Done**, with a scrolling body that holds the primary actions beside what they act on (Save, Check, Record ownership, Release), which the fixture proves are reachable and uncovered; no horizontal page scroll at 320, 375,
   768 and 1440px, in light and dark.
 - Confirmations say what the action does not do. Release removes a record only; Remove pin
   removes intent only.

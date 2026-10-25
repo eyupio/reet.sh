@@ -53,7 +53,7 @@ const OWNED=manifestOf([file('SKILL.md',120)])
 // answered with the first record. Releasing needs the record's current version (internal/store/store_content_receipts.go).
 const SHARED_409='This ownership record is unavailable, blocked, changed or already exists. Preview again, and release existing ownership before adopting again.'
 let receiptsDb=[],receiptKeys=new Map(),receiptSeq=0,receiptsBroken=false,adoptHold=null,adoptRefuse=false,dropAdopt=null,releaseHold=null
-let breakdownHold={}
+let breakdownHold={},adoptFail=0,releaseRefuse=false
 const breakdownReads=[]
 const bdFile=(path,status,bytes=10,executable=false)=>({path,bytes,digest:'a'.repeat(64),executable,status})
 const BIG_PATH=`deep/${'ünïcödé-segment-without-any-break-'.repeat(8)}last.md`
@@ -164,6 +164,7 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/skill-content-receipts'&&method==='POST'){
   writes.push({method,path,body})
   if(dropAdopt==='before'){dropAdopt=null;return route.abort('failed')}
+  if(adoptFail)return route.fulfill({status:adoptFail,json:{error:'Private skill unavailable.'}})
   if(adoptHold)await adoptHold.promise
   const replayed=receiptsDb.find(r=>receiptKeys.get(r.id)===body.requestKey)
   const p=previewsDb.find(x=>x.id===body.previewId)
@@ -182,6 +183,7 @@ await page.route('**/api/**',async route=>{
  else if(path.match(/^\/api\/v2\/skill-content-receipts\/[^/]+$/)&&method==='DELETE'){
   writes.push({method,path,body})
   if(releaseHold)await releaseHold.promise
+  if(releaseRefuse)return route.fulfill({status:409,json:{error:SHARED_409}})
   const r=receiptsDb.find(x=>x.id===decodeURIComponent(path.split('/').pop()))
   if(!r)return route.fulfill({status:404,json:{error:'Ownership record or preview unavailable.'}})
   if(r.version!==body?.expectedVersion)return route.fulfill({status:409,json:{error:SHARED_409}})
@@ -245,6 +247,8 @@ const SHARED='Shared agents / Codex'
 const stamp=ms=>page.evaluate(t=>new Date(t).toLocaleString(),ms)
 // A request made now reaches the route after any made before it, so once it has, an earlier one would be in the log.
 const afterRequests=()=>page.evaluate(()=>fetch('/api/version').then(r=>r.status))
+// A read that was already under way when the tab was hidden has landed: it would otherwise be stamped with the moved clock.
+const settleReads=async()=>{await afterRequests();await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>setTimeout(r,0))))}
 const noIds=(...texts)=>{for(const text of texts)expect(text).not.toMatch(/[0-9a-f]{8}/)}
 
 try{
@@ -774,6 +778,7 @@ try{
  // A captured read the browser has not renewed for thirty seconds is not shown as current. The clock is moved on while the
  // tab is hidden (so nothing reads again), then put back and the read renewed.
  await setHidden(true)
+ await settleReads()
  await page.evaluate(()=>{window.__skew=60000})
  await expect(dialog.getByText('Updating this result')).toBeVisible({timeout:SECOND})
  await expect(heading('Found')).toHaveCount(0)
@@ -924,6 +929,8 @@ try{
  const adoptable=async(over={})=>{const n=checkPosts().length;await again.click();await expect.poll(()=>checkPosts().length).toBe(n+1);setLatest(adoptCheck(over));await expect(recordHeading).toBeVisible({timeout:SECOND});return latest().id}
  // The check that follows a recording is waiting for the machine until the machine reports; it reports an owned folder.
  const settled=async()=>{await expect.poll(()=>latest().state).toBe('queued');setLatest(found({plan:planOf({preconditions:{baseline:{manifest:OWNED}}})}));await expect(dialog.getByText('Up to date.',{exact:false})).toBeVisible({timeout:SECOND})}
+ // The tab is hidden for the two clicks so no poll can land between them, then shown again.
+ const attempt=async()=>{await setHidden(true);await recordBtn.click();await confirmRecord.click();await setHidden(false)}
  const choose=async i=>{await radios.nth(i).check();await expect(bdTable).toBeVisible()}
 
  // The records cannot be read when the dialog opens: the pins and the checks still work, a plain note offers a retry.
@@ -1015,6 +1022,27 @@ try{
  expect(receiptPosts()).toEqual([])
  await expect(recordBtn).toBeFocused()
 
+ // The check is still captured but its review hash is another one by the time it is confirmed: what the person saw is not what
+ // would be recorded, so nothing is sent and the records are read again.
+ await recordBtn.click()
+ await expect(asking).toBeVisible()
+ await setHidden(true)
+ const recordReads=()=>requests.filter(r=>r.method==='GET'&&r.path===RECEIPTS).length,readsBeforeHash=recordReads()
+ setLatest({reviewHash:'1'+HASH})
+ await confirmRecord.click()
+ await expect(dialog.getByRole('alert')).toHaveText('Something changed. Check again.')
+ await afterRequests()
+ expect(receiptPosts()).toEqual([])
+ expect(recordReads()).toBeGreaterThan(readsBeforeHash)
+ await setHidden(false)
+ // The table is read again for the new hash, and Record ownership waits for it.
+ breakdownHold={[R.d2]:deferred()}
+ setLatest({reviewHash:'2'+HASH})
+ await expect(recordBtn).toBeDisabled()
+ await expect(dialog.getByText('Reading the file list for this revision')).toBeVisible()
+ breakdownHold[R.d2].resolve();breakdownHold={}
+ await expect(recordBtn).toBeEnabled()
+
  // The check goes out of date between opening the confirmation and confirming it (the tab is hidden, so nothing re-reads on its
  // own): the check is read once more, nothing is sent, and the screen says so.
  await recordBtn.click()
@@ -1048,7 +1076,7 @@ try{
  {
   const n=checkPosts().length;await again.click();await expect.poll(()=>checkPosts().length).toBe(n+1)
   setLatest(adoptCheck());await expect(recordHeading).toBeVisible({timeout:SECOND})
-  await setHidden(true);await page.evaluate(()=>{window.__skew=60000})
+  await setHidden(true);await settleReads();await page.evaluate(()=>{window.__skew=60000})
   await expect(dialog.getByText('Updating this result')).toBeVisible({timeout:SECOND})
   await expect(recordBtn).toHaveCount(0);await expect(recordHeading).toHaveCount(0)
   await page.evaluate(()=>{window.__skew=0});await setHidden(false)
@@ -1146,6 +1174,25 @@ try{
  await releaseAsk.getByRole('button',{name:'Cancel'}).click()
  expect(receiptDeletes()).toEqual([])
  await expect(releaseBtn).toBeFocused()
+ // A refusal with the version unchanged says nothing was released, not "check again".
+ releaseRefuse=true
+ await releaseBtn.click()
+ await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
+ await expect(dialog.getByRole('alert')).toHaveText('Nothing was released. Try again.')
+ releaseRefuse=false
+ expect(receiptDeletes()).toHaveLength(1)
+ // Confirming after something else has become busy says so, rather than doing nothing.
+ await releaseBtn.click()
+ await expect(releaseAsk).toBeVisible()
+ pinsHold=deferred()
+ await again.evaluate(el=>el.click())
+ await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
+ await expect(dialog.getByRole('alert')).toHaveText('Another action is still under way. Try again in a moment.')
+ expect(receiptDeletes()).toHaveLength(1)
+ pinsHold.resolve();pinsHold=null
+ await expect.poll(()=>latest().state).toBe('queued')
+ setLatest(found({plan:planOf({preconditions:{baseline:{manifest:OWNED}}})}))
+ await expect(dialog.getByText('Up to date.',{exact:false})).toBeVisible({timeout:SECOND})
  // A version that moved on is refused: the records are read again and the screen says what changed, without the server's words.
  const heldRecord=receiptsDb[0],oldVersion=heldRecord.version
  heldRecord.version='rv-elsewhere'
@@ -1153,15 +1200,15 @@ try{
  await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
  await expect(dialog.getByRole('alert')).toContainText('The ownership record for demo changed elsewhere. Nothing was released.')
  await alertText()
- expect(receiptDeletes()).toHaveLength(1)
- expect(receiptDeletes()[0].body).toEqual({expectedVersion:oldVersion})
+ expect(receiptDeletes()).toHaveLength(2)
+ expect(receiptDeletes()[1].body).toEqual({expectedVersion:oldVersion})
  await expect(item).toContainText('demo')
  // Read again, the next release carries the version that is current now, and says what was done.
  await releaseBtn.click()
  await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
  await expect(records).toHaveCount(0)
- expect(receiptDeletes()).toHaveLength(2)
- expect(receiptDeletes()[1]).toEqual({method:'DELETE',path:`${RECEIPTS}/${heldRecord.id}`,body:{expectedVersion:'rv-elsewhere'}})
+ expect(receiptDeletes()).toHaveLength(3)
+ expect(receiptDeletes()[2]).toEqual({method:'DELETE',path:`${RECEIPTS}/${heldRecord.id}`,body:{expectedVersion:'rv-elsewhere'}})
  await expect(said).toContainText('Ownership released for demo.')
  await expect(said).toContainText('nothing on the machine changed')
  await expect(dialog.getByRole('heading',{name:/^Private skills on/})).toBeFocused()
@@ -1173,7 +1220,7 @@ try{
  dropAdopt='after'
  let postsBefore=receiptPosts().length
  const checksAtLost=checkPosts().length
- await recordBtn.click();await confirmRecord.click()
+ await attempt()
  await expect(records.getByRole('listitem')).toHaveCount(1)
  expect(receiptPosts()).toHaveLength(postsBefore+1)
  await expect(dialog.getByRole('alert')).toHaveCount(0)
@@ -1185,19 +1232,36 @@ try{
  await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
  await expect(records).toHaveCount(0)
 
+ // The reply is lost AND the records cannot be read: the record that exists is not listed yet, nothing is sent twice, and it appears
+ // by itself once the records can be read.
+ checkId=await adoptable()
+ await choose(1)
+ dropAdopt='after';receiptsBroken=true
+ postsBefore=receiptPosts().length
+ await attempt()
+ await expect(dialog.getByRole('alert')).toContainText("Couldn't reach reet")
+ expect(receiptPosts()).toHaveLength(postsBefore+1)
+ await expect(records).toHaveCount(0)
+ receiptsBroken=false
+ await expect(records.getByRole('listitem')).toHaveCount(1,{timeout:SECOND})
+ expect(receiptPosts()).toHaveLength(postsBefore+1)
+ await records.getByRole('button',{name:/^Release ownership/}).click()
+ await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
+ await expect(records).toHaveCount(0)
+
  // A reply that never arrives and the records cannot be read either: the message is plain, the key is kept, and the next press
  // sends the same request, which the server answers once.
  checkId=await adoptable()
  await choose(1)
  dropAdopt='before';receiptsBroken=true
  postsBefore=receiptPosts().length
- await recordBtn.click();await confirmRecord.click()
+ await attempt()
  await expect(dialog.getByRole('alert')).toContainText("Couldn't reach reet")
  expect(receiptPosts()).toHaveLength(postsBefore+1)
  const lostAdoptKey=receiptPosts()[postsBefore].body.requestKey
  receiptsBroken=false
  await expect(recordBtn).toBeEnabled()
- await recordBtn.click();await confirmRecord.click()
+ await attempt()
  await expect(records.getByRole('listitem')).toHaveCount(1)
  expect(receiptPosts()).toHaveLength(postsBefore+2)
  expect(receiptPosts()[postsBefore+1].body.requestKey).toBe(lostAdoptKey)
@@ -1208,38 +1272,76 @@ try{
  await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
  await expect(records).toHaveCount(0)
 
+ // At the account's limit of 1,024 records the refusal says so.
+ checkId=await adoptable()
+ await choose(1)
+ receiptsDb=Array.from({length:1024},(_,i)=>({id:`bulk${i}`,environmentId:'scope-stale',agentId:'agent-0',name:`bulk-${i}`,bundleId:B.demo,revisionId:R.d1,managedDigest:'m'.repeat(64),fileCount:1,provenance:'adopted',verification:'controller_attested',evidence:{previewId:`x${i}`,reviewHash:'y',captureHash:'c',observedDigest:'o',pinId:'p',pinVersion:'v',capturedAt:1,adoptedAt:1,adoptedBy:1},version:`rv-bulk-${i}`,createdAt:1,updatedAt:1}))
+ adoptRefuse=true
+ await attempt()
+ await expect(dialog.getByRole('alert')).toContainText('This account already holds the most ownership records it can (1,024).')
+ expect(await alertText()).not.toMatch(/check again/i)
+ receiptsDb=[];adoptRefuse=false
+
  // The server refuses (a 409 whose text is shared by many causes): the screen says what happened in its own words, the dialog stays
  // usable, and a new deliberate attempt is a new request key.
  checkId=await adoptable()
  await choose(1)
  adoptRefuse=true
  postsBefore=receiptPosts().length
- await recordBtn.click();await confirmRecord.click()
- await expect(dialog.getByRole('alert')).toContainText('Nothing was recorded.')
- await expect(dialog.getByRole('alert')).toContainText('Check again.')
- await alertText()
+ await attempt()
+ // Nothing explains the refusal and the check read again is as it was: it does not send the person off to check again.
+ await expect(dialog.getByRole('alert')).toContainText("Nothing was recorded. reet couldn't record ownership this time. Try again; if it keeps happening, release a record you no longer need.")
+ expect(await alertText()).not.toMatch(/check again/i)
  expect(receiptPosts()).toHaveLength(postsBefore+1)
  await expect(again).toBeEnabled()
  await expect(recordBtn).toBeEnabled()
  adoptRefuse=false
- await recordBtn.click();await confirmRecord.click()
+ await attempt()
  await expect(records.getByRole('listitem')).toHaveCount(1)
  expect(receiptPosts()).toHaveLength(postsBefore+2)
  expect(receiptPosts()[postsBefore+1].body.requestKey).not.toBe(receiptPosts()[postsBefore].body.requestKey)
  await expect(dialog.getByRole('alert')).toHaveCount(0)
- // A slot that already holds a record says so, rather than the shared sentence.
+ await settled()
  await records.getByRole('button',{name:/^Release ownership/}).click()
  await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
  await expect(records).toHaveCount(0)
 
+ // Somebody else recorded the skill meanwhile: the refusal says the folder already has a record, and the record is listed.
+ checkId=await adoptable()
+ await choose(1)
+ receiptsDb=[{id:'rcptaken',environmentId:'scope-one',agentId:'agent-0',name:'demo',bundleId:B.demo,revisionId:R.d1,managedDigest:'m'.repeat(64),fileCount:2,provenance:'adopted',verification:'controller_attested',evidence:{previewId:'x',reviewHash:'y',captureHash:'c',observedDigest:'o',pinId:'p',pinVersion:'v',capturedAt:1,adoptedAt:1,adoptedBy:1},version:'rv-taken',createdAt:Date.now(),updatedAt:Date.now()}]
+ await attempt()
+ await expect(dialog.getByRole('alert')).toContainText('demo already has an ownership record in this folder.')
+ await alertText()
+ await expect(records.getByRole('listitem')).toHaveCount(1)
+ await records.getByRole('button',{name:/^Release ownership/}).click()
+ await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
+ await expect(records).toHaveCount(0)
+ // A viewer's refusal and an unavailable check have their own words, and neither shows the server's.
+ checkId=await adoptable()
+ await choose(1)
+ adoptFail=403
+ await attempt()
+ await expect(dialog.getByRole('alert')).toHaveText("Your account can only view, so it can't record ownership.")
+ adoptFail=404
+ await attempt()
+ await expect(dialog.getByRole('alert')).toContainText('Nothing was recorded.')
+ expect(await alertText()).not.toMatch(/unavailable/i)
+ adoptFail=0
+
  // A record that can no longer be read is released and nothing more is said about it; a record for another scope is not shown.
- receiptsDb=[{id:'rcpdamaged',environmentId:'scope-one',agentId:'agent-0',name:'ghost',bundleId:'',revisionId:'',managedDigest:'',fileCount:0,provenance:'',verification:'',evidence:{},version:'rv-damaged',createdAt:0,updatedAt:0,damaged:true},{id:'rcpelsewhere',environmentId:'scope-stale',agentId:'agent-0',name:'other-scope',bundleId:B.demo,revisionId:R.d1,managedDigest:'m'.repeat(64),fileCount:2,provenance:'adopted',verification:'controller_attested',evidence:{previewId:'x',reviewHash:'y',captureHash:'c',observedDigest:'o',pinId:'p',pinVersion:'v',capturedAt:1,adoptedAt:1,adoptedBy:1},version:'rv-else',createdAt:1,updatedAt:1}]
+ receiptsDb=[{id:'rcpolder',environmentId:'scope-one',agentId:'agent-0',name:'older',bundleId:B.demo,revisionId:hex('9'),managedDigest:'m'.repeat(64),fileCount:1,provenance:'adopted',verification:'controller_attested',evidence:{previewId:'x',reviewHash:'y',captureHash:'c',observedDigest:'o',pinId:'p',pinVersion:'v',capturedAt:1,adoptedAt:1,adoptedBy:1},version:'rv-older',createdAt:Date.now(),updatedAt:Date.now()},{id:'rcpdamaged',environmentId:'scope-one',agentId:'agent-0',name:'ghost',bundleId:'',revisionId:'',managedDigest:'',fileCount:0,provenance:'',verification:'',evidence:{},version:'rv-damaged',createdAt:0,updatedAt:0,damaged:true},{id:'rcpelsewhere',environmentId:'scope-stale',agentId:'agent-0',name:'other-scope',bundleId:B.demo,revisionId:R.d1,managedDigest:'m'.repeat(64),fileCount:2,provenance:'adopted',verification:'controller_attested',evidence:{previewId:'x',reviewHash:'y',captureHash:'c',observedDigest:'o',pinId:'p',pinVersion:'v',capturedAt:1,adoptedAt:1,adoptedBy:1},version:'rv-else',createdAt:1,updatedAt:1}]
  await dialog.getByRole('button',{name:'Back to pins',exact:true}).click()
  await dialog.getByRole('button',{name:'Done'}).click()
  await expect(dialog).toHaveCount(0)
  await scopeButton('workstation',SHARED).evaluate(el=>el.click())
- await expect(records.getByRole('listitem')).toHaveCount(1)
- const ghost=records.getByRole('listitem').first()
+ await expect(records.getByRole('listitem')).toHaveCount(2)
+ // A record whose revision the library no longer lists is "an older revision", never a fragment of an id.
+ const older=records.getByRole('listitem').filter({hasText:'older'}).first()
+ await expect(older).toContainText('An older revision · 1 file')
+ await expect(older).not.toContainText(/Revision an/i)
+ noIds(await older.innerText())
+ const ghost=records.getByRole('listitem').filter({hasText:'ghost'}).first()
  await expect(ghost).toContainText('ghost')
  await expect(ghost).toContainText("This record can't be read. It can still be released.")
  for(const word of [/file/i,/Recorded/,/revision/i,/verified/i])await expect(ghost).not.toContainText(word)
@@ -1247,11 +1349,169 @@ try{
  await expect(records).not.toContainText('other-scope')
  await ghost.getByRole('button',{name:/^Release ownership/}).click()
  await page.getByRole('dialog',{name:'Release ownership of ghost?'}).getByRole('button',{name:'Release ownership',exact:true}).click()
+ await expect(records.getByRole('listitem')).toHaveCount(1)
+ await older.getByRole('button',{name:/^Release ownership/}).click()
+ await page.getByRole('dialog',{name:'Release ownership of older?'}).getByRole('button',{name:'Release ownership',exact:true}).click()
  await expect(records).toHaveCount(0)
- expect(receiptDeletes().at(-1)).toEqual({method:'DELETE',path:`${RECEIPTS}/rcpdamaged`,body:{expectedVersion:'rv-damaged'}})
+ expect(receiptDeletes().find(d=>d.path.endsWith('rcpdamaged'))).toEqual({method:'DELETE',path:`${RECEIPTS}/rcpdamaged`,body:{expectedVersion:'rv-damaged'}})
  await dialog.getByRole('button',{name:'Done'}).click()
  await expect(dialog).toHaveCount(0)
  await quiet()
+
+ // ---- Layout, focus and motion across sizes and themes ----
+ // Every step and both confirmations at four widths in light and dark: the page never scrolls sideways, the dialog stays inside the
+ // window with its header and footer in view, and each primary action can be reached (scrolled to inside the dialog's own body and
+ // not covered by anything). Focus goes back to what opened the dialog, or to a control that is still there, after each confirmation;
+ // Escape closes only the top dialog and writes nothing; with reduced motion nothing in the dialogs animates or transitions.
+ const SIZES=[[1360,1000],[768,1024],[390,844],[320,640]],SCHEMES=['light','dark']
+ let home=[1360,1000,'light']
+ const setView=async(width,height,scheme)=>{await page.setViewportSize({width,height});await page.emulateMedia({colorScheme:scheme})}
+ const reachable=async target=>{
+  await target.scrollIntoViewIfNeeded()
+  await expect(target).toBeInViewport()
+  expect(await target.evaluate(el=>{const r=el.getBoundingClientRect(),hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return !!hit&&(hit===el||el.contains(hit))})).toBe(true)
+ }
+ // top: the confirmation is the dialog on top, so it is the one that must sit inside the window.
+ const holds=async(targets,{top=false}={})=>{
+  await layout()
+  if(top)expect(await page.evaluate(()=>{const d=[...document.querySelectorAll('dialog[open]')].at(-1),r=d.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+.5&&r.top>=0&&r.bottom<=innerHeight+.5&&d.scrollWidth<=d.clientWidth+1})).toBe(true)
+  else{
+   expect(await fits()).toBe(true)
+   await expect(dialog.getByRole('button',{name:'Close private skills'})).toBeInViewport()
+   await expect(dialog.getByRole('button',{name:'Done'})).toBeInViewport()
+  }
+  for(const target of targets)await reachable(target)
+  expect(await page.evaluate(()=>[...document.querySelectorAll('dialog[open] [role=region]')].every(el=>el.scrollWidth<=el.clientWidth+1))).toBe(true)
+ }
+ const sweep=async(targets,opts)=>{
+  for(const [width,height] of SIZES)for(const scheme of SCHEMES){await setView(width,height,scheme);await holds(targets,opts)}
+  await setView(...home)
+ }
+ // What is animating or could transition inside any open dialog. Computed styles are read, so the answer does not depend on timing.
+ const motion=()=>page.evaluate(()=>{
+  const running=document.getAnimations().filter(a=>a.playState==='running'&&a.effect?.target?.closest?.('dialog')).length
+  const styled=[...document.querySelectorAll('dialog[open]')].flatMap(d=>[d,...d.querySelectorAll('*')]).filter(el=>{const s=getComputedStyle(el);return s.animationName!=='none'||s.transitionDuration.split(',').some(x=>parseFloat(x)>0)}).length
+  return {running,styled}
+ })
+ const matrixPin=(name,bundleId,revisionId)=>({id:`pin-matrix-${name.length}`,environmentId:'scope-one',agentId:'agent-0',name,bundleId,revisionId,manifestDigest:'0'.repeat(64),mode:'additive',version:`ver-matrix-${name.length}`,updatedAt:now,verification:'not_verified'})
+ const matrixRecords=()=>[{id:'rcpolder',environmentId:'scope-one',agentId:'agent-0',name:'older',bundleId:B.demo,revisionId:hex('9'),managedDigest:'m'.repeat(64),fileCount:1,provenance:'adopted',verification:'controller_attested',evidence:{previewId:'x',reviewHash:'y',captureHash:'c',observedDigest:'o',pinId:'p',pinVersion:'v',capturedAt:1,adoptedAt:1,adoptedBy:1},version:'rv-older',createdAt:Date.now(),updatedAt:Date.now()},{id:'rcpdamaged',environmentId:'scope-one',agentId:'agent-0',name:'ghost',bundleId:'',revisionId:'',managedDigest:'',fileCount:0,provenance:'',verification:'',evidence:{},version:'rv-damaged',createdAt:0,updatedAt:0,damaged:true}]
+ const bulk=Array.from({length:60},(_,i)=>file(`references/${'a-very-long-unbroken-file-name-'.repeat(3)}${i}-ünïcödé.md`,100+i))
+
+ // One walk through the dialog: open, every step, both confirmations (cancelled with Escape, cancelled with the button, then
+ // confirmed), the records list with a damaged record, and the two ways to close. full sweeps all eight size and theme pairs at
+ // every state; otherwise the state is held to the size and theme it is run at.
+ const lifecycle=async(label,[width,height,scheme],{full=false,reduce=false}={})=>{
+  home=[width,height,scheme]
+  await setView(width,height,scheme)
+  await page.emulateMedia({reducedMotion:reduce?'reduce':'no-preference'})
+  authMode='accounts';viewer=false;connectorsPaused=false;capReady=true;previewsBroken=false;pinsBroken=false;receiptsBroken=false
+  adoptFail=0;adoptRefuse=false;dropAdopt=null;dropCreate=null;releaseRefuse=false;releaseHold=null;adoptHold=null;breakdownHold={};hold=null;pinsHold=null;previewGetHold=null
+  pins=[...pins.filter(p=>p.id==='pin-elsewhere'),matrixPin('demo',B.demo,R.d3),matrixPin(LONG_NAME,B.long,R.l1)]
+  previewsDb=[];receiptsDb=matrixRecords();receiptKeys=new Map()
+  const stays=async()=>{if(reduce)expect(await motion()).toEqual({running:0,styled:0})}
+  const state=async(targets,opts)=>{await (full?sweep:holds)(targets,opts);await stays()}
+  const sent=()=>writes.length
+
+  await expand('workstation')
+  await opener.click()
+  await expect(dialog).toBeVisible()
+  await expect(pinsList.getByRole('listitem')).toHaveCount(2)
+  const rows=records.getByRole('listitem')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.filter({hasText:'ghost'})).toContainText("This record can't be read. It can still be released.")
+  await state([dialog.getByRole('button',{name:'Save pin'}),rows.first().getByRole('button',{name:/^Release ownership/}),rows.last().getByRole('button',{name:/^Release ownership/})])
+  // Not vacuous: without the preference the buttons do transition, so the reduced run below proves something.
+  if(!reduce)expect((await motion()).styled).toBeGreaterThan(0)
+
+  // Check step: nothing checked yet, waiting for the machine, then a found folder with a long list of files.
+  await pinsList.getByRole('button',{name:'Open check for demo'}).click()
+  await expect(checkBtn).toBeEnabled()
+  await expect(checkHeading).toBeFocused()
+  await state([checkBtn])
+  const made=checkPosts().length
+  await checkBtn.click()
+  await expect.poll(()=>checkPosts().length).toBe(made+1)
+  await expect(live).toContainText('Waiting for the machine')
+  await state([dialog.getByRole('button',{name:'Stop this check',exact:true})])
+  setLatest(found({capture:captureOf('present',{manifest:manifestOf([file('SKILL.md',120),...bulk])})}))
+  await expect(heading('Found')).toBeVisible({timeout:SECOND})
+  await state([again,dialog.getByRole('button',{name:'Dismiss this result'})])
+
+  // Adopt step: nothing chosen, then 256 files with a very long path, then the confirmation.
+  await adoptable()
+  await state([recordBtn])
+  await choose(2)
+  await expect(bdTable.locator('tbody tr')).toHaveCount(256)
+  await expect(recordBtn).toBeEnabled()
+  await state([recordBtn])
+  await recordBtn.click()
+  await expect(asking).toBeVisible()
+  await state([asking.getByRole('button',{name:'Cancel'}),confirmRecord],{top:true})
+  if(!reduce)expect((await motion()).styled).toBeGreaterThan(0)
+  // Escape closes the confirmation only: the dialog stays, focus returns to the button that asked, and nothing was written.
+  let before=sent()
+  await page.keyboard.press('Escape')
+  await expect(asking).toHaveCount(0)
+  await expect(dialog).toBeVisible()
+  await expect(recordBtn).toBeFocused()
+  expect(sent()).toBe(before)
+  await recordBtn.click()
+  await expect(asking).toBeVisible()
+  await asking.getByRole('button',{name:'Cancel'}).click()
+  await expect(asking).toHaveCount(0)
+  await expect(recordBtn).toBeFocused()
+  expect(sent()).toBe(before)
+  // Confirming records once, and focus goes to the Check step's heading because the button that asked has gone.
+  const recorded=receiptPosts().length
+  await recordBtn.click()
+  await confirmRecord.click()
+  await expect.poll(()=>receiptPosts().length).toBe(recorded+1)
+  await expect(recordBtn).toHaveCount(0)
+  await expect(checkHeading).toBeFocused()
+  await settled()
+  await expect(rows).toHaveCount(3)
+  await state([again,rows.filter({has:page.getByText('demo',{exact:true})}).getByRole('button',{name:'Release ownership of demo'})])
+
+  // Release: the same three ways out of the confirmation. Releasing leaves focus on the records heading, which is still there.
+  const releaseDemo=rows.filter({has:page.getByText('demo',{exact:true})}).getByRole('button',{name:'Release ownership of demo'})
+  await releaseDemo.click()
+  await expect(releaseAsk).toBeVisible()
+  await state([releaseAsk.getByRole('button',{name:'Cancel'}),releaseAsk.getByRole('button',{name:'Release ownership',exact:true})],{top:true})
+  before=sent()
+  await page.keyboard.press('Escape')
+  await expect(releaseAsk).toHaveCount(0)
+  await expect(dialog).toBeVisible()
+  await expect(releaseDemo).toBeFocused()
+  await releaseDemo.click()
+  await releaseAsk.getByRole('button',{name:'Cancel'}).click()
+  await expect(releaseDemo).toBeFocused()
+  expect(sent()).toBe(before)
+  await releaseDemo.click()
+  await releaseAsk.getByRole('button',{name:'Release ownership',exact:true}).click()
+  await expect(rows).toHaveCount(2)
+  await expect(records.getByRole('heading',{name:'Ownership records in this folder'})).toBeFocused()
+  await state([again])
+
+  // Closing: Escape writes nothing and hands focus back to the opener; so does Done on the next opening.
+  before=sent()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
+  expect(sent()).toBe(before)
+  await opener.click()
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button',{name:'Done'}).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
+  await quiet()
+  await stays()
+ }
+ await lifecycle('desktop, light',[1360,1000,'light'],{full:true})
+ await lifecycle('tablet, dark',[768,1024,'dark'])
+ await lifecycle('phone, light',[390,844,'light'])
+ await lifecycle('narrow phone, dark, reduced motion',[320,640,'dark'],{reduce:true})
+ await page.emulateMedia({reducedMotion:'no-preference'})
+ await setView(1360,1000,'light')
 
  // Pins, checks and ownership never touch browser storage: not one write, from the moment the dialog first opened, and the
  // stored state is what it was. Nothing ever asked for revision bytes or any other read of a skill's files.

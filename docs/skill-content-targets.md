@@ -10,8 +10,9 @@ This slice supplies the persistent desired input for the
 [pure content planner](skill-content-planner.md). The
 [negotiated metadata-only preview](skill-content-preview.md) now reads a pin and
 observes one machine, and [ownership receipts with explicit adoption](skill-content-receipts.md)
-have since been added; approval UI and reviewed execution remain separate stages. There is
-no new browser control in this slice.
+have since been added; reviewed execution remains a separate stage. This slice added no
+browser control; the [Private skills dialog](skill-content-review-ui.md) has since given
+pins one (pin, change and remove, with the pin's version sent on every write).
 
 ## Ownership and scope
 
@@ -144,8 +145,9 @@ content or pins. There is no new export/restore format in this slice.
    [the receipts contract](skill-content-receipts.md). Adopted receipts are
    controller-attested; verified `applied` receipts remain for the executor, and a tree
    with no receipt still needs adoption.
-3. **Still to do:** a review UI joined to pin selection, connected only to truthful
-   metadata states. Pins, previews and receipts all have API only.
+3. **Done in a following slice:** a review UI joined to pin selection, connected only to
+   truthful metadata states: the [Private skills dialog](skill-content-review-ui.md) covers
+   pins, checks and ownership records.
 4. Add reviewed execution as a subsequent slice: full payload staging, local locks,
    immediate precondition revalidation, recoverable journal/backups, installed
    verification and durable receipts. Do not close S4 or begin S5 fleet apply until

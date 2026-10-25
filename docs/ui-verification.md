@@ -158,3 +158,63 @@ Validation:
 ![Merged machine with aliases and maintenance controls](images/ui/machine-aliases-tablet.png)
 
 This does not alter production records until deployed and used. The repair tests use temporary databases and fake skill folders; physical device/browser and screen-reader checks remain manual.
+
+## Private skills dialog: layout, focus and motion matrix — 25 October 2026
+
+Built on main `e5399b6` plus the fix round `d75b873`. This records what the browser fixture
+`web/tests/skill-content.e2e.mjs` now checks for the [Private skills dialog](skill-content-review-ui.md),
+what an accessibility scan found, and what was not checked. It adds no component change: the
+matrix found no layout or focus defect.
+
+**Layout matrix.** Ten states, each at 1360, 768, 390 and 320px wide in light and dark (eight
+size and theme pairs per state): the Pin step with two pins (one with a very long unbroken name)
+and two ownership records (one damaged); the Check step before a check, while waiting for the
+machine, and with a found folder of 60 long unicode file names; the Adopt step with nothing chosen
+and with the 256-file breakdown including a very long unicode path; the record confirmation; the
+read-only "Up to date" result with three ownership records; the release confirmation; and the same result after the release, with two records. For each
+state the page has no horizontal overflow, the dialog sits inside the window with **Close** in the
+header and **Done** in the footer in view, no scrolling table or file list overflows sideways, each
+primary action is scrolled to inside the dialog's own body and a hit test at its centre lands on it
+(nothing covers it), and a confirmation sits inside the window with both its buttons reachable. The
+primary actions are in the scrolling body (**Save pin**, **Check this machine** or **Check again**,
+**Record ownership**, **Release ownership**) and in the confirmations; the fixed footer holds **Done**.
+
+**Focus and Escape.** One walk through the dialog is made at 1360 light, 768 dark, 390 light and 320
+dark, opened by a real click on the scope's button. Escape in the record confirmation closes only that
+confirmation, returns focus to **Record ownership** and sends nothing; **Cancel** does the same;
+**Confirm and record** sends one request and focus moves to the Check step's heading because the
+button has gone. The same three ways out of the release confirmation leave focus on **Release
+ownership** (cancelled) or the records heading (released). Escape on the dialog closes it, writes
+nothing and returns focus to the opener, and so does **Done** on a second opening.
+
+**Reduced motion.** The 320px walk runs with `prefers-reduced-motion: reduce`. In every state, and with
+both confirmations open, no animation in any open dialog is running and no element in an open
+dialog has an animation or a non-zero transition in its computed style. Without the preference the
+buttons do transition, so the check is not vacuous; removing the no-preference guard from the
+confirmation's entrance animation, as a deliberate break, made the fixture fail.
+
+**Runs.** Four consecutive local runs of the fixture passed against the production build (126, 120,
+127 and 123 seconds; the file took about 80 seconds before the matrix). An earlier run of the first
+version of the matrix hit a race in an older check, the one that moves the browser clock on by a
+minute while the tab is hidden: a read that was already under way landed after the clock had moved
+and was stamped as fresh. The fixture now waits for that read before moving the clock
+(`settleReads`), and the four runs above are after that fix. The machine-import, control and
+public-workspace fixtures also passed.
+
+**Accessibility scan.** `axe-core` 4.10.2 was installed with `npm` in a temporary directory outside
+the repository (nothing was added to `package.json` or the lock file) and run through Playwright over a
+copy of the same walk, scoped to the topmost open dialog, with the `wcag2a`, `wcag2aa`, `wcag21a`,
+`wcag21aa` and `wcag22aa` rule tags. That is 40 scans: the ten states above at 375 and 1440px in light
+and dark. With transitions off (reduced motion) there were no violations, and the same with
+transitions on and a 600 millisecond wait before each scan. A first pass without that wait reported
+`color-contrast` on buttons in 17 of the 40 scans, which disappeared once the transitions had
+finished; axe was reading colours part-way through a 150 millisecond transition, so I treat those as
+a timing artefact of the scan and not as a contrast defect, though I did not measure the contrast
+ratios by hand. Axe also reported `color-contrast` as "incomplete" (it could not decide) in 34 to 36 of the 40
+scans and `th-has-data-cells` in 4, and these were not reviewed further. The scan is not a
+CI gate and the script is not part of the repository.
+
+**Not checked.** No physical phone or tablet, no screen reader, no Safari or Firefox: only Chromium,
+driven by a fixture that answers every API call with synthetic data. The fixture proves what the page
+does with those answers, not what a connector or the server would send. Touch target sizes were not
+measured. No production data, machine, terminal session or deployment was involved.

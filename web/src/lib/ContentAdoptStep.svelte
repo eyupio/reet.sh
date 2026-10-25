@@ -20,13 +20,15 @@
  const candidates = $derived(candidatesFor(check.adoption))
  let chosen = $state(''), breakdown = $state<AdoptionBreakdown | null>(null), loadingBreakdown = $state(false), breakdownError = $state('')
  let asking = $state(false), sending = false
+ // What the table on screen was read for. The hash that is sent is this one, never whatever the check holds now.
+ let loadedFor = $state<{ previewId: string; reviewHash: string; revisionId: string } | null>(null)
  let generation = 0, abort: AbortController | undefined, lastKey = ''
  // What the breakdown on screen was read for: another read of the same check changes nothing, a different review hash does.
  const key = $derived(`${check.id}:${check.reviewHash ?? ''}`)
  const rows = $derived(breakdown && breakdown.revisionId === chosen ? groupBreakdown(breakdown) : [])
  const summary = $derived(breakdown && breakdown.revisionId === chosen ? claimSummary(breakdown) : undefined)
  const loaded = $derived(!!summary && !loadingBreakdown && breakdownError === '')
- const canRecord = $derived(loaded && !!summary && summary.claimed > 0 && chosen !== '' && !busy && typeof check.reviewHash === 'string' && check.reviewHash !== '')
+ const canRecord = $derived(loaded && !!summary && summary.claimed > 0 && chosen !== '' && !busy && !!loadedFor && loadedFor.previewId === check.id && loadedFor.reviewHash === check.reviewHash && loadedFor.revisionId === chosen && loadedFor.reviewHash !== '')
  const nameOf = (id: string, i: number) => labelFor(id) || `Another revision (${i + 1})`
  const chosenName = $derived(nameOf(chosen, Math.max(0, candidates.findIndex(c => c.revisionId === chosen))))
  const size = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`)
@@ -35,16 +37,17 @@
  async function loadBreakdown() {
   abort?.abort()
   const mine = ++generation
-  breakdown = null; breakdownError = ''
+  breakdown = null; loadedFor = null; breakdownError = ''
   if (!chosen) { loadingBreakdown = false; return }
   const revision = chosen
+  const forKey = { previewId: check.id, reviewHash: check.reviewHash ?? '', revisionId: revision }
   const own = new AbortController(); abort = own
   loadingBreakdown = true
   try {
    const read = await getAdoptionBreakdown(check.id, revision, own.signal)
    if (mine !== generation) return
    if (read.revisionId !== revision) { breakdownError = "This revision can't be compared with the folder any more. Check again."; return }
-   breakdown = read
+   breakdown = read; loadedFor = forKey
   } catch (e) {
    if (mine === generation && !own.signal.aborted) breakdownError = breakdownNote(e)
   } finally {
@@ -73,10 +76,10 @@
 
  async function confirmed() {
   asking = false
-  const hash = check.reviewHash
-  if (sending || busy || !chosen || typeof hash !== 'string') return
+  const read = loadedFor
+  if (sending || !chosen || !read || read.revisionId !== chosen || read.reviewHash === '') return
   sending = true
-  try { await onadopt(chosen, { previewId: check.id, reviewHash: hash }) } finally { sending = false }
+  try { await onadopt(read.revisionId, { previewId: read.previewId, reviewHash: read.reviewHash }) } finally { sending = false }
  }
 </script>
 

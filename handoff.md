@@ -2,15 +2,28 @@
 
 ## Read this first — 24 October 2026
 
-**Latest slice: S4 ownership receipts and adoption.** The user authorised stacked pull
+**Latest slice (25 October 2026): S4 review UI, the Private skills dialog.** Delivered on
+branch `claude/gallant-darwin-n9oqfj` through pull requests #178 to #185 (the design and plan,
+the metadata-only adoption breakdown endpoint, the client API and pure review logic, the dialog
+with the Pin step, the Check step, and Adopt and Release; #183 in that run of numbers belongs to
+another branch) and one closing pull request that adds the size, theme, focus, Escape and
+reduced-motion matrix to the browser fixture, the guide
+[docs/skill-content-review-ui.md](docs/skill-content-review-ui.md) and this record. From
+Machines, the signed-in owner can pin a library revision to a machine folder, check what the
+machine holds, review the file breakdown, and record or release ownership. It writes nothing to
+any machine, adds no MCP tool and has no apply authority. The reviewed executor, `applied`
+receipts and S5 are **not** started. Read the guide first. The pull request links are
+authoritative for final heads, CI and merge state.
+
+**Before that: S4 ownership receipts and adoption.** The user authorised stacked pull
 requests on branch `claude/gallant-darwin-n9oqfj`: [#173](https://github.com/eyupio/reet.sh/pull/173)
 (spec and plan), [#174](https://github.com/eyupio/reet.sh/pull/174) (planner, claim, storage,
 previews), [#175](https://github.com/eyupio/reet.sh/pull/175) (adoption and lifecycle) and
 [#176](https://github.com/eyupio/reet.sh/pull/176) (API, audit labels, typed refusals,
-documents and this record) are all merged. It is API only: no browser control, no MCP tool, no
-filesystem write and no apply authority. The reviewed executor, `applied` receipts and S5
-are **not** started. Read [the receipts contract](docs/skill-content-receipts.md) first. The
-PR links are authoritative for final heads, CI and merge state.
+documents and this record) are all merged. That slice was API only: no browser control, no MCP
+tool, no filesystem write and no apply authority. Read
+[the receipts contract](docs/skill-content-receipts.md) for the API. The PR links are
+authoritative for final heads, CI and merge state.
 
 **Before that: resumed after [PR #171](https://github.com/eyupio/reet.sh/pull/171) merged as `1eb92c0`.**
 The user explicitly authorised continuation with one bounded S4 slice: the negotiated
@@ -121,9 +134,13 @@ The user requested a status report and continued roadmap delivery after PR #155.
 - **S4 ownership receipts and adoption:** controller-attested receipts are the planner's
   baseline and an explicit, hash-bound adoption creates them (PRs #173 to
   [#176](https://github.com/eyupio/reet.sh/pull/176) merged). Read
-  [the receipts contract](docs/skill-content-receipts.md). API only; nothing writes to a
-  machine. A review UI and the reviewed executor are separate slices, in an order the
-  user chooses. S4 and S5 remain incomplete.
+  [the receipts contract](docs/skill-content-receipts.md). That slice was API only.
+- **S4 review UI:** the Private skills dialog on Machines (pin, check, review the file
+  breakdown, record and release ownership) merged through PRs #178 to #185, with its closing
+  documentation and responsive matrix in one more pull request. Read
+  [the dialog guide](docs/skill-content-review-ui.md). Nothing writes to a machine. The reviewed
+  executor is the next unchecked S4 work, in an order the user chooses. S4 and S5 remain
+  incomplete.
 - **Later:** A1–A3 registered agent launch/activity/attention; W1–W3 projects,
   worktrees/diffs/structured tool review; L1–L4 AI software/MCP fleet maintenance
   and optional isolation. Existing machine inventory and setup snapshots are a
@@ -1016,9 +1033,9 @@ recovery as a fully working recovered agent environment.
    base when network/authentication are available. Preserve existing edits.
    Confirm the previous slice's state through its live PR/CI/merge record, then start
    from current main and preserve local edits.
-3. Pick **one bounded next slice** from the continuation list in the S4 preview record
-   and docs/skill-content-preview.md; the user chooses the order. T1–T9, S1–S3 and the
-   S4 planner, pins and preview are done; do not restart them. Do not build an execution
+3. Pick **one bounded next slice** from the continuation lists in the S4 records
+   and docs/skill-content-receipts.md; the user chooses the order. T1–T9, S1–S3 and the
+   S4 planner, pins, preview, ownership receipts and review UI are done; do not restart them. Do not build an execution
    control before its prerequisite is present or turn the whole roadmap into one PR.
 4. Before editing, state the task ID, files affected, expected behaviour and checks.
    Resolve routine implementation choices from existing conventions. If a domain
@@ -1580,6 +1597,87 @@ Read [docs/skill-content-receipts.md](docs/skill-content-receipts.md). Branch
   jobs on macOS and Ubuntu, the terminal browser job, and CodeQL with its four analyses
   (`publish` is skipped on pull requests). Nothing is deployed, and a merge is not deployment.
 
+#### S4 review UI, the Private skills dialog — PRs #178 to #185 and the closing pull request
+
+Read [docs/skill-content-review-ui.md](docs/skill-content-review-ui.md). Branch
+`claude/gallant-darwin-n9oqfj`. The design is
+`docs/superpowers/specs/2026-10-25-review-ui-design.md` and the task plan is
+`docs/superpowers/plans/2026-10-25-review-ui.md`.
+
+- **Task and scope.** A browser flow over the three existing APIs: pin a library revision to a
+  machine folder, check what the machine holds, review a file breakdown, and record or release
+  ownership. The user authorised stacking the work into several pull requests, each merged when
+  green. No filesystem write, no MCP tool, no apply, no executor, no `applied` receipt, and no
+  change to terminals, the security/PIN preference or the legacy sync flows.
+- **Merge history to know.** The user merged PRs #180 and #185 before their review fix rounds were pushed, so
+  `main` held the Task 2 client logic (#180) and the Adopt and Release steps (#185) for a short while
+  without those fixes; the fixes landed in #181 and in the closing pull request. The Adopt fix concerned
+  two Important review findings (a refused adoption whose cause the screen cannot see said "Something
+  changed" although the check still looked fine, and a lost reply with a failed records read left a
+  recorded ownership unlisted). Neither allowed ownership to be recorded from a stale check.
+- **Follow-ups from the broad review (not done).** Split the ~1,500-line `skill-content.e2e.mjs` into pin,
+  check and adopt/release files over a shared fixture module and consider running the 10-state layout matrix
+  nightly; cache revision lists per bundle across reloads; a receipts-aware prune guard and what the dialog
+  should say about Forget and merge dropping ownership records; MCP exposure and the reviewed executor.
+- **Behaviour added.**
+  - `GET /api/v2/skill-content-previews/{id}/adoption/{revision}` (PR #179): a metadata-only,
+    read-only breakdown of which files adoption would claim, computed with the claim function
+    adoption uses. Documented in the receipts contract.
+  - `web/src/lib/contentReview.ts`: every label, state and decision rule, pure and unit tested;
+    unknown codes read "Something changed. Check again." and never enable Adopt.
+  - `MachineSkillContent.svelte` (dialog shell), `ContentPinStep.svelte`, `ContentCheckStep.svelte`,
+    `ContentAdoptStep.svelte`, `ContentReceipts.svelte` and `checkWatcher.svelte.ts` (polling,
+    request keys, busy and resume). Entry points are **Private skills** on each supported scope and
+    **Pin a library revision** on each reported skill, in `MachineFleet.svelte` and
+    `ContentObservation.svelte`. Accounts mode and a write role only.
+  - Freshness is judged from when the browser received a response, never by comparing clocks: a
+    captured read older than 30 seconds is "refreshing" until read again, and a captured check is
+    read every ten seconds while shown. Adoption re-reads the check first and sends the review hash
+    exactly as given. Request keys live in memory only; nothing is kept in browser storage.
+  - Closing round: a size, theme, focus, Escape and reduced-motion matrix in
+    `web/tests/skill-content.e2e.mjs`. Ten states at 1360, 768, 390 and 320px in light and dark; four
+    walks checking focus on the opener, on the control that asked and on a heading after an action
+    removes the control; Escape closing only the top dialog and writing nothing; and a reduced-motion
+    walk with no running animation or transition in any dialog. No component needed changing.
+- **Verification I ran for the closing pull request.** The browser fixture
+  `web/tests/skill-content.e2e.mjs` passed four consecutive local runs against the production build
+  (126, 120, 127 and 123 seconds) with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/pw-browsers/chromium`
+  and `npm run preview -- --host 127.0.0.1 --port 4173`; the machine-import, control and
+  public-workspace fixtures passed. An earlier run of the first version of the matrix failed once in
+  an older check that moves the clock on while the tab is hidden (a read already under way was stamped
+  fresh); the fixture now waits for that read first. An `axe-core` 4.10.2 scan run from a temporary
+  directory outside the repository (no dependency added) covered the ten states at 375 and 1440px in
+  light and dark, 40 scans, with no violations once transitions had finished; an unsettled first pass
+  flagged button `color-contrast` mid-transition, which I took to be a timing artefact and did not
+  confirm by hand. Details and limits are in [docs/ui-verification.md](docs/ui-verification.md). The
+  full validation (frontend check and build, `go vet`, `go test -race` with tmux on `PATH`, the MCP
+  tests, the mutation checks on the UI's key guards) and the published workflows are recorded in the
+  pull requests, not repeated here.
+- **Not performed.** No physical phone or tablet, screen reader, Safari or Firefox check; the
+  fixtures use synthetic API responses in Chromium. No live machine, production service, terminal
+  session or fleet. Nothing writes to a machine, so no recovery gate applies yet.
+- **Known limitations and decisions.**
+  - "Up to date" means the recorded files match the pinned revision, not that the machine is healthy.
+    An ownership record is the controller's attestation from a recent check and is never described as
+    verified; the sentence is "Recorded by reet from a recent check, not verified on the machine."
+  - "Applying changes isn't available yet." is shown under any read-only change list.
+  - The breakdown does not check the 1,024-record limit, so an account at the limit can see claims
+    adoption then refuses; the screen words that refusal itself.
+  - The dialog does not yet say that the machine page's per-report Forget drops ownership records
+    with the report; that follow-up from the receipts record stands.
+  - Follow-ups still open: the reviewed executor (the dialog will be reused for approval), MCP
+    exposure for pins, checks and records, a fleet overview, bulk actions and a receipts-aware prune
+    guard.
+- **Next unchecked work and first files.** The reviewed executor with temporary-filesystem
+  failure, crash and recovery gates (`docs/skill-content-planner.md` items 5 to 7,
+  `internal/skillplan/plan.go`, `skillContentReceiptBaseline` in
+  `internal/store/store_content_receipts.go`, `skillContentReviewIdentity` in
+  `internal/store/store_content_previews.go`). S4 cannot close, and S5 cannot start, before the
+  executor and its gates pass.
+- **Publication / deployment state.** Recorded on the pull requests: #178 to #185 are merged, and
+  the closing pull request carries the final head, the workflow results and the merge. Nothing is
+  deployed, and a merge is not deployment.
+
 #### Remaining S4 integration and apply gates
 
 The preview slice meets item 1 and the review-only part of item 2 below, and the ownership
@@ -1961,10 +2059,11 @@ working agent authentication or complete environment recovery.
 > connector updates are integrated; they are not
 > AI-agent software maintenance. Read docs/skill-content-receipts.md,
 > docs/skill-content-preview.md, docs/skill-content-targets.md and
-> docs/skill-content-planner.md. Nothing writes to a machine yet; the only baselines are
+> docs/skill-content-planner.md. The review UI (the Private skills dialog, PRs #178 to #185
+> and a closing documentation pull request) is described in docs/skill-content-review-ui.md.
+> Nothing writes to a machine yet; the only baselines are
 > controller-attested adoption receipts, and a tree with none needs adoption. The next slice
-> is the user's choice: review UI with pin selection and receipt review, or the reviewed
-> executor. Keep terminal sessions, the deferred user-controlled PIN/security preference,
+> is the reviewed executor, unless the user chooses another follow-up. Keep terminal sessions, the deferred user-controlled PIN/security preference,
 > exact byte/mode manifests and stable retry receipts intact; do not jump to remote apply
 > or the whole roadmap. Build the frontend before Go checks, record actual evidence,
 > update this handoff and publish one reviewable PR per bounded stage.

@@ -320,12 +320,26 @@ export function breakdownNote(e: unknown): string {
  * the check says now decide. owned is true when this scope now holds an ownership record for the skill; reasons are the
  * fence reasons of the check read again (already in words).
  */
-export function adoptRefusal(status: number, name: string, owned: boolean, reasons: string[]): string {
+export const RECEIPT_LIMIT = 1024
+export type AdoptRefusalContext = {
+  /** This scope now holds a record for the skill. */
+  owned: boolean
+  /** The fence reasons of the check read again, in words. */
+  reasons: string[]
+  /** The check read again is still current and adoptable (false when it could not be read). */
+  adoptable: boolean
+  /** How many ownership records the account holds (the list is account-wide). */
+  records: number
+}
+export function adoptRefusal(status: number, name: string, ctx: AdoptRefusalContext): string {
   if (status === 403) return "Your account can only view, so it can't record ownership."
   if (status === 409 || status === 404) {
-    if (owned) return `${name} already has an ownership record in this folder. Nothing was recorded. Release that record first if you want to record ownership again.`
-    if (reasons.length > 0) return `Nothing was recorded. ${reasons.join(' ')} Check again.`
-    return 'Nothing was recorded. Something changed since the check was made. Check again.'
+    if (ctx.owned) return `${name} already has an ownership record in this folder. Nothing was recorded. Release that record first if you want to record ownership again.`
+    if (ctx.reasons.length > 0) return `Nothing was recorded. ${ctx.reasons.join(' ')} Check again.`
+    if (!ctx.adoptable) return 'Nothing was recorded. Something changed since the check was made. Check again.'
+    // The check still stands and nothing explains the refusal: do not blame the check.
+    if (ctx.records >= RECEIPT_LIMIT) return `Nothing was recorded. This account already holds the most ownership records it can (${RECEIPT_LIMIT.toLocaleString('en-GB')}). Release a record you no longer need, then try again.`
+    return "Nothing was recorded. reet couldn't record ownership this time. Try again; if it keeps happening, release a record you no longer need."
   }
   return ''
 }
@@ -337,8 +351,11 @@ export function releaseNote(before: Pick<ContentReceipt, 'version'>, after: Pick
   return ''
 }
 
-/** The label of a record's revision from a list that has been read; never the start of an id. */
-export const receiptRevision = (id: string, list: PrivateRevision[] | undefined, head: string | undefined): string => (list ? revisionLabels(list, head).get(id) : undefined) ?? 'a revision no longer listed'
+/** A record's revision as a phrase: "revision <date>" from a list that has been read, otherwise "an older revision"; never the start of an id. */
+export function receiptRevision(id: string, list: PrivateRevision[] | undefined, head: string | undefined): string {
+  const label = list ? revisionLabels(list, head).get(id) : undefined
+  return label ? `revision ${label}` : 'an older revision'
+}
 
 /** Whether a listed record is the one an adoption of this check and revision made (the way a lost reply is reconciled). */
 export const madeByAdoption = (r: ContentReceipt, previewId: string, revisionId: string): boolean => r.damaged !== true && r.evidence?.previewId === previewId && r.revisionId === revisionId

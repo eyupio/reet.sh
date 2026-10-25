@@ -28,8 +28,11 @@ const nameOf = (tool: string): string => TOOLS.find(t => t.id === tool)?.name ??
 export function modelSuggestions(tool: string): string[] { return [...(SUGGESTIONS[tool] ?? [])] }
 
 /** An empty model is fine (the agent picks its own). */
+/** The value to send: validateModel looks at the trimmed text, so the caller must send this, not the raw input. */
+export const cleanModel = (model: string): string => String(model ?? '').trim()
+
 export function validateModel(model: string): string | null {
-  const s = String(model ?? '').trim()
+  const s = cleanModel(model)
   if (s === '') return null
   return MODEL.test(s) ? null : "That model name isn't one reet can pass on. Use letters, digits and . _ : / @ + -, up to 100 characters, starting with a letter or digit."
 }
@@ -49,8 +52,23 @@ export function validatePrompt(tool: string, prompt: string): string | null {
   return null
 }
 
+// Control and format characters (Go's ValidTitle rejects both) and the two Unicode line separators.
+const INVISIBLE = new RegExp('[\\p{Cc}\\p{Cf}\\u2028\\u2029]', 'u')
+const hasLoneSurrogate = (s: string): boolean => [...s].some(c => { const n = c.codePointAt(0)!; return n >= 0xd800 && n <= 0xdfff })
+export const MAX_DIR_BYTES = 4096
+
+/** A folder to start in: absolute, at most 4,096 bytes, valid text, nothing invisible. Empty is not valid here: it means the home folder. */
+export function validateDir(dir: string): string | null {
+  const s = String(dir ?? '')
+  if (!s.startsWith('/')) return 'Use a full path that starts with /.'
+  if (hasLoneSurrogate(s)) return 'Use a folder path that is valid text.'
+  if (new TextEncoder().encode(s).length > MAX_DIR_BYTES) return `That folder path is too long. Use at most ${MAX_DIR_BYTES} bytes; accented letters and emoji take more than one.`
+  if (INVISIBLE.test(s)) return 'Use a folder path without control or invisible characters.'
+  return null
+}
+
 export type FolderChoice = { path: string; label: string }
-/** Home first (an empty path means the enrolled home), then the project folders the machine has reported, once each. */
+/** Home first (an empty path means the enrolled home), then the project folders the machine has reported, once each. Odd paths are left out, not rewritten. */
 export function folderChoices(machine: { host: string } | undefined, snapshot: Machine[] | undefined): FolderChoice[] {
   const out: FolderChoice[] = [{ path: '', label: 'Home folder' }]
   if (!machine || !Array.isArray(snapshot)) return out
@@ -60,9 +78,9 @@ export function folderChoices(machine: { host: string } | undefined, snapshot: M
     if (!m || typeof m.host !== 'string' || m.host.toLowerCase() !== host || !Array.isArray(m.groups)) continue
     for (const g of m.groups) {
       const raw = typeof g?.project === 'string' ? g.project : ''
-      if (!raw.startsWith('/')) continue
       const path = raw.length > 1 ? raw.replace(/\/+$/, '') : raw
-      if (path === '' || path === '/' || seen.has(path)) continue
+      if (path === '' || path === '/' || seen.has(path) || validateDir(path) !== null) continue
+      if (path.split('/').slice(1).some(part => part === '' || part === '.' || part === '..')) continue
       seen.add(path)
       out.push({ path, label: path })
     }
@@ -70,23 +88,24 @@ export function folderChoices(machine: { host: string } | undefined, snapshot: M
   return out
 }
 
+/** One text for the dialog: what will start, that nothing runs until Start, and (with a prompt) where the prompt can be seen. */
 export function launchSentence(tool: string, dir: string, machine: string, hasPrompt: boolean): string {
-  return `Start ${nameOf(tool)} in ${dir ? dir : 'the home folder'} on ${machine}${hasPrompt ? ' with your opening prompt' : ''}.`
+  const start = `Starts ${nameOf(tool)} in ${dir ? dir : 'the home folder'} on ${machine}. Nothing runs until you press Start.`
+  return hasPrompt ? `${start} The prompt is kept with the session record and is visible to other users of that machine in its process list.` : start
 }
 
-/** The session title: the agent, and the last part of the folder when one is chosen. At most 80 characters, no controls. */
+/** The session title: the agent, and the last part of the folder when one is chosen. At most 80 characters, no control or format characters. */
 export function titleFor(tool: string, dir: string): string {
   const name = nameOf(tool)
   const last = String(dir ?? '').split('/').filter(Boolean).pop() ?? ''
-  const odd = [...last].some(c => { const n = c.codePointAt(0)!; return badControl(n) || n === 0x0a || (n >= 0x200b && n <= 0x200f) || (n >= 0x202a && n <= 0x202e) || (n >= 0x2066 && n <= 0x2069) || n === 0xfeff })
-  if (last === '' || odd) return name
-  const title = `${name} · ${last}`
+  if (last === '' || INVISIBLE.test(last) || hasLoneSurrogate(last)) return name
+  const title = `${name} \u00b7 ${last}`
   return Array.from(title).length <= 80 ? title : Array.from(title).slice(0, 80).join('')
 }
 
 /**
- * The sentence for a refused start. `message` is the server's own text, used only to tell apart refusals that share a
- * status: the session limit and a changed request are both 409, and "disabled" is how the server says terminals are off.
+ * The sentence for a refused start. The server sends {error, message} and, for launch refusals only, a `code`. `message`
+ * is the server's own text, used to tell apart refusals that share a status.
  */
 export function refusalText(status: number, code?: string, message?: string): string {
   const c = code ?? ''
@@ -95,9 +114,9 @@ export function refusalText(status: number, code?: string, message?: string): st
   if (status === 422 && c === 'tool_not_installed') return "That agent isn't installed on that machine."
   if (status === 422 && c === 'folder_unavailable') return "That folder isn't available on that machine."
   if (status === 422 && c === 'prompt_unsupported') return 'Write the opening prompt as at least two words.'
-  if (status === 409 && (c === 'capacity' || c === 'session_limit' || msg.includes('session limit'))) return 'That machine already has the most sessions it allows.'
+  if (status === 409 && c === '' && msg.includes('session limit')) return 'The terminal session limit has been reached. End a session and try again.'
   if (status === 409 && c === '') return 'That request changed. Start it again.'
   if (status === 503) return 'That machine is reconnecting. Try again in a moment.'
-  if (status === 403 && (c === 'terminal_disabled' || c === 'consent_off' || msg.includes('disabled'))) return 'Browser terminals are switched off on that machine.'
+  if (status === 403 && msg.includes('disabled by the server')) return 'Browser terminals are switched off on this server.'
   return SOMETHING_CHANGED
 }

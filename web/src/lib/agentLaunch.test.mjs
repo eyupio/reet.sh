@@ -7,7 +7,7 @@ const source = ts.transpileModule(readFileSync(new URL('./agentLaunch.ts', impor
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText
 const m = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
-const { TOOLS, MAX_PROMPT_BYTES, modelSuggestions, validateModel, validatePrompt, folderChoices, launchSentence, refusalText, titleFor } = m
+const { cleanModel, validateDir, TOOLS, MAX_PROMPT_BYTES, modelSuggestions, validateModel, validatePrompt, folderChoices, launchSentence, refusalText, titleFor } = m
 
 test('tools are the four built-in ids', () => {
   assert.deepEqual(TOOLS, [{ id: 'claude', name: 'Claude Code' }, { id: 'codex', name: 'Codex' }, { id: 'opencode', name: 'OpenCode' }, { id: 'gemini', name: 'Gemini CLI' }])
@@ -67,10 +67,49 @@ test('prompt rule', () => {
   assert.equal(validatePrompt('claude', 'a b\ud800'), 'Use a prompt that is valid text.')
 })
 
-test('folder choices: home first, project folders, deduplicated, absolute only', () => {
+const ch = (...n) => String.fromCodePoint(...n)
+const BAD_CHARS = { newline: '\n', tab: '\t', del: ch(0x7f), c1: ch(0x85), bidiOverride: ch(0x202e), isolate: ch(0x2066), zeroWidth: ch(0x200b), feff: ch(0xfeff), softHyphen: ch(0xad), wordJoiner: ch(0x2060), arabicMark: ch(0x61c), ls: ch(0x2028), ps: ch(0x2029) }
+
+test('prompts: separators and the two-word rule', () => {
+  const ctl = 'Use a prompt without control characters other than line breaks.'
+  assert.equal(validatePrompt('claude', 'a b' + ch(0x2028)), ctl)
+  assert.equal(validatePrompt('claude', 'a b' + ch(0x2029)), ctl)
+  assert.equal(validatePrompt('gemini', 'a' + ch(0x2028) + 'b'), ctl)
+  const two = 'Write the opening prompt as at least two words.'
+  assert.equal(validatePrompt('claude', 'a\nb'), null)
+  assert.equal(validatePrompt('codex', 'a b'), null)
+  assert.equal(validatePrompt('claude', 'a b'), null)
+  assert.equal(validatePrompt('codex', 'a\nb'), null)
+  assert.equal(validatePrompt('claude', 'word'), two)
+  assert.equal(validatePrompt('codex', 'word'), two)
+  assert.equal(validatePrompt('opencode', 'word'), null)
+  assert.equal(validatePrompt('gemini', 'word'), null)
+})
+
+test('cleanModel returns the trimmed value', () => {
+  assert.equal(cleanModel('  opus '), 'opus')
+  assert.equal(cleanModel(''), '')
+  assert.equal(validateModel(' opus '), null)
+})
+
+test('folder rule', () => {
+  assert.equal(validateDir('/work/app'), null)
+  assert.equal(validateDir('/'), null)
+  const abs = 'Use a full path that starts with /.'
+  assert.equal(validateDir('work/app'), abs)
+  assert.equal(validateDir(''), abs)
+  assert.equal(validateDir('/' + 'a'.repeat(4095)), null)
+  assert.equal(validateDir('/' + 'a'.repeat(4096)), 'That folder path is too long. Use at most 4096 bytes; accented letters and emoji take more than one.')
+  assert.equal(validateDir('/' + ch(0x4e2d).repeat(1365)), null)
+  assert.equal(validateDir('/' + ch(0x4e2d).repeat(1366)), 'That folder path is too long. Use at most 4096 bytes; accented letters and emoji take more than one.')
+  assert.equal(validateDir('/a' + ch(0xd800)), 'Use a folder path that is valid text.')
+  for (const [name, c] of Object.entries(BAD_CHARS)) assert.equal(validateDir('/a' + c + 'b'), 'Use a folder path without control or invisible characters.', name)
+})
+
+test('folder choices: home first, project folders, deduplicated, screened', () => {
   const g = (project, host = 'studio') => ({ id: project, host, agent: 'claude', project, skills: [] })
   const snapshot = [
-    { host: 'studio', groups: [g(''), g('/work/app'), g('/work/app'), g('relative/dir'), g('/work/api/'), g('/work/api')], skillCount: 0 },
+    { host: 'studio', groups: [g(''), g('/work/app'), g('/work/app'), g('relative/dir'), g('/work/api/'), g('/work/api'), g('/a/./b'), g('//x'), g('/a/../b'), g('/n\nl'), g('/bidi' + ch(0x202e)), g('/' + 'a'.repeat(4096)), g('/lone' + ch(0xd800))], skillCount: 0 },
     { host: 'Studio', groups: [g('/work/web')], skillCount: 0 },
     { host: 'other', groups: [g('/elsewhere')], skillCount: 0 },
   ]
@@ -84,15 +123,21 @@ test('folder choices: home first, project folders, deduplicated, absolute only',
   assert.deepEqual(folderChoices(undefined, snapshot), [{ path: '', label: 'Home folder' }])
 })
 
-test('launch sentence and title', () => {
-  assert.equal(launchSentence('claude', '', 'studio', false), 'Start Claude Code in the home folder on studio.')
-  assert.equal(launchSentence('codex', '/work/app', 'studio', true), 'Start Codex in /work/app on studio with your opening prompt.')
+test('launch sentence follows the spec', () => {
+  const nothing = 'Nothing runs until you press Start.'
+  const kept = 'The prompt is kept with the session record and is visible to other users of that machine in its process list.'
+  assert.equal(launchSentence('claude', '', 'studio', false), 'Starts Claude Code in the home folder on studio. ' + nothing)
+  assert.equal(launchSentence('codex', '/work/app', 'studio', false), 'Starts Codex in /work/app on studio. ' + nothing)
+  assert.equal(launchSentence('codex', '/work/app', 'studio', true), 'Starts Codex in /work/app on studio. ' + nothing + ' ' + kept)
+})
+
+test('titles', () => {
   assert.equal(titleFor('claude', ''), 'Claude Code')
-  assert.equal(titleFor('gemini', '/work/app'), 'Gemini CLI · app')
-  assert.equal(titleFor('gemini', '/work/app/'), 'Gemini CLI · app')
+  assert.equal(titleFor('gemini', '/work/app'), 'Gemini CLI \u00b7 app'.replace('\\u00b7', ch(0xb7)))
+  assert.equal(titleFor('gemini', '/work/app/'), 'Gemini CLI ' + ch(0xb7) + ' app')
   assert.equal(titleFor('gemini', '/'), 'Gemini CLI')
   assert.ok(Array.from(titleFor('claude', '/x/' + 'y'.repeat(200))).length <= 80)
-  assert.equal(titleFor('claude', '/x/a\nb'), 'Claude Code')
+  for (const [name, c] of Object.entries(BAD_CHARS)) assert.equal(titleFor('claude', '/x/a' + c + 'b'), 'Claude Code', name)
 })
 
 test('refusal sentences', () => {
@@ -100,20 +145,20 @@ test('refusal sentences', () => {
   assert.equal(refusalText(422, 'tool_not_installed'), "That agent isn't installed on that machine.")
   assert.equal(refusalText(422, 'folder_unavailable'), "That folder isn't available on that machine.")
   assert.equal(refusalText(422, 'prompt_unsupported'), 'Write the opening prompt as at least two words.')
-  assert.equal(refusalText(409, ''), 'That request changed. Start it again.')
-  assert.equal(refusalText(409, undefined), 'That request changed. Start it again.')
-  assert.equal(refusalText(409, '', 'terminal session limit reached'), 'That machine already has the most sessions it allows.')
-  assert.equal(refusalText(409, 'capacity'), 'That machine already has the most sessions it allows.')
-  assert.equal(refusalText(503, ''), 'That machine is reconnecting. Try again in a moment.')
-  assert.equal(refusalText(403, '', 'remote terminals are disabled by the server; monitoring and local shells remain available'), 'Browser terminals are switched off on that machine.')
-  assert.equal(refusalText(403, 'terminal_disabled'), 'Browser terminals are switched off on that machine.')
+  assert.equal(refusalText(409, undefined, 'terminal session limit reached'), 'The terminal session limit has been reached. End a session and try again.')
+  assert.equal(refusalText(409, '', 'terminal operation conflicts with current state'), 'That request changed. Start it again.')
+  assert.equal(refusalText(409, undefined, undefined), 'That request changed. Start it again.')
+  assert.equal(refusalText(503, '', 'terminal machine is reconnecting; retry after it reconnects'), 'That machine is reconnecting. Try again in a moment.')
+  assert.equal(refusalText(403, '', 'remote terminals are disabled by the server; monitoring and local shells remain available'), 'Browser terminals are switched off on this server.')
   assert.equal(refusalText(403, '', 'terminal access denied'), 'Something changed. Check again.')
+  assert.equal(refusalText(403, 'terminal_disabled'), 'Something changed. Check again.')
+  assert.equal(refusalText(409, 'capacity'), 'Something changed. Check again.')
   assert.equal(refusalText(500, ''), 'Something changed. Check again.')
   assert.equal(refusalText(0, 'weird'), 'Something changed. Check again.')
   assert.equal(refusalText(422, 'other'), 'Something changed. Check again.')
 })
 
 test('no banned words in any sentence', () => {
-  const all = [refusalText(409, 'launch_unsupported'), refusalText(503), refusalText(500), launchSentence('claude', '', 'm', true), validateModel('-')]
+  const all = [refusalText(409, 'launch_unsupported'), refusalText(503), refusalText(500), launchSentence('claude', '', 'm', true), validateModel('-'), validateDir('x')]
   for (const s of all) assert.doesNotMatch(s, /verified|healthy/i)
 })

@@ -133,7 +133,7 @@ typed results):
   contents. *Amended:* **unpushed** is the commits reachable from the worktree's `HEAD` that are on
   no remote-tracking branch and on no local branch other than the run's branch and the branch
   checked out there (they stay on the run's branch after a remove); **unreferenced** is the commits
-  reachable from `HEAD` or from the worktree's own `refs/worktree/*` and `refs/bisect/*` that no
+  reachable from `HEAD` or from the worktree's own `refs/worktree/*`, `refs/bisect/*` and `refs/rewritten/*` that no
   branch, tag or remote-tracking branch holds, with what `refs/stash` holds protected (they would
   become unreachable, so they block removal).
 - *Remove* first repeats the status and refuses unless the request carries the counts it was shown

@@ -625,14 +625,15 @@ func hiddenEntries(out []byte, worktree string) int {
 const maxWorktreeRefTips = 1000
 
 // worktreeRefTips reads `for-each-ref --format=%(objectname) %(objecttype)
-// %(refname) refs/worktree refs/bisect refs/stash` in the worktree. Commits
-// and tags held by refs/worktree/* and refs/bisect/* (per-worktree refs,
+// %(refname) refs/worktree refs/bisect refs/rewritten refs/stash` in the
+// worktree. Commits and tags held by refs/worktree/*, refs/bisect/* and
+// refs/rewritten/* (the three per-worktree ref namespaces git documents,
 // deleted with it) are returned as tips whose commits count as unreferenced;
 // refs/stash (shared, it survives the remove) is returned as stash, a commit
 // it holds is protected. complete is false when the listing may be cut short
 // or there are more than maxWorktreeRefTips tips.
 func worktreeRefTips(ctx context.Context, git GitRunner, worktree string) (tips, stash []string, complete bool, err error) {
-	out, err := git(ctx, worktree, "for-each-ref", "--format=%(objectname) %(objecttype) %(refname)", "refs/worktree", "refs/bisect", "refs/stash")
+	out, err := git(ctx, worktree, "for-each-ref", "--format=%(objectname) %(objecttype) %(refname)", "refs/worktree", "refs/bisect", "refs/rewritten", "refs/stash")
 	if err != nil {
 		return nil, nil, false, gitFailed(out, err)
 	}

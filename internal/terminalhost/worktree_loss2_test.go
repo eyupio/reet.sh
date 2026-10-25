@@ -150,6 +150,27 @@ func TestWorktreeRemoveRefusesCommitsHeldByWorktreeRefs(t *testing.T) {
 	}
 }
 
+// refs/rewritten/* is the third per-worktree ref namespace git documents
+// (with refs/worktree and refs/bisect): a commit held only there is deleted
+// with the worktree, so it counts as unreferenced.
+func TestWorktreeRemoveRefusesCommitsHeldByRewrittenRefs(t *testing.T) {
+	home := worktreeHome(t)
+	repo := newRepo(t, home, "code/site")
+	w := madeWorktree(t, home, repo, testRun)
+	testGit(t, w.Path, "checkout", "-q", "--detach")
+	lone := commitIn(t, w.Path, "kept-by-a-rewritten-ref")
+	testGit(t, w.Path, "update-ref", "refs/rewritten/keep", lone)
+	testGit(t, w.Path, "checkout", "-q", w.Branch)
+	s, err := removeAsShown(t, home)
+	if s.Unreferenced != 1 {
+		t.Fatalf("the commit only refs/rewritten holds must be reported: %+v", s)
+	}
+	refusedWith(t, err, terminalproto.WorktreeUnreferencedCommits)
+	if _, err := testGitErr(repo, "cat-file", "-e", lone+"^{commit}"); err != nil {
+		t.Fatal("the commit is gone")
+	}
+}
+
 // The stash lives in the shared repository and survives the remove, so a
 // commit it holds is protected and does not block.
 func TestWorktreeStashProtectsWithoutBlocking(t *testing.T) {

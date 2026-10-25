@@ -598,7 +598,7 @@ func TestWorktreeRemoveArgumentVectorIsExact(t *testing.T) {
 		{"rev-list", "--count", "HEAD", "--not", "--remotes", "--exclude=" + w.Branch, "--branches"},
 		{"rev-list", "--count", "HEAD", "--not", "--branches", "--remotes", "--tags"}, // no worktree refs, no stash
 		{"ls-files", "-v", "-z"},
-		{"for-each-ref", "--format=%(objectname) %(objecttype) %(refname)", "refs/worktree", "refs/bisect", "refs/stash"},
+		{"for-each-ref", "--format=%(objectname) %(objecttype) %(refname)", "refs/worktree", "refs/bisect", "refs/rewritten", "refs/stash"},
 	}
 	mutating := 0
 	for i, c := range calls {

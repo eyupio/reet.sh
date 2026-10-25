@@ -133,9 +133,9 @@ In the worktree:
    otherwise hide files a remove would delete.
 4. `git symbolic-ref -q HEAD`, then
    `git rev-list --count HEAD --not --remotes --exclude=<run branch> [--exclude=<HEAD's branch>] --branches`.
-5. `git for-each-ref --format=%(objectname) %(objecttype) %(refname) refs/worktree refs/bisect refs/stash`,
+5. `git for-each-ref --format=%(objectname) %(objecttype) %(refname) refs/worktree refs/bisect refs/rewritten refs/stash`,
    then `git rev-list --count HEAD <tips> --not --branches --remotes --tags <stash>`,
-   where `<tips>` are the commits held by `refs/worktree/*` and `refs/bisect/*`
+   where `<tips>` are the commits held by `refs/worktree/*`, `refs/bisect/*` and `refs/rewritten/*`
    (refs that live in the worktree and go with it) and `<stash>` is what
    `refs/stash` holds (shared, so it survives a remove). More than 1,000 such tips
    marks the check incomplete.
@@ -236,7 +236,7 @@ started afterwards can run anything the user can, as it always could.
   was made from still holds its starting commit (otherwise it over-counts, the safe
   direction). These commits stay on the run's branch after a remove.
 - **unreferenced**: commits reachable from `HEAD` or from the worktree's own
-  `refs/worktree/*` and `refs/bisect/*` that no branch, tag, remote-tracking branch
+  `refs/worktree/*`, `refs/bisect/*` and `refs/rewritten/*` that no branch, tag, remote-tracking branch
   or stash holds (work on a detached `HEAD`, for example). A remove would leave
   them unreachable.
 - **hidden**: files git is told not to check: assume-unchanged, or skip-worktree

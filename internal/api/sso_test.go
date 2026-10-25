@@ -379,14 +379,14 @@ func TestOnlyALocalPathIsFollowedAfterSignIn(t *testing.T) {
 	_ = e.st.LinkSSOIdentity(e.idp.Issuer, "sub-ada", u.ID)
 	for _, next := range []string{
 		"//evil.example", "https://evil.example/", "/\\evil.example", "/%5Cevil.example", "javascript:alert(1)", "", "evil", "/ok\nSet-Cookie: x=1",
-		"/api/v2/tokens", "http:/evil", "/" + strings.Repeat("a", 3000),
+		"/api/v2/tokens", "/not-a-page", "/etc/passwd", "http:/evil", "/" + strings.Repeat("a", 3000),
 	} {
 		loc := e.login(e.client(), ada("sub-ada"), "?next="+url.QueryEscape(next))
 		if loc != "/" {
 			t.Errorf("next=%q went to %q, want /", next, loc)
 		}
 	}
-	for _, next := range []string{"/lists?tab=liked", "/account/mcp/authorize?client_id=reet_client_x&state=a%20b&code_challenge=c"} {
+	for _, next := range []string{"/lists?tab=liked", "/lists/3", "/support/12", "/account/mcp/authorize?client_id=reet_client_x&state=a%20b&code_challenge=c"} {
 		if loc := e.login(e.client(), ada("sub-ada"), "?next="+url.QueryEscape(next)); loc != next {
 			t.Errorf("next=%q went to %q: a sign-in must resume where it began (the MCP consent page among them)", next, loc)
 		}

@@ -73,11 +73,63 @@ func safeNext(raw string) string {
 	if err != nil || u.Scheme != "" || u.Host != "" || u.User != nil || !strings.HasPrefix(u.Path, "/") || strings.HasPrefix(u.Path, "//") || strings.Contains(u.Path, "\\") {
 		return "/"
 	}
-	// An API address is data, not a page to land on.
-	if u.Path == "/api" || strings.HasPrefix(u.Path, "/api/") {
-		return "/"
+	return landing(raw)
+}
+
+// landing keeps only a path that begins at one of the interface's own pages and
+// rebuilds it from that page's name, so what is followed after sign-in is one of
+// this site's pages plus whatever the page itself is given after its name. An
+// API address is data, not a page to land on, and a name that is not a page
+// sends the person home.
+func landing(path string) string {
+	rest := path[1:]
+	seg, tail := rest, ""
+	if i := strings.IndexAny(rest, "/?#"); i >= 0 {
+		seg, tail = rest[:i], rest[i:]
 	}
-	return raw
+	switch seg {
+	case "control":
+		return "/control" + tail
+	case "skills":
+		return "/skills" + tail
+	case "terminals":
+		return "/terminals" + tail
+	case "sync":
+		return "/sync" + tail
+	case "hosting":
+		return "/hosting" + tail
+	case "community":
+		return "/community" + tail
+	case "shared":
+		return "/shared" + tail
+	case "spaces":
+		return "/spaces" + tail
+	case "profiles":
+		return "/profiles" + tail
+	case "setups":
+		return "/setups" + tail
+	case "machines":
+		return "/machines" + tail
+	case "admin":
+		return "/admin" + tail
+	case "account":
+		return "/account" + tail
+	case "join":
+		return "/join" + tail
+	case "reset":
+		return "/reset" + tail
+	case "support":
+		return "/support" + tail
+	case "notifications":
+		return "/notifications" + tail
+	case "welcome":
+		return "/welcome" + tail
+	case "lists":
+		return "/lists" + tail
+	case "l":
+		return "/l" + tail
+	}
+	return "/"
 }
 
 // redirectLocal sends the browser to a path on this site and to nothing else:

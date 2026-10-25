@@ -98,6 +98,12 @@ try {
  expect(writes.at(-1)).toEqual({path:'/api/v2/sync/agents',body:{id:'a',action:'auto-update-off'}})
  await expect(settings.getByRole('switch',{name:'Automatic updates'})).not.toBeChecked()
  await expect(settings).toContainText('v1.4.2')
+ // Forgetting hands over to the usual confirmation; the settings close first, so the machine must be read before they do.
+ await settings.getByRole('button',{name:'Forget machine…'}).click()
+ await expect(page.getByRole('dialog',{name:'Forget dev-laptop?'})).toBeVisible()
+ await page.getByRole('button',{name:'Cancel',exact:true}).click()
+ await expect(page.getByRole('dialog')).toHaveCount(0)
+ await laptop.getByRole('button',{name:'Settings'}).click()
  await settings.getByRole('button',{name:'Switch channel…'}).click()
  const review=page.getByRole('dialog',{name:'Update reet on dev-laptop'})
  await expect(review.getByRole('radio',{name:/Development|development/})).toBeChecked()

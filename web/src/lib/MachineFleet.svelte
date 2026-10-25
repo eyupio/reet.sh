@@ -135,6 +135,18 @@
     settingsHost = ''
     review = { agentId: agent.id, initial }
   }
+  // The settings close before the confirmation opens, and the selection is
+  // what the dialog derives from, so the machine is read before it is cleared.
+  function forgetFromSettings() {
+    const machine = settingsMachine
+    settingsHost = ''
+    if (machine) askForgetMachine(machine)
+  }
+  function revokeFromSettings() {
+    const agent = settingsMachine && agentFor(settingsMachine)
+    settingsHost = ''
+    if (agent) askRevoke(agent)
+  }
   function confirmReview(version: string) {
     const agent = reviewAgent
     review = null
@@ -305,8 +317,8 @@
     onpause={() => { if (enrolled) void pause(enrolled) }}
     onscan={() => { if (enrolled) void scan(enrolled) }}
     onswitch={() => { if (enrolled) openReview(enrolled, enrolled.version === 'dev' ? 'latest' : 'dev') }}
-    onrevoke={() => { settingsHost = ''; if (enrolled) askRevoke(enrolled) }}
-    onforget={() => { settingsHost = ''; askForgetMachine(settingsMachine) }}
+    onrevoke={revokeFromSettings}
+    onforget={forgetFromSettings}
     onclose={() => (settingsHost = '')}
   />
 {/if}

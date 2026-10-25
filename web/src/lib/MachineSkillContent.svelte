@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onMount } from 'svelte'
  import { ApiError, UnauthorizedError, dismissContentPreview, getContentPins, getContentPreview, getContentPreviews, getPrivateBundles, getPrivateRevisions, removeContentPin, requestContentPreview, saveContentPin, stopContentPreview, type ContentPin, type ContentPreview, type ContentPreviewCapability, type PrivateBundle, type PrivateRevision, type SyncState } from './api'
- import { checkStateLabel, connectorFor, describeError, missingNote, modeLabel, pinChangeNote, pollDelay, revisionLabel, scopeEligibility, type PinChoice } from './contentReview'
+ import { asSeenFromPin, checkStateLabel, connectorFor, describeError, missingNote, modeLabel, pinChangeNote, pollDelay, revisionLabel, scopeEligibility, type PinChoice } from './contentReview'
  import { groupLabel } from './machines'
  import ConfirmDialog from './ConfirmDialog.svelte'
  import ContentCheckStep from './ContentCheckStep.svelte'
@@ -28,7 +28,7 @@
  let previews = $state<ContentPreview[]>([]), capabilities = $state<ContentPreviewCapability[]>([])
  let readAts = $state<Record<string, number>>({})
  let resumeCandidate = $state<{ row: ContentPreview; at: number } | null>(null)
- let watchFailed = $state(false)
+ let watchFailed = $state(false), checksDown = $state(false)
  let alive = true, generation = 0
  let loadAbort: AbortController | undefined
  // Aborted with the dialog, so a slow revision list cannot outlive it.
@@ -48,7 +48,11 @@
    const [saved, library] = await Promise.all([getContentPins(abort.signal), getPrivateBundles(abort.signal)])
    const here = saved.targets.filter(p => p.environmentId === source.environmentId)
    // No check can exist before a pin does, so the checks are read only once this scope has one.
-   const listed = here.length > 0 ? await getContentPreviews(abort.signal) : { previews: [] as ContentPreview[], capabilities: [] as ContentPreviewCapability[] }
+   // Checks are a separate read: when it fails the pins and the library are still usable, and only checking is off.
+   let listed: { previews: ContentPreview[]; capabilities: ContentPreviewCapability[] } | undefined = { previews: [], capabilities: [] }
+   if (here.length > 0) {
+    try { listed = await getContentPreviews(abort.signal) } catch (e) { if (abort.signal.aborted) throw e; listed = undefined }
+   }
    const arrived = Date.now()
    // The pin rows say when each revision was made, so read those lists before showing them. A list that cannot be read
    // only means that row falls back to the start of its id.
@@ -58,7 +62,8 @@
    const next = { ...revisionLists }
    ids.forEach((id, i) => { const read = lists[i]; if (read.status === 'fulfilled') next[id] = read.value.revisions })
    revisionLists = next; pins = here; bundles = library.bundles
-   applyList(listed, arrived)
+   checksDown = !listed
+   if (listed) applyList(listed, arrived)
    loaded = true; loadFailed = false; error = ''
    // The pin being checked may have gone; the check shown may have been replaced by a newer one.
    if (step === 'check' && !here.some(p => p.id === selectedPinId)) leaveCheck()
@@ -84,17 +89,19 @@
   for (const row of listed.previews) stamps[row.id] = arrived
   readAts = stamps
  }
- function accept(p: ContentPreview) {
+ function accept(p: ContentPreview, at = Date.now()) {
   previews = previews.some(x => x.id === p.id) ? previews.map(x => (x.id === p.id ? p : x)) : [...previews, p]
-  readAts = { ...readAts, [p.id]: Date.now() }
+  readAts = { ...readAts, [p.id]: at }
  }
  const latestFor = (pin: ContentPin): ContentPreview | undefined => previews.filter(p => p.targetId === pin.id).reduce<ContentPreview | undefined>((best, p) => (!best || p.createdAt > best.createdAt ? p : best), undefined)
  const selectedPin = $derived(pins.find(p => p.id === selectedPinId))
- const check = $derived(selectedPin ? latestFor(selectedPin) : undefined)
+ // A check belongs to one version of the pin: once the pin has moved on it is overtaken, whatever the server last said.
+ const check = $derived(selectedPin ? (asSeenFromPin(latestFor(selectedPin), selectedPin) ?? undefined) : undefined)
  // A summary row for a captured check carries no capture, so it is not usable until it has been read in full.
  const usable = $derived(!!check && !(check.state === 'captured' && !check.capture))
  const connectorReady = $derived(!!selectedPin && capabilities.find(c => c.agentId === selectedPin.agentId)?.ready === true)
- const checkReady = $derived(connectorReady && eligibility.ok)
+ const checkReady = $derived(connectorReady && eligibility.ok && !checksDown)
+ const CHECKS_DOWN = "Checks aren't available right now."
  const statusFor = (pin: ContentPin): string => {
   const row = latestFor(pin)
   if (!row) return 'Last check: Not checked yet'
@@ -131,7 +138,7 @@
    try {
     const p = await getContentPreview(id, abort.signal)
     if (fenced()) return
-    accept(p); state = p.state
+    accept(p); state = asSeenFromPin(p, selectedPin)?.state ?? p.state
     if (watchFailed) { watchFailed = false; error = '' }
    } catch (e) {
     if (fenced() || abort.signal.aborted) return
@@ -258,8 +265,8 @@
    if (!alive || selectedPinId !== pin.id) return
    capabilities = listed.capabilities
    const active = listed.previews.find(p => (p.state === 'queued' || p.state === 'capturing') && p.agentId === pin.agentId)
-   if (active && pins.some(p => p.id === active.targetId)) { resumeCandidate = { row: active, at: arrived }; return }
-   if (active) error = `${error} A check for ${active.name} in another folder is running on this machine.`
+   if (active && pins.some(p => p.id === active.targetId)) { resumeCandidate = { row: active, at: arrived }; error = `This machine is already checking ${active.name}.`; return }
+   if (active) error = `${error.replace(/[.!?]?$/, '.')} A check for ${active.name} in another folder is running on this machine.`
   } catch { /* the message already says what the server said */ }
   // Read everything again in case the pin moved, but keep what the server said.
   const said = error
@@ -271,8 +278,7 @@
   if (busy || !found) return
   resumeCandidate = null; error = ''
   selectedPinId = found.row.targetId
-  previews = previews.some(x => x.id === found.row.id) ? previews.map(x => (x.id === found.row.id ? found.row : x)) : [...previews, found.row]
-  readAts = { ...readAts, [found.row.id]: found.at }
+  accept(found.row, found.at)
   watch(found.row.id, true)
  }
  async function stopCheck(): Promise<void> {
@@ -408,6 +414,7 @@
   <div class="live" role="status" aria-live="polite">{notice}</div>
   {#if error}<div class="alert" role="alert"><p>{error}</p>{#if loadFailed}<button type="button" class="btn" onclick={() => void load()}>Try again</button>{:else if watchFailed}<button type="button" class="btn" onclick={retryWatch}>Try again</button>{/if}</div>{/if}
   {#if loading}<p class="intro" role="status">Loading pins and your library…</p>{/if}
+  {#if checksDown && loaded}<div class="alert" role="status"><p>{CHECKS_DOWN}</p><button type="button" class="btn" onclick={() => void load()}>Try again</button></div>{/if}
   {#if loaded}
    {#if step === 'check' && selectedPin}
     <p class="back"><button type="button" class="btn" disabled={busy} onclick={leaveCheck}>Back to pins</button></p>
@@ -416,11 +423,12 @@
      check={usable && check ? check : null}
      readAt={check ? (readAts[check.id] ?? Number.NaN) : Number.NaN}
      ready={checkReady}
-     why={eligibility.ok ? '' : eligibility.reason}
+     why={eligibility.ok ? (checksDown ? CHECKS_DOWN : '') : eligibility.reason}
      {busy}
      loading={!!check && !usable}
-     canResume={!!resumeCandidate}
+     resumeName={resumeCandidate?.row.name ?? ''}
      revision={revisionText(selectedPin)}
+     madeFor={check && check.revisionId !== selectedPin.revisionId ? revisionLabel(check.revisionId, revisionLists[selectedPin.bundleId], bundles.find(b => b.id === selectedPin.bundleId)?.head) : ''}
      oncheck={() => void startCheck()}
      onresume={resumeCheck}
      oncancel={() => void stopCheck()}

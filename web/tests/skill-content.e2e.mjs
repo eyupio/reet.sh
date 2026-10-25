@@ -4,6 +4,8 @@ const browser=await chromium.launch({headless:true,executablePath:process.env.PL
 const page=await browser.newPage({viewport:{width:1360,height:1000}})
 const now=Date.now(),DAY=86400000,errors=[],writes=[],requests=[],unmocked=[]
 page.on('pageerror',e=>errors.push(e.message))
+const abandoned=[]
+page.on('requestfailed',r=>{if(/skill-content-previews\/chk/.test(r.url()))abandoned.push(r.url())})
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return{promise,resolve}}
 
 // Server state. Pins are keyed by scope and library-skill name, versions are opaque and change on every real change,
@@ -132,7 +134,8 @@ await page.route('**/api/**',async route=>{
   const id=path.split('/').pop();previewReads.push(id)
   if(previewGetHold)await previewGetHold.promise
   const p=previewsDb.find(x=>x.id===id);if(!p)return route.fulfill({status:404,json:{error:'content preview unavailable'}})
-  data=p
+  // The browser may have abandoned this request while it was held.
+  return route.fulfill({json:p}).catch(()=>{})
  }
  else if(path.match(/^\/api\/v2\/skill-content-previews\/[^/]+$/)&&method==='DELETE'){
   writes.push({method,path,body})
@@ -152,17 +155,30 @@ await page.addInitScript(()=>{
 // The page's poll timers (3 and 10 seconds) are counted while they are pending, and the clock can be moved on, so a test can
 // wait for a timer to have fired or a read to have aged without sleeping.
 await page.addInitScript(()=>{
- window.__poll={pending:new Set(),fired:0}
+ window.__poll={pending:new Set(),fired:0,scheduled:0,delays:new Set()}
  const set=window.setTimeout.bind(window),clear=window.clearTimeout.bind(window)
+ // The page asks for 3 or 10 seconds; the delay it asked for is recorded and the timer fires after 50 ms, so the file runs in seconds.
  window.setTimeout=(fn,delay,...args)=>{
   if(delay!==3000&&delay!==10000)return set(fn,delay,...args)
-  const id=set(()=>{window.__poll.pending.delete(id);window.__poll.fired++;fn(...args)},delay)
+  window.__poll.scheduled++;window.__poll.delays.add(delay)
+  const id=set(()=>{window.__poll.pending.delete(id);window.__poll.fired++;fn(...args)},50)
   window.__poll.pending.add(id);return id
  }
  window.clearTimeout=id=>{window.__poll.pending.delete(id);clear(id)}
  const real=Date.now.bind(Date);window.__skew=0;Date.now=()=>real()+window.__skew
 })
 const pendingPolls=()=>page.evaluate(()=>window.__poll.pending.size)
+// Nothing is polling: after a few more turns of the same timers there are none pending and none were asked for. The turns are
+// four timers of the kind the page polls with (they fire at the same speed), counted and taken off the total.
+const quiet=async()=>{
+ await page.evaluate(()=>new Promise(done=>{let n=0;const turn=()=>++n<4?setTimeout(turn,3000):done();setTimeout(turn,3000)}))
+ await afterRequests()
+ const before=await page.evaluate(()=>window.__poll.scheduled)
+ await page.evaluate(()=>new Promise(done=>{let n=0;const turn=()=>++n<4?setTimeout(turn,3000):done();setTimeout(turn,3000)}))
+ await afterRequests()
+ expect(await page.evaluate(()=>window.__poll.scheduled)).toBe(before+4)
+ expect(await pendingPolls()).toBe(0)
+}
 const setHidden=hidden=>page.evaluate(h=>{for(const key of ['hidden','visibilityState'])Object.defineProperty(document,key,{configurable:true,get:()=>key==='hidden'?h:(h?'hidden':'visible')});document.dispatchEvent(new Event('visibilitychange'))},hidden)
 const layout=async()=>expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
 const storage=()=>page.evaluate(async()=>JSON.stringify({local:{...localStorage},session:{...sessionStorage},idb:(await indexedDB.databases()).map(d=>d.name).sort()}))
@@ -488,6 +504,33 @@ try{
  const askAgain=async()=>{const n=checkPosts().length;await again.click();await expect.poll(()=>checkPosts().length).toBe(n+1);return checkPosts()[n].body}
  const keys=[]
 
+ // The checks cannot be read when the dialog opens: the pins and the library still work, a plain note offers a retry, and
+ // checking is switched off with that reason until the retry succeeds.
+ previewsBroken=true
+ await scopeButton('workstation',SHARED).evaluate(el=>el.click())
+ await expect(dialog).toBeVisible()
+ const note=dialog.getByRole('status').filter({hasText:"Checks aren't available right now."})
+ await expect(note).toBeVisible()
+ await expect(dialog.getByRole('alert')).toHaveCount(0)
+ await expect(pinsList.getByRole('button',{name:'Change pin for demo'})).toBeVisible()
+ const savesBefore=writes.length
+ await pinsList.getByRole('button',{name:'Change pin for demo'}).click()
+ await revision.selectOption(R.d2)
+ await save.click()
+ await expect(dialog.getByText(/^Sorted\./)).toContainText(L.d2)
+ expect(writes).toHaveLength(savesBefore+1)
+ await expect(note).toBeVisible()
+ await pinsList.getByRole('button',{name:'Open check for demo'}).click()
+ await expect(dialog.getByRole('button',{name:'Check this machine',exact:true})).toBeDisabled()
+ const whyId=await dialog.getByRole('button',{name:'Check this machine',exact:true}).getAttribute('aria-describedby')
+ await expect(page.locator(`#${whyId}`)).toContainText("Checks aren't available right now.")
+ await dialog.getByRole('button',{name:'Back to pins',exact:true}).click()
+ previewsBroken=false
+ await note.getByRole('button',{name:'Try again'}).click()
+ await expect(note).toHaveCount(0)
+ await dialog.getByRole('button',{name:'Done'}).click()
+ await expect(dialog).toHaveCount(0)
+
  // The connector has not recently negotiated: the check is switched off with the reason, a click forced past that sends
  // nothing, and the button comes back by itself once the connector reports in.
  capReady=false
@@ -499,6 +542,7 @@ try{
  await expect(dialog).toContainText('reads file names, sizes and digests only')
  await expect(checkBtn).toBeDisabled()
  await expect(dialog).toContainText("hasn't checked in recently")
+ await expect(page.locator(`#${await checkBtn.getAttribute('aria-describedby')}`)).toContainText("hasn't checked in recently")
  await checkBtn.evaluate(el=>{el.disabled=false;el.click()})
  await afterRequests()
  expect(checkPosts()).toEqual([])
@@ -519,11 +563,11 @@ try{
  keys.push(firstBody.requestKey)
  await expect(live).toBeVisible()
  expect(await live.getAttribute('aria-live')).toBe('polite')
- expect(await pendingPolls()).toBe(1)
+ await expect.poll(pendingPolls).toBe(1)
  // Queued, then capturing: the progress changes in the same polite live region.
  setLatest({state:'capturing'})
  await expect(live).toContainText('Reading the folder on this machine',{timeout:SECOND})
- expect(await pendingPolls()).toBe(1)
+ await expect.poll(pendingPolls).toBe(1)
 
  // Captured, folder found, exclusive root: what was found (managed and not) and the plan in words, read-only.
  const found=(over={})=>({state:'captured',capturedAt:Date.now(),reviewHash:'h'.repeat(64),captureHash:'c'.repeat(64),capture:captureOf('present',{manifest:manifestOf([file('SKILL.md',120),file('notes/mine.txt',12)])}),plan:planOf({preconditions:{baseline:{manifest:OWNED}},actions:[{path:'SKILL.md',kind:'update',before:file('SKILL.md',120),after:file('SKILL.md',130)}],preserved:[{path:'notes/mine.txt',reason:'local_only'}]}),...over})
@@ -538,7 +582,7 @@ try{
  await expect(dialog).not.toContainText('Another agent scope')
  await expect(dialog.getByRole('button',{name:/apply|install|adopt|record ownership/i})).toHaveCount(0)
  await expect(dialog).not.toContainText(/verified/i)
- expect(await pendingPolls()).toBe(1)
+ await expect.poll(pendingPolls).toBe(1)
  // A found folder that the plan says is up to date.
  keys.push((await askAgain()).requestKey)
  setLatest(found({plan:planOf({preconditions:{baseline:{manifest:OWNED}}})}))
@@ -556,9 +600,22 @@ try{
  keys.push((await askAgain()).requestKey)
  setLatest({state:'captured',capturedAt:Date.now(),reviewHash:'h'.repeat(64),capture:captureOf('unknown',{issues:[{path:'',code:'scope_root_missing'}]}),plan:planOf({ready:false,conflicts:[{path:'',code:'observation_unknown'}]})})
  await expect(heading("Couldn't tell")).toBeVisible({timeout:SECOND})
- await expect(dialog).toContainText('scope root missing')
+ await expect(dialog).toContainText('The connector reported a problem reading this folder.')
+ await expect(dialog).not.toContainText('scope')
  await expect(dialog).toContainText("The folder couldn't be read completely.")
  await expect(dialog).not.toContainText('Up to date')
+ // A folder that could not be read is never Up to date, even when the plan has nothing to do.
+ keys.push((await askAgain()).requestKey)
+ setLatest({state:'captured',capturedAt:Date.now(),reviewHash:'h'.repeat(64),capture:captureOf('unknown',{issues:[{path:'',code:'skill_unavailable'}]}),plan:planOf()})
+ await expect(heading("Couldn't tell")).toBeVisible({timeout:SECOND})
+ await expect(dialog.getByText('Up to date')).toHaveCount(0)
+ // Without a plan nothing is said about who manages which file.
+ keys.push((await askAgain()).requestKey)
+ setLatest({state:'captured',capturedAt:Date.now(),reviewHash:'h'.repeat(64),capture:captureOf('present',{manifest:manifestOf([file('SKILL.md',120)])})})
+ await expect(heading('Found')).toBeVisible({timeout:SECOND})
+ await expect(files.getByRole('row',{name:/SKILL\.md/})).toContainText('Not known')
+ await expect(dialog.getByText('Not managed by reet')).toHaveCount(0)
+ await expect(dialog.getByText('Up to date')).toHaveCount(0)
  // A root another agent scope reaches: the folder warning once, and no actions at all.
  keys.push((await askAgain()).requestKey)
  setLatest({state:'captured',capturedAt:Date.now(),reviewHash:'h'.repeat(64),capture:captureOf('present',{rootOwnership:'shared',manifest:manifestOf([file('SKILL.md',120)])}),plan:planOf({ready:false,conflicts:[{path:'',code:'root_shared'}]})})
@@ -580,7 +637,7 @@ try{
   for(const text of expectText)await expect(dialog.getByText(text,{exact:false}).first()).toBeVisible({timeout:SECOND})
   await expect(again).toBeVisible()
   for(const verdict of [heading('Found'),heading('Not there yet'),dialog.getByText('Up to date'),dialog.getByText("Applying changes isn't available yet."),dialog.getByRole('table')])await expect(verdict).toHaveCount(0)
-  if(!notFinal)expect(await pendingPolls()).toBe(0)
+  if(!notFinal)await quiet()
  }
  await ended({state:'stale',reasons:['stale'],...withPlan},['This check is out of date.','more than five minutes old'])
  await ended({state:'superseded',reasons:['pin_changed','receipt_changed'],...withPlan},['The pin changed after this check was made.','The ownership record for this skill changed after this check was made.'])
@@ -609,24 +666,23 @@ try{
  // Polling pauses while the tab is hidden: a timer that fires then reads nothing, and coming back reads at once.
  const queued=latest().id
  await setHidden(true)
+ await expect.poll(pendingPolls).toBe(0)
  await afterRequests()
- const readsBefore=reads(queued),firedBefore=await page.evaluate(()=>window.__poll.fired)
- await page.waitForFunction(n=>window.__poll.fired>n,firedBefore,{timeout:SECOND})
- await afterRequests()
+ const readsBefore=reads(queued)
+ await quiet()
  expect(reads(queued)).toBe(readsBefore)
- expect(await pendingPolls()).toBe(0)
  setLatest({state:'capturing'})
  await setHidden(false)
  await expect(live).toContainText('Reading the folder on this machine',{timeout:SECOND})
- expect(reads(queued)).toBe(readsBefore+1)
- expect(await pendingPolls()).toBe(1)
+ expect(reads(queued)).toBeGreaterThan(readsBefore)
+ await expect.poll(pendingPolls).toBe(1)
 
  // Closing the dialog stops polling: nothing is pending and nothing reads afterwards.
- const readsAtClose=reads(queued)
  await dialog.getByRole('button',{name:'Done'}).click()
  await expect(dialog).toHaveCount(0)
- expect(await pendingPolls()).toBe(0)
  await afterRequests()
+ const readsAtClose=reads(queued)
+ await quiet()
  expect(reads(queued)).toBe(readsAtClose)
 
  // A captured row in the list has no capture, so it is not shown until the check has been read in full.
@@ -652,22 +708,47 @@ try{
  await setHidden(false)
  await expect(heading('Found')).toBeVisible({timeout:SECOND})
 
+ // Going back to the pins stops the watcher: a read that is still under way is abandoned, nothing polls any more, and the
+ // answer to it, which arrives late, changes nothing and starts nothing.
+ const watched=latest().id
+ const readsBeforeHold=reads(watched)
+ previewGetHold=deferred()
+ await expect.poll(()=>reads(watched)).toBeGreaterThan(readsBeforeHold)
+ const abandonedBefore=abandoned.length
+ await dialog.getByRole('button',{name:'Back to pins',exact:true}).click()
+ await expect(pinsList).toBeVisible()
+ await expect.poll(()=>abandoned.length).toBeGreaterThan(abandonedBefore)
+ setLatest({state:'cancelled'})
+ previewGetHold.resolve();previewGetHold=null
+ await afterRequests()
+ const readsAfterBack=reads(watched)
+ await quiet()
+ expect(reads(watched)).toBe(readsAfterBack)
+ await expect(pinsList).toContainText('Last check: Checked')
+ await expect(pinsList).not.toContainText('Last check: Stopped')
+ // Opening the check again reads it, because what is held is not final.
+ await pinsList.getByRole('button',{name:'Open check for demo'}).click()
+ await expect(live).toContainText('This check was stopped.',{timeout:SECOND})
+ expect(reads(watched)).toBeGreaterThan(readsAfterBack)
+ await quiet()
+
  // Stop and dismiss use the server's cancel and dismiss, and the dialog says what was done.
  keys.push((await askAgain()).requestKey)
  await dialog.getByRole('button',{name:'Stop this check'}).click()
  await expect(live).toContainText('This check was stopped.')
+ await expect(checkHeading).toBeFocused()
  const stopped=latest().id
  expect(writes.at(-1)).toEqual({method:'POST',path:`${POSTS}/${stopped}/cancel`,body:{}})
  const dismiss=dialog.getByRole('button',{name:'Dismiss this result'})
  await dismiss.click()
  await expect.poll(()=>previewsDb.some(p=>p.id===stopped)).toBe(false)
+ await expect(checkHeading).toBeFocused()
  expect(writes.at(-1)).toEqual({method:'DELETE',path:`${POSTS}/${stopped}`,body:null})
- await expect(live).not.toContainText('This check was stopped.')
  // The one before it is shown next; dismissing them all leaves nothing to show.
  while(previewsDb.length){const n=previewsDb.length;await dismiss.click();await expect.poll(()=>previewsDb.length).toBe(n-1)}
  await expect(dialog.getByText('Nothing has been checked yet.')).toBeVisible()
  await expect(checkBtn).toBeEnabled()
- expect(await pendingPolls()).toBe(0)
+ await quiet()
 
  // A reply that never arrives, the check was made, and the list can be read: the check is found and no second one is sent.
  dropCreate='after'
@@ -710,15 +791,26 @@ try{
  await again.click()
  await expect.poll(()=>checkPosts().length).toBe(sentBusy+2)
  expect(checkPosts()[sentBusy+1].body.requestKey).toBe(busyKey)
- await expect(dialog.getByRole('alert')).toContainText('busy')
- const resume=dialog.getByRole('button',{name:'Resume that check',exact:true})
+ await expect(dialog.getByRole('alert')).toHaveText('This machine is already checking demo.')
+ const resume=dialog.getByRole('button',{name:'Resume the check for demo',exact:true})
  await expect(resume).toBeVisible()
  await resume.click()
+ await expect(checkHeading).toBeFocused()
  await expect(live).toContainText('Waiting for the machine')
  await expect(resume).toHaveCount(0)
  expect(checkPosts()).toHaveLength(sentBusy+2)
  setLatest(found())
  await expect(heading('Found')).toBeVisible({timeout:SECOND})
+
+ // A check made for an older version of the pin is not trusted on the server's word: it reads as out of date, names the
+ // revision it was made for, shows no result, and offers Check again, though the server still says captured with no reasons.
+ setLatest({state:'captured',targetVersion:'ver-before-the-pin-moved',revisionId:R.d3,reasons:[],...found()})
+ await expect(dialog.getByText('The pin changed after this check was made.')).toBeVisible({timeout:SECOND})
+ await expect(dialog.getByText('This check was made for revision')).toBeVisible()
+ await expect(heading('Found')).toHaveCount(0)
+ await expect(dialog.getByRole('table')).toHaveCount(0)
+ await expect(again).toBeVisible()
+ await quiet()
 
  // Layout: the result fits at every width, light and dark, with a long list of files inside its own scroll area.
  const many=Array.from({length:60},(_,i)=>file(`references/${'a-very-long-unbroken-file-name-'.repeat(3)}${i}-ünïcödé.md`,100+i))
@@ -735,7 +827,7 @@ try{
  await page.setViewportSize({width:1360,height:1000});await page.emulateMedia({colorScheme:'light'})
  await dialog.getByRole('button',{name:'Done'}).click()
  await expect(dialog).toHaveCount(0)
- expect(await pendingPolls()).toBe(0)
+ await quiet()
 
  // Pins, checks and ownership never touch browser storage: not one write, from the moment the dialog first opened, and the
  // stored state is what it was. Nothing ever asked for revision bytes or any other read of a skill's files.
@@ -747,6 +839,9 @@ try{
  const firstPinSave=requests.findIndex(r=>r.method==='POST'&&r.path==='/api/v2/skill-content-targets'),firstCheckRead=requests.findIndex(r=>r.method==='GET'&&r.path==='/api/v2/skill-content-previews')
  expect(firstPinSave).toBeGreaterThan(-1)
  expect(firstCheckRead).toBeGreaterThan(firstPinSave)
+
+ // Polling asked for three seconds while a check could change and ten once it was captured, and for nothing else.
+ expect(await page.evaluate(()=>[...window.__poll.delays].sort((x,y)=>x-y))).toEqual([3000,10000])
 
  // A viewer and a legacy sign-in mode see no Private skills actions at all (and a legacy mode keeps the existing imports button).
  viewer=true;await page.reload()

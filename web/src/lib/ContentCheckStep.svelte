@@ -1,14 +1,14 @@
 <script lang="ts">
- import { onMount } from 'svelte'
+ import { onMount, tick } from 'svelte'
  import type { ContentPin, ContentPreview } from './api'
- import { APPLY_NOTICE, classifyCheck, FALLBACK, modeLabel, ownershipNote, planCodeText, preservedText, presenceLabel, summarisePlan } from './contentReview'
+ import { APPLY_NOTICE, CONNECTOR_PROBLEM, classifyCheck, FALLBACK, modeLabel, ownershipNote, planCodeText, planVerdict, preservedText, presenceLabel } from './contentReview'
 
  // Presentational: the shell reads the check, owns every request and every timer, and says whether one is under way.
  // readAt is the browser time the check's response arrived. The step asks classifyCheck with the time of the question
  // (read afresh each second) and shows a result only when that says the check is current: anything older, overtaken or
  // ended shows its reason and Check again, never the plan's verdict. ready says the connector can take a check now (why
  // says what is wrong when it cannot). loading is a check that is known but not yet read in full.
- let { pin, check, readAt, ready, why = '', busy, loading = false, canResume = false, revision = '', oncheck, onresume, oncancel, ondismiss }: {
+ let { pin, check, readAt, ready, why = '', busy, loading = false, resumeName = '', revision = '', madeFor = '', oncheck, onresume, oncancel, ondismiss }: {
   pin: ContentPin
   check: ContentPreview | null
   readAt: number
@@ -16,8 +16,11 @@
   why?: string
   busy: boolean
   loading?: boolean
-  canResume?: boolean
+  // The folder whose check is already running on this machine, when there is one to resume.
+  resumeName?: string
   revision?: string
+  // The revision this check was made for, when it is not the pinned one.
+  madeFor?: string
   oncheck: () => void
   onresume: () => void
   oncancel: () => void
@@ -30,19 +33,28 @@
  const view = $derived.by(() => { void beat; return classifyCheck(check, readAt, Date.now()) })
  const capture = $derived(view.kind === 'current' ? check?.capture : undefined)
  const note = $derived(capture ? ownershipNote(capture.rootOwnership) : '')
- const summary = $derived(capture && !note ? summarisePlan(check?.plan) : undefined)
+ const summary = $derived(capture && check && !note ? planVerdict(check) : undefined)
+ const canResume = $derived(resumeName !== '')
  const owned = $derived(new Set((check?.plan?.preconditions?.baseline?.manifest?.files ?? []).map(f => f.path)))
  const found = $derived(capture?.presence === 'present' && !note ? (capture.manifest?.files ?? []) : [])
  const notReady = $derived(why || "The connector on this machine hasn't checked in recently, so it can't take a check yet. This updates by itself when it does.")
  const KINDS: Record<string, string> = { create: 'Would create', update: 'Would update', remove: 'Would remove' }
  const kindText = (kind: string) => (Object.prototype.hasOwnProperty.call(KINDS, kind) ? KINDS[kind] : 'Would change')
  const size = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`)
- // Connector issue codes are short snake_case words; say them as words.
- const issueText = (code: string) => code.replace(/_/g, ' ')
  const progress = $derived(loading ? 'Reading the latest check…' : view.headline)
 
+ // An action swaps the button that was pressed for another, which would leave focus nowhere: put it on the heading.
+ let mounted = false
+ $effect(() => {
+  void view.kind; void check?.id; void canResume; void busy
+  if (!mounted) return
+  void tick().then(() => {
+   const a = document.activeElement
+   if (!a || a === document.body || a.tagName === 'DIALOG' || !a.isConnected || (a instanceof HTMLButtonElement && a.disabled)) headingEl?.focus()
+  })
+ })
  onMount(() => {
-  headingEl?.focus()
+  headingEl?.focus(); mounted = true
   const timer = setInterval(() => { beat++ }, 1000)
   return () => clearInterval(timer)
  })
@@ -55,33 +67,33 @@
  <div class="check-live" role="status" aria-live="polite">{progress}</div>
 
  {#if !loading}
+  {#if madeFor && check && view.kind !== 'working'}<p class="hint">This check was made for revision {madeFor}.</p>{/if}
   {#if view.reasons.length}
    <ul class="reasons">{#each view.reasons as reason (reason)}<li>{reason}</li>{/each}</ul>
   {/if}
 
   <div class="actions">
    {#if canResume}
-    <button type="button" class="btn primary" disabled={busy} onclick={onresume}>Resume that check</button>
+    <button type="button" class="btn primary" disabled={busy} onclick={onresume}>Resume the check for {resumeName}</button>
    {:else if view.kind === 'working'}
     <button type="button" class="btn" disabled={busy} onclick={oncancel}>Stop this check</button>
    {:else if view.kind === 'none'}
-    <button type="button" class="btn primary" disabled={busy || !ready} onclick={oncheck}>Check this machine</button>
+    <button type="button" class="btn primary" disabled={busy || !ready} aria-describedby={ready ? undefined : `${uid}-why`} onclick={oncheck}>Check this machine</button>
    {:else}
-    <button type="button" class="btn primary" disabled={busy || !ready} onclick={oncheck}>Check again</button>
+    <button type="button" class="btn primary" disabled={busy || !ready} aria-describedby={ready ? undefined : `${uid}-why`} onclick={oncheck}>Check again</button>
    {/if}
    {#if check && view.kind !== 'working' && view.kind !== 'none'}
     <button type="button" class="btn" disabled={busy} onclick={ondismiss}>Dismiss this result</button>
    {/if}
   </div>
-  {#if !ready && !canResume && view.kind !== 'working'}<p class="hint">{notReady}</p>{/if}
+  {#if !ready && !canResume && view.kind !== 'working'}<p class="hint" id={`${uid}-why`}>{notReady}</p>{/if}
 
   {#if capture}
    <div class="result">
     <h4>{presenceLabel(check)}</h4>
     {#if note}<p class="warn">{note}</p>{/if}
     {#if capture.issues?.length}
-     <p class="label">What got in the way</p>
-     <ul class="issues">{#each capture.issues as issue, i (i)}<li>{#if issue.path}<code>{issue.path}</code> {/if}{issueText(issue.code)}</li>{/each}</ul>
+     <p class="verdict">{CONNECTOR_PROBLEM}</p>
     {/if}
     {#if found.length}
      <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users must be able to scroll this overflow region.) -->
@@ -89,7 +101,7 @@
       <table>
        <caption>Files found in the folder</caption>
        <thead><tr><th scope="col">File</th><th scope="col">Size</th><th scope="col">Ownership</th></tr></thead>
-       <tbody>{#each found as f, i (`${i}:${f.path}`)}<tr><th scope="row">{f.path}</th><td>{size(f.bytes)}</td><td>{owned.has(f.path) ? 'Managed by reet' : 'Not managed by reet'}</td></tr>{/each}</tbody>
+       <tbody>{#each found as f, i (`${i}:${f.path}`)}<tr><th scope="row">{f.path}</th><td>{size(f.bytes)}</td><td>{!check?.plan ? 'Not known' : owned.has(f.path) ? 'Managed by reet' : 'Not managed by reet'}</td></tr>{/each}</tbody>
       </table>
      </div>
     {/if}

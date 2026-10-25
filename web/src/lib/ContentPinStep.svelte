@@ -18,8 +18,8 @@
   revisionLists: Record<string, PrivateRevision[] | undefined>
   revisionsFor: (bundleId: string) => Promise<PrivateRevision[]>
   // The status line from a pin's latest check, and the way into the Check step for it.
-  statusFor?: (pin: ContentPin) => string
-  oncheck?: (pin: ContentPin) => void
+  statusFor: (pin: ContentPin) => string
+  oncheck: (pin: ContentPin) => void
   onsave: (input: PinChoice) => Promise<void>
   onremove: (pin: ContentPin) => Promise<void>
  } = $props()
@@ -95,10 +95,10 @@
       <strong>{pin.name}</strong>
       <span>Revision {labelOf(pin)}{#if head && pin.revisionId !== head}<span class="where">· Not the newest in the library</span>{/if}</span>
       <span>{modeLabel(pin.mode)}</span>
-      {#if statusFor}<span>{statusFor(pin)}</span>{/if}
+      <span>{statusFor(pin)}</span>
      </div>
      <div class="row-actions">
-      {#if oncheck}<button type="button" class="btn" disabled={busy} aria-label={`Open check for ${pin.name}`} onclick={() => oncheck(pin)}>Check</button>{/if}
+      <button type="button" class="btn" disabled={busy} aria-label={`Open check for ${pin.name}`} onclick={() => oncheck(pin)}>Check</button>
       <button type="button" class="btn" disabled={busy} aria-label={`Change pin for ${pin.name}`} onclick={() => void change(pin)}>Change pin</button>
       <button type="button" class="btn" disabled={busy} aria-label={`Remove pin for ${pin.name}`} onclick={() => void remove(pin)}>Remove pin</button>
      </div>

@@ -216,6 +216,30 @@ export function summarisePlan(plan?: ContentPlan): PlanSummary {
   return { kind, actions: kind === 'changes' ? actions : [], conflicts, preserved }
 }
 
+/**
+ * A check is for one version of one pin. When the pin has moved on since (its version differs from the one the check was
+ * made for) the check is overtaken whatever the server last said, so it is read as superseded by the pin. A check that has
+ * already ended (failed, cancelled, expired) says what it said.
+ */
+export function asSeenFromPin(check: ContentPreview | null | undefined, pin: Pick<ContentPin, 'version'> | null | undefined): ContentPreview | null | undefined {
+  if (!check || !pin || check.targetVersion === pin.version) return check
+  if (check.state === 'failed' || check.state === 'cancelled' || check.state === 'expired') return check
+  const reasons = check.reasons ?? []
+  return { ...check, state: 'superseded', reasons: reasons.includes('pin_changed') ? reasons : [...reasons, 'pin_changed'] }
+}
+
+/** The connector's own issue codes and paths are not for the person to read; this is all that is said about them. */
+export const CONNECTOR_PROBLEM = 'The connector reported a problem reading this folder.'
+
+/**
+ * The planner's verdict for a check that is being shown. "Up to date" is only ever said of a folder that was found: a ready
+ * plan with nothing to do for a folder that could not be read is unknown, never reassurance.
+ */
+export function planVerdict(check: Pick<ContentPreview, 'capture' | 'plan'>): PlanSummary {
+  const summary = summarisePlan(check.plan)
+  return summary.kind === 'up_to_date' && check.capture?.presence !== 'present' ? { ...summary, kind: 'unknown' } : summary
+}
+
 /** The offer's candidates exactly as the server ordered them (best match first, then newest). */
 export function candidatesFor(offer?: Partial<AdoptionOffer> | null): AdoptionOffer['candidates'] {
   return [...(offer?.candidates ?? [])]

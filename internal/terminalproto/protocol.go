@@ -115,6 +115,7 @@ type Capabilities struct {
 	Launch          bool      `json:"launch,omitempty"`
 	Tools           []string  `json:"tools,omitempty"`
 	CommandHistory  bool      `json:"commandHistory,omitempty"`
+	Worktree        bool      `json:"worktree,omitempty"`
 	TerminalControl bool      `json:"terminalControl,omitempty"`
 	ProtocolVersion int       `json:"protocolVersion"`
 	OS              string    `json:"os"`
@@ -128,7 +129,7 @@ func (c Capabilities) Validate() error {
 	if c.Launch && !c.TerminalControl || len(c.Tools) > 0 && !c.Launch || !validTools(c.Tools) {
 		return ErrInvalid
 	}
-	if c.CommandHistory && !c.TerminalControl {
+	if c.CommandHistory && !c.TerminalControl || c.Worktree && !c.Launch {
 		return ErrInvalid
 	}
 	if c.ProtocolVersion < 1 || c.ProtocolVersion > 65535 || !plainText(c.OSUser, 128) || strings.TrimSpace(c.OSUser) == "" {
@@ -224,12 +225,14 @@ type Create struct {
 	Model  string `json:"model,omitempty"`
 	Dir    string `json:"dir,omitempty"`
 	Prompt string `json:"prompt,omitempty"`
+	// Worktree is a run token; the connector makes the agent's own git worktree.
+	Worktree string `json:"worktree,omitempty"`
 }
 
 func (Create) kind() string  { return "create" }
 func (c Create) valid() bool { return c.Validate() == nil }
 func (c Create) Validate() error {
-	if !ValidTitle(c.Title) || !ValidDimensions(c.Cols, c.Rows) || !c.validLaunch() {
+	if !ValidTitle(c.Title) || !ValidDimensions(c.Cols, c.Rows) || !c.validLaunch() || c.Worktree != "" && (c.Tool == "" || !ValidRunToken(c.Worktree)) {
 		return ErrInvalid
 	}
 	return nil
@@ -313,7 +316,7 @@ const (
 )
 
 func (c ResultCode) Valid() bool {
-	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict || c == LaunchFailed
+	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict || c == LaunchFailed || c == WorktreeChanged || c == WorktreeRefused
 }
 
 type Result struct {
@@ -404,6 +407,14 @@ func Decode(data []byte) (Message, error) {
 		b = &ProbeResult{}
 	case "health_report":
 		b = &HealthReport{}
+	case "worktree_status":
+		b = &WorktreeStatus{}
+	case "worktree_remove":
+		b = &WorktreeRemove{}
+	case "worktree_state":
+		b = &WorktreeState{}
+	case "worktree_result":
+		b = &WorktreeResult{}
 	case "result":
 		b = &Result{}
 	case "session_changed":

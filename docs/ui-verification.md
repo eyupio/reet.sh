@@ -218,3 +218,68 @@ CI gate and the script is not part of the repository.
 driven by a fixture that answers every API call with synthetic data. The fixture proves what the page
 does with those answers, not what a connector or the server would send. Touch target sizes were not
 measured. No production data, machine, terminal session or deployment was involved.
+
+## Add a machine in context: layout, focus and motion matrix — 25 October 2026
+
+Built on main `6675d2d` plus the Private skills entry and landing commit `186bbe9`. This records what
+the browser fixture `web/tests/add-machine.e2e.mjs` checks for the
+[Add a machine dialog](add-machine-in-context.md), what an accessibility scan found, and what was not
+checked. The matrix found no layout or focus defect. Three small fixes from earlier reviews went in
+first, each with a fixture assertion that failed before the change: the landing now judges the folder
+again at the instant it opens the Private skills dialog (a folder that has stopped qualifying opens
+nothing and the page says "Private skills can't open on that folder right now."); focus falls back to
+the **Add a machine** button when the folder's own button is not drawn; and the landing note goes into
+a status region that is already on the page. Two comments (why a context with neither a skill nor an
+agent is a Machines-page context, and why the automatic-continue timer is tagged) and one unit
+assertion on that context were added too.
+
+**Layout matrix.** Ten states of the dialog, each at 1360, 768, 390 and 320px wide in light and dark
+(eight size and theme pairs per state), and the sign-in card the page shows when the sign-in is lost
+mid-watch (the dialog's own signed-out sentence is replaced by that card, so the card is what is
+checked): loading; the name's validation message; waiting; connected with a paused connector;
+waiting for the first scan; ready; still waiting at the 15-minute cap; already here, with the note
+that says what an alias was saved under; ready from the Private skills dialog with the three-second
+continue notice and its **Cancel**; and the Private skills dialog's landing note. A name of about 100
+unbroken characters is used wherever the command block shows. For each state the page does not scroll
+sideways, the dialog sits inside the window with neither it nor its body scrolling sideways, the
+command block wraps inside its container, and each primary action (**Use**, **Check again**,
+**Cancel**, **Copy commands**, the name field or the close button, whichever the state offers) is
+scrolled into view and a hit test at its centre lands on it. The dark surface is checked to differ
+from the light one, so the scheme change is real. Breaking the block's wrapping on purpose made the
+fixture fail at the first size.
+
+**Focus and Escape.** At each of the eight size and theme pairs the dialog is opened by a script
+click (no focus moves, as on Safari and Firefox on a Mac), the name is typed and Escape is pressed:
+the dialog closes, focus is on **Add a machine**, and no request other than a read was sent. The
+same is done from the Private skills dialog through **Not listed? Add a machine**: Escape returns focus to
+the folder's button. Closing with the button and the Use landings are checked in the earlier parts of
+the file.
+
+**Reduced motion.** With `prefers-reduced-motion: reduce`, no element in the open dialog has an
+animation or a transform transition with a non-zero duration, and no animation or transform
+transition in it is running (the copy button still fades its opacity over 100 milliseconds, which is
+allowed). Landing a new machine from Machines then scrolls with `auto` instead of `smooth` (the same
+landing without the preference scrolls `smooth`), and the card keeps its highlight as a still ring
+and a changed border colour, with no animation on it.
+
+**Runs.** Four consecutive local runs of the fixture passed against the production build (53, 52, 56
+and 52 seconds; the file took about 34 seconds before the matrix), with
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/pw-browsers/chromium` and the preview server on port 4173.
+The skill-content, machine-import, control and public-workspace fixtures also passed. Full validation
+results are recorded in the pull request.
+
+**Accessibility scan.** `axe-core` 4.10.2 was installed with `npm` in a temporary directory outside
+the repository (nothing was added to `package.json` or the lock file) and run through Playwright over
+a copy of the same walk, scoped to the topmost open dialog (the page for the sign-in card), with the
+`wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa` and `wcag22aa` rule tags and a 700 millisecond wait before
+each scan so that transitions had finished. That is 44 scans: the eleven surfaces above at 375 and
+1440px in light and dark. There were no violations. Axe reported `color-contrast` as "incomplete" (it
+could not decide) in 40 of the 44 scans, and I did not review those or measure the contrast ratios by
+hand. The scan is not a CI gate and the script is not part of the repository.
+
+**Not checked.** No physical phone or tablet, no screen reader, no Safari or Firefox: only Chromium,
+driven by a fixture that answers every API call with synthetic data. That a screen reader announces
+the landing note was not heard; the note is only shown to arrive after its region exists. The landing's
+second look is exercised by moving the browser clock on past the 14-day window between pressing
+**Use** and the page drawing the landing, not by pausing a connector in the same instant. Touch target
+sizes were not measured. No production data, machine, terminal session or deployment was involved.

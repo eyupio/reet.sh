@@ -28,9 +28,10 @@ The dialog is one screen with a fixed header, a scrolling body and a footer.
    character or a text-direction override (a pasted newline or tab, for instance), each with its own
    plain reason. A reason shows only after the field has been touched. The last name typed is
    offered again if the dialog is closed without using it and reopened on the same page, held in memory only.
-   A name saved as an alias after a rename or merge is resolved to its saved machine. Known gap: an alias
-   whose machine has no reports left (after Forget) is not visible to the page, so the dialog keeps waiting
-   for the typed name until the fifteen-minute cap.
+   A name saved as an alias after a rename or merge is resolved to its saved machine: the status line
+   then says "You typed \<alias\>; reet.sh saved it under \<machine\>." (or "The machine will appear as
+   \<machine\>." while it waits), the watch follows the saved machine, and **Use** names that machine.
+   The commands keep the name as typed, because the server does the resolving.
 2. **Give it a key.** The page's existing machine-token creator, with the same words: the token is
    shown once, is never stored in the browser, and is pasted when the CLI asks for it. Where the
    instance has no token creator, the same plain sentence as the step-by-step setup is shown. A
@@ -106,10 +107,12 @@ Machines view only, and the Private skills dialog checks that again before showi
 Choosing **Use \<name\>** closes the dialog and carries on where the person started.
 
 **From the Machines page** it scrolls to that machine's card, marks it with a border highlight that
-fades over a few seconds (a still border with reduced motion) and the text "Just added", and gives
-focus back to the button that opened the dialog. The highlight clears after eight seconds. If the
-Machines page is showing a single machine through its `?machine=` filter, there is no other card to
-show and nothing scrolls.
+fades over six seconds and the text "Just added", and gives focus back to the button that opened the
+dialog. With reduced motion the page scrolls at once and the highlight is a still ring that does not
+fade. The highlight clears after eight seconds. If the Machines page is filtered to a different
+machine through `?machine=`, the filter is cleared first (other query parameters and the hash stay)
+so that the new card exists to be shown; if the page is already filtered to the machine just added,
+the filter stays.
 
 **From the Private skills dialog** the folder is chosen by `landingFor` at the moment **Use** is
 pressed (or the automatic continue fires), from the machine and connectors as the page holds them
@@ -124,10 +127,19 @@ skill chosen (by name; the library bundle is not carried across), and a note in 
 - "Opened on Shared agents / Codex on rack. 2 other folders also qualify; open them from the
   Machines page."
 
-The person is not asked to choose. Focus goes to the new dialog's heading. The page hands the folder
-to the machine list once and then clears it, so redrawing the list does not open the dialog again.
-When that dialog is closed, focus returns to the Private skills button of the chosen folder, whose
-list is opened so the button is on screen.
+The person is not asked to choose. Focus goes to the new dialog's heading. The note is put into the
+dialog's status region a moment after the region is on the page, so that a screen reader has a
+region to announce it from. The page hands the folder to the machine list once and then clears it,
+so redrawing the list does not open the dialog again.
+
+The machine list judges the folder once more at the instant it opens the dialog, against the
+machines and the clock as they are then. If the folder no longer qualifies (a scan has aged past 14
+days, or the connector has paused, between **Use** and the page drawing the landing) nothing opens
+and the page says "Private skills can't open on that folder right now." When the dialog is closed,
+focus returns to the Private skills button of the chosen folder, whose list is opened so the button
+is on screen. If that button is not drawn (the Machines page is filtered to another machine, so the
+new machine's card is not shown), focus returns to the **Add a machine** button instead, never to
+the page.
 
 **When there is no folder to open** (the connector is paused, the only scan is older than 14 days or
 incomplete, the agent folders are scan-only, or nothing is listed for the machine yet) the person
@@ -148,10 +160,17 @@ page nothing continues by itself.
 **Closing without a landing.** Focus returns to the control that opened the dialog: the Add a
 machine button, or the Private skills button or skill row that opened the Private skills dialog.
 
-## Known limitation
+## Known gaps
 
-If an old machine and a new enrolment share one name, the old machine's newer scan can make the new
-one look Ready; choose a distinct name.
+- If an old machine and a new enrolment share one name, the old machine's newer scan can make the new
+  one look Ready; choose a distinct name.
+- An alias whose machine has been forgotten is not visible to the page (see *Name it*), so the dialog
+  waits for the typed name until the fifteen-minute cap.
+- The library bundle the Private skills dialog had chosen is carried in the dialog's context but is
+  not used: the landing finds the library skill by the skill's name and does not preselect the bundle.
+- When several folders of the new machine qualify, one is opened and the note counts the others; the
+  person is not offered a choice.
+- The pause before the automatic continue is three seconds and is not adjustable.
 
 ## What this does not establish
 
@@ -161,7 +180,9 @@ complete recent scan arrived. The landing note says only which folder was chosen
 qualified. The words "verified" and "healthy" are never used of a machine. No request is made to the
 machine itself. No physical device, screen reader, Safari or Firefox check was made beyond the
 Chromium fixture (`web/tests/add-machine.e2e.mjs`, run with the other fixtures in the
-terminal-browser workflow).
+terminal-browser workflow). That fixture also holds a layout matrix for the dialog and the landing
+note; what it checks, and what an accessibility scan found, is in
+[the UI verification record](ui-verification.md#add-a-machine-in-context-layout-focus-and-motion-matrix--25-october-2026).
 
 ## Continuation
 

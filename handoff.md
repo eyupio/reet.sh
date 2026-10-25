@@ -141,6 +141,10 @@ The user requested a status report and continued roadmap delivery after PR #155.
   [the dialog guide](docs/skill-content-review-ui.md). Nothing writes to a machine. The reviewed
   executor is the next unchecked S4 work, in an order the user chooses. S4 and S5 remain
   incomplete.
+- **Add a machine in context:** a guided dialog, from the Machines page and from the Private skills
+  dialog, that shows one block of commands for a new machine, watches for it to report in and carries
+  on where the person started (PRs #188 to #190 and one closing pull request). Read
+  [the guide](docs/add-machine-in-context.md). Nothing writes to a machine.
 - **Later:** A1–A3 registered agent launch/activity/attention; W1–W3 projects,
   worktrees/diffs/structured tool review; L1–L4 AI software/MCP fleet maintenance
   and optional isolation. Existing machine inventory and setup snapshots are a
@@ -1684,6 +1688,91 @@ Read [docs/skill-content-review-ui.md](docs/skill-content-review-ui.md). Branch
   executor and its gates pass.
 - **Publication / deployment state.** Recorded on the pull requests: #178 to #185 are merged, and
   the closing pull request carries the final head, the workflow results and the merge. Nothing is
+  deployed, and a merge is not deployment.
+
+#### Add a machine in context — PRs #188 to #190 and the closing pull request
+
+Read [docs/add-machine-in-context.md](docs/add-machine-in-context.md). Branch
+`claude/gallant-darwin-n9oqfj`. The design is
+`docs/superpowers/specs/2026-10-25-add-machine-in-context-design.md` and the task plan is
+`docs/superpowers/plans/2026-10-25-add-machine-in-context.md`.
+
+- **Task and scope.** Bring a named machine in without leaving the screen you are on: one block of
+  commands to paste there, a status line that watches the controller for it, and a landing back where
+  the person started. Accounts mode and a write role only. It writes nothing to a machine and sends
+  nothing but the existing token request and the page's own machine reads. No server code, terminal,
+  security/PIN preference or legacy sync flow changed.
+- **Pull requests.** The design and the plan were [#188](https://github.com/eyupio/reet.sh/pull/188) and
+  [#189](https://github.com/eyupio/reet.sh/pull/189). The dialog, the Machines page entry and the join
+  logic merged as [#190](https://github.com/eyupio/reet.sh/pull/190). Its review (Codex) found three
+  things, all fixed before the merge: a machine name is limited in bytes, as the server counts it, not
+  in characters; a name saved as an alias after a rename or merge now resolves to its saved machine
+  (the watch, the baseline and the Use button follow it); and landing a new machine on a Machines page
+  filtered to another machine (`?machine=`) now clears the filter so the new card exists to be shown.
+  This closing pull request adds the Private skills entry and landing, the layout matrix, three small
+  hardening fixes and the documentation.
+- **Behaviour added.**
+  - `web/src/lib/machineJoin.ts` (pure, unit tested in `machineJoin.test.mjs`): the name rules, the one
+    command block (the three existing builders, never a token), `joinState` (waiting, connected,
+    first scan, ready, already here, unknown), `landingFor` (which folder of the new machine the
+    Private skills dialog may open on), `landingNote`, the poll delay and the 15-minute watch cap.
+  - `AddMachineDialog.svelte`: the three parts (name, key, run), a polite status line, polling that
+    pauses while the tab is hidden, backs off on failure and stops on a lost sign-in, and *Use* as the
+    single primary action. From the Private skills dialog it also pauses three seconds then carries on
+    by itself, with a **Cancel**, and offers **Wait here** and **Close** when no folder qualifies.
+  - Entry points: **Add a machine** on the Machines page (`EnvironmentSync.svelte`,
+    `MachineFleet.svelte`) and **Not listed? Add a machine** in the Private skills dialog
+    (`MachineSkillContent.svelte`), which passes the skill and agent it came with.
+  - The landing: from Machines the card is scrolled to and marked "Just added"; from Private skills the
+    dialog opens on the folder `landingFor` chose when Use was pressed, with a note saying which folder
+    and how many others qualified. The machine list now judges that folder again at the instant it
+    opens (a folder that no longer qualifies opens nothing and says so), focus falls back to the Add a
+    machine button when the folder's own button is not drawn, and the note goes into a status region
+    that is already on the page.
+- **Tests.** `web/src/lib/machineJoin.test.mjs` (in `npm test`) and `web/tests/add-machine.e2e.mjs`
+  (run in the terminal-browser workflow). The fixture covers every state, the Private skills landing,
+  the hardening cases and a matrix: ten dialog states and the sign-in card at 1360, 768, 390 and
+  320px in light and dark with no sideways scroll, the command block wrapping, the primary action
+  reachable and uncovered, Escape closing without a write and returning focus, and a reduced-motion run.
+- **Verification I ran for the closing pull request.** The fixture passed four consecutive local runs
+  against the production build (53, 52, 56 and 52 seconds) with
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/pw-browsers/chromium` and
+  `npm run preview -- --host 127.0.0.1 --port 4173`; the skill-content, machine-import, control and
+  public-workspace fixtures also passed. Each hardening assertion failed before its fix, and breaking the
+  command block's wrapping on purpose made the matrix fail. An `axe-core` 4.10.2 scan run from a
+  temporary directory outside the repository (no dependency added) covered the eleven surfaces at 375
+  and 1440px in light and dark, 44 scans, with no violations; `color-contrast` was reported as
+  incomplete in 40 of them and I did not review those. Details and limits are in
+  [docs/ui-verification.md](docs/ui-verification.md). Full validation results are recorded in the
+  pull request.
+- **Not performed.** No physical phone or tablet, screen reader, Safari or Firefox check; the fixtures
+  use synthetic API responses in Chromium. No live machine, production service, terminal session or
+  fleet. Whether a screen reader announces the landing note was not heard. The landing's second look
+  was exercised by moving the browser clock past the 14-day window, not by pausing a connector at the
+  same instant.
+- **Known limitations and decisions.**
+  - *Connected* and *Ready* say only that a connector with that name reported in and that a complete
+    scan arrived. They do not say the commands worked, and the words "verified" and "healthy" are never
+    used of a machine.
+  - The bundle the Private skills dialog had chosen is carried in the dialog's context but not
+    preselected; the landing finds the library skill by name.
+  - An alias whose machine was forgotten is not visible to the page, so the dialog waits for the typed
+    name until the watch cap.
+  - An old machine and a new enrolment that share one name can make the old machine's newer scan read as
+    Ready; use a distinct name.
+  - When several folders qualify, one is opened and the note counts the rest; the person is not asked.
+- **Follow-ups (not done).** Split the fixture (it now holds the entry, the join states, the landing and
+  the matrix) over a shared fixture module and consider running the matrix nightly; preselect the
+  bundle on the landing; take the alias map from the API instead of inferring it from the machine list;
+  the reviewed executor that applies a pinned revision (the apply flow would reuse the landing); a
+  fleet overview with status per machine and per agent; MCP exposure of pins, checks and receipts.
+- **Direction.** The aim is unchanged: a better multi-machine version of the website and the
+  open-source app, with agents, MCP servers and skills synced through reet.sh and the ability to add a
+  machine just in time so work with an AI agent can continue there. This slice delivers the "add a
+  machine just in time" part for skills; the order of the next slices is the user's to choose. Do not
+  name other products in the repository's docs or UI.
+- **Publication / deployment state.** Recorded on the pull requests: #188 to #190 are merged, and the
+  closing pull request carries the final head, the workflow results and the merge. Nothing is
   deployed, and a merge is not deployment.
 
 #### Remaining S4 integration and apply gates

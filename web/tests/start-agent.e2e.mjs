@@ -13,7 +13,7 @@ const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return{p
 // Server state.
 const A='connector-laptop000000001',B='connector-oldbox00000001',C='connector-spare000000001'
 const HOME_A='/home/dev',SITE='/home/dev/work/site'
-let authMode='accounts',viewer=false,machinesFail=false
+let authMode='accounts',viewer=false,machinesFail=false,theme='light'
 const tmachines=[
  {agentId:A,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,tools:['claude','codex','gemini']}},
  // An older connector: no launch capability. The tools list is there only to show that it is not enough on its own.
@@ -35,7 +35,7 @@ await page.route('**/api/**',async route=>{
  const req=route.request(),path=new URL(req.url()).pathname,method=req.method()
  let data={}
  if(path==='/api/v2/auth/status')data=authMode==='accounts'?{mode:'accounts',setupRequired:false,bootstrapRequired:false,user:{id:1,name:'Operator',email:'operator@example.test',role:viewer?'viewer':'owner'}}:{mode:authMode,setupRequired:false,bootstrapRequired:false}
- else if(path==='/api/v2/profile')data={user:{id:1,name:'Operator',email:'operator@example.test',role:viewer?'viewer':'owner'},profile:{theme:'light',shelfView:'list'},sessionCount:1,accounts:authMode==='accounts'}
+ else if(path==='/api/v2/profile')data={user:{id:1,name:'Operator',email:'operator@example.test',role:viewer?'viewer':'owner'},profile:{theme,shelfView:'list'},sessionCount:1,accounts:authMode==='accounts'}
  else if(path==='/api/skills')data={skills:[],counts:{all:0,used:0}}
  else if(path==='/api/environments')data={environments:scopes,machines:machinesOf()}
  else if(path==='/api/tags')data={tags:[]}
@@ -137,6 +137,8 @@ try{
  await expect(p.tool('OpenCode')).toBeDisabled()
  await expect(p.tool('OpenCode')).toHaveAccessibleDescription('Not installed on this machine.')
  await expect(p.tool('Claude Code')).toHaveAccessibleDescription('')
+ // The reason is text to read, not a disabled control: it is not faded (an axe scan found it below contrast when it was).
+ expect(await d.getByText('Not installed on this machine.',{exact:true}).evaluate(el=>{let o=1;for(let n=el;n&&n.tagName!=='DIALOG';n=n.parentElement)o*=Number(getComputedStyle(n).opacity);return o})).toBe(1)
  // Machines: every machine listed; the one not ready cannot be chosen.
  await expect(p.machine.locator('option')).toHaveText(['dev-laptop','old-box','spare-box · not ready'])
  await expect(p.machine.locator(`option[value="${C}"]`)).toBeDisabled()
@@ -296,6 +298,9 @@ try{
  await expect(p.status).toHaveText(LOST)
  await expect(p.retry).toBeFocused()
  await locked(p)
+ // With every field disabled, the scrolling part can still be reached from the keyboard to read the choices.
+ await expect(d.locator('.body')).toHaveAttribute('tabindex','0')
+ await expect(d.locator('.body')).toHaveAccessibleName('Your choices')
  const lost=posts.at(-1)
  // A 5xx is no answer either.
  answers.push({status:502,json:{error:'Bad gateway'}})
@@ -439,6 +444,230 @@ try{
  await expect(cardEntry('dev-laptop')).toBeEnabled()
  await expect(card('dev-laptop')).not.toContainText("Couldn't check")
 
+ // ── Matrix: every state of the dialog at 1360, 768, 390 and 320px in light and dark. ──
+ // One walk through the states; at each, the viewport and scheme are changed under the open dialog (no reload) and the same checks
+ // are made: no sideways scroll of the page, the dialog inside the window with neither it, its body nor anything in it reaching
+ // past its edges, and each primary action scrolled into view with a hit test at its centre landing on it. A machine with a long
+ // unbroken name and a long project folder is added, so wrapping and truncation are tested with values that cannot break at a space.
+ const COMBOS=[];for(const scheme of ['light','dark'])for(const [width,height] of [[1360,900],[768,900],[390,800],[320,640]])COMBOS.push({scheme,width,height,label:`${scheme} ${width}px`})
+ // Two frames after the change, so the page's own media-query listeners (the workspace shuts its list below 960px) have run.
+ const setCombo=async c=>{await page.emulateMedia({colorScheme:c.scheme});await page.setViewportSize({width:c.width,height:c.height});await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))))}
+ const reachable=async locator=>{
+  await locator.scrollIntoViewIfNeeded()
+  return locator.evaluate(el=>{const r=el.getBoundingClientRect(),top=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return r.width>0&&r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&(top===el||el.contains(top))||`${el.tagName}#${el.id} at ${Math.round(r.left)},${Math.round(r.top)}-${Math.round(r.right)},${Math.round(r.bottom)} in ${innerWidth}x${innerHeight}, under ${top?.tagName}.${top?.className}`})
+ }
+ const surfaces={}
+ let sweeps=0
+ // before runs after each size change: the Terminals sidebar is shut on a narrow screen once a session is chosen, as a person would find it.
+ const sweep=async(state,primary,{before}={})=>{
+  for(const c of COMBOS){
+   await setCombo(c)
+   if(before)await before()
+   const where=`${state} at ${c.label}`
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${where}: the page scrolls sideways`).toBe(true)
+   if(await dialog().count()){
+    const fit=await dialog().evaluate(el=>{
+     const r=el.getBoundingClientRect(),body=el.querySelector('.body')
+     const spill=[...el.querySelectorAll('*')].filter(n=>{const b=n.getBoundingClientRect();return b.width>0&&b.height>0&&(b.left<r.left-0.5||b.right>r.right+0.5)}).map(n=>n.tagName+'.'+n.className)
+     return{inside:r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight,dialog:el.scrollWidth<=el.clientWidth,body:body.scrollWidth<=body.clientWidth,spill,surface:getComputedStyle(el).backgroundColor}
+    })
+    expect({...fit,surface:undefined},`${where}: the dialog does not fit`).toEqual({inside:true,dialog:true,body:true,spill:[],surface:undefined})
+    surfaces[c.scheme]=fit.surface
+   }
+   for(const locator of primary)expect(await reachable(locator),`${where}: an action is out of reach or covered`).toBe(true)
+  }
+  sweeps++
+  await setCombo(COMBOS[0])
+ }
+ const LONG_HOST='build-server-in-the-back-office-with-a-very-long-hostname-01'
+ const LONG_ID='connector-longname000001'
+ const LONG_DIR='/home/builder/work/clients/a-very-long-client-name-with-no-spaces-at-all/and-an-even-longer-project-folder-name-that-must-wrap'
+ tmachines.push({agentId:LONG_ID,host:LONG_HOST,ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'builder',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,tools:['claude']}})
+ scopes.push(scope(LONG_HOST,LONG_DIR,'s7'))
+ agents.push({id:LONG_ID,host:LONG_HOST,version:'dev',paused:false,autoUpdate:false,lastSeen:Date.now()})
+ theme='system'
+ const writesBefore=storageWrites.length
+ // On a narrow screen the sessions list is behind Show sessions; the entry is then reached the way a person would reach it.
+ // The workspace restores its saved layout as it loads, so the check is repeated until the list stays open.
+ const showSidebar=async()=>{const toggle=page.locator('.workspace-actions [aria-controls="terminal-sessions"]');await expect(async()=>{if(await toggle.getAttribute('aria-expanded')!=='true')await toggle.click();await expect(sidebarEntry()).toBeVisible({timeout:1000})}).toPass()}
+ const openAt=async agentId=>{await page.goto(`${base}/terminals?agent=${agentId}`);await showSidebar();return openFromSidebar()}
+
+ // Closed: both entry points.
+ await page.goto(`${base}/terminals?agent=${A}`)
+ await expect(sidebarEntry()).toBeVisible()
+ await sweep('closed, Terminals entry',[sidebarEntry()],{before:showSidebar})
+ await page.goto(`${base}/machines`)
+ await expect(cardEntry(LONG_HOST)).toBeEnabled()
+ await sweep('closed, machine card entries',[cardEntry('dev-laptop'),cardEntry(LONG_HOST),cardEntry('spare-box')])
+
+ // Open, as it first appears.
+ d=await openAt(A);p=parts(d)
+ await sweep('open default (OpenCode not installed)',[p.start,p.close,p.tool('OpenCode')])
+ // Long names, from the card: the select shows what fits and the whole value is in the option and in the sentence, which wraps.
+ await page.keyboard.press('Escape')
+ await page.goto(`${base}/machines`)
+ await cardEntry(LONG_HOST).click()
+ d=dialog();p=parts(d)
+ await expect(p.machine).toHaveValue(LONG_ID)
+ await expect(p.machine.locator('option:checked')).toHaveText(LONG_HOST)
+ await expect(p.tool('Codex')).toHaveAccessibleDescription('Not installed on this machine.')
+ await p.folder.selectOption(LONG_DIR)
+ await expect(p.folder.locator('option:checked')).toHaveText(LONG_DIR)
+ await expect(p.sentence).toHaveText(`Starts Claude Code in ${LONG_DIR} on ${LONG_HOST}. Nothing runs until you press Start.`)
+ await sweep('long machine and folder names, three agents not installed',[p.start,p.machine,p.folder])
+ // The sentence with a prompt, which adds the process-list line.
+ await p.prompt.fill('fix the failing build please')
+ await expect(p.sentence).toContainText('visible to other users of that machine in its process list.')
+ await sweep('sentence with a prompt',[p.start,p.sentence])
+ await p.close.click()
+ await expect(cardEntry(LONG_HOST)).toBeFocused()
+
+ // The machine you came from is not ready; then nothing is ready.
+ d=await openAt(C);p=parts(d)
+ await expect(p.machine).toHaveAccessibleDescription("spare-box isn't ready, so dev-laptop is selected.")
+ await sweep('a machine not ready',[p.start,p.machine])
+ await page.keyboard.press('Escape')
+ for(const m of tmachines)m.ready=false
+ d=await openAt(A);p=parts(d)
+ await expect(p.start).toBeDisabled()
+ await sweep('no machine ready',[p.close,p.machine])
+ await page.keyboard.press('Escape')
+ for(const m of tmachines)m.ready=m.agentId!==C
+
+ // An older machine.
+ d=await openAt(A);p=parts(d)
+ await p.machine.selectOption(B)
+ await expect(d.locator('p.reason')).toHaveText(['Update reet on this machine to start agents.'])
+ await sweep('old machine',[p.close,p.machine])
+ // Other model with its message; a typed path with its message; the long prompt with its counter; the leading-dash rule.
+ await p.machine.selectOption(A)
+ await p.model.selectOption({label:'Other…'})
+ await p.other.fill('bad model')
+ await expect(d.getByText("That model name isn't one reet can pass on.",{exact:false})).toBeVisible()
+ await sweep('Other model with its message',[p.other,p.start])
+ await p.model.selectOption('')
+ await p.folder.selectOption({label:'Type a path…'})
+ await p.path.fill('work/'+'a-long-relative-folder-name-without-spaces'.repeat(3))
+ await expect(d.locator('p.reason').filter({hasText:'Use a full path that starts with /.'})).toBeVisible()
+ await sweep('typed path with its message',[p.path,p.start])
+ await p.path.fill(LONG_DIR.replace('/home/builder','/home/dev'))
+ await p.prompt.fill(LONG+'b')
+ await expect(p.count).toHaveText("2,001 of 2,000 bytes. Secrets don't belong here.")
+ await sweep('long prompt with its counter',[p.prompt,p.count,p.start])
+ await p.prompt.fill('-fix the build')
+ await p.start.click()
+ await expect(p.status).toHaveText('Start the prompt with a word, not a dash.')
+ await sweep('prompt rule in the status line',[p.prompt,p.start])
+ await p.prompt.fill('fix the failing build please')
+
+ // Busy, then the lost reply with its Retry, then the landing.
+ const matrixHold=deferred();answers.push(matrixHold)
+ await p.start.click()
+ await expect(p.starting).toBeDisabled()
+ await sweep('busy, Starting…',[p.starting])
+ // The held request answers now; the next one (the lost reply) is dropped.
+ matrixHold.resolve();answers.push('drop')
+ await expect(d).toHaveCount(0)
+ d=await openAt(A);p=parts(d)
+ await p.prompt.fill('fix the failing build please')
+ await p.start.click()
+ await expect(p.status).toHaveText(LOST)
+ await sweep('lost reply with Retry',[p.retry])
+ const landed=`session-${body(-1).requestId.replaceAll('-','').slice(0,20)}`
+ await p.retry.click()
+ await expect(d).toHaveCount(0)
+ await expect(page).toHaveURL(new RegExp(`[?&]session=${landed}(&|$)`))
+ await expect(page.locator('.pane')).toBeVisible()
+ await sweep('landing on the new session',[page.locator('.pane')])
+
+ // Each kind of refusal, with its field focused.
+ d=await openAt(LONG_ID);p=parts(d)
+ await p.folder.selectOption(LONG_DIR)
+ await p.prompt.fill('look around here')
+ for(const r of [
+  {name:'folder refused',answer:{status:422,json:{error:'x',code:'folder_unavailable',message:'x'}},focus:p.folder},
+  {name:'agent not installed',answer:{status:422,json:{error:'x',code:'tool_not_installed',message:'x'}},focus:p.tool('Claude Code')},
+  {name:'one-word prompt refused',answer:{status:422,json:{error:'x',code:'prompt_unsupported',message:'x'}},focus:p.prompt},
+  {name:'update reet',answer:{status:409,json:{error:'x',code:'launch_unsupported',message:'x'}},focus:p.machine},
+  {name:'session limit',answer:{status:409,json:{error:'terminal session limit reached'}},focus:p.start},
+  {name:'request changed',answer:{status:409,json:{error:'terminal operation conflicts with current state'}},focus:p.start},
+  {name:'access refused',answer:{status:403,json:{error:'terminal access denied'}},focus:p.start},
+  {name:'terminals switched off on the server',answer:{status:403,json:{error:'terminal access is disabled by the server'}},focus:p.start},
+ ]){
+  answers.push(r.answer)
+  await p.start.click()
+  await expect(p.start).toBeEnabled()
+  await expect(r.focus).toBeFocused()
+  await sweep(`refusal: ${r.name}`,[r.focus,p.start,p.status])
+ }
+ answers.push({status:503,json:{error:'terminal machine is reconnecting; retry after it reconnects'}})
+ await p.start.click()
+ await expect(p.retry).toBeFocused()
+ await sweep('refusal: reconnecting (kept for retry)',[p.retry,p.status])
+ await p.retry.click()
+ await expect(d).toHaveCount(0)
+ expect(surfaces.light).toBeTruthy();expect(surfaces.dark).toBeTruthy();expect(surfaces.dark).not.toBe(surfaces.light)   // dark is really applied
+ expect(sweeps).toBe(24)
+
+ // Escape closes without a request and focus goes back to what opened the dialog, at every size and in both schemes.
+ await page.goto(`${base}/terminals?agent=${A}`)
+ for(const c of COMBOS){
+  await setCombo(c)
+  await showSidebar()
+  const sent=posts.length
+  d=await openFromSidebar();p=parts(d)
+  await p.prompt.fill('fix the failing build please')
+  await page.keyboard.press('Escape')
+  await expect(d).toHaveCount(0)
+  await expect(sidebarEntry(),c.label).toBeFocused()
+  await settle()
+  expect(posts.length,`Escape at ${c.label} sent a request`).toBe(sent)
+ }
+ await page.goto(`${base}/machines`)
+ for(const c of COMBOS){
+  await setCombo(c)
+  const sent=posts.length
+  await cardEntry(LONG_HOST).click()
+  d=dialog();p=parts(d)
+  await p.prompt.fill('fix the failing build please')
+  await page.keyboard.press('Escape')
+  await expect(d).toHaveCount(0)
+  await expect(cardEntry(LONG_HOST),c.label).toBeFocused()
+  await settle()
+  expect(posts.length,`Escape at ${c.label} sent a request`).toBe(sent)
+ }
+ await setCombo(COMBOS[0])
+
+ // Reduced motion: with the preference the open dialog has no animation and no transform transition; without it the buttons'
+ // press transition is there, so the check is not empty.
+ const moving=()=>dialog().evaluate(el=>{
+  const all=[el,...el.querySelectorAll('*')]
+  return{moving:all.filter(n=>{const cs=getComputedStyle(n),names=cs.transitionProperty.split(',').map(t=>t.trim()),times=cs.transitionDuration.split(',').map(t=>parseFloat(t)*(t.trim().endsWith('ms')?1:1000))
+   return cs.animationName!=='none'||names.some((name,i)=>(name==='all'||name==='transform')&&times[i%times.length]>0)}).map(n=>n.tagName+'.'+n.className),
+   running:document.getAnimations().filter(a=>a.effect&&el.contains(a.effect.target)&&a.playState==='running').length}
+ })
+ await cardEntry('dev-laptop').click()
+ expect((await moving()).moving.length).toBeGreaterThan(0)
+ await page.keyboard.press('Escape')
+ await page.emulateMedia({reducedMotion:'reduce'})
+ await cardEntry('dev-laptop').click()
+ d=dialog();p=parts(d)
+ await p.prompt.fill('fix the failing build please')
+ await p.start.hover()
+ expect(await moving()).toEqual({moving:[],running:0})
+ await page.keyboard.press('Escape')
+ await page.emulateMedia({reducedMotion:'no-preference',colorScheme:'light'})
+
+ // The matrix wrote nothing to browser storage under any key not already written before it (the workspace's layout preference and
+ // the sign-in token's clean-up), and nothing about a prompt, model or folder.
+ const keyOf=w=>w.split(' ',2).join(' ')
+ const knownKeys=new Set(storageWrites.slice(0,writesBefore).map(keyOf))
+ const matrixWrites=storageWrites.slice(writesBefore)
+ expect(matrixWrites.filter(w=>!knownKeys.has(keyOf(w)))).toEqual([])
+ for(const secret of [LONG_DIR,'fix the failing build please','look around here'])expect(matrixWrites.join('\n').includes(secret)).toBe(false)
+ theme='light'
+ tmachines.pop();scopes.pop();agents.pop()
+
  // ── Nothing about prompts, models or folders in browser storage or any address. ──
  const kept=await page.evaluate(async()=>JSON.stringify({local:{...localStorage},session:{...sessionStorage},calls:window.__storageCalls,idb:(await indexedDB.databases()).map(x=>x.name)}))
  const addresses=[...urls,...await page.evaluate(()=>window.__urls)].join('\n')
@@ -478,5 +707,5 @@ try{
  await expect(page.getByRole('button',{name:'New agent session'})).toHaveCount(0)
 
  expect(errors).toEqual([])
- console.log(`Start an agent UI passed: both entry points with the machine preselected and focus returned, agents offered from what the machine reports (not installed, update reet, not ready), model suggestions and Other with cleanModel sent, folder choices and typed paths, prompt rules and byte counter, the sentence with and without a prompt, exact create bodies (launch fields only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, and no entry for viewers or legacy sign-in. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
+ console.log(`Start an agent UI passed: both entry points with the machine preselected and focus returned, agents offered from what the machine reports (not installed, update reet, not ready), model suggestions and Other with cleanModel sent, folder choices and typed paths, prompt rules and byte counter, the sentence with and without a prompt, exact create bodies (launch fields only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, no entry for viewers or legacy sign-in, and a matrix of 24 states (both closed entry points, open, long machine and folder names, the process-list sentence, not ready, nothing ready, old machine, Other model, typed path, long prompt, prompt rule, Starting…, lost reply, landing and nine refusals) at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past the dialog's edges and each primary action reachable and uncovered, Escape from both entry points at every size returning focus without a request, a reduced-motion run and no new storage key. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
 }finally{await browser.close()}

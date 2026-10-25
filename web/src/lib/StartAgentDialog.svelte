@@ -161,7 +161,10 @@
   </div>
   <button type="button" class="btn" onclick={close} disabled={busy} aria-label="Close">Close ×</button>
  </header>
- <form class="body" oninput={edited} onsubmit={(event) => { event.preventDefault(); void start() }}>
+ <form class="sheet" oninput={edited} onsubmit={(event) => { event.preventDefault(); void start() }}>
+  <!-- While everything is locked there is nothing to tab to in here, so the scrolling part takes focus itself and can be read. -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <div class="body" tabindex={locked ? 0 : undefined} role={locked ? 'region' : undefined} aria-label={locked ? 'Your choices' : undefined}>
   <fieldset disabled={locked}>
    <div class="field">
     <label for={`${id}-machine`}>Machine</label>
@@ -222,6 +225,7 @@
   </fieldset>
 
   {#if sentence}<p class="sentence">{sentence}</p>{/if}
+  </div>
   <footer>
    <p class="status" class:bad={failed} role="status" aria-live="polite" aria-atomic="true">{message}</p>
    <small>reet.sh never sends a command line. The machine starts the agent itself.</small>
@@ -240,7 +244,9 @@
  .eyebrow { margin: 0; color: var(--accent); text-transform: uppercase; font-size: .65rem; letter-spacing: .1em; }
  .lede { margin: 8px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
  header .btn { flex: none; white-space: nowrap; }
- .body { display: grid; gap: 16px; padding: 22px 22px 0; min-height: 0; overflow: auto; overflow-wrap: anywhere; align-content: start; }
+ /* The fields scroll; the footer with the status line and Start sits below them, outside the scrolling part, so it never covers a field. */
+ .sheet { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
+ .body { display: grid; gap: 16px; padding: 22px; min-height: 0; overflow: auto; overflow-wrap: anywhere; align-content: start; }
  fieldset { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: 18px; }
  .field { display: grid; gap: 6px; min-width: 0; }
  label, legend { font-size: .85rem; font-weight: 600; }
@@ -257,8 +263,8 @@
  .tool span { display: grid; gap: 2px; min-width: 0; }
  .tool label { font-size: .88rem; font-weight: 600; cursor: pointer; }
  .tool small { color: var(--muted); font-size: .78rem; }
- .tool.off { opacity: .75; }
- .tool.off label { cursor: default; }
+ /* Only the name is dimmed; the reason beside it is text to read and keeps its full contrast. */
+ .tool.off label { cursor: default; color: var(--muted); font-weight: 500; }
  .hint, small { margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.5; }
  .count.over { color: var(--bad); }
  .reason { margin: 0; color: var(--bad); font-size: .83rem; line-height: 1.5; }
@@ -266,8 +272,8 @@
  .status { flex: 1 0 100%; margin: 0; font-size: .85rem; line-height: 1.5; }
  .status.bad { color: var(--bad); }
  .linklike { justify-self: start; padding: 4px 0; min-height: 32px; font: inherit; font-size: .83rem; color: var(--accent); background: none; border: 0; text-decoration: underline; cursor: pointer; text-align: left; }
- /* Kept in view at the foot of the scrolling form, so Start is always reachable on a short screen. */
- footer { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 14px 0 22px; border-top: 1px solid var(--line); background: var(--card); }
+ /* Always in view below the scrolling fields, so Start is reachable on a short screen. */
+ footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 14px 22px 22px; border-top: 1px solid var(--line); background: var(--card); overflow-wrap: anywhere; }
  .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
- @media (max-width: 500px) { header { padding: 16px; } .body { padding: 16px 16px 0; } footer { padding-bottom: 16px; } h2 { font-size: 1.35rem; } footer .btn { width: 100%; } }
+ @media (max-width: 500px) { header { padding: 16px; } .body { padding: 16px; } footer { padding: 12px 16px 16px; } h2 { font-size: 1.35rem; } footer .btn { width: 100%; } }
 </style>

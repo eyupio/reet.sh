@@ -828,19 +828,27 @@ func WorktreeRemove(ctx context.Context, home, project, repo, run string, shown 
 	return err
 }
 
+// A remove is bounded by 60 seconds in all: its checks share
+// removeCheckTimeout, then `git worktree remove` gets removeStepTimeout of its
+// own. The controller waits longer than a create and a remove back to back.
+const (
+	removeCheckTimeout = 30 * time.Second
+	removeStepTimeout  = 30 * time.Second
+)
+
 // WorktreeRemoved says which folder a remove deleted and which branch it kept.
 type WorktreeRemoved struct {
 	Path   string
 	Branch string
 }
 
-// RemoveWorktree is WorktreeRemove reporting what it removed. The checks
-// share one gitTimeout budget that ends with ctx; the one changing call,
-// `git worktree remove`, then gets a gitTimeout budget of its own that the end
-// of ctx does not cut short, so a remove that has started is never stopped
-// half way through deleting the folder.
+// RemoveWorktree is WorktreeRemove reporting what it removed. Every check
+// runs first, sharing one removeCheckTimeout budget that also ends with ctx;
+// the one changing call, `git worktree remove`, then gets removeStepTimeout of
+// its own that the end of ctx does not cut short, so a remove that has started
+// is never stopped half way through deleting the folder.
 func RemoveWorktree(ctx context.Context, home, project, repo, run string, shown WorktreeCounts, git GitRunner) (WorktreeRemoved, error) {
-	checkCtx, cancel := context.WithTimeout(ctx, gitTimeout)
+	checkCtx, cancel := context.WithTimeout(ctx, removeCheckTimeout)
 	defer cancel()
 	w, err := locateWorktree(checkCtx, home, project, repo, run, git)
 	if err != nil {
@@ -868,7 +876,7 @@ func RemoveWorktree(ctx context.Context, home, project, repo, run string, shown 
 	if checkCtx.Err() != nil {
 		return WorktreeRemoved{}, gitFailed(nil, checkCtx.Err())
 	}
-	removeCtx, cancelRemove := context.WithTimeout(context.WithoutCancel(ctx), gitTimeout)
+	removeCtx, cancelRemove := context.WithTimeout(context.WithoutCancel(ctx), removeStepTimeout)
 	defer cancelRemove()
 	if out, err := git(removeCtx, w.root, "worktree", "remove", w.path); err != nil {
 		return WorktreeRemoved{}, gitFailed(out, err)

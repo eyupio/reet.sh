@@ -162,7 +162,7 @@ try {
  expect(writes.filter(w=>w.path.endsWith('/desired')).slice(-3).every(w=>w.body.sourceId==='build-shared'&&w.body.skillIds.length===3)).toBe(true)
  await noOverflow()
  await page.goto(`${base}/skills`)
- await expect(page.getByRole('heading',{name:'Your central skill library.'})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'Skills.',exact:true})).toBeVisible()
  await expect(page.getByRole('link',{name:'Create a skill',exact:true})).toBeVisible()
  await page.goto(`${base}/terminals`)
  await expect(page.getByRole('heading',{name:'Terminals'})).toBeVisible()

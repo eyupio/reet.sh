@@ -1,6 +1,6 @@
 // Phone-width and touch contract for controls that were hidden, squashed or mislabelled.
 import { chromium, expect } from '@playwright/test'
-import { openWorkspace, skill } from './helpers/workspace.mjs'
+import { active, openWorkspace, skill, terminalMachine } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 // REET_E2E_ONLY=<section> runs one section, so each can be watched failing before its fix.
@@ -57,5 +57,19 @@ try {
   await expect(page.getByRole('button',{name:'Start using'})).toHaveCount(0)
   await context.close()
  }
- console.log('Phone layout: shelf filters reachable, prefix field usable, Show button touch-sized, card label honest.')
+ // The buttons on a machine card are finger-sized on a touch screen, and stay compact with a mouse.
+ if (run('cardtouch')) {
+  for (const [touch,check] of [[true,h=>expect(h,'card button height on touch').toBeGreaterThanOrEqual(44)],[false,h=>expect(h,'card button height with a mouse').toBeLessThanOrEqual(40)]]) {
+   const {context,page,errors} = await open({width:touch?390:1440,touch,terminalStatus:active,terminalMachines:[terminalMachine('a1','dev-box',true)]})
+   await page.goto(base)
+   const card = page.getByRole('article',{name:'Machine dev-box'})
+   await expect(card).toBeVisible()
+   const heights = await card.locator('a.btn, button').evaluateAll(els=>els.map(el=>el.getBoundingClientRect().height))
+   expect(heights.length, 'the card has buttons to measure').toBeGreaterThan(0)
+   for (const h of heights) check(h)
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+ console.log('Phone layout: shelf filters reachable, prefix field usable, Show button touch-sized, card label honest, machine card buttons finger-sized on touch.')
 } finally {await browser.close()}

@@ -124,3 +124,46 @@ test('manual disconnect survives online/visibility recovery until explicitly rec
     assert.equal(f.states.at(-1),'live')
   } finally { f.cleanup() }
 })
+
+const { createTerminal, TerminalError } = await import(apiURL)
+async function withFetch(reply, run) {
+  const original = globalThis.fetch, requests = []
+  globalThis.fetch = async (path, init) => { requests.push({ path, init }); return reply() }
+  try { await run(requests) } finally { globalThis.fetch = original }
+}
+test('a plain create sends exactly the fields it always sent', async () => {
+  await withFetch(() => new Response('{"id":"s"}', { status: 200 }), async requests => {
+    await createTerminal('agent1', 'req1', 'Shell', 100, 30)
+    await createTerminal('agent1', 'req1', 'Shell', 100, 30, undefined, {})
+    await createTerminal('agent1', 'req1', 'Shell', 100, 30, undefined, { tool: '', model: '', dir: '', prompt: '' })
+    for (const r of requests) assert.equal(r.init.body, '{"agentId":"agent1","requestId":"req1","title":"Shell","cols":100,"rows":30}')
+  })
+})
+test('a launch create sends only the launch fields that are set', async () => {
+  await withFetch(() => new Response('{"id":"s"}', { status: 200 }), async requests => {
+    await createTerminal('a', 'r', 'Claude Code', 100, 30, undefined, { tool: 'claude' })
+    await createTerminal('a', 'r', 'Claude Code · site', 100, 30, undefined, { tool: 'claude', model: 'opus', dir: '/home/me/site', prompt: 'fix it' })
+    assert.deepEqual(JSON.parse(requests[0].init.body), { agentId: 'a', requestId: 'r', title: 'Claude Code', cols: 100, rows: 30, tool: 'claude' })
+    assert.deepEqual(JSON.parse(requests[1].init.body), { agentId: 'a', requestId: 'r', title: 'Claude Code · site', cols: 100, rows: 30, tool: 'claude', model: 'opus', dir: '/home/me/site', prompt: 'fix it' })
+  })
+})
+test('a refused create carries the status, the server sentence and its code', async () => {
+  const refuse = (status, body) => () => new Response(JSON.stringify(body), { status })
+  await withFetch(refuse(422, { error: "That folder isn't available on that machine.", code: 'folder_unavailable', message: "That folder isn't available on that machine.", field: 'dir' }), async () => {
+    const e = await createTerminal('a', 'r', 'T', 100, 30, undefined, { tool: 'claude', dir: '/x' }).catch(e => e)
+    assert.ok(e instanceof TerminalError)
+    assert.equal(e.status, 422); assert.equal(e.code, 'folder_unavailable'); assert.equal(e.message, "That folder isn't available on that machine.")
+  })
+  await withFetch(refuse(409, { error: 'terminal session limit reached' }), async () => {
+    const e = await createTerminal('a', 'r', 'T').catch(e => e)
+    assert.equal(e.status, 409); assert.equal(e.code, undefined); assert.equal(e.message, 'terminal session limit reached')
+  })
+  await withFetch(() => new Response('not json', { status: 502 }), async () => {
+    const e = await createTerminal('a', 'r', 'T').catch(e => e)
+    assert.equal(e.status, 502); assert.equal(e.code, undefined); assert.equal(e.message, 'The terminal connection is unavailable.')
+  })
+  await withFetch(refuse(422, { error: 'x', code: 7 }), async () => {
+    const e = await createTerminal('a', 'r', 'T').catch(e => e)
+    assert.equal(e.code, undefined)
+  })
+})

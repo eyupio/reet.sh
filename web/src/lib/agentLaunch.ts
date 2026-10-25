@@ -24,6 +24,27 @@ const SOMETHING_CHANGED = 'Something changed. Check again.'
 
 const nameOf = (tool: string): string => TOOLS.find(t => t.id === tool)?.name ?? tool
 
+/** The display name for a tool id; an unknown id is shown as given, and a missing one as "an agent". */
+export const toolName = (tool: string | undefined): string => (tool ? nameOf(tool) : 'an agent')
+
+const UPDATE_TO_LAUNCH = 'Update reet on this machine to start agents.'
+export type ToolChoice = { id: string; name: string; available: boolean; reason: string }
+/** Every built-in tool, offered only when the machine takes launch requests and reports the tool as installed. */
+export function toolChoices(caps: { launch?: boolean; tools?: unknown } | undefined): ToolChoice[] {
+  const launch = caps?.launch === true
+  const tools = Array.isArray(caps?.tools) ? caps.tools : []
+  return TOOLS.map(t => {
+    const available = launch && tools.includes(t.id)
+    return { id: t.id, name: t.name, available, reason: available ? '' : launch ? 'Not installed on this machine.' : UPDATE_TO_LAUNCH }
+  })
+}
+
+/** The Activity line for a `terminal-launch` audit event (machine, host, tool, model, dir; the prompt is never recorded). */
+export function launchActivity(d: { tool?: string; model?: string; dir?: string; host?: string }): string {
+  const model = d.model ? ` with ${d.model}` : ''
+  return `Started ${toolName(d.tool)}${model} in ${d.dir || 'the home folder'} on ${d.host || 'a machine'}`
+}
+
 /** Hints only: the machine's agent decides whether a model name exists. */
 export function modelSuggestions(tool: string): string[] { return [...(SUGGESTIONS[tool] ?? [])] }
 

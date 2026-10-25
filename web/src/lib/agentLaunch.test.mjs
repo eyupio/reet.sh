@@ -162,3 +162,39 @@ test('no banned words in any sentence', () => {
   const all = [refusalText(409, 'launch_unsupported'), refusalText(503), refusalText(500), launchSentence('claude', '', 'm', true), validateModel('-'), validateDir('x')]
   for (const s of all) assert.doesNotMatch(s, /verified|healthy/i)
 })
+
+test('toolName gives the display name, and the id itself for anything unknown', () => {
+  assert.equal(m.toolName('claude'), 'Claude Code')
+  assert.equal(m.toolName('gemini'), 'Gemini CLI')
+  assert.equal(m.toolName('pi'), 'pi')
+  assert.equal(m.toolName(''), 'an agent')
+  assert.equal(m.toolName(undefined), 'an agent')
+})
+
+test('toolChoices offers what the machine reports, and lists the rest as not installed', () => {
+  const caps = { launch: true, tools: ['codex', 'claude', 'pi'] }
+  assert.deepEqual(m.toolChoices(caps), [
+    { id: 'claude', name: 'Claude Code', available: true, reason: '' },
+    { id: 'codex', name: 'Codex', available: true, reason: '' },
+    { id: 'opencode', name: 'OpenCode', available: false, reason: 'Not installed on this machine.' },
+    { id: 'gemini', name: 'Gemini CLI', available: false, reason: 'Not installed on this machine.' },
+  ])
+})
+
+test('toolChoices offers nothing on a machine that cannot take launch requests', () => {
+  for (const caps of [undefined, {}, { launch: false, tools: ['claude'] }, { tools: ['claude'] }]) {
+    const out = m.toolChoices(caps)
+    assert.equal(out.length, 4)
+    assert.ok(out.every(t => !t.available && t.reason === 'Update reet on this machine to start agents.'))
+  }
+  assert.ok(m.toolChoices({ launch: true }).every(t => !t.available && t.reason === 'Not installed on this machine.'))
+  assert.ok(m.toolChoices({ launch: true, tools: 'claude' }).every(t => !t.available))
+})
+
+test('launchActivity reads an audit detail as one plain line and never needs the prompt', () => {
+  assert.equal(m.launchActivity({ tool: 'claude', host: 'studio', dir: '/home/me/work/site' }), 'Started Claude Code in /home/me/work/site on studio')
+  assert.equal(m.launchActivity({ tool: 'codex', host: 'studio', dir: '', model: 'gpt-5-codex' }), 'Started Codex with gpt-5-codex in the home folder on studio')
+  assert.equal(m.launchActivity({ tool: 'gemini', machine: 'agent-1' }), 'Started Gemini CLI in the home folder on a machine')
+  assert.equal(m.launchActivity({}), 'Started an agent in the home folder on a machine')
+  assert.equal(m.launchActivity({ tool: 'claude', host: 'studio', prompt: 'secret words' }), 'Started Claude Code in the home folder on studio')
+})

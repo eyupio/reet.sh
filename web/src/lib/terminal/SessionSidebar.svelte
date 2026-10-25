@@ -60,7 +60,7 @@
 {#if machineContext}<div class="session-context" role="menu" aria-label={`Actions for machine ${machineContext.item.host}`} tabindex="-1" bind:this={menu} style={`left:${machineContext.x}px;top:${machineContext.y}px`} onkeydown={menuKey}>
  <p>{machineContext.item.host}<small>{machineContext.item.ready?'Ready for terminals':'Not ready for terminals'}</small></p>
  <button role="menuitem" disabled={!cancreate(machineContext.item.agentId)} onclick={()=>{if(machineContext)newTerminal(machineContext.item.agentId)}}>New terminal</button>
- {#if onagent}<button role="menuitem" disabled={!machineContext.item.ready} onclick={()=>{if(machineContext)newAgent(machineContext.item.agentId)}}>New agent session</button>{/if}
+ {#if onagent}<button role="menuitem" onclick={()=>{if(machineContext)newAgent(machineContext.item.agentId)}}>New agent session</button>{/if}
  <button role="menuitem" onclick={()=>{if(!machineContext)return;const id=machineContext.item.agentId;closeMenu(false);selectMachine(id)}}>Show this machine’s sessions</button>
  <a role="menuitem" href={`/machines?machine=${encodeURIComponent(machineContext.item.host)}`}>Manage machine…</a>
 </div>{/if}

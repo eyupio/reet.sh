@@ -141,3 +141,28 @@ export function refusalText(status: number, code?: string, message?: string): st
   if (status === 403 && msg.includes('disabled by the server')) return 'Browser terminals are switched off on this server.'
   return SOMETHING_CHANGED
 }
+
+/**
+ * The machine the dialog opens on: the one you came from when it is ready; otherwise the first ready one, with a note saying
+ * so. When nothing is ready the one you came from stays selected, so its own readiness sentence is shown.
+ */
+export function preselect(machines: { agentId: string; host: string; ready: boolean }[], initial: string): { agentId: string; note: string } {
+  const from = machines.find(x => x.agentId === initial)
+  if (from?.ready) return { agentId: from.agentId, note: '' }
+  const ready = machines.find(x => x.ready)
+  if (!ready) return { agentId: from?.agentId ?? '', note: '' }
+  return { agentId: ready.agentId, note: from ? `${from.host} isn't ready, so ${ready.host} is selected.` : '' }
+}
+
+export type LaunchChoices = { key: string; model: string; folder: string }
+/** A new machine or agent (the key) starts the model and folder afresh; the same key keeps them exactly. */
+export function rekey(prev: LaunchChoices, key: string): LaunchChoices {
+  return prev.key === key ? prev : { key, model: '', folder: '' }
+}
+
+/** Which field a definite refusal is about, so focus can go there. */
+export function refusalField(status: number, code?: string): '' | 'machine' | 'tool' | 'folder' | 'prompt' {
+  if (status === 409 && code === 'launch_unsupported') return 'machine'
+  if (status !== 422) return ''
+  return code === 'folder_unavailable' ? 'folder' : code === 'tool_not_installed' ? 'tool' : code === 'prompt_unsupported' ? 'prompt' : ''
+}

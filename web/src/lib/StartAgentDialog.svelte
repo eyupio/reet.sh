@@ -1,8 +1,8 @@
 <script lang="ts">
- import { onMount } from 'svelte'
+ import { onMount, tick, untrack } from 'svelte'
  import type { Machine } from './api'
  import { createTerminal, readiness, TerminalError, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
- import { MAX_PROMPT_BYTES, cleanModel, folderChoices, launchSentence, modelSuggestions, refusalText, titleFor, toolChoices, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
+ import { MAX_PROMPT_BYTES, cleanModel, folderChoices, launchSentence, modelSuggestions, preselect, refusalField, refusalText, rekey, titleFor, toolChoices, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
 
  // Start an agent CLI in a new terminal session on one machine. One screen, one press. The page names a tool id, a model, a
  // folder and a prompt; the machine decides the program and its flags. Nothing here is kept in browser storage or the URL, and
@@ -25,8 +25,12 @@
  const id = $props.id()
  const OTHER = '\u0000other', TYPED = '\u0000typed'
  let dialog = $state<HTMLDialogElement>(), machineSelect = $state<HTMLSelectElement>()
+ let startButton = $state<HTMLButtonElement>()
  // svelte-ignore state_referenced_locally
- let agentId = $state(machines.find(m => m.agentId === initialAgent && m.ready)?.agentId ?? machines.find(m => m.ready)?.agentId ?? '')
+ const opening = preselect(machines, initialAgent)
+ let agentId = $state(opening.agentId)
+ // Said once, while the machine chosen for you is the one shown: why it is not the one you came from.
+ const switchedNote = $derived(agentId === opening.agentId ? opening.note : '')
  let tool = $state(''), modelChoice = $state(''), modelOther = $state(''), folderChoice = $state(''), typedDir = $state(''), prompt = $state('')
  let attempted = $state(false), busy = $state(false), message = $state(''), failed = $state(false)
  // One attempt: the request id and the exact parameters. Kept while its outcome is unknown, so Retry asks about the same start
@@ -38,6 +42,16 @@
  const machine = $derived(machines.find(m => m.agentId === agentId))
  const choices = $derived(toolChoices(machine?.capabilities))
  const chosenTool = $derived(choices.find(c => c.id === tool && c.available)?.id ?? choices.find(c => c.available)?.id ?? '')
+ // A new machine or agent starts the model and folder afresh: no blank select and no earlier choice coming back.
+ let choiceKey = ''
+ $effect.pre(() => {
+  const key = agentId + '\u0000' + chosenTool
+  untrack(() => {
+   const next = rekey({ key: choiceKey, model: modelChoice, folder: folderChoice }, key)
+   if (next.key === choiceKey) return
+   choiceKey = next.key; modelChoice = next.model; folderChoice = next.folder; modelOther = ''; typedDir = ''
+  })
+ })
  const suggestions = $derived(chosenTool ? modelSuggestions(chosenTool) : [])
  const model = $derived(modelChoice === OTHER ? cleanModel(modelOther) : suggestions.includes(modelChoice) ? modelChoice : '')
  const folders = $derived(folderChoices(machine, snapshot))
@@ -65,18 +79,33 @@
   dialog?.close()
   if (returnFocus && opener?.isConnected) opener.focus()
  }
- function close() { shutdown(true); onclose() }
+ // While a request is in flight the dialog stays: closing would forget a start that may still happen. The 15-second abort ends the wait.
+ function close() { if (busy) return; shutdown(true); onclose() }
  // The hand-off is read before onclose: a parent may derive it from the state that onclose clears.
- function addMachine() { const add = onaddmachine; shutdown(false); onclose(); add?.() }
+ function addMachine() { if (busy) return; const add = onaddmachine; shutdown(false); onclose(); add?.() }
 
+ const LOST_TAIL = 'Check your sessions before starting another. If you close this and start again, a second agent may start.'
+ const LOST = `We didn't hear back, so the agent may have started. ${LOST_TAIL}`
  // A refusal the server gave for certain: nothing started, so the person may change the fields and start again.
  const definite = (e: unknown) => e instanceof TerminalError && [400, 401, 403, 404, 409, 422].includes(e.status)
+ const field = (name: string) => dialog?.querySelector<HTMLElement>(`#${CSS.escape(`${id}-${name}`)}`)
+ // Focus after the fieldset and button are enabled again, so it never drops to the page.
+ async function focusAfter(target: () => HTMLElement | null | undefined) { await tick(); if (!life.signal.aborted) (target() ?? startButton)?.focus() }
+ function focusFor(where: string) {
+  if (where === 'machine') return field('machine')
+  if (where === 'tool') return dialog?.querySelector<HTMLElement>(`input[name="${CSS.escape(`${id}-tool`)}"]:checked`)
+  if (where === 'folder') return folderChoice === TYPED ? field('dir') : field('folder')
+  if (where === 'prompt') return field('prompt')
+  return startButton
+ }
  async function start() {
   if (busy || life.signal.aborted) return
   attempted = true
   if (!operation) {
-   if (blocked || modelError || dirError || promptError || !machine) return
-   if (modelChoice === OTHER && validateModel(modelOther) !== null) return
+   if (blocked || !machine) return
+   // The errors are derived, so they already count this attempt; no await here, or a second press could slip past the busy guard.
+   const invalid = modelError ? ['model-other', modelError] : dirError ? ['dir', dirError] : promptError ? ['prompt', promptError] : null
+   if (invalid) { failed = true; message = invalid[1]; field(invalid[0])?.focus(); return }
    const launch: LaunchRequest = { tool: chosenTool }
    if (model) launch.model = model
    if (dir) launch.dir = dir
@@ -85,7 +114,7 @@
   }
   const op = operation
   busy = true; failed = false
-  message = `Starting ${toolName(op.launch.tool)} on ${op.host}…`
+  message = `Starting ${toolName(op.launch.tool)} on ${op.host}… this can take a few seconds.`
   try {
    const session = await createTerminal(op.agentId, op.requestId, op.title, 100, 30, AbortSignal.any([life.signal, AbortSignal.timeout(15000)]), op.launch)
    if (life.signal.aborted) return
@@ -100,10 +129,12 @@
     const err = e as TerminalError
     operation = null
     message = refusalText(err.status, err.code, err.message)
-   } else if (e instanceof TerminalError && e.status === 503) {
-    message = `${refusalText(503)} Retry asks about the same start, so it never starts a second agent.`
+    busy = false
+    void focusAfter(() => focusFor(refusalField(err.status, err.code)))
    } else {
-    message = 'The start is unconfirmed. Retry asks about the same start, so it never starts a second agent.'
+    message = e instanceof TerminalError && e.status === 503 ? `${refusalText(503)} ${LOST_TAIL}` : LOST
+    busy = false
+    void focusAfter(() => startButton)
    }
   } finally {
    if (!life.signal.aborted) busy = false
@@ -124,16 +155,17 @@
    <h2 id={`${id}-title`}>Start an agent</h2>
    <p class="lede">Right then: pick a machine, an agent and a folder. It starts in a new terminal session you can come back to.</p>
   </div>
-  <button type="button" class="btn" onclick={close} aria-label="Close">Close ×</button>
+  <button type="button" class="btn" onclick={close} disabled={busy} aria-label="Close">Close ×</button>
  </header>
  <form class="body" onsubmit={(event) => { event.preventDefault(); void start() }}>
   <fieldset disabled={locked}>
    <div class="field">
     <label for={`${id}-machine`}>Machine</label>
-    <select id={`${id}-machine`} bind:this={machineSelect} bind:value={agentId} aria-describedby={blocked ? `${id}-blocked` : undefined}>
+    <select id={`${id}-machine`} bind:this={machineSelect} bind:value={agentId} aria-describedby={[switchedNote ? `${id}-switched` : '', blocked ? `${id}-blocked` : ''].filter(Boolean).join(' ') || undefined}>
      {#if !machine}<option value="" disabled>Choose a machine</option>{/if}
      {#each machines as item (item.agentId)}<option value={item.agentId} disabled={!item.ready}>{item.host}{item.ready ? '' : ' · not ready'}</option>{/each}
     </select>
+    {#if switchedNote}<p class="hint" id={`${id}-switched`}>{switchedNote}</p>{/if}
     {#if blocked}<p class="reason" id={`${id}-blocked`}>{blocked}</p>{/if}
     {#if onaddmachine}<button type="button" class="linklike" onclick={addMachine}>Not listed? Add a machine</button>{/if}
    </div>
@@ -186,11 +218,10 @@
   </fieldset>
 
   {#if sentence}<p class="sentence">{sentence}</p>{/if}
-  {#if operation && failed}<p class="hint">The fields stay as they were so Retry asks about the same start. If it did start, it appears in your sessions; close this to start afresh.</p>{/if}
   <footer>
    <p class="status" class:bad={failed} role="status" aria-live="polite" aria-atomic="true">{message}</p>
    <small>reet.sh never sends a command line. The machine starts the agent itself.</small>
-   <button class="btn primary" type="submit" disabled={busy || (!operation && !!blocked)} aria-busy={busy}>{busy ? 'Starting…' : operation ? 'Retry' : 'Start'}</button>
+   <button class="btn primary" type="submit" disabled={busy || (!operation && !!blocked)} aria-busy={busy} bind:this={startButton}>{busy ? 'Starting…' : operation ? 'Try the same request again' : 'Start'}</button>
   </footer>
  </form>
 </dialog>

@@ -198,3 +198,43 @@ test('launchActivity reads an audit detail as one plain line and never needs the
   assert.equal(m.launchActivity({}), 'Started an agent in the home folder on a machine')
   assert.equal(m.launchActivity({ tool: 'claude', host: 'studio', prompt: 'secret words' }), 'Started Claude Code in the home folder on studio')
 })
+
+test('preselect keeps the machine you came from when it is ready', () => {
+  const ms = [{ agentId: 'a', host: 'studio', ready: true }, { agentId: 'b', host: 'annexe', ready: true }]
+  assert.deepEqual(m.preselect(ms, 'b'), { agentId: 'b', note: '' })
+  assert.deepEqual(m.preselect(ms, ''), { agentId: 'a', note: '' })
+  assert.deepEqual(m.preselect(ms, 'gone'), { agentId: 'a', note: '' })
+})
+
+test('preselect says so when the machine you came from is not ready', () => {
+  const ms = [{ agentId: 'a', host: 'studio', ready: false }, { agentId: 'b', host: 'annexe', ready: true }]
+  assert.deepEqual(m.preselect(ms, 'a'), { agentId: 'b', note: "studio isn't ready, so annexe is selected." })
+})
+
+test('preselect keeps an unready machine when none is ready, so its readiness sentence shows', () => {
+  const ms = [{ agentId: 'a', host: 'studio', ready: false }, { agentId: 'b', host: 'annexe', ready: false }]
+  assert.deepEqual(m.preselect(ms, 'b'), { agentId: 'b', note: '' })
+  assert.deepEqual(m.preselect(ms, ''), { agentId: '', note: '' })
+  assert.deepEqual(m.preselect([], 'b'), { agentId: '', note: '' })
+})
+
+test('rekey resets the model and folder only when the machine or agent changes', () => {
+  const start = { key: '', model: '', folder: '' }
+  const s1 = m.rekey(start, 'a\0claude')
+  assert.deepEqual(s1, { key: 'a\0claude', model: '', folder: '' })
+  const chosen = { ...s1, model: 'opus', folder: '/home/a/site' }
+  assert.equal(m.rekey(chosen, 'a\0claude'), chosen)
+  assert.deepEqual(m.rekey(chosen, 'a\0codex'), { key: 'a\0codex', model: '', folder: '' })
+  assert.deepEqual(m.rekey(chosen, 'b\0claude'), { key: 'b\0claude', model: '', folder: '' })
+  // Going back does not bring the old choice back.
+  assert.deepEqual(m.rekey(m.rekey(chosen, 'b\0claude'), 'a\0claude'), { key: 'a\0claude', model: '', folder: '' })
+})
+
+test('refusalField names the field a refusal is about', () => {
+  assert.equal(m.refusalField(422, 'folder_unavailable'), 'folder')
+  assert.equal(m.refusalField(422, 'tool_not_installed'), 'tool')
+  assert.equal(m.refusalField(422, 'prompt_unsupported'), 'prompt')
+  assert.equal(m.refusalField(409, 'launch_unsupported'), 'machine')
+  assert.equal(m.refusalField(409, undefined), '')
+  assert.equal(m.refusalField(400, 'folder_unavailable'), '')
+})

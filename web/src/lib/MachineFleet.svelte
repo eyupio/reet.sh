@@ -78,6 +78,8 @@
   // Terminal readiness for Start an agent, read only for a writer in accounts mode (the people terminalAccess is given to).
   // Undefined until the first read; a failed read keeps what was last known.
   let terminals = $state<TerminalMachine[] | undefined>()
+  // The last read failed: said on the card (and the button stays disabled) until a read succeeds. Reads keep the 15-second pace.
+  let terminalsFailed = $state(false)
   let startAgent = $state<{ agent: string; opener: HTMLElement | null } | null>(null)
   onMount(() => {
     if (!terminalAccess) return
@@ -86,7 +88,7 @@
     async function read() {
       if (reading || document.visibilityState !== 'visible') return
       reading = true
-      try { const next = await terminalMachines(AbortSignal.any([abort.signal, AbortSignal.timeout(10000)])); if (!abort.signal.aborted) terminals = next } catch { /* the button keeps its last known state */ } finally { reading = false }
+      try { const next = await terminalMachines(AbortSignal.any([abort.signal, AbortSignal.timeout(10000)])); if (!abort.signal.aborted) { terminals = next; terminalsFailed = false } } catch { if (!abort.signal.aborted) terminalsFailed = true } finally { reading = false }
     }
     void read()
     const wake = () => void read()
@@ -95,6 +97,7 @@
     return () => { abort.abort(); clearInterval(timer); document.removeEventListener('visibilitychange', wake); window.removeEventListener('online', wake) }
   })
   function agentReadiness(agentId: string): string {
+    if (terminalsFailed) return "Couldn't check this machine just now. Try again in a moment."
     if (!terminals) return 'Checking whether this machine is ready for terminals.'
     return readiness(terminals.find((item) => item.agentId === agentId))
   }

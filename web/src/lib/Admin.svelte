@@ -4,7 +4,7 @@
   import { groupLabel } from './machines'
   import PageHeader from './PageHeader.svelte'
   import {
-    createInvite, deleteAdminUser, getAdminStatus, getRollup, listAdminUsers, resetUserPassword, revokeUserTokens,
+    createInvite, deleteAdminUser, getAdminSso, getAdminStatus, getRollup, listAdminUsers, resetUserPassword, revokeUserTokens,
     saveAdminSettings, transferOwner, updateAdminUser, type AdminStatus, type Rollup, type RollupSkill, type UserMeta,
   } from './api'
   import AdminEmail from './AdminEmail.svelte'
@@ -15,6 +15,7 @@
   import CopyButton from './CopyButton.svelte'
   import { eventLabel, eventTitle } from './events'
   import { elapsed } from './time'
+  import { adminRows, type AdminSso } from './sso'
 
   let {
     onerror, role = 'owner', accounts = false, currentEmail = '',
@@ -55,6 +56,7 @@
   let form = $state({ refreshEnabled: true, topicsEnabled: true, linkListsEnabled: false, rollupIndividual: true, pruneServerEnvironmentsDays: 0, instanceName: '' })
   let users = $state<UserMeta[]>([])
   let usersError = $state('')
+  let ssoStatus = $state<AdminSso | null>(null)
   let inviteEmail = $state('')
   let inviteRole = $state('member')
   let inviteLink = $state('')
@@ -95,6 +97,16 @@
     } catch (e) {
       usersError = e instanceof Error ? e.message : String(e)
       onerror?.(e)
+    }
+  }
+
+  // Read-only, and an addition: if it cannot be read the panel is simply not shown.
+  async function loadSso() {
+    if (!accounts) return
+    try {
+      ssoStatus = await getAdminSso()
+    } catch {
+      ssoStatus = null
     }
   }
 
@@ -180,7 +192,7 @@
     history.replaceState(null, '', `/admin/${section}`)
     document.title = `${sectionTitle} · Admin · reet.sh`
     void load()
-    if (section === 'users') void loadUsers()
+    if (section === 'users') { void loadUsers(); void loadSso() }
     if (section === 'team') void loadRollup()
     return () => {
       document.title = 'reet.sh – your shelf for everything AI'
@@ -409,6 +421,18 @@
         </details>
       {/if}
     </section>
+    {/if}
+
+    {#if accounts && section === 'users' && ssoStatus?.enabled}
+      <section class="block" aria-labelledby="sso-title">
+        <h2 id="sso-title">Single sign-on</h2>
+        <p class="muted">How people can sign in through your identity provider. This is set where the server is configured, so it is shown here and not changed here.</p>
+        <dl class="ssorows">
+          {#each adminRows(ssoStatus) as row (row.label)}
+            <div><dt>{row.label}</dt><dd class:bad={row.label === 'Provider' && !ssoStatus.reachable}>{row.value}</dd></div>
+          {/each}
+        </dl>
+      </section>
     {/if}
 
     {#if accounts && section === 'users'}
@@ -718,6 +742,11 @@
 </section>
 
 <style>
+  .ssorows { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 24px; margin: 16px 0 0; }
+  .ssorows div { min-width: 0; }
+  .ssorows dt { color: var(--muted); font-size: 0.78rem; font-weight: 600; }
+  .ssorows dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+  .ssorows dd.bad { color: var(--bad); }
   .admin { padding-top: 4px; }
   h3, #admin-overview, #admin-backups { scroll-margin-top: 24px; }
   .block h2 { margin: 0 0 12px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.025em; }

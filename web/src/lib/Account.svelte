@@ -9,23 +9,27 @@
   import PageHeader from './PageHeader.svelte'
   import {
     applyTheme, changePassword, createToken, endOtherProfileSessions, endProfileSession, getProfile, listEvents,
-    listProfileSessions, listTokens, revokeToken, saveProfile, THEME_EVENT,
+    getSsoIdentity, listProfileSessions, listTokens, revokeToken, saveProfile, THEME_EVENT, unlinkSsoIdentity,
     type APIToken, type Event, type Profile, type ProfileSession, type User,
   } from './api'
   import { eventLabel, eventTitle } from './events'
+  import { linkedLine, ssoLinkHref, type SsoIdentity } from './sso'
   import { elapsed } from './time'
 
   let {
     user, onsignout, onerror, onuserchange,
   }: { user: User; onsignout: () => void; onerror?: (e: unknown) => void; onuserchange?: (u: User) => void } = $props()
 
-  type Section = 'machines' | 'sync' | 'profile' | 'security' | 'sessions' | 'tokens' | 'mcp' | 'backups' | 'activity'
+  type Section = 'machines' | 'sync' | 'profile' | 'security' | 'sso' | 'sessions' | 'tokens' | 'mcp' | 'backups' | 'activity'
   // svelte-ignore state_referenced_locally
   let who = $state<User>(user)
+  let sso = $state<SsoIdentity | null>(null)
+  let ssoUnlinkAsk = $state(false)
   const canWrite = $derived(who.role !== 'viewer')
   const sections: { key: Section; label: string }[] = $derived([
     { key: 'profile', label: 'Profile' },
     { key: 'security', label: 'Password' },
+    ...(sso?.enabled ? [{ key: 'sso' as const, label: 'Single sign-on' }] : []),
     { key: 'sessions', label: 'Sessions' },
     { key: 'mcp', label: 'MCP access' },
     { key: 'machines', label: 'Machines' },
@@ -58,13 +62,14 @@
   function sectionFromHash(): Section {
     const h = location.hash.slice(1) || location.pathname.split('/')[2] || 'profile'
     if (h === 'connect-machine') return 'machines'
-    return ['profile', 'security', 'sessions', 'machines', 'sync', 'tokens', 'mcp', 'backups', 'activity'].includes(h) ? h as Section : 'profile'
+    return ['profile', 'security', 'sso', 'sessions', 'machines', 'sync', 'tokens', 'mcp', 'backups', 'activity'].includes(h) ? h as Section : 'profile'
   }
 
   onMount(() => {
     history.replaceState(null, '', `/account/${section}`)
     document.title = `${sections.find(s => s.key === section)?.label ?? 'Account'} · Account · reet.sh`
     void loadProfile()
+    void loadSso()
     if (section === 'sessions') void loadSessions()
     if (section === 'activity') void loadActivity()
     if (section === 'tokens') void loadTokens()
@@ -77,6 +82,31 @@
   function fail(e: unknown) {
     error = e instanceof Error ? e.message : String(e)
     onerror?.(e)
+  }
+
+  // Single sign-on is an addition: an instance without it answers {enabled: false}, and a failure here hides the section
+  // rather than the page.
+  async function loadSso() {
+    try {
+      sso = await getSsoIdentity()
+    } catch {
+      sso = null
+    }
+  }
+
+  async function unlinkSso() {
+    ssoUnlinkAsk = false
+    busy = 'sso'
+    error = ''
+    try {
+      await unlinkSsoIdentity()
+      await loadSso()
+      notice = 'Your identity is unlinked.'
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+    } finally {
+      busy = ''
+    }
   }
 
   async function loadProfile() {
@@ -364,6 +394,27 @@
         </div>
       </form>
     </section>
+  {:else if section === 'sso'}
+    <section class="block" aria-labelledby="sso-title">
+      <h2 id="sso-title">Single sign-on</h2>
+      {#if !sso?.enabled}
+        <p class="muted">Single sign-on is not set up on this instance.</p>
+      {:else if sso.linked}
+        <p class="muted">{linkedLine(sso, ms => new Date(ms).toLocaleDateString(undefined, { dateStyle: 'medium' }))}</p>
+        <p class="muted">You can sign in here with your identity provider{sso.hasPassword ? ' or with your password' : ''}.</p>
+        {#if !sso.canUnlink}
+          <p class="muted">Set a password before unlinking, or ask an admin: unlinking now would leave you no way to sign in.</p>
+        {/if}
+        <div class="formacts">
+          <button type="button" class="btn" disabled={!sso.canUnlink || busy === 'sso'} onclick={() => (ssoUnlinkAsk = true)}>Unlink</button>
+        </div>
+      {:else}
+        <p class="muted">Link your identity provider to this account so you can sign in with it. You will be sent there to confirm, and brought back here.</p>
+        <div class="formacts">
+          <a class="btn primary" href={ssoLinkHref()}>Link your identity</a>
+        </div>
+      {/if}
+    </section>
   {:else if section === 'sessions'}
     <section class="block" aria-labelledby="sessions-title">
       <div class="blockhead">
@@ -451,6 +502,10 @@
   </section>
   {/if}
 </section>
+
+{#if ssoUnlinkAsk}
+  <ConfirmDialog title="Unlink your identity?" body="You will no longer be able to sign in with your identity provider. Sign in with your password instead, or link it again from this page." confirmLabel="Unlink" danger onconfirm={() => void unlinkSso()} oncancel={() => (ssoUnlinkAsk = false)} />
+{/if}
 
 {#if revokePending}
   <ConfirmDialog title={`Revoke ${revokePending.name}?`} body="Scanners and API clients using this token will lose access immediately. You can create a replacement, but this token cannot be restored." confirmLabel="Revoke token" danger onconfirm={() => { if (revokePending) void revoke(revokePending.id) }} oncancel={() => (revokePending = null)} />

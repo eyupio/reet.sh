@@ -9,6 +9,25 @@ Nothing changes until `REET_OIDC_ISSUER` is set. With it set, the sign-in page o
 well as the password form, and everything else (setup, the owner's password, personal API tokens,
 backups) works as before.
 
+## In the interface
+
+- **Sign-in page.** A button, worded by `REET_OIDC_BUTTON_LABEL`, leads to the identity provider and
+  brings the person back to the page they started from (a deep link, or the connect-an-agent consent
+  page). Where password sign-in is on, the password form stays below it. With
+  `REET_OIDC_PASSWORD_LOGIN=off` the form is folded under "Sign in with a password" with a note that
+  only the owner can use it, so the owner always has a way in. With single sign-on off the page is
+  exactly what it was.
+- **When a sign-in cannot finish** the person lands on the sign-in page (or, if already signed in, on the
+  page they were on) with one plain sentence for the code in the address, and the code is taken off the
+  address so a reload does not say it again. A code the interface does not know gets a general sentence;
+  anything that is not a plain code is ignored.
+- **Account, Single sign-on.** Shown only when it is on. It says when the identity was linked and last used,
+  links one (`Link your identity`, which comes back to the same page), and unlinks it with a confirmation.
+  Unlinking is disabled, with the reason, while it would leave no way to sign in.
+- **Admin, Users.** A read-only panel with the issuer, the redirect address, whether the provider can be
+  reached right now, how new people and linking by email are handled, the group mappings and how many people
+  are linked. It never shows, and the server never sends, the client secret.
+
 ## What you need from the provider
 
 Register reet.sh there as a confidential client using the authorisation-code flow, and give it this
@@ -59,7 +78,7 @@ up looking like single sign-on is off. Single sign-on needs `REET_AUTH=accounts`
 3. Otherwise, with `REET_OIDC_AUTO_CREATE=on` a member account is created, again only for a verified
    address. It has no password. Without it the person is told no account is available.
 4. A person who is signed in can link their own identity (`GET /api/v2/auth/oidc/start?intent=link`;
-   the Account page offers it once the interface lands), and unlink it again
+   the Account page offers it), and unlink it again
    (`DELETE /api/v2/auth/oidc/identity`) as long as that leaves them a way in: a password, and
    password sign-in not turned off.
 

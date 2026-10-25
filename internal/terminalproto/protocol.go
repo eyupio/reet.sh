@@ -345,10 +345,22 @@ func (r Result) valid() bool {
 type SessionChanged struct {
 	State    SessionState `json:"state"`
 	ExitCode *int         `json:"exitCode"`
+	// WorktreePath and WorktreeRepo say where a worktree create made the
+	// worktree: its folder and the repository name status and remove need.
+	// They are set together, only in answer to a worktree create (which only
+	// a controller that negotiated worktree-v1 sends), so every other session
+	// change encodes exactly as before.
+	WorktreePath string `json:"worktreePath,omitempty"`
+	WorktreeRepo string `json:"worktreeRepo,omitempty"`
 }
 
-func (SessionChanged) kind() string  { return "session_changed" }
-func (s SessionChanged) valid() bool { return s.State.Valid() && validExit(s.State, s.ExitCode) }
+func (SessionChanged) kind() string { return "session_changed" }
+func (s SessionChanged) valid() bool {
+	if (s.WorktreePath == "") != (s.WorktreeRepo == "") || s.WorktreePath != "" && (!validDir(s.WorktreePath) || !validRepoName(s.WorktreeRepo)) {
+		return false
+	}
+	return s.State.Valid() && validExit(s.State, s.ExitCode)
+}
 
 func (m Message) Validate() error {
 	if m.Body == nil || reflect.ValueOf(m.Body).Kind() == reflect.Pointer && reflect.ValueOf(m.Body).IsNil() {

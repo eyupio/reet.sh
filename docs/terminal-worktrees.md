@@ -55,6 +55,13 @@ project, repo, changed, unpushed}`, are answered by `worktree_state` or
 on the machine: 1 to 100 letters, digits, `.`, `_` and `-`, never `.`, `..` or a
 leading `-`. None of these messages is bound to a session.
 
+The reply to a worktree create, `session_changed`, gains two flat optional strings
+set together: `worktreePath` (the folder the machine made or adopted) and
+`worktreeRepo` (the repository name, as the machine slugged the resolved folder's
+name, which is what status and remove take). The connector keeps them in its
+registry entry for the session, so a replay of the same create reports them again.
+They are never set on any other session change.
+
 ## Where worktrees go
 
 - Folder: `~/.reet/worktrees/<project>/<repo-slug>/<run>`, where `~` is the
@@ -247,7 +254,7 @@ Create (`POST /api/v2/terminal/sessions` with `worktree` and `project`):
 | The destination or branch exists and is not this run's | `worktree_exists` | 422 | A worktree or branch with this run's name is already on that machine, so nothing was started. |
 | git failed or is missing | `git_failed` | 422 | Git couldn't make a worktree there. (`detail`: git's first line, plain text, at most 200 bytes) |
 | `~/.reet/worktrees` is a link, another user's, or writable by others | `outside_home` | 422 | The folder ~/.reet/worktrees on that machine is a link, belongs to another user or can be changed by others. Fix it, then try again. |
-| A retry of a refused request (the reason is not stored) | `worktree_refused` | 422 | That machine refused to make a worktree for this request. Start it again to see why. |
+| A refusal with no recorded reason (a create refused before reasons were stored) | `worktree_refused` | 422 | That machine refused to make a worktree for this request. Start it again to see why. |
 
 The folder and tool refusals of a launch (`folder_unavailable`,
 `tool_not_installed`, `prompt_unsupported`) apply unchanged.
@@ -282,9 +289,13 @@ not a viewer, the canonical `Origin`, the remote-terminals switch on, strict JSO
   folder and branch for the audit record), then sends the remove; the machine
   computes status again and decides. It answers `{ok: true, path, branch}`.
 
-`repo` must be the name the machine gave the folder: the resolved repository
-folder's name. When the member folder is itself a symlink inside home, that name
-can differ from the name in the saved path, and status then answers `not_found`.
+The session JSON returned by create (and listed by `GET /api/v2/terminal/sessions`)
+carries `worktreePath`, `worktreeRepo` and `worktreeBranch` for a session started
+in its own worktree. `repo` in status and remove must be that `worktreeRepo`, the
+name the machine used, not a name recomputed from the saved folder: when the
+member folder is itself a symlink inside home, its own name differs and status
+answers `not_found`. A refused create's reason and detail are stored with the
+request, so a retry of the same request reports the same refusal.
 
 ## Idempotency and adoption
 
@@ -307,9 +318,9 @@ refusal (when no agent was started).
 ## Audit
 
 - `terminal-launch` (existing) gains, for a worktree launch, `worktreeRun` (the run
-  token), `project` and `branch`. The machine does not report the worktree's folder
-  when it starts the agent, so the folder is not in this event; worktree status
-  reports it. The prompt is never included.
+  token), `project`, `branch` and `worktree` (the folder the machine reported). If
+  the create's reply was lost and the session was resolved later, `worktree` is
+  absent. The prompt is never included.
 - `worktree-remove`, source `ui`, with exactly `machine`, `host`, `path` and
   `branch`, written only after the machine answered that the worktree was removed.
   A refused remove writes nothing. If the reply to a successful remove is lost,
@@ -325,8 +336,10 @@ refusal (when no agent was started).
   checks, and its commits by the branch). The page should offer *Remove worktree*
   only for sessions that have ended.
 - Helpers that daemonize escape the process-group kill on timeout.
-- A refusal's reason is not stored, so a retry of a refused request reports
-  `worktree_refused` without it.
+- If a worktree create's reply is lost entirely (the connection drops), the
+  controller learns the session's state by reconciling, which does not carry the
+  worktree's folder, so the session has no `worktreePath`. A reply that only
+  arrives late is still recorded.
 - A same-user process could change the folders between the checks and git's own
   remove; same-user attackers are out of scope. A nested repository created between
   the walk and `git worktree remove` is not seen.

@@ -5,7 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"path/filepath"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -18,6 +22,32 @@ var (
 )
 
 func (s *Store) migrateTerminal() error {
+	if err := s.migrateTerminalTables(); err != nil {
+		return err
+	}
+	// Columns added for worktrees: where a worktree create made its worktree,
+	// and why a refused create was refused.
+	for _, c := range []struct{ table, ddl string }{
+		{"terminal_sessions", "worktree_path TEXT NOT NULL DEFAULT ''"},
+		{"terminal_sessions", "worktree_repo TEXT NOT NULL DEFAULT ''"},
+		{"terminal_sessions", "worktree_branch TEXT NOT NULL DEFAULT ''"},
+		{"terminal_operations", "reason TEXT NOT NULL DEFAULT ''"},
+		{"terminal_operations", "detail TEXT NOT NULL DEFAULT ''"},
+	} {
+		ok, err := hasColumn(s.db, c.table, strings.Fields(c.ddl)[0])
+		if err != nil {
+			return err
+		}
+		if !ok {
+			if _, err := s.db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.ddl); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Store) migrateTerminalTables() error {
 	return s.withTx(func(tx *sql.Tx) error {
 		for _, stmt := range []string{
 			`CREATE UNIQUE INDEX IF NOT EXISTS sync_agents_identity_owner ON sync_agents(id,user_id)`,
@@ -234,14 +264,20 @@ type TerminalSession struct {
 	CreatedAt     int64                      `json:"createdAt"`
 	UpdatedAt     int64                      `json:"updatedAt"`
 	ExitCode      *int                       `json:"exitCode"`
+	// Set only for a session started in its own worktree: the folder, the
+	// repository name the machine used (what worktree status and remove take)
+	// and the branch.
+	WorktreePath   string `json:"worktreePath,omitempty"`
+	WorktreeRepo   string `json:"worktreeRepo,omitempty"`
+	WorktreeBranch string `json:"worktreeBranch,omitempty"`
 }
 
-const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}')`
+const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}')`
 
 func readTerminal(row interface{ Scan(...any) error }) (TerminalSession, error) {
 	var t TerminalSession
 	var exit sql.NullInt64
-	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.RemoveHistory)
+	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.RemoveHistory)
 	if exit.Valid {
 		n := int(exit.Int64)
 		t.ExitCode = &n
@@ -421,13 +457,16 @@ type TerminalOperation struct {
 	Kind      string
 	State     string
 	Code      terminalproto.ResultCode
-	Create    *terminalproto.Create
+	// Reason and Detail explain a worktree_refused create.
+	Reason terminalproto.WorktreeReason
+	Detail string
+	Create *terminalproto.Create
 }
 
 func readTerminalOperation(row interface{ Scan(...any) error }) (TerminalOperation, error) {
 	var op TerminalOperation
 	var raw string
-	err := row.Scan(&op.RequestID, &op.SessionID, &op.Kind, &op.State, &op.Code, &raw)
+	err := row.Scan(&op.RequestID, &op.SessionID, &op.Kind, &op.State, &op.Code, &op.Reason, &op.Detail, &raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return op, ErrRemoteNotFound
 	}
@@ -447,7 +486,7 @@ func readTerminalOperation(row interface{ Scan(...any) error }) (TerminalOperati
 // TerminalOperationFor also returns durable failure codes to the owning
 // browser/broker, so a retry can display the original outcome without dispatch.
 func (s *Store) TerminalOperationFor(uid int64, agentID, kind, requestID string) (TerminalOperation, error) {
-	return readTerminalOperation(s.db.QueryRow(`SELECT request_id,session_id,kind,state,result_code,parameters FROM terminal_operations WHERE user_id=? AND agent_id=? AND kind=? AND request_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`, uid, agentID, kind, requestID, uid))
+	return readTerminalOperation(s.db.QueryRow(`SELECT request_id,session_id,kind,state,result_code,reason,detail,parameters FROM terminal_operations WHERE user_id=? AND agent_id=? AND kind=? AND request_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`, uid, agentID, kind, requestID, uid))
 }
 
 // PendingTerminalOperationsFor is for a freshly authenticated agent control
@@ -461,7 +500,7 @@ func (s *Store) PendingTerminalOperationsFor(uid int64, agentID string, generati
 		if _, err := currentGeneration(tx, uid, agentID, generation); err != nil {
 			return err
 		}
-		rows, err := tx.Query(`SELECT request_id,session_id,kind,state,result_code,parameters FROM terminal_operations o WHERE user_id=? AND agent_id=? AND state='pending' AND (kind='end' OR EXISTS(SELECT 1 FROM terminal_sessions t WHERE t.id=o.session_id AND t.state='creating')) ORDER BY kind='end' DESC,created_at,request_id LIMIT 100`, uid, agentID)
+		rows, err := tx.Query(`SELECT request_id,session_id,kind,state,result_code,reason,detail,parameters FROM terminal_operations o WHERE user_id=? AND agent_id=? AND state='pending' AND (kind='end' OR EXISTS(SELECT 1 FROM terminal_sessions t WHERE t.id=o.session_id AND t.state='creating')) ORDER BY kind='end' DESC,created_at,request_id LIMIT 100`, uid, agentID)
 		if err != nil {
 			return err
 		}
@@ -539,7 +578,41 @@ func (s *Store) ObserveTerminalStateFor(uid int64, agentID, sessionID string, ge
 // host. A transport timeout is uncertain and must NOT call this method: keep
 // the reservation pending and reconcile the host registry after reconnecting.
 func (s *Store) FailTerminalCreateFor(uid int64, agentID, requestID string, generation int64, code terminalproto.ResultCode) error {
-	if !terminalproto.ValidID(requestID) || !code.Valid() || code == terminalproto.OK {
+	return s.FailTerminalCreateWithResultFor(uid, agentID, requestID, generation, terminalproto.Result{Code: code})
+}
+
+// validRefusal accepts a failed create's result: a reason only on
+// worktree_refused, a detail only with a reason, as plain text.
+func validRefusal(r terminalproto.Result) bool {
+	if !r.Code.Valid() || r.Code == terminalproto.OK {
+		return false
+	}
+	if r.Reason != "" && (r.Code != terminalproto.WorktreeRefused || !r.Reason.Valid()) {
+		return false
+	}
+	if r.Detail == "" {
+		return true
+	}
+	return r.Reason != "" && len(r.Detail) <= terminalproto.MaxWorktreeDetailBytes && plainLine(r.Detail)
+}
+
+func plainLine(s string) bool {
+	if !utf8.ValidString(s) {
+		return false
+	}
+	for _, c := range s {
+		if unicode.IsControl(c) || unicode.Is(unicode.Cf, c) || c == '\u2028' || c == '\u2029' {
+			return false
+		}
+	}
+	return true
+}
+
+// FailTerminalCreateWithResultFor records a definite refusal of a create,
+// keeping a worktree refusal's reason and detail so a replay reports it.
+func (s *Store) FailTerminalCreateWithResultFor(uid int64, agentID, requestID string, generation int64, result terminalproto.Result) error {
+	code := result.Code
+	if !terminalproto.ValidID(requestID) || !validRefusal(result) {
 		return terminalproto.ErrInvalid
 	}
 	return s.withTx(func(tx *sql.Tx) error {
@@ -549,15 +622,15 @@ func (s *Store) FailTerminalCreateFor(uid int64, agentID, requestID string, gene
 		if _, err := currentGeneration(tx, uid, agentID, generation); err != nil {
 			return err
 		}
-		var sessionID, state, storedCode string
-		err := tx.QueryRow(`SELECT session_id,state,result_code FROM terminal_operations WHERE user_id=? AND agent_id=? AND request_id=? AND kind='create'`, uid, agentID, requestID).Scan(&sessionID, &state, &storedCode)
+		var sessionID, state, storedCode, storedReason, storedDetail string
+		err := tx.QueryRow(`SELECT session_id,state,result_code,reason,detail FROM terminal_operations WHERE user_id=? AND agent_id=? AND request_id=? AND kind='create'`, uid, agentID, requestID).Scan(&sessionID, &state, &storedCode, &storedReason, &storedDetail)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrRemoteNotFound
 		}
 		if err != nil {
 			return err
 		}
-		if state == "failed" && storedCode == string(code) {
+		if state == "failed" && storedCode == string(code) && storedReason == string(result.Reason) && storedDetail == result.Detail {
 			return nil
 		}
 		if state != "pending" {
@@ -573,7 +646,7 @@ func (s *Store) FailTerminalCreateFor(uid int64, agentID, requestID string, gene
 		if _, err := tx.Exec(`UPDATE terminal_sessions SET state='lost',updated_at=? WHERE id=?`, now(), sessionID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`UPDATE terminal_operations SET state='failed',result_code=?,updated_at=? WHERE user_id=? AND agent_id=? AND session_id=? AND kind='create'`, code, now(), uid, agentID, sessionID); err != nil {
+		if _, err := tx.Exec(`UPDATE terminal_operations SET state='failed',result_code=?,reason=?,detail=?,updated_at=? WHERE user_id=? AND agent_id=? AND session_id=? AND kind='create'`, code, result.Reason, result.Detail, now(), uid, agentID, sessionID); err != nil {
 			return err
 		}
 		_, err = tx.Exec(`UPDATE terminal_operations SET state='succeeded',result_code='ok',updated_at=? WHERE user_id=? AND agent_id=? AND session_id=? AND kind='end' AND state='pending'`, now(), uid, agentID, sessionID)
@@ -603,3 +676,38 @@ func (s *Store) RenameTerminalFor(uid int64, sessionID, title string) error {
 }
 
 const healthRetention = 24 * time.Hour
+
+// RecordTerminalWorktreeFor stores where the machine made a session's
+// worktree, as its create reply reported it. Only a session whose create
+// asked for a worktree can have one; the branch follows from that create.
+// A second report must match the first.
+func (s *Store) RecordTerminalWorktreeFor(uid int64, agentID, sessionID, path, repo string) error {
+	if !filepath.IsAbs(path) || len(path) > 4096 || !plainLine(path) || !terminalproto.ValidSlug(repo) {
+		return terminalproto.ErrInvalid
+	}
+	return s.withTx(func(tx *sql.Tx) error {
+		if err := lockRemoteAgent(tx, uid, agentID, false); err != nil {
+			return err
+		}
+		var raw, storedPath, storedRepo string
+		err := tx.QueryRow(`SELECT o.parameters,t.worktree_path,t.worktree_repo FROM terminal_operations o JOIN terminal_sessions t ON t.id=o.session_id AND t.user_id=o.user_id AND t.agent_id=o.agent_id WHERE o.user_id=? AND o.agent_id=? AND o.session_id=? AND o.kind='create'`, uid, agentID, sessionID).Scan(&raw, &storedPath, &storedRepo)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrRemoteNotFound
+		}
+		if err != nil {
+			return err
+		}
+		var in terminalproto.Create
+		if json.Unmarshal([]byte(raw), &in) != nil || in.Worktree == "" {
+			return ErrTerminalConflict
+		}
+		if storedPath != "" {
+			if storedPath == path && storedRepo == repo {
+				return nil
+			}
+			return ErrTerminalConflict
+		}
+		_, err = tx.Exec(`UPDATE terminal_sessions SET worktree_path=?,worktree_repo=?,worktree_branch=? WHERE id=? AND user_id=? AND agent_id=?`, path, repo, "reet/"+in.Project+"-"+in.Worktree, sessionID, uid, agentID)
+		return err
+	})
+}

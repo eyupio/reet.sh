@@ -320,7 +320,7 @@ func TestTerminalPrivateWorktreeStartsTheRecordedAgentInItsOwnWorktree(t *testin
 	wantPath := filepath.Join(realHome, ".reet", "worktrees", project, "site", run)
 	launch := map[string]any{"agentId": agent.ID, "requestId": terminalbroker.ID(), "title": "Claude", "cols": 80, "rows": 24, "tool": "claude", "dir": site, "prompt": prompt, "worktree": run, "project": project}
 	code, first, raw := call(cookie, "/api/v2/terminal/sessions", launch)
-	if code != 200 || first["state"] != "running" {
+	if code != 200 || first["state"] != "running" || first["worktreePath"] != wantPath || first["worktreeRepo"] != "site" || first["worktreeBranch"] != branch {
 		t.Fatal("worktree launch", code, raw)
 	}
 	starts := waitStarts(1)
@@ -416,7 +416,27 @@ func TestTerminalPrivateWorktreeStartsTheRecordedAgentInItsOwnWorktree(t *testin
 		t.Fatal("a refusal made a folder", entries)
 	}
 
-	target := map[string]any{"agentId": agent.ID, "project": project, "repo": "site", "run": run}
+	// A member folder that is a symlink: the machine names the worktree after
+	// the real folder, and the reply says so, so status uses that name.
+	link := filepath.Join(home, "work", "site-link")
+	if err := os.Symlink(site, link); err != nil {
+		t.Fatal(err)
+	}
+	linkRun := "eeeeeeeeeeeeeeeeeeeeeeee"
+	code, linked, raw := call(cookie, "/api/v2/terminal/sessions", map[string]any{"agentId": agent.ID, "requestId": terminalbroker.ID(), "title": "Linked", "cols": 80, "rows": 24, "tool": "claude", "dir": link, "prompt": prompt, "worktree": linkRun, "project": project})
+	linkPath := filepath.Join(realHome, ".reet", "worktrees", project, "site", linkRun)
+	if code != 200 || linked["worktreeRepo"] != "site" || linked["worktreePath"] != linkPath {
+		t.Fatal("symlinked member folder", code, raw)
+	}
+	waitStarts(3)
+	if code, out, raw := call(cookie, "/api/v2/terminal/worktrees/status", map[string]any{"agentId": agent.ID, "project": project, "repo": linked["worktreeRepo"], "run": linkRun}); code != 200 || out["path"] != linkPath {
+		t.Fatal("status by the reported repository name", code, raw)
+	}
+	if code, out, raw := call(cookie, "/api/v2/terminal/worktrees/status", map[string]any{"agentId": agent.ID, "project": project, "repo": "site-link", "run": linkRun}); code != 404 || out["code"] != "not_found" {
+		t.Fatal("status by the link's own name", code, raw)
+	}
+
+	target := map[string]any{"agentId": agent.ID, "project": project, "repo": first["worktreeRepo"], "run": run}
 	status := func() map[string]any {
 		t.Helper()
 		code, out, raw := call(cookie, "/api/v2/terminal/worktrees/status", target)
@@ -519,7 +539,7 @@ func TestTerminalPrivateWorktreeStartsTheRecordedAgentInItsOwnWorktree(t *testin
 	}
 	launches := worktreeEvents(t, st, uid, "terminal-launch")
 	removals := worktreeEvents(t, st, uid, "worktree-remove")
-	if len(launches) != 2 || len(removals) != 1 {
+	if len(launches) != 3 || len(removals) != 1 {
 		t.Fatal("audit rows", len(launches), len(removals))
 	}
 	var detail map[string]string
@@ -531,7 +551,7 @@ func TestTerminalPrivateWorktreeStartsTheRecordedAgentInItsOwnWorktree(t *testin
 	}
 	found := false
 	for _, e := range launches {
-		found = found || strings.Contains(e.Detail, `"worktreeRun":"`+run+`"`) && strings.Contains(e.Detail, `"branch":"`+branch+`"`)
+		found = found || strings.Contains(e.Detail, `"worktreeRun":"`+run+`"`) && strings.Contains(e.Detail, `"branch":"`+branch+`"`) && strings.Contains(e.Detail, `"worktree":"`+wantPath+`"`)
 	}
 	if !found {
 		t.Fatal("terminal-launch audit lacks the worktree", launches)

@@ -226,6 +226,8 @@ func (p *Peer) observe() {
 				p.Close()
 				return
 			}
+			// A worktree create's reply that came after its call gave up.
+			p.b.recordWorktree(p.key.uid, p.key.agent, m.SessionID, s)
 		}
 	}
 }
@@ -505,8 +507,9 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 				case terminalproto.LaunchFailed:
 					return s, false, ErrLaunchFailed
 				case terminalproto.WorktreeRefused:
-					// Only the code is stored; the reason was reported to the
-					// call that learned it.
+					if op.Reason != "" {
+						return s, false, &WorktreeError{Reason: op.Reason, Detail: op.Detail}
+					}
 					return s, false, ErrWorktreeRefused
 				}
 			}
@@ -524,8 +527,11 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	var refusal error
 	if state, ok := reply.Body.(*terminalproto.SessionChanged); ok {
 		err = b.st.ObserveTerminalStateFor(uid, agent, s.ID, p.Generation, state.State, state.ExitCode)
+		if err == nil && worktreeRequested(in) {
+			b.recordWorktree(uid, agent, s.ID, state)
+		}
 	} else if r, ok := reply.Body.(*terminalproto.Result); ok && r.Code != terminalproto.OK && r.Code != terminalproto.Unavailable {
-		err = b.st.FailTerminalCreateFor(uid, agent, request, p.Generation, r.Code)
+		err = b.st.FailTerminalCreateWithResultFor(uid, agent, request, p.Generation, *r)
 		switch r.Code {
 		case terminalproto.LaunchFailed:
 			refusal = ErrLaunchFailed
@@ -664,4 +670,16 @@ func (b *Broker) Bind(ctx context.Context, uid int64, agent string, h terminalpr
 	case <-p.done:
 		return ErrOffline
 	}
+}
+
+// recordWorktree stores where the machine made a session's worktree, from a
+// worktree create's reply. The session has started either way, so a record
+// that cannot be written (a reply for a session whose create asked for no
+// worktree, or a second, different report) is dropped; worktree status by
+// the repository name still works.
+func (b *Broker) recordWorktree(uid int64, agent, session string, s *terminalproto.SessionChanged) {
+	if s.WorktreePath == "" {
+		return
+	}
+	_ = b.st.RecordTerminalWorktreeFor(uid, agent, session, s.WorktreePath, s.WorktreeRepo)
 }

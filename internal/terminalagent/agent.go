@@ -162,7 +162,8 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 				if err != nil {
 					return respond(err)
 				}
-				reply.Body = terminalproto.SessionChanged{State: s.State, ExitCode: s.ExitCode}
+				// Only a worktree create's session has a worktree to report.
+				reply.Body = terminalproto.SessionChanged{State: s.State, ExitCode: s.ExitCode, WorktreePath: s.WorktreePath, WorktreeRepo: s.WorktreeRepo}
 				return respond(nil)
 			case *terminalproto.End:
 				s, err := m.End(callCtx, msg.RequestID, msg.SessionID)

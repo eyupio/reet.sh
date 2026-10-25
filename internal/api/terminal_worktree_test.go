@@ -127,10 +127,16 @@ func TestTerminalWorktreeOnAPeerWithoutTheCapabilityAsksForAnUpdate(t *testing.T
 
 func TestTerminalWorktreeCreateForwardsAndAuditsWithoutThePrompt(t *testing.T) {
 	f := launchAPIFixture(t, worktreeCaps("claude"))
+	f.reply = func(in terminalproto.Create) terminalproto.Body {
+		if in.Worktree != "" {
+			return terminalproto.SessionChanged{State: terminalproto.Running, WorktreePath: worktreeTestPath, WorktreeRepo: "site"}
+		}
+		return terminalproto.SessionChanged{State: terminalproto.Running}
+	}
 	request := terminalbroker.ID()
 	body := worktreeLaunchBody(f.agent.ID, request)
 	code, first, raw := f.create(t, body)
-	if code != 200 || first["state"] != "running" {
+	if code != 200 || first["state"] != "running" || first["worktreePath"] != worktreeTestPath || first["worktreeRepo"] != "site" || first["worktreeBranch"] != worktreeTestBranch {
 		t.Fatal(code, raw)
 	}
 	want := terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, Tool: "claude", Model: "sonnet", Dir: "/home/tester/site", Prompt: launchTestPrompt, Worktree: worktreeTestRun, Project: worktreeTestProject}
@@ -153,7 +159,7 @@ func TestTerminalWorktreeCreateForwardsAndAuditsWithoutThePrompt(t *testing.T) {
 	if err := json.Unmarshal([]byte(events[0].Detail), &detail); err != nil {
 		t.Fatal(err)
 	}
-	if detail["tool"] != "claude" || detail["dir"] != "/home/tester/site" || detail["worktreeRun"] != worktreeTestRun || detail["project"] != worktreeTestProject || detail["branch"] != worktreeTestBranch {
+	if detail["tool"] != "claude" || detail["dir"] != "/home/tester/site" || detail["worktreeRun"] != worktreeTestRun || detail["project"] != worktreeTestProject || detail["branch"] != worktreeTestBranch || detail["worktree"] != worktreeTestPath {
 		t.Fatal("launch audit detail", events[0].Detail)
 	}
 	all, _ := f.st.ListEventsFor(f.uid, 100, "")
@@ -203,10 +209,10 @@ func TestTerminalWorktreeCreateRefusalsMapToSentences(t *testing.T) {
 		if tc.detail == "" && out["detail"] != nil {
 			t.Fatal(tc.reason, "unexpected detail", raw)
 		}
-		// A retry of the same request reports a refusal without resending it.
+		// A retry of the same request reports the same refusal without resending it.
 		sent := len(f.sent())
 		code, out, raw = f.create(t, worktreeLaunchBody(f.agent.ID, request))
-		if code != 422 || out["code"] != "worktree_refused" || out["error"] != "That machine refused to make a worktree for this request. Start it again to see why." || len(f.sent()) != sent {
+		if code != 422 || out["code"] != tc.code || out["error"] != tc.sentence || tc.detail != "" && out["detail"] != tc.detail || len(f.sent()) != sent {
 			t.Fatal(tc.reason, "replay", code, raw)
 		}
 	}

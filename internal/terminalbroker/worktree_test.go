@@ -137,9 +137,10 @@ func TestWorktreeRefusalKeepsItsReasonAndIsNotResent(t *testing.T) {
 	if stored, _ := f.st.TerminalSessionFor(f.uid, s.ID); stored.State != terminalproto.Lost {
 		t.Fatal("refused worktree left a live record", stored)
 	}
-	// The reason is not stored, so a replay reports the refusal without it.
+	// A replay reports the same refusal, reason and detail included.
 	_, started, err = f.b.CreateSession(t.Context(), f.uid, f.agent, request, in)
-	if !errors.Is(err, ErrWorktreeRefused) || started {
+	refusal = nil
+	if !errors.Is(err, ErrWorktreeRefused) || !errors.As(err, &refusal) || refusal.Reason != terminalproto.WorktreeRepoBusy || refusal.Detail != "a rebase is in progress" || started {
 		t.Fatal("replay lost the worktree refusal", err)
 	}
 	if len(f.sent()) != 1 {
@@ -362,4 +363,44 @@ func TestWorktreeStatusBurstWhileOneRunsGetsBusyNotSlotExhaustion(t *testing.T) 
 	if err := <-firstDone; err != nil {
 		t.Fatal("the running request", err)
 	}
+}
+
+func TestWorktreeCreateRecordsWhereTheMachineMadeIt(t *testing.T) {
+	f := launchFixture(t, worktreeCapabilities("claude"))
+	path := "/home/test/.reet/worktrees/my-project/site/" + testRun
+	f.reply = func(terminalproto.Create) terminalproto.Body {
+		return terminalproto.SessionChanged{State: terminalproto.Running, WorktreePath: path, WorktreeRepo: "site"}
+	}
+	request := ID()
+	s, started, err := f.b.CreateSession(t.Context(), f.uid, f.agent, request, worktreeCreate())
+	if err != nil || !started || s.WorktreePath != path || s.WorktreeRepo != "site" || s.WorktreeBranch != "reet/"+testProject+"-"+testRun {
+		t.Fatal("worktree not recorded", s, started, err)
+	}
+	again, _, err := f.b.CreateSession(t.Context(), f.uid, f.agent, request, worktreeCreate())
+	if err != nil || again.WorktreePath != path || len(f.sent()) != 1 {
+		t.Fatal("replay lost the worktree", again, err)
+	}
+	// A late reply (after the call gave up) still records it.
+	ordinary := worktreeCallTimeout
+	worktreeCallTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { worktreeCallTimeout = ordinary })
+	f.mu.Lock()
+	f.delay = 400 * time.Millisecond
+	f.mu.Unlock()
+	in := worktreeCreate()
+	in.Worktree = "fedcba9876543210fedcba98"
+	late, _, err := f.b.CreateSession(t.Context(), f.uid, f.agent, ID(), in)
+	if !errors.Is(err, ErrOffline) {
+		t.Fatal("expected the call to give up", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		got, _ := f.st.TerminalSessionFor(f.uid, late.ID)
+		if got.State == terminalproto.Running && got.WorktreePath == path {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	got, _ := f.st.TerminalSessionFor(f.uid, late.ID)
+	t.Fatal("a late create reply did not record the worktree", got)
 }

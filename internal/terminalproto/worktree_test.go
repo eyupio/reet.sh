@@ -438,3 +438,36 @@ func TestWorktreeStateReportsWhatBlocksRemoval(t *testing.T) {
 		}
 	}
 }
+
+// A worktree create's reply says where the machine made the worktree; any
+// other session change encodes exactly as before.
+func TestSessionChangedCarriesTheWorktree(t *testing.T) {
+	encode := func(body Body) ([]byte, error) {
+		return Encode(Message{Version: Version, RequestID: "request-0123456789", SessionID: "session-0123456789", Generation: 1, Body: body})
+	}
+	plain, err := encode(SessionChanged{State: Running})
+	if err != nil || strings.Contains(string(plain), "worktree") {
+		t.Fatal("plain session change", string(plain), err)
+	}
+	with := SessionChanged{State: Running, WorktreePath: "/home/u/.reet/worktrees/p/site/" + strings.Repeat("a", 24), WorktreeRepo: "site"}
+	data, err := encode(with)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := Decode(data)
+	if err != nil || *m.Body.(*SessionChanged) != with {
+		t.Fatal("round trip", m, err)
+	}
+	for name, bad := range map[string]SessionChanged{
+		"path alone":        {State: Running, WorktreePath: with.WorktreePath},
+		"repo alone":        {State: Running, WorktreeRepo: "site"},
+		"relative path":     {State: Running, WorktreePath: "site", WorktreeRepo: "site"},
+		"path with newline": {State: Running, WorktreePath: "/home/u/a\nb", WorktreeRepo: "site"},
+		"repo with slash":   {State: Running, WorktreePath: with.WorktreePath, WorktreeRepo: "a/b"},
+		"repo flag":         {State: Running, WorktreePath: with.WorktreePath, WorktreeRepo: "-site"},
+	} {
+		if _, err := encode(bad); err == nil {
+			t.Fatal(name, "was accepted")
+		}
+	}
+}

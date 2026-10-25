@@ -201,6 +201,9 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	}
 	at := time.Now().UnixMilli()
 	s := ManagedSession{ID: sessionID, Title: in.Title, State: terminalproto.Creating, CreatedAt: at, UpdatedAt: at, CreateRequestID: requestID}
+	if in.Worktree != "" {
+		s.WorktreePath, s.WorktreeRepo = worktree.Path, filepath.Base(filepath.Dir(worktree.Path))
+	}
 	r.Sessions[sessionID] = s
 	r.Operations[key] = operationReceipt{RequestID: requestID, SessionID: sessionID, Kind: "create", Create: &in}
 	if err := m.saveRegistry(r); err != nil {

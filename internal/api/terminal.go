@@ -213,7 +213,7 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if started && create.Tool != "" {
-		s.auditTerminalLaunch(uid, in.AgentID, create)
+		s.auditTerminalLaunch(uid, in.AgentID, create, session)
 	}
 	writeJSON(w, 200, session)
 }
@@ -248,16 +248,18 @@ func (s *server) terminalToolInstalled(uid int64, agent, tool string) bool {
 
 // auditTerminalLaunch records who started which agent where. The opening
 // prompt is deliberately absent: it is user text kept only with the session.
-func (s *server) auditTerminalLaunch(uid int64, agent string, in terminalproto.Create) {
+func (s *server) auditTerminalLaunch(uid int64, agent string, in terminalproto.Create, session store.TerminalSession) {
 	host := s.machineHost(uid, agent)
 	detail := map[string]string{"machine": agent, "host": host, "tool": in.Tool, "model": in.Model, "dir": in.Dir}
-	// The machine does not report the worktree's folder when it starts the
-	// agent, so the run token and project are recorded with the branch, which
-	// follows from them; worktree status reports the folder.
+	// For a worktree launch: the run token, project and branch, and the
+	// folder the machine reported making (absent only if that report was lost).
 	if in.Worktree != "" {
 		detail["worktreeRun"] = in.Worktree
 		detail["project"] = in.Project
 		detail["branch"] = worktreeBranch(in.Project, in.Worktree)
+		if session.WorktreePath != "" {
+			detail["worktree"] = session.WorktreePath
+		}
 	}
 	s.event(uid, "ui", "terminal-launch", "", detail)
 }

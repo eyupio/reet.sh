@@ -986,6 +986,18 @@ func TestManagerWorktreeIsMadeBeforeIntentAndAgentStartsInIt(t *testing.T) {
 	if err != nil || again.ID != s.ID || len(gitCalls()) != before || len(newSessionCalls(calls())) != 1 {
 		t.Fatal("retry repeated work", again, err)
 	}
+	// The session records where the worktree is, and a replay returns it.
+	if s.WorktreePath != dest || s.WorktreeRepo != "site" || again.WorktreePath != dest || again.WorktreeRepo != "site" {
+		t.Fatal("worktree not recorded on the session", s, again)
+	}
+	if r, err := m.loadRegistry(); err != nil || r.Sessions[s.ID].WorktreePath != dest {
+		t.Fatal("worktree not persisted in the registry", err)
+	}
+	// A plain create records no worktree.
+	plain, err := m.Create(context.Background(), testRequestID(2), testSessionID(2), terminalproto.Create{Title: "Shell", Cols: 80, Rows: 24})
+	if err != nil || plain.WorktreePath != "" || plain.WorktreeRepo != "" {
+		t.Fatal("plain create", plain, err)
+	}
 	changed := in
 	changed.Project = "q"
 	if _, err := m.Create(context.Background(), testRequestID(1), testSessionID(1), changed); !errors.Is(err, ErrOperationConflict) {

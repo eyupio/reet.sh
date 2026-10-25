@@ -2318,9 +2318,9 @@ this section was written.
   reply type other than result, reconcile and session change closed the connection). The API takes
   `worktree` and `project` on create, adds `POST /api/v2/terminal/worktrees/status` and
   `/remove`, maps every reason to a code and a sentence, and audits `worktree-remove` (machine,
-  host, path, branch) after a successful removal. `terminal-launch` gains `worktreeRun`, `project`
-  and `branch` for a worktree launch; the folder is not in it because the connector does not report
-  it at creation.
+  host, path, branch) after a successful removal. `terminal-launch` gains `worktreeRun`, `project`,
+  `branch` and, since the fix round, `worktree` (the folder): the create reply now carries
+  `worktreePath` and `worktreeRepo`, which are stored on the session and returned in its JSON.
 
 **What was run.** Linux only (git 2.43.0, tmux 3.4, Go 1.27.1): the package race tests, the API
 terminal tests, and a real two-host test (`TestTerminalPrivateWorktreeStartsTheRecordedAgentInItsOwnWorktree`)
@@ -2362,9 +2362,9 @@ work when this was written.
   to one dispatcher, worktree status and remove run on their own goroutine, and a second concurrent
   worktree request is refused at once as `worktree_busy`. A worktree create still occupies the
   dispatcher while git runs.
-- A retry of a refused create reports `worktree_refused` without the reason, which is not stored.
-- Status and remove name the repository by the folder name the machine used; for a member folder
-  that is itself a symlink, that name can differ from the saved path's.
+- Status and remove must name the repository by the session's `worktreeRepo` (the name the machine
+  used); a name recomputed from a symlinked member folder answers `not_found`. A create whose reply
+  is lost entirely has no recorded folder.
 - A create with a new request id and the same run token adopts the worktree and starts a second
   agent; the Projects run must reuse each member's derived request id for unknown outcomes.
 

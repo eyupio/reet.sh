@@ -110,6 +110,7 @@
   })
  })
 
+ // The tag is only a marker: it lets the browser fixture recognise this timer, hold it and fire it by hand instead of waiting three seconds.
  // One timer for the pause, dropped on every way out: Close, Cancel, a new name, leaving Ready, and the dialog going away.
  $effect(() => {
   if (!autoKey) return

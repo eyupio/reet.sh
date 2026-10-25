@@ -427,11 +427,14 @@
  onMount(() => {
   dialog?.showModal(); void load()
   // Arrived from the Add a machine landing: say which folder was chosen, and start at the heading of this dialog.
-  if (note) { notice = note; titleEl?.focus() }
+  // The note goes into the status region only after the region has been on the page for a moment (a region that is filled as it
+  // appears may not be announced); the heading takes focus at once.
+  let noteTimer: ReturnType<typeof setTimeout> | undefined
+  if (note) { titleEl?.focus(); void tick().then(() => { noteTimer = setTimeout(() => { if (alive) notice = note }, 50) }) }
   // Coming back to the tab reads a check that can still change at once, and the connector's readiness again.
   const visible = () => { watcher.visibilityChanged(); if (!document.hidden && receiptsWaiting) { receiptsWaiting = false; wantReceipts(false) } }
   document.addEventListener('visibilitychange', visible)
-  return () => { alive = false; generation++; loadAbort?.abort(); life.abort(); watcher.dispose(); clearTimeout(receiptsTimer); document.removeEventListener('visibilitychange', visible) }
+  return () => { alive = false; clearTimeout(noteTimer); generation++; loadAbort?.abort(); life.abort(); watcher.dispose(); clearTimeout(receiptsTimer); document.removeEventListener('visibilitychange', visible) }
  })
 </script>
 

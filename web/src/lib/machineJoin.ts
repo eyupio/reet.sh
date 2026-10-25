@@ -152,7 +152,8 @@ export const joinDelay = (failures: number): number => retryDelay(failures, 3000
 /** The pause before the dialog carries on by itself from the Private skills dialog. */
 export const JOIN_AUTO_MS = 3000
 
-/** True when the dialog was opened from the Private skills dialog: that carries the skill, or at least the agent of its folder. */
+/** True when the dialog was opened from the Private skills dialog: that carries the skill, or at least the agent of its folder.
+ *  A context with neither is a Machines-page context (it is opened with `{}`), so it is not from Private skills. */
 export const fromPrivateSkills = (context: JoinContext): boolean => context.skill !== undefined || context.agent !== undefined
 
 /** One plain line saying which folder was chosen and how many others qualified. It says nothing more than that. */

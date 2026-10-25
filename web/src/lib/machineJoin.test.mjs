@@ -394,6 +394,8 @@ test('the Private skills context is told apart from the Machines page, and the l
   assert.equal(fromPrivateSkills({}), false)
   assert.equal(fromPrivateSkills({ skill: 'demo' }), true)
   assert.equal(fromPrivateSkills({ agent: 'claude' }), true)
+  assert.equal(fromPrivateSkills({ bundleId: 'b' }), false)   // a bundle alone says nothing about where the person came from
+  assert.equal(fromPrivateSkills({ agent: 'claude', bundleId: 'b' }), true)   // an agent alone is enough
   const open = (others) => ({ kind: 'open', environmentId: 'e', chosen: 'Claude Code', others })
   assert.equal(landingNote('rack', open(0)), 'Opened on Claude Code on rack.')
   assert.equal(landingNote('rack', open(1)), 'Opened on Claude Code on rack. 1 other folder also qualifies; open it from the Machines page.')

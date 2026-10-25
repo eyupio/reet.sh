@@ -86,11 +86,19 @@
     return privateSkills(group)?.ok ? (name, opener) => { contentSource = { environmentId: group.id, name, opener } } : undefined
   }
   // The landing from the Add a machine dialog becomes the Private skills dialog once, then is handed back as used.
+  // The folder was chosen when Use was pressed; it is judged again here, against the snapshot and the clock as they are now.
   $effect(() => {
     const next = landing
     if (!next) return
     untrack(() => {
-      const opener = document.querySelector<HTMLElement>(`[data-private-skills="${CSS.escape(next.environmentId)}"]`)
+      const group = snapshot.environments?.find((env) => env.id === next.environmentId)
+      if (!group || !privateSkills(group)?.ok) {
+        onnotice("Private skills can't open on that folder right now.")
+        onlanded?.()
+        return
+      }
+      // When the folder's own button is not drawn (the page is filtered to another machine), focus goes back to Add a machine.
+      const opener = document.querySelector<HTMLElement>(`[data-private-skills="${CSS.escape(next.environmentId)}"]`) ?? document.querySelector<HTMLElement>('[data-add-machine]')
       // The folder is shown when the dialog is closed, so focus has somewhere to go back to.
       for (let node = opener?.closest('details'); node; node = node.parentElement?.closest('details')) node.open = true
       contentSource = { environmentId: next.environmentId, name: next.name, opener, note: next.note }

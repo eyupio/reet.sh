@@ -93,6 +93,15 @@ await page.addInitScript(()=>{
  const wrappedClear=window.clearTimeout
  window.clearTimeout=id=>{window.__auto.pending.delete(id);wrappedClear(id)}
 })
+// When each dialog was shown and when text first reached a status region inside it, so a note can be shown to arrive after the
+// region exists (a region that is filled as it appears may not be announced). Also the behaviour each scroll asked for.
+await page.addInitScript(()=>{
+ window.__live={shown:[],text:[]};window.__scrollBehaviour=[]
+ const show=HTMLDialogElement.prototype.showModal
+ HTMLDialogElement.prototype.showModal=function(...args){const result=show.apply(this,args);window.__live.shown.push({title:this.querySelector('h2')?.textContent??'',at:performance.now()});return result}
+ new MutationObserver(records=>{for(const r of records){const node=r.target.nodeType===3?r.target.parentElement:r.target;const el=node?.closest?.('.live[role="status"]');if(el&&el.textContent.trim())window.__live.text.push({text:el.textContent.trim(),at:performance.now()})}}).observe(document,{subtree:true,childList:true,characterData:true})
+ const scroll=Element.prototype.scrollIntoView;Element.prototype.scrollIntoView=function(...args){window.__scrollBehaviour.push(args[0]?.behavior??'');return scroll.apply(this,args)}
+})
 const autoPending=()=>page.evaluate(()=>window.__auto.pending.size)
 const autoDelays=()=>page.evaluate(()=>[...window.__auto.delays])
 const fireAuto=()=>page.evaluate(()=>{const run=[...window.__auto.pending.values()];window.__auto.pending.clear();run.forEach(fn=>fn('reet-auto-continue'))})
@@ -722,36 +731,248 @@ try{
  }
  await noRequestToAMachine()
 
- // Layout: the dialog fits at 1360, 390 and 320px in light and dark, with no sideways scroll.
- for(const scheme of ['light','dark'])for(const [width,height] of [[1360,1000],[390,800],[320,640]]){
-  await page.emulateMedia({colorScheme:scheme})
-  await page.setViewportSize({width,height})
+ // The note reaches a status region that was already there: text arrives later than the dialog was shown, and the heading keeps focus.
+ {
+  const {d,p:pp}=await addFrom('workstation')
+  await pp.name.fill('ledge')
+  agents.push(connector('agent-ledge','ledge'));scopes.push(scope('ledge',{id:'scope-ledge',agent:'claude'}))
+  await expect(pp.status).toContainText('Ready')
+  await pp.use('ledge').click()
+  const pd=privateOf('ledge');await expect(pd).toBeVisible()
+  const region=pd.locator('.live[role="status"]')
+  await expect(region).toHaveAttribute('aria-live','polite')
+  await expect(region).toHaveText('Opened on Claude Code on ledge.')
+  await expect(pd.getByRole('heading',{name:/^Private skills on/})).toBeFocused()
+  const gap=await page.evaluate(()=>{const shown=[...window.__live.shown].reverse().find(s=>s.title.startsWith('Private skills on ledge'));const text=window.__live.text.find(t=>t.text.startsWith('Opened on')&&t.at>=shown.at);return text.at-shown.at})
+  expect(gap).toBeGreaterThanOrEqual(20)
+  await closePrivate(pd)
+ }
+
+ // The landing re-checks the folder at the moment it opens it: if it has stopped qualifying in the same flush, nothing opens and
+ // the person is told. (The scan ages past 14 days between pressing Use and the page drawing the landing.)
+ {
+  const {d,p:pp}=await addFrom('workstation')
+  await pp.name.fill('flux')
+  agents.push(connector('agent-flux','flux'));scopes.push(scope('flux',{id:'scope-flux',agent:'claude'}))
+  await expect(pp.status).toContainText('Ready')
+  await pp.use('flux').evaluate(el=>{el.click();window.__skew=15*86400000})
+  await expect(d).toHaveCount(0)
+  await expect(page.getByRole('status').filter({hasText:"Private skills can't open on that folder right now."})).toBeVisible()
+  await afterRequests()
+  await expect(anyPrivate()).toHaveCount(0)
+  await skew(0)
+  await quiet()
+  // The landing was handed back as used: drawing the fleet again does not open it.
+  await page.getByRole('button',{name:'Refresh status'}).click()
+  await afterRequests()
+  await expect(anyPrivate()).toHaveCount(0)
+ }
+
+ // The folder's own button cannot be found (the page is filtered to another machine, so the new card is not drawn): the dialog
+ // still opens, and closing it leaves focus on the Add a machine button, never on the page.
+ {
+  await page.goto(`${base}/machines?machine=workstation`)
+  await expect(card('workstation')).toBeVisible()
+  await expect(card('hinge')).toHaveCount(0)
+  const {d,p:pp}=await addFrom('workstation')
+  await pp.name.fill('hinge')
+  agents.push(connector('agent-hinge','hinge'));scopes.push(scope('hinge',{id:'scope-hinge',agent:'claude'}))
+  await expect(pp.status).toContainText('Ready')
+  await pp.use('hinge').click()
+  const pd=privateOf('hinge');await expect(pd).toBeVisible()
+  await expect(card('hinge')).toHaveCount(0)
+  await expect(pd.getByRole('heading',{name:/^Private skills on/})).toBeFocused()
+  await closePrivate(pd)
+  await expect(pd).toHaveCount(0)
+  await expect(addButton()).toBeFocused()
+  await page.goto(`${base}/machines`)
+  await expect(card('workstation')).toBeVisible()
+ }
+
+ // ---- Matrix: every state of the dialog at 1360, 768, 390 and 320px in light and dark ----
+ // One walk through the states; at each, the viewport and scheme are changed under the open dialog (no reload) and the same checks
+ // are made: no sideways scroll of the page, the dialog or its body, the command block wrapping inside its container, and the
+ // primary action inside the window and not covered by anything.
+ const COMBOS=[];for(const scheme of ['light','dark'])for(const [width,height] of [[1360,1000],[768,900],[390,800],[320,640]])COMBOS.push({scheme,width,height,label:`${scheme} ${width}px`})
+ const setCombo=async c=>{await page.emulateMedia({colorScheme:c.scheme});await page.setViewportSize({width:c.width,height:c.height})}
+ const reachable=async locator=>{
+  await locator.scrollIntoViewIfNeeded()
+  return locator.evaluate(el=>{const r=el.getBoundingClientRect(),top=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return r.width>0&&r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&(top===el||el.contains(top))})
+ }
+ const surfaces={}
+ const sweep=async(state,dlg,primary)=>{
+  for(const c of COMBOS){
+   await setCombo(c)
+   const where=`${state} at ${c.label}`
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${where}: the page scrolls sideways`).toBe(true)
+   if(dlg){
+    const fit=await dlg.evaluate(el=>{
+     const r=el.getBoundingClientRect(),body=el.querySelector('.body'),pre=el.querySelector('pre.commands'),box=pre?.parentElement?.getBoundingClientRect()
+     return{inside:r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight,dialog:el.scrollWidth<=el.clientWidth,body:body.scrollWidth<=body.clientWidth,
+      block:!pre||(pre.scrollWidth<=pre.clientWidth&&pre.getBoundingClientRect().right<=box.right+0.5&&box.right<=r.right),surface:getComputedStyle(el).backgroundColor}
+    })
+    expect({...fit,surface:undefined},`${where}: the dialog does not fit`).toEqual({inside:true,dialog:true,body:true,block:true,surface:undefined})
+    surfaces[c.scheme]=fit.surface
+   }
+   for(const locator of primary)expect(await reachable(locator),`${where}: an action is out of reach or covered`).toBe(true)
+  }
+ }
+ const LONG='a-rather-long-machine-name-that-has-no-spaces-so-it-must-wrap-inside-the-block-and-never-the-page'
+ const copyButton=d=>d.getByRole('button',{name:'Copy commands',exact:true})
+ reset();emptied=false
+ scopes.push(scope('bench',{id:'scope-bench',agent:'claude'}));agents.push(connector('agent-bench','bench'))
+ syncHold=deferred()
+ await page.goto(`${base}/machines`)
+ await expect(addButton()).toBeVisible()
+ let sweeps=0
+ {
+  // Loading: nothing is claimed about the name and the step-by-step way is still there.
   const d=await open(),pp=parts(d)
-  await pp.name.fill("a-rather-long-machine-name-that-has-no-spaces-so-it-must-wrap-inside-the-block-and-never-the-page")
-  await expect(pp.commands).toBeVisible()
-  await layout()
-  const fits=await d.evaluate(el=>{const r=el.getBoundingClientRect();const body=el.querySelector('.body');return{inside:r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight,noSideways:el.scrollWidth<=el.clientWidth&&body.scrollWidth<=body.clientWidth}})
-  expect(fits).toEqual({inside:true,noSideways:true})
+  await pp.name.fill(LONG)
+  await expect(pp.status).toContainText('Machines are still loading.')
+  await sweep('loading',d,[d.getByRole('button',{name:'Prefer the step-by-step setup?'}),d.getByRole('button',{name:'Close',exact:true})]);sweeps++
+  syncHold.resolve();syncHold=null
+  // The name's own message.
+  await pp.name.fill('')
+  await pp.name.focus();await pp.name.blur()
+  await expect(d.getByText('Enter a name for the machine.')).toBeVisible()
+  await sweep('name message',d,[pp.name]);sweeps++
+  await pp.name.fill(LONG)
+  await expect(pp.status).toContainText('Waiting for it')
+  await commandsAre(pp,LONG)
+  await sweep('waiting',d,[copyButton(d),pp.name]);sweeps++
+  agents.push(connector('agent-long',LONG,true))
+  await expect(pp.status).toContainText('Connected')
+  await sweep('connected, paused',d,[copyButton(d)]);sweeps++
+  agents=agents.map(a=>a.id==='agent-long'?{...a,paused:false}:a)
+  await expect(pp.status).toContainText('Waiting for its first scan')
+  await sweep('first scan',d,[copyButton(d)]);sweeps++
+  scopes.push(scope(LONG))
+  await expect(pp.status).toContainText('Ready')
+  await sweep('ready',d,[pp.use(LONG),copyButton(d)]);sweeps++
+  // Still waiting at the cap (the scan has aged past 14 days and fifteen minutes have gone by).
+  await skew(15*DAY)
+  await expect(pp.status).toContainText('Still waiting. Check again.')
+  await sweep('still waiting',d,[d.getByRole('button',{name:'Check again',exact:true})]);sweeps++
+  await skew(0)
+  await d.getByRole('button',{name:'Check again',exact:true}).click()
+  await expect(pp.use(LONG)).toBeVisible()
   await closeDialog(d)
-  // The Private skills entry is in view without scrolling; from it the add dialog fits; and so does the landing note.
+  scopes=scopes.filter(s=>s.host!==LONG);agents=agents.filter(a=>a.id!=='agent-long')
+ }
+ {
+  // Already here, with the note that says what it was saved under.
+  aliasesOf={workstation:['old-workstation']}
+  await page.reload()
+  await expect(card('workstation')).toBeVisible()
+  const d=await open(),pp=parts(d)
+  await pp.name.fill('Old-Workstation')
+  await expect(pp.status).toContainText('You typed Old-Workstation; reet.sh saved it under workstation.')
+  await sweep('already here with an alias note',d,[pp.use('workstation')]);sweeps++
+  await closeDialog(d)
+  aliasesOf={}
+ }
+ {
+  // From the Private skills dialog: Ready with the continue notice and its Cancel, then the landing note.
+  await page.reload()
+  await expect(card('bench')).toBeVisible()
+  const {d,p:pp}=await addFrom('bench')
+  await pp.name.fill(LONG)
+  agents.push(connector('agent-long2',LONG));scopes.push(scope(LONG,{id:'scope-long2',agent:'claude'}))
+  await expect(pp.status).toContainText('Ready')
+  await expect(d.locator('.auto')).toBeVisible()
+  await sweep('ready with the continue notice',d,[pp.use(LONG),d.getByRole('button',{name:'Cancel',exact:true})]);sweeps++
+  await pp.use(LONG).click()
+  const pd=privateOf(LONG);await expect(pd).toBeVisible()
+  const note=pd.locator('.live[role="status"]')
+  await expect(note).toHaveText(`Opened on Claude Code on ${LONG}.`)
+  await sweep('Private skills landing note',pd,[pd.getByRole('button',{name:'Close private skills'}),note]);sweeps++
+  await closePrivate(pd)
+  scopes=scopes.filter(s=>s.host!==LONG);agents=agents.filter(a=>a.id!=='agent-long2')
+ }
+ expect(surfaces.light).toBeTruthy();expect(surfaces.dark).toBeTruthy();expect(surfaces.dark).not.toBe(surfaces.light)   // dark is really applied
+ expect(sweeps).toBe(10)
+ {
+  // Signed out: the page hands over to the sign-in card, which fits at every size.
+  await page.reload()
+  await expect(card('workstation')).toBeVisible()
+  const d=await open(),pp=parts(d)
+  await pp.name.fill('garage')
+  await expect(pp.status).toContainText('Waiting for it')
+  syncStatus=401
+  const heading=page.getByRole('heading',{name:'Sign in to your workspace'})
+  await expect(heading).toBeVisible()
+  await sweep('signed out',null,[heading,page.getByRole('button',{name:'Sign in',exact:true})])
+  syncStatus=0
+  await page.reload()
+  await expect(card('workstation')).toBeVisible()
+ }
+ // Escape closes without any write request, and focus goes back to what opened the dialog, at every size and in both schemes.
+ for(const c of COMBOS){
+  await setCombo(c)
+  const writesSent=()=>requests.filter(r=>r.method!=='GET').length
+  const before=writesSent()
+  const d=await open(),pp=parts(d)
+  await expect(pp.name).toBeFocused()
+  await pp.name.fill('escape-'+c.width)
+  await expect(pp.status).toContainText('Waiting for it')
+  await page.keyboard.press('Escape')
+  await expect(d).toHaveCount(0)
+  await expect(addButton(),c.label).toBeFocused()
+  await afterRequests()
+  expect(writesSent(),`Escape at ${c.label} sent a write`).toBe(before)
+  // And from the Private skills dialog, which gets focus back on its folder button.
   const pd=await fromPrivate('workstation')
-  const entry=pd.getByRole('button',{name:NOT_LISTED,exact:true})
-  const box=await entry.boundingBox()
-  expect(box.x>=0&&box.x+box.width<=width&&box.y>=0&&box.y+box.height<=height).toBe(true)
-  expect(await pd.evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&el.querySelector('.body').scrollWidth<=el.querySelector('.body').clientWidth})).toBe(true)
-  await layout()
-  await entry.click()
-  const ad=dialogOf(),ap=parts(ad)
-  await expect(ad).toBeVisible()
-  await ap.name.fill('workstation')
-  await expect(ap.use('workstation')).toBeVisible()
-  expect(await ad.evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&el.querySelector('.body').scrollWidth<=el.querySelector('.body').clientWidth})).toBe(true)
-  await ap.use('workstation').click()
-  const landed=privateOf('workstation');await expect(landed).toBeVisible()
-  await expect(landed.getByRole('status').filter({hasText:'Opened on'})).toContainText(`Opened on ${SHARED} on workstation.`)
-  expect(await landed.evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&el.querySelector('.body').scrollWidth<=el.querySelector('.body').clientWidth})).toBe(true)
-  await layout()
-  await closePrivate(landed)
+  await pd.getByRole('button',{name:NOT_LISTED,exact:true}).click()
+  const ad=dialogOf();await expect(ad).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(ad).toHaveCount(0)
+  await expect(pinButton('workstation'),c.label).toBeFocused()
+  expect(writesSent()).toBe(before)
+ }
+ await setCombo(COMBOS[0])
+ // Reduced motion: nothing in the dialog runs an animation or a movement transition, and the new machine's highlight stays
+ // visible as a still ring, with the page scrolling to it at once.
+ {
+  // The same landing with normal motion scrolls smoothly, so the difference below is the preference and nothing else.
+  {
+   await page.evaluate(()=>{window.__scrollBehaviour.length=0})
+   const d=await open(),pp=parts(d)
+   await pp.name.fill('motion')
+   agents.push(connector('agent-motion','motion'));scopes.push(scope('motion'))
+   await expect(pp.status).toContainText('Ready')
+   await pp.use('motion').click()
+   await expect(card('motion')).toHaveClass(/just-added/)
+   expect(await page.evaluate(()=>window.__scrollBehaviour)).toContain('smooth')
+  }
+  await page.emulateMedia({reducedMotion:'reduce'})
+  await page.evaluate(()=>{window.__scrollBehaviour.length=0})
+  const d=await open(),pp=parts(d)
+  await pp.name.fill('stillness')
+  agents.push(connector('agent-stillness','stillness'));scopes.push(scope('stillness'))
+  await expect(pp.status).toContainText('Ready')
+  await copyButton(d).click()
+  await expect(d.getByText('Copied to clipboard')).toBeAttached()
+  const motion=await d.evaluate(el=>{
+   const all=[el,...el.querySelectorAll('*')]
+   const moving=all.filter(n=>{const cs=getComputedStyle(n);const names=cs.transitionProperty.split(',').map(t=>t.trim()),times=cs.transitionDuration.split(',').map(t=>parseFloat(t)*(t.trim().endsWith('ms')?1:1000))
+    return cs.animationName!=='none'||names.some((name,i)=>(name==='all'||name==='transform')&&(times[i%times.length]>0))})
+   return{moving:moving.map(n=>n.tagName+'.'+n.className),running:document.getAnimations().filter(a=>a.effect&&el.contains(a.effect.target)&&a.playState==='running'&&(a instanceof CSSAnimation||(a instanceof CSSTransition&&a.transitionProperty!=='opacity'))).length}
+  })
+  expect(motion).toEqual({moving:[],running:0})
+  await pp.use('stillness').click()
+  await expect(d).toHaveCount(0)
+  await expect(card('stillness')).toHaveClass(/just-added/)
+  const ring=await card('stillness').evaluate(el=>{const cs=getComputedStyle(el);return{animation:cs.animationName,shadow:cs.boxShadow,border:cs.borderTopColor,running:el.getAnimations().length}})
+  expect(ring.animation).toBe('none')
+  expect(ring.running).toBe(0)
+  expect(ring.shadow).not.toBe('none')
+  expect(ring.border).not.toBe(await card('workstation').evaluate(el=>getComputedStyle(el).borderTopColor))
+  await expect(card('stillness')).toBeVisible()
+  expect(await page.evaluate(()=>window.__scrollBehaviour)).not.toContain('smooth')
+  expect(await page.evaluate(()=>window.__scrollBehaviour)).toContain('auto')
+  await page.emulateMedia({reducedMotion:'no-preference'})
+  await quiet()
  }
  await page.emulateMedia({colorScheme:'light'});await page.setViewportSize({width:1360,height:1000})
 
@@ -773,5 +994,5 @@ try{
  await noRequestToAMachine()
  expect(unmocked).toEqual([])
  expect(errors).toEqual([])
- console.log('Add a machine UI passed: entry beside the existing action and absent for viewers and legacy sign-in, the header entry before machines load with no state claimed for an unloaded list, no writes on open, name rules shown after touch, the block equal to the builders and free of the token, token refusal and dropped reply, copy of the block alone, Waiting/Connected/First scan/Ready in words, an aged scan judged by the clock now, back-off and recovery, already-here sticky until a new connector, step-by-step hand-over, close and Escape stopping the watch with focus returned, hidden pause and resume, the watch cap and Check again, Use landing with highlight, scroll and focus, sign-out hand-over, the Not listed? entry in the Private skills dialog (writers only) closing it and opening the add dialog with focus returned, no landing for a paused connector, a stale scan or a scan-only agent (Wait here and Close, reason shown), the three-second continue cancelled, fired and stopped by Close, the landing on the preferred agent or the first eligible folder with a note naming it and counting the rest, never on a stale folder, once only across a redraw, no request to a machine, layouts and themes at 1360, 390 and 320, and no browser storage.')
+ console.log('Add a machine UI passed: entry beside the existing action and absent for viewers and legacy sign-in, the header entry before machines load with no state claimed for an unloaded list, no writes on open, name rules shown after touch, the block equal to the builders and free of the token, token refusal and dropped reply, copy of the block alone, Waiting/Connected/First scan/Ready in words, an aged scan judged by the clock now, back-off and recovery, already-here sticky until a new connector, step-by-step hand-over, close and Escape stopping the watch with focus returned, hidden pause and resume, the watch cap and Check again, Use landing with highlight, scroll and focus, sign-out hand-over, the Not listed? entry in the Private skills dialog (writers only) closing it and opening the add dialog with focus returned, no landing for a paused connector, a stale scan or a scan-only agent (Wait here and Close, reason shown), the three-second continue cancelled, fired and stopped by Close, the landing on the preferred agent or the first eligible folder with a note naming it and counting the rest, never on a stale folder, once only across a redraw, no request to a machine, the landing re-checked at the moment it opens (a folder that stopped qualifying opens nothing and says so), focus falling back to Add a machine when the folder button is not drawn, the landing note placed in a status region that already exists, a matrix of ten dialog states (loading, name message, waiting, paused connector, first scan, ready, still waiting, already here with an alias note, ready with the continue notice, landing note) plus the sign-in card at 1360, 768, 390 and 320 in light and dark with no sideways scroll, the command block wrapping, the primary action reachable and uncovered, Escape closing without a write and returning focus, a reduced-motion run, and no browser storage.')
 }finally{await browser.close()}

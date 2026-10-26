@@ -64,6 +64,24 @@ test('a burst of sizes, like a keyboard animation, sends only the final size onc
   assert.deepEqual(sent, [{ cols: 54, rows: 20 }])
 })
 
+test('a held sender (a panel drag) sends nothing however long the pauses, then the final size once when released', () => {
+  const { clock, sent, resize } = sender()
+  resize.known({ cols: 120, rows: 40 })
+  resize.hold(true)
+  for (const cols of [110, 100, 90]) { resize.request({ cols, rows: 40 }); clock.advance(300) }
+  resize.request({ cols: 84, rows: 40 }); clock.advance(1000)
+  assert.deepEqual(sent, [])
+  resize.hold(false)
+  clock.advance(150)
+  assert.deepEqual(sent, [{ cols: 84, rows: 40 }])
+  // Releasing again, or releasing at a size the host has, sends nothing more.
+  resize.hold(false); resize.hold(true); resize.hold(false); clock.advance(1000)
+  assert.deepEqual(sent, [{ cols: 84, rows: 40 }])
+  // A request just after release joins the same single send.
+  resize.hold(true); resize.request({ cols: 80, rows: 40 }); resize.hold(false); clock.advance(16); resize.request({ cols: 78, rows: 40 }); clock.advance(1000)
+  assert.deepEqual(sent, [{ cols: 84, rows: 40 }, { cols: 78, rows: 40 }])
+})
+
 test('a size the host already has is never sent again', () => {
   const { clock, sent, resize } = sender()
   resize.known({ cols: 54, rows: 40 })

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import {getProfile,getSyncState,saveProfile,type Machine} from '../api'
   import StartAgentDialog from '../StartAgentDialog.svelte'
   import SessionSidebar from './SessionSidebar.svelte'
@@ -13,8 +13,8 @@
   import { TerminalError, validTerminalTitle } from './api'
   import WorkspaceDialog from './WorkspaceDialog.svelte'
   import TerminalCommandReference from './TerminalCommandReference.svelte'
-  import { pageViewport, browserViewport, keyboardLikelyOpen, PHONE_SCREEN, LANDSCAPE_PHONE } from './sizing'
-  import { ALWAYS_DOCKED, MINI_WIDTH, PANEL_DEFAULT, chevronNext, clampPanelWidth, dragWidth, isPhone, keyWidth, layoutRecord, panelDocks, panelMode, readLayout, widestPanel, type PanelMode } from './panelLayout'
+  import { pageViewport, browserViewport, keyboardLikelyOpen, PHONE_SCREEN } from './sizing'
+  import { ALWAYS_DOCKED, MINI_WIDTH, PANEL_DEFAULT, changeMode, chevronNext, clampPanelWidth, defaultLayout, defaultPanelWidth, dragWidth, isPhone, keyWidth, layoutRecord, panelDocks, panelMode, readLayout, screenShortSide, widestPanel, type PanelMode } from './panelLayout'
 
   let {userId=0}:{userId?:number}=$props()
   // svelte-ignore state_referenced_locally
@@ -22,12 +22,13 @@
   let layoutLoaded=false
   let theatre=$state(false)
   let terminalPane=$state<{disconnect:()=>void}>()
-  // The sessions panel (see panelLayout.ts): full, the 64 px mini rail, or closed. On a phone, and on an unpinned
-  // tablet, full is a drawer over the terminal; otherwise it is a docked column and the terminal keeps the rest.
-  const landscapeQuery=matchMedia(LANDSCAPE_PHONE)
-  let mode=$state<PanelMode>(panelMode(innerWidth,undefined,false,landscapeQuery.matches)),pinned=$state(false),sidebarWidth=$state(PANEL_DEFAULT)
-  let viewportWidth=$state(innerWidth),landscapePhone=$state(landscapeQuery.matches),bodyWidth=$state(0),resizing=$state(false)
-  const phone=$derived(isPhone(viewportWidth,landscapePhone))
+  // The sessions panel (see panelLayout.ts): full, the 64 px mini rail, or closed. Full is a docked column beside the
+  // terminal from 600 px (a tablet docks while Keep open is on, the default); on a phone, or a tablet whose person turned
+  // Keep open off, it is a drawer over the terminal. A phone is told by its screen's shorter side, not the window's height.
+  const readScreen=()=>screenShortSide(window.screen,innerWidth,innerHeight)
+  let viewportWidth=$state(innerWidth),screenSide=$state(readScreen()),bodyWidth=$state(0),resizing=$state(false)
+  let mode=$state<PanelMode>(panelMode(innerWidth,undefined,true,isPhone(innerWidth,readScreen()))),pinned=$state(true),sidebarWidth=$state(defaultPanelWidth(innerWidth))
+  const phone=$derived(isPhone(viewportWidth,screenSide))
   const panelView=$derived<'docked'|'drawer'|'mini'|'closed'>(phone?(mode==='full'?'drawer':'closed'):mode==='full'?(panelDocks(viewportWidth,pinned)?'docked':'drawer'):mode)
   const panelOpen=$derived(panelView==='docked'||panelView==='drawer')
   // Theatre view hides the panel without changing it.
@@ -36,23 +37,34 @@
   const SEPARATOR_TRACK=8
   const panelRoom=$derived(Math.max(0,bodyWidth-SEPARATOR_TRACK))
   const panelWidth=$derived(clampPanelWidth(sidebarWidth,panelRoom)),panelMax=$derived(widestPanel(panelRoom))
-  // Saved on a person's change only (a breakpoint or a phone visit does not overwrite the wider screen's choice).
-  function saveLayout(){if(!layoutLoaded)return;try{localStorage.setItem(preferenceKey,JSON.stringify(layoutRecord(mode,sidebarWidth,pinned)))}catch{/* optional browser preference */}}
-  function toggleSidebar(){if(theatre){theatre=false;mode='full'}else mode=panelOpen?'closed':'full';saveLayout()}
+  // Saved only when a person changes the layout on a tablet or desktop: never on load, never the untouched defaults, never
+  // a phone's drawer opening and closing (so a phone visit leaves the wider screen's choice as it was).
+  function saveLayout(){
+    if(!layoutLoaded||phone)return
+    const record=JSON.stringify(layoutRecord(mode,sidebarWidth,pinned))
+    try{const stored=localStorage.getItem(preferenceKey);if(stored===record||stored===null&&record===JSON.stringify(defaultLayout(viewportWidth)))return;localStorage.setItem(preferenceKey,record)}catch{/* optional browser preference */}
+  }
+  // Every change of mode goes through here: expanding the rail on a tablet or desktop turns Keep open on, so it docks.
+  function setMode(next:PanelMode){const changed=changeMode(mode,next,pinned,phone);mode=changed.mode;pinned=changed.pinned}
+  // Focus moves to the control that undoes the change, never to the page.
+  async function focusPanel(selector:string){await tick();workspace?.querySelector<HTMLElement>(selector)?.focus()}
+  const TOOLBAR_SESSIONS='.workspace-actions [aria-controls="terminal-sessions"]'
+  function toggleSidebar(){if(theatre){theatre=false;setMode('full')}else setMode(panelOpen?'closed':'full');saveLayout()}
   // The terminal's own Show/Hide sessions: shows the panel as it was (the rail stays a rail), or hides it.
-  function paneSessions(){if(theatre){theatre=false;if(panelView==='closed')mode='full'}else mode=panelView==='closed'?'full':'closed';saveLayout()}
-  function chevron(){mode=chevronNext(mode,phone);saveLayout()}
-  function expand(){mode='full';saveLayout()}
+  function paneSessions(){if(theatre){theatre=false;if(panelView==='closed')setMode('full')}else setMode(panelView==='closed'?'full':'closed');saveLayout()}
+  function chevron(){const next=chevronNext(mode,phone);setMode(next);saveLayout();void focusPanel(next==='mini'?'#terminal-sessions .rail-expand':next==='full'?'#terminal-sessions .collapse':TOOLBAR_SESSIONS)}
+  function expand(){setMode('full');saveLayout();void focusPanel('#terminal-sessions .collapse')}
+  function findSessions(){setMode('full');saveLayout();void focusPanel('#terminal-sessions input[type=search]')}
   function togglePin(){pinned=!pinned;saveLayout()}
   function closeDrawer(){if(panelView==='drawer')mode='closed'}
   // Dragging the separator: the pointer is captured, so leaving the handle keeps the drag. The grid column changes with it
-  // and the terminal refits through its own resize path (one fit per frame, one size to the host once the drag settles).
+  // and the terminal refits locally once per frame; the host's size is held (holdSize) and sent once when the drag ends.
   let drag:{x:number;width:number}|null=null
   function separatorDown(event:PointerEvent){if(event.pointerType==='mouse'&&event.button!==0)return;event.preventDefault();const handle=event.currentTarget as HTMLElement;handle.setPointerCapture(event.pointerId);handle.focus({preventScroll:true});drag={x:event.clientX,width:panelView==='mini'?MINI_WIDTH:panelWidth};resizing=true}
-  function separatorMove(event:PointerEvent){if(!drag||!(event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId))return;const next=dragWidth(drag.width+event.clientX-drag.x,panelRoom);mode=next.mode;if(next.width!==null)sidebarWidth=next.width}
+  function separatorMove(event:PointerEvent){if(!drag||!(event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId))return;const next=dragWidth(drag.width+event.clientX-drag.x,panelRoom);setMode(next.mode);if(next.width!==null)sidebarWidth=next.width}
   function separatorEnd(){if(!drag)return;drag=null;resizing=false;saveLayout()}
-  function separatorKey(event:KeyboardEvent){const next=keyWidth(event.key,mode,sidebarWidth,panelRoom);if(!next)return;event.preventDefault();mode=next.mode;sidebarWidth=next.width;saveLayout()}
-  function separatorReset(){mode='full';sidebarWidth=PANEL_DEFAULT;saveLayout()}
+  function separatorKey(event:KeyboardEvent){const next=keyWidth(event.key,mode,sidebarWidth,panelRoom);if(!next)return;event.preventDefault();setMode(next.mode);sidebarWidth=next.width;saveLayout()}
+  function separatorReset(){setMode('full');sidebarWidth=PANEL_DEFAULT;saveLayout()}
   let machines = $state<TerminalMachine[]>([]), sessions = $state<TerminalSession[]>([])
   let selectedAgent = $state(new URLSearchParams(location.search).get('agent') || '')
   let selectedSession = $state(new URLSearchParams(location.search).get('session') || '')
@@ -201,7 +213,7 @@
     let stored:string|null=null
     try{stored=localStorage.getItem(preferenceKey)}catch{/* optional browser preference */}
     const saved=readLayout(stored)
-    sidebarWidth=saved.width;pinned=saved.pinned;mode=panelMode(innerWidth,saved.mode,saved.pinned,landscapeQuery.matches)
+    sidebarWidth=saved.width??defaultPanelWidth(innerWidth);pinned=saved.pinned;mode=panelMode(innerWidth,saved.mode,saved.pinned,isPhone(innerWidth,readScreen()))
     layoutLoaded=true
     // Only this workspace asks Android browsers to resize the page for the keyboard; other pages keep the default.
     const viewportMeta=document.querySelector<HTMLMetaElement>('meta[name="viewport"]'),viewportContent=viewportMeta?.getAttribute('content')??null
@@ -219,10 +231,10 @@
     const observer=new ResizeObserver(measure),header=document.querySelector('.site-header')
     if(header)observer.observe(header)
     // A docked panel that would become a drawer (a narrower window, a phone) closes rather than cover the terminal.
-    const viewportChanged=()=>{const wasDocked=panelView==='docked';viewportWidth=innerWidth;landscapePhone=landscapeQuery.matches;if(wasDocked&&!panelDocks(viewportWidth,pinned,phone))mode='closed'}
-    window.addEventListener('resize',viewportChanged);landscapeQuery.addEventListener('change',viewportChanged)
+    const viewportChanged=()=>{const wasDocked=panelView==='docked';viewportWidth=innerWidth;screenSide=readScreen();if(wasDocked&&!panelDocks(viewportWidth,pinned,phone))mode='closed'}
+    window.addEventListener('resize',viewportChanged)
     measure();window.addEventListener('resize',measure);window.visualViewport?.addEventListener('resize',measure);window.visualViewport?.addEventListener('scroll',measure);document.addEventListener('focusin',measure);document.addEventListener('focusout',measure)
-    return()=>{if(viewportMeta&&viewportContent!==null)viewportMeta.setAttribute('content',viewportContent);cancelAnimationFrame(frame);observer.disconnect();window.removeEventListener('resize',viewportChanged);landscapeQuery.removeEventListener('change',viewportChanged);window.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('scroll',measure);document.removeEventListener('focusin',measure);document.removeEventListener('focusout',measure)}
+    return()=>{if(viewportMeta&&viewportContent!==null)viewportMeta.setAttribute('content',viewportContent);cancelAnimationFrame(frame);observer.disconnect();window.removeEventListener('resize',viewportChanged);window.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('scroll',measure);document.removeEventListener('focusin',measure);document.removeEventListener('focusout',measure)}
   })
   onMount(()=>{
     const abort=new AbortController();void refresh(abort.signal)
@@ -258,7 +270,7 @@
   {#if pendingCreation && !showCreate && session}<p class="workspace-notice" role="status">A creation on this machine is unconfirmed. <button onclick={()=>{title=pendingCreation?.title||title;showCreate=true}}>Review creation</button></p>{/if}
   {#if error && !showCreate}<p class="workspace-notice bad" role="alert">{error} <button onclick={() => void refresh()}>Retry status</button></p>{/if}
   <div class="workspace-body" class:docked={shown==='docked'||shown==='mini'} bind:clientWidth={bodyWidth}>
-    {#if shown!=='closed'}<SessionSidebar {machines} {sessions} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} {pinned} onpin={togglePin} onexpand={expand} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onmachine={chooseMachine} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
+    {#if shown!=='closed'}<SessionSidebar {machines} {sessions} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} {pinned} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onmachine={chooseMachine} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
     {#if shown==='docked'||shown==='mini'}
       <!-- A focusable window splitter: drag (pointer capture), Left/Right 16 px, Home the mini rail, End the widest, double-click 280 px. -->
       <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -270,7 +282,7 @@
       {:else if !machines.length}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>Connect your first machine</h2><p>Enroll a machine and enable terminal access locally to open a shell here.</p><a class="btn primary" href="/machines#add-machine">Connect a machine</a></div>
       {:else if session}
         {#if setup || session.state === 'end_requested'}<div class="workspace-notice" role="status">{session.state === 'end_requested' ? 'End requested. Waiting for this machine to confirm; the shell still counts towards its limit.' : setup}<button onclick={() => detailsOpen = true}>View details</button></div>{/if}
-        {#key session.id}<TerminalPane {keyboard} sessionsVisible={shown!=='closed'} onsessions={paneSessions} bind:theatre bind:this={terminalPane} {session} historySupported={machine?.capabilities?.commandHistory??false} host={machine?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} onrename={() => openAction('rename')} onend={() => openAction('end')} onarchive={() => openAction('archive')} archiveDisabled={actionBusy} actionDisabled={actionBusy || machine?.serverEnabled === false} />{/key}
+        {#key session.id}<TerminalPane {keyboard} holdSize={resizing} sessionsVisible={shown!=='closed'} onsessions={paneSessions} bind:theatre bind:this={terminalPane} {session} historySupported={machine?.capabilities?.commandHistory??false} host={machine?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} onrename={() => openAction('rename')} onend={() => openAction('end')} onarchive={() => openAction('archive')} archiveDisabled={actionBusy} actionDisabled={actionBusy || machine?.serverEnabled === false} />{/key}
       {:else}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>{selectedSession ? 'This session is unavailable' : selectedAgent && !machine ? 'This machine is unavailable' : 'Your next shell starts here.'}</h2><p>{selectedSession ? 'Choose an existing session or create one explicitly. No replacement shell was created.' : setup || 'Create a terminal, then return to the same session whenever you need it.'}</p>{@render createForm()}{#if setup}<button class="btn" onclick={() => detailsOpen = true}>View setup &amp; connection details</button>{/if}</div>{/if}
     </div>
   </div>

@@ -18,13 +18,17 @@
   import {paletteFor,terminalPalettes,type CursorShape} from './themes'
   import type {TerminalCommand} from './api'
 
-  let { session, host, user = '', onrename, onend, onarchive, archiveDisabled=false, historySupported=false, actionDisabled = false, theatre=$bindable(false),sessionsVisible=false,onsessions,keyboard=false }: { session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; onarchive?:()=>void; archiveDisabled?:boolean;historySupported?:boolean; actionDisabled?: boolean; theatre?:boolean;sessionsVisible?:boolean;onsessions?:()=>void;keyboard?:boolean } = $props()
+  let { session, host, user = '', onrename, onend, onarchive, archiveDisabled=false, historySupported=false, actionDisabled = false, theatre=$bindable(false),sessionsVisible=false,onsessions,keyboard=false,holdSize=false }: { session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; onarchive?:()=>void; archiveDisabled?:boolean;historySupported?:boolean; actionDisabled?: boolean; theatre?:boolean;sessionsVisible?:boolean;onsessions?:()=>void;keyboard?:boolean;holdSize?:boolean } = $props()
   let element = $state<HTMLDivElement>(),screenFrame=$state<HTMLDivElement>()
   let pane=$state<HTMLElement>(),searchInput=$state<HTMLInputElement>(),viewportHeight=$state(innerHeight),viewportTop=$state(0)
   let connectionState = $state<ConnectionState>('connecting'), message = $state('')
   let connection: TerminalConnection | undefined
   let terminal: Terminal | undefined
   let search: SearchAddon | undefined, fitTerminal: (()=>void)|undefined
+  // While the workspace's sessions panel is being dragged the terminal refits locally each frame, but the host gets one
+  // size, once the drag ends (holdSize).
+  let sizeSender: ResizeSender | undefined
+  $effect(()=>{const held=holdSize;sizeSender?.hold(held)})
   let query = $state(''), searching = $state(false), found = $state(true), fontSize = $state(14), maximised = $state(false)
   let contextMenu = $state<{x:number;y:number}|null>(null), menu = $state<HTMLElement>(), hasSelection = $state(false)
   const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
@@ -153,7 +157,7 @@
     let frame = 0, clipFrame = 0, restoringGrid=false
     // The host is told a debounced size, never one it already has. Below 20×8 the
     // grid stays at the floor and its bottom rows (prompt, agent input) stay in view.
-    const sender=new ResizeSender(size=>connection?.resize(size.cols,size.rows)??false)
+    const sender=new ResizeSender(size=>connection?.resize(size.cols,size.rows)??false);sizeSender=sender;sender.hold(holdSize)
     function grid():Size{const size=hostSize(term.cols,term.rows);if(size.cols!==term.cols||size.rows!==term.rows)term.resize(size.cols,size.rows);return size}
     function clip(){cancelAnimationFrame(clipFrame);clipFrame=requestAnimationFrame(()=>{const shell=element?.querySelector<HTMLElement>('.xterm'),rendered=element?.querySelector('.xterm-screen');if(!alive||!element||!shell||!rendered)return;const over=Math.max(0,Math.ceil(rendered.getBoundingClientRect().height-element.clientHeight));shell.style.transform=over?`translateY(-${over}px)`:''})}
     // Above the floor this is exactly fit.fit(); at the floor the grid is resized once, to the floor.
@@ -175,7 +179,7 @@
     const online=()=>connection?.recover(),visible=()=>{if(document.visibilityState!=='visible'){hiddenAt=performance.now();return}const now=performance.now(),hiddenFor=hiddenAt===null?0:now-hiddenAt;hiddenAt=null;resize();if(repaintOnReturn({hiddenFor,coarse:coarse.matches,sinceRepaint:now-repaintedAt}))redraw();connection?.recover()}
     window.addEventListener('online',online);document.addEventListener('visibilitychange',visible)
     void connection.connect()
-    return ()=>{alive=false;element?.removeEventListener('paste',onPaste,true);search?.dispose();search=undefined;fitTerminal=undefined;sender.dispose();connection?.dispose();connection=undefined;cancelAnimationFrame(frame);cancelAnimationFrame(clipFrame);sizes.disconnect();observer.disconnect();media.removeEventListener('change',theme);window.removeEventListener('online',online);document.removeEventListener('visibilitychange',visible);selection.dispose();input.dispose();binary.dispose();clipboard.dispose();links.dispose();applyTheme=undefined;term.dispose();terminal=undefined}
+    return ()=>{alive=false;element?.removeEventListener('paste',onPaste,true);search?.dispose();search=undefined;fitTerminal=undefined;sizeSender=undefined;sender.dispose();connection?.dispose();connection=undefined;cancelAnimationFrame(frame);cancelAnimationFrame(clipFrame);sizes.disconnect();observer.disconnect();media.removeEventListener('change',theme);window.removeEventListener('online',online);document.removeEventListener('visibilitychange',visible);selection.dispose();input.dispose();binary.dispose();clipboard.dispose();links.dispose();applyTheme=undefined;term.dispose();terminal=undefined}
   })
 </script>
 

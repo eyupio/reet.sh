@@ -14,8 +14,8 @@ const app=(cols,rows)=>{let out='\x1b[?1049h\x1b[2J'
  for(let row=1;row<=rows;row++)out+=`\x1b[${row};1H`+(row===1?`agent ${cols}x${rows}`:row===rows?'> ask anything':`row ${row}`).slice(0,cols)
  return Buffer.from(out)}
 
-async function open({width,height,touch,query='',layout=null,motion='no-preference'}){
- const context=await browser.newContext({viewport:{width,height},hasTouch:touch,isMobile:touch,reducedMotion:motion})
+async function open({width,height,touch,query='',layout=null,motion='no-preference',screen=null}){
+ const context=await browser.newContext({viewport:{width,height},hasTouch:touch,isMobile:touch,reducedMotion:motion,...(screen?{screen}:{})})
  const page=await context.newPage(),errors=[],tickets=[],frames=[]
  // A saved sessions-panel layout, as a wider screen would have left it.
  if(layout)await page.addInitScript(value=>{if(!sessionStorage.getItem('seeded')){sessionStorage.setItem('seeded','1');localStorage.setItem('reet-terminal-layout:1',value)}},JSON.stringify(layout))
@@ -302,6 +302,21 @@ try{
   expect(side.frames.every(frame=>frame.rows>=8&&frame.cols>=20)).toBe(true)
   expect(side.errors).toEqual([])
   await side.context.close()
+ }
+
+ // ── A small tablet held sideways with tall browser chrome (834 × 480 page, an 834 px short screen side) is a tablet:
+ // the sessions panel docks beside the terminal by default, with Keep open and the separator ──
+ {
+  const tab=await open({width:834,height:480,touch:true,screen:{width:1194,height:834}})
+  const p=tab.page,panel=p.locator('aside#terminal-sessions.session-sidebar')
+  await expect(panel).toBeVisible()
+  await expect(panel.getByRole('button',{name:'Keep open',exact:true})).toHaveAttribute('aria-pressed','true')
+  await expect(p.getByRole('separator',{name:'Resize session navigation'})).toBeVisible()
+  const a=await panel.boundingBox(),t=await tab.pane.boundingBox()
+  expect(a.x+a.width).toBeLessThanOrEqual(t.x+.5);expect(t.x+t.width).toBeLessThanOrEqual(834.5)
+  expect(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+  expect(tab.errors).toEqual([])
+  await tab.context.close()
  }
 
  // ── Desktop and tablet keep their layout; a narrow window without touch keeps its header ──

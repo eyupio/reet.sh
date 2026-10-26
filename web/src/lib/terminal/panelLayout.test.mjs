@@ -58,7 +58,7 @@ test('keyboard steps 16 px, snaps to mini below the minimum and Home/End reach t
 })
 
 test('pinned wide screen docks', () => {
-  // 960 px and wider always docks; a tablet docks once pinned (Keep open).
+  // 960 px and wider always docks; a tablet docks while Keep open is on, which it is unless the person turned it off.
   assert.equal(p.panelDocks(1360, false), true)
   assert.equal(p.panelDocks(960, false), true)
   assert.equal(p.panelDocks(834, false), false)
@@ -70,9 +70,34 @@ test('pinned wide screen docks', () => {
   assert.equal(p.panelMode(834, 'full', true), 'full')
   assert.equal(p.panelMode(834, undefined, true), 'full')
   assert.equal(p.panelMode(834, 'mini', true), 'mini')
-  // Unpinned on a tablet the full panel is a drawer, so it starts closed as before; the mini rail never covers anything.
+  // Turned off on a tablet, the full panel is a drawer, so it starts closed; the mini rail never covers anything.
   assert.equal(p.panelMode(834, 'full', false), 'closed')
   assert.equal(p.panelMode(834, 'mini', false), 'mini')
+})
+
+test('a tablet docks by default: no saved Keep open means on, and a first width under 960 px is 240', () => {
+  const fresh = p.readLayout(null)
+  assert.equal(fresh.pinned, true)
+  assert.equal(p.panelMode(834, fresh.mode, fresh.pinned), 'full')
+  assert.equal(p.panelDocks(834, fresh.pinned), true)
+  assert.equal(p.panelDocks(768, p.readLayout('{"open":true,"width":300}').pinned), true)
+  // A person who turned Keep open off keeps the drawer.
+  assert.equal(p.panelDocks(834, p.readLayout('{"open":true,"mode":"full","width":280,"pinned":false}').pinned), false)
+  assert.equal(p.defaultPanelWidth(834), 240)
+  assert.equal(p.defaultPanelWidth(959), 240)
+  assert.equal(p.defaultPanelWidth(960), 280)
+  assert.equal(p.defaultPanelWidth(1360), 280)
+  assert.deepEqual(p.defaultLayout(834), { open: true, mode: 'full', width: 240, pinned: true })
+  assert.deepEqual(p.defaultLayout(1360), { open: true, mode: 'full', width: 280, pinned: true })
+})
+
+test('expanding the rail on a tablet or desktop keeps the panel docked (Keep open turns on)', () => {
+  assert.deepEqual(p.changeMode('mini', 'full', false, false), { mode: 'full', pinned: true })
+  assert.deepEqual(p.changeMode('mini', 'full', true, false), { mode: 'full', pinned: true })
+  assert.deepEqual(p.changeMode('full', 'mini', false, false), { mode: 'mini', pinned: false })
+  assert.deepEqual(p.changeMode('closed', 'full', false, false), { mode: 'full', pinned: false })
+  // A phone has no rail and no docking: nothing to keep open.
+  assert.deepEqual(p.changeMode('mini', 'full', false, true), { mode: 'full', pinned: false })
 })
 
 test('phone never docks', () => {
@@ -80,24 +105,32 @@ test('phone never docks', () => {
     assert.equal(p.panelDocks(width, true), false)
     assert.equal(p.panelMode(width, 'full', true), 'closed')
     assert.equal(p.panelMode(width, 'mini', true), 'closed')
-    assert.equal(p.isPhone(width, false), true)
+    assert.equal(p.isPhone(width, 1194), true)
   }
-  // A phone held sideways is wider than 600 px but keeps the drawer.
-  assert.equal(p.isPhone(844, true), true)
+  // A phone is told by its smallest screen side: held sideways it is wider than 600 px and still a phone.
+  assert.equal(p.isPhone(844, 390), true)
+  assert.equal(p.isPhone(932, 430), true)
   assert.equal(p.panelDocks(844, true, true), false)
   assert.equal(p.panelMode(844, 'mini', true, true), 'closed')
-  assert.equal(p.isPhone(834, false), false)
+  // A small tablet held sideways with tall browser chrome (834 × 480 page) is not: its screen's short side is 834.
+  assert.equal(p.isPhone(834, 834), false)
+  assert.equal(p.isPhone(1112, 834), false)
+  assert.equal(p.isPhone(834, 600), false)
+  assert.equal(p.isPhone(834, 599), true)
 })
 
 test('old saved layout still loads', () => {
-  assert.deepEqual(p.readLayout('{"open":true,"width":300}'), { mode: 'full', width: 300, pinned: false })
-  assert.deepEqual(p.readLayout('{"open":false,"width":220}'), { mode: 'closed', width: 240, pinned: false })
-  assert.deepEqual(p.readLayout('{"open":true,"width":9000}'), { mode: 'full', width: 480, pinned: false })
-  assert.deepEqual(p.readLayout(null), { mode: undefined, width: 280, pinned: false })
-  assert.deepEqual(p.readLayout('not json'), { mode: undefined, width: 280, pinned: false })
-  assert.deepEqual(p.readLayout('[1,2]'), { mode: undefined, width: 280, pinned: false })
-  assert.deepEqual(p.readLayout('null'), { mode: undefined, width: 280, pinned: false })
-  assert.deepEqual(p.readLayout('{"open":"yes","width":"wide","mode":"huge","pinned":1}'), { mode: undefined, width: 280, pinned: false })
+  // An old layout has no Keep open field: it counts as on, so a tablet docks.
+  assert.deepEqual(p.readLayout('{"open":true,"width":300}'), { mode: 'full', width: 300, pinned: true })
+  assert.deepEqual(p.readLayout('{"open":false,"width":220}'), { mode: 'closed', width: 240, pinned: true })
+  assert.deepEqual(p.readLayout('{"open":true,"width":9000}'), { mode: 'full', width: 480, pinned: true })
+  // Nothing (or nothing readable) saved: no mode and no width, so the screen's defaults apply.
+  assert.deepEqual(p.readLayout(null), { mode: undefined, width: undefined, pinned: true })
+  assert.deepEqual(p.readLayout('not json'), { mode: undefined, width: undefined, pinned: true })
+  assert.deepEqual(p.readLayout('[1,2]'), { mode: undefined, width: undefined, pinned: true })
+  assert.deepEqual(p.readLayout('null'), { mode: undefined, width: undefined, pinned: true })
+  assert.deepEqual(p.readLayout('{"open":"yes","width":"wide","mode":"huge","pinned":1}'), { mode: undefined, width: undefined, pinned: true })
+  assert.deepEqual(p.readLayout('{"open":true,"mode":"full","width":280,"pinned":false}'), { mode: 'full', width: 280, pinned: false })
   assert.deepEqual(p.readLayout('{"open":true,"mode":"mini","width":350,"pinned":true}'), { mode: 'mini', width: 350, pinned: true })
   // What is saved is only these four fields, and it reads back the same.
   const record = p.layoutRecord('mini', 333.3, true)

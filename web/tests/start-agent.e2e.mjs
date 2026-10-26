@@ -723,8 +723,8 @@ try{
  await page.keyboard.press('Escape')
  await page.emulateMedia({reducedMotion:'no-preference',colorScheme:'light'})
 
- // The matrix wrote nothing to browser storage under any key not already written before it (the workspace's layout preference and
- // the sign-in token's clean-up), and nothing about a prompt, model or folder.
+ // The matrix wrote nothing to browser storage under any key not already written before it (the sign-in token's clean-up), and
+ // nothing about a prompt, model or folder. Opening the sessions list the way a person does writes no layout either.
  const keyOf=w=>w.split(' ',2).join(' ')
  const knownKeys=new Set(storageWrites.slice(0,writesBefore).map(keyOf))
  const matrixWrites=storageWrites.slice(writesBefore)
@@ -737,7 +737,9 @@ try{
  const kept=await page.evaluate(async()=>JSON.stringify({local:{...localStorage},session:{...sessionStorage},calls:window.__storageCalls,idb:(await indexedDB.databases()).map(x=>x.name)}))
  const addresses=[...urls,...await page.evaluate(()=>window.__urls)].join('\n')
  const written=storageWrites.join('\n')
- expect(written).toContain('reet-terminal-layout')   // the recorder works: the layout preference is written
+ // The storage recorder works: a write made here is seen (the workspace writes its layout only when a person changes it).
+ await page.evaluate(()=>{localStorage.setItem('recorder-probe','x');localStorage.removeItem('recorder-probe')})
+ expect(storageWrites.slice(-2)).toEqual(['setItem recorder-probe x','removeItem recorder-probe '])
  for(const secret of [...secrets,'tidy the readme','look around here','wait for me please','sonnet-4','/home/dev/held','purge','-fix','"tool"'])for(const where of [kept,addresses,written])expect(where.includes(secret)).toBe(false)
  expect(JSON.parse(kept).idb).toEqual([])
  expect(storageWrites.filter(w=>w.startsWith('idb-'))).toEqual([])

@@ -56,46 +56,61 @@ the full panel. The panel's chevron cycles full → mini → closed (on a phone 
 closes). The rules live in `terminal/panelLayout.ts`, unit tested by
 `terminal/panelLayout.test.mjs`.
 
-- **Docked, never over the terminal.** On a window 960 px or wider, and on a tablet
-  (600 to 959 px) once **Keep open** is pressed in the panel header, the full panel
-  is a grid column beside the terminal. The terminal's column is `minmax(0, 1fr)` of
-  what remains, so the whole terminal stays visible with no horizontal scroll, and
-  it refits to its new width. A tablet without Keep open keeps the drawer: the panel
-  opens over the terminal and closes when a session is chosen. Keep open is shown
-  only where it changes something (600 to 959 px).
+- **Docked by default, never over the terminal.** On a tablet or desktop (any
+  window 600 px or wider on a device that is not a phone) the full panel is a grid
+  column beside the terminal. The terminal's column is `minmax(0, 1fr)` of what
+  remains, so the whole terminal stays visible with no horizontal scroll, and it
+  refits to its new width. A first visit under 960 px starts the panel at 240 px
+  (280 px from 960 px), so a tablet's terminal keeps the most columns.
+- **Keep open.** Between 600 and 959 px the panel header has **Keep open**, pressed
+  by default. Turning it off gives that tablet the drawer: the panel opens over the
+  terminal (Keep open is in the drawer to turn it back on) and closes when a session
+  is chosen. From 960 px the panel always docks, so the control is not shown.
+  Expanding the mini rail (its Expand or Find, the panel's Sessions button, the
+  separator's Right arrow or double-click, or dragging the rail out) turns Keep open
+  back on, so the panel opens where the rail was instead of as a drawer, and a drag
+  keeps its separator under the pointer.
 - **Resizing.** Between the docked panel and the terminal is a separator
   (`role="separator"`, vertical, with `aria-valuenow`, `aria-valuemin` 64 and
   `aria-valuemax`). Its hit area is 24 px wide and it captures the pointer, so a drag
   that leaves the handle keeps going; it works with a mouse, pen or touch. The panel
   is 240 to 480 px and never more than 40 % of the workspace, so the terminal keeps at
   least 60 %. A drag below 160 px snaps to the mini rail, and dragging the rail out
-  past 160 px opens the full panel again. Keyboard: Left/Right move 16 px (Left at
+  past 160 px opens the docked panel again. Keyboard: Left/Right move 16 px (Left at
   240 px becomes the rail, Right from the rail opens the panel at 240 px), Home is the
   rail, End the widest. Double-click resets it to 280 px.
-- **Refit without a storm.** The grid column follows the drag; the terminal refits
-  through its own resize path (at most one xterm fit per animation frame) and the
-  host is sent one size 150 ms after the drag settles, never one per move. The
-  layout is saved when the drag ends.
+- **One size to the host per drag.** The grid column follows the drag and the
+  terminal refits locally (at most one xterm fit per animation frame), but the size
+  sent to the host is held for the whole drag, however long its pauses, and sent once
+  150 ms after the drag ends. The layout is saved when the drag ends.
+- **Focus.** When the panel changes mode, focus moves to the control that undoes it:
+  shrinking to the rail focuses the rail's Expand, expanding focuses the panel's
+  chevron, Find focuses the panel's search, and closing focuses **Sessions** in the
+  workspace header.
 - **Mini rail.** One 44 px button per session, in the panel's order: a state dot
   (running a filled circle, starting a ring, ending a half circle, lost a diamond,
   finished a hollow square) and the title's initial. Its accessible name is
-  "Title on machine, state" and its tooltip shows the title, machine and state.
-  The rail also has **Expand sessions**, **New session**, **Find sessions** (opens the
-  full panel with its search focused) and a chevron that closes it. The rail lists
-  every session, whatever machine filter or search the full panel has.
+  "Title on machine, state". Its tooltip shows the title, machine and state, on hover
+  and also beside the button when it has keyboard focus. The rail also has **Expand
+  sessions**, **New session**, **Find sessions** and a chevron that closes it. The
+  rail lists every session, whatever machine filter or search the full panel has.
 - **Saved layout.** Mode, width and Keep open are saved in this browser under the
   existing per-account key (`reet-terminal-layout:<user>`), as
   `{open, mode, width, pinned}`; `open` keeps older pages reading it. A layout saved
   before the rail (`{open, width}`, width 220 to 480) still loads: `open` becomes full
-  or closed and the width is brought to 240 to 480. Unreadable values fall back to the
-  defaults. Only a person's change is saved; a breakpoint or a phone visit does not
-  overwrite it.
-- **Phones keep the drawer.** Below 600 px, and on a touch screen held sideways
-  (`LANDSCAPE_PHONE`), the panel is the overlay drawer, closed on arrival, whatever
-  was saved: no rail, no separator, no Keep open. A docked panel that would become a
-  drawer because the window narrowed closes instead of covering the terminal. The
-  drawer slides in briefly unless the system asks for reduced motion. The phone
-  keyboard focus layout is unchanged.
+  or closed, the width is brought to 240 to 480, and Keep open counts as on.
+  Unreadable values fall back to the defaults. Only a person's change on a tablet or
+  desktop is written: nothing is written on load, the untouched defaults are never
+  written, and opening or closing the drawer on a phone writes nothing, so a phone
+  visit leaves the wider screen's layout as it was.
+- **Phones keep the drawer.** A window narrower than 600 px, or a device whose
+  screen's shorter side is under 600 px (a phone, upright or held sideways), gets
+  the overlay drawer, closed on arrival, whatever was saved: no rail, no separator,
+  no Keep open. A small tablet held sideways with tall browser chrome (an 834 × 480
+  page) is still a tablet and docks. A docked panel that would become a drawer
+  because the window narrowed closes instead of covering the terminal. The drawer
+  slides in briefly unless the system asks for reduced motion. The phone keyboard
+  focus layout is unchanged.
 
 **Your sessions → Machines** defaults to all machines, with individual selection
 and multi-machine checkboxes. Filtering or organising never creates or stops a
@@ -329,9 +344,13 @@ width and organisation remain intact.
 
 These rules apply to phones: a window 650 px wide or less, or a touch screen held
 sideways that is 500 px tall or less (`PHONE_SCREEN` in `terminal/sizing.ts`). The
-sideways rules cover the terminal only; dialogs and other pages are unchanged. Desktop
-and tablet layouts are unchanged, and `web/tests/terminal-phone.e2e.mjs` checks them
-at 1360 and 768 px.
+sideways rules cover the terminal only; dialogs and other pages are unchanged. The
+sessions panel decides "phone" its own way (a window under 600 px or a screen whose
+shorter side is under 600 px, see [The sessions panel](#the-sessions-panel)), so a
+window between 600 and 650 px gets the compact phone chrome with a panel that docks,
+and a short tablet held sideways gets the compact terminal chrome with a docked panel.
+Desktop and tablet terminal chrome is unchanged, and
+`web/tests/terminal-phone.e2e.mjs` checks it at 1360 and 768 px.
 
 **Size sent to the host.** The browser resizes the real session: the host sets the
 attachment's PTY size and tmux resizes the window, so the app gets SIGWINCH.

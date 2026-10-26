@@ -34,6 +34,7 @@ export class ResizeSender {
   private wanted: Size | null = null
   private timer: Timer | null = null
   private nudging = false
+  private held = false
   private readonly send: (size: Size) => boolean
   private readonly delay: number
   private readonly gap: number
@@ -53,7 +54,15 @@ export class ResizeSender {
     this.wanted = { ...size }
     // A nudge in progress already ends on the wanted size, after its full gap.
     if (this.nudging) return
-    this.cancel(); this.timer = this.setTimer(() => this.flush(), this.delay)
+    this.cancel()
+    // Held (the sessions panel is being dragged): the size waits for the release, however long the pauses.
+    if (!this.held) this.timer = this.setTimer(() => this.flush(), this.delay)
+  }
+  /** Holds sizes back while true; releasing sends the latest wanted size once, after the usual delay. */
+  hold(on: boolean) {
+    if (on === this.held) return
+    this.held = on
+    if (!on && this.wanted && !same(this.wanted, this.sent) && !this.nudging) { this.cancel(); this.timer = this.setTimer(() => this.flush(), this.delay) }
   }
   nudge() {
     const target = this.wanted ?? this.sent

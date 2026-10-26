@@ -2615,3 +2615,31 @@ page zoom).
   release. 200 runs with `-race -cpu 1` under CPU load: 14 failures before, 0 after.
 - Next slices from the audit: touch target sizes, text under 12 px, iOS focus zoom on inputs under
   16 px, sideways phones.
+
+## Phones: dialogs (26 October 2026)
+
+Phone audit slice 2. All 14 dialog components (Add machine, Confirm, Delete project, Machine
+commands, Machine settings, Private skills, Skill imports, Manage tags, New list, Project, Start an
+agent, Start all, Remove worktree, terminal Workspace) now share one shell:
+`web/src/lib/dialogShell.ts` (a Svelte action) and `web/src/dialog-shell.css` (loaded in `main.ts`).
+See `docs/ui-verification.md` (Phones: dialogs) for the before/after and the checks.
+- **Adopting it** (Add project, YOLO confirmation and the launch pickers should): `use:shell` on the
+  `<dialog>` (full-screen sheet on an upright phone) or `use:shell={{ sheet: 'bottom' }}` for a short
+  confirmation; then mark parts with `data-shell-head`, `data-shell-body` (scrolls),
+  `data-shell-foot` (main action), `data-shell-card` (a card inside a transparent dialog),
+  `data-shell-aside` (helper text hidden on short screens) and `data-shell-close`. Keep the dialog's
+  own focus return, Escape handling and busy guard; the shell does not touch them. Add the dialog to
+  `DIALOGS` in `web/tests/phone-dialogs.e2e.mjs`.
+- **Guarantees** on touch or under 560 px wide: page behind locked and no scroll chaining; sheet
+  presentation with safe-area borders; Close at least 44 × 44 px; with the keyboard open the dialog
+  fits above it and the focused field is scrolled clear of pinned header, footer and keyboard; on a
+  short screen (≤ 500 px tall or keyboard open) slimmer header, hidden asides and a one-row footer.
+  A desktop with a mouse is unchanged (element boxes and screenshots compared at 1360 and 768 px).
+- **Runtime state** on the dialog: `data-shell` (`full`/`bottom`), `data-shell-short`,
+  `data-shell-kb`, and `--shell-top`, `--shell-height`, `--shell-bottom` while the keyboard covers
+  part of the visual viewport. `reveal(el, dialog)` is exported for a dialog that moves focus itself.
+- New contract `web/tests/phone-dialogs.e2e.mjs`: 16 cases × 4 upright and 2 sideways phones, at rest
+  and with the keyboard simulated both ways. Own `phone-dialogs` job in `terminal-browser.yml`,
+  about 40–45 s. Every rule was mutation-checked.
+- Not covered: real phones, Safari (iOS before 16 ignores the root lock), safe-area insets (0 in the
+  emulator).

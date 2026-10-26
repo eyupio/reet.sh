@@ -2444,3 +2444,91 @@ layer is the next slice and starts with a spike.
 - A landscape review workstream: compare comparable open projects against reet.sh's intended
   capabilities (see the plan), produce a private comparison and a ranked list, and record accepted
   items here in neutral wording.
+
+## Projects — delivered (PRs #210, #211, #212 and Projects PR 4)
+
+Added 26 October 2026. Read [docs/projects.md](docs/projects.md) for what people see, the routes and
+JSON shapes, the limits, states, codes and sentences, and the known limits;
+[docs/terminal-worktrees.md](docs/terminal-worktrees.md) for the worktree contract on the machine;
+the "Projects" section of [docs/ui-verification.md](docs/ui-verification.md) for what the browser
+checks and the accessibility scan found. Spec and plan:
+`docs/superpowers/specs/2026-10-25-projects-design.md`, `docs/superpowers/plans/2026-10-25-projects.md`
+(#201). This section supersedes the "What remains" list in "Projects PR 1" above.
+
+**What exists.**
+- #210 (merged as `801b4d5`): worktree create, status and remove on the connector, the `worktree-v1`
+  feature and `worktree` capability, the broker and the `POST /api/v2/terminal/worktrees/status` and
+  `/remove` routes.
+- #211 (merged as `f32f39d`): the Project store (50 per account, 12 repositories each), the Projects
+  API with `If-Match`/`ETag`, idempotent run start by `requestId`, the run orchestration
+  (`internal/projectrun`: derived request ids and worktree tokens, the durable `sent` mark, two in
+  flight per run, one create per machine, resume after restart) and the audit actions.
+- #212 (merged as `cfde296`): the Projects list, the Project page, the create and change dialog, the
+  Start all sheet, the run view, Remove worktree and Delete, the Activity labels, the browser fixture
+  `web/tests/projects.e2e.mjs`, and on the server: DELETE and run start honour `If-Match`, `projects`
+  is a reserved hosted username, and single sign-on returns to `/projects`.
+- Projects PR 4 ([#213](https://github.com/eyupio/reet.sh/pull/213)): the layout, focus and motion matrix in the fixture (19 states at
+  1360, 768, 390 and 320px in light and dark, Escape at every size, reduced motion), the axe scan and
+  its one fix (the Remove worktree details are a focusable region), `docs/projects.md`, the UI
+  verification section, the README sentence and this record. No Go change.
+
+**Rulings taken during Projects.**
+- Each member gets its own worktree token, `derive(run, position)`, never one per run and never per
+  attempt; status and remove name the repository by the machine's reported `worktreeRepo`.
+- A member is durably marked `sent` before its create goes to the broker. Retry reuses the same
+  request id while the mark is set and takes a new attempt only when the create is known to have
+  started nothing, because a new request id with the same token would adopt the worktree and start a
+  second agent. The broker answers a reserved request id before checking capabilities.
+- Routes: runs are read at `GET /api/v2/project-runs/{runId}` (not under `/projects/{id}`), retried at
+  `POST /api/v2/project-runs/{runId}/members/{position}/retry`.
+- Every change and the run start carry the version read (`If-Match`); a stale one is 409
+  `project_changed` with nothing changed, created or audited. Absent `If-Match` means no
+  precondition; the web always sends it.
+- A run start needs a client `requestId` (one run per id, replay 200, changed positions 409
+  `request_changed`), and a Project with pending members refuses a new run (`run_in_progress`).
+- `has_changes` always blocks a remove; only unpushed commits can be shown and removed with. The page
+  offers Remove only for a started member whose session it has read as ended, and reads the sessions
+  again just before removing.
+- One 60-second budget covers a worktree operation on the machine (30 more for cleanup); the
+  controller waits up to 180 seconds; listings are capped at 4 MiB.
+- Merging or revoking a machine rewrites no Project or run: its members fail `unknown_machine` until
+  the Project is edited; an edit may keep a revoked machine's already-saved repository.
+- The shared prompt is never in a list, save reply, run JSON, audit row, log or browser storage.
+- Database: the Project tables changed shape on the working branch before release; a database made
+  from those earlier branch commits must be recreated.
+- The fixture's mock imitates the Go handlers, so If-Match is also guarded by explicit header
+  assertions.
+
+**What was checked.** Recorded in each pull request and in docs/ui-verification.md: Go race tests,
+a real two-host test with real git and tmux on Linux (macOS only in CI), mutation checks on the
+safety rules at every step, and the browser fixture in Chromium against synthetic answers. No screen
+reader, Safari, Firefox or physical device. Contrast was not measured by hand: axe left
+`color-contrast` undecided in 62 of 76 Projects scans.
+
+**What remains.**
+- A git remote as a second, optional repository identity, so a Project follows you to a newly added
+  machine.
+- Agent status (working, waiting, idle) and resuming an earlier agent conversation.
+- One session across several repositories where an agent supports it, pull request creation, and
+  MCP exposure of Projects and runs.
+- The single-controller assumption: claims and per-machine slots are in memory.
+- Remove worktree for a member whose create reply was lost (no recorded folder or repository name).
+- Renewals and other session operations on a machine still wait behind a worktree create.
+- The terminal pane's mobile key row is still a scrolling region that can't be reached by keyboard
+  (outside Projects).
+- A screen reader pass, Safari and Firefox, and a physical phone.
+
+**Roadmap ideas (neutral; none designed yet).** The chat layer is the next slice and starts with a
+spike.
+- A structured chat layer over every agent: a mode (build or plan), a model list and a thinking
+  effort setting, beside the terminal.
+- Extra repositories attached to one session.
+- Sandboxing for agent sessions.
+- Session groups.
+- Allowlisted per-agent flags in place of free-form arguments or a command override.
+- Permission auto-approve is deliberately **not** offered. It would need a loud, audited,
+  per-session opt-in, and reet.sh does not offer switches that skip an agent's own permission
+  prompts.
+- The landscape review of comparable open projects stays a separate workstream: its comparison is
+  kept privately, and accepted items are recorded here in neutral wording without naming any
+  product.

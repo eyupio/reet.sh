@@ -11,8 +11,8 @@ This document describes what the code does after the commits "Offer worktrees
 through the broker and API" and "Refuse removal for nested bare repositories and
 make the partial-scan refusal tested" in Projects PR 1. The controller side
 that calls it (the Project store, the Projects API and the run orchestration) is
-Projects PR 2; see "The run orchestration" below. The Projects pages (PR 3) and
-the Projects guide (PR 4) are later pull requests.
+Projects PR 2; see "The run orchestration" below. What people see, the Projects
+routes and the *Remove worktree* dialog are in [Projects](projects.md).
 
 ## Negotiation
 

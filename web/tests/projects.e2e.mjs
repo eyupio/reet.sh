@@ -28,7 +28,8 @@ const machinesOf=()=>{const by=new Map();for(const s of scopes)by.set(s.host,[..
 const agents=tmachines.map(m=>({id:m.agentId,host:m.host,version:'dev',paused:false,autoUpdate:false,lastSeen:now}))
 const PROMPT='Read the README and tidy the tests'
 const LONG='x'.repeat(110)
-let authMode='accounts',viewer=false,signedOut=false,seq=0,eventSeq=0
+// The profile follows the system scheme, so emulating dark really applies the dark theme (a saved 'light' would pin it).
+let authMode='accounts',viewer=false,signedOut=false,seq=0,eventSeq=0,profileTheme='system'
 // How the sessions read answers: 'ok', 'fail', or a held promise.
 let sessionsMode='ok',machinesMode='ok'
 let projects=[],runs=[],sessions=[],events=[]
@@ -48,7 +49,7 @@ await page.route('**/api/**',async route=>{
  const json=(data,status=200)=>route.fulfill({status,json:data})
  const role=viewer?'viewer':'owner'
  if(path==='/api/v2/auth/status')return json(authMode!=='accounts'?{mode:authMode,setupRequired:false,bootstrapRequired:false}:{mode:'accounts',setupRequired:false,bootstrapRequired:false,user:signedOut?null:{id:1,name:'Operator',email:'operator@example.test',role}})
- if(path==='/api/v2/profile')return json({user:{id:1,name:'Operator',email:'operator@example.test',role},profile:{theme:'light',shelfView:'list'},sessionCount:1,accounts:authMode==='accounts'})
+ if(path==='/api/v2/profile')return json({user:{id:1,name:'Operator',email:'operator@example.test',role},profile:{theme:profileTheme,shelfView:'list'},sessionCount:1,accounts:authMode==='accounts'})
  if(path==='/api/skills')return json({skills:[],counts:{all:0,used:0}})
  if(path==='/api/environments')return json({environments:scopes,machines:machinesOf()})
  if(path==='/api/tags')return json({tags:[]})
@@ -121,7 +122,7 @@ await page.route('**/api/**',async route=>{
   audit('project-run-retry',{project:r.projectId,run:r.id,position:mm.position,attempt:mm.attempt})
   return json(r)
  }
- if(path==='/api/v2/terminal/worktrees/status'){const a=statusAnswers.shift();if(!a){unmocked.push('an unexpected worktree status read');return json({error:'unexpected'},500)}return json(a)}
+ if(path==='/api/v2/terminal/worktrees/status'){const a=statusAnswers.shift();if(!a){unmocked.push('an unexpected worktree status read');return json({error:'unexpected'},500)}if(a.__status){const{__status,...refusal}=a;return json(refusal,__status)}return json(a)}
  if(path==='/api/v2/terminal/worktrees/remove'){
   const b=JSON.parse(body)
   for(const r of runs)for(const mm of r.members)if(mm.worktreeRun===b.run)mm.state='removed'
@@ -565,6 +566,278 @@ try{
  expect(storageWrites.filter(w=>w.startsWith('idb-'))).toEqual([])
  expect(await page.evaluate(()=>JSON.stringify({...localStorage,...sessionStorage}))).not.toMatch(/project|prompt|run/i)
 
+ // ── Matrix: every state at 1360, 768, 390 and 320px in light and dark. ──
+ // One walk through the states; at each, the viewport and scheme are changed under the open page or dialog (no reload) and
+ // the same checks are made: no sideways scroll of the page, an open dialog inside the window with neither it, its scrolling
+ // part nor anything in it reaching past its edges, and each primary action scrolled into view with a hit test at its centre
+ // landing on it. A machine with a long unbroken name, an 80-character unbroken Project name and long folders are used, so
+ // wrapping is tested with values that cannot break at a space.
+ const COMBOS=[];for(const scheme of ['light','dark'])for(const [width,height] of [[1360,900],[768,900],[390,800],[320,640]])COMBOS.push({scheme,width,height,label:`${scheme} ${width}px`})
+ const setCombo=async c=>{await page.emulateMedia({colorScheme:c.scheme});await page.setViewportSize({width:c.width,height:c.height});await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))))}
+ const reachable=async locator=>{
+  await locator.scrollIntoViewIfNeeded()
+  // A link that wraps is hit on its first line box: the centre of its whole box can fall between its lines. Scrolling can
+  // leave a box a fraction of a pixel past the edge, so 1px is allowed.
+  return locator.evaluate(el=>{const r=el.getBoundingClientRect(),hit=el.getClientRects()[0]??r,top=document.elementFromPoint(hit.left+hit.width/2,hit.top+hit.height/2);return r.width>0&&r.left>=-1&&r.right<=innerWidth+1&&r.top>=-1&&r.bottom<=innerHeight+1&&(top===el||el.contains(top))||`${el.tagName}.${el.className} "${el.textContent.trim().slice(0,40)}" at ${Math.round(r.left)},${Math.round(r.top)}-${Math.round(r.right)},${Math.round(r.bottom)} in ${innerWidth}x${innerHeight}, under ${top?.tagName}.${top?.className}`})
+ }
+ const openDialogs=()=>page.locator('dialog[open]')
+ const surfaces={}
+ const swept=[]
+ async function sweep(state,primary){
+  for(const c of COMBOS){
+   await setCombo(c)
+   const where=`${state} at ${c.label}`
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${where}: the page scrolls sideways`).toBe(true)
+   if(await openDialogs().count()){
+    const fit=await openDialogs().last().evaluate(el=>{
+     const r=el.getBoundingClientRect(),body=el.querySelector('.body')
+     const spill=[...el.querySelectorAll('*')].filter(n=>{const b=n.getBoundingClientRect();return b.width>0&&b.height>0&&(b.left<r.left-0.5||b.right>r.right+0.5)}).map(n=>n.tagName+'.'+n.className)
+     return{inside:r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight,dialog:el.scrollWidth<=el.clientWidth,body:!body||body.scrollWidth<=body.clientWidth,spill,surface:getComputedStyle(el).backgroundColor}
+    })
+    expect({...fit,surface:undefined},`${where}: the dialog does not fit`).toEqual({inside:true,dialog:true,body:true,spill:[],surface:undefined})
+    surfaces[`dialog ${c.scheme}`]=fit.surface
+   }else surfaces[`page ${c.scheme}`]=await page.evaluate(()=>getComputedStyle(document.body).backgroundColor)
+   for(const locator of primary)expect(await reachable(locator),`${where}: an action is out of reach or covered`).toBe(true)
+  }
+  swept.push(state)
+  await setCombo(COMBOS[0])
+ }
+ const LONG_HOST='build-server-in-the-back-office-with-a-very-long-hostname-01',LONG_ID='connector-longname000001'
+ const LONG_DIR='/home/builder/work/clients/a-very-long-client-name-with-no-spaces-at-all/and-an-even-longer-project-folder-name-that-must-wrap'
+ const LONG_NAME='Matrix'+'n'.repeat(74)
+ tmachines.push({agentId:LONG_ID,host:LONG_HOST,ready:true,serverEnabled:true,capabilities:caps()})
+ scopes.push(scope(LONG_HOST,LONG_DIR,'s9'))
+ agents.push({id:LONG_ID,host:LONG_HOST,version:'dev',paused:false,autoUpdate:false,lastSeen:now})
+ const mx=project({name:LONG_NAME,defaultModel:'opus',members:[member(LONG_ID,LONG_DIR,0),member(A,'/home/dev/work/site',1),member(A,'/home/dev/work/api',2,{tool:'codex'}),member(GONE,'/srv/gone',3),member(C,'/srv/spare',4)]})
+ const MX_SLUG='matrixnnnnnnnnnnnnnnnnnnnnnnnnnn-1a2b3c4d',MX_WT=`/home/builder/.reet/worktrees/${MX_SLUG}/and-an-even-longer-project-folder-name-that-must-wrap/0123456789abcdef01234567`
+ const mxRun={id:'run-matrix',requestId:'matrix-request-000001',projectId:mx.id,projectName:mx.name,state:'running',startedAt:now,useWorktrees:true,worktreeProject:MX_SLUG,members:[
+  {position:0,host:LONG_ID,dir:LONG_DIR,tool:'claude',model:'opus',state:'started',code:'',sentence:'',sessionId:'mx-0',worktreePath:MX_WT,worktreeRepo:'and-an-even-longer-project-folder-name-that-must-wrap',worktreeBranch:`reet/${MX_SLUG}-0123456789abcdef01234567`,worktreeRun:'0123456789abcdef01234567',worktreeProject:MX_SLUG,sharesCheckout:false,attempt:1},
+  {position:1,host:A,dir:'/home/dev/work/site',tool:'claude',model:'opus',state:'started',code:'',sentence:'',sessionId:'mx-1',worktreePath:'/home/dev/.reet/worktrees/x/site/1',worktreeRepo:'site',worktreeBranch:'reet/x-1',worktreeRun:'11',worktreeProject:MX_SLUG,sharesCheckout:false,attempt:1},
+  {position:2,host:A,dir:'/home/dev/work/api',tool:'codex',model:'',state:'failed',code:'git_failed',sentence:"Git couldn't make a worktree there.",sessionId:'',worktreePath:'',worktreeRepo:'',worktreeBranch:'',worktreeRun:'22',worktreeProject:MX_SLUG,sharesCheckout:false,attempt:3},
+  {position:3,host:GONE,dir:'/srv/gone',tool:'claude',model:'opus',state:'removed',code:'',sentence:'',sessionId:'mx-3',worktreePath:'/home/dev/.reet/worktrees/x/gone/3',worktreeRepo:'gone',worktreeBranch:'reet/x-3',worktreeRun:'33',worktreeProject:MX_SLUG,sharesCheckout:false,attempt:1},
+  {position:4,host:C,dir:'/srv/spare',tool:'claude',model:'opus',state:'pending',code:'',sentence:'',sessionId:'',worktreePath:'',worktreeRepo:'',worktreeBranch:'',worktreeRun:'44',worktreeProject:MX_SLUG,sharesCheckout:false,attempt:1}]}
+ sessions.push(session('mx-0',LONG_ID,'ended'),session('mx-1',A,'running'))
+ const writesBefore=storageWrites.length
+ const newProject=()=>page.getByRole('button',{name:'New project',exact:true})
+ const change=()=>page.getByRole('button',{name:'Change',exact:true})
+ const del=()=>page.getByRole('button',{name:'Delete',exact:true})
+
+ // The list: empty, then with a long name.
+ const saved=projects;projects=[]
+ await page.goto(`${base}/projects`)
+ await expect(page.getByRole('heading',{name:'No Projects yet.'})).toBeVisible()
+ await sweep('list, empty',[newProject()])
+ projects=saved;projects.push(mx);runs.unshift(mxRun)
+ await page.goto(`${base}/projects`)
+ const mxLink=page.getByRole('link',{name:LONG_NAME,exact:true})
+ await expect(mxLink).toBeVisible()
+ await sweep('list, loaded, with an 80-character unbroken name',[newProject(),mxLink])
+
+ // New project: as it opens, then two repositories on the long machine, a typed relative path and the message Save gives.
+ await newProject().click()
+ let d=page.getByRole('dialog',{name:'New project'})
+ await expect(d.getByRole('textbox',{name:'Name'})).toBeFocused()
+ await sweep('new project, empty',[d.getByRole('button',{name:'Save Project'}),d.getByRole('button',{name:'Close'}),d.getByRole('button',{name:'Add a repository'})])
+ await d.getByRole('textbox',{name:'Name'}).fill('Matrix two')
+ await d.getByRole('button',{name:'Add a repository'}).click()
+ await d.getByRole('combobox',{name:'Machine',exact:true}).nth(0).selectOption(LONG_ID)
+ await d.getByRole('combobox',{name:'Folder',exact:true}).nth(0).selectOption(LONG_DIR)
+ await d.getByRole('button',{name:'Add a repository'}).click()
+ await d.getByRole('combobox',{name:'Folder',exact:true}).nth(1).selectOption({label:'Type a path…'})
+ const typed=d.getByRole('textbox',{name:'Folder path'})
+ await typed.fill('work/'+'a-long-relative-folder-name-without-spaces'.repeat(3))
+ await d.getByRole('button',{name:'Save Project'}).click()
+ await expect(d.getByRole('status')).not.toHaveText('')
+ await sweep('new project, long machine and folder, a typed path refused',[d.getByRole('button',{name:'Save Project'}),d.getByRole('status'),typed])
+ await page.keyboard.press('Escape')
+ await expect(d).toBeHidden()
+ expect(sent('POST',/^\/api\/v2\/projects$/)).toHaveLength(1)
+
+ // The Project page with a run whose repositories are started, failed, removed and pending, and one long one.
+ await page.goto(`${base}/projects/${mx.id}`)
+ await expect(page.getByRole('heading',{level:1})).toHaveText(LONG_NAME)
+ const mxRemove=page.getByRole('button',{name:`Remove worktree for ${LONG_HOST} ${LONG_DIR}`})
+ await expect(mxRemove).toBeVisible()
+ for(const state of ['started','failed','removed','pending'])await expect(page.locator(`li[data-state="${state}"]`).first()).toBeVisible()
+ const mxRetry=page.getByRole('button',{name:'Retry dev-laptop /home/dev/work/api'}),mxOpen=page.getByRole('link',{name:`Open Claude Code on ${LONG_HOST} in ${LONG_DIR}`})
+ await sweep('Project page, a run with started, failed, removed and pending repositories',[startAll(),change(),del(),mxRetry,mxRemove,mxOpen])
+
+ // Change: as it opens with five repositories (one on a machine that left), then 409 project_changed with Reload.
+ await change().click()
+ d=page.getByRole('dialog',{name:`Change ${LONG_NAME}`})
+ await expect(d.getByRole('textbox',{name:'Name'})).toHaveValue(LONG_NAME)
+ await sweep('change, five repositories with long names',[d.getByRole('button',{name:'Save changes'}),d.getByRole('button',{name:'Close'}),d.getByRole('button',{name:'Add a repository'})])
+ mx.version++
+ await d.getByRole('button',{name:'Save changes'}).click()
+ await expect(d.getByRole('status')).toHaveText('Someone changed this Project. Reload it and try again.')
+ await sweep('change, project_changed',[d.getByRole('button',{name:'Reload the Project'}),d.getByRole('button',{name:'Save changes'})])
+ await d.getByRole('button',{name:'Reload the Project'}).click()
+ await expect(d).toBeHidden()
+
+ // Start all: every reason shown with Add a machine, then a lost reply, then a definite refusal.
+ await startAll().click()
+ await expect(sheet()).toBeVisible()
+ await expect(sheet().getByRole('button',{name:'Add a machine'})).toBeVisible()
+ await sweep('Start all, with reasons',[sheet().getByRole('button',{name:'Start',exact:true}),sheet().getByRole('button',{name:'Close'}),sheet().getByRole('button',{name:'Add a machine'})])
+ once.push({match:(m,p)=>m==='POST'&&/\/runs$/.test(p),answer:route=>route.abort('failed')})
+ await sheet().getByRole('button',{name:'Start',exact:true}).click()
+ await expect(sheet().getByRole('status')).toHaveText("We didn't hear back, so the run may have started. Try the same request again: it can't start a second run.")
+ await sweep('Start all, lost reply',[sheet().getByRole('button',{name:'Try the same request again'}),sheet().getByRole('status')])
+ await page.keyboard.press('Escape')
+ await expect(sheet()).toHaveCount(0)
+ await startAll().click()
+ once.push({match:(m,p)=>m==='POST'&&/\/runs$/.test(p),answer:route=>route.fulfill({status:409,json:{error:'This Project is still starting. Wait for it to finish, then start again.',code:'run_in_progress'}})})
+ await sheet().getByRole('button',{name:'Start',exact:true}).click()
+ await expect(sheet().getByRole('status')).toHaveText('This Project is still starting. Wait for it to finish, then start again.')
+ await sweep('Start all, refused (run in progress)',[sheet().getByRole('button',{name:'Start',exact:true}),sheet().getByRole('status')])
+ await page.keyboard.press('Escape')
+ await expect(sheet()).toHaveCount(0)
+ expect(runs.filter(r=>r.projectId===mx.id)).toEqual([mxRun])
+
+ // Remove worktree: blocked by changes with long paths, the confirmation, and git refusing the check with its detail.
+ const mxWt={path:MX_WT,branch:mxRun.members[0].worktreeBranch,changed:0,unpushed:2,paths:[],unreferenced:0,hidden:0,nested:false,incomplete:false}
+ statusAnswers.push({...mxWt,changed:23,unreferenced:1,hidden:2,nested:true,incomplete:true,paths:Array.from({length:20},(_,i)=>`src/${LONG}/file${i}.ts`)})
+ await mxRemove.click()
+ d=page.getByRole('dialog',{name:'Remove worktree'})
+ await expect(d.getByText('and 3 more not listed.')).toBeVisible()
+ await sweep('remove worktree, blocked by every check',[d.getByRole('button',{name:'Check again'}),d.getByRole('button',{name:'Close'})])
+ // The folder, counts and paths scroll on a small screen; the part that scrolls is reached by keyboard (an axe scan found
+ // it was not: scrollable-region-focusable).
+ await setCombo(COMBOS[3])
+ await d.getByRole('button',{name:'Close'}).focus()
+ await page.keyboard.press('Tab')
+ const details=d.getByRole('region',{name:'Worktree details'})
+ await expect(details).toBeFocused()
+ // Its focus ring is drawn inside it: outside, the dialog would clip the sides and the footer cover the bottom.
+ expect(await details.evaluate(el=>{const cs=getComputedStyle(el);return{style:cs.outlineStyle,width:parseFloat(cs.outlineWidth),offset:parseFloat(cs.outlineOffset)}})).toEqual({style:'solid',width:2,offset:-2})
+ await setCombo(COMBOS[0])
+ statusAnswers.push({...mxWt})
+ await d.getByRole('button',{name:'Check again'}).click()
+ await expect(d.locator('.confirm')).toBeVisible()
+ // When everything fits, the middle part is no tab stop: Tab from Close goes on to the footer.
+ await expect(d.locator('.body')).not.toHaveAttribute('tabindex')
+ await expect(d.getByRole('region')).toHaveCount(0)
+ await sweep('remove worktree, the confirmation',[d.getByRole('button',{name:'Remove with 2 unpushed commits'}),d.getByRole('button',{name:'Check again'})])
+ statusAnswers.push({__status:422,error:"Git couldn't check that worktree.",code:'git_failed',detail:'fatal: '+LONG})
+ await d.getByRole('button',{name:'Check again'}).click()
+ await expect(d.getByText('Git said:')).toBeVisible()
+ await sweep('remove worktree, git refused the check',[d.getByRole('button',{name:'Check again'}),d.getByRole('status')])
+ await page.keyboard.press('Escape')
+ await expect(d).toBeHidden()
+ await expect(mxRemove).toBeFocused()
+
+ // Delete: as it opens, then 409 project_changed with Reload.
+ await del().click()
+ d=page.getByRole('dialog',{name:`Delete ${LONG_NAME}?`})
+ await sweep('delete',[d.getByRole('button',{name:'Delete Project'}),d.getByRole('button',{name:'Keep it'})])
+ mx.version++
+ await d.getByRole('button',{name:'Delete Project'}).click()
+ await expect(d.getByRole('status')).toHaveText('Someone changed this Project. Reload it and try again.')
+ await sweep('delete, project_changed',[d.getByRole('button',{name:'Reload the Project'}),d.getByRole('button',{name:'Delete Project'})])
+ await d.getByRole('button',{name:'Reload the Project'}).click()
+ await expect(d).toBeHidden()
+
+ // Escape closes each dialog without a write and focus goes back to what opened it, at every size and in both schemes.
+ // Each opener is pressed by a script click with nothing focused (as a click on Safari, or on Firefox on a Mac, focuses no
+ // button), so the focus that comes back is the dialog's doing, not the browser's own return of focus on close.
+ const scriptClick=locator=>locator.evaluate(el=>{document.activeElement?.blur();el.click()})
+ const writes=()=>requests.filter(r=>r.method!=='GET'&&!r.path.endsWith('/worktrees/status')).length
+ await page.goto(`${base}/projects`)
+ for(const c of COMBOS){
+  await setCombo(c)
+  const before=writes()
+  await scriptClick(newProject())
+  d=page.getByRole('dialog',{name:'New project'})
+  await d.getByRole('textbox',{name:'Name'}).fill('Not saved')
+  await page.keyboard.press('Escape')
+  await expect(d).toHaveCount(0)
+  await expect(newProject(),c.label).toBeFocused()
+  expect(writes(),`Escape at ${c.label} sent a write`).toBe(before)
+ }
+ await setCombo(COMBOS[0])
+ await page.goto(`${base}/projects/${mx.id}`)
+ await expect(mxRemove).toBeVisible()
+ const escapes=[
+  {opener:change,dialog:()=>page.getByRole('dialog',{name:`Change ${LONG_NAME}`})},
+  {opener:startAll,dialog:sheet},
+  {opener:del,dialog:()=>page.getByRole('dialog',{name:`Delete ${LONG_NAME}?`})},
+  {opener:()=>mxRemove,dialog:()=>page.getByRole('dialog',{name:'Remove worktree'}),ready:()=>expect(page.locator('dialog .confirm')).toBeVisible(),before:()=>statusAnswers.push({...mxWt})},
+ ]
+ for(const c of COMBOS){
+  await setCombo(c)
+  for(const e of escapes){
+   const before=writes()
+   e.before?.()
+   await scriptClick(e.opener())
+   await expect(e.dialog()).toBeVisible()
+   await e.ready?.()
+   await page.keyboard.press('Escape')
+   await expect(e.dialog()).toHaveCount(0)
+   await expect(e.opener(),`${c.label}`).toBeFocused()
+   expect(writes(),`Escape at ${c.label} sent a write`).toBe(before)
+  }
+ }
+ await setCombo(COMBOS[0])
+ expect(statusAnswers).toHaveLength(0)
+
+ // Reduced motion: with the preference, nothing on the page or in any open dialog has an animation or a transform
+ // transition, and none is running; without it the buttons' press transition is there, so the check is not empty.
+ const moving=()=>page.evaluate(()=>{
+  const roots=[...document.querySelectorAll('dialog[open]')];if(!roots.length)roots.push(document.body)
+  const all=roots.flatMap(r=>[r,...r.querySelectorAll('*')])
+  return{moving:all.filter(n=>{const cs=getComputedStyle(n),names=cs.transitionProperty.split(',').map(t=>t.trim()),times=cs.transitionDuration.split(',').map(t=>parseFloat(t)*(t.trim().endsWith('ms')?1:1000))
+   return cs.animationName!=='none'||names.some((name,i)=>(name==='all'||name==='transform')&&times[i%times.length]>0)}).map(n=>n.tagName+'.'+n.className),
+   running:document.getAnimations().filter(a=>a.playState==='running').length}
+ })
+ expect((await moving()).moving.length).toBeGreaterThan(0)
+ await page.emulateMedia({reducedMotion:'reduce'})
+ await page.reload()
+ await expect(mxRemove).toBeVisible()
+ expect(await moving(),'the Project page moves').toEqual({moving:[],running:0})
+ for(const e of escapes){
+  e.before?.()
+  await e.opener().click()
+  await expect(e.dialog()).toBeVisible()
+  await e.ready?.()
+  expect(await moving(),'a dialog moves').toEqual({moving:[],running:0})
+  await page.keyboard.press('Escape')
+  await expect(e.dialog()).toHaveCount(0)
+ }
+ await page.goto(`${base}/projects`)
+ await newProject().click()
+ expect(await moving(),'New project moves').toEqual({moving:[],running:0})
+ await page.keyboard.press('Escape')
+ await page.emulateMedia({reducedMotion:'no-preference'})
+
+ // Pages that say something went wrong: the Project can't be read, isn't on the account, has been deleted; a viewer.
+ once.push({match:(m,p)=>m==='GET'&&p===`/api/v2/projects/${mx.id}`,answer:route=>route.fulfill({status:503,json:{error:"reet couldn't do that just now. Try again.",code:'server_error'}})})
+ await page.goto(`${base}/projects/${mx.id}`)
+ await expect(page.getByRole('alert')).toBeVisible()
+ await sweep('Project page, could not be read',[page.getByRole('alert')])
+ await page.goto(`${base}/projects/proj-not-here`)
+ await expect(page.getByRole('heading',{name:'Project not found.'})).toBeVisible()
+ await sweep('Project page, not on this account',[page.getByRole('link',{name:'Back to Projects'})])
+ viewer=true
+ await page.goto(`${base}/projects`)
+ await expect(page.getByText("This account is read-only, so it can't use Projects.",{exact:true})).toBeVisible()
+ await sweep('read-only account',[page.getByText("This account is read-only, so it can't use Projects.",{exact:true})])
+ viewer=false
+ await page.goto(`${base}/projects/${mx.id}`)
+ await del().click()
+ await page.getByRole('dialog',{name:`Delete ${LONG_NAME}?`}).getByRole('button',{name:'Delete Project'}).click()
+ await expect(page.getByRole('heading',{name:'Project deleted.'})).toBeVisible()
+ await sweep('Project deleted',[page.getByRole('link',{name:'Back to Projects'})])
+
+ expect(surfaces['dialog light']).toBeTruthy();expect(surfaces['dialog dark']).toBeTruthy();expect(surfaces['dialog dark']).not.toBe(surfaces['dialog light'])   // dark is really applied
+ expect(surfaces['page light']).toBeTruthy();expect(surfaces['page dark']).toBeTruthy();expect(surfaces['page dark']).not.toBe(surfaces['page light'])
+ expect(swept).toHaveLength(19)
+ // The matrix wrote nothing to browser storage under a key not written before it, and nothing about a Project.
+ const keyOf=w=>w.split(' ',2).join(' ')
+ const knownKeys=new Set(storageWrites.slice(0,writesBefore).map(keyOf))
+ const matrixWrites=storageWrites.slice(writesBefore)
+ expect(matrixWrites.filter(w=>!knownKeys.has(keyOf(w)))).toEqual([])
+ for(const secret of [LONG_NAME,LONG_DIR,'Matrix two',mx.id])expect(matrixWrites.join('\n').includes(secret)).toBe(false)
+
  // ── A viewer, an instance without accounts and a token sign-in see no Projects, and the page asks nothing about them. ──
  const nav=()=>page.getByRole('navigation',{name:'Main navigation'})
  async function seesNothing(notice){
@@ -590,5 +863,5 @@ try{
 
  expect(errors).toEqual([])
  expect(unmocked.filter(u=>/project|worktree|terminal/.test(u))).toEqual([])
- console.log(`Projects UI passed: create checked before sending with one save per press while Escape and Close wait, the shared prompt kept across two changes (never sent unchanged), If-Match on every change and delete with 409 project_changed and Reload for both, Start all listing each reason a repository won't start (not enrolled with Add a machine, not ready, no launch, agent not installed, no worktrees, 8 per machine and 32 per account counting what it plans), a start from a sheet made before another tab saved refused (If-Match) with nothing started and the Project read again, a lost start resent with the same request id, positions and version and a new id for a new run, sessions reads that never answer given up after 15 seconds, machine reads that never answer holding neither the list nor the Project page (machines named by id until read), a run through pending, started, failed, Retry (attempt 2) and removed with polling stopping at rest, Remove worktree never offered while a session runs or the sessions are unknown, the status read first, blocked by changes and commits on no branch, Check again, the confirmation stating the counts the remove repeats and a session that runs again stopping it, delete keeping runs, the no-worktree warning, 401 handed to sign-in, the Activity lines, nothing in storage or addresses, no Projects for viewers, open or token sign-in and no Projects calls from them, and no sideways scroll at 320px in light and dark. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
+ console.log(`Projects UI passed: create checked before sending with one save per press while Escape and Close wait, the shared prompt kept across two changes (never sent unchanged), If-Match on every change and delete with 409 project_changed and Reload for both, Start all listing each reason a repository won't start (not enrolled with Add a machine, not ready, no launch, agent not installed, no worktrees, 8 per machine and 32 per account counting what it plans), a start from a sheet made before another tab saved refused (If-Match) with nothing started and the Project read again, a lost start resent with the same request id, positions and version and a new id for a new run, sessions reads that never answer given up after 15 seconds, machine reads that never answer holding neither the list nor the Project page (machines named by id until read), a run through pending, started, failed, Retry (attempt 2) and removed with polling stopping at rest, Remove worktree never offered while a session runs or the sessions are unknown, the status read first, blocked by changes and commits on no branch, Check again, the confirmation stating the counts the remove repeats and a session that runs again stopping it, delete keeping runs, the no-worktree warning, 401 handed to sign-in, the Activity lines, nothing in storage or addresses, no Projects for viewers, open or token sign-in and no Projects calls from them, no sideways scroll at 320px in light and dark, and a matrix of 19 states (the list empty and loaded, New project empty and refused, the Project page with started, failed, removed and pending repositories, Change and its project_changed, Start all with reasons, a lost reply and a refusal, Remove worktree blocked, confirming and refused by git, Delete and its project_changed, a Project that can't be read, isn't on the account or was deleted, and a read-only account) at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past a dialog's edges and each primary action reachable and uncovered, the worktree details reachable by keyboard while they scroll with the focus ring drawn inside, Escape from every dialog at every size returning focus without a write, a reduced-motion run and no new storage key. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
 }finally{await browser.close()}

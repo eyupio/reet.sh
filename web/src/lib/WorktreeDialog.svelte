@@ -21,7 +21,11 @@
  const id = $props.id()
  // svelte-ignore state_referenced_locally
  const target = { agentId: member.host, project: member.worktreeProject, repo: member.worktreeRepo, run: member.worktreeRun }
- let dialog = $state<HTMLDialogElement>(), mainButton = $state<HTMLButtonElement>()
+ let dialog = $state<HTMLDialogElement>(), mainButton = $state<HTMLButtonElement>(), body = $state<HTMLDivElement>()
+ // Whether the middle part scrolls: only then is it a focusable region, so a keyboard can scroll it without an extra tab
+ // stop when everything fits. Measured again when its box or its contents change.
+ let scrolls = $state(false)
+ const measure = () => { if (body) scrolls = body.scrollHeight > body.clientHeight + 1 || body.scrollWidth > body.clientWidth + 1 }
  let busy = $state<'' | 'checking' | 'removing'>(''), message = $state(''), failed = $state(false), detail = $state('')
  let status = $state<WorktreeStatus | null>(null)
  // The remove finished, or the worktree was not there: there is nothing left to do here but close.
@@ -109,6 +113,15 @@
   }
  }
 
+ $effect(() => {
+  if (!body) return
+  const watch = new ResizeObserver(measure), changes = new MutationObserver(measure)
+  watch.observe(body)
+  changes.observe(body, { childList: true, subtree: true, characterData: true })
+  measure()
+  return () => { watch.disconnect(); changes.disconnect() }
+ })
+
  onMount(() => {
   dialog?.showModal()
   void check()
@@ -125,7 +138,9 @@
   </div>
   <button type="button" class="btn" onclick={close} disabled={!!busy} aria-label="Close">Close ×</button>
  </header>
- <div class="body">
+ <!-- The folder, counts and changed paths can scroll on a small screen; while they do, the part is a named, focusable region a keyboard can scroll. -->
+ <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+ <div class="body" bind:this={body} tabindex={scrolls ? 0 : undefined} role={scrolls ? 'region' : undefined} aria-label={scrolls ? 'Worktree details' : undefined}>
   <dl>
    <div><dt>Folder</dt><dd class="mono">{status?.path || member.worktreePath || 'Not known yet'}</dd></div>
    <div><dt>Branch</dt><dd class="mono">{status?.branch || member.worktreeBranch || 'Not known yet'}</dd></div>
@@ -179,6 +194,8 @@
  .lede { margin: 8px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
  header .btn { flex: none; white-space: nowrap; }
  .body { display: grid; gap: 14px; padding: 22px; min-height: 0; overflow: auto; overflow-wrap: anywhere; align-content: start; font-size: .88rem; line-height: 1.5; }
+ /* The dialog clips anything outside it and the footer covers the bottom, so the ring is drawn inside the region. */
+ .body:focus-visible { outline-offset: -2px; }
  dl { display: grid; gap: 6px; margin: 0; }
  dl div { display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 8px; }
  dt { color: var(--muted); }

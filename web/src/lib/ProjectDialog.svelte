@@ -308,6 +308,8 @@
  header .btn { flex: none; white-space: nowrap; }
  .sheet { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
  .body { display: grid; gap: 16px; padding: 22px; min-height: 0; overflow: auto; overflow-wrap: anywhere; align-content: start; }
+ /* The dialog clips anything outside it and the footer covers the bottom, so the ring is drawn inside the region. */
+ .body:focus-visible { outline-offset: -2px; }
  fieldset { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: 18px; }
  .field { display: grid; gap: 6px; min-width: 0; align-content: start; }
  .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

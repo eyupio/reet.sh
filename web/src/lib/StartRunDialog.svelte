@@ -163,6 +163,8 @@
  header .btn { flex: none; white-space: nowrap; }
  .sheet { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
  .body { display: grid; gap: 14px; padding: 22px; min-height: 0; overflow: auto; overflow-wrap: anywhere; align-content: start; }
+ /* The dialog clips anything outside it and the footer covers the bottom, so the ring is drawn inside the region. */
+ .body:focus-visible { outline-offset: -2px; }
  fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
  li { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); min-width: 0; }

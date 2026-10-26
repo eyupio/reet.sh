@@ -153,6 +153,28 @@ What PR D uses, and from where:
 
 **Swaps into the shell.** Nothing visible: PR A is wire-only. It unblocks PR B's folder browser, which replaces the legacy New project dialog behind the rail's **Add**.
 
+**Added by the user after PR D shipped (Mon 26 Oct, from the tablet).** Two visible fixes ride in PR A and go first, because they are frontend-only and the person is feeling them now. A5 and A6 come before A1-A4 in execution order.
+
+### Task A5: Starting from Home takes you to the session
+
+**Files:** Modify `web/src/lib/home/Home.svelte` (and `web/src/lib/StartAgentDialog.svelte` only if its `onstarted` contract needs a field), `web/tests/home.e2e.mjs`, `web/tests/start-agent.e2e.mjs`.
+
+**Interfaces:**
+- Consumes: the existing `StartAgentDialog` `onstarted(session)`; the other pages (Machines, Terminals) already open the new session after a start; the terminal page address `/terminals?agent=<id>&session=<id>`.
+- Produces: starting an agent from Home (the docked **Start an agent** button, the rail, any card) closes the dialog and goes straight to that session in the terminal workspace with the same address the other pages use; no stay-on-Home "Open it" notice any more. While the session attaches the terminal page shows its existing connecting state with the session title in the heading (no blank screen); the browser Back button returns to Home with the list refreshed and the new row present; focus lands on the terminal ("Focus terminal") for keyboard users; a lost reply or refusal still leaves the dialog open with its own sentence (unchanged). The Start dialog keeps its "Starting…" state until the navigation has begun so a second press sends nothing.
+
+- [ ] Step 1: failing `home.e2e.mjs` cases "Start an agent from Home opens the session" (address, heading with the title, Back returns to Home with the new row), "a refused start stays on Home with the sentence", "second press while starting sends nothing"; update the old "stays on Home with Open it" case. Step 2-4: FAIL, implement, run 4 times plus `start-agent.e2e.mjs`. Commit "Take the person to the session they just started from Home".
+
+### Task A6: The sessions panel can stay open, resize and shrink to a mini rail
+
+**Files:** Modify `web/src/lib/terminal/TerminalWorkspace.svelte`, `SessionSidebar.svelte`, `web/src/lib/terminal/sizing.ts` (only if the usable-width rule needs a helper), `web/tests/terminal-workspace.e2e.mjs`, `terminal-phone.e2e.mjs`, `terminal-organisation.e2e.mjs`; create `web/src/lib/terminal/panelLayout.ts` and `panelLayout.test.mjs`.
+
+**Interfaces:**
+- Consumes: today's `navOpen`, `sidebarWidth` (220-480 px) and the saved layout under `preferenceKey` (an existing saved layout must keep loading), the 960 px breakpoint under which the panel is currently a drawer that covers the terminal, `PHONE_SCREEN`, the terminal pane's own resize handling (debounced, floor 20x8).
+- Produces: `panelLayout.ts`: `type PanelMode = 'full' | 'mini' | 'closed'`; `panelMode(width: number, saved: PanelMode | undefined, pinned: boolean): PanelMode`; `clampPanelWidth(requested: number, containerWidth: number): number` (min 240, max the smaller of 480 and 40 % of the container, so the terminal always keeps at least 60 %); `MINI_WIDTH = 64`. Behaviour: on tablet and desktop (innerWidth >= 600) the panel is a **docked column, never an overlay**: a **Pin** toggle ("Keep open") keeps it docked and the terminal column shrinks to the remaining width (grid track, `minmax(0,1fr)`), so the terminal is 100 % visible (no part under the panel, no horizontal scroll) and refits; unpinned, it is the existing drawer. The docked panel has a drag **separator** (`role="separator"`, `aria-orientation="vertical"`, `aria-valuenow/min/max`, 24 px hit area, keyboard Left/Right arrows 16 px, Home/End to min/max, double-click resets to 280) and a **mini** mode of 64 px: a rail with one dot-and-initial button per session (status by shape and text for assistive tech, tooltip with title and machine, 44 px targets), New session, Find, and a Expand button; dragging below 160 px snaps to mini, and the toggle chevron cycles full to mini to closed. The terminal refit is debounced with the existing rules so dragging causes no resize storm (at most one fit per animation frame, one PTY resize after the drag ends). Width, mode and pinned are saved in the existing layout key (try/catch; values validated; nothing else stored). Phones (< 600 px) keep today's drawer unchanged. Landscape phones keep the drawer. Reduced motion: no slide animation.
+
+- [ ] Step 1: failing `panelLayout.test.mjs` ("terminal keeps at least 60 %", "width clamps 240..480", "mini below 160", "pinned wide screen docks", "phone never docks", "old saved layout still loads"); failing fixture cases in `terminal-workspace.e2e.mjs` at 834 and 1360 px: "pinned panel docks and the terminal is fully visible beside it (bounding boxes do not overlap, no horizontal scroll)", "drag the separator resizes and the terminal refits once", "keyboard resize", "mini rail shows every session with names and a status word", "mini and width survive a reload", "phone still uses the drawer", "tablet landscape does not cover the terminal when pinned". Step 2-4: FAIL, implement, run the workspace, organisation, phone and lifecycle fixtures 3 times. Mutation-check: let the panel overlap the terminal, drop the 60 % clamp, skip the refit. Commit "Dock the sessions panel: keep open, drag to resize, mini rail".
+
 ### Task A1: Protocol messages
 
 **Files:** Create `internal/terminalproto/browse.go`, `browse_test.go`, `branches.go`, `branches_test.go`; modify `protocol.go`.

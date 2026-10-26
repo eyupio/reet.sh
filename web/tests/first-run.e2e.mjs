@@ -13,7 +13,7 @@ try {
  // More opens inside the screen at every width where the tabs fold into Home, Sessions, Machines and More.
  for (const width of run('menu') ? [320,375,414,768,999] : []) {
   const {context,page,errors} = await open({width})
-  await page.goto(base)
+  await page.goto(`${base}/control`)
   await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
   await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'More'}).click()
   const sheet = page.getByRole('dialog',{name:'More'})
@@ -36,19 +36,18 @@ try {
   await page.getByLabel('Confirm password',{exact:true}).fill('correct-horse-battery')
   await page.getByRole('button',{name:'Create account'}).click()
   await page.waitForURL(`${base}/`)
-  await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
-  // / is Home now (R13); until Task D4 builds Home it shows the Control page.
+  await expect(page.getByRole('region',{name:'Your machines',exact:true})).toBeVisible()
   expect(await page.title()).toBe('Home · reet.sh')
   expect(errors).toEqual([])
   await context.close()
  }
 
- // A signed-in person who opens an entry address goes to Control, not to a stale form or the shelf.
+ // A signed-in person who opens an entry address goes to Home, not to a stale form or the shelf.
  for (const path of run('entry') ? ['/signin','/signup','/setup','/welcome'] : []) {
   const {context,page} = await open({width:1440})
   await page.goto(`${base}${path}`)
   await page.waitForURL(`${base}/`)
-  await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
+  await expect(page.getByRole('region',{name:'Your machines',exact:true})).toBeVisible()
   await context.close()
  }
 
@@ -59,8 +58,8 @@ try {
   await expect(page.getByRole('heading',{name:'Page not found'})).toBeVisible()
   expect(await page.title()).toContain('Page not found')
   await expect(page.getByRole('heading',{name:'Skills.',exact:true})).toHaveCount(0)
-  await page.getByRole('link',{name:'Back to Control'}).click()
-  await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
+  await page.getByRole('link',{name:'Back to Home'}).click()
+  await expect(page.getByRole('region',{name:'Your machines',exact:true})).toBeVisible()
   await page.goto(`${base}/skills`)
   await expect(page.getByRole('heading',{name:'Skills.',exact:true})).toBeVisible()
   await context.close()
@@ -120,7 +119,7 @@ try {
  // An explicit dark theme keeps a readable warning colour, same as the system dark theme.
  if (run('dark')) {
   const {context,page} = await open({width:1440,theme:'dark'})
-  await page.goto(base)
+  await page.goto(`${base}/control`)
   await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
   expect(await page.evaluate(()=>document.documentElement.dataset.theme)).toBe('dark')
   expect(await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--warn').trim())).toBe('#e9b44c')

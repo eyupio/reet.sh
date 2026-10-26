@@ -57,6 +57,7 @@ jobs:
           node web/tests/first-run.e2e.mjs
           node web/tests/phone-layout.e2e.mjs
           node web/tests/navigation.e2e.mjs
+          node web/tests/home.e2e.mjs
           node web/tests/readiness.e2e.mjs
           node web/tests/single-sign-on.e2e.mjs
           node web/tests/first-machine.e2e.mjs

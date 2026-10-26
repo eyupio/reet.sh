@@ -7,6 +7,7 @@
   import ProjectPage from './lib/ProjectPage.svelte'
   import Machines from './lib/Machines.svelte'
   import ControlCenter from './lib/ControlCenter.svelte'
+  import Home from './lib/home/Home.svelte'
   import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
   import Community from './lib/Community.svelte'
   import SharedLists from './lib/SharedLists.svelte'
@@ -113,9 +114,10 @@
   let bulkRemoving = $state<Skill[]>([])
 
   const origin = location.origin
-  // `/` is Home. Until Home is built (Task D4) it shows the Control page, which keeps its own address at /control.
+  // `/` is Home: the full Home for a writer in accounts mode, the fleet strip alone for everyone else signed in (R16).
+  // Control keeps its own address at /control, under More.
   const isHome = location.pathname === '/'
-  const isControl = isHome || location.pathname === '/control'
+  const isControl = location.pathname === '/control'
   const isActivity = location.pathname === '/activity'
   const isSkills = location.pathname === '/skills'
   const machineView = new URLSearchParams(location.search).get('view')
@@ -164,6 +166,10 @@
   // Navigation (R13): five tabs on a desktop; Home, Sessions and Machines stay in view on a tablet or phone and the rest
   // move into More. Sessions and the bell are for a writer in accounts mode only (R16), as Terminals and Projects were.
   const sessionsAccess = $derived(authMode === 'accounts' && canWrite)
+  // The bell's Needs you count, as Home reads it. Nothing signals that a session needs the person today, so it stays 0.
+  let attention = $state(0)
+  // Home spans the page: the project rail on the left and the docked Start an agent at the foot.
+  const homeLayout = $derived(isHome && authChecked && !!authMode && authenticated && !needsAuth && !(authMode === 'accounts' && setupRequired))
   const tabs = $derived<Tab[]>([
     { href: '/', label: 'Home', current: isHome },
     ...(sessionsAccess ? [{ href: '/terminals', label: 'Sessions', current: isTerminals }] : []),
@@ -173,7 +179,7 @@
   ])
   const barTabs = $derived(tabs.filter(tab => ['/', '/terminals', '/machines'].includes(tab.href)))
   const more = $derived<Tab[]>([
-    { href: '/control', label: 'Control', current: isControl && !isHome },
+    { href: '/control', label: 'Control', current: isControl },
     ...(sessionsAccess ? [{ href: '/projects', label: 'Projects', current: isProjects }] : []),
     { href: '/profiles', label: 'Setups', current: isProfiles },
     { href: '/sync', label: 'Sync', current: isSync },
@@ -802,7 +808,7 @@
 <a class="skip" href="#main-content">Skip to content</a>
 <header class="site-header" class:terminal-chrome={terminalLayout}>
   {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-    <AppShell {tabs} bar={barTabs} {more} attention={0} compact={terminalLayout} bell={sessionsAccess} moreInAccount={authMode !== 'none'} jump={jumpItems}>
+    <AppShell {tabs} bar={barTabs} {more} {attention} compact={terminalLayout} bell={sessionsAccess} moreInAccount={authMode !== 'none'} jump={jumpItems}>
       {#snippet account()}
         {#if authMode !== 'none'}
           <AccountMenu
@@ -832,7 +838,7 @@
   </div>
   {/if}
 </header>
-<main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout} class:auth-page={!isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
+<main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout} class:home-layout={homeLayout} class:auth-page={!isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
   {#if isCommunity}
     <Community canSave={authenticated && !needsAuth && canWrite} />
   {:else if isPublicList}
@@ -864,6 +870,8 @@
     <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
   {:else if isActivity}
     <ActivityPage accounts={authMode === 'accounts'} onsignedout={fail} />
+  {:else if isHome}
+    <Home userId={currentUser?.id ?? 0} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} onsignedout={fail} onattention={count => (attention = count)} />
   {:else if isControl}
     <ControlCenter {canWrite} terminalAccess={authMode === 'accounts' && canWrite} monitorAccess={authMode === 'accounts' || authMode === 'token'} />
   {:else if isProjects && !(authMode === 'accounts' && canWrite)}
@@ -1177,6 +1185,7 @@
   .skip:focus { top: 8px; }
   main { width: 100%; max-width: var(--content-width); margin: 0 auto; padding: 36px 40px 56px; flex: 1; }
   main.auth-page { max-width: 960px; }
+  main.home-layout { max-width: none; padding: 0; }
   main:focus { outline: none; }
   .site-header { border-bottom: 1px solid var(--line-soft); }
   .header-inner { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: var(--content-width); margin: auto; padding: 24px 40px; }

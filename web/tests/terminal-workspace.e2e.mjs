@@ -68,7 +68,7 @@ async function bounds(width,height){
  expect(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight+1)).toBe(true)
 }
 try{
- await page.goto(base)
+ await page.goto(`${base}/control`)
  const hero=page.getByRole('region',{name:'2 active sessions'})
  await expect(hero).toBeVisible()
  expect((await hero.boundingBox()).y).toBeLessThan(400)
@@ -208,7 +208,7 @@ try{
  await page.setViewportSize({width:1360,height:900})
  await page.evaluate(()=>document.documentElement.dataset.theme='light')
  if(process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/workspace-desktop.png`})
- await page.goto(base)
+ await page.goto(`${base}/control`)
  await page.getByRole('link',{name:'Continue Deployment checks on build-server'}).click()
  await live();expect(tickets.at(-1)).toBe(sessionB);expect(writes).toHaveLength(0)
  await page.goto(`${base}/machines?view=terminal&agent=${agentA}&session=${sessionA}`)
@@ -230,13 +230,13 @@ try{
  await expect(page.getByRole('heading',{name:'Your next shell starts here.'})).toBeVisible()
  expect(writes).toHaveLength(0)
  // Denied refresh clears the private hero inventory; viewers never fetch terminal APIs.
- await page.goto(base);denied=true
+ await page.goto(`${base}/control`);denied=true
  await page.getByRole('button',{name:'Refresh active sessions'}).click()
  await expect(page.getByRole('link',{name:/^Continue /})).toHaveCount(0)
  denied=false;viewer=true
  const terminalRequests=[]
  page.on('request',request=>{if(new URL(request.url()).pathname.startsWith('/api/v2/terminal/'))terminalRequests.push(request.url())})
- await page.goto(base)
+ await page.goto(`${base}/control`)
  await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
  await expect(page.locator('#active-sessions')).toHaveCount(0)
  expect(terminalRequests).toEqual([])

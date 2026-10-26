@@ -56,7 +56,7 @@ await page.route('**/api/**',async route=>{
 })
 const noOverflow=async()=>expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
 try {
- await page.goto(base)
+ await page.goto(`${base}/control`)
  await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
  await expect(page.getByRole('article',{name:/^Machine /})).toHaveCount(2)
  await expect(page.getByRole('button',{name:'Sync all · preview'})).toHaveCount(0)
@@ -189,7 +189,7 @@ try {
  await expect(page.getByRole('link',{name:'Open terminals for dev-laptop →',exact:true})).toBeVisible({timeout:10000})
  for(const width of [390,768,1440]){
   await page.setViewportSize({width,height:900})
-  await page.goto(base)
+  await page.goto(`${base}/control`)
   await expect(page.getByRole('article',{name:/^Machine /})).toHaveCount(2)
   await page.evaluate(()=>document.documentElement.dataset.theme='dark')
   await noOverflow()
@@ -212,12 +212,12 @@ try {
  await expect(page.getByRole('button',{name:'Save to 3 agent scopes',exact:true})).toBeDisabled()
  failSource=false
  viewer=true
- await page.goto(base)
+ await page.goto(`${base}/control`)
  await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
  await expect(page.getByRole('button',{name:'Scan all',exact:true})).toHaveCount(0)
  await expect(page.getByRole('link',{name:'Terminals',exact:true})).toHaveCount(0)
  viewer=false;failState=true
- await page.goto(base)
+ await page.goto(`${base}/control`)
  await expect(page.getByRole('alert')).toContainText('Inventory unavailable')
  await expect(page.getByLabel('Fleet overview')).toHaveCount(0)
  expect(errors).toEqual([])

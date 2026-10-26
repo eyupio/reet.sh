@@ -71,13 +71,17 @@ function skillsOf(agentId: string, sync: SyncState, now: number): FleetCard['ski
   const agent = (sync.agents ?? []).find(a => a.id === agentId)
   if (!agent) return notChecked
   const host = agent.host.toLowerCase()
-  const targets = (sync.targets ?? []).filter(t => t.target.host.toLowerCase() === host).map(t => t.target.id)
-  if (targets.length === 0) return notChecked
+  // Each target with the desired revision it is held to now. A job records the revision it was made for, so a check made
+  // before the desired skills last changed says nothing about them and is not counted.
+  const targets = new Map<string, string>()
+  for (const t of sync.targets ?? []) if (t.target.host.toLowerCase() === host) targets.set(t.target.id, t.revision ?? '')
+  if (targets.size === 0) return notChecked
   let differences = 0, oldest = Infinity, unchecked = false
-  for (const id of new Set(targets)) {
+  for (const [id, revision] of targets) {
     let latest: { found: number; at: number } | null = null
     for (const job of sync.jobs ?? []) {
       if (job.agentId !== agentId || job.targetId !== id) continue
+      if (revision && job.revision !== revision) continue
       const found = checkFound(job)
       if (found !== null && (!latest || job.updatedAt > latest.at)) latest = { found, at: job.updatedAt }
     }
@@ -187,4 +191,27 @@ export function needsYou(_sessions: TerminalSession[], _now: number): NeedCard[]
 
 export function attentionCount(cards: NeedCard[]): number {
   return cards.length
+}
+
+/** The runs Home reads: each Project's last run, only when it started in the last 24 hours. Older runs' sessions sit under their machine. */
+export function recentRunIds(projects: Project[], now: number): string[] {
+  return projects.filter(p => p.lastRun && now - p.lastRun.startedAt <= DAY).map(p => p.lastRun!.id)
+}
+
+/** Live sessions per Project, from the same ownership In flight groups by. */
+export function projectRunning(sessions: TerminalSession[], owners: Map<string, SessionOwner>): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const s of sessions) {
+    const owner = owners.get(s.id)
+    if (owner && live(s)) counts.set(owner.id, (counts.get(owner.id) ?? 0) + 1)
+  }
+  return counts
+}
+
+/** Age since the last state change, short: "now", "12m", "3h", "2d". */
+export function shortAge(ms: number): string {
+  if (ms < MINUTE) return 'now'
+  if (ms < HOUR) return `${Math.floor(ms / MINUTE)}m`
+  if (ms < DAY) return `${Math.floor(ms / HOUR)}h`
+  return `${Math.floor(ms / DAY)}d`
 }

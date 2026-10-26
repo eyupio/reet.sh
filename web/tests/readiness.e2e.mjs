@@ -16,7 +16,7 @@ try {
  if (run('first')) {
   for (const width of [1440,375]) {
    const {context,page,errors} = await open({width})
-   await page.goto(base)
+   await page.goto(`${base}/control`)
    await expect(heading(page)).toBeVisible()
    await expect(step(page,'controller')).toHaveAttribute('data-state','todo')
    await expect(step(page,'controller')).toContainText('Remote access is stopped')
@@ -38,7 +38,7 @@ try {
  if (run('reasons')) {
   for (const [reason,text] of [['https_required','no usable HTTPS public URL'],['accounts_required','not using accounts authentication']]) {
    const {context,page} = await open({width:1440,terminalStatus:{configured:true,available:false,reason}})
-   await page.goto(base)
+   await page.goto(`${base}/control`)
    await expect(step(page,'controller')).toContainText(text)
    await expect(step(page,'controller')).toHaveAttribute('data-state','todo')
    await context.close()
@@ -48,14 +48,14 @@ try {
  // Steps complete as things happen: server on, machine connected but not yet allowed, then ready.
  if (run('progress')) {
   let {context,page} = await open({width:1440,terminalStatus:active})
-  await page.goto(base)
+  await page.goto(`${base}/control`)
   await expect(heading(page)).toBeVisible()
   await expect(step(page,'controller')).toHaveAttribute('data-state','done')
   await expect(step(page,'machine')).toHaveAttribute('data-state','todo')
   await context.close()
 
   ;({context,page} = await open({width:1440,terminalStatus:active,terminalMachines:[terminalMachine('a','dev-laptop',false)]}))
-  await page.goto(base)
+  await page.goto(`${base}/control`)
   await expect(heading(page)).toBeVisible()
   await expect(step(page,'machine')).toHaveAttribute('data-state','done')
   await expect(step(page,'consent')).toHaveAttribute('data-state','todo')
@@ -68,7 +68,7 @@ try {
  // that machine's step stays done, and only the server step asks for something.
  if (run('consented')) {
   const {context,page} = await open({width:1440,terminalMachines:[terminalMachine('a','dev-laptop',false,true)]})
-  await page.goto(base)
+  await page.goto(`${base}/control`)
   await expect(heading(page)).toBeVisible()
   await expect(step(page,'controller')).toHaveAttribute('data-state','todo')
   await expect(step(page,'machine')).toHaveAttribute('data-state','done')
@@ -81,7 +81,7 @@ try {
  // A set-up machine that is only reconnecting on a running server needs no instructions: its card says it is connecting.
  if (run('reconnecting')) {
   const {context,page} = await open({width:1440,terminalStatus:active,terminalMachines:[terminalMachine('a','dev-laptop',false,true)]})
-  await page.goto(base)
+  await page.goto(`${base}/control`)
   await expect(page.getByRole('article',{name:'Machine dev-laptop'})).toBeVisible()
   await expect(heading(page)).toHaveCount(0)
   await context.close()
@@ -90,7 +90,7 @@ try {
  // A ready machine on a running server: no checklist, the working view.
  if (run('ready')) {
   const {context,page} = await open({width:1440,terminalStatus:active,terminalMachines:[terminalMachine('a','dev-laptop',true)]})
-  await page.goto(base)
+  await page.goto(`${base}/control`)
   await expect(page.getByRole('article',{name:'Machine dev-laptop'})).toBeVisible()
   await expect(heading(page)).toHaveCount(0)
   await expect(page.getByRole('link',{name:/Open terminals/})).toBeVisible()
@@ -100,7 +100,7 @@ try {
  // A viewer cannot run terminals, so is not walked through setting them up.
  if (run('viewer')) {
   const {context,page} = await open({width:1440,status:{user:{id:2,name:'Pat',email:'pat@example.test',role:'viewer'}}})
-  await page.goto(base)
+  await page.goto(`${base}/control`)
   await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
   await expect(heading(page)).toHaveCount(0)
   await context.close()

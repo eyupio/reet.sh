@@ -198,3 +198,47 @@ test('no record word claims health or verification', () => {
   const out = JSON.stringify([fleetCards(machines, sessions, syncWith([job('j', 'a1', 't1', 'preview', 'awaiting-approval', 0, NOW - MIN)]), NOW), ...['project', 'machine', 'state'].map(g => inFlight(sessions, new Map(), machines, g, NOW)), sessions.map(s => stateWord(s))])
   assert.doesNotMatch(out, FORBIDDEN)
 })
+
+test('empty lists give no cards and no groups', () => {
+  assert.deepEqual(fleetCards([], [], emptySync(), NOW), [])
+  for (const groupBy of ['project', 'machine', 'state']) assert.deepEqual(inFlight([], new Map(), [], groupBy, NOW), [])
+  assert.deepEqual(inFlight([], new Map(), [machine('a1', 'studio')], 'machine', NOW), [], 'a machine with no sessions makes no group')
+})
+
+test('an offline machine keeps its live sessions in In flight and on its card', () => {
+  const machines = [machine('a1', 'studio'), machine('a2', 'desk', { state: 'unreachable', fresh: false })]
+  const sessions = [session('s1', 'a2', 'running'), session('s2', 'a2', 'creating'), session('s3', 'a1', 'running')]
+  const cards = fleetCards(machines, sessions, emptySync(), NOW)
+  assert.equal(cards[1].status, 'offline')
+  assert.equal(cards[1].sessionsRunning, 2, 'the last known count is kept, not zeroed')
+  for (const groupBy of ['project', 'machine']) {
+    const desk = inFlight(sessions, new Map(), machines, groupBy, NOW).find(g => g.key === 'machine:a2')
+    assert.deepEqual(desk.sessions.map(s => s.id).sort(), ['s1', 's2'], groupBy)
+  }
+})
+
+test('a check made for an older desired revision is not counted', () => {
+  const t = { ...target('t1', 'studio'), revision: 'r2' }
+  // The only finished check was made before the desired skills changed: nothing is known about the current set.
+  assert.deepEqual(fleetCards([machine('a1', 'studio')], [], syncWith([job('j1', 'a1', 't1', 'preview', 'awaiting-approval', 0, NOW - HOUR)], [t]), NOW)[0].skills, { text: 'Not checked', tone: 'muted' })
+  // A newer check for the current revision is what the line reports, even when an older one found differences.
+  const current = { ...job('j2', 'a1', 't1', 'preview', 'awaiting-approval', 0, NOW - 2 * HOUR), revision: 'r2' }
+  const stale = job('j3', 'a1', 't1', 'preview', 'awaiting-approval', 3, NOW - MIN)
+  assert.deepEqual(fleetCards([machine('a1', 'studio')], [], syncWith([current, stale], [t]), NOW)[0].skills, { text: 'skills in sync · checked 2 h ago', tone: 'good' })
+})
+
+test('runs are read only for Projects whose last run started in the last 24 h', () => {
+  const p = (id, startedAt) => ({ ...project(id, id), lastRun: startedAt === undefined ? undefined : { id: `r-${id}`, state: 'running', startedAt } })
+  assert.deepEqual(h.recentRunIds([p('new', NOW - HOUR), p('old', NOW - 25 * HOUR), p('never'), p('edge', NOW - 24 * HOUR)], NOW), ['r-new', 'r-edge'])
+  assert.deepEqual(h.recentRunIds([], NOW), [])
+})
+
+test('a Project counts only its live sessions as running', () => {
+  const owners = h.sessionProjects([project('p1', 'Store')], [run('r1', 'p1', ['s1', 's2', 's3'])])
+  const counts = h.projectRunning([session('s1', 'a1', 'running'), session('s2', 'a1', 'exited', { exitCode: 0 }), session('s3', 'a1', 'creating'), session('s4', 'a1', 'running')], owners)
+  assert.deepEqual([...counts], [['p1', 2]])
+})
+
+test('short age', () => {
+  assert.deepEqual([0, 59_000, 12 * MIN, 3 * HOUR, 49 * HOUR].map(h.shortAge), ['now', 'now', '12m', '3h', '2d'])
+})

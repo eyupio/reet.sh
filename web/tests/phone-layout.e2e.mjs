@@ -61,7 +61,7 @@ try {
  if (run('cardtouch')) {
   for (const [touch,check] of [[true,h=>expect(h,'card button height on touch').toBeGreaterThanOrEqual(44)],[false,h=>expect(h,'card button height with a mouse').toBeLessThanOrEqual(40)]]) {
    const {context,page,errors} = await open({width:touch?390:1440,touch,terminalStatus:active,terminalMachines:[terminalMachine('a1','dev-box',true)]})
-   await page.goto(base)
+   await page.goto(`${base}/control`)
    const card = page.getByRole('article',{name:'Machine dev-box'})
    await expect(card).toBeVisible()
    const heights = await card.locator('a.btn, button').evaluateAll(els=>els.map(el=>el.getBoundingClientRect().height))

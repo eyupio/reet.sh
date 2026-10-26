@@ -8,6 +8,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -23,10 +25,10 @@ func (s *server) registerProjectRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/projects/{id}", s.projectAccess(s.projectGet))
 	mux.HandleFunc("PATCH /api/v2/projects/{id}", s.projectAccess(s.projectUpdate))
 	mux.HandleFunc("DELETE /api/v2/projects/{id}", s.projectAccess(s.projectDelete))
-	// "/{id}/runs" and "/runs/{runId}" both match /projects/runs/runs and the
-	// mux refuses to register that pair, so one pattern serves both reads.
-	// Project and run ids are 32 hex characters, so "runs" is never an id.
-	mux.HandleFunc("GET /api/v2/projects/{first}/{second}", s.projectAccess(s.projectRead))
+	mux.HandleFunc("GET /api/v2/projects/{id}/runs", s.projectAccess(s.projectRuns))
+	// A run lives under its own prefix: /projects/runs/{runId} would clash
+	// with /projects/{id}/runs in the mux (both match /projects/runs/runs).
+	mux.HandleFunc("GET /api/v2/project-runs/{runId}", s.projectAccess(s.projectRun))
 }
 
 // projectAccess admits only a signed-in browser account that may write, as
@@ -92,8 +94,10 @@ type projectMemberInput struct {
 }
 
 // projectInput is the body of a create or an update. A member's position is
-// its place in the list. On an update an absent field keeps its saved value;
-// members, when present, replace the whole list.
+// its place in the list. On an update a field that is absent or null keeps its
+// saved value, and "" clears a text field (sharedPrompt, defaultModel);
+// members, when present and not null, replace the whole list ([] removes
+// every repository).
 type projectInput struct {
 	Name         *string               `json:"name"`
 	DefaultTool  *string               `json:"defaultTool"`
@@ -129,6 +133,10 @@ func (in projectInput) apply(p store.Project) store.Project {
 }
 
 // projectRefusal is a refusal with a stable code and one plain sentence.
+// Statuses: 422 for a field the person can correct in the form (including
+// member_limit and duplicate_member, which are about this request's list);
+// 409 for a conflict with what is already saved (name_taken, project_limit,
+// which depends on the account's other Projects, and project_changed).
 type projectRefusal struct {
 	status         int
 	code, field    string
@@ -146,13 +154,19 @@ const (
 	sentenceTwoWords   = "Write the opening prompt as at least two words."
 	sentenceNotFound   = "That Project isn't on this account."
 	sentenceRunMissing = "That run isn't on this account."
+	sentenceChanged    = "Someone changed this Project. Reload it and try again."
 )
+
+func sentenceDir(n int) string {
+	return fmt.Sprintf("Repository %d: the folder must be an absolute path starting with /, at most %d bytes, without control characters or line separators.", n, terminalproto.MaxDirBytes)
+}
 
 // checkProject refuses, with a precise code, every field the store would
 // refuse only with a general invalid-Project error, and every machine that is
 // not one of the account's enrolled machines. The store checks again and owns
-// the name, limit and duplicate rules. keep names machines already saved in
-// the Project, which stay acceptable after the machine is forgotten.
+// the name, limit and duplicate rules. keep names the repositories (machine
+// and cleaned folder, exactly as saved) already in the Project: those stay
+// acceptable after their machine is revoked; a new folder on it does not.
 func (s *server) checkProject(uid int64, p store.Project, keep map[string]bool, membersChanged bool) *projectRefusal {
 	if !terminalproto.ValidTool(p.DefaultTool) {
 		return &projectRefusal{422, "invalid_tool", "defaultTool", sentenceToolChoice, ""}
@@ -179,11 +193,12 @@ func (s *server) checkProject(uid int64, p store.Project, keep map[string]bool, 
 	for i, m := range p.Members {
 		field := fmt.Sprintf("members.%d.", i)
 		n := i + 1
-		if membersChanged && !enrolled[m.Host] && !keep[m.Host] {
-			return &projectRefusal{422, "unknown_machine", field + "host", fmt.Sprintf("Repository %d: that machine isn't enrolled on this account.", n), ""}
+		dir, err := store.CleanProjectDir(m.Dir)
+		if err != nil {
+			return &projectRefusal{422, "invalid_dir", field + "dir", sentenceDir(n), ""}
 		}
-		if !terminalproto.ValidDir(m.Dir) {
-			return &projectRefusal{422, "invalid_dir", field + "dir", fmt.Sprintf("Repository %d: the folder must be an absolute path starting with /, at most %d bytes, without control characters.", n, terminalproto.MaxDirBytes), ""}
+		if membersChanged && !enrolled[m.Host] && !keep[savedRepository(m.Host, dir)] {
+			return &projectRefusal{422, "unknown_machine", field + "host", fmt.Sprintf("Repository %d: that machine isn't enrolled on this account.", n), ""}
 		}
 		if m.Tool != "" && !terminalproto.ValidTool(m.Tool) {
 			return &projectRefusal{422, "invalid_tool", field + "tool", fmt.Sprintf("Repository %d: choose one of the agents reet can start.", n), ""}
@@ -205,11 +220,20 @@ func (s *server) checkProject(uid int64, p store.Project, keep map[string]bool, 
 	return nil
 }
 
+// savedRepository keys a repository by its exact machine id and cleaned folder.
+func savedRepository(host, dir string) string { return host + "\x00" + dir }
+
 // storeRefusal maps every store error for Projects and runs to a stable code
 // and a plain sentence. Unknown errors are a 500 and are logged without
 // request content; store errors never carry the prompt.
 func storeRefusal(err error) *projectRefusal {
+	var member *store.ProjectMemberError
+	if errors.As(err, &member) && member.Field == "dir" {
+		return &projectRefusal{422, "invalid_dir", fmt.Sprintf("members.%d.dir", member.Index), sentenceDir(member.Index + 1), ""}
+	}
 	switch {
+	case errors.Is(err, store.ErrProjectStale):
+		return &projectRefusal{409, "project_changed", "", sentenceChanged, ""}
 	case errors.Is(err, store.ErrProjectNotFound):
 		return &projectRefusal{404, "not_found", "", sentenceNotFound, ""}
 	case errors.Is(err, store.ErrProjectNameTaken):
@@ -266,12 +290,13 @@ type projectView struct {
 	Members         []projectMemberView `json:"members"`
 	CreatedAt       int64               `json:"createdAt"`
 	UpdatedAt       int64               `json:"updatedAt"`
+	Version         int64               `json:"version"`
 	LastRun         *projectRunSummary  `json:"lastRun,omitempty"`
 }
 
 func viewProject(p store.Project) projectView {
 	v := projectView{ID: p.ID, Name: p.Name, DefaultTool: p.DefaultTool, DefaultModel: p.DefaultModel, UseWorktrees: p.UseWorktrees,
-		HasSharedPrompt: p.SharedPrompt != "", Members: make([]projectMemberView, 0, len(p.Members)), CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt}
+		HasSharedPrompt: p.SharedPrompt != "", Members: make([]projectMemberView, 0, len(p.Members)), CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Version: p.Version}
 	for _, m := range p.Members {
 		v.Members = append(v.Members, projectMemberView{Host: m.Host, Dir: m.Dir, Tool: m.Tool, Model: m.Model, Position: m.Position})
 	}
@@ -389,6 +414,7 @@ func (s *server) projectGet(w http.ResponseWriter, r *http.Request) {
 	v := viewProject(p)
 	prompt := p.SharedPrompt
 	v.SharedPrompt = &prompt
+	w.Header().Set("ETag", projectETag(p.Version))
 	writeJSON(w, http.StatusOK, v)
 }
 
@@ -413,9 +439,34 @@ func (s *server) projectCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, viewProject(saved))
 }
 
+func projectETag(version int64) string { return `"` + strconv.FormatInt(version, 10) + `"` }
+
+// ifMatch reads an optional If-Match header: the Project version the editor
+// read, bare or quoted. Absent means no precondition (0).
+func ifMatch(r *http.Request) (int64, bool) {
+	raw := strings.TrimSpace(r.Header.Get("If-Match"))
+	if raw == "" {
+		return 0, true
+	}
+	if len(raw) >= 2 && raw[0] == '"' && raw[len(raw)-1] == '"' {
+		raw = raw[1 : len(raw)-1]
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	return v, err == nil && v > 0
+}
+
+// projectUpdate merges the body into the saved Project and saves it. With
+// If-Match, the store saves only if the stored version is still that one, so
+// a second editor working from an old read gets project_changed instead of
+// silently undoing the first; without it the last write wins.
 func (s *server) projectUpdate(w http.ResponseWriter, r *http.Request) {
 	var in projectInput
 	if !projectBody(w, r, &in) {
+		return
+	}
+	expect, ok := ifMatch(r)
+	if !ok {
+		writeErrCode(w, http.StatusBadRequest, "invalid_version", "", "The If-Match header must be the Project's version number.", "")
 		return
 	}
 	uid := s.uid(r)
@@ -426,9 +477,11 @@ func (s *server) projectUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	keep := map[string]bool{}
 	for _, m := range current.Members {
-		keep[m.Host] = true
+		keep[savedRepository(m.Host, m.Dir)] = true
 	}
 	p := in.apply(current)
+	// The store compares this with the stored version inside its transaction.
+	p.Version = expect
 	if refusal := s.checkProject(uid, p, keep, in.Members != nil); refusal != nil {
 		refusal.write(w)
 		return
@@ -443,6 +496,7 @@ func (s *server) projectUpdate(w http.ResponseWriter, r *http.Request) {
 		extra = map[string]any{"previousName": current.Name}
 	}
 	s.auditProject(uid, "project-update", saved, extra)
+	w.Header().Set("ETag", projectETag(saved.Version))
 	writeJSON(w, http.StatusOK, viewProject(saved))
 }
 
@@ -454,15 +508,12 @@ func (s *server) projectDelete(w http.ResponseWriter, r *http.Request) {
 		storeRefusal(err).write(w)
 		return
 	}
-	// The newest runs say whether the Project made worktrees; deleting it
-	// removes none of them and keeps every run.
-	worktrees := false
-	if runs, err := s.st.RunsFor(uid, id, store.MaxRunsListed); err == nil {
-		for _, run := range runs {
-			for _, m := range run.Members {
-				worktrees = worktrees || m.WorktreePath != ""
-			}
-		}
+	// Any run, however old, that recorded a worktree means some may still be
+	// on a machine; deleting the Project removes none of them and keeps runs.
+	mayHave, err := s.st.ProjectMayHaveWorktrees(uid, id)
+	if err != nil {
+		storeRefusal(err).write(w)
+		return
 	}
 	if err := s.st.DeleteProjectFor(uid, id); err != nil {
 		storeRefusal(err).write(w)
@@ -470,37 +521,32 @@ func (s *server) projectDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	s.auditProject(uid, "project-delete", p, nil)
 	message := "Project deleted. Its runs are kept."
-	if worktrees {
-		message = "Project deleted. Its runs are kept, and the worktrees they made stay on their machines."
+	if mayHave {
+		message = "Project deleted. Its runs are kept. Worktrees those runs made, if still there, stay on their machines."
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "worktrees": worktrees, "message": message})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "mayHaveWorktrees": mayHave, "message": message})
 }
 
-// projectRead serves GET /projects/{id}/runs (the newest 20, newest first)
-// and GET /projects/runs/{runId}.
-func (s *server) projectRead(w http.ResponseWriter, r *http.Request) {
-	uid := s.uid(r)
-	first, second := r.PathValue("first"), r.PathValue("second")
-	switch {
-	case first == "runs":
-		run, err := s.st.RunFor(uid, second)
-		if err != nil {
-			storeRefusal(err).write(w)
-			return
-		}
-		writeJSON(w, http.StatusOK, viewRun(run))
-	case second == "runs":
-		runs, err := s.st.RunsFor(uid, first, store.MaxRunsListed)
-		if err != nil {
-			storeRefusal(err).write(w)
-			return
-		}
-		out := make([]runView, 0, len(runs))
-		for _, run := range runs {
-			out = append(out, viewRun(run))
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"runs": out})
-	default:
-		writeErrCode(w, http.StatusNotFound, "not_found", "", "There's nothing at that address.", "")
+// projectRuns lists a Project's newest 20 runs, newest first.
+func (s *server) projectRuns(w http.ResponseWriter, r *http.Request) {
+	runs, err := s.st.RunsFor(s.uid(r), r.PathValue("id"), store.MaxRunsListed)
+	if err != nil {
+		storeRefusal(err).write(w)
+		return
 	}
+	out := make([]runView, 0, len(runs))
+	for _, run := range runs {
+		out = append(out, viewRun(run))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"runs": out})
+}
+
+// projectRun reads one run, which stays readable after its Project is deleted.
+func (s *server) projectRun(w http.ResponseWriter, r *http.Request) {
+	run, err := s.st.RunFor(s.uid(r), r.PathValue("runId"))
+	if err != nil {
+		storeRefusal(err).write(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, viewRun(run))
 }

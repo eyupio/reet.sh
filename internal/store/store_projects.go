@@ -56,6 +56,9 @@ var (
 	// ErrProjectInvalid wraps every other field refusal; the message names the
 	// field and the rule and never repeats the value (a prompt is never echoed).
 	ErrProjectInvalid = errors.New("invalid Project")
+	// ErrProjectStale refuses an update whose expected version is not the
+	// stored one: someone else saved the Project in between.
+	ErrProjectStale = errors.New("the Project changed since it was read")
 
 	ErrRunNotFound         = errors.New("run not found")
 	ErrRunNoMembers        = errors.New("a run needs at least one repository")
@@ -72,6 +75,19 @@ type ProjectMember struct {
 	Position int
 }
 
+// ProjectMemberError is a refusal of one repository's field. Index is the
+// member's place in the list (0-based); it unwraps to ErrProjectInvalid.
+type ProjectMemberError struct {
+	Index int
+	Field string
+	Err   error
+}
+
+func (e *ProjectMemberError) Error() string {
+	return fmt.Sprintf("repository %d: %v", e.Index+1, e.Err)
+}
+func (e *ProjectMemberError) Unwrap() error { return e.Err }
+
 type Project struct {
 	ID           string
 	Name         string
@@ -82,6 +98,10 @@ type Project struct {
 	Members      []ProjectMember
 	CreatedAt    int64
 	UpdatedAt    int64
+	// Version starts at 1 and goes up by one on every update. Given to
+	// UpdateProjectFor (non-zero), it is the version the caller read, and the
+	// update is refused with ErrProjectStale when the stored one differs.
+	Version int64
 }
 
 // RunMember is one repository of a run, snapshotted when the run was created.
@@ -181,6 +201,7 @@ func (s *Store) migrateProjects() error {
 				default_tool TEXT NOT NULL, default_model TEXT NOT NULL DEFAULT '',
 				shared_prompt TEXT NOT NULL DEFAULT '', use_worktrees INTEGER NOT NULL DEFAULT 1,
 				created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+				version INTEGER NOT NULL DEFAULT 1,
 				UNIQUE(user_id,name_key), UNIQUE(id,user_id))`,
 			`CREATE TABLE IF NOT EXISTS project_members (
 				project_id TEXT NOT NULL, user_id INTEGER NOT NULL, position INTEGER NOT NULL CHECK(position>=0),
@@ -209,6 +230,16 @@ func (s *Store) migrateProjects() error {
 			`CREATE INDEX IF NOT EXISTS project_run_members_pending ON project_run_members(state,user_id,run_id)`,
 		} {
 			if _, err := tx.Exec(stmt); err != nil {
+				return err
+			}
+		}
+		// Tables made before versions existed gain the column.
+		var have int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('projects') WHERE name='version'`).Scan(&have); err != nil {
+			return err
+		}
+		if have == 0 {
+			if _, err := tx.Exec(`ALTER TABLE projects ADD COLUMN version INTEGER NOT NULL DEFAULT 1`); err != nil {
 				return err
 			}
 		}
@@ -288,7 +319,7 @@ func normalizeProject(p Project) (Project, error) {
 		}
 		dir, err := CleanProjectDir(m.Dir)
 		if err != nil {
-			return p, fmt.Errorf("repository %d: %w", i+1, err)
+			return p, &ProjectMemberError{Index: i, Field: "dir", Err: err}
 		}
 		if m.Tool != "" && !terminalproto.ValidTool(m.Tool) {
 			return p, invalid("repository %d: agent must be one of claude, codex, opencode or gemini", i+1)
@@ -357,7 +388,7 @@ func (s *Store) CreateProjectFor(uid int64, p Project) (Project, error) {
 		return Project{}, err
 	}
 	t := now()
-	p.ID, p.CreatedAt, p.UpdatedAt = id, t, t
+	p.ID, p.CreatedAt, p.UpdatedAt, p.Version = id, t, t, 1
 	err = s.withTx(func(tx *sql.Tx) error {
 		if err := s.userExists(tx, uid); err != nil {
 			return err
@@ -385,9 +416,11 @@ func (s *Store) CreateProjectFor(uid int64, p Project) (Project, error) {
 }
 
 // UpdateProjectFor replaces the Project p.ID of uid, members included, in one
-// transaction: a refusal at any step leaves the old Project untouched.
+// transaction: a refusal at any step leaves the old Project untouched. A
+// non-zero p.Version is a precondition (compare-and-set); zero means the last
+// write wins. Either way the stored version goes up by one.
 func (s *Store) UpdateProjectFor(uid int64, p Project) (Project, error) {
-	id := p.ID
+	id, expect := p.ID, p.Version
 	p, err := normalizeProject(p)
 	if err != nil {
 		return Project{}, err
@@ -395,14 +428,17 @@ func (s *Store) UpdateProjectFor(uid int64, p Project) (Project, error) {
 	p.ID = id
 	t := now()
 	err = s.withTx(func(tx *sql.Tx) error {
-		var created int64
-		if err := tx.QueryRow(`SELECT created_at FROM projects WHERE id=? AND user_id=?`, id, uid).Scan(&created); err != nil {
+		var created, version int64
+		if err := tx.QueryRow(`SELECT created_at,version FROM projects WHERE id=? AND user_id=?`, id, uid).Scan(&created, &version); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrProjectNotFound
 			}
 			return err
 		}
-		p.CreatedAt = created
+		if expect != 0 && expect != version {
+			return ErrProjectStale
+		}
+		p.CreatedAt, p.Version = created, version+1
 		if _, err := tx.Exec(`DELETE FROM project_members WHERE project_id=? AND user_id=?`, id, uid); err != nil {
 			return err
 		}
@@ -413,12 +449,18 @@ func (s *Store) UpdateProjectFor(uid int64, p Project) (Project, error) {
 			t = created
 		}
 		p.UpdatedAt = t
-		if _, err := tx.Exec(`UPDATE projects SET name=?,name_key=?,default_tool=?,default_model=?,shared_prompt=?,use_worktrees=?,updated_at=? WHERE id=? AND user_id=?`,
-			p.Name, nameKey(p.Name), p.DefaultTool, p.DefaultModel, p.SharedPrompt, p.UseWorktrees, t, id, uid); err != nil {
+		res, err := tx.Exec(`UPDATE projects SET name=?,name_key=?,default_tool=?,default_model=?,shared_prompt=?,use_worktrees=?,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
+			p.Name, nameKey(p.Name), p.DefaultTool, p.DefaultModel, p.SharedPrompt, p.UseWorktrees, t, version+1, id, uid, version)
+		if err != nil {
 			if isNameConflict(err) {
 				return ErrProjectNameTaken
 			}
 			return err
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return err
+		} else if n != 1 {
+			return ErrProjectStale
 		}
 		return nil
 	})
@@ -445,10 +487,29 @@ func (s *Store) DeleteProjectFor(uid int64, id string) error {
 	})
 }
 
-const projectCols = `id,name,default_tool,default_model,shared_prompt,use_worktrees,created_at,updated_at`
+// ProjectMayHaveWorktrees reports whether any run of uid's Project, however
+// old, recorded a worktree for a member. It cannot say whether the worktree is
+// still on the machine.
+func (s *Store) ProjectMayHaveWorktrees(uid int64, id string) (bool, error) {
+	var has bool
+	err := s.withTx(func(tx *sql.Tx) error {
+		var one int
+		if err := tx.QueryRow(`SELECT 1 FROM projects WHERE id=? AND user_id=?`, id, uid).Scan(&one); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrProjectNotFound
+			}
+			return err
+		}
+		return tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM project_runs r JOIN project_run_members m ON m.run_id=r.id AND m.user_id=r.user_id
+			WHERE r.user_id=? AND r.project_id=? AND m.worktree_path<>'')`, uid, id).Scan(&has)
+	})
+	return has, err
+}
+
+const projectCols = `id,name,default_tool,default_model,shared_prompt,use_worktrees,created_at,updated_at,version`
 
 func scanProject(row interface{ Scan(...any) error }) (p Project, err error) {
-	err = row.Scan(&p.ID, &p.Name, &p.DefaultTool, &p.DefaultModel, &p.SharedPrompt, &p.UseWorktrees, &p.CreatedAt, &p.UpdatedAt)
+	err = row.Scan(&p.ID, &p.Name, &p.DefaultTool, &p.DefaultModel, &p.SharedPrompt, &p.UseWorktrees, &p.CreatedAt, &p.UpdatedAt, &p.Version)
 	return
 }
 

@@ -1054,3 +1054,104 @@ func TestStaleRunMemberClaimsExpire(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestProjectVersionGuardsUpdates(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	p := mustProject(t, s, uid, baseProject("guarded"))
+	if p.Version != 1 {
+		t.Fatal("new version", p.Version)
+	}
+	if got, _ := s.ProjectFor(uid, p.ID); got.Version != 1 {
+		t.Fatal("read version", got.Version)
+	}
+	first := p
+	first.Name = "first"
+	saved, err := s.UpdateProjectFor(uid, first) // Version 1 is the precondition
+	if err != nil || saved.Version != 2 {
+		t.Fatal(err, saved.Version)
+	}
+	stale := p
+	stale.Name = "stale"
+	stale.Members = stale.Members[:1]
+	if _, err := s.UpdateProjectFor(uid, stale); !errors.Is(err, ErrProjectStale) {
+		t.Fatal("stale update", err)
+	}
+	if got, _ := s.ProjectFor(uid, p.ID); got.Name != "first" || len(got.Members) != 3 || got.Version != 2 {
+		t.Fatalf("stale update changed the Project %+v", got)
+	}
+	// No precondition: last write wins, the version still moves.
+	free := p
+	free.Version = 0
+	free.Name = "free"
+	if saved, err := s.UpdateProjectFor(uid, free); err != nil || saved.Version != 3 {
+		t.Fatal(err, saved.Version)
+	}
+	// Another account's id with the right version is still not found.
+	other := projectUser(t, s, "b")
+	if _, err := s.UpdateProjectFor(other, Project{ID: p.ID, Name: "x", DefaultTool: "claude", Version: 3}); !errors.Is(err, ErrProjectNotFound) {
+		t.Fatal(err)
+	}
+	if list, _ := s.ListProjectsFor(uid); list[0].Version != 3 {
+		t.Fatal("list version", list[0].Version)
+	}
+}
+
+func TestProjectVersionColumnIsAddedToAnOldTable(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	p := mustProject(t, s, uid, baseProject("old"))
+	if _, err := s.db.Exec(`ALTER TABLE projects DROP COLUMN version`); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := s.migrateProjects(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, err := s.ProjectFor(uid, p.ID); err != nil || got.Version != 1 {
+		t.Fatal(err, got.Version)
+	}
+}
+
+func TestProjectMayHaveWorktreesLooksAtEveryRun(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	p := mustProject(t, s, uid, baseProject("wt"))
+	if has, err := s.ProjectMayHaveWorktrees(uid, p.ID); err != nil || has {
+		t.Fatal(has, err)
+	}
+	first, err := s.CreateRunFor(uid, p.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRunMemberState(uid, first.ID, 0, RunMemberStarted, "", "s1", "/home/a/.reet/worktrees/wt/api/0123456789abcdef", "api", "reet/wt-0123456789abcdef", 1); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < MaxRunsListed+1; i++ { // the worktree run is beyond the newest 20
+		if _, err := s.CreateRunFor(uid, p.ID, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if has, err := s.ProjectMayHaveWorktrees(uid, p.ID); err != nil || !has {
+		t.Fatal(has, err)
+	}
+	if has, _ := s.ProjectMayHaveWorktrees(projectUser(t, s, "b"), p.ID); has {
+		t.Fatal("another account saw worktrees")
+	}
+	if _, err := s.ProjectMayHaveWorktrees(uid, "missing"); !errors.Is(err, ErrProjectNotFound) {
+		t.Fatal(err)
+	}
+}
+
+func TestProjectFolderErrorsNameTheRepository(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	p := baseProject("dirs")
+	p.Members[1].Dir = "/home/a/ web"
+	_, err := s.CreateProjectFor(uid, p)
+	var me *ProjectMemberError
+	if !errors.As(err, &me) || me.Index != 1 || me.Field != "dir" || !errors.Is(err, ErrProjectInvalid) {
+		t.Fatalf("%#v", err)
+	}
+}

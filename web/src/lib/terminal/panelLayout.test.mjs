@@ -75,20 +75,31 @@ test('pinned wide screen docks', () => {
   assert.equal(p.panelMode(834, 'mini', false), 'mini')
 })
 
-test('a tablet docks by default: no saved Keep open means on, and a first width under 960 px is 240', () => {
+test('a tablet docks by default from 768 px: no saved Keep open means on there, and a first width under 960 px is 240', () => {
   const fresh = p.readLayout(null)
-  assert.equal(fresh.pinned, true)
+  assert.equal(fresh.pinned, undefined)
   assert.equal(p.panelMode(834, fresh.mode, fresh.pinned), 'full')
   assert.equal(p.panelDocks(834, fresh.pinned), true)
   assert.equal(p.panelDocks(768, p.readLayout('{"open":true,"width":300}').pinned), true)
+  // 600 to 767 px keeps the drawer by default; Keep open (a saved true) docks it there too.
+  assert.equal(p.panelDocks(767, undefined), false)
+  assert.equal(p.panelDocks(700, fresh.pinned), false)
+  assert.equal(p.panelMode(700, undefined, undefined), 'closed')
+  assert.equal(p.panelDocks(700, true), true)
+  assert.equal(p.panelDocks(600, true), true)
+  assert.equal(p.keepOpen(undefined, 700), false)
+  assert.equal(p.keepOpen(undefined, 768), true)
+  assert.equal(p.keepOpen(false, 834), false)
+  assert.equal(p.keepOpen(true, 700), true)
   // A person who turned Keep open off keeps the drawer.
   assert.equal(p.panelDocks(834, p.readLayout('{"open":true,"mode":"full","width":280,"pinned":false}').pinned), false)
   assert.equal(p.defaultPanelWidth(834), 240)
   assert.equal(p.defaultPanelWidth(959), 240)
   assert.equal(p.defaultPanelWidth(960), 280)
   assert.equal(p.defaultPanelWidth(1360), 280)
-  assert.deepEqual(p.defaultLayout(834), { open: true, mode: 'full', width: 240, pinned: true })
-  assert.deepEqual(p.defaultLayout(1360), { open: true, mode: 'full', width: 280, pinned: true })
+  // The default stores no Keep open: it stays decided by the screen until the person chooses.
+  assert.deepEqual(p.defaultLayout(834), { open: true, mode: 'full', width: 240 })
+  assert.deepEqual(p.defaultLayout(1360), { open: true, mode: 'full', width: 280 })
 })
 
 test('expanding the rail on a tablet or desktop keeps the panel docked (Keep open turns on)', () => {
@@ -96,6 +107,8 @@ test('expanding the rail on a tablet or desktop keeps the panel docked (Keep ope
   assert.deepEqual(p.changeMode('mini', 'full', true, false), { mode: 'full', pinned: true })
   assert.deepEqual(p.changeMode('full', 'mini', false, false), { mode: 'mini', pinned: false })
   assert.deepEqual(p.changeMode('closed', 'full', false, false), { mode: 'full', pinned: false })
+  assert.deepEqual(p.changeMode('closed', 'full', undefined, false), { mode: 'full', pinned: undefined })
+  assert.deepEqual(p.changeMode('mini', 'full', undefined, false), { mode: 'full', pinned: true })
   // A phone has no rail and no docking: nothing to keep open.
   assert.deepEqual(p.changeMode('mini', 'full', false, true), { mode: 'full', pinned: false })
 })
@@ -120,21 +133,22 @@ test('phone never docks', () => {
 })
 
 test('old saved layout still loads', () => {
-  // An old layout has no Keep open field: it counts as on, so a tablet docks.
-  assert.deepEqual(p.readLayout('{"open":true,"width":300}'), { mode: 'full', width: 300, pinned: true })
-  assert.deepEqual(p.readLayout('{"open":false,"width":220}'), { mode: 'closed', width: 240, pinned: true })
-  assert.deepEqual(p.readLayout('{"open":true,"width":9000}'), { mode: 'full', width: 480, pinned: true })
+  // An old layout has no Keep open field: the screen decides (on from 768 px), so a tablet docks.
+  assert.deepEqual(p.readLayout('{"open":true,"width":300}'), { mode: 'full', width: 300, pinned: undefined })
+  assert.deepEqual(p.readLayout('{"open":false,"width":220}'), { mode: 'closed', width: 240, pinned: undefined })
+  assert.deepEqual(p.readLayout('{"open":true,"width":9000}'), { mode: 'full', width: 480, pinned: undefined })
   // Nothing (or nothing readable) saved: no mode and no width, so the screen's defaults apply.
-  assert.deepEqual(p.readLayout(null), { mode: undefined, width: undefined, pinned: true })
-  assert.deepEqual(p.readLayout('not json'), { mode: undefined, width: undefined, pinned: true })
-  assert.deepEqual(p.readLayout('[1,2]'), { mode: undefined, width: undefined, pinned: true })
-  assert.deepEqual(p.readLayout('null'), { mode: undefined, width: undefined, pinned: true })
-  assert.deepEqual(p.readLayout('{"open":"yes","width":"wide","mode":"huge","pinned":1}'), { mode: undefined, width: undefined, pinned: true })
+  assert.deepEqual(p.readLayout(null), { mode: undefined, width: undefined, pinned: undefined })
+  assert.deepEqual(p.readLayout('not json'), { mode: undefined, width: undefined, pinned: undefined })
+  assert.deepEqual(p.readLayout('[1,2]'), { mode: undefined, width: undefined, pinned: undefined })
+  assert.deepEqual(p.readLayout('null'), { mode: undefined, width: undefined, pinned: undefined })
+  assert.deepEqual(p.readLayout('{"open":"yes","width":"wide","mode":"huge","pinned":1}'), { mode: undefined, width: undefined, pinned: undefined })
   assert.deepEqual(p.readLayout('{"open":true,"mode":"full","width":280,"pinned":false}'), { mode: 'full', width: 280, pinned: false })
   assert.deepEqual(p.readLayout('{"open":true,"mode":"mini","width":350,"pinned":true}'), { mode: 'mini', width: 350, pinned: true })
   // What is saved is only these four fields, and it reads back the same.
   const record = p.layoutRecord('mini', 333.3, true)
   assert.deepEqual(Object.keys(record).sort(), ['mode', 'open', 'pinned', 'width'])
+  assert.deepEqual(Object.keys(p.layoutRecord('mini', 300, undefined)).sort(), ['mode', 'open', 'width'])
   assert.deepEqual(p.readLayout(JSON.stringify(record)), { mode: 'mini', width: 333, pinned: true })
   assert.equal(p.layoutRecord('full', 280, false).open, true)
   assert.equal(p.layoutRecord('mini', 280, false).open, false)

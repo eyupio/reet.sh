@@ -4,7 +4,8 @@
 // rules are unit tested.
 
 export type PanelMode = 'full' | 'mini' | 'closed'
-export type SavedLayout = { mode: PanelMode | undefined; width: number | undefined; pinned: boolean }
+/** pinned is Keep open as the person set it; undefined until they choose, when the screen decides (keepOpen). */
+export type SavedLayout = { mode: PanelMode | undefined; width: number | undefined; pinned: boolean | undefined }
 
 export const MINI_WIDTH = 64
 export const PANEL_MIN = 240, PANEL_MAX = 480, PANEL_DEFAULT = 280
@@ -16,8 +17,10 @@ export const PANEL_SHARE = 0.4
 export const KEY_STEP = 16
 /** A screen whose shorter side (or a window) is under this is a phone: the panel is a drawer and never docks. */
 export const DOCK_FROM = 600
-/** From this width the full panel always docks; between DOCK_FROM and here it docks while Keep open is on (the default). */
+/** From this width the full panel always docks; between DOCK_FROM and here it docks while Keep open is on. */
 export const ALWAYS_DOCKED = 960
+/** Keep open is on by default from this width; from DOCK_FROM to here the default is the drawer. */
+export const KEEP_OPEN_FROM = 768
 /** A first visit under ALWAYS_DOCKED starts the panel at the minimum, so a tablet's terminal keeps the most columns. */
 export const TABLET_DEFAULT = 240
 
@@ -38,16 +41,21 @@ export function screenShortSide(screen: { width?: number; height?: number } | un
   return Math.min(width, height)
 }
 
+/** Keep open as it applies: the person's choice, or by default on from 768 px (a 600 to 767 px window keeps the drawer). */
+export function keepOpen(pinned: boolean | undefined, width: number): boolean {
+  return pinned ?? width >= KEEP_OPEN_FROM
+}
+
 /** Whether the full panel is a docked column (true) or today's drawer over the terminal (false). */
-export function panelDocks(width: number, pinned: boolean, phone = false): boolean {
-  return !phone && width >= DOCK_FROM && (pinned || width >= ALWAYS_DOCKED)
+export function panelDocks(width: number, pinned: boolean | undefined, phone = false): boolean {
+  return !phone && width >= DOCK_FROM && (width >= ALWAYS_DOCKED || keepOpen(pinned, width))
 }
 
 /**
  * The panel a page load starts with. Phones start closed (the drawer opens on request). A tablet with Keep open turned
  * off starts closed too, as the drawer would cover the terminal; a mini rail covers nothing, so it comes back anywhere.
  */
-export function panelMode(width: number, saved: PanelMode | undefined, pinned: boolean, phone = false): PanelMode {
+export function panelMode(width: number, saved: PanelMode | undefined, pinned: boolean | undefined, phone = false): PanelMode {
   if (phone || width < DOCK_FROM) return 'closed'
   const mode = saved ?? 'full'
   if (mode === 'full' && !panelDocks(width, pinned)) return 'closed'
@@ -96,15 +104,15 @@ export function defaultPanelWidth(width: number): number {
 
 /** The layout a first visit has; it is never written, so storage only ever holds a person's own choice. */
 export function defaultLayout(width: number) {
-  return layoutRecord('full', defaultPanelWidth(width), true)
+  return layoutRecord('full', defaultPanelWidth(width), undefined)
 }
 
 /**
  * A change of mode. Expanding the mini rail on a tablet or desktop turns Keep open on, so the panel docks where the rail
  * was instead of opening as a drawer over the terminal (and a drag that started on the rail keeps its separator).
  */
-export function changeMode(from: PanelMode, to: PanelMode, pinned: boolean, phone: boolean): { mode: PanelMode; pinned: boolean } {
-  return { mode: to, pinned: pinned || (!phone && from === 'mini' && to === 'full') }
+export function changeMode(from: PanelMode, to: PanelMode, pinned: boolean | undefined, phone: boolean): { mode: PanelMode; pinned: boolean | undefined } {
+  return { mode: to, pinned: !phone && from === 'mini' && to === 'full' ? true : pinned }
 }
 
 /** The panel's chevron: full → mini → closed → full. A phone has no rail, so its chevron only closes and opens. */
@@ -115,11 +123,12 @@ export function chevronNext(mode: PanelMode, phone: boolean): PanelMode {
 
 /**
  * Reads the saved layout. Older pages saved only {open, width} (width 220 to 480): open maps to full or closed and the
- * width is brought into today's range. A missing Keep open counts as on. Anything unreadable falls back to the
+ * width is brought into today's range. A missing Keep open stays undefined (keepOpen decides by the screen). Anything
+ * unreadable falls back to the
  * defaults; a missing width is left to the screen (defaultPanelWidth).
  */
 export function readLayout(raw: string | null | undefined): SavedLayout {
-  const layout: SavedLayout = { mode: undefined, width: undefined, pinned: true }
+  const layout: SavedLayout = { mode: undefined, width: undefined, pinned: undefined }
   let saved: unknown
   try { saved = JSON.parse(raw || '{}') } catch { return layout }
   if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return layout
@@ -131,7 +140,9 @@ export function readLayout(raw: string | null | undefined): SavedLayout {
   return layout
 }
 
-/** What is saved: the mode, the width, whether it is pinned, and `open` so an older page still reads it. */
-export function layoutRecord(mode: PanelMode, width: number, pinned: boolean) {
-  return { open: mode === 'full', mode, width: Math.round(Math.min(PANEL_MAX, Math.max(PANEL_MIN, width))), pinned }
+/** What is saved: the mode, the width, Keep open once the person has set it, and `open` so an older page still reads it. */
+export function layoutRecord(mode: PanelMode, width: number, pinned: boolean | undefined) {
+  const record: { open: boolean; mode: PanelMode; width: number; pinned?: boolean } = { open: mode === 'full', mode, width: Math.round(Math.min(PANEL_MAX, Math.max(PANEL_MIN, width))) }
+  if (pinned !== undefined) record.pinned = pinned
+  return record
 }

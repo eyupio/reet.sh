@@ -167,6 +167,17 @@ async function dockedPanel(){
  await page.reload();await live();await expect(panel).toBeVisible();await expect(separator).toHaveAttribute('aria-valuenow','240')
  await page.evaluate(k=>localStorage.setItem(k,'{broken'),key)
  await page.reload();await live();await expect(panel).toBeVisible();await expect(separator).toHaveAttribute('aria-valuenow','280')
+ // A window between 600 and 767 px keeps the drawer by default (closed on arrival, over the terminal, no separator);
+ // Keep open, in the drawer, docks it, and that choice is saved.
+ await page.evaluate(k=>localStorage.removeItem(k),key)
+ await page.setViewportSize({width:700,height:640});await page.reload();await live()
+ await expect(panel).toHaveCount(0);await sessionsButton.click();await expect(panel).toBeVisible()
+ expect((await panel.boundingBox()).x+(await panel.boundingBox()).width).toBeGreaterThan((await pane.boundingBox()).x+1)
+ await expect(separator).toHaveCount(0)
+ const narrowKeep=panel.getByRole('button',{name:'Keep open',exact:true})
+ await expect(narrowKeep).toHaveAttribute('aria-pressed','false');await narrowKeep.click();await expect(narrowKeep).toHaveAttribute('aria-pressed','true')
+ await besideTerminal(panel);await expect(separator).toBeVisible()
+ expect(JSON.parse(await page.evaluate(k=>localStorage.getItem(k),key)).pinned).toBe(true)
  // tablet landscape does not cover the terminal when pinned: a first visit at 834 px docks a 240 px panel, Keep open on,
  // and writes nothing to storage
  await page.evaluate(k=>localStorage.removeItem(k),key)

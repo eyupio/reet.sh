@@ -56,16 +56,18 @@ the full panel. The panel's chevron cycles full → mini → closed (on a phone 
 closes). The rules live in `terminal/panelLayout.ts`, unit tested by
 `terminal/panelLayout.test.mjs`.
 
-- **Docked by default, never over the terminal.** On a tablet or desktop (any
-  window 600 px or wider on a device that is not a phone) the full panel is a grid
-  column beside the terminal. The terminal's column is `minmax(0, 1fr)` of what
+- **Docked by default from 768 px, never over the terminal.** On a tablet or
+  desktop window 768 px or wider (on a device that is not a phone) the full panel is
+  a grid column beside the terminal; from 600 to 767 px it docks once Keep open is
+  on. The terminal's column is `minmax(0, 1fr)` of what
   remains, so the whole terminal stays visible with no horizontal scroll, and it
   refits to its new width. A first visit under 960 px starts the panel at 240 px
   (280 px from 960 px), so a tablet's terminal keeps the most columns.
-- **Keep open.** Between 600 and 959 px the panel header has **Keep open**, pressed
-  by default. Turning it off gives that tablet the drawer: the panel opens over the
-  terminal (Keep open is in the drawer to turn it back on) and closes when a session
-  is chosen. From 960 px the panel always docks, so the control is not shown.
+- **Keep open.** Between 600 and 959 px the panel header has **Keep open**. Until
+  the person chooses, it is on from 768 px and off from 600 to 767 px, so a window in
+  that narrower band keeps the drawer by default. Off, the panel is the drawer: it
+  opens over the terminal (Keep open is in the drawer to dock it) and closes when a
+  session is chosen. The person's choice is saved and then applies at any width. From 960 px the panel always docks, so the control is not shown.
   Expanding the mini rail (its Expand or Find, the panel's Sessions button, the
   separator's Right arrow or double-click, or dragging the rail out) turns Keep open
   back on, so the panel opens where the rail was instead of as a drawer, and a drag
@@ -98,7 +100,8 @@ closes). The rules live in `terminal/panelLayout.ts`, unit tested by
   existing per-account key (`reet-terminal-layout:<user>`), as
   `{open, mode, width, pinned}`; `open` keeps older pages reading it. A layout saved
   before the rail (`{open, width}`, width 220 to 480) still loads: `open` becomes full
-  or closed, the width is brought to 240 to 480, and Keep open counts as on.
+  or closed, the width is brought to 240 to 480, and Keep open stays the screen's
+  default (on from 768 px). `pinned` is only saved once the person sets Keep open.
   Unreadable values fall back to the defaults. Only a person's change on a tablet or
   desktop is written: nothing is written on load, the untouched defaults are never
   written, and opening or closing the drawer on a phone writes nothing, so a phone
@@ -347,7 +350,8 @@ sideways that is 500 px tall or less (`PHONE_SCREEN` in `terminal/sizing.ts`). T
 sideways rules cover the terminal only; dialogs and other pages are unchanged. The
 sessions panel decides "phone" its own way (a window under 600 px or a screen whose
 shorter side is under 600 px, see [The sessions panel](#the-sessions-panel)), so a
-window between 600 and 650 px gets the compact phone chrome with a panel that docks,
+window between 600 and 650 px gets the compact phone chrome with a panel that docks
+once Keep open is on (the drawer by default),
 and a short tablet held sideways gets the compact terminal chrome with a docked panel.
 Desktop and tablet terminal chrome is unchanged, and
 `web/tests/terminal-phone.e2e.mjs` checks it at 1360 and 768 px.

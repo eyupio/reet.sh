@@ -565,7 +565,8 @@ try {
    const moving = () => page.evaluate(() => [...document.querySelectorAll('header *, nav *, main *')].filter(e => { const s = getComputedStyle(e); return s.animationName !== 'none' || (/transform|all/.test(s.transitionProperty) && s.transitionDuration.split(',').some(d => parseFloat(d) > 0)) }).length + document.getAnimations().length)
    expect(await moving(), `${width}px: motion without the preference`).toBeGreaterThan(0)
    await page.emulateMedia({reducedMotion:'reduce'})
-   expect(await moving(), `${width}px: nothing moves with reduced motion`).toBe(0)
+   // A transition already running when the preference flips (a focus ring fading) finishes on its own; wait for those, then it must stay at 0.
+   await expect.poll(moving, {message:`${width}px: nothing moves with reduced motion`, timeout:3000}).toBe(0)
    expect(errors).toEqual([])
    await context.close()
   }

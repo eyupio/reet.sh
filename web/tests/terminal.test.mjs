@@ -59,6 +59,18 @@ test('terminal input waits for redraw and disconnected keystrokes are never repl
   } finally { f.cleanup() }
 })
 
+test('a resize reports whether it reached the host, so an undelivered size is retried', async () => {
+  const f = fixture()
+  try {
+    assert.equal(f.connection.resize(54, 30), false)
+    const socket = await f.open()
+    assert.equal(f.connection.resize(54, 30), false)
+    socket.message(new Uint8Array([65]).buffer); f.renders.at(-1).done()
+    assert.equal(f.connection.resize(54, 30), true)
+    assert.deepEqual(JSON.parse(socket.sent.at(-1)), { type: 'resize', cols: 54, rows: 30 })
+  } finally { f.cleanup() }
+})
+
 test('UTF-8 output remains bytes across frame boundaries and stale sockets are fenced', async () => {
   const f = fixture()
   try {

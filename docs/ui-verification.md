@@ -618,3 +618,60 @@ the preview server on port 4173. The navigation and start-agent fixtures also pa
 - A Project with 12 repositories, or 50 Projects, was not in the matrix.
 - No live machine, agent CLI, git repository, production service or deployment was involved, so
   nothing here shows an agent starting or a worktree being removed.
+
+## Phones: long names and page zoom — 26 October 2026
+
+Built on main `a97b28c`. A phone audit found that one long host, path or skill name made the
+browser lay a page out wider than the screen and zoom the whole page out. The document then reports
+`scrollWidth == innerWidth`, so a plain "no horizontal overflow" check passes. Only a mobile browser
+context (`isMobile`, which honours the viewport meta tag) shows it.
+
+**Before (same fixture, Chromium mobile emulation).** The list page was laid out 581 px wide (0.55
+scale at 320 px, 0.71 at 412). Machines and every dialog opened from it: 401 px, 511 px with
+"Agents on this machine" open. Admin environments with a machine open: about 491 px (0.65–0.84).
+Sync cut off "Review local & web changes", "Preview" and "Stop tracking" with `overflow: clip`.
+
+**What the fixture checks.** `web/tests/phone-zoom.e2e.mjs`, with the fake API in
+`web/tests/helpers/longtext.mjs`: a 57-character host and a 70-character path, plus long skill,
+session, token and tag names. None contains a hyphen, because a browser may break a line after
+one. 36 screens: control, machines and its start-agent, settings and commands dialogs, a machine's
+own page, sync, skills, setups, lists and a list, projects and a project, hosting, spaces, support
+and a ticket, notifications, eight account pages and ten admin pages. Each runs at 320, 360, 390 and
+412 px with `isMobile` and `hasTouch`, first with every `<details>` closed and then open. It asserts:
+- `innerWidth` is the device width and `visualViewport.scale` is 1;
+- every control is on the screen, or inside a sideways scroller that shows there is more (an item
+  peeking past its edge, or a fade mask);
+- no control is cut off by an `overflow: hidden` or `clip` box, runs out of the bordered box around
+  it, or has a label more than 8 px wider than itself;
+- the long skill name fits its heading once its card is expanded.
+
+It takes about 30–40 s and runs as its own `phone-zoom` job in `terminal-browser.yml`.
+
+**Fixes.** List page add-skill form (grid column `minmax(0, 1fr)`); machines agent chips, scan-only
+agent names, setup steps, setup card and command box clipping, upgrade and refresh copy buttons;
+sync target card (no clip, wrapping names, shrinkable column); admin environments scope rows; shelf
+filter chips; account token form and token names; active session cards on the control page (at
+most 85% of the strip, so the next one peeks in at 320 px).
+
+**Mutation check.** Each fix was put back as it was, the app rebuilt and the fixture run on the
+affected screens. All 15 mutants below failed the fixture except one:
+- list form column; machines agent chip; scan-only agent name; refresh copy label; setup steps;
+  upgrade copy button; sync card (clip, column and name together); sync scope name alone; admin
+  environments rows; active sessions peek; skill heading wrap; shelf filter chip; account token row
+  column; account form column — all failed it.
+- Token names wrapping (`.rows strong`) did not: without it the name overflows its row as text, and
+  the fixture checks controls, not text.
+
+**Global default not added.** An `overflow-wrap: anywhere` default for headings, `code`, `kbd` and
+badges in `app.css` was tried. Comparing every element's box at 1360 and 768 px with and without it,
+table columns moved by 1–5 px and two small notes changed height on the account and admin backup,
+email, users, sessions and tokens pages. No screen in the fixture needed it, so it was left out.
+
+**Desktop.** Element boxes on the same 36 screens at 1360 and 768 px, before and after, differ only
+where a long name used to run out of its box: the shelf filter chip (its label ran over the next
+chip; it now wraps inside it), admin environment scope rows and the machine cards' scope names (now
+wrap). Other differences were within the 1 px noise seen between two runs of the same build.
+
+**Not checked.** No physical phone, Safari or Firefox; Chromium only, with synthetic API answers.
+Terminals, project dialogs, sign-in pages and sideways phones are not in the matrix. Text that
+overflows without a control in it (as with the token name above) is not detected.

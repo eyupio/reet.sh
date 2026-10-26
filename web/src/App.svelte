@@ -1187,9 +1187,11 @@
     text-transform: uppercase; margin-right: 4px;
   }
   .filterbar .chip {
-    display: inline-flex; align-items: center; gap: 5px; max-width: 260px; min-height: 32px;
+    display: inline-flex; align-items: center; gap: 5px; max-width: min(260px, 100%); min-height: 32px;
     padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px;
     background: transparent; color: var(--muted); font-size: 0.8rem; text-align: left; cursor: pointer;
+    /* A machine's host name can be one long word: it wraps inside the chip rather than running out of it. */
+    overflow-wrap: anywhere;
   }
   .filterbar .chip:hover { border-color: var(--muted); color: var(--ink); }
   .filterbar .chip[aria-pressed='true'] { background: var(--tint); color: var(--ink); border-color: var(--accent); }

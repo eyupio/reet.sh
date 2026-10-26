@@ -526,7 +526,8 @@
   .block { margin-top: 24px; padding: clamp(18px, 3vw, 28px); border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
   .blockhead { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
   .muted { margin: 8px 0 0; color: var(--muted); }
-  form { display: grid; gap: 14px; margin-top: 16px; }
+  /* minmax(0, 1fr): a text field is about 20 characters wide by default, which overflowed the card on a 320 px phone. */
+  form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 16px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   .grid2 label { display: grid; gap: 4px; font-size: 0.84rem; color: var(--muted); }
   .grid2 label.wide, .grid2 .field.wide { grid-column: 1 / -1; }
@@ -540,6 +541,9 @@
   .rows { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
   .rows li { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .rows small { display: block; color: var(--muted); font-size: 0.78rem; }
+  /* Token, session and connection names can be one long word: they wrap rather than widen the card past the screen. */
+  .rows li > div { min-width: 0; }
+  .rows strong { overflow-wrap: anywhere; }
   .tag { margin-left: 6px; padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.65rem; }
   .fresh { margin-top: 14px; padding: 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--tint); }
   .fresh p { margin: 0 0 8px; font-size: 0.88rem; }
@@ -555,7 +559,8 @@
     .grid2 { grid-template-columns: 1fr; }
     .idcard { gap: 12px; }
     .avatar { width: 52px; height: 52px; font-size: 1.05rem; }
-    .createrow { flex-direction: column; }
+    /* One line: a wrapping column is as wide as its widest item, so the field ran out of the card. */
+    .createrow { flex-direction: column; flex-wrap: nowrap; }
 
   }
 </style>

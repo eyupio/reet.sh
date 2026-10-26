@@ -2596,3 +2596,22 @@ What the numbers mean:
   sideways), that the agent's screen repaints after switching apps and back, and that a long-idle
   tab that reloads shows the agent rather than a blank screen.
 - Not covered yet: dialogs and other pages on sideways phones.
+
+## Phones: long names and page zoom (26 October 2026)
+
+Phone audit slice 1, on main `a97b28c`. One long host, path or skill name made phones lay pages out
+wider than the screen and zoom out (list page 0.55–0.71, machines 0.63–0.97, admin environments
+0.65–0.84) and sync cut its action buttons off. See `docs/ui-verification.md` (Phones: long names and
+page zoom).
+- New contract: `web/tests/phone-zoom.e2e.mjs` with `web/tests/helpers/longtext.mjs` (no hyphens in
+  the long names; a browser may break after one). 36 screens × 320/360/390/412 px in mobile contexts,
+  details closed and open. Own `phone-zoom` job in `terminal-browser.yml`, about 30–40 s.
+  `REET_E2E_ONLY=<regexp>` and `REET_E2E_WIDTHS=320,390` narrow a run.
+- Fixes in ListView, MachineFleet, MachineSetup, EnvironmentSync, SyncControl, Admin, App (filter
+  chips), Account (token form) and ActiveSessions. Every fix was mutation-checked except the token
+  name wrap (text only).
+- No global `overflow-wrap` default: it moved desktop table columns by a few pixels.
+- `TestRunHasAtMostTwoInFlightAndOnePerMachine` now waits for two creates in flight before the first
+  release. 200 runs with `-race -cpu 1` under CPU load: 14 failures before, 0 after.
+- Next slices from the audit: touch target sizes, text under 12 px, iOS focus zoom on inputs under
+  16 px, sideways phones.

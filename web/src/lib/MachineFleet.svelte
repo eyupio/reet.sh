@@ -483,7 +483,8 @@
   .build { color: var(--ink); }
   .sync-run { color: var(--accent); }
   .agent-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .agent-chip { padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 0.69rem; }
+  /* A scope's label can carry a long folder path with no spaces: let it break anywhere so it never widens the page. */
+  .agent-chip { min-width: 0; max-width: 100%; padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 0.69rem; overflow-wrap: anywhere; }
   .agent-chip strong { color: var(--ink); font-weight: 600; }
   .agent-chip.muted { opacity: 0.78; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -496,8 +497,8 @@
   .agent-list ul { list-style: none; display: grid; gap: 0; padding: 0; margin: 8px 0 0; }
   .agent-list li { display: flex; align-items: flex-start; gap: 9px; padding: 10px 0; border-top: 1px solid var(--line); }
   .agent-copy { display: grid; gap: 2px; min-width: 0; flex: 1; }
-  .agent-copy strong { font-size: 0.8rem; }
-  .agent-copy small { color: var(--muted); font-size: 0.72rem; line-height: 1.45; }
+  .agent-copy strong { font-size: 0.8rem; overflow-wrap: anywhere; }
+  .agent-copy small { color: var(--muted); font-size: 0.72rem; line-height: 1.45; overflow-wrap: anywhere; }
   .private-skills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 4px 0 2px; }
   .private-skills .btn { min-height: 34px; padding: 5px 12px; font-size: 0.78rem; }
   .private-skills small { flex: 1 1 200px; min-width: 0; }

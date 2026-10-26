@@ -304,17 +304,19 @@
  .scope-option span{display:grid;gap:2px;min-width:0}
  .scope-option strong{font-size:.8rem;overflow-wrap:anywhere}
  .scope-option small{font-size:.71rem}
- .machine-set{padding:0;overflow:clip}
- .set-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 18px;border-bottom:1px solid var(--line);background:var(--bg)}
+ /* No clip: a card holding actions must never cut them off. The header rounds its own top corners instead. */
+ .machine-set{padding:0}
+ .set-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 18px;border-bottom:1px solid var(--line);border-radius:9px 9px 0 0;background:var(--bg)}
+ .set-head > div{min-width:0}
  .set-head h4{margin:0}
  .set-head p{margin:3px 0 0;font-size:.78rem}
- .scope-sets{display:grid}
+ .scope-sets{display:grid;grid-template-columns:minmax(0,1fr)}
  .scope-set{padding:14px 18px;border-top:1px solid var(--line)}
  .scope-set:first-child{border-top:0}
  .scope-title{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
- .scope-title strong{font-size:.85rem}
+ .scope-title strong{min-width:0;font-size:.85rem;overflow-wrap:anywhere}
  .badge{padding:3px 8px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:.7rem}
- .scope-set > p{margin:5px 0}
+ .scope-set > p{margin:5px 0;overflow-wrap:anywhere}
  .local-preview{margin:8px 0 0}
  .local-preview summary{font-size:.78rem}
  @media(max-width:600px){.pickers{grid-template-columns:1fr}.control{padding:12px}.actions .btn{flex:1 1 auto}.scope-grid{grid-template-columns:1fr}.set-head{align-items:flex-start}.set-head .btn{width:100%}}

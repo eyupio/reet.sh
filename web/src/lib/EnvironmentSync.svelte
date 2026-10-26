@@ -275,7 +275,7 @@
           <div class="fleet-command">
             <strong>{machine.host}</strong>
             <p class="hint" role="status">{refreshedGroups(machine)} of {agentGroups(machine).length} agent groups refreshed since this check started.</p>
-            <div class="command"><pre>{refreshCommand(machine.host)}</pre><CopyButton text={refreshCommand(machine.host)} label={`Copy refresh for ${machine.host}`} /></div>
+            <div class="command"><pre>{refreshCommand(machine.host)}</pre><CopyButton text={refreshCommand(machine.host)} label="Copy refresh" ariaLabel={`Copy refresh for ${machine.host}`} /></div>
           </div>
         {/each}
         <p class="hint">For enrolled machines, use Scan all from Control or Sync. For other machines, run the commands above, then refresh status.</p>
@@ -320,6 +320,7 @@
   .machine-form { display: grid; gap: 12px; margin-top: 16px; }
   .machine-form label { display: grid; gap: 4px; font-size: .85rem; font-weight: 600; }
   .fleet-command { margin-top: 16px; }
+  .fleet-command > strong { overflow-wrap: anywhere; }
   .command { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 0; padding: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
   pre { flex: 1 1 260px; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: .78rem/1.6 var(--mono); }
   .advanced-fleet { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 16px; }

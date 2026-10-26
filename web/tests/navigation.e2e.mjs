@@ -27,6 +27,10 @@ try {
   const bell = page.getByRole('button',{name:'Needs you: 0',exact:true})
   await expect(bell).toBeVisible()
   await expect(bell.locator('.badge')).toHaveCount(0)
+  // With nothing waiting the bell is quiet: not in the warning colour.
+  const colours = await page.evaluate(()=>({bell:getComputedStyle(document.querySelector('.bell-button')).color,warn:getComputedStyle(document.documentElement).getPropertyValue('--warn').trim()}))
+  const hex = c=>'#'+c.match(/\d+/g).slice(0,3).map(n=>Number(n).toString(16).padStart(2,'0')).join('')
+  expect(hex(colours.bell)).not.toBe(colours.warn.toLowerCase())
   await bell.click()
   await expect(page.getByText('Nothing needs you.',{exact:true})).toBeVisible()
   await page.keyboard.press('Escape')
@@ -87,7 +91,17 @@ try {
    for (const [w,h] of m.targets) { expect(w).toBeGreaterThanOrEqual(44); expect(h).toBeGreaterThanOrEqual(44) }
    await expect(bar.getByRole('link',{name:'Home'})).toHaveAttribute('aria-current','page')
    // The top bar holds the logo, Jump, the bell and the account; no desktop tabs.
-   await expect(page.getByRole('button',{name:'Needs you: 0',exact:true})).toBeVisible()
+   const bell = page.getByRole('button',{name:'Needs you: 0',exact:true})
+   await expect(bell).toBeVisible()
+   // Its panel opens inside the screen, even at 320 px.
+   await bell.click()
+   const panel = await page.getByText('Nothing needs you.',{exact:true}).locator('..').evaluate(el=>{const r=el.getBoundingClientRect();return{left:r.left,right:r.right}})
+   expect(panel.left, `bell panel left edge at ${width}px`).toBeGreaterThanOrEqual(0)
+   expect(panel.right, `bell panel right edge at ${width}px`).toBeLessThanOrEqual(width)
+   await page.keyboard.press('Escape')
+   // More's buttons say they open a dialog and whether it is open.
+   await expect(bar.getByRole('button',{name:'More'})).toHaveAttribute('aria-haspopup','dialog')
+   await expect(bar.getByRole('button',{name:'More'})).toHaveAttribute('aria-expanded','false')
    await bar.getByRole('button',{name:'More'}).click()
    const more = page.getByRole('dialog',{name:'More'})
    await expect(more).toBeVisible()
@@ -115,7 +129,18 @@ try {
   expect(top).toBeLessThan(80)
   await tabs(page).getByRole('button',{name:'More'}).click()
   await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Skills',exact:true})).toBeVisible()
+  await page.keyboard.press('Escape')
+  // Every link in the account menu, More included, is a 44 px target on a touch tablet.
+  await page.locator('summary[aria-label^="Account menu"]').click()
+  const heights = await page.locator('.panel a, .panel button').evaluateAll(els=>els.map(e=>[e.textContent.trim(),e.getBoundingClientRect().height]))
+  for (const [name,h] of heights) expect(h, `${name} target height at 834px touch`).toBeGreaterThanOrEqual(44)
   await context.close()
+  // A touch screen 1100 px or wider keeps Jump in the bar, 44 px tall.
+  const wide = await open({width:1180,touch:true})
+  await wide.page.goto(base)
+  const field = await wide.page.locator('.jump').boundingBox()
+  expect(field.height).toBeGreaterThanOrEqual(44)
+  await wide.context.close()
  }
 
  // Nothing the old navigation reached is lost: every former destination is a tab or sits under More in the account menu.
@@ -173,6 +198,12 @@ try {
   await expect(page).toHaveURL(`${base}/activity`)
   expect(errors).toEqual([])
   await context.close()
+  // An open instance has no accounts: the page does not call it "Your account".
+  const openMode = await open({width:1440,status:{mode:'none',user:null},routes:{'/api/events':{events}}})
+  await openMode.page.goto(`${base}/activity`)
+  await expect(openMode.page.locator('main ul.events li')).toHaveCount(2)
+  await expect(openMode.page.getByText('Your account',{exact:true})).toHaveCount(0)
+  await openMode.context.close()
  }
 
  // Only a writer in accounts mode can open sessions: a viewer, a single-token sign-in and an open instance get no Sessions tab
@@ -222,6 +253,10 @@ try {
   const {context,page} = await open({width:390,touch:true})
   await page.goto(`${base}/sync`)
   await expect(tabs(page).getByRole('button',{name:'More'})).toHaveClass(/current/)
+  // Not by colour alone: the current More carries the same underline as a current tab, and says so to assistive tech.
+  await expect(tabs(page).getByRole('button',{name:/^More/})).toHaveAccessibleName('More, current page inside')
+  const mark = await tabs(page).getByRole('button',{name:/^More/}).evaluate(el=>getComputedStyle(el,'::after').content)
+  expect(mark).not.toBe('none')
   await tabs(page).getByRole('button',{name:'More'}).click()
   await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Sync'})).toHaveAttribute('aria-current','page')
   await context.close()

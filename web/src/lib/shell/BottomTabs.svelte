@@ -3,7 +3,7 @@
   // The phone's tab bar: Home, Sessions, Machines and More, 64 px tall plus the safe area, each target at least 44 px. It
   // shows only on a phone (PHONE_SCREEN in terminal/sizing.ts) and steps aside while the keyboard is up for a field that
   // asks it to (keyboardChrome).
-  let { tabs, moreCurrent, hidden, onmore }: { tabs: Tab[]; moreCurrent: boolean; hidden: boolean; onmore: (opener: HTMLElement) => void } = $props()
+  let { tabs, moreCurrent, moreOpen, hidden, onmore }: { tabs: Tab[]; moreCurrent: boolean; moreOpen: boolean; hidden: boolean; onmore: (opener: HTMLElement) => void } = $props()
   const icons: Record<string, string> = {
     '/': 'M3 11l9-8 9 8v10H3z',
     '/terminals': 'M4 6h16M4 12h16M4 18h10',
@@ -18,7 +18,8 @@
       <span>{tab.label}</span>
     </a>
   {/each}
-  <button type="button" class:current={moreCurrent} onclick={(event) => onmore(event.currentTarget)}>
+  <button type="button" class:current={moreCurrent} aria-haspopup="dialog" aria-expanded={moreOpen}
+    aria-label={moreCurrent ? 'More, current page inside' : undefined} onclick={(event) => onmore(event.currentTarget)}>
     <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
     <span>More</span>
   </button>
@@ -38,7 +39,11 @@
     flex: 1 1 0; min-width: 44px; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
     padding: 0; border: 0; background: none; color: var(--muted); font: 500 0.75rem/1.2 var(--sans); text-decoration: none; cursor: pointer;
   }
-  a[aria-current='page'], button.current { color: var(--accent-text); font-weight: 600; }
+  a[aria-current='page'], button.current { position: relative; color: var(--accent-text); font-weight: 600; }
+  /* Not colour alone: a bar along the top edge marks the current tab, or More when the page in view is inside it. */
+  a[aria-current='page']::after, button.current::after {
+    content: ''; position: absolute; top: 0; left: 50%; width: 28px; height: 3px; margin-left: -14px; border-radius: 0 0 3px 3px; background: var(--accent-text);
+  }
   a:focus-visible, button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -4px; border-radius: 10px; }
   svg { width: 22px; height: 22px; }
 </style>

@@ -100,7 +100,8 @@
   // The page keeps room at its foot for the phone's tab bar (app.css reads this attribute under the phone rule).
   $effect(() => {
     const root = document.documentElement
-    root.toggleAttribute('data-bottom-tabs', !compact)
+    // Off while the bar steps aside for the keyboard, so the page does not keep an empty band above it.
+    root.toggleAttribute('data-bottom-tabs', !compact && !barHidden)
     return () => root.removeAttribute('data-bottom-tabs')
   })
 </script>
@@ -109,7 +110,7 @@
 
 <div class="shell-bar" class:compact>
   <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
-  <TopTabs {tabs} {bar} {moreCurrent} moreOnDesktop={!moreInAccount} onmore={openMore} />
+  <TopTabs {tabs} {bar} {moreCurrent} {moreOpen} moreOnDesktop={!moreInAccount} onmore={openMore} />
   <span class="grow"></span>
   <JumpSearch load={jump} open={searchOpen} bind:input onclose={closeSearch}
     onfocuschange={(focused) => { searchFocused = focused; measureKeyboard() }} />
@@ -119,13 +120,14 @@
   </button>
   {#if bell}<Bell count={attention} />{/if}
   {#if compact}
-    <button type="button" class="icon compact-more" class:current={moreCurrent} aria-label="More" onclick={(event) => openMore(event.currentTarget, true)}>
+    <button type="button" class="icon compact-more" class:current={moreCurrent} aria-haspopup="dialog" aria-expanded={moreOpen}
+      aria-label={moreCurrent ? 'More, current page inside' : 'More'} onclick={(event) => openMore(event.currentTarget, true)}>
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
     </button>
   {/if}
   {@render account?.()}
 </div>
-{#if !compact}<BottomTabs tabs={bar} {moreCurrent} hidden={barHidden} onmore={openMore} />{/if}
+{#if !compact}<BottomTabs tabs={bar} {moreCurrent} {moreOpen} hidden={barHidden} onmore={openMore} />{/if}
 {#if moreOpen}<MoreSheet items={sheetItems} opener={moreOpener} onclose={() => (moreOpen = false)} />{/if}
 
 <style>
@@ -139,7 +141,7 @@
     border: 1px solid var(--line); border-radius: 10px; background: none; color: var(--muted); cursor: pointer;
   }
   .icon:hover, .icon[aria-expanded='true'] { color: var(--ink); background: var(--card); }
-  .icon.current { color: var(--accent-text); }
+  .icon.current { position: relative; color: var(--accent-text); border-color: var(--accent-text); }
   .icon svg { width: 20px; height: 20px; }
   @media (max-width: 1099.98px) {
     .shell-bar { height: 64px; }

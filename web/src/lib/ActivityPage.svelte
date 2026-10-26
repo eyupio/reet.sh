@@ -6,7 +6,7 @@
   import { elapsed } from './time'
 
   // /activity: the account activity list (what was changed lately, newest first), moved here from the account page.
-  let { onsignedout }: { onsignedout?: (e: unknown) => void } = $props()
+  let { accounts = true, onsignedout }: { accounts?: boolean; onsignedout?: (e: unknown) => void } = $props()
   let events = $state<Event[]>([])
   let loading = $state(true)
   let error = $state('')
@@ -25,7 +25,7 @@
   }
 </script>
 
-<PageHeader eyebrow="Your account" title="Activity" lede="What you changed lately, newest first." />
+<PageHeader eyebrow={accounts ? 'Your account' : 'This workspace'} title="Activity" lede="What you changed lately, newest first." />
 {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
 <section class="block" aria-label="Activity list">
   {#if loading}

@@ -88,6 +88,7 @@
     border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--muted);
   }
   .jump:focus-within { border-color: var(--line-strong); }
+  @media (pointer: coarse) { .jump { height: 44px; } }
   .glass { flex: none; width: 16px; height: 16px; }
   /* Two classes: wins over the page-wide field rules (border, padding, 44 px height) in app.css. */
   .jump input.field {

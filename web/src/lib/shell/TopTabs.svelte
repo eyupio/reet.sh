@@ -3,8 +3,8 @@
   // The tabs along the top bar: a nav of links, not an ARIA tablist (each one changes the page). A desktop shows every tab;
   // a tablet shows the bar's tabs (Home, Sessions, Machines) and More, which opens the rest. A phone hides this row and uses
   // the bottom tab bar instead. `moreOnDesktop` keeps More on a desktop when no account menu can hold it (an open instance).
-  let { tabs, bar, moreCurrent, moreOnDesktop, onmore }: {
-    tabs: Tab[]; bar: Tab[]; moreCurrent: boolean; moreOnDesktop: boolean; onmore: (opener: HTMLElement) => void
+  let { tabs, bar, moreCurrent, moreOnDesktop, moreOpen, onmore }: {
+    tabs: Tab[]; bar: Tab[]; moreCurrent: boolean; moreOnDesktop: boolean; moreOpen: boolean; onmore: (opener: HTMLElement) => void
   } = $props()
   const inBar = (tab: Tab) => bar.some(b => b.href === tab.href)
 </script>
@@ -13,7 +13,8 @@
   {#each tabs as tab (tab.href)}
     <a href={tab.href} class:wide={!inBar(tab)} aria-current={tab.current ? 'page' : undefined}>{tab.label}</a>
   {/each}
-  <button type="button" class="more" class:current={moreCurrent} class:desktop={moreOnDesktop} onclick={(event) => onmore(event.currentTarget)}>More</button>
+  <button type="button" class="more" class:current={moreCurrent} class:desktop={moreOnDesktop} aria-haspopup="dialog" aria-expanded={moreOpen}
+    aria-label={moreCurrent ? 'More, current page inside' : undefined} onclick={(event) => onmore(event.currentTarget)}>More</button>
 </nav>
 
 <style>

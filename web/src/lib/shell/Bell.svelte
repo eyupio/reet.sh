@@ -20,7 +20,7 @@
 />
 
 <div class="bell" bind:this={root}>
-  <button type="button" class="bell-button" bind:this={button} aria-label={`Needs you: ${count}`} aria-expanded={open} aria-controls={panelId} onclick={() => (open = !open)}>
+  <button type="button" class="bell-button" class:waiting={count > 0} bind:this={button} aria-label={`Needs you: ${count}`} aria-expanded={open} aria-controls={panelId} onclick={() => (open = !open)}>
     <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 17V11a6 6 0 0112 0v6l1.5 2h-15z" /><path d="M10 21h4" /></svg>
     {#if count > 0}<span class="badge" aria-hidden="true">{badge}</span>{/if}
   </button>
@@ -39,8 +39,10 @@
   .bell { position: relative; flex: none; }
   .bell-button {
     position: relative; display: grid; place-items: center; width: 40px; height: 40px; padding: 0;
-    border: 1px solid var(--line); border-radius: 9px; background: none; color: var(--warn); cursor: pointer;
+    border: 1px solid var(--line); border-radius: 9px; background: none; color: var(--muted); cursor: pointer;
   }
+  /* The warning colour only when something waits; a quiet bell at 0. */
+  .bell-button.waiting { color: var(--warn); }
   .bell-button:hover { border-color: var(--line-strong); background: var(--card); }
   .bell-button[aria-expanded='true'] { border-color: var(--line-strong); background: var(--card); }
   svg { width: 18px; height: 18px; }
@@ -60,5 +62,9 @@
   .panel a { display: inline-flex; align-items: center; min-height: 40px; font-size: 0.85rem; }
   @media (max-width: 1099.98px), (pointer: coarse) {
     .bell-button { width: 44px; height: 44px; border-radius: 10px; }
+  }
+  /* A phone: the panel spans the screen under the slim bar instead of hanging off the bell (it ran off the left edge). */
+  @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
+    .panel { position: fixed; top: 64px; left: 16px; right: 16px; width: auto; }
   }
 </style>

@@ -155,4 +155,5 @@
   summary { padding: 6px; border-radius: 50%; }
   summary > svg { display: none; }
   .panel { max-height: calc(100dvh - 90px); overflow: auto; }
+  @media (pointer: coarse) { .panel a, .panel button { min-height: 44px; } }
 </style>

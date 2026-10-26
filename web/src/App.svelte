@@ -863,7 +863,7 @@
   {:else if isShared}
     <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
   {:else if isActivity}
-    <ActivityPage onsignedout={fail} />
+    <ActivityPage accounts={authMode === 'accounts'} onsignedout={fail} />
   {:else if isControl}
     <ControlCenter {canWrite} terminalAccess={authMode === 'accounts' && canWrite} monitorAccess={authMode === 'accounts' || authMode === 'token'} />
   {:else if isProjects && !(authMode === 'accounts' && canWrite)}

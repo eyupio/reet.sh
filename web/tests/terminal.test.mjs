@@ -59,7 +59,7 @@ test('terminal input waits for redraw and disconnected keystrokes are never repl
   } finally { f.cleanup() }
 })
 
-test('a resize reports whether it reached the host, so an undelivered size is retried', async () => {
+test('a resize reports whether it reached the host, so an undelivered size is not treated as sent', async () => {
   const f = fixture()
   try {
     assert.equal(f.connection.resize(54, 30), false)

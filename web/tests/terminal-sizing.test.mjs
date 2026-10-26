@@ -84,7 +84,7 @@ test('the attachment ticket is the size the host starts with, so a reconnect at 
   assert.deepEqual(sent, [])
 })
 
-test('a size the connection could not send is retried by the next request, not forgotten', () => {
+test('a size the connection could not send is sent by the next request for it, not treated as sent', () => {
   const { clock, sent, resize, accept } = sender()
   resize.known({ cols: 54, rows: 40 })
   accept.value = false
@@ -105,6 +105,26 @@ test('a redraw nudge changes the height by one row and then restores the wanted 
   assert.deepEqual(sent, [{ cols: 54, rows: 29 }, { cols: 54, rows: 30 }])
   clock.advance(1000)
   assert.equal(sent.length, 2)
+})
+
+test('a nudge at the 8-row floor goes one row taller instead of below the floor', () => {
+  const { clock, sent, resize } = sender()
+  resize.known({ cols: 53, rows: 8 })
+  resize.nudge()
+  clock.advance(300)
+  assert.deepEqual(sent, [{ cols: 53, rows: 9 }, { cols: 53, rows: 8 }])
+  assert.ok(sent.every(size => size.rows >= s.MIN_ROWS))
+})
+
+test('a return to the page repaints only after a long absence or on a touch screen, at most once every 5 s', () => {
+  const long = 30_000, cooldown = 5_000
+  assert.equal(s.repaintOnReturn({ hiddenFor: 1_000, coarse: false, sinceRepaint: Infinity }), false)
+  assert.equal(s.repaintOnReturn({ hiddenFor: long - 1, coarse: false, sinceRepaint: Infinity }), false)
+  assert.equal(s.repaintOnReturn({ hiddenFor: long, coarse: false, sinceRepaint: Infinity }), true)
+  assert.equal(s.repaintOnReturn({ hiddenFor: 100, coarse: true, sinceRepaint: Infinity }), true)
+  assert.equal(s.repaintOnReturn({ hiddenFor: 100, coarse: true, sinceRepaint: cooldown - 1 }), false)
+  assert.equal(s.repaintOnReturn({ hiddenFor: 100, coarse: true, sinceRepaint: cooldown }), true)
+  assert.equal(s.repaintOnReturn({ hiddenFor: long * 10, coarse: false, sinceRepaint: cooldown - 1 }), false)
 })
 
 test('a size requested during a nudge is the size the nudge ends on', () => {

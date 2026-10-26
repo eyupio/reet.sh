@@ -59,7 +59,8 @@ export class ResizeSender {
     const target = this.wanted ?? this.sent
     if (!target) return
     this.cancel()
-    const step = { cols: target.cols, rows: target.rows > 1 ? target.rows - 1 : target.rows + 1 }
+    // One row shorter, or one taller at the floor, so the nudge never goes below MIN_ROWS.
+    const step = { cols: target.cols, rows: target.rows - 1 >= MIN_ROWS ? target.rows - 1 : target.rows + 1 }
     if (!this.send(step)) return
     this.sent = step
     this.nudging = true
@@ -72,6 +73,17 @@ export class ResizeSender {
     if (this.send({ ...this.wanted })) this.sent = { ...this.wanted }
   }
   private cancel() { if (this.timer !== null) this.clearTimer(this.timer); this.timer = null; this.nudging = false }
+}
+
+export const REPAINT_AFTER_HIDDEN = 30_000, REPAINT_COOLDOWN = 5_000
+
+/**
+ * Whether a return to the page sends the repaint nudge. Phones freeze background
+ * tabs, so a touch screen always repaints; elsewhere only after a long absence.
+ * Never twice within the cooldown (a reattach also counts as a repaint).
+ */
+export function repaintOnReturn(context: { hiddenFor: number; coarse: boolean; sinceRepaint: number }): boolean {
+  return context.sinceRepaint >= REPAINT_COOLDOWN && (context.coarse || context.hiddenFor >= REPAINT_AFTER_HIDDEN)
 }
 
 export type ViewportReading = { innerWidth: number; innerHeight: number; visual?: { height: number; offsetTop: number; scale: number } | null }
@@ -120,3 +132,9 @@ export function browserViewport(): ViewportReading {
 }
 // One tracker per page, so the workspace and a maximised pane agree on the tallest height seen.
 export const pageViewport = new ViewportTracker()
+
+// Phone rules apply to a narrow window, or to a short touch screen held sideways.
+// Orientation keeps a portrait phone whose page shrank for the keyboard out of the landscape layout.
+export const LANDSCAPE_PHONE = '(max-height:500px) and (pointer:coarse) and (orientation:landscape)'
+export const PHONE_SCREEN = `(max-width:650px), ${LANDSCAPE_PHONE}`
+export const PHONE_TOUCH = `(max-width:650px) and (pointer:coarse), ${LANDSCAPE_PHONE}`

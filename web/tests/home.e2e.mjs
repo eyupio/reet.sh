@@ -124,6 +124,24 @@ try {
  }
 
  // A machine without a fresh CPU report reads No reading, with an empty grey bar, never 0%.
+ // A session whose end was asked for is not running: the card says how many are ending, in words, beside the running count.
+ if (run('ending sessions are not counted as running')) {
+  const {context,page,errors,box} = await home()
+  box.sessions = [...baseSessions().filter(s => s.agentId === 'a1'),
+   session('s3','a2','Speed up the runner pool','end_requested'), session('s5','a2','Bench the cache','end_requested')]
+  await page.goto(base)
+  const desk = card(page,'desk')
+  await expect(desk).toHaveAccessibleName(/^desk, offline, 0 sessions running · 2 ending \(last known, not reporting\), CPU No reading, 2 skills out of date$/)
+  await expect(desk.locator('.figure')).toHaveText('0')
+  await expect(desk.locator('.sessions')).toHaveText(/^0\s+sessions running\s*· 2 ending$/)
+  await expect(desk.locator('.caption')).toHaveText('Last known count. desk is not reporting.')
+  const studio = card(page,'studio')
+  await expect(studio).toHaveAccessibleName(/^studio, online, 2 sessions running, CPU 38%/)
+  await expect(studio.locator('.sessions')).not.toContainText('ending')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  if (run('missing CPU reads No reading')) {
   const {context,page,errors} = await home()
   await page.goto(base)

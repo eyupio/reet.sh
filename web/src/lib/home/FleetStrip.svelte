@@ -2,7 +2,7 @@
   import { reporting, type FleetCard } from '../home'
 
   // One card per enrolled machine in the person's machine order, then Add a machine. Every figure is labelled with what it
-  // measures (R12): the live sessions on that machine of any kind (the listing cannot say which run an agent), the CPU from
+  // measures (R12): the running sessions on that machine of any kind, and how many are ending (the listing cannot say which run an agent), the CPU from
   // a fresh health report or "No reading", and the skills line from the last finished sync check. No worktree figure: no
   // existing record says which worktrees reet made and has not removed. A card opens that machine on Machines.
   let { cards, sessions, addHref, loaded }: {
@@ -17,7 +17,10 @@
   const running = (n: number) => `${n} ${n === 1 ? 'session' : 'sessions'} running`
   function name(c: FleetCard): string {
     const parts = [c.name, c.status]
-    if (sessions) parts.push(reporting(c) ? running(c.sessionsRunning) : `${running(c.sessionsRunning)} (last known, not reporting)`)
+    if (sessions) {
+      const count = running(c.sessionsRunning) + (c.sessionsEnding ? ` · ${c.sessionsEnding} ending` : '')
+      parts.push(reporting(c) ? count : `${count} (last known, not reporting)`)
+    }
     parts.push(`CPU ${c.cpu.text}`, c.skills.text)
     return parts.join(', ')
   }
@@ -35,7 +38,7 @@
           {#if c.os}<span class="os">{c.os}</span>{/if}
         </span>
         {#if sessions}
-          <span class="sessions"><span class="figure">{c.sessionsRunning}</span> <span class="unit">{c.sessionsRunning === 1 ? 'session running' : 'sessions running'}</span></span>
+          <span class="sessions"><span class="figure">{c.sessionsRunning}</span> <span class="unit">{c.sessionsRunning === 1 ? 'session running' : 'sessions running'}</span>{#if c.sessionsEnding}{' '}<span class="ending">· {c.sessionsEnding} ending</span>{/if}</span>
           {#if !reporting(c)}<span class="caption">Last known count. {c.name} is not reporting.</span><span class="chip-note" aria-hidden="true">· last known</span>{/if}
         {/if}
         <span class="cpu"><span class="label">CPU</span> <span class="value">{c.cpu.text}</span></span>
@@ -76,6 +79,7 @@
   .sessions { display: flex; align-items: baseline; gap: 6px; }
   .figure { font: 600 28px/1 var(--serif); }
   .unit { color: var(--muted); }
+  .ending { color: var(--muted); white-space: nowrap; }
   .caption { margin-top: -6px; font-size: 12px; color: var(--muted); }
   .cpu { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: -6px; }
   .cpu .value { color: var(--ink); }

@@ -63,7 +63,7 @@ test('a paused agent that still reports reads paused, and one that stopped repor
   assert.equal(cards[0].sessionsRunning, 1)
 })
 
-test('sessions running counts live sessions of any kind; finished and exited are not counted', () => {
+test('sessions running counts running and starting sessions; ending, finished and exited are not counted', () => {
   const sessions = [
     session('live', 'a1', 'running'),
     session('starting', 'a1', 'creating'),
@@ -74,11 +74,17 @@ test('sessions running counts live sessions of any kind; finished and exited are
     session('ended', 'a1', 'ended'),
     session('lost', 'a1', 'lost'),
     session('other', 'a2', 'running'),
+    session('going', 'a3', 'end_requested'),
+    session('going too', 'a3', 'end_requested'),
   ]
   const [studio, laptop, idle] = fleetCards([machine('a1', 'studio'), machine('a2', 'laptop'), machine('a3', 'idle')], sessions, emptySync(), NOW)
-  assert.equal(studio.sessionsRunning, 4)
+  assert.equal(studio.sessionsRunning, 3)
+  assert.equal(studio.sessionsEnding, 1)
   assert.equal(laptop.sessionsRunning, 1)
+  assert.equal(laptop.sessionsEnding, 0)
+  // A machine whose only sessions are ending runs none.
   assert.equal(idle.sessionsRunning, 0)
+  assert.equal(idle.sessionsEnding, 2)
   // The listing cannot say which sessions are agents, so the card never claims agents.
   for (const card of [studio, laptop, idle]) assert.equal('agentsRunning' in card, false)
   assert.equal(h.agentSessionIds, undefined)

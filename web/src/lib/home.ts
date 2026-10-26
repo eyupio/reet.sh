@@ -9,7 +9,9 @@ import type { Project, ProjectRun } from './projects'
 
 export type Tone = 'good' | 'warn' | 'bad' | 'muted'
 export type FleetCard = {
-  agentId: string; name: string; os: string; status: 'online' | 'offline' | 'reconnecting'; agentsRunning: number
+  agentId: string; name: string; os: string; status: 'online' | 'offline' | 'reconnecting'
+  /** Live sessions of any kind on that machine: the listing cannot say which ones run an agent. */
+  sessionsRunning: number
   cpu: { label: 'CPU'; percent: number | null; text: string }
   /** Absent in this release: the session listing cannot say "created by reet on that machine and not removed". */
   worktrees?: number
@@ -88,23 +90,13 @@ function skillsOf(agentId: string, sync: SyncState, now: number): FleetCard['ski
   return { text: `skills in sync · checked ${ago(Math.max(0, now - oldest))}`, tone: 'good' }
 }
 
-/**
- * Sessions a record says were started with an agent: a Project run member that started it (a run always resolves
- * a tool). The session listing itself carries no tool, so a session started any other way is not counted.
- */
-export function agentSessionIds(runs: ProjectRun[]): Set<string> {
-  const ids = new Set<string>()
-  for (const run of runs) for (const m of run.members) if (m.sessionId && m.tool) ids.add(m.sessionId)
-  return ids
-}
-
-export function fleetCards(machines: MachineHealth[], sessions: TerminalSession[], sync: SyncState, now: number, agentSessions: ReadonlySet<string> = new Set()): FleetCard[] {
+export function fleetCards(machines: MachineHealth[], sessions: TerminalSession[], sync: SyncState, now: number): FleetCard[] {
   return machines.map(m => ({
     agentId: m.agentId,
     name: m.host,
     os: m.capabilities?.os ?? '',
     status: statusOf(m),
-    agentsRunning: sessions.filter(s => s.agentId === m.agentId && live(s) && agentSessions.has(s.id)).length,
+    sessionsRunning: sessions.filter(s => s.agentId === m.agentId && live(s)).length,
     cpu: cpuOf(m),
     skills: skillsOf(m.agentId, sync, now),
   }))

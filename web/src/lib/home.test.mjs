@@ -6,7 +6,7 @@ import ts from 'typescript'
 const source = readFileSync(new URL('./home.ts', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
 const h = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
-const { fleetCards, agentSessionIds, sessionProjects, inFlight, rowSubtitle, stateWord, needsYou, attentionCount } = h
+const { fleetCards, sessionProjects, inFlight, rowSubtitle, stateWord, needsYou, attentionCount } = h
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000, HOUR = 60 * MIN
@@ -54,22 +54,25 @@ test('cards keep the machine order, name, OS and connection word', () => {
   assert.deepEqual(cards.map(c => [c.agentId, c.name, c.os, c.status]), [['a2', 'laptop', 'darwin', 'online'], ['a1', 'studio', 'linux', 'online'], ['a3', 'pi', 'linux', 'reconnecting'], ['a4', 'gone', 'linux', 'offline'], ['a5', 'new', 'linux', 'offline']])
 })
 
-test('agents running counts only live sessions started with an agent', () => {
+test('sessions running counts live sessions of any kind; finished and exited are not counted', () => {
   const sessions = [
-    session('agent-live', 'a1', 'running'),
-    session('agent-starting', 'a1', 'creating'),
-    session('shell-live', 'a1', 'running'),
-    session('agent-exited', 'a1', 'exited', { exitCode: 0 }),
-    session('agent-lost', 'a1', 'lost'),
-    session('agent-other', 'a2', 'running'),
+    session('live', 'a1', 'running'),
+    session('starting', 'a1', 'creating'),
+    session('ending', 'a1', 'end_requested'),
+    session('shell', 'a1', 'running'),
+    session('exited', 'a1', 'exited', { exitCode: 0 }),
+    session('failed', 'a1', 'exited', { exitCode: 2 }),
+    session('ended', 'a1', 'ended'),
+    session('lost', 'a1', 'lost'),
+    session('other', 'a2', 'running'),
   ]
-  const agents = agentSessionIds([run('r1', 'p1', ['agent-live', 'agent-starting', 'agent-exited', 'agent-lost', 'agent-other', ''])])
-  assert.equal(agents.has(''), false, 'an empty session id is not a session')
-  const [studio, laptop] = fleetCards([machine('a1', 'studio'), machine('a2', 'laptop')], sessions, emptySync(), NOW, agents)
-  assert.equal(studio.agentsRunning, 2)
-  assert.equal(laptop.agentsRunning, 1)
-  // Without any record that says an agent was started, a plain session is never counted.
-  assert.equal(fleetCards([machine('a1', 'studio')], sessions, emptySync(), NOW)[0].agentsRunning, 0)
+  const [studio, laptop, idle] = fleetCards([machine('a1', 'studio'), machine('a2', 'laptop'), machine('a3', 'idle')], sessions, emptySync(), NOW)
+  assert.equal(studio.sessionsRunning, 4)
+  assert.equal(laptop.sessionsRunning, 1)
+  assert.equal(idle.sessionsRunning, 0)
+  // The listing cannot say which sessions are agents, so the card never claims agents.
+  for (const card of [studio, laptop, idle]) assert.equal('agentsRunning' in card, false)
+  assert.equal(h.agentSessionIds, undefined)
 })
 
 test('skills line never says in sync without a check', () => {

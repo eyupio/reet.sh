@@ -148,6 +148,11 @@ type Counts struct {
 type Store struct {
 	db  *sql.DB
 	dir string
+
+	// runClaims holds the Project run members a goroutine in this process has
+	// claimed to start. It is deliberately not persisted: after a restart no
+	// create call is in flight, so every pending member may be claimed again.
+	runClaims runClaims
 }
 
 const cols = `id,source,slug,source_type,url,name,description,notes,installs,installs_week,trend,liked,bookmarked,used,created_at,updated_at`
@@ -372,6 +377,10 @@ func Open(dir string) (*Store, error) {
 		return nil, err
 	}
 	if err := st.migrateSSO(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := st.migrateProjects(); err != nil {
 		db.Close()
 		return nil, err
 	}

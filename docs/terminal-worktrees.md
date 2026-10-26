@@ -9,8 +9,10 @@ by itself, and never deletes the branch.
 
 This document describes what the code does after the commits "Offer worktrees
 through the broker and API" and "Refuse removal for nested bare repositories and
-make the partial-scan refusal tested" in Projects PR 1. The Projects page
-and the run orchestration that will call it are later pull requests.
+make the partial-scan refusal tested" in Projects PR 1. The controller side
+that calls it (the Project store, the Projects API and the run orchestration) is
+Projects PR 2; see "The run orchestration" below. The Projects pages (PR 3) and
+the Projects guide (PR 4) are later pull requests.
 
 ## Negotiation
 
@@ -354,6 +356,40 @@ never recomputing it from the saved folder. Members with the same machine and th
 same folder are refused as a duplicate repository when the Project is saved and
 started; two different saved folders that resolve to one repository on the machine
 are not caught by the controller.
+
+## The run orchestration
+
+Projects PR 2 adds the controller code that starts a run (`internal/projectrun`):
+
+- Each member's create carries the request id `run|position|attempt` (SHA-256, the
+  first 48 hex characters) and, when the Project uses worktrees, the run token
+  `worktree|run|position` (the first 24) and the Project slug of the run's name
+  snapshot.
+- The member is durably marked *sent* just before its create is handed to the
+  broker. The mark is cleared only when that request id is known to have started
+  nothing. A retry reuses the attempt (the same request id) while the mark is set,
+  and takes the next attempt only when it is clear, so a retry never adopts the
+  worktree under a new request id and starts a second agent.
+- The broker answers a request id it already reserved from that reservation, before
+  it looks at the machine's capabilities, so a replay after a capability change
+  still returns the existing session.
+- At most two members of a run, and one create per machine across all runs, are
+  in flight at once. A member whose machine is not ready waits for it (30 seconds,
+  or 2 minutes after a controller restart) without holding a slot. A run of 12
+  members on one machine therefore takes at most about 12 times the worktree create
+  limit (3 minutes each), about 36 minutes, in the worst case.
+- Starting a run needs a request id; repeating it answers with the same run. A new
+  run of a Project is refused while an earlier one still has pending members.
+- The run JSON names each worktree for status and remove: `host` (the machine's
+  agent id), `worktreeProject`, `worktreeRepo` (as the machine reported it) and
+  `worktreeRun`. A successful remove moves that member to `removed`.
+- A run without worktrees starts each agent in the saved folder itself; its members
+  say `sharesCheckout`, because any other run or session there shares that checkout.
+- A member's machine is its enrollment (agent id). Merging or revoking a machine
+  does not rewrite saved Projects or runs: members of the old enrollment then fail
+  `unknown_machine` (nothing is sent), and the Project has to be edited to name the
+  remaining machine.
+- The controller is single-process: claims and per-machine slots are in memory.
 
 ## Audit
 

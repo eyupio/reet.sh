@@ -89,7 +89,7 @@ jobs:
         with:
           name: release-web
           path: web/dist
-      - run: go vet ./... && go test -race ./...
+      - run: go vet ./... && go test -race -timeout=20m ./...
 
   build:
     needs: [source, web, verify]

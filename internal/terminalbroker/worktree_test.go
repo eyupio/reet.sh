@@ -531,3 +531,36 @@ func TestWorktreeAnswersMustMatchTheRequest(t *testing.T) {
 		t.Fatal("a mismatched folder was recorded", got)
 	}
 }
+
+// A replay of a request id the controller already reserved answers with that
+// session even when the machine's capabilities changed since: the agent may be
+// running, and refusing the replay would let a caller think nothing started.
+// A new request id is still refused.
+func TestReplayOfAReservedCreateIgnoresACapabilityChange(t *testing.T) {
+	f := launchFixture(t, worktreeCapabilities("claude"))
+	in := worktreeCreate()
+	request := ID()
+	first, started, err := f.b.CreateSession(t.Context(), f.uid, f.agent, request, in)
+	if err != nil || !started {
+		t.Fatal(first, started, err)
+	}
+	caps, err := f.st.RemoteCapabilitiesFor(f.uid, f.agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, flipped := range []terminalproto.Capabilities{launchCapabilities("claude"), legacyCapabilities()} {
+		if err := f.st.UpdateRemoteCapabilitiesFor(f.uid, f.agent, caps.InstanceID, caps.Generation, flipped); err != nil {
+			t.Fatal(err)
+		}
+		again, started, err := f.b.CreateSession(t.Context(), f.uid, f.agent, request, in)
+		if err != nil || started || again.ID != first.ID {
+			t.Fatal("replay after a capability change", again, started, err)
+		}
+		if _, _, err := f.b.CreateSession(t.Context(), f.uid, f.agent, ID(), in); !errors.Is(err, ErrWorktreeUnsupported) {
+			t.Fatal("a new request was not refused", err)
+		}
+	}
+	if len(f.sent()) != 1 {
+		t.Fatal("dispatched again", f.sent())
+	}
+}

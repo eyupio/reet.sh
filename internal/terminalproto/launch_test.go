@@ -172,3 +172,25 @@ func TestPromptNeedsWordsForPositionalPrompts(t *testing.T) {
 		}
 	}
 }
+
+func TestExportedValidatorsMatchTheCreateRules(t *testing.T) {
+	for _, c := range []struct {
+		model, dir, prompt string
+		ok                 bool
+	}{
+		{"claude-opus-4.1", "/home/a/b", "fix it", true},
+		{"-bad", "relative", "-flag", false},
+		{"", "", "", false},
+		{"m\x00", "/a\n", "a\x01b", false},
+	} {
+		if ValidModel(c.model) != c.ok || ValidDir(c.dir) != c.ok || ValidPrompt(c.prompt) != c.ok {
+			t.Fatalf("%+v", c)
+		}
+	}
+	if ValidPrompt(strings.Repeat("a", MaxPromptBytes+1)) || !ValidPrompt(strings.Repeat("a", MaxPromptBytes)) || ValidDir("/"+strings.Repeat("a", MaxDirBytes)) {
+		t.Fatal("byte limits")
+	}
+	if !ValidPrompt("line one\nline two") || ValidPrompt("tab\there") {
+		t.Fatal("prompt control characters")
+	}
+}

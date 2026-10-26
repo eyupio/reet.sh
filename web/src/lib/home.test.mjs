@@ -227,8 +227,8 @@ test('a check made for an older desired revision is not counted', () => {
   assert.deepEqual(fleetCards([machine('a1', 'studio')], [], syncWith([current, stale], [t]), NOW)[0].skills, { text: 'skills in sync · checked 2 h ago', tone: 'good' })
 })
 
-test('runs are read only for Projects whose last run started in the last 24 h', () => {
-  const p = (id, startedAt) => ({ ...project(id, id), lastRun: startedAt === undefined ? undefined : { id: `r-${id}`, state: 'running', startedAt } })
+test('finished runs are read only for Projects whose last run started in the last 24 h', () => {
+  const p = (id, startedAt) => ({ ...project(id, id), lastRun: startedAt === undefined ? undefined : { id: `r-${id}`, state: 'complete', startedAt } })
   assert.deepEqual(h.recentRunIds([p('new', NOW - HOUR), p('old', NOW - 25 * HOUR), p('never'), p('edge', NOW - 24 * HOUR)], NOW), ['r-new', 'r-edge'])
   assert.deepEqual(h.recentRunIds([], NOW), [])
 })
@@ -241,4 +241,14 @@ test('a Project counts only its live sessions as running', () => {
 
 test('short age', () => {
   assert.deepEqual([0, 59_000, 12 * MIN, 3 * HOUR, 49 * HOUR].map(h.shortAge), ['now', 'now', '12m', '3h', '2d'])
+})
+
+test('a Project whose last run is still running is read and never called idle, however old the run', () => {
+  const old = { ...project('p1', 'Store'), lastRun: { id: 'r-old', state: 'running', startedAt: NOW - 3 * 24 * HOUR } }
+  const done = { ...project('p2', 'Notes'), lastRun: { id: 'r-done', state: 'complete', startedAt: NOW - 3 * 24 * HOUR } }
+  assert.deepEqual(h.recentRunIds([old, done], NOW), ['r-old'])
+  assert.equal(h.projectState(old, 2), '2 running')
+  assert.equal(h.projectState(old, 0), 'run in progress')
+  assert.equal(h.projectState(done, 0), 'idle')
+  assert.equal(h.projectState(project('p3', 'New'), 0), 'idle')
 })

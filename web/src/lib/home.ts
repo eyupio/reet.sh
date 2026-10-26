@@ -193,9 +193,19 @@ export function attentionCount(cards: NeedCard[]): number {
   return cards.length
 }
 
-/** The runs Home reads: each Project's last run, only when it started in the last 24 hours. Older runs' sessions sit under their machine. */
+/**
+ * The runs Home reads: each Project's last run when it started in the last 24 hours, or when the Projects list says it is
+ * still running however long ago it started. Older finished runs' sessions sit under their machine.
+ */
 export function recentRunIds(projects: Project[], now: number): string[] {
-  return projects.filter(p => p.lastRun && now - p.lastRun.startedAt <= DAY).map(p => p.lastRun!.id)
+  return projects.filter(p => p.lastRun && (p.lastRun.state === 'running' || now - p.lastRun.startedAt <= DAY)).map(p => p.lastRun!.id)
+}
+
+/** The rail's state words: the live sessions tied to the Project, else what its last run record says, else idle. */
+export function projectState(project: Pick<Project, 'lastRun'>, running: number): string {
+  if (running > 0) return `${running} running`
+  if (project.lastRun?.state === 'running') return 'run in progress'
+  return 'idle'
 }
 
 /** Live sessions per Project, from the same ownership In flight groups by. */

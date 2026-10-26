@@ -63,55 +63,65 @@
   const needs = $derived(needsYou(sessions ?? [], now))
   $effect(() => { onattention?.(attentionCount(needs)) })
 
-  const signedOut = (e: unknown) => e instanceof UnauthorizedError || (e instanceof TerminalError && e.status === 401)
-  // A read-only sign-in may have no health report to read (a single token or an open instance): the sync agents then name
-  // the machines, connected when the agent reported in the last 90 seconds, as Control says.
+  // Only a refusal of the credential this sign-in uses means it is signed out: the token rides the sync read, the cookie (an
+  // accounts-mode sign-in) every read. The health read is cookie-only, so a single-token or open instance never makes it.
+  const refused = (e: unknown, cookie: boolean) => e instanceof UnauthorizedError || (cookie && accounts && e instanceof TerminalError && e.status === 401)
+  // Machines from the health report when this sign-in can read it; otherwise (a single token, an open instance, or an account
+  // the health read refuses with 403) from the sync agents, connected when the agent reported in the last 90 seconds.
+  // svelte-ignore state_referenced_locally
+  let healthReadable = accounts
   const fromAgents = (s: SyncState, at: number): MachineHealth[] =>
-    (s.agents ?? []).map(a => ({ agentId: a.id, host: a.host, state: !a.paused && a.lastSeen > at - 90_000 ? 'connected' : 'never_connected' }))
+    (s.agents ?? []).map(a => ({ agentId: a.id, host: a.host, state: a.lastSeen > at - 90_000 ? 'connected' : 'never_connected' }))
+  let sessionsFailed = $state(false), projectsFailed = $state(false)
 
-  let loading = false
-  async function load() {
-    if (loading || life.signal.aborted) return
+  // Each load has a generation. A poll is skipped while another load runs; an explicit refresh (after a start or a save)
+  // supersedes it, and an answer from an older load is dropped so it never overwrites a newer list.
+  let loading = false, generation = 0
+  async function load(explicit = false) {
+    if (life.signal.aborted || (loading && !explicit)) return
+    const mine = ++generation
+    const stale = () => life.signal.aborted || mine !== generation
     loading = true
+    const signOut = () => { life.abort(); onsignedout(new UnauthorizedError()) }
     try {
       const [h, y, s, p] = await Promise.allSettled([
-        machineHealth(bounded()),
+        healthReadable ? machineHealth(bounded()) : Promise.resolve(undefined),
         getSyncState(bounded()),
         writer ? terminalSessions(bounded()) : Promise.resolve(undefined),
         writer ? listProjects(bounded()) : Promise.resolve(undefined),
       ])
-      if (life.signal.aborted) return
-      const results = [h, y, s, p]
-      const lost = results.find(r => r.status === 'rejected' && signedOut(r.reason))
-      if (lost) { life.abort(); onsignedout(new UnauthorizedError()); return }
+      if (stale()) return
+      if ([h, y, s, p].some(r => r.status === 'rejected' && refused(r.reason, r !== y))) return signOut()
       const at = Date.now()
       let failed = false
       if (y.status === 'fulfilled') sync = y.value; else failed = true
-      if (h.status === 'fulfilled') health = h.value.machines ?? []
-      else if (!writer && y.status === 'fulfilled') health = fromAgents(y.value, at)
+      if (h.status === 'rejected' && h.reason instanceof TerminalError && h.reason.status === 403 && health === undefined) healthReadable = false
+      if (h.status === 'fulfilled' && h.value) health = h.value.machines ?? []
+      else if (!healthReadable) { if (y.status === 'fulfilled') health = fromAgents(y.value, at) }
+      // A health read that failed for a passing reason keeps the cards as last read.
       else failed = true
       if (writer) {
-        if (s.status === 'fulfilled' && s.value) sessions = s.value; else failed = true
-        if (p.status === 'fulfilled' && p.value) projects = p.value; else failed = true
-        // Each Project's last run, only when it started in the last day: its members carry the session ids. A run that
+        if (s.status === 'fulfilled' && s.value) { sessions = s.value; sessionsFailed = false } else { failed = true; sessionsFailed = sessions === undefined }
+        if (p.status === 'fulfilled' && p.value) { projects = p.value; projectsFailed = false } else { failed = true; projectsFailed = projects === undefined }
+        // The runs whose members carry session ids: a Project's last run from the last day, or one still running. A run that
         // cannot be read keeps what it last said.
         const ids = recentRunIds(projects ?? [], at)
         const read = await Promise.allSettled(ids.map(id => getRun(id, bounded())))
-        if (life.signal.aborted) return
+        if (stale()) return
+        if (read.some(r => r.status === 'rejected' && refused(r.reason, true))) return signOut()
         const next = new Map<string, ProjectRun>()
         ids.forEach((id, i) => {
           const r = read[i]
           if (r.status === 'fulfilled') next.set(id, r.value)
           else { failed = true; const kept = runs.get(id); if (kept) next.set(id, kept) }
         })
-        if (read.some(r => r.status === 'rejected' && signedOut(r.reason))) { life.abort(); onsignedout(new UnauthorizedError()); return }
         runs = next
       }
       now = at
       problem = !failed ? '' : readOnce ? "Couldn't refresh just now. Showing what was last read." : "Couldn't read everything just now. Home tries again every 15 seconds."
       readOnce = true
     } finally {
-      loading = false
+      if (mine === generation) loading = false
     }
   }
 
@@ -127,7 +137,7 @@
     checking = true
     try { terminals = await terminalMachines(bounded()); return true }
     catch (e) {
-      if (signedOut(e)) { life.abort(); onsignedout(new UnauthorizedError()); return false }
+      if (refused(e, true)) { life.abort(); onsignedout(new UnauthorizedError()); return false }
       notice = { text: "Couldn't read your machines just now. Try again in a moment.", bad: true }
       return false
     } finally { checking = false }
@@ -146,12 +156,12 @@
     sessions = [session, ...(sessions ?? []).filter(s => s.id !== session.id)]
     const host = health?.find(m => m.agentId === session.agentId)?.host ?? terminals?.find(m => m.agentId === session.agentId)?.host ?? session.agentId
     notice = { text: `Started ${session.title} on ${host}.`, href: `/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}` }
-    void load()
+    void load(true)
   }
   function saved(p: Project) {
     projects = [p, ...(projects ?? []).filter(x => x.id !== p.id)]
     notice = { text: `${p.name} is saved.`, href: `/projects/${encodeURIComponent(p.id)}` }
-    void load()
+    void load(true)
   }
 
   onMount(() => {
@@ -166,18 +176,18 @@
 <div class="home" class:writer>
   <h1 class="vh">Home</h1>
   {#if writer}
-    <ProjectRail {projects} machines={health} {running} busy={checking} onadd={openProject} />
+    <ProjectRail {projects} failed={projectsFailed} machines={health} {running} busy={checking} onadd={openProject} />
   {/if}
   <div class="column">
-    <p class="problem" role="status" aria-live="polite" hidden={!problem}>{problem}</p>
-    <FleetStrip {cards} sessions={writer} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined} />
+    <div class="live" role="status" aria-live="polite">{#if problem}<p class="problem">{problem}</p>{/if}</div>
+    <FleetStrip {cards} sessions={writer && sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined} />
     {#if writer}
-      <p class="notice" class:bad={notice?.bad} role="status" aria-live="polite" hidden={!notice}>{notice?.text}{#if notice?.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>
+      <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}</div>
       <div class="work">
         <NeedsYou cards={needs} />
-        <InFlight {groups} {owners} machines={health ?? []} {offline} {now} loaded={sessions !== undefined} {groupBy} onchoose={choose} />
+        <InFlight {groups} {owners} machines={health ?? []} {offline} {now} loaded={sessions !== undefined} failed={sessionsFailed} {groupBy} onchoose={choose} />
       </div>
-      <section class="dock" aria-label="Start a session">
+      <section class="dock" aria-label="Start an agent">
         <p>Start an agent in a new terminal session on one of your machines.</p>
         <button type="button" class="btn primary start" disabled={checking} aria-busy={checking} onclick={(e) => openStart(e.currentTarget)}>Start an agent</button>
       </section>
@@ -193,8 +203,9 @@
 {/if}
 
 <style>
-  /* The header is 61 px on a desktop, 65 px on a tablet and 57 px on a phone; the column fills the rest of the screen so
-     the docked Start an agent sits at its foot and stays there while the page scrolls. */
+  /* The header is 61 px on a desktop, 65 px on a tablet and 57 px on a phone (measured at each breakpoint). These only set the
+     column's minimum height, so the docked Start an agent starts at the foot of the first screen; if the header changes,
+     the cost is a small gap or a little extra scroll, never an overlap. */
   .home { --top: 61px; display: grid; grid-template-columns: minmax(0, 1fr); }
   .home.writer { grid-template-columns: 272px minmax(0, 1fr); }
   .column { min-width: 0; display: flex; flex-direction: column; gap: 18px; padding: 20px 24px 0; min-height: calc(100dvh - var(--top) - var(--bottom-chrome, 0px)); }
@@ -203,7 +214,8 @@
   .problem { border-color: var(--warn); }
   .notice { border-color: var(--good); }
   .notice.bad { border-color: var(--bad); }
-  .problem[hidden], .notice[hidden] { display: none; }
+  /* The live regions are always present, so a sentence put into one is announced; empty, they take no room. */
+  .live:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; }
   .work { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
   .work > :global(.needs) { grid-column: 2; grid-row: 1; }
   .work > :global(.flight) { grid-column: 1; grid-row: 1; }

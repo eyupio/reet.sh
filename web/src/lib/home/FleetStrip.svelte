@@ -65,7 +65,9 @@
   .head { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--muted); }
   .dot.online { background: var(--good); }
-  .dot.reconnecting { background: var(--warn); }
+  /* Shape as well as colour: offline is a hollow ring, reconnecting a half-filled one. */
+  .dot.offline { background: transparent; border: 2px solid var(--muted); }
+  .dot.reconnecting { background: linear-gradient(90deg, var(--warn) 50%, transparent 50%); border: 2px solid var(--warn); }
   .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .status { font-size: 12px; color: var(--muted); }
   .status.online { color: var(--good); }
@@ -105,7 +107,8 @@
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .cards { gap: 8px; margin-right: -16px; padding-right: 16px; mask-image: linear-gradient(90deg, var(--ink) 85%, transparent); -webkit-mask-image: linear-gradient(90deg, var(--ink) 85%, transparent); }
     .card { flex: none; flex-direction: row; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 999px; }
-    .status, .skills, .caption { display: none; }
+    .skills, .caption, .status.online { display: none; }
+    .status { white-space: nowrap; }
     .sessions { gap: 4px; color: var(--muted); font-size: 13px; }
     .figure { font: inherit; color: var(--muted); }
     .unit { white-space: nowrap; }

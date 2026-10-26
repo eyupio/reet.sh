@@ -4,7 +4,7 @@
 
   // In flight: live sessions, and finished ones for a day, grouped by Project, Machine or State. Each row says the state word
   // and where it came from (R10): a terminal session reports no steps, so there is no progress bar. A row opens the session.
-  let { groups, owners, machines, offline, now, loaded, groupBy, onchoose }: {
+  let { groups, owners, machines, offline, now, loaded, failed = false, groupBy, onchoose }: {
     groups: Group[]
     owners: Map<string, SessionOwner>
     machines: MachineHealth[]
@@ -12,6 +12,8 @@
     offline: { agentId: string; host: string }[]
     now: number
     loaded: boolean
+    /** The sessions could not be read and none were read before. */
+    failed?: boolean
     groupBy: GroupBy
     onchoose: (groupBy: GroupBy) => void
   } = $props()
@@ -36,8 +38,10 @@
     </div>
   </header>
   {#each offline as m (m.agentId)}<p class="offline">{m.host} is not reporting, so its sessions show their last known state.</p>{/each}
-  {#if !loaded}
-    <p class="none" role="status">Reading your sessions…</p>
+  {#if !loaded && failed}
+    <p class="none">Couldn't read your sessions just now.</p>
+  {:else if !loaded}
+    <p class="none">Reading your sessions…</p>
   {:else if groups.length === 0}
     <p class="none">Nothing in flight. Sessions you start show here, and finished ones stay for a day.</p>
   {:else}

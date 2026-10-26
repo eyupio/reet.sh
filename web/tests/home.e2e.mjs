@@ -45,9 +45,15 @@ const sync = {environments:[],machines:[],runs:[],updateJobs:[],
 // A writer's Home with the fixtures above. `fail` names paths that answer 500 from now on; `sessions` is the live list.
 async function home(options={}) {
  const reads = [], storage = []
- const box = {sessions:baseSessions(), fail:new Set(), created:null}
+ // `hold` delays the next sessions read, answering with the list as it was when the read arrived.
+ const box = {sessions:baseSessions(), fail:new Set(), created:null, hold:null}
  const routes = {
-  '/api/v2/machines/health': () => box.fail.has('health') ? {status:500,json:{error:'down'}} : health(),
+  // As the server answers it: cookie only, so a single-token sign-in gets 401 and an open instance 403.
+  '/api/v2/machines/health': (request, state) => {
+   if (state.status.mode === 'token' && !request.headers()['x-reet-token']) return {status:401,json:{error:'missing or wrong token'}}
+   if (state.status.mode === 'none') return {status:403,json:{error:'machine health requires an authenticated instance'}}
+   return box.fail.has('health') ? {status:500,json:{error:'down'}} : health()
+  },
   '/api/v2/terminal/machines': {machines:tmachines},
   '/api/v2/terminal/sessions': request => {
    if (request.method() === 'POST') {
@@ -56,9 +62,12 @@ async function home(options={}) {
     box.sessions = [s, ...box.sessions]; box.created = s
     return s
    }
-   return box.fail.has('sessions') ? {status:500,json:{error:'down'}} : {sessions:box.sessions}
+   if (box.fail.has('sessions')) return {status:500,json:{error:'down'}}
+   const then = {sessions:box.sessions}
+   if (box.hold) { const wait = box.hold; box.hold = null; return wait.then(() => then) }
+   return then
   },
-  '/api/v2/projects': () => box.fail.has('projects') ? {status:500,json:{error:'down'}} : {projects},
+  '/api/v2/projects': () => box.fail.has('projects') ? {status:500,json:{error:'down'}} : {projects:box.projects ?? projects},
   '/api/v2/project-runs/r1': runs.r1,
   '/api/v2/project-runs/r2': runs.r2,
   ...(options.routes ?? {}),
@@ -369,6 +378,119 @@ try {
    expect(errors).toEqual([])
    await context.close()
   }
+ }
+
+ // A single-token sign-in cannot use the cookie-only health read: Home draws the strip from the sync agents, keeps the stored
+ // token and never signs the person out. An open instance is refused with 403 and does the same.
+ if (run('token and open sign-ins draw the strip from sync and stay signed in')) {
+  for (const [what, status] of [['token',{mode:'token',user:null}],['open',{mode:'none',user:null}]]) {
+   const {context,page,errors,reads} = await home({status})
+   await page.clock.install()
+   if (what === 'token') await page.addInitScript(() => { if (!sessionStorage.getItem('seeded')) { localStorage.setItem('reet-token','fixture-token'); sessionStorage.setItem('seeded','1') } })
+   await page.goto(base)
+   await expect(card(page,'studio'), what).toHaveAccessibleName(/^studio, online, CPU No reading, skills in sync/)
+   await expect(card(page,'desk'), what).toHaveAccessibleName(/^desk, offline, /)
+   await page.clock.runFor(15_000)
+   await expect(card(page,'studio')).toBeVisible()
+   if (what === 'token') expect(await page.evaluate(() => localStorage.getItem('reet-token'))).toBe('fixture-token')
+   await expect(page.getByText("Couldn't refresh just now. Showing what was last read.",{exact:true})).toHaveCount(0)
+   await expect(page.getByText("Couldn't read everything just now. Home tries again every 15 seconds.",{exact:true})).toHaveCount(0)
+   expect(reads.filter(r => r.endsWith('/api/v2/machines/health')), `${what} does not ask for health it cannot read`).toEqual([])
+   expect(errors, what).toEqual([])
+   await context.close()
+  }
+ }
+
+ // A health read that fails on a refresh keeps the cards as last read and says so; it never swaps in a guess from the sync
+ // agents (a viewer included).
+ if (run('a failed health refresh keeps the last cards')) {
+  for (const [what, status] of [['writer',undefined],['viewer',{user:{...owner,role:'viewer'}}]]) {
+   const {context,page,errors,box} = await home(status ? {status} : {})
+   await page.clock.install()
+   await page.goto(base)
+   await expect(card(page,'studio')).toHaveAccessibleName(/CPU 38%/)
+   const before = await strip(page).getByRole('link').evaluateAll(els => els.map(e => e.getAttribute('aria-label') || e.textContent.trim()))
+   box.fail.add('health')
+   await page.clock.runFor(15_000)
+   await expect(page.getByText("Couldn't refresh just now. Showing what was last read.",{exact:true}), what).toBeVisible()
+   expect(await strip(page).getByRole('link').evaluateAll(els => els.map(e => e.getAttribute('aria-label') || e.textContent.trim())), what).toEqual(before)
+   expect(errors, what).toEqual([])
+   await context.close()
+  }
+ }
+
+ // Until a sessions list has been read, no card claims a count: never a false "0 sessions running". The lists that could not
+ // be read say so instead of "Reading…".
+ if (run('a failed first sessions read shows no count')) {
+  const {context,page,errors,box} = await home()
+  box.fail.add('sessions'); box.fail.add('projects')
+  await page.goto(base)
+  await expect(page.getByText("Couldn't read everything just now. Home tries again every 15 seconds.",{exact:true})).toBeVisible()
+  await expect(card(page,'studio')).toHaveAccessibleName(/^studio, online, CPU 38%, /)
+  await expect(strip(page)).not.toContainText(/running/)
+  await expect(strip(page).locator('.figure')).toHaveCount(0)
+  await expect(inFlight(page).getByText("Couldn't read your sessions just now.",{exact:true})).toBeVisible()
+  await expect(inFlight(page)).not.toContainText('Reading your sessions')
+  await expect(rail(page).getByText("Couldn't read your Projects just now.",{exact:true})).toBeVisible()
+  await expect(rail(page)).not.toContainText('Reading your Projects')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A refresh already under way when an agent starts (or a Project is saved) must not drop it when its older answer lands.
+ if (run('a slow refresh does not drop a just-started session')) {
+  const {context,page,errors,box} = await home()
+  await page.clock.install()
+  await page.goto(base)
+  await expect(inFlight(page).getByRole('link',{name:/Tidy the release notes/})).toBeVisible()
+  let release
+  box.hold = new Promise(r => { release = r })
+  await page.clock.runFor(15_000)
+  await page.getByRole('button',{name:'Start an agent',exact:true}).click()
+  const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
+  await dialog.getByRole('button',{name:'Start',exact:true}).click()
+  await expect(dialog).toBeHidden()
+  const row = () => inFlight(page).getByRole('link',{name:new RegExp(box.created.title.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'))})
+  await expect(row()).toBeVisible()
+  release()
+  await page.waitForTimeout(1000)
+  await expect(row()).toBeVisible()
+  // The same for a Project saved while a refresh is slow.
+  box.hold = new Promise(r => { release = r })
+  await page.clock.runFor(15_000)
+  const saved = {id:'p9',name:'Fresh project',defaultTool:'claude',defaultModel:'',useWorktrees:false,hasSharedPrompt:false,members:[{host:'a1',dir:'~/fresh',tool:'',model:'',position:0}],createdAt:1,updatedAt:1,version:1}
+  await page.route('**/api/v2/projects', route => route.request().method() === 'POST' ? (box.projects = [saved, ...projects], route.fulfill({json:saved})) : route.fallback())
+  await rail(page).getByRole('button',{name:'Add a project'}).click()
+  const pd = page.getByRole('dialog',{name:'New project',exact:true})
+  await pd.getByRole('textbox',{name:'Name'}).fill('Fresh project')
+  await pd.getByRole('button',{name:'Add a repository'}).click()
+  await pd.getByRole('combobox',{name:'Folder',exact:true}).selectOption({label:'Type a path…'})
+  await pd.getByRole('textbox',{name:'Folder path'}).fill('/home/dev/fresh')
+  await pd.getByRole('button',{name:'Save Project'}).click()
+  await expect(pd).toBeHidden()
+  await expect(rail(page).getByRole('link',{name:/^Fresh project/})).toBeVisible()
+  release()
+  await page.waitForTimeout(1000)
+  await expect(rail(page).getByRole('link',{name:/^Fresh project/})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Status is never colour alone: a phone chip that is not online says so in words, and the rail's narrow strip names each
+ // Project's state in its link.
+ if (run('status in words on phone chips and the rail strip')) {
+  const phone = await home({width:390,touch:true})
+  await phone.page.goto(base)
+  await expect(card(phone.page,'desk').locator('.status')).toBeVisible()
+  await expect(card(phone.page,'desk').locator('.status')).toHaveText('offline')
+  await expect(card(phone.page,'desk').locator('.dot')).toHaveClass(/offline/)
+  expect(await card(phone.page,'desk').locator('.dot').evaluate(e => getComputedStyle(e).borderStyle)).toBe('solid')
+  await phone.context.close()
+  const narrow = await home({width:1200})
+  await narrow.page.goto(base)
+  await expect(rail(narrow.page).getByRole('link',{name:'Store rewrite, 1 running',exact:true})).toBeVisible()
+  await expect(rail(narrow.page).getByRole('link',{name:'Notes, idle',exact:true})).toBeVisible()
+  await narrow.context.close()
  }
  console.log('Home: fleet strip with sessions running, CPU or No reading and the skills line, no worktree figure, Add a machine, In flight grouped by Project, Machine and State with offline sessions kept, Needs you empty with a quiet bell, the read-only rail with Add, Start an agent, the read-only Home, refresh errors keeping the last lists, storage limited to the Group by key, and the desktop, tablet and phone layouts.')
 } finally { await browser.close() }

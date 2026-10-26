@@ -1,12 +1,15 @@
 <script lang="ts">
   import type { MachineHealth } from '../terminal/api'
   import { hostLabel, type Project } from '../projects'
+  import { projectState } from '../home'
 
   // The saved Projects, read-only: name, the machines their folders are on and how many of their sessions run now. Choosing
   // one opens it; Add opens the existing New project dialog. Folder browsing arrives with PR A and PR B. Under 1240 px the
   // rail is a 56 px strip of the same links.
-  let { projects, machines, running, busy, onadd }: {
+  let { projects, failed = false, machines, running, busy, onadd }: {
     projects: Project[] | undefined
+    /** The Projects could not be read and none were read before. */
+    failed?: boolean
     /** For the machine names only; until they are read a member shows its machine id. */
     machines: MachineHealth[] | undefined
     running: Map<string, number>
@@ -28,8 +31,10 @@
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" /></svg>Add
       </button>
     </header>
-    {#if !projects}
-      <p class="none" role="status">Reading your Projects…</p>
+    {#if !projects && failed}
+      <p class="none">Couldn't read your Projects just now.</p>
+    {:else if !projects}
+      <p class="none">Reading your Projects…</p>
     {:else if projects.length === 0}
       <p class="none">No Projects yet. Add one to start agents in its folders together.</p>
     {:else}
@@ -44,7 +49,7 @@
               </span>
               <span class="meta">
                 {#each hosts(p) as h (h)}<span class="tag">{h}</span>{/each}
-                <span class="state" class:on={n > 0}>{n > 0 ? `${n} running` : 'idle'}</span>
+                <span class="state" class:on={n > 0}>{projectState(p, n)}</span>
               </span>
             </a>
           </li>
@@ -58,7 +63,7 @@
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" /></svg>
     </button>
     {#each projects ?? [] as p (p.id)}
-      <a class="mini" href={href(p)} aria-label={p.name} title={p.name}><span aria-hidden="true">{initial(p.name)}</span>{#if (running.get(p.id) ?? 0) > 0}<i class="live" aria-hidden="true"></i>{/if}</a>
+      <a class="mini" href={href(p)} aria-label={`${p.name}, ${projectState(p, running.get(p.id) ?? 0)}`} title={`${p.name}, ${projectState(p, running.get(p.id) ?? 0)}`}><span aria-hidden="true">{initial(p.name)}</span>{#if (running.get(p.id) ?? 0) > 0}<i class="live" aria-hidden="true"></i>{/if}</a>
     {/each}
   </div>
 </aside>

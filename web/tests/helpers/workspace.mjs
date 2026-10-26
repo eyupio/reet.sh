@@ -16,8 +16,8 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   const path = new URL(route.request().url()).pathname
   if(gates[path])await gates[path]
   const json = data => route.fulfill({json:data})
-  // A test's own answers, ahead of the defaults below: a function gets the request and the state and returns {status?, json}, or just the JSON to send.
-  if(routes[path]!==undefined){const answer=typeof routes[path]==='function'?routes[path](route.request(),state):routes[path];return route.fulfill({status:answer?.status||200,json:answer?.json!==undefined?answer.json:answer})}
+  // A test's own answers, ahead of the defaults below: a function gets the request and the state and returns (or resolves to) {status?, json}, or just the JSON to send.
+  if(routes[path]!==undefined){const answer=typeof routes[path]==='function'?await routes[path](route.request(),state):routes[path];return route.fulfill({status:answer?.status||200,json:answer?.json!==undefined?answer.json:answer})}
   if(path==='/api/v2/auth/status')return json(state.status)
   if(path==='/api/v2/auth/setup'){state.status={...state.status,setupRequired:false,user:owner};return json(owner)}
   if(path==='/api/v2/profile'){
@@ -32,7 +32,13 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/sync')return json(sync)
   if(path==='/api/v2/setup/profiles')return json({profiles:[]})
   if(path==='/api/v2/hosting')return json(hosting)
-  if(path==='/api/v2/machines/health')return json({serverNow:Date.now(),machines:[]})
+  // As the server answers it: the health read uses the browser cookie only, so a single-token sign-in (which sends its token
+  // in a header the read never carries) is refused with 401, and an open instance with 403.
+  if(path==='/api/v2/machines/health'){
+   if(state.status.mode==='token'&&!route.request().headers()['x-reet-token'])return route.fulfill({status:401,json:{error:'missing or wrong token'}})
+   if(state.status.mode==='none')return route.fulfill({status:403,json:{error:'machine health requires an authenticated instance'}})
+   return json({serverNow:Date.now(),machines:[]})
+  }
   if(path==='/api/v2/terminal/status')return json(terminalStatus)
   if(path==='/api/v2/terminal/machines')return json({machines:terminalMachines})
   if(path==='/api/v2/terminal/sessions')return json({sessions:[]})

@@ -12,6 +12,8 @@ let wireBytes=0,wirePrompt=false
 let sockets = 0
 let lastSize
 page.on('websocket', socket => {sockets++;socket.on('framereceived',({payload})=>{if(typeof payload!=='string'){wireBytes+=payload.length;wirePrompt ||= payload.toString().includes('stage6-ready>')}});socket.on('framesent',({payload})=>{try{const message=JSON.parse(String(payload));if(message.type==='resize')lastSize={cols:message.cols,rows:message.rows}}catch{/* binary input */}})})
+// The attachment ticket also sets the host's size; the browser sends no resize frame for a size the host already has.
+page.on('request', request => {if(request.method()==='POST'&&new URL(request.url()).pathname.endsWith('/attachments')){const body=request.postDataJSON();lastSize={cols:body.cols,rows:body.rows}}})
 page.on('pageerror', error => errors.push(error.message))
 const pane = page.locator('.pane')
 const screen = page.locator('.xterm-accessibility-tree')
@@ -283,6 +285,8 @@ try {
   await page.setViewportSize({width:390,height:844})
   await page.evaluate(()=>document.documentElement.dataset.theme='dark')
   await expect(page.getByRole('button',{name:'Send Ctrl+C'})).toBeVisible()
+  // Resizes are sent once the layout settles; wait for the phone width to reach the wire.
+  await expect.poll(()=>lastSize?.cols||0).toBeLessThan(80)
   await expect.poll(async()=>{const remote=await page.evaluate(async()=>(await fetch('/_test/size')).json());return remote.grid===`${lastSize?.rows} ${lastSize?.cols}`},{timeout:10000}).toBe(true)
   const phoneSize={...lastSize}
   await command("set -- $(stty size); printf '__phone_pty_%s_%s__\\n' \"$1\" \"$2\"")

@@ -10,7 +10,8 @@ after 10 seconds, and labels observations older than 45 seconds as last known.
 Transient errors preserve the last list; 401/403 clears it. Viewers do not mount the
 band or request terminal data. Viewing the band does not attach to a shell.
 
-The terminal route uses compact app navigation and the remaining visual viewport.
+The terminal route uses compact app navigation and the remaining usable viewport
+(see [Phones](#phones) for how that height is chosen while a keyboard is open).
 The session sidebar scrolls independently and can be collapsed with **Sessions**
 or its collapse button. Drag its edge on desktop, or focus the splitter and use
 Left/Right/Home/End, to resize it between 220 and 480 pixels. Collapse and width
@@ -122,6 +123,10 @@ new direct SSH adapter. Phone viewport emulation is not a physical keyboard test
 - `terminal/TerminalWorkspace.svelte` owns selection, sidebar, visual-viewport
   sizing, dialogs and existing create/rename/end APIs. Confirmations capture IDs
   and display names at open time. `WorkspaceDialog.svelte` provides native modals.
+- `terminal/sizing.ts` holds the browser-free sizing rules: the phone font default,
+  the 20×8 floor, the debounced resize sender with its repaint nudge, the usable
+  viewport height and keyboard detection. `web/tests/terminal-sizing.test.mjs`
+  covers them.
 - `terminal/TerminalPane.svelte` owns xterm fitting, attachment controls, clipboard,
   focus and extra keys. `screen-frame` owns visual padding; the immediate xterm
   fitting parent `screen` has no padding. FitAddon reads that parent's dimensions
@@ -137,8 +142,9 @@ Run `npm --prefix web run check` and `npm --prefix web run build`. Finish the bu
 before Go checks because Go embeds its output. For production-bundle UI fixtures,
 start `npm --prefix web run preview -- --host 127.0.0.1 --port 4173`, then run
 `node web/tests/control.e2e.mjs`, `node web/tests/terminal-workspace.e2e.mjs` and
-`node web/tests/terminal-lifecycle.e2e.mjs` and
-`node web/tests/terminal-organisation.e2e.mjs`.
+`node web/tests/terminal-lifecycle.e2e.mjs`,
+`node web/tests/terminal-organisation.e2e.mjs` and
+`node web/tests/terminal-phone.e2e.mjs`.
 These fixtures cover synthetic two-machine continuation, permissions/errors,
 viewport bounds, clipboard, intentional disconnect, delayed observations, per-host
 retries, pending end, quota and explicit takeover. They do not prove remote
@@ -234,3 +240,79 @@ and the same remove-after-closure/account preference as the workspace.
 When the sidebar is hidden, **Show sessions** is visible in both the workspace
 header and the terminal toolbar. In theatre view the toolbar control exits theatre
 and restores the sidebar. Its saved width and organisation remain intact.
+
+## Phones
+
+These rules apply to phones: a window 650 px wide or less, or a touch screen held
+sideways that is 500 px tall or less (`PHONE_SCREEN` in `terminal/sizing.ts`). The
+sideways rules cover the terminal only; dialogs and other pages are unchanged. Desktop
+and tablet layouts are unchanged, and `web/tests/terminal-phone.e2e.mjs` checks them
+at 1360 and 768 px.
+
+**Size sent to the host.** The browser resizes the real session: the host sets the
+attachment's PTY size and tmux resizes the window, so the app gets SIGWINCH.
+- The size sent is never below 20 columns by 8 rows. If the screen has room for fewer
+  rows, xterm keeps the 8-row grid and shows its bottom rows, where prompts and
+  agent input live.
+- Sizes are sent 150 ms after the last layout change (a keyboard animating in sends
+  one size, not one per frame), and a size the host already has is never sent. The
+  attachment ticket counts as sent. A size the connection could not send is not
+  treated as sent; the next layout change or the next ticket carries it.
+- A repaint nudge sends the height one row shorter (one row taller at the 8-row
+  floor), then 300 ms later the real size. tmux passes a real size change to the app,
+  which repaints in full. It uses the existing resize message; no tmux option or
+  protocol message changed, and other tmux clients are unaffected beyond tmux's
+  normal latest-client sizing.
+- The nudge runs on every screen, not only phones: after each reattach, and when the
+  page becomes visible again if the screen is a touch screen (phones freeze background
+  tabs) or the page was hidden for 30 s or more. Never twice within 5 s; a reattach
+  counts. The first attach is not nudged because tmux repaints its own grid then.
+
+**Font.** With no stored size, phones with a coarse pointer start at 11 px, about 54
+columns at 390 px instead of 41. A stored size (10–22) always wins.
+
+**Chrome.** The pane header is one line, with the user/host still shown and truncated.
+The pane header, terminal toolbar and extra-key row lose their vertical padding. On a
+touch screen every toolbar button and extra key is at least 40 × 40 px, and the header
+controls are 40 px tall. The screen frame padding is 4 px. The toolbar and key row
+scroll sideways; the end that hides more controls fades. The key row is focusable, so
+arrow keys scroll it; that tab stop also appears in mouse windows narrower than 650 px,
+where the key row shows too. The Alt+Shift+M advice is hidden on touch screens (no
+hover, coarse pointer); Restore size stays.
+
+**Sideways phones.** The toolbar and the extra keys share one row, each scrolling with
+its own fade, and the pane footer is hidden (the state stays in the header). At 844 ×
+390 the screen shows 13 rows with the keyboard closed.
+
+**Keyboard focus layout.** While the on-screen keyboard is open and the focus is in the
+terminal, the site header, the workspace toolbar and the pane footer are hidden; held
+sideways, the pane header is hidden too (8 rows at 844 × 390 instead of none).
+**Show sessions** stays in the terminal toolbar. Everything returns when the keyboard
+closes or the focus leaves the terminal. Detection needs a coarse pointer, a phone
+screen, an unzoomed page, focus in the terminal and a height at least 25% below the
+tallest seen at that width. Theatre view still keeps the site header.
+- The tallest height is kept per width for the page's life. A same-width split screen
+  that halves the window while the focus is in the terminal therefore also gets this
+  layout, which suits it. A page first loaded with the keyboard already open, in a
+  browser that overlays the keyboard, gets the layout only after the keyboard has
+  closed once.
+
+**Usable height.** While the terminal workspace is mounted it adds
+`interactive-widget=resizes-content` to the viewport meta and restores the previous
+value when it unmounts; other pages keep the default, so their fixed bars and `100dvh`
+dialogs are unchanged. Android browsers that honour it shrink the page itself for the
+keyboard. Whether they honour a meta changed after load must be checked on the
+device; the height rule below covers both answers.
+- When the page is at least 15% shorter than the tallest seen at that width, its
+  height (`innerHeight`) is used even if `visualViewport.height` is lower. One Android
+  browser reports a visual viewport that still subtracts a bottom toolbar it hides
+  while typing, which left a blank band about 90 px tall above the keyboard.
+- Otherwise (iOS, which ignores the meta, and browsers that overlay the keyboard) the
+  visual viewport height and its `offsetTop` are used. A maximised pane follows the
+  same height and offset.
+
+**Checking a phone.** Open the terminal with `?viewport-debug=1` added to its address.
+A small readout in the top corner shows, live, `visualViewport.height` and `offsetTop`,
+`innerHeight`, `screen.height`, the height used and whether the keyboard layout is on.
+It never takes focus or touches, so the keyboard stays open while you read it; nothing
+is stored or sent. See `handoff.md` for what to record.

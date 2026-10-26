@@ -13,6 +13,7 @@
   import { TerminalError, validTerminalTitle } from './api'
   import WorkspaceDialog from './WorkspaceDialog.svelte'
   import TerminalCommandReference from './TerminalCommandReference.svelte'
+  import { pageViewport, browserViewport, keyboardLikelyOpen, PHONE_SCREEN } from './sizing'
 
   let {userId=0}:{userId?:number}=$props()
   // svelte-ignore state_referenced_locally
@@ -40,6 +41,12 @@
   const rememberedSessions = new Map<string, string>()
   let workspace = $state<HTMLElement>(), workspaceHeight = $state(Math.max(120, innerHeight - 78))
   let theatre=$state(false)
+  // Phone keyboard open while typing in the terminal: the site header and this toolbar step aside.
+  let keyboard=$state(false)
+  // ?viewport-debug=1 shows the measured heights live, for checking a real phone with its keyboard open. Nothing is stored or sent.
+  const viewportDebug=new URLSearchParams(location.search).get('viewport-debug')==='1'
+  let debugReading=$state('')
+  $effect(()=>{document.documentElement.toggleAttribute('data-terminal-keyboard',keyboard);return()=>document.documentElement.removeAttribute('data-terminal-keyboard')})
   let navOpen = $state(innerWidth >= 960), detailsOpen = $state(false)
   let healthIssue=$state(''),showCreate=$state(false)
   // The Start an agent dialog, with the button that opened it, and the folders the machines have reported (read when it opens).
@@ -164,15 +171,26 @@
   onMount(() => {
     try{const saved=JSON.parse(localStorage.getItem(preferenceKey)||'{}');if(typeof saved.open==='boolean')navOpen=saved.open&&innerWidth>=960;if(Number.isFinite(saved.width))sidebarWidth=Math.min(480,Math.max(220,saved.width))}catch{/* optional browser preference */}
     layoutLoaded=true
+    // Only this workspace asks Android browsers to resize the page for the keyboard; other pages keep the default.
+    const viewportMeta=document.querySelector<HTMLMetaElement>('meta[name="viewport"]'),viewportContent=viewportMeta?.getAttribute('content')??null
+    if(viewportMeta&&viewportContent!==null&&!/interactive-widget/.test(viewportContent))viewportMeta.setAttribute('content',`${viewportContent}, interactive-widget=resizes-content`)
     let frame=0
-    const measure=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{if(!workspace)return;const viewport=window.visualViewport;workspaceHeight=Math.max(120,(viewport?.height||innerHeight)-Math.max(0,workspace.getBoundingClientRect().top-(viewport?.offsetTop||0))-8)})}
+    const coarse=matchMedia('(pointer:coarse)'),narrow=matchMedia(PHONE_SCREEN)
+    const editing=()=>{const focus=document.activeElement;return focus instanceof HTMLElement&&!!focus.closest('.pane')&&focus.matches('textarea,input,[contenteditable]:not([contenteditable="false"])')}
+    const measure=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{
+      if(!workspace)return
+      const usable=pageViewport.read(browserViewport())
+      keyboard=keyboardLikelyOpen(usable.shrink,{coarse:coarse.matches,narrow:narrow.matches,editing:editing(),scale:window.visualViewport?.scale??1})
+      workspaceHeight=Math.max(120,usable.height-Math.max(0,workspace.getBoundingClientRect().top-usable.top)-8)
+      if(viewportDebug){const visual=window.visualViewport;debugReading=`visualViewport.height ${visual?Math.round(visual.height):'none'} · offsetTop ${visual?Math.round(visual.offsetTop):'none'}\ninnerHeight ${innerHeight} · screen.height ${screen.height}\nused height ${Math.round(usable.height)} · keyboard ${keyboard?'open':'closed'}`}
+    })}
     const observer=new ResizeObserver(measure),header=document.querySelector('.site-header')
     if(header)observer.observe(header)
     const navigationViewport=matchMedia('(min-width:960px)')
     const collapseNavigation=()=>{if(!navigationViewport.matches)navOpen=false}
     navigationViewport.addEventListener('change',collapseNavigation)
-    measure();window.addEventListener('resize',measure);window.visualViewport?.addEventListener('resize',measure);window.visualViewport?.addEventListener('scroll',measure)
-    return()=>{cancelAnimationFrame(frame);observer.disconnect();navigationViewport.removeEventListener('change',collapseNavigation);window.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('scroll',measure)}
+    measure();window.addEventListener('resize',measure);window.visualViewport?.addEventListener('resize',measure);window.visualViewport?.addEventListener('scroll',measure);document.addEventListener('focusin',measure);document.addEventListener('focusout',measure)
+    return()=>{if(viewportMeta&&viewportContent!==null)viewportMeta.setAttribute('content',viewportContent);cancelAnimationFrame(frame);observer.disconnect();navigationViewport.removeEventListener('change',collapseNavigation);window.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('scroll',measure);document.removeEventListener('focusin',measure);document.removeEventListener('focusout',measure)}
   })
   onMount(()=>{
     const abort=new AbortController();void refresh(abort.signal)
@@ -196,7 +214,7 @@
   </form>
 {/snippet}
 
-<section class="workspace" class:theatre bind:this={workspace} style={`--workspace-height:${workspaceHeight}px;--sidebar-width:${sidebarWidth}px`} aria-label="Remote terminal workspace">
+<section class="workspace" class:theatre class:keyboard bind:this={workspace} style={`--workspace-height:${workspaceHeight}px;--sidebar-width:${sidebarWidth}px`} aria-label="Remote terminal workspace">
   <header class="workspace-toolbar">
     <div class="workspace-title"><a href="/#active-sessions" aria-label="Back to active sessions">←</a><h1>Terminals</h1></div>
     {#if !navOpen}<button class="btn quick-machine" aria-label={selectedAgent ? `New terminal on ${machine?.host || 'selected machine'}` : 'Choose a machine for a new terminal'} title={selectedAgent ? 'Start a terminal on this machine' : 'Choose a machine for a new terminal'} disabled={selectedAgent ? !canCreateFor(selectedAgent) : !machines.length} onclick={()=>selectedAgent?quickCreate(selectedAgent):requestMachinePrompt('quick')}>+</button>{/if}
@@ -215,12 +233,13 @@
       {:else if !machines.length}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>Connect your first machine</h2><p>Enroll a machine and enable terminal access locally to open a shell here.</p><a class="btn primary" href="/machines#add-machine">Connect a machine</a></div>
       {:else if session}
         {#if setup || session.state === 'end_requested'}<div class="workspace-notice" role="status">{session.state === 'end_requested' ? 'End requested. Waiting for this machine to confirm; the shell still counts towards its limit.' : setup}<button onclick={() => detailsOpen = true}>View details</button></div>{/if}
-        {#key session.id}<TerminalPane sessionsVisible={navOpen&&!theatre} onsessions={toggleSidebar} bind:theatre bind:this={terminalPane} {session} historySupported={machine?.capabilities?.commandHistory??false} host={machine?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} onrename={() => openAction('rename')} onend={() => openAction('end')} onarchive={() => openAction('archive')} archiveDisabled={actionBusy} actionDisabled={actionBusy || machine?.serverEnabled === false} />{/key}
+        {#key session.id}<TerminalPane {keyboard} sessionsVisible={navOpen&&!theatre} onsessions={toggleSidebar} bind:theatre bind:this={terminalPane} {session} historySupported={machine?.capabilities?.commandHistory??false} host={machine?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} onrename={() => openAction('rename')} onend={() => openAction('end')} onarchive={() => openAction('archive')} archiveDisabled={actionBusy} actionDisabled={actionBusy || machine?.serverEnabled === false} />{/key}
       {:else}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>{selectedSession ? 'This session is unavailable' : selectedAgent && !machine ? 'This machine is unavailable' : 'Your next shell starts here.'}</h2><p>{selectedSession ? 'Choose an existing session or create one explicitly. No replacement shell was created.' : setup || 'Create a terminal, then return to the same session whenever you need it.'}</p>{@render createForm()}{#if setup}<button class="btn" onclick={() => detailsOpen = true}>View setup &amp; connection details</button>{/if}</div>{/if}
     </div>
   </div>
 </section>
 
+{#if viewportDebug}<pre class="viewport-debug" aria-hidden="true">{debugReading}</pre>{/if}
 {#if machineSearchOpen}<WorkspaceDialog title="Find a machine" onclose={()=>machineSearchOpen=false}>
   <label class="machine-search">Machine or shell user<input type="search" bind:this={machineSearchInput} bind:value={machineSearch} placeholder="Search connected machines…" /></label>
   <nav class="machine-results" aria-label="Matching machines">{#each matchingMachines as item (item.agentId)}<button class="machine-result" aria-current={item.agentId===selectedAgent?'true':undefined} onclick={()=>chooseMachine(item.agentId)}><strong>{item.host}</strong><span>{item.capabilities?.osUser || 'Shell user unavailable'} · {item.ready?'Ready':readiness(item)}</span></button>{:else}<p>No machines match.</p>{/each}</nav>
@@ -245,10 +264,14 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
 
 <style>
   .workspace.theatre>.workspace-toolbar{display:none}
+  /* Keyboard focus layout (phones only, see keyboardLikelyOpen): the terminal toolbar keeps Show sessions. */
+  .workspace.keyboard>.workspace-toolbar,:global(html[data-terminal-keyboard] .site-header){display:none}
   .workspace{height:var(--workspace-height);min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}.workspace-toolbar{display:flex;align-items:center;gap:14px;padding:8px 12px;border-bottom:1px solid var(--line);flex-shrink:0}.workspace-title{display:flex;align-items:center;gap:8px}.workspace-title>a{font-size:1.2rem;text-decoration:none;padding:4px}.workspace-title h1{font:500 1.2rem var(--serif);margin:0}.workspace-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}.workspace-actions .btn{font-size:.75rem;padding:6px 10px;min-height:34px}.workspace-actions .count{font-size:.65rem;border-radius:20px;background:var(--tint);padding:1px 5px}.workspace-body{display:grid;grid-template-columns:minmax(0,1fr);flex:1;min-height:0;position:relative}.workspace-body.with-sidebar{grid-template-columns:var(--sidebar-width) minmax(0,1fr)}.terminal-stage{min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}.terminal-stage :global(.pane:not(.maximised)){flex:1;min-height:0;border:0;border-radius:0;box-shadow:none}.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;flex:1;min-height:0;overflow:auto;color:var(--muted)}.empty-icon{font:500 2.2rem var(--mono);color:var(--accent)}.empty h2{font:500 1.6rem var(--serif);color:var(--ink);margin:12px 0}.empty>p{font-size:.85rem;max-width:55ch;margin:0 0 20px}.create-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;max-width:480px;width:100%;text-align:left;align-items:end}.create-form label{display:grid;gap:6px;font-size:.75rem}.create-form input{width:100%;min-width:0}.create-form .new-agent{grid-column:1/-1;justify-self:start}.create-form p{grid-column:1/-1;font-size:.72rem;color:var(--muted);line-height:1.5;margin:0 0 16px}.workspace-notice{margin:0;padding:7px 12px;background:var(--tint);font-size:.74rem;flex-shrink:0;display:flex;align-items:center;gap:10px;justify-content:space-between}.workspace-notice button{border:0;background:none;text-decoration:underline;cursor:pointer;white-space:nowrap;color:inherit;font:inherit}.bad{color:var(--bad)}.dialog-copy,.setup-notice p,.shortcut-help p{font-size:.8rem;color:var(--muted);line-height:1.6;margin:0}.setup-notice{border:1px solid var(--line);border-left:3px solid var(--accent);padding:14px;border-radius:8px}.setup-notice pre{font-size:.75rem;white-space:pre-wrap;overflow-wrap:anywhere}h3{font-size:.85rem;margin:0 0 10px}.shortcut-help p+p{margin-top:8px}
   .creation-error{color:var(--bad)!important}.find-machine{font-size:.72rem;padding:6px 8px;min-height:34px}.machine-search{display:grid;gap:8px;font-size:.8rem}.machine-results{display:grid;gap:8px;max-height:50dvh;overflow:auto}.machine-result{display:grid;gap:5px;text-align:left;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}.machine-result[aria-current=true]{border-color:var(--accent)}.machine-result span{font-size:.74rem;color:var(--muted)}
   .end-options{display:grid;gap:14px;margin-top:16px;font-size:.8rem}.end-options .option{display:grid;gap:5px}.end-options label{display:flex;align-items:flex-start;gap:9px;line-height:1.5;cursor:pointer}.end-options input{flex:none;width:16px;height:16px;min-height:0;margin:2px 0 0;padding:0;border:0;background:none;accent-color:var(--accent)}.end-options p,.end-options a{margin:0;font-size:.72rem;line-height:1.6;color:var(--muted)}.end-options p{margin-left:25px}.end-options a{justify-self:start;color:var(--accent)}
   .mobile-label{display:none}
+  .viewport-debug{position:fixed;top:4px;right:4px;z-index:200;margin:0;padding:4px 6px;max-width:calc(100vw - 8px);white-space:pre-wrap;font:10px/1.3 var(--mono);color:#fff;background:rgb(0 0 0 / .72);border-radius:4px;pointer-events:none;user-select:none}
+  @media(max-height:500px) and (pointer:coarse) and (orientation:landscape){.workspace-toolbar{padding-top:0;padding-bottom:0}}
   @media(max-width:960px){.workspace-body.with-sidebar{grid-template-columns:minmax(0,1fr)}}
   @media(max-width:650px){.workspace{border-radius:8px}.workspace-toolbar{gap:6px;padding:5px 6px}.workspace-title h1{display:none}.workspace-actions>button[aria-controls="terminal-sessions"]{max-width:52px;white-space:normal;line-height:1.1}.quick-machine{padding:4px 7px;min-width:28px}.workspace-toolbar .find-machine{display:none}.workspace-title>a{padding:3px}.workspace-actions{gap:4px}.workspace-actions .btn{padding:5px 7px;min-height:32px;font-size:.67rem}.workspace-actions .count,.workspace-actions .wide-label{display:none}.workspace-actions .mobile-label{display:inline}.empty{padding:20px 14px}.empty h2{font-size:1.35rem}.create-form{grid-template-columns:minmax(0,1fr)}.create-form p{grid-column:1}.workspace-notice{font-size:.65rem;padding:5px 8px}}
   @media(pointer:coarse){.workspace-actions .btn{min-height:40px}}

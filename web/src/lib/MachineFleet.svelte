@@ -101,8 +101,10 @@
     if (!terminals) return 'Checking whether this machine is ready for terminals.'
     return cardReadiness(terminals.find((item) => item.agentId === agentId))
   }
-  function agentStarted(session: TerminalSession) {
+  // The dialog stays Starting… until the Terminals page arrives, and lets go by itself if it never does.
+  function agentStarted(session: TerminalSession): 'leaving' {
     location.assign(`/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`)
+    return 'leaving'
   }
   // From Start an agent, Not listed? closes it and opens Add a machine, which hands focus back to Start an agent's button.
   function addFromStart(source: { opener: HTMLElement | null }): (() => void) | undefined {

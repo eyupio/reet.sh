@@ -347,19 +347,66 @@ try {
   await context.close()
  }
 
- // A browser may bring Home back from its cache on Back, with the dialog as it was when Home left. Home then closes the
- // dialog and reads everything again. (Headless Chromium reloads instead, so the restore is simulated.)
+ // A start whose next page never arrives (a 204, the browser's Stop, a page that will not load) must not leave a modal with
+ // no way out: after a few seconds the dialog lets go and Home says what started, with a link to it.
+ if (run('a start whose page never arrives releases the dialog')) {
+  const {context,page,errors,box} = await home()
+  await page.route(url => new URL(url).pathname === '/terminals', route => route.fulfill({status:204, body:''}))
+  await page.goto(base)
+  const start = page.getByRole('button',{name:'Start an agent',exact:true})
+  await start.click()
+  const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
+  await expect(dialog.getByRole('button',{name:'Start',exact:true})).toBeEnabled()
+  // Pressed from inside: Playwright's own click waits for the navigation it starts, which a 204 never finishes.
+  await page.evaluate(() => document.querySelector('dialog[open] footer button[type=submit]').click())
+  // Playwright's locators wait for a navigation that a 204 never finishes, so Home is read from inside.
+  const look = () => page.evaluate(() => {
+   const d = document.querySelector('dialog[open]'), n = document.querySelector('.notice')
+   return {url: location.pathname, open: !!d, text: d?.querySelector('footer button[type=submit]')?.textContent, status: d?.querySelector('[role=status]')?.textContent,
+    notice: n?.textContent ?? null, href: n?.querySelector('a')?.getAttribute('href') ?? null, focus: document.activeElement?.textContent?.trim() ?? null}
+  })
+  await expect.poll(look).toMatchObject({open:true, text:'Starting…', status:`Opening ${box.created.title}…`})
+  await expect.poll(look, {timeout:9000}).toMatchObject({open:false})
+  expect(await look()).toEqual({url:'/', open:false, text:undefined, status:undefined, notice:`Started ${box.created.title} on studio. Open it`,
+   href:`/terminals?agent=a1&session=${encodeURIComponent(box.created.id)}`, focus:'Start an agent'})
+  // The dialog works as before: it opens again, and Escape and Close shut it.
+  const press = label => page.evaluate(label => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === label || b.getAttribute('aria-label') === label).click(), label)
+  await press('Start an agent')
+  await expect.poll(look).toMatchObject({open:true, text:'Start'})
+  await page.keyboard.press('Escape')
+  await expect.poll(look).toMatchObject({open:false})
+  await press('Start an agent')
+  await expect.poll(look).toMatchObject({open:true, text:'Start'})
+  await press('Close')
+  await expect.poll(look).toMatchObject({open:false})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A browser may bring Home back from its cache on Back, with the dialog as it was when Home left (Starting…). The dialog
+ // then closes at once and Home reads everything again. (Headless Chromium reloads instead, so the restore is simulated on
+ // a start whose page is held back.)
  if (run('Home restored from the browser cache closes the dialog and reads again')) {
   const {context,page,errors,reads} = await home()
+  await page.route(url => new URL(url).pathname === '/terminals', route => route.fulfill({status:204, body:''}))
   await page.goto(base)
-  await page.getByRole('button',{name:'Start an agent',exact:true}).click()
+  const start = page.getByRole('button',{name:'Start an agent',exact:true})
+  await start.click()
   const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
-  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button',{name:'Start',exact:true})).toBeEnabled()
+  // Pressed from inside: Playwright's own click waits for the navigation it starts, which a 204 never finishes.
+  await page.evaluate(() => document.querySelector('dialog[open] footer button[type=submit]').click())
+  const look = () => page.evaluate(() => ({open: !!document.querySelector('dialog[open]'), text: document.querySelector('dialog[open] footer button[type=submit]')?.textContent,
+   status: document.querySelector('dialog[open] [role=status]')?.textContent, notice: document.querySelector('.notice')?.textContent ?? null, focus: document.activeElement?.textContent?.trim() ?? null}))
+  // Answered and leaving, not still waiting for the answer.
+  await expect.poll(look).toMatchObject({open:true, text:'Starting…', status:'Opening Claude Code…'})
   const before = reads.filter(r => r === 'GET /api/v2/terminal/sessions').length
   await page.evaluate(() => dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true})))
-  await expect(dialog).toHaveCount(0)
-  await expect.poll(() => reads.filter(r => r === 'GET /api/v2/terminal/sessions').length).toBe(before + 1)
-  await expect(page.getByRole('button',{name:'Start an agent',exact:true})).toBeFocused()
+  await expect.poll(look, {timeout:1000}).toMatchObject({open:false, focus:'Start an agent'})
+  await expect.poll(() => reads.filter(r => r === 'GET /api/v2/terminal/sessions').length).toBeGreaterThan(before)
+  // Restored, it is not a failed start: no notice.
+  await page.waitForTimeout(5500)
+  expect((await look()).notice).toBeNull()
   expect(errors).toEqual([])
   await context.close()
  }
@@ -586,8 +633,9 @@ try {
   await context.close()
  }
 
- // A refresh already under way when a Project is saved must not drop it when its older answer lands. (A start from Home now
- // leaves for the session; the same generation guard covers its optimistic row.)
+ // A refresh already under way when a Project is saved must not drop it when its older answer lands. (A start from Home no
+ // longer refreshes: Home is leaving, so a poll in flight may still replace the list without the new row. That is harmless:
+ // the next page shows the session, and a Home restored from the browser cache reads everything again.)
  if (run('a slow refresh does not drop a just-saved Project')) {
   const {context,page,errors,box} = await home()
   await page.clock.install()

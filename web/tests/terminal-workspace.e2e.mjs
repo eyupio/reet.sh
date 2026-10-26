@@ -229,16 +229,23 @@ try{
  await page.getByRole('button',{name:'Close New terminal session'}).click()
  await expect(page.getByRole('heading',{name:'Your next shell starts here.'})).toBeVisible()
  expect(writes).toHaveLength(0)
- // header badge equals the panel count with no machine selected (3 sessions on 2 machines): the badge counts the account's
- // live sessions, the set Your sessions lists, not only the selected machine's.
+ // header badge equals the panel count with no machine selected (3 sessions on 2 machines): both count the account's live
+ // sessions, not only the selected machine's. Finished sessions the panel also lists are named apart: 3 live + 1 exited +
+ // 1 lost reads "Your sessions 3 · 2 finished", and the badge 3.
  sessions.push({id:'session-notes00000000001',agentId:agentB,title:'Release notes',state:'running',createdAt:now,updatedAt:now,exitCode:null})
  await page.goto(`${base}/terminals`)
  await expect(page.getByRole('heading',{name:'Terminals'})).toBeVisible()
  const sessionsToggle=page.locator('.workspace-actions button[aria-controls="terminal-sessions"]')
  if(await sessionsToggle.getAttribute('aria-expanded')!=='true')await sessionsToggle.click()
- await expect(page.locator('#terminal-sessions header small')).toHaveText('3')
+ const panelHead=page.locator('#terminal-sessions header strong')
+ await expect(panelHead).toHaveText(/^Your sessions\s*3$/)
  await expect(sessionsToggle.locator('.count')).toHaveText('3')
- sessions.pop()
+ sessions.push({id:'session-exited0000000001',agentId:agentA,title:'Old build',state:'exited',createdAt:now,updatedAt:now,exitCode:0},{id:'session-lost000000000001',agentId:agentB,title:'Lost shell',state:'lost',createdAt:now,updatedAt:now,exitCode:null})
+ await page.goto(`${base}/terminals`)
+ if(await sessionsToggle.getAttribute('aria-expanded')!=='true')await sessionsToggle.click()
+ await expect(panelHead).toHaveText(/^Your sessions\s*3\s*· 2 finished$/)
+ await expect(sessionsToggle.locator('.count')).toHaveText('3')
+ sessions.splice(2)
  // Denied refresh clears the private hero inventory; viewers never fetch terminal APIs.
  await page.goto(`${base}/control`);denied=true
  await page.getByRole('button',{name:'Refresh active sessions'}).click()

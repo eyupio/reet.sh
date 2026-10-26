@@ -464,6 +464,27 @@ try{
  await expect(page).toHaveURL(`${base}/machines`)
  await page.keyboard.press('Escape')
 
+ // From Machines, too, the dialog stays Starting… until the page has gone; if the next page never arrives (here a 204), it
+ // lets go after a few seconds instead of leaving a modal with no way out.
+ await page.goto(`${base}/machines`)
+ const onlyTerminals=url=>new URL(url).pathname==='/terminals'
+ await page.route(onlyTerminals,route=>route.fulfill({status:204,body:''}))
+ await cardEntry('dev-laptop').click()
+ d=dialog();p=parts(d)
+ await expect(p.machine).toHaveValue(A)
+ const postsBefore=posts.length
+ await expect(p.start).toBeEnabled()
+ // Pressed from inside: Playwright's own click waits for the navigation it starts, which a 204 never finishes.
+ await page.evaluate(()=>document.querySelector('dialog[open] footer button[type=submit]').click())
+ // Playwright's locators wait for a navigation a 204 never finishes, so the page is read from inside.
+ const held=()=>page.evaluate(()=>{const x=document.querySelector('dialog[open]');return{url:location.pathname,open:!!x,text:x?.querySelector('footer button[type=submit]')?.textContent,close:x?.querySelector('[data-shell-close]')?.disabled}})
+ await expect.poll(()=>posts.length).toBe(postsBefore+1)
+ await page.waitForTimeout(1500)
+ expect(await held()).toEqual({url:'/machines',open:true,text:'Starting…',close:true})
+ await expect.poll(held,{timeout:9000}).toMatchObject({url:'/machines',open:false})
+ expect(posts.length).toBe(postsBefore+1)
+ await page.unroute(onlyTerminals)
+
  // A 401 from the card's dialog hands over to the sign-in card, as the page's other dialogs do.
  await page.goto(`${base}/machines`)
  await cardEntry('dev-laptop').click()

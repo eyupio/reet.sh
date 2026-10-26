@@ -9,7 +9,7 @@
  // folder and a prompt; the machine decides the program and its flags. Nothing here is kept in browser storage or the URL, and
  // the prompt lives only in this component: it is cleared when the dialog closes.
  // opener is the element the person pressed to open this, which gets focus back on close.
- let { machines, snapshot, initialAgent = '', opener = null, onstarted, onaddmachine, onsignedout, onclose }: {
+ let { machines, snapshot, initialAgent = '', opener = null, onstarted, onleavefailed, onaddmachine, onsignedout, onclose }: {
   /** The machines from /api/v2/terminal/machines, with their readiness and launch capabilities. */
   machines: TerminalMachine[]
   /** The machines' reported folders (from the sync state), or undefined while they are unknown: the home folder and a typed path still work. */
@@ -20,6 +20,9 @@
   /** Hands over the started session. A page that answers 'leaving' is opening it at another address: the dialog then stays in
    *  its Starting… state, with nothing left to press, until the page unloads. */
   onstarted: (session: TerminalSession) => void | 'leaving'
+  /** After 'leaving', the next page did not arrive within a few seconds (a 204, the browser's Stop, a page that will not
+   *  load). The dialog has closed; the page may say what started. */
+  onleavefailed?: (session: TerminalSession) => void
   /** Opens the add-a-machine flow. The dialog closes first. */
   onaddmachine?: () => void
   /** Hands a lost sign-in to the page, as the other dialogs do. Without it the dialog only says so. */
@@ -143,6 +146,7 @@
     // The page is going to the session. Stay Starting… so a second press, Close or Escape does nothing in the moment before
     // the next page arrives.
     message = `Opening ${session.title}…`
+    leave(session)
     return
    }
    shutdown(false)
@@ -167,12 +171,29 @@
   }
  }
 
+ // While the page is leaving: if it never goes, let go after a few seconds and hand the session back, so a modal never stays
+ // with no way out; if the browser brings the page back from its cache on Back, close at once. Once the page has gone
+ // (pagehide), the timer stops: a page restored later is not a failed start.
+ const LEAVE_MS = 5000
+ let stopLeaving = () => {}
+ function leave(session: TerminalSession) {
+  const failed = onleavefailed
+  const done = () => { clearTimeout(timer); removeEventListener('pagehide', gone); removeEventListener('pageshow', back); stopLeaving = () => {} }
+  const letGo = () => { done(); shutdown(true); onclose(); failed?.(session) }
+  const gone = () => clearTimeout(timer)
+  const back = (e: PageTransitionEvent) => { if (!e.persisted) return; done(); shutdown(true); onclose() }
+  const timer = setTimeout(letGo, LEAVE_MS)
+  addEventListener('pagehide', gone)
+  addEventListener('pageshow', back)
+  stopLeaving = done
+ }
+
  function edited() { if (invalidMessage) { invalidMessage = false; message = ''; failed = false } }
 
  onMount(() => {
   dialog?.showModal()
   machineSelect?.focus()
-  return () => { life.abort(); prompt = '' }
+  return () => { stopLeaving(); life.abort(); prompt = '' }
  })
 </script>
 

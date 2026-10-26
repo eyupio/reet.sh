@@ -8,13 +8,11 @@
   import MCPAccess from './MCPAccess.svelte'
   import PageHeader from './PageHeader.svelte'
   import {
-    applyTheme, changePassword, createToken, endOtherProfileSessions, endProfileSession, getProfile, listEvents,
+    applyTheme, changePassword, createToken, endOtherProfileSessions, endProfileSession, getProfile,
     getSsoIdentity, listProfileSessions, listTokens, revokeToken, saveProfile, THEME_EVENT, unlinkSsoIdentity,
-    type APIToken, type Event, type Profile, type ProfileSession, type User,
+    type APIToken, type Profile, type ProfileSession, type User,
   } from './api'
-  import { eventLabel, eventTitle } from './events'
   import { linkedLine, ssoLinkHref, type SsoIdentity } from './sso'
-  import { elapsed } from './time'
 
   let {
     user, onsignout, onerror, onuserchange,
@@ -43,7 +41,6 @@
   let section = $state<Section>(sectionFromHash())
   let profile = $state<Profile>({ theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list', cardsExpanded: false, hostedPrefix: 'reet-', updatedAt: 0 })
   let sessions = $state<ProfileSession[]>([])
-  let events = $state<Event[]>([])
   let tokens = $state<APIToken[]>([])
   let freshToken = $state('')
   let tokenName = $state('scan token')
@@ -66,12 +63,13 @@
   }
 
   onMount(() => {
+    // The activity list lives at /activity now; an old link to it here goes there.
+    if (section === 'activity') { location.replace('/activity'); return }
     history.replaceState(null, '', `/account/${section}`)
     document.title = `${sections.find(s => s.key === section)?.label ?? 'Account'} · Account · reet.sh`
     void loadProfile()
     void loadSso()
     if (section === 'sessions') void loadSessions()
-    if (section === 'activity') void loadActivity()
     if (section === 'tokens') void loadTokens()
     // The account menu can change the theme while this form is open; saving another preference must not put the old one back.
     const followTheme = (e: unknown) => { profileForm.theme = (e as CustomEvent<string>).detail }
@@ -127,15 +125,6 @@
   async function loadSessions() {
     try {
       sessions = (await listProfileSessions()).sessions
-      error = ''
-    } catch (e) {
-      fail(e)
-    }
-  }
-
-  async function loadActivity() {
-    try {
-      events = (await listEvents(50)).events
       error = ''
     } catch (e) {
       fail(e)
@@ -315,7 +304,7 @@
     <PageHeader eyebrow="Your account" title={who.name || who.email} titleId="account-title" lede={`${who.email} · ${who.role}`} />
   </div>
 
-  <NavigationMenu label="Account" items={sections.map(s => ({ label: s.label, href: s.key === 'machines' ? '/machines' : s.key === 'sync' ? '/machines?view=compare' : `/account/${s.key}`, current: section === s.key }))} />
+  <NavigationMenu label="Account" items={sections.map(s => ({ label: s.label, href: s.key === 'machines' ? '/machines' : s.key === 'sync' ? '/machines?view=compare' : s.key === 'activity' ? '/activity' : `/account/${s.key}`, current: section === s.key }))} />
 
   {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
   {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
@@ -478,20 +467,6 @@
     <MCPAccess timeZone={profile.timezone} dateFormat={profile.dateFormat} />
   {:else if section === 'backups'}
     <Backups {onerror} role={who.role} admin={false} {canWrite} timeZone={profile.timezone} dateFormat={profile.dateFormat} />
-  {:else if section === 'activity'}
-    <section class="block" aria-labelledby="activity-title">
-      <h2 id="activity-title">Activity</h2>
-      <p class="muted">What you changed lately, newest first.</p>
-      {#if events.length === 0}
-        <p class="muted">Nothing recorded yet.</p>
-      {:else}
-        <ul class="events">
-          {#each events as event (event.id)}
-            <li title={eventTitle(event)}><span>{eventLabel(event)}</span><time datetime={new Date(event.at).toISOString()}>{elapsed(event.at)}</time></li>
-          {/each}
-        </ul>
-      {/if}
-    </section>
   {/if}
 
   {#if section === 'sessions'}
@@ -549,9 +524,6 @@
   .fresh p { margin: 0 0 8px; font-size: 0.88rem; }
   .createrow { display: flex; gap: 8px; flex-wrap: wrap; }
   .createrow input { flex: 1; min-width: 0; }
-  .events { list-style: none; margin: 12px 0 0; padding: 0; }
-  .events li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 0.84rem; }
-  .events time { flex: none; }
   .token-secret { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
   .token-secret code { min-width: 0; overflow-wrap: anywhere; }
   .signout { margin-top: 28px; }

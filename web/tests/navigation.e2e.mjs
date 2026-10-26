@@ -1,45 +1,271 @@
 // Navigation contract: the areas the landing page sells are one click away, notifications live in the account menu,
 // and each area keeps one name wherever it appears.
 import { chromium, expect } from '@playwright/test'
-import { openWorkspace, skill, terminalMachine, active } from './helpers/workspace.mjs'
+import { openWorkspace, owner, skill, terminalMachine, active } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 // REET_E2E_ONLY=<section> runs one section, so each can be watched failing before its fix.
 const only = process.env.REET_E2E_ONLY
 const run = name => !only || only === name
 const open = options => openWorkspace(browser, options)
-const main = page => page.locator('nav[aria-label="Main navigation"] .desktop')
+const tabs = page => page.getByRole('navigation',{name:'Main navigation'})
 
 try {
- // Skills and Setups are top level, with Terminals and Projects for writers; the rest sit under More.
- if (run('structure')) {
+ // The desktop tabs are Home, Sessions, Machines, Skills and Activity for a writer, with Home current at /, the Jump search and
+ // the bell beside them; the rest of the old navigation sits under More in the account menu.
+ if (run('writer desktop shows five tabs with Home current')) {
   const {context,page,errors} = await open({width:1440})
   await page.goto(base)
   await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
-  const top = await main(page).locator(':scope > a, :scope > details > summary').allInnerTexts()
-  expect(top.map(t=>t.trim())).toEqual(['Control','Machines','Terminals','Projects','Skills','Setups','More'])
-  await main(page).locator('summary',{hasText:'More'}).click()
-  const more = await main(page).locator('.group-links a').allInnerTexts()
-  expect(more.map(t=>t.trim())).toEqual(['Sync','Lists','Community','Support','Teams & organisations','Host skills'])
-  await expect(page.locator('.notif-link')).toHaveCount(0)
+  expect(await page.title()).toBe('Home · reet.sh')
+  const top = await tabs(page).getByRole('link').allInnerTexts()
+  expect(top.map(t=>t.trim())).toEqual(['Home','Sessions','Machines','Skills','Activity'])
+  await expect(tabs(page).getByRole('link',{name:'Home',exact:true})).toHaveAttribute('aria-current','page')
+  for (const [name,href] of [['Home','/'],['Sessions','/terminals'],['Machines','/machines'],['Skills','/skills'],['Activity','/activity']])
+   await expect(tabs(page).getByRole('link',{name,exact:true})).toHaveAttribute('href',href)
+  // The bell is a button named for the Needs you count; with nothing waiting it carries no badge.
+  const bell = page.getByRole('button',{name:'Needs you: 0',exact:true})
+  await expect(bell).toBeVisible()
+  await expect(bell.locator('.badge')).toHaveCount(0)
+  await bell.click()
+  await expect(page.getByText('Nothing needs you.',{exact:true})).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByText('Nothing needs you.',{exact:true})).toBeHidden()
+  await expect(bell).toBeFocused()
+  // The search box is there, and / focuses it from anywhere but a field.
+  const jump = page.getByRole('combobox',{name:'Jump to a session, project or machine'})
+  await expect(jump).toBeVisible()
+  await page.locator('main').click({position:{x:5,y:5}})
+  await page.keyboard.press('/')
+  await expect(jump).toBeFocused()
+  await expect(jump).toHaveValue('')
+  // One row: the header stays the mock-up's slim bar.
+  const h = await page.evaluate(()=>document.querySelector('.site-header').getBoundingClientRect().height)
+  expect(h).toBeLessThanOrEqual(72)
   expect(errors).toEqual([])
   await context.close()
  }
 
- // The current area is marked, including inside More.
- if (run('current')) {
-  for (const [path,link] of [['/skills','Skills'],['/profiles','Setups'],['/machines','Machines'],['/terminals','Terminals'],['/projects','Projects']]) {
-   const {context,page} = await open({width:1440})
-   await page.goto(`${base}${path}`)
-   await expect(main(page).getByRole('link',{name:link,exact:true})).toHaveAttribute('aria-current','page')
+ // Jump finds sessions, Projects and machines the workspace already has, and opens the matching page.
+ if (run('jump')) {
+  const session = {id:'s1',agentId:'a',title:'Refactor the store layer',state:'running',createdAt:Date.now(),updatedAt:Date.now(),exitCode:null}
+  const project = {id:'p1',name:'Store rewrite',defaultTool:'',defaultModel:'',useWorktrees:false,hasSharedPrompt:false,members:[],createdAt:1,updatedAt:1,version:1}
+  const {context,page,errors} = await open({width:1440,terminalStatus:active,terminalMachines:[terminalMachine('a','studio',true)],
+   routes:{'/api/v2/terminal/sessions':{sessions:[session]},'/api/v2/projects':{projects:[project]}}})
+  await page.goto(`${base}/skills`)
+  const jump = page.getByRole('combobox',{name:'Jump to a session, project or machine'})
+  await jump.fill('store')
+  const results = page.getByRole('listbox',{name:'Jump results'})
+  await expect(results.getByRole('option')).toHaveCount(2)
+  await expect(results.getByRole('option',{name:/Refactor the store layer/})).toHaveAttribute('href','/terminals?agent=a&session=s1')
+  await expect(results.getByRole('option',{name:/Store rewrite/})).toHaveAttribute('href','/projects/p1')
+  await jump.fill('stud')
+  await expect(results.getByRole('option',{name:/studio/})).toHaveAttribute('href','/machines?machine=studio')
+  await jump.press('ArrowDown')
+  await expect(results.getByRole('option',{name:/studio/})).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(results).toBeHidden()
+  await expect(jump).toBeFocused()
+  await jump.fill('nothing like it')
+  await expect(page.getByText('Nothing matches.',{exact:true})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A phone has four tabs along the bottom: Home, Sessions, Machines and More, 64 px tall with 44 px targets; More lists the rest.
+ if (run('phone shows four bottom tabs and More lists the rest')) {
+  for (const width of [320,390]) {
+   const {context,page,errors} = await open({width,touch:true})
+   await page.goto(base)
+   await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
+   const bar = tabs(page)
+   const items = await bar.locator(':scope a, :scope button').allInnerTexts()
+   expect(items.map(t=>t.trim())).toEqual(['Home','Sessions','Machines','More'])
+   const m = await bar.evaluate(el=>{const r=el.getBoundingClientRect();return{bottom:r.bottom,height:r.height,targets:[...el.querySelectorAll('a,button')].map(a=>{const b=a.getBoundingClientRect();return[b.width,b.height]})}})
+   expect(m.height).toBeGreaterThanOrEqual(64)
+   expect(Math.round(m.bottom)).toBe(812)
+   for (const [w,h] of m.targets) { expect(w).toBeGreaterThanOrEqual(44); expect(h).toBeGreaterThanOrEqual(44) }
+   await expect(bar.getByRole('link',{name:'Home'})).toHaveAttribute('aria-current','page')
+   // The top bar holds the logo, Jump, the bell and the account; no desktop tabs.
+   await expect(page.getByRole('button',{name:'Needs you: 0',exact:true})).toBeVisible()
+   await bar.getByRole('button',{name:'More'}).click()
+   const more = page.getByRole('dialog',{name:'More'})
+   await expect(more).toBeVisible()
+   const links = await more.getByRole('link').allInnerTexts()
+   expect(links.map(t=>t.trim())).toEqual(['Skills','Activity','Control','Projects','Setups','Sync','Lists','Community','Support','Teams & organisations','Host skills'])
+   await expect(more.getByRole('link',{name:'Control'})).toHaveAttribute('href','/control')
+   await expect(more.getByRole('link',{name:'Projects'})).toHaveAttribute('href','/projects')
+   await page.keyboard.press('Escape')
+   await expect(more).toBeHidden()
+   await expect(bar.getByRole('button',{name:'More'})).toBeFocused()
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+   // The last thing on the page can be scrolled clear of the bar.
+   await page.evaluate(()=>scrollTo(0,document.documentElement.scrollHeight))
+   const footer = await page.locator('footer').last().evaluate(el=>el.getBoundingClientRect().bottom)
+   expect(footer).toBeLessThanOrEqual(812-64+1)
+   expect(errors).toEqual([])
    await context.close()
   }
-  const {context,page} = await open({width:1440})
-  await page.goto(`${base}/sync`)
-  await main(page).locator('summary',{hasText:'More'}).click()
-  await expect(main(page).locator('summary',{hasText:'More'})).toHaveClass(/current/)
-  await expect(main(page).locator('.group-links').getByRole('link',{name:'Sync',exact:true})).toHaveAttribute('aria-current','page')
+  // A tablet keeps the four tabs at the top, with More there too.
+  const {context,page} = await open({width:834,touch:true})
+  await page.goto(base)
+  const items = await tabs(page).locator(':scope a, :scope button').evaluateAll(els=>els.filter(e=>e.getClientRects().length).map(e=>e.textContent.trim()))
+  expect(items).toEqual(['Home','Sessions','Machines','More'])
+  const top = await tabs(page).evaluate(el=>el.getBoundingClientRect().top)
+  expect(top).toBeLessThan(80)
+  await tabs(page).getByRole('button',{name:'More'}).click()
+  await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Skills',exact:true})).toBeVisible()
   await context.close()
+ }
+
+ // Nothing the old navigation reached is lost: every former destination is a tab or sits under More in the account menu.
+ if (run('every former nav destination reachable, Control and Projects under More')) {
+  const {context,page,errors} = await open({width:1440})
+  await page.goto(base)
+  await page.locator('summary[aria-label^="Account menu"]').click()
+  const more = page.locator('.panel').getByRole('group',{name:'More'})
+  const names = await more.getByRole('link').allInnerTexts()
+  expect(names.map(t=>t.trim())).toEqual(['Control','Projects','Setups','Sync','Lists','Community','Support','Teams & organisations','Host skills'])
+  const hrefs = [...await tabs(page).getByRole('link').evaluateAll(els=>els.map(e=>e.getAttribute('href'))), ...await more.getByRole('link').evaluateAll(els=>els.map(e=>e.getAttribute('href')))]
+  for (const former of ['/control','/machines','/terminals','/projects','/skills','/profiles','/sync','/shared','/community','/support','/spaces','/hosting'])
+   expect(hrefs, `${former} is reachable`).toContain(former)
+  await expect(more.getByRole('link',{name:'Control'})).toHaveAttribute('href','/control')
+  await expect(more.getByRole('link',{name:'Projects'})).toHaveAttribute('href','/projects')
+  // Notifications, the account and the theme are still in the same menu.
+  await expect(page.locator('.panel').getByRole('link',{name:/^Notifications/})).toHaveAttribute('href','/notifications')
+  await expect(page.locator('.panel').getByRole('group',{name:'Theme'})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The existing pages keep their addresses: /terminals is the Sessions tab, /control and /projects open as before.
+ if (run('/terminals and /control still open their pages')) {
+  const {context,page,errors} = await open({width:1440})
+  await page.goto(`${base}/control`)
+  await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
+  expect(await page.title()).toBe('Control · reet.sh')
+  await expect(tabs(page).locator('[aria-current="page"]')).toHaveCount(0)
+  await page.goto(`${base}/terminals`)
+  expect(await page.title()).toBe('Terminals · reet.sh')
+  await expect(tabs(page).getByRole('link',{name:'Sessions',exact:true})).toHaveAttribute('aria-current','page')
+  await page.goto(`${base}/projects`)
+  expect(await page.title()).toBe('Projects · reet.sh')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // /activity is the account's activity list, newest first; the account page's Activity entry goes there.
+ if (run('/activity lists the account activity')) {
+  const events = [{id:2,at:Date.now()-60000,source:'ui',action:'project-delete',detail:JSON.stringify({name:'Site'})},{id:1,at:Date.now()-120000,source:'ui',action:'project-create',detail:JSON.stringify({name:'Site',members:2})}]
+  const {context,page,errors} = await open({width:1440,routes:{'/api/events':{events}}})
+  await page.goto(`${base}/activity`)
+  expect(await page.title()).toBe('Activity · reet.sh')
+  await expect(page.getByRole('heading',{name:'Activity',level:1})).toBeVisible()
+  const lines = await page.locator('main ul.events li span').allInnerTexts()
+  expect(lines).toEqual(['Deleted project Site','Created project Site with 2 repositories'])
+  await expect(tabs(page).getByRole('link',{name:'Activity',exact:true})).toHaveAttribute('aria-current','page')
+  await page.goto(`${base}/account/profile`)
+  await expect(page.getByRole('navigation',{name:'Account'}).getByRole('link',{name:'Activity'}).first()).toHaveAttribute('href','/activity')
+  await page.goto(`${base}/account#activity`)
+  await expect(page).toHaveURL(`${base}/activity`)
+  await expect(page.locator('main ul.events li')).toHaveCount(2)
+  await page.goto(`${base}/account/activity`)
+  await expect(page).toHaveURL(`${base}/activity`)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Only a writer in accounts mode can open sessions: a viewer, a single-token sign-in and an open instance get no Sessions tab
+ // and no bell, and More still reaches every page they could reach before.
+ if (run('viewer sees no Sessions tab and no bell')) {
+  for (const [what,options] of [['viewer',{status:{user:{...owner,role:'viewer'}}}],['token',{status:{mode:'token',user:null},token:true}],['open',{status:{mode:'none',user:null}}]]) {
+   const {context,page,errors} = await open({width:1440,...options})
+   if (options.token) await page.addInitScript(()=>localStorage.setItem('reet-token','fixture-token'))
+   await page.goto(base)
+   await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
+   const top = await tabs(page).getByRole('link').allInnerTexts()
+   expect(top.map(t=>t.trim()), what).toEqual(['Home','Machines','Skills','Activity'])
+   await expect(page.getByRole('button',{name:/^Needs you/})).toHaveCount(0)
+   await expect(page.getByRole('link',{name:'Sessions'})).toHaveCount(0)
+   expect(errors, what).toEqual([])
+   await context.close()
+   const phone = await open({width:390,touch:true,...options})
+   if (options.token) await phone.page.addInitScript(()=>localStorage.setItem('reet-token','fixture-token'))
+   await phone.page.goto(base)
+   await expect(phone.page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
+   const bar = await tabs(phone.page).locator(':scope a, :scope button').allInnerTexts()
+   expect(bar.map(t=>t.trim()), `${what} phone`).toEqual(['Home','Machines','More'])
+   await expect(phone.page.getByRole('button',{name:/^Needs you/})).toHaveCount(0)
+   await phone.context.close()
+  }
+ }
+
+ // The tab for the page in view, and only that tab, carries aria-current="page"; a page under More marks More.
+ if (run('tab links use aria-current=page')) {
+  for (const [path,link] of [['/','Home'],['/terminals','Sessions'],['/machines','Machines'],['/skills','Skills'],['/activity','Activity']]) {
+   const {context,page} = await open({width:1440})
+   await page.goto(`${base}${path}`)
+   await expect(tabs(page).getByRole('link',{name:link,exact:true})).toHaveAttribute('aria-current','page')
+   await expect(tabs(page).locator('[aria-current]')).toHaveCount(1)
+   await context.close()
+  }
+  for (const [path,link] of [['/sync','Sync'],['/profiles','Setups'],['/projects','Projects'],['/control','Control']]) {
+   const {context,page} = await open({width:1440})
+   await page.goto(`${base}${path}`)
+   await expect(tabs(page).locator('[aria-current]')).toHaveCount(0)
+   const menu = page.locator('summary[aria-label^="Account menu"]')
+   await expect(menu).toHaveClass(/active/)
+   await menu.click()
+   await expect(page.locator('.panel').getByRole('group',{name:'More'}).getByRole('link',{name:link,exact:true})).toHaveAttribute('aria-current','page')
+   await context.close()
+  }
+  const {context,page} = await open({width:390,touch:true})
+  await page.goto(`${base}/sync`)
+  await expect(tabs(page).getByRole('button',{name:'More'})).toHaveClass(/current/)
+  await tabs(page).getByRole('button',{name:'More'}).click()
+  await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Sync'})).toHaveAttribute('aria-current','page')
+  await context.close()
+ }
+
+ // On a phone, Jump opens a search row; with the keyboard up while typing in it, the tab bar steps aside and the field stays above the keyboard.
+ if (run('phone search with the keyboard open hides the tab bar')) {
+  for (const width of [320,390]) {
+   const {context,page,errors} = await open({width,touch:true})
+   await page.addInitScript(()=>{
+    const events=new EventTarget(),real=window.visualViewport
+    let height=null
+    const visual={get width(){return innerWidth},get height(){return height??innerHeight},offsetTop:0,offsetLeft:0,pageTop:0,pageLeft:0,scale:1,
+     addEventListener:(...args)=>{events.addEventListener(...args);real?.addEventListener(...args)},removeEventListener:(...args)=>{events.removeEventListener(...args);real?.removeEventListener(...args)}}
+    Object.defineProperty(window,'visualViewport',{configurable:true,get:()=>visual})
+    window.__keyboard=value=>{height=value;events.dispatchEvent(new Event('resize'))}
+   })
+   await page.goto(base)
+   const bar = tabs(page)
+   await expect(bar).toBeVisible()
+   // The keyboard over the page without the search focused (another field) leaves the bar alone.
+   await page.evaluate(()=>window.__keyboard(420))
+   await page.waitForTimeout(100)
+   await expect(bar).toBeVisible()
+   await page.evaluate(()=>window.__keyboard(null))
+   await page.getByRole('button',{name:'Jump to a session, project or machine'}).click()
+   const jump = page.getByRole('combobox',{name:'Jump to a session, project or machine'})
+   await expect(jump).toBeFocused()
+   const size = await jump.evaluate(el=>parseFloat(getComputedStyle(el).fontSize))
+   expect(size, 'search input 16px so focusing never zooms').toBeGreaterThanOrEqual(16)
+   await page.evaluate(()=>window.__keyboard(420))
+   await expect(bar).toBeHidden()
+   const box = await jump.boundingBox()
+   expect(box.y + box.height).toBeLessThanOrEqual(420)
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+   await page.evaluate(()=>window.__keyboard(null))
+   await expect(bar).toBeVisible()
+   await page.evaluate(()=>window.__keyboard(420))
+   await expect(bar).toBeHidden()
+   await jump.blur()
+   await expect(bar).toBeVisible()
+   expect(errors).toEqual([])
+   await context.close()
+  }
  }
 
  // Notifications are in the account menu, with the unread count on the menu button and beside the link.
@@ -147,5 +373,5 @@ try {
   expect(errors).toEqual([])
   await context.close()
  }
- console.log('Navigation: Skills and Setups top level, More contents, current marking, notifications in the account menu, one name per area, same-origin fonts.')
+ console.log('Navigation: five desktop tabs with Home current, the bell and Jump, four phone tabs with More, every former page reachable, /terminals /control /projects kept, /activity, no Sessions or bell for viewers, token and open sign-ins, aria-current, phone search with the keyboard up, notifications in the account menu, one name per area, same-origin fonts.')
 } finally {await browser.close()}

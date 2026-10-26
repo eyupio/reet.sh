@@ -1,5 +1,8 @@
 <script lang="ts">
-  import NavigationMenu from './lib/NavigationMenu.svelte'
+  import AppShell from './lib/shell/AppShell.svelte'
+  import type { JumpItem, Tab } from './lib/shell/tabs'
+  import ActivityPage from './lib/ActivityPage.svelte'
+  import { listProjects, terminalMachines, terminalSessions } from './lib/terminal/api'
   import ProjectsPage from './lib/ProjectsPage.svelte'
   import ProjectPage from './lib/ProjectPage.svelte'
   import Machines from './lib/Machines.svelte'
@@ -110,7 +113,10 @@
   let bulkRemoving = $state<Skill[]>([])
 
   const origin = location.origin
-  const isControl = location.pathname === '/' || location.pathname === '/control'
+  // `/` is Home. Until Home is built (Task D4) it shows the Control page, which keeps its own address at /control.
+  const isHome = location.pathname === '/'
+  const isControl = isHome || location.pathname === '/control'
+  const isActivity = location.pathname === '/activity'
   const isSkills = location.pathname === '/skills'
   const machineView = new URLSearchParams(location.search).get('view')
   const legacyMachinePage = ['/machines', '/account/machines', '/account/sync'].includes(location.pathname)
@@ -155,23 +161,47 @@
   const canWrite = $derived(authMode !== 'accounts' || role !== 'viewer')
   const terminalLayout = $derived(isTerminals && authMode === 'accounts' && authenticated && canWrite && !needsAuth)
   const isAdminUser = $derived(authMode !== 'accounts' || role === 'owner' || role === 'admin')
-  const mainNavigation = $derived([
-    { href: '/', label: 'Control', current: isControl },
+  // Navigation (R13): five tabs on a desktop; Home, Sessions and Machines stay in view on a tablet or phone and the rest
+  // move into More. Sessions and the bell are for a writer in accounts mode only (R16), as Terminals and Projects were.
+  const sessionsAccess = $derived(authMode === 'accounts' && canWrite)
+  const tabs = $derived<Tab[]>([
+    { href: '/', label: 'Home', current: isHome },
+    ...(sessionsAccess ? [{ href: '/terminals', label: 'Sessions', current: isTerminals }] : []),
     { href: '/machines', label: 'Machines', current: isMachines && !isSync && !isTerminals },
-    ...(authMode === 'accounts' && canWrite ? [{ href: '/terminals', label: 'Terminals', current: isTerminals }, { href: '/projects', label: 'Projects', current: isProjects }] : []),
     { href: '/skills', label: 'Skills', current: isSkills },
-    { href: '/profiles', label: 'Setups', current: isProfiles },
-    { href: '/community', label: 'More', current: isShared || isList || isSpaces || isCommunity || isHosting || isSupport || isTicket || isSync,
-      children: [
-        { href: '/sync', label: 'Sync', current: isSync },
-        { href: '/shared', label: 'Lists', current: isShared || isList },
-        { href: '/community', label: 'Community', current: isCommunity },
-        { href: '/support', label: 'Support', current: isSupport || isTicket },
-        { href: '/spaces', label: 'Teams & organisations', current: isSpaces },
-        ...(canWrite ? [{ href: '/hosting', label: 'Host skills', current: isHosting }] : []),
-      ],
-    },
+    { href: '/activity', label: 'Activity', current: isActivity },
   ])
+  const barTabs = $derived(tabs.filter(tab => ['/', '/terminals', '/machines'].includes(tab.href)))
+  const more = $derived<Tab[]>([
+    { href: '/control', label: 'Control', current: isControl && !isHome },
+    ...(sessionsAccess ? [{ href: '/projects', label: 'Projects', current: isProjects }] : []),
+    { href: '/profiles', label: 'Setups', current: isProfiles },
+    { href: '/sync', label: 'Sync', current: isSync },
+    { href: '/shared', label: 'Lists', current: isShared || isList },
+    { href: '/community', label: 'Community', current: isCommunity },
+    { href: '/support', label: 'Support', current: isSupport || isTicket },
+    { href: '/spaces', label: 'Teams & organisations', current: isSpaces },
+    ...(canWrite ? [{ href: '/hosting', label: 'Host skills', current: isHosting }] : []),
+  ])
+  // Jump searches what the workspace already lists: sessions, existing Projects and machines (a writer's terminal machines,
+  // and the machines on the shelf inventory for everyone). Read when Jump is used; a list that cannot be read is left out.
+  async function jumpItems(): Promise<JumpItem[]> {
+    const items: JumpItem[] = []
+    const hosts = new Map<string, string>()
+    if (sessionsAccess) {
+      const [sessions, projects, terminal] = await Promise.allSettled([terminalSessions(), listProjects(), terminalMachines()])
+      if (terminal.status === 'fulfilled') for (const machine of terminal.value) hosts.set(machine.agentId, machine.host)
+      if (sessions.status === 'fulfilled') for (const session of sessions.value) {
+        const host = hosts.get(session.agentId)
+        items.push({ kind: 'session', label: session.title, detail: host ? `Session · ${host}` : 'Session', href: `/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}` })
+      }
+      if (projects.status === 'fulfilled') for (const project of projects.value) items.push({ kind: 'project', label: project.name, detail: 'Project', href: `/projects/${encodeURIComponent(project.id)}` })
+      if ([sessions, projects, terminal].every(result => result.status === 'rejected')) throw new Error('Nothing could be read.')
+    }
+    const names = new Set([...hosts.values(), ...shelfMachines.map(machine => machine.host)])
+    for (const host of names) items.push({ kind: 'machine', label: host, detail: 'Machine', href: `/machines?machine=${encodeURIComponent(host)}` })
+    return items
+  }
   const scanCommand = $derived(`reet scan --prune --server ${origin}`)
   const suggestions = [
     { slug: 'anthropics/skills/pdf', name: 'PDF', blurb: 'Read, extract and combine PDF files.' },
@@ -765,38 +795,42 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isControl ? 'Control' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isProjects ? 'Projects' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isControl ? 'Control' : isActivity ? 'Activity' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isProjects ? 'Projects' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found'} · reet.sh</title>
   {/if}
 </svelte:head>
 
 <a class="skip" href="#main-content">Skip to content</a>
 <header class="site-header" class:terminal-chrome={terminalLayout}>
-  <div class="header-inner">
-    <div>
-      <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
-    </div>
-    {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-      <div class="app-nav">
-        <NavigationMenu label="Main navigation" primary items={mainNavigation} />
+  {#if authenticated && !needsAuth && !isPublicList && !isJoin}
+    <AppShell {tabs} bar={barTabs} {more} attention={0} compact={terminalLayout} bell={sessionsAccess} moreInAccount={authMode !== 'none'} jump={jumpItems}>
+      {#snippet account()}
         {#if authMode !== 'none'}
           <AccountMenu
             name={currentUser?.name ?? ''}
             email={currentUser?.email ?? ''}
             admin={isAdminUser}
             accounts={authMode === 'accounts'}
-            active={isAccount || isAdmin || isNotifications}
+            active={isAccount || isAdmin || isNotifications || more.some(item => item.current)}
             unread={unreadNotifications}
+            {more}
             onsignout={signOut}
           />
         {/if}
-      </div>
-    {:else if !authenticated && authMode==='accounts' && !isPublicList && !isCommunity && !isJoin}
+      {/snippet}
+    </AppShell>
+  {:else}
+  <div class="header-inner">
+    <div>
+      <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
+    </div>
+    {#if !authenticated && authMode==='accounts' && !isPublicList && !isCommunity && !isJoin}
       <nav class="site-nav" aria-label="Public navigation">{#if !isWelcome}<a href="/welcome">Workspace</a>{/if}<a href="/welcome#self-host">Self-host</a>{#if !setupRequired}<a class="entry-link" href="/signin">Sign in →</a>{/if}</nav>
     {:else if isPublicList || isCommunity || isJoin}
       <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a class="entry-link" href="/">Open your workspace →</a></nav>
     {/if}
     {#if (!authenticated || needsAuth) && authMode !== 'accounts' && !isPublicList && !isCommunity && !isJoin && !isWelcome}<span class="tag">Your AI workspace</span>{/if}
   </div>
+  {/if}
 </header>
 <main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout} class:auth-page={!isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
   {#if isCommunity}
@@ -828,6 +862,8 @@
     <Hosting {canWrite} />
   {:else if isShared}
     <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
+  {:else if isActivity}
+    <ActivityPage onsignedout={fail} />
   {:else if isControl}
     <ControlCenter {canWrite} terminalAccess={authMode === 'accounts' && canWrite} monitorAccess={authMode === 'accounts' || authMode === 'token'} />
   {:else if isProjects && !(authMode === 'accounts' && canWrite)}
@@ -1142,9 +1178,8 @@
   main { width: 100%; max-width: var(--content-width); margin: 0 auto; padding: 36px 40px 56px; flex: 1; }
   main.auth-page { max-width: 960px; }
   main:focus { outline: none; }
-  .site-header { border-bottom: 1px solid var(--line); }
+  .site-header { border-bottom: 1px solid var(--line-soft); }
   .header-inner { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: var(--content-width); margin: auto; padding: 24px 40px; }
-  .app-nav { display: flex; align-items: center; gap: 8px; min-width: 0; margin-left: auto; }
   .site-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
   .site-nav a, .entry-link { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--muted); font-size: 0.8rem; font-weight: 600; text-decoration: none; border-radius: 8px; }
   .site-nav a:hover, .entry-link:hover { color: var(--ink); background: var(--card); }
@@ -1310,7 +1345,6 @@
   @media (max-width: 560px) {
     main { padding: 28px 16px 40px; }
     .header-inner { flex-wrap: wrap; gap: 14px; padding: 20px 16px; }
-    .app-nav { gap: 6px; }
     .tag { margin-left: auto; max-width: 26ch; text-align: right; white-space: nowrap; }
     .site-nav { width: 100%; }
     .site-nav a { flex: 1; justify-content: center; border: 1px solid var(--line); }
@@ -1355,9 +1389,5 @@
   }
   @media (pointer: coarse) { .filters button, .view-switch button { min-height: 44px; } }
   main.terminal-layout {max-width:none;padding:8px 12px;min-height:0;flex:1;}
-  .terminal-chrome .header-inner {max-width:none;padding:6px 16px;gap:12px;min-height:56px;flex-wrap:nowrap;}
-  .terminal-chrome .home {display:flex;align-items:center;}
-  .terminal-chrome .home :global(.logo) {width:126px;}
-  .terminal-chrome .home :global(svg) {width:100%;height:auto;}
-  @media(max-width:700px){main.terminal-layout{padding:4px 6px}.terminal-chrome .header-inner{padding:4px 10px;min-height:54px}.terminal-chrome .home :global(.logo){width:110px}}
+  @media(max-width:700px){main.terminal-layout{padding:4px 6px}}
 </style>

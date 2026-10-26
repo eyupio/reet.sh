@@ -85,7 +85,7 @@
 
 <style>
   .toast {
-    position: fixed; left: 50%; bottom: 24px; z-index: 20; transform: translate(-50%, 0);
+    position: fixed; left: 50%; bottom: calc(24px + var(--bottom-chrome, 0px)); z-index: 20; transform: translate(-50%, 0);
     display: flex; align-items: center; gap: 10px; width: max-content;
     max-width: min(460px, calc(100vw - 32px)); padding: 10px 10px 10px 14px;
     background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--accent);
@@ -108,7 +108,7 @@
     .action, .close { min-height: 44px; }
     .close { width: 44px; height: 44px; }
   }
-  @media (max-width: 560px) { .toast { bottom: 16px; } }
+  @media (max-width: 560px) { .toast { bottom: calc(16px + var(--bottom-chrome, 0px)); } }
   @media (prefers-reduced-motion: no-preference) {
     .toast { transition: opacity 180ms ease, transform 180ms var(--ease-out); }
     .toast.leaving { opacity: 0; transform: translate(-50%, 8px); }

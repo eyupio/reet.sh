@@ -10,21 +10,22 @@ const run = name => !only || only === name
 const open = options => openWorkspace(browser, options)
 
 try {
- // The phone menu opens inside the screen at every width where the compact menu is used.
+ // More opens inside the screen at every width where the tabs fold into Home, Sessions, Machines and More.
  for (const width of run('menu') ? [320,375,414,768,999] : []) {
   const {context,page,errors} = await open({width})
   await page.goto(base)
   await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
-  await page.locator('nav[aria-label="Main navigation"] summary',{hasText:'Menu'}).click()
-  const panel = await page.locator('nav[aria-label="Main navigation"] .mobile .links').evaluate(el=>{const r=el.getBoundingClientRect();return{left:r.left,right:r.right,width:innerWidth}})
-  expect(panel.left, `menu panel left edge at ${width}px`).toBeGreaterThanOrEqual(0)
-  expect(panel.right, `menu panel right edge at ${width}px`).toBeLessThanOrEqual(panel.width)
-  await expect(page.locator('nav[aria-label="Main navigation"] .mobile .links').getByRole('link',{name:'Machines'})).toBeInViewport({ratio:1})
+  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'More'}).click()
+  const sheet = page.getByRole('dialog',{name:'More'})
+  const panel = await sheet.evaluate(el=>{const r=el.getBoundingClientRect();return{left:r.left,right:r.right,width:innerWidth}})
+  expect(panel.left, `More sheet left edge at ${width}px`).toBeGreaterThanOrEqual(0)
+  expect(panel.right, `More sheet right edge at ${width}px`).toBeLessThanOrEqual(panel.width)
+  await expect(sheet.getByRole('link',{name:'Skills',exact:true})).toBeInViewport({ratio:1})
   expect(errors).toEqual([])
   await context.close()
  }
 
- // Creating the owner ends on Control, at /, with nothing stealing focus.
+ // Creating the owner ends on Home, at /, with nothing stealing focus.
  if (run('setup')) {
   const {context,page,errors} = await open({width:1440,status:{setupRequired:true,user:null}})
   await page.goto(base)
@@ -36,7 +37,8 @@ try {
   await page.getByRole('button',{name:'Create account'}).click()
   await page.waitForURL(`${base}/`)
   await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
-  expect(await page.title()).toContain('Control')
+  // / is Home now (R13); until Task D4 builds Home it shows the Control page.
+  expect(await page.title()).toBe('Home · reet.sh')
   expect(errors).toEqual([])
   await context.close()
  }
@@ -124,5 +126,5 @@ try {
   expect(await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--warn').trim())).toBe('#e9b44c')
   await context.close()
  }
- console.log('First run: phone menu on screen, setup ends on Control, unknown routes, phone auth fit, touch focus, one focus ring and dark warning colour passed.')
+ console.log('First run: More on screen, setup ends on Home, unknown routes, phone auth fit, touch focus, one focus ring and dark warning colour passed.')
 } finally {await browser.close()}

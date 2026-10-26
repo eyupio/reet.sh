@@ -65,7 +65,7 @@
 
 <style>
   .bulk {
-    position: fixed; left: 50%; bottom: 20px; z-index: 15; transform: translate(-50%, 0);
+    position: fixed; left: 50%; bottom: calc(20px + var(--bottom-chrome, 0px)); z-index: 15; transform: translate(-50%, 0);
     width: max-content; max-width: min(760px, calc(100vw - 32px));
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     padding: 10px 14px; border: 1px solid var(--line); border-left: 3px solid var(--accent);
@@ -78,7 +78,7 @@
   .sep { width: 1px; height: 20px; background: var(--line); margin: 0 4px; }
   .actions select { padding: 7px 10px; }
   @media (max-width: 560px) {
-    .bulk { bottom: 12px; width: calc(100vw - 24px); max-width: none; padding: 10px 12px; }
+    .bulk { bottom: calc(12px + var(--bottom-chrome, 0px)); width: calc(100vw - 24px); max-width: none; padding: 10px 12px; }
     .actions { width: 100%; }
     .actions input { flex: 1; width: auto; }
   }

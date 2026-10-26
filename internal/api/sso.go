@@ -124,6 +124,8 @@ func landing(path string) string {
 		return "/support" + tail
 	case "notifications":
 		return "/notifications" + tail
+	case "activity":
+		return "/activity" + tail
 	case "welcome":
 		return "/welcome" + tail
 	case "lists":

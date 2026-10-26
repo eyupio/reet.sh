@@ -75,3 +75,10 @@ textarea { width: 100%; resize: vertical; }
 @media (max-width: 560px) {
   input:not([type='checkbox']):not([type='radio']), select, textarea { font-size: 16px; }
 }
+
+/* The phone's bottom tab bar (shell/BottomTabs.svelte) is fixed over the page: the page keeps room for it at its foot, and
+   anything else pinned to the bottom (toasts, the bulk bar, the save dock) sits above it. Same rule as PHONE_SCREEN. */
+@media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
+  html[data-bottom-tabs] { --bottom-chrome: calc(64px + env(safe-area-inset-bottom, 0px)); }
+  html[data-bottom-tabs] body { padding-bottom: var(--bottom-chrome); }
+}

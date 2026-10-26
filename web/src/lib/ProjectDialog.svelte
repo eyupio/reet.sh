@@ -1,5 +1,6 @@
 <script lang="ts">
  import { onMount, tick } from 'svelte'
+ import { shell } from './dialogShell'
  import { UnauthorizedError, type Machine } from './api'
  import { saveProject, TerminalError, type TerminalMachine } from './terminal/api'
  import { MAX_PROMPT_BYTES, TOOLS, cleanModel, folderChoices, modelSuggestions, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
@@ -180,18 +181,18 @@
  })
 </script>
 
-<dialog bind:this={dialog} oncancel={(event) => { event.preventDefault(); close() }} aria-labelledby={`${id}-title`}>
- <header>
+<dialog bind:this={dialog} use:shell oncancel={(event) => { event.preventDefault(); close() }} aria-labelledby={`${id}-title`}>
+ <header data-shell-head>
   <div>
-   <p class="eyebrow">Projects</p>
+   <p class="eyebrow" data-shell-aside>Projects</p>
    <h2 id={`${id}-title`}>{editing ? `Change ${editing.name}` : 'New project'}</h2>
-   <p class="lede">{editing ? 'Change the defaults or the repositories. Runs already started keep what they used.' : "Name it, choose the repositories, and set what each agent starts with. You can start them all from the Project's page."}</p>
+   <p class="lede" data-shell-aside>{editing ? 'Change the defaults or the repositories. Runs already started keep what they used.' : "Name it, choose the repositories, and set what each agent starts with. You can start them all from the Project's page."}</p>
   </div>
-  <button type="button" class="btn" onclick={close} disabled={busy} aria-label="Close">Close ×</button>
+  <button type="button" class="btn" onclick={close} disabled={busy} aria-label="Close" data-shell-close>Close ×</button>
  </header>
  <form class="sheet" oninput={edited} onchange={edited} onsubmit={(event) => { event.preventDefault(); void save() }}>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div class="body" tabindex={locked ? 0 : undefined} role={locked ? 'region' : undefined} aria-label={locked ? 'Your choices' : undefined}>
+  <div class="body" data-shell-body tabindex={locked ? 0 : undefined} role={locked ? 'region' : undefined} aria-label={locked ? 'Your choices' : undefined}>
   <fieldset disabled={locked}>
    <div class="field">
     <label for={`${id}-name`}>Name</label>
@@ -288,7 +289,7 @@
    </fieldset>
   </fieldset>
   </div>
-  <footer>
+  <footer data-shell-foot>
    <p class="status" class:bad={failed} role="status" aria-live="polite" aria-atomic="true">{message}</p>
    {#if changedElsewhere}<button type="button" class="btn" id={`${id}-reload`} onclick={reload} disabled={busy}>Reload the Project</button>{/if}
    <button class="btn primary" type="submit" disabled={busy} aria-busy={busy} bind:this={saveButton}>{busy ? 'Saving…' : operation ? 'Try the same request again' : editing ? 'Save changes' : 'Save Project'}</button>

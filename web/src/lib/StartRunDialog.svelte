@@ -1,5 +1,6 @@
 <script lang="ts">
  import { onMount, tick, untrack } from 'svelte'
+ import { shell } from './dialogShell'
  import { UnauthorizedError } from './api'
  import { startRun, TerminalError, type TerminalMachine, type TerminalSession } from './terminal/api'
  import { STARTED_MEANS, confirmSentence, planRun, projectRefusalText, type Project, type ProjectRun } from './projects'
@@ -106,18 +107,18 @@
  })
 </script>
 
-<dialog bind:this={dialog} oncancel={(event) => { event.preventDefault(); close() }} aria-labelledby={`${id}-title`} aria-describedby={`${id}-sentence`}>
- <header>
+<dialog bind:this={dialog} use:shell oncancel={(event) => { event.preventDefault(); close() }} aria-labelledby={`${id}-title`} aria-describedby={`${id}-sentence`}>
+ <header data-shell-head>
   <div>
-   <p class="eyebrow">{project.name}</p>
+   <p class="eyebrow" data-shell-aside>{project.name}</p>
    <h2 id={`${id}-title`}>Start all</h2>
-   <p class="lede">Here's what'll start. Untick any you'd rather leave for now.</p>
+   <p class="lede" data-shell-aside>Here's what'll start. Untick any you'd rather leave for now.</p>
   </div>
-  <button type="button" class="btn" onclick={close} disabled={busy} aria-label="Close">Close ×</button>
+  <button type="button" class="btn" onclick={close} disabled={busy} aria-label="Close" data-shell-close>Close ×</button>
  </header>
  <form class="sheet" onsubmit={(event) => { event.preventDefault(); void start() }}>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div class="body" tabindex={locked ? 0 : undefined} role={locked ? 'region' : undefined} aria-label={locked ? 'What will start' : undefined}>
+  <div class="body" data-shell-body tabindex={locked ? 0 : undefined} role={locked ? 'region' : undefined} aria-label={locked ? 'What will start' : undefined}>
    <fieldset disabled={locked}>
     <legend class="vh">Repositories to start</legend>
     <ul>
@@ -143,9 +144,9 @@
    <p class="sentence" id={`${id}-sentence`}>{sentence}</p>
    <p class="hint">{STARTED_MEANS}</p>
   </div>
-  <footer>
+  <footer data-shell-foot>
    <p class="status" class:bad={failed} role="status" aria-live="polite" aria-atomic="true">{message}</p>
-   <small>reet.sh never sends a command line. Each machine starts its agent itself.</small>
+   <small data-shell-aside>reet.sh never sends a command line. Each machine starts its agent itself.</small>
    <button class="btn primary" type="submit" disabled={busy || (!operation && chosen.length === 0)} aria-busy={busy} bind:this={startButton}>{busy ? 'Starting…' : operation ? 'Try the same request again' : 'Start'}</button>
   </footer>
  </form>

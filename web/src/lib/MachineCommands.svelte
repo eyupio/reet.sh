@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { shell } from './dialogShell'
   import CopyButton from './CopyButton.svelte'
   import { enrollCommands, scanCommand, syncLink, upgradeCommands } from './machineSetup'
 
@@ -54,15 +55,15 @@
   })
 </script>
 
-<dialog bind:this={dialog} onclose={onclose} aria-labelledby="machine-commands-title">
-  <div class="sheet">
+<dialog bind:this={dialog} use:shell onclose={onclose} aria-labelledby="machine-commands-title">
+  <div class="sheet" data-shell-body>
     <header>
       <div>
-        <p class="eyebrow">Machine commands</p>
+        <p class="eyebrow" data-shell-aside>Machine commands</p>
         <h2 id="machine-commands-title">{machine}</h2>
-        <p class="lede">Copy a command, run it on that machine, and come back to refresh the status.</p>
+        <p class="lede" data-shell-aside>Copy a command, run it on that machine, and come back to refresh the status.</p>
       </div>
-      <button class="icon" type="button" onclick={() => dialog?.close()} aria-label="Close machine commands">×</button>
+      <button class="icon" type="button" onclick={() => dialog?.close()} aria-label="Close machine commands" data-shell-close>×</button>
     </header>
 
     {#if enrolled}

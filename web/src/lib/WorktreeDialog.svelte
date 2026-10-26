@@ -1,5 +1,6 @@
 <script lang="ts">
  import { onMount, tick } from 'svelte'
+ import { shell } from './dialogShell'
  import { UnauthorizedError } from './api'
  import { removeWorktree, terminalSessions, worktreeStatus, TerminalError } from './terminal/api'
  import { branchKept, removeConfirmText, worktreeBlockers, worktreeRefusalText, type RunMember, type WorktreeStatus } from './projects'
@@ -129,18 +130,18 @@
  })
 </script>
 
-<dialog bind:this={dialog} oncancel={(event) => { event.preventDefault(); close() }} aria-labelledby={`${id}-title`}>
- <header>
+<dialog bind:this={dialog} use:shell oncancel={(event) => { event.preventDefault(); close() }} aria-labelledby={`${id}-title`}>
+ <header data-shell-head>
   <div>
-   <p class="eyebrow">{host}</p>
+   <p class="eyebrow" data-shell-aside>{host}</p>
    <h2 id={`${id}-title`}>Remove worktree</h2>
-   <p class="lede">reet looks first, and removes nothing you haven't saved.</p>
+   <p class="lede" data-shell-aside>reet looks first, and removes nothing you haven't saved.</p>
   </div>
-  <button type="button" class="btn" onclick={close} disabled={!!busy} aria-label="Close">Close ×</button>
+  <button type="button" class="btn" onclick={close} disabled={!!busy} aria-label="Close" data-shell-close>Close ×</button>
  </header>
  <!-- The folder, counts and changed paths can scroll on a small screen; while they do, the part is a named, focusable region a keyboard can scroll. -->
  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
- <div class="body" bind:this={body} tabindex={scrolls ? 0 : undefined} role={scrolls ? 'region' : undefined} aria-label={scrolls ? 'Worktree details' : undefined}>
+ <div class="body" data-shell-body bind:this={body} tabindex={scrolls ? 0 : undefined} role={scrolls ? 'region' : undefined} aria-label={scrolls ? 'Worktree details' : undefined}>
   <dl>
    <div><dt>Folder</dt><dd class="mono">{status?.path || member.worktreePath || 'Not known yet'}</dd></div>
    <div><dt>Branch</dt><dd class="mono">{status?.branch || member.worktreeBranch || 'Not known yet'}</dd></div>
@@ -170,7 +171,7 @@
   {/if}
   {#if detail}<p class="detail"><span>Git said:</span> <span class="mono">{detail}</span></p>{/if}
  </div>
- <footer>
+ <footer data-shell-foot>
   <p class="status" class:bad={failed} role="status" aria-live="polite" aria-atomic="true">{message}</p>
   {#if gone}
    <button type="button" class="btn primary" bind:this={mainButton} onclick={close}>Done</button>

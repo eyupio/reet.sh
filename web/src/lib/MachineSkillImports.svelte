@@ -1,5 +1,6 @@
 <script lang="ts">
  import { onMount } from 'svelte'
+ import { shell } from './dialogShell'
  import { getImports, getImport, requestImport, approveImport, cancelImport, stopImport, getPrivateBundles, getPrivateRevisions, type ImportRequest, type ImportState, type PrivateBundle, type PrivateRevision, type SyncState } from './api'
  import CopyButton from './CopyButton.svelte'
  let { snapshot, source, onclose }: { snapshot: SyncState; source?: { environmentId: string; name: string }; onclose: () => void } = $props()
@@ -72,9 +73,9 @@
  function toggle(path: string) { exclusions = exclusions.includes(path) ? exclusions.filter(v => v !== path) : [...exclusions,path] }
 </script>
 
-<dialog bind:this={dialog} oncancel={(event) => { event.preventDefault(); onclose() }} aria-labelledby="machine-import-title">
- <header><div><p class="eyebrow">Your private toolkit</p><h2 id="machine-import-title">Bring a machine skill into reet</h2></div><button type="button" onclick={onclose} aria-label="Close skill imports">Close ×</button></header>
- <div class="body">
+<dialog bind:this={dialog} use:shell oncancel={(event) => { event.preventDefault(); onclose() }} aria-labelledby="machine-import-title">
+ <header data-shell-head><div><p class="eyebrow" data-shell-aside>Your private toolkit</p><h2 id="machine-import-title">Bring a machine skill into reet</h2></div><button type="button" onclick={onclose} aria-label="Close skill imports" data-shell-close>Close ×</button></header>
+ <div class="body" data-shell-body>
   <p class="intro">Review a skill’s files, choose what to keep, then save a private copy. Your machine files, shelf choices and published skills stay separate.</p>
   {#if error}<p role="alert" class="error">{error}</p>{/if}
   {#if loading}<p role="status">Loading imports and private copies…</p>{/if}
@@ -113,7 +114,7 @@
   <section class="library" aria-label="Private skill copies"><h3>Private copies</h3>{#if !bundles.length}<p class="hint">Your imported private copies will appear here.</p>{/if}<ul>{#each bundles as b (b.id)}<li><button type="button" class="link" onclick={() => history(b.id)}>{b.name}</button><code>{b.head.slice(0,12)}</code></li>{/each}</ul>{#if historyID}<ol>{#each revisions as revision (revision.id)}<li><strong>{new Date(revision.createdAt).toLocaleString()}</strong><code>{revision.id}</code><small>{revision.origin.kind} · {revision.manifestDigest.slice(0,16)}…</small></li>{/each}</ol>{/if}</section>
   <section aria-label="Recent import requests"><h3>Recent requests</h3><ul>{#each importState.requests as r (r.id)}<li><button type="button" class="link" onclick={() => choose(r)}>{r.name} · {r.host}</button><span>{r.state}</span>{#if !active(r.state)}<button type="button" disabled={busy} onclick={() => remove(r)} aria-label={`Dismiss ${r.name} request`}>Dismiss</button>{/if}</li>{/each}</ul></section>
  </div>
- <footer>
+ <footer data-shell-foot>
   {#if selected}
    {#if selected.preview && selected.state === 'reviewing'}
     <button class="primary" type="button" disabled={busy || !!error || blocked || !selected.preview.skillValid} onclick={approve}>{busy ? 'Approving…' : `Import ${selectedFiles.length} files privately`}</button>
@@ -123,7 +124,7 @@
    <button class="primary" type="button" disabled={busy || !!pending || !ready || !name || loading} onclick={preview}>{busy ? 'Requesting…' : 'Request file preview'}</button>
    <small>No file contents are uploaded at this step.</small>
   {/if}
-  <small>Private import never publishes or runs a skill. Closing this panel keeps a pending request; use Cancel import to revoke it.</small>
+  <small data-shell-aside>Private import never publishes or runs a skill. Closing this panel keeps a pending request; use Cancel import to revoke it.</small>
  </footer>
 </dialog>
 <style>

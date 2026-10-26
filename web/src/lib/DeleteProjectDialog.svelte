@@ -1,5 +1,6 @@
 <script lang="ts">
  import { onMount, tick } from 'svelte'
+ import { shell } from './dialogShell'
  import { UnauthorizedError } from './api'
  import { deleteProject, TerminalError, type DeletedProject } from './terminal/api'
  import { projectRefusalText, type Project } from './projects'
@@ -62,14 +63,14 @@
  })
 </script>
 
-<dialog bind:this={dialog} oncancel={(event) => { event.preventDefault(); close() }} aria-labelledby={`${id}-title`} aria-describedby={`${id}-body`}>
+<dialog bind:this={dialog} use:shell={{ sheet: 'bottom' }} oncancel={(event) => { event.preventDefault(); close() }} aria-labelledby={`${id}-title`} aria-describedby={`${id}-body`}>
  <h2 id={`${id}-title`}>Delete {project.name}?</h2>
  <div id={`${id}-body`}>
   <p>The Project and its saved defaults go. Its runs are kept, and nothing on any machine is touched.</p>
   {#if project.useWorktrees || project.lastRun}<p>Worktrees its runs made, if still there, stay on their machines. Remove them from a run first if you want them gone.</p>{/if}
  </div>
  <p class="status" class:bad={failed} role="status" aria-live="polite" aria-atomic="true">{message}</p>
- <div class="buttons">
+ <div class="buttons" data-shell-foot>
   <button type="button" class="btn" bind:this={cancelButton} onclick={close} disabled={busy}>Keep it</button>
   {#if changed}<button type="button" class="btn" id={`${id}-reload`} onclick={reload}>Reload the Project</button>{/if}
   <button type="button" class="btn primary" bind:this={deleteButton} onclick={remove} disabled={busy} aria-busy={busy}>{busy ? 'Deleting…' : 'Delete Project'}</button>

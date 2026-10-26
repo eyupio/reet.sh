@@ -571,5 +571,28 @@ try {
    await context.close()
   }
  }
+
+ // Each open of Start an agent reads the machines again: one that was not ready the first time is offered once it is,
+ // without a reload.
+ if (run('Start an agent reads the machines on every open')) {
+  let reads = 0
+  const notReady = tmachines.map(m => m.agentId === 'a1' ? {...m, ready:false, capabilities:{...m.capabilities, readiness:'terminal_disabled'}} : m)
+  const {context,page,errors} = await home({routes:{'/api/v2/terminal/machines': () => ({machines: reads++ === 0 ? notReady : tmachines})}})
+  await page.goto(base)
+  const start = page.getByRole('button',{name:'Start an agent',exact:true})
+  const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
+  const option = dialog.getByRole('combobox',{name:'Machine',exact:true}).locator('option[value="a1"]')
+  await start.click()
+  await expect(option).toBeDisabled()
+  await expect(option).toHaveText('studio · not ready')
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await start.click()
+  await expect(option).toBeEnabled()
+  await expect(option).toHaveText('studio')
+  expect(reads).toBe(2)
+  expect(errors).toEqual([])
+  await context.close()
+ }
  console.log('Home: fleet strip with sessions running, CPU or No reading and the skills line, no worktree figure, Add a machine, In flight grouped by Project, Machine and State with offline sessions kept, Needs you empty with a quiet bell, the read-only rail with Add, Start an agent, the read-only Home, refresh errors keeping the last lists, storage limited to the Group by key, the desktop, tablet and phone layouts, paused machines in words, and the width, theme, target, focus and motion matrix.')
 } finally { await browser.close() }

@@ -132,8 +132,9 @@
   let starting = $state<{ opener: HTMLElement | null } | null>(null)
   let creating = $state<{ opener: HTMLElement | null } | null>(null)
   const folders = $derived<Machine[] | undefined>(sync?.machines)
+  // Read on every open, never from an earlier one: a machine's readiness and launch capabilities change while Home stays
+  // open, and the polls refresh health, not these. `checking` stops a second open racing the first read.
   async function machinesForDialog(): Promise<boolean> {
-    if (terminals) return true
     checking = true
     try { terminals = await terminalMachines(bounded()); return true }
     catch (e) {

@@ -97,7 +97,7 @@ const LITERAL = /#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?|oklch|lab|lch)\(|\b(white|bl
 const ALWAYS = ['src/lib/Logo.svelte']
 const git = args => execFileSync('git', args, { cwd: web, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
 const base = () => { try { return process.env.REET_THEME_BASE || git(['merge-base', 'HEAD', 'origin/main']).trim() } catch { return '' } }
-const strip = text => text.replace(/<script[\s\S]*?<\/script>/g, s => s.replace(/[^\n]/g, ''))
+const strip = text => text.replace(/<script[\s\S]*?<\/script\s*>/gi, s => s.replace(/[^\n]/g, ''))
 
 test('no literal colour in a component', () => {
   const offences = []
@@ -114,7 +114,7 @@ test('no literal colour in a component', () => {
       if (!into) continue
       for (const m of line.slice(1).matchAll(new RegExp(LITERAL.source, 'g'))) into.set(`${current}\t${m[0]}`, (into.get(`${current}\t${m[0]}`) ?? 0) + 1)
     }
-    for (const [key, n] of added) if (n > (removed.get(key) ?? 0)) offences.push(key.replace('\t', ': adds '))
+    for (const [key, n] of added) if (n > (removed.get(key) ?? 0)) offences.push(key.replaceAll('\t', ': adds '))
     for (const file of git(['ls-files', '--others', '--exclude-standard', '--', 'src']).split('\n').filter(f => f.endsWith('.svelte')))
       strip(readFileSync(join(web, file), 'utf8')).split('\n').forEach((line, i) => { if (LITERAL.test(line)) offences.push(`${file}:${i + 1}: ${line.trim()}`) })
   }

@@ -116,6 +116,8 @@ type Capabilities struct {
 	Tools           []string  `json:"tools,omitempty"`
 	CommandHistory  bool      `json:"commandHistory,omitempty"`
 	Worktree        bool      `json:"worktree,omitempty"`
+	Browse          bool      `json:"browse,omitempty"`
+	Branches        bool      `json:"branches,omitempty"`
 	TerminalControl bool      `json:"terminalControl,omitempty"`
 	ProtocolVersion int       `json:"protocolVersion"`
 	OS              string    `json:"os"`
@@ -130,6 +132,9 @@ func (c Capabilities) Validate() error {
 		return ErrInvalid
 	}
 	if c.CommandHistory && !c.TerminalControl || c.Worktree && !c.Launch {
+		return ErrInvalid
+	}
+	if c.Browse && !c.TerminalControl || c.Branches && !c.Worktree {
 		return ErrInvalid
 	}
 	if c.ProtocolVersion < 1 || c.ProtocolVersion > 65535 || !plainText(c.OSUser, 128) || strings.TrimSpace(c.OSUser) == "" {
@@ -443,6 +448,14 @@ func Decode(data []byte) (Message, error) {
 		b = &WorktreeState{}
 	case "worktree_result":
 		b = &WorktreeResult{}
+	case "browse":
+		b = &Browse{}
+	case "browse_result":
+		b = &BrowseResult{}
+	case "branches":
+		b = &Branches{}
+	case "branches_result":
+		b = &BranchesResult{}
 	case "result":
 		b = &Result{}
 	case "session_changed":

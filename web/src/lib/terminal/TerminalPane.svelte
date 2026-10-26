@@ -227,7 +227,7 @@
   .identity,.controls {display:flex;align-items:center;gap:8px;min-width:0}
   .identity {flex:1;flex-wrap:wrap;column-gap:6px;row-gap:1px}
   .identity strong {font-size:.85rem;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .terminal-icon {font:700 1rem monospace;color:var(--accent)}
+  .terminal-icon {font:700 1rem monospace;color:var(--accent-text)}
   .host {font-size:.75rem;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .controls {flex-shrink:0}
   .state {font-size:.72rem;color:var(--muted);white-space:nowrap}
@@ -241,7 +241,7 @@
   .tools label {display:flex;gap:8px;align-items:center;min-width:0}
   .tools input {min-width:0;max-width:180px;font-size:.8rem}
   .tools button:hover:not(:disabled) {border-color:var(--accent);background:var(--tint)}
-  .tools button[aria-pressed=true] {border-color:var(--accent);color:var(--accent)}
+  .tools button[aria-pressed=true] {border-color:var(--accent);color:var(--accent-text)}
   .tools.mobile-keys {display:none;border-top:1px solid var(--line);border-bottom:0}
   .screen-frame {position:relative;flex:1;height:0;min-height:0;min-width:0;overflow:hidden;padding:12px 10px 8px 14px}
   .screen {height:100%;min-height:0;min-width:0;overflow:hidden;padding:0}

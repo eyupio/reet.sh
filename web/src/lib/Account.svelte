@@ -517,7 +517,7 @@
   .avatar {
     display: inline-grid; place-items: center; flex: none; width: 64px; height: 64px;
     border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line)); border-radius: 999px;
-    background: color-mix(in srgb, var(--tint) 45%, var(--card)); color: var(--accent);
+    background: color-mix(in srgb, var(--tint) 45%, var(--card)); color: var(--accent-text);
     font: 600 1.3rem/1 var(--sans); letter-spacing: 0.03em;
   }
   .notice { margin: 16px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }

@@ -146,3 +146,19 @@ func TestOriginRejectsHeaderInjection(t *testing.T) {
 		t.Fatalf("invalid protocol should fall back to http:\n%s", body)
 	}
 }
+
+func TestSelfHostedFontsServedAsWOFF2(t *testing.T) {
+	requireBuilt(t)
+	for _, name := range []string{"fraunces-latin-600-normal", "ibm-plex-sans-latin-400-normal", "ibm-plex-sans-latin-500-normal", "ibm-plex-sans-latin-600-normal", "ibm-plex-mono-latin-400-normal"} {
+		rec := get(t, Handler(""), "/fonts/"+name+".woff2")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d", name, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "font/woff2" {
+			t.Fatalf("%s: content-type = %q", name, ct)
+		}
+	}
+	if rec := get(t, Handler(""), "/fonts/OFL.txt"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "SIL OPEN FONT LICENSE") {
+		t.Fatalf("OFL.txt: status = %d", rec.Code)
+	}
+}

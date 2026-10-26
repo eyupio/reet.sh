@@ -818,7 +818,7 @@
   .listchips, .memberchips { display: flex; flex-wrap: wrap; gap: 4px; }
   .listchip {
     display: inline-flex; padding: 2px 7px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
-    border-radius: 6px; background: color-mix(in srgb, var(--tint) 25%, var(--card)); color: var(--accent);
+    border-radius: 6px; background: color-mix(in srgb, var(--tint) 25%, var(--card)); color: var(--accent-text);
     font-size: 0.72rem; font-weight: 600; text-decoration: none;
   }
   .listchip:hover { border-color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }

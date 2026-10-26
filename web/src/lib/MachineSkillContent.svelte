@@ -518,7 +518,7 @@
  h2:focus { outline: none; }
  h2:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
  h2 { margin: 4px 0 0; font: 500 1.65rem/1.2 var(--serif); overflow-wrap: anywhere; }
- .eyebrow { margin: 0; color: var(--accent); text-transform: uppercase; font-size: .65rem; letter-spacing: .1em; overflow-wrap: anywhere; }
+ .eyebrow { margin: 0; color: var(--accent-text); text-transform: uppercase; font-size: .65rem; letter-spacing: .1em; overflow-wrap: anywhere; }
  header .btn { flex: none; white-space: nowrap; }
  .body { padding: 22px; min-height: 0; overflow: auto; overflow-wrap: anywhere; }
  .intro, small { color: var(--muted); font-size: .8rem; line-height: 1.5; }
@@ -529,7 +529,7 @@
  .alert p { margin: 0; overflow-wrap: anywhere; }
  .back { margin: 0 0 14px; }
  .add-machine { margin: -6px 0 14px; }
- .linklike { padding: 4px 0; min-height: 32px; font: inherit; font-size: .85rem; color: var(--accent); background: none; border: 0; text-decoration: underline; cursor: pointer; text-align: left; }
+ .linklike { padding: 4px 0; min-height: 32px; font: inherit; font-size: .85rem; color: var(--accent-text); background: none; border: 0; text-decoration: underline; cursor: pointer; text-align: left; }
  .linklike:disabled { color: var(--muted); cursor: default; }
  footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 14px 22px; border-top: 1px solid var(--line); background: var(--card); border-radius: 0 0 16px 16px; }
  footer small { margin: 0; }

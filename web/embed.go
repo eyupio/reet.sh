@@ -15,6 +15,8 @@ import (
 func init() {
 	// Go's built-in table has no entry for the web app manifest, so it would be served as text/plain.
 	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
+	// Nor for the self-hosted fonts; without this their type depends on the host's mime.types, which a slim image lacks.
+	_ = mime.AddExtensionType(".woff2", "font/woff2")
 }
 
 //go:embed all:dist

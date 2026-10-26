@@ -828,7 +828,7 @@
 <style>
   .backups { padding-top: 4px; }
   .head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px; }
-  .eyebrow { margin: 0; color: var(--accent); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
   h2 { margin: 8px 0 0; font: 500 2rem/1.15 var(--serif); letter-spacing: -0.03em; }
   .lede { margin: 8px 0 0; max-width: 62ch; color: var(--muted); }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; }

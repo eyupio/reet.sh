@@ -75,7 +75,7 @@
 
 <style>
   .muted { margin: 16px 0 0; color: var(--muted); }
-  .muted a { color: var(--accent); }
+  .muted a { color: var(--accent-text); }
   .role { margin: 14px 0 0; color: var(--muted); font-size: 0.9rem; }
   form { display: grid; gap: 8px; margin-top: 18px; }
   label { font-weight: 600; font-size: 0.9rem; }

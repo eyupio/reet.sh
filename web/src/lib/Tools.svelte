@@ -203,7 +203,7 @@
   .tools { margin-top: 48px; padding-top: 28px; border-top: 1px solid var(--line); }
   .tools.quiet { margin-top: 24px; padding-top: 0; border-top: 0; }
   .tools-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
-  .eyebrow { margin: 0 0 6px; color: var(--accent); font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; }
+  .eyebrow { margin: 0 0 6px; color: var(--accent-text); font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; }
   h2 { margin: 0; font: 500 1.8rem/1.2 var(--serif); letter-spacing: -0.025em; }
   h3 { margin: 0 0 12px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.025em; }
   h4 { margin: 22px 0 8px; font-size: 0.86rem; }

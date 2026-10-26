@@ -98,14 +98,14 @@
   .error { margin: 14px 0 0; color: var(--bad); font-size: 0.88rem; }
   .privacy { margin: 18px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--bg) 45%, var(--card)); color: var(--muted); font-size: 0.8rem; }
   .empty { text-align: center; color: var(--muted); font: italic 1.1rem/1.5 var(--serif); padding: 56px 0; }
-  .back { color: var(--accent); font-weight: 600; text-underline-offset: 3px; }
+  .back { color: var(--accent-text); font-weight: 600; text-underline-offset: 3px; }
 
   .entries { list-style: none; margin: 20px 0 0; padding: 0; display: grid; gap: 14px; }
   .entry { padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); box-shadow: 0 18px 50px -48px rgb(0 0 0 / 0.4); }
   .entry-head { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
   .entry h2 { margin: 0; font: 500 1.4rem/1.25 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; }
   .entry h2 a { color: inherit; text-decoration: none; }
-  .entry h2 a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+  .entry h2 a:hover { color: var(--accent-text); text-decoration: underline; text-underline-offset: 3px; }
   .source { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 0; color: var(--muted); font-size: 0.76rem; }
   .source code { overflow-wrap: anywhere; }
   .adoption { flex: none; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--good) 35%, var(--line)); border-radius: 999px; color: var(--good); background: color-mix(in srgb, var(--good) 7%, var(--card)); font-size: 0.7rem; font-weight: 650; white-space: nowrap; }

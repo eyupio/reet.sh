@@ -304,7 +304,7 @@
  header { display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; padding: 22px; border-bottom: 1px solid var(--line); }
  header > div { min-width: 0; }
  h2 { margin: 4px 0 0; font: 500 1.65rem/1.2 var(--serif); overflow-wrap: anywhere; }
- .eyebrow { margin: 0; color: var(--accent); text-transform: uppercase; font-size: .65rem; letter-spacing: .1em; }
+ .eyebrow { margin: 0; color: var(--accent-text); text-transform: uppercase; font-size: .65rem; letter-spacing: .1em; }
  .lede { margin: 8px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
  header .btn { flex: none; white-space: nowrap; }
  .sheet { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
@@ -331,7 +331,7 @@
  .btn.small { min-height: 36px; padding: 6px 10px; font-size: .82rem; }
  .members > .btn { justify-self: start; }
  .hint, small { margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.5; }
- .hint a { color: var(--accent); }
+ .hint a { color: var(--accent-text); }
  .count.over { color: var(--bad); }
  .reason { margin: 0; color: var(--bad); font-size: .83rem; line-height: 1.5; }
  .status { flex: 1 0 100%; margin: 0; font-size: .85rem; line-height: 1.5; }

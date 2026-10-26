@@ -94,7 +94,7 @@
   .msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .action {
     flex: none; background: none; border: 0; padding: 6px 8px; min-height: 36px;
-    color: var(--accent); font-weight: 650; cursor: pointer; border-radius: 8px;
+    color: var(--accent-text); font-weight: 650; cursor: pointer; border-radius: 8px;
   }
   .action:hover:not(:disabled) { background: var(--tint); }
   .action:disabled { opacity: 0.6; cursor: default; }

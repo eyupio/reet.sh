@@ -191,7 +191,7 @@
  header { display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; padding: 22px; border-bottom: 1px solid var(--line); }
  header > div { min-width: 0; }
  h2 { margin: 4px 0 0; font: 500 1.65rem/1.2 var(--serif); }
- .eyebrow { margin: 0; color: var(--accent); text-transform: uppercase; font-size: .65rem; letter-spacing: .1em; overflow-wrap: anywhere; }
+ .eyebrow { margin: 0; color: var(--accent-text); text-transform: uppercase; font-size: .65rem; letter-spacing: .1em; overflow-wrap: anywhere; }
  .lede { margin: 8px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
  header .btn { flex: none; white-space: nowrap; }
  .body { display: grid; gap: 14px; padding: 22px; min-height: 0; overflow: auto; overflow-wrap: anywhere; align-content: start; font-size: .88rem; line-height: 1.5; }

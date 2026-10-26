@@ -123,7 +123,7 @@
  .projects li { display: grid; gap: 4px; align-content: start; padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); min-width: 0; overflow-wrap: anywhere; }
  .projects h2 { margin: 0 0 4px; font: 500 1.25rem/1.3 var(--serif); }
  .projects a { color: var(--ink); text-decoration-color: var(--accent); text-underline-offset: 3px; }
- .projects a:hover { color: var(--accent); }
+ .projects a:hover { color: var(--accent-text); }
  .meta, .last { margin: 0; font-size: .84rem; color: var(--muted); }
  .last { margin-top: 6px; color: var(--ink); }
  .state[data-state='complete'] { color: var(--good); }

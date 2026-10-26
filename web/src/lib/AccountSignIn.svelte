@@ -143,7 +143,7 @@
   .submit { width: 100%; margin-top: 4px; }
   .help { margin: 20px 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.8rem; }
   .help p { margin: 0; }
-  .help a { color: var(--accent); font-weight: 600; }
+  .help a { color: var(--accent-text); font-weight: 600; }
   .forgot { margin-top: 8px; }
   .forgot summary { min-height: 32px; display: inline-flex; align-items: center; color: var(--muted); cursor: pointer; font-weight: 600; }
   .forgot summary:hover { color: var(--ink); }

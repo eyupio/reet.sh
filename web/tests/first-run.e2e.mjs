@@ -121,7 +121,7 @@ try {
   await page.goto(base)
   await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
   expect(await page.evaluate(()=>document.documentElement.dataset.theme)).toBe('dark')
-  expect(await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--warn').trim())).toBe('#fbbf24')
+  expect(await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--warn').trim())).toBe('#e9b44c')
   await context.close()
  }
  console.log('First run: phone menu on screen, setup ends on Control, unknown routes, phone auth fit, touch focus, one focus ring and dark warning colour passed.')

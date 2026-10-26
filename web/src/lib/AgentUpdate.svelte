@@ -185,17 +185,17 @@
   .updater { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
   .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
   .identity { display: flex; align-items: flex-start; gap: 9px; min-width: 0; }
-  .mark { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 7px; background: var(--tint); color: var(--accent); font-weight: 700; font-size: 0.9rem; }
+  .mark { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 7px; background: var(--tint); color: var(--accent-text); font-weight: 700; font-size: 0.9rem; }
   .who { display: grid; gap: 1px; min-width: 0; }
   .eyebrow { margin: 0; color: var(--muted); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
   .builds { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 0; font-size: 0.76rem; }
   .builds code { color: var(--ink); }
-  .builds code.to { color: var(--accent); font-weight: 600; }
+  .builds code.to { color: var(--accent-text); font-weight: 600; }
   .arrow { color: var(--muted); }
   .pill { flex: none; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.66rem; font-weight: 600; white-space: nowrap; }
   .pill.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 35%, var(--line)); background: color-mix(in srgb, var(--good) 7%, transparent); }
-  .pill.accent { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); background: var(--tint); }
-  .pill.busy { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+  .pill.accent { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); background: var(--tint); }
+  .pill.busy { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
   .pill.warn { color: var(--warn, #b45309); border-color: color-mix(in srgb, var(--warn, #b45309) 40%, var(--line)); }
   .pill.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); background: color-mix(in srgb, var(--bad) 6%, transparent); }
   .explain { margin: 0; color: var(--muted); font-size: 0.72rem; line-height: 1.5; }

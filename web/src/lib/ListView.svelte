@@ -539,12 +539,12 @@
   .public-note { white-space: pre-wrap; border-left: 2px solid var(--accent); padding-left: 8px; }
   .back { color: var(--muted); font-size: 0.85rem; text-decoration: none; }
   .back:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
-  .eyebrow { margin: 0; color: var(--accent); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
   h1 { margin: 6px 0 0; font: 600 clamp(1.9rem, 5vw, 2.6rem)/1.06 var(--serif); letter-spacing: -0.025em; overflow-wrap: anywhere; }
   .lede { margin: 10px 0 0; color: var(--muted); max-width: 58ch; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
   .status { margin: 14px 0 0; color: var(--good); font-size: 0.88rem; }
-  .inline { background: none; border: 0; padding: 0 2px; color: var(--accent); font: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+  .inline { background: none; border: 0; padding: 0 2px; color: var(--accent-text); font: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
   .error { margin: 14px 0 0; color: var(--bad); font-size: 0.88rem; }
   .empty { text-align: center; color: var(--muted); font: italic 1.1rem/1.5 var(--serif); padding: 44px 0; }
   .start { margin-top: 28px; padding: 24px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; }
@@ -590,7 +590,7 @@
   .entry-head { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
   .entry h2 { margin: 0; font: 500 1.4rem/1.25 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; }
   .entry h2 a { color: inherit; text-decoration: none; }
-  .entry h2 a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+  .entry h2 a:hover { color: var(--accent-text); text-decoration: underline; text-underline-offset: 3px; }
   .source { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 0; color: var(--muted); font-size: 0.76rem; }
   .source code { overflow-wrap: anywhere; }
   .adoption { flex: none; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--good) 35%, var(--line)); border-radius: 999px; color: var(--good); background: color-mix(in srgb, var(--good) 7%, var(--card)); font-size: 0.7rem; font-weight: 650; white-space: nowrap; }

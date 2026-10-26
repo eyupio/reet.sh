@@ -77,7 +77,7 @@
 
 <style>
   .readiness { margin: 24px 0; padding: 22px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
-  .eyebrow { margin: 0 0 7px; color: var(--accent); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+  .eyebrow { margin: 0 0 7px; color: var(--accent-text); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
   h2 { margin: 0 0 18px; font: 500 1.7rem/1.15 var(--serif); letter-spacing: -0.02em; }
   ol { list-style: none; display: grid; gap: 4px; margin: 0; padding: 0; }
   li { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 14px; padding: 14px 0; border-top: 1px solid var(--line); }

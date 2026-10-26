@@ -108,7 +108,7 @@
 </WorkspaceDialog>
 <style>
  .library{display:grid;gap:14px;min-width:0}
- .eyebrow{font-size:.63rem;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin:0 0 8px}
+ .eyebrow{font-size:.63rem;letter-spacing:.1em;text-transform:uppercase;color:var(--accent-text);margin:0 0 8px}
  .intro{font-size:.83rem;line-height:1.6;color:var(--muted);margin:0}
  .target{font-size:.7rem;margin:10px 0 0;padding:8px 10px;border-radius:6px;background:var(--bg);color:var(--muted);overflow-wrap:anywhere}
  .target strong{color:var(--ink)}
@@ -132,14 +132,14 @@
  .command-preview{display:block;padding:0;border:0;background:none;color:color-mix(in srgb,var(--good) 72%,var(--ink));font:.73rem/1.5 var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
  .row-actions{display:flex;align-items:center;gap:2px;flex:none}
  .row-actions .btn{min-height:30px;padding:4px 9px;font-size:.7rem}
- .insert{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}
+ .insert{color:var(--accent-text);border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}
  .more{min-width:30px;padding:0 7px;font-size:1rem;line-height:1}
  .footnote{font-size:.68rem;line-height:1.55;color:var(--muted);margin:0}
  .message{font-size:.76rem;padding:10px;border-radius:6px;background:var(--tint);margin:0;overflow-wrap:anywhere}
  .message button{display:block;margin-top:7px;border:0;background:transparent;color:inherit;text-decoration:underline;cursor:pointer}
  .bad{color:var(--bad)}
  .empty{text-align:center;padding:22px 10px;color:var(--muted);font-size:.8rem}
- .empty>span{font:2.5rem var(--mono);color:var(--accent)}
+ .empty>span{font:2.5rem var(--mono);color:var(--accent-text)}
  .empty h3{font:500 1.3rem var(--serif);color:var(--ink);margin:12px 0}
  .empty p{line-height:1.6}
  .empty .btn{margin-top:8px}

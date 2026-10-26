@@ -65,5 +65,5 @@
   .error { margin: 0; color: var(--bad); font-size: 0.9rem; }
   .done { margin: 22px 0 0; padding: 12px; border: 1px solid var(--good); border-radius: 8px; }
   .help { margin: 20px 0 0; color: var(--muted); font-size: 0.82rem; }
-  .help a { color: var(--accent); font-weight: 600; }
+  .help a { color: var(--accent-text); font-weight: 600; }
 </style>

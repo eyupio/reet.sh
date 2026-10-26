@@ -100,7 +100,7 @@
   .diff > div { display: grid; gap: 1px; }
   .lab { color: var(--muted); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
   .diff code { font-size: 0.78rem; }
-  .diff code.to { color: var(--accent); }
+  .diff code.to { color: var(--accent-text); }
   .arrow { color: var(--muted); }
   .notes { justify-self: start; font-size: 0.72rem; }
   .targets { display: grid; gap: 7px; margin: 0; padding: 0; border: 0; }

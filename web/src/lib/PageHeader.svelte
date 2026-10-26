@@ -24,7 +24,7 @@
 <style>
   .page-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 28px; }
   .copy { min-width: 0; }
-  .eyebrow { margin: 0; color: var(--accent); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
   h1 { margin: 10px 0 12px; font: 500 clamp(2rem, 4vw, 3rem)/1.07 var(--serif); letter-spacing: -0.035em; overflow-wrap: anywhere; }
   .lede { margin: 0; color: var(--muted); max-width: 60ch; font-size: 0.88rem; }
   .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; color: var(--muted); font-size: 0.78rem; }

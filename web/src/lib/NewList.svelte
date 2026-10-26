@@ -78,7 +78,7 @@
     padding: 28px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
     box-shadow: 0 28px 80px -24px rgb(0 0 0 / 0.45);
   }
-  .eyebrow { margin: 0; color: var(--accent); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
   h2 { margin: 6px 0 0; font: 500 1.8rem/1.15 var(--serif); letter-spacing: -0.02em; }
   .lede { margin: 8px 0 18px; color: var(--muted); font-size: 0.9rem; }
   .field { display: grid; gap: 6px; margin-top: 12px; font-size: 0.82rem; font-weight: 600; }

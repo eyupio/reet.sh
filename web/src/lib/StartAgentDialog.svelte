@@ -256,7 +256,7 @@
  header { display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; padding: 22px; border-bottom: 1px solid var(--line); }
  header > div { min-width: 0; }
  h2 { margin: 4px 0 0; font: 500 1.65rem/1.2 var(--serif); overflow-wrap: anywhere; }
- .eyebrow { margin: 0; color: var(--accent); text-transform: uppercase; font-size: .65rem; letter-spacing: .1em; }
+ .eyebrow { margin: 0; color: var(--accent-text); text-transform: uppercase; font-size: .65rem; letter-spacing: .1em; }
  .lede { margin: 8px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
  header .btn { flex: none; white-space: nowrap; }
  /* The fields scroll; the footer with the status line and Start sits below them, outside the scrolling part, so it never covers a field. */
@@ -286,7 +286,7 @@
  .sentence { margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--bg); font-size: .85rem; line-height: 1.5; }
  .status { flex: 1 0 100%; margin: 0; font-size: .85rem; line-height: 1.5; }
  .status.bad { color: var(--bad); }
- .linklike { justify-self: start; padding: 4px 0; min-height: 32px; font: inherit; font-size: .83rem; color: var(--accent); background: none; border: 0; text-decoration: underline; cursor: pointer; text-align: left; }
+ .linklike { justify-self: start; padding: 4px 0; min-height: 32px; font: inherit; font-size: .83rem; color: var(--accent-text); background: none; border: 0; text-decoration: underline; cursor: pointer; text-align: left; }
  /* Always in view below the scrolling fields, so Start is reachable on a short screen. */
  footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 14px 22px 22px; border-top: 1px solid var(--line); background: var(--card); overflow-wrap: anywhere; }
  .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

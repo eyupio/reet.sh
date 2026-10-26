@@ -140,7 +140,7 @@
   .main strong { overflow-wrap: anywhere; }
   .main small { color: var(--muted); font-size: 0.76rem; overflow-wrap: anywhere; }
   .state { flex: none; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.72rem; }
-  .state.open { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); color: var(--accent); }
+  .state.open { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); color: var(--accent-text); }
   .state.waiting { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); color: var(--warn); }
   .state.closed { border-color: color-mix(in srgb, var(--good) 35%, var(--line)); color: var(--good); }
   .notice { margin: 16px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.86rem; }

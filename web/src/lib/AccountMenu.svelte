@@ -97,7 +97,7 @@
   summary.active .avatar { background: var(--accent); color: var(--accent-ink); }
   .avatar {
     position: relative; width: 30px; height: 30px; display: grid; place-items: center; flex: none;
-    border-radius: 50%; background: var(--tint); color: var(--accent);
+    border-radius: 50%; background: var(--tint); color: var(--accent-text);
     font-size: 0.7rem; font-weight: 700; letter-spacing: 0.03em;
   }
   .badge {

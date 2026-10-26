@@ -454,7 +454,7 @@
 <style>
   .fleet { margin: 26px 0; }
   .fleet-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; flex-wrap: wrap; margin-bottom: 16px; }
-  .eyebrow { margin: 0 0 4px; color: var(--accent); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+  .eyebrow { margin: 0 0 4px; color: var(--accent-text); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
   h2 { margin: 0; font: 500 clamp(1.5rem, 2.8vw, 1.85rem)/1.15 var(--serif); letter-spacing: -0.025em; }
   .fleet-controls { display: flex; flex-wrap: wrap; gap: 8px; }
   .fleet-head p:last-child { margin: 6px 0 0; max-width: 62ch; color: var(--muted); font-size: 0.83rem; line-height: 1.55; }
@@ -475,13 +475,13 @@
   .alias { margin: 3px 0 0; color: var(--muted); font-size: 0.72rem; overflow-wrap: anywhere; }
   .badge { flex: none; padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.68rem; }
   .badge.current { color: var(--good); border-color: color-mix(in srgb, var(--good) 35%, var(--line)); }
-  .badge.stale { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+  .badge.stale { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
   .badge.partial { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); }
   .meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 0.75rem; }
   .meta strong { color: var(--ink); font-weight: 600; }
   .live { color: var(--good); }
   .build { color: var(--ink); }
-  .sync-run { color: var(--accent); }
+  .sync-run { color: var(--accent-text); }
   .agent-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   /* A scope's label can carry a long folder path with no spaces: let it break anywhere so it never widens the page. */
   .agent-chip { min-width: 0; max-width: 100%; padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 0.69rem; overflow-wrap: anywhere; }
@@ -506,7 +506,7 @@
   .scan-only { opacity: 0.82; }
   .empty-row { color: var(--muted); font-size: 0.8rem; }
   .agent-links { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; }
-  .link { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; font-size: 0.74rem; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+  .link { padding: 0; border: 0; background: none; color: var(--accent-text); font: inherit; font-size: 0.74rem; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
   .link.quiet { color: var(--muted); }
     @media (max-width: 560px) {
     .machine { padding: 14px; }

@@ -130,5 +130,22 @@ try {
    await context.close()
   }
  }
- console.log('Navigation: Skills and Setups top level, More contents, current marking, notifications in the account menu, one name per area.')
+ // Fonts are reet's own: every font request goes to this origin, the headings, body and code faces all load, and none fails.
+ if (run('fonts')) {
+  const {context,page,errors} = await open({width:1440})
+  const fonts = [], failed = []
+  page.on('request',r=>{if(r.resourceType()==='font')fonts.push(r.url())})
+  page.on('requestfailed',r=>{if(r.resourceType()==='font')failed.push(r.url())})
+  await page.goto(base)
+  await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
+  await page.evaluate(()=>document.fonts.ready)
+  const loaded = await page.evaluate(()=>[...document.fonts].filter(f=>f.status==='loaded').map(f=>`${f.family.replace(/"/g,'')} ${f.weight}`))
+  for (const face of ['Fraunces 600','IBM Plex Sans 400']) expect(loaded, `${face} loaded`).toContain(face)
+  expect(fonts.length, 'fonts were requested').toBeGreaterThan(0)
+  for (const url of fonts) expect(new URL(url).origin, url).toBe(new URL(base).origin)
+  expect(failed).toEqual([])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+ console.log('Navigation: Skills and Setups top level, More contents, current marking, notifications in the account menu, one name per area, same-origin fonts.')
 } finally {await browser.close()}

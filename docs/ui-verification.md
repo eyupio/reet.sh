@@ -404,3 +404,109 @@ recorded in the pull request.
 - Landscape phone sizes were not in the matrix.
 - No live machine, agent CLI, production service or deployment was involved, so nothing here shows
   an agent starting.
+
+## Projects: layout, focus and motion matrix — 26 October 2026
+
+This section was built on main `cfde296` (Projects PR 3) plus the matrix commit `7d95f48`. It
+records what the browser fixture `web/tests/projects.e2e.mjs` checks for [Projects](projects.md)
+beyond the behaviour already in it, what an accessibility scan found, and what was not checked.
+
+**Defects found and fixed.**
+
+1. **The Remove worktree details couldn't be scrolled by keyboard.** The dialog's middle part (the
+   folder, counts and up to 20 changed paths) scrolls on a small screen but held nothing focusable,
+   so a keyboard user couldn't reach it to scroll (axe `scrollable-region-focusable`, 6 dialog
+   scans). It is now a focusable region named "What the machine reports". The fixture presses Tab
+   from **Close** at 320px and expects that region focused; it failed before the change.
+2. **The fixture's dark scheme was not dark.** Its synthetic profile saved the theme `light`, which
+   pins the light colours whatever the system scheme says, so the earlier "320px in light and dark"
+   check ran in light twice. The profile now follows the system scheme, and the matrix checks that the
+   page and dialog surfaces differ between the two schemes.
+
+**Layout matrix.** 19 states, each at 1360, 768, 390 and 320px wide in light and dark (eight size
+and theme pairs per state), changed under the open page or dialog without a reload:
+
+- the Projects list empty, and loaded with an 80-character unbroken Project name;
+- **New project** as it opens, and with a repository on a machine with a 60-character unbroken name
+  and a 130-character folder, a typed relative path and the refusal Save gives;
+- the Project page with a run whose five repositories are started (one with that long machine and
+  folder), failed (attempt 3), removed and pending, with **Open**, **Retry** and **Remove worktree**;
+- **Change** with five repositories (one on a machine no longer on the account), and its 409
+  `project_changed` with **Reload the Project**;
+- **Start all** with every reason shown and **Add a machine**, a lost reply with **Try the same
+  request again**, and a 409 `run_in_progress` refusal;
+- **Remove worktree** blocked by every check at once (23 changed files with 20 long paths shown,
+  commits on no branch, hidden edits, a nested repository, an incomplete check), its confirmation, and
+  git refusing the check with its detail line;
+- **Delete** and its 409 `project_changed`;
+- a Project page that couldn't be read (503), one not on the account, one just deleted, and the
+  read-only account's notice.
+
+For each state and pair:
+
+- the page does not scroll sideways;
+- an open dialog sits inside the window, and neither it, its scrolling part, nor any element inside
+  it reaches past its edges;
+- each primary action for that state is scrolled into view and a hit test at its centre lands on it
+  (for a link that wraps, the centre of its first line). The primary actions are **New project**, the
+  Project link, **Start all**, **Change**, **Delete**, **Retry**, **Remove worktree**, **Open**, the
+  dialogs' Save, Start, Remove, Check again, Reload, Close and Keep it buttons, **Add a repository**,
+  **Add a machine**, the field a message is about, the status line, the error notice and **Back to
+  Projects**, whichever the state has. A box may sit up to 1px past the window's edge after
+  scrolling.
+
+Five mutants each made the fixture fail: no `overflow-wrap` on a run member's lines, no
+`overflow-wrap` on a Project card, a `min-width: 640px` on the Start all sheet, an entrance
+animation on that sheet without the reduced-motion guard, and the Delete dialog not returning focus
+on close. The first three were also caught by the fixture's earlier 320px checks; with those switched
+off in a copy, the matrix caught each of them.
+
+**Focus and Escape.** At each of the eight size and theme pairs, **New project** (with a name typed),
+**Change**, **Start all**, **Delete** and **Remove worktree** (once its check has answered) are opened
+and closed with Escape. Each dialog closes, focus returns to the button that opened it, and nothing
+but reads is sent. The openers are pressed by a script click with nothing focused, as a click on
+Safari, or on Firefox on a Mac, focuses no button, so the returned focus is the dialog's own doing:
+Chromium returns focus to what was focused before a modal opened, which hid the focus mutant above
+until the click was changed.
+
+**Reduced motion.** Without the preference, the buttons have a press (transform) transition, so the
+check is not empty. With `prefers-reduced-motion: reduce`, nothing on the Project page (with a run
+open) and nothing in any of the five dialogs has an animation or a transform transition, and no
+animation is running.
+
+**Storage.** During the matrix nothing was written to browser storage under a key not written before
+it, and nothing holding the long Project name, a folder or a Project id.
+
+**Runs.** Four consecutive local runs of the fixture passed against the production build (131, 129,
+128 and 130 seconds; the file took about 98 seconds before the matrix, most of it two deliberate
+15-second read timeouts), with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/pw-browsers/chromium` and
+the preview server on port 4173. The navigation and start-agent fixtures also passed.
+
+**Accessibility scan.**
+- **Setup.** `axe-core` 4.10.2 was installed with `npm` in a temporary directory outside the
+  repository. Nothing was added to `package.json` or the lock file.
+- **How it ran.** Through Playwright over a copy of the same walk, with the `wcag2a`, `wcag2aa`,
+  `wcag21a`, `wcag21aa` and `wcag22aa` rule tags, at 375 and 1440px in light and dark. Each scan
+  waited 700 milliseconds first and covered the topmost open dialog, or the whole page.
+- **Scope.** 76 scans: the 19 states at those four pairs (48 dialog scans, 28 page scans).
+- **Before the fix.** 6 violations, all `scrollable-region-focusable` on the Remove worktree
+  dialog's details (blocked at 375 and 1440px, and the confirmation at 375px), fixed as above.
+- **After the fix.** No violations.
+- **Incomplete.** Axe reported `color-contrast` as "incomplete" (it couldn't decide) in 62 of the 76
+  scans, 298 element results in all: the element's background "partially overlaps other elements"
+  (108) or is "partially obscured by another element" (176), or its text is "too short to
+  determine" (14).
+  I did not review those or measure the contrast ratios by hand, so contrast is not shown to pass.
+  Nothing else was incomplete.
+- **Status.** The scan is not a CI gate, and the script is not part of the repository.
+
+**Not checked.**
+- No physical phone or tablet, no screen reader, no Safari or Firefox. Only Chromium, driven by a
+  fixture that answers every API call with synthetic data that imitates the Go handlers; it proves
+  what the pages do with those answers, not what a server or machine would send.
+- Whether a screen reader announces the status lines, the run summary or the region's name was not
+  heard.
+- Touch target sizes were not measured. Landscape phone sizes were not in the matrix.
+- A Project with 12 repositories, or 50 Projects, was not in the matrix.
+- No live machine, agent CLI, git repository, production service or deployment was involved, so
+  nothing here shows an agent starting or a worktree being removed.

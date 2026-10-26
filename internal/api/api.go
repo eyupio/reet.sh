@@ -30,6 +30,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/notify"
 	"github.com/eyupio/reet.sh/internal/oidc"
+	"github.com/eyupio/reet.sh/internal/projectrun"
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/sealed"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -70,6 +71,7 @@ type server struct {
 	private           privateTransport
 	healthHub         *agenthealth.Hub
 	terminals         *terminalbroker.Broker
+	runs              *projectrun.Orchestrator
 	remoteTerminals   bool
 	terminalOverride  atomic.Pointer[bool]
 	publicURLOverride atomic.Pointer[string]
@@ -229,6 +231,9 @@ func (s *Server) Close() error {
 	if s.s.healthHub != nil {
 		s.s.healthHub.Close()
 	}
+	if s.s.runs != nil {
+		s.s.runs.Close()
+	}
 	if s.s.terminals != nil {
 		s.s.terminals.Close()
 	}
@@ -274,6 +279,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	}})
 	s.terminals = terminalbroker.New(st)
 	s.terminals.OnLateWorktreeRemoval(s.auditLateWorktreeRemoval)
+	s.runs = s.newProjectRuns()
 	s.configurePrivate()
 	return s
 }
@@ -376,6 +382,7 @@ func (s *server) routes() http.Handler {
 	s.registerHealthRoutes(mux)
 	s.registerTerminalRoutes(mux)
 	s.registerProjectRoutes(mux)
+	s.registerProjectRunRoutes(mux)
 	mux.HandleFunc("GET /quick", s.requireWriter(s.quick))
 	return mux
 }

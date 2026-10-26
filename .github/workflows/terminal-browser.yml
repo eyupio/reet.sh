@@ -86,3 +86,39 @@ jobs:
           name: terminal-browser
           path: ${{ runner.temp }}/terminal-browser
           if-no-files-found: ignore
+
+  # Its own job, so the phone zoom contract (about 30-40 s) runs alongside the terminal job instead of adding to its time.
+  phone-zoom:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci && npm run build
+        working-directory: web
+      - name: Prepare Chromium
+        working-directory: web
+        run: |
+          browser_path="$(command -v google-chrome || command -v chromium || true)"
+          if [ -n "$browser_path" ]; then
+            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$browser_path" >> "$GITHUB_ENV"
+            "$browser_path" --version
+          else
+            npx playwright install --with-deps chromium
+          fi
+      - name: Long names never zoom a phone out
+        env:
+          REET_UI_URL: http://127.0.0.1:4173
+        run: |
+          npm --prefix web run preview -- --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/phone-zoom-ui.log" 2>&1 &
+          ui_pid=$!
+          trap 'kill "$ui_pid"' EXIT
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node web/tests/phone-zoom.e2e.mjs

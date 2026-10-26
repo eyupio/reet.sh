@@ -97,7 +97,19 @@ const LITERAL = /#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?|oklch|lab|lch)\(|\b(white|bl
 const ALWAYS = ['src/lib/Logo.svelte']
 const git = args => execFileSync('git', args, { cwd: web, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
 const base = () => { try { return process.env.REET_THEME_BASE || git(['merge-base', 'HEAD', 'origin/main']).trim() } catch { return '' } }
-const strip = text => text.replace(/<script[\s\S]*?<\/script\s*>/gi, s => s.replace(/[^\n]/g, ''))
+// Blanks <script> blocks (keeping line numbers) by scanning, not by pattern: no HTML is parsed with a regexp.
+const strip = text => {
+  const lower = text.toLowerCase()
+  let out = '', at = 0
+  for (;;) {
+    const open = lower.indexOf('<script', at)
+    if (open < 0) return out + text.slice(at)
+    const close = lower.indexOf('</script', open)
+    const end = close < 0 ? text.length : lower.indexOf('>', close) + 1 || text.length
+    out += text.slice(at, open) + text.slice(open, end).replace(/[^\n]/g, '')
+    at = end
+  }
+}
 
 test('no literal colour in a component', () => {
   const offences = []

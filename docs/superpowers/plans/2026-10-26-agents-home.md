@@ -25,15 +25,36 @@
 - Theme tokens only in components (no literal colours); fonts self-hosted (R15); every input 16 px on phones; touch targets ≥44 px (48 px phone primary actions).
 - Breakpoints: phone `PHONE_SCREEN` (`web/src/lib/terminal/sizing.ts`), tablet 651–1099 px, desktop ≥1100 px.
 - Platform: Linux and macOS; tests resolve `/tmp` symlinks and never assume `sh`. Build the frontend before Go checks. Commit trailers as the session requires.
-- Do not edit the shared dialog shell (`web/src/lib/dialogShell.ts`, `web/src/dialog-shell.css`); consume its `shell` action. PR D starts after it merges.
+- Do not edit the shared dialog shell (`web/src/lib/dialogShell.ts`, `web/src/dialog-shell.css`); consume its `shell` action. PR D starts after it merges (#217).
+- PR D uses existing APIs only and shows no figure without a source; every later pull request swaps its real piece into the shell and lists its layout tweaks.
+
+## Execution order
+
+The pull requests keep the letters the owner has seen; they run in this order:
+
+| Order | PR | Tasks | Needs merged first |
+| --- | --- | --- | --- |
+| 0 | Shared dialog shell (#217, in review, not part of this plan) | — | — |
+| 1 | **D** — app shell and Home on today's data | D1–D5 (5) | #217 |
+| 2 | **A** — browse and branches on the wire | A1–A4 (4) | — (may be reviewed alongside D) |
+| 3 | **B** — project registry, migration, folder browser, retiring /projects | B1–B6 (6) | A, D |
+| 4 | **C** — agent catalogue and launch fields | C1–C4 (4) | — (protocol; may be reviewed alongside A or B) |
+| 5 | **E** — launch bar and Start in several projects | E1–E4 (4) | B, C |
+| 6 | **F** — YOLO | F1–F5 (5) | C, E |
+| 7 | **G** — attention, Needs you and the bell | G1–G3 (3) | D |
+| 8 | **H** — session screen, Sessions, tablet and phone | H1–H4 (4) | D, E, G |
+
+Releases: any merge may be released except between PR B and PR E (R22: PR B retires Start all and PR E brings back Start in several projects). With D first that window holds PR C and PR E, not C, D and E as before.
 
 ## Review Focus
 
-- **A machine goes offline mid-browse.** The request in flight fails at once with the readiness sentence and **Try again**; breadcrumb, list and typed path stay; the person can still add the project by path. Test: `add-project.e2e.mjs` "offline mid-browse keeps the list" (Task D6) and `TestBrowseMachineDisconnectsMidRequest` (Task A4).
-- **A path with unusual characters** (spaces, quotes, `#`, a leading `-`, newline or invalid UTF-8 in a name, a 255-byte name, a symlink loop). Displayable names are listed and round-trip into `Path`; undisplayable ones are omitted and counted; a loop never hangs. Tests: `TestBrowseUnusualNames`, `TestBrowseSymlinkLoop` (Task A2), `folderBrowser.test.mjs` "breadcrumb of a path with spaces and #" (Task D5), and a launch of a project whose folder name starts with `-` (Task E2).
-- **Two people (or two tabs) edit one project.** The second save gets 409 `project_changed` with "Someone changed this project. Reload it, then try again." and keeps their input; a delete racing an edit never resurrects the project. Tests: `TestFolderProjectStaleIfMatch`, `TestFolderProjectDeleteThenStalePatch` (Task B3), `add-project.e2e.mjs` "stale edit keeps input" (Task D6).
+- **Home before the registry shows only what exists.** In PR D every figure has a source in today's API: CPU labelled "CPU" or "No reading", the skills line "Not checked" without a check, no worktree figure without a record, Needs you "Nothing needs you." and a bell without a badge; the legacy Projects page and dialogs stay reachable. Tests: `home.test.mjs` "cpu null shows No reading, labelled CPU", "skills line never says in sync without a check", "needs you is empty and the count is 0" (Task D3); `home.e2e.mjs` "no worktree figure without a source", "rail lists Projects read-only and Add opens New project" (Task D4); `navigation.e2e.mjs` "every former nav destination reachable, Control and Projects under More" (Task D2); the D5 mutation checks.
+
+- **A machine goes offline mid-browse.** The request in flight fails at once with the readiness sentence and **Try again**; breadcrumb, list and typed path stay; the person can still add the project by path. Test: `add-project.e2e.mjs` "offline mid-browse keeps the list" (Task B5) and `TestBrowseMachineDisconnectsMidRequest` (Task A4).
+- **A path with unusual characters** (spaces, quotes, `#`, a leading `-`, newline or invalid UTF-8 in a name, a 255-byte name, a symlink loop). Displayable names are listed and round-trip into `Path`; undisplayable ones are omitted and counted; a loop never hangs. Tests: `TestBrowseUnusualNames`, `TestBrowseSymlinkLoop` (Task A2), `folderBrowser.test.mjs` "breadcrumb of a path with spaces and #" (Task B5), and a launch of a project whose folder name starts with `-` (Task E2).
+- **Two people (or two tabs) edit one project.** The second save gets 409 `project_changed` with "Someone changed this project. Reload it, then try again." and keeps their input; a delete racing an edit never resurrects the project. Tests: `TestFolderProjectStaleIfMatch`, `TestFolderProjectDeleteThenStalePatch` (Task B3), `add-project.e2e.mjs` "stale edit keeps input" (Task B5).
 - **A session started while the controller restarts.** The launch bar keeps the request id and the same parameters; **Try again** sends exactly the same request and never a second session or worktree; a several-project run resumes only pending members. Tests: `launch.e2e.mjs` "lost reply retries the same request" (Task E4), `TestSelectionRunResumesOnlyPendingAfterRestart` (Task E3).
-- **A phone with the keyboard up.** Focus in the launch prompt or the session screen hides the top bar and tab bar, keeps Start (48 × 48 px) and the focused field above the keyboard, and the page never zooms or scrolls sideways. Tests: `phone-layout.e2e.mjs` "launch prompt with keyboard open" and "session with keyboard open" at 320 and 390 px (Task H3).
+- **A phone with the keyboard up.** Focus in the Jump search, the launch prompt or the session screen hides the top bar and tab bar, keeps Start (48 × 48 px) and the focused field above the keyboard, and the page never zooms or scrolls sideways. Tests: `phone-layout.e2e.mjs` "Jump search with the keyboard open" (Task D5), `launch.e2e.mjs` "launch prompt with keyboard open" (Task E2) and `phone-layout.e2e.mjs` "session with keyboard open" (Task H3), each at 320 and 390 px.
 
 ## File Structure
 
@@ -49,11 +70,88 @@
 - `web/tests/`: create `home.e2e.mjs`, `add-project.e2e.mjs`, `launch.e2e.mjs`, `yolo.e2e.mjs`, `sessions.e2e.mjs`; modify `phone-zoom.e2e.mjs`, `phone-layout.e2e.mjs`, `navigation.e2e.mjs`, `projects.e2e.mjs` (becomes redirect checks); `.github/workflows/terminal-browser.yml`.
 - Docs: create `docs/folder-browse.md`; modify `docs/projects.md`, `docs/terminal-launch.md`, `docs/start-agent-session.md`, `docs/terminal-worktrees.md`, `docs/terminal-workspace.md`, `docs/control-centre.md`, `docs/roadmap.md`, `docs/ui-verification.md`, `handoff.md`, the start-agent spec's "No permission-bypass flags" line.
 
-Every PR closes with the same **validation, review and merge** steps: (1) `cd web && npm run check && npm run build && npm test`; `go vet ./...`; `go test -race -count=1 ./...`; `cd mcp && npm test`; (2) broad review of the whole PR diff on the most capable model against the spec and this plan, fixing findings; (3) open the PR, CI green on Linux and macOS on the final head; (4) Codex review clean (fix and re-run until clean); (5) merge; append the PR number and any ruling to `handoff.md`.
+Every PR after D also carries a short **Swaps into the shell** paragraph (what of PR D's stand-ins it replaces) and a **Tweaks to the redesign** checklist (layout changes the real data needs, checked against the spec's drawings). Every PR closes with the same **validation, review and merge** steps: (1) `cd web && npm run check && npm run build && npm test`; `go vet ./...`; `go test -race -count=1 ./...`; `cd mcp && npm test`; (2) broad review of the whole PR diff on the most capable model against the spec and this plan, fixing findings; (3) open the PR, CI green on Linux and macOS on the final head; (4) Codex review clean (fix and re-run until clean); (5) merge; append the PR number and any ruling to `handoff.md`.
 
 ---
 
+## PR D — the app shell and Home (first)
+
+Starts once the shared dialog shell (#217) has merged; it is the first pull request of this plan. PR D
+works on **existing APIs only** and invents no data: every figure on Home comes from an endpoint that
+ships today, and anything without a source is omitted or says so in words. Later pull requests swap
+real pieces into this shell and may tweak its layout (each says how under *Swaps into the shell* and
+*Tweaks to the redesign*).
+
+What PR D uses, and from where:
+
+| Home part | Source in PR D | Replaced or completed by |
+| --- | --- | --- |
+| Fleet strip | `GET /api/v2/machines/health` (`MachineHealth`, `report.cpuPercent`), `GET /api/v2/terminal/sessions`, `GET /api/v2/sync` (`SyncState`) | worktree count if absent: PR B |
+| In flight | `GET /api/v2/terminal/sessions`; existing Projects (`listProjects`) and each recent `lastRun` (`getRun`) for grouping | folder-project grouping: PR B; attention states: PR G |
+| Needs you | nothing ships a "needs you" signal today: honest empty state | PR G (cards), Program 2 (decision cards) |
+| Project rail | existing Projects, read-only | PR B (folder projects, card menu), PR E (Select) |
+| Launch | a **Start an agent** button opening the existing `StartAgentDialog` | PR E (the launch sentence) |
+| Add project | the existing `ProjectDialog` (New project) | PR B (folder browser) |
+| Bell | the Needs you queue length (0 in PR D) | PR G |
+
+### Task D1: Theme tokens, fonts, logo
+
+**Files:** Modify `web/src/app.css`, `web/src/lib/Logo.svelte`; create `web/public/fonts/` (Fraunces 600, IBM Plex Sans 400/500/600, IBM Plex Mono 400 as subset WOFF2, `OFL.txt`), `web/src/lib/theme.ts`, `theme.test.mjs`.
+
+**Interfaces:**
+- Consumes: the existing light tokens in `app.css`, the existing theme setting (System, Light, Dark) and its `prefers-color-scheme` / `data-theme` selectors (R6), `web/src/lib/logo.svg`.
+- Produces: tokens `--bg --card --card-raised --line-soft --line --line-strong --ink --muted --accent --accent-text --accent-ink --good --warn --info --repo --bad` with the spec's dark (designed default) and light (derived) values; `--serif: 'Fraunces', …`, `--sans: 'IBM Plex Sans', …`, `--mono: 'IBM Plex Mono', …` via `@font-face` with `font-display: swap` (R15); `a { color: var(--accent-text) }`; `Logo.svelte` draws the real `logo.svg` with `--ink` and `--accent`; `theme.ts`: `export const TOKENS: Record<'dark'|'light', Record<string,string>>` and `contrast(fg: string, bg: string): number`. Existing pages and the legacy dialogs (already on the shared shell) restyle through the tokens alone.
+
+- [ ] Step 1: failing `theme.test.mjs`: "every text pair passes AA" (`--ink`, `--muted`, `--accent-text`, `--good`, `--warn`, `--info`, `--repo` on `--bg` and `--card` ≥ 4.5; `--accent-ink` on `--accent` ≥ 4.5) in both palettes; "app.css matches TOKENS" (parses `app.css`); "no literal colour in a component" (scans `web/src/lib/**/*.svelte` added or changed by this PR).
+- [ ] Step 2–4: FAIL, implement, `npm test` PASS; every existing fixture still green in both themes; `navigation.e2e.mjs` asserts every font request is same-origin. Commit "Give reet its warm ink palette and self-hosted type".
+
+### Task D2: App shell and navigation
+
+**Files:** Create `web/src/lib/shell/AppShell.svelte`, `TopTabs.svelte`, `Bell.svelte`, `BottomTabs.svelte`, `web/src/lib/ActivityPage.svelte`; modify `web/src/App.svelte`, `NavigationMenu.svelte`, `AccountMenu.svelte`, `web/src/lib/Account.svelte` (activity list extracted, its section links to `/activity`), `web/src/lib/terminal/sizing.ts` (only a new exported `keyboardChrome`), `web/tests/navigation.e2e.mjs`.
+
+**Interfaces:**
+- Consumes: Task D1; `PHONE_SCREEN` and the usable-height rule in `sizing.ts`; the existing account activity loader.
+- Produces: `AppShell` props `{ tabs: Tab[]; attention: number; compact: boolean }`; `type Tab = { href: string; label: string; current: boolean }`; desktop tabs Home `/`, Sessions `/terminals` (until PR H adds `/sessions`), Machines `/machines`, Skills `/skills`, Activity `/activity`; tablet and phone four-tab bar Home, Sessions, Machines, More (More holds Skills, Activity, Control, Projects, Setups, Sync, Lists, Community, Support, Teams & organisations, Host skills); desktop account menu **More** group holding Control (`/control`), Projects (`/projects`), Setups, Sync, Lists, Community, Support, Teams & organisations, Host skills (R13, with the two legacy pages until their own pull requests); `Bell` button named "Needs you: N" (0 hides the badge); "Jump to a session, project or machine" search (`/` focuses) over the sessions, existing Projects and machines already loaded; `/activity` rendering the extracted account activity list; `keyboardChrome(focus: 'search'|null, open: boolean): boolean` (phone: the bottom tab bar hides while the search field has the keyboard up; PR E and PR H widen the union); routes: `/` becomes Home for writers in accounts mode and read-only Home for everyone else signed in (R16), `/control` keeps Control, `/terminals` and `/projects` unchanged (their redirects belong to PR H and PR B); viewers, single-token and open modes: no Sessions tab and no bell.
+
+- [ ] Step 1: failing `navigation.e2e.mjs` cases: "writer desktop shows five tabs with Home current", "phone shows four bottom tabs and More lists the rest", "every former nav destination reachable, Control and Projects under More", "/terminals and /control still open their pages", "/activity lists the account activity", "viewer sees no Sessions tab and no bell", "tab links use aria-current=page", "phone search with the keyboard open hides the tab bar".
+- [ ] Step 2–4: FAIL, implement, run the fixture 4 times and every existing fixture — PASS. Commit "Add the top tabs, bell and responsive navigation".
+
+### Task D3: Home logic on today's data
+
+**Files:** Create `web/src/lib/home.ts`, `home.test.mjs`.
+
+**Interfaces:**
+- Consumes: `TerminalSession`, `MachineHealth`, `HealthReport` (`web/src/lib/terminal/api.ts`), `SyncState` (`web/src/lib/api.ts`), `Project`, `ProjectRun` (`web/src/lib/projects.ts`). Nothing from PR A, B or C.
+- Produces: `fleetCards(machines: MachineHealth[], sessions: TerminalSession[], sync: SyncState, now: number): FleetCard[]` with `FleetCard = { agentId: string; name: string; os: string; status: 'online'|'offline'|'reconnecting'; agentsRunning: number; cpu: { label: 'CPU'; percent: number | null; text: string }; worktrees?: number; skills: { text: string; tone: 'good'|'warn'|'muted' } }` (`cpu.text` "No reading" when `cpuPercent.value` is null; skills text "skills in sync" with its age only when the last check found no differences, "1 skill out of date" when it found one, else "Not checked"; `worktrees` present only when Step 1 confirms the existing session listing can say "created by reet on that machine and not removed" from its `worktreePath` and removal record, otherwise the key is absent and the card shows no worktree figure); `sessionProjects(projects: Project[], runs: ProjectRun[]): Map<string, {id: string; name: string}>` (a session belongs to a Project only when a member of that Project's recent run carries its `sessionId`); `inFlight(sessions, owners, machines, groupBy: 'project'|'machine'|'state', now): Group[]` (Project groups first, then sessions not under a Project grouped by machine, e.g. "No project · studio"; finished kept 24 h); `rowSubtitle(session, owner, machine): string` (`project · machine`, branch only when the listing carries it); `stateWord(session): {word: string; source: string; tone}` from `SessionState` and `exitCode` ("Running · from the session's state", "Exited 2 · from the exit code", "Connection lost"), never a step count (R10); `needsYou(sessions, now): NeedCard[]` returning `[]` in this PR (no existing signal says a session needs the person; an exit is shown in In flight, and without per-person seen a card could not be dismissed); `attentionCount(cards): number`.
+
+- [ ] Step 1: confirm from `internal/store/store_terminal.go` and `internal/api/terminal.go` whether the listing gives a worktree-not-removed count; write the matching test ("worktree count from existing records" or "worktree figure omitted without a source"). Then failing tests: "cpu null shows No reading, labelled CPU", "agents running counts only live sessions started with an agent", "skills line never says in sync without a check", "session from a Project's run groups under that Project", "session outside every Project groups under its machine", "finished leaves In flight after 24 h", "no step text for terminal sessions", "state word names its source", "needs you is empty and the count is 0".
+- [ ] Step 2–4: FAIL, implement, `npm test` PASS. Commit "Add the pure logic for Home on today's data".
+
+### Task D4: Home page
+
+**Files:** Create `web/src/lib/home/Home.svelte`, `FleetStrip.svelte`, `InFlight.svelte`, `NeedsYou.svelte`, `ProjectRail.svelte`, `web/tests/home.e2e.mjs`; modify `App.svelte`.
+
+**Interfaces:**
+- Consumes: Tasks D1–D3; existing loaders `machineHealth`, `terminalSessions`, `getSyncState`, `listProjects`, `getRun` (only for Projects whose `lastRun` started in the last 24 h, once per load and per refresh); existing `StartAgentDialog` (`machines`, `snapshot`, `opener`, `onstarted`, `onaddmachine`, `onsignedout`, `onclose`), `ProjectDialog` (`machines`, `snapshot`, `otherNames`, `opener`, `onsaved`, `onsignedout`, `onclose`) and Add a machine dialog.
+- Produces: Home at `/` per the spec's desktop and tablet drawings (rail 272 px, collapsing to 56 px under 1240 px; Needs you 380 px; tablet stacks machines, Needs you, In flight; phone machine chips, Needs you, In flight); `FleetStrip` (cards, **Add a machine**; a card opens that machine on Machines); `InFlight` with **Group by** *Project | Machine | State* stored under `reet.home.groupBy.<uid>` (try/catch; the only stored value); a row opens the session in `/terminals?agent=…&session=…`; `NeedsYou` with heading, count and the empty state "Nothing needs you."; `ProjectRail` listing existing Projects read-only (name, machine tags from members, *N running* from D3's grouping) with **Add** opening `ProjectDialog` and the plain foot note "These are your saved Projects. Browsing a machine's folders comes in a later release." (folder browsing arrives with PR A and PR B); choosing a card opens `/projects/<id>`; a docked **Start an agent** button where the launch bar will sit, opening `StartAgentDialog` (restyled by D1 only); read-only Home (R16) with the fleet strip alone; polling 15 s while visible; refresh errors keep the last lists with the sentence.
+
+- [ ] Step 1: failing `home.e2e.mjs` cases (synthetic API answers): "fleet strip shows CPU, agents running and the skills line with their labels", "missing CPU reads No reading", "no worktree figure without a source", "Add a machine opens the existing dialog", "In flight groups by project, machine and state", "a session outside every Project sits under its machine", "offline machine keeps its sessions with the sentence", "Needs you says Nothing needs you and the bell shows no badge", "rail lists Projects read-only and Add opens New project", "Start an agent opens the existing dialog and the new session appears", "viewer sees the fleet strip only", "refresh error keeps the last list", "nothing of projects or sessions in storage".
+- [ ] Step 2–4: FAIL, implement, run 4 times — PASS. Commit "Build Home from today's data: fleet strip, In flight, Needs you and the rail".
+
+### Task D5: Matrix, axe, CI and docs
+
+**Files:** Modify `web/tests/home.e2e.mjs`, `navigation.e2e.mjs`, `phone-zoom.e2e.mjs`, `phone-layout.e2e.mjs`, `.github/workflows/terminal-browser.yml`, `docs/ui-verification.md`, `docs/terminal-workspace.md`, `docs/control-centre.md`.
+
+- [ ] Step 1: run the shell and Home at 1360 and 834 px and at 390 and 320 px with `isMobile`/`hasTouch`; light and dark; reduced motion. Assert no horizontal scroll, targets ≥44 px (48 px phone primary actions), focus visible, state never colour alone. Add to `phone-zoom.e2e.mjs` Home and the More list with 80-character Project, machine and session names (no layout wider than the device, inputs 16 px); add "Jump search with the keyboard open" at 320 and 390 px to `phone-layout.e2e.mjs`.
+- [ ] Step 2: axe-core on Home and the shell at 390, 834 and 1360 px in both themes; record violations and the `incomplete` count honestly in `docs/ui-verification.md` ("Agents home shell and Home — <date>"); fix real defects.
+- [ ] Step 3: mutation-check: drop "No reading" for a null CPU, say "skills in sync" without a check, show a worktree figure without a source, put a literal colour in a component, remove the 16 px input rule, count a session in the bell; each fixture or unit test must fail; restore.
+- [ ] Step 4: add `home.e2e.mjs` to the workflow split across the existing jobs (≤60 s added); docs: `docs/terminal-workspace.md` (Home, the tabs, what Home shows today and what arrives with which pull request), `docs/control-centre.md` (Home sits at `/`; Control stays under More until PR H folds it in, R4). Commit "Check the shell and Home across screens and themes".
+
+**PR D validation, review and merge:** the common steps. PR title "Add the app shell and Home on today's data".
+
 ## PR A — browse and branches on the wire
+
+**Swaps into the shell.** Nothing visible: PR A is wire-only. It unblocks PR B's folder browser, which replaces the legacy New project dialog behind the rail's **Add**.
 
 ### Task A1: Protocol messages
 
@@ -104,9 +202,12 @@ Every PR closes with the same **validation, review and merge** steps: (1) `cd we
 - [ ] Step 2: run — FAIL. Step 3: implement; write `docs/folder-browse.md` (negotiation, rules, limits, sentences, what is not established).
 - [ ] Step 4: `go test -race -count=1 ./internal/terminalbroker/ ./internal/api/ -run 'Browse|Branches'` — PASS. Commit "Offer folder browse and branch listing through the API".
 
+**Tweaks to the redesign:**
+- [ ] None on Home; check the browse sentences in `docs/folder-browse.md` read as the spec words them, since PR B shows them in the dialog.
+
 **PR A validation, review and merge:** the common steps above. PR title "Browse a machine's folders and list its branches".
 
-## PR B — project registry, migration, retiring /projects
+## PR B — project registry, migration, folder browser, retiring /projects
 
 ### Task B1: Folder project store
 
@@ -151,22 +252,44 @@ Every PR closes with the same **validation, review and merge** steps: (1) `cd we
 - [ ] Step 1: failing tests: `TestMigrationDedupesByMachineAndFolder` (two Projects sharing `/w/reet` on studio → one folder project), `TestMigrationNamesAndDefaults` (member tool beats Project default; `useWorktrees` → `yes`/`no`; name clash → ` (2)`), `TestMigrationCarriesStarterPrompts` (prompt copied to every folder created from it; conflicting prompts keep the oldest and note the other Project's name), `TestMigrationSkipsRegisteredFolder` (existing folder project untouched, prompt not overwritten), `TestMigrationIsIdempotent` (second run creates 0), `TestMigrationKeepsRuns` (runs and their worktree records still load; worktree remove still allowed), `TestMigrationAuditHasNoPrompt`, `TestOldProjectRoutesAnswer410`.
 - [ ] Step 2–4: FAIL, implement, `go test -race ./internal/store/ ./internal/api/ -run 'Migration|OldProject' -count=1` PASS. Commit "Move saved Projects into folder projects, keeping prompts and runs".
 
-### Task B5: Retire the Projects page
+### Task B5: Folder browser and Add project dialog
 
-**Files:** Modify `web/src/App.svelte`, `web/src/lib/Account.svelte` (activity list extracted), create `web/src/lib/ActivityPage.svelte`; delete `ProjectsPage.svelte`, `ProjectPage.svelte`, `ProjectDialog.svelte`, `StartRunDialog.svelte`, `DeleteProjectDialog.svelte`; keep `RunView.svelte` read-only; rewrite `web/tests/projects.e2e.mjs` as redirect checks; modify `docs/projects.md`.
+**Files:** Create `web/src/lib/folderBrowser.ts`, `folderBrowser.test.mjs`, `web/src/lib/home/FolderBrowser.svelte`, `AddProjectDialog.svelte`, `web/tests/add-project.e2e.mjs`; modify `.github/workflows/terminal-browser.yml`, `web/tests/phone-zoom.e2e.mjs`.
 
 **Interfaces:**
-- Consumes: Task B4.
-- Produces: `/projects` → `/` and `/projects/<id>` → `/?project=<folderProjectId>` (via `GET /api/v2/folder-projects?legacy=<id>`), each with the one-time status note "Projects now live in the rail on Home." (shown once per page load, not stored); `/activity` route rendering the account activity list plus *Runs from Projects* (read-only `RunView` with Check and remove worktree); `eventLabel` for `projects-migrated`, `project-add`, `project-update`, `project-remove`, `folder-browse`.
+- Consumes: Task B3 client (`browseFolder`, `createFolderProject`, `updateFolderProject`), PR A's browse route, the shared dialog shell `shell` action (`sheet: 'full'` on phones).
+- Produces: `breadcrumbs(path: string, home: string): {label: string; path: string}[]` (home shown as `~`); `repoMessage(result: BrowseResult): string | null` (the spec's two sentences); `countLabel(n: number, more: boolean): string` ("14 folders", "200+ folders"); `validateFolderInput(path: string): string | null`; `AddProjectDialog` props `{ machines; project?: FolderProject; onadded(p) }` doing add and edit; fields per the spec (Machine, Folder with Browse/Hide browser, Name, Worktree for each session, Starter prompt and More defaults collapsed); success line "Sorted. reet added."; phone sheet with chosen folder and buttons pinned.
 
-- [ ] Step 1: failing fixture cases in `projects.e2e.mjs`: "old list redirects with the note", "old project id redirects to its folder project", "old run is read-only in Activity and its worktree can be checked and removed", "viewer sees no Runs from Projects"; `events.test.mjs` labels for the five events.
-- [ ] Step 2: `cd web && npm run build && node tests/projects.e2e.mjs` — FAIL.
+- [ ] Step 1: failing `folderBrowser.test.mjs`: "breadcrumb of a path with spaces and #", "never above home", "inside a repository offers the top folder", "count labels"; then `add-project.e2e.mjs`: "browse, enter, Use this folder", "paging with Show more", "hidden toggle and filter", "not a repository message", "inside a repository button", "offline machine adds by typed path", "offline mid-browse keeps the list", "rate limited sentence", "stale edit keeps input", "phone full-screen sheet with pinned buttons", "focus returns to Add on close".
+- [ ] Step 2: FAIL. Step 3: implement; add `add-project.e2e.mjs` to the workflow and the Add project sheet with a 120-character path to `phone-zoom.e2e.mjs`; mutation-check the browse containment message (the fixture must fail; restore).
+- [ ] Step 4: run both 4 times — PASS. Commit "Add projects by browsing a machine's folders".
+
+### Task B6: Folder projects in the rail; retire the Projects page
+
+**Files:** Modify `web/src/App.svelte`, `web/src/lib/home.ts`, `home.test.mjs`, `home/Home.svelte`, `home/ProjectRail.svelte`, `home/InFlight.svelte`, `home/FleetStrip.svelte`, `shell/AppShell.svelte` (More list), `web/src/lib/ActivityPage.svelte`, `web/tests/home.e2e.mjs`, `navigation.e2e.mjs`; delete `ProjectsPage.svelte`, `ProjectPage.svelte`, `ProjectDialog.svelte`, `StartRunDialog.svelte`, `DeleteProjectDialog.svelte`; keep `RunView.svelte` read-only; rewrite `web/tests/projects.e2e.mjs` as redirect checks; modify `docs/projects.md`.
+
+**Interfaces:**
+- Consumes: Tasks B2–B5; PR D's `home.ts`, `ProjectRail`, `InFlight`, `FleetStrip`, `ActivityPage`.
+- Produces: `inFlight` and `rowSubtitle` group by the session's `projectId` (B2) against `FolderProject`, branch from `worktreeBranch` (`project · machine · branch`); sessions without a project still group under their machine; `sessionProjects` and the Projects/`getRun` loads removed; the rail lists folder projects (repo or folder icon, machine tag, branch, state in words, worktree count) with **Add** opening `AddProjectDialog`, card menu (New session here, Edit, Worktrees, Remove from reet) with confirmations, reorder, the foot "Folders are browsed live on the machine", and the one-time migration `Note`; `ProjectRail` emits `choose(projectId)` (opens `StartAgentDialog` with that folder until PR E); the fleet card's worktree figure from B2's records if D3 omitted it; `/projects` → `/` and `/projects/<id>` → `/?project=<folderProjectId>` (via `GET /api/v2/folder-projects?legacy=<id>`), each with the one-time status note "Projects now live in the rail on Home." (shown once per page load, not stored); Projects removed from More; `/activity` gains *Runs from Projects* (read-only `RunView` with Check and remove worktree); `eventLabel` for `projects-migrated`, `project-add`, `project-update`, `project-remove`, `folder-browse`.
+
+- [ ] Step 1: failing tests: `home.test.mjs` "group by folder project from projectId", "branch in the subtitle from worktreeBranch"; `home.e2e.mjs` "rail lists folder projects with their menu", "Add opens the folder browser", "migration note shown once"; `projects.e2e.mjs` "old list redirects with the note", "old project id redirects to its folder project", "old run is read-only in Activity and its worktree can be checked and removed", "viewer sees no Runs from Projects"; `navigation.e2e.mjs` "Projects no longer under More"; `events.test.mjs` labels for the five events.
+- [ ] Step 2: `cd web && npm run build && node tests/projects.e2e.mjs && node tests/home.e2e.mjs` — FAIL.
 - [ ] Step 3: implement; rewrite `docs/projects.md` for folder projects (registry, limits, migration, starter prompts, runs in Activity).
-- [ ] Step 4: run the fixture 4 times and `npm test` — PASS. Commit "Retire the Projects page; keep its runs in Activity".
+- [ ] Step 4: run the fixtures 4 times and `npm test` — PASS. Commit "Put folder projects in the rail and retire the Projects page".
 
-**PR B validation, review and merge:** the common steps. Do not tag a release until PR E merges (R22).
+**Swaps into the shell.** The rail's read-only list of saved Projects becomes the folder-project rail; the legacy New project dialog behind **Add** becomes the folder browser; In flight groups by the session's own project id instead of matching run members; Projects leaves More and `/projects` redirects to Home.
+
+**Tweaks to the redesign** (check each against the spec's drawings; change only what the real data needs):
+- [ ] Rail card height and the 56 px collapsed strip with a repo badge, branch and worktree count in place.
+- [ ] In flight subtitle with the mono branch at 320 px (ellipsis, full text in the accessible name).
+- [ ] Fleet card with the worktree figure (if newly present) still fits four cards at 1360 px.
+- [ ] Phone Home: the rail's place on the Sessions tab is held for PR H; until then the rail sits under In flight.
+
+**PR B validation, review and merge:** the common steps. Do not tag a release until PR E merges (R22, shortened: the hold now spans PR C and PR E only).
 
 ## PR C — agent catalogue and launch fields
+
+**Swaps into the shell.** Nothing visible on Home yet: `catalogue.ts` feeds PR E's agent slot, and until then Home's **Start an agent** button keeps the existing dialog and its four agents.
 
 ### Task C1: `agents-v2` on the wire
 
@@ -210,84 +333,21 @@ Every PR closes with the same **validation, review and merge** steps: (1) `cd we
 - [ ] Step 1: failing tests: `TestCreateNewFieldsRefusedToOldPeer`, `TestCreateBaseMissingSentence`, `TestLaunchAuditCarriesEffortBaseYolo`; `catalogue.test.mjs` "installed first, then not installed, then disabled", "old machine offers only four".
 - [ ] Step 2–4: FAIL, implement, `go test -race ./internal/api/ -run Create -count=1` and `cd web && npm test` PASS; update `docs/terminal-launch.md` (catalogue, effort, base). Commit "Offer the catalogue, effort and base branch through the API".
 
-**PR C validation, review and merge:** the common steps.
+**Tweaks to the redesign:**
+- [ ] The longer agent names (Cursor Agent, Cline) fit In flight's subtitle and the fleet card at 320 px where the listing carries `tool` (B2).
 
-## PR D — the app shell and Home
-
-Starts after the shared dialog shell has merged.
-
-### Task D1: Theme tokens, fonts, logo
-
-**Files:** Modify `web/src/app.css`, `web/src/lib/Logo.svelte`; create `web/public/fonts/` (Fraunces 600, IBM Plex Sans 400/500/600, IBM Plex Mono 400 as subset WOFF2, `OFL.txt`), `web/src/lib/theme.ts`, `theme.test.mjs`.
-
-**Interfaces:**
-- Produces: tokens `--bg --card --card-raised --line-soft --line --line-strong --ink --muted --accent --accent-text --accent-ink --good --warn --info --repo --bad` with the spec's dark and light values under the existing `prefers-color-scheme` / `data-theme` selectors; `--serif: 'Fraunces', …`, `--sans: 'IBM Plex Sans', …`, `--mono: 'IBM Plex Mono', …` via `@font-face` with `font-display: swap`; `a { color: var(--accent-text) }`; `theme.ts`: `export const TOKENS: Record<'dark'|'light', Record<string,string>>` and `contrast(fg: string, bg: string): number`.
-
-- [ ] Step 1: failing `theme.test.mjs`: "every text pair passes AA" (`--ink`, `--muted`, `--accent-text`, `--good`, `--warn`, `--info`, `--repo` on `--bg` and `--card` ≥ 4.5; `--accent-ink` on `--accent` ≥ 4.5) in both palettes; "app.css matches TOKENS" (parses `app.css`).
-- [ ] Step 2–4: FAIL, implement, `npm test` PASS; check no request leaves the origin for fonts (`navigation.e2e.mjs` asserts every font request is same-origin). Commit "Give reet its warm ink palette and self-hosted type".
-
-### Task D2: App shell and navigation
-
-**Files:** Create `web/src/lib/shell/AppShell.svelte`, `TopTabs.svelte`, `Bell.svelte`, `BottomTabs.svelte`; modify `web/src/App.svelte`, `NavigationMenu.svelte`, `AccountMenu.svelte`, `web/tests/navigation.e2e.mjs`.
-
-**Interfaces:**
-- Consumes: Task D1, Task B5's `/activity`.
-- Produces: `AppShell` props `{ tabs: Tab[]; attention: number; compact: boolean }`; `type Tab = { href: string; label: string; current: boolean }`; desktop tabs Home `/`, Sessions `/sessions`, Machines `/machines`, Skills `/skills`, Activity `/activity`; tablet and phone tabs Home, Sessions, Machines, More (More holds Skills, Activity, Setups, Sync, Lists, Community, Support, Teams & organisations, Host skills); account menu **More** group on desktop (R13); `Bell` button named "Needs you: N" (0 hides the badge; count wired in PR G); "Jump to a session, project or machine" search (`/` focuses) over sessions, projects and machines already loaded; redirects `/control` → `/`, `/terminals[?agent&session]` → `/sessions[?…]`; viewers and non-accounts modes: Home with fleet strip only (R16).
-
-- [ ] Step 1: failing `navigation.e2e.mjs` cases: "writer desktop shows five tabs with Home current", "phone shows four bottom tabs and More lists the rest", "every former nav destination reachable", "/control and /terminals redirect keeping the query", "viewer sees no Sessions tab and no bell", "tab links use aria-current=page".
-- [ ] Step 2–4: FAIL, implement, run the fixture 4 times and every existing fixture — PASS. Commit "Add the top tabs, bell and responsive navigation".
-
-### Task D3: Home logic
-
-**Files:** Create `web/src/lib/home.ts`, `home.test.mjs`.
-
-**Interfaces:**
-- Consumes: `TerminalSession`, `MachineHealth`, `SyncState`, `FolderProject` (web type from B3).
-- Produces: `fleetCards(machines: MachineHealth[], sessions: TerminalSession[], sync: SyncState, worktrees: Record<string, number>, now: number): FleetCard[]` with `FleetCard = { agentId: string; name: string; os: string; status: 'online'|'offline'|'reconnecting'; agentsRunning: number; cpu: number | null; worktrees: number; skills: { text: string; tone: 'good'|'warn'|'muted' } }` (skills text "skills in sync" only when the last check found no differences, "1 skill out of date", else "Not checked"); `inFlight(sessions, projects, groupBy: 'project'|'machine'|'state', now): Group[]` (finished kept 24 h unless seen); `rowSubtitle(session, project): string` (`project · machine · branch`); `stateWord(session): {word: string; source: string; tone}` (never a step count for terminal sessions); `needsYou(sessions, now): NeedCard[]` with kinds `waiting|failed|finished|review` (review = finished worktree session).
-
-- [ ] Step 1: failing tests: "cpu null shows No reading", "agents running counts only live agent sessions", "skills line never says in sync without a check", "group by project puts unmatched sessions under Other on studio", "finished leaves In flight after 24 h", "no step text for terminal sessions", "needs you newest first, one card per session".
-- [ ] Step 2–4: FAIL, implement, `npm test` PASS. Commit "Add the pure logic for Home".
-
-### Task D4: Home page
-
-**Files:** Create `web/src/lib/home/Home.svelte`, `FleetStrip.svelte`, `InFlight.svelte`, `NeedsYou.svelte`, `ProjectRail.svelte`; modify `App.svelte`.
-
-**Interfaces:**
-- Consumes: Tasks D2, D3, B3; existing `/api/v2` sessions, health and sync loaders; worktree counts from the session listing.
-- Produces: Home at `/` for writers; layout per the spec's desktop and tablet drawings (rail 272 px, collapsing to 56 px under 1240 px; Needs you 380 px; tablet stacks machines, Needs you, In flight); `ProjectRail` emits `choose(projectId)` and `selection(ids: string[])`; project card menu (New session here, Edit, Worktrees, Remove from reet) with confirmations; Group by stored per account under `reet.home.groupBy.<uid>` (try/catch); polling 15 s while visible; empty states "Nowt waiting on you." and "Add a project to start an agent in one of your folders."; a placeholder region for the launch bar (filled in PR E).
-
-- [ ] Step 1: failing `home.e2e.mjs` cases (synthetic API): "fleet strip shows each figure with its label", "Add a machine opens the existing dialog", "In flight groups by project, machine and state", "YOLO badge on a YOLO session", "Needs you cards for waiting, failed and ready to review", "offline machine keeps its sessions with the sentence", "refresh error keeps the last list", "nothing of projects or sessions in storage".
-- [ ] Step 2–4: FAIL, implement, run 4 times — PASS. Commit "Build Home: fleet strip, In flight, Needs you and the project rail".
-
-### Task D5: Folder browser and Add project dialog
-
-**Files:** Create `web/src/lib/folderBrowser.ts`, `folderBrowser.test.mjs`, `web/src/lib/home/FolderBrowser.svelte`, `AddProjectDialog.svelte`.
-
-**Interfaces:**
-- Consumes: Task B3 client (`browseFolder`, `createFolderProject`, `updateFolderProject`), the shared dialog shell `shell` action (`sheet: 'full'` on phones).
-- Produces: `breadcrumbs(path: string, home: string): {label: string; path: string}[]` (home shown as `~`); `repoMessage(result: BrowseResult): string | null` (the spec's two sentences); `countLabel(n: number, more: boolean): string` ("14 folders", "200+ folders"); `validateFolderInput(path: string): string | null`; `AddProjectDialog` props `{ machines; project?: FolderProject; onadded(p) }` doing add and edit; fields per the spec (Machine, Folder with Browse/Hide browser, Name, Worktree for each session, Starter prompt and More defaults collapsed); success line "Sorted. reet added."; phone sheet with chosen folder and buttons pinned.
-
-- [ ] Step 1: failing `folderBrowser.test.mjs`: "breadcrumb of a path with spaces and #", "never above home", "inside a repository offers the top folder", "count labels"; then `add-project.e2e.mjs`: "browse, enter, Use this folder", "paging with Show more", "hidden toggle and filter", "not a repository message", "inside a repository button", "offline machine adds by typed path", "offline mid-browse keeps the list", "rate limited sentence", "stale edit keeps input", "phone full-screen sheet with pinned buttons", "focus returns to Add on close".
-- [ ] Step 2–4: FAIL, implement, run both 4 times — PASS. Commit "Add projects by browsing a machine's folders".
-
-### Task D6: Fixtures in CI and the zoom matrix
-
-**Files:** Modify `web/tests/phone-zoom.e2e.mjs`, `.github/workflows/terminal-browser.yml`, `docs/terminal-workspace.md`, `docs/control-centre.md`.
-
-- [ ] Step 1: add Home and the Add project sheet with a 120-character path to `phone-zoom.e2e.mjs` (320–412 px: no layout wider than the device, inputs 16 px); add `home.e2e.mjs` and `add-project.e2e.mjs` to the workflow split across the existing jobs (≤60 s added).
-- [ ] Step 2: mutation-check: remove the browse containment message, the 16 px input rule and the "never in sync without a check" rule one at a time; each fixture must fail; restore.
-- [ ] Step 3: update `docs/terminal-workspace.md` (Home, rail) and `docs/control-centre.md` (folded into Home, R4). Commit "Check Home and Add project in CI".
-
-**PR D validation, review and merge:** the common steps.
+**PR C validation, review and merge:** the common steps; no release while PR B is merged and PR E is not (R22).
 
 ## PR E — the launch bar
+
+**Swaps into the shell.** The docked **Start an agent** button on Home, and the `StartAgentDialog` it opens, give way to the launch sentence in the same place; the rail's `choose` sets the bar's project instead of opening the dialog; the rail gains **Select** for Start in several projects (R1), bringing back what Start all did.
 
 ### Task E1: Launch bar logic
 
 **Files:** Create `web/src/lib/launchBar.ts`, `launchBar.test.mjs`.
 
 **Interfaces:**
-- Consumes: `catalogue.ts`, `FolderProject`, profile defaults (B2), `listBranches` (B3).
+- Consumes: `catalogue.ts` (C4), `FolderProject`, profile defaults (B2), `listBranches` (B3).
 - Produces: `type LaunchChoice = { agent: string; model: string; projectIds: string[]; homeMachine?: string; branch: string; worktree: boolean; effort: ''|'low'|'medium'|'high'; prompt: string; approvals: 'ask'|'yolo' }`; `initialChoice(last: LaunchChoice | null, projects, profile): LaunchChoice` (approvals always `ask`); `baseBranchFor(project, profile, branches: BranchesResult): string` (project → profile → `default` → `current`); `sentence(choice, projects, machines): {slot: string; text: string}[]` ("Run … with … on … at … from … in a fresh worktree"; "3 projects", "each project's default"); `startable(choice, machines): string | null` (reason or null); `toCreate(choice, project, requestId, runToken): LaunchRequest` (adds `base`, `effort`, `yolo` only when set); `defaultTitle(prompt: string): string` (first line, ≤80 characters); `sendKey(e: KeyboardEvent, touch: boolean): boolean` (R8).
 
 - [ ] Step 1: failing tests: "base precedence project, profile, default, current", "checkout hides branch choice and reads Works in the checkout on main", "non-repository hides branch and worktree", "approvals reset to ask", "sentence for several projects", "Enter never sends on touch; Ctrl+Enter and Cmd+Enter send", "title from the first line", "a prompt starting with - is refused with the launch sentence".
@@ -295,13 +355,13 @@ Starts after the shared dialog shell has merged.
 
 ### Task E2: Launch bar component
 
-**Files:** Create `web/src/lib/launch/LaunchBar.svelte`, `SlotPicker.svelte`; modify `home/Home.svelte`, `web/src/lib/terminal/api.ts`.
+**Files:** Create `web/src/lib/launch/LaunchBar.svelte`, `SlotPicker.svelte`; modify `home/Home.svelte` (the **Start an agent** button and its `StartAgentDialog` use removed from Home; the dialog stays for Machines), `home/ProjectRail.svelte` (`choose` sets the project), `web/src/lib/terminal/api.ts`, `web/src/lib/terminal/sizing.ts` (`keyboardChrome` focus gains `'launch'`).
 
 **Interfaces:**
-- Consumes: Task E1, the existing idempotent create client and lost-reply handling from `agentLaunch.ts`.
-- Produces: the docked bar on Home (desktop: prompt above the sentence; tablet: below; phone: one-line prompt, round Start 48 × 48 px and a summary line with **Change** opening a bottom sheet); slot pickers as listbox popovers (desktop) or bottom sheets (touch); status line "Starting Claude Code on studio…"; on success navigate to `/sessions?agent=…&session=…`; secrets note under the box; **Use the starter prompt** chip when the box is empty; Approvals radio group (YOLO half disabled until PR F, with its reason).
+- Consumes: Task E1, the existing idempotent create client and lost-reply handling from `agentLaunch.ts`, PR D's docked slot and `keyboardChrome`.
+- Produces: the docked bar on Home (desktop: prompt above the sentence; tablet: below; phone: one-line prompt, round Start 48 × 48 px and a summary line with **Change** opening a bottom sheet); slot pickers as listbox popovers (desktop) or bottom sheets (touch); status line "Starting Claude Code on studio…"; on success navigate to `/terminals?agent=…&session=…` (PR H moves it to `/sessions`); secrets note under the box; **Use the starter prompt** chip when the box is empty; Approvals radio group (YOLO half disabled until PR F, with its reason); phone: chrome hidden while the prompt has the keyboard up.
 
-- [ ] Step 1: failing `launch.e2e.mjs` cases: "one press starts with the last choices", "each slot opens and sets its value", "unready machine disabled with its sentence", "starter prompt is offered, never filled", "lost reply retries the same request" (same request id and body), "a project folder named -x launches with dir unchanged", "bar locked while starting", "phone Change sheet", "nothing in storage".
+- [ ] Step 1: failing `launch.e2e.mjs` cases: "one press starts with the last choices", "each slot opens and sets its value", "unready machine disabled with its sentence", "starter prompt is offered, never filled", "lost reply retries the same request" (same request id and body), "a project folder named -x launches with dir unchanged", "bar locked while starting", "phone Change sheet", "launch prompt with keyboard open at 320 and 390 px", "nothing in storage"; `home.e2e.mjs` "no Start an agent button on Home".
 - [ ] Step 2–4: FAIL, implement, run 4 times — PASS. Commit "Start sessions from the launch sentence".
 
 ### Task E3: Start in several projects
@@ -310,22 +370,29 @@ Starts after the shared dialog shell has merged.
 
 **Interfaces:**
 - Consumes: Task B1, existing `StartRunAtFor`, orchestrator rules (2 in flight, 1 per machine, derived ids).
-- Produces: `func (s *Store) StartSelectionRunFor(uid int64, requestID string, projectIDs []string, launch RunLaunch) (Run, bool, error)` with `RunLaunch{Tool, Model, Effort, Prompt string; Worktree, Yolo bool}` snapshotting one member per folder project (its host, dir, `baseBranch`); runs gain `origin` (`set`|`selection`); `POST /api/v2/folder-projects/runs` `{requestId, projectIds, tool, model, effort, prompt, worktree, yolo}` (2–12 projects); status sheet "2 of 3 started" with per-member Retry.
+- Produces: `func (s *Store) StartSelectionRunFor(uid int64, requestID string, projectIDs []string, launch RunLaunch) (Run, bool, error)` with `RunLaunch{Tool, Model, Effort, Prompt string; Worktree, Yolo bool}` snapshotting one member per folder project (its host, dir, `baseBranch`); runs gain `origin` (`set`|`selection`); `POST /api/v2/folder-projects/runs` `{requestId, projectIds, tool, model, effort, prompt, worktree, yolo}` (2–12 projects); rail **Select** (heading menu, long-press on touch) turning cards into checkboxes; status sheet "2 of 3 started" with per-member Retry.
 
 - [ ] Step 1: failing tests: `TestSelectionRunSnapshotsFolderProjects`, `TestSelectionRunLimits` (1 or 13 projects refused), `TestSelectionRunResumesOnlyPendingAfterRestart`, `TestSelectionRunMemberUsesProjectBase`, `TestSelectionRunAuditHasNoPrompt`; `launch.e2e.mjs` "select three projects and start; one fails and retries".
 - [ ] Step 2–4: FAIL, implement, `go test -race ./internal/store/ ./internal/projectrun/ ./internal/api/ -run SelectionRun -count=1` and the fixture PASS. Commit "Start in several projects from the rail".
 
 ### Task E4: CI and docs
 
-**Files:** Modify `.github/workflows/terminal-browser.yml`, `web/tests/phone-zoom.e2e.mjs`, `docs/start-agent-session.md`, `docs/terminal-worktrees.md`.
+**Files:** Modify `.github/workflows/terminal-browser.yml`, `web/tests/phone-zoom.e2e.mjs`, `docs/start-agent-session.md`, `docs/terminal-worktrees.md`, `docs/terminal-workspace.md`.
 
 - [ ] Step 1: add `launch.e2e.mjs` to the workflow; add the phone launch sheet to `phone-zoom.e2e.mjs`.
 - [ ] Step 2: mutation-check: send on Enter on touch, drop the request id on retry, forget to reset approvals; each fixture must fail; restore.
-- [ ] Step 3: docs: the launch sentence, base branch and branch listing. Commit "Check the launch bar in CI".
+- [ ] Step 3: docs: the launch sentence, base branch and branch listing; Home starts sessions from the bar. Commit "Check the launch bar in CI".
 
-**PR E validation, review and merge:** the common steps; PR B to PR E may now be released together.
+**Tweaks to the redesign:**
+- [ ] The docked bar's height on desktop and tablet leaves In flight and Needs you scrollable at 834 × 1112 and 1360 × 800.
+- [ ] Rail cards in Select mode keep 44 px targets and the 56 px collapsed strip shows the selection count.
+- [ ] The phone summary line wraps without pushing Start off-screen at 320 px with long project names.
+
+**PR E validation, review and merge:** the common steps; PR B, PR C and PR E may now be released together (R22).
 
 ## PR F — YOLO
+
+**Swaps into the shell.** The launch bar's disabled YOLO half becomes live behind the confirmation dialog; In flight rows, the rail and (from PR H) the session header gain the YOLO badge.
 
 ### Task F1: Account setting
 
@@ -373,9 +440,15 @@ Starts after the shared dialog shell has merged.
 
 - [ ] Step 1: amend each passage to say YOLO exists, is off by default, needs the account setting, the machine's acceptance and a per-session confirmation, and is audited; update the test that pins the only flags (`TestPresetFlags…`) to allow exactly `YoloArgs` when `Yolo` is true. Commit "Document YOLO and its gates".
 
+**Tweaks to the redesign:**
+- [ ] The YOLO badge fits an In flight row and a rail card at 320 px without hiding the age.
+- [ ] The Approvals radio group keeps the phone summary line to two lines.
+
 **PR F validation, review and merge:** the common steps.
 
 ## PR G — attention
+
+**Swaps into the shell.** Needs you's honest empty state gains real cards (Waiting for you, Exited with an error, Finished or Ready to review, R11); the bell's 0 becomes the queue length; In flight's state words move from the session's state to terminal activity with their source (R10). Decision cards stay with Program 2.
 
 ### Task G1: `attention-v1` on the machine
 
@@ -402,24 +475,31 @@ Starts after the shared dialog shell has merged.
 **Files:** Modify `web/src/lib/home.ts`, `home.test.mjs`, `home/NeedsYou.svelte`, `shell/Bell.svelte`, `App.svelte`, `web/tests/home.e2e.mjs`.
 
 **Interfaces:**
-- Produces: `needsYou` uses `attention`; `attentionCount(cards): number`; bell popover listing the same cards (phones: Home's Needs you); document title `(3) Home · reet.sh`; polite live region announcing transitions into Waiting at most once per session per minute; **Mark seen** calls the seen route.
+- Produces: `needsYou` (empty since PR D) builds cards from `attention`; `attentionCount` (PR D) now counts them; `stateWord` reads `attention` and `attentionSource`; bell popover listing the same cards (phones: Home's Needs you); document title `(3) Home · reet.sh`; polite live region announcing transitions into Waiting at most once per session per minute; **Mark seen** calls the seen route.
 
 - [ ] Step 1: failing tests: `home.test.mjs` "bell count equals queue length", "announce at most once a minute"; `home.e2e.mjs` "bell opens the queue", "title count", "Mark seen removes a finished card", "state word says From terminal activity".
 - [ ] Step 2–4: FAIL, implement, run 4 times — PASS; mutation-check the bell count. Commit "Show what needs you across every machine".
+
+**Tweaks to the redesign:**
+- [ ] The empty state "Nothing needs you." and the first card share one height so the column does not jump.
+- [ ] Needs you comes first on tablet and phone with its cards' 48 px full-width **Open**.
+- [ ] The bell popover fits 1360 px without covering the launch bar; on phones the bell opens Home's Needs you.
 
 **PR G validation, review and merge:** the common steps.
 
 ## PR H — session screen, tablet and phone
 
-### Task H1: Sessions page
+**Swaps into the shell.** The Sessions tab moves from `/terminals` to the new `/sessions` page, and `/terminals` redirects there keeping its query (R17); rows on Home and the Needs you **Open** buttons open the session screen; Control leaves More and `/control` redirects to `/` (R4); on phones the project rail moves to the Sessions screen as the spec draws it.
 
-**Files:** Create `web/src/lib/sessions.ts`, `sessions.test.mjs`, `web/src/lib/sessions/SessionsPage.svelte`, `web/tests/sessions.e2e.mjs`; modify `App.svelte`.
+### Task H1: Sessions page and the last redirects
+
+**Files:** Create `web/src/lib/sessions.ts`, `sessions.test.mjs`, `web/src/lib/sessions/SessionsPage.svelte`, `web/tests/sessions.e2e.mjs`; modify `App.svelte`, `shell/AppShell.svelte` (Sessions tab, More list), `home/InFlight.svelte`, `home/NeedsYou.svelte`, `launch/LaunchBar.svelte` (success navigates to `/sessions`), `web/tests/navigation.e2e.mjs`, `docs/control-centre.md`.
 
 **Interfaces:**
 - Consumes: `home.ts` grouping, the existing session actions menu from `SessionSidebar.svelte` (moved, not rewritten).
-- Produces: `searchSessions(sessions, projects, machines, q): TerminalSession[]` (title, agent, model, branch, project, machine); `filterSessions(sessions, f: {state?, agent?, machine?, yoloOnly?, worktreeOnly?})`; `/sessions` with Group by, search, filters, rows, actions menu, and the *Projects · N* section with **Add a project**.
+- Produces: `searchSessions(sessions, projects, machines, q): TerminalSession[]` (title, agent, model, branch, project, machine); `filterSessions(sessions, f: {state?, agent?, machine?, yoloOnly?, worktreeOnly?})`; `/sessions` with Group by, search, filters, rows, actions menu, and the *Projects · N* section with **Add a project**; redirects `/terminals[?agent&session]` → `/sessions[?…]` and `/control` → `/`; Control removed from More.
 
-- [ ] Step 1: failing `sessions.test.mjs` and `sessions.e2e.mjs` cases: "search matches branch and machine", "filters combine", "actions menu by right-click and Shift+F10", "offline machine group sentence", "rows at least 44 px on touch". Step 2–4: FAIL, implement, PASS. Commit "Add the Sessions page".
+- [ ] Step 1: failing `sessions.test.mjs` and `sessions.e2e.mjs` cases: "search matches branch and machine", "filters combine", "actions menu by right-click and Shift+F10", "offline machine group sentence", "rows at least 44 px on touch"; `navigation.e2e.mjs` "/control and /terminals redirect keeping the query", "Control no longer under More". Step 2–4: FAIL, implement, PASS; `docs/control-centre.md` says Control is folded into Home and Machines. Commit "Add the Sessions page and retire Control's address".
 
 ### Task H2: Session screen
 
@@ -431,24 +511,30 @@ Starts after the shared dialog shell has merged.
 
 - [ ] Step 1: failing `sessions.e2e.mjs` cases: "opening a row adds a tab; closing a tab never ends the session", "ninth tab drops the oldest", "context panel shows machine, project, branch, worktree", "changed files fetched once and on refresh", "Chat is disabled with its reason", "YOLO session shows its decisions line". Step 2–4: FAIL, implement, PASS. Commit "Give each session a screen with its context".
 
-### Task H3: Tablet and phone layouts
+### Task H3: Tablet and phone layouts for sessions
 
-**Files:** Modify `shell/BottomTabs.svelte`, `home/*.svelte`, `launch/LaunchBar.svelte`, `sessions/*.svelte`, `web/src/lib/terminal/sizing.ts` (only a new exported `keyboardChrome(focus: 'launch'|'session'|null, open: boolean): boolean`), `web/tests/phone-layout.e2e.mjs`, `terminal-phone.e2e.mjs`.
+**Files:** Modify `shell/BottomTabs.svelte`, `home/Home.svelte`, `home/ProjectRail.svelte`, `sessions/*.svelte`, `web/src/lib/terminal/sizing.ts` (`keyboardChrome` focus gains `'session'`), `web/tests/phone-layout.e2e.mjs`, `terminal-phone.e2e.mjs`.
 
 **Interfaces:**
-- Produces: tablet (834 px): machines scroll sideways, Needs you first, docked bar, 44 px targets, Details side sheet; phone: bottom tabs 56 px safe-area padded, machine chips, Needs you first with 48 px full-width Open, Sessions screen with the switcher, session screen slim header, chrome hidden with the keyboard up using the existing usable-height rule.
+- Consumes: PR D's bottom tabs, Home phone and tablet layouts and `keyboardChrome`; PR E's phone launch bar.
+- Produces: tablet (834 px): Details side sheet on the session screen, 44 px targets; phone: Sessions screen with the switcher and the project rail (moved from under In flight on Home), session screen slim header, chrome hidden with the keyboard up using the existing usable-height rule.
 
-- [ ] Step 1: failing cases: `phone-layout.e2e.mjs` "launch prompt with keyboard open" and "session with keyboard open" at 320 and 390 px (top and tab bars hidden; Start and the field inside the visual viewport; no horizontal scroll), "sideways 844 × 390", tablet "Needs you before In flight"; `terminal-phone.e2e.mjs` still green.
-- [ ] Step 2–4: FAIL, implement, run 4 times — PASS. Commit "Lay out Home and sessions for tablets and phones".
+- [ ] Step 1: failing cases: `phone-layout.e2e.mjs` "session with keyboard open" at 320 and 390 px (top and tab bars hidden; the field inside the visual viewport; no horizontal scroll), "sideways 844 × 390", "phone rail on Sessions"; `terminal-phone.e2e.mjs` still green.
+- [ ] Step 2–4: FAIL, implement, run 4 times — PASS. Commit "Lay out sessions for tablets and phones".
 
 ### Task H4: Full matrix, axe, docs, handoff
 
 **Files:** Modify every new fixture, `phone-zoom.e2e.mjs`, `.github/workflows/terminal-browser.yml`, `docs/ui-verification.md`, `docs/terminal-workspace.md`, `docs/roadmap.md`, `handoff.md`, `README.md`.
 
-- [ ] Step 1: run the matrix in `home`, `add-project`, `launch`, `yolo`, `sessions` fixtures: 1440, 1360, 1024, 834 px; 412, 390, 360, 320 px with `isMobile`/`hasTouch`; 844 × 390; light and dark; reduced motion; keyboard-open emulation. Assert no horizontal scroll, targets ≥44 px, focus visible, state never colour alone.
+- [ ] Step 1: run the matrix in `home`, `add-project`, `launch`, `yolo`, `sessions` fixtures: 1440, 1360, 1024, 834 px; 412, 390, 360, 320 px with `isMobile`/`hasTouch`; 844 × 390; light and dark; reduced motion; keyboard-open emulation. Assert no horizontal scroll, targets ≥44 px, focus visible, state never colour alone. (PR D already holds the shell and Home to the 1360/834/390/320 subset; this widens every fixture to the full matrix.)
 - [ ] Step 2: axe-core at 390, 834 and 1440 px in both themes; record violations and the `incomplete` count honestly in `docs/ui-verification.md` ("Agents home: layout, focus and motion matrix — <date>"); fix real defects.
-- [ ] Step 3: mutation checks from the spec's list not yet covered (no step bar on a terminal session, drawer and sheet closing on selection); keep the CI budget (≤120 s added, `phone-zoom` <60 s).
+- [ ] Step 3: mutation checks from the spec's list not yet covered (no step bar on a terminal session, drawer and sheet closing on selection); keep the CI budget (≤120 s added across the plan, `phone-zoom` <60 s).
 - [ ] Step 4: docs: `docs/terminal-workspace.md` (Sessions, session screen, phones), `docs/roadmap.md` (Program 2 next), `README.md` sentence, `handoff.md` (PR numbers, rulings R1–R22, what remains). Commit "Verify the Agents home across screens and themes".
+
+**Tweaks to the redesign:**
+- [ ] Home rows link to the session screen; In flight keeps its row height with the session screen's state pill vocabulary.
+- [ ] Phone Home loses the rail (now on Sessions); check Needs you still comes first and the bottom tab bar's More list is final.
+- [ ] Re-run PR D's zoom and keyboard-open cases after the `keyboardChrome` change.
 
 **PR H validation, review and merge:** the common steps.
 
@@ -460,7 +546,7 @@ Structured chat gets its own spec and plan after PR H merges: the ACP runner ins
 
 ## Self-review
 
-- **Spec coverage:** browse and branches (A1–A4); registry, defaults, project id, API, migration with starter prompts, redirects, runs in Activity (B1–B5); catalogue, `agents-v2`, Effort, Base (C1–C4); tokens, fonts, logo, tabs, bell, redirects, Home, rail, Add project (D1–D6); launch sentence, starter prompt chip, several projects (E1–E4); YOLO setting, machine switch, flags, gates, dialog, badges, docs (F1–F5); attention, seen, queue, bell, title (G1–G3); Sessions, session screen, context panel, Chat | Terminal, tablet and phone, matrix and axe (H1–H4). Program 2 items are listed and excluded.
-- **Type consistency:** `FolderProject` (B1) is the web type from B3 used in D3–E3; `BrowseResult`/`BranchesResult` (A1) flow to `folderBrowser.ts` and `launchBar.ts`; `Capabilities.Yolo` (C1) is set in F2 and read in F3; `RunLaunch` (E3) carries the C1 fields.
-- **Review Focus:** each of the five lines names its test and owning task.
-- **Proportion:** 35 tasks over eight pull requests, signatures and test names only; no bodies.
+- **Spec coverage:** tokens, fonts, logo, tabs, bell, `/activity`, Home on today's data, read-only Home, the shell's matrix and axe (D1–D5); browse and branches (A1–A4); registry, defaults, project id, API, migration with starter prompts, folder browser and Add project, the folder-project rail, redirects, runs in Activity (B1–B6); catalogue, `agents-v2`, Effort, Base (C1–C4); launch sentence, starter prompt chip, several projects (E1–E4); YOLO setting, machine switch, flags, gates, dialog, badges, docs (F1–F5); attention, seen, queue, bell, title (G1–G3); Sessions, `/terminals` and `/control` redirects, session screen, context panel, Chat | Terminal, tablet and phone, full matrix and axe (H1–H4). Program 2 items are listed and excluded.
+- **Order consistency:** PR D consumes nothing from A, B or C (D3 lists only today's types; D2 creates `/activity` itself instead of taking it from B). `FolderProject` (B1) is the web type from B3 used in B5, B6 and E1–E3; `BrowseResult`/`BranchesResult` (A1) flow to `folderBrowser.ts` (B5) and `launchBar.ts` (E1); `catalogue.ts` (C4) is consumed only from E1; `Capabilities.Yolo` (C1) is set in F2 and read in F3; `RunLaunch` (E3) carries the C1 fields; `needsYou`, `attentionCount` and `keyboardChrome` are produced in D and widened in G, E and H.
+- **Review Focus:** each of the six lines names its test and owning task.
+- **Proportion:** 35 tasks over eight pull requests (D 5, A 4, B 6, C 4, E 4, F 5, G 3, H 4), signatures and test names only; no bodies.

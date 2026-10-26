@@ -4,6 +4,7 @@
 // Only a mobile context (isMobile: the viewport meta tag is honoured) reproduces it, so every check here runs in one.
 //
 // For every screen, at 320, 360, 390 and 412 wide, with every <details> closed and then open:
+//  - every text field is at least 16 px, so focusing it never zooms the page,
 //  - the layout viewport is the device width (innerWidth == width, visualViewport.scale == 1), and
 //  - every control is inside the viewport, or inside a horizontal scroller that shows there is more (a peeking item or
 //    a fade mask). A control cut off by an overflow:hidden/clip box cannot be reached at all.
@@ -12,7 +13,7 @@
 // a browser may break a line after a hyphen, which would hide the problem.
 // REET_E2E_ONLY=<regexp> limits the screens (matched against the name), REET_E2E_WIDTHS=320,390 the widths.
 import { chromium } from '@playwright/test'
-import { installApi, LONGHOST, LONGSKILL } from './helpers/longtext.mjs'
+import { homeExtra, HOST80, installApi, LONGHOST, LONGSKILL, PROJECT80, SESSION80 } from './helpers/longtext.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 const only = process.env.REET_E2E_ONLY ? new RegExp(process.env.REET_E2E_ONLY, 'i') : null
@@ -21,8 +22,15 @@ const UA = 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, 
 
 // Dialogs open from the long-host machine's card, the one whose name is hardest to fit.
 const click = name => async page => { const b = page.getByRole('article', {name:LONGHOST}).getByRole('button', {name, exact:true}).first(); await b.scrollIntoViewIfNeeded(); await b.click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }
+// Home with 80-character machine, session and Project names, the More list opened over it, Jump's results and the Start an
+// agent dialog opened from Home (its fields must be 16 px).
+const home = {path:'/', extra:homeExtra, ready:async page => { for (const name of [HOST80, SESSION80, PROJECT80]) await page.getByText(name).first().waitFor({state:'attached', timeout:5000}) }}
 const SCREENS = [
- {name:'control', path:'/'},
+ {name:'home', ...home},
+ {name:'home: more list', ...home, action:async page => { await page.getByRole('navigation', {name:'Main navigation'}).getByRole('button', {name:'More'}).click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }},
+ {name:'home: jump results', ...home, action:async page => { await page.getByRole('button', {name:'Jump to a session, project or machine'}).click(); await page.getByRole('combobox', {name:'Jump to a session, project or machine'}).fill('abcdefghij'); await page.getByRole('listbox', {name:'Jump results'}).getByRole('option').first().waitFor({timeout:3000}) }},
+ {name:'home: start agent dialog', ...home, action:async page => { await page.getByRole('button', {name:'Start an agent', exact:true}).click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }},
+ {name:'control', path:'/control'},
  {name:'machines', path:'/machines'},
  {name:'machines: start agent dialog', path:'/machines', action:click('Start an agent')},
  {name:'machines: settings dialog', path:'/machines', action:click('Settings')},
@@ -40,7 +48,8 @@ const SCREENS = [
  {name:'support', path:'/support'},
  {name:'support ticket', path:'/support/41'},
  {name:'notifications', path:'/notifications'},
- ...['profile','security','sso','sessions','mcp','tokens','backups','activity'].map(p => ({name:`account ${p}`, path:`/account/${p}`})),
+ ...['profile','security','sso','sessions','mcp','tokens','backups'].map(p => ({name:`account ${p}`, path:`/account/${p}`})),
+ {name:'activity', path:'/activity'}, // /account/activity redirects here with location.replace; measuring the old page mid-reload zoomed it out
  ...['overview','environments','users','team','support','email','notifications','backups','settings','activity'].map(p => ({name:`admin ${p}`, path:`/admin/${p}`})),
 ]
 
@@ -61,6 +70,9 @@ function probe(width) {
  const root = dialog || document.body
  // A scroller shows there is more when an item straddles its edge (peeks) or the edge fades out under a mask.
  const cued = sc => { const s = getComputedStyle(sc); if ((s.maskImage || s.webkitMaskImage || 'none') !== 'none') return true; const r = sc.getBoundingClientRect(); return [...sc.children].some(c => { const q = c.getBoundingClientRect(); return (q.left < r.right - 16 && q.right > r.right + 1) || (q.right > r.left + 16 && q.left < r.left - 1) }) }
+ // A field under 16 px makes a phone zoom in when it is focused.
+ for (const field of root.querySelectorAll('input:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=range]):not([type=color]):not([type=file]),select,textarea'))
+  if (!field.closest('.vh,.xterm') && !folded(field) && visible(field) && parseFloat(getComputedStyle(field).fontSize) < 16) problems.push(`"${label(field) || field.name || field.type}" (${sel(field)}) is a ${getComputedStyle(field).fontSize} field: focusing it zooms the page`)
  const controls = [...root.querySelectorAll('a[href],button,input:not([type=hidden]),select,textarea,summary,[role=button],[role=tab],[tabindex="0"]')]
   .filter(el => !el.closest('.vh,.xterm') && !folded(el) && visible(el))
  for (const el of controls) {
@@ -91,11 +103,13 @@ function probe(width) {
 }
 
 async function phone(width) {
+ // This screen's own API answers, ahead of the shared ones; each width runs in parallel with its own.
+ const extra = {}
  const context = await browser.newContext({viewport:{width,height:800}, deviceScaleFactor:2, isMobile:true, hasTouch:true, userAgent:UA})
  const page = await context.newPage()
  const errors = []
  page.on('pageerror', e => errors.push(e.message))
- const unmocked = await installApi(page)
+ const unmocked = await installApi(page, {extra})
  // Settled: no API answer outstanding for 120 ms; much quicker than the 500 ms of 'networkidle' on every screen. Every answer is
  // mocked and instant, so a request open for over a second was cancelled by the page (some never report that) and is ignored.
  const open = new Map()
@@ -106,12 +120,15 @@ async function phone(width) {
  const busy = () => [...open.values()].some(t => Date.now() - t < 1000)
  const settled = async () => { const until = Date.now() + 5000; while (Date.now() < until && (busy() || Date.now() - last < 120)) await new Promise(r => setTimeout(r, 20)) }
  const visit = async path => { open.clear(); await page.goto(base + path); await page.locator('main').first().waitFor(); await settled() }
- return {context, page, errors, unmocked, settled, visit}
+ return {context, page, errors, unmocked, settled, visit, extra}
 }
 
 async function screen(p, width, s) {
  const found = []
+ for (const k of Object.keys(p.extra)) delete p.extra[k]
+ Object.assign(p.extra, s.extra ?? {})
  await p.visit(s.path)
+ if (s.ready) await s.ready(p.page)
  if (s.action) { await s.action(p.page); await p.settled() }
  for (const state of ['closed', 'open']) {
   if (state === 'open') {

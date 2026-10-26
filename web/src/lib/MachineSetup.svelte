@@ -530,7 +530,7 @@
   .setup[open] .chevron { transform: rotate(90deg); }
   .setup[open] > summary { border-bottom: 1px solid var(--line); }
   .setup-body { padding: 20px 22px 24px; }
-  .eyebrow { margin: 0; color: var(--accent); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
   .modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .modes button { display: flex; gap: 12px; align-items: flex-start; text-align: left; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--ink); cursor: pointer; }
   .modes button:hover { border-color: var(--muted); }
@@ -538,7 +538,7 @@
   .modes button > span:last-child { display: grid; gap: 3px; }
   .modes strong { font-size: 0.88rem; }
   .modes small { color: var(--muted); font-size: 0.78rem; line-height: 1.45; }
-  .mode-icon { display: grid; place-items: center; width: 30px; height: 30px; flex: none; border-radius: 50%; background: var(--card); color: var(--accent); font-size: 1rem; }
+  .mode-icon { display: grid; place-items: center; width: 30px; height: 30px; flex: none; border-radius: 50%; background: var(--card); color: var(--accent-text); font-size: 1rem; }
   .steps { display: flex; flex-wrap: wrap; gap: 4px; margin: 18px 0; padding: 5px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); }
   .steps button { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 6px 12px; border: 1px solid transparent; border-radius: 10px; background: none; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
   .steps .marker { display: grid; place-items: center; width: 21px; height: 21px; border: 1px solid var(--line); border-radius: 50%; font: 0.66rem var(--mono); }

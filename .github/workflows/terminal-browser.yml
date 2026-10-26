@@ -20,6 +20,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history, so npm run check's literal-colour test can diff this branch against origin/main instead of
+          # checking Logo.svelte alone (a shallow clone has no merge base).
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -87,7 +91,8 @@ jobs:
           path: ${{ runner.temp }}/terminal-browser
           if-no-files-found: ignore
 
-  # Its own job, so the phone zoom contract (about 30-40 s) runs alongside the terminal job instead of adding to its time.
+  # Its own job, so the phone zoom contract (about 30-40 s) and Home (about 25 s) run alongside the terminal job instead of
+  # adding to its time.
   phone-zoom:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -110,7 +115,7 @@ jobs:
           else
             npx playwright install --with-deps chromium
           fi
-      - name: Long names never zoom a phone out
+      - name: Long names never zoom a phone out, and Home across screens and themes
         env:
           REET_UI_URL: http://127.0.0.1:4173
         run: |
@@ -122,6 +127,7 @@ jobs:
             sleep 1
           done
           node web/tests/phone-zoom.e2e.mjs
+          node web/tests/home.e2e.mjs
 
   # Its own job, so the phone dialog contract (about 50-55 s) runs alongside the others instead of adding to their time.
   phone-dialogs:

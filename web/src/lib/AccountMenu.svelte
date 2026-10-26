@@ -1,17 +1,21 @@
 <script lang="ts">
   import { applyTheme, saveProfile } from './api'
+  import type { Tab } from './shell/tabs'
 
-  let { name = '', email = '', admin = false, accounts = true, active = false, unread = 0, onsignout }: {
+  let { name = '', email = '', admin = false, accounts = true, active = false, unread = 0, more = [], onsignout }: {
     name?: string
     email?: string
     admin?: boolean
     accounts?: boolean
     active?: boolean
     unread?: number
+    /** Pages under More (R13): the ones the top tabs do not show. */
+    more?: Tab[]
     onsignout: () => void
   } = $props()
 
   let root = $state<HTMLElement>()
+  const moreId = $props.id()
   let menu = $state<HTMLDetailsElement>()
 
   const initials = $derived((name.trim() || email.trim() || 'You')
@@ -76,6 +80,12 @@
           <button type="button" aria-pressed={theme === option.id} onclick={() => chooseTheme(option.id)}>{option.label}</button>
         {/each}
       </div>
+      {#if more.length}
+        <div class="more" role="group" aria-labelledby={`${moreId}-title`}>
+          <p class="more-title" id={`${moreId}-title`}>More</p>
+          {#each more as item (item.href)}<a href={item.href} aria-current={item.current ? 'page' : undefined}>{item.label}</a>{/each}
+        </div>
+      {/if}
       <a href="/notifications">Notifications{#if unread > 0}<span class="count">{unreadLabel}</span>{/if}</a>
       {#if accounts}<a href="/account/profile">Account &amp; preferences</a>{/if}
       {#if admin}<a href="/admin/overview">Instance administration</a>{/if}
@@ -97,7 +107,7 @@
   summary.active .avatar { background: var(--accent); color: var(--accent-ink); }
   .avatar {
     position: relative; width: 30px; height: 30px; display: grid; place-items: center; flex: none;
-    border-radius: 50%; background: var(--tint); color: var(--accent);
+    border-radius: 50%; background: var(--tint); color: var(--accent-text);
     font-size: 0.7rem; font-weight: 700; letter-spacing: 0.03em;
   }
   .badge {
@@ -134,11 +144,16 @@
     font: inherit; font-size: 0.82rem; text-align: left; text-decoration: none; cursor: pointer;
   }
   .panel a:hover, .panel button:hover { background: var(--tint); }
+  .panel a[aria-current='page'] { background: var(--tint); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent-text); }
+  .more { display: grid; padding-bottom: 4px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+  .more-title { margin: 4px 10px 2px; color: var(--muted); font-size: 0.68rem; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; }
   .theme { display: flex; gap: 4px; padding: 6px 4px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
   .panel .theme button { flex: 1; width: auto; min-height: 36px; justify-content: center; padding: 6px 4px; border: 1px solid var(--line); font-size: 0.74rem; text-align: center; }
   .panel .theme button[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); font-weight: 650; }
-  @media (max-width: 1000px) {
-    .who { display: none; }
-    summary { padding: 4px; border-radius: 50%; }
-  }
+  /* The top bar shows the initials only, as drawn; the name and email are at the top of the panel. */
+  .who { display: none; }
+  summary { padding: 6px; border-radius: 50%; }
+  summary > svg { display: none; }
+  .panel { max-height: calc(100dvh - 90px); overflow: auto; }
+  @media (pointer: coarse) { .panel a, .panel button { min-height: 44px; } }
 </style>

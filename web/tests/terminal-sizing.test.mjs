@@ -207,6 +207,13 @@ test('the keyboard focus layout needs a phone, touch, typing in the terminal, an
   assert.equal(s.keyboardLikelyOpen(0.45, { ...yes, scale: 1.5 }), false)
 })
 
+test('the phone chrome steps aside only while a listed field has the keyboard up', () => {
+  assert.equal(s.keyboardChrome('search', true), true)
+  assert.equal(s.keyboardChrome('search', false), false)
+  assert.equal(s.keyboardChrome(null, true), false)
+  assert.equal(s.keyboardChrome(null, false), false)
+})
+
 test('overflow hints mark the edges that hide more controls', () => {
   assert.deepEqual(s.overflowEdges(0, 376, 376), { start: false, end: false })
   assert.deepEqual(s.overflowEdges(0, 587, 376), { start: false, end: true })

@@ -75,5 +75,5 @@
   .submit { width: 100%; margin-top: 4px; }
   .error { margin: 0; color: var(--bad); font-size: 0.9rem; }
   .help { margin: 20px 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.82rem; }
-  .help a { color: var(--accent); font-weight: 600; }
+  .help a { color: var(--accent-text); font-weight: 600; }
 </style>

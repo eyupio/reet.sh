@@ -63,7 +63,7 @@ These are recorded, not reopened.
 | Agents | A built-in, connector-side catalogue (allowlisted, never command lines from the controller), each preset with its safest permission default. New feature token `agents-v2`, because an older controller rejects a connection that lists an unknown tool id (`Capabilities.Validate`). |
 | Folder browse and branches | Negotiated requests `browse-v1` (stat-only, folders only) and `branches-v1` (one read-only git command), specified below. |
 | Structured chat | The Agent Client Protocol (stdio JSON-RPC) through a small runner inside tmux (Program 2). For Claude Code and Codex, which need adapters, reet offers a **confirmed, audited install of a pinned adapter version** (owner or admin), with detection and the exact command shown; never silent. |
-| Program order | Program 1 (this design's plan): browse, projects, catalogue, shell and Home, launch bar, YOLO, attention, session screen. Program 2: structured chat for Claude over ACP. Then more agents. |
+| Program order | Program 1 (this design's plan): shell and Home first, then browse, projects, catalogue, launch bar, YOLO, attention, session screen (re-sliced at the owner's request on 2026-10-26: "do D sooner, and then each PR afterwards tweaks the redesign as required"; see [Delivery](#delivery-pull-request-slices-and-order)). Program 2: structured chat for Claude over ACP. Then more agents. |
 | Attention | Working, quiet, waiting for input, needs sign-in, finished, failed, with a cross-machine Needs you list and the bell, are part of this pass (sign-in and exact states arrive with ACP). |
 
 ## Rulings
@@ -139,11 +139,14 @@ the cards are additive.
 health report, labelled "CPU", grey with "No reading" when absent; "agents running" counts live
 sessions started with an agent; the worktree count is worktrees reet created on that machine and has
 not removed; the skills line uses the existing sync state ("skills in sync" only when the last check
-found no differences, with its age; "Not checked" otherwise). — Why: every figure already exists and is
+found no differences, with its age; "Not checked" otherwise). Home ships first (PR D) on today's API, so
+the worktree figure appears only where an existing record says "created by reet and not removed"; without
+one the card omits it (never a zero) until PR B records it. — Why: every figure already exists and is
 labelled with what it measures. — Cost if wrong: a different load figure needs a connector field.
 
 **R13. Navigation.** Ruling: desktop shows the five tabs; Setups, Sync, Lists, Community, Support, Teams
-& organisations and Host skills move to the account menu under **More**. Tablet and phone show four
+& organisations and Host skills move to the account menu under **More**, joined by Control and the
+legacy Projects page until PR H and PR B retire their addresses. Tablet and phone show four
 tabs, **Home, Sessions, Machines, More**, with Skills and Activity inside More. **Activity** is the
 existing account activity list at `/activity`. — Why: the mock-up's tabs, without losing a page. — Cost
 if wrong: a navigation array.
@@ -185,11 +188,15 @@ if wrong: per-account remembered tabs in local storage.
 disabled, explained "Chat arrives with structured sessions." — Why: the layout is stable before Program
 2. — Cost if wrong: the switch is hidden until Program 2.
 
-**R22. One release train for the Projects hand-over.** Ruling: PR B (which retires the Projects page) to
-PR E (which brings back starting in several projects) merge in order with no release tagged between
-them. — Why: the requested order removes Start all one pull request before its replacement lands. —
-Cost if wrong: a release holds for the length of three reviews; if that is too long, PR B's retirement
-step moves into PR E.
+**R22. One release train for the Projects hand-over.** Ruling: PR B (which retires the Projects page and
+Start all) to PR E (which brings back starting in several projects) merge in order with no release
+tagged between them. Amended 2026-10-26 for the shell-first order: PR D now lands before PR B, so the
+train holds only PR C and PR E (two reviews, down from three); the hold does not disappear, because
+moving PR D earlier does not change when Start all leaves or returns. Every other merge, PR D first
+among them, may be released on its own: PR D keeps the legacy Projects page, New project and Start an
+agent dialogs reachable. — Why: the requested order still removes Start all before its replacement
+lands. — Cost if wrong: a release holds for two reviews; if that is too long, PR B's retirement step
+(B6) moves into PR E and the hold disappears.
 
 ### Still open
 
@@ -314,7 +321,7 @@ theme setting and Sign out. Tablet and phone layouts are below.
   Choosing a row opens the session screen.
 - **Needs you** (380 px): count badge; cards newest first per R11. Each card has its kind and age on the
   first line in the kind's colour **and** words, the session title, `project · machine`, and actions
-  (**Open**; for Finished, **Mark seen**). Empty: "Nowt waiting on you." under the heading.
+  (**Open**; for Finished, **Mark seen**). Empty: "Nothing needs you." under the heading.
 - **Launch bar** (docked at the bottom of the main column): see [The launch bar](#the-launch-bar).
 
 ### Desktop session screen
@@ -502,8 +509,8 @@ target is at least 44 px. The session screen hides the context panel behind **De
 +---------------------------+
 ```
 
-- **Bottom tab bar**: Home, Sessions, Machines, More (56 px, safe-area padded); the bell sits in the
-  slim top bar.
+- **Bottom tab bar**: Home, Sessions, Machines, More (64 px, safe-area padded); the bell sits in the
+  slim top bar. (This said 56 px; the approved mock-up and the shipped bar are 64 px, so the text follows them.)
 - **Home**: machine chips scroll sideways; Needs you first with thumb-size buttons (48 px, full width
   for the primary action); In flight below; the launch bar sits above the tab bar as a one-line prompt
   with a round Start button (48 × 48 px) and the sentence collapsed to one summary line with **Change**,
@@ -861,41 +868,80 @@ listing), `docs/terminal-workspace.md` (Home, Sessions, the session screen, phon
 ## Delivery: pull-request slices and order
 
 Each pull request merges when its checks are green, the broad review has passed and Codex is clean; each
-leaves the product usable, and each release tag leaves it no less capable than before (see PR B).
+leaves the product usable, and each release tag leaves it no less capable than before (see R22).
 
+**Shell first.** At the owner's request the new app shell and Home (PR D) land first, right after the
+shared dialog shell (#217), on today's API with nothing invented. Every later pull request swaps its
+real piece into that shell and may tweak the layout where the real data needs it; each lists its swaps
+and tweaks in the plan. The letters are identities, not the order. Execution order: **D, A, B, C, E, F,
+G, H.**
+
+| Order | PR | What it swaps into the shell |
+| --- | --- | --- |
+| 1 | D | The shell and Home on today's data. |
+| 2 | A | Nothing visible (wire only); unblocks the folder browser. |
+| 3 | B | Folder projects in the rail; the folder browser behind **Add**; `/projects` retired. |
+| 4 | C | Nothing visible until PR E; the agent catalogue. |
+| 5 | E | The launch sentence in place of the **Start an agent** button; Start in several projects. |
+| 6 | F | YOLO in the launch bar; badges. |
+| 7 | G | Needs you cards, the bell's count, attention state words. |
+| 8 | H | `/sessions`, the session screen, the last redirects, the phone rail on Sessions. |
+
+- **PR D — shell and Home on today's data (first).** Theme tokens (dark designed default, light derived,
+  following the person's theme, R6), self-hosted fonts (R15), the real logo, top tabs, the bell,
+  responsive navigation with the four-tab bar on tablets and phones (R13), `/activity`, and Home at `/`
+  (read-only for viewers, R16) built only from existing endpoints:
+  - *fleet strip* from the machines health and sync endpoints: CPU labelled "CPU" or "No reading", the
+    skills line from existing sync state or "Not checked", the worktree count only where an existing
+    record gives it (R12);
+  - *In flight* from the existing sessions list, grouped by Project (existing Projects, by their runs'
+    session ids, until PR B; sessions under no Project grouped by machine), Machine or State, with the
+    state word and where it came from (R10);
+  - *Needs you*: nothing today signals that a session needs the person, so the honest empty state
+    "Nothing needs you." and a bell without a badge; cards arrive with PR G and decision cards with
+    Program 2;
+  - *project rail*: existing Projects, read-only, with a plain note that folder browsing comes later
+    (PR A and PR B); **Add** opens the existing New project dialog;
+  - *launch*: a **Start an agent** button opening the existing dialog until PR E.
+
+  The legacy Projects page and Control stay reachable under **More**; `/terminals`, `/projects` and
+  `/control` keep their pages (their redirects belong to PR H, PR B and PR H). The shell and Home are
+  checked at 1360, 834, 390 and 320 px, light and dark, reduced motion, axe, the phone-zoom contract with
+  long names, the keyboard-open phone layout and mutation checks.
 - **PR A — browse and branches on the wire.** `browse-v1`, `branches-v1`, connector handlers, broker,
   API endpoints, rate limits, audit, Go and two-host tests, `docs/folder-browse.md`. No UI.
-- **PR B — project registry and migration.** Store, API with If-Match, limits, audit, profile defaults,
-  session `project_id`; the migration of saved Projects; `/projects` retired with redirects and runs
-  read-only in Activity. Because the Projects page goes here and Start in several projects returns in
-  PR E, **PR B to PR E are one release train**: no release is tagged between PR B and PR E merging.
+- **PR B — project registry, migration and the folder browser.** Store, API with If-Match, limits,
+  audit, profile defaults, session `project_id`; the migration of saved Projects; the Add project dialog
+  with the folder browser; the rail on folder projects; `/projects` retired with redirects and runs
+  read-only in Activity. Because Start all goes here and Start in several projects returns in PR E,
+  **PR B to PR E are one release train** (R22): no release is tagged between PR B and PR E merging.
 - **PR C — catalogue and launch fields.** `agents-v2`, `pi`, `cursor`, `cline` presets with safe
   defaults, the disabled list, `Effort` and `Base` (and the `Yolo` field, refused until PR F).
-- **PR D — shell and Home.** Theme tokens, fonts, logo, top tabs, bell (empty until PR G), responsive
-  navigation, `/control` and `/terminals` redirects; Home with the fleet strip, In flight, Needs you (the
-  cards the existing states allow), project rail and the Add project dialog with the folder browser, on
-  the shared dialog shell.
 - **PR E — launch bar.** The sentence, prompt and Start wired to `launch-v1`/`worktree-v1`/`agents-v2`,
   starter prompt chip, and Start in several projects through the run orchestration.
 - **PR F — YOLO.** Account setting, machine refusal and capability, Approvals and the confirmation
   dialog, badges, audit, per-preset flag mapping, the docs that said auto-approve is not offered.
 - **PR G — attention.** `attention-v1`, derived states, per-person seen, Needs you queue, bell, title
   count, live region.
-- **PR H — session screen and small screens.** Tab strip, header, context panel, Chat | Terminal
-  scaffolding, Sessions page, tablet and phone layouts, the full fixture matrix and axe.
+- **PR H — session screen and small screens.** `/sessions` with the `/terminals` and `/control`
+  redirects, tab strip, header, context panel, Chat | Terminal scaffolding, the session screen on
+  tablets and phones, and the full fixture matrix and axe across every new screen.
 
 **Program 2** (own spec and plan): the ACP runner in tmux, the Claude adapter's confirmed pinned install,
 the chat view (messages, plan checklist, tool and edit cards, decision cards with A/D), command approval
 and sign-in cards in Needs you, exact attention states, step progress, line counts, machine-only
 transcripts, notifications outside the page.
 
-PR A and PR C touch the protocol and can be reviewed in parallel; PR D waits for the shared dialog
-shell to merge.
+PR D waits for the shared dialog shell to merge; PR A and PR C touch the protocol and can be reviewed in
+parallel with PR D or each other.
 
 ## Risks
 
-- **Large UI change on the most used pages.** Mitigated by landing the shell (PR D) before the launch
-  bar and session screen, keeping `/terminals` links working, and the fixture matrix.
+- **Large UI change on the most used pages.** Mitigated by landing the shell (PR D) first on today's
+  data, keeping every legacy page and dialog reachable until its replacement lands, keeping
+  `/terminals` links working, and the fixture matrix from the first pull request.
+- **Shell first means layout is fixed before the real data.** Each later pull request lists the tweaks
+  its data needs; the spec's drawings stay the reference, and PR H re-runs the full matrix.
 - **Losing Projects' features in migration.** Mitigated by R1 and R2: folders, defaults, prompts, runs
   and worktree removal all survive.
 - **Coarse attention looks wrong.** Terminal states are labelled with their source, never say "waiting"
@@ -906,8 +952,8 @@ shell to merge.
 - **Unconfirmed CLI flags.** Every option ships disabled until confirmed from help text.
 - **Phone keyboards differ.** The height rule is reused, not reinvented; physical devices remain
   unchecked (as stated in UI verification).
-- **Concurrent dialog work.** The Add project dialog and the YOLO dialog depend on the shared dialog
-  shell; PR D waits for it.
+- **Concurrent dialog work.** PR D, the Add project dialog (PR B) and the YOLO dialog (PR F) depend on
+  the shared dialog shell; PR D waits for it.
 
 ## What this does not establish
 
@@ -928,4 +974,5 @@ physical phone, Safari or Firefox check is planned beyond the Chromium fixtures.
   is respected by paging browse replies; worktree accepts only a `.git` directory and browse marks only
   that as a repository root; "no separate Projects page" holds because runs move to Activity and
   worktrees to the project menu.
-- **Scope:** eight pull requests, each reviewable on its own; Program 2 is named and excluded.
+- **Scope:** eight pull requests, each reviewable on its own, run shell first (D, A, B, C, E, F, G, H);
+  Program 2 is named and excluded.

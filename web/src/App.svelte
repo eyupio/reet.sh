@@ -1,9 +1,13 @@
 <script lang="ts">
-  import NavigationMenu from './lib/NavigationMenu.svelte'
+  import AppShell from './lib/shell/AppShell.svelte'
+  import type { JumpItem, Tab } from './lib/shell/tabs'
+  import ActivityPage from './lib/ActivityPage.svelte'
+  import { listProjects, terminalMachines, terminalSessions } from './lib/terminal/api'
   import ProjectsPage from './lib/ProjectsPage.svelte'
   import ProjectPage from './lib/ProjectPage.svelte'
   import Machines from './lib/Machines.svelte'
   import ControlCenter from './lib/ControlCenter.svelte'
+  import Home from './lib/home/Home.svelte'
   import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
   import Community from './lib/Community.svelte'
   import SharedLists from './lib/SharedLists.svelte'
@@ -110,7 +114,11 @@
   let bulkRemoving = $state<Skill[]>([])
 
   const origin = location.origin
-  const isControl = location.pathname === '/' || location.pathname === '/control'
+  // `/` is Home: the full Home for a writer in accounts mode, the fleet strip alone for everyone else signed in (R16).
+  // Control keeps its own address at /control, under More.
+  const isHome = location.pathname === '/'
+  const isControl = location.pathname === '/control'
+  const isActivity = location.pathname === '/activity'
   const isSkills = location.pathname === '/skills'
   const machineView = new URLSearchParams(location.search).get('view')
   const legacyMachinePage = ['/machines', '/account/machines', '/account/sync'].includes(location.pathname)
@@ -155,23 +163,51 @@
   const canWrite = $derived(authMode !== 'accounts' || role !== 'viewer')
   const terminalLayout = $derived(isTerminals && authMode === 'accounts' && authenticated && canWrite && !needsAuth)
   const isAdminUser = $derived(authMode !== 'accounts' || role === 'owner' || role === 'admin')
-  const mainNavigation = $derived([
-    { href: '/', label: 'Control', current: isControl },
+  // Navigation (R13): five tabs on a desktop; Home, Sessions and Machines stay in view on a tablet or phone and the rest
+  // move into More. Sessions and the bell are for a writer in accounts mode only (R16), as Terminals and Projects were.
+  const sessionsAccess = $derived(authMode === 'accounts' && canWrite)
+  // The bell's Needs you count, as Home reads it. Nothing signals that a session needs the person today, so it stays 0.
+  let attention = $state(0)
+  // Home spans the page: the project rail on the left and the docked Start an agent at the foot.
+  const homeLayout = $derived(isHome && authChecked && !!authMode && authenticated && !needsAuth && !(authMode === 'accounts' && setupRequired))
+  const tabs = $derived<Tab[]>([
+    { href: '/', label: 'Home', current: isHome },
+    ...(sessionsAccess ? [{ href: '/terminals', label: 'Sessions', current: isTerminals }] : []),
     { href: '/machines', label: 'Machines', current: isMachines && !isSync && !isTerminals },
-    ...(authMode === 'accounts' && canWrite ? [{ href: '/terminals', label: 'Terminals', current: isTerminals }, { href: '/projects', label: 'Projects', current: isProjects }] : []),
     { href: '/skills', label: 'Skills', current: isSkills },
-    { href: '/profiles', label: 'Setups', current: isProfiles },
-    { href: '/community', label: 'More', current: isShared || isList || isSpaces || isCommunity || isHosting || isSupport || isTicket || isSync,
-      children: [
-        { href: '/sync', label: 'Sync', current: isSync },
-        { href: '/shared', label: 'Lists', current: isShared || isList },
-        { href: '/community', label: 'Community', current: isCommunity },
-        { href: '/support', label: 'Support', current: isSupport || isTicket },
-        { href: '/spaces', label: 'Teams & organisations', current: isSpaces },
-        ...(canWrite ? [{ href: '/hosting', label: 'Host skills', current: isHosting }] : []),
-      ],
-    },
+    { href: '/activity', label: 'Activity', current: isActivity },
   ])
+  const barTabs = $derived(tabs.filter(tab => ['/', '/terminals', '/machines'].includes(tab.href)))
+  const more = $derived<Tab[]>([
+    { href: '/control', label: 'Control', current: isControl },
+    ...(sessionsAccess ? [{ href: '/projects', label: 'Projects', current: isProjects }] : []),
+    { href: '/profiles', label: 'Setups', current: isProfiles },
+    { href: '/sync', label: 'Sync', current: isSync },
+    { href: '/shared', label: 'Lists', current: isShared || isList },
+    { href: '/community', label: 'Community', current: isCommunity },
+    { href: '/support', label: 'Support', current: isSupport || isTicket },
+    { href: '/spaces', label: 'Teams & organisations', current: isSpaces },
+    ...(canWrite ? [{ href: '/hosting', label: 'Host skills', current: isHosting }] : []),
+  ])
+  // Jump searches what the workspace already lists: sessions, existing Projects and machines (a writer's terminal machines,
+  // and the machines on the shelf inventory for everyone). Read when Jump is used; a list that cannot be read is left out.
+  async function jumpItems(): Promise<JumpItem[]> {
+    const items: JumpItem[] = []
+    const hosts = new Map<string, string>()
+    if (sessionsAccess) {
+      const [sessions, projects, terminal] = await Promise.allSettled([terminalSessions(), listProjects(), terminalMachines()])
+      if (terminal.status === 'fulfilled') for (const machine of terminal.value) hosts.set(machine.agentId, machine.host)
+      if (sessions.status === 'fulfilled') for (const session of sessions.value) {
+        const host = hosts.get(session.agentId)
+        items.push({ kind: 'session', label: session.title, detail: host ? `Session · ${host}` : 'Session', href: `/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}` })
+      }
+      if (projects.status === 'fulfilled') for (const project of projects.value) items.push({ kind: 'project', label: project.name, detail: 'Project', href: `/projects/${encodeURIComponent(project.id)}` })
+      if ([sessions, projects, terminal].every(result => result.status === 'rejected')) throw new Error('Nothing could be read.')
+    }
+    const names = new Set([...hosts.values(), ...shelfMachines.map(machine => machine.host)])
+    for (const host of names) items.push({ kind: 'machine', label: host, detail: 'Machine', href: `/machines?machine=${encodeURIComponent(host)}` })
+    return items
+  }
   const scanCommand = $derived(`reet scan --prune --server ${origin}`)
   const suggestions = [
     { slug: 'anthropics/skills/pdf', name: 'PDF', blurb: 'Read, extract and combine PDF files.' },
@@ -765,40 +801,44 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isControl ? 'Control' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isProjects ? 'Projects' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isControl ? 'Control' : isActivity ? 'Activity' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isProjects ? 'Projects' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found'} · reet.sh</title>
   {/if}
 </svelte:head>
 
 <a class="skip" href="#main-content">Skip to content</a>
 <header class="site-header" class:terminal-chrome={terminalLayout}>
-  <div class="header-inner">
-    <div>
-      <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
-    </div>
-    {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-      <div class="app-nav">
-        <NavigationMenu label="Main navigation" primary items={mainNavigation} />
+  {#if authenticated && !needsAuth && !isPublicList && !isJoin}
+    <AppShell {tabs} bar={barTabs} {more} {attention} compact={terminalLayout} bell={sessionsAccess} moreInAccount={authMode !== 'none'} jump={jumpItems}>
+      {#snippet account()}
         {#if authMode !== 'none'}
           <AccountMenu
             name={currentUser?.name ?? ''}
             email={currentUser?.email ?? ''}
             admin={isAdminUser}
             accounts={authMode === 'accounts'}
-            active={isAccount || isAdmin || isNotifications}
+            active={isAccount || isAdmin || isNotifications || more.some(item => item.current)}
             unread={unreadNotifications}
+            {more}
             onsignout={signOut}
           />
         {/if}
-      </div>
-    {:else if !authenticated && authMode==='accounts' && !isPublicList && !isCommunity && !isJoin}
+      {/snippet}
+    </AppShell>
+  {:else}
+  <div class="header-inner">
+    <div>
+      <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
+    </div>
+    {#if !authenticated && authMode==='accounts' && !isPublicList && !isCommunity && !isJoin}
       <nav class="site-nav" aria-label="Public navigation">{#if !isWelcome}<a href="/welcome">Workspace</a>{/if}<a href="/welcome#self-host">Self-host</a>{#if !setupRequired}<a class="entry-link" href="/signin">Sign in →</a>{/if}</nav>
     {:else if isPublicList || isCommunity || isJoin}
       <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a class="entry-link" href="/">Open your workspace →</a></nav>
     {/if}
     {#if (!authenticated || needsAuth) && authMode !== 'accounts' && !isPublicList && !isCommunity && !isJoin && !isWelcome}<span class="tag">Your AI workspace</span>{/if}
   </div>
+  {/if}
 </header>
-<main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout} class:auth-page={!isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
+<main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout} class:home-layout={homeLayout} class:auth-page={!isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
   {#if isCommunity}
     <Community canSave={authenticated && !needsAuth && canWrite} />
   {:else if isPublicList}
@@ -828,6 +868,10 @@
     <Hosting {canWrite} />
   {:else if isShared}
     <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
+  {:else if isActivity}
+    <ActivityPage accounts={authMode === 'accounts'} onsignedout={fail} />
+  {:else if isHome}
+    <Home userId={currentUser?.id ?? 0} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} onsignedout={fail} onattention={count => (attention = count)} />
   {:else if isControl}
     <ControlCenter {canWrite} terminalAccess={authMode === 'accounts' && canWrite} monitorAccess={authMode === 'accounts' || authMode === 'token'} />
   {:else if isProjects && !(authMode === 'accounts' && canWrite)}
@@ -1141,10 +1185,10 @@
   .skip:focus { top: 8px; }
   main { width: 100%; max-width: var(--content-width); margin: 0 auto; padding: 36px 40px 56px; flex: 1; }
   main.auth-page { max-width: 960px; }
+  main.home-layout { max-width: none; padding: 0; }
   main:focus { outline: none; }
-  .site-header { border-bottom: 1px solid var(--line); }
+  .site-header { border-bottom: 1px solid var(--line-soft); }
   .header-inner { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: var(--content-width); margin: auto; padding: 24px 40px; }
-  .app-nav { display: flex; align-items: center; gap: 8px; min-width: 0; margin-left: auto; }
   .site-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
   .site-nav a, .entry-link { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--muted); font-size: 0.8rem; font-weight: 600; text-decoration: none; border-radius: 8px; }
   .site-nav a:hover, .entry-link:hover { color: var(--ink); background: var(--card); }
@@ -1172,7 +1216,7 @@
   .filters button { background: none; border: 0; padding: 6px 10px; border-radius: 999px; cursor: pointer; color: var(--muted); font-weight: 500; min-height: 36px; }
   .filters button:hover { color: var(--ink); }
   .filters button[aria-pressed='true'] { background: var(--tint); color: var(--ink); font-weight: 650; }
-  .filters .liked[aria-pressed='true'] { background: var(--heart); color: #fff; }
+  .filters .liked[aria-pressed='true'] { background: var(--heart); color: var(--bg); }
   .filters small { margin-left: 4px; font-variant-numeric: tabular-nums; }
   .sep { width: 1px; height: 20px; background: var(--line); margin: 0 6px; }
   .controls { display: flex; gap: 8px; }
@@ -1197,7 +1241,7 @@
   .filterbar .chip[aria-pressed='true'] { background: var(--tint); color: var(--ink); border-color: var(--accent); }
   .filterbar .chip small { font-variant-numeric: tabular-nums; font-size: 0.75rem; }
   .filterbar .chip.old { opacity: 0.55; }
-  .filterbar .chip.action { border-style: dashed; border-color: var(--accent); color: var(--accent); }
+  .filterbar .chip.action { border-style: dashed; border-color: var(--accent); color: var(--accent-text); }
   .filterbar .chip.clear { border-style: dashed; }
   .filterbar .sep { height: 18px; }
   @media (pointer: coarse) { .filterbar .chip { min-height: 44px; } }
@@ -1226,7 +1270,7 @@
     .select option + option { margin-top: 4px; }
     .select option:hover, .select option:focus { background: var(--tint); border-color: var(--accent); outline: none; }
     .select option:checked { font-weight: 650; }
-    .select option::checkmark { color: var(--accent); }
+    .select option::checkmark { color: var(--accent-text); }
   }
 
   .count { margin: 14px 0 0; color: var(--muted); font-size: 0.9rem; }
@@ -1260,7 +1304,7 @@
     background: var(--card); border: 1px solid var(--line); border-radius: 16px;
     box-shadow: 0 28px 70px -56px rgb(0 0 0 / 0.35);
   }
-  .eyebrow { margin: 0; color: var(--accent); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
   .start h2 { display: block; margin: 8px 0 0; font: 600 clamp(1.5rem, 4vw, 1.9rem)/1.1 var(--serif); letter-spacing: -0.02em; }
   .lede { margin: 8px 0 0; color: var(--muted); max-width: 48ch; }
   .start > p { max-width: 64ch; }
@@ -1275,12 +1319,12 @@
   .start-note { margin: 10px 0 0; color: var(--muted); font-size: 0.78rem; }
   .save-anywhere { margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--line); }
   .save-anywhere > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; font-weight: 600; font-size: 0.85rem; }
-  .save-anywhere > summary::before { content: '+'; color: var(--accent); font-size: 1.05rem; width: 12px; }
+  .save-anywhere > summary::before { content: '+'; color: var(--accent-text); font-size: 1.05rem; width: 12px; }
   .save-anywhere[open] > summary::before { content: '−'; }
   .save-anywhere > summary::-webkit-details-marker { display: none; }
   .save-anywhere > p { margin: 2px 0 0; color: var(--muted); font-size: 0.8rem; }
   .start-options { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
-  .start-options > a:not(.btn) { color: var(--accent); padding: 10px 0; }
+  .start-options > a:not(.btn) { color: var(--accent-text); padding: 10px 0; }
   .scan-help { margin-top: 20px; }
   .scan-help summary { cursor: pointer; font-weight: 600; }
   .command { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
@@ -1310,7 +1354,6 @@
   @media (max-width: 560px) {
     main { padding: 28px 16px 40px; }
     .header-inner { flex-wrap: wrap; gap: 14px; padding: 20px 16px; }
-    .app-nav { gap: 6px; }
     .tag { margin-left: auto; max-width: 26ch; text-align: right; white-space: nowrap; }
     .site-nav { width: 100%; }
     .site-nav a { flex: 1; justify-content: center; border: 1px solid var(--line); }
@@ -1326,7 +1369,7 @@
   }
   .shelf-filters { border-bottom: 1px solid var(--line); }
   .shelf-filters > summary { display: flex; align-items: center; gap: 12px; padding: 12px 2px; min-height: 44px; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
-  .shelf-filters > summary::before { content: '+'; color: var(--accent); font-size: 1.1rem; width: 12px; }
+  .shelf-filters > summary::before { content: '+'; color: var(--accent-text); font-size: 1.1rem; width: 12px; }
   .shelf-filters[open] > summary::before { content: '−'; }
   .shelf-filters > summary span { margin-left: auto; color: var(--muted); font-size: 0.75rem; font-weight: 400; }
   .filter-panel { display: grid; gap: 8px; padding: 4px 0 16px; }
@@ -1355,9 +1398,5 @@
   }
   @media (pointer: coarse) { .filters button, .view-switch button { min-height: 44px; } }
   main.terminal-layout {max-width:none;padding:8px 12px;min-height:0;flex:1;}
-  .terminal-chrome .header-inner {max-width:none;padding:6px 16px;gap:12px;min-height:56px;flex-wrap:nowrap;}
-  .terminal-chrome .home {display:flex;align-items:center;}
-  .terminal-chrome .home :global(.logo) {width:126px;}
-  .terminal-chrome .home :global(svg) {width:100%;height:auto;}
-  @media(max-width:700px){main.terminal-layout{padding:4px 6px}.terminal-chrome .header-inner{padding:4px 10px;min-height:54px}.terminal-chrome .home :global(.logo){width:110px}}
+  @media(max-width:700px){main.terminal-layout{padding:4px 6px}}
 </style>

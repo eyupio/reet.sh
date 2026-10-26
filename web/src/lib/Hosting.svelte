@@ -574,7 +574,7 @@
   .import-check small { color: var(--muted); }
   .import-meta { display: flex; gap: 12px; flex-wrap: wrap; padding-left: 26px; color: var(--muted); font-size: .78rem; }
   .import-meta .problem { color: var(--bad); }
-  .save-dock { position: fixed; right: 20px; bottom: 20px; z-index: 14; display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 16px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; background: var(--card); box-shadow: 0 18px 50px -20px rgb(0 0 0 / .4); }
+  .save-dock { position: fixed; right: 20px; bottom: calc(20px + var(--bottom-chrome, 0px)); z-index: 14; display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 16px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; background: var(--card); box-shadow: 0 18px 50px -20px rgb(0 0 0 / .4); }
   .save-state { font-size: .8rem; color: var(--muted); }
   @media (max-width: 720px) { .workspace { grid-template-columns: 1fr; } .panel { padding: 16px; } }
   @media (max-width: 560px) {
@@ -582,7 +582,7 @@
     .toolbar-actions { width: 100%; }
     .toolbar-actions .btn { flex: 1; }
     .workspace.with-dock { padding-bottom: 88px; }
-    .save-dock { left: 12px; right: 12px; bottom: 12px; justify-content: space-between; }
+    .save-dock { left: 12px; right: 12px; bottom: calc(12px + var(--bottom-chrome, 0px)); justify-content: space-between; }
     .save-dock .btn { flex: 1; }
   }
   @media (prefers-reduced-motion: no-preference) {

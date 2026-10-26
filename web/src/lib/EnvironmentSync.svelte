@@ -309,11 +309,11 @@
   .sync { margin-top: 24px; padding: clamp(18px, 3vw, 28px); border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
   .head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-  .eyebrow { margin: 0 0 4px; color: var(--accent); text-transform: uppercase; letter-spacing: .1em; font-size: .7rem; font-weight: 650; }
+  .eyebrow { margin: 0 0 4px; color: var(--accent-text); text-transform: uppercase; letter-spacing: .1em; font-size: .7rem; font-weight: 650; }
   h2 { margin: 0; font: 500 1.7rem/1.15 var(--serif); }
   .lede { color: var(--muted); max-width: 72ch; margin: 8px 0 0; line-height: 1.6; }
   .hint { color: var(--muted); font-size: .83rem; margin: 6px 0; overflow-wrap: anywhere; }
-  .machine-focus a { color: var(--accent); }
+  .machine-focus a { color: var(--accent-text); }
   .machine-focus strong { color: var(--ink); }
   .maintenance { margin: 16px 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
   .maintenance > summary { cursor: pointer; min-height: 24px; font-weight: 600; }

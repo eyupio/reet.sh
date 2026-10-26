@@ -1,6 +1,42 @@
 # Terminal workspace
 
-The signed-in **Control** page shows active shells and machine connection cards. Skill sync and bulk inventory actions remain on **More → Sync**. Continue
+## Home and the tabs
+
+Signing in lands on **Home** (`/`). Every figure on it comes from a record that exists today; anything without one is
+left out or says so in words.
+
+**The tabs.** A desktop (1100 px and wider) shows Home, Sessions, Machines, Skills and Activity in the top bar, with
+**Jump to a session, project or machine**, the bell and the account menu. The account menu holds **More**: Control,
+Projects, Setups, Sync, Lists, Community, Support, Teams & organisations and Host skills. An open instance has no
+account menu, so it keeps More in the top bar. A tablet (651–1099 px) keeps
+Home, Sessions and Machines in the top bar, with **More** beside them for the rest and a search button for Jump. A phone
+has a slim top bar (logo, search, bell, account) and a 64 px bottom tab bar: Home, Sessions, Machines and More. While
+the phone keyboard is up for Jump, the bottom bar steps aside, and Jump's results end above the keyboard. Sessions and
+the bell are for a writer in accounts mode only.
+
+**What Home shows today.**
+
+| Part | What it shows, and from where | Arrives with |
+| --- | --- | --- |
+| Fleet strip | One card per machine from the health report: the status in words (online, paused, reconnecting or offline) with a dot that also differs by shape, the live sessions on it of any kind ("sessions running"), CPU from a fresh report or **No reading**, and the skills line from the last finished sync check for the current desired skills, or **Not checked**. A machine that is not reporting shows its last known count and says so. There is no worktree figure. **Add a machine** opens the existing dialog on Machines. | Worktree count: PR B |
+| In flight | Live sessions, and finished ones for a day, grouped by Project, Machine or State. A session joins a Project when a recent run of that Project started it. Each row shows the state word and where it came from ("from the session's state" or "from the exit code"). There is no step or progress bar. | Folder Projects: PR B. Attention states: PR G |
+| Needs you | "Nothing needs you." with a count of 0. Nothing signals today that a session needs the person. | Cards: PR G. Decision cards: a later programme |
+| Project rail | Your saved Projects, read-only, with **Add** opening the existing New project dialog. Under 1240 px it is a 56 px strip. | Folder Projects and the card menu: PR B. Select: PR E |
+| Start an agent | A docked button that opens the existing Start an agent dialog. | The launch sentence: PR E |
+| Bell | The Needs you count, which is 0 today and shows no badge. | PR G |
+
+Viewers, single-token and open sign-ins get the fleet strip only. Those sign-ins cannot read sessions, so the cards
+show no session count rather than a false 0. Home refreshes every 15 seconds while the tab is visible. If a refresh
+fails, it keeps what it last read and says so. The only value it stores in the browser is the Group by choice, under
+`reet.home.groupBy.<account>`.
+
+On a tablet and a phone the page is one column: machines, then Needs you, then In flight. Every target there is at
+least 44 px, and the phone's **Start an agent** is 48 px and full width. Checks:
+[Agents home shell and Home](ui-verification.md#agents-home-shell-and-home--26-october-2026).
+
+## Control and sessions
+
+The **Control** page (`/control`, under More) shows active shells and machine connection cards. Skill sync and bulk inventory actions remain on **More → Sync**. Continue
 links select the exact connector and session ID on `/terminals`; they never create
 a shell. Running means a shell lifecycle state, not AI-agent activity. Creating and
 end-requested sessions retain their actual labels.

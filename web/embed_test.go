@@ -146,3 +146,31 @@ func TestOriginRejectsHeaderInjection(t *testing.T) {
 		t.Fatalf("invalid protocol should fall back to http:\n%s", body)
 	}
 }
+
+// The registration itself, not mime.TypeByExtension: a host with /etc/mime.types already maps .woff2, so the served header
+// alone would pass without it.
+func TestPackageRegistersTypesTheHostMayLack(t *testing.T) {
+	got := map[string]string{}
+	registerTypes(func(ext, typ string) error { got[ext] = typ; return nil })
+	for ext, want := range map[string]string{".woff2": "font/woff2", ".webmanifest": "application/manifest+json"} {
+		if got[ext] != want {
+			t.Errorf("%s registered as %q, want %q", ext, got[ext], want)
+		}
+	}
+}
+
+func TestSelfHostedFontsServedAsWOFF2(t *testing.T) {
+	requireBuilt(t)
+	for _, name := range []string{"fraunces-latin-600-normal", "ibm-plex-sans-latin-400-normal", "ibm-plex-sans-latin-500-normal", "ibm-plex-sans-latin-600-normal", "ibm-plex-mono-latin-400-normal"} {
+		rec := get(t, Handler(""), "/fonts/"+name+".woff2")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d", name, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "font/woff2" {
+			t.Fatalf("%s: content-type = %q", name, ct)
+		}
+	}
+	if rec := get(t, Handler(""), "/fonts/OFL.txt"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "SIL OPEN FONT LICENSE") {
+		t.Fatalf("OFL.txt: status = %d", rec.Code)
+	}
+}

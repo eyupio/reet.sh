@@ -12,10 +12,22 @@ import (
 	"strings"
 )
 
-func init() {
-	// Go's built-in table has no entry for the web app manifest, so it would be served as text/plain.
-	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
+// extraTypes are the types the served files need that Go's built-in table lacks. Without them a type comes from the host's
+// mime.types, which a slim image does not have: the web app manifest would be text/plain and the self-hosted fonts untyped.
+var extraTypes = [][2]string{
+	{".webmanifest", "application/manifest+json"},
+	{".woff2", "font/woff2"},
 }
+
+// registerTypes hands each extra type to add (mime.AddExtensionType when the package loads), so a test can see the
+// registration itself rather than whatever the host's mime.types happens to say.
+func registerTypes(add func(ext, typ string) error) {
+	for _, t := range extraTypes {
+		_ = add(t[0], t[1])
+	}
+}
+
+func init() { registerTypes(mime.AddExtensionType) }
 
 //go:embed all:dist
 var dist embed.FS

@@ -167,9 +167,9 @@
   .connect-card h3 { margin-top:16px; font:500 1.65rem/1.25 var(--serif); letter-spacing:-.025em; }
   .connect-card > p { max-width:75ch; }
   .cardtop { display:flex; justify-content:space-between; align-items:center; gap:12px; }
-  .step { font:500 .8rem/1 var(--sans); color:var(--accent); }
+  .step { font:500 .8rem/1 var(--sans); color:var(--accent-text); }
   .badge,.kind,.state { display:inline-block; font-size:.7rem; border-radius:99px; padding:3px 9px; border:1px solid var(--line); color:var(--muted); }
-  .badge { color:var(--accent); border-color:color-mix(in srgb,var(--accent) 25%,var(--line)); }
+  .badge { color:var(--accent-text); border-color:color-mix(in srgb,var(--accent) 25%,var(--line)); }
   .subtle { color:var(--muted); border-color:var(--line); }
   .kind { margin-left:8px; }
   .state.live { color:var(--good); }

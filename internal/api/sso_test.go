@@ -386,7 +386,7 @@ func TestOnlyALocalPathIsFollowedAfterSignIn(t *testing.T) {
 			t.Errorf("next=%q went to %q, want /", next, loc)
 		}
 	}
-	for _, next := range []string{"/lists?tab=liked", "/lists/3", "/support/12", "/projects", "/projects/0123456789abcdef0123456789abcdef", "/account/mcp/authorize?client_id=reet_client_x&state=a%20b&code_challenge=c"} {
+	for _, next := range []string{"/lists?tab=liked", "/lists/3", "/support/12", "/projects", "/projects/0123456789abcdef0123456789abcdef", "/activity", "/account/mcp/authorize?client_id=reet_client_x&state=a%20b&code_challenge=c"} {
 		if loc := e.login(e.client(), ada("sub-ada"), "?next="+url.QueryEscape(next)); loc != next {
 			t.Errorf("next=%q went to %q: a sign-in must resume where it began (the MCP consent page among them)", next, loc)
 		}

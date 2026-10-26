@@ -777,3 +777,149 @@ buttons.
 and a simulated keyboard. iOS before 16 ignores `overflow: hidden` on the root, so its page can
 still be dragged from outside a scrolling part. Safe-area insets are 0 in the emulator. A page
 resized for the keyboard before a dialog opens is not recognised as short until it changes size.
+
+## Agents home shell and Home — 26 October 2026
+
+Built on `6c0f1c1` (PR D, tasks D1–D4). This section records what the fixtures check for the app shell
+(top tabs, bottom tab bar, bell, Jump, More) and [Home](terminal-workspace.md#home-and-the-tabs), what an
+accessibility scan found, how the rules were mutation-checked, and what was not checked. Everything below ran in
+Chromium (`/opt/pw-browsers/chromium`, Playwright 1.64.1) against the production build. Every API answer was
+synthetic. Phones and tablets were Chromium's mobile emulation (`isMobile`, `hasTouch`). Nothing was checked on a
+real phone, a real tablet, Safari or Firefox.
+
+**Defects found and fixed.**
+
+1. **The logo link was a 26 px target on touch screens** (104 × 26 at 834 px). It is now at least 44 px tall on a
+   coarse pointer. The matrix below found it.
+2. **Jump's results ran under a phone keyboard.** With the keyboard taking the screen below 400 px, the results
+   list ended at 539 px at 320 px wide, so the last results could not be reached. The list's height is now capped at
+   the room left in the visual viewport, and every result scrolls into view above the keyboard.
+3. **Start an agent's fields were 14 px on phones** (machine, model, folder and prompt), so focusing one zoomed the
+   page. The dialog's own `font: inherit` beat the 16 px rule in `app.css`. The dialog and New project now set 16 px
+   themselves at 560 px and narrower. New project had the same rule; no fixture opens it on a phone.
+4. **Two colour pairs were below AA.**
+   - Dark theme, the pressed Liked filter: white on `--heart` (`#ff7a9c`) was 2.47:1. Its text is now `--bg`:
+     7.63:1 in dark (`#14110f` on `#ff7a9c`) and 5.57:1 in light (`#f7f6f2` on `#be1f4a`). This also removes a
+     literal colour from `App.svelte`.
+   - Light theme, `--accent-text` on `--tint` (the numbered steps in Add a machine, the account avatar, hover rows
+     in the session sidebar): `#c2410c` on `#fde8d8` was 4.37:1. The light `--tint` is now `#feefe3`, which gives
+     4.60:1 (`--ink` 15.14:1, `--muted` 5.94:1). The cost is that a tinted selected state is closer to the card:
+     1.11:1 against `--card`, where it was 1.17:1. Most selected states also change weight, border or an inset
+     bar, but not all: the Sync scope option and the Hosting skill choice change border and tint only.
+   - `theme.test.mjs` now checks `--ink` and `--accent-text` on `--tint`, and `--bg` on `--heart`, in both themes.
+5. **A machine whose sync agent is paused was called "online".** It now says "paused", the word Control uses
+   (`fleet.ts`), with a grey square dot. A paused machine that stopped reporting says "offline". This applies to
+   the sync-agent fallback (single-token and open sign-ins) and beside a health report alike.
+
+**Known gap, not fixed: field and button borders.** `--line-strong` draws the borders of text fields, selects and
+`.btn`. Against the surfaces it sits on, it is 1.78:1 (dark, on `--card` `#1a1613`), 1.86:1 (dark, on `--bg`),
+1.74:1 (dark, on `--card-raised`), 1.73:1 (light, on `--card` `#fffdf9`) and 1.62:1 (light, on `--bg`). WCAG 1.4.11
+asks for 3:1 for the visual boundary of a control that has no other cue. These values are the spec's token table,
+and fields also differ from the page by their fill and their placeholder, so changing them is a design decision for
+the spec, not this pull request. The focus ring is the accent (`--accent` on `--bg`: 3.63:1 dark, 4.79:1 light;
+3.47:1 on the dark `--card`). The tabs and bottom bar draw `--accent-text` (8.28:1 on the dark `--bg`).
+
+**The matrix** (`web/tests/home.e2e.mjs`, "matrix: widths, themes, targets, focus, state words and motion"). It
+covers Home and the shell at 1360 px with a mouse, 834 px as a touch tablet, and 390 and 320 px as a phone. Each is
+checked in light and dark, switching the system scheme with the profile on "system" and checking that the page
+background changes. At each width and theme:
+- the page does not scroll sideways, `innerWidth` is the device width, and the visual viewport is not zoomed;
+- every visible link, button, summary and Group by option in the header, the navigation and `main` is at least
+  44 × 44 px on touch (24 × 24 px with a mouse), and the phone's **Start an agent** is at least 48 px tall;
+- every machine names its status in its accessible name. One that is not online shows the word, and the online and
+  offline dots differ in border or fill, not only colour. Each In flight row shows its state in words. Needs you
+  shows its count as a number.
+
+At each width, the first 30 tab stops each draw a ring: an outline, or an inset shadow on the control, its label or
+Jump's field box. With no motion preference a press transition exists, so the check is not empty. With
+`prefers-reduced-motion: reduce`, nothing in the header, navigation or `main` has an animation or a transform
+transition, and no animation is running.
+
+Other new cases:
+- `home.e2e.mjs` "a paused agent that still reports reads paused": a single-token sign-in, a writer and a phone.
+- `home.test.mjs` "a paused agent that still reports reads paused, and one that stopped reporting reads offline".
+- `phone-layout.e2e.mjs` "Jump search with the keyboard open", at 320 and 390 px. Jump has 80-character unbroken
+  session, Project and machine names. The field is 16 px, and the bottom bar steps aside. The eight results end
+  above a 400 px keyboard. Each result, scrolled into the list, is at least 44 px tall and inside the screen. The
+  page neither scrolls sideways nor zooms.
+- `phone-zoom.e2e.mjs` has four new screens: Home, the More list over Home, Jump's results, and Start an agent
+  opened from Home. Home has an 80-character machine, session and Project name (`web/tests/helpers/longtext.mjs`,
+  `homeExtra`). `/control` keeps its own screen. Every screen is checked at 320, 360, 390 and 412 px, and now
+  also checks that every text field is at least 16 px.
+
+**Mutation checks.** Each rule was broken in the source, the bundle rebuilt where a fixture needed it, and the
+named check run. Each file was then restored from a copy and compared byte for byte.
+
+| Rule broken | Caught by |
+| --- | --- |
+| "No reading" for a null CPU (shown as 0%) | `home.e2e.mjs` "missing CPU reads No reading"; `home.test.mjs` |
+| "skills in sync" without a check (the unchecked target ignored) | `home.test.mjs` (2 tests). The e2e fixture has no unchecked target, so it passed |
+| A worktree figure without a source (added to each card) | `home.e2e.mjs` "no worktree figure without a source" |
+| A literal colour in a component (`#ff0000` in `NeedsYou.svelte`) | `theme.test.mjs` "no literal colour in a component" (with a git base) |
+| The 16 px field rule removed from `app.css` | `phone-zoom.e2e.mjs`: 576 problems across the account, admin and other screens |
+| A session counted in the bell | `home.e2e.mjs` "Needs you says Nothing needs you and the bell shows no badge" |
+| A paused agent called online | the new e2e case and unit test |
+| No focus ring on the top tabs | the matrix (1360 px, "Home") |
+| Jump's results not capped above the keyboard | "Jump search with the keyboard open" (before the fix) |
+| A stray colour token in a palette block, or the old light `--tint` | `theme.test.mjs` "app.css matches TOKENS", "every text pair passes AA" |
+| The `.woff2` registration removed from `embed.go` | `TestPackageRegistersTypesTheHostMayLack` |
+
+**Test fixes from earlier reviews.**
+- `theme.test.mjs`'s literal-colour check needs a git base. The terminal-browser CI job now checks out the full
+  history (`fetch-depth: 0`), so the check diffs the branch against `origin/main`. Without a base (a shallow clone,
+  or a fork with no `origin/main`), the test prints "no git base … so only Logo.svelte was checked" and still
+  passes. The image and release workflows still clone shallow, so they check `Logo.svelte` only.
+- "app.css matches TOKENS" now also fails on a colour token that a palette block sets but `TOKENS` does not list.
+- The `.woff2` type test no longer depends on the host: the registration is checked directly, because a host with
+  `/etc/mime.types` serves `font/woff2` without it.
+
+**Accessibility scan.**
+- **Setup.** `axe-core` 4.10.2 was installed with `npm` in a temporary directory outside the repository. Nothing
+  was added to `package.json` or the lock file, and the script is not part of the repository. The scan is not a
+  CI gate.
+- **How it ran.** Through Playwright, with the `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa` and `wcag22aa` rule
+  tags, at 390, 834 and 1360 px in light and dark. The 390 and 834 px runs were touch emulation. Each scan
+  waited 700 ms first. It ran after the fixes above.
+- **States.** Six per width and theme, 36 scans in all:
+  - Home (writer) and Home for a viewer;
+  - the bell's panel open;
+  - Jump with results;
+  - More (the bottom sheet at 390 and 834 px, the account menu at 1360 px);
+  - Start an agent opened from Home.
+
+  Dialogs were scanned on their own. Every other state was scanned as the whole page.
+- **Violations.** 2, both `target-size`, both on Jump's results at 390 px (light and dark). An In flight row under
+  the open results list is "partially obscured" and has 4.8 px of space to its neighbour. The row is covered by
+  the open list and cannot be reached until the list closes, so this was not changed.
+- **Incomplete.** Axe reported `color-contrast` as "incomplete" (it couldn't decide) in 24 of the 36 scans, 192
+  element results in all. The reasons were:
+  - the background is overlapped by another element (134);
+  - it is partially obscured (28);
+  - the content is too short to decide (24);
+  - the element partially overlaps others (6).
+
+  These results include the Add a machine tile, Jump's results over the page, and the dialog and account menu
+  text. I did not review them one by one. Contrast is shown only for the token pairs `theme.test.mjs` computes,
+  not for every element on the page. Nothing else was incomplete.
+
+**Runs.** These ran against the production build with the preview server:
+- `npm run check`: all unit tests pass; svelte-check reports 0 errors and 0 warnings.
+- `go vet ./...`.
+- `go test ./web ./internal/api`.
+- Every fixture in `.github/workflows/terminal-browser.yml`, plus `phone-zoom`, `phone-dialogs` and `home`.
+
+Local times:
+- `home.e2e.mjs` takes 24.6 s, which was 20 s before this change. It now runs in the `phone-zoom` job, not the
+  terminal-browser job.
+- `phone-zoom.e2e.mjs` takes 33 s, which was 29 s.
+- `phone-layout.e2e.mjs` takes 5.8 s, which was 5 s.
+
+**Not checked.**
+- No real phone, tablet, Safari or Firefox. Every check above that names a phone or a tablet was Chromium's mobile
+  emulation, with a simulated keyboard (a replaced `visualViewport`). Safe-area insets are 0 in the emulator.
+- No screen reader. Whether the status words, the live sentences or the bell's count are announced was not heard.
+- Landscape phones were not in the matrix.
+- The contrast of every rendered element was not measured. The tinted selected states were not compared by eye
+  after the `--tint` change.
+- No live machine, agent CLI, production service or deployment was involved, so nothing here shows a machine
+  reporting, a session starting or a sync check running.

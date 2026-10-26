@@ -138,3 +138,14 @@ export const pageViewport = new ViewportTracker()
 export const LANDSCAPE_PHONE = '(max-height:500px) and (pointer:coarse) and (orientation:landscape)'
 export const PHONE_SCREEN = `(max-width:650px), ${LANDSCAPE_PHONE}`
 export const PHONE_TOUCH = `(max-width:650px) and (pointer:coarse), ${LANDSCAPE_PHONE}`
+
+/** The fields whose on-screen keyboard makes the phone chrome step aside: today the Jump search (PR E and PR H add more). */
+export type ChromeFocus = 'search'
+/**
+ * Whether the phone's site chrome (the bottom tab bar) steps aside: only while one of those fields has focus and the
+ * keyboard is open (keyboardLikelyOpen, the terminal's usable-height rule), so the field and what it shows keep the
+ * room above the keyboard. A keyboard opened by any other field leaves the chrome where it is.
+ */
+export function keyboardChrome(focus: ChromeFocus | null, open: boolean): boolean {
+  return focus !== null && open
+}

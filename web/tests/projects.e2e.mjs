@@ -177,7 +177,10 @@ try{
  await page.goto(`${base}/projects`)
  await expect(page).toHaveTitle('Projects · reet.sh')
  await expect(page.getByRole('heading',{name:'No Projects yet.'})).toBeVisible()
- await expect(page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Projects'}).first()).toHaveAttribute('aria-current','page')
+ // Projects sits under More in the account menu (R13) until PR B retires the page.
+ await page.locator('summary[aria-label^="Account menu"]').click()
+ await expect(page.locator('.panel').getByRole('group',{name:'More'}).getByRole('link',{name:'Projects'})).toHaveAttribute('aria-current','page')
+ await page.keyboard.press('Escape')
 
  // ── Create: checked before sending, one save per press, Escape and Close wait while it is in flight. ──
  const newButton=page.getByRole('button',{name:'New project'})

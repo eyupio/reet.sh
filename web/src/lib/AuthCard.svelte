@@ -31,12 +31,12 @@
     box-shadow: var(--shadow);
   }
   .intro { display: flex; flex-direction: column; padding: clamp(24px, 4vw, 40px); background: color-mix(in srgb, var(--tint) 28%, var(--bg)); border-right: 1px solid var(--line); }
-  .eyebrow { margin: 0; color: var(--accent); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
   .headline { margin: 22px 0 0; font: 500 clamp(1.75rem, 3vw, 2.25rem)/1.12 var(--serif); letter-spacing: -0.03em; }
   .intro-copy { margin: 14px 0 0; color: var(--muted); font-size: 0.9rem; }
   .stages { list-style: none; display: grid; gap: 20px; padding: 0; margin: 32px 0; }
   .stages li { display: flex; align-items: baseline; gap: 14px; }
-  .stages li > span { color: var(--accent); font: 0.72rem var(--mono); }
+  .stages li > span { color: var(--accent-text); font: 0.72rem var(--mono); }
   .stages strong { display: block; font-size: 0.88rem; font-weight: 600; }
   .stages small { display: block; margin-top: 2px; color: var(--muted); font-size: 0.8rem; }
   .local { margin: auto 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.75rem; }

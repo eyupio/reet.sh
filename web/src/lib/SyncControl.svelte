@@ -296,7 +296,7 @@
  .agent-scopes{margin:16px 0;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
  .scope-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:.85rem}
  .scope-head > div{display:flex;gap:10px}
- .link{padding:0;border:0;background:none;color:var(--accent);font:inherit;font-size:.76rem;font-weight:600;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+ .link{padding:0;border:0;background:none;color:var(--accent-text);font:inherit;font-size:.76rem;font-weight:600;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
  .scope-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;margin:10px 0 8px}
  .scope-option{display:flex;align-items:flex-start;gap:8px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);font-weight:400;cursor:pointer}
  .scope-option.selected{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));background:var(--tint)}

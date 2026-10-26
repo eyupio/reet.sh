@@ -205,7 +205,7 @@ try{
  await page.getByRole('button',{name:'Close Saved commands',exact:true}).click()
  expect(inputs.length).toBe(beforeMenuInput)
  // Active landing cards target the clicked session, with explicit stop/removal review.
- await page.goto(base)
+ await page.goto(`${base}/control`)
  const band=page.locator('#active-sessions'),target=band.getByRole('link',{name:'Continue Zulu shell on Laptop',exact:true})
  const landingTickets=tickets.length
  expect(await target.evaluate(element=>element.dispatchEvent(new MouseEvent('contextmenu',{button:2,shiftKey:true,bubbles:true,cancelable:true})))).toBe(true)

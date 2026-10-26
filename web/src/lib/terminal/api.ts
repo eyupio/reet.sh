@@ -116,11 +116,16 @@ export async function deleteProject(current: { id: string; version: number }, si
 }
 export async function projectRuns(projectId: string, signal?: AbortSignal): Promise<ProjectRun[]> { return (await (await terminalRequest(`${projectPath(projectId)}/runs`, { signal: within(signal) })).json()).runs }
 export async function getRun(runId: string, signal?: AbortSignal): Promise<ProjectRun> { return (await terminalRequest(`/api/v2/project-runs/${encodeURIComponent(runId)}`, { signal: within(signal) })).json() }
-/** Starts a run of the chosen member positions. 201 (new) and 200 (the same request resent) both give the run. */
-export async function startRun(projectId: string, positions: number[], requestId: string, signal?: AbortSignal): Promise<ProjectRun> {
+/**
+ * Starts a run of the chosen member positions, from the Project version the confirmation sheet was made from (If-Match):
+ * a Project changed since answers 409 `project_changed` and nothing starts. 201 (new) and 200 (the same request resent,
+ * whatever the version is now) both give the run.
+ */
+export async function startRun(project: { id: string; version: number }, positions: number[], requestId: string, signal?: AbortSignal): Promise<ProjectRun> {
   if (!requestId) throw new Error('A run needs a request id.')
   if (positions.length === 0) throw new Error('Choose at least one repository to start.')
-  return (await terminalRequest(`${projectPath(projectId)}/runs`, { method: 'POST', signal: within(signal), body: JSON.stringify({ requestId, positions }) })).json()
+  if (!Number.isSafeInteger(project.version) || project.version < 1) throw new Error('A run needs the version of the Project it was confirmed from.')
+  return (await terminalRequest(`${projectPath(project.id)}/runs`, { method: 'POST', signal: within(signal), body: JSON.stringify({ requestId, positions }), headers: ifMatch(project.version) })).json()
 }
 export async function retryMember(runId: string, position: number, signal?: AbortSignal): Promise<ProjectRun> {
   return (await terminalRequest(`/api/v2/project-runs/${encodeURIComponent(runId)}/members/${position}/retry`, { method: 'POST', signal: within(signal), body: '{}' })).json()

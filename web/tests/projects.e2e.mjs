@@ -63,7 +63,8 @@ await page.route('**/api/**',async route=>{
  if(path==='/api/v2/terminal/machines')return json({machines:tmachines})
  if(path==='/api/v2/terminal/sessions'&&method==='GET'){
   const mode=sessionsMode
-  if(mode&&mode.promise)await mode.promise
+  // A held read answers when released; the page may have given up on it by then.
+  if(mode&&mode.promise){await mode.promise;return json({sessions}).catch(()=>{})}
   if(mode==='fail')return json({error:'terminal broker is restarting'},503)
   return json({sessions})
  }
@@ -97,9 +98,13 @@ await page.route('**/api/**',async route=>{
  m=path.match(/^\/api\/v2\/projects\/([^/]+)\/runs$/)
  if(m&&method==='GET')return json({runs:runs.filter(r=>r.projectId===m[1])})
  if(m&&method==='POST'){
-  // One run per request id: the same id answers with the run it already started.
+  // One run per request id: the same id answers with the run it already started, whatever the version is now.
   const b=JSON.parse(body),existing=runs.find(r=>r.requestId===b.requestId)
-  return existing?json(existing,200):json(createRun(m[1],b),201)
+  if(existing)return json(existing,200)
+  // As the server: a run starts only from the version the sheet was made from (no If-Match is no precondition).
+  const p=projects.find(x=>x.id===m[1]),want=req.headers()['if-match']
+  if(p&&want!==undefined&&want!==`"${p.version}"`)return json({error:'Someone changed this Project. Reload it and try again.',code:'project_changed'},409)
+  return json(createRun(m[1],b),201)
  }
  m=path.match(/^\/api\/v2\/project-runs\/([^/]+)$/)
  if(m){const r=runs.find(x=>x.id===m[1]);return r?json(r):json({error:'That run is not on this account.',code:'run_not_found'},404)}
@@ -256,6 +261,17 @@ try{
  await expect(ed).toBeHidden()
  expect(sent('PATCH',/proj1$/)).toHaveLength(3)
 
+ // ── Start all from a sheet made before another tab saved the Project: nothing starts, the Project is read again. ──
+ await startAll().click()
+ await expect(sheet()).toBeVisible()
+ site.version++
+ await sheet().getByRole('button',{name:'Start',exact:true}).click()
+ await expect(sheet()).toBeHidden()
+ await expect(page.getByText('This Project changed since that sheet was made, so nothing was started. Look it over, then press Start all again.')).toBeVisible()
+ await expect(startAll()).toBeFocused()
+ expect(sent('POST',/^\/api\/v2\/projects\/proj1\/runs$/).map(r=>r.headers['if-match'])).toEqual([`"${site.version-1}"`])
+ expect(runs).toHaveLength(0)
+
  // ── Start all: the sheet, then a lost reply resent with the same request id and positions. ──
  await startAll().click()
  await expect(sheet()).toBeVisible()
@@ -279,10 +295,12 @@ try{
  for(const i of [0,1])await expect(boxes.nth(i)).toBeDisabled()
  await sheet().getByRole('button',{name:'Try the same request again'}).click()
  await expect(sheet()).toBeHidden()
- const starts=sent('POST',/^\/api\/v2\/projects\/proj1\/runs$/).map(r=>JSON.parse(r.body))
+ const starts=sent('POST',/^\/api\/v2\/projects\/proj1\/runs$/).slice(1).map(r=>JSON.parse(r.body))
  expect(starts).toHaveLength(2)
  expect(starts[0].requestId).toMatch(UUID)
  expect(starts[1]).toEqual(starts[0])
+ // Both the lost start and its resend name the version the sheet was made from (the reloaded one).
+ expect(sent('POST',/^\/api\/v2\/projects\/proj1\/runs$/).slice(1).map(r=>r.headers['if-match'])).toEqual([`"${site.version}"`,`"${site.version}"`])
  expect(starts[0].positions).toEqual([0,1])
  expect(runs).toHaveLength(1)
  const run=runs[0]
@@ -424,7 +442,7 @@ try{
  // Starting needs the account's sessions: when they can't be read, the sheet does not open.
  sessionsMode='fail'
  await startAll().click()
- await expect(page.getByText("Couldn't read your sessions just now, so Start all can't check the session limits. Try again in a moment.")).toBeVisible()
+ await expect(page.getByText("Couldn't check your machines and sessions just now, so Start all can't open. Try again in a moment.")).toBeVisible()
  await expect(sheet()).toHaveCount(0)
  sessionsMode='ok'
  sessions=kept
@@ -468,7 +486,7 @@ try{
  await expect(dd.getByText('Worktrees its runs made, if still there, stay on their machines.',{exact:false})).toBeVisible()
  await dd.getByRole('button',{name:'Delete Project'}).click()
  await expect(dd.getByRole('status')).toHaveText('Someone changed this Project. Reload it and try again.')
- expect(sent('DELETE',/proj1$/).map(r=>r.headers['if-match'])).toEqual(['"7"'])
+ expect(sent('DELETE',/proj1$/).map(r=>r.headers['if-match'])).toEqual(['"8"'])
  expect(projects).toContain(site)
  await dd.getByRole('button',{name:'Reload the Project'}).click()
  await expect(dd).toBeHidden()
@@ -477,13 +495,22 @@ try{
  await dd.getByRole('button',{name:'Delete Project'}).click()
  await expect(page.getByRole('heading',{name:'Project deleted.'})).toBeVisible()
  await expect(page.getByText('Project deleted. Its runs are kept. Worktrees those runs made, if still there, stay on their machines.')).toBeVisible()
- expect(sent('DELETE',/proj1$/).map(r=>r.headers['if-match'])).toEqual(['"7"','"9"'])
+ expect(sent('DELETE',/proj1$/).map(r=>r.headers['if-match'])).toEqual(['"8"','"9"'])
  expect(projects).not.toContain(site)
 
  // ── A Project without worktrees warns that sessions share the checkout; a new run gets a new request id; 401 hands over to sign-in. ──
  const plain=project({name:'Plain',useWorktrees:false,members:[member(A,'/home/dev/work/site',0)]})
  projects.push(plain)
+ // Sessions reads that never answer are given up after 15 seconds each: Start all says so and opens nothing, then works
+ // once the reads answer again. Nothing is planned from an unknown list.
+ const stalled=deferred()
+ sessionsMode=stalled
  await page.goto(`${base}/projects/${plain.id}`)
+ await startAll().click()
+ await expect(page.getByText("Couldn't check your machines and sessions just now, so Start all can't open. Try again in a moment.")).toBeVisible({timeout:45000})
+ await expect(sheet()).toHaveCount(0)
+ await expect(startAll()).toBeEnabled()
+ sessionsMode='ok';stalled.resolve()
  await startAll().click()
  await expect(sheet().locator('.warn')).toHaveText('This Project makes no worktrees. Each agent works in the saved folder itself, so any other session there shares that checkout and its files.')
  await expect(sheet().getByText('Claude Code · Agent default · in the saved folder',{exact:true})).toBeVisible()
@@ -536,5 +563,5 @@ try{
 
  expect(errors).toEqual([])
  expect(unmocked.filter(u=>/project|worktree|terminal/.test(u))).toEqual([])
- console.log(`Projects UI passed: create checked before sending with one save per press while Escape and Close wait, the shared prompt kept across two changes (never sent unchanged), If-Match on every change and delete with 409 project_changed and Reload for both, Start all listing each reason a repository won't start (not enrolled with Add a machine, not ready, no launch, agent not installed, no worktrees, 8 per machine and 32 per account counting what it plans), a lost start resent with the same request id and positions and a new id for a new run, a run through pending, started, failed, Retry (attempt 2) and removed with polling stopping at rest, Remove worktree never offered while a session runs or the sessions are unknown, the status read first, blocked by changes and commits on no branch, Check again, the confirmation stating the counts the remove repeats and a session that runs again stopping it, delete keeping runs, the no-worktree warning, 401 handed to sign-in, the Activity lines, nothing in storage or addresses, no Projects for viewers, open or token sign-in and no Projects calls from them, and no sideways scroll at 320px in light and dark. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
+ console.log(`Projects UI passed: create checked before sending with one save per press while Escape and Close wait, the shared prompt kept across two changes (never sent unchanged), If-Match on every change and delete with 409 project_changed and Reload for both, Start all listing each reason a repository won't start (not enrolled with Add a machine, not ready, no launch, agent not installed, no worktrees, 8 per machine and 32 per account counting what it plans), a start from a sheet made before another tab saved refused (If-Match) with nothing started and the Project read again, a lost start resent with the same request id, positions and version and a new id for a new run, sessions reads that never answer given up after 15 seconds, a run through pending, started, failed, Retry (attempt 2) and removed with polling stopping at rest, Remove worktree never offered while a session runs or the sessions are unknown, the status read first, blocked by changes and commits on no branch, Check again, the confirmation stating the counts the remove repeats and a session that runs again stopping it, delete keeping runs, the no-worktree warning, 401 handed to sign-in, the Activity lines, nothing in storage or addresses, no Projects for viewers, open or token sign-in and no Projects calls from them, and no sideways scroll at 320px in light and dark. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
 }finally{await browser.close()}

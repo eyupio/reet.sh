@@ -28,6 +28,8 @@
  // Which runs are shown open. Decided once per run when it first appears (and for a run just started), so a run that
  // becomes pending again on Retry keeps its component, its focus and its status line.
  let expanded = $state<Record<string, boolean>>({})
+ // Start all is reading the machines and sessions before it opens the sheet.
+ let checking = $state(false)
  const life = new AbortController()
 
  const when = (ms: number) => new Date(ms).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
@@ -62,20 +64,25 @@
  }
  // The machines and sessions say what can start now and which worktrees may be removed. Read again every 15 seconds
  // while the tab is visible. A failed machines read keeps what was last known; a failed sessions read makes them unknown.
- let refreshing: Promise<void> | null = null
- async function readMachines() {
-  const [m, s] = await Promise.allSettled([terminalMachines(life.signal), terminalSessions(life.signal)])
-  if (life.signal.aborted) return
-  for (const r of [m, s]) if (r.status === 'rejected' && handOff(r.reason)) return
+ // Each read gives up after 15 seconds, so one that never answers cannot hold the next ones (or Start all) back.
+ let refreshing: Promise<boolean> | null = null
+ /** True when both reads answered just now. */
+ async function readMachines(): Promise<boolean> {
+  const signal = AbortSignal.any([life.signal, AbortSignal.timeout(15000)])
+  const [m, s] = await Promise.allSettled([terminalMachines(signal), terminalSessions(signal)])
+  if (life.signal.aborted) return false
+  for (const r of [m, s]) if (r.status === 'rejected' && handOff(r.reason)) return false
   if (m.status === 'fulfilled') machines = m.value
   if (s.status === 'fulfilled') { sessions = s.value; sessionsFailed = false } else { sessions = undefined; sessionsFailed = true }
+  return m.status === 'fulfilled' && s.status === 'fulfilled'
  }
- async function refreshMachines(force = false) {
-  if (!force && document.visibilityState !== 'visible') return
+ async function refreshMachines(force = false): Promise<boolean> {
+  if (!force && document.visibilityState !== 'visible') return false
   // A forced read never reuses one already under way: it may have started before something changed.
-  if (refreshing) { if (!force) return; await refreshing }
-  refreshing = readMachines().finally(() => { refreshing = null })
-  await refreshing
+  if (refreshing) { if (!force) return false; await refreshing }
+  const read = readMachines()
+  refreshing = read
+  try { return await read } finally { if (refreshing === read) refreshing = null }
  }
 
  function readFolders() {
@@ -84,11 +91,15 @@
  }
  function openEdit(opener: HTMLElement) { message = ''; editing = { opener }; readFolders() }
  async function openStart(opener: HTMLElement) {
-  message = ''
-  // The sheet plans from the machines and sessions as they are now, read afresh.
-  await refreshMachines(true)
+  if (checking) return
+  checking = true
+  message = 'Checking your machines and sessions…'
+  // The sheet plans from the machines and sessions as they are now, read afresh; nothing is planned from an unknown list.
+  const fresh = await refreshMachines(true)
+  checking = false
   if (life.signal.aborted) return
-  if (!sessions) { message = "Couldn't read your sessions just now, so Start all can't check the session limits. Try again in a moment."; return }
+  if (!fresh || !sessions) { message = "Couldn't check your machines and sessions just now, so Start all can't open. Try again in a moment."; return }
+  message = ''
   starting = { opener }
  }
  function saved(p: Project, sent: ProjectInput) {
@@ -96,6 +107,14 @@
   project = { ...p, sharedPrompt: sent.sharedPrompt ?? project?.sharedPrompt }
   message = `Saved. Runs already started keep what they used.`
   void getProject(id, life.signal).then(next => { if (!life.signal.aborted && project?.version === next.version) project = next }).catch(e => { if (!life.signal.aborted) handOff(e) })
+ }
+ // The sheet was made from a version someone has since changed: nothing started. Read it again and say so.
+ async function sheetChanged() {
+  await loadProject()
+  if (life.signal.aborted) return
+  message = 'This Project changed since that sheet was made, so nothing was started. Look it over, then press Start all again.'
+  await tick()
+  document.querySelector<HTMLElement>('[data-start-all]')?.focus()
  }
  async function reload() {
   await loadProject()
@@ -141,7 +160,7 @@
    <a class="btn quiet" href="/projects">All Projects</a>
    <button type="button" class="btn" onclick={(e) => openEdit(e.currentTarget)}>Change</button>
    <button type="button" class="btn danger" onclick={(e) => (deleting = { opener: e.currentTarget })}>Delete</button>
-   <button type="button" class="btn primary" onclick={(e) => openStart(e.currentTarget)} disabled={!project?.members.length}>Start all</button>
+   <button type="button" class="btn primary" data-start-all onclick={(e) => openStart(e.currentTarget)} disabled={!project?.members.length || checking} aria-busy={checking}>Start all</button>
   {/snippet}
  </PageHeader>
 
@@ -195,7 +214,7 @@
   <ProjectDialog {project} {machines} snapshot={folders} opener={editing.opener} onsaved={saved} onreload={() => void reload()} {onsignedout} onclose={() => (editing = null)} />
  {/if}
  {#if starting}
-  <StartRunDialog {project} {machines} sessions={sessions ?? []} opener={starting.opener} onstarted={runStarted} onaddmachine={() => location.assign('/machines#add-machine')} {onsignedout} onclose={() => (starting = null)} />
+  <StartRunDialog {project} {machines} sessions={sessions ?? []} opener={starting.opener} onstarted={runStarted} onchanged={() => void sheetChanged()} onaddmachine={() => location.assign('/machines#add-machine')} {onsignedout} onclose={() => (starting = null)} />
  {/if}
  {#if deleting}
   <DeleteProjectDialog {project} opener={deleting.opener} ondeleted={(r) => (deleted = r.message || 'Its runs are kept.')} onreload={() => void reload()} {onsignedout} onclose={() => (deleting = null)} />

@@ -7,13 +7,15 @@
  // The confirmation sheet for Start all: which repositories will start, which cannot and why, and one press to start the
  // chosen ones. One run per press: the request id is made once and resent unchanged after a lost reply, so the server
  // answers with the same run instead of starting a second one.
- let { project, machines, sessions, opener = null, onstarted, onaddmachine, onsignedout, onclose }: {
+ let { project, machines, sessions, opener = null, onstarted, onchanged, onaddmachine, onsignedout, onclose }: {
   project: Project
   machines: TerminalMachine[]
   /** The account's sessions now: the 8-per-machine and 32-per-account limits count them. */
   sessions: TerminalSession[]
   opener?: HTMLElement | null
   onstarted: (run: ProjectRun) => void
+  /** The Project changed since this sheet was made, so nothing started. The dialog closes first; the page reads it again. */
+  onchanged?: () => void
   /** Opens the add-a-machine flow. The dialog closes first. */
   onaddmachine?: () => void
   onsignedout?: (e: unknown) => void
@@ -28,7 +30,8 @@
  const hostOf = (agentId: string) => untrack(() => machines.find(m => m.agentId === agentId)?.host) ?? 'A machine no longer on this account'
  let chosen = $state<number[]>(plan.start.map(s => s.position))
  let busy = $state(false), message = $state(''), failed = $state(false)
- type Operation = { requestId: string; positions: number[] }
+ // The version the sheet was made from goes with the request: a Project changed since never starts from this sheet.
+ type Operation = { requestId: string; positions: number[]; version: number }
  let operation = $state<Operation | null>(null)
  const life = new AbortController()
  const locked = $derived(busy || operation !== null)
@@ -63,13 +66,13 @@
   if (busy || life.signal.aborted) return
   if (!operation) {
    if (chosen.length === 0) { failed = true; message = 'Choose at least one repository to start.'; return }
-   operation = { requestId: crypto.randomUUID(), positions: [...chosen] }
+   operation = { requestId: crypto.randomUUID(), positions: [...chosen], version: project.version }
   }
   const op = operation
   busy = true; failed = false
   message = `Starting ${op.positions.length === 1 ? 'one repository' : `${op.positions.length} repositories`}…`
   try {
-   const run = await startRun(project.id, op.positions, op.requestId, AbortSignal.any([life.signal, AbortSignal.timeout(15000)]))
+   const run = await startRun({ id: project.id, version: op.version }, op.positions, op.requestId, AbortSignal.any([life.signal, AbortSignal.timeout(15000)]))
    if (life.signal.aborted) return
    const started = onstarted
    shutdown(false)
@@ -83,6 +86,7 @@
     operation = null
     busy = false
     if (err.status === 401 && onsignedout) { const signedOut = onsignedout; shutdown(false); onclose(); signedOut(new UnauthorizedError()); return }
+    if (err.code === 'project_changed' && onchanged) { const changed = onchanged; shutdown(false); onclose(); changed(); return }
     message = projectRefusalText(err.status, err.code, err.message)
    } else {
     // The same request id again can only ever give this one run.

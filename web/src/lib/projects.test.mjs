@@ -252,18 +252,21 @@ test('deleting a Project sends If-Match with the version that was read', async (
   })
 })
 
-test('starting a run always sends a request id and positions, and 200 and 201 give the same run', async () => {
+test('starting a run always sends a request id, positions and If-Match with the version shown, and 200 and 201 give the same run', async () => {
   for (const status of [200, 201]) {
     await withFetch(() => json(status, { id: 'r1', state: 'running', members: [] }), async requests => {
-      const out = await client.startRun('p1', [0, 2], 'a'.repeat(32))
+      const out = await client.startRun({ id: 'p1', version: 4 }, [0, 2], 'a'.repeat(32))
       assert.equal(out.id, 'r1')
       assert.equal(requests[0].path, '/api/v2/projects/p1/runs')
       assert.equal(requests[0].init.method, 'POST')
+      assert.equal(headerOf(requests[0], 'If-Match'), '"4"')
       assert.deepEqual(JSON.parse(requests[0].init.body), { requestId: 'a'.repeat(32), positions: [0, 2] })
     })
   }
-  await assert.rejects(() => client.startRun('p1', [0], ''), /request id/i)
-  await assert.rejects(() => client.startRun('p1', [], 'a'.repeat(32)), /at least one/i)
+  await assert.rejects(() => client.startRun({ id: 'p1', version: 4 }, [0], ''), /request id/i)
+  await assert.rejects(() => client.startRun({ id: 'p1', version: 4 }, [], 'a'.repeat(32)), /at least one/i)
+  // The run is always bound to the version on the sheet: no version, no request.
+  for (const version of [0, undefined, 1.5, -1]) await assert.rejects(() => client.startRun({ id: 'p1', version }, [0], 'a'.repeat(32)), /version/i)
 })
 
 test('runs are read and a member retried by position', async () => {

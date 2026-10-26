@@ -464,7 +464,13 @@ func TestRunHasAtMostTwoInFlightAndOnePerMachine(t *testing.T) {
 	r := f.run(t, p)
 	o.Start(f.uid, r.ID)
 	for released := 0; released < 6; released++ {
-		waitFor(t, "a create in flight", func() bool { return f.broker.inflight() > 0 })
+		if released == 0 {
+			// Three machines are ready, so the run fills both slots before anything is released: wait for that rather
+			// than hoping the second create lands inside a short sleep, which a loaded runner can miss.
+			waitFor(t, "two creates in flight", func() bool { return f.broker.inflight() == 2 })
+		} else {
+			waitFor(t, "a create in flight", func() bool { return f.broker.inflight() > 0 })
+		}
 		time.Sleep(15 * time.Millisecond)
 		if n := f.broker.inflight(); n > 2 {
 			t.Fatalf("%d in flight", n)

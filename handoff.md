@@ -2467,7 +2467,7 @@ checks and the accessibility scan found. Spec and plan:
   Start all sheet, the run view, Remove worktree and Delete, the Activity labels, the browser fixture
   `web/tests/projects.e2e.mjs`, and on the server: DELETE and run start honour `If-Match`, `projects`
   is a reserved hosted username, and single sign-on returns to `/projects`.
-- Projects PR 4 (this pull request): the layout, focus and motion matrix in the fixture (19 states at
+- Projects PR 4 ([#213](https://github.com/eyupio/reet.sh/pull/213)): the layout, focus and motion matrix in the fixture (19 states at
   1360, 768, 390 and 320px in light and dark, Escape at every size, reduced motion), the axe scan and
   its one fix (the Remove worktree details are a focusable region), `docs/projects.md`, the UI
   verification section, the README sentence and this record. No Go change.

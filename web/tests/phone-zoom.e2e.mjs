@@ -19,7 +19,8 @@ const only = process.env.REET_E2E_ONLY ? new RegExp(process.env.REET_E2E_ONLY, '
 const widths = (process.env.REET_E2E_WIDTHS || '320,360,390,412').split(',').map(Number)
 const UA = 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36'
 
-const click = name => async page => { const b = page.getByRole('button', {name, exact:true}).first(); await b.scrollIntoViewIfNeeded(); await b.click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }
+// Dialogs open from the long-host machine's card, the one whose name is hardest to fit.
+const click = name => async page => { const b = page.getByRole('article', {name:LONGHOST}).getByRole('button', {name, exact:true}).first(); await b.scrollIntoViewIfNeeded(); await b.click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }
 const SCREENS = [
  {name:'control', path:'/'},
  {name:'machines', path:'/machines'},
@@ -47,9 +48,11 @@ const SCREENS = [
 function probe(width) {
  const problems = []
  const vw = innerWidth
- if (vw !== width) problems.push(`page laid out ${vw}px wide on a ${width}px screen (zoomed to ${(width / vw).toFixed(2)})`)
- if (visualViewport && Math.abs(visualViewport.scale - 1) > 0.01) problems.push(`visual viewport scale ${visualViewport.scale.toFixed(2)}`)
  const sel = el => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + [...el.classList].filter(c => !c.startsWith('svelte-')).slice(0, 2).map(c => '.' + c).join('')
+ // The deepest elements that end past the screen's edge: where the widening comes from.
+ const widest = () => [...document.querySelectorAll('body *')].filter(e => e.getBoundingClientRect().right > width + 1 && ![...e.children].some(c => c.getBoundingClientRect().right > width + 1)).slice(0, 3).map(e => `${sel(e)} ${Math.round(e.getBoundingClientRect().right)}px`).join(', ')
+ if (vw !== width) problems.push(`page laid out ${vw}px wide on a ${width}px screen (zoomed to ${(width / vw).toFixed(2)}); widest: ${widest()}`)
+ if (visualViewport && Math.abs(visualViewport.scale - 1) > 0.01) problems.push(`visual viewport scale ${visualViewport.scale.toFixed(2)}`)
  const label = el => (el.getAttribute('aria-label') || el.innerText || el.value || el.title || '').trim().replace(/\s+/g, ' ').slice(0, 40)
  // Inside a closed <details>, anywhere but its own summary: not shown, whatever its box says.
  const folded = el => { for (let n = el.parentElement; n; n = n.parentElement) if (n.tagName === 'DETAILS' && !n.open && !(el.closest('summary')?.parentElement === n)) return true; return false }
@@ -87,54 +90,60 @@ function probe(width) {
  return problems
 }
 
-async function check(width) {
- const started = Date.now()
+async function phone(width) {
  const context = await browser.newContext({viewport:{width,height:800}, deviceScaleFactor:2, isMobile:true, hasTouch:true, userAgent:UA})
+ const page = await context.newPage()
+ const errors = []
+ page.on('pageerror', e => errors.push(e.message))
+ const unmocked = await installApi(page)
+ // Settled: no API answer outstanding for 120 ms; much quicker than the 500 ms of 'networkidle' on every screen. Every answer is
+ // mocked and instant, so a request open for over a second was cancelled by the page (some never report that) and is ignored.
+ const open = new Map()
+ let last = Date.now()
+ const api = r => r.url().includes('/api/')
+ page.on('request', r => { if (api(r)) { open.set(r, Date.now()); last = Date.now() } })
+ for (const ev of ['requestfinished', 'requestfailed']) page.on(ev, r => { if (open.delete(r)) last = Date.now() })
+ const busy = () => [...open.values()].some(t => Date.now() - t < 1000)
+ const settled = async () => { const until = Date.now() + 5000; while (Date.now() < until && (busy() || Date.now() - last < 120)) await new Promise(r => setTimeout(r, 20)) }
+ const visit = async path => { open.clear(); await page.goto(base + path); await page.locator('main').first().waitFor(); await settled() }
+ return {context, page, errors, unmocked, settled, visit}
+}
+
+async function screen(p, width, s) {
+ const found = []
+ await p.visit(s.path)
+ if (s.action) { await s.action(p.page); await p.settled() }
+ for (const state of ['closed', 'open']) {
+  if (state === 'open') {
+   const opened = await p.page.evaluate(() => { let n = 0; for (const d of document.querySelectorAll('main details:not([open]), dialog[open] details:not([open])')) { d.open = true; n++ } return n })
+   if (!opened) continue
+   await p.page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
+   await p.settled()
+  }
+  for (const problem of await p.page.evaluate(probe, width)) found.push(`${width}px ${s.name} (details ${state}): ${problem}`)
+ }
+ return found
+}
+
+// A long skill name is clamped to two lines while its card is collapsed; expanded, all of it reads on the screen.
+async function expandedName(p, width) {
+ await p.visit('/skills')
+ await p.page.getByRole('button', {name:`Expand ${LONGSKILL}`}).click()
+ const h = p.page.locator('h3', {hasText:LONGSKILL}).first()
+ await h.scrollIntoViewIfNeeded()
+ const fit = await h.evaluate(el => { const r = el.getBoundingClientRect(); return {w:el.scrollWidth - el.clientWidth, h:el.scrollHeight - el.clientHeight, left:r.left, right:r.right, vw:innerWidth} })
+ return fit.w > 1 || fit.h > 1 || fit.left < 0 || fit.right > fit.vw ? [`${width}px skills: the expanded long skill name does not fit its heading (${JSON.stringify(fit)})`] : []
+}
+
+async function check(width) {
+ const p = await phone(width)
  const failures = []
  try {
-  const page = await context.newPage()
-  const errors = []
-  page.on('pageerror', e => errors.push(e.message))
-  const unmocked = await installApi(page)
-  // Settled: no API answer outstanding for 120 ms; much quicker than the 500 ms of 'networkidle' on every screen. Every answer is
-  // mocked and instant, so a request open for over a second was cancelled by the page (some never report that) and is ignored.
-  const open = new Map()
-  let last = Date.now()
-  const api = r => r.url().includes('/api/')
-  page.on('request', r => { if (api(r)) { open.set(r, Date.now()); last = Date.now() } })
-  for (const ev of ['requestfinished', 'requestfailed']) page.on(ev, r => { if (open.delete(r)) last = Date.now() })
-  const busy = () => [...open.values()].some(t => Date.now() - t < 1000)
-  const settled = async () => { const until = Date.now() + 5000; while (Date.now() < until && (busy() || Date.now() - last < 120)) await new Promise(r => setTimeout(r, 20)) }
-  // One retry when the browser runs out of sockets for a moment (net::ERR_INSUFFICIENT_RESOURCES), which is not a layout fault.
-  const go = async path => { try { await page.goto(base + path) } catch (e) { if (!/ERR_INSUFFICIENT_RESOURCES/.test(e.message)) throw e; await page.waitForTimeout(500); await page.goto(base + path) } }
-  const visit = async path => { open.clear(); await go(path); await page.locator('main').first().waitFor(); await settled(); if (process.env.REET_E2E_TIMING) console.log(width, path, Date.now() - started) }
-  for (const s of SCREENS) {
-   if (only && !only.test(s.name)) continue
-   await visit(s.path)
-   if (s.action) { await s.action(page); await settled() }
-   for (const state of ['closed', 'open']) {
-    if (state === 'open') {
-     const opened = await page.evaluate(() => { let n = 0; for (const d of document.querySelectorAll('main details:not([open]), dialog[open] details:not([open])')) { d.open = true; n++ } return n })
-     if (!opened) continue
-     await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
-     await settled()
-    }
-    for (const p of await page.evaluate(probe, width)) failures.push(`${width}px ${s.name} (details ${state}): ${p}`)
-   }
-  }
-  // A long skill name is clamped to two lines while its card is collapsed; expanded, all of it reads on the screen.
-  if (!only || only.test('skills')) {
-   await visit('/skills')
-   const name = LONGSKILL
-   await page.getByRole('button', {name:`Expand ${name}`}).click()
-   const h = page.locator('h3', {hasText:name}).first()
-   await h.scrollIntoViewIfNeeded()
-   const fit = await h.evaluate(el => { const r = el.getBoundingClientRect(); return {w:el.scrollWidth - el.clientWidth, h:el.scrollHeight - el.clientHeight, left:r.left, right:r.right, vw:innerWidth} })
-   if (fit.w > 1 || fit.h > 1 || fit.left < 0 || fit.right > fit.vw) failures.push(`${width}px skills: the expanded long skill name does not fit its heading (${JSON.stringify(fit)})`)
-  }
-  if (errors.length) failures.push(`${width}px page errors: ${errors.join(' | ')}`)
-  if (unmocked.length) failures.push(`${width}px unmocked API calls: ${[...new Set(unmocked)].join(', ')}`)
- } finally { await context.close() }
+  for (const s of SCREENS) if (!only || only.test(s.name)) failures.push(...await screen(p, width, s))
+  if (!only || only.test('skills')) failures.push(...await expandedName(p, width))
+ } finally { await p.context.close() }
+ if (p.errors.length) failures.push(`${width}px page errors: ${p.errors.join(' | ')}`)
+ if (p.unmocked.length) failures.push(`${width}px unmocked API calls: ${[...new Set(p.unmocked)].join(', ')}`)
  return failures
 }
 

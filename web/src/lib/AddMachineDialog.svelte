@@ -5,6 +5,7 @@
 
 <script lang="ts">
  import { onMount, untrack } from 'svelte'
+ import { shell } from './dialogShell'
  import type { Snippet } from 'svelte'
  import { UnauthorizedError, type Machine, type SyncState } from './api'
  import { SIGNED_OUT, isSignedOut, sameHost } from './contentReview'
@@ -215,16 +216,16 @@
  })
 </script>
 
-<dialog bind:this={dialog} oncancel={(event) => { event.preventDefault(); close() }} aria-labelledby={titleId}>
- <header>
+<dialog bind:this={dialog} use:shell oncancel={(event) => { event.preventDefault(); close() }} aria-labelledby={titleId}>
+ <header data-shell-head>
   <div>
-   <p class="eyebrow">Machines</p>
+   <p class="eyebrow" data-shell-aside>Machines</p>
    <h2 id={titleId}>Add a machine</h2>
-   <p class="lede">Right then: name it, give it a key, run one block of commands on it, and reet.sh will watch for it.</p>
+   <p class="lede" data-shell-aside>Right then: name it, give it a key, run one block of commands on it, and reet.sh will watch for it.</p>
   </div>
-  <button type="button" class="btn" onclick={close} aria-label="Close">Close ×</button>
+  <button type="button" class="btn" onclick={close} aria-label="Close" data-shell-close>Close ×</button>
  </header>
- <div class="body">
+ <div class="body" data-shell-body>
   <section aria-labelledby={`${titleId}-name`}>
    <h3 id={`${titleId}-name`}><span class="num" aria-hidden="true">1</span>Name it</h3>
    <form onsubmit={(event) => { event.preventDefault(); touched = true }}>
@@ -298,8 +299,8 @@
   {#if waitingOut}<p class="again"><button type="button" class="btn" onclick={checkAgain}>Check again</button></p>{/if}
   <p class="hint">Connected and Ready only say what reet.sh has been told: that a connector reported in and a scan arrived. They do not show that the commands worked.</p>
  </div>
- <footer>
-  <small>Nothing here changes a machine.</small>
+ <footer data-shell-foot>
+  <small data-shell-aside>Nothing here changes a machine.</small>
   <div class="actions">
    {#if canUse}<button type="button" class="btn primary" onclick={use}>Use {canonical}</button>{/if}
   </div>

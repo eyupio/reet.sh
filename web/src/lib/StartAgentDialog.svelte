@@ -1,5 +1,6 @@
 <script lang="ts">
  import { onMount, tick, untrack } from 'svelte'
+ import { shell } from './dialogShell'
  import { UnauthorizedError, type Machine } from './api'
  import { createTerminal, readiness, TerminalError, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
  import { MAX_PROMPT_BYTES, cleanModel, notStartedText, folderChoices, launchSentence, modelSuggestions, preselect, refusalField, refusalText, rekey, titleFor, toolChoices, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
@@ -166,19 +167,19 @@
  })
 </script>
 
-<dialog bind:this={dialog} oncancel={(event) => { event.preventDefault(); close() }} aria-labelledby={`${id}-title`}>
- <header>
+<dialog bind:this={dialog} use:shell oncancel={(event) => { event.preventDefault(); close() }} aria-labelledby={`${id}-title`}>
+ <header data-shell-head>
   <div>
-   <p class="eyebrow">Terminals</p>
+   <p class="eyebrow" data-shell-aside>Terminals</p>
    <h2 id={`${id}-title`}>Start an agent</h2>
-   <p class="lede">Right then: pick a machine, an agent and a folder. It starts in a new terminal session you can come back to.</p>
+   <p class="lede" data-shell-aside>Right then: pick a machine, an agent and a folder. It starts in a new terminal session you can come back to.</p>
   </div>
-  <button type="button" class="btn" onclick={close} disabled={busy} aria-label="Close">Close ×</button>
+  <button type="button" class="btn" onclick={close} disabled={busy} aria-label="Close" data-shell-close>Close ×</button>
  </header>
  <form class="sheet" oninput={edited} onsubmit={(event) => { event.preventDefault(); void start() }}>
   <!-- While everything is locked there is nothing to tab to in here, so the scrolling part takes focus itself and can be read. -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div class="body" tabindex={locked ? 0 : undefined} role={locked ? 'region' : undefined} aria-label={locked ? 'Your choices' : undefined}>
+  <div class="body" data-shell-body tabindex={locked ? 0 : undefined} role={locked ? 'region' : undefined} aria-label={locked ? 'Your choices' : undefined}>
   <fieldset disabled={locked}>
    <div class="field">
     <label for={`${id}-machine`}>Machine</label>
@@ -240,9 +241,9 @@
 
   {#if sentence}<p class="sentence">{sentence}</p>{/if}
   </div>
-  <footer>
+  <footer data-shell-foot>
    <p class="status" class:bad={failed} role="status" aria-live="polite" aria-atomic="true">{message}</p>
-   <small>reet.sh never sends a command line. The machine starts the agent itself.</small>
+   <small data-shell-aside>reet.sh never sends a command line. The machine starts the agent itself.</small>
    <button class="btn primary" type="submit" disabled={busy || (!operation && !!blocked)} aria-busy={busy} bind:this={startButton}>{busy ? 'Starting…' : operation ? 'Try the same request again' : 'Start'}</button>
   </footer>
  </form>

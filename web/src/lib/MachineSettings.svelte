@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { shell } from './dialogShell'
   import type { Machine, ReleaseInfo, SyncAgent } from './api'
   import { agentBuild, channelBuild } from './machines'
 
@@ -44,15 +45,15 @@
   })
 </script>
 
-<dialog bind:this={dialog} onclose={onclose} aria-labelledby={`${id}-title`}>
-  <div class="sheet">
+<dialog bind:this={dialog} use:shell onclose={onclose} aria-labelledby={`${id}-title`}>
+  <div class="sheet" data-shell-body>
     <header>
       <div>
-        <p class="eyebrow">Machine settings</p>
+        <p class="eyebrow" data-shell-aside>Machine settings</p>
         <h2 id={`${id}-title`}>{machine.host}</h2>
-        <p class="lede">How this machine keeps itself current, and what the controller may ask of it. A change applies straight away.</p>
+        <p class="lede" data-shell-aside>How this machine keeps itself current, and what the controller may ask of it. A change applies straight away.</p>
       </div>
-      <button class="icon" type="button" onclick={() => dialog?.close()} aria-label="Close settings">×</button>
+      <button class="icon" type="button" onclick={() => dialog?.close()} aria-label="Close settings" data-shell-close>×</button>
     </header>
 
     {#if agent}

@@ -1,5 +1,6 @@
 <script lang="ts">
  import { onMount, tick, untrack } from 'svelte'
+ import { shell } from './dialogShell'
  import { ApiError, UnauthorizedError, adoptContent, getContentPins, getContentPreview, getContentPreviews, getContentReceipts, releaseContentReceipt, getPrivateBundles, getPrivateRevisions, removeContentPin, saveContentPin, type ContentPin, type ContentPreview, type ContentPreviewCapability, type ContentReceipt, type PrivateBundle, type PrivateRevision, type SyncState } from './api'
  import { CheckWatcher } from './checkWatcher.svelte'
  import { FALLBACK, OWNERSHIP_SENTENCE, SIGNED_OUT, isSignedOut, adoptRefusal, asSeenFromPin, candidatesFor, checkStateLabel, classifyCheck, connectorFor, describeFlowError, madeByAdoption, missingNote, modeLabel, pinChangeNote, receiptRevision, releaseNote, revisionLabel, revisionLabels, scopeEligibility, type PinChoice } from './contentReview'
@@ -438,15 +439,15 @@
  })
 </script>
 
-<dialog bind:this={dialog} oncancel={(event) => { event.preventDefault(); close() }} aria-labelledby={titleId}>
- <header>
+<dialog bind:this={dialog} use:shell oncancel={(event) => { event.preventDefault(); close() }} aria-labelledby={titleId}>
+ <header data-shell-head>
   <div>
-   <p class="eyebrow">{environment ? `${groupLabel(environment)}${environment.project ? '' : ' · Home'}` : 'Your private toolkit'}</p>
+   <p class="eyebrow" data-shell-aside>{environment ? `${groupLabel(environment)}${environment.project ? '' : ' · Home'}` : 'Your private toolkit'}</p>
    <h2 id={titleId} tabindex="-1" bind:this={titleEl}>Private skills on {environment?.host ?? 'this machine'}</h2>
   </div>
-  <button type="button" class="btn" onclick={close} aria-label="Close private skills">Close ×</button>
+  <button type="button" class="btn" onclick={close} aria-label="Close private skills" data-shell-close>Close ×</button>
  </header>
- <div class="body">
+ <div class="body" data-shell-body>
   <p class="intro">{step === 'check' ? 'Ask this machine what it holds for the pinned skill. Nothing on it is changed.' : 'Choose which private library revision this folder should have.'}</p>
   {#if addable && step === 'pin'}<p class="add-machine"><button type="button" class="linklike" disabled={busy} onclick={addMachine}>Not listed? Add a machine</button></p>{/if}
   <div class="live" role="status" aria-live="polite">{notice}</div>
@@ -482,8 +483,8 @@
    <ContentReceipts bind:this={recordsView} receipts={scopeReceipts} down={receiptsDown} {busy} revisionOf={receiptRevisionText} onrelease={askRelease} onretry={() => void load()} />
   {/if}
  </div>
- <footer>
-  <small>Nothing on this screen changes files on the machine.</small>
+ <footer data-shell-foot>
+  <small data-shell-aside>Nothing on this screen changes files on the machine.</small>
   <button type="button" class="btn primary" onclick={close}>Done</button>
  </footer>
 </dialog>

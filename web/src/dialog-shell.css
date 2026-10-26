@@ -1,0 +1,73 @@
+/* The shared dialog contract (web/src/lib/dialogShell.ts adds the attributes). Each dialog keeps its own frame on a
+   desktop screen with a mouse (unless the window is 500 px tall or less). Selectors carry two attributes, so they win
+   over a dialog's own scoped rules (one class and one element) wherever they apply. */
+
+/* On a phone or a touch screen, while a dialog is open:
+   - a footer pinned (sticky) inside the scrolling part sits wholly on its bottom edge, so its buttons are never cut off
+     and the field being typed into can be scrolled clear of it;
+   - scrolling inside it never hands the scroll on to the page behind it (or to pull-to-refresh);
+   - the page behind it does not scroll at all. iOS Safari honours overflow: hidden on the root from iOS 16; on older
+     versions the page can still be dragged, though not from inside a scrolling part.
+   A desktop with a mouse is left as it was: it keeps its scrollbar, so nothing shifts sideways when a dialog opens, and
+   overscroll-behavior there would only change how the text is painted. */
+@media (pointer: coarse), (max-width: 559.98px) {
+  dialog[data-shell] [data-shell-foot] { bottom: 0; }
+  dialog[data-shell], dialog[data-shell] [data-shell-body] { overscroll-behavior: contain; }
+  html:has(dialog[data-shell][open]) { overflow: hidden; overscroll-behavior: none; }
+}
+
+/* The keyboard is open and only the visual viewport shrank: fit the dialog into the part above the keyboard. */
+dialog[data-shell][data-shell-kb][open] {
+  inset-block: var(--shell-top) var(--shell-bottom);
+  max-height: calc(var(--shell-height) - 16px);
+}
+
+/* A short screen (a sideways phone, or the keyboard open): the full height, a slim header and footer, no helper text,
+   and so more room for the fields. The full height starts at the top of the visible part: a dialog placed lower (the
+   terminal's drawers sit 76 px down, under the page header) moves up, so its bottom edge stays on the screen. */
+dialog[data-shell][data-shell-short][open] {
+  max-height: var(--shell-height, 100dvh);
+  inset-block: var(--shell-top, 0px) var(--shell-bottom, 0px);
+}
+dialog[data-shell][data-shell-short] [data-shell-aside] { display: none; }
+dialog[data-shell][data-shell-short] h2 { margin-top: 0; font-size: 1.2rem; line-height: 1.25; }
+dialog[data-shell][data-shell-short] [data-shell-head] { align-items: center; padding-block: 4px; }
+dialog[data-shell][data-shell-short] [data-shell-body] { padding-block: 12px; }
+dialog[data-shell][data-shell-short] [data-shell-card] { padding-top: 14px; }
+dialog[data-shell][data-shell-short] [data-shell-foot] {
+  flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 10px;
+  padding-block: 6px; margin-top: 12px;
+}
+dialog[data-shell][data-shell-short] [data-shell-foot]:is(footer) { margin-top: 0; }
+dialog[data-shell][data-shell-short] [data-shell-foot] > p { flex: 1 1 12em; min-width: 0; }
+/* With two buttons or more, a status line takes a row of its own, so the buttons stay together on the next one. */
+dialog[data-shell][data-shell-short] [data-shell-foot]:has(> :is(button, .btn) ~ :is(button, .btn)) > p:not(:empty) { flex-basis: 100%; }
+dialog[data-shell][data-shell-short] [data-shell-foot] > :is(button, .btn) { flex: 0 1 auto; width: auto; }
+
+/* A phone held upright: the dialog becomes a sheet. A form fills the screen; a confirmation sits at the bottom. The
+   border takes the safe-area insets in the card's colour (they are 0 until the page opts into viewport-fit=cover).
+   The doubled attribute makes these win over the short-screen and keyboard rules above. */
+@media (max-width: 559.98px) {
+  dialog[data-shell='full'][data-shell][open] {
+    width: 100%; max-width: none; height: var(--shell-height, 100dvh); max-height: none;
+    margin: 0; inset: var(--shell-top, 0px) 0 auto 0;
+    border-radius: 0; box-shadow: none; background: var(--card);
+    border-style: solid; border-color: var(--card);
+    border-width: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  }
+  dialog[data-shell='full'][open] [data-shell-card] { min-height: 100%; border: 0; border-radius: 0; box-shadow: none; }
+  dialog[data-shell='bottom'][data-shell][open] {
+    width: 100%; max-width: none; max-height: var(--shell-height, 100dvh);
+    margin: auto 0 0; inset: auto 0 var(--shell-bottom, 0px) 0;
+    border-radius: 16px 16px 0 0;
+    border-style: solid; border-color: var(--line) var(--line) var(--card);
+    border-width: 1px 0 env(safe-area-inset-bottom, 0px);
+  }
+  dialog[data-shell='bottom'][open] [data-shell-card] { border-width: 0; border-radius: 16px 16px 0 0; }
+  dialog[data-shell][data-shell-kb][open] { border-bottom-width: 0; }
+}
+
+/* A close control is at least 44 x 44 px under a finger; with a mouse it keeps its own size. */
+@media (pointer: coarse) {
+  dialog[data-shell] [data-shell-close] { min-width: 44px; min-height: 44px; }
+}

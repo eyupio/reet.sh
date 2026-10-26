@@ -675,3 +675,105 @@ wrap). Other differences were within the 1 px noise seen between two runs of the
 **Not checked.** No physical phone, Safari or Firefox; Chromium only, with synthetic API answers.
 Terminals, project dialogs, sign-in pages and sideways phones are not in the matrix. Text that
 overflows without a control in it (as with the token name above) is not detected.
+
+## Phones: dialogs — 26 October 2026
+
+Phone audit slice 2, on `8c4fa56`. Every modal dialog now uses one shared shell
+(`web/src/lib/dialogShell.ts` and `web/src/dialog-shell.css`, loaded from `main.ts`).
+
+**Before (Chromium mobile emulation, same fixture).** Scrolling inside a dialog scrolled the page
+behind it (scrollY 0 → 2479 at 360 px), so pull-to-refresh could fire. With the keyboard open, the
+pinned footer covered the field being typed into (New list name, Start an agent prompt, project
+name). Held sideways (844 × 390, 915 × 412) a dialog left 122–190 px for its content. Dialogs were
+centred cards on a 320 px phone, and close buttons were 38 px. The new contract, run against the
+old build, failed in every category: among others, at least 118 unlocked pages, 61 page scrolls
+(0 → 3231 behind New project at 844 × 390), 89 scroll chains, 118 non-sheets, 41 hidden focused
+fields, 28 dialogs taller than the part above the keyboard, 18 unreachable main actions and 21
+close buttons under 44 px; sideways, New project and Start an agent had 122 px of content. After,
+the smallest content area sideways is 206 px (terminal workspace at 915 × 412).
+
+**The shell, for a new dialog.** A dialog keeps its own markup, frame, focus return, Escape
+handling, in-flight guard and labelling. To adopt the shell:
+1. `import { shell } from './dialogShell'` and put `use:shell` on the `<dialog>`. The default is a
+   full-screen sheet on an upright phone; pass `use:shell={{ sheet: 'bottom' }}` for a short
+   confirmation, which sits on the bottom edge instead.
+2. Mark its parts with attributes (all optional):
+   - `data-shell-head` — a header that carries its own padding (slimmed on a short screen);
+   - `data-shell-body` — the part that scrolls;
+   - `data-shell-foot` — the footer with the main action (one row on a short screen; pinned to the
+     bottom edge when it is `position: sticky`);
+   - `data-shell-card` — the visible card, when the `<dialog>` itself is transparent around it;
+   - `data-shell-aside` — helper text that a short screen hides (eyebrows, ledes, reassurance);
+   - `data-shell-close` — the close control.
+3. Add the dialog to `DIALOGS` in `web/tests/phone-dialogs.e2e.mjs`, with `field` if it has a
+   text field and `sheet` (`'full'` or `'bottom'`).
+
+What it guarantees, on a phone or touch screen (`pointer: coarse`, or narrower than 560 px):
+- the page behind does not scroll while any dialog is open (`html:has(dialog[data-shell][open])`
+  gets `overflow: hidden`), and scrolling inside a dialog never chains to the page
+  (`overscroll-behavior: contain` on the dialog and its body);
+- under 560 px wide the dialog is a full-screen sheet (or a bottom sheet), with the safe-area
+  insets as a border in the card's colour (0 until the page sets `viewport-fit=cover`);
+- the close control is at least 44 × 44 px;
+- with the keyboard open, the dialog fits the part of the screen above it (the visual viewport, for
+  a browser that only shrinks that), and the focused field is scrolled into the visible part of
+  each scrolling region: below a pinned header, above a pinned footer and above the keyboard, on
+  focus and whenever the visible area changes size;
+- on a short screen (500 px tall or less, or the keyboard open, whether the browser shrank the
+  visual viewport or resized the page) the header and padding are slimmer, `data-shell-aside` text
+  is hidden, and the footer is one row (a status line takes its own row when there are two
+  buttons or more).
+A desktop with a mouse is unchanged, unless its window is 500 px tall or less.
+
+**What the fixture checks.** `web/tests/phone-dialogs.e2e.mjs`: 20 cases (15 dialogs, New list
+twice, once typing into a field low in the form, and the terminal's appearance, history, saved
+commands and command editor drawers, where the last control in each must also be reachable) at 320 × 568, 360 × 640, 390 × 844 and 412 × 915
+upright and 844 × 390 and 915 × 412 sideways, `isMobile` and `hasTouch`, with the page made 3000 px
+longer. At rest: the page does not move under wheel and touch scrolls over the body and the header,
+the root has `overflow: hidden`, no scrolling part chains, the dialog fits, upright it is the sheet
+it should be, Close is at least 44 × 44 px and hit-testable, the main action can be scrolled to and
+is hit-testable, and sideways the scrolling part has at least 140 px (and 40% of the screen) and
+the footer's buttons share a row when their own widths fit. With the keyboard simulated twice (the
+page resized to 55% of its height, and only `visualViewport.height` shrunk to 55%) for each dialog
+with a text field: the same, plus the focused field wholly in view and not under a pinned footer or
+header. About 50–55 s; its own `phone-dialogs` job in `terminal-browser.yml`.
+`REET_E2E_ONLY=<regexp>`, `REET_E2E_VIEWPORTS=320x568,844x390`, `REET_DIALOG_SHOTS=<dir>` and
+`REET_DIALOG_LOG=1` narrow or explain a run.
+
+**Mutation check.** Each rule was broken in turn, the app rebuilt and the whole fixture run; every
+mutant failed it (failures in brackets):
+- page lock (192), `overscroll-behavior: contain` (153), full-screen sheet (182), bottom sheet (16),
+  44 px close (36);
+- scrolling the focused field into view (61), keeping it clear of a pinned footer (4: New list's
+  people field), the pinned footer's `bottom: 0` (28);
+- fitting the dialog above the keyboard in CSS (30), detecting a keyboard over the visual viewport
+  (92), detecting a keyboard that resized the page (2);
+- the short-screen flag (49), hiding asides (8), slimmer header, body and footer (8), the one-row
+  footer (16), a status line on its own row (2);
+- New list without `use:shell` (200).
+
+**Review round 1 (drawers).** Sideways, the short-screen rule raised the terminal drawers' height
+limit to the full screen but kept their 76 px top inset, so a tall drawer ran to 466 px on a 390 px
+screen and its bottom controls (Save command, Terminal output history) were out of reach. The
+short-screen rule now also sets the vertical insets to the visible part (`--shell-top` and
+`--shell-bottom`, 0 without the keyboard), so a dialog placed lower moves up. The four drawer cases
+failed before the fix (24 problems, sideways at rest and with a page-resizing keyboard) and pass
+after; removing the insets again fails them. No other dialog sets its own insets: all of them already
+passed the "fits the visible part" check sideways. The fixture's clipping walk now stops at a modal
+dialog, since the top layer is not clipped by the page around it (the drawers live inside the
+terminal pane, which hides overflow).
+
+**Desktop and tablet.** Every element box in each of the 15 dialogs at 1360 × 900 and 768 × 1024
+with a mouse is the same before and after, and so are the screenshots, apart from the preview port
+in Machine commands' command text and page-behind noise that also appears between two runs of the
+old build. `overscroll-behavior` was first applied everywhere; it changed how dialog text was
+painted (128 pixels of anti-aliasing) on desktop, so it is now limited to touch and narrow screens,
+as is the pinned footer's `bottom: 0` (it moved New list's buttons 7 px on a desktop). On a touch
+screen at those sizes the differences are the intended ones: the close control's 44 px box (and
+the 6 px it takes from the title beside a 38 px icon button), the page lock, and New list's pinned
+buttons.
+
+**Not checked.** No physical phone, Safari or Firefox; Chromium only, with synthetic API answers
+and a simulated keyboard. iOS before 16 ignores `overflow: hidden` on the root, so its page can
+still be dragged from outside a scrolling part. Safe-area insets are 0 in the emulator. A page
+resized for the keyboard before a dialog opens is not recognised as short until it changes size.

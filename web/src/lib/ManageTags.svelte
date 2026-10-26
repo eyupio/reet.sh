@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { shell } from './dialogShell'
   import { listTags, mergeTags, renameTag, type Tag } from './api'
 
   let { onclose, onchanged, onerror }: { onclose: () => void; onchanged: () => Promise<void>; onerror?: (e: unknown) => void } = $props()
@@ -82,17 +83,17 @@
   }
 </script>
 
-<dialog bind:this={dialog} aria-labelledby="tags-title" oncancel={(e) => { e.preventDefault(); close() }}>
-  <div class="box">
+<dialog bind:this={dialog} use:shell aria-labelledby="tags-title" oncancel={(e) => { e.preventDefault(); close() }}>
+  <div class="box" data-shell-card>
     <header>
       <h2 id="tags-title">Manage tags</h2>
-      <button type="button" class="btn quiet close" onclick={close} aria-label="Close">
+      <button type="button" class="btn quiet close" onclick={close} aria-label="Close" data-shell-close>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
           <path d="m7 7 10 10M17 7 7 17"></path>
         </svg>
       </button>
     </header>
-    <p class="lede">Rename a tag everywhere, or merge one tag into another.</p>
+    <p class="lede" data-shell-aside>Rename a tag everywhere, or merge one tag into another.</p>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
 
     {#if tags.length === 0}

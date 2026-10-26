@@ -416,8 +416,13 @@ beyond the behaviour already in it, what an accessibility scan found, and what w
 1. **The Remove worktree details couldn't be scrolled by keyboard.** The dialog's middle part (the
    folder, counts and up to 20 changed paths) scrolls on a small screen but held nothing focusable,
    so a keyboard user couldn't reach it to scroll (axe `scrollable-region-focusable`, 6 dialog
-   scans). It is now a focusable region named "What the machine reports". The fixture presses Tab
-   from **Close** at 320px and expects that region focused; it failed before the change.
+   scans). While it scrolls it is now a focusable region named "Worktree details", with its focus
+   ring drawn inside it (outside, the dialog clipped its sides and the footer covered its bottom, a
+   review found; the locked Start all and Project forms had the same ring and got the same fix). When
+   everything fits it is no tab stop. The fixture presses Tab from **Close** at 320px and expects
+   that region focused (it failed before the change), checks the ring's computed offset is inside,
+   and checks there is no region or tab stop when the confirmation fits at 1360px. A rerun of the axe
+   scan after this change found the same results as below.
 2. **The fixture's dark scheme was not dark.** Its synthetic profile saved the theme `light`, which
    pins the light colours whatever the system scheme says, so the earlier "320px in light and dark"
    check ran in light twice. The profile now follows the system scheme, and the matrix checks that the

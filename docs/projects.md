@@ -21,8 +21,8 @@ and the routes refuse them:
 
 | Who | Status and code | Sentence |
 | --- | --- | --- |
-| No account, or a token sign-in | 403 `accounts_required` | "Projects need an account signed in through the browser." |
-| Signed out | 401 `signed_out` | "Sign in to use Projects." |
+| An instance without accounts (single-token or open mode), or any request carrying a token | 403 `accounts_required` | "Projects need an account signed in through the browser." |
+| Accounts mode, no signed-in session and no token | 401 `signed_out` | "Sign in to use Projects." |
 | Viewer | 403 `read_only` | "This account is read-only, so it can't use Projects." |
 | A change from another address | 403 `origin_refused` | "That request didn't come from this reet's own address." |
 
@@ -46,7 +46,7 @@ pages through it, and new claims of it are refused. Signing in through single si
 | Folder | an absolute path of at most 4,096 bytes, plain text; saved cleaned (`//`, `/./` and `..` collapsed). A machine and folder can be in a Project once (422 `duplicate_member`) |
 | Agent | `claude`, `codex`, `opencode` or `gemini`, for the default and for each repository |
 | Model | letters, digits and `. _ : / @ + -`, up to 100 characters, starting with a letter or digit; optional |
-| Shared prompt | at most 2,000 bytes, valid UTF-8, no control characters except newline, not starting with `-`; at least two words when any repository starts Claude Code or Codex (422 `prompt_unsupported`) |
+| Shared prompt | at most 2,000 bytes, valid UTF-8, no control characters except newline, not starting with `-`; when any repository starts Claude Code or Codex (or, for a Project with no repositories, when the default agent is one of them) it must contain a space or a line break, which is what "at least two words" means in the check (422 `prompt_unsupported`) |
 | Runs listed | the newest 20 per Project |
 | Body | 128 KiB (413 `too_large`); exactly one JSON object with no unknown fields (400 `invalid_request`) |
 | Sessions | 8 open per machine and 32 per account, as for any terminal session |
@@ -77,7 +77,9 @@ moves focus to it.
   (`[]` removes every repository). Answers the Project (no prompt) and its new `ETag`.
 - `DELETE /projects/{id}` → `{ok: true, mayHaveWorktrees, message}`. Runs are kept. When any run of
   the Project, however old, recorded a worktree, the message is "Project deleted. Its runs are kept.
-  Worktrees those runs made, if still there, stay on their machines."
+  Worktrees those runs made, if still there, stay on their machines." Only worktrees a run *recorded*
+  count: one whose create reply was lost, or answered `worktree_mismatch`, has no recorded folder,
+  and Delete doesn't mention it.
 
 A Project is `{id, name, defaultTool, defaultModel, useWorktrees, hasSharedPrompt, sharedPrompt?,
 members: [{host, dir, tool, model, position}], createdAt, updatedAt, version, lastRun?}`. `host` is
@@ -109,12 +111,17 @@ Starting a run:
 | Answer | When |
 | --- | --- |
 | 201 | a new run |
-| 200 with the same run | the same `requestId` again, whatever the Project's version is now |
+| 200 with the same run | the same `requestId` and positions again, while the Project still exists; with a stale `If-Match` too (the replay is looked up before the version is compared) |
+| 400 `invalid_request` | not exactly one JSON object with only `requestId` and `positions` |
+| 400 `invalid_version` | a malformed `If-Match` |
+| 403 `terminals_disabled` | remote terminals are switched off on the server |
+| 404 `not_found` | the Project isn't on this account, including a replay after the Project was deleted (the run still exists and goes on) |
 | 409 `project_changed` | `If-Match` names a version that is no longer saved; nothing is created or sent |
 | 409 `request_changed` | the same `requestId` with different positions: "That request changed. Start it again." |
 | 409 `run_in_progress` | an earlier run of this Project still has pending members: "This Project is still starting. Wait for it to finish, then start again." |
+| 413 `too_large` | a body over 128 KiB |
 | 422 `request_id_required` | no request id, or not 16 to 128 letters, digits, hyphens or underscores |
-| 422 `no_members` / `unknown_position` | no positions, or one that isn't in the Project or is named twice |
+| 422 `no_members` / `unknown_position` | no positions, or one that isn't in the Project or is named twice. Without `If-Match`, or with the current version, a replay whose positions have since been removed from the Project also gets `unknown_position` |
 
 The page makes the request id once per confirmation (`crypto.randomUUID()`) and resends it unchanged,
 with the same positions and version, after a lost reply: "We didn't hear back, so the run may have
@@ -122,8 +129,17 @@ started. Try the same request again: it can't start a second run." A Project cha
 was made closes the sheet, reads the Project again and says "This Project changed since that sheet
 was made, so nothing was started. Look it over, then press Start all again."
 
-Retry answers 409 `not_failed`, "Only a repository that failed can be tried again.", for a member
-that isn't failed, and 422 `unknown_position` for one that isn't in the run.
+Retrying a member:
+
+| Answer | When |
+| --- | --- |
+| 200 with the run | the member is pending again (same attempt while its create may have been sent, the next one otherwise) |
+| 400 `invalid_request` | a body other than `{}` |
+| 403 `terminals_disabled` | remote terminals are switched off on the server |
+| 404 `run_not_found` | the run isn't on this account: "That run isn't on this account." |
+| 409 `not_failed` | the member isn't failed: "Only a repository that failed can be tried again." |
+| 413 `too_large` | a body over 128 KiB |
+| 422 `unknown_position` | the position isn't a whole number in the run |
 
 ### Worktrees of a run
 
@@ -189,7 +205,7 @@ folder itself, so any other session there shares that checkout and its files."
 | `outside_home` | the `~/.reet/worktrees` sentence in [Worktrees](terminal-worktrees.md#refusals-and-sentences) |
 | `git_failed` | "Git couldn't make a worktree there." |
 | `worktree_refused` | "That machine refused to make a worktree for this request. Start it again to see why." |
-| `worktree_mismatch` | "That machine's answer did not match the request. Check again." |
+| `worktree_mismatch` | "That machine's answer did not match the request. Check again." The machine reported a worktree folder that isn't this run's. The agent **may be running** (its session is listed without a worktree folder); look at your sessions. A run member has no Check again, only **Retry**, which sends the same request id and starts nothing new while the create may have been sent. |
 | `unknown_outcome` | "We didn't hear back, so the agent may have started. Check your sessions before retrying." |
 | `session_lost` | "That machine lost the session before it started. Start it again." |
 | `machine_refused` | "That machine refused to start the agent. Check the machine, then try again." |
@@ -243,10 +259,12 @@ starts it.
 | Machines and sessions on the Project page | read again every 15 seconds while the tab is visible |
 | A machine that isn't ready when its member's turn comes | 30 seconds, or 2 minutes after a controller restart, without holding a slot; then `machine_unavailable` |
 | A worktree create, status or remove through the controller | up to 180 seconds |
-| On the machine | 60 seconds for a worktree create (plus 30 for cleanup), 60 seconds in all for a remove |
+| On the machine | 60 seconds for a worktree create (plus 30 for cleanup) or a status; a remove takes at most 60 seconds in all (30 for its checks, 30 for `git worktree remove`) |
 
 One create per machine at a time means a 12-repository run on one machine can take about 36 minutes
-in the worst case (12 worktree creates of up to 3 minutes each). A remove can take longer on the
+(12 worktree creates of up to 3 minutes each) even when nothing else is going on. That is a lower
+bound of the worst case, not a ceiling: the per-machine create slot is shared with every other run on
+the account, and waits for a machine that isn't ready come on top. A remove can take longer on the
 machine than the browser waits: the dialog then says "We didn't hear back, so the worktree may have
 been removed. Check again.", and **Check again** reports what is there.
 
@@ -278,7 +296,9 @@ can be kept unchanged in an edit; a new folder on it is refused (422 `unknown_ma
 
 ## Remove worktree
 
-reet never removes a worktree by itself. *Remove worktree* is offered only for a member that started
+reet never removes a worktree by itself, apart from undoing its own failed create: when a create
+fails part-way, the machine removes the worktree and deletes the branch that same call had just made,
+and nothing else (see [Worktrees](terminal-worktrees.md)). *Remove worktree* is offered only for a member that started
 with a worktree and whose session the page has read as ended:
 
 - while the sessions are not read yet: "Checking whether its session has ended…";
@@ -308,7 +328,7 @@ folder as this run's worktree, so reet won't touch it.", "That worktree isn't on
 have been removed already.", "Git couldn't check that worktree." or "Git couldn't remove that
 worktree." with git's first line shown as "Git said: …". A second status or remove on a machine while
 one runs is 409 `worktree_busy`. Success says "Sorted. The worktree at … is removed. The branch … is
-kept." The branch is never deleted.
+kept." *Remove worktree* never deletes the branch.
 
 ## Audit
 
@@ -325,15 +345,23 @@ project Site with 3 repositories" and "Tried repository 2 of a Project run again
   controllers on one database could start a member twice.
 - **Branch-era databases.** The Project tables changed shape before release. A database made from
   earlier commits of the Projects branch must be recreated. A database from main before Projects
-  upgrades in place (checked by opening one twice in a probe).
+  gains the new tables when it is opened.
 - **Same repository, two folders.** Two saved folders that resolve to one repository on the machine
   are not caught; they get separate worktrees and branches.
 - **A lost create reply.** If a worktree create's reply never arrives, the session is found by
   reconciling, which doesn't carry the worktree's folder or repository name. The run then can't name
-  that worktree, so *Remove worktree* isn't offered for it; remove it on the machine by hand.
+  that worktree, so *Remove worktree* isn't offered for it; remove it on the machine by hand. Deleting
+  the Project doesn't mention such a worktree either, nor one whose create was answered
+  `worktree_mismatch`: Delete's warning covers only worktrees a run recorded.
 - **An agent still running in the worktree** is not checked by the machine; the page offers removal
   only after the session has ended, from the sessions it read.
 - **A slow remove** can outlast the browser's 15 seconds; Check again reports the outcome.
+- **A slow status can't finish from the page.** The dialog gives up on a status read after 15
+  seconds, but the machine allows it 60 and keeps going. Until it ends, **Check again** gets "That
+  machine is already working on a worktree. Try again in a minute." (409 `worktree_busy`). A worktree
+  whose status always takes longer than 15 seconds (a very large tree, a slow disk) never shows its
+  counts, so *Remove worktree* never offers Remove for it. This fails safe: nothing is removed.
+  Remove such a worktree on the machine by hand.
 - **Busy machines.** While a worktree create runs, that machine's other session operations wait, and
   open terminals on it may detach for a moment.
 - **Not checked.** No physical phone or tablet, screen reader, Safari or Firefox; nothing on macOS

@@ -214,8 +214,10 @@ Plain and exact. One light Yorkshire phrase at most in a heading, lede or succes
   worktree path and branch added to its details, `worktree-remove` (machine, path, branch).
 - The 12-member and 50-Project limits and the 2-in-flight rule keep a run bounded.
 - Native `<dialog>`, keyboard operation, reduced motion respected, status in text as well as colour, no
-  horizontal scroll at 320, 375, 768 and 1440px in light and dark, honest axe reporting (violations and the
-  `incomplete` count; contrast is not claimed to pass).
+  horizontal scroll at 1360, 768, 390 and 320px in light and dark (*amended:* the widths the Task 11
+  brief and the other fixtures' matrices use, replacing 320, 375, 768 and 1440; the axe scan ran at 375
+  and 1440px), honest axe reporting (violations and the `incomplete` count; contrast is not claimed to
+  pass).
 
 ## Testing
 

@@ -725,8 +725,9 @@ What it guarantees, on a phone or touch screen (`pointer: coarse`, or narrower t
   buttons or more).
 A desktop with a mouse is unchanged, unless its window is 500 px tall or less.
 
-**What the fixture checks.** `web/tests/phone-dialogs.e2e.mjs`: 16 cases (15 dialogs, New list
-twice, once typing into a field low in the form) at 320 × 568, 360 × 640, 390 × 844 and 412 × 915
+**What the fixture checks.** `web/tests/phone-dialogs.e2e.mjs`: 20 cases (15 dialogs, New list
+twice, once typing into a field low in the form, and the terminal's appearance, history, saved
+commands and command editor drawers, where the last control in each must also be reachable) at 320 × 568, 360 × 640, 390 × 844 and 412 × 915
 upright and 844 × 390 and 915 × 412 sideways, `isMobile` and `hasTouch`, with the page made 3000 px
 longer. At rest: the page does not move under wheel and touch scrolls over the body and the header,
 the root has `overflow: hidden`, no scrolling part chains, the dialog fits, upright it is the sheet
@@ -735,7 +736,7 @@ is hit-testable, and sideways the scrolling part has at least 140 px (and 40% of
 the footer's buttons share a row when their own widths fit. With the keyboard simulated twice (the
 page resized to 55% of its height, and only `visualViewport.height` shrunk to 55%) for each dialog
 with a text field: the same, plus the focused field wholly in view and not under a pinned footer or
-header. About 40–45 s; its own `phone-dialogs` job in `terminal-browser.yml`.
+header. About 50–55 s; its own `phone-dialogs` job in `terminal-browser.yml`.
 `REET_E2E_ONLY=<regexp>`, `REET_E2E_VIEWPORTS=320x568,844x390`, `REET_DIALOG_SHOTS=<dir>` and
 `REET_DIALOG_LOG=1` narrow or explain a run.
 
@@ -750,6 +751,17 @@ mutant failed it (failures in brackets):
 - the short-screen flag (49), hiding asides (8), slimmer header, body and footer (8), the one-row
   footer (16), a status line on its own row (2);
 - New list without `use:shell` (200).
+
+**Review round 1 (drawers).** Sideways, the short-screen rule raised the terminal drawers' height
+limit to the full screen but kept their 76 px top inset, so a tall drawer ran to 466 px on a 390 px
+screen and its bottom controls (Save command, Terminal output history) were out of reach. The
+short-screen rule now also sets the vertical insets to the visible part (`--shell-top` and
+`--shell-bottom`, 0 without the keyboard), so a dialog placed lower moves up. The four drawer cases
+failed before the fix (24 problems, sideways at rest and with a page-resizing keyboard) and pass
+after; removing the insets again fails them. No other dialog sets its own insets: all of them already
+passed the "fits the visible part" check sideways. The fixture's clipping walk now stops at a modal
+dialog, since the top layer is not clipped by the page around it (the drawers live inside the
+terminal pane, which hides overflow).
 
 **Desktop and tablet.** Every element box in each of the 15 dialogs at 1360 × 900 and 768 × 1024
 with a mouse is the same before and after, and so are the screenshots, apart from the preview port

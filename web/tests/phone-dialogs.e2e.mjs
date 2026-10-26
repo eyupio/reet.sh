@@ -30,6 +30,9 @@ const UA = 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, 
 
 const card = (page, name) => page.getByRole('article', {name:LONGHOST}).getByRole('button', {name, exact:true}).first()
 const press = (name, options = {}) => async page => { const b = page.getByRole('button', {name, ...options}).first(); await b.scrollIntoViewIfNeeded(); await b.click() }
+// A terminal page with a live pane, and a button in its toolbar (which may scroll sideways on a phone).
+const live = `/terminals?agent=${sessions[0].agentId}&session=${sessions[0].id}`
+const tool = name => async page => { await page.locator('.pane[data-connection-state=live]').first().waitFor({timeout:5000}); const b = page.locator('.pane').first().getByRole('button', {name, exact:true}).first(); await b.scrollIntoViewIfNeeded(); await b.click() }
 const TEXT = 'input:not([type=checkbox]):not([type=radio]):not([type=hidden])'
 const ended = {'/api/v2/terminal/sessions': {sessions:sessions.map(s => ({...s, state:'ended'}))}}
 // field: the text field typed into with the keyboard open. primary: the main action, when it is not the dialog's
@@ -53,10 +56,16 @@ const DIALOGS = [
  {name:'new list (people)', path:'/shared', open:async p => { await press('Create a list')(p); await p.locator('dialog[open] input[name=audience][value=private]').check() }, field:'textarea', sheet:'full'},
  {name:'manage tags', path:'/skills', open:async p => { await p.locator('button[aria-controls="tools-panel"]:visible').first().click(); await press('Manage tags')(p); await p.locator('dialog[open]').getByRole('button', {name:'Rename'}).last().click() }, field:TEXT, sheet:'full'},
  {name:'terminal workspace', path:'/terminals', open:press('New session', {exact:true}), field:'input[type=search]', sheet:'full'},
+ // The terminal's drawers (placement="drawer"), opened from a live pane's toolbar. last: the dialog's last control must be
+ // reachable, so nothing below the screen's edge is lost.
+ {name:'appearance drawer', path:live, open:tool('Appearance'), last:true, sheet:'full'},
+ {name:'history drawer', path:live, open:tool('Recent history'), last:true, sheet:'full'},
+ {name:'commands drawer', path:live, open:tool('Saved commands'), field:'input[type=search]', last:true, sheet:'full'},
+ {name:'command editor drawer', path:live, open:async p => { await tool('Saved commands')(p); await p.locator('dialog[open]').getByRole('button', {name:/New command/}).click() }, field:'textarea', last:true, sheet:'full'},
 ]
 
 // Runs in the page: the top dialog's geometry against the part of the screen that can be seen.
-function measure({field, primary}) {
+function measure({field, primary, last}) {
  const vv = visualViewport, vw = innerWidth
  const band = {top:vv.offsetTop, bottom:vv.offsetTop + vv.height}
  const dialogs = [...document.querySelectorAll('dialog[open]')], d = dialogs[dialogs.length - 1]
@@ -68,11 +77,13 @@ function measure({field, primary}) {
   const r = box(el)
   let top = Math.max(r.top, band.top), bottom = Math.min(r.bottom, band.bottom), left = Math.max(r.left, 0), right = Math.min(r.right, vw)
   for (let n = el.parentElement; n && n !== document.documentElement; n = n.parentElement) {
-   const s = getComputedStyle(n)
-   if (s.overflowX === 'visible' && s.overflowY === 'visible') continue
+   const s = getComputedStyle(n), modal = n.matches('dialog:modal')
+   if (s.overflowX === 'visible' && s.overflowY === 'visible') { if (modal) break; continue }
    const q = n.getBoundingClientRect()
    top = Math.max(top, q.top + n.clientTop); bottom = Math.min(bottom, q.top + n.clientTop + n.clientHeight)
    left = Math.max(left, q.left + n.clientLeft); right = Math.min(right, q.left + n.clientLeft + n.clientWidth)
+   // A modal dialog sits in the top layer: nothing around it in the document clips it.
+   if (modal) break
   }
   return {top, bottom, left, right, whole:top <= r.top + 1 && bottom >= r.bottom - 1 && left <= r.left + 1 && right >= r.right - 1}
  }
@@ -119,20 +130,27 @@ function measure({field, primary}) {
    out.field = {...round(r), whole:s.whole, hit:hits(f, pts), coveredBy:covered(f, pts)}
   }
  }
- const buttons = [...d.querySelectorAll('button, a.btn')].filter(shown)
- const main2 = primary ? buttons.find(b => (b.getAttribute('aria-label') || b.textContent || '').trim() === primary) : buttons.filter(b => b.matches('.primary, [type=submit]')).pop()
- if (main2) {
-  // Reachable: scrolled into view inside the dialog's own scrolling parts, as a person would.
-  for (let n = main2.parentElement; n; n = n.parentElement) {
+ // Reachable: scrolled into view inside the dialog's own scrolling parts, as a person would, then in view and on top.
+ const reach = el => {
+  for (let n = el.parentElement; n; n = n.parentElement) {
    if (/(auto|scroll)/.test(getComputedStyle(n).overflowY) && n.scrollHeight > n.clientHeight + 1) {
-    const q = n.getBoundingClientRect(), r = main2.getBoundingClientRect()
+    const q = n.getBoundingClientRect(), r = el.getBoundingClientRect()
     const top = Math.max(q.top + n.clientTop, band.top), bottom = Math.min(q.top + n.clientTop + n.clientHeight, band.bottom)
     if (r.bottom > bottom) n.scrollTop += r.bottom - bottom + 4; else if (r.top < top) n.scrollTop -= top - r.top + 4
    }
    if (n === d) break
   }
-  const r = box(main2), s = seen(main2), pts = [[r.left + r.width / 2, r.top + r.height / 2]]
-  out.primary = {text:(main2.textContent || '').trim().slice(0, 30), ...round(r), whole:s.whole, hit:hits(main2, pts), coveredBy:covered(main2, pts)}
+  const r = box(el), s = seen(el), pts = [[r.left + r.width / 2, r.top + r.height / 2]]
+  return {text:(el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 30), ...round(r), whole:s.whole, hit:hits(el, pts), coveredBy:covered(el, pts)}
+ }
+ const buttons = [...d.querySelectorAll('button, a.btn')].filter(shown)
+ const main2 = primary ? buttons.find(b => (b.getAttribute('aria-label') || b.textContent || '').trim() === primary) : buttons.filter(b => b.matches('.primary, [type=submit]')).pop()
+ if (main2) out.primary = reach(main2)
+ // The last control in the dialog: everything above it can be scrolled to as well.
+ if (last) {
+  const controls = [...d.querySelectorAll('button, input:not([type=hidden]), select, textarea, a[href], summary')].filter(el => shown(el) && !el.closest('[data-shell-head]'))
+  const end = controls[controls.length - 1]
+  if (end) out.last = reach(end)
  }
  return out
 }
@@ -156,6 +174,8 @@ const problems = (m, {width, height, state, spec}) => {
  }
  if (m.primary && (!m.primary.whole || !m.primary.hit)) say(`the main action "${m.primary.text}" is out of reach (${JSON.stringify(m.primary)})`)
  if (spec.primary && !m.primary) say(`the main action "${spec.primary}" is missing`)
+ if (spec.last && !m.last) say('it has no controls')
+ if (m.last && (!m.last.whole || !m.last.hit)) say(`its last control "${m.last.text}" is out of reach (${JSON.stringify(m.last)})`)
  if (state === 'rest' && height <= 500 && m.content !== undefined) {
   const need = Math.max(140, Math.round(0.4 * (band.bottom - band.top)))
   if (m.content < need) say(`the header and footer leave ${m.content}px for the content, under ${need}px`)
@@ -228,7 +248,7 @@ async function keyboard(p, spec, mode) {
   vv.dispatchEvent(new Event('resize'))
  })
  await frames(page)
- const m = await page.evaluate(measure, {field:spec.field, primary:spec.primary})
+ const m = await page.evaluate(measure, {field:spec.field, primary:spec.primary, last:spec.last})
  await record(p, spec, `keyboard-${mode}`, m)
  const found = problems(m, {width, height, state:`keyboard, ${mode}`, spec})
  if (mode === 'layout') await page.setViewportSize({width, height})
@@ -257,7 +277,7 @@ async function check(viewport) {
    } catch (e) { failures.push(`${p.width}x${p.height} ${spec.name}: could not open it (${e.message.split('\n')[0]})`); continue }
    await p.settled()
    await frames(p.page)
-   const rest = await p.page.evaluate(measure, {primary:spec.primary})
+   const rest = await p.page.evaluate(measure, {primary:spec.primary, last:spec.last})
    await record(p, spec, 'rest', rest)
    failures.push(...problems(rest, {width:p.width, height:p.height, state:'rest', spec}))
    failures.push(...await scrollLock(p, spec))

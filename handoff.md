@@ -2638,8 +2638,10 @@ See `docs/ui-verification.md` (Phones: dialogs) for the before/after and the che
 - **Runtime state** on the dialog: `data-shell` (`full`/`bottom`), `data-shell-short`,
   `data-shell-kb`, and `--shell-top`, `--shell-height`, `--shell-bottom` while the keyboard covers
   part of the visual viewport. `reveal(el, dialog)` is exported for a dialog that moves focus itself.
-- New contract `web/tests/phone-dialogs.e2e.mjs`: 16 cases × 4 upright and 2 sideways phones, at rest
-  and with the keyboard simulated both ways. Own `phone-dialogs` job in `terminal-browser.yml`,
-  about 40–45 s. Every rule was mutation-checked.
+- New contract `web/tests/phone-dialogs.e2e.mjs`: 20 cases (including the terminal's four drawers)
+  × 4 upright and 2 sideways phones, at rest and with the keyboard simulated both ways. Own
+  `phone-dialogs` job in `terminal-browser.yml`, about 50–55 s. Every rule was mutation-checked.
+- On a short screen the shell also moves a dialog to the top of the visible part (vertical insets
+  reset), so a dialog with its own top inset (the drawers) keeps its bottom edge on the screen.
 - Not covered: real phones, Safari (iOS before 16 ignores the root lock), safe-area insets (0 in the
   emulator).

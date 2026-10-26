@@ -23,8 +23,12 @@ dialog[data-shell][data-shell-kb][open] {
 }
 
 /* A short screen (a sideways phone, or the keyboard open): the full height, a slim header and footer, no helper text,
-   and so more room for the fields. */
-dialog[data-shell][data-shell-short][open] { max-height: var(--shell-height, 100dvh); }
+   and so more room for the fields. The full height starts at the top of the visible part: a dialog placed lower (the
+   terminal's drawers sit 76 px down, under the page header) moves up, so its bottom edge stays on the screen. */
+dialog[data-shell][data-shell-short][open] {
+  max-height: var(--shell-height, 100dvh);
+  inset-block: var(--shell-top, 0px) var(--shell-bottom, 0px);
+}
 dialog[data-shell][data-shell-short] [data-shell-aside] { display: none; }
 dialog[data-shell][data-shell-short] h2 { margin-top: 0; font-size: 1.2rem; line-height: 1.25; }
 dialog[data-shell][data-shell-short] [data-shell-head] { align-items: center; padding-block: 4px; }

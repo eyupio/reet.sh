@@ -14,7 +14,7 @@
   import OutputScrollback from './OutputScrollback.svelte'
   import CommandLibrary from './CommandLibrary.svelte'
   import TerminalIcon from './TerminalIcon.svelte'
-  import {initialFontSize,hostSize,ResizeSender,pageViewport,browserViewport,overflowEdges,FONT_MIN,FONT_MAX,type Size} from './sizing'
+  import {initialFontSize,hostSize,ResizeSender,pageViewport,browserViewport,overflowEdges,repaintOnReturn,FONT_MIN,FONT_MAX,LANDSCAPE_PHONE,PHONE_TOUCH,type Size} from './sizing'
   import {paletteFor,terminalPalettes,type CursorShape} from './themes'
   import type {TerminalCommand} from './api'
 
@@ -32,6 +32,7 @@
   let pendingPaste = $state<{text:string;generation:number;execute?:boolean}|null>(null), generation=0, alive=true
   let historyOpen=$state(false),appearanceOpen=$state(false),commandsOpen=$state(false),palette=$state('system'),cursor=$state<CursorShape>('bar')
   let scrollbackOpen=$state(false)
+  let landscape=$state(false)
   function toggleSessions(){if(maximised){maximised=false;if(!sessionsVisible)onsessions?.()}else onsessions?.()}
   function openScrollback(){historyOpen=false;scrollbackOpen=true}
   async function closeScrollback(){scrollbackOpen=false;await tick();terminal?.focus()}
@@ -72,6 +73,7 @@
   }
   async function readClipboard() {feedback='';const started=generation;try{const text=await navigator.clipboard.readText();if(!alive)return;if(started!==generation){feedback='Connection changed. Paste again; nothing was sent.';return}paste(text)}catch{if(alive)feedback='Clipboard access was denied. Paste with your keyboard inside the terminal.'}finally{restoreFocus()} }
   function key(value:string) {modifier=null;if(live&&!scrollbackOpen){connection?.text(value);terminal?.focus()} }
+  $effect(()=>{const query=matchMedia(LANDSCAPE_PHONE),update=()=>landscape=query.matches;update();query.addEventListener('change',update);return()=>query.removeEventListener('change',update)})
   $effect(()=>{if(searching)searchInput?.focus()})
   $effect(()=>{if(contextMenu)menu?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()})
   function openContext(event: MouseEvent) { if(event.shiftKey){contextMenu=null;return}event.preventDefault();contextMenu={x:Math.max(8,Math.min(event.clientX,innerWidth-190)),y:Math.max(8,Math.min(event.clientY,(window.visualViewport?.height||innerHeight)-330))} }
@@ -110,8 +112,8 @@
   onMount(() => {
     if (!element) return
     const fit = new FitAddon()
-    // Phones start at 11 px so agent layouts get about 54 columns at 390 px; a stored size always wins.
-    const phone=matchMedia('(max-width:650px) and (pointer:coarse)').matches
+    // Phones (portrait or landscape) start at 11 px so agent layouts get about 54 columns at 390 px; a stored size always wins.
+    const phone=matchMedia(PHONE_TOUCH).matches
     try{fontSize=initialFontSize(localStorage.getItem('reet-terminal-font'),phone)}catch{fontSize=initialFontSize(null,phone)/* optional preference */}
     try{const saved=localStorage.getItem('reet-terminal-palette');if(saved==='system'||terminalPalettes.some(item=>item.id===saved))palette=saved!;const shape=localStorage.getItem('reet-terminal-cursor');if(shape==='bar'||shape==='block'||shape==='underline')cursor=shape}catch{/* optional preferences */}
     const term = new Terminal({ cursorStyle:cursor,cursorBlink:true,fontSize:14,fontFamily:'"DejaVu Sans Mono", "SFMono-Regular", Consolas, monospace',scrollback:5000,screenReaderMode:true,allowProposedApi:false,windowOptions:{},minimumContrastRatio:4.5 })
@@ -154,11 +156,15 @@
     const sender=new ResizeSender(size=>connection?.resize(size.cols,size.rows)??false)
     function grid():Size{const size=hostSize(term.cols,term.rows);if(size.cols!==term.cols||size.rows!==term.rows)term.resize(size.cols,size.rows);return size}
     function clip(){cancelAnimationFrame(clipFrame);clipFrame=requestAnimationFrame(()=>{const shell=element?.querySelector<HTMLElement>('.xterm'),rendered=element?.querySelector('.xterm-screen');if(!alive||!element||!shell||!rendered)return;const over=Math.max(0,Math.ceil(rendered.getBoundingClientRect().height-element.clientHeight));shell.style.transform=over?`translateY(-${over}px)`:''})}
-    function resize() { if(!alive)return;cancelAnimationFrame(frame); frame=requestAnimationFrame(()=>{if (!alive || restoringGrid || !element?.clientWidth || !element.clientHeight) return;fit.fit();const size=grid();clip();sender.request(size);term.refresh(0,term.rows-1)}) }
+    // Above the floor this is exactly fit.fit(); at the floor the grid is resized once, to the floor.
+    function fitted(){const proposed=fit.proposeDimensions();if(!proposed||isNaN(proposed.cols)||isNaN(proposed.rows))return;const size=hostSize(proposed.cols,proposed.rows);if(size.cols===proposed.cols&&size.rows===proposed.rows)fit.fit();else if(size.cols!==term.cols||size.rows!==term.rows)term.resize(size.cols,size.rows)}
+    function resize() { if(!alive)return;cancelAnimationFrame(frame); frame=requestAnimationFrame(()=>{if (!alive || restoringGrid || !element?.clientWidth || !element.clientHeight) return;fitted();const size=grid();clip();sender.request(size);term.refresh(0,term.rows-1)}) }
     // One full repaint: a one-row size change makes tmux pass a real SIGWINCH to the app.
     // tmux repaints its own grid on every attach; a reattach or a return to the page also asks the app.
-    let attached=false
-    function redraw(){if(alive&&connectionState==='live')sender.nudge()}
+    // A return repaints only on a touch screen or after a long absence, never twice within 5 s (repaintOnReturn).
+    let attached=false,hiddenAt:number|null=null,repaintedAt=-Infinity
+    const coarse=matchMedia('(pointer:coarse)')
+    function redraw(){if(alive&&connectionState==='live'){repaintedAt=performance.now();sender.nudge()}}
     const sizes = new ResizeObserver(resize); sizes.observe(element);fit.fit()
     fitTerminal=resize
     // Refresh after parsing and fitting so accessibility rows match full redraws.
@@ -166,7 +172,7 @@
     term.options.disableStdin=true
     const input=term.onData((text)=>{if(scrollbackOpen)return;let value=text;if(modifier==='Ctrl'&&/^[a-zA-Z@\[\]\\^_]$/.test(text))value=String.fromCharCode(text.toUpperCase().charCodeAt(0)&31);else if(modifier==='Alt')value='\x1b'+text;modifier=null;connection?.text(value)})
     const binary=term.onBinary((data)=>!scrollbackOpen&&connection?.send(Uint8Array.from(data,c=>c.charCodeAt(0)&255)))
-    const online=()=>connection?.recover(),visible=()=>{if(document.visibilityState==='visible'){resize();redraw();connection?.recover()}}
+    const online=()=>connection?.recover(),visible=()=>{if(document.visibilityState!=='visible'){hiddenAt=performance.now();return}const now=performance.now(),hiddenFor=hiddenAt===null?0:now-hiddenAt;hiddenAt=null;resize();if(repaintOnReturn({hiddenFor,coarse:coarse.matches,sinceRepaint:now-repaintedAt}))redraw();connection?.recover()}
     window.addEventListener('online',online);document.addEventListener('visibilitychange',visible)
     void connection.connect()
     return ()=>{alive=false;element?.removeEventListener('paste',onPaste,true);search?.dispose();search=undefined;fitTerminal=undefined;sender.dispose();connection?.dispose();connection=undefined;cancelAnimationFrame(frame);cancelAnimationFrame(clipFrame);sizes.disconnect();observer.disconnect();media.removeEventListener('change',theme);window.removeEventListener('online',online);document.removeEventListener('visibilitychange',visible);selection.dispose();input.dispose();binary.dispose();clipboard.dispose();links.dispose();applyTheme=undefined;term.dispose();terminal=undefined}
@@ -178,26 +184,33 @@
   <header><div class="identity"><span class="terminal-icon" aria-hidden="true">›_</span><strong>{session.title}</strong><span class="host" title={`${user ? user+'@' : ''}${host}`}>{user ? `${user}@` : ''}{host}</span></div><div class="controls"><span class="state" class:live><span aria-hidden="true">●</span> {stateLabel}</span>{#if live}<button type="button" onclick={()=>connection?.detach()}>Disconnect</button>{:else if connectionState==='taken_over'}<button type="button" class="continue" onclick={()=>void connection?.connect(true)}>Continue here</button>{:else if connectionState==='detached'}<button type="button" onclick={()=>void connection?.connect()}>Reconnect</button>{:else if connectionState==='reconnecting'}<button type="button" onclick={()=>connection?.recover()}>Retry now</button>{/if}{#if onrename||onend||onarchive&&terminalClosed(session.state)}<details class="session-menu"><summary>Manage</summary><div>{#if onrename}<button disabled={actionDisabled} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onrename?.()}}>Rename</button>{/if}{#if onend}<button class="end" disabled={actionDisabled||!['creating','running','end_requested'].includes(session.state)} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onend?.()}}>{session.state==='end_requested'?'Retry end request':'End session'}</button>{/if}{#if onarchive&&terminalClosed(session.state)}<button disabled={archiveDisabled} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onarchive?.()}}>Remove from history</button>{/if}</div></details>{/if}</div></header>
   {#if message}<p class="connection-message" role="status">{message}</p>{/if}
   {#if maximised}<p class="connection-message maximise-hint">Alt+Shift+M restores the workspace. Tab inside the terminal remains a shell key.</p>{/if}
-  <div class="tools terminal-toolbar" aria-label="Terminal tools" use:edges>
-    {#if onsessions&&(!sessionsVisible||maximised)}<button class="show-sessions" onclick={toggleSessions} aria-label="Show sessions" title="Show session sidebar"><span aria-hidden="true">›</span><span>Show sessions</span></button>{/if}
-    <button onclick={()=>{if(scrollbackOpen)pane?.querySelector<HTMLInputElement>('[aria-label="Find in earlier output"]')?.focus();else searching=!searching}} aria-expanded={searching} aria-label="Search" title="Search terminal output"><TerminalIcon name="search"/><span class="tool-label">Search</span></button>
-    <button onclick={()=>void copy()} aria-label="Copy selection" title="Copy selected output"><TerminalIcon name="copy"/><span class="tool-label">Copy</span></button>
-    <button onclick={()=>void readClipboard()} disabled={!live||scrollbackOpen} aria-label="Paste" title="Paste clipboard"><TerminalIcon name="paste"/><span class="tool-label">Paste</span></button>
-    <span class="tool-divider" aria-hidden="true"></span>
-    <button onclick={()=>key("\x03")} disabled={!live||scrollbackOpen} aria-label="Interrupt shell" title="Interrupt · Ctrl+C"><TerminalIcon name="interrupt"/><span class="tool-label">Interrupt</span></button>
-    <button onclick={()=>commandsOpen=true} aria-label="Saved commands" title="Your saved commands"><TerminalIcon name="commands"/><span>Commands</span></button>
-    <button onclick={openScrollback} aria-label="Earlier output" aria-pressed={scrollbackOpen} title="Scroll earlier terminal output · Shift+PageUp"><TerminalIcon name="history"/><span>Scrollback</span></button>
-    <span class="tool-space"></span>
-    <button onclick={()=>appearanceOpen=true} aria-label="Appearance" title="Theme, text size and cursor"><TerminalIcon name="appearance"/><span class="tool-label">Appearance</span></button>
-    <button onclick={()=>historyOpen=true} aria-label="Recent history" title="Find saved shell commands or read terminal output"><TerminalIcon name="history"/><span class="tool-label">History</span></button>
-    <button onclick={()=>theatre=!theatre} aria-pressed={theatre} aria-label={theatre?'Exit theatre view':'Theatre view'} title={theatre?'Restore session panel':'Wide terminal · theatre view'}><TerminalIcon name="theatre"/></button>
-    <button onclick={()=>{maximised=!maximised;fitTerminal?.()}} aria-pressed={maximised} aria-label={maximised?'Restore size':'Maximise'} title={maximised?'Restore size':'Maximise terminal'}><TerminalIcon name="expand"/></button>
-  </div>
+  {#snippet toolbar()}
+    <div class="tools terminal-toolbar" aria-label="Terminal tools" use:edges>
+      {#if onsessions&&(!sessionsVisible||maximised)}<button class="show-sessions" onclick={toggleSessions} aria-label="Show sessions" title="Show session sidebar"><span aria-hidden="true">›</span><span>Show sessions</span></button>{/if}
+      <button onclick={()=>{if(scrollbackOpen)pane?.querySelector<HTMLInputElement>('[aria-label="Find in earlier output"]')?.focus();else searching=!searching}} aria-expanded={searching} aria-label="Search" title="Search terminal output"><TerminalIcon name="search"/><span class="tool-label">Search</span></button>
+      <button onclick={()=>void copy()} aria-label="Copy selection" title="Copy selected output"><TerminalIcon name="copy"/><span class="tool-label">Copy</span></button>
+      <button onclick={()=>void readClipboard()} disabled={!live||scrollbackOpen} aria-label="Paste" title="Paste clipboard"><TerminalIcon name="paste"/><span class="tool-label">Paste</span></button>
+      <span class="tool-divider" aria-hidden="true"></span>
+      <button onclick={()=>key("\x03")} disabled={!live||scrollbackOpen} aria-label="Interrupt shell" title="Interrupt · Ctrl+C"><TerminalIcon name="interrupt"/><span class="tool-label">Interrupt</span></button>
+      <button onclick={()=>commandsOpen=true} aria-label="Saved commands" title="Your saved commands"><TerminalIcon name="commands"/><span>Commands</span></button>
+      <button onclick={openScrollback} aria-label="Earlier output" aria-pressed={scrollbackOpen} title="Scroll earlier terminal output · Shift+PageUp"><TerminalIcon name="history"/><span>Scrollback</span></button>
+      <span class="tool-space"></span>
+      <button onclick={()=>appearanceOpen=true} aria-label="Appearance" title="Theme, text size and cursor"><TerminalIcon name="appearance"/><span class="tool-label">Appearance</span></button>
+      <button onclick={()=>historyOpen=true} aria-label="Recent history" title="Find saved shell commands or read terminal output"><TerminalIcon name="history"/><span class="tool-label">History</span></button>
+      <button onclick={()=>theatre=!theatre} aria-pressed={theatre} aria-label={theatre?'Exit theatre view':'Theatre view'} title={theatre?'Restore session panel':'Wide terminal · theatre view'}><TerminalIcon name="theatre"/></button>
+      <button onclick={()=>{maximised=!maximised;fitTerminal?.()}} aria-pressed={maximised} aria-label={maximised?'Restore size':'Maximise'} title={maximised?'Restore size':'Maximise terminal'}><TerminalIcon name="expand"/></button>
+    </div>
+  {/snippet}
+  {#snippet keys()}
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex (a row that scrolls sideways must be reachable by keyboard, even while its keys are disabled) -->
+    <div class="tools mobile-keys" role="group" aria-label="Terminal extra keys" tabindex="0" use:edges>{#each [['Esc','\x1b'],['Tab','\t'],['↑','\x1b[A'],['↓','\x1b[B'],['←','\x1b[D'],['→','\x1b[C'],['Ctrl+C','\x03'],['Enter','\r']] as [label,value]}<button disabled={!live||scrollbackOpen} onpointerdown={e=>e.preventDefault()} onclick={()=>key(value)} aria-label={`Send ${label}`}>{label}</button>{/each}{#each ['Ctrl','Alt'] as mod}<button disabled={!live||scrollbackOpen} aria-pressed={modifier===mod} onpointerdown={e=>e.preventDefault()} onclick={()=>{modifier=modifier===mod?null:mod as 'Ctrl'|'Alt';terminal?.focus()}}>{mod}</button>{/each}</div>
+  {/snippet}
+  <!-- A phone held sideways puts the tools and the extra keys side by side, so the screen keeps the rows. -->
+  {#if landscape}<div class="tool-rows">{@render toolbar()}{@render keys()}</div>{:else}{@render toolbar()}{/if}
   {#if searching}<form class="tools" onsubmit={e=>{e.preventDefault();find()}}><label>Find in terminal <input bind:this={searchInput} bind:value={query} maxlength="200" autocomplete="off" spellcheck="false" oninput={e=>{query=e.currentTarget.value;find()}} /></label><button>Next match</button><button type="button" onclick={()=>find(false)}>Previous match</button><button type="button" onclick={()=>{searching=false;search?.clearDecorations();terminal?.focus()}}>Close search</button><span role="status">{found?'':'No matches'}</span></form>{/if}
   {#if feedback}<p class="connection-message" role="status">{feedback}</p>{/if}
   <div class="screen-frame" bind:this={screenFrame}><div class="screen" class:reading={scrollbackOpen} inert={scrollbackOpen} bind:this={element} role="region" aria-label="Remote terminal screen" oncontextmenu={openContext}></div>{#if scrollbackOpen}<OutputScrollback session={session.id} onclose={()=>void closeScrollback()}/>{/if}</div>
-  <!-- svelte-ignore a11y_no_noninteractive_tabindex (a row that scrolls sideways must be reachable by keyboard, even while its keys are disabled) -->
-  <div class="tools mobile-keys" role="group" aria-label="Terminal extra keys" tabindex="0" use:edges>{#each [['Esc','\x1b'],['Tab','\t'],['↑','\x1b[A'],['↓','\x1b[B'],['←','\x1b[D'],['→','\x1b[C'],['Ctrl+C','\x03'],['Enter','\r']] as [label,value]}<button disabled={!live||scrollbackOpen} onpointerdown={e=>e.preventDefault()} onclick={()=>key(value)} aria-label={`Send ${label}`}>{label}</button>{/each}{#each ['Ctrl','Alt'] as mod}<button disabled={!live||scrollbackOpen} aria-pressed={modifier===mod} onpointerdown={e=>e.preventDefault()} onclick={()=>{modifier=modifier===mod?null:mod as 'Ctrl'|'Alt';terminal?.focus()}}>{mod}</button>{/each}</div>
+  {#if !landscape}{@render keys()}{/if}
   <footer><span>{scrollbackOpen?'Reading earlier output · your live shell keeps running':live?'Connected privately · input goes directly to this shell':'Input paused · disconnected keystrokes are never replayed'}</span><button type="button" disabled={!live} onclick={()=>void closeScrollback()}>Focus terminal</button></footer>
 {#if contextMenu}<div class="clipboard-menu" role="menu" aria-label="Terminal actions" tabindex="-1" bind:this={menu} style={`left:${contextMenu.x}px;top:${contextMenu.y}px`} onkeydown={contextKey}><button role="menuitem" disabled={!hasSelection} onclick={()=>{contextMenu=null;void copy()}}>Copy selection</button><button role="menuitem" disabled={!live} onclick={()=>{contextMenu=null;void readClipboard()}}>Paste</button><button role="menuitem" onclick={()=>{contextMenu=null;commandsOpen=true}}>Saved commands…</button><button role="menuitem" onclick={()=>{contextMenu=null;historyOpen=true}}>Command history…</button><button role="menuitem" onclick={()=>{contextMenu=null;openScrollback()}}>Earlier output…</button><button role="menuitem" onclick={()=>{contextMenu=null;appearanceOpen=true}}>Appearance…</button>{#if onsessions}<button role="menuitem" onclick={()=>{contextMenu=null;toggleSessions()}}>{sessionsVisible&&!maximised?'Hide sessions':'Show sessions'}</button>{/if}<button role="menuitem" onclick={closeContext}>Close menu</button></div>{/if}
 </section>
@@ -247,8 +260,8 @@
   .clipboard-menu {position:fixed;z-index:110;min-width:180px;max-height:calc(100dvh - 16px);overflow:auto;padding:6px;display:grid;gap:4px;border:1px solid var(--line);border-radius:9px;background:var(--card);box-shadow:0 8px 30px rgb(0 0 0 / .2)}
   .clipboard-menu button {text-align:left}
   .pane.maximised {position:fixed;inset:12px;bottom:auto;height:calc(var(--terminal-viewport,100dvh) - 24px);z-index:90}
-  @media(max-width:650px) {
-    /* Phones: every row of chrome is one line, so the screen keeps the height. */
+  /* Phones (narrow, or a touch screen held sideways; see PHONE_SCREEN in sizing.ts): every row of chrome is one line, so the screen keeps the height. */
+  @media(max-width:650px),(max-height:500px) and (pointer:coarse) and (orientation:landscape) {
     header {padding:2px 4px 2px 8px}
     .identity {flex-wrap:nowrap}
     .identity strong {font-size:.74rem;flex:0 1 auto}
@@ -278,8 +291,17 @@
     .pane.maximised footer {padding-bottom:max(2px,env(safe-area-inset-bottom))}
   }
   @media(pointer:coarse) {.tools button,.controls>button,.session-menu>summary {min-height:40px}}
-  /* Touch targets keep 40 px; on phones the rows lose their padding instead. */
-  @media(max-width:650px) and (pointer:coarse) {header,.tools,.terminal-toolbar {padding-top:0;padding-bottom:0}}
+  /* Touch targets keep a 40 × 40 px hit area; on phones the rows lose their padding instead. */
+  @media(max-width:650px) and (pointer:coarse),(max-height:500px) and (pointer:coarse) and (orientation:landscape) {header,.tools,.terminal-toolbar {padding-top:0;padding-bottom:0}.terminal-toolbar button,.mobile-keys button {min-width:40px}}
+  /* Sideways: tools and extra keys share one row, and the footer gives its line to the screen (the state stays in the header). */
+  @media(max-height:500px) and (pointer:coarse) and (orientation:landscape) {
+    .tool-rows {display:flex;flex-shrink:0;min-width:0;border-bottom:1px solid var(--line)}
+    .tool-rows>.tools {flex:1 1 50%;min-width:0;border-bottom:0}
+    .tool-rows>.mobile-keys {border-top:0;border-left:1px solid var(--line)}
+    .pane>footer {display:none}
+    /* With the keyboard open there are too few rows for the header; it returns when the keyboard closes. */
+    .pane.keyboard>header {display:none}
+  }
   /* The Alt+Shift+M advice is for a hardware keyboard; the Restore size button stays. */
   @media(hover:none) and (pointer:coarse) {.maximise-hint {display:none}}
 </style>

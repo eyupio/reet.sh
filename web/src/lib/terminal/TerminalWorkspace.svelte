@@ -13,7 +13,7 @@
   import { TerminalError, validTerminalTitle } from './api'
   import WorkspaceDialog from './WorkspaceDialog.svelte'
   import TerminalCommandReference from './TerminalCommandReference.svelte'
-  import { pageViewport, browserViewport, keyboardLikelyOpen } from './sizing'
+  import { pageViewport, browserViewport, keyboardLikelyOpen, PHONE_SCREEN } from './sizing'
 
   let {userId=0}:{userId?:number}=$props()
   // svelte-ignore state_referenced_locally
@@ -43,6 +43,9 @@
   let theatre=$state(false)
   // Phone keyboard open while typing in the terminal: the site header and this toolbar step aside.
   let keyboard=$state(false)
+  // ?viewport-debug=1 shows the measured heights live, for checking a real phone with its keyboard open. Nothing is stored or sent.
+  const viewportDebug=new URLSearchParams(location.search).get('viewport-debug')==='1'
+  let debugReading=$state('')
   $effect(()=>{document.documentElement.toggleAttribute('data-terminal-keyboard',keyboard);return()=>document.documentElement.removeAttribute('data-terminal-keyboard')})
   let navOpen = $state(innerWidth >= 960), detailsOpen = $state(false)
   let healthIssue=$state(''),showCreate=$state(false)
@@ -168,14 +171,18 @@
   onMount(() => {
     try{const saved=JSON.parse(localStorage.getItem(preferenceKey)||'{}');if(typeof saved.open==='boolean')navOpen=saved.open&&innerWidth>=960;if(Number.isFinite(saved.width))sidebarWidth=Math.min(480,Math.max(220,saved.width))}catch{/* optional browser preference */}
     layoutLoaded=true
+    // Only this workspace asks Android browsers to resize the page for the keyboard; other pages keep the default.
+    const viewportMeta=document.querySelector<HTMLMetaElement>('meta[name="viewport"]'),viewportContent=viewportMeta?.getAttribute('content')??null
+    if(viewportMeta&&viewportContent!==null&&!/interactive-widget/.test(viewportContent))viewportMeta.setAttribute('content',`${viewportContent}, interactive-widget=resizes-content`)
     let frame=0
-    const coarse=matchMedia('(pointer:coarse)'),narrow=matchMedia('(max-width:650px)')
+    const coarse=matchMedia('(pointer:coarse)'),narrow=matchMedia(PHONE_SCREEN)
     const editing=()=>{const focus=document.activeElement;return focus instanceof HTMLElement&&!!focus.closest('.pane')&&focus.matches('textarea,input,[contenteditable]:not([contenteditable="false"])')}
     const measure=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{
       if(!workspace)return
       const usable=pageViewport.read(browserViewport())
       keyboard=keyboardLikelyOpen(usable.shrink,{coarse:coarse.matches,narrow:narrow.matches,editing:editing(),scale:window.visualViewport?.scale??1})
       workspaceHeight=Math.max(120,usable.height-Math.max(0,workspace.getBoundingClientRect().top-usable.top)-8)
+      if(viewportDebug){const visual=window.visualViewport;debugReading=`visualViewport.height ${visual?Math.round(visual.height):'none'} · offsetTop ${visual?Math.round(visual.offsetTop):'none'}\ninnerHeight ${innerHeight} · screen.height ${screen.height}\nused height ${Math.round(usable.height)} · keyboard ${keyboard?'open':'closed'}`}
     })}
     const observer=new ResizeObserver(measure),header=document.querySelector('.site-header')
     if(header)observer.observe(header)
@@ -183,7 +190,7 @@
     const collapseNavigation=()=>{if(!navigationViewport.matches)navOpen=false}
     navigationViewport.addEventListener('change',collapseNavigation)
     measure();window.addEventListener('resize',measure);window.visualViewport?.addEventListener('resize',measure);window.visualViewport?.addEventListener('scroll',measure);document.addEventListener('focusin',measure);document.addEventListener('focusout',measure)
-    return()=>{cancelAnimationFrame(frame);observer.disconnect();navigationViewport.removeEventListener('change',collapseNavigation);window.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('scroll',measure);document.removeEventListener('focusin',measure);document.removeEventListener('focusout',measure)}
+    return()=>{if(viewportMeta&&viewportContent!==null)viewportMeta.setAttribute('content',viewportContent);cancelAnimationFrame(frame);observer.disconnect();navigationViewport.removeEventListener('change',collapseNavigation);window.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('scroll',measure);document.removeEventListener('focusin',measure);document.removeEventListener('focusout',measure)}
   })
   onMount(()=>{
     const abort=new AbortController();void refresh(abort.signal)
@@ -232,6 +239,7 @@
   </div>
 </section>
 
+{#if viewportDebug}<pre class="viewport-debug" aria-hidden="true">{debugReading}</pre>{/if}
 {#if machineSearchOpen}<WorkspaceDialog title="Find a machine" onclose={()=>machineSearchOpen=false}>
   <label class="machine-search">Machine or shell user<input type="search" bind:this={machineSearchInput} bind:value={machineSearch} placeholder="Search connected machines…" /></label>
   <nav class="machine-results" aria-label="Matching machines">{#each matchingMachines as item (item.agentId)}<button class="machine-result" aria-current={item.agentId===selectedAgent?'true':undefined} onclick={()=>chooseMachine(item.agentId)}><strong>{item.host}</strong><span>{item.capabilities?.osUser || 'Shell user unavailable'} · {item.ready?'Ready':readiness(item)}</span></button>{:else}<p>No machines match.</p>{/each}</nav>
@@ -262,6 +270,8 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   .creation-error{color:var(--bad)!important}.find-machine{font-size:.72rem;padding:6px 8px;min-height:34px}.machine-search{display:grid;gap:8px;font-size:.8rem}.machine-results{display:grid;gap:8px;max-height:50dvh;overflow:auto}.machine-result{display:grid;gap:5px;text-align:left;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}.machine-result[aria-current=true]{border-color:var(--accent)}.machine-result span{font-size:.74rem;color:var(--muted)}
   .end-options{display:grid;gap:14px;margin-top:16px;font-size:.8rem}.end-options .option{display:grid;gap:5px}.end-options label{display:flex;align-items:flex-start;gap:9px;line-height:1.5;cursor:pointer}.end-options input{flex:none;width:16px;height:16px;min-height:0;margin:2px 0 0;padding:0;border:0;background:none;accent-color:var(--accent)}.end-options p,.end-options a{margin:0;font-size:.72rem;line-height:1.6;color:var(--muted)}.end-options p{margin-left:25px}.end-options a{justify-self:start;color:var(--accent)}
   .mobile-label{display:none}
+  .viewport-debug{position:fixed;top:4px;right:4px;z-index:200;margin:0;padding:4px 6px;max-width:calc(100vw - 8px);white-space:pre-wrap;font:10px/1.3 var(--mono);color:#fff;background:rgb(0 0 0 / .72);border-radius:4px;pointer-events:none;user-select:none}
+  @media(max-height:500px) and (pointer:coarse) and (orientation:landscape){.workspace-toolbar{padding-top:0;padding-bottom:0}}
   @media(max-width:960px){.workspace-body.with-sidebar{grid-template-columns:minmax(0,1fr)}}
   @media(max-width:650px){.workspace{border-radius:8px}.workspace-toolbar{gap:6px;padding:5px 6px}.workspace-title h1{display:none}.workspace-actions>button[aria-controls="terminal-sessions"]{max-width:52px;white-space:normal;line-height:1.1}.quick-machine{padding:4px 7px;min-width:28px}.workspace-toolbar .find-machine{display:none}.workspace-title>a{padding:3px}.workspace-actions{gap:4px}.workspace-actions .btn{padding:5px 7px;min-height:32px;font-size:.67rem}.workspace-actions .count,.workspace-actions .wide-label{display:none}.workspace-actions .mobile-label{display:inline}.empty{padding:20px 14px}.empty h2{font-size:1.35rem}.create-form{grid-template-columns:minmax(0,1fr)}.create-form p{grid-column:1}.workspace-notice{font-size:.65rem;padding:5px 8px}}
   @media(pointer:coarse){.workspace-actions .btn{min-height:40px}}

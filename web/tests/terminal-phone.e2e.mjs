@@ -14,7 +14,7 @@ const app=(cols,rows)=>{let out='\x1b[?1049h\x1b[2J'
  for(let row=1;row<=rows;row++)out+=`\x1b[${row};1H`+(row===1?`agent ${cols}x${rows}`:row===rows?'> ask anything':`row ${row}`).slice(0,cols)
  return Buffer.from(out)}
 
-async function open({width,height,touch}){
+async function open({width,height,touch,query=''}){
  const context=await browser.newContext({viewport:{width,height},hasTouch:touch,isMobile:touch})
  const page=await context.newPage(),errors=[],tickets=[],frames=[]
  let sockets=0
@@ -30,6 +30,9 @@ async function open({width,height,touch}){
   Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>hidden?'hidden':'visible'})
   Object.defineProperty(document,'hidden',{configurable:true,get:()=>hidden})
   window.__visibility=value=>{hidden=value;document.dispatchEvent(new Event('visibilitychange'))}
+  // Lets a test pretend time passed, for the repaint-on-return gate and cooldown.
+  const realNow=performance.now.bind(performance);let skew=0
+  performance.now=()=>realNow()+skew;window.__advance=ms=>{skew+=ms}
  })
  await page.route('**/api/**',async route=>{
   const request=route.request(),path=new URL(request.url()).pathname
@@ -60,7 +63,7 @@ async function open({width,height,touch}){
    else if(data.type==='resize'){frames.push({cols:data.cols,rows:data.rows});socket.send(app(data.cols,data.rows))}
   })
  })
- await page.goto(`${base}/terminals?agent=${agentA}&session=${sessionA}`)
+ await page.goto(`${base}/terminals?agent=${agentA}&session=${sessionA}${query}`)
  const pane=page.locator('.pane')
  await expect(pane).toHaveAttribute('data-connection-state','live')
  return {context,page,errors,tickets,frames,pane,sockets:()=>sockets}
@@ -69,6 +72,9 @@ const box=async(page,selector)=>page.evaluate(selector=>{const element=document.
 // Rows the host was last told, once the debounce has settled.
 async function settledSize(page,frames,tickets){await page.waitForTimeout(450);return frames.at(-1)||tickets.at(-1)}
 const settle=page=>page.waitForTimeout(450)
+// Whole rows the screen shows: its height over the rendered row height.
+const visibleRows=page=>page.evaluate(()=>{const screen=document.querySelector('.screen'),rows=document.querySelectorAll('.xterm-rows>div').length,grid=document.querySelector('.xterm-screen').getBoundingClientRect().height;return Math.floor(screen.clientHeight/(grid/rows)+0.01)})
+const viewportMeta=page=>page.locator('meta[name="viewport"]').getAttribute('content')
 
 try{
  // ── Phone: 390×844, touch ────────────────────────────────────────────────
@@ -80,9 +86,12 @@ try{
  expect(tickets[0].cols).toBeGreaterThanOrEqual(50)
  // The first attach is not nudged: tmux repaints its grid on attach.
  await settle(page);expect(frames.filter(frame=>frame.rows<tickets[0].rows)).toEqual([])
- // Compact one-line chrome; every touch control keeps a 40 px hit area.
+ // Compact one-line chrome; the toolbar and extra keys are 40 × 40 px or larger, the header controls 40 px tall.
  for(const selector of ['.pane>header','.terminal-toolbar','.mobile-keys'])expect((await box(page,selector)).height).toBeLessThanOrEqual(42)
- for(const control of await page.locator('.terminal-toolbar button,.mobile-keys button,.pane>header .controls>button,.session-menu>summary').all())expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(40)
+ for(const control of await page.locator('.terminal-toolbar button,.mobile-keys button').all()){const size=await control.boundingBox();expect(size.height).toBeGreaterThanOrEqual(40);expect(size.width).toBeGreaterThanOrEqual(40)}
+ for(const control of await page.locator('.pane>header .controls>button,.session-menu>summary').all())expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(40)
+ // Only the terminal workspace asks the browser to resize the page for the keyboard.
+ expect(await viewportMeta(page)).toBe('width=device-width, initial-scale=1.0, interactive-widget=resizes-content')
  await expect(page.locator('.pane>header')).toContainText('developer@dev-laptop')
  // Clipped rows say so with a fade, and scroll by touch or keyboard.
  const toolbar=page.locator('.terminal-toolbar'),keys=page.locator('.mobile-keys')
@@ -109,8 +118,16 @@ try{
  await page.getByRole('button',{name:'Restore size',exact:true}).click()
  await settle(page)
 
- // Keyboard open while typing in the terminal: header and workspace toolbar step aside.
+ // A shrinking viewport without focus in the terminal (another field, split screen) keeps the layout.
  const keyboardTop=Math.round(844*.55)
+ await page.evaluate(()=>document.activeElement instanceof HTMLElement&&document.activeElement.blur())
+ await page.evaluate(height=>window.__keyboard(height),keyboardTop)
+ await settle(page)
+ await expect(page.locator('.site-header')).toBeVisible()
+ await expect(page.locator('.workspace-toolbar')).toBeVisible()
+ await page.evaluate(()=>window.__keyboard(null))
+ await settle(page)
+ // Keyboard open while typing in the terminal: header and workspace toolbar step aside.
  await page.getByRole('button',{name:'Focus terminal',exact:true}).click()
  await expect(page.locator('.xterm-helper-textarea')).toBeFocused()
  const beforeKeyboard=frames.length
@@ -173,8 +190,14 @@ try{
  expect(frames.every(frame=>frame.rows>=8&&frame.cols>=20)).toBe(true)
  await expect(page.locator('.xterm-accessibility-tree [role=listitem]').last()).toContainText('> ask anything')
  await expect.poll(async()=>{const screen=await box(page,'.screen'),grid=await box(page,'.xterm-screen');return Math.round(grid.bottom-screen.bottom)}).toBeLessThanOrEqual(1)
+ // A repaint nudge at the floor goes one row taller, never below 8.
+ const beforeFloorReturn=frames.length
+ await page.evaluate(()=>window.__visibility(true));await page.evaluate(()=>window.__visibility(false))
+ await settle(page)
+ expect(frames.slice(beforeFloorReturn)).toEqual([{cols:floored.cols,rows:9},{cols:floored.cols,rows:8}])
  await page.setViewportSize({width:390,height:844})
  const settled=await settledSize(page,frames,tickets)
+ await page.evaluate(()=>window.__advance(6000))
 
  // Returning to the page repaints once: one row shorter, then the real size, on the same socket.
  const beforeReturn=frames.length,socketsBefore=phone.sockets()
@@ -183,6 +206,10 @@ try{
  await settle(page)
  expect(frames.slice(beforeReturn)).toEqual([{cols:settled.cols,rows:settled.rows-1},{cols:settled.cols,rows:settled.rows}])
  expect(phone.sockets()).toBe(socketsBefore)
+ // Not again within 5 s.
+ const beforeCooldown=frames.length
+ await page.evaluate(()=>window.__visibility(true));await page.evaluate(()=>window.__visibility(false))
+ await settle(page);expect(frames.length).toBe(beforeCooldown)
  // A reattach repaints once too.
  await page.getByRole('button',{name:'Disconnect',exact:true}).click()
  await page.getByRole('button',{name:'Reconnect',exact:true}).click()
@@ -198,7 +225,72 @@ try{
  await page.reload();await expect(pane).toHaveAttribute('data-connection-state','live')
  await expect(page.locator('.xterm-rows')).toHaveCSS('font-size','16px')
  expect(phone.errors).toEqual([])
+ // Other pages keep the default viewport meta, so their fixed bars and dialogs are unaffected.
+ for(const path of ['/','/hosting','/machines']){await page.goto(`${base}${path}`);expect(await viewportMeta(page)).toBe('width=device-width, initial-scale=1.0')}
  await phone.context.close()
+
+ // ── The opt-in viewport readout for checking a real phone ───────────────
+ const debug=await open({width:390,height:844,touch:true,query:'&viewport-debug=1'})
+ const readout=debug.page.locator('.viewport-debug')
+ await expect(readout).toContainText('innerHeight 844')
+ await expect(readout).toContainText('keyboard closed')
+ await expect(readout).toHaveCSS('pointer-events','none')
+ await debug.page.getByRole('button',{name:'Focus terminal',exact:true}).click()
+ await debug.page.evaluate(height=>window.__keyboard(height),keyboardTop)
+ await expect(readout).toContainText(`visualViewport.height ${keyboardTop}`)
+ await expect(readout).toContainText(`used height ${keyboardTop}`)
+ await expect(readout).toContainText('keyboard open')
+ await expect(debug.page.locator('.xterm-helper-textarea')).toBeFocused()
+ expect(await debug.page.evaluate(()=>JSON.stringify({...localStorage}))).not.toContain('viewport')
+ expect(debug.errors).toEqual([])
+ await debug.context.close()
+ const plain=await open({width:390,height:844,touch:true})
+ await expect(plain.page.locator('.viewport-debug')).toHaveCount(0)
+ await plain.context.close()
+
+ // ── Phones held sideways: tools and keys share a row, the screen keeps the rows ──
+ for(const [width,height] of [[844,390],[915,412]]){
+  const side=await open({width,height,touch:true})
+  const p=side.page
+  await expect(p.locator('.xterm-rows')).toHaveCSS('font-size','11px')
+  await expect(p.locator('.tool-rows .terminal-toolbar')).toBeVisible()
+  await expect(p.locator('.tool-rows .mobile-keys')).toBeVisible()
+  await expect(p.locator('.pane>footer')).toBeHidden()
+  await settle(p)
+  const closedRows=await visibleRows(p)
+  // Every tool stays reachable: the toolbar fades at its hidden end and scrolls to the last control.
+  const tools=p.locator('.tool-rows .terminal-toolbar')
+  await expect(tools).toHaveClass(/more-end/)
+  await tools.evaluate(e=>e.scrollTo({left:e.scrollWidth}))
+  const last=await p.getByRole('button',{name:'Maximise',exact:true}).boundingBox(),row=await tools.boundingBox()
+  expect(last.x+last.width).toBeLessThanOrEqual(row.x+row.width+1)
+  await tools.evaluate(e=>e.scrollTo({left:0}))
+  // Keyboard open while typing: the site header, workspace toolbar and pane header step aside.
+  const top=Math.round(height*.44)
+  await p.locator('.xterm-helper-textarea').focus()
+  await p.evaluate(value=>window.__keyboard(value),top)
+  await expect(p.locator('.site-header')).toBeHidden()
+  await expect(p.locator('.pane>header')).toBeHidden()
+  await settle(p)
+  const openRows=await visibleRows(p),paneBottom=(await box(p,'.pane')).bottom
+  await expect(p.locator('.terminal-toolbar').getByRole('button',{name:'Show sessions',exact:true})).toBeAttached()
+  await p.evaluate(()=>window.__keyboard(null))
+  await expect(p.locator('.pane>header')).toBeVisible()
+  await p.getByRole('button',{name:'Maximise',exact:true}).click()
+  await p.locator('.xterm-helper-textarea').focus()
+  await p.evaluate(value=>window.__keyboard(value),top)
+  await settle(p)
+  const maximisedRows=await visibleRows(p),maximisedBottom=(await box(p,'.pane')).bottom
+  console.log(`Sideways ${width}x${height}: ${closedRows} rows, ${openRows} with the keyboard open, ${maximisedRows} maximised with the keyboard open`)
+  expect(closedRows).toBeGreaterThanOrEqual(12)
+  expect(openRows).toBeGreaterThanOrEqual(6)
+  expect(maximisedRows).toBeGreaterThanOrEqual(6)
+  expect(paneBottom).toBeGreaterThanOrEqual(top-10);expect(paneBottom).toBeLessThanOrEqual(top+1)
+  expect(Math.abs(maximisedBottom-top)).toBeLessThanOrEqual(2)
+  expect(side.frames.every(frame=>frame.rows>=8&&frame.cols>=20)).toBe(true)
+  expect(side.errors).toEqual([])
+  await side.context.close()
+ }
 
  // ── Desktop and tablet keep their layout; a narrow window without touch keeps its header ──
  for(const [width,height] of [[1360,900],[768,900],[390,844]]){
@@ -212,6 +304,15 @@ try{
   await expect(p.locator('.terminal-toolbar')).toHaveCSS('mask-image','none')
   await expect(p.locator('.mobile-keys')).toBeHidden()
   await expect(p.locator('.pane>footer')).toBeVisible()
+  await expect(p.locator('.tool-rows')).toHaveCount(0)
+  }
+  if(width===1360){
+   // With a mouse, a quick return to the page sends nothing; a return after 30 s or more repaints once.
+   await settle(p);const before=desk.frames.length
+   await p.evaluate(()=>window.__visibility(true));await p.evaluate(()=>window.__visibility(false))
+   await settle(p);expect(desk.frames.length).toBe(before)
+   await p.evaluate(()=>{window.__visibility(true);window.__advance(31000);window.__visibility(false)})
+   await settle(p);expect(desk.frames.length).toBe(before+2)
   }
   // No keyboard focus layout without a touch screen, even when the visual viewport shrinks.
   await p.getByRole('button',{name:'Focus terminal',exact:true}).click()
@@ -228,5 +329,5 @@ try{
   expect(desk.errors).toEqual([])
   await desk.context.close()
  }
- console.log('Terminal phone layout passed: 11 px default, compact chrome with 40 px targets and overflow fades, keyboard focus layout, no blank band, 20×8 floor, debounced and deduplicated resizes, repaint on return and reattach, desktop and tablet unchanged.')
+ console.log('Terminal phone layout passed: 11 px default, compact chrome with 40 × 40 px tools and overflow fades, sideways phones, keyboard focus layout, no blank band, 20×8 floor, debounced and deduplicated resizes, repaint on return (gated, with a cooldown) and reattach, the viewport readout, the scoped viewport meta, desktop and tablet unchanged.')
 }finally{await browser.close()}

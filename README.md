@@ -247,6 +247,8 @@ Start a new shell with the + beside a machine in Control or Terminals. Right-cli
 
 To start an AI agent instead of a shell, use **New agent session** in Terminals or **Start an agent** on a machine's card (disabled, with the reason, while the machine isn't ready): choose the agent, an optional model, a folder inside the machine's home and an optional opening prompt, and you land in the new session; the machine decides how the agent is started. [What it does and what it does not establish](docs/start-agent-session.md).
 
+To start agents in several repositories at once, save them as a **Project** (Projects, beside Terminals): one confirmation sheet shows what will start, **Start all** starts an agent in each, by default in its own git worktree and branch, and each repository succeeds or fails on its own; reet never removes a worktree by itself. [How Projects work and their limits](docs/projects.md).
+
 Machine terminals retain the OS account’s usual sudo permissions and authentication. See [sudo setup and migration](docs/terminal-controller-commands.md#sudo-in-a-machine-terminal) for older restricted Linux service units.
 
 Connect a machine’s terminal with `reet agent terminal setup`. Interactive install, enrollment and upgrades offer this resumable wizard; it checks tmux, asks for local shell consent and repairs native services while preserving running sessions. See [terminal connection setup](docs/terminal-controller-commands.md#first-class-machine-connection-setup).

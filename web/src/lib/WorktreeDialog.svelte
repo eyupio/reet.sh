@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onMount, tick } from 'svelte'
  import { UnauthorizedError } from './api'
- import { removeWorktree, worktreeStatus, TerminalError } from './terminal/api'
+ import { removeWorktree, terminalSessions, worktreeStatus, TerminalError } from './terminal/api'
  import { branchKept, removeConfirmText, worktreeBlockers, worktreeRefusalText, type RunMember, type WorktreeStatus } from './projects'
 
  // Remove one run's worktree. The machine's status is read and shown first; Remove is offered only when nothing blocks
@@ -72,6 +72,20 @@
   const shown = { changed: status.changed, unpushed: status.unpushed }
   busy = 'removing'; failed = false; detail = ''
   message = `Removing the worktree on ${host}…`
+  // The session is looked at again just before: a worktree is never removed from under an agent that is still running.
+  try {
+   const list = await terminalSessions(AbortSignal.any([life.signal, AbortSignal.timeout(15000)]))
+   if (life.signal.aborted) return
+   const session = list.find(x => x.id === member.sessionId)
+   if (session && (session.state === 'creating' || session.state === 'running' || session.state === 'end_requested')) {
+    failed = true; message = 'Its session is still running, so nothing was removed. End its session first.'
+    busy = ''; void focusAfter(); return
+   }
+  } catch (e) {
+   if (life.signal.aborted || signedOut(e)) return
+   failed = true; message = "Couldn't check whether its session has ended, so nothing was removed. Try again in a moment."
+   busy = ''; void focusAfter(); return
+  }
   try {
    const done = await removeWorktree(target, shown, AbortSignal.any([life.signal, AbortSignal.timeout(15000)]))
    if (life.signal.aborted) return

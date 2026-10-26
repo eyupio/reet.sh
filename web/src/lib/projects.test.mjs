@@ -375,3 +375,26 @@ test("a member that switches agent without naming a model gets that agent's own 
   assert.deepEqual(planRun(proj, [machine('a1')], undefined, []).start.map(s => s.model), ['opus', '', 'gpt-5-codex', 'opus', 'haiku'])
   assert.equal(p.resolvedModel({ defaultTool: 'claude', defaultModel: '' }, { tool: '', model: '' }), '')
 })
+
+test('Remove worktree is never offered while the sessions are unknown: not read yet, or the read failed', () => {
+  const { removeOffer } = p
+  const m = { position: 0, host: 'a1', dir: '/r', tool: 'claude', model: '', state: 'started', code: '', sentence: '', sessionId: 's1', worktreePath: '/w', worktreeRepo: 'r', worktreeBranch: 'reet/p-t', worktreeRun: 't', worktreeProject: 'p', sharesCheckout: false, attempt: 1 }
+  assert.deepEqual(removeOffer(m, undefined), { offer: false, reason: 'Checking whether its session has ended…' })
+  assert.deepEqual(removeOffer(m, undefined, true), { offer: false, reason: "Couldn't check whether its session has ended, so its worktree can't be removed from here just now. Reload the page to try again." })
+  // A failed read wins over an old list.
+  assert.equal(removeOffer(m, [{ id: 's1', agentId: 'a1', state: 'ended' }], true).offer, false)
+  assert.equal(removeOffer({ ...m, state: 'failed' }, undefined).reason, '')
+})
+
+test('an update sends the shared prompt only when it was read and has changed; a create always sends it', () => {
+  const { projectInput } = p
+  const form = { name: ' Site ', defaultTool: 'claude', defaultModel: ' opus ', sharedPrompt: 'Read the README first', useWorktrees: true, members: [] }
+  assert.deepEqual(projectInput(null, form), { name: 'Site', defaultTool: 'claude', defaultModel: 'opus', sharedPrompt: 'Read the README first', useWorktrees: true, members: [] })
+  const saved = { sharedPrompt: 'Read the README first' }
+  assert.equal('sharedPrompt' in projectInput(saved, form), false)
+  assert.equal(projectInput(saved, { ...form, sharedPrompt: '' }).sharedPrompt, '')
+  assert.equal(projectInput(saved, { ...form, sharedPrompt: 'Something else now' }).sharedPrompt, 'Something else now')
+  // A Project read without its prompt (a list or save reply) never sends one: "" would clear the saved prompt.
+  assert.equal('sharedPrompt' in projectInput({}, { ...form, sharedPrompt: '' }), false)
+  assert.equal('sharedPrompt' in projectInput({ sharedPrompt: undefined }, { ...form, sharedPrompt: 'typed' }), false)
+})

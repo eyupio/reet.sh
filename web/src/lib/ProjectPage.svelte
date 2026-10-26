@@ -8,7 +8,7 @@
  import StartRunDialog from './StartRunDialog.svelte'
  import RunView from './RunView.svelte'
  import DeleteProjectDialog from './DeleteProjectDialog.svelte'
- import { projectRefusalText, resolvedModel, runStateLabel, runSummary, type Project, type ProjectRun } from './projects'
+ import { projectRefusalText, resolvedModel, runStateLabel, type Project, type ProjectInput, type ProjectRun } from './projects'
 
  // One Project: its defaults and repositories, Start all, and its newest 20 runs. Writers in accounts mode only; the page
  // that includes this decides that. Only the Project id is in the address; nothing is kept in browser storage.
@@ -16,14 +16,18 @@
 
  let project = $state<Project | undefined>()
  let runs = $state<ProjectRun[]>([])
- let machines = $state<TerminalMachine[]>([]), sessions = $state<TerminalSession[]>([])
+ let machines = $state<TerminalMachine[]>([])
+ // The account's sessions: undefined until the first read succeeds, and again after a read fails. Unknown is never "ended".
+ let sessions = $state<TerminalSession[] | undefined>(), sessionsFailed = $state(false)
  let loadError = $state(''), notFound = $state(false), message = $state(''), runsError = $state('')
  let deleted = $state<string>('')
  let editing = $state<{ opener: HTMLElement | null } | null>(null)
  let starting = $state<{ opener: HTMLElement | null } | null>(null)
  let deleting = $state<{ opener: HTMLElement | null } | null>(null)
  let folders = $state<Machine[] | undefined>()
- let newestRun = $state<string>('')
+ // Which runs are shown open. Decided once per run when it first appears (and for a run just started), so a run that
+ // becomes pending again on Retry keeps its component, its focus and its status line.
+ let expanded = $state<Record<string, boolean>>({})
  const life = new AbortController()
 
  const when = (ms: number) => new Date(ms).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
@@ -47,22 +51,31 @@
  async function loadRuns() {
   try {
    const next = await projectRuns(id, life.signal)
-   if (!life.signal.aborted) { runs = next; runsError = '' }
+   if (!life.signal.aborted) { remember(next); runs = next; runsError = '' }
   } catch (e) {
    if (life.signal.aborted || handOff(e)) return
    runsError = "Couldn't read this Project's runs just now. Reload the page to try again."
   }
  }
+ function remember(list: ProjectRun[]) {
+  list.forEach((run, i) => { if (!(run.id in expanded)) expanded[run.id] = i === 0 || run.members.some(m => m.state === 'pending') })
+ }
  // The machines and sessions say what can start now and which worktrees may be removed. Read again every 15 seconds
- // while the tab is visible; a failed read keeps what was last known.
- let refreshing = false
- async function refreshMachines() {
-  if (refreshing || document.visibilityState !== 'visible') return
-  refreshing = true
-  try {
-   const [m, s] = await Promise.all([terminalMachines(life.signal), terminalSessions(life.signal)])
-   if (!life.signal.aborted) { machines = m; sessions = s }
-  } catch (e) { if (!life.signal.aborted) handOff(e) } finally { refreshing = false }
+ // while the tab is visible. A failed machines read keeps what was last known; a failed sessions read makes them unknown.
+ let refreshing: Promise<void> | null = null
+ async function readMachines() {
+  const [m, s] = await Promise.allSettled([terminalMachines(life.signal), terminalSessions(life.signal)])
+  if (life.signal.aborted) return
+  for (const r of [m, s]) if (r.status === 'rejected' && handOff(r.reason)) return
+  if (m.status === 'fulfilled') machines = m.value
+  if (s.status === 'fulfilled') { sessions = s.value; sessionsFailed = false } else { sessions = undefined; sessionsFailed = true }
+ }
+ async function refreshMachines(force = false) {
+  if (!force && document.visibilityState !== 'visible') return
+  // A forced read never reuses one already under way: it may have started before something changed.
+  if (refreshing) { if (!force) return; await refreshing }
+  refreshing = readMachines().finally(() => { refreshing = null })
+  await refreshing
  }
 
  function readFolders() {
@@ -72,21 +85,25 @@
  function openEdit(opener: HTMLElement) { message = ''; editing = { opener }; readFolders() }
  async function openStart(opener: HTMLElement) {
   message = ''
-  // The sheet plans from the machines and sessions as they are now.
-  await refreshMachines()
-  if (!life.signal.aborted) starting = { opener }
+  // The sheet plans from the machines and sessions as they are now, read afresh.
+  await refreshMachines(true)
+  if (life.signal.aborted) return
+  if (!sessions) { message = "Couldn't read your sessions just now, so Start all can't check the session limits. Try again in a moment."; return }
+  starting = { opener }
  }
- function saved(p: Project) {
-  project = p
+ function saved(p: Project, sent: ProjectInput) {
+  // The save reply leaves the shared prompt out: keep the one that is now saved, then read the Project again.
+  project = { ...p, sharedPrompt: sent.sharedPrompt ?? project?.sharedPrompt }
   message = `Saved. Runs already started keep what they used.`
+  void getProject(id, life.signal).then(next => { if (!life.signal.aborted && project?.version === next.version) project = next }).catch(e => { if (!life.signal.aborted) handOff(e) })
  }
  async function reload() {
   await loadProject()
   if (project) message = 'Read the Project again. Make your change once more if it is still needed.'
  }
  async function runStarted(run: ProjectRun) {
+  expanded[run.id] = true
   runs = [run, ...runs.filter(r => r.id !== run.id)].slice(0, 20)
-  newestRun = run.id
   message = `Right, that's under way: ${run.members.length === 1 ? 'one repository' : `${run.members.length} repositories`} starting. Each one shows its own state below.`
   if (project) project = { ...project, lastRun: { id: run.id, state: run.state, startedAt: run.startedAt } }
   await tick()
@@ -165,15 +182,11 @@
    <p class="muted">No runs yet. Start all asks for a confirmation first, then starts each repository on its own.</p>
   {:else}
    <p class="muted small">The newest 20, newest first. Closing this page doesn't stop a run.</p>
-   {#each runs as run, i (run.id)}
-    {#if i === 0 || run.id === newestRun || run.members.some(m => m.state === 'pending')}
-     <div class="run-card"><RunView {run} {machines} {sessions} onchange={runChanged} {onsignedout} /></div>
-    {:else}
-     <details class="run-card">
-      <summary>Run of {when(run.startedAt)} · {runStateLabel(run.state)} · {runSummary(run)}</summary>
-      <RunView {run} {machines} {sessions} onchange={runChanged} {onsignedout} />
-     </details>
-    {/if}
+   {#each runs as run (run.id)}
+    <details class="run-card" bind:open={expanded[run.id]}>
+     <summary><h3>Run of {when(run.startedAt)}</h3> <span class="state" data-state={run.state}>{runStateLabel(run.state)}</span></summary>
+     <RunView {run} {machines} {sessions} {sessionsFailed} onchange={runChanged} {onsignedout} />
+    </details>
    {/each}
   {/if}
  </section>
@@ -182,7 +195,7 @@
   <ProjectDialog {project} {machines} snapshot={folders} opener={editing.opener} onsaved={saved} onreload={() => void reload()} {onsignedout} onclose={() => (editing = null)} />
  {/if}
  {#if starting}
-  <StartRunDialog {project} {machines} {sessions} opener={starting.opener} onstarted={runStarted} onaddmachine={() => location.assign('/machines#add-machine')} {onsignedout} onclose={() => (starting = null)} />
+  <StartRunDialog {project} {machines} sessions={sessions ?? []} opener={starting.opener} onstarted={runStarted} onaddmachine={() => location.assign('/machines#add-machine')} {onsignedout} onclose={() => (starting = null)} />
  {/if}
  {#if deleting}
   <DeleteProjectDialog {project} opener={deleting.opener} ondeleted={(r) => (deleted = r.message || 'Its runs are kept.')} onreload={() => void reload()} {onsignedout} onclose={() => (deleting = null)} />
@@ -208,7 +221,12 @@
  .runs { display: grid; gap: 12px; }
  .runs > h2 { margin: 0; }
  .run-card { padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); min-width: 0; }
- details.run-card > summary { cursor: pointer; font-size: .88rem; line-height: 1.5; min-height: 32px; overflow-wrap: anywhere; }
+ details.run-card > summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; min-height: 32px; overflow-wrap: anywhere; }
+ summary h3 { display: inline; margin: 0; font: 500 1.2rem/1.3 var(--serif); }
+ summary .state { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: .75rem; color: var(--muted); }
+ summary .state[data-state='complete'] { border-color: var(--good); color: var(--good); }
+ summary .state[data-state='partial'] { border-color: var(--warn); color: var(--warn); }
+ summary .state[data-state='failed'] { border-color: var(--bad); color: var(--bad); }
  details.run-card[open] > summary { margin-bottom: 10px; }
  @media (max-width: 800px) { .layout { grid-template-columns: minmax(0, 1fr); } }
 </style>

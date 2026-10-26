@@ -250,10 +250,14 @@ export function removeConfirmText(s: WorktreeStatus): string {
 
 /**
  * Whether a run member's worktree may be offered for removal: the member started and made a worktree, and its session has
- * ended (a session the list no longer has has ended too). reet never checks what a running agent is doing in the folder.
+ * ended (a session the list no longer has has ended too). While the sessions are not known (not read yet, or the last read
+ * failed) it is never offered. reet never checks what a running agent is doing in the folder.
  */
-export function removeOffer(m: RunMember, sessions: Pick<TerminalSession, 'id' | 'state'>[]): { offer: boolean; reason: string } {
+export function removeOffer(m: RunMember, sessions: Pick<TerminalSession, 'id' | 'state'>[] | undefined, readFailed = false): { offer: boolean; reason: string } {
   if (m.state !== 'started' || !m.worktreeRun || !m.worktreeRepo || !m.worktreeProject) return { offer: false, reason: '' }
+  // Unknown is not ended: removing the folder under a running agent would delete its work and its ignored files.
+  if (readFailed) return { offer: false, reason: "Couldn't check whether its session has ended, so its worktree can't be removed from here just now. Reload the page to try again." }
+  if (!sessions) return { offer: false, reason: 'Checking whether its session has ended…' }
   const session = sessions.find(s => s.id === m.sessionId)
   if (session && open(session)) return { offer: false, reason: 'End its session before removing its worktree.' }
   return { offer: true, reason: '' }
@@ -265,4 +269,15 @@ export const runPending = (run: Pick<ProjectRun, 'members'>): boolean => run.mem
 /** A run's state in words, for the Projects list and the runs list. */
 export function runStateLabel(state: string): string {
   return ({ running: 'Starting', complete: 'All started', partial: 'Some failed', failed: 'None started' } as Record<string, string>)[state] ?? state
+}
+
+export type ProjectForm = { name: string; defaultTool: string; defaultModel: string; sharedPrompt: string; useWorktrees: boolean; members: MemberInput[] }
+/**
+ * What a save sends. A create sends everything. An update sends the shared prompt only when the Project was read with it
+ * (the single read) and the text changed: the list and save replies leave the prompt out, and sending "" would clear it.
+ */
+export function projectInput(editing: Pick<Project, 'sharedPrompt'> | null, form: ProjectForm): ProjectInput {
+  const input: ProjectInput = { name: form.name.trim(), defaultTool: form.defaultTool, defaultModel: form.defaultModel.trim(), useWorktrees: form.useWorktrees, members: form.members }
+  if (!editing || (editing.sharedPrompt !== undefined && editing.sharedPrompt !== form.sharedPrompt)) input.sharedPrompt = form.sharedPrompt
+  return input
 }

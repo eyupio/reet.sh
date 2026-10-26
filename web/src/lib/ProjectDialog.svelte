@@ -3,7 +3,7 @@
  import { UnauthorizedError, type Machine } from './api'
  import { saveProject, TerminalError, type TerminalMachine } from './terminal/api'
  import { MAX_PROMPT_BYTES, TOOLS, cleanModel, folderChoices, modelSuggestions, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
- import { MAX_MEMBERS, projectRefusalText, validateMember, validateMembers, validateProjectName, type MemberInput, type Project, type ProjectInput } from './projects'
+ import { MAX_MEMBERS, projectInput, projectRefusalText, validateMember, validateMembers, validateProjectName, type MemberInput, type Project, type ProjectInput } from './projects'
 
  // Create a Project, or change one. One screen; one save per press. A save names the version it was read at, so a second
  // editor's change is never undone silently. Nothing here is kept in browser storage or the URL, and the shared prompt lives
@@ -17,7 +17,8 @@
   /** The account's other Project names, compared ignoring case. The server checks again. */
   otherNames?: string[]
   opener?: HTMLElement | null
-  onsaved: (project: Project) => void
+  /** The save reply leaves the shared prompt out; `sent` says what was saved, so the page can keep it. */
+  onsaved: (project: Project, sent: ProjectInput) => void
   /** Reads the Project again after someone else changed it. The dialog closes first. */
   onreload?: () => void
   onsignedout?: (e: unknown) => void
@@ -34,6 +35,8 @@
  let defaultTool = $state(editing?.defaultTool || 'claude')
  let defaultModel = $state(editing?.defaultModel ?? '')
  let sharedPrompt = $state(editing?.sharedPrompt ?? '')
+ // A Project read without its prompt (only the single read carries it) keeps its saved prompt untouched: the box is locked.
+ const promptKnown = !editing || editing.sharedPrompt !== undefined
  let useWorktrees = $state(editing ? editing.useWorktrees : true)
  let nextKey = 0
  // svelte-ignore state_referenced_locally
@@ -125,7 +128,7 @@
     : rowIndex >= 0 ? [rows[rowIndex].host === '' ? `host-${rowIndex}` : rows[rowIndex].folder === TYPED ? `dir-${rowIndex}` : `folder-${rowIndex}`, memberError(rows[rowIndex], rowIndex + 1)]
     : listError ? ['add', listError] : null
    if (invalid) { failed = true; message = invalid[1]; invalidMessage = true; (field(invalid[0]) ?? addButton)?.focus(); return }
-   const input: ProjectInput = { name: name.trim(), defaultTool, defaultModel: cleanModel(defaultModel), sharedPrompt, useWorktrees, members: rows.map(memberInput) }
+   const input = projectInput(editing, { name, defaultTool, defaultModel: cleanModel(defaultModel), sharedPrompt, useWorktrees, members: rows.map(memberInput) })
    operation = { input, current: editing ? { id: editing.id, version: editing.version } : undefined, lost: false }
   }
   const op = operation
@@ -136,7 +139,7 @@
    if (life.signal.aborted) return
    const done = onsaved
    shutdown(true)
-   done(result)
+   done(result, op.input)
    onclose()
   } catch (e) {
    if (life.signal.aborted) return
@@ -150,6 +153,7 @@
     // A resent save whose first try went through answers as if someone else had changed it, or as if the name were taken.
     if (wasLost && err.code === 'project_changed') message = 'This Project changed since it was read. Your earlier save may have gone through. Reload it to see.'
     else if (wasLost && !editing && err.code === 'name_taken') message = 'A Project with that name is already saved. Your earlier save may have gone through. Close this and check your Projects.'
+    else if (wasLost && !editing && err.code === 'project_limit') message = 'This account now has 50 Projects, the most it can have. Your earlier save may have gone through. Close this and check your Projects.'
     else message = projectRefusalText(err.status, err.code, err.message)
     changedElsewhere = err.code === 'project_changed' && !!onreload
     const fieldName = err.field ?? ''
@@ -212,9 +216,10 @@
 
    <div class="field">
     <label for={`${id}-prompt`}>Shared prompt <span class="optional">optional</span></label>
-    <textarea id={`${id}-prompt`} bind:value={sharedPrompt} rows="3" aria-invalid={promptError ? 'true' : undefined} aria-describedby={`${id}-prompt-count ${id}-prompt-where${promptError ? ` ${id}-prompt-error` : ''}`}></textarea>
+    <textarea id={`${id}-prompt`} bind:value={sharedPrompt} rows="3" disabled={!promptKnown} aria-invalid={promptError ? 'true' : undefined} aria-describedby={`${id}-prompt-count ${id}-prompt-where${promptError ? ` ${id}-prompt-error` : ''}`}></textarea>
     <p class="hint count" id={`${id}-prompt-count`} class:over={promptBytes > MAX_PROMPT_BYTES}>{promptBytes.toLocaleString('en-GB')} of {MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes. Secrets don't belong here.</p>
     <p class="hint" id={`${id}-prompt-where`}>Sent as each repository's opening prompt. It is kept with the Project and with each session record, and is visible to other users of each machine in its process list.</p>
+    {#if !promptKnown}<p class="hint">The saved prompt wasn't read with this Project, so it is kept exactly as it is.</p>{/if}
     {#if promptError}<p class="reason" id={`${id}-prompt-error`}>{promptError}</p>{/if}
    </div>
 

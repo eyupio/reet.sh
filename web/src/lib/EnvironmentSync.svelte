@@ -180,11 +180,12 @@
   }
   // The outcome of an action on a machine card appears up here; without this a
   // person who acted far down the page sees the dialog close and nothing else.
-  $effect(() => {
-    if (!error && !notice) return
+  // Background refresh failures set the banner too, but they are not the person's doing.
+  async function showOutcome() {
+    await tick()
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     banner?.querySelector('p')?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' })
-  })
+  }
   function joinStepByStep(name: string) {
     setupHost = name
     void openSetup()
@@ -248,7 +249,7 @@
   {:else}
     <MachineSetup {terminalAccess} {site} {machines} {profiles} {token} {tokenSetup} {serverBuild} snapshot={syncState} bind:open={setupOpen} bind:host={setupHost} initialMode={initialSetupMode} onrefresh={() => load()} />
     {#if visibleMachines.length}
-      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {accounts} {terminalAccess} {monitorAccess} onadd={openSetup} onjoin={canAdd ? openJoin : undefined} {landing} onlanded={() => { landing = null }} highlight={justAdded} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e) }} {onsignedout} onnotice={(message) => { notice = message }} />
+      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {accounts} {terminalAccess} {monitorAccess} onadd={openSetup} onjoin={canAdd ? openJoin : undefined} {landing} onlanded={() => { landing = null }} highlight={justAdded} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e); void showOutcome() }} {onsignedout} onnotice={(message) => { notice = message; void showOutcome() }} />
     {/if}
   {/if}
 

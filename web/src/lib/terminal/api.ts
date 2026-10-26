@@ -17,7 +17,9 @@ export class TerminalError extends Error {
   code?: string
   /** Git's own first line, sent with some worktree refusals. Plain text, shown as detail under the sentence. */
   detail?: string
-  constructor(status: number, message: string, code?: string, detail?: string) { super(message); this.status = status; if (code) this.code = code; if (detail) this.detail = detail }
+  /** The field a Projects refusal is about ("name", "members.2.dir"), so a form can move focus there. */
+  field?: string
+  constructor(status: number, message: string, code?: string, detail?: string, field?: string) { super(message); this.status = status; if (code) this.code = code; if (detail) this.detail = detail; if (field) this.field = field }
 }
 /** What to start instead of a plain shell. Only the fields that are set are sent; the machine decides the program and flags. */
 export type LaunchRequest = { tool?: string; model?: string; dir?: string; prompt?: string }
@@ -29,14 +31,15 @@ export async function terminalRequest(path: string, init: RequestInit = {}): Pro
   if (init.body) headers.set('Content-Type', 'application/json')
   const response = await fetch(path, { ...init, headers, credentials: 'same-origin', cache: 'no-store' })
   if (!response.ok) {
-    let message = 'The terminal connection is unavailable.', code: string | undefined, detail: string | undefined
+    let message = 'The terminal connection is unavailable.', code: string | undefined, detail: string | undefined, field: string | undefined
     try {
       const body = await response.json()
       if (typeof body?.error === 'string' && body.error) message = body.error
       if (typeof body?.code === 'string' && body.code) code = body.code
       if (typeof body?.detail === 'string' && body.detail) detail = body.detail
+      if (typeof body?.field === 'string' && body.field) field = body.field
     } catch { /* fixed fallback */ }
-    throw new TerminalError(response.status, message, code, detail)
+    throw new TerminalError(response.status, message, code, detail, field)
   }
   return response
 }

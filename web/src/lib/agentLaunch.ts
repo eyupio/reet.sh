@@ -162,6 +162,17 @@ const RUN_SENTENCES: Record<string, string> = {
   nested_repository: 'This worktree contains another git repository. Move or remove it first.',
   hidden_changes: 'Git is not tracking some edits in this worktree. Review them before removing.',
   check_incomplete: "reet couldn't check all of this worktree. Remove it yourself.",
+  // Refusals any Projects request can meet.
+  invalid_version: "reet couldn't tell which version of this Project you're changing. Reload it and try again.",
+  invalid_request: "reet couldn't read that request. Reload the page and try again.",
+  too_large: 'That request is too large for a Project. Shorten the shared prompt or the folder paths.',
+  invalid_project: "Something in that Project can't be saved. Check each field and try again.",
+  member_state: "That repository can't do that in the state it is in now. Reload the run.",
+  member_stale: SOMETHING_CHANGED,
+  server_error: "reet couldn't do that just now. Try again.",
+  accounts_required: 'Projects need an account signed in through the browser.',
+  read_only: "This account is read-only, so it can't use Projects.",
+  origin_refused: "That request didn't come from this reet's own address. Open reet from its usual address and try again.",
 }
 
 /** The plain sentence for a code only Projects, runs and worktrees answer with; '' for any other code. */

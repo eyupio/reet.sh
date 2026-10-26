@@ -1,4 +1,4 @@
-import { toolName, validateDir, validateModel, refusalText, TOOLS } from './agentLaunch'
+import { toolName, validateDir, validateModel, refusalText, codeSentence, TOOLS } from './agentLaunch'
 import { readiness } from './terminal/api'
 import type { TerminalMachine, TerminalSession } from './terminal/api'
 
@@ -83,14 +83,33 @@ export function validateMember(member: MemberInput, machines: TerminalMachine[],
   return validateModel(member.model ?? '')
 }
 
-const cleanDir = (dir: string): string => (dir.length > 1 ? dir.replace(/\/+$/, '') : dir) || '/'
+/** Go's path.Clean: one slash between parts, no `.` parts, and each `..` removes the part before it (never above /). */
+export function cleanPath(dir: string): string {
+  const s = String(dir ?? '')
+  if (s === '') return '.'
+  const rooted = s.startsWith('/')
+  const out: string[] = []
+  for (const part of s.split('/')) {
+    if (part === '' || part === '.') continue
+    if (part === '..') {
+      if (out.length > 0 && out[out.length - 1] !== '..') out.pop()
+      else if (!rooted) out.push('..')
+      continue
+    }
+    out.push(part)
+  }
+  const joined = (rooted ? '/' : '') + out.join('/')
+  return joined === '' ? '.' : joined
+}
+// The server compares hosts trimmed and in lower case, and folders cleaned.
+const repositoryKey = (m: Pick<MemberInput, 'host' | 'dir'>): string => `${String(m.host ?? '').trim().toLowerCase()}\u0000${cleanPath(m.dir)}`
 
 /** The list as a whole: at most 12 repositories, each machine and folder once. */
 export function validateMembers(members: MemberInput[]): string | null {
   if (members.length > MAX_MEMBERS) return `A Project can have at most ${MAX_MEMBERS} repositories.`
   const seen = new Set<string>()
   for (const m of members) {
-    const key = `${m.host}\u0000${cleanDir(m.dir)}`
+    const key = repositoryKey(m)
     if (seen.has(key)) return 'Each machine and folder can be in a Project only once.'
     seen.add(key)
   }
@@ -112,7 +131,9 @@ const open = (s: Pick<TerminalSession, 'state'>): boolean => s.state === 'creati
  * machine or 32 on the account. `sessions` are the account's sessions now; each member planned to start counts as one
  * more, in order. A skipped member says why in plain words; `not_enrolled` is the one that offers Add a machine.
  */
-export function planRun(project: Project, machines: TerminalMachine[], _snapshot?: unknown, sessions: Pick<TerminalSession, 'agentId' | 'state'>[] = []): { start: PlannedMember[]; skipped: SkippedMember[] } {
+export function planRun(project: Project, machines: TerminalMachine[], _snapshot: unknown, sessions: Pick<TerminalSession, 'agentId' | 'state'>[]): { start: PlannedMember[]; skipped: SkippedMember[] } {
+  // Without the account's sessions the 8 and 32 limits could never apply, so the sheet would promise more than can start.
+  if (!Array.isArray(sessions)) throw new Error("planRun needs the account's sessions.")
   const start: PlannedMember[] = [], skipped: SkippedMember[] = []
   const perMachine = new Map<string, number>()
   let account = 0
@@ -123,7 +144,9 @@ export function planRun(project: Project, machines: TerminalMachine[], _snapshot
     const caps = machine?.capabilities
     const tool = member.tool || project.defaultTool
     if (!machine) { skip('not_enrolled', "That machine isn't enrolled on this account."); continue }
-    if (!machine.ready || readiness(machine) !== '') { skip('not_ready', readiness(machine) || 'The machine is reconnecting. Existing shells will be kept.'); continue }
+    // readiness() also says why when the machine is not connected right now.
+    const notReady = readiness(machine)
+    if (notReady !== '') { skip('not_ready', notReady); continue }
     if (caps?.launch !== true) { skip('no_launch', 'Update reet on that machine to start agents.'); continue }
     if (!Array.isArray(caps.tools) || !caps.tools.includes(tool)) { skip('tool_not_installed', "That agent isn't installed on that machine."); continue }
     if (project.useWorktrees && caps.worktree !== true) { skip('no_worktree', 'Update reet on that machine to start agents with worktrees.'); continue }
@@ -131,9 +154,19 @@ export function planRun(project: Project, machines: TerminalMachine[], _snapshot
     if (account >= MAX_SESSIONS_PER_ACCOUNT) { skip('account_session_limit', `This account already has ${MAX_SESSIONS_PER_ACCOUNT} sessions, the most it can have. End one, then start again.`); continue }
     perMachine.set(member.host, (perMachine.get(member.host) ?? 0) + 1)
     account++
-    start.push({ position: member.position, member, host: member.host, machine: machine.host, dir: member.dir, tool, toolName: toolName(tool), model: member.model || project.defaultModel, worktree: project.useWorktrees })
+    start.push({ position: member.position, member, host: member.host, machine: machine.host, dir: member.dir, tool, toolName: toolName(tool), model: resolvedModel(project, member), worktree: project.useWorktrees })
   }
   return { start, skipped }
+}
+
+/**
+ * The model a member starts with, as the server resolves it: its own, else the Project's default model only when it uses the
+ * default agent (a default model belongs to the default agent), else the agent's own default (empty).
+ */
+export function resolvedModel(project: Pick<Project, 'defaultTool' | 'defaultModel'>, member: Pick<ProjectMember, 'tool' | 'model'>): string {
+  if (member.model) return member.model
+  const tool = member.tool || project.defaultTool
+  return tool === project.defaultTool ? project.defaultModel : ''
 }
 
 /** The confirmation sheet's statement: what starts, how it is isolated, that nothing runs until Start, and where a prompt can be seen. */
@@ -182,4 +215,54 @@ export function worktreeRefusalText(status: number, code?: string, message?: str
   if (status === 404 && code === 'not_found') return refusalText(status, code, 'worktree')
   if (code === 'worktree_refused' && /^That machine refused to (check|remove) the worktree\.$/.test(msg)) return msg
   return refusalText(status, code, message)
+}
+
+// Field refusals that name the repository they are about ("Repository 2: …"). The server's own sentence is the useful one.
+const FIELD_CODES = new Set(['invalid_dir', 'unknown_machine', 'invalid_tool', 'invalid_model', 'invalid_prompt'])
+
+/** The sentence for a refused Project save, delete, read or run start. */
+export function projectRefusalText(status: number, code?: string, message?: string): string {
+  const msg = String(message ?? '').trim()
+  if (status === 422 && code && FIELD_CODES.has(code) && msg !== '' && msg.length <= 300 && !INVISIBLE.test(msg)) return msg
+  return refusalText(status, code, message)
+}
+
+/**
+ * What stops a worktree from being removed, in the spec's sentences. Uncommitted changes always block: they are shown, and
+ * the person commits, stashes or discards them in the worktree and checks again. Only unpushed commits can be removed with,
+ * because they stay on the branch.
+ */
+export function worktreeBlockers(s: WorktreeStatus): string[] {
+  const out: string[] = []
+  if (s.changed > 0) out.push(codeSentence('has_changes'))
+  if (s.unreferenced > 0) out.push(codeSentence('unreferenced_commits'))
+  if (s.hidden > 0) out.push(codeSentence('hidden_changes'))
+  if (s.nested) out.push(codeSentence('nested_repository'))
+  if (s.incomplete) out.push(codeSentence('check_incomplete'))
+  return out
+}
+
+/** The confirmation for a remove, with the counts that were shown (and that the remove request repeats). */
+export function removeConfirmText(s: WorktreeStatus): string {
+  const unpushed = s.unpushed === 0 ? 'no unpushed commits' : `${s.unpushed} unpushed ${s.unpushed === 1 ? 'commit, which stays' : 'commits, which stay'} on the branch`
+  return `Remove the worktree at ${s.path}? It has no uncommitted changes and ${unpushed}. Ignored files in it, such as .env or node_modules, are deleted with the folder. ${branchKept(s.branch)}`
+}
+
+/**
+ * Whether a run member's worktree may be offered for removal: the member started and made a worktree, and its session has
+ * ended (a session the list no longer has has ended too). reet never checks what a running agent is doing in the folder.
+ */
+export function removeOffer(m: RunMember, sessions: Pick<TerminalSession, 'id' | 'state'>[]): { offer: boolean; reason: string } {
+  if (m.state !== 'started' || !m.worktreeRun || !m.worktreeRepo || !m.worktreeProject) return { offer: false, reason: '' }
+  const session = sessions.find(s => s.id === m.sessionId)
+  if (session && open(session)) return { offer: false, reason: 'End its session before removing its worktree.' }
+  return { offer: true, reason: '' }
+}
+
+/** True while any member is still waiting to start: the run view keeps reading the run. */
+export const runPending = (run: Pick<ProjectRun, 'members'>): boolean => run.members.some(m => m.state === 'pending')
+
+/** A run's state in words, for the Projects list and the runs list. */
+export function runStateLabel(state: string): string {
+  return ({ running: 'Starting', complete: 'All started', partial: 'Some failed', failed: 'None started' } as Record<string, string>)[state] ?? state
 }

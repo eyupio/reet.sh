@@ -49,11 +49,16 @@ test('a Project holds at most 12 members and each machine and folder once', () =
   assert.equal(validateMembers([...ok, member('a1', '/r/x')]), 'A Project can have at most 12 repositories.')
   assert.equal(validateMembers([member('a1', '/r/x'), member('a1', '/r/x/')]), 'Each machine and folder can be in a Project only once.')
   assert.equal(validateMembers([member('a1', '/r/x'), member('a2', '/r/x')]), null)
+  // The same folder written another way is the same folder, as the server's path.Clean sees it.
+  for (const alias of ['/r//x', '/r/./x', '/r/y/../x', '/r/x/.', '//r/x', '/../r/x']) assert.equal(validateMembers([member('a1', '/r/x'), member('a1', alias)]), 'Each machine and folder can be in a Project only once.', alias)
+  assert.equal(validateMembers([member('a1', '/'), member('a1', '/r/..')]), 'Each machine and folder can be in a Project only once.')
+  assert.equal(validateMembers([member('a1', '/r/x'), member('a1', '/r/xx')]), null)
+  assert.equal(validateMembers([member('a1', '/r/x'), member(' A1 ', '/r/x')]), 'Each machine and folder can be in a Project only once.')
 })
 
 test('planRun starts a ready, launch-capable member with the tool installed, and resolves defaults', () => {
   const proj = project([member('a1', '/r/one'), member('a1', '/r/two', { tool: 'codex', model: 'gpt-5-codex' })], { defaultModel: 'sonnet' })
-  const plan = p.planRun(proj, [machine('a1')], [])
+  const plan = p.planRun(proj, [machine('a1')], undefined, [])
   assert.deepEqual(plan.skipped, [])
   assert.equal(plan.start.length, 2)
   assert.deepEqual(plan.start.map(s => [s.position, s.tool, s.model, s.worktree, s.dir, s.host, s.machine]), [[0, 'claude', 'sonnet', true, '/r/one', 'a1', 'a1-host'], [1, 'codex', 'gpt-5-codex', true, '/r/two', 'a1', 'a1-host']])
@@ -61,7 +66,7 @@ test('planRun starts a ready, launch-capable member with the tool installed, and
 })
 
 test('planRun skips with each reason, in order, and names it in plain words', () => {
-  const skip = (proj, machines, sessions) => planRun(proj, machines, [], sessions).skipped.map(s => [s.code, s.reason])
+  const skip = (proj, machines, sessions = []) => planRun(proj, machines, undefined, sessions).skipped.map(s => [s.code, s.reason])
   assert.deepEqual(skip(project([member('nope', '/r')]), [machine('a1')]), [['not_enrolled', "That machine isn't enrolled on this account."]])
   assert.deepEqual(skip(project([member('a1', '/r')]), [machine('a1', { ready: false })]), [['not_ready', 'The machine is reconnecting. Existing shells will be kept.']])
   assert.deepEqual(skip(project([member('a1', '/r')]), [machine('a1', { serverEnabled: false })])[0][0], 'not_ready')
@@ -71,7 +76,7 @@ test('planRun skips with each reason, in order, and names it in plain words', ()
   assert.deepEqual(skip(project([member('a1', '/r')], { defaultTool: 'opencode' }), [machine('a1')]), [['tool_not_installed', "That agent isn't installed on that machine."]])
   assert.deepEqual(skip(project([member('a1', '/r')]), [machine('a1', {}, { worktree: false })]), [['no_worktree', 'Update reet on that machine to start agents with worktrees.']])
   // The same machine is fine when the Project makes no worktrees.
-  assert.deepEqual(planRun(project([member('a1', '/r')], { useWorktrees: false }), [machine('a1', {}, { worktree: false })], []).skipped, [])
+  assert.deepEqual(planRun(project([member('a1', '/r')], { useWorktrees: false }), [machine('a1', {}, { worktree: false })], undefined, []).skipped, [])
   // Per-machine limit is 8 open sessions; closed sessions do not count.
   const open = (agentId, n, state = 'running') => Array.from({ length: n }, (_, i) => ({ id: `${agentId}-${state}-${i}`, agentId, state }))
   assert.deepEqual(skip(project([member('a1', '/r')]), [machine('a1')], open('a1', 8)), [['machine_session_limit', 'That machine already has 8 sessions, the most it can have. End one, then start again.']])
@@ -85,22 +90,24 @@ test('planRun skips with each reason, in order, and names it in plain words', ()
 test('planRun counts the sessions this run would add, so later members are skipped at the limits', () => {
   const members = Array.from({ length: 4 }, (_, i) => member('a1', `/r/${i}`))
   const sessions = Array.from({ length: 6 }, (_, i) => ({ id: 's' + i, agentId: 'a1', state: 'running' }))
-  const plan = planRun(project(members), [machine('a1')], [], sessions)
+  const plan = planRun(project(members), [machine('a1')], undefined, sessions)
   assert.deepEqual(plan.start.map(s => s.position), [0, 1])
   assert.deepEqual(plan.skipped.map(s => [s.member.dir, s.code]), [['/r/2', 'machine_session_limit'], ['/r/3', 'machine_session_limit']])
   const machines = ['a1', 'a2', 'a3', 'a4', 'a5'].map(a => machine(a))
   const busy = [...['a1', 'a2', 'a3'].flatMap(a => Array.from({ length: 8 }, (_, i) => ({ id: a + i, agentId: a, state: 'running' }))), ...Array.from({ length: 7 }, (_, i) => ({ id: 'd' + i, agentId: 'a4', state: 'running' }))]
-  const plan2 = planRun(project([member('a5', '/r/0'), member('a5', '/r/1'), member('a5', '/r/2')]), machines, [], busy)
+  const plan2 = planRun(project([member('a5', '/r/0'), member('a5', '/r/1'), member('a5', '/r/2')]), machines, undefined, busy)
   assert.deepEqual(plan2.start.map(s => s.position), [0])
   assert.deepEqual(plan2.skipped.map(s => s.code), ['account_session_limit', 'account_session_limit'])
 })
 
 test('planRun keeps each skipped member whole, and an empty Project plans nothing', () => {
-  const plan = planRun(project([member('a1', '/r/one'), member('zz', '/r/two')]), [machine('a1')], [])
+  const plan = planRun(project([member('a1', '/r/one'), member('zz', '/r/two')]), [machine('a1')], undefined, [])
   assert.equal(plan.start.length, 1)
   assert.equal(plan.skipped[0].member.dir, '/r/two')
   assert.equal(plan.skipped[0].position, 1)
-  assert.deepEqual(planRun(project([]), [], []), { start: [], skipped: [] })
+  assert.deepEqual(planRun(project([]), [], undefined, []), { start: [], skipped: [] })
+  // The session limits can only be applied from the account's sessions, so a call without them is refused.
+  assert.throws(() => planRun(project([member('a1', '/r')]), [machine('a1')], undefined))
 })
 
 test('the confirmation sentence says what starts, that nothing runs until Start, and where the prompt shows', () => {
@@ -183,6 +190,16 @@ test('refusalText has a sentence for every code Projects and runs can answer wit
     [409, 'name_taken', 'Another Project on this account already has that name.'],
     [409, 'project_limit', 'This account already has 50 Projects, the most it can have. Delete one first.'],
     [404, 'run_not_found', "That run isn't on this account."],
+    [400, 'invalid_version', "reet couldn't tell which version of this Project you're changing. Reload it and try again."],
+    [400, 'invalid_request', "reet couldn't read that request. Reload the page and try again."],
+    [413, 'too_large', 'That request is too large for a Project. Shorten the shared prompt or the folder paths.'],
+    [422, 'invalid_project', "Something in that Project can't be saved. Check each field and try again."],
+    [409, 'member_state', "That repository can't do that in the state it is in now. Reload the run."],
+    [409, 'member_stale', 'Something changed. Check again.'],
+    [500, 'server_error', "reet couldn't do that just now. Try again."],
+    [403, 'accounts_required', 'Projects need an account signed in through the browser.'],
+    [403, 'read_only', "This account is read-only, so it can't use Projects."],
+    [403, 'origin_refused', "That request didn't come from this reet's own address. Open reet from its usual address and try again."],
   ]
   for (const [status, code, text] of t) assert.equal(refusalText(status, code), text, code)
   // Existing behaviour is untouched.
@@ -281,6 +298,80 @@ test('a refusal carries its status, code and git detail', async () => {
     await assert.rejects(() => client.removeWorktree({ agentId: 'a', project: 's', repo: 'r', run: 'abc123abc123abcd' }, { changed: 0, unpushed: 0 }), e => e.status === 422 && e.code === 'git_failed' && e.detail === 'fatal: nope')
   })
   await withFetch(() => json(409, { error: 'x', code: 'project_changed' }), async () => {
-    await assert.rejects(() => client.saveProject({ name: 'n' }, { id: 'p1', version: 1 }), e => e.status === 409 && e.code === 'project_changed')
+    await assert.rejects(() => client.saveProject({ name: 'n' }, { id: 'p1', version: 1 }), e => e.status === 409 && e.code === 'project_changed' && e.field === undefined)
   })
+  await withFetch(() => json(422, { error: 'Repository 2: …', code: 'invalid_dir', field: 'members.1.dir' }), async () => {
+    await assert.rejects(() => client.saveProject({ name: 'n' }), e => e.status === 422 && e.code === 'invalid_dir' && e.field === 'members.1.dir')
+  })
+})
+
+test('a field refusal that names a repository keeps the server sentence; anything else uses refusalText', () => {
+  const { projectRefusalText } = p
+  assert.equal(projectRefusalText(422, 'invalid_dir', 'Repository 2: the folder must be an absolute path starting with /, at most 4096 bytes, without control characters or line separators.'), 'Repository 2: the folder must be an absolute path starting with /, at most 4096 bytes, without control characters or line separators.')
+  assert.equal(projectRefusalText(422, 'unknown_machine', "Repository 1: that machine isn't enrolled on this account."), "Repository 1: that machine isn't enrolled on this account.")
+  assert.equal(projectRefusalText(422, 'invalid_tool', 'Repository 3: choose one of the agents reet can start.'), 'Repository 3: choose one of the agents reet can start.')
+  assert.equal(projectRefusalText(422, 'invalid_model', 'Repository 3: that model name…'), 'Repository 3: that model name…')
+  assert.equal(projectRefusalText(422, 'invalid_prompt', 'The shared prompt must be valid text.'), 'The shared prompt must be valid text.')
+  // Without a message, or for another code, the fixed sentences.
+  assert.equal(projectRefusalText(422, 'invalid_tool', ''), 'Something changed. Check again.')
+  assert.equal(projectRefusalText(409, 'name_taken', 'anything'), 'Another Project on this account already has that name.')
+  assert.equal(projectRefusalText(409, 'project_changed', 'whatever'), 'Someone changed this Project. Reload it and try again.')
+  // A server message with control characters is not shown.
+  assert.equal(projectRefusalText(422, 'invalid_dir', 'bad\u0007'), 'Something changed. Check again.')
+})
+
+const state = (over = {}) => ({ path: '/home/me/.reet/worktrees/site/app/abc', branch: 'reet/site-abc', changed: 0, unpushed: 0, paths: [], unreferenced: 0, hidden: 0, nested: false, incomplete: false, ...over })
+
+test('a worktree can be removed only when nothing blocks it, and changes always block', () => {
+  const { worktreeBlockers } = p
+  assert.deepEqual(worktreeBlockers(state()), [])
+  assert.deepEqual(worktreeBlockers(state({ unpushed: 3 })), [])
+  assert.deepEqual(worktreeBlockers(state({ changed: 1, paths: ['a.txt'] })), ["This worktree has changes you haven't saved. Commit, stash or discard them in the worktree, then check again."])
+  assert.deepEqual(worktreeBlockers(state({ unreferenced: 2 })), ['Some commits in this worktree are not on any branch. Put them on a branch first, then check again.'])
+  assert.deepEqual(worktreeBlockers(state({ hidden: 1 })), ['Git is not tracking some edits in this worktree. Review them before removing.'])
+  assert.deepEqual(worktreeBlockers(state({ nested: true })), ['This worktree contains another git repository. Move or remove it first.'])
+  assert.deepEqual(worktreeBlockers(state({ incomplete: true })), ["reet couldn't check all of this worktree. Remove it yourself."])
+  assert.equal(worktreeBlockers(state({ changed: 4, unreferenced: 1, hidden: 1, nested: true, incomplete: true })).length, 5)
+})
+
+test('the remove confirmation states the counts that were shown and what is deleted and kept', () => {
+  const { removeConfirmText } = p
+  assert.equal(removeConfirmText(state()), 'Remove the worktree at /home/me/.reet/worktrees/site/app/abc? It has no uncommitted changes and no unpushed commits. Ignored files in it, such as .env or node_modules, are deleted with the folder. The branch reet/site-abc is kept.')
+  assert.equal(removeConfirmText(state({ unpushed: 1 })), 'Remove the worktree at /home/me/.reet/worktrees/site/app/abc? It has no uncommitted changes and 1 unpushed commit, which stays on the branch. Ignored files in it, such as .env or node_modules, are deleted with the folder. The branch reet/site-abc is kept.')
+  assert.equal(removeConfirmText(state({ unpushed: 4 })).includes('4 unpushed commits, which stay on the branch'), true)
+})
+
+test('Remove worktree is offered only for a started member with a worktree whose session has ended', () => {
+  const { removeOffer } = p
+  const m = (over = {}) => ({ position: 0, host: 'a1', dir: '/r', tool: 'claude', model: '', state: 'started', code: '', sentence: '', sessionId: 's1', worktreePath: '/w', worktreeRepo: 'r', worktreeBranch: 'reet/p-t', worktreeRun: 't', worktreeProject: 'p', sharesCheckout: false, attempt: 1, ...over })
+  assert.deepEqual(removeOffer(m(), [{ id: 's1', agentId: 'a1', state: 'ended' }]), { offer: true, reason: '' })
+  // A session the list no longer has has ended too.
+  assert.deepEqual(removeOffer(m(), []), { offer: true, reason: '' })
+  for (const st of ['creating', 'running', 'end_requested']) assert.deepEqual(removeOffer(m(), [{ id: 's1', agentId: 'a1', state: st }]), { offer: false, reason: 'End its session before removing its worktree.' }, st)
+  assert.equal(removeOffer(m({ state: 'pending' }), []).offer, false)
+  assert.equal(removeOffer(m({ state: 'failed' }), []).offer, false)
+  assert.equal(removeOffer(m({ state: 'removed' }), []).offer, false)
+  assert.equal(removeOffer(m({ worktreeRun: '', worktreeRepo: '', sharesCheckout: true }), []).offer, false)
+  assert.equal(removeOffer(m({ worktreeRepo: '' }), []).offer, false)
+})
+
+test('a run is waited on while any member is pending', () => {
+  const { runPending } = p
+  assert.equal(runPending({ members: [{ state: 'started' }, { state: 'pending' }] }), true)
+  assert.equal(runPending({ members: [{ state: 'started' }, { state: 'failed' }, { state: 'removed' }] }), false)
+})
+
+test('a run state is named in plain words', () => {
+  const { runStateLabel } = p
+  assert.equal(runStateLabel('running'), 'Starting')
+  assert.equal(runStateLabel('complete'), 'All started')
+  assert.equal(runStateLabel('partial'), 'Some failed')
+  assert.equal(runStateLabel('failed'), 'None started')
+  assert.equal(runStateLabel('odd'), 'odd')
+})
+
+test("a member that switches agent without naming a model gets that agent's own default, as the server resolves it", () => {
+  const proj = project([member('a1', '/r/0'), member('a1', '/r/1', { tool: 'codex' }), member('a1', '/r/2', { tool: 'codex', model: 'gpt-5-codex' }), member('a1', '/r/3', { tool: 'claude' }), member('a1', '/r/4', { model: 'haiku' })], { defaultModel: 'opus' })
+  assert.deepEqual(planRun(proj, [machine('a1')], undefined, []).start.map(s => s.model), ['opus', '', 'gpt-5-codex', 'opus', 'haiku'])
+  assert.equal(p.resolvedModel({ defaultTool: 'claude', defaultModel: '' }, { tool: '', model: '' }), '')
 })

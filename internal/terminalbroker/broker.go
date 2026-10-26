@@ -502,7 +502,12 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	if err != nil {
 		return store.TerminalSession{}, false, err
 	}
-	if launchRequested(in) {
+	// A request id the controller already reserved is answered from that
+	// reservation below, whatever the machine advertises now: the agent may be
+	// running, and a refusal here would read as "nothing started". Only a new
+	// request is checked against the capabilities.
+	_, lookupErr := b.st.TerminalOperationFor(uid, agent, "create", request)
+	if launchRequested(in) && lookupErr != nil {
 		caps, err := b.st.RemoteCapabilitiesFor(uid, agent)
 		if err != nil || caps.Generation != p.Generation {
 			return store.TerminalSession{}, false, ErrOffline

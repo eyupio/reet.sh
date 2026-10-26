@@ -83,7 +83,7 @@ try {
   await expect(page.getByRole('complementary',{name:'Session navigation'})).toBeVisible()
   expect(sockets).toBe(actionSockets);expect(await state()).toEqual(original)
 
-  await page.goto(base)
+  await page.goto(`${base}/control`)
   const activeBand=page.locator('#active-sessions')
   await expect(activeBand).toContainText('1 active session')
   const continuedAt=Date.now()
@@ -209,7 +209,7 @@ try {
   const secondContext=await browser.newContext({viewport:{width:1360,height:1000}})
   await secondContext.addCookies([{name:'reet_session',value:process.env.REET_BROWSER_COOKIE,url:base,httpOnly:true,sameSite:'Lax'}])
   const secondPage=await secondContext.newPage()
-  await secondPage.goto(base)
+  await secondPage.goto(`${base}/control`)
   await secondPage.getByRole('button',{name:/Your command library/}).click()
   await expect(secondPage.getByRole('dialog').locator('code')).toHaveText(savedText)
   await secondContext.close()

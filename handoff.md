@@ -2544,38 +2544,55 @@ keyboard, and a blank terminal on returning to the tab.
   phone font default, the 20×8 size floor, a resize sender (150 ms debounce, never resends a size
   the host has, a one-row repaint nudge), the usable viewport height and keyboard detection.
 - `TerminalPane.svelte`: phones default to 11 px when no font is stored; one-line pane header and
-  rows without vertical padding (touch controls keep 40 px); overflow fades on the toolbar and key
+  rows without vertical padding (toolbar and keys at least 40 × 40 px on touch screens); overflow fades on the toolbar and key
   row; the key row is focusable; the Alt+Shift+M advice is hidden on touch screens; the size sent
-  is floored at 20×8 with the bottom rows kept in view; a reattach or a return to the page sends one
-  repaint nudge (height − 1 row, then the real size 300 ms later, using the existing resize
-  message); the footer hides while the keyboard is open; a maximised pane follows the usable
+  is floored at 20×8 with the bottom rows kept in view; a reattach, or a return to the page that passes the
+  gate in the fix round below, sends one repaint nudge (one row shorter, or taller at the floor,
+  then the real size 300 ms later, using the existing resize message); the footer hides while the keyboard is open; a maximised pane follows the usable
   height and offset.
 - `TerminalWorkspace.svelte`: the keyboard focus layout. On a narrow touch screen, with the focus
   in the terminal and the height at least 25% below the tallest seen, the site header and the
   workspace toolbar are hidden (`html[data-terminal-keyboard]`); Show sessions stays in the
   terminal toolbar.
-- `web/index.html`: `interactive-widget=resizes-content`. When the page itself shrinks for the
+- Viewport meta: `interactive-widget=resizes-content`, set by the terminal workspace while it is
+  mounted (first in `web/index.html`; moved in the fix round). When the page itself shrinks for the
   keyboard by 15% or more, `innerHeight` is used instead of a lower `visualViewport.height`.
-- `connection.ts`: `resize()` reports whether the frame was sent, so an undelivered size is retried.
+- `connection.ts`: `resize()` reports whether the frame was sent, so an undelivered size is not treated as sent
+  (the next layout change or ticket carries it; there is no automatic retry).
 - Fixture `web/tests/terminal-phone.e2e.mjs` (added to `terminal-browser.yml`); docs in
   `docs/terminal-workspace.md` (Phones) and `docs/ui-verification.md`.
 - The extra-key row is now reachable by keyboard, which resolves the earlier
   `scrollable-region-focusable` note on `.mobile-keys`.
 
+**Fix round after review.**
+- The repaint nudge on a return to the page now needs a touch screen or 30 s hidden, and never runs
+  twice within 5 s (`repaintOnReturn`). Reattach still always nudges. It runs on every screen size.
+- At the 8-row floor the nudge goes one row taller (9, then 8) instead of below the floor.
+- `interactive-widget=resizes-content` is no longer in `index.html`; the terminal workspace adds it
+  while mounted and restores the previous meta when it unmounts.
+- Sideways phones (touch, landscape, 500 px tall or less) get the phone rules, with the toolbar and
+  extra keys in one row and no footer; while typing, the pane header also steps aside. Fixture
+  numbers: 13 rows at 844 × 390 (15 at 915 × 412), 8 with the keyboard open, 9–10 maximised.
+- Toolbar buttons and extra keys are at least 40 × 40 px on touch screens.
+- `?viewport-debug=1` shows a live readout of the measured heights (below).
+
 **Needs a real-phone check.** The blank band is explained by a hypothesis that the emulation can't
 prove: an Android browser's visual viewport still subtracting a bottom toolbar it hides while the
-keyboard is open. On the owner's phone, open a terminal, tap into it so the keyboard opens, then run
-this in the browser's remote console (or a bookmarklet) and record the numbers with the keyboard
-closed and open, normal and maximised:
+keyboard is open. On the owner's phone:
+1. Open a terminal and add `&viewport-debug=1` to the address (or `?viewport-debug=1` when the
+   address has no `?`). A small dark readout appears in the top corner. It ignores touches and never
+   takes focus.
+2. Tap into the terminal so the keyboard opens. Note the readout: `visualViewport.height`,
+   `offsetTop`, `innerHeight`, `screen.height`, the used height and `keyboard open/closed`.
+3. Repeat with the keyboard closed, maximised and not, and held sideways. A screenshot of each is
+   enough.
 
-```js
-JSON.stringify({vv: visualViewport.height, vvTop: visualViewport.offsetTop, inner: innerHeight, screen: screen.height, dpr: devicePixelRatio, keyboardLayout: document.documentElement.hasAttribute('data-terminal-keyboard')})
-```
-
-- Expected with `resizes-content` honoured: `inner` drops with the keyboard and the pane ends at the
-  keyboard. If `inner` does not drop (meta ignored) and `vv` is about 90 px short, the band can
-  remain; the next step would be a per-browser correction, which needs these numbers first.
-- Also check: rows with the keyboard open (expect at least 15 maximised at 390 px), that the agent's
-  screen repaints after switching apps and back, and that a long-idle tab that reloads shows the
-  agent rather than a blank screen.
-- Landscape phones are wider than 650 px and keep the tablet layout; not addressed here.
+What the numbers mean:
+- `innerHeight` drops with the keyboard: the browser honours the meta set after load, and the used
+  height should match the visible area (no band).
+- `innerHeight` does not drop and `visualViewport.height` is about 90 px short of the visible area:
+  the band can remain. The next step would be a per-browser correction, which needs these numbers.
+- Also check: rows with the keyboard open (expect at least 15 maximised at 390 px wide, about 8
+  sideways), that the agent's screen repaints after switching apps and back, and that a long-idle
+  tab that reloads shows the agent rather than a blank screen.
+- Not covered yet: dialogs and other pages on sideways phones.

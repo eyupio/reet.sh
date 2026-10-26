@@ -418,8 +418,9 @@ sent a resize, identical sizes were resent, and the size could drop to 1 row.
 **What the fixture checks.**
 - **Phone (390 × 844, touch).**
   - No stored font gives 11 px and a ticket of at least 50 columns (53 here); a stored 16 still wins.
-  - The pane header, terminal toolbar and key row are each at most 42 px tall, and every control in
-    them is at least 40 px tall. The user/host stays in the header.
+  - The pane header, terminal toolbar and key row are each at most 42 px tall. Every toolbar button
+    and extra key is at least 40 × 40 px (fix round; at first only the heights were 40 px), and the
+    header controls are 40 px tall. The user/host stays in the header.
   - Both sideways rows overflow, carry the end fade, fade at the start once scrolled, and have
     `overflow-x: auto`. The key row takes focus and scrolls with the arrow keys.
   - The Alt+Shift+M advice is in the DOM but hidden when maximised; Show sessions stays in the
@@ -436,11 +437,24 @@ sent a resize, identical sizes were resent, and the size could drop to 1 row.
     input line) stays visible.
   - Returning to the page sends exactly two frames on the same socket, one row shorter and then the
     real size. A reattach does the same, ending on the fitted size. The first attach sends no nudge.
+  - Fix round: a shrinking viewport with the focus outside the terminal keeps the header; at the
+    floor the return nudge sends 9 then 8 rows; a second return within 5 s sends nothing; the
+    viewport meta has `interactive-widget=resizes-content` on the terminal page only (`/`,
+    `/hosting` and `/machines` keep the default).
+- **Viewport readout (`?viewport-debug=1`).** Shows `innerHeight 844` and `keyboard closed`, then the
+  shrunk `visualViewport.height`, the used height and `keyboard open` while the terminal keeps the
+  focus; `pointer-events: none`; nothing in browser storage; absent without the parameter.
+- **Sideways phones (844 × 390 and 915 × 412, touch).** 11 px; the toolbar and extra keys share a row
+  and the footer is hidden; the toolbar fades and scrolls to its last control (Maximise). Visible
+  rows: 13 and 15 with the keyboard closed (at least 12 asserted), 8 and 8 with it open (at least 6),
+  9 and 10 maximised with it open; the site header and pane header step aside while typing; the pane
+  ends at the keyboard; every frame is at least 20 × 8.
 - **1360 × 900 and 768 × 900 (mouse).** 14 px text; the pane header, toolbar and screen frame keep
   their padding (`7px 12px`, `5px 8px`, `12px 10px 8px 14px`); no fade; the key row stays hidden; the
   footer is visible; the maximised pane sits 12 px from each edge; the Alt+Shift+M advice shows. A
   shrinking visual viewport while typing does not start the keyboard layout. A 390 × 844 window
-  without touch keeps its header too.
+  without touch keeps its header too. At 1360 × 900 a quick return to the page sends no frame; a
+  return after 31 s (simulated clock) sends the two-frame nudge.
 - **Before and after, measured.** A separate probe measured the site header, workspace toolbar, pane,
   pane header, toolbar, screen frame, screen, footer and the size sent, normal and maximised. At
   1360 × 900 and 768 × 900 every number was identical before and after. A 768 × 1024 touch tablet
@@ -466,13 +480,22 @@ caught by the fixture; 6 were also caught by the unit tests.
 | No fade | fixture |
 | Floored grid not shifted to show its last rows | fixture (last row visible) |
 
+**Fix-round mutation checks.** 13 more mutants, all caught by the fixture (4 also by the unit tests):
+nudge below the floor; return gate ignoring touch; return always nudging on desktop; no cooldown;
+keyboard layout without terminal focus; no sideways compact rules; no shared tool row; pane header
+kept while typing sideways; keyboard layout portrait-only; 30 px toolbar buttons; readout taking
+touches; readout always on; viewport meta global again. Resizing the grid once at the floor
+(`proposeDimensions`) has no visible effect and was not mutation-checked.
+
 **Runs.** The full fixture list of `.github/workflows/terminal-browser.yml` ran twice against the
 production build, including the terminal workspace, lifecycle, organisation and phone fixtures. The
 existing terminal-workspace bounds held: 390 × 844 now has a 576 px screen (was 529) and 390 × 420
 has 152 px (was 105). The real browser, broker and tmux test
 (`TestTerminalPrivateLifecyclePreservesActualShell`) passed twice with a UTF-8 locale; it now counts
 the attachment ticket as a sent size and waits for the debounced phone resize. Without a UTF-8 locale
-its emoji step fails in this container on main as well.
+its emoji step fails in this container on main as well. After the fix round, the 20 fixtures again
+passed twice each (one pass took 532 s locally, the phone fixture 23 s of it) and the real test passed
+twice.
 
 **Not checked.**
 - No physical phone. The keyboard is simulated by replacing `visualViewport` or resizing the page;
@@ -480,7 +503,9 @@ its emoji step fails in this container on main as well.
   under-report itself, need the device check in `handoff.md`.
 - No real agent: the repaint nudge was checked on the wire and, through the existing real tmux
   fixture, against a shell; whether a particular agent repaints in full after it is a device check.
-- Landscape phones (wider than 650 px) keep the tablet layout.
+- Sideways phones: only the terminal is covered; dialogs and other pages are not.
+- The viewport meta is restored when the workspace unmounts, but the app loads each page in full, so
+  that path is not reached by the fixture.
 - No accessibility scan was run for this change; no Safari, Firefox or screen reader.
 
 ## Projects: layout, focus and motion matrix — 26 October 2026

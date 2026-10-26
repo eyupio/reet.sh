@@ -243,8 +243,11 @@ and restores the sidebar. Its saved width and organisation remain intact.
 
 ## Phones
 
-These rules apply at 650 px wide or less. Desktop and tablet layouts are unchanged,
-and `web/tests/terminal-phone.e2e.mjs` checks them at 1360 and 768 px.
+These rules apply to phones: a window 650 px wide or less, or a touch screen held
+sideways that is 500 px tall or less (`PHONE_SCREEN` in `terminal/sizing.ts`). The
+sideways rules cover the terminal only; dialogs and other pages are unchanged. Desktop
+and tablet layouts are unchanged, and `web/tests/terminal-phone.e2e.mjs` checks them
+at 1360 and 768 px.
 
 **Size sent to the host.** The browser resizes the real session: the host sets the
 attachment's PTY size and tmux resizes the window, so the app gets SIGWINCH.
@@ -253,37 +256,63 @@ attachment's PTY size and tmux resizes the window, so the app gets SIGWINCH.
   agent input live.
 - Sizes are sent 150 ms after the last layout change (a keyboard animating in sends
   one size, not one per frame), and a size the host already has is never sent. The
-  attachment ticket counts as sent.
-- Reattaching, or the page becoming visible again, sends one repaint nudge: the
-  height one row shorter, then 300 ms later the real size. tmux passes a real size
-  change to the app, which repaints in full. It uses the existing resize message; no
-  tmux option or protocol message changed, and other tmux clients are unaffected
-  beyond tmux's normal latest-client sizing. The first attach is not nudged because
-  tmux repaints its own grid then.
+  attachment ticket counts as sent. A size the connection could not send is not
+  treated as sent; the next layout change or the next ticket carries it.
+- A repaint nudge sends the height one row shorter (one row taller at the 8-row
+  floor), then 300 ms later the real size. tmux passes a real size change to the app,
+  which repaints in full. It uses the existing resize message; no tmux option or
+  protocol message changed, and other tmux clients are unaffected beyond tmux's
+  normal latest-client sizing.
+- The nudge runs on every screen, not only phones: after each reattach, and when the
+  page becomes visible again if the screen is a touch screen (phones freeze background
+  tabs) or the page was hidden for 30 s or more. Never twice within 5 s; a reattach
+  counts. The first attach is not nudged because tmux repaints its own grid then.
 
-**Font.** With no stored size, phones (a narrow screen with a coarse pointer) start at
-11 px, about 54 columns at 390 px instead of 41. A stored size (10–22) always wins.
+**Font.** With no stored size, phones with a coarse pointer start at 11 px, about 54
+columns at 390 px instead of 41. A stored size (10–22) always wins.
 
 **Chrome.** The pane header is one line, with the user/host still shown and truncated.
-The pane header, terminal toolbar and extra-key row lose their vertical padding,
-keeping every touch control at a 40 px hit area. The screen frame padding is 4 px.
-The toolbar and key row scroll sideways; the end that hides more controls fades. The
-key row is focusable, so arrow keys scroll it. The Alt+Shift+M advice is hidden on
-touch screens (no hover, coarse pointer); Restore size stays.
+The pane header, terminal toolbar and extra-key row lose their vertical padding. On a
+touch screen every toolbar button and extra key is at least 40 × 40 px, and the header
+controls are 40 px tall. The screen frame padding is 4 px. The toolbar and key row
+scroll sideways; the end that hides more controls fades. The key row is focusable, so
+arrow keys scroll it; that tab stop also appears in mouse windows narrower than 650 px,
+where the key row shows too. The Alt+Shift+M advice is hidden on touch screens (no
+hover, coarse pointer); Restore size stays.
+
+**Sideways phones.** The toolbar and the extra keys share one row, each scrolling with
+its own fade, and the pane footer is hidden (the state stays in the header). At 844 ×
+390 the screen shows 13 rows with the keyboard closed.
 
 **Keyboard focus layout.** While the on-screen keyboard is open and the focus is in the
-terminal, the site header, the workspace toolbar and the pane footer are hidden.
+terminal, the site header, the workspace toolbar and the pane footer are hidden; held
+sideways, the pane header is hidden too (8 rows at 844 × 390 instead of none).
 **Show sessions** stays in the terminal toolbar. Everything returns when the keyboard
-closes or the focus leaves the terminal. Detection needs a coarse pointer, a narrow
+closes or the focus leaves the terminal. Detection needs a coarse pointer, a phone
 screen, an unzoomed page, focus in the terminal and a height at least 25% below the
 tallest seen at that width. Theatre view still keeps the site header.
+- The tallest height is kept per width for the page's life. A same-width split screen
+  that halves the window while the focus is in the terminal therefore also gets this
+  layout, which suits it. A page first loaded with the keyboard already open, in a
+  browser that overlays the keyboard, gets the layout only after the keyboard has
+  closed once.
 
-**Usable height.** The viewport meta sets `interactive-widget=resizes-content`, so
-Android browsers that support it shrink the page itself for the keyboard. When the
-page is at least 15% shorter than the tallest seen at that width, its height
-(`innerHeight`) is used even if `visualViewport.height` is lower. One Android browser
-reports a visual viewport that still subtracts a bottom toolbar it hides while
-typing, which left a blank band about 90 px tall above the keyboard. Otherwise
-(iOS, which ignores the meta, and browsers that overlay the keyboard) the visual
-viewport height and its `offsetTop` are used. A maximised pane follows the same
-height and offset. Still to be checked on a physical phone; see `handoff.md`.
+**Usable height.** While the terminal workspace is mounted it adds
+`interactive-widget=resizes-content` to the viewport meta and restores the previous
+value when it unmounts; other pages keep the default, so their fixed bars and `100dvh`
+dialogs are unchanged. Android browsers that honour it shrink the page itself for the
+keyboard. Whether they honour a meta changed after load must be checked on the
+device; the height rule below covers both answers.
+- When the page is at least 15% shorter than the tallest seen at that width, its
+  height (`innerHeight`) is used even if `visualViewport.height` is lower. One Android
+  browser reports a visual viewport that still subtracts a bottom toolbar it hides
+  while typing, which left a blank band about 90 px tall above the keyboard.
+- Otherwise (iOS, which ignores the meta, and browsers that overlay the keyboard) the
+  visual viewport height and its `offsetTop` are used. A maximised pane follows the
+  same height and offset.
+
+**Checking a phone.** Open the terminal with `?viewport-debug=1` added to its address.
+A small readout in the top corner shows, live, `visualViewport.height` and `offsetTop`,
+`innerHeight`, `screen.height`, the height used and whether the keyboard layout is on.
+It never takes focus or touches, so the keyboard stays open while you read it; nothing
+is stored or sent. See `handoff.md` for what to record.

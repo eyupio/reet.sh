@@ -1,5 +1,7 @@
 <script lang="ts">
   import NavigationMenu from './lib/NavigationMenu.svelte'
+  import ProjectsPage from './lib/ProjectsPage.svelte'
+  import ProjectPage from './lib/ProjectPage.svelte'
   import Machines from './lib/Machines.svelte'
   import ControlCenter from './lib/ControlCenter.svelte'
   import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
@@ -115,6 +117,10 @@
   const isTerminals = location.pathname === '/terminals' || legacyMachinePage && machineView === 'terminal'
   const isSync = location.pathname === '/sync' || legacyMachinePage && !isTerminals && (machineView === 'compare' || location.pathname === '/account/sync')
   const isHosting = location.pathname === '/hosting'
+  // /projects lists them; /projects/<id> is one Project. Only the id is ever in the address.
+  const projectMatch = location.pathname.match(/^\/projects(?:\/([^/]+))?\/?$/)
+  const isProjects = projectMatch !== null
+  const projectId = projectMatch?.[1] ? decodeURIComponent(projectMatch[1]) : ''
   const isCommunity = location.pathname === '/community'
   const isShared = location.pathname === '/shared'
   const isSpaces = location.pathname === '/spaces'
@@ -152,7 +158,7 @@
   const mainNavigation = $derived([
     { href: '/', label: 'Control', current: isControl },
     { href: '/machines', label: 'Machines', current: isMachines && !isSync && !isTerminals },
-    ...(authMode === 'accounts' && canWrite ? [{ href: '/terminals', label: 'Terminals', current: isTerminals }] : []),
+    ...(authMode === 'accounts' && canWrite ? [{ href: '/terminals', label: 'Terminals', current: isTerminals }, { href: '/projects', label: 'Projects', current: isProjects }] : []),
     { href: '/skills', label: 'Skills', current: isSkills },
     { href: '/profiles', label: 'Setups', current: isProfiles },
     { href: '/community', label: 'More', current: isShared || isList || isSpaces || isCommunity || isHosting || isSupport || isTicket || isSync,
@@ -759,7 +765,7 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isControl ? 'Control' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isControl ? 'Control' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isProjects ? 'Projects' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found'} · reet.sh</title>
   {/if}
 </svelte:head>
 
@@ -824,6 +830,13 @@
     <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
   {:else if isControl}
     <ControlCenter {canWrite} terminalAccess={authMode === 'accounts' && canWrite} monitorAccess={authMode === 'accounts' || authMode === 'token'} />
+  {:else if isProjects && !(authMode === 'accounts' && canWrite)}
+    <PageHeader eyebrow="Projects" title="Projects need a writer's account." />
+    <p class="notice bad" role="alert">{authMode === 'accounts' ? "This account is read-only, so it can't use Projects." : 'Projects need an account signed in through the browser.'}</p>
+  {:else if isProjects && projectId}
+    <ProjectPage id={projectId} onsignedout={fail} />
+  {:else if isProjects}
+    <ProjectsPage onsignedout={fail} />
   {:else if isMachines}
     <Machines userId={currentUser?.id??0} onsignedout={fail} {canWrite} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} />
   {:else if isProfiles}

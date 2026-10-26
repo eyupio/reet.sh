@@ -124,6 +124,60 @@ export function titleFor(tool: string, dir: string): string {
   return Array.from(title).length <= 80 ? title : Array.from(title).slice(0, 80).join('')
 }
 
+const RUN_SENTENCES: Record<string, string> = {
+  unknown_position: 'Choose repositories that are in this Project, each once.',
+  not_failed: 'Only a repository that failed can be tried again.',
+  terminals_disabled: "Remote terminals are switched off on this server, so agents can't be started.",
+  unknown_outcome: "We didn't hear back, so the agent may have started. Check your sessions before retrying.",
+  session_lost: 'That machine lost the session before it started. Start it again.',
+  machine_refused: 'That machine refused to start the agent. Check the machine, then try again.',
+  invalid_launch: "reet couldn't send that start request. Check the Project's settings and try again.",
+  request_changed: 'That request changed. Start it again.',
+  request_id_required: 'Starting a run needs a request id: 16 to 128 letters, digits, hyphens or underscores.',
+  run_in_progress: 'This Project is still starting. Wait for it to finish, then start again.',
+  internal_error: 'Something went wrong on our side. Check your sessions, then retry.',
+  project_changed: 'Someone changed this Project. Reload it and try again.',
+  run_not_found: "That run isn't on this account.",
+  name_taken: 'Another Project on this account already has that name.',
+  project_limit: 'This account already has 50 Projects, the most it can have. Delete one first.',
+  member_limit: 'A Project can have at most 12 repositories.',
+  duplicate_member: 'Each machine and folder can be in a Project only once.',
+  no_members: 'Choose at least one repository to start.',
+  member_not_pending: "That repository isn't waiting to start, or is already being started.",
+  invalid_name: 'Give the Project a name of 1 to 80 characters, without line breaks or control characters.',
+  worktree_busy: 'That machine is already working on a worktree. Try again in a minute.',
+  worktree_unavailable: "That machine couldn't do that just now. Try again in a moment.",
+  worktree_mismatch: "That machine's answer did not match the request. Check again.",
+  worktree_unsupported: 'Update reet on that machine to start agents with worktrees.',
+  worktree_changed: 'That worktree changed since you looked. Check again.',
+  worktree_refused: 'That machine refused to make a worktree for this request. Start it again to see why.',
+  // The reasons a machine gives for refusing a worktree create, status or remove.
+  not_repo_root: "That folder isn't the top of a git repository.",
+  repo_busy: 'That repository is in the middle of a merge, rebase or similar. Finish or abort it first.',
+  worktree_exists: "A worktree or branch with this run's name is already on that machine, so nothing was started.",
+  outside_home: 'The folder ~/.reet/worktrees on that machine is a link, belongs to another user or can be changed by others. Fix it, then try again.',
+  not_registered: "Git doesn't list that folder as this run's worktree, so reet won't touch it.",
+  has_changes: "This worktree has changes you haven't saved. Commit, stash or discard them in the worktree, then check again.",
+  unreferenced_commits: 'Some commits in this worktree are not on any branch. Put them on a branch first, then check again.',
+  nested_repository: 'This worktree contains another git repository. Move or remove it first.',
+  hidden_changes: 'Git is not tracking some edits in this worktree. Review them before removing.',
+  check_incomplete: "reet couldn't check all of this worktree. Remove it yourself.",
+  // Refusals any Projects request can meet.
+  invalid_version: "reet couldn't tell which version of this Project you're changing. Reload it and try again.",
+  invalid_request: "reet couldn't read that request. Reload the page and try again.",
+  too_large: 'That request is too large for a Project. Shorten the shared prompt or the folder paths.',
+  invalid_project: "Something in that Project can't be saved. Check each field and try again.",
+  member_state: "That repository can't do that in the state it is in now. Reload the run.",
+  member_stale: SOMETHING_CHANGED,
+  server_error: "reet couldn't do that just now. Try again.",
+  accounts_required: 'Projects need an account signed in through the browser.',
+  read_only: "This account is read-only, so it can't use Projects.",
+  origin_refused: "That request didn't come from this reet's own address. Open reet from its usual address and try again.",
+}
+
+/** The plain sentence for a code only Projects, runs and worktrees answer with; '' for any other code. */
+export const codeSentence = (code: string | undefined): string => (code && Object.hasOwn(RUN_SENTENCES, code) ? RUN_SENTENCES[code] : '')
+
 /**
  * The sentence for a refused start. The server sends {error, message} and, for launch refusals only, a `code`. `message`
  * is the server's own text, used to tell apart refusals that share a status.
@@ -132,6 +186,10 @@ export function refusalText(status: number, code?: string, message?: string): st
   const c = code ?? ''
   const msg = (message ?? '').toLowerCase()
   if (status === 401) return "You've been signed out. Sign in again to continue."
+  if (c === 'git_failed') return msg.startsWith("git couldn't") ? (message ?? '') : "Git couldn't make a worktree there."
+  if (status === 404 && c === 'not_found') return msg.includes('worktree') ? "That worktree isn't on that machine. It may have been removed already." : "That Project isn't on this account."
+  const known = codeSentence(c)
+  if (known) return known
   if (status === 409 && c === 'launch_unsupported') return 'Update reet on that machine to start agents.'
   if (status === 422 && c === 'tool_not_installed') return "That agent isn't installed on that machine."
   if (status === 422 && c === 'folder_unavailable') return "That folder isn't available on that machine."

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"net/http"
+	"net/http/httptest"
 	"path"
 	"strings"
 	"sync"
@@ -831,5 +833,66 @@ func TestProjectRefusalsNeverEchoTheSharedPrompt(t *testing.T) {
 	check("POST", "/api/v2/project-runs/"+run.ID+"/members/9/retry", `{}`)
 	if strings.Contains(f.logs.String(), "zebra-sentinel") {
 		t.Fatal("the prompt reached the log")
+	}
+}
+
+func TestProjectRunStartHonoursIfMatch(t *testing.T) {
+	f := runMachineFixture(t)
+	id := f.project(t)
+	start := func(version string, body map[string]any) (int, map[string]any, string) {
+		data, _ := json.Marshal(body)
+		r := httptest.NewRequest("POST", "/api/v2/projects/"+id+"/runs", strings.NewReader(string(data)))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Origin", "https://reet.example")
+		if version != "" {
+			r.Header.Set("If-Match", version)
+		}
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: f.cookie})
+		w := httptest.NewRecorder()
+		f.srv.ServeHTTP(w, r)
+		out := map[string]any{}
+		_ = json.Unmarshal(w.Body.Bytes(), &out)
+		return w.Code, out, w.Body.String()
+	}
+	// Edited in another tab after the sheet was made from version 1. The edit drops a member, so the
+	// sheet's positions no longer all exist: the answer is still that the Project changed.
+	if code, _, raw := f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, map[string]any{"members": []map[string]any{{"host": f.agent.ID, "dir": "/home/tester/elsewhere"}}}); code != 200 {
+		t.Fatal("edit", code, raw)
+	}
+	req := terminalbroker.ID()
+	for _, positions := range [][]int{{0}, {0, 2}} {
+		code, out, raw := start(`"1"`, map[string]any{"requestId": req, "positions": positions})
+		if code != 409 || out["code"] != "project_changed" || out["error"] != "Someone changed this Project. Reload it and try again." {
+			t.Fatal("stale start", positions, code, raw)
+		}
+	}
+	if runs, _ := f.st.RunsFor(f.uid, id, 20); len(runs) != 0 || len(projectEvents(t, f.st, f.uid, "project-run")) != 0 {
+		t.Fatal("a stale start created or audited a run", runs)
+	}
+	time.Sleep(30 * time.Millisecond)
+	if len(f.creates()) != 0 {
+		t.Fatal("a stale start reached the machine")
+	}
+	for _, bad := range []string{"abc", "0", `W/"2"`} {
+		if code, out, raw := start(bad, map[string]any{"requestId": req, "positions": []int{0}}); code != 400 || out["code"] != "invalid_version" {
+			t.Fatal("bad If-Match", bad, code, raw)
+		}
+	}
+	code, first, raw := start(`"2"`, map[string]any{"requestId": req, "positions": []int{0}})
+	if code != 201 {
+		t.Fatal("current start", code, raw)
+	}
+	runID := first["id"].(string)
+	f.settled(t, runID, notRunning)
+	// Edited again: the same request resent with the version it was made from still answers with its run.
+	if code, _, raw := f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, map[string]any{"name": "Shop, renamed"}); code != 200 {
+		t.Fatal("second edit", code, raw)
+	}
+	if code, again, raw := start(`"2"`, map[string]any{"requestId": req, "positions": []int{0}}); code != 200 || again["id"] != runID {
+		t.Fatal("replay after an edit", code, raw)
+	}
+	// Without If-Match a start goes ahead against the saved Project, as an update does.
+	if code, _, raw := start("", map[string]any{"requestId": terminalbroker.ID(), "positions": []int{0}}); code != 201 {
+		t.Fatal("no header", code, raw)
 	}
 }

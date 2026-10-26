@@ -1,6 +1,8 @@
+import type { Project, ProjectInput, ProjectRun, WorktreeStatus, WorktreeTarget } from '../projects'
+
 export type SessionState = 'creating' | 'running' | 'end_requested' | 'ended' | 'exited' | 'lost'
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean }
-export type Capabilities = { commandHistory?:boolean; launch?: boolean; tools?: string[]; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+export type Capabilities = { commandHistory?:boolean; launch?: boolean; worktree?: boolean; tools?: string[]; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -13,7 +15,11 @@ export class TerminalError extends Error {
   status: number
   /** The server's machine-readable reason, sent only for some refusals (for example `folder_unavailable`). */
   code?: string
-  constructor(status: number, message: string, code?: string) { super(message); this.status = status; if (code) this.code = code }
+  /** Git's own first line, sent with some worktree refusals. Plain text, shown as detail under the sentence. */
+  detail?: string
+  /** The field a Projects refusal is about ("name", "members.2.dir"), so a form can move focus there. */
+  field?: string
+  constructor(status: number, message: string, code?: string, detail?: string, field?: string) { super(message); this.status = status; if (code) this.code = code; if (detail) this.detail = detail; if (field) this.field = field }
 }
 /** What to start instead of a plain shell. Only the fields that are set are sent; the machine decides the program and flags. */
 export type LaunchRequest = { tool?: string; model?: string; dir?: string; prompt?: string }
@@ -25,13 +31,15 @@ export async function terminalRequest(path: string, init: RequestInit = {}): Pro
   if (init.body) headers.set('Content-Type', 'application/json')
   const response = await fetch(path, { ...init, headers, credentials: 'same-origin', cache: 'no-store' })
   if (!response.ok) {
-    let message = 'The terminal connection is unavailable.', code: string | undefined
+    let message = 'The terminal connection is unavailable.', code: string | undefined, detail: string | undefined, field: string | undefined
     try {
       const body = await response.json()
       if (typeof body?.error === 'string' && body.error) message = body.error
       if (typeof body?.code === 'string' && body.code) code = body.code
+      if (typeof body?.detail === 'string' && body.detail) detail = body.detail
+      if (typeof body?.field === 'string' && body.field) field = body.field
     } catch { /* fixed fallback */ }
-    throw new TerminalError(response.status, message, code)
+    throw new TerminalError(response.status, message, code, detail, field)
   }
   return response
 }
@@ -86,3 +94,47 @@ export async function removeCommand(item:TerminalCommand):Promise<void>{await te
 export type CommandHistoryEntry={command:string;source:'bash'|'zsh';timestamp?:number}
 export type CommandHistorySnapshot={entries:CommandHistoryEntry[];sources:{source:'bash'|'zsh';available:boolean;reason?:string}[];truncated:boolean;skipped:number}
 export async function commandHistory(id:string,signal?:AbortSignal):Promise<CommandHistorySnapshot>{return(await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/command-history`,{signal:signal?AbortSignal.any([signal,AbortSignal.timeout(15000)]):AbortSignal.timeout(15000)})).json()}
+
+// Projects. Same cookie-only requests as terminals; every call gives up after 15 seconds. An update or delete always
+// names the version it read (If-Match), and starting a run always carries a request id, so a lost reply can be resent.
+const within = (signal?: AbortSignal): AbortSignal => (signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000))
+const projectPath = (id: string): string => `/api/v2/projects/${encodeURIComponent(id)}`
+const ifMatch = (version: number): Record<string, string> => ({ 'If-Match': `"${version}"` })
+
+export async function listProjects(signal?: AbortSignal): Promise<Project[]> { return (await (await terminalRequest('/api/v2/projects', { signal: within(signal) })).json()).projects }
+/** One Project with its shared prompt (for the edit form) and the version to send back when saving. */
+export async function getProject(id: string, signal?: AbortSignal): Promise<Project> { return (await terminalRequest(projectPath(id), { signal: within(signal) })).json() }
+/** Create (no `current`) or update. An update sends If-Match with the version read; a changed Project answers 409 `project_changed`. */
+export async function saveProject(input: ProjectInput, current?: { id: string; version: number }, signal?: AbortSignal): Promise<Project> {
+  return (await terminalRequest(current ? projectPath(current.id) : '/api/v2/projects', {
+    method: current ? 'PATCH' : 'POST', signal: within(signal), body: JSON.stringify(input), headers: current ? ifMatch(current.version) : undefined,
+  })).json()
+}
+export type DeletedProject = { ok: boolean; mayHaveWorktrees: boolean; message: string }
+export async function deleteProject(current: { id: string; version: number }, signal?: AbortSignal): Promise<DeletedProject> {
+  return (await terminalRequest(projectPath(current.id), { method: 'DELETE', signal: within(signal), headers: ifMatch(current.version) })).json()
+}
+export async function projectRuns(projectId: string, signal?: AbortSignal): Promise<ProjectRun[]> { return (await (await terminalRequest(`${projectPath(projectId)}/runs`, { signal: within(signal) })).json()).runs }
+export async function getRun(runId: string, signal?: AbortSignal): Promise<ProjectRun> { return (await terminalRequest(`/api/v2/project-runs/${encodeURIComponent(runId)}`, { signal: within(signal) })).json() }
+/**
+ * Starts a run of the chosen member positions, from the Project version the confirmation sheet was made from (If-Match):
+ * a Project changed since answers 409 `project_changed` and nothing starts. 201 (new) and 200 (the same request resent,
+ * whatever the version is now) both give the run.
+ */
+export async function startRun(project: { id: string; version: number }, positions: number[], requestId: string, signal?: AbortSignal): Promise<ProjectRun> {
+  if (!requestId) throw new Error('A run needs a request id.')
+  if (positions.length === 0) throw new Error('Choose at least one repository to start.')
+  if (!Number.isSafeInteger(project.version) || project.version < 1) throw new Error('A run needs the version of the Project it was confirmed from.')
+  return (await terminalRequest(`${projectPath(project.id)}/runs`, { method: 'POST', signal: within(signal), body: JSON.stringify({ requestId, positions }), headers: ifMatch(project.version) })).json()
+}
+export async function retryMember(runId: string, position: number, signal?: AbortSignal): Promise<ProjectRun> {
+  return (await terminalRequest(`/api/v2/project-runs/${encodeURIComponent(runId)}/members/${position}/retry`, { method: 'POST', signal: within(signal), body: '{}' })).json()
+}
+export async function worktreeStatus(target: WorktreeTarget, signal?: AbortSignal): Promise<WorktreeStatus> {
+  return (await terminalRequest('/api/v2/terminal/worktrees/status', { method: 'POST', signal: within(signal), body: JSON.stringify(target) })).json()
+}
+export type RemovedWorktree = { ok: boolean; path?: string; branch: string; confirmedBy?: string }
+/** Removes a worktree only if the machine's counts still equal the ones shown; the branch is kept. */
+export async function removeWorktree(target: WorktreeTarget, shown: { changed: number; unpushed: number }, signal?: AbortSignal): Promise<RemovedWorktree> {
+  return (await terminalRequest('/api/v2/terminal/worktrees/remove', { method: 'POST', signal: within(signal), body: JSON.stringify({ ...target, changed: shown.changed, unpushed: shown.unpushed }) })).json()
+}

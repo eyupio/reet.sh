@@ -65,7 +65,9 @@ func terminalsOff(w http.ResponseWriter) {
 // projectRunStart creates a run of the chosen members and returns it at once
 // (201, every member pending); the members are started in the background.
 // Body: {"requestId":"…","positions":[0,2]}; the request id makes it
-// idempotent (a replay answers 200 with the same run). A member whose machine is not enrolled on this
+// idempotent (a replay answers 200 with the same run). With If-Match the run
+// starts only from that Project version (409 project_changed otherwise,
+// nothing created); a replay still answers with its run. A member whose machine is not enrolled on this
 // account is never sent anything: the orchestrator marks it unknown_machine.
 func (s *server) projectRunStart(w http.ResponseWriter, r *http.Request) {
 	if !s.terminalEnabled() {
@@ -77,6 +79,13 @@ func (s *server) projectRunStart(w http.ResponseWriter, r *http.Request) {
 		Positions *[]int `json:"positions"`
 	}
 	if !projectBody(w, r, &in) {
+		return
+	}
+	// If-Match names the version the confirmation sheet was made from, as for
+	// an update: the run starts only from that version (absent: no check).
+	expect, ok := ifMatch(r)
+	if !ok {
+		writeErrCode(w, http.StatusBadRequest, "invalid_version", "", "The If-Match header must be the Project's version number.", "")
 		return
 	}
 	uid := s.uid(r)
@@ -93,19 +102,22 @@ func (s *server) projectRunStart(w http.ResponseWriter, r *http.Request) {
 		storeRefusal(store.ErrRunNoMembers).write(w)
 		return
 	}
+	// Against a changed Project the positions are checked by the store: a
+	// replay still answers with its run, anything else is project_changed.
+	stale := expect != 0 && p.Version != expect
 	known := map[int]bool{}
 	for _, m := range p.Members {
 		known[m.Position] = true
 	}
 	chosen := map[int]bool{}
 	for _, pos := range *in.Positions {
-		if !known[pos] || chosen[pos] {
+		if (!known[pos] && !stale) || chosen[pos] {
 			unknownPosition(w)
 			return
 		}
 		chosen[pos] = true
 	}
-	run, created, err := s.st.StartRunFor(uid, p.ID, in.RequestID, *in.Positions)
+	run, created, err := s.st.StartRunAtFor(uid, p.ID, in.RequestID, expect, *in.Positions)
 	switch {
 	case errors.Is(err, store.ErrRunRequestChanged):
 		writeErrCode(w, http.StatusConflict, "request_changed", "", "That request changed. Start it again.", "")

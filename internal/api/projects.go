@@ -523,7 +523,15 @@ func (s *server) projectUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, viewProject(saved))
 }
 
+// projectDelete deletes a Project; its runs stay. With If-Match it deletes
+// only the version that was read (409 project_changed otherwise), exactly as
+// an update; without it the delete goes ahead.
 func (s *server) projectDelete(w http.ResponseWriter, r *http.Request) {
+	expect, ok := ifMatch(r)
+	if !ok {
+		writeErrCode(w, http.StatusBadRequest, "invalid_version", "", "The If-Match header must be the Project's version number.", "")
+		return
+	}
 	uid := s.uid(r)
 	id := r.PathValue("id")
 	p, err := s.st.ProjectFor(uid, id)
@@ -538,7 +546,7 @@ func (s *server) projectDelete(w http.ResponseWriter, r *http.Request) {
 		storeRefusal(err).write(w)
 		return
 	}
-	if err := s.st.DeleteProjectFor(uid, id); err != nil {
+	if err := s.st.DeleteProjectAtFor(uid, id, expect); err != nil {
 		storeRefusal(err).write(w)
 		return
 	}

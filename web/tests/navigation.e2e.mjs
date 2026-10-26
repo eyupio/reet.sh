@@ -11,13 +11,13 @@ const open = options => openWorkspace(browser, options)
 const main = page => page.locator('nav[aria-label="Main navigation"] .desktop')
 
 try {
- // Skills and Setups are top level; the rest sit under More.
+ // Skills and Setups are top level, with Terminals and Projects for writers; the rest sit under More.
  if (run('structure')) {
   const {context,page,errors} = await open({width:1440})
   await page.goto(base)
   await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
   const top = await main(page).locator(':scope > a, :scope > details > summary').allInnerTexts()
-  expect(top.map(t=>t.trim())).toEqual(['Control','Machines','Terminals','Skills','Setups','More'])
+  expect(top.map(t=>t.trim())).toEqual(['Control','Machines','Terminals','Projects','Skills','Setups','More'])
   await main(page).locator('summary',{hasText:'More'}).click()
   const more = await main(page).locator('.group-links a').allInnerTexts()
   expect(more.map(t=>t.trim())).toEqual(['Sync','Lists','Community','Support','Teams & organisations','Host skills'])
@@ -28,7 +28,7 @@ try {
 
  // The current area is marked, including inside More.
  if (run('current')) {
-  for (const [path,link] of [['/skills','Skills'],['/profiles','Setups'],['/machines','Machines'],['/terminals','Terminals']]) {
+  for (const [path,link] of [['/skills','Skills'],['/profiles','Setups'],['/machines','Machines'],['/terminals','Terminals'],['/projects','Projects']]) {
    const {context,page} = await open({width:1440})
    await page.goto(`${base}${path}`)
    await expect(main(page).getByRole('link',{name:link,exact:true})).toHaveAttribute('aria-current','page')

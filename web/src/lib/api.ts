@@ -499,7 +499,7 @@ export type SyncRun = { id: string; agentId: string; targets: string[]; cursor: 
 export type ReleaseChannel = { version?: string; commit?: string; checkedAt?: number; error?: string }
 export type ReleaseInfo = { dev?: ReleaseChannel; latest?: ReleaseChannel }
 export type SyncState = { agents?: SyncAgent[]; jobs?: SyncJob[]; updateJobs?: SyncJob[]; runs?: SyncRun[]; machines?: Machine[]; environments: SyncEnvironment[]; targets: SyncTarget[]; releases?: ReleaseInfo }
-export async function getSyncState(): Promise<SyncState> { return (await req('/api/v2/sync')).json() }
+export async function getSyncState(signal?: AbortSignal): Promise<SyncState> { return (await req('/api/v2/sync', { signal })).json() }
 export async function saveSyncTarget(sourceId: string, targetId: string): Promise<SyncState> { return (await req('/api/v2/sync', { method: 'PUT', body: json({ sourceId, targetId }) })).json() }
 export async function deleteSyncTarget(targetId: string): Promise<SyncState> { return (await req(`/api/v2/sync?target=${encodeURIComponent(targetId)}`, { method: 'DELETE' })).json() }
 export async function mergeMachines(from: string, to: string): Promise<SyncState> { return (await req('/api/v2/machines/merge', { method: 'POST', body: json({ from, to }) })).json() }

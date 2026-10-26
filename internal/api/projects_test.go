@@ -637,11 +637,11 @@ func TestProjectDeleteKeepsRunsReadable(t *testing.T) {
 	if failed["state"] != "failed" || failed["code"] != "tool_not_installed" || failed["sentence"] != "That agent isn't installed on that machine." || failed["tool"] != "codex" || failed["model"] != "gpt-5-codex" {
 		t.Fatal("failed member", failed)
 	}
-	wantRun := []string{"id", "members", "projectId", "projectName", "startedAt", "state", "useWorktrees"}
+	wantRun := []string{"id", "members", "projectId", "projectName", "startedAt", "state", "useWorktrees", "worktreeProject"}
 	if keys := keysOf(got); !reflect.DeepEqual(keys, wantRun) {
 		t.Fatal("run keys", keys)
 	}
-	wantMember := []string{"attempt", "code", "dir", "host", "model", "position", "sentence", "sessionId", "state", "tool", "worktreeBranch", "worktreePath", "worktreeRepo"}
+	wantMember := []string{"attempt", "code", "dir", "host", "model", "position", "sentence", "sessionId", "sharesCheckout", "state", "tool", "worktreeBranch", "worktreePath", "worktreeProject", "worktreeRepo", "worktreeRun"}
 	if keys := keysOf(started); !reflect.DeepEqual(keys, wantMember) {
 		t.Fatal("run member keys", keys)
 	}

@@ -316,18 +316,29 @@ type runMemberView struct {
 	WorktreePath   string `json:"worktreePath"`
 	WorktreeRepo   string `json:"worktreeRepo"`
 	WorktreeBranch string `json:"worktreeBranch"`
-	Attempt        int    `json:"attempt"`
+	// WorktreeRun and WorktreeProject, with Host and WorktreeRepo, are what
+	// the worktree status and remove routes take (agentId, run, project,
+	// repo). WorktreeRun is empty for a run without worktrees.
+	WorktreeRun     string `json:"worktreeRun"`
+	WorktreeProject string `json:"worktreeProject"`
+	// SharesCheckout is true when the run made no worktrees: the agent works
+	// in the saved folder itself, which any other run or session there shares.
+	SharesCheckout bool `json:"sharesCheckout"`
+	Attempt        int  `json:"attempt"`
 }
 
 // runView is a run as the API shows it. It has no prompt field of any kind.
 type runView struct {
-	ID           string          `json:"id"`
-	ProjectID    string          `json:"projectId"`
-	ProjectName  string          `json:"projectName"`
-	State        string          `json:"state"`
-	StartedAt    int64           `json:"startedAt"`
-	UseWorktrees bool            `json:"useWorktrees"`
-	Members      []runMemberView `json:"members"`
+	ID           string `json:"id"`
+	ProjectID    string `json:"projectId"`
+	ProjectName  string `json:"projectName"`
+	State        string `json:"state"`
+	StartedAt    int64  `json:"startedAt"`
+	UseWorktrees bool   `json:"useWorktrees"`
+	// WorktreeProject is the Project slug the run's worktrees were made under,
+	// from the name when the run started (a later rename does not change it).
+	WorktreeProject string          `json:"worktreeProject"`
+	Members         []runMemberView `json:"members"`
 }
 
 // runMemberSentences are the plain sentences for a failed member's code: the
@@ -371,10 +382,14 @@ func runMemberSentence(state, code string) string {
 func viewRun(r store.Run) runView {
 	v := runView{ID: r.ID, ProjectID: r.ProjectID, ProjectName: r.ProjectName, State: r.State, StartedAt: r.CreatedAt, UseWorktrees: r.UseWorktrees,
 		Members: make([]runMemberView, 0, len(r.Members))}
+	if r.UseWorktrees {
+		v.WorktreeProject = terminalproto.Slug(r.ProjectName, "project")
+	}
 	for _, m := range r.Members {
 		v.Members = append(v.Members, runMemberView{Position: m.Position, Host: m.Host, Dir: m.Dir, Tool: m.Tool, Model: m.Model, State: m.State,
 			Code: m.Code, Sentence: runMemberSentence(m.State, m.Code), SessionID: m.SessionID, WorktreePath: m.WorktreePath,
-			WorktreeRepo: m.WorktreeRepo, WorktreeBranch: m.WorktreeBranch, Attempt: m.Attempt})
+			WorktreeRepo: m.WorktreeRepo, WorktreeBranch: m.WorktreeBranch, WorktreeRun: m.WorktreeToken, WorktreeProject: v.WorktreeProject,
+			SharesCheckout: !r.UseWorktrees, Attempt: m.Attempt})
 	}
 	return v
 }

@@ -26,6 +26,8 @@ type runMachine struct {
 	mu      sync.Mutex
 	got     []terminalproto.Message
 	running map[string]terminalproto.SessionSnapshot
+	// worktrees are the worktrees the machine made, by project/repo/run.
+	worktrees map[string]string
 	// decide answers a create; nil means start it and report the worktree.
 	decide func(terminalproto.Create) terminalproto.Body
 	drop   bool
@@ -39,7 +41,7 @@ func runMachineFixture(t *testing.T) *runMachine {
 	t.Cleanup(func() { log.SetOutput(original) })
 	srv, st, agent, _, _ := privateFixture(t, AuthAccounts, "")
 	uid, _ := st.DefaultOwner()
-	f := &runMachine{launchAPI: &launchAPI{srv: srv, st: st, uid: uid, agent: agent, cookie: terminalLogin(t, st, uid)}, logs: &logs, running: map[string]terminalproto.SessionSnapshot{}}
+	f := &runMachine{launchAPI: &launchAPI{srv: srv, st: st, uid: uid, agent: agent, cookie: terminalLogin(t, st, uid)}, logs: &logs, running: map[string]terminalproto.SessionSnapshot{}, worktrees: map[string]string{}}
 	record, err := st.BeginRemoteConnectionFor(uid, agent.ID, terminalbroker.ID(), worktreeCaps("claude", "codex"))
 	if err != nil {
 		t.Fatal(err)
@@ -70,6 +72,9 @@ func runMachineFixture(t *testing.T) *runMachine {
 				changed := terminalproto.SessionChanged{State: terminalproto.Running}
 				if op.Worktree != "" {
 					changed.WorktreePath = "/home/tester/.reet/worktrees/" + op.Project + "/" + repo + "/" + op.Worktree
+					f.mu.Lock()
+					f.worktrees[op.Project+"/"+repo+"/"+op.Worktree] = changed.WorktreePath
+					f.mu.Unlock()
 					changed.WorktreeRepo = repo
 				}
 				body = changed
@@ -81,6 +86,24 @@ func runMachineFixture(t *testing.T) *runMachine {
 				return nil // the agent started; the answer never arrives
 			}
 			reply.Body = body
+		case terminalproto.WorktreeStatus:
+			f.mu.Lock()
+			path := f.worktrees[op.Project+"/"+op.Repo+"/"+op.Run]
+			f.mu.Unlock()
+			reply.Body = terminalproto.WorktreeResult{Code: terminalproto.NotFound}
+			if path != "" {
+				reply.Body = terminalproto.WorktreeState{Path: path, Branch: "reet/" + op.Project + "-" + op.Run}
+			}
+		case terminalproto.WorktreeRemove:
+			key := op.Project + "/" + op.Repo + "/" + op.Run
+			f.mu.Lock()
+			path := f.worktrees[key]
+			delete(f.worktrees, key)
+			f.mu.Unlock()
+			reply.Body = terminalproto.WorktreeResult{Code: terminalproto.NotFound}
+			if path != "" {
+				reply.Body = terminalproto.WorktreeResult{Code: terminalproto.OK, Path: path, Branch: "reet/" + op.Project + "-" + op.Run}
+			}
 		default:
 			reply.Body = terminalproto.Result{Code: terminalproto.OK}
 		}
@@ -530,5 +553,37 @@ func TestProjectRunMachineRefusalsHaveTheirOwnSentences(t *testing.T) {
 	}
 	if strings.Contains(f.logs.String(), projectSentinel) {
 		t.Fatal("prompt in the log")
+	}
+}
+
+// The run JSON carries exactly what the worktree status and remove routes
+// take: the machine, the Project slug the run used, the repository name the
+// machine reported and the member's run token.
+func TestProjectRunJSONNamesEachWorktreeForStatusAndRemove(t *testing.T) {
+	f := runMachineFixture(t)
+	id := f.project(t)
+	_, out, _ := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"positions": []int{0, 2}})
+	runID := out["id"].(string)
+	f.settled(t, runID, notRunning)
+	// A rename afterwards changes neither the slug the run used nor the run.
+	if code, _, raw := f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, map[string]any{"name": "Renamed Shop"}); code != 200 {
+		t.Fatal(raw)
+	}
+	_, view, raw := f.do(t, f.cookie, "GET", "/api/v2/project-runs/"+runID, nil)
+	if view["worktreeProject"] != "shop" {
+		t.Fatal(raw)
+	}
+	creates := f.creates()
+	for i, m := range view["members"].([]any) {
+		m := m.(map[string]any)
+		in := creates[i].Body.(terminalproto.Create)
+		if m["worktreeRun"] != in.Worktree || m["worktreeProject"] != in.Project || m["sharesCheckout"] != false || m["host"] != f.agent.ID {
+			t.Fatalf("%v %+v", m, in)
+		}
+		target := map[string]any{"agentId": m["host"], "project": m["worktreeProject"], "repo": m["worktreeRepo"], "run": m["worktreeRun"]}
+		code, state, raw := f.do(t, f.cookie, "POST", "/api/v2/terminal/worktrees/status", target)
+		if code != 200 || state["path"] != m["worktreePath"] || state["branch"] != m["worktreeBranch"] {
+			t.Fatal(code, raw)
+		}
 	}
 }

@@ -365,6 +365,7 @@ try {
    return {url: location.pathname, open: !!d, text: d?.querySelector('footer button[type=submit]')?.textContent, status: d?.querySelector('[role=status]')?.textContent,
     notice: n?.textContent ?? null, href: n?.querySelector('a')?.getAttribute('href') ?? null, focus: document.activeElement?.textContent?.trim() ?? null}
   })
+  await expect.poll(() => box.created?.title, {message:'the create request reached the mock'}).toBeTruthy()
   await expect.poll(look).toMatchObject({open:true, text:'Starting…', status:`Opening ${box.created.title}…`})
   await expect.poll(look, {timeout:9000}).toMatchObject({open:false})
   expect(await look()).toEqual({url:'/', open:false, text:undefined, status:undefined, notice:`Started ${box.created.title} on studio. Open it`,

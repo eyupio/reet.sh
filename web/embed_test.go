@@ -147,6 +147,18 @@ func TestOriginRejectsHeaderInjection(t *testing.T) {
 	}
 }
 
+// The registration itself, not mime.TypeByExtension: a host with /etc/mime.types already maps .woff2, so the served header
+// alone would pass without it.
+func TestPackageRegistersTypesTheHostMayLack(t *testing.T) {
+	got := map[string]string{}
+	registerTypes(func(ext, typ string) error { got[ext] = typ; return nil })
+	for ext, want := range map[string]string{".woff2": "font/woff2", ".webmanifest": "application/manifest+json"} {
+		if got[ext] != want {
+			t.Errorf("%s registered as %q, want %q", ext, got[ext], want)
+		}
+	}
+}
+
 func TestSelfHostedFontsServedAsWOFF2(t *testing.T) {
 	requireBuilt(t)
 	for _, name := range []string{"fraunces-latin-600-normal", "ibm-plex-sans-latin-400-normal", "ibm-plex-sans-latin-500-normal", "ibm-plex-sans-latin-600-normal", "ibm-plex-mono-latin-400-normal"} {

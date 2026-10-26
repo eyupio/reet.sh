@@ -24,6 +24,23 @@
   let list = $state<HTMLElement>()
   const matches = $derived(jumpMatches(items, query))
   const expanded = $derived(showing && query.trim() !== '')
+  // The results end above a phone's keyboard: their height is capped at the room left in the visual viewport, which the
+  // keyboard shrinks, so every result can be scrolled to rather than sitting behind it.
+  let results = $state<HTMLElement>()
+  let room = $state<number>()
+  function fit() {
+    const vv = window.visualViewport
+    if (!results || !vv) return
+    room = Math.max(120, Math.floor(vv.offsetTop + vv.height - results.getBoundingClientRect().top - 8))
+  }
+  $effect(() => {
+    if (!expanded) return
+    fit()
+    const vv = window.visualViewport
+    vv?.addEventListener('resize', fit)
+    window.addEventListener('resize', fit)
+    return () => { vv?.removeEventListener('resize', fit); window.removeEventListener('resize', fit) }
+  })
 
   async function refresh() {
     if (loading || Date.now() - loadedAt < 15000) return
@@ -68,7 +85,7 @@
   {#if open}<button type="button" class="close" aria-label="Close search" onclick={() => onclose?.()}>
     <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18" /></svg>
   </button>{/if}
-  <div class="results" hidden={!expanded}>
+  <div class="results" hidden={!expanded} bind:this={results} style:--room={room === undefined ? undefined : `${room}px`}>
     <div role="listbox" id={listId} aria-label="Jump results" bind:this={list}>
       {#each matches as item (item.kind + item.href)}
         <a role="option" aria-selected="false" href={item.href} onkeydown={onOptionKey}>
@@ -104,7 +121,7 @@
   }
   .close svg { width: 20px; height: 20px; }
   .results {
-    position: absolute; left: -1px; right: -1px; top: calc(100% + 6px); z-index: 30; max-height: min(60vh, 420px); overflow: auto;
+    position: absolute; left: -1px; right: -1px; top: calc(100% + 6px); z-index: 30; max-height: min(60vh, 420px, var(--room, 100vh)); overflow: auto;
     padding: 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--card-raised);
     box-shadow: 0 12px 28px color-mix(in srgb, var(--bg) 70%, transparent);
   }

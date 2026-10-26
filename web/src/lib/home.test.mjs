@@ -6,7 +6,7 @@ import ts from 'typescript'
 const source = readFileSync(new URL('./home.ts', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
 const h = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
-const { fleetCards, sessionProjects, inFlight, rowSubtitle, stateWord, needsYou, attentionCount } = h
+const { fleetCards, sessionProjects, inFlight, rowSubtitle, stateWord, needsYou, attentionCount, reporting } = h
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000, HOUR = 60 * MIN
@@ -52,6 +52,15 @@ test('cpu null shows No reading, labelled CPU', () => {
 test('cards keep the machine order, name, OS and connection word', () => {
   const cards = fleetCards([machine('a2', 'laptop', { os: 'darwin' }), machine('a1', 'studio'), machine('a3', 'pi', { state: 'unknown', connection: { connected: false, reportFresh: false, missedProbes: 2, reconnects: 1, path: 'direct' } }), machine('a4', 'gone', { state: 'unreachable' }), machine('a5', 'new', { state: 'never_connected', connection: null })], [], emptySync(), NOW)
   assert.deepEqual(cards.map(c => [c.agentId, c.name, c.os, c.status]), [['a2', 'laptop', 'darwin', 'online'], ['a1', 'studio', 'linux', 'online'], ['a3', 'pi', 'linux', 'reconnecting'], ['a4', 'gone', 'linux', 'offline'], ['a5', 'new', 'linux', 'offline']])
+})
+
+// Control skips a paused agent with the reason "paused" (fleet.ts); Home says the same word instead of "online".
+test('a paused agent that still reports reads paused, and one that stopped reporting reads offline', () => {
+  const sync = { ...emptySync(), agents: [{ id: 'a1', host: 'studio', version: '1', lastSeen: NOW, paused: true, autoUpdate: false }, { id: 'a2', host: 'desk', version: '1', lastSeen: NOW - 2 * HOUR, paused: true, autoUpdate: false }, { id: 'a3', host: 'pi', version: '1', lastSeen: NOW, paused: false, autoUpdate: false }] }
+  const cards = fleetCards([machine('a1', 'studio'), machine('a2', 'desk', { state: 'never_connected', connection: null }), machine('a3', 'pi')], [session('s1', 'a1')], sync, NOW)
+  assert.deepEqual(cards.map(c => c.status), ['paused', 'offline', 'online'])
+  assert.deepEqual(cards.map(c => reporting(c)), [true, false, true], 'a paused machine still reporting keeps its count current')
+  assert.equal(cards[0].sessionsRunning, 1)
 })
 
 test('sessions running counts live sessions of any kind; finished and exited are not counted', () => {

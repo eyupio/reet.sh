@@ -3,7 +3,7 @@
   import { getSyncState, UnauthorizedError, type Machine, type SyncState } from '../api'
   import { getRun, listProjects, machineHealth, terminalMachines, terminalSessions, TerminalError, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import type { Project, ProjectRun } from '../projects'
-  import { attentionCount, fleetCards, inFlight, needsYou, projectRunning, recentRunIds, sessionProjects, type GroupBy, type HomeSession } from '../home'
+  import { attentionCount, fleetCards, reporting, inFlight, needsYou, projectRunning, recentRunIds, sessionProjects, type GroupBy, type HomeSession } from '../home'
   import StartAgentDialog from '../StartAgentDialog.svelte'
   import ProjectDialog from '../ProjectDialog.svelte'
   import FleetStrip from './FleetStrip.svelte'
@@ -58,7 +58,7 @@
   const owners = $derived(sessionProjects(projects ?? [], [...runs.values()]))
   const groups = $derived(inFlight(sessions ?? [], owners, health ?? [], groupBy, now))
   const shownMachines = $derived(new Set(groups.flatMap(g => g.sessions.map(s => s.agentId))))
-  const offline = $derived(cards.filter(c => c.status !== 'online' && shownMachines.has(c.agentId)).map(c => ({ agentId: c.agentId, host: c.name })))
+  const offline = $derived(cards.filter(c => !reporting(c) && shownMachines.has(c.agentId)).map(c => ({ agentId: c.agentId, host: c.name })))
   const running = $derived(projectRunning(sessions ?? [], owners))
   const needs = $derived(needsYou(sessions ?? [], now))
   $effect(() => { onattention?.(attentionCount(needs)) })

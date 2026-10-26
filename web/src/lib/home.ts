@@ -9,7 +9,8 @@ import type { Project, ProjectRun } from './projects'
 
 export type Tone = 'good' | 'warn' | 'bad' | 'muted'
 export type FleetCard = {
-  agentId: string; name: string; os: string; status: 'online' | 'offline' | 'reconnecting'
+  /** 'paused' is a connected machine whose sync agent is paused: the word Control gives it (fleet.ts), never "online". */
+  agentId: string; name: string; os: string; status: 'online' | 'paused' | 'offline' | 'reconnecting'
   /** Live sessions of any kind on that machine: the listing cannot say which ones run an agent. */
   sessionsRunning: number
   cpu: { label: 'CPU'; percent: number | null; text: string }
@@ -32,8 +33,12 @@ export const FINISHED_KEPT_MS = DAY
 
 const live = (s: Pick<TerminalSession, 'state'>): boolean => LIVE.has(s.state)
 
-function statusOf(m: MachineHealth): FleetCard['status'] {
-  if (m.state === 'connected') return 'online'
+/** Whether the machine is reporting now, so its figures are current rather than last known. */
+export const reporting = (card: Pick<FleetCard, 'status'>): boolean => card.status === 'online' || card.status === 'paused'
+
+function statusOf(m: MachineHealth, paused: boolean): FleetCard['status'] {
+  // A paused agent still reporting is paused, as Control says; one that stopped reporting is offline, the more pressing fact.
+  if (m.state === 'connected') return paused ? 'paused' : 'online'
   // The controller has a connection record that is neither connected nor given up on: it is between attempts.
   if (m.state === 'unknown' && m.connection && !m.connection.connected) return 'reconnecting'
   return 'offline'
@@ -99,7 +104,7 @@ export function fleetCards(machines: MachineHealth[], sessions: TerminalSession[
     agentId: m.agentId,
     name: m.host,
     os: m.capabilities?.os ?? '',
-    status: statusOf(m),
+    status: statusOf(m, (sync.agents ?? []).some(a => a.id === m.agentId && a.paused)),
     sessionsRunning: sessions.filter(s => s.agentId === m.agentId && live(s)).length,
     cpu: cpuOf(m),
     skills: skillsOf(m.agentId, sync, now),

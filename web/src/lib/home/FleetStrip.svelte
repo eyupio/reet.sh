@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { FleetCard } from '../home'
+  import { reporting, type FleetCard } from '../home'
 
   // One card per enrolled machine in the person's machine order, then Add a machine. Every figure is labelled with what it
   // measures (R12): the live sessions on that machine of any kind (the listing cannot say which run an agent), the CPU from
@@ -15,7 +15,6 @@
   } = $props()
 
   const running = (n: number) => `${n} ${n === 1 ? 'session' : 'sessions'} running`
-  const reporting = (c: FleetCard) => c.status === 'online'
   function name(c: FleetCard): string {
     const parts = [c.name, c.status]
     if (sessions) parts.push(reporting(c) ? running(c.sessionsRunning) : `${running(c.sessionsRunning)} (last known, not reporting)`)
@@ -65,8 +64,9 @@
   .head { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--muted); }
   .dot.online { background: var(--good); }
-  /* Shape as well as colour: offline is a hollow ring, reconnecting a half-filled one. */
+  /* Shape as well as colour: offline is a hollow ring, reconnecting a half-filled one, paused a grey square. */
   .dot.offline { background: transparent; border: 2px solid var(--muted); }
+  .dot.paused { border-radius: 2px; }
   .dot.reconnecting { background: linear-gradient(90deg, var(--warn) 50%, transparent 50%); border: 2px solid var(--warn); }
   .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .status { font-size: 12px; color: var(--muted); }

@@ -36,7 +36,7 @@ export const TOKENS: Record<Palette, Record<string, string>> = {
     '--accent': '#c2410c',
     '--accent-text': '#c2410c',
     '--accent-ink': '#ffffff',
-    '--tint': '#fde8d8',
+    '--tint': '#feefe3',
     '--heart': '#be1f4a',
     '--good': '#15703b',
     '--warn': '#92400e',

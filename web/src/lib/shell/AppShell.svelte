@@ -135,6 +135,8 @@
   .shell-bar > :global(.top-tabs) { margin-left: 16px; }
   .home { display: flex; align-items: center; flex: none; color: inherit; text-decoration: none; }
   .home :global(.logo) { width: 120px; }
+  /* A finger-sized target on touch screens; the bar is taller than this at every width. */
+  @media (pointer: coarse) { .home { min-height: 44px; } }
   .grow { flex: 1; min-width: 0; }
   .icon {
     display: none; place-items: center; flex: none; width: 44px; height: 44px; padding: 0;

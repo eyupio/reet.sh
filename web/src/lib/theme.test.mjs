@@ -36,7 +36,15 @@ test('every text pair passes AA', () => {
       for (const bg of ['--bg', '--card', '--card-raised'])
         assert.ok(contrast(t[fg], t[bg]) >= 4.5, `${p}: ${fg} ${t[fg]} on ${bg} ${t[bg]} is ${contrast(t[fg], t[bg]).toFixed(2)}`)
     assert.ok(contrast(t['--accent-ink'], t['--accent']) >= 4.5, `${p}: --accent-ink on --accent`)
+    // Selected and hover states put text on --tint; the pressed Liked filter puts --bg on --heart (App.svelte).
+    for (const fg of ['--ink', '--accent-text']) assert.ok(contrast(t[fg], t['--tint']) >= 4.5, `${p}: ${fg} ${t[fg]} on --tint ${t['--tint']} is ${contrast(t[fg], t['--tint']).toFixed(2)}`)
+    assert.ok(contrast(t['--bg'], t['--heart']) >= 4.5, `${p}: --bg on --heart is ${contrast(t['--bg'], t['--heart']).toFixed(2)}`)
   }
+})
+
+test('the pressed Liked filter draws its text in --bg, not a literal white', () => {
+  const app = readFileSync(join(web, 'src/App.svelte'), 'utf8')
+  assert.match(app, /\.filters \.liked\[aria-pressed='true'\] \{ background: var\(--heart\); color: var\(--bg\); \}/)
 })
 
 // Every block in app.css that sets the palette must set it exactly as TOKENS says, so the stylesheet and the checked values cannot drift.
@@ -47,6 +55,8 @@ const blocks = (source, selector) => {
   return out
 }
 
+const COLOUR = /^(#[0-9a-f]{3,8}|(rgba?|hsla?|oklch|oklab|lab|lch|color|color-mix)\(.*\)|white|black|transparent|currentcolor)$/i
+
 test('app.css matches TOKENS', () => {
   const want = { ":root": 'dark', ":root[data-theme='dark']": 'dark', ":root:not([data-theme='dark'])": 'light', ":root[data-theme='light']": 'light' }
   for (const [selector, palette] of Object.entries(want)) {
@@ -54,6 +64,12 @@ test('app.css matches TOKENS', () => {
     assert.ok(found.length > 0, `app.css has a ${selector} block`)
     const merged = Object.assign({}, ...found)
     for (const [name, value] of Object.entries(TOKENS[palette])) assert.equal(merged[name], value, `${selector} ${name}`)
+    // And the other way: a colour set in a palette block that TOKENS does not list is a stray token the checks never see.
+    // :root also carries the fonts, sizes and easing, so only colour values count there; the other blocks set the palette alone.
+    for (const [name, value] of Object.entries(merged)) {
+      if (selector === ':root' && !COLOUR.test(value)) continue
+      assert.ok(name in TOKENS[palette], `${selector} sets ${name}: ${value}, which TOKENS.${palette} does not list`)
+    }
   }
   assert.match(css, /@media \(prefers-color-scheme: light\)\s*\{\s*:root:not\(\[data-theme='dark'\]\)/, 'a light system preference picks the light palette unless the account chose dark')
   assert.match(css, /(^|\n)a \{ color: var\(--accent-text\);/, 'links use the accent text colour')
@@ -115,6 +131,8 @@ test('no literal colour in a component', () => {
   const offences = []
   for (const file of ALWAYS) strip(readFileSync(join(web, file), 'utf8')).split('\n').forEach((line, i) => { if (LITERAL.test(line)) offences.push(`${file}:${i + 1}: ${line.trim()}`) })
   const from = base()
+  // A shallow checkout (or a fork with no origin/main) has no base: say so, so a passing run is not read as a full check.
+  if (!from) console.log('# no literal colour: no git base (set REET_THEME_BASE or fetch origin/main), so only Logo.svelte was checked')
   if (from) {
     // A line this branch rewrites may carry a literal it already had; only literals the branch adds count.
     const added = new Map(), removed = new Map()

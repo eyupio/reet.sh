@@ -401,6 +401,25 @@ try {
   }
  }
 
+ // A machine whose sync agent is paused but still reporting says "paused", the word Control uses (fleet.ts), never "online":
+ // from the sync agents (a single-token sign-in) and beside a health report alike, on a phone chip too.
+ if (run('a paused agent that still reports reads paused')) {
+  const paused = {...sync, agents:[{...sync.agents[0], paused:true}, sync.agents[1], {id:'a3',host:'quiet-box',version:'1',lastSeen:now,paused:true,autoUpdate:false}]}
+  for (const [what, options] of [['token',{status:{mode:'token',user:null}}],['writer',{}],['phone',{width:390,touch:true}]]) {
+   const {context,page,errors} = await home({...options, sync:paused})
+   if (what === 'token') await page.addInitScript(() => localStorage.setItem('reet-token','fixture-token'))
+   await page.goto(base)
+   await expect(card(page,'studio'), what).toHaveAccessibleName(/^studio, paused, /)
+   await expect(card(page,'studio').locator('.status'), what).toHaveText('paused')
+   await expect(card(page,'studio').locator('.status'), what).toBeVisible()
+   await expect(card(page,'studio').locator('.caption'), what).toHaveCount(0)
+   if (what === 'token') await expect(card(page,'quiet-box')).toHaveAccessibleName(/^quiet-box, paused, /)
+   await expect(strip(page).getByRole('link',{name:/, online, /}), what).toHaveCount(0)
+   expect(errors, what).toEqual([])
+   await context.close()
+  }
+ }
+
  // A health read that fails on a refresh keeps the cards as last read and says so; it never swaps in a guess from the sync
  // agents (a viewer included).
  if (run('a failed health refresh keeps the last cards')) {
@@ -492,5 +511,64 @@ try {
   await expect(rail(narrow.page).getByRole('link',{name:'Notes, idle',exact:true})).toBeVisible()
   await narrow.context.close()
  }
- console.log('Home: fleet strip with sessions running, CPU or No reading and the skills line, no worktree figure, Add a machine, In flight grouped by Project, Machine and State with offline sessions kept, Needs you empty with a quiet bell, the read-only rail with Add, Start an agent, the read-only Home, refresh errors keeping the last lists, storage limited to the Group by key, and the desktop, tablet and phone layouts.')
+ // The shell and Home across screens, themes and motion: 1360 px with a mouse, 834 px on a touch tablet and 390 and 320 px on a
+ // phone (isMobile and hasTouch), each in light and dark. No sideways scroll or zoom-out; targets at least 44 px on touch (48 px
+ // for the phone's primary action) and 24 px with a mouse; every tab stop shows a focus ring; state is in words or shape, never
+ // colour alone; reduced motion leaves nothing animating.
+ if (run('matrix: widths, themes, targets, focus, state words and motion')) {
+  for (const [width,touch] of [[1360,false],[834,true],[390,true],[320,true]]) {
+   const {context,page,errors} = await home({width,touch,theme:'system'})
+   await page.emulateMedia({colorScheme:'light', reducedMotion:'no-preference'})
+   await page.goto(base)
+   await expect(card(page,'studio')).toBeVisible()
+   const backgrounds = new Set()
+   for (const scheme of ['light','dark']) {
+    const at = `${width}px ${scheme}`
+    await page.emulateMedia({colorScheme:scheme})
+    backgrounds.add(await page.evaluate(() => getComputedStyle(document.body).backgroundColor))
+    expect(await page.evaluate(() => [document.documentElement.scrollWidth <= innerWidth, innerWidth, Math.round((visualViewport?.scale ?? 1) * 100)]), `${at}: no sideways scroll or zoom`).toEqual([true, width, 100])
+    // Every visible target in the shell and on Home.
+    const sizes = await page.locator('header a, header button, header summary, nav a, nav button, main a, main button, main label:has(input[type=radio])').evaluateAll(els => els
+     .filter(e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && !e.closest('.vh'))
+     .map(e => { const r = e.getBoundingClientRect(); return [(e.getAttribute('aria-label') || e.textContent).trim().replace(/\s+/g,' ').slice(0,30), Math.round(r.width), Math.round(r.height)] }))
+    expect(sizes.length, at).toBeGreaterThan(8)
+    for (const [name,w,h] of sizes) expect(Math.min(w,h), `${at}: "${name}" is ${w}×${h}`).toBeGreaterThanOrEqual(touch ? 44 : 24)
+    if (width < 651) expect((await page.getByRole('button',{name:'Start an agent',exact:true}).boundingBox()).height, at).toBeGreaterThanOrEqual(48)
+    // State in words (or shape): each card names its status; one not online shows the word; the dots differ by shape too.
+    for (const host of ['studio','desk']) await expect(card(page,host), at).toHaveAccessibleName(new RegExp(`^${host}, (online|offline), `))
+    await expect(card(page,'desk').locator('.status'), at).toBeVisible()
+    await expect(card(page,'desk').locator('.status'), at).toHaveText('offline')
+    const dots = await strip(page).locator('.dot').evaluateAll(els => els.map(e => { const s = getComputedStyle(e); return `${s.borderTopStyle} ${s.borderTopWidth} ${s.backgroundImage}` }))
+    expect(new Set(dots).size, `${at}: online and offline dots differ in shape, not only colour`).toBe(2)
+    for (const word of await inFlight(page).locator('.row .word').evaluateAll(els => els.map(e => [e.textContent.trim(), e.getClientRects().length > 0])))
+     expect(word[1] && /^(Running|Starting|Ending|Exited \d+|Finished|Failed|Lost)/.test(word[0]), `${at}: row state "${word[0]}" in words`).toBe(true)
+    await expect(needs(page).locator('.count'), at).toHaveText('0')
+   }
+   expect(backgrounds.size, `${width}px: light and dark differ`).toBe(2)
+   // Focus: the first 30 tab stops each draw a ring (an outline or an inset shadow on the control, its label or its field box).
+   await page.locator('body').click({position:{x:1,y:1}})
+   const seen = []
+   for (let i = 0; i < 30; i++) {
+    await page.keyboard.press('Tab')
+    const f = await page.evaluate(() => {
+     const el = document.activeElement
+     if (!el || el === document.body) return null
+     const ring = n => { if (!n) return false; const s = getComputedStyle(n); return (s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0) || (s.boxShadow !== 'none' && s.boxShadow.includes('inset')) }
+     return {name:(el.getAttribute('aria-label') || el.textContent || el.tagName).trim().replace(/\s+/g,' ').slice(0,30), ring:ring(el) || ring(el.closest('label')) || ring(el.closest('.jump'))}
+    })
+    if (!f) continue
+    seen.push(f.name)
+    expect(f.ring, `${width}px: "${f.name}" shows focus`).toBe(true)
+   }
+   expect(seen.length, `${width}px tab stops`).toBeGreaterThan(5)
+   // Motion: with no preference a press transition exists (so the check is not empty); with reduce nothing animates or moves.
+   const moving = () => page.evaluate(() => [...document.querySelectorAll('header *, nav *, main *')].filter(e => { const s = getComputedStyle(e); return s.animationName !== 'none' || (/transform|all/.test(s.transitionProperty) && s.transitionDuration.split(',').some(d => parseFloat(d) > 0)) }).length + document.getAnimations().length)
+   expect(await moving(), `${width}px: motion without the preference`).toBeGreaterThan(0)
+   await page.emulateMedia({reducedMotion:'reduce'})
+   expect(await moving(), `${width}px: nothing moves with reduced motion`).toBe(0)
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+ console.log('Home: fleet strip with sessions running, CPU or No reading and the skills line, no worktree figure, Add a machine, In flight grouped by Project, Machine and State with offline sessions kept, Needs you empty with a quiet bell, the read-only rail with Add, Start an agent, the read-only Home, refresh errors keeping the last lists, storage limited to the Group by key, the desktop, tablet and phone layouts, paused machines in words, and the width, theme, target, focus and motion matrix.')
 } finally { await browser.close() }

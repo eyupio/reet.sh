@@ -509,8 +509,8 @@ target is at least 44 px. The session screen hides the context panel behind **De
 +---------------------------+
 ```
 
-- **Bottom tab bar**: Home, Sessions, Machines, More (56 px, safe-area padded); the bell sits in the
-  slim top bar.
+- **Bottom tab bar**: Home, Sessions, Machines, More (64 px, safe-area padded); the bell sits in the
+  slim top bar. (This said 56 px; the approved mock-up and the shipped bar are 64 px, so the text follows them.)
 - **Home**: machine chips scroll sideways; Needs you first with thumb-size buttons (48 px, full width
   for the primary action); In flight below; the launch bar sits above the tab bar as a one-line prompt
   with a round Start button (48 × 48 px) and the sentence collapsed to one summary line with **Change**,

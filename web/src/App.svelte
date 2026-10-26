@@ -1216,7 +1216,7 @@
   .filters button { background: none; border: 0; padding: 6px 10px; border-radius: 999px; cursor: pointer; color: var(--muted); font-weight: 500; min-height: 36px; }
   .filters button:hover { color: var(--ink); }
   .filters button[aria-pressed='true'] { background: var(--tint); color: var(--ink); font-weight: 650; }
-  .filters .liked[aria-pressed='true'] { background: var(--heart); color: #fff; }
+  .filters .liked[aria-pressed='true'] { background: var(--heart); color: var(--bg); }
   .filters small { margin-left: 4px; font-variant-numeric: tabular-nums; }
   .sep { width: 1px; height: 20px; background: var(--line); margin: 0 6px; }
   .controls { display: flex; gap: 8px; }

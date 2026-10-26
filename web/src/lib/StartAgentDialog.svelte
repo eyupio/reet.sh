@@ -268,6 +268,8 @@
  label.sub { font-weight: 500; margin-top: 4px; }
  .optional { color: var(--muted); font-weight: 400; font-size: .78rem; }
  select, input:not([type=radio]), textarea { min-width: 0; width: 100%; min-height: 42px; padding: 8px 10px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+ /* A phone zooms into a field under 16 px when it is focused; `font: inherit` above would otherwise beat app.css's rule. */
+ @media (max-width: 560px) { select, input:not([type=radio]), textarea { font-size: 16px; } }
  textarea { resize: vertical; min-height: 80px; }
  [aria-invalid='true'] { border-color: var(--bad); }
  .tools { gap: 6px; }

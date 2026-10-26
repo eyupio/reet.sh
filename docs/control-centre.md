@@ -1,14 +1,18 @@
 # Reet as the central control unit
 
 The main user task is to reach machines, open remote terminals and return to
-ongoing work. Control (`/` and `/control`) prioritises the active-session band and
-machine connection cards. Machines and Terminals are primary navigation; Skills,
-Sync, lists and portable setups remain under More with their existing routes.
-Legacy machine comparison, terminal and account links continue to work.
+ongoing work. **Home** sits at `/`: the fleet strip, In flight, Needs you and the
+Project rail (see [Home and the tabs](terminal-workspace.md#home-and-the-tabs)).
+Control stays at `/control`, under More, with its active-session band and machine
+connection cards, until PR H folds it into Home and Machines and `/control`
+redirects to `/` (R4 in the agents home design). Home, Sessions and Machines are
+the primary tabs; Skills and Activity join them on a desktop. Control, Projects,
+Sync, lists and portable setups are under More with their existing routes. Legacy
+machine comparison, terminal and account links continue to work.
 
 ## Terminal workspace
 
-Continue exact active sessions from the home band, or open a machine's terminals
+Continue exact active sessions from Control's session band, or open a machine's terminals
 from its connection card. Ready, setup-needed, reconnecting and last-known states
 remain distinct. Resource readings preserve their freshness labels. Viewers see
 machine information without requesting private terminal data. The command library

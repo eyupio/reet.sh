@@ -29,12 +29,16 @@ const (
 	maxCodeBytes          = 64
 )
 
-// Run member states. A member only moves forward: pending to started or failed.
-// The one way back is an explicit retry of a failed member.
+// Run member states. A member only moves forward: pending to started or
+// failed, and started to removed when its worktree is removed. The one way
+// back is an explicit retry of a failed member.
 const (
 	RunMemberPending = "pending"
 	RunMemberStarted = "started"
 	RunMemberFailed  = "failed"
+	// RunMemberRemoved: the member's worktree was removed through reet. The
+	// member had started; it never moves again.
+	RunMemberRemoved = "removed"
 )
 
 // Derived run states.
@@ -215,7 +219,7 @@ func (s *Store) migrateProjects() error {
 			`CREATE TABLE IF NOT EXISTS project_members (
 				project_id TEXT NOT NULL, user_id INTEGER NOT NULL, position INTEGER NOT NULL CHECK(position>=0),
 				host TEXT NOT NULL, dir TEXT NOT NULL, tool TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '',
-				PRIMARY KEY(project_id,position), UNIQUE(project_id,host,dir),
+				PRIMARY KEY(project_id,position),
 				FOREIGN KEY(project_id,user_id) REFERENCES projects(id,user_id) ON DELETE CASCADE)`,
 			// project_id is cleared, not cascaded, so deleting a Project keeps its runs.
 			`CREATE INDEX IF NOT EXISTS project_members_user ON project_members(user_id,project_id)`,
@@ -231,7 +235,7 @@ func (s *Store) migrateProjects() error {
 			`CREATE TABLE IF NOT EXISTS project_run_members (
 				run_id TEXT NOT NULL, user_id INTEGER NOT NULL, position INTEGER NOT NULL CHECK(position>=0),
 				host TEXT NOT NULL, dir TEXT NOT NULL, tool TEXT NOT NULL, model TEXT NOT NULL DEFAULT '',
-				state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','started','failed')),
+				state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','started','failed','removed')),
 				code TEXT NOT NULL DEFAULT '', session_id TEXT NOT NULL DEFAULT '',
 				worktree_token TEXT NOT NULL DEFAULT '', worktree_path TEXT NOT NULL DEFAULT '',
 				worktree_repo TEXT NOT NULL DEFAULT '', worktree_branch TEXT NOT NULL DEFAULT '',
@@ -753,14 +757,15 @@ func sortMembers(ms []ProjectMember) {
 }
 
 // DeriveRunState is running while any member is pending, then complete when
-// every member started, failed when none did, otherwise partial.
+// every member started, failed when none did, otherwise partial. A removed
+// member counts as started: it did start.
 func DeriveRunState(members []RunMember) string {
 	started, failed := 0, 0
 	for _, m := range members {
 		switch m.State {
 		case RunMemberPending:
 			return RunRunning
-		case RunMemberStarted:
+		case RunMemberStarted, RunMemberRemoved:
 			started++
 		case RunMemberFailed:
 			failed++
@@ -1079,6 +1084,19 @@ func (s *Store) RetryRunMember(uid int64, runID string, position int) (RunMember
 		return nil
 	})
 	return m, err
+}
+
+// SetRunMemberRemovedFor records that the worktree with this run token on
+// this machine was removed: the account's member that made it (started or
+// failed, with a worktree path recorded) moves to removed. No member matching
+// is not an error: the worktree may not belong to a run.
+func (s *Store) SetRunMemberRemovedFor(uid int64, agent, token string) error {
+	if !terminalproto.ValidRunToken(token) || agent == "" {
+		return nil
+	}
+	_, err := s.db.Exec(`UPDATE project_run_members SET state='removed' WHERE user_id=? AND host=? AND worktree_token=? AND state IN ('started','failed') AND worktree_path<>''`,
+		uid, agent, token)
+	return err
 }
 
 // SetRunMemberWorktreeToken records the per-member worktree token the

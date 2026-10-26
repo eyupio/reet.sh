@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
@@ -178,6 +179,7 @@ func (s *server) terminalWorktreeRemove(w http.ResponseWriter, r *http.Request) 
 		if errors.Is(statusErr, terminalbroker.ErrWorktreeNotFound) {
 			branch := worktreeBranch(in.Project, in.Run)
 			s.event(uid, "ui", "worktree-remove", "", map[string]string{"machine": in.AgentID, "host": s.machineHost(uid, in.AgentID), "branch": branch, "confirmedBy": "status"})
+			s.recordRunWorktreeRemoved(uid, in.AgentID, in.Run)
 			writeJSON(w, 200, map[string]any{"ok": true, "branch": branch, "confirmedBy": "status"})
 			return
 		}
@@ -187,6 +189,7 @@ func (s *server) terminalWorktreeRemove(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	s.event(uid, "ui", "worktree-remove", "", map[string]string{"machine": in.AgentID, "host": s.machineHost(uid, in.AgentID), "path": removed.Path, "branch": removed.Branch})
+	s.recordRunWorktreeRemoved(uid, in.AgentID, in.Run)
 	writeJSON(w, 200, map[string]any{"ok": true, "path": removed.Path, "branch": removed.Branch})
 }
 
@@ -195,4 +198,13 @@ func (s *server) terminalWorktreeRemove(w http.ResponseWriter, r *http.Request) 
 // checked that the folder and branch are the requested run's.
 func (s *server) auditLateWorktreeRemoval(uid int64, target terminalbroker.WorktreeTarget, result terminalproto.WorktreeResult) {
 	s.event(uid, "ui", "worktree-remove", "", map[string]string{"machine": target.Agent, "host": s.machineHost(uid, target.Agent), "path": result.Path, "branch": result.Branch, "late": "true"})
+	s.recordRunWorktreeRemoved(uid, target.Agent, target.Run)
+}
+
+// recordRunWorktreeRemoved moves the account's run member that made this
+// worktree to removed. A worktree that no run member made changes nothing.
+func (s *server) recordRunWorktreeRemoved(uid int64, agent, run string) {
+	if err := s.st.SetRunMemberRemovedFor(uid, agent, run); err != nil {
+		log.Printf("projects: record removed worktree: %v", err)
+	}
 }

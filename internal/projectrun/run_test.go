@@ -1162,3 +1162,132 @@ func TestRetryWhileTheFirstAttemptIsInFlightIsRefused(t *testing.T) {
 		t.Fatal(got.Members[0], len(f.broker.sent()))
 	}
 }
+
+// flakyStore fails chosen writes once, and can report a create's operation.
+type flakyStore struct {
+	*store.Store
+	mu                               sync.Mutex
+	failToken, failMark, failStarted int
+	op                               *store.TerminalOperation
+}
+
+var errDisk = errors.New("disk I/O error")
+
+func (s *flakyStore) take(n *int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if *n > 0 {
+		*n--
+		return true
+	}
+	return false
+}
+
+func (s *flakyStore) SetRunMemberWorktreeToken(uid int64, runID string, position int, token string) error {
+	if s.take(&s.failToken) {
+		return errDisk
+	}
+	return s.Store.SetRunMemberWorktreeToken(uid, runID, position, token)
+}
+
+func (s *flakyStore) MarkRunMemberSent(uid int64, runID string, position, attempt int) error {
+	if s.take(&s.failMark) {
+		return errDisk
+	}
+	return s.Store.MarkRunMemberSent(uid, runID, position, attempt)
+}
+
+func (s *flakyStore) SetRunMemberState(uid int64, runID string, position int, state, code, sessionID, path, repo, branch string, attempt int) error {
+	if state == store.RunMemberStarted && s.take(&s.failStarted) {
+		return errDisk
+	}
+	return s.Store.SetRunMemberState(uid, runID, position, state, code, sessionID, path, repo, branch, attempt)
+}
+
+func (s *flakyStore) TerminalOperationFor(uid int64, agent, kind, request string) (store.TerminalOperation, error) {
+	s.mu.Lock()
+	op := s.op
+	s.mu.Unlock()
+	if op != nil {
+		return *op, nil
+	}
+	return s.Store.TerminalOperationFor(uid, agent, kind, request)
+}
+
+func TestAMachineConflictKeepsTheRequestIDButOtherRefusalsDoNot(t *testing.T) {
+	for _, c := range []struct {
+		code terminalproto.ResultCode
+		sent bool
+	}{{terminalproto.Conflict, true}, {terminalproto.Denied, false}, {terminalproto.Failed, false}} {
+		f := newFixture(t)
+		fs := &flakyStore{Store: f.st, op: &store.TerminalOperation{State: "failed", Code: c.code}}
+		var calls atomic.Int32
+		f.broker.answer = func(s sent) answer {
+			if calls.Add(1) == 1 {
+				return answer{state: terminalproto.Lost}
+			}
+			return answer{}
+		}
+		o := f.orchestrator(t, func(cfg *Config) { cfg.Store = fs })
+		r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/0"}))
+		o.Start(f.uid, r.ID)
+		m := settle(t, o, f.st, f.uid, r.ID).Members[0]
+		if m.Code != CodeMachineRefused || m.Sent != c.sent {
+			t.Fatal(c.code, m)
+		}
+		want := 2
+		if c.sent {
+			want = 1
+		}
+		if m, err := o.Retry(f.uid, r.ID, 0); err != nil || m.Attempt != want {
+			t.Fatal(c.code, m, err)
+		}
+	}
+}
+
+func TestAStoreErrorFailsTheMemberInsteadOfStrandingIt(t *testing.T) {
+	for _, c := range []struct {
+		name          string
+		set           func(*flakyStore)
+		sent          bool
+		retryAttempt  int
+		createsBefore int
+	}{
+		{"token", func(s *flakyStore) { s.failToken = 1 }, false, 2, 0},
+		{"mark", func(s *flakyStore) { s.failMark = 1 }, false, 2, 0},
+		{"started", func(s *flakyStore) { s.failStarted = 1 }, true, 1, 1},
+	} {
+		f := newFixture(t)
+		fs := &flakyStore{Store: f.st}
+		c.set(fs)
+		o := f.orchestrator(t, func(cfg *Config) { cfg.Store = fs })
+		r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/0"}))
+		o.Start(f.uid, r.ID)
+		m := settle(t, o, f.st, f.uid, r.ID).Members[0]
+		if m.State != store.RunMemberFailed || m.Code != CodeInternalError || m.Sent != c.sent || len(f.broker.sent()) != c.createsBefore {
+			t.Fatal(c.name, m, len(f.broker.sent()))
+		}
+		if m, err := o.Retry(f.uid, r.ID, 0); err != nil || m.Attempt != c.retryAttempt {
+			t.Fatal(c.name, m, err)
+		}
+		got := settle(t, o, f.st, f.uid, r.ID)
+		if got.Members[0].State != store.RunMemberStarted || len(f.launched()) != 1 {
+			t.Fatal(c.name, got.Members[0], f.launched())
+		}
+		oneAgentEach(t, f.broker)
+	}
+}
+
+func TestIdleMachinesLeaveNoSlotBehind(t *testing.T) {
+	f := newFixture(t)
+	o := f.orchestrator(t)
+	r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/0"}, [2]string{f.server, "/a/1"}, [2]string{f.desk, "/a/2"}))
+	o.Start(f.uid, r.ID)
+	settle(t, o, f.st, f.uid, r.ID)
+	o.mu.Lock()
+	n := len(o.hosts)
+	o.mu.Unlock()
+	if n != 0 {
+		t.Fatal(n, "machine slots kept")
+	}
+}

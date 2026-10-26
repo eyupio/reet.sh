@@ -68,6 +68,9 @@ const (
 	CodeWorktreeRefused     = "worktree_refused"
 	CodeWorktreeMismatch    = "worktree_mismatch"
 	CodeInvalidLaunch       = "invalid_launch"
+	// CodeInternalError: the controller could not record a step (a database
+	// error). The member's sent mark is left as it was, so a retry is safe.
+	CodeInternalError = "internal_error"
 )
 
 // worktreeCodes are the create refusal reasons and the code stored for each.
@@ -176,7 +179,7 @@ type Orchestrator struct {
 	mu     sync.Mutex
 	closed bool
 	runs   map[runKey]*driving
-	hosts  map[hostKey]chan struct{}
+	hosts  map[hostKey]*hostEntry
 }
 
 type runKey struct {
@@ -187,6 +190,13 @@ type runKey struct {
 type hostKey struct {
 	uid   int64
 	agent string
+}
+
+// hostEntry is a machine's one create slot and how many members are using
+// it; the entry is dropped when none are.
+type hostEntry struct {
+	slot  chan struct{}
+	users int
 }
 
 type driving struct {
@@ -209,7 +219,7 @@ func New(cfg Config) *Orchestrator {
 		cfg.Poll = 500 * time.Millisecond
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Orchestrator{cfg: cfg, ctx: ctx, cancel: cancel, runs: map[runKey]*driving{}, hosts: map[hostKey]chan struct{}{}}
+	return &Orchestrator{cfg: cfg, ctx: ctx, cancel: cancel, runs: map[runKey]*driving{}, hosts: map[hostKey]*hostEntry{}}
 }
 
 // Start starts the run's pending members in the background. It returns at
@@ -230,6 +240,9 @@ func (o *Orchestrator) Resume() error {
 	}
 	return nil
 }
+
+// Done is closed when the orchestrator is closed.
+func (o *Orchestrator) Done() <-chan struct{} { return o.ctx.Done() }
 
 // Close stops starting members and waits for the calls in flight to return.
 // A member whose call was cut short stays pending (still marked sent), to be
@@ -307,15 +320,30 @@ func (o *Orchestrator) drive(k runKey, d *driving) {
 	}
 }
 
-// hostSlot is the one create slot of a machine, shared by every run.
+// hostSlot is the one create slot of a machine, shared by every run. Every
+// call must be paired with releaseHost.
 func (o *Orchestrator) hostSlot(uid int64, agent string) chan struct{} {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	k := hostKey{uid, agent}
-	if o.hosts[k] == nil {
-		o.hosts[k] = make(chan struct{}, 1)
+	e := o.hosts[k]
+	if e == nil {
+		e = &hostEntry{slot: make(chan struct{}, 1)}
+		o.hosts[k] = e
 	}
-	return o.hosts[k]
+	e.users++
+	return e.slot
+}
+
+func (o *Orchestrator) releaseHost(uid int64, agent string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	k := hostKey{uid, agent}
+	if e := o.hosts[k]; e != nil {
+		if e.users--; e.users <= 0 {
+			delete(o.hosts, k)
+		}
+	}
 }
 
 // pass starts every member that is pending now. Members on one machine go
@@ -363,6 +391,7 @@ func (o *Orchestrator) pass(uid int64, runID string, wait time.Duration) {
 func (o *Orchestrator) member(uid int64, run store.Run, host string, position int, wait time.Duration, slots chan struct{}) {
 	deadline := time.Now().Add(wait)
 	hostSlot := o.hostSlot(uid, host)
+	defer o.releaseHost(uid, host)
 	for {
 		if code := o.precheck(uid, host, deadline); code != "" {
 			if o.ctx.Err() == nil {
@@ -442,7 +471,8 @@ func (o *Orchestrator) startMember(uid int64, run store.Run, position int, code 
 		token := WorktreeToken(run.ID, position)
 		if err := o.cfg.Store.SetRunMemberWorktreeToken(uid, run.ID, position, token); err != nil {
 			o.cfg.Logf("project run %s member %d: worktree token: %v", run.ID, position, err)
-			return // stays pending; nothing was sent
+			o.fail(uid, run.ID, m, CodeInternalError) // nothing was sent now
+			return
 		}
 		in.Worktree = token
 		in.Project = terminalproto.Slug(run.ProjectName, "project")
@@ -451,7 +481,8 @@ func (o *Orchestrator) startMember(uid int64, run store.Run, position int, code 
 	// Durable before the call: from here on the create may reach the machine.
 	if err := o.cfg.Store.MarkRunMemberSent(uid, run.ID, position, m.Attempt); err != nil {
 		o.cfg.Logf("project run %s member %d: mark sent: %v", run.ID, position, err)
-		return // stays pending; nothing was sent
+		o.fail(uid, run.ID, m, CodeInternalError) // nothing was sent now
+		return
 	}
 	session, _, err := o.cfg.Broker.CreateSession(o.ctx, uid, m.Host, request, in)
 	if err != nil && o.ctx.Err() != nil {
@@ -461,6 +492,9 @@ func (o *Orchestrator) startMember(uid int64, run store.Run, position int, code 
 		if err := o.cfg.Store.SetRunMemberState(uid, run.ID, position, store.RunMemberStarted, "", session.ID,
 			session.WorktreePath, session.WorktreeRepo, session.WorktreeBranch, m.Attempt); err != nil {
 			o.cfg.Logf("project run %s member %d: record started: %v", run.ID, position, err)
+			// The agent runs and the member stays marked sent, so a retry
+			// sends the same request id and records the session it gets back.
+			o.fail(uid, run.ID, m, CodeInternalError)
 			return
 		}
 		// Audited when the member becomes started, whichever call learned the
@@ -495,8 +529,12 @@ func (o *Orchestrator) classify(uid int64, m store.RunMember, request string, se
 			switch op.Code {
 			case terminalproto.Capacity:
 				return CodeSessionLimit, true
-			case terminalproto.Denied, terminalproto.Conflict, terminalproto.Failed, terminalproto.NotFound:
+			case terminalproto.Denied, terminalproto.Failed, terminalproto.NotFound:
 				return CodeMachineRefused, true
+			case terminalproto.Conflict:
+				// The machine already has something under this request or
+				// session: it may be the agent, so the request id is kept.
+				return CodeMachineRefused, false
 			}
 		}
 		return CodeSessionLost, true
@@ -531,6 +569,8 @@ func (o *Orchestrator) classify(uid int64, m store.RunMember, request string, se
 	return CodeUnknownOutcome, false
 }
 
+// fail records a failure. If even that cannot be written the member stays
+// pending, and the next Start, Retry pass or Resume picks it up.
 func (o *Orchestrator) fail(uid int64, runID string, m store.RunMember, code string) {
 	if err := o.cfg.Store.SetRunMemberState(uid, runID, m.Position, store.RunMemberFailed, code, "", "", "", "", m.Attempt); err != nil {
 		o.cfg.Logf("project run %s member %d: record %s: %v", runID, m.Position, code, err)

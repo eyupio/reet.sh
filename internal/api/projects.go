@@ -362,6 +362,7 @@ var runMemberSentences = func() map[string]string {
 		"terminals_disabled": sentenceTerminalsOff,
 		"worktree_refused":   "That machine refused to make a worktree for this request. Start it again to see why.",
 		"invalid_launch":     "reet couldn't send that start request. Check the Project's settings and try again.",
+		"internal_error":     "Something went wrong on our side. Check your sessions, then retry.",
 	}
 	for _, r := range worktreeRefusals {
 		out[r.code] = r.sentence

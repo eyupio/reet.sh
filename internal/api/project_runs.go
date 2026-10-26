@@ -37,17 +37,24 @@ func (s *server) newProjectRuns() *projectrun.Orchestrator {
 }
 
 // ResumeProjectRuns continues every run that still has pending members, as
-// after a restart, and stops the orchestrator when ctx ends. A member that was
-// in flight when the controller stopped is sent again with its unchanged
-// request id, which the broker and the machine answer with the session they
-// already made.
+// after a restart, and stops the orchestrator when ctx ends; its watcher also
+// ends when the Server is closed. A member that was in flight when the
+// controller stopped is sent again with its unchanged request id, which the
+// broker and the machine answer with the session they already made.
 func (s *Server) ResumeProjectRuns(ctx context.Context) {
 	if err := s.s.runs.Resume(); err != nil {
 		log.Printf("projects: resume runs: %v", err)
 	}
+	runs := s.s.runs
+	done := make(chan struct{})
+	s.s.resumeDone = done
 	go func() {
-		<-ctx.Done()
-		s.s.runs.Close()
+		defer close(done)
+		select {
+		case <-ctx.Done():
+			runs.Close()
+		case <-runs.Done(): // the Server was closed
+		}
 	}()
 }
 

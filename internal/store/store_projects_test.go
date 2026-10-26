@@ -1306,3 +1306,60 @@ func TestStartRunIsIdempotentAndRefusesOverlappingRuns(t *testing.T) {
 		t.Fatal("after the first run finished", err)
 	}
 }
+
+func TestRunMemberRemovedOnlyFromAStartedWorktree(t *testing.T) {
+	s := newStore(t)
+	uid, other := projectUser(t, s, "a"), projectUser(t, s, "b")
+	p := mustProject(t, s, uid, baseProject("Removed"))
+	run, err := s.CreateRunFor(uid, p.ID, 0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const tok0, tok1 = "aaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbb"
+	for pos, tok := range []string{tok0, tok1} {
+		if err := s.SetRunMemberWorktreeToken(uid, run.ID, pos, tok); err != nil {
+			t.Fatal(err)
+		}
+	}
+	host := run.Members[0].Host
+	// Pending: nothing moves.
+	if err := s.SetRunMemberRemovedFor(uid, host, tok0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRunMemberState(uid, run.ID, 0, RunMemberStarted, "", "session-0000000000000001", "/h/.reet/worktrees/removed/api/"+tok0, "api", "reet/removed-"+tok0, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRunMemberState(uid, run.ID, 1, RunMemberStarted, "", "session-0000000000000002", "", "", "", 1); err != nil {
+		t.Fatal(err)
+	}
+	state := func(pos int) string {
+		r, _ := s.RunFor(uid, run.ID)
+		return r.Members[pos].State
+	}
+	// Another account, another machine, an unknown token: nothing moves.
+	for _, c := range []struct {
+		uid         int64
+		host, token string
+	}{{other, host, tok0}, {uid, "elsewhere", tok0}, {uid, host, "cccccccccccccccccccccccc"}, {uid, host, ""}} {
+		if err := s.SetRunMemberRemovedFor(c.uid, c.host, c.token); err != nil || state(0) != RunMemberStarted {
+			t.Fatal(c, err, state(0))
+		}
+	}
+	// No worktree path recorded: nothing moves.
+	if err := s.SetRunMemberRemovedFor(uid, run.Members[1].Host, tok1); err != nil || state(1) != RunMemberStarted {
+		t.Fatal(err, state(1))
+	}
+	if err := s.SetRunMemberRemovedFor(uid, host, tok0); err != nil || state(0) != RunMemberRemoved {
+		t.Fatal(err, state(0))
+	}
+	r, _ := s.RunFor(uid, run.ID)
+	if r.State != RunComplete {
+		t.Fatal(r.State)
+	}
+	if _, err := s.RetryRunMember(uid, run.ID, 0); !errors.Is(err, ErrRunMemberNotFailed) {
+		t.Fatal(err)
+	}
+	if err := s.SetRunMemberState(uid, run.ID, 0, RunMemberStarted, "", "x-session-000000001", "", "", "", 1); !errors.Is(err, ErrRunMemberTransition) {
+		t.Fatal("a removed member moved", err)
+	}
+}

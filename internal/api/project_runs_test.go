@@ -523,8 +523,8 @@ func TestProjectRunFailureCodesHaveSentences(t *testing.T) {
 }
 
 // The machine's own refusals of a create (capacity, denied, conflict, failed)
-// read as what they are, not as a lost session, and leave the member free to
-// take a new attempt.
+// read as what they are, not as a lost session. All but a conflict leave the
+// member free to take a new attempt.
 func TestProjectRunMachineRefusalsHaveTheirOwnSentences(t *testing.T) {
 	f := runMachineFixture(t)
 	codes := map[string]terminalproto.ResultCode{"/home/tester/site": terminalproto.Capacity, "/home/tester/api": terminalproto.Denied, "/home/tester/docs": terminalproto.Conflict}
@@ -537,7 +537,9 @@ func TestProjectRunMachineRefusalsHaveTheirOwnSentences(t *testing.T) {
 	run := f.settled(t, out["id"].(string), notRunning)
 	want := map[string]string{"/home/tester/site": "session_limit", "/home/tester/api": "machine_refused", "/home/tester/docs": "machine_refused"}
 	for _, m := range run.Members {
-		if m.State != store.RunMemberFailed || m.Code != want[m.Dir] || m.Sent {
+		// A conflict may mean the machine already has the agent: the request
+		// id is kept. Capacity and denied started nothing.
+		if m.State != store.RunMemberFailed || m.Code != want[m.Dir] || m.Sent != (m.Dir == "/home/tester/docs") {
 			t.Fatalf("%+v", m)
 		}
 	}
@@ -718,5 +720,116 @@ func TestProjectRunConcurrentStartsMakeOneRun(t *testing.T) {
 	}
 	if len(f.creates()) != 2 {
 		t.Fatal("creates", len(f.creates()))
+	}
+}
+
+func TestProjectRunResumeWatcherEndsWhenTheServerCloses(t *testing.T) {
+	f := runMachineFixture(t)
+	f.srv.ResumeProjectRuns(context.Background()) // a context that never ends
+	done := f.srv.s.resumeDone
+	f.srv.Close()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the resume watcher outlived the Server")
+	}
+}
+
+func TestProjectRunMemberBecomesRemovedWhenItsWorktreeIsRemoved(t *testing.T) {
+	f := runMachineFixture(t)
+	id := f.project(t)
+	_, out, _ := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"requestId": terminalbroker.ID(), "positions": []int{0, 1}})
+	runID := out["id"].(string)
+	f.settled(t, runID, notRunning)
+	_, view, _ := f.do(t, f.cookie, "GET", "/api/v2/project-runs/"+runID, nil)
+	m := view["members"].([]any)[0].(map[string]any)
+	target := map[string]any{"agentId": m["host"], "project": m["worktreeProject"], "repo": m["worktreeRepo"], "run": m["worktreeRun"], "changed": 0, "unpushed": 0}
+	// Another account cannot remove it, and the member stays started.
+	other, err := f.st.CreateUser("runs-remove-other@example.test", "Other", "admin", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _, _ := f.do(t, terminalLogin(t, f.st, other.ID), "POST", "/api/v2/terminal/worktrees/remove", target); code < 400 {
+		t.Fatal("another account removed it", code)
+	}
+	if code, _, raw := f.do(t, f.cookie, "POST", "/api/v2/terminal/worktrees/remove", target); code != 200 {
+		t.Fatal(code, raw)
+	}
+	_, view, raw := f.do(t, f.cookie, "GET", "/api/v2/project-runs/"+runID, nil)
+	members := view["members"].([]any)
+	if members[0].(map[string]any)["state"] != "removed" || members[0].(map[string]any)["sentence"] != "" ||
+		members[1].(map[string]any)["state"] != "started" || view["state"] != "complete" {
+		t.Fatal(raw)
+	}
+	// Removing a worktree no run made changes nothing.
+	f.mu.Lock()
+	f.worktrees["shop/elsewhere/"+strings.Repeat("e", 24)] = "/home/tester/.reet/worktrees/shop/elsewhere/" + strings.Repeat("e", 24)
+	f.mu.Unlock()
+	stray := map[string]any{"agentId": f.agent.ID, "project": "shop", "repo": "elsewhere", "run": strings.Repeat("e", 24), "changed": 0, "unpushed": 0}
+	if code, _, raw := f.do(t, f.cookie, "POST", "/api/v2/terminal/worktrees/remove", stray); code != 200 {
+		t.Fatal(code, raw)
+	}
+	if run, _ := f.st.RunFor(f.uid, runID); run.Members[1].State != store.RunMemberStarted {
+		t.Fatal(run.Members)
+	}
+}
+
+// No refusal ever repeats the shared prompt it was sent.
+func TestProjectRefusalsNeverEchoTheSharedPrompt(t *testing.T) {
+	f := runMachineFixture(t)
+	id := f.project(t)
+	run, err := f.st.CreateRunFor(f.uid, id, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.SetRunMemberState(f.uid, run.ID, 0, store.RunMemberFailed, "folder_unavailable", "", "", "", "", 1); err != nil {
+		t.Fatal(err)
+	}
+	p := &projectAPI{launchAPI: f.launchAPI}
+	quoted, _ := json.Marshal(projectSentinel)
+	S := string(quoted[1 : len(quoted)-1])
+	member := `{"host":"` + f.agent.ID + `","dir":"/home/tester/site"}`
+	bodies := []string{
+		`{"name":"","defaultTool":"claude","sharedPrompt":"` + S + `"}`,
+		`{"name":"P1","defaultTool":"claude","sharedPrompt":"-` + S + `"}`,
+		`{"name":"P2","defaultTool":"claude","sharedPrompt":"` + S + strings.Repeat("x", 2100) + `"}`,
+		`{"name":"P3","defaultTool":"claude","sharedPrompt":"` + S + `\u0007"}`,
+		`{"name":"P4","defaultTool":"nope","sharedPrompt":"` + S + `"}`,
+		`{"name":"P5","defaultTool":"claude","sharedPrompt":"` + S + `","bogus":1}`,
+		`{"name":"Shop","defaultTool":"claude","sharedPrompt":"` + S + `"}`,
+		`{"name":"P6","defaultTool":"claude","sharedPrompt":"` + S + `","members":[{"host":"nobody","dir":"/x"}]}`,
+		`{"name":"P7","defaultTool":"claude","sharedPrompt":"` + S + `","members":[` + member + `,` + member + `]}`,
+		`{"name":"P8","defaultTool":"claude","sharedPrompt":"` + S + `","members":[{"host":"` + f.agent.ID + `","dir":"relative"}]}`,
+		`{"name":"P9","defaultTool":"claude","sharedPrompt":"` + strings.Repeat(S, 3000) + `"}`,
+		`{"name":"P10","defaultTool":"claude","sharedPrompt":"` + S + `"} trailing`,
+	}
+	origin := "https://reet.example"
+	check := func(method, path, body string) {
+		t.Helper()
+		code, raw := p.raw(t, method, path, body, f.cookie, origin, "")
+		if code < 400 {
+			t.Fatal("accepted", method, path, code, body[:min(len(body), 80)])
+		}
+		if strings.Contains(raw, "zebra-sentinel") {
+			t.Fatal("the prompt was echoed", method, path, code, raw)
+		}
+	}
+	for _, b := range bodies {
+		check("POST", "/api/v2/projects", b)
+		if !strings.Contains(b, `"name":"Shop"`) {
+			check("PATCH", "/api/v2/projects/"+id, b)
+		}
+	}
+	for _, b := range []string{
+		`{"requestId":"` + terminalbroker.ID() + `","positions":[0],"prompt":"` + S + `"}`,
+		`{"requestId":"` + S + `","positions":[0]}`,
+		`{"requestId":"` + terminalbroker.ID() + `","positions":[0],"sharedPrompt":"` + S + `"}`,
+	} {
+		check("POST", "/api/v2/projects/"+id+"/runs", b)
+	}
+	check("POST", "/api/v2/project-runs/"+run.ID+"/members/0/retry", `{"prompt":"`+S+`"}`)
+	check("POST", "/api/v2/project-runs/"+run.ID+"/members/9/retry", `{}`)
+	if strings.Contains(f.logs.String(), "zebra-sentinel") {
+		t.Fatal("the prompt reached the log")
 	}
 }

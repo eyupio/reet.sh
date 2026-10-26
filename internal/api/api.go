@@ -72,6 +72,7 @@ type server struct {
 	healthHub         *agenthealth.Hub
 	terminals         *terminalbroker.Broker
 	runs              *projectrun.Orchestrator
+	resumeDone        chan struct{} // closed when ResumeProjectRuns' watcher ends
 	remoteTerminals   bool
 	terminalOverride  atomic.Pointer[bool]
 	publicURLOverride atomic.Pointer[string]

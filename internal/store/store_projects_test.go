@@ -1155,3 +1155,113 @@ func TestProjectFolderErrorsNameTheRepository(t *testing.T) {
 		t.Fatalf("%#v", err)
 	}
 }
+
+func TestRunMemberSentIsStickyUntilKnownToHaveStartedNothing(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	p := mustProject(t, s, uid, baseProject("Sent"))
+	run, err := s.CreateRunFor(uid, p.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fail := func(code string, attempt int) {
+		t.Helper()
+		if err := s.SetRunMemberState(uid, run.ID, 0, RunMemberFailed, code, "", "", "", "", attempt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	member := func() RunMember {
+		t.Helper()
+		r, err := s.RunFor(uid, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.Members[0]
+	}
+	if m := member(); m.Sent || m.Attempt != 1 {
+		t.Fatalf("%+v", m)
+	}
+	if err := s.MarkRunMemberSent(uid, run.ID, 0, 2); !errors.Is(err, ErrRunMemberStale) {
+		t.Fatal("marked another attempt", err)
+	}
+	if err := s.MarkRunMemberSent(uid, run.ID, 0, 1); err != nil {
+		t.Fatal(err)
+	}
+	// Possibly sent, then a precheck refusal on the next try: the code says
+	// "definite" but the flag keeps the request id.
+	fail("unknown_outcome", 1)
+	if m, err := s.RetryRunMember(uid, run.ID, 0); err != nil || m.Attempt != 1 || !m.Sent {
+		t.Fatal(m, err)
+	}
+	fail("machine_unavailable", 1)
+	if err := s.SetRunMemberState(uid, run.ID, 0, RunMemberPending, "", "", "", "", "", 2); !errors.Is(err, ErrRunMemberStale) {
+		t.Fatal("a new attempt while the create may have been sent", err)
+	}
+	if m, err := s.RetryRunMember(uid, run.ID, 0); err != nil || m.Attempt != 1 || !member().Sent {
+		t.Fatal(m, err)
+	}
+	// The broker then reports a definite refusal for that very request id.
+	if err := s.ClearRunMemberSent(uid, run.ID, 0, 1); err != nil {
+		t.Fatal(err)
+	}
+	fail("tool_not_installed", 1)
+	if m, err := s.RetryRunMember(uid, run.ID, 0); err != nil || m.Attempt != 2 || member().Sent {
+		t.Fatal(m, err)
+	}
+	// Never sent at attempt 2 (a precheck refusal): the next attempt is allowed.
+	fail("machine_unavailable", 2)
+	if m, err := s.RetryRunMember(uid, run.ID, 0); err != nil || m.Attempt != 3 {
+		t.Fatal(m, err)
+	}
+	if _, err := s.RetryRunMember(uid, run.ID, 0); !errors.Is(err, ErrRunMemberNotFailed) {
+		t.Fatal("retried a pending member", err)
+	}
+	if _, err := s.RetryRunMember(projectUser(t, s, "b"), run.ID, 0); !errors.Is(err, ErrRunNotFound) {
+		t.Fatal("another account retried", err)
+	}
+	if err := s.ClearRunMemberSent(uid, run.ID, 0, 1); !errors.Is(err, ErrRunMemberStale) {
+		t.Fatal("cleared an old attempt", err)
+	}
+}
+
+func TestRacingRetriesAgreeOnOneAttempt(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	p := mustProject(t, s, uid, baseProject("Race"))
+	for _, sent := range []bool{true, false} {
+		run, err := s.CreateRunFor(uid, p.ID, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sent {
+			if err := s.MarkRunMemberSent(uid, run.ID, 0, 1); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := s.SetRunMemberState(uid, run.ID, 0, RunMemberFailed, "unknown_outcome", "", "", "", "", 1); err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		var won atomic.Int32
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if _, err := s.RetryRunMember(uid, run.ID, 0); err == nil {
+					won.Add(1)
+				} else if !errors.Is(err, ErrRunMemberNotFailed) {
+					t.Error(err)
+				}
+			}()
+		}
+		wg.Wait()
+		r, _ := s.RunFor(uid, run.ID)
+		want := 2
+		if sent {
+			want = 1
+		}
+		if won.Load() != 1 || r.Members[0].Attempt != want || r.Members[0].State != RunMemberPending {
+			t.Fatal(sent, won.Load(), r.Members[0])
+		}
+	}
+}

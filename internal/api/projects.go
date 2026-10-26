@@ -344,6 +344,13 @@ var runMemberSentences = func() map[string]string {
 		"session_limit":        "The terminal session limit has been reached. End a session and try again.",
 		"machine_unavailable":  "That machine is reconnecting. Try again in a moment.",
 		"unknown_machine":      "That machine isn't enrolled on this account.",
+		// The codes only a run's orchestrator stores (internal/projectrun).
+		"unknown_outcome":    "We didn't hear back, so the agent may have started. Check your sessions before retrying.",
+		"session_lost":       "That machine lost the session before it started. Start it again.",
+		"machine_refused":    "That machine refused to start the agent. Check the machine, then try again.",
+		"terminals_disabled": sentenceTerminalsOff,
+		"worktree_refused":   "That machine refused to make a worktree for this request. Start it again to see why.",
+		"invalid_launch":     "reet couldn't send that start request. Check the Project's settings and try again.",
 	}
 	for _, r := range worktreeRefusals {
 		out[r.code] = r.sentence

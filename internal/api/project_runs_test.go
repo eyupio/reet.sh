@@ -478,12 +478,57 @@ func TestProjectRunFailureCodesHaveSentences(t *testing.T) {
 	for _, code := range []string{projectrun.CodeUnknownOutcome, projectrun.CodeSessionLost, projectrun.CodeTerminalsDisabled, projectrun.CodeUnknownMachine,
 		projectrun.CodeMachineUnavailable, projectrun.CodeSessionLimit, projectrun.CodeLaunchUnsupported, projectrun.CodeWorktreeUnsupported,
 		projectrun.CodeToolNotInstalled, projectrun.CodeFolderUnavailable, projectrun.CodePromptUnsupported, projectrun.CodeWorktreeRefused,
-		projectrun.CodeWorktreeMismatch, projectrun.CodeInvalidLaunch, "not_repo_root", "repo_busy", "worktree_exists", "git_failed", "outside_home"} {
+		projectrun.CodeWorktreeMismatch, projectrun.CodeInvalidLaunch, projectrun.CodeMachineRefused, "not_repo_root", "repo_busy", "worktree_exists", "git_failed", "outside_home"} {
 		if s := runMemberSentence(store.RunMemberFailed, code); s == "" || s == "Something changed. Check again." {
 			t.Fatal(code, s)
 		}
 	}
 	if got := runMemberSentence(store.RunMemberFailed, projectrun.CodeUnknownOutcome); got != "We didn't hear back, so the agent may have started. Check your sessions before retrying." {
 		t.Fatal(got)
+	}
+}
+
+// The machine's own refusals of a create (capacity, denied, conflict, failed)
+// read as what they are, not as a lost session, and leave the member free to
+// take a new attempt.
+func TestProjectRunMachineRefusalsHaveTheirOwnSentences(t *testing.T) {
+	f := runMachineFixture(t)
+	codes := map[string]terminalproto.ResultCode{"/home/tester/site": terminalproto.Capacity, "/home/tester/api": terminalproto.Denied, "/home/tester/docs": terminalproto.Conflict}
+	f.decide = func(in terminalproto.Create) terminalproto.Body { return terminalproto.Result{Code: codes[in.Dir]} }
+	id := f.project(t)
+	_, out, raw := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"positions": []int{0, 1, 2}})
+	if out["id"] == nil {
+		t.Fatal(raw)
+	}
+	run := f.settled(t, out["id"].(string), notRunning)
+	want := map[string]string{"/home/tester/site": "session_limit", "/home/tester/api": "machine_refused", "/home/tester/docs": "machine_refused"}
+	for _, m := range run.Members {
+		if m.State != store.RunMemberFailed || m.Code != want[m.Dir] || m.Sent {
+			t.Fatalf("%+v", m)
+		}
+	}
+	_, _, list := f.do(t, f.cookie, "GET", "/api/v2/projects/"+id+"/runs", nil)
+	if !strings.Contains(list, "The terminal session limit has been reached.") || !strings.Contains(list, "That machine refused to start the agent.") {
+		t.Fatal(list)
+	}
+	f.mu.Lock()
+	f.decide = nil
+	f.mu.Unlock()
+	if code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/project-runs/"+run.ID+"/members/0/retry", map[string]any{}); code != 200 || out["id"] != run.ID {
+		t.Fatal(code, raw)
+	}
+	run = f.settled(t, run.ID, func(r store.Run) bool { return r.Members[0].State != store.RunMemberPending })
+	if m := run.Members[0]; m.State != store.RunMemberStarted || m.Attempt != 2 {
+		t.Fatalf("%+v", m)
+	}
+	// Neither the run nor the retry audit carries the prompt.
+	for _, action := range []string{"project-run", "project-run-retry", "terminal-launch"} {
+		rows, _ := json.Marshal(worktreeEvents(t, f.st, f.uid, action))
+		if len(worktreeEvents(t, f.st, f.uid, action)) == 0 || strings.Contains(string(rows), projectSentinel) {
+			t.Fatal(action, string(rows))
+		}
+	}
+	if strings.Contains(f.logs.String(), projectSentinel) {
+		t.Fatal("prompt in the log")
 	}
 }

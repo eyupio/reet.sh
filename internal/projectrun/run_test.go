@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,23 +26,55 @@ type sent struct {
 	in             terminalproto.Create
 }
 
+// kind is what the fake broker and machine do with a new request id.
+type kind int
+
+const (
+	// start: the machine starts an agent and the answer arrives.
+	start kind = iota
+	// lost: the machine starts an agent and the answer never arrives.
+	lost
+	// refuse: the machine (or the broker after reserving) refuses; the
+	// refusal is kept with the request id and replayed.
+	refuse
+	// before: the broker refuses before reserving anything; nothing is kept.
+	before
+	// mismatch: the agent starts but the worktree report does not match.
+	mismatch
+)
+
 type answer struct {
+	kind  kind
 	err   error
-	state terminalproto.SessionState // default Running
+	state terminalproto.SessionState // for start: default running
 }
 
-// fakeBroker records every create. answer picks the outcome per call; when
-// gate is set, every call waits for a token from it (or for cancellation).
+type reservation struct {
+	session  string
+	state    terminalproto.SessionState
+	err      error
+	reported bool
+}
+
+// fakeBroker models the real reservation semantics: a request id it has
+// reserved is answered from that reservation (the session, or the kept
+// refusal) and starts nothing; a new request id with an existing worktree
+// token starts another agent in that worktree, as the machine would.
 type fakeBroker struct {
-	mu          sync.Mutex
-	calls       []sent
-	inFlight    int
-	peak        int
-	notReady    map[string]bool
-	answer      func(sent) answer
-	gate        chan struct{}
-	sessions    map[string]string // request id -> session id
-	nextSession int
+	mu           sync.Mutex
+	calls        []sent
+	inFlight     int
+	peak         int
+	byAgent      map[string]int
+	agentPeak    map[string]int
+	agentsAtOnce int // most distinct machines with a create in flight at once
+	notReady     map[string]bool
+	answer       func(sent) answer
+	gate         chan struct{}
+	delay        time.Duration
+	reserved     map[string]*reservation
+	agents       map[string]int // agents started, by worktree token (or machine+folder)
+	nextSession  int
 }
 
 func (f *fakeBroker) Ready(uid int64, agent string) bool {
@@ -59,51 +92,103 @@ func (f *fakeBroker) setReady(agent string, ready bool) {
 	f.mu.Unlock()
 }
 
+func agentKey(agent string, in terminalproto.Create) string {
+	if in.Worktree != "" {
+		return in.Worktree
+	}
+	return agent + "|" + in.Dir
+}
+
 func (f *fakeBroker) CreateSession(ctx context.Context, uid int64, agent, request string, in terminalproto.Create) (store.TerminalSession, bool, error) {
 	c := sent{agent, request, in}
 	f.mu.Lock()
+	if f.byAgent == nil {
+		f.byAgent, f.agentPeak, f.reserved, f.agents = map[string]int{}, map[string]int{}, map[string]*reservation{}, map[string]int{}
+	}
 	f.calls = append(f.calls, c)
 	f.inFlight++
 	f.peak = max(f.peak, f.inFlight)
-	gate, decide := f.gate, f.answer
+	f.byAgent[agent]++
+	f.agentPeak[agent] = max(f.agentPeak[agent], f.byAgent[agent])
+	busy := 0
+	for _, n := range f.byAgent {
+		if n > 0 {
+			busy++
+		}
+	}
+	f.agentsAtOnce = max(f.agentsAtOnce, busy)
+	gate, decide, delay := f.gate, f.answer, f.delay
 	f.mu.Unlock()
-	defer func() { f.mu.Lock(); f.inFlight--; f.mu.Unlock() }()
+	defer func() { f.mu.Lock(); f.inFlight--; f.byAgent[agent]--; f.mu.Unlock() }()
+	cut := false
 	if gate != nil {
 		select {
 		case <-gate:
 		case <-ctx.Done():
-			return store.TerminalSession{}, false, terminalbroker.ErrWorktreeReplyLost
+			cut = true
 		}
 	}
-	a := answer{}
-	if decide != nil {
-		a = decide(c)
+	if delay > 0 && !cut {
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			cut = true
+		}
 	}
-	if a.err != nil {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if r := f.reserved[request]; r != nil {
+		if r.err != nil {
+			return store.TerminalSession{}, false, r.err
+		}
+		first := !r.reported
+		r.reported = true
+		return f.session(r, agent, in), first && r.state == terminalproto.Running, nil
+	}
+	a := answer{}
+	if cut {
+		a = answer{kind: lost} // the machine got it; the answer did not come back
+	} else if decide != nil {
+		f.mu.Unlock()
+		a = decide(c)
+		f.mu.Lock()
+	}
+	switch a.kind {
+	case before:
+		return store.TerminalSession{}, false, a.err
+	case refuse:
+		f.reserved[request] = &reservation{err: a.err}
 		return store.TerminalSession{}, false, a.err
 	}
 	if a.state == "" {
 		a.state = terminalproto.Running
 	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.sessions == nil {
-		f.sessions = map[string]string{}
+	f.nextSession++
+	r := &reservation{session: fmt.Sprintf("session-%016d", f.nextSession), state: a.state}
+	f.reserved[request] = r
+	if a.state == terminalproto.Running {
+		f.agents[agentKey(agent, in)]++
 	}
-	id, replay := f.sessions[request]
-	if !replay {
-		f.nextSession++
-		id = fmt.Sprintf("session-%016d", f.nextSession)
-		f.sessions[request] = id
+	switch a.kind {
+	case lost:
+		return store.TerminalSession{}, false, terminalbroker.ErrWorktreeReplyLost
+	case mismatch:
+		r.reported = true
+		return f.session(r, agent, terminalproto.Create{}), false, terminalbroker.ErrWorktreeMismatch
 	}
-	s := store.TerminalSession{ID: id, AgentID: agent, State: a.state}
+	r.reported = true
+	return f.session(r, agent, in), a.state == terminalproto.Running, nil
+}
+
+func (f *fakeBroker) session(r *reservation, agent string, in terminalproto.Create) store.TerminalSession {
+	s := store.TerminalSession{ID: r.session, AgentID: agent, State: r.state}
 	if in.Worktree != "" {
 		repo := terminalproto.Slug(in.Dir[strings.LastIndex(in.Dir, "/")+1:], "repo")
 		s.WorktreePath = "/home/t/.reet/worktrees/" + in.Project + "/" + repo + "/" + in.Worktree
 		s.WorktreeRepo = repo
 		s.WorktreeBranch = "reet/" + in.Project + "-" + in.Worktree
 	}
-	return s, !replay && a.state == terminalproto.Running, nil
+	return s
 }
 
 func (f *fakeBroker) sent() []sent {
@@ -118,11 +203,33 @@ func (f *fakeBroker) inflight() int {
 	return f.inFlight
 }
 
+// agentsIn reports how many agents the machine started for each worktree
+// token (or machine and folder).
+func (f *fakeBroker) agentsIn() map[string]int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := map[string]int{}
+	for k, v := range f.agents {
+		out[k] = v
+	}
+	return out
+}
+
+func oneAgentEach(t *testing.T, f *fakeBroker) {
+	t.Helper()
+	for k, n := range f.agentsIn() {
+		if n != 1 {
+			t.Fatalf("%d agents started in %s", n, k)
+		}
+	}
+}
+
 type fixture struct {
 	st      *store.Store
 	uid     int64
 	laptop  string
 	server  string
+	desk    string
 	broker  *fakeBroker
 	logs    *strings.Builder
 	logMu   sync.Mutex
@@ -150,12 +257,17 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &fixture{st: st, uid: uid, laptop: laptop.ID, server: server.ID, broker: &fakeBroker{}, logs: &strings.Builder{}, enabled: true}
+	desk, _, err := st.EnrollSyncAgent(uid, "desk", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &fixture{st: st, uid: uid, laptop: laptop.ID, server: server.ID, desk: desk.ID, broker: &fakeBroker{}, logs: &strings.Builder{}, enabled: true}
 }
 
 func (f *fixture) orchestrator(t *testing.T, cfg ...func(*Config)) *Orchestrator {
 	t.Helper()
-	c := Config{Store: f.st, Broker: f.broker, Poll: 5 * time.Millisecond,
+	broker := f.broker
+	c := Config{Store: f.st, Broker: broker, Poll: 2 * time.Millisecond, StartWait: 40 * time.Millisecond, ResumeWait: 40 * time.Millisecond,
 		Enabled: func() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.enabled },
 		Launched: func(uid int64, agent string, in terminalproto.Create, s store.TerminalSession) {
 			f.mu.Lock()
@@ -175,10 +287,21 @@ func (f *fixture) orchestrator(t *testing.T, cfg ...func(*Config)) *Orchestrator
 	return o
 }
 
+func (f *fixture) launched() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.started...)
+}
+
 // project saves a Project whose members are the given (machine, folder) pairs.
 func (f *fixture) project(t *testing.T, worktrees bool, members ...[2]string) store.Project {
 	t.Helper()
-	p := store.Project{Name: "Shop Front", DefaultTool: "claude", DefaultModel: "sonnet", SharedPrompt: sentinel, UseWorktrees: worktrees}
+	return f.named(t, "Shop Front", worktrees, members...)
+}
+
+func (f *fixture) named(t *testing.T, name string, worktrees bool, members ...[2]string) store.Project {
+	t.Helper()
+	p := store.Project{Name: name, DefaultTool: "claude", DefaultModel: "sonnet", SharedPrompt: sentinel, UseWorktrees: worktrees}
 	for _, m := range members {
 		p.Members = append(p.Members, store.ProjectMember{Host: m[0], Dir: m[1]})
 	}
@@ -201,7 +324,7 @@ func (f *fixture) run(t *testing.T, p store.Project, positions ...int) store.Run
 // settle waits until the orchestrator is idle and returns the run.
 func settle(t *testing.T, o *Orchestrator, st *store.Store, uid int64, runID string) store.Run {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for {
 		o.mu.Lock()
 		idle := len(o.runs) == 0
@@ -222,7 +345,7 @@ func settle(t *testing.T, o *Orchestrator, st *store.Store, uid int64, runID str
 
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for !cond() {
 		if time.Now().After(deadline) {
 			t.Fatal("timed out waiting for " + what)
@@ -240,14 +363,15 @@ func member(r store.Run, position int) store.RunMember {
 	return store.RunMember{}
 }
 
+func sha(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
 func TestDerivedRequestIDsAndTokens(t *testing.T) {
 	run := "0123456789abcdef0123456789abcdef"
-	if got := RequestID(run, 3, 2); len(got) != 48 || got != RequestID(run, 3, 2) {
+	if got := RequestID(run, 3, 2); len(got) != 48 || got != RequestID(run, 3, 2) || !terminalproto.ValidID(got) {
 		t.Fatal(got)
-	}
-	// SHA-256("run|position|attempt"), first 48 hex characters.
-	if !terminalproto.ValidID(RequestID("r", 1, 1)) {
-		t.Fatal("request id must be a valid id")
 	}
 	seen := map[string]bool{}
 	for pos := 0; pos < 12; pos++ {
@@ -270,15 +394,14 @@ func TestDerivedRequestIDsAndTokens(t *testing.T) {
 	if Title("Shop", "/home/a/site") != "Shop · site" || Title("Shop", "/") != "Shop" || len([]rune(Title(strings.Repeat("x", 80), "/a/b"))) != 80 {
 		t.Fatal(Title("Shop", "/home/a/site"))
 	}
-}
-
-func TestRequestIDIsTheDocumentedHash(t *testing.T) {
-	// echo -n 'run|0|1' | sha256sum, cut to 48; echo -n 'worktree|run|0' | sha256sum, cut to 24.
 	if got, want := RequestID("run", 0, 1), sha("run|0|1")[:48]; got != want {
 		t.Fatal(got, want)
 	}
 	if got, want := WorktreeToken("run", 0), sha("worktree|run|0")[:24]; got != want {
 		t.Fatal(got, want)
+	}
+	if RetryAttempt(store.RunMember{Attempt: 3, Sent: true}) != 3 || RetryAttempt(store.RunMember{Attempt: 3}) != 4 {
+		t.Fatal("retry attempt rule")
 	}
 }
 
@@ -298,7 +421,7 @@ func TestRunStartsEveryMemberWithItsOwnRequestAndWorktree(t *testing.T) {
 	}
 	tokens := map[string]bool{}
 	for _, c := range calls {
-		var pos = -1
+		pos := -1
 		for _, m := range got.Members {
 			if m.Dir == c.in.Dir {
 				pos = m.Position
@@ -310,17 +433,15 @@ func TestRunStartsEveryMemberWithItsOwnRequestAndWorktree(t *testing.T) {
 			t.Fatalf("create for %d: %+v", pos, c)
 		}
 		tokens[c.in.Worktree] = true
-		if m.State != store.RunMemberStarted || m.SessionID == "" || m.WorktreeToken != c.in.Worktree ||
+		if m.State != store.RunMemberStarted || m.SessionID == "" || m.WorktreeToken != c.in.Worktree || !m.Sent ||
 			m.WorktreePath == "" || m.WorktreeRepo == "" || m.WorktreeBranch != "reet/shop-front-"+c.in.Worktree || m.Attempt != 1 {
 			t.Fatalf("member %+v", m)
 		}
 	}
-	if len(tokens) != 3 {
-		t.Fatal("two members shared a worktree token")
+	if len(tokens) != 3 || len(f.launched()) != 3 {
+		t.Fatal("tokens", tokens, "launched", f.launched())
 	}
-	if len(f.started) != 3 {
-		t.Fatalf("launched %v", f.started)
-	}
+	oneAgentEach(t, f.broker)
 }
 
 func TestRunWithoutWorktreesSendsNoWorktreeFields(t *testing.T) {
@@ -335,36 +456,75 @@ func TestRunWithoutWorktreesSendsNoWorktreeFields(t *testing.T) {
 	}
 }
 
-func TestRunHasAtMostTwoInFlight(t *testing.T) {
+func TestRunHasAtMostTwoInFlightAndOnePerMachine(t *testing.T) {
 	f := newFixture(t)
 	f.broker.gate = make(chan struct{})
 	o := f.orchestrator(t)
-	p := f.project(t, true, [2]string{f.laptop, "/a/1"}, [2]string{f.laptop, "/a/2"}, [2]string{f.laptop, "/a/3"}, [2]string{f.server, "/a/4"}, [2]string{f.server, "/a/5"})
+	p := f.project(t, true, [2]string{f.laptop, "/a/1"}, [2]string{f.laptop, "/a/2"}, [2]string{f.laptop, "/a/3"}, [2]string{f.server, "/a/4"}, [2]string{f.server, "/a/5"}, [2]string{f.desk, "/a/6"})
 	r := f.run(t, p)
 	o.Start(f.uid, r.ID)
-	for released := 0; released < 5; released++ {
-		want := min(2, 5-released)
-		waitFor(t, "creates in flight", func() bool { return f.broker.inflight() == want })
-		time.Sleep(20 * time.Millisecond) // a third would have arrived by now
-		if n := f.broker.inflight(); n != want {
-			t.Fatalf("%d in flight after %d released", n, released)
-		}
-		if n := len(f.broker.sent()); n != released+want {
-			t.Fatalf("%d sent after %d released", n, released)
+	for released := 0; released < 6; released++ {
+		waitFor(t, "a create in flight", func() bool { return f.broker.inflight() > 0 })
+		time.Sleep(15 * time.Millisecond)
+		if n := f.broker.inflight(); n > 2 {
+			t.Fatalf("%d in flight", n)
 		}
 		f.broker.gate <- struct{}{}
 	}
 	got := settle(t, o, f.st, f.uid, r.ID)
-	if got.State != store.RunComplete || f.broker.peak != 2 {
-		t.Fatalf("peak %d, %+v", f.broker.peak, got)
+	if got.State != store.RunComplete || f.broker.peak != 2 || f.broker.agentPeak[f.laptop] != 1 || f.broker.agentPeak[f.server] != 1 || f.broker.agentPeak[f.desk] != 1 {
+		t.Fatalf("peak %d %v, %+v", f.broker.peak, f.broker.agentPeak, got)
 	}
-	// Members are started in position order: the first two go first.
-	first := map[string]bool{}
-	for _, c := range f.broker.sent()[:2] {
-		first[c.request] = true
+	// Members on one machine go in position order.
+	var laptop []string
+	for _, c := range f.broker.sent() {
+		if c.agent == f.laptop {
+			laptop = append(laptop, c.in.Dir)
+		}
 	}
-	if !first[RequestID(r.ID, 0, 1)] || !first[RequestID(r.ID, 1, 1)] {
-		t.Fatal("members were not started in position order")
+	if strings.Join(laptop, ",") != "/a/1,/a/2,/a/3" {
+		t.Fatal(laptop)
+	}
+}
+
+// Eight members on one slow machine, two on another, and a second run on the
+// first machine: all start, none fails, the slow machine never has two creates
+// at once, and the other machine works in parallel.
+func TestOneMachineUnderLoadSerialisesAcrossRunsWhileOthersRunInParallel(t *testing.T) {
+	f := newFixture(t)
+	f.broker.delay = 15 * time.Millisecond
+	o := f.orchestrator(t)
+	var members [][2]string
+	for i := 0; i < 8; i++ {
+		members = append(members, [2]string{f.laptop, fmt.Sprintf("/load/%d", i)})
+	}
+	members = append(members, [2]string{f.server, "/load/s1"}, [2]string{f.server, "/load/s2"})
+	r1 := f.run(t, f.project(t, true, members...))
+	r2 := f.run(t, f.named(t, "Other", true, [2]string{f.laptop, "/other/1"}, [2]string{f.laptop, "/other/2"}))
+	o.Start(f.uid, r1.ID)
+	o.Start(f.uid, r2.ID)
+	for _, id := range []string{r1.ID, r2.ID} {
+		got := settle(t, o, f.st, f.uid, id)
+		if got.State != store.RunComplete {
+			t.Fatalf("%+v", got.Members)
+		}
+	}
+	if f.broker.agentPeak[f.laptop] != 1 || f.broker.agentPeak[f.server] != 1 || f.broker.agentsAtOnce != 2 {
+		t.Fatalf("per machine %v, machines at once %d", f.broker.agentPeak, f.broker.agentsAtOnce)
+	}
+	oneAgentEach(t, f.broker)
+}
+
+func TestAMachineThatIsBrieflyNotReadyDoesNotFailItsMembers(t *testing.T) {
+	f := newFixture(t)
+	f.broker.setReady(f.laptop, false)
+	o := f.orchestrator(t, func(c *Config) { c.StartWait = 5 * time.Second })
+	r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/0"}, [2]string{f.laptop, "/a/1"}, [2]string{f.laptop, "/a/2"}))
+	o.Start(f.uid, r.ID)
+	time.Sleep(30 * time.Millisecond)
+	f.broker.setReady(f.laptop, true)
+	if got := settle(t, o, f.st, f.uid, r.ID); got.State != store.RunComplete {
+		t.Fatalf("%+v", got.Members)
 	}
 }
 
@@ -375,13 +535,12 @@ func TestRunStartsOnlyTheChosenMembers(t *testing.T) {
 	r := f.run(t, p, 2, 0)
 	o.Start(f.uid, r.ID)
 	got := settle(t, o, f.st, f.uid, r.ID)
-	calls := f.broker.sent()
 	byRequest := map[string]sent{}
-	for _, c := range calls {
+	for _, c := range f.broker.sent() {
 		byRequest[c.request] = c
 	}
-	if len(got.Members) != 2 || len(calls) != 2 || byRequest[RequestID(r.ID, 0, 1)].in.Dir != "/a/0" || byRequest[RequestID(r.ID, 2, 1)].in.Worktree != WorktreeToken(r.ID, 2) {
-		t.Fatalf("%+v %+v", got.Members, calls)
+	if len(got.Members) != 2 || len(byRequest) != 2 || byRequest[RequestID(r.ID, 0, 1)].in.Dir != "/a/0" || byRequest[RequestID(r.ID, 2, 1)].in.Worktree != WorktreeToken(r.ID, 2) {
+		t.Fatalf("%+v %+v", got.Members, byRequest)
 	}
 }
 
@@ -396,28 +555,28 @@ func TestOneMembersFailureNeverStopsTheOthersAndEachGetsItsCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := []struct {
-		host, dir string
-		err       error
-		state     terminalproto.SessionState
-		code      string
+		host, dir      string
+		a              answer
+		code           string
+		nothingStarted bool
 	}{
-		{f.laptop, "/c/ok-first", nil, "", ""},
-		{f.laptop, "/c/launch", terminalbroker.ErrLaunchUnsupported, "", CodeLaunchUnsupported},
-		{f.laptop, "/c/worktree", terminalbroker.ErrWorktreeUnsupported, "", CodeWorktreeUnsupported},
-		{f.laptop, "/c/exists", &terminalbroker.WorktreeError{Reason: terminalproto.WorktreeExists}, "", "worktree_exists"},
-		{f.laptop, "/c/root", &terminalbroker.WorktreeError{Reason: terminalproto.WorktreeNotRepoRoot}, "", "not_repo_root"},
-		{f.laptop, "/c/busy", &terminalbroker.WorktreeError{Reason: terminalproto.WorktreeRepoBusy}, "", "repo_busy"},
-		{f.laptop, "/c/git", &terminalbroker.WorktreeError{Reason: terminalproto.WorktreeGitFailed, Detail: "fatal"}, "", "git_failed"},
-		{f.laptop, "/c/home", &terminalbroker.WorktreeError{Reason: terminalproto.WorktreeOutsideHome}, "", "outside_home"},
-		{f.laptop, "/c/folder", terminalbroker.ErrLaunchFailed, "", CodeFolderUnavailable},
-		{f.server, "/c/tool", terminalbroker.ErrLaunchFailed, "", CodeToolNotInstalled},
-		{f.server, "/c/limit", store.ErrTerminalCapacity, "", CodeSessionLimit},
-		{f.server, "/c/lost", nil, terminalproto.Lost, CodeSessionLost},
+		{f.laptop, "/c/ok-first", answer{}, "", false},
+		{f.laptop, "/c/launch", answer{kind: before, err: terminalbroker.ErrLaunchUnsupported}, CodeLaunchUnsupported, true},
+		{f.laptop, "/c/worktree", answer{kind: before, err: terminalbroker.ErrWorktreeUnsupported}, CodeWorktreeUnsupported, true},
+		{f.laptop, "/c/exists", answer{kind: refuse, err: &terminalbroker.WorktreeError{Reason: terminalproto.WorktreeExists}}, "worktree_exists", true},
+		{f.laptop, "/c/root", answer{kind: refuse, err: &terminalbroker.WorktreeError{Reason: terminalproto.WorktreeNotRepoRoot}}, "not_repo_root", true},
+		{f.laptop, "/c/busy", answer{kind: refuse, err: &terminalbroker.WorktreeError{Reason: terminalproto.WorktreeRepoBusy}}, "repo_busy", true},
+		{f.laptop, "/c/git", answer{kind: refuse, err: &terminalbroker.WorktreeError{Reason: terminalproto.WorktreeGitFailed, Detail: "fatal"}}, "git_failed", true},
+		{f.laptop, "/c/home", answer{kind: refuse, err: &terminalbroker.WorktreeError{Reason: terminalproto.WorktreeOutsideHome}}, "outside_home", true},
+		{f.laptop, "/c/folder", answer{kind: refuse, err: terminalbroker.ErrLaunchFailed}, CodeFolderUnavailable, true},
+		{f.server, "/c/tool", answer{kind: refuse, err: terminalbroker.ErrLaunchFailed}, CodeToolNotInstalled, true},
+		{f.server, "/c/limit", answer{kind: before, err: store.ErrTerminalCapacity}, CodeSessionLimit, true},
+		{f.server, "/c/lost", answer{state: terminalproto.Lost}, CodeSessionLost, true},
 	}
 	byDir := map[string]answer{}
 	var members [][2]string
 	for _, c := range cases {
-		byDir[c.dir] = answer{err: c.err, state: c.state}
+		byDir[c.dir] = c.a
 		members = append(members, [2]string{c.host, c.dir})
 	}
 	f.broker.answer = func(s sent) answer { return byDir[s.in.Dir] }
@@ -433,8 +592,8 @@ func TestOneMembersFailureNeverStopsTheOthersAndEachGetsItsCode(t *testing.T) {
 			}
 			continue
 		}
-		if m.State != store.RunMemberFailed || m.Code != c.code || m.SessionID != "" {
-			t.Fatalf("%s: want %s, got %+v", c.dir, c.code, m)
+		if m.State != store.RunMemberFailed || m.Code != c.code || m.SessionID != "" || m.Sent == c.nothingStarted {
+			t.Fatalf("%s: want %s (nothing started %v), got %+v", c.dir, c.code, c.nothingStarted, m)
 		}
 	}
 	if got.State != store.RunPartial || len(f.broker.sent()) != len(cases) {
@@ -446,7 +605,7 @@ func TestSessionLimitMarksTheRestOnThatMachineButNotOthers(t *testing.T) {
 	f := newFixture(t)
 	f.broker.answer = func(s sent) answer {
 		if s.agent == f.laptop {
-			return answer{err: store.ErrTerminalCapacity}
+			return answer{kind: before, err: store.ErrTerminalCapacity}
 		}
 		return answer{}
 	}
@@ -480,11 +639,11 @@ func TestMembersOnUnknownUnreadyOrDisabledMachinesAreNeverSent(t *testing.T) {
 	r := f.run(t, f.project(t, true, [2]string{stranger.ID, "/a/1"}, [2]string{f.server, "/a/2"}, [2]string{f.laptop, "/a/3"}))
 	o.Start(f.uid, r.ID)
 	got := settle(t, o, f.st, f.uid, r.ID)
-	if c := member(got, 0).Code; c != CodeUnknownMachine {
-		t.Fatal(c)
+	if m := member(got, 0); m.Code != CodeUnknownMachine || m.Sent {
+		t.Fatal(m)
 	}
-	if c := member(got, 1).Code; c != CodeMachineUnavailable {
-		t.Fatal(c)
+	if m := member(got, 1); m.Code != CodeMachineUnavailable || m.Sent {
+		t.Fatal(m)
 	}
 	if member(got, 2).State != store.RunMemberStarted {
 		t.Fatalf("%+v", member(got, 2))
@@ -494,11 +653,10 @@ func TestMembersOnUnknownUnreadyOrDisabledMachinesAreNeverSent(t *testing.T) {
 			t.Fatalf("sent to %s", c.agent)
 		}
 	}
-
 	f.mu.Lock()
 	f.enabled = false
 	f.mu.Unlock()
-	r2 := f.run(t, f.project2(t))
+	r2 := f.run(t, f.named(t, "Second", true, [2]string{f.laptop, "/b/1"}))
 	o.Start(f.uid, r2.ID)
 	got = settle(t, o, f.st, f.uid, r2.ID)
 	if c := member(got, 0).Code; c != CodeTerminalsDisabled || len(f.broker.sent()) != 1 {
@@ -506,23 +664,14 @@ func TestMembersOnUnknownUnreadyOrDisabledMachinesAreNeverSent(t *testing.T) {
 	}
 }
 
-func (f *fixture) project2(t *testing.T) store.Project {
-	t.Helper()
-	p, err := f.st.CreateProjectFor(f.uid, store.Project{Name: "Second", DefaultTool: "claude", SharedPrompt: sentinel, Members: []store.ProjectMember{{Host: f.laptop, Dir: "/b/1"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
-
 func TestRetryAfterAnUnknownOutcomeReusesTheRequestID(t *testing.T) {
-	for _, lost := range []error{terminalbroker.ErrWorktreeReplyLost, terminalbroker.ErrOffline, context.DeadlineExceeded, terminalbroker.ErrConflict, errors.New("anything else")} {
+	for _, first := range []answer{{kind: lost}, {kind: before, err: terminalbroker.ErrOffline}, {kind: before, err: context.DeadlineExceeded},
+		{kind: before, err: terminalbroker.ErrConflict}, {kind: before, err: errors.New("anything else")}, {kind: before, err: store.ErrRemoteNotFound}} {
 		f := newFixture(t)
-		calls := 0
+		var calls atomic.Int32
 		f.broker.answer = func(s sent) answer {
-			calls++
-			if calls == 1 {
-				return answer{err: lost}
+			if calls.Add(1) == 1 {
+				return first
 			}
 			return answer{}
 		}
@@ -530,8 +679,8 @@ func TestRetryAfterAnUnknownOutcomeReusesTheRequestID(t *testing.T) {
 		r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/1"}))
 		o.Start(f.uid, r.ID)
 		got := settle(t, o, f.st, f.uid, r.ID)
-		if m := got.Members[0]; m.State != store.RunMemberFailed || m.Code != CodeUnknownOutcome || m.Attempt != 1 {
-			t.Fatalf("%v: %+v", lost, m)
+		if m := got.Members[0]; m.State != store.RunMemberFailed || !m.Sent || m.Attempt != 1 {
+			t.Fatalf("%v: %+v", first, m)
 		}
 		m, err := o.Retry(f.uid, r.ID, 0)
 		if err != nil || m.Attempt != 1 {
@@ -540,28 +689,34 @@ func TestRetryAfterAnUnknownOutcomeReusesTheRequestID(t *testing.T) {
 		got = settle(t, o, f.st, f.uid, r.ID)
 		sentNow := f.broker.sent()
 		if len(sentNow) != 2 || sentNow[0].request != RequestID(r.ID, 0, 1) || sentNow[1].request != sentNow[0].request || sentNow[1].in != sentNow[0].in {
-			t.Fatalf("%v: %+v", lost, sentNow)
+			t.Fatalf("%v: %+v", first, sentNow)
 		}
-		if got.Members[0].State != store.RunMemberStarted || got.Members[0].Attempt != 1 {
-			t.Fatalf("%+v", got.Members[0])
+		if got.Members[0].State != store.RunMemberStarted || got.Members[0].Attempt != 1 || len(f.launched()) != 1 {
+			t.Fatalf("%+v %v", got.Members[0], f.launched())
 		}
+		oneAgentEach(t, f.broker)
 	}
 }
 
 func TestRetryAfterADefiniteRefusalUsesTheNextAttempt(t *testing.T) {
 	f := newFixture(t)
-	calls := 0
+	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "t", TerminalControl: true, TerminalEnabled: true, Readiness: terminalproto.Ready, Launch: true, Worktree: true, Tools: []string{"codex"}}
+	if _, err := f.st.BeginRemoteConnectionFor(f.uid, f.laptop, terminalbroker.ID(), caps); err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
 	f.broker.answer = func(s sent) answer {
-		calls++
-		if calls == 1 {
-			return answer{err: &terminalbroker.WorktreeError{Reason: terminalproto.WorktreeRepoBusy}}
+		if calls.Add(1) == 1 {
+			return answer{kind: refuse, err: terminalbroker.ErrLaunchFailed}
 		}
 		return answer{}
 	}
 	o := f.orchestrator(t)
 	r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/1"}))
 	o.Start(f.uid, r.ID)
-	settle(t, o, f.st, f.uid, r.ID)
+	if m := settle(t, o, f.st, f.uid, r.ID).Members[0]; m.Code != CodeToolNotInstalled || m.Sent {
+		t.Fatal(m)
+	}
 	if m, err := o.Retry(f.uid, r.ID, 0); err != nil || m.Attempt != 2 {
 		t.Fatal(err, m)
 	}
@@ -573,31 +728,133 @@ func TestRetryAfterADefiniteRefusalUsesTheNextAttempt(t *testing.T) {
 	if m := got.Members[0]; m.State != store.RunMemberStarted || m.Attempt != 2 || m.WorktreeToken != WorktreeToken(r.ID, 0) {
 		t.Fatalf("%+v", m)
 	}
+	oneAgentEach(t, f.broker)
 }
 
-func TestRetryAfterAWorktreeMismatchReusesTheRequestID(t *testing.T) {
+func TestARefusalBeforeAnythingWasSentAllowsTheNextAttempt(t *testing.T) {
 	f := newFixture(t)
-	calls := 0
+	f.broker.setReady(f.laptop, false)
+	o := f.orchestrator(t)
+	r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/1"}))
+	o.Start(f.uid, r.ID)
+	if m := settle(t, o, f.st, f.uid, r.ID).Members[0]; m.Code != CodeMachineUnavailable || m.Sent || len(f.broker.sent()) != 0 {
+		t.Fatal(m)
+	}
+	f.broker.setReady(f.laptop, true)
+	if m, err := o.Retry(f.uid, r.ID, 0); err != nil || m.Attempt != 2 {
+		t.Fatal(err, m)
+	}
+	settle(t, o, f.st, f.uid, r.ID)
+	if s := f.broker.sent(); len(s) != 1 || s[0].request != RequestID(r.ID, 0, 2) {
+		t.Fatalf("%+v", s)
+	}
+}
+
+// The reviewer's scenario: the answer to attempt 1 is lost (the agent runs),
+// a retry meets the machine reconnecting and is refused before sending, and a
+// third try must still send attempt 1's request id, so the machine answers
+// with the agent it already has instead of starting a second one.
+func TestAPossiblySentCreateStaysStickyThroughAPrecheckRefusal(t *testing.T) {
+	f := newFixture(t)
+	var calls atomic.Int32
 	f.broker.answer = func(s sent) answer {
-		calls++
-		if calls == 1 {
-			return answer{err: terminalbroker.ErrWorktreeMismatch}
+		if calls.Add(1) == 1 {
+			return answer{kind: lost}
 		}
 		return answer{}
 	}
 	o := f.orchestrator(t)
 	r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/1"}))
 	o.Start(f.uid, r.ID)
-	if m := settle(t, o, f.st, f.uid, r.ID).Members[0]; m.Code != CodeWorktreeMismatch {
+	if m := settle(t, o, f.st, f.uid, r.ID).Members[0]; m.Code != CodeUnknownOutcome || !m.Sent {
+		t.Fatal(m)
+	}
+	f.broker.setReady(f.laptop, false)
+	if m, err := o.Retry(f.uid, r.ID, 0); err != nil || m.Attempt != 1 {
+		t.Fatal(err, m)
+	}
+	if m := settle(t, o, f.st, f.uid, r.ID).Members[0]; m.Code != CodeMachineUnavailable || !m.Sent || m.Attempt != 1 {
+		t.Fatal("the precheck refusal cleared the mark", m)
+	}
+	f.broker.setReady(f.laptop, true)
+	if m, err := o.Retry(f.uid, r.ID, 0); err != nil || m.Attempt != 1 {
+		t.Fatal(err, m)
+	}
+	got := settle(t, o, f.st, f.uid, r.ID)
+	s := f.broker.sent()
+	if len(s) != 2 || s[0].request != RequestID(r.ID, 0, 1) || s[1].request != s[0].request {
+		t.Fatalf("%+v", s)
+	}
+	if got.Members[0].State != store.RunMemberStarted || len(f.launched()) != 1 {
+		t.Fatalf("%+v %v", got.Members[0], f.launched())
+	}
+	oneAgentEach(t, f.broker)
+}
+
+// The same after a crash: the in-flight member's machine stays away past the
+// resume wait, and the retry after that still uses the first request id.
+func TestAnInFlightMemberAtACrashStaysStickyThroughAnOfflineResume(t *testing.T) {
+	f := newFixture(t)
+	f.broker.gate = make(chan struct{})
+	o := f.orchestrator(t)
+	r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/1"}))
+	o.Start(f.uid, r.ID)
+	waitFor(t, "the create", func() bool { return f.broker.inflight() == 1 })
+	o.Close() // the agent starts; the answer is lost with the controller
+	broker := f.broker
+	broker.mu.Lock()
+	broker.gate = nil
+	broker.mu.Unlock()
+	broker.setReady(f.laptop, false)
+	o2 := f.orchestrator(t)
+	if err := o2.Resume(); err != nil {
+		t.Fatal(err)
+	}
+	if m := settle(t, o2, f.st, f.uid, r.ID).Members[0]; m.Code != CodeMachineUnavailable || !m.Sent || m.Attempt != 1 {
+		t.Fatal(m)
+	}
+	broker.setReady(f.laptop, true)
+	if m, err := o2.Retry(f.uid, r.ID, 0); err != nil || m.Attempt != 1 {
+		t.Fatal(err, m)
+	}
+	got := settle(t, o2, f.st, f.uid, r.ID)
+	if s := broker.sent(); len(s) != 2 || s[1].request != s[0].request || s[0].request != RequestID(r.ID, 0, 1) {
+		t.Fatalf("%+v", s)
+	}
+	if got.Members[0].State != store.RunMemberStarted || len(f.launched()) != 1 {
+		t.Fatalf("%+v %v", got.Members[0], f.launched())
+	}
+	oneAgentEach(t, broker)
+}
+
+func TestRetryAfterAWorktreeMismatchReusesTheRequestIDAndAuditsOnce(t *testing.T) {
+	f := newFixture(t)
+	var calls atomic.Int32
+	f.broker.answer = func(s sent) answer {
+		if calls.Add(1) == 1 {
+			return answer{kind: mismatch}
+		}
+		return answer{}
+	}
+	o := f.orchestrator(t)
+	r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/1"}))
+	o.Start(f.uid, r.ID)
+	if m := settle(t, o, f.st, f.uid, r.ID).Members[0]; m.Code != CodeWorktreeMismatch || !m.Sent {
 		t.Fatal(m)
 	}
 	if m, err := o.Retry(f.uid, r.ID, 0); err != nil || m.Attempt != 1 {
 		t.Fatal(err, m)
 	}
-	settle(t, o, f.st, f.uid, r.ID)
+	got := settle(t, o, f.st, f.uid, r.ID)
 	if s := f.broker.sent(); len(s) != 2 || s[1].request != s[0].request {
 		t.Fatalf("%+v", s)
 	}
+	// The replay reports the session as already known; the launch is still
+	// audited once, when the member becomes started.
+	if got.Members[0].State != store.RunMemberStarted || len(f.launched()) != 1 {
+		t.Fatalf("%+v %v", got.Members[0], f.launched())
+	}
+	oneAgentEach(t, f.broker)
 }
 
 func TestRetryRefusesMembersThatDidNotFail(t *testing.T) {
@@ -626,7 +883,7 @@ func TestShutdownLeavesMembersPendingAndResumeStartsOnlyThoseWithTheSameRequestI
 	gate := make(chan struct{})
 	f.broker.gate = gate
 	o := f.orchestrator(t)
-	r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/0"}, [2]string{f.laptop, "/a/1"}, [2]string{f.server, "/a/2"}, [2]string{f.server, "/a/3"}))
+	r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/0"}, [2]string{f.server, "/a/1"}, [2]string{f.laptop, "/a/2"}, [2]string{f.server, "/a/3"}))
 	o.Start(f.uid, r.ID)
 	waitFor(t, "two creates", func() bool { return f.broker.inflight() == 2 })
 	gate <- struct{}{} // one of the first two starts
@@ -652,9 +909,15 @@ func TestShutdownLeavesMembersPendingAndResumeStartsOnlyThoseWithTheSameRequestI
 		t.Fatalf("%+v", got.Members)
 	}
 	first := f.broker.sent()
-
-	// A new controller on the same database: nothing is claimed any more.
-	f.broker = &fakeBroker{nextSession: 100}
+	sentBefore := map[string]bool{}
+	for _, c := range first {
+		sentBefore[c.request] = true
+	}
+	// A new controller on the same database and the same machines.
+	broker := f.broker
+	broker.mu.Lock()
+	broker.gate = nil
+	broker.mu.Unlock()
 	o2 := f.orchestrator(t)
 	if err := o2.Resume(); err != nil {
 		t.Fatal(err)
@@ -663,51 +926,82 @@ func TestShutdownLeavesMembersPendingAndResumeStartsOnlyThoseWithTheSameRequestI
 	if got.State != store.RunComplete {
 		t.Fatalf("%+v", got)
 	}
-	again := f.broker.sent()
+	again := broker.sent()[len(first):]
 	if len(again) != 3 {
 		t.Fatalf("resume sent %d creates", len(again))
-	}
-	sentBefore := map[string]bool{}
-	for _, c := range first {
-		sentBefore[c.request] = true
 	}
 	for _, c := range again {
 		var pos int
 		fmt.Sscanf(c.in.Dir, "/a/%d", &pos)
-		if member(got, pos).SessionID == startedBefore {
-			t.Fatal("a started member was started again")
-		}
 		if c.request != RequestID(r.ID, pos, 1) || c.in.Worktree != WorktreeToken(r.ID, pos) {
 			t.Fatalf("resumed with a new identity: %+v", c)
 		}
-		if pos < 3 && !sentBefore[c.request] {
-			t.Fatalf("an in-flight member was resumed with a different request id")
+		if member(got, pos).SessionID == startedBefore {
+			t.Fatal("a started member was started again")
 		}
 	}
-	// Nothing pending is left to resume, and a second resume sends nothing.
+	oneAgentEach(t, broker)
+	if len(f.launched()) != 4 {
+		t.Fatal("each started member is audited once", f.launched())
+	}
 	if err := o2.Resume(); err != nil {
 		t.Fatal(err)
 	}
 	settle(t, o2, f.st, f.uid, r.ID)
-	if len(f.broker.sent()) != 3 {
+	if len(broker.sent()) != len(first)+3 {
 		t.Fatal("a second resume sent again")
 	}
 }
 
-func TestResumeWaitsForTheMachineToReconnect(t *testing.T) {
+func TestResumeWaitsForAMachineWithoutBlockingTheOthers(t *testing.T) {
 	f := newFixture(t)
-	r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/0"}, [2]string{f.server, "/a/1"}))
-	f.broker.setReady(f.laptop, false)
+	r := f.run(t, f.project(t, true, [2]string{f.server, "/a/0"}, [2]string{f.desk, "/a/1"}, [2]string{f.laptop, "/a/2"}, [2]string{f.laptop, "/a/3"}, [2]string{f.laptop, "/a/4"}))
 	f.broker.setReady(f.server, false)
-	o := f.orchestrator(t, func(c *Config) { c.ResumeWait = 300 * time.Millisecond })
+	f.broker.setReady(f.desk, false)
+	f.broker.setReady(f.laptop, false)
+	o := f.orchestrator(t, func(c *Config) { c.ResumeWait = 3 * time.Second })
 	if err := o.Resume(); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(50 * time.Millisecond)
-	f.broker.setReady(f.laptop, true) // the laptop reconnects; the server never does
+	time.Sleep(20 * time.Millisecond)
+	f.broker.setReady(f.laptop, true) // the laptop reconnects; the server and the desk do not
+	began := time.Now()
+	waitFor(t, "the laptop members", func() bool {
+		run, _ := f.st.RunFor(f.uid, r.ID)
+		return member(run, 2).State == store.RunMemberStarted && member(run, 3).State == store.RunMemberStarted && member(run, 4).State == store.RunMemberStarted
+	})
+	if time.Since(began) > 2*time.Second {
+		t.Fatal("reachable members waited behind an offline machine")
+	}
 	got := settle(t, o, f.st, f.uid, r.ID)
-	if member(got, 0).State != store.RunMemberStarted || member(got, 1).Code != CodeMachineUnavailable {
+	if member(got, 0).Code != CodeMachineUnavailable || member(got, 1).Code != CodeMachineUnavailable {
 		t.Fatalf("%+v", got.Members)
+	}
+}
+
+func TestARetryPassDoesNotInheritTheResumeWait(t *testing.T) {
+	f := newFixture(t)
+	f.broker.setReady(f.server, false) // keeps the resume pass busy
+	f.broker.answer = func(s sent) answer { return answer{kind: before, err: store.ErrTerminalCapacity} }
+	r := f.run(t, f.project(t, true, [2]string{f.server, "/a/0"}, [2]string{f.laptop, "/a/1"}))
+	o := f.orchestrator(t, func(c *Config) { c.ResumeWait = 400 * time.Millisecond; c.StartWait = time.Millisecond })
+	if err := o.Resume(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the laptop member to fail", func() bool {
+		run, _ := f.st.RunFor(f.uid, r.ID)
+		return member(run, 1).State == store.RunMemberFailed
+	})
+	f.broker.setReady(f.laptop, false)
+	began := time.Now()
+	if _, err := o.Retry(f.uid, r.ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	got := settle(t, o, f.st, f.uid, r.ID)
+	// The retry pass follows the resume pass (~400ms) and waits StartWait, not
+	// another ResumeWait.
+	if m := member(got, 1); m.Code != CodeMachineUnavailable || time.Since(began) > 650*time.Millisecond {
+		t.Fatal(m, time.Since(began))
 	}
 }
 
@@ -732,7 +1026,11 @@ func TestTwoOrchestratorsNeverStartOneMemberTwice(t *testing.T) {
 		seen[c.request] = true
 	}
 	if got.State != store.RunComplete || len(seen) != 3 {
-		t.Fatalf("%+v %d", got, len(seen))
+		t.Fatalf("%+v", got)
+	}
+	oneAgentEach(t, f.broker)
+	if len(f.launched()) != 3 {
+		t.Fatal(f.launched())
 	}
 }
 
@@ -741,24 +1039,22 @@ func TestDuplicateRepositoriesAreRefusedButOneMachineRunsTwoMembersApart(t *test
 	if _, err := f.st.CreateProjectFor(f.uid, store.Project{Name: "Dup", DefaultTool: "claude", Members: []store.ProjectMember{{Host: f.laptop, Dir: "/a/x"}, {Host: f.laptop, Dir: "/a/x/"}}}); !errors.Is(err, store.ErrDuplicateMember) {
 		t.Fatal(err)
 	}
-	f.broker.gate = make(chan struct{})
 	o := f.orchestrator(t)
 	r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/x"}, [2]string{f.laptop, "/a/y"}))
 	o.Start(f.uid, r.ID)
-	waitFor(t, "both in flight together", func() bool { return f.broker.inflight() == 2 })
-	close(f.broker.gate)
 	settle(t, o, f.st, f.uid, r.ID)
 	s := f.broker.sent()
-	if s[0].in.Worktree == s[1].in.Worktree || s[0].request == s[1].request {
+	if len(s) != 2 || s[0].in.Worktree == s[1].in.Worktree || s[0].request == s[1].request {
 		t.Fatal("two members shared a token or a request id")
 	}
+	oneAgentEach(t, f.broker)
 }
 
 func TestThePromptReachesOnlyTheCreate(t *testing.T) {
 	f := newFixture(t)
 	f.broker.answer = func(s sent) answer {
 		if strings.HasSuffix(s.in.Dir, "1") {
-			return answer{err: &terminalbroker.WorktreeError{Reason: terminalproto.WorktreeGitFailed, Detail: "fatal: bad"}}
+			return answer{kind: refuse, err: &terminalbroker.WorktreeError{Reason: terminalproto.WorktreeGitFailed, Detail: "fatal: bad"}}
 		}
 		return answer{}
 	}
@@ -766,10 +1062,8 @@ func TestThePromptReachesOnlyTheCreate(t *testing.T) {
 	r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/0"}, [2]string{f.laptop, "/a/1"}))
 	o.Start(f.uid, r.ID)
 	got := settle(t, o, f.st, f.uid, r.ID)
-	if _, err := o.Retry(f.uid, r.ID, 0); err == nil {
-		t.Fatal("retry of a started member")
-	} else if strings.Contains(err.Error(), sentinel) {
-		t.Fatal("prompt in an error")
+	if _, err := o.Retry(f.uid, r.ID, 0); err == nil || strings.Contains(err.Error(), sentinel) {
+		t.Fatal("retry of a started member", err)
 	}
 	f.logMu.Lock()
 	logs := f.logs.String()
@@ -784,7 +1078,87 @@ func TestThePromptReachesOnlyTheCreate(t *testing.T) {
 	}
 }
 
-func sha(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:])
+// Concurrency: run with -race -count=20.
+
+func TestConcurrentRetriesOfOneMemberLetExactlyOneProceed(t *testing.T) {
+	f := newFixture(t)
+	var calls atomic.Int32
+	f.broker.answer = func(s sent) answer {
+		if calls.Add(1) == 1 {
+			return answer{kind: lost}
+		}
+		return answer{}
+	}
+	o := f.orchestrator(t)
+	r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/0"}))
+	o.Start(f.uid, r.ID)
+	settle(t, o, f.st, f.uid, r.ID)
+	var wg sync.WaitGroup
+	var ok, refused atomic.Int32
+	for i := 0; i < 6; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := o.Retry(f.uid, r.ID, 0)
+			switch {
+			case err == nil:
+				ok.Add(1)
+			case errors.Is(err, ErrNotFailed):
+				refused.Add(1)
+			default:
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	got := settle(t, o, f.st, f.uid, r.ID)
+	if ok.Load() != 1 || refused.Load() != 5 || got.Members[0].State != store.RunMemberStarted || got.Members[0].Attempt != 1 {
+		t.Fatal(ok.Load(), refused.Load(), got.Members[0])
+	}
+	oneAgentEach(t, f.broker)
+}
+
+func TestRetryRacingResumeStartsOneAgent(t *testing.T) {
+	f := newFixture(t)
+	var calls atomic.Int32
+	f.broker.answer = func(s sent) answer {
+		if calls.Add(1) == 1 {
+			return answer{kind: lost}
+		}
+		return answer{}
+	}
+	o := f.orchestrator(t)
+	r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/0"}, [2]string{f.laptop, "/a/1"}))
+	o.Start(f.uid, r.ID)
+	settle(t, o, f.st, f.uid, r.ID)
+	o2 := f.orchestrator(t)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); _, _ = o2.Retry(f.uid, r.ID, 0) }()
+	go func() { defer wg.Done(); _ = o2.Resume() }()
+	wg.Wait()
+	got := settle(t, o2, f.st, f.uid, r.ID)
+	if got.State != store.RunComplete {
+		t.Fatalf("%+v", got.Members)
+	}
+	oneAgentEach(t, f.broker)
+	if len(f.launched()) != 2 {
+		t.Fatal(f.launched())
+	}
+}
+
+func TestRetryWhileTheFirstAttemptIsInFlightIsRefused(t *testing.T) {
+	f := newFixture(t)
+	f.broker.gate = make(chan struct{})
+	o := f.orchestrator(t)
+	r := f.run(t, f.project(t, true, [2]string{f.laptop, "/a/0"}))
+	o.Start(f.uid, r.ID)
+	waitFor(t, "the create", func() bool { return f.broker.inflight() == 1 })
+	if _, err := o.Retry(f.uid, r.ID, 0); !errors.Is(err, ErrNotFailed) {
+		t.Fatal(err)
+	}
+	close(f.broker.gate)
+	if got := settle(t, o, f.st, f.uid, r.ID); got.Members[0].State != store.RunMemberStarted || len(f.broker.sent()) != 1 {
+		t.Fatal(got.Members[0], len(f.broker.sent()))
+	}
 }

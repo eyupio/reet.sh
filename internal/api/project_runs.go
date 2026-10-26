@@ -19,22 +19,6 @@ func (s *server) registerProjectRunRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/project-runs/{runId}/members/{position}/retry", s.projectAccess(s.projectRunRetry))
 }
 
-// Sentences for the failure codes only the orchestrator stores. They join
-// the run member table in projects.go, so a run reads the same everywhere.
-func init() {
-	for code, sentence := range map[string]string{
-		projectrun.CodeUnknownOutcome:    "We didn't hear back, so the agent may have started. Check your sessions before retrying.",
-		projectrun.CodeSessionLost:       "That machine lost the session before it started. Start it again.",
-		projectrun.CodeTerminalsDisabled: sentenceTerminalsOff,
-		projectrun.CodeWorktreeRefused:   "That machine refused to make a worktree for this request. Start it again to see why.",
-		projectrun.CodeInvalidLaunch:     "reet couldn't send that start request. Check the Project's settings and try again.",
-	} {
-		if _, ok := runMemberSentences[code]; !ok {
-			runMemberSentences[code] = sentence
-		}
-	}
-}
-
 const sentenceTerminalsOff = "Remote terminals are switched off on this server, so agents can't be started."
 
 // newProjectRuns wires the orchestrator to the broker, the terminal switch

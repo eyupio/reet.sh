@@ -65,6 +65,7 @@ var (
 	ErrRunMemberNotPending = errors.New("run member is not pending, or is already being started")
 	ErrRunMemberTransition = errors.New("run member cannot move to that state")
 	ErrRunMemberStale      = errors.New("run member attempt does not match the stored attempt")
+	ErrRunMemberNotFailed  = errors.New("only a failed run member can be retried")
 )
 
 type ProjectMember struct {
@@ -123,6 +124,12 @@ type RunMember struct {
 	State          string
 	Code           string
 	Attempt        int
+	// Sent is true from just before the attempt's create is handed to the
+	// broker until that create is known to have started nothing. While it is
+	// set, a retry must reuse the attempt (the same request id): an agent may
+	// be running, and a new request id with the same worktree token would
+	// start a second one in the same worktree.
+	Sent bool
 }
 
 // Run is a historical record. Prompt is the shared prompt as it was when the
@@ -225,6 +232,7 @@ func (s *Store) migrateProjects() error {
 				worktree_token TEXT NOT NULL DEFAULT '', worktree_path TEXT NOT NULL DEFAULT '',
 				worktree_repo TEXT NOT NULL DEFAULT '', worktree_branch TEXT NOT NULL DEFAULT '',
 				attempt INTEGER NOT NULL DEFAULT 1 CHECK(attempt>=1),
+				sent INTEGER NOT NULL DEFAULT 0,
 				PRIMARY KEY(run_id,position),
 				FOREIGN KEY(run_id,user_id) REFERENCES project_runs(id,user_id) ON DELETE CASCADE)`,
 			`CREATE INDEX IF NOT EXISTS project_run_members_pending ON project_run_members(state,user_id,run_id)`,
@@ -702,10 +710,10 @@ func DeriveRunState(members []RunMember) string {
 	return RunPartial
 }
 
-const runMemberCols = `position,host,dir,tool,model,state,code,session_id,worktree_token,worktree_path,worktree_repo,worktree_branch,attempt`
+const runMemberCols = `position,host,dir,tool,model,state,code,session_id,worktree_token,worktree_path,worktree_repo,worktree_branch,attempt,sent`
 
 func scanRunMember(row interface{ Scan(...any) error }) (m RunMember, err error) {
-	err = row.Scan(&m.Position, &m.Host, &m.Dir, &m.Tool, &m.Model, &m.State, &m.Code, &m.SessionID, &m.WorktreeToken, &m.WorktreePath, &m.WorktreeRepo, &m.WorktreeBranch, &m.Attempt)
+	err = row.Scan(&m.Position, &m.Host, &m.Dir, &m.Tool, &m.Model, &m.State, &m.Code, &m.SessionID, &m.WorktreeToken, &m.WorktreePath, &m.WorktreeRepo, &m.WorktreeBranch, &m.Attempt, &m.Sent)
 	return
 }
 
@@ -911,14 +919,15 @@ func (s *Store) SetRunMemberState(uid int64, runID string, position int, state, 
 			res, err = tx.Exec(`UPDATE project_run_members SET state='failed',code=? WHERE run_id=? AND user_id=? AND position=? AND state='pending' AND attempt=?`,
 				code, runID, uid, position, attempt)
 		case cur.State == RunMemberFailed && state == RunMemberPending:
-			if attempt != cur.Attempt && attempt != cur.Attempt+1 {
+			// A create that may have been sent keeps its request id.
+			if attempt != cur.Attempt && (attempt != cur.Attempt+1 || cur.Sent) {
 				return ErrRunMemberStale
 			}
 			if code != "" || sessionID != "" || worktreePath != "" || worktreeRepo != "" || worktreeBranch != "" {
 				return invalid("a retry carries no code or session facts")
 			}
-			res, err = tx.Exec(`UPDATE project_run_members SET state='pending',code='',session_id='',worktree_path='',worktree_repo='',worktree_branch='',attempt=? WHERE run_id=? AND user_id=? AND position=? AND state='failed' AND attempt=?`,
-				attempt, runID, uid, position, cur.Attempt)
+			res, err = tx.Exec(`UPDATE project_run_members SET state='pending',code='',session_id='',worktree_path='',worktree_repo='',worktree_branch='',attempt=?,sent=CASE WHEN ?=attempt THEN sent ELSE 0 END WHERE run_id=? AND user_id=? AND position=? AND state='failed' AND attempt=?`,
+				attempt, attempt, runID, uid, position, cur.Attempt)
 		default:
 			return refuse
 		}
@@ -936,6 +945,75 @@ func (s *Store) SetRunMemberState(uid int64, runID string, position int, state, 
 		s.runClaims.release(claimKey{uid, runID, position})
 	}
 	return err
+}
+
+// Orchestrator only. MarkRunMemberSent records, committed, that the pending
+// member's create for this attempt is about to be handed to the broker. It
+// must be called before the call, so a crash or a lost answer can never leave
+// a possibly-sent create looking unsent.
+func (s *Store) MarkRunMemberSent(uid int64, runID string, position, attempt int) error {
+	return s.setRunMemberSent(uid, runID, position, attempt, true)
+}
+
+// Orchestrator only. ClearRunMemberSent records that this attempt's create is
+// known to have started nothing: refused before anything reached the machine
+// under its request id, or refused by the machine. The member must still be
+// pending at that attempt.
+func (s *Store) ClearRunMemberSent(uid int64, runID string, position, attempt int) error {
+	return s.setRunMemberSent(uid, runID, position, attempt, false)
+}
+
+func (s *Store) setRunMemberSent(uid int64, runID string, position, attempt int, sent bool) error {
+	res, err := s.db.Exec(`UPDATE project_run_members SET sent=? WHERE run_id=? AND user_id=? AND position=? AND state='pending' AND attempt=?`,
+		sent, runID, uid, position, attempt)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n != 1 {
+		return ErrRunMemberStale
+	}
+	return nil
+}
+
+// RetryRunMember moves a failed member back to pending and decides its
+// attempt in the same transaction, so racing retries agree: the same attempt
+// (the same request id) while its create may have been sent, the next one
+// only when the last create is known to have started nothing. Of two racing
+// retries one wins; the other gets ErrRunMemberNotFailed.
+func (s *Store) RetryRunMember(uid int64, runID string, position int) (RunMember, error) {
+	var m RunMember
+	err := s.withTx(func(tx *sql.Tx) error {
+		cur, err := scanRunMember(tx.QueryRow(`SELECT `+runMemberCols+` FROM project_run_members WHERE run_id=? AND user_id=? AND position=?`, runID, uid, position))
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrRunNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if cur.State != RunMemberFailed {
+			return ErrRunMemberNotFailed
+		}
+		attempt := cur.Attempt
+		if !cur.Sent {
+			attempt++
+		}
+		res, err := tx.Exec(`UPDATE project_run_members SET state='pending',code='',session_id='',worktree_path='',worktree_repo='',worktree_branch='',attempt=? WHERE run_id=? AND user_id=? AND position=? AND state='failed' AND attempt=? AND sent=?`,
+			attempt, runID, uid, position, cur.Attempt, cur.Sent)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return err
+		} else if n != 1 {
+			return ErrRunMemberNotFailed
+		}
+		m = cur
+		m.State, m.Code, m.SessionID, m.WorktreePath, m.WorktreeRepo, m.WorktreeBranch, m.Attempt = RunMemberPending, "", "", "", "", "", attempt
+		return nil
+	})
+	return m, err
 }
 
 // SetRunMemberWorktreeToken records the per-member worktree token the

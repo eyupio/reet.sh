@@ -706,11 +706,17 @@ try{
  await setCombo(COMBOS[3])
  await d.getByRole('button',{name:'Close'}).focus()
  await page.keyboard.press('Tab')
- await expect(d.getByRole('region',{name:'What the machine reports'})).toBeFocused()
+ const details=d.getByRole('region',{name:'Worktree details'})
+ await expect(details).toBeFocused()
+ // Its focus ring is drawn inside it: outside, the dialog would clip the sides and the footer cover the bottom.
+ expect(await details.evaluate(el=>{const cs=getComputedStyle(el);return{style:cs.outlineStyle,width:parseFloat(cs.outlineWidth),offset:parseFloat(cs.outlineOffset)}})).toEqual({style:'solid',width:2,offset:-2})
  await setCombo(COMBOS[0])
  statusAnswers.push({...mxWt})
  await d.getByRole('button',{name:'Check again'}).click()
  await expect(d.locator('.confirm')).toBeVisible()
+ // When everything fits, the middle part is no tab stop: Tab from Close goes on to the footer.
+ await expect(d.locator('.body')).not.toHaveAttribute('tabindex')
+ await expect(d.getByRole('region')).toHaveCount(0)
  await sweep('remove worktree, the confirmation',[d.getByRole('button',{name:'Remove with 2 unpushed commits'}),d.getByRole('button',{name:'Check again'})])
  statusAnswers.push({__status:422,error:"Git couldn't check that worktree.",code:'git_failed',detail:'fatal: '+LONG})
  await d.getByRole('button',{name:'Check again'}).click()
@@ -822,8 +828,8 @@ try{
  await expect(page.getByRole('heading',{name:'Project deleted.'})).toBeVisible()
  await sweep('Project deleted',[page.getByRole('link',{name:'Back to Projects'})])
 
- expect(surfaces['dialog light']).toBeTruthy();expect(surfaces['dialog dark']).not.toBe(surfaces['dialog light'])   // dark is really applied
- expect(surfaces['page light']).toBeTruthy();expect(surfaces['page dark']).not.toBe(surfaces['page light'])
+ expect(surfaces['dialog light']).toBeTruthy();expect(surfaces['dialog dark']).toBeTruthy();expect(surfaces['dialog dark']).not.toBe(surfaces['dialog light'])   // dark is really applied
+ expect(surfaces['page light']).toBeTruthy();expect(surfaces['page dark']).toBeTruthy();expect(surfaces['page dark']).not.toBe(surfaces['page light'])
  expect(swept).toHaveLength(19)
  // The matrix wrote nothing to browser storage under a key not written before it, and nothing about a Project.
  const keyOf=w=>w.split(' ',2).join(' ')
@@ -857,5 +863,5 @@ try{
 
  expect(errors).toEqual([])
  expect(unmocked.filter(u=>/project|worktree|terminal/.test(u))).toEqual([])
- console.log(`Projects UI passed: create checked before sending with one save per press while Escape and Close wait, the shared prompt kept across two changes (never sent unchanged), If-Match on every change and delete with 409 project_changed and Reload for both, Start all listing each reason a repository won't start (not enrolled with Add a machine, not ready, no launch, agent not installed, no worktrees, 8 per machine and 32 per account counting what it plans), a start from a sheet made before another tab saved refused (If-Match) with nothing started and the Project read again, a lost start resent with the same request id, positions and version and a new id for a new run, sessions reads that never answer given up after 15 seconds, machine reads that never answer holding neither the list nor the Project page (machines named by id until read), a run through pending, started, failed, Retry (attempt 2) and removed with polling stopping at rest, Remove worktree never offered while a session runs or the sessions are unknown, the status read first, blocked by changes and commits on no branch, Check again, the confirmation stating the counts the remove repeats and a session that runs again stopping it, delete keeping runs, the no-worktree warning, 401 handed to sign-in, the Activity lines, nothing in storage or addresses, no Projects for viewers, open or token sign-in and no Projects calls from them, no sideways scroll at 320px in light and dark, and a matrix of 19 states (the list empty and loaded, New project empty and refused, the Project page with started, failed, removed and pending repositories, Change and its project_changed, Start all with reasons, a lost reply and a refusal, Remove worktree blocked, confirming and refused by git, Delete and its project_changed, a Project that can't be read, isn't on the account or was deleted, and a read-only account) at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past a dialog's edges and each primary action reachable and uncovered, the worktree details reachable by keyboard, Escape from every dialog at every size returning focus without a write, a reduced-motion run and no new storage key. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
+ console.log(`Projects UI passed: create checked before sending with one save per press while Escape and Close wait, the shared prompt kept across two changes (never sent unchanged), If-Match on every change and delete with 409 project_changed and Reload for both, Start all listing each reason a repository won't start (not enrolled with Add a machine, not ready, no launch, agent not installed, no worktrees, 8 per machine and 32 per account counting what it plans), a start from a sheet made before another tab saved refused (If-Match) with nothing started and the Project read again, a lost start resent with the same request id, positions and version and a new id for a new run, sessions reads that never answer given up after 15 seconds, machine reads that never answer holding neither the list nor the Project page (machines named by id until read), a run through pending, started, failed, Retry (attempt 2) and removed with polling stopping at rest, Remove worktree never offered while a session runs or the sessions are unknown, the status read first, blocked by changes and commits on no branch, Check again, the confirmation stating the counts the remove repeats and a session that runs again stopping it, delete keeping runs, the no-worktree warning, 401 handed to sign-in, the Activity lines, nothing in storage or addresses, no Projects for viewers, open or token sign-in and no Projects calls from them, no sideways scroll at 320px in light and dark, and a matrix of 19 states (the list empty and loaded, New project empty and refused, the Project page with started, failed, removed and pending repositories, Change and its project_changed, Start all with reasons, a lost reply and a refusal, Remove worktree blocked, confirming and refused by git, Delete and its project_changed, a Project that can't be read, isn't on the account or was deleted, and a read-only account) at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past a dialog's edges and each primary action reachable and uncovered, the worktree details reachable by keyboard while they scroll with the focus ring drawn inside, Escape from every dialog at every size returning focus without a write, a reduced-motion run and no new storage key. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
 }finally{await browser.close()}

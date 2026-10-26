@@ -73,7 +73,7 @@ func TestProjectNameRulesAndUniqueness(t *testing.T) {
 	if _, err := s.CreateProjectFor(b, baseProject("docs")); err != nil {
 		t.Fatalf("another account may reuse the name: %v", err)
 	}
-	for _, name := range []string{"", "   ", strings.Repeat("a", 81), "bad\nname", "tab\tname", "nul\x00", "\xff\xfe", "line sep"} {
+	for _, name := range []string{"", "   ", strings.Repeat("a", 81), "bad\nname", "tab\tname", "nul\x00", "\xff\xfe", "line\u2028sep"} {
 		if _, err := s.CreateProjectFor(a, baseProject(name)); !errors.Is(err, ErrProjectName) || errors.Is(err, ErrProjectNameTaken) {
 			t.Fatalf("%q: %v", name, err)
 		}
@@ -946,4 +946,111 @@ func TestDeleteProjectRemovesMembersOnly(t *testing.T) {
 func jsonOf(v any) (string, error) {
 	b, err := json.Marshal(v)
 	return string(b), err
+}
+
+func TestInvisibleCharactersAreRefused(t *testing.T) {
+	s := newStore(t)
+	a := projectUser(t, s, "a")
+	for _, r := range []string{"\u202e", "\u200f", "\u2066", "\u200b", "\ufeff", "\u2028", "\u2029", "\u00ad"} {
+		p := baseProject("name" + r + "x")
+		if _, err := s.CreateProjectFor(a, p); !errors.Is(err, ErrProjectName) {
+			t.Fatalf("name %q: %v", r, err)
+		}
+		p = baseProject("host name")
+		p.Members[0].Host = "lap" + r + "top"
+		if _, err := s.CreateProjectFor(a, p); !errors.Is(err, ErrProjectInvalid) {
+			t.Fatalf("host %q: %v", r, err)
+		}
+		p = baseProject("dir name")
+		p.Members[0].Dir = "/home/a" + r + "/api"
+		if _, err := s.CreateProjectFor(a, p); !errors.Is(err, ErrProjectInvalid) {
+			t.Fatalf("dir %q: %v", r, err)
+		}
+	}
+	// Ordinary non-ASCII text is still fine.
+	p := baseProject("Café ü 日本")
+	p.Members[0].Dir = "/home/ü/日本"
+	mustProject(t, s, a, p)
+}
+
+func TestDuplicateMachinesUseTheServersHostRule(t *testing.T) {
+	s := newStore(t)
+	a := projectUser(t, s, "a")
+	for _, hosts := range [][2]string{{"Mac", "mac "}, {"Mac", "MAC"}, {" mac", "mAc"}} {
+		p := baseProject("dup")
+		p.Members = []ProjectMember{{Host: hosts[0], Dir: "/r/a"}, {Host: hosts[1], Dir: "/r//a/"}}
+		if _, err := s.CreateProjectFor(a, p); !errors.Is(err, ErrDuplicateMember) {
+			t.Fatalf("%q: %v", hosts, err)
+		}
+	}
+	p := baseProject("ok")
+	p.Members = []ProjectMember{{Host: "Mac", Dir: "/r/a"}, {Host: "mac ", Dir: "/r/b"}}
+	got := mustProject(t, s, a, p)
+	if got.Members[1].Host != "mac" {
+		t.Fatalf("host is stored trimmed: %q", got.Members[1].Host)
+	}
+	if got.Members[0].Host != "Mac" {
+		t.Fatal("the user's spelling is kept")
+	}
+	// The database refuses it too, whatever the Go check says.
+	if _, err := s.db.Exec(`INSERT INTO project_members(project_id,user_id,position,host,dir) VALUES(?,?,5,'MAC','/r/a')`, got.ID, a); err == nil {
+		t.Fatal("database allowed a case-variant duplicate")
+	}
+	// Case of the folder is significant (documented).
+	p = baseProject("case")
+	p.Members = []ProjectMember{{Host: "m", Dir: "/r/A"}, {Host: "m", Dir: "/r/a"}}
+	mustProject(t, s, a, p)
+}
+
+func TestRunPromptStaysOutOfListsAndJSON(t *testing.T) {
+	raw, err := jsonOf(Run{Prompt: "sentinel", ProjectName: "x"})
+	if err != nil || strings.Contains(raw, "sentinel") {
+		t.Fatalf("%v %s", err, raw)
+	}
+	s := newStore(t)
+	a := projectUser(t, s, "a")
+	p := mustProject(t, s, a, baseProject("pr"))
+	r, _ := s.CreateRunFor(a, p.ID)
+	list, _ := s.RunsFor(a, p.ID, 20)
+	if len(list) != 1 || list[0].Prompt != "" || list[0].HasPrompt() {
+		t.Fatalf("%+v", list)
+	}
+	if got, _ := s.RunFor(a, r.ID); got.Prompt == "" {
+		t.Fatal("RunFor keeps the prompt for the orchestrator")
+	}
+}
+
+func TestMigrationAddsLookupIndexes(t *testing.T) {
+	s := newStore(t)
+	var n int
+	s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name IN ('project_members_user','project_members_machine')`).Scan(&n)
+	if n != 2 {
+		t.Fatal(n)
+	}
+}
+
+func TestStaleRunMemberClaimsExpire(t *testing.T) {
+	s := newStore(t)
+	a := projectUser(t, s, "a")
+	p := mustProject(t, s, a, baseProject("claims"))
+	r, _ := s.CreateRunFor(a, p.ID)
+	clock := int64(1_000_000)
+	s.runClaims.now = func() int64 { return clock }
+	if _, err := s.RunMemberStart(a, r.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	clock += RunClaimTTL.Milliseconds() - 1
+	if _, err := s.RunMemberStart(a, r.ID, 0); !errors.Is(err, ErrRunMemberNotPending) {
+		t.Fatal("claim must hold until the TTL", err)
+	}
+	clock += 2
+	if _, err := s.RunMemberStart(a, r.ID, 0); err != nil {
+		t.Fatalf("an old claim on a still-pending member is claimable again: %v", err)
+	}
+	// A decided member is never claimable, however old the claim.
+	s.SetRunMemberState(a, r.ID, 0, "started", "", "s", "", "", "", 1)
+	clock += 10 * RunClaimTTL.Milliseconds()
+	if _, err := s.RunMemberStart(a, r.ID, 0); !errors.Is(err, ErrRunMemberNotPending) {
+		t.Fatal(err)
+	}
 }

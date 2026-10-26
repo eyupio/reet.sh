@@ -9,6 +9,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -133,21 +134,35 @@ type claimKey struct {
 	position int
 }
 
+// RunClaimTTL is how long a claim holds a member that is still pending. A
+// caller that vanished without deciding or releasing cannot block it for ever.
+const RunClaimTTL = 10 * time.Minute
+
 type runClaims struct {
-	mu sync.Mutex
-	m  map[claimKey]struct{}
+	mu  sync.Mutex
+	m   map[claimKey]int64 // claim time, Unix milliseconds
+	now func() int64       // injectable clock for tests; nil means the wall clock
 }
 
 func (c *runClaims) take(k claimKey) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if _, held := c.m[k]; held {
+	t := now()
+	if c.now != nil {
+		t = c.now()
+	}
+	if at, held := c.m[k]; held && t-at < RunClaimTTL.Milliseconds() {
 		return false
 	}
 	if c.m == nil {
-		c.m = map[claimKey]struct{}{}
+		c.m = map[claimKey]int64{}
 	}
-	c.m[k] = struct{}{}
+	for old, at := range c.m { // sweep expired claims
+		if t-at >= RunClaimTTL.Milliseconds() {
+			delete(c.m, old)
+		}
+	}
+	c.m[k] = t
 	return true
 }
 
@@ -173,6 +188,8 @@ func (s *Store) migrateProjects() error {
 				PRIMARY KEY(project_id,position), UNIQUE(project_id,host,dir),
 				FOREIGN KEY(project_id,user_id) REFERENCES projects(id,user_id) ON DELETE CASCADE)`,
 			// project_id is cleared, not cascaded, so deleting a Project keeps its runs.
+			`CREATE INDEX IF NOT EXISTS project_members_user ON project_members(user_id,project_id)`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS project_members_machine ON project_members(project_id,lower(host),dir)`,
 			`CREATE TABLE IF NOT EXISTS project_runs (
 				id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 				project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
@@ -221,19 +238,22 @@ func plainText(s string) bool {
 		return false
 	}
 	for _, r := range s {
-		if unicode.IsControl(r) || r == ' ' || r == ' ' {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
 			return false
 		}
 	}
 	return true
 }
 
+// hostKey is how the server compares machine hosts (see EnvironmentID).
+func hostKey(host string) string { return strings.ToLower(strings.TrimSpace(host)) }
+
 func nameKey(name string) string { return strings.ToLower(name) }
 
 // CleanProjectDir cleans a member folder with path.Clean semantics. It refuses
 // anything terminalproto would refuse as a Dir, and every relative path.
 func CleanProjectDir(dir string) (string, error) {
-	if !terminalproto.ValidDir(dir) {
+	if !terminalproto.ValidDir(dir) || !plainText(dir) {
 		return "", invalid("folder must be an absolute path (starting with /) of at most %d bytes with no control characters", terminalproto.MaxDirBytes)
 	}
 	// Cleaning an absolute path keeps it absolute and never lengthens it.
@@ -262,6 +282,7 @@ func normalizeProject(p Project) (Project, error) {
 	members := make([]ProjectMember, len(p.Members))
 	seen := map[[2]string]bool{}
 	for i, m := range p.Members {
+		m.Host = strings.TrimSpace(m.Host)
 		if m.Host == "" || len(m.Host) > maxHostBytes || !plainText(m.Host) {
 			return p, invalid("repository %d: machine is required, at most %d bytes, plain text", i+1, maxHostBytes)
 		}
@@ -275,7 +296,10 @@ func normalizeProject(p Project) (Project, error) {
 		if m.Model != "" && !terminalproto.ValidModel(m.Model) {
 			return p, invalid("repository %d: model has characters or a length the connector would refuse", i+1)
 		}
-		key := [2]string{m.Host, dir}
+		// The folder comparison is case-sensitive: right on Linux, but two
+		// spellings of one folder on a case-insensitive macOS file system are
+		// not caught (the controller cannot see the machine's file system).
+		key := [2]string{hostKey(m.Host), dir}
 		if seen[key] {
 			return p, fmt.Errorf("%w (machine %q, folder %q)", ErrDuplicateMember, m.Host, dir)
 		}
@@ -565,7 +589,7 @@ func (s *Store) CreateRunFor(uid int64, projectID string, positions ...int) (Run
 		}
 		run = Run{ID: id, ProjectID: p.ID, ProjectName: p.Name, Prompt: p.SharedPrompt, UseWorktrees: p.UseWorktrees, CreatedAt: t}
 		for _, m := range chosen {
-			key := [2]string{m.Host, m.Dir}
+			key := [2]string{hostKey(m.Host), m.Dir}
 			if seen[key] {
 				return fmt.Errorf("%w (machine %q, folder %q)", ErrDuplicateMember, m.Host, m.Dir)
 			}
@@ -702,6 +726,7 @@ func (s *Store) RunsFor(uid int64, projectID string, limit int) ([]Run, error) {
 				return err
 			}
 			out[i].State = DeriveRunState(out[i].Members)
+			out[i].Prompt = "" // lists never carry the prompt; RunFor does, for the orchestrator
 		}
 		return nil
 	})
@@ -711,7 +736,8 @@ func (s *Store) RunsFor(uid int64, projectID string, limit int) ([]Run, error) {
 	return out, err
 }
 
-// PendingRuns lists, across accounts, the runs that still have pending
+// PendingRuns is for the orchestrator only (the API layer must not call it).
+// It lists, across accounts, the runs that still have pending
 // members, oldest first, for resuming after a controller restart.
 func (s *Store) PendingRuns() ([]PendingRun, error) {
 	rows, err := s.db.Query(`SELECT r.user_id,r.id FROM project_runs r WHERE EXISTS
@@ -732,6 +758,11 @@ func (s *Store) PendingRuns() ([]PendingRun, error) {
 	return out, rows.Err()
 }
 
+// Orchestrator only: the API layer must not call RunMemberStart,
+// ReleaseRunMember or PendingRuns. The orchestrator should `defer
+// ReleaseRunMember` for every claim it takes (harmless once the member is
+// decided).
+//
 // RunMemberStart claims a pending member for this process: of two callers only
 // one gets the member, the other ErrRunMemberNotPending. The claim is held
 // until the member leaves pending through SetRunMemberState, or
@@ -758,7 +789,7 @@ func (s *Store) RunMemberStart(uid int64, runID string, position int) (RunMember
 	return m, nil
 }
 
-// ReleaseRunMember drops a claim without changing the member, for a caller that
+// ReleaseRunMember (orchestrator only) drops a claim without changing the member, for a caller that
 // gave up before knowing the outcome. It does nothing for an unclaimed member.
 func (s *Store) ReleaseRunMember(uid int64, runID string, position int) {
 	s.runClaims.release(claimKey{uid, runID, position})

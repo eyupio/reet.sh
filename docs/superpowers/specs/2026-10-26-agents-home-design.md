@@ -1,40 +1,53 @@
 # Agents home (S8 design)
 
-Date: 2026-10-26. Status: design for the product owner's review; no plan and no code yet.
+Date: 2026-10-26. Status: approved by the product owner, aligned with the approved clickable mock-up;
+open questions settled as rulings below. Plan: `docs/superpowers/plans/2026-10-26-agents-home.md`.
 
-The terminal page becomes reet.sh's home: a calm dark workspace with a left rail of sessions grouped
-by project, a Projects list, and a large composer that starts an agent in a project folder on one of
-your machines. A project stops being a named set on its own page and becomes one folder on one
-machine, picked by browsing that machine's real folders. This design covers the whole Agents home
-pass and how to ship it in pull-request-sized steps. Structured chat over the Agent Client Protocol
-is designed here only as far as the home needs it; it gets its own spec.
+reet.sh gets a new app shell and a new home. Top tabs (**Home, Sessions, Machines, Skills,
+Activity**) with a bell carrying the attention count replace today's navigation for writers. **Home**
+is a mission-control page: a fleet strip of machine cards, an **In flight** list of sessions, a **Needs
+you** column, a project rail on the left, and a docked launch bar that reads as a sentence. A project
+stops being a named set on its own page and becomes one folder on one machine, picked by browsing
+that machine's real folders. **Sessions** holds the open sessions, each with a context panel that only
+reet can fill (machine, project, branch, worktree, changed files, skills). This design covers the whole
+pass and how to ship it in pull-request-sized steps. Structured chat over the Agent Client Protocol is
+designed here only as far as the shell needs it; it is Program 2 with its own spec.
 
-"The reference designs" below means the screenshots the owner supplied: an agent dashboard (sessions
-rail, centred composer) and a session manager (sidebar with a Projects list and an Add project dialog
-with a folder browser). Nothing in this repository names them.
+"The reference designs" means the screenshots the owner supplied earlier (an agent dashboard and a
+session manager). "The mock-up" means the approved clickable design: nine boards (desktop Home,
+desktop session, Add project, YOLO confirmation, tablet Home, and phone Home, Sessions, session with
+the keyboard up, and Add project). The mock-up is the source of truth for layout, copy and tokens;
+where it shows something this pass cannot honestly produce (step counts, command approvals and
+sign-in detection for terminal agents), the [rulings](#rulings) say what ships instead and when the
+rest arrives. Nothing in this repository names the products behind the reference designs.
 
 ## Intent and success
 
-**Outcome.** A signed-in owner with a write role opens reet.sh and lands on the Agents home. They add a
-project by browsing a machine's folders, pick it in the composer, describe the work, choose an agent,
-model and worktree, press send, and watch the session in the same page. Across all machines, a short
-list says which sessions want them.
+**Outcome.** A signed-in writer opens reet.sh and lands on Home. They see every machine at a glance,
+what is in flight and what needs them. They add a project by browsing a machine's folders, fill the
+launch sentence (agent, model, project, branch, worktree), describe the job and press **Start**, and
+the session opens with its context beside it. The bell and Needs you say which sessions want them,
+across all machines.
 
-**Who it is for.** The account owner (and writers) on a desktop, a tablet or a phone, on machines that
-are enrolled and consented to browser terminals.
+**Who it is for.** The account owner and writers, on a desktop, a tablet or a phone, with machines that
+are enrolled and consented to browser terminals. Viewers and the single-token and open modes get a
+read-only Home (see [rulings](#rulings), R16).
 
 **Success looks like.**
 
-- Starting work is one composer and one press, from a project the person chose by looking at the
+- Starting work is one sentence and one press, from a project the person chose by looking at the
   machine's folders, not by typing a remembered path.
-- The page works with a thumb on a 320 px phone, with the keyboard open, without the browser zooming
-  out, and on a 768 px tablet and a 1360 px desktop.
-- Nothing on screen claims more than happened. "Started" still means the connector started the
-  program in tmux; attention states say where they come from and never guess.
-- The controller still never sends a shell string, a binary, a flag or a git command. Everything new
-  on the wire is a closed, validated field the machine re-checks.
-- YOLO is never on unless an owner allowed it for the account, the machine did not refuse it, and the
-  person switched it on for that one session after a warning.
+- The pages work with a thumb on a 320 px phone with the keyboard open and without the browser zooming
+  out, on an 834 px tablet with 44 px targets, and on a 1360–1440 px desktop.
+- The app follows the person's theme setting: the dark palette is the designed default, the light
+  palette passes the same contrast and layout checks.
+- Nothing on screen claims more than happened. "Started" still means the connector started the program
+  in tmux; attention states say where they come from and never guess; no step count is shown for an
+  agent that does not report steps.
+- The controller still never sends a shell string, a binary, a flag or a git command. Everything new on
+  the wire is a closed, validated field the machine re-checks.
+- YOLO is never on unless an owner or admin allowed it for the account, the machine did not refuse it,
+  and the person chose it for that one session after the confirmation dialog.
 
 ## Decisions already taken with the product owner
 
@@ -42,291 +55,535 @@ These are recorded, not reopened.
 
 | Question | Decision |
 | --- | --- |
-| Where do projects live? | On the terminal page, in the rail, as in the reference designs. There is **no separate Projects page**. |
+| Where do projects live? | In the project rail on Home (and the Sessions screen on phones). There is **no separate Projects page**. |
 | What is a project? | A folder on a machine, chosen by browsing the machine's folders at runtime, with automatic detection of whether it is a git repository. |
-| When? | Soon. The main page should look and behave like the reference designs. |
-| YOLO | Adopted, **off by default**, chosen per session at launch only, with a clear warning, a visible YOLO badge on that session everywhere, every use audited. An account setting **Allow YOLO**, off by default, that only owners and admins can switch on. A machine can refuse. In structured (ACP) sessions reet itself answers each permission request with `allow_once` (each one audited, never `allow_always`); terminal-only agents use their own allowlisted option. No free-form flags or command lines. |
+| Layout | The approved mock-up: top tabs with a bell, mission-control Home, session screen with a context panel, tablet and phone layouts as drawn. |
+| YOLO | Adopted, **off by default**, chosen per session at launch only (Approvals: *Ask me* or *YOLO*), confirmed in a dialog, a visible YOLO badge on that session everywhere, every use audited. An account setting **Allow YOLO**, off by default, that only owners and admins can switch on. A machine can refuse. In structured (ACP) sessions reet itself answers each permission request with `allow_once` (each one audited, never `allow_always`); terminal-only agents use their own allowlisted option. No free-form flags or command lines. |
 | Chat transcripts | Stored **on the machine only**. The controller relays live events and fetches history on demand; history is unavailable while the machine is offline. |
-| Agents | A built-in, connector-side catalogue (allowlisted, never command lines from the controller) covering every agent on the reference designs' lists plus Cline, each with its safest permission default (Cline's terminal mode auto-approves by default, so its preset passes `--auto-approve false`). New feature token `agents-v2`, because an older controller rejects a connection that lists an unknown tool id (`Capabilities.Validate`). |
-| Structured chat | The Agent Client Protocol (stdio JSON-RPC) through a small runner inside tmux. For Claude Code and Codex, which need adapters, reet offers a **confirmed, audited install of a pinned adapter version** (owner or admin), with detection and the exact command shown; never silent. |
-| Program order | Slice 1: catalogue + Agents home + YOLO. Slice 2: structured chat for Claude over ACP. Then more agents. |
-| Attention | Working / waiting for input / needs sign-in / finished, with a cross-machine attention list, is part of this pass (the chat spike folds in). |
+| Agents | A built-in, connector-side catalogue (allowlisted, never command lines from the controller), each preset with its safest permission default. New feature token `agents-v2`, because an older controller rejects a connection that lists an unknown tool id (`Capabilities.Validate`). |
+| Folder browse and branches | Negotiated requests `browse-v1` (stat-only, folders only) and `branches-v1` (one read-only git command), specified below. |
+| Structured chat | The Agent Client Protocol (stdio JSON-RPC) through a small runner inside tmux (Program 2). For Claude Code and Codex, which need adapters, reet offers a **confirmed, audited install of a pinned adapter version** (owner or admin), with detection and the exact command shown; never silent. |
+| Program order | Program 1 (this design's plan): browse, projects, catalogue, shell and Home, launch bar, YOLO, attention, session screen. Program 2: structured chat for Claude over ACP. Then more agents. |
+| Attention | Working, quiet, waiting for input, needs sign-in, finished, failed, with a cross-machine Needs you list and the bell, are part of this pass (sign-in and exact states arrive with ACP). |
 
-## Open question 1, stated first: what happens to today's Projects
+## Rulings
 
-Projects shipped in #210–#213: a named set of up to 12 machine-and-folder members, defaults, a shared
-prompt, Start all, per-run worktrees, runs with retry, and a safe Remove worktree. The owner has not
-yet said how that maps onto "a project is one folder". **This design assumes:**
+The owner delegated the open questions. Each ruling is recorded as *ruling — why — cost if wrong*.
+R1–R9 were given; R10–R22 were made while aligning the spec with the mock-up.
 
-- A project is **one folder on one machine**, added from the rail.
-- **Start all and per-run worktrees survive** as an action on a multi-selection of projects in the rail
-  ("Start on 3 projects"), using the same run orchestration.
-- The **Projects page, its named sets and its `/projects` routes are retired**. Existing saved Projects
-  are migrated into folder projects (see [Migration](#migration)); old run records are kept read-only so
-  their worktrees can still be checked and removed safely.
+**R1. Folder projects replace multi-repo sets.** Ruling: a project is one folder on one machine. Start
+all and per-run worktrees become **Start in several projects**: a multi-select in the project rail
+feeding the same run orchestration (`internal/projectrun`). `/projects` and `/projects/<id>` redirect
+to Home. Saved Projects migrate: each member becomes a folder project, de-duplicated by machine and
+folder; run records are kept read-only and listed in Activity, with their worktrees still checkable and
+removable. — Why: the owner does not want a second page, and multi-select keeps every safety property of
+runs. — Cost if wrong: named groups come back as a saved selection in the rail (one table, one menu);
+nothing migrated is lost meanwhile.
 
-Alternatives the owner may prefer:
+**R2. Shared prompts become starter prompts.** Ruling: a folder project gains an optional **starter
+prompt** (same rules as an opening prompt, at most 2,000 bytes). Migration copies each Project's shared
+prompt into every folder project created from it. Where one folder belonged to several Projects with
+different prompts, the oldest Project's prompt is kept and the folder project's notice lists the other
+Projects' names so the person can find them in the read-only legacy record (kept one release). The
+launch bar never fills a starter prompt by itself: an empty prompt box shows **Use the starter prompt**.
+— Why: no loss, and a prompt is never sent without the person seeing it. — Cost if wrong: one optional
+column and one button to remove.
 
-- **A. Keep sets as "groups".** A saved multi-selection with a name, shown as a collapsible group in the
-  rail's Projects section, with Start all on the group. Costs one more concept and table; keeps the
-  shared prompt and named runs.
-- **B. Drop history.** Migrate folders, delete sets and run records. Simplest, but worktrees recorded by
-  old runs lose their safe Remove path (the person would remove them by hand).
+**R3. First-cut catalogue.** Ruling: `claude`, `codex`, `opencode`, `gemini` (shipped) plus `pi`,
+`cursor`, `cline`. Every other agent on the owner's list ships **disabled** until its flags are confirmed
+from the real CLI's help text. Cline's preset passes `--auto-approve false`. — Why: each preset is a
+security boundary and must be confirmed, not guessed. — Cost if wrong: the person sees a disabled
+agent with "reet doesn't start this agent yet." until its preset lands.
 
-**Recommendation:** the assumption above. It keeps every safety property of Projects, removes the
-second page the owner does not want, and leaves "groups" as an easy later addition if multi-selection
-proves too fiddly.
+**R4. Control folds into Home and Machines.** Ruling: the Control overview's session band is replaced by
+In flight, its connection cards by the fleet strip and Machines. `/control` redirects to `/`. — Why: it
+duplicated both. — Cost if wrong: Control's quick links return as a section on Home.
+
+**R5. YOLO gates.** Ruling: a machine accepts YOLO sessions by default; `reet terminal yolo off` on the
+machine refuses them. The account's **Allow YOLO** setting is **off** by default. — Why: the account
+setting is the deliberate gate; the machine switch lets a machine's owner opt out locally. — Cost if
+wrong: flip the machine default to refuse and add `reet terminal yolo on`; a one-line change and a
+release note.
+
+**R6. Theme.** Ruling: follow the person's theme setting (System, Light, Dark). Dark is the designed
+default palette; the light palette is derived from reet's existing light tokens in `web/src/app.css`. —
+Why: the setting already exists and people use it. — Cost if wrong: forcing dark is one attribute on
+the shell.
+
+**R7. Project limit.** Ruling: 100 projects per account (409 `project_limit`). — Why: generous and
+bounded. — Cost if wrong: a constant and a test.
+
+**R8. Enter on phones.** Ruling: Enter inserts a newline on phones and touch tablets; the **Start**
+button sends. On a hardware keyboard Ctrl+Enter (Cmd+Enter on macOS) sends and Enter adds a line. —
+Why: phone keyboards have no reliable modifier and a stray Enter must never start an agent. — Cost if
+wrong: one key handler.
+
+**R9. Notifications outside the page.** Ruling: out of scope for Program 1: the bell, Needs you and the
+page title count only. — Why: exact states arrive with ACP; notifying on coarse terminal states would
+cry wolf. — Cost if wrong: Program 2 adds them through `docs/notifications.md`.
+
+**R10. No invented progress.** Ruling: the In flight row's step progress ("Step 4 of 7" and its bar)
+appears only for structured sessions that report a plan (Program 2). Terminal sessions show the state
+word and its source ("Working · terminal activity") with no bar. — Why: terminal output carries no
+steps; a bar would claim progress nobody measured. — Cost if wrong: none; the row keeps its slot.
+
+**R11. Needs you in Program 1.** Ruling: the cards that ship are **Waiting for you** (the program rang
+the terminal bell), **Exited with an error**, and **Finished** (titled **Ready to review** for worktree
+sessions, with the changed-file count from the existing worktree status, fetched once when the card
+first appears). The **command approval** card (command, Allow once, Deny, Open) and **Needs you to sign
+in** need structured sessions and arrive in Program 2; the column's layout already holds them. — Why: a
+terminal agent's prompt cannot be answered safely from outside its terminal. — Cost if wrong: none;
+the cards are additive.
+
+**R12. Fleet card figures.** Ruling: the load bar is the machine's CPU percentage from the existing
+health report, labelled "CPU", grey with "No reading" when absent; "agents running" counts live
+sessions started with an agent; the worktree count is worktrees reet created on that machine and has
+not removed; the skills line uses the existing sync state ("skills in sync" only when the last check
+found no differences, with its age; "Not checked" otherwise). — Why: every figure already exists and is
+labelled with what it measures. — Cost if wrong: a different load figure needs a connector field.
+
+**R13. Navigation.** Ruling: desktop shows the five tabs; Setups, Sync, Lists, Community, Support, Teams
+& organisations and Host skills move to the account menu under **More**. Tablet and phone show four
+tabs, **Home, Sessions, Machines, More**, with Skills and Activity inside More. **Activity** is the
+existing account activity list at `/activity`. — Why: the mock-up's tabs, without losing a page. — Cost
+if wrong: a navigation array.
+
+**R14. Wire gating.** Ruling: the new launch fields `Base`, `Effort` and `Yolo` all ride `agents-v2`
+(not `branches-v1`), so a connector that negotiated an earlier token is never sent a field its strict
+decoder would reject. YOLO support is a separate capability `yolo` (omitempty, requires `launch`),
+absent when the machine refuses or before the YOLO release; the controller sends `Yolo` only to a peer
+reporting it. Attention fields ride a new token, `attention-v1`. — Why: each token is introduced in the
+pull request that teaches both ends to understand it. — Cost if wrong: none at runtime; only more
+tokens.
+
+**R15. Fonts.** Ruling: Fraunces (600) and IBM Plex Sans and Mono are served by reet itself as subset
+WOFF2 files under their open font licences; no request goes to a third-party font host. — Why:
+self-hosted installs must not leak page views. — Cost if wrong: about 150 KB of static files.
+
+**R16. Read-only Home.** Ruling: viewers, single-token and open modes get Home with the fleet strip only
+(no In flight, Needs you, project rail, launch bar or bell). — Why: they cannot open terminals. — Cost
+if wrong: a role check.
+
+**R17. Session routes.** Ruling: `/sessions` lists sessions; `/sessions?agent=…&session=…` opens one.
+`/terminals` redirects there keeping its query. — Why: the mock-up's Sessions tab; every existing link
+keeps working. — Cost if wrong: route names.
+
+**R18. The machine follows the project.** Ruling: in the launch sentence, *at [machine]* is set by the
+chosen project and is only choosable for **Home folder on…**. — Why: a project is one folder on one
+machine. — Cost if wrong: none.
+
+**R19. Changed files without line counts.** Ruling: the context panel lists changed paths from the
+existing worktree status (at most 20, with the total). Added and removed line counts (+/−) arrive with
+Program 2's tool events. — Why: line counts need a new git command on the machine. — Cost if wrong: a
+`diff --numstat` read under a later token.
+
+**R20. Session tabs.** Ruling: the strip of open-session tabs shows the sessions opened in this browser
+tab since it loaded, at most 8 (oldest dropped), never stored. — Why: tabs are a view, not data. — Cost
+if wrong: per-account remembered tabs in local storage.
+
+**R21. Chat | Terminal.** Ruling: the switch ships in Program 1 with **Terminal** selected and **Chat**
+disabled, explained "Chat arrives with structured sessions." — Why: the layout is stable before Program
+2. — Cost if wrong: the switch is hidden until Program 2.
+
+**R22. One release train for the Projects hand-over.** Ruling: PR B (which retires the Projects page) to
+PR E (which brings back starting in several projects) merge in order with no release tagged between
+them. — Why: the requested order removes Start all one pull request before its replacement lands. —
+Cost if wrong: a release holds for the length of three reviews; if that is too long, PR B's retirement
+step moves into PR E.
+
+### Still open
+
+- **Which agents beyond the first cut, in what order?** Each needs its flags confirmed on a real
+  machine; the owner orders the queue.
+- **When to drop the legacy Projects tables.** Planned one release after migration; confirm before the
+  drop pull request.
 
 ## Out of scope
 
-The ACP chat view itself and the adapter install (slice 2, own spec); resuming earlier conversations;
-pull requests, merging or pushing; git-remote project identity; folders outside the enrolled home;
-Windows; push or email notifications for attention (the attention list is in-page only); MCP exposure
-of projects or sessions; agent settings screens; changing the security/PIN preference or the legacy
-sync flows; any change to the shared dialog shell another change is building (this design uses it).
+Program 2 (the ACP runner, adapter install, the chat view, command approval and sign-in cards, plan
+checklists, line counts, transcripts); resuming earlier conversations; pull requests, merging or
+pushing; git-remote project identity; folders outside the enrolled home; Windows; notifications
+outside the page (R9); MCP exposure of projects or sessions; agent settings screens; changing the
+security/PIN preference or the legacy sync flows; any change to the shared dialog shell another change
+is building (this design uses it).
+
+## Visual identity
+
+Warm ink, one cinnabar accent, a bookish heading face. Defined once as tokens in `web/src/app.css`;
+components use tokens only, never literal colours.
+
+| Token | Dark (designed default) | Light (derived from today's light tokens) | Use |
+| --- | --- | --- | --- |
+| `--bg` | `#14110f` | `#f7f6f2` | page, header |
+| `--card` | `#1a1613` | `#fffdf9` | cards, rail items, panels |
+| `--card-raised` | `#1d1815` | `#fffdf9` with `--shadow` | launch bar, dialogs |
+| `--line-soft` | `#2a241f` | `#e8e4db` | row dividers, header rule |
+| `--line` | `#342d27` | `#dedbd2` | card borders |
+| `--line-strong` | `#4a4037` | `#c9c3b6` | buttons, launch bar border |
+| `--ink` | `#f1ebe4` | `#1d1c1a` | text |
+| `--muted` | `#a39a90` | `#5f5c54` | secondary text |
+| `--accent` | `#c2410c` | `#c2410c` | filled buttons, badges, active tab rule |
+| `--accent-text` | `#ff8d63` | `#c2410c` | accent text and links |
+| `--accent-ink` | `#ffffff` | `#ffffff` | text on `--accent` |
+| `--good` | `#7fc79a` | `#15703b` | working, in sync |
+| `--warn` | `#e9b44c` | `#92400e` | waiting, YOLO, out of date |
+| `--info` | `#7fb3d9` | `#1d5f8a` | needs sign-in, informational |
+| `--repo` | `#5fc2a8` | `#0f766e` | repository icon and REPO badge |
+| `--bad` | today's | today's | failed, refused |
+
+Headings (page titles, section titles like *In flight*, fleet figures) use **Fraunces 600**; body and
+controls **IBM Plex Sans** 400/500/600; paths, branches, commands and keyboard hints **IBM Plex Mono**
+(self-hosted, R15). The header carries the real logo, `web/src/lib/logo.svg` (the Yorkshire rose in a
+bookmark plus the wordmark), drawn with `--ink` and `--accent`. Every colour pair used for text passes
+WCAG AA in both palettes; state is never colour alone (a word or icon always accompanies a dot).
+
+**Voice.** `docs/voice-and-copy.md`: plain and exact everywhere; Yorkshire only in headings, ledes and
+success lines (for example the empty launch box's heading "What shall we get stuck into?", "Sorted.
+Project added."). Buttons, states, refusals and the YOLO dialog are plain.
 
 ## Information architecture and navigation
 
-**Landing.** For accounts mode with a write role, `/` becomes the Agents home. Everyone else (viewers,
-single-token and open modes, signed-out visitors) keeps today's landing: the welcome page signed out,
-the Control overview signed in. Viewers cannot open terminals, so the home would be empty for them.
+**Top bar** (60 px desktop): logo; tabs **Home, Sessions, Machines, Skills, Activity** (the current one
+underlined in `--accent-text`); **Jump to a session, project or machine** (a search box, `/` focuses
+it); the **bell** with the Needs you count; the account menu (initials) holding **More** (R13), the
+theme setting and Sign out. Tablet and phone layouts are below.
 
 **Routes.**
 
 | Address | After this design |
 | --- | --- |
-| `/` | Agents home (writers in accounts mode); unchanged for everyone else. |
-| `/terminals` | The same Agents home component. Kept so every existing link works. `?agent=…&session=…` opens that session in the home. |
-| `/terminals?project=<id>` | The home with that project chosen in the composer (new, used by redirects and the rail). |
-| `/projects`, `/projects/<id>` | Permanent client-side redirect to `/` (writers) with a one-time note "Projects now live in the rail." `/projects/<id>` maps to the first folder project migrated from it. `projects` stays a reserved hosted username. |
-| `/control` | The Control overview (machine connection cards and quick links) stays reachable for every role. |
-
-**Main navigation** for writers in accounts mode: **Agents** (the home), **Machines**, **Skills**,
-**Setups**, **More** (Sync, Lists, Community, Support, Teams & organisations, Host skills, Control).
-The separate **Terminals** and **Projects** entries go; Agents replaces both. Viewers and the other
-modes keep Control as their first entry. On the Agents home the app header is the existing compact
-terminal header so the rail and the composer get the height.
-
-**The Control page.** Its active-session band duplicates the rail, and its connection cards duplicate
-Machines. For writers it moves under More and stops being the landing; its content is unchanged in
-this pass. Whether to fold it into Machines entirely is open question 4.
+| `/` | Home (writers in accounts mode); read-only Home for everyone else signed in (R16); the welcome page signed out. |
+| `/sessions` | Session list: search, group by Project, Machine or State, filters. |
+| `/sessions?agent=…&session=…` | The session screen for that session. |
+| `/terminals` | Redirects to `/sessions` keeping `agent` and `session`. |
+| `/?project=<id>` | Home with that project chosen in the launch bar (used by redirects and the rail). |
+| `/projects`, `/projects/<id>` | Client-side redirect to `/` with a one-time note "Projects now live in the rail on Home." `/projects/<id>` maps to the first folder project migrated from it. `projects` stays a reserved hosted username. |
+| `/control` | Redirects to `/` (R4). |
+| `/activity` | The account activity list, including the read-only legacy runs (R1). |
 
 ## Screens
 
-The look follows the reference designs: a near-black canvas, one quiet accent, generous spacing,
-small-caps section labels in the rail, monospace for paths and branches, and a centred composer with a
-round send button. It uses reet's existing tokens and themes: dark is the design target, light must
-pass the same checks (open question 6 asks whether the home should always be dark). Copy follows
-`docs/voice-and-copy.md`: plain and exact, at most one light Yorkshire phrase in a heading or lede.
-
-### Desktop (1100 px and wider): empty state
+### Desktop Home (1100 px and wider)
 
 ```
-+------------------+-----------------------------------------------------------------+
-| reet.sh   Agents Machines Skills Setups More                       [PJ]           |
-+------------------+-----------------------------------------------------------------+
-| SESSIONS  (s)(f) |                                                                 |
-| [+ New session ] |                                                                 |
-|                  |                   What shall we work on?                        |
-| NEEDS YOU (2)    |                                                                 |
-| ! reet  Waiting  |      [ [] reet - studio  v ]  [ <> main  v ]                    |
-| ! site  Sign in  |      +-----------------------------------------------------+    |
-|                  |      | Describe what you want...                            |    |
-| v reet  (3)      |      |                                                      |    |
-|   Fix sizing  2m |      |                                                 (^)  |    |
-|   Tidy docs  1h  |      +-----------------------------------------------------+    |
-|   [YOLO] Lint 3h |      | Claude Code v | opus v | Thinking: High v |           |    |
-| > site  (1)      |      | Worktree: new  v |                     YOLO [ o  ] (i)|    |
-| > Other on mini  |      +-----------------------------------------------------+    |
-|                  |       Starts Claude Code in ~/work/reet on studio, in a new     |
-| PROJECTS (4)  +  |       worktree from main. Nothing runs until you press send.    |
-|  reet            |                                                                 |
-|  ~/work/reet     |                                                                 |
-|  studio          |                                                                 |
-|  site            |                                                                 |
-|  ~/work/site     |                                                                 |
-+------------------+-----------------------------------------------------------------+
-  (s) search  (f) filters  (^) send  (i) what YOLO does
++------------------------------------------------------------------------------------------------+
+| [rose] reet.sh  Home  Sessions  Machines  Skills  Activity   [ Jump to a session... ]  (bell 3) PJ |
++--------------------+---------------------------------------------------------------------------+
+| PROJECTS    [+ Add]| +--------------+ +--------------+ +--------------+ +- - - - - - -+        |
+| +----------------+ | | o studio     | | o server     | | o desk       | | + Add a      |        |
+| |<> reet [studio]| | | 3 agents run | | 1 agent run  | | 0 agents     | |   machine    |        |
+| | main  2 running| | | CPU [===   ] | | CPU [=====  ]| | CPU [      ] | +- - - - - - -+        |
+| |    3 worktrees | | | 4 worktrees  | | 2 worktrees  | | 0 worktrees  |                         |
+| +----------------+ | | skills synced| | 1 skill old  | | skills synced|                         |
+| |<> notes[studio]| | +--------------+ +--------------+ +--------------+                         |
+| | main  waiting  | |                                                                           |
+| +----------------+ | In flight     Group by [Project|Machine|State]    Needs you (3)            |
+| | ...            | | +----------------------------------------+ +----------------------------+ |
+| |                | | | o Refactor the store layer        12m  | | Waiting for you . 2m       | |
+| |                | | |   reet . studio . reet/store-split     | | Add browse-v1 protocol     | |
+| |                | | |   Working . terminal activity          | | reet . studio       [Open] | |
+| |                | | | o Speed up the runner pool [YOLO] 34m  | +----------------------------+ |
+| |                | | |   site . server . reet/pool            | | Ready to review . 1h       | |
+| |                | | | o Docs pass   Finished            1h   | | Docs pass . 6 files changed| |
+| |                | | +----------------------------------------+ +----------------------------+ |
+| |- - - - - - - - | | +-----------------------------------------------------------------------+ |
+| | Folders are    | | | Describe the job. Say what done looks like.    [Start  Ctrl+Enter]    | |
+| | browsed live on| | |-----------------------------------------------------------------------| |
+| | the machine    | | | Run Claude Code with sonnet on reet at studio from main in a fresh    | |
+| +----------------+ | | worktree                              Approvals [Ask me | YOLO]       | |
++--------------------+-+-----------------------------------------------------------------------+-+
 ```
 
-### Desktop: a session open
+- **Project rail** (272 px): heading *Projects* with **Add**; one card per project: diamond icon in
+  `--repo` for repositories (folder icon otherwise), name, machine tag, branch (mono), state in words
+  (*2 running*, *waiting*, *idle*, *machine offline*), worktree count. Choosing a card sets the launch
+  bar's project. **Select** (in the heading's menu, or long-press on touch) turns cards into checkboxes
+  for **Start in several projects** (R1). Each card's menu: New session here, Edit, Worktrees, Remove
+  from reet. The foot reads "Folders are browsed live on the machine". The rail scrolls on its own; it
+  collapses to a 56 px strip under 1240 px wide.
+- **Fleet strip**: one card per enrolled machine in the person's machine order, then **Add a machine**
+  (opens the existing Add a machine dialog). A card: status dot and word in its accessible name
+  (*online*, *offline*, *reconnecting*), name, OS, the agents-running figure in Fraunces, the CPU bar
+  (R12), worktree count, skills line. Choosing a card opens that machine on Machines. More cards than
+  fit scroll sideways with edge fades.
+- **In flight**: heading, **Group by** *Project | Machine | State* (remembered per account in this
+  browser). Each row: state dot plus word, title (one line, ellipsis, full text in the accessible
+  name), `project · machine · branch` (mono branch), a **YOLO** badge when on, progress only per R10,
+  age since the last state change. Groups are headed by the project, machine or state with a count.
+  Finished sessions stay for 24 hours or until opened, then leave In flight (they remain on Sessions).
+  Choosing a row opens the session screen.
+- **Needs you** (380 px): count badge; cards newest first per R11. Each card has its kind and age on the
+  first line in the kind's colour **and** words, the session title, `project · machine`, and actions
+  (**Open**; for Finished, **Mark seen**). Empty: "Nowt waiting on you." under the heading.
+- **Launch bar** (docked at the bottom of the main column): see [The launch bar](#the-launch-bar).
+
+### Desktop session screen
 
 ```
-+------------------+-----------------------------------------------------------------+
-| SESSIONS  (s)(f) | Fix sizing  . Claude Code . opus . reet/reet-3f9a . studio  [...]|
-| [+ New session ] | Working - last output 4 s ago                     [Theatre][End]|
-| ...              +-----------------------------------------------------------------+
-| v reet  (3)      |                                                                 |
-| > Fix sizing  2m |   live terminal pane (TerminalPane, unchanged behaviour)        |
-|   Tidy docs  1h  |                                                                 |
-| ...              |                                                                 |
-|                  +-----------------------------------------------------------------+
-|                  | toolbar and extra keys as today                                 |
-+------------------+-----------------------------------------------------------------+
++--------------------------------------------------------------------------------------------------+
+| [rose] reet.sh   Home  Sessions  Machines  Skills  Activity                         (bell 3)  PJ  |
++--------------------------------------------------------------------------------------------------+
+| (o Refactor the store..) (o Add browse-v1 protocol) (o Review code) (o Speed up the..)   [+]       |
++------------------------------------------------------------------+-------------------------------+
+| Add browse-v1 protocol                    o Waiting for you      | WHERE IT'S WORKING            |
+| Claude Code . sonnet . started 41 minutes ago   [Chat|Terminal]  | Machine   studio  o online    |
+|------------------------------------------------------------------| Project   reet                |
+|                                                                  | Branch    reet/browse-v1      |
+|   live terminal pane (TerminalPane, unchanged behaviour)         | Worktree  own copy            |
+|                                                                  |-------------------------------|
+|                                                                  | CHANGED FILES            3    |
+|                                                                  | internal/terminalproto/brow.. |
+|                                                                  | internal/terminalhost/brow..  |
+|                                                                  | docs/terminal-launch.md       |
+|                                                                  |-------------------------------|
+|                                                                  | SKILLS ON THIS MACHINE        |
+|------------------------------------------------------------------| v 12 skills in sync  Manage   |
+| toolbar and extra keys as today          Approvals: Ask me       |-------------------------------|
+|                                                                  | DECISIONS IN THIS SESSION     |
+|                                                                  | Asked in the terminal.        |
++------------------------------------------------------------------+-------------------------------+
 ```
 
-The header line is the session's title, agent, model, branch (when a worktree), machine, attention
-state with its source, a YOLO badge when on, and the existing actions. **New session** (or `n` when
-focus is not in a terminal or field) returns to the empty-state composer without ending anything.
+- **Tab strip**: open sessions (R20), each with its state dot and title; the current one raised; **+**
+  returns to Home with the launch bar focused. Middle-click or the tab's close button closes the tab
+  (never the session).
+- **Header**: title, `agent · model · started …`, the state pill with its source in the tooltip, a
+  **YOLO** badge when on, **Chat | Terminal** (R21), and the existing actions menu (Rename, Theatre, End
+  session, Copy branch, Check and remove worktree).
+- **Conversation column**: in Program 1, the live terminal pane with today's toolbar and keys. The
+  mock-up's conversation (user message, plan checklist, tool and edit cards with a diff, the permission
+  decision card with **Allow once** / **Deny**, keyboard hints **A** / **D**, "Asking every time.
+  Approvals are logged.") is Program 2's chat view; its tokens and spacing are defined now so it drops
+  in without restyling. Under the pane the footer shows **Approvals: Ask me** or **Approvals: YOLO**.
+- **Context panel** (320 px, collapsible, hidden under 1100 px behind a **Details** button):
+  *Where it's working* (machine with online state, project, branch, worktree: "own copy" or "the
+  checkout"); *Changed files* (R19; worktree sessions only, refreshed on open and by a button, never
+  polled); *Skills on this machine* (the R12 skills line, **Manage** opens Skills filtered to that
+  machine); *Decisions in this session* ("Asked in the terminal." for terminal agents; YOLO sessions
+  say "YOLO: reet answers yes, this once, to each request." and link to the audit filter in Activity).
 
-### Tablet (651–1099 px)
+### Add project dialog
 
-Landscape (1024 px and wider) keeps the rail docked at its stored width (220–480 px). Portrait and
-narrower windows show the rail as an overlay opened by **Sessions** in the top bar, closed by
-choosing a session, Escape or the scrim. The composer is centred with 24 px side margins and the
-picker row wraps onto two lines.
-
-```
-+----------------------------------------------+
-| [=] Sessions (2!)      reet.sh         [PJ]  |
-+----------------------------------------------+
-|          [ reet - studio v ] [ main v ]      |
-|  +----------------------------------------+  |
-|  | Describe what you want...          (^) |  |
-|  +----------------------------------------+  |
-|  | Claude Code v | opus v | High v        |  |
-|  | Worktree: new v          YOLO [ o ](i) |  |
-|  +----------------------------------------+  |
-+----------------------------------------------+
-```
-
-### Phone (650 px and narrower, or sideways 500 px tall or less)
-
-The rail is a full-height drawer from the left (the existing overlay sidebar, restyled), opened by
-**Sessions** in the top bar, which shows the attention count. The composer docks to the bottom where
-thumbs are, with pickers as a sideways-scrolling chip row that fades at the end with more chips.
-Each picker opens a bottom sheet with large rows. The textarea uses a 16 px font so focusing it never
-zooms the page.
-
-```
- Empty state                       Drawer open                    Picker sheet
-+---------------------------+    +---------------------+----+    +---------------------------+
-| [=] 2!   Agents     [PJ]  |    | SESSIONS   (s)(f)(x)|////|    |                           |
-|                           |    | [+ New session    ] |////|    |                           |
-|                           |    | NEEDS YOU (2)       |////|    +---------------------------+
-|  What shall we work on?   |    | ! reet  Waiting     |////|    | Choose an agent        (x)|
-|                           |    | ! site  Sign in     |////|    | (o) Claude Code    opus   |
-|                           |    | v reet (3)          |////|    | ( ) Codex                 |
-|                           |    |   Fix sizing    2m  |////|    | ( ) Gemini CLI            |
-+---------------------------+    |   Tidy docs     1h  |////|    | ( ) Cline  Not installed  |
-| [reet v][main v][Claude v]>|   | PROJECTS (4)     +  |////|    |   on this machine         |
-| +-----------------------+ |    |  reet  ~/work/reet  |////|    | ( ) Pi  Update reet on    |
-| | Describe what you     | |    |  site  ~/work/site  |////|    |   this machine            |
-| | want...           (^) | |    +---------------------+----+    +---------------------------+
-| +-----------------------+ |
-+---------------------------+
-```
-
-With the keyboard open in the composer, the site header hides and the composer sits directly above
-the keyboard, using the same usable-height rule as the phone terminal (`docs/terminal-workspace.md`,
-Phones): the page height when it shrank by 15% or more, otherwise the visual viewport height and
-offset. The chip row stays visible above the textarea; the send button stays at least 48 × 48 px.
-A session open on a phone is today's phone terminal, unchanged, with **Sessions** in its toolbar.
-
-### Session row anatomy
-
-```
- [state] Title (first line of prompt, or the title)           age  [...]
-         Agent . model . branch-or-folder      [YOLO] [worktree]
-```
-
-- **State**: an icon plus a word, never colour alone: *Working*, *Waiting*, *Sign in*, *Finished*,
-  *Exited 1*, *Quiet*, *Starting*, *Lost*. A filled dot marks "changed since you last looked".
-- **Title**: the session title (defaults to the prompt's first line, at most 80 characters, else
-  `<Agent> · <folder>` as today). Long titles wrap to two lines then truncate with the full text in
-  the row's accessible name.
-- **Second line**: agent, model (or "default"), the worktree branch or the folder, and the machine when
-  the grouping does not already say it. Badges: **YOLO** (always shown when on), **worktree**.
-- **Age**: since the last state change, as `2m`, `1h`, `3d`.
-- **Actions** (the existing menu: right-click, Shift+F10 or the button): Rename; Open in theatre;
-  Copy branch; End session (confirm); Remove history (ended only, confirm); Check and remove worktree
-  (worktree sessions; the existing status-then-remove sheet). Rows are at least 44 px tall on touch.
-
-### Add project dialog with the folder browser
-
-Built on the shared dialog shell. Desktop is a centred dialog up to 640 px wide; phones get a
-full-screen sheet. The browser expands inside the dialog, below the Path field.
+Built on the shared dialog shell (`shell` action from `web/src/lib/dialogShell.ts`). Desktop: centred,
+up to 640 px wide. Phone: full-screen sheet (`sheet: 'full'`) with the chosen folder and buttons pinned
+at the bottom.
 
 ```
 +-------------------------------------------------------------+
-| Add project                                             (x) |
-| Machine   [ studio                                    v ]   |
-| Path      [ /home/you/work/reet                ] [Browse]   |
+| Projects                                                (x) |
+| Add a project                                               |
+| Machine   [ o studio . online                        v ]    |
+| Folder    [ /root/reet                      ] [Hide browser]|
 | +---------------------------------------------------------+ |
-| | ~ / work /                                   [Up]       | |
-| | [ type to filter                         ]              | |
-| | [ ] Show hidden folders                                 | |
+| | ~ / root                                    14 folders  | |
+| | [ Type to filter...          ]  [ ] Show hidden folders | |
 | |  [] archive                                             | |
-| |  [] notes                                               | |
-| |  [] reet                         (git) REPO             | |
-| |  [] site                         (git) REPO             | |
+| |  <> blog                                        REPO    | |
+| |  <> reet                                        REPO  < | |
+| |  <> site                                        REPO    | |
 | |  [] scratch                                             | |
-| |  Showing 5 folders.                                     | |
-| | Chosen: /home/you/work/reet          [Use this folder]  | |
+| | /root/reet is a git repository       [Use this folder]  | |
 | +---------------------------------------------------------+ |
-| This folder is the top of a git repository.                 |
-| Name (optional)          [ defaults to reet            ]    |
-| Default base branch (optional)                              |
-|                          [ blank = global default, then   ] |
-|                          [ the repository's own default   ] |
-| Worktree by default      [ Use global default (yes)    v ]  |
-| More defaults >  (agent, model)                             |
-|                                       [Cancel]  [Add]       |
+| Name (optional)            [ Defaults to the folder name ]  |
+| Worktree for each session  [ Use the account default   v ] |
+| Starter prompt (optional)  > (collapsed)                    |
+| The machine decides whether it can open each folder.        |
+|                                    [Cancel]  [Add project]  |
 +-------------------------------------------------------------+
 ```
 
 - **Machine** lists ready machines that report `browse`; others are disabled with their sentence.
-- **Path** can be typed; **Browse** opens the browser at the typed folder or the home. Clicking a folder
-  enters it; the breadcrumb and **Up** go back (never above the home). **Use this folder** fills Path
-  and collapses the browser. Typing a path does not list it; leaving the field checks it with one
-  browse request to show whether it exists and is a repository.
-- A non-repository folder is allowed, with "This folder isn't a git repository, so sessions there
-  can't use worktrees." A folder inside a repository but not its top says "This folder is inside the
-  repository at ~/work/reet. Use the top folder for worktrees." with a button to choose it.
-- **Name** defaults to the folder's name; **Default base branch** blank inherits the account default
-  then the repository's detected default; **Worktree by default** is *Use global default*, *Yes*, *No*.
-  **More defaults** (collapsed) holds default agent and model.
-- **Add** is enabled when a machine and an absolute path are set. Refusals keep the dialog open and move
-  focus to the field.
+- **Folder** can be typed; **Browse** (labelled **Hide browser** while open) opens the browser at the
+  typed folder or the home. Clicking a folder enters it; the breadcrumb goes back (never above the
+  home). **Use this folder** fills Folder and collapses the browser. Typing a path does not list it;
+  leaving the field checks it with one browse request to show whether it exists and is a repository.
+- Repository folders get the diamond icon in `--repo`, bold names and a **REPO** badge. The count reads
+  "14 folders" ("200+ folders" with more pages; **Show more** loads the next page).
+- A non-repository folder is allowed: "This folder isn't a git repository, so sessions there can't use
+  worktrees." A folder inside a repository but not its top: "This folder is inside the repository at
+  ~/work/reet. Use the top folder for worktrees." with a button to choose it.
+- **Name** defaults to the folder's name. **Worktree for each session**: *Use the account default*,
+  *Yes*, *No*. **Starter prompt** (collapsed): R2. Default base branch, agent and model sit under **More
+  defaults** (collapsed).
+- **Add project** is enabled when a machine and an absolute path are set. Refusals keep the dialog open
+  and move focus to the field. Success: "Sorted. reet added." in the status line, the dialog closes,
+  the new project is chosen in the launch bar.
 
-### Attention list
+### YOLO confirmation dialog
 
-On desktop, **Needs you** is the first rail section, present only when non-empty. On phones and
-tablets the top bar's **Sessions** button carries the count, and the drawer opens on the list. It
-spans every machine, newest first:
-
-```
-NEEDS YOU (3)
- ? Waiting   Fix sizing      reet . studio     2m
- ! Sign in   Draft release   site . mini       9m
- v Finished  Tidy docs       reet . studio     1h   [Mark seen]
-```
-
-Choosing an entry opens the session. *Finished* entries leave the list once opened or marked seen.
-The page title gains a count, `(3) Agents · reet.sh`, and a polite live region announces only
-transitions into *Waiting* or *Sign in*, at most once per session per minute.
-
-### YOLO warning
-
-Switching YOLO on opens a confirmation before the switch moves:
+Choosing **YOLO** in Approvals opens an `alertdialog` (shared dialog shell) before the control moves:
 
 ```
 +-------------------------------------------------------------+
-| Let Claude Code act without asking?                         |
-| For this one session the agent will run commands, edit and  |
-| delete files and use the network on studio without asking   |
-| you first. Anything your user on studio can do, it can do.  |
-| reet records every use. This can't be changed once the      |
-| session starts.                                             |
-|                                     [Keep asking] [Turn on] |
+| /!\ Start this session on YOLO?                             |
+| The agent will not wait for you. reet says yes, this once,  |
+| to every permission request it makes, including running     |
+| commands and changing files on studio.                      |
+|  - Every request it answers is written to the audit log,    |
+|    one line each.                                           |
+|  - The session wears a YOLO badge wherever it appears, for  |
+|    everyone who can see it.                                 |
+|  - It can't be switched on part-way through. To stop it,    |
+|    end the session.                                         |
+|  - Secrets in that folder are readable to the agent. Use a  |
+|    throwaway worktree if unsure.                            |
+| v Your account allows YOLO              set by an owner     |
+| v studio accepts YOLO sessions       checked a moment ago   |
+| v New worktree and branch for this session  reet/yolo-...   |
+|                          [Keep asking me] [Start with YOLO] |
 +-------------------------------------------------------------+
 ```
 
-The switch then reads **YOLO on** with a warning colour **and** an icon and the word. The summary line
-under the composer adds "Without permission prompts." When unavailable the switch is disabled with the
-reason underneath: "An owner or admin can allow YOLO for this account in Settings.", "studio doesn't
-allow YOLO.", "This agent has no option reet can use for that.", or "Update reet on that machine to
-use YOLO." YOLO resets to off after every launch and is never remembered.
+- The first sentence is per agent kind: for structured sessions (Program 2) as drawn; for terminal
+  agents "The agent will not ask before running commands and changing files on studio. reet passes
+  its own skip-the-prompts option and records the launch." The audit bullet becomes "The launch is
+  written to the audit log." for terminal agents (reet cannot see their individual actions).
+- The checklist states each gate with its source. A failed gate shows a cross and its reason, and
+  **Start with YOLO** is disabled: "An owner or admin can allow YOLO for this account in Settings.",
+  "studio doesn't accept YOLO sessions.", "This agent has no option reet can use for that.", "Update
+  reet on that machine to use YOLO." The worktree line is a recommendation, not a gate: without a
+  worktree it reads "Works in the checkout on main" with a warning icon.
+- **Keep asking me** (default focus) closes it with Approvals on *Ask me*. **Start with YOLO** starts the
+  session at once (it is the launch, not a toggle). Approvals returns to *Ask me* after every launch and
+  is never remembered.
+
+### Tablet (651–1099 px; drawn at 834 px)
+
+```
++----------------------------------------------+
+| [rose]  Home  Sessions  Machines  More (bell)|
++----------------------------------------------+
+| (o studio 3) (o server 1) (o desk 0) -->     |  machines scroll sideways
+| Needs you (3)                                |
+| +------------------------------------------+ |
+| | Waiting for you . 2m                     | |
+| | Add browse-v1 protocol . reet . studio   | |
+| |                                  [Open]  | |
+| +------------------------------------------+ |
+| In flight                                    |
+| o Refactor the store layer   Working         |
+| o Speed up the runner pool   Working [YOLO]  |
+|                                              |
++----------------------------------------------+
+| Describe the job. Say what done looks like.  |
+|                                     [Start]  |
+| Run Claude Code on reet at studio from       |
+| main            Approvals [Ask me | YOLO]    |
++----------------------------------------------+
+```
+
+Needs you comes before In flight; the project rail is reached from **Sessions** (the phone Sessions
+screen at tablet width) and from the launch sentence's project slot; the launch bar is docked; every
+target is at least 44 px. The session screen hides the context panel behind **Details** (a side sheet).
+
+### Phone (650 px and narrower, or sideways 500 px tall or less)
+
+```
+ Home                              Sessions                         Session, keyboard up
++---------------------------+    +---------------------------+    +---------------------------+
+| [rose]            (bell 3)|    | [ Search sessions       ] |    | < Add browse-v1  o Waiting|
+| (o studio 3)(o server)>   |    | [Project|Machine|State]   |    |   reet . studio           |
+| Needs you (3)             |    | reet          studio      |    |                           |
+| +-----------------------+ |    |  o Refactor the store 12m |    |   terminal pane           |
+| | Waiting for you . 2m  | |    |  o Add browse-v1      2m  |    |   (today's phone          |
+| | Add browse-v1 protocol| |    |  o Docs pass          1h  |    |    terminal)              |
+| | reet . studio         | |    | notes      server         |    |                           |
+| | [       Open        ] | |    |  o Review code        9m  |    | [extra keys row]          |
+| +-----------------------+ |    | Projects . 11             |    +---------------------------+
+| In flight                 |    | [   Add a project      ]  |    |        keyboard           |
+| o Refactor the st. Working|    |                           |    |                           |
++---------------------------+    +---------------------------+    +---------------------------+
+| Describe the job...  (^)  |    | Home Sessions Machines More|
+| Claude Code on reet at    |    +---------------------------+
+| studio . main . fresh     |
+| worktree       [Change]   |
++---------------------------+
+| Home Sessions Machines More|
++---------------------------+
+```
+
+- **Bottom tab bar**: Home, Sessions, Machines, More (56 px, safe-area padded); the bell sits in the
+  slim top bar.
+- **Home**: machine chips scroll sideways; Needs you first with thumb-size buttons (48 px, full width
+  for the primary action); In flight below; the launch bar sits above the tab bar as a one-line prompt
+  with a round Start button (48 × 48 px) and the sentence collapsed to one summary line with **Change**,
+  which opens a bottom sheet holding the sentence's slots as large rows plus Approvals.
+- **Sessions**: search, the Project | Machine | State switcher, groups with 44 px rows, then *Projects ·
+  11* with **Add a project** and the project cards (multi-select via long-press).
+- **Session**: a slim header (back, title, `project · machine`, state). With the keyboard up the site
+  chrome (top bar and tab bar) steps aside and the terminal uses the usable-height rule of the phone
+  terminal (`docs/terminal-workspace.md`, Phones). In Program 2 the decision card is pinned above the
+  composer, as drawn in the mock-up.
+- **Add project**: a full-screen sheet; machine, breadcrumb, filter, show hidden and the folder list
+  scroll; the chosen folder ("/root/reet · git repository") and **Cancel** / **Add this project** stay
+  pinned.
+- Inputs use a 16 px font so focusing never zooms; nothing lays out wider than the device.
+
+## The launch bar
+
+The launch bar is a form that reads as a sentence above (desktop) or below (tablet, phone summary) a
+prompt box:
+
+> Run **[agent]** with **[model]** on **[project]** at **[machine]** from **[branch]** in **[a fresh
+> worktree]** · thinking **[effort]**
+
+Each bold slot is a button (dashed underline) that opens a listbox popover on desktop and a bottom
+sheet on touch. Slots, each prefilled from the last launch so a second session is one press:
+
+1. **Agent** from the catalogue: installed agents first; others disabled with the reason ("Not
+   installed on studio", "Update reet on that machine", "reet doesn't start this agent yet.").
+2. **Model**: the agent's suggestions plus *Other…* (the launch model rules); *default* sends nothing.
+3. **Project**: registered projects grouped by machine with search; *Add a project…* opens the dialog;
+   *Home folder on…* starts without a project. Unready machines are listed disabled with their
+   sentence. With a multi-selection in the rail the slot reads "3 projects".
+4. **Machine**: follows the project (R18).
+5. **Branch**: with a worktree, the base branch, filled from the project's `baseBranch`, else the
+   account default, else the repository's default from `branches-v1`, else the current branch; the
+   picker lists the machine's branches with a filter. Without a worktree the slot is read-only:
+   "Works in the checkout on main." reet never switches the branch of a checkout. A non-repository
+   project hides the branch and worktree slots. With several projects: "each project's default".
+6. **Worktree**: *a fresh worktree* or *the checkout*, defaulting from the project, then the account.
+7. **Thinking** (effort): shown only for agents whose preset has a confirmed effort option (`low`,
+   `medium`, `high`; *default* sends nothing).
+
+**Prompt.** "Describe the job. Say what done looks like." Optional, at most 2,000 bytes, the existing
+launch rules (no leading `-`, two words for agents that need it). R8 for Enter. "Secrets don't belong
+here. The prompt is visible in the machine's process list." shows under the box when it has text. The
+starter prompt chip per R2.
+
+**Approvals** *Ask me | YOLO*: *Ask me* is selected and resets after every launch; choosing *YOLO* opens
+the [confirmation dialog](#yolo-confirmation-dialog). When YOLO is unavailable the *YOLO* half is
+disabled with the reason in its description.
+
+**Start** (with the hint `Ctrl ↵`, `⌘ ↵` on macOS) is enabled once a project or home folder and an agent
+are chosen. While the request is in flight the bar is locked and its status line reads "Starting Claude
+Code on studio…"; on success the session opens on the session screen and the prompt clears. The
+session title defaults to the prompt's first line (at most 80 characters), shown before sending as
+"Titled “Fix the failing tests…”".
+
+**Mapping onto the wire.** One `Create` per session through the existing idempotent create path:
+`Tool`, `Model`, `Dir` (the project folder), `Prompt`, `Worktree` (a fresh run token) and `Project`
+(the project's slug), as `launch-v1` and `worktree-v1` define them, plus three new flat fields under
+`agents-v2` (R14):
+
+- `Base`: the base branch name. The connector resolves it with `git rev-parse --verify --end-of-options
+  refs/heads/<base>^{commit}` (then `refs/remotes/<base>^{commit}`) and uses that commit in place of
+  `HEAD` in the one `worktree add`. Requires `Worktree`. Unknown → `worktree_refused` reason
+  `base_missing`: "That branch isn't in the repository on studio."
+- `Effort`: `low`, `medium` or `high`, mapped by the preset to its own confirmed option; refused for a
+  preset without one.
+- `Yolo`: a boolean, sent only to a peer reporting capability `yolo`; the connector maps it to that
+  preset's allowlisted option and refuses if the machine has YOLO switched off or the preset has none.
+
+The lost-reply rules of Start an agent apply unchanged: the request id and parameters are kept, the
+retry button sends exactly the same request, nothing is kept in browser storage.
+
+**Start in several projects.** With two or more projects selected in the rail, **Start** creates a
+**run** through `internal/projectrun` unchanged in its rules: one member per project, at most 2 in
+flight and 1 per machine, derived request ids, per-member retry, partial failure is normal. The run's
+name is the projects' names joined; its progress shows in a status sheet ("2 of 3 started") and its
+sessions appear in In flight. YOLO applies to every member, and the confirmation lists every machine
+with its own gate line.
 
 ## Remote folder browser protocol (`browse-v1`)
 
@@ -336,66 +593,73 @@ capability `browse` (omitempty, requires `terminalControl`) unless the machine r
 locally. The controller never sends a browse request to a connection without it and answers 409
 `browse_unsupported`: "Update reet on that machine to browse its folders."
 
-**Request** `Browse{Path, After, Filter, Hidden}`: `Path` absolute (the existing `ValidDir` rule) or
-empty for the enrolled home; `After` a continuation name (at most 255 bytes); `Filter` an optional
-case-insensitive substring (at most 64 bytes, plain text); `Hidden` a boolean. Flat and comparable.
+**Request** `Browse{Path, After, Filter string; Hidden bool}`: `Path` absolute (the existing `ValidDir`
+rule) or empty for the enrolled home; `After` a continuation name (at most 255 bytes); `Filter` an
+optional case-insensitive substring (at most 64 bytes, plain text); `Hidden` a boolean. Flat and
+comparable.
 
-**Reply** `{path, home, parent, repo, entries, more, scanned, omitted}`:
+**Reply** `BrowseResult{path, home, parent, repo, repoTop, entries, more, partial, scanned, omitted}`:
 
 - `path` is the resolved folder; `home` the enrolled home; `parent` empty at the home.
-- `repo` describes `path` itself: `root` (it holds a `.git` directory), `inside` with the top folder's
-  path (found by walking up with stat only, never above the home), or `none`.
-- `entries`: at most 200 per page, sorted by name (byte order, case-folded), each
-  `{name, dir, repoRoot, hidden}`. In `browse-v1` only directories are returned, so `dir` is always
-  true: **file names never leave the machine.** The field is kept so a later version could list files
-  without a wire change; the web ignores an entry with `dir` false. `repoRoot` is true when the entry
-  holds a `.git` **directory** that contains a `HEAD` file (two `lstat` calls). A `.git` file (a linked
-  worktree or submodule) is not a repository root here, matching what `worktree-v1` accepts.
-  `hidden` is true for names starting with `.`; hidden entries are left out unless `Hidden` is set.
-- `more` is true when another page exists (pass the last name as `After`); `scanned` and `omitted`
-  count directory entries read and entries left out (files, links leaving the home, unreadable).
+- `repo` describes `path` itself: `root` (it holds a `.git` directory with a `HEAD` file), `inside` with
+  `repoTop` the top folder's path (found by walking up with stat only, never above the home), or
+  `none`.
+- `entries`: at most 200 per page, sorted by name (byte order, case-folded), each `{name, dir,
+  repoRoot, hidden}`. In `browse-v1` only directories are returned, so `dir` is always true: **file names
+  never leave the machine.** The field is kept so a later version could list files without a wire
+  change; the web ignores an entry with `dir` false. `repoRoot` is true when the entry holds a `.git`
+  **directory** that contains a `HEAD` file (two `lstat` calls). A `.git` file (a linked worktree or
+  submodule) is not a repository root here, matching what `worktree-v1` accepts. `hidden` is true for
+  names starting with `.`; hidden entries are left out unless `Hidden` is set.
+- `more` is true when another page exists (pass the last name as `After`); `partial` when the deadline
+  cut `repoRoot` checks short; `scanned` and `omitted` count directory entries read and entries left
+  out (files, links leaving the home, unreadable, names over 255 bytes).
 
 **Machine-side rules.**
 
-- **Containment.** `Path` is cleaned, resolved with symlinks followed, and must be the home or inside
-  it, exactly as the launch folder policy. A symlinked entry is listed only when its target resolves
-  to a directory inside the home; it is listed under its own name and entering it resolves the target
-  again. Nothing above the home is ever listed, including through `..` or a link.
+- **Containment.** `Path` is cleaned, resolved with symlinks followed, and must be the home or inside it,
+  exactly as the launch folder policy (`ResolveDir`). A symlinked entry is listed only when its target
+  resolves to a directory inside the home; it is listed under its own name and entering it resolves the
+  target again. Nothing above the home is ever listed, including through `..` or a link.
 - **No contents.** Only `readdir` and `lstat`/`stat`. No file is opened, no git command runs, no
   repository configuration is read.
-- **Bounds.** At most 5,000 directory entries read per request, at most 200 returned, names at most
-  255 bytes (longer names are omitted and counted), reply at most 12 KiB so it fits the 16 KiB control
-  frame. A 3-second deadline per request: a slow or network filesystem returns what it has with
-  `more` set, and per-entry `repoRoot` checks that miss the deadline report `false` with the page
-  marked `partial`.
+- **Names.** Any byte sequence the filesystem allows is listed if it is valid UTF-8 without control
+  characters; other names are omitted and counted (they cannot be shown or sent back safely).
+- **Bounds.** At most 5,000 directory entries read per request, at most 200 returned, reply at most
+  12 KiB so it fits the 16 KiB control frame. A 3-second deadline per request: a slow or network
+  filesystem returns what it has with `more` set, and `repoRoot` checks that miss the deadline report
+  `false` with `partial` set.
 - **Concurrency.** One browse at a time per connection; a second is answered `conflict` at once.
 - **Refusal.** `reet terminal browse off` on the machine (local, like terminal consent) removes the
   capability and makes the connector answer `denied`. Default on, because every folder listed is one
   the enrolled user can already open in a terminal session.
-- **Errors.** Not found, not a directory, outside the home, permission denied: each a typed reason
-  mapped to one sentence ("That folder isn't on studio.", "That folder is outside the home folder reet
-  was set up with.", "reet can't read that folder.").
+- **Errors.** Not found, not a directory, outside the home, permission denied: each a typed reason mapped
+  to one sentence ("That folder isn't on studio.", "That folder is outside the home folder reet was
+  set up with.", "reet can't read that folder.").
 
-**Controller rules.** Writers only, owner-scoped, canonical origin, the terminal rollout flag. Rate
-limit 20 browse requests per 10 seconds per account and machine (429 `browse_rate_limited`: "Slow down
-a moment, then try again."). Controller deadline 6 seconds. An offline or reconnecting machine is
+**Controller rules.** Writers only, owner-scoped, canonical origin, the terminal rollout flag. Rate limit
+20 browse requests per 10 seconds per account and machine (429 `browse_rate_limited`: "Slow down a
+moment, then try again."). Controller deadline 6 seconds. An offline or reconnecting machine is
 answered at once with the existing readiness sentence; the dialog keeps the typed path and lets the
-person add the project without browsing (it is checked again at launch). **The controller stores
-nothing from a browse**: no cache, no log of names. The audit trail gets one `folder-browse` event per
-opened browser (machine, starting folder, number of pages), not one per click.
+person add the project without browsing (it is checked again at launch). A machine that disconnects
+mid-browse fails only the request in flight, with the readiness sentence and **Try again**; the
+breadcrumb and list already shown stay. **The controller stores nothing from a browse**: no cache, no
+log of names. The audit trail gets one `folder-browse` event per opened browser (machine, starting
+folder, number of pages), not one per click.
 
 ### Branch listing (`branches-v1`)
 
-The composer's branch picker and the dialog's base-branch suggestions need the machine's branches.
-That needs git, so it is a separate negotiated request, `Branches{Dir, Filter}`, under `branches-v1`
-and capability `branches` (requires `worktree`). The connector checks `Dir` as the worktree create
-does (repository root, inside the home) and runs exactly one read-only command already allowed by the
-worktree rules: `git -C <dir> for-each-ref --count=201 --sort=-committerdate
---format=%(refname) refs/heads refs/remotes`, with the worktree environment and hooks rules and a
-5-second timeout. The reply is `{current, default, branches, more}`: `current` the checked-out branch
-(from `symbolic-ref`, or empty when detached), `default` the remote's default if `refs/remotes/origin/HEAD`
-exists, at most 200 short names (each a valid ref name of at most 255 bytes), newest first. Rate limit
-10 per 10 seconds per account and machine; nothing stored.
+The branch slot and the dialog's base-branch suggestions need the machine's branches. That needs git, so
+it is a separate negotiated request, `Branches{Dir, Filter string}`, under `branches-v1` and capability
+`branches` (requires `worktree`). The connector checks `Dir` as the worktree create does (repository
+root, inside the home) and runs, with the worktree environment and hooks rules and a 5-second timeout,
+exactly: `git -C <dir> for-each-ref --count=201 --sort=-committerdate --format=%(refname)
+refs/heads refs/remotes`, then `git -C <dir> symbolic-ref --quiet --short HEAD` and `git -C <dir>
+symbolic-ref --quiet --short refs/remotes/origin/HEAD`. The reply `BranchesResult{current, default,
+branches, more}`: `current` the checked-out branch (empty when detached), `default` the remote's default
+when `refs/remotes/origin/HEAD` exists, at most 200 short names (each a valid ref name of at most 255
+bytes), newest first, `Filter` applied as a case-insensitive substring. Rate limit 10 per 10 seconds per
+account and machine; nothing stored.
 
 ## Project registry
 
@@ -404,322 +668,264 @@ A **project** (per account): `id`, `host` (the machine's enrollment id), `dir` (
 defaults to the folder name, with ` (2)` appended on a clash), `isRepo` (as last seen by browse or
 launch, informational only), `baseBranch` (optional, a valid ref name, at most 255 bytes),
 `worktreeDefault` (`inherit`, `yes`, `no`), `defaultTool` and `defaultModel` (optional, the launch
-rules), `position` (rail order), `createdAt`, `updatedAt`, `version`. A machine and folder may be
-registered once per account (409 `project_exists`). At most 100 projects per account (409
-`project_limit`). The account gains two settings: **default base branch** (blank = the repository's
+rules), `starterPrompt` (optional, R2), `position` (rail order), `createdAt`, `updatedAt`, `version`. A
+machine and folder may be registered once per account (409 `project_exists`). At most 100 projects per
+account (R7). Each person gains two profile settings: **default base branch** (blank = the repository's
 own default) and **worktrees by default** (yes, initially).
 
 **API** (under `/api/v2`, the Projects access rules, `Cache-Control: no-store`, one-sentence refusals
 naming the field):
 
 - `GET /folder-projects` → `{projects}`; `POST /folder-projects` → 201; `GET`, `PATCH`, `DELETE
-  /folder-projects/{id}` with `ETag`/`If-Match` exactly as Projects (409 `project_changed` on a stale
-  version; without the header the last write wins; the web always sends it).
+  /folder-projects/{id}` with `ETag`/`If-Match` exactly as Projects (409 `project_changed` "Someone
+  changed this project. Reload it, then try again." on a stale version; without the header the last
+  write wins; the web always sends it).
 - `POST /folder-projects/reorder` with `{ids, versions}`.
-- `GET /machines/{agentId}/browse?path=&after=&filter=&hidden=` and
-  `GET /machines/{agentId}/branches?dir=&filter=` for the two machine requests.
-- Delete removes only the registry entry. Sessions and worktrees are untouched; the answer says
-  "Project removed. Its sessions and any worktrees stay on studio."
+- `GET /machines/{agentId}/browse?path=&after=&filter=&hidden=` and `GET
+  /machines/{agentId}/branches?dir=&filter=` for the two machine requests.
+- Delete removes only the registry entry. Sessions and worktrees are untouched: "Project removed. Its
+  sessions and any worktrees stay on studio."
 
-The path `folder-projects` is internal; it becomes `projects` once the old routes are removed (step 5
-of the delivery), keeping the old shape's `GET /projects` answering 410 `projects_moved` for a
-release so stale tabs explain themselves.
+The path `folder-projects` is internal; it becomes `projects` once the old routes are removed, with the
+old shape's `GET /projects` answering 410 `projects_moved` for a release so stale tabs explain
+themselves.
 
 **Session metadata.** The controller already stores each create request. It gains `project_id`
-(nullable), and the session listing returns, for the rail, `tool`, `model`, `effort`, `yolo`,
-`projectId`, `worktreeBranch` and the attention fields. The prompt is never in the listing; only its
-first line, at most 80 characters, as the default title, which the composer shows the person before
-sending ("The session will be titled …").
+(nullable), and the session listing returns `tool`, `model`, `effort`, `yolo`, `projectId`,
+`worktreeBranch` and the attention fields. The prompt is never in the listing; only its first line, at
+most 80 characters, as the default title.
 
-## The New session composer
+## Sessions page
 
-**Order of choices**, each prefilled from the last one so a second session is one press:
+`/sessions` lists every session across machines from the existing account-wide inventory, joined with
+projects by `projectId`. Sessions without one (plain shells, older sessions, home-folder agents) are
+matched by exact machine and folder for display only, else grouped under **Other on \<machine\>**.
 
-1. **Project** (the folder chip): registered projects, grouped by machine, with search; *Add a project…*
-   opens the dialog; *Home folder on…* starts without a project. Unready machines are listed disabled
-   with their sentence.
-2. **Branch.** With a worktree, the base branch, filled from the project's `baseBranch`, else the
-   account default, else the repository's default from `branches-v1`, else the current branch; the
-   picker lists the machine's branches with a filter. Without a worktree the chip is read-only and shows
-   the current branch: "Works in the checkout on main." reet never switches the branch of a checkout.
-   A non-repository project hides the chip and the worktree choice.
-3. **Prompt.** Optional, at most 2,000 bytes, the existing launch rules (no leading `-`, two words for
-   agents that need it). Enter inserts a newline on touch screens; on a hardware keyboard Enter sends
-   and Shift+Enter adds a line. The note "Secrets don't belong here. The prompt is visible in the
-   machine's process list." shows under the box when it has text (for ACP sessions in slice 2 the prompt
-   travels over stdin instead, and the note changes).
-4. **Agent, model, thinking.** Agent from the catalogue (installed agents first; others disabled with
-   the reason); model suggestions plus *Other…*; **Thinking** shown only for agents whose preset has a
-   confirmed effort option (`low`, `medium`, `high`; *Default* sends nothing).
-5. **Worktree**: *New worktree* or *This checkout*, defaulting from the project, then the account.
-6. **YOLO**: off; see [YOLO warning](#yolo-warning).
-
-A summary line states exactly what will happen. Send is enabled once a project or home folder and an
-agent are chosen. While the request is in flight the composer is locked and the line reads "Starting
-Claude Code on studio…"; on success the session opens in place and the composer clears its prompt.
-
-**Mapping onto the wire.** One `Create` per session through the existing idempotent create path: `Tool`,
-`Model`, `Dir` (the project folder), `Prompt`, `Worktree` (a fresh run token) and the project slug, as
-`launch-v1` and `worktree-v1` define them, plus three new flat fields:
-
-- `Base` (`branches-v1`): the base branch name. The connector resolves it with `rev-parse --verify
-  --end-of-options refs/heads/<base>^{commit}` (then `refs/remotes/<base>`), and uses that commit in
-  place of `HEAD` in the one `worktree add`. Unknown → `worktree_refused` reason `base_missing`: "That
-  branch isn't in the repository on studio."
-- `Effort` (`agents-v2`): `low`, `medium` or `high`, mapped by the preset to its own confirmed option.
-- `Yolo` (`agents-v2`): a boolean; the connector maps it to that preset's allowlisted option and
-  refuses if the machine has YOLO switched off or the preset has none.
-
-The lost-reply rules of Start an agent apply unchanged: the request id and parameters are kept, the
-retry button sends exactly the same request, nothing is kept in browser storage.
-
-**Several projects at once.** In the rail, **Select** (or long-press on touch) adds checkboxes to
-project rows. With two or more selected, the composer's project chip reads "3 projects" and the
-branch chip reads "Each project's default". Send creates a **run** through `internal/projectrun`
-unchanged in its rules: one member per project, at most 2 in flight and 1 per machine, derived request
-ids, per-member retry, partial failure is normal. The run's `projectName` becomes the list of names;
-runs are listed in a **Runs** item in the rail's Projects menu (the newest 20). YOLO applies to every
-member and the warning names every machine.
-
-## The sessions rail
-
-**Model.** Sessions from the existing account-wide inventory (all machines), joined with projects by
-`projectId`. Sessions without one (plain shells, older sessions, home-folder agents) are matched by
-exact machine and folder for display only, else grouped under **Other on \<machine\>**.
-
-**Order of sections:** search and filter bar; **New session**; **Needs you**; one group per project in
-the person's project order, each with its session count; **Other on \<machine\>** per machine; the
-**Projects** section (each project's name, path and machine, `+` to add, a menu per project: New
-session here, Edit, Worktrees, Runs, Remove from reet). Within a group, sessions sort by last state
-change, newest first; the existing custom order, colours and group-by choices stay as options under
-filters. Groups collapse; collapse and width are remembered per account in this browser, as today.
-
-**Search** (`/` or the icon) matches titles, agent, model, branch, project and machine names.
-**Filters**: state (needs you, running, finished, ended), agent, machine, YOLO only, worktree only.
+**Group by** Project | Machine | State (shared with Home's choice). **Search** matches titles, agent,
+model, branch, project and machine names. **Filters**: state (needs you, running, finished, ended),
+agent, machine, YOLO only, worktree only. Rows (44 px minimum on touch): state dot and word, title,
+`agent · model · branch`, YOLO and worktree badges, age, and the existing actions menu (right-click,
+Shift+F10 or the button): Rename, Open in theatre, Copy branch, End session (confirm), Remove history
+(ended only, confirm), Check and remove worktree. The existing custom order and colours stay as
+options under filters. Below the groups: *Projects · N* with **Add a project** and the project cards
+(the phone's rail).
 
 **States.** Loading shows the last known list with "Checking…" (no skeleton flash); an error keeps the
-last list with "Couldn't refresh. Showing what we last saw." and a retry; an offline machine's sessions
-stay listed with "studio is offline" on the group and actions that need it disabled; no projects shows
-"Add a project to start an agent in one of your folders." with the add button; no machines shows the
-existing add-a-machine prompt. Polling stays at 15 seconds while visible.
+last list with "Couldn't refresh. Showing what we last saw." and **Try again**; an offline machine's
+sessions stay listed with "studio is offline" on the group and actions that need it disabled; no
+projects shows "Add a project to start an agent in one of your folders."; no machines shows the existing
+add-a-machine prompt. Polling stays at 15 seconds while visible.
 
 ## Attention state
 
-| State | Structured (ACP) sessions, slice 2 | Terminal sessions, this pass |
+| State | Structured (ACP) sessions, Program 2 | Terminal sessions, this pass |
 | --- | --- | --- |
 | Starting | create accepted, agent not yet ready | create accepted, program not yet running |
-| Working | a prompt turn is running | output within the last 30 s (tmux `window_activity`) shows *Working*; otherwise *Quiet* |
-| Waiting for input | a permission request or an ended turn awaiting a reply | the program rang the terminal bell since you last looked (tmux `monitor-bell`) |
+| Working | a prompt turn is running | output within the last 30 s (tmux `window_activity`) |
+| Quiet | not used | running with no output for 30 s or more |
+| Waiting for input | a permission request or an ended turn awaiting a reply | the program rang the terminal bell since the person last looked (tmux `window_bell_flag` with `monitor-bell on`) |
 | Needs sign-in | the adapter's authentication-required error | not detected |
-| Finished | the turn ended; for terminal programs, exited with status 0 | exited 0 (`remain-on-exit` status) |
+| Finished | the turn ended | exited 0 (`remain-on-exit` status) |
 | Failed | an error ended the session | exited non-zero: *Exited N* |
 
 Terminal agents get **honest, coarse** states: *Working/Quiet* is output activity, not progress;
 *Waiting* is only the bell. The row's tooltip and the session header say where the state came from
-("From terminal activity"). Exact states arrive with ACP. The connector reports per session
-`{activityAt, bellAt, exitStatus}` in the existing inventory reply under `agents-v2`; the controller
-derives the state and keeps a per-user `seenAt` per session (so "changed since you looked" is
-per-person and survives reloads). Nothing in the attention data contains terminal output.
+("From terminal activity"). Under `attention-v1` (R14) the connector reports per session `{activityAt,
+bellAt, exitStatus}` on `SessionSnapshot`; the controller derives the state and keeps a per-person
+`seenAt` per session, so "changed since you looked" is per person and survives reloads. Nothing in the
+attention data contains terminal output.
+
+**Needs you and the bell.** The queue holds Waiting, Failed and unseen Finished sessions across every
+machine (plus Program 2's kinds), newest first, one card per session. The bell's count is the queue's
+length; the bell opens a popover listing the same cards (on phones, Home's Needs you). The page title
+gains the count, `(3) Home · reet.sh`. A polite live region announces only transitions into Waiting,
+at most once per session per minute. Opening a session or **Mark seen** sets `seenAt`.
 
 ## Agent catalogue
 
 One table in the connector, keyed by tool id: display name, binary, how a model, a prompt, an effort
 and YOLO are passed, the safest permission default, and whether it speaks ACP (natively, through a
 pinned adapter, or not). Each option is confirmed from the real CLI's help text on a machine that has
-it, or ships disabled. Reported to the controller only under `agents-v2`: a connector that did not
-negotiate it reports only `claude`, `codex`, `opencode`, `gemini`, so an older controller never sees an
-unknown id. The web holds display names and model suggestions only.
+it (the help text is kept as test data), or the option ships disabled. Reported to the controller only
+under `agents-v2`: a connector that did not negotiate it reports only `claude`, `codex`, `opencode`,
+`gemini`, so an older controller never sees an unknown id. The web holds display names and model
+suggestions only.
 
-| Id | Agent | Notes for this pass |
+| Id | Agent | This pass |
 | --- | --- | --- |
-| `claude`, `codex`, `opencode`, `gemini` | Claude Code, Codex, OpenCode, Gemini CLI | Shipped presets; add effort and YOLO options once confirmed. Claude Code and Codex use adapters for ACP. |
-| `pi`, `cursor` | Pi, Cursor Agent | Ids exist; launch syntax still to confirm. |
-| `cline` | Cline | Terminal preset passes `--auto-approve false` so its default is to ask. |
-| others | every remaining agent on the reference designs' lists | Each added only with confirmed syntax; the final list is open question 3. |
+| `claude`, `codex`, `opencode`, `gemini` | Claude Code, Codex, OpenCode, Gemini CLI | Shipped presets; effort and YOLO options added where confirmed. Claude Code and Codex use adapters for ACP (Program 2). |
+| `pi`, `cursor` | Pi, Cursor Agent | New presets, each option confirmed or disabled. |
+| `cline` | Cline | New preset; always passes `--auto-approve false` so its default is to ask (its YOLO option, if confirmed, replaces that flag). |
+| others | the rest of the owner's list | Listed disabled in the agent slot until confirmed (R3). |
 
 ## Migration
 
-Runs once when the Projects page is removed (delivery step 5), inside one transaction, idempotent:
+Runs once, in the pull request that retires the Projects page, inside one transaction, idempotent
+(re-running creates nothing):
 
-1. Every distinct machine and folder across all saved Projects becomes one folder project. The name is
-   the folder's name (de-duplicated with ` (2)`); `defaultTool`/`defaultModel` come from the member,
-   else the Project's defaults; `worktreeDefault` is `yes` or `no` from `useWorktrees`; position follows
-   Project then member order. A folder already registered is skipped.
-2. **Shared prompts are not carried over** (a project has no prompt). Before migrating, the old page
-   shows a notice for one release: "Projects are moving to the Agents home. Shared prompts won't move;
-   copy any you need." The migration writes one audit event per migrated Project naming the folder
-   projects created (never the prompt), and then deletes the shared prompt text.
-3. Old **runs** are kept read-only. Their recorded worktrees appear under each folder project's
-   **Worktrees** menu with the existing Check and remove sheet, so no worktree loses its safe remove
-   path. Old run pages are not reachable by URL any more.
-4. The old `projects` and `project_members` tables are dropped one release later.
+1. Every distinct machine and cleaned folder across all saved Projects becomes one folder project. The
+   name is the folder's name (de-duplicated with ` (2)`); `defaultTool`/`defaultModel` come from the
+   member, else the Project's defaults; `worktreeDefault` is `yes` or `no` from `useWorktrees`;
+   `starterPrompt` from the shared prompt (R2); position follows Project then member order. A folder
+   already registered is skipped (its prompt is not overwritten).
+2. Each migrated Project writes one `projects-migrated` audit event naming the folder projects created
+   (never the prompt). `/projects/<id>` redirects resolve through a kept `legacy_project_id` mapping.
+3. Old **runs** are kept read-only and listed in Activity (*Runs from Projects*). Their recorded
+   worktrees appear under each folder project's **Worktrees** menu with the existing Check and remove
+   sheet, so no worktree loses its safe remove path.
+4. The old `projects` and `project_members` tables are dropped one release later (still open).
 
 ## Security and privacy
 
-- **Access.** Accounts mode, write role, canonical origin, rollout flag, owner scoping on every query,
-  as Projects. Viewers, API and MCP tokens, single-token and open modes get no Agents home, browse,
-  branches, project registry or composer, and the routes refuse them with the Projects sentences.
-- **Paths** are the owner's own and are stored only for registered projects and created sessions.
-  Browse results are not stored. Paths never go in the address bar except a project id.
-- **Prompts**: unchanged from Start an agent: stored with the create request and in the machine's
-  private registry, never in audit, logs, browser storage or the URL; visible in the process list while
-  passed as an argument.
+- **Access.** Accounts mode, write role, canonical origin, rollout flag, owner scoping on every query, as
+  Projects. Viewers, API and MCP tokens, single-token and open modes get no browse, branches, project
+  registry or launch bar, and the routes refuse them with the Projects sentences.
+- **Paths** are the owner's own and are stored only for registered projects and created sessions. Browse
+  results are not stored. Only ids go in the address bar.
+- **Prompts and starter prompts**: stored with the create request, the project and the machine's private
+  registry, never in audit, logs, browser storage or the URL; visible in the process list while passed
+  as an argument.
 - **Secrets**: nothing in this design reads or sends file contents, environment values or git
   configuration from the machine; browse is stat-only.
 - **YOLO**: the account setting (owner/admin; changes audited as `yolo-allowed` / `yolo-disallowed`);
   the machine refusal `reet terminal yolo off` removes the capability and is re-read on every create;
   the controller refuses a YOLO create without both (403 `yolo_not_allowed`, 409 `yolo_refused`); each
   YOLO launch writes `terminal-launch` with `yolo: true` plus a `yolo-launch` event; in ACP sessions
-  each automatic `allow_once` is its own `yolo-permission` event (session, tool kind, title truncated to
-  120 characters, never file contents).
+  (Program 2) each automatic `allow_once` is its own `yolo-permission` event.
 - **Audit events added**: `project-add`, `project-update`, `project-remove`, `projects-migrated`,
-  `folder-browse`, `yolo-allowed`, `yolo-disallowed`, `yolo-launch`, `yolo-permission` (slice 2),
-  `adapter-install` (slice 2). `terminal-launch` gains effort, base branch and YOLO.
+  `folder-browse`, `yolo-allowed`, `yolo-disallowed`, `yolo-launch`, `yolo-permission` and
+  `adapter-install` (Program 2). `terminal-launch` gains effort, base branch and YOLO.
 - **Rate limits**: browse 20/10 s and branches 10/10 s per account and machine; project writes 30 per
   minute per account; session creation keeps 8 per machine and 32 per account.
+- **Fonts**: self-hosted (R15); the content security policy is unchanged.
 
 ## Accessibility and responsive rules
 
-- Breakpoints: phone is `PHONE_SCREEN` from `terminal/sizing.ts` (650 px wide, or sideways 500 px tall
-  on touch); tablet 651–1099 px; desktop 1100 px and wider.
-- The rail is a `nav` with labelled sections and disclosure buttons, not an ARIA tree. Every row is a
-  link-like button with an accessible name that includes title, state, agent, machine and YOLO.
-- The composer is a form: labelled textarea, each picker a button that opens a listbox popover
-  (desktop) or a bottom sheet dialog (phone and tablet portrait), Escape closes and returns focus.
-  Send is a real button named "Start session". The YOLO switch is `role="switch"` named "YOLO: skip
-  the agent's permission prompts".
-- Status in text and icon as well as colour; focus visible; reduced motion respected (the drawer and
-  sheets appear without sliding); touch targets at least 44 px (40 px for the terminal's own keys, as
-  today).
+- Breakpoints: phone is `PHONE_SCREEN` from `terminal/sizing.ts` (650 px wide, or sideways 500 px tall on
+  touch); tablet 651–1099 px; desktop 1100 px and wider.
+- Tabs are a `nav` of links with `aria-current="page"`, not an ARIA tablist (they change the page). The
+  bell is a button named "Needs you: 3". Group by is a radio group. Session tabs are links with a close
+  button each.
+- The launch bar is a form: labelled prompt textarea; each slot a button naming its slot and value
+  ("Agent: Claude Code") that opens a listbox popover (desktop) or bottom sheet dialog (touch); Escape
+  closes and returns focus. Approvals is a radio group named "Approvals"; Start is a real button named
+  "Start the session".
+- Status in text and icon as well as colour; focus visible; reduced motion respected (sheets and the
+  rail appear without sliding); touch targets at least 44 px (48 px for phone primary actions, 40 px
+  for the terminal's own keys, as today).
 - **Phone zoom contract** (`docs/ui-verification.md`, Phones: long names and page zoom): no screen may
-  lay out wider than the device; long project names, paths and branch names wrap or truncate with
-  their full text available; inputs use a 16 px font. The home, the drawer, the composer sheets and the
-  add-project dialog with a long path join the `phone-zoom.e2e.mjs` matrix.
-- **Keyboard-open layout**: the phone terminal's rules (`docs/terminal-workspace.md`, Phones) are
-  extended to focus in the composer: header hidden, composer above the keyboard, same height rule.
+  lay out wider than the device; long project names, paths and branch names wrap or truncate with their
+  full text available; inputs use a 16 px font. Home, Sessions, the launch sheet and the add-project
+  sheet with a long path join the `phone-zoom.e2e.mjs` matrix.
+- **Keyboard-open layout**: the phone terminal's rules (`docs/terminal-workspace.md`, Phones) extend to
+  focus in the launch prompt and the session screen: chrome hidden, the focused surface above the
+  keyboard, same height rule.
 
 ## Testing strategy
 
-- **Go.** Protocol round trips and strictness for `Browse`, `Branches`, `Base`, `Effort`, `Yolo`;
-  feature negotiation and old-peer refusal for `browse-v1`, `branches-v1`, `agents-v2` (an old
-  controller never receives a new tool id); connector browse against real temporary trees: symlink
-  escape, a link to a folder inside home, `..`, hidden entries, a `.git` file versus directory, a
-  repository root without `HEAD`, unreadable folders, 5,000-entry cap, paging, the deadline with a
-  slowed filesystem fake, reply size under the frame limit, and a test that no file is opened (an
-  unreadable file in the folder must not change the reply); branches with the exact argument vector;
-  worktree create from a named base; store and API for projects (limits, uniqueness, If-Match, owner
-  scoping, viewers blocked, rate limits); migration (dedupe, names, idempotent re-run, prompts deleted,
-  runs kept); YOLO gates (each of the three refusals) and audit rows; attention derivation from
-  activity, bell and exit. A real two-host test extends the existing one with browse, branches and a
-  YOLO launch against recording fake CLIs.
-- **Web unit** (`npm test`): `folderBrowser.ts` (breadcrumbs, filter, repository messages),
-  `agentsHome.ts` (rail grouping and ordering, search, filters, attention list, summary sentence,
-  composer defaults precedence for base branch and worktree), `catalogue.ts`.
-- **Browser fixtures** with synthetic API answers: `agents-home.e2e.mjs` (empty state, composer flow,
-  multi-select run, rail states including offline and error, attention list, YOLO warning and every
-  disabled reason, lost-reply retry, nothing in storage, viewer and legacy modes see nothing, redirects
-  from `/projects`), `add-project.e2e.mjs` (browse, paging, hidden, filter, not-a-repository, inside a
-  repository, offline machine, rate limit). Matrix: 1360, 1024 and 768 px, phone 412, 390, 360 and 320 px
-  with `isMobile` and `hasTouch`, sideways 844 × 390, light and dark, keyboard-open emulation. Axe at
-  390 and 1360 px reported honestly (violations and the `incomplete` count).
-- **Mutation checks**: browse containment, "no file names", the hidden filter, YOLO resetting after
+- **Go.** Protocol round trips and strictness for `Browse`, `Branches`, `Base`, `Effort`, `Yolo` and the
+  attention fields; negotiation and old-peer refusal for `browse-v1`, `branches-v1`, `agents-v2`,
+  `attention-v1` (an old controller never receives a new tool id or field); connector browse against
+  real temporary trees: symlink escape, a link to a folder inside home, `..`, hidden entries, names with
+  spaces, quotes, newlines and invalid UTF-8, a `.git` file versus directory, a repository root without
+  `HEAD`, unreadable folders, the 5,000-entry cap, paging, the deadline with a slowed filesystem fake,
+  reply size under the frame limit, and a test that no file is opened; branches with the exact argument
+  vectors; worktree create from a named base; store and API for projects (limits, uniqueness, If-Match,
+  owner scoping, viewers blocked, rate limits); migration (dedupe, names, starter prompts, idempotent
+  re-run, runs kept); YOLO gates (each refusal) and audit rows; attention derivation. A real two-host
+  test extends the existing one with browse, branches and a YOLO launch against recording fake CLIs.
+- **Web unit** (`npm test`): `folderBrowser.ts`, `launchBar.ts` (sentence, slot defaults precedence,
+  summary, validity), `home.ts` (fleet figures, In flight grouping, Needs you queue), `catalogue.ts`,
+  `theme` token contrast pairs.
+- **Browser fixtures** with synthetic API answers: `home.e2e.mjs`, `add-project.e2e.mjs`,
+  `launch.e2e.mjs`, `yolo.e2e.mjs`, `sessions.e2e.mjs`. Matrix: 1440, 1360, 1024 and 834 px, phone 412,
+  390, 360 and 320 px with `isMobile` and `hasTouch`, sideways 844 × 390, light and dark, keyboard-open
+  emulation. Axe at 390, 834 and 1440 px reported honestly (violations and the `incomplete` count).
+- **Mutation checks**: browse containment, "no file names", the hidden filter, Approvals resetting after
   launch, YOLO refused without the account setting, never sending new fields to an old machine, the
-  16 px input font, drawer closing on selection, the attention dedupe.
-- **CI budget**: the new fixtures add at most 90 seconds to `terminal-browser.yml`, split across the
+  16 px input font, the bell count equal to the queue, no step bar on a terminal session.
+- **CI budget**: the new fixtures add at most 120 seconds to `terminal-browser.yml`, split across the
   existing jobs; `phone-zoom` grows by the new screens and stays under 60 seconds.
 
 ## Docs to update
 
-`docs/start-agent-session.md` (line 12, "No preset uses a flag that skips the agent's own permission
-prompts"), `docs/terminal-launch.md` (the Presets paragraph that rules out approval-bypass and
-auto-approve flags, and the test that pins the only flags), and the start-agent spec's "No
-permission-bypass flags" line (amended, not rewritten): each to say YOLO exists, is off by default and
-how it is gated. Also `docs/projects.md` (rewritten for folder projects), `docs/terminal-worktrees.md`
-(base branch, branch listing), `docs/terminal-workspace.md` (the home, rail and phones), a new
-`docs/folder-browse.md`, `docs/control-centre.md` (landing change), `docs/roadmap.md`, and
+`docs/start-agent-session.md` ("No preset uses a flag that skips the agent's own permission prompts"),
+`docs/terminal-launch.md` (the Presets paragraph that rules out approval-bypass and auto-approve flags,
+and the test that pins the only flags), and the start-agent spec's "No permission-bypass flags" line
+(amended, not rewritten): each to say YOLO exists, is off by default and how it is gated. Also
+`docs/projects.md` (rewritten for folder projects), `docs/terminal-worktrees.md` (base branch, branch
+listing), `docs/terminal-workspace.md` (Home, Sessions, the session screen, phones), a new
+`docs/folder-browse.md`, `docs/control-centre.md` (folded into Home), `docs/roadmap.md`, and
 `docs/ui-verification.md` (each new matrix).
 
 ## Delivery: pull-request slices and order
 
-Each step merges when its checks are green and the broad review has passed; each leaves the product
-usable.
+Each pull request merges when its checks are green, the broad review has passed and Codex is clean; each
+leaves the product usable, and each release tag leaves it no less capable than before (see PR B).
 
-1. **Folder browse and branches on the wire.** `browse-v1`, `branches-v1`, `Base` on worktree create,
-   connector, controller endpoints, rate limits, audit, Go and two-host tests, `docs/folder-browse.md`.
-   No UI. Green: old peers unaffected.
-2. **Project registry.** Store, API with If-Match, account defaults, `project_id` and metadata on the
-   session listing. No UI change. Old Projects untouched.
-3. **Add project and the rail's Projects section** on today's terminal page, with the folder browser,
-   on the shared dialog shell. Fixture and phone-zoom screens. Old Projects page still there.
-4. **The Agents home shell.** Restyled rail with grouping by project, search, filters, New session;
-   the empty-state composer with the four shipped agents, models, base branch and worktree; the session
-   header; `/` as landing for writers; nav changes; phones drawer and docked composer with the keyboard
-   layout. Start an agent's dialog stays for the Machines page.
-5. **Multi-select runs, migration and retiring Projects.** Run from a selection, Worktrees and Runs in
-   the project menu, the one-release notice, the migration, redirects, nav entry removed, docs.
-6. **Catalogue and YOLO.** `agents-v2`, new presets as confirmed (Cline first with
-   `--auto-approve false`), effort, the account setting, machine refusal, warning, badges, audit, docs
-   that said auto-approve is not offered.
-7. **Attention.** Activity, bell and exit reporting, derived states, per-user seen, Needs you list,
-   title count.
+- **PR A — browse and branches on the wire.** `browse-v1`, `branches-v1`, connector handlers, broker,
+  API endpoints, rate limits, audit, Go and two-host tests, `docs/folder-browse.md`. No UI.
+- **PR B — project registry and migration.** Store, API with If-Match, limits, audit, profile defaults,
+  session `project_id`; the migration of saved Projects; `/projects` retired with redirects and runs
+  read-only in Activity. Because the Projects page goes here and Start in several projects returns in
+  PR E, **PR B to PR E are one release train**: no release is tagged between PR B and PR E merging.
+- **PR C — catalogue and launch fields.** `agents-v2`, `pi`, `cursor`, `cline` presets with safe
+  defaults, the disabled list, `Effort` and `Base` (and the `Yolo` field, refused until PR F).
+- **PR D — shell and Home.** Theme tokens, fonts, logo, top tabs, bell (empty until PR G), responsive
+  navigation, `/control` and `/terminals` redirects; Home with the fleet strip, In flight, Needs you (the
+  cards the existing states allow), project rail and the Add project dialog with the folder browser, on
+  the shared dialog shell.
+- **PR E — launch bar.** The sentence, prompt and Start wired to `launch-v1`/`worktree-v1`/`agents-v2`,
+  starter prompt chip, and Start in several projects through the run orchestration.
+- **PR F — YOLO.** Account setting, machine refusal and capability, Approvals and the confirmation
+  dialog, badges, audit, per-preset flag mapping, the docs that said auto-approve is not offered.
+- **PR G — attention.** `attention-v1`, derived states, per-person seen, Needs you queue, bell, title
+  count, live region.
+- **PR H — session screen and small screens.** Tab strip, header, context panel, Chat | Terminal
+  scaffolding, Sessions page, tablet and phone layouts, the full fixture matrix and axe.
 
-Slice 2 (own spec): the ACP runner in tmux, the Claude adapter's confirmed pinned install, the chat
-view, exact attention states, machine-only transcripts. Steps 6 and 7 can swap if the owner prefers
-YOLO later; steps 1–3 can be reviewed in parallel with 4's design review.
+**Program 2** (own spec and plan): the ACP runner in tmux, the Claude adapter's confirmed pinned install,
+the chat view (messages, plan checklist, tool and edit cards, decision cards with A/D), command approval
+and sign-in cards in Needs you, exact attention states, step progress, line counts, machine-only
+transcripts, notifications outside the page.
+
+PR A and PR C touch the protocol and can be reviewed in parallel; PR D waits for the shared dialog
+shell to merge.
 
 ## Risks
 
-- **Large UI change on the most used page.** Mitigated by steps 3 and 4 landing on today's terminal page
-  behind the existing fixtures, and keeping `/terminals` links working.
-- **Losing Projects' features in migration.** Mitigated by keeping runs and worktree removal; shared
-  prompts are the one real loss (open question 1, alternative A keeps them).
-- **Coarse attention looks wrong.** Terminal states are labelled with their source and never say
-  "waiting" without a bell.
-- **YOLO harm.** Three independent gates, per-session only, reset after launch, audited per use.
+- **Large UI change on the most used pages.** Mitigated by landing the shell (PR D) before the launch
+  bar and session screen, keeping `/terminals` links working, and the fixture matrix.
+- **Losing Projects' features in migration.** Mitigated by R1 and R2: folders, defaults, prompts, runs
+  and worktree removal all survive.
+- **Coarse attention looks wrong.** Terminal states are labelled with their source, never say "waiting"
+  without a bell, and never show steps (R10).
+- **The mock-up promises Program 2 features.** R10, R11, R19 and R21 state what ships now; the layout
+  reserves their places so Program 2 adds, not rearranges.
+- **YOLO harm.** Three independent gates, per session only, reset after launch, audited.
 - **Unconfirmed CLI flags.** Every option ships disabled until confirmed from help text.
 - **Phone keyboards differ.** The height rule is reused, not reinvented; physical devices remain
   unchecked (as stated in UI verification).
-- **Concurrent dialog work.** The add-project dialog depends on the shared dialog shell; step 3 waits
-  for it.
-
-## Open questions for the owner (ranked, with recommendations)
-
-1. **What happens to today's Projects?** (see the top) — *Recommend:* one folder per project,
-   multi-select keeps Start all, retire the page, migrate folders, keep runs read-only.
-2. **Should shared prompts be kept somewhere?** — *Recommend:* no; show the one-release notice. If kept,
-   add optional per-project "prompt snippets" later.
-3. **Which agents exactly make the catalogue's first cut?** The reference designs' lists were seen as
-   screenshots, not text. — *Recommend:* confirm the list; ship Cline plus the shipped four first, then
-   each other agent as its syntax is confirmed.
-4. **Fold Control into Machines?** — *Recommend:* yes, in a later pass; for now Control moves under More
-   for writers and stays the landing for viewers.
-5. **Default for a machine's YOLO refusal.** — *Recommend:* allowed unless the machine says
-   `reet terminal yolo off`; the account setting is the main gate. The stricter choice is off until the
-   machine opts in.
-6. **Always dark, or follow the theme?** — *Recommend:* follow the person's theme, with dark as the
-   design target and light checked to the same standard.
-7. **Project limit of 100 per account.** — *Recommend:* 100; raise if anyone reaches it.
-8. **Should Enter send on phones?** — *Recommend:* no; Enter adds a line on touch screens, the round
-   button sends.
-9. **Attention notifications outside the page (push, email).** — *Recommend:* later, reusing
-   `docs/notifications.md`, once ACP gives exact states.
+- **Concurrent dialog work.** The Add project dialog and the YOLO dialog depend on the shared dialog
+  shell; PR D waits for it.
 
 ## What this does not establish
 
 That an agent is signed in, understands the prompt or makes progress; that *Working* means useful work;
-that a branch contains anything; that a repository's hooks, build or tests are safe. YOLO's warning is
-the only protection once the agent runs. No physical phone, Safari or Firefox check is planned beyond
-the Chromium fixtures.
+that a branch contains anything; that a repository's hooks, build or tests are safe; that a machine's
+CPU figure reflects agent work. YOLO's confirmation is the only protection once the agent runs. No
+physical phone, Safari or Firefox check is planned beyond the Chromium fixtures.
 
 ## Self-review
 
-- **Placeholders:** none left as "TBD". Items that depend on facts not yet known (exact CLI flags, the
-  reference lists) are stated as "ship disabled until confirmed" and open question 3.
-- **Contradictions checked:** browse is stat-only while branches runs one read-only git command, so
-  they are separate features; "no separate Projects page" holds because runs and worktrees move into
-  the rail's project menu; YOLO is per session and never remembered everywhere it appears; the 16 KiB
-  frame limit is respected by paging browse replies; worktree accepts only a `.git` directory and browse
-  marks only that as a repository root.
-- **Scope:** ACP chat, adapter install and transcripts are recorded decisions but specified in slice 2;
-  notifications, git-remote identity and wider folder roots stay out. The seven steps are each a
-  reviewable pull request; step 4 is the largest and may split into rail and composer if review asks.
+- **Placeholders:** none. Facts not yet known (exact CLI flags, agents beyond the first cut) are "ship
+  disabled until confirmed" and listed under Still open.
+- **Mock-up versus honesty:** every mock-up element that terminal agents cannot produce has a ruling
+  (R10, R11, R19, R21) naming what ships and when the rest arrives.
+- **Contradictions checked:** browse is stat-only while branches runs read-only git commands, so they
+  are separate features; `Base` moved to `agents-v2` so no token carries a field its first release
+  cannot decode; YOLO is per session and never remembered everywhere it appears; the 16 KiB frame limit
+  is respected by paging browse replies; worktree accepts only a `.git` directory and browse marks only
+  that as a repository root; "no separate Projects page" holds because runs move to Activity and
+  worktrees to the project menu.
+- **Scope:** eight pull requests, each reviewable on its own; Program 2 is named and excluded.

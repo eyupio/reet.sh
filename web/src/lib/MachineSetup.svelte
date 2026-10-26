@@ -519,7 +519,7 @@
 </details>
 
 <style>
-  .setup { border: 1px solid var(--line); border-radius: 16px; background: var(--card); box-shadow: var(--shadow); margin: 18px 0 26px; overflow: clip; }
+  .setup { border: 1px solid var(--line); border-radius: 16px; background: var(--card); box-shadow: var(--shadow); margin: 18px 0 26px; }
   .setup > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 22px; cursor: pointer; min-height: 64px; }
   .setup > summary::-webkit-details-marker { display: none; }
   .setup > summary > span:first-child { display: grid; gap: 3px; }
@@ -553,7 +553,8 @@
   .step-panel header p:last-child { margin: 8px 0 0; color: var(--muted); font-size: 0.86rem; line-height: 1.6; }
   .fields { display: grid; grid-template-columns: minmax(0, 1fr) 190px; gap: 12px; }
   label { display: grid; gap: 6px; color: var(--ink); font-size: 0.82rem; font-weight: 600; }
-  .command { display: grid; gap: 0; min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
+  /* No overflow clip on the setup card or its command boxes: they hold buttons, and a clip would cut them off instead of letting them wrap. */
+  .command { display: grid; gap: 0; min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
   .command-copy { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 0.72rem; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; }
   .command pre { margin: 0; padding: 13px 14px; white-space: pre-wrap; overflow-wrap: anywhere; font: 0.78rem/1.6 var(--mono); }
   .hint { margin: 0; color: var(--muted); font-size: 0.78rem; line-height: 1.55; }
@@ -615,10 +616,11 @@
     .setup-body { padding: 16px; }
     .modes { grid-template-columns: 1fr; }
     .fields { grid-template-columns: 1fr; }
-    .steps { display: grid; grid-template-columns: 1fr 1fr; }
-    .steps button { justify-content: flex-start; }
+    /* Two columns when each step fits, one on the narrowest phones; a plain 1fr column grew past the card instead. */
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 136px), 1fr)); }
+    .steps button { justify-content: flex-start; min-width: 0; text-align: left; }
     .command-copy { flex-direction: column; align-items: stretch; }
-    .command-copy :global(button) { width: 100%; }
+    .command-copy :global(button) { width: 100%; white-space: normal; }
     .step-actions .primary { margin-left: 0; flex: 1 1 100%; }
     .watch-head, .agent-update { align-items: stretch; flex-direction: column; }
     .watch-badge { align-self: flex-start; }

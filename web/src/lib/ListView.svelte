@@ -577,7 +577,8 @@
   .handover { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 0.84rem; }
   .handover select { width: auto; padding: 6px 10px; }
 
-  .addskill { display: grid; gap: 8px; margin-top: 18px; padding: 14px; border: 1px dashed var(--line); border-radius: 12px; }
+  /* minmax(0, 1fr): the shelf select is as wide as its longest skill name, and a plain column grew to fit it, widening the page. */
+  .addskill { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 18px; padding: 14px; border: 1px dashed var(--line); border-radius: 12px; }
   .addrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .addrow select { flex: 0 1 220px; }
   .addrow input { flex: 1 1 240px; }
@@ -605,6 +606,7 @@
     .entry-head { flex-direction: column; }
     .adoption { white-space: normal; }
     .command { flex-basis: 100%; }
+    .addrow select { flex: 1 1 100%; }
     .dangerrow { flex-direction: column; align-items: flex-start; }
     .actions .btn, .row .btn { flex: 1 1 100%; }
   }

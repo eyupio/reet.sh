@@ -852,13 +852,16 @@
     .rollup-filters label:nth-child(3) { grid-column: 1; }
     .rollup-filters .btn { grid-column: 2; align-self: end; }
     .rollup-table { min-width: 700px; }
+    .machine-group li { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   }
   .environment-machines { display: grid; gap: 10px; margin-top: 16px; }
   .machine-group, .server-reports { border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; }
   .machine-group summary, .server-reports summary { cursor: pointer; overflow-wrap: anywhere; min-height: 24px; }
   .machine-group summary span, .server-reports summary span { margin-left: 10px; color: var(--muted); font-size: 0.8rem; }
   .machine-group ul, .server-reports ul, .report-list { list-style: none; padding: 0; margin: 10px 0 0; }
-  .machine-group li { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+  /* minmax(0, 1fr): a plain 1fr column is at least as wide as its longest unbreakable word, so a long scope path widened the page. */
+  .machine-group li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+  .machine-group li strong { overflow-wrap: anywhere; }
   .machine-group li span, .server-reports li span { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 4px; }
   .machine-group code, .server-reports code { overflow-wrap: anywhere; font-size: 0.78rem; }
   .server-reports { margin-top: 20px; }

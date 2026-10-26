@@ -9,6 +9,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/projectrun"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // Starting a run and retrying one member. The orchestrator (internal/projectrun)
@@ -56,7 +57,8 @@ func terminalsOff(w http.ResponseWriter) {
 
 // projectRunStart creates a run of the chosen members and returns it at once
 // (201, every member pending); the members are started in the background.
-// Body: {"positions":[0,2]}. A member whose machine is not enrolled on this
+// Body: {"requestId":"…","positions":[0,2]}; the request id makes it
+// idempotent (a replay answers 200 with the same run). A member whose machine is not enrolled on this
 // account is never sent anything: the orchestrator marks it unknown_machine.
 func (s *server) projectRunStart(w http.ResponseWriter, r *http.Request) {
 	if !s.terminalEnabled() {
@@ -64,6 +66,7 @@ func (s *server) projectRunStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
+		RequestID string `json:"requestId"`
 		Positions *[]int `json:"positions"`
 	}
 	if !projectBody(w, r, &in) {
@@ -73,6 +76,10 @@ func (s *server) projectRunStart(w http.ResponseWriter, r *http.Request) {
 	p, err := s.st.ProjectFor(uid, r.PathValue("id"))
 	if err != nil {
 		storeRefusal(err).write(w)
+		return
+	}
+	if !terminalproto.ValidID(in.RequestID) {
+		writeErrCode(w, http.StatusUnprocessableEntity, "request_id_required", "requestId", "Starting a run needs a request id: 16 to 128 letters, digits, hyphens or underscores.", "")
 		return
 	}
 	if in.Positions == nil || len(*in.Positions) == 0 {
@@ -91,13 +98,26 @@ func (s *server) projectRunStart(w http.ResponseWriter, r *http.Request) {
 		}
 		chosen[pos] = true
 	}
-	run, err := s.st.CreateRunFor(uid, p.ID, *in.Positions...)
-	if err != nil {
+	run, created, err := s.st.StartRunFor(uid, p.ID, in.RequestID, *in.Positions)
+	switch {
+	case errors.Is(err, store.ErrRunRequestChanged):
+		writeErrCode(w, http.StatusConflict, "request_changed", "", "That request changed. Start it again.", "")
+		return
+	case errors.Is(err, store.ErrRunInProgress):
+		writeErrCode(w, http.StatusConflict, "run_in_progress", "", "This Project is still starting. Wait for it to finish, then start again.", "")
+		return
+	case err != nil:
 		storeRefusal(err).write(w)
 		return
 	}
-	s.event(uid, "ui", "project-run", "", map[string]any{"project": p.ID, "run": run.ID, "members": len(run.Members)})
+	// A replay of the same request answers with the run as it is now and
+	// starts nothing new (the driver only picks up pending members).
 	s.runs.Start(uid, run.ID)
+	if !created {
+		writeJSON(w, http.StatusOK, viewRun(run))
+		return
+	}
+	s.event(uid, "ui", "project-run", "", map[string]any{"project": p.ID, "run": run.ID, "members": len(run.Members)})
 	writeJSON(w, http.StatusCreated, viewRun(run))
 }
 

@@ -66,6 +66,8 @@ var (
 	ErrRunMemberTransition = errors.New("run member cannot move to that state")
 	ErrRunMemberStale      = errors.New("run member attempt does not match the stored attempt")
 	ErrRunMemberNotFailed  = errors.New("only a failed run member can be retried")
+	ErrRunRequestChanged   = errors.New("that start request id was used with other repositories")
+	ErrRunInProgress       = errors.New("an earlier run of this Project is still starting")
 )
 
 type ProjectMember struct {
@@ -222,8 +224,10 @@ func (s *Store) migrateProjects() error {
 				id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 				project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
 				project_name TEXT NOT NULL, prompt TEXT NOT NULL DEFAULT '', use_worktrees INTEGER NOT NULL,
-				created_at INTEGER NOT NULL, UNIQUE(id,user_id))`,
+				created_at INTEGER NOT NULL, request_id TEXT NOT NULL DEFAULT '', UNIQUE(id,user_id))`,
 			`CREATE INDEX IF NOT EXISTS project_runs_project ON project_runs(user_id,project_id,created_at)`,
+			// A start request id names one run per account and Project.
+			`CREATE UNIQUE INDEX IF NOT EXISTS project_runs_request ON project_runs(user_id,project_id,request_id) WHERE request_id<>''`,
 			`CREATE TABLE IF NOT EXISTS project_run_members (
 				run_id TEXT NOT NULL, user_id INTEGER NOT NULL, position INTEGER NOT NULL CHECK(position>=0),
 				host TEXT NOT NULL, dir TEXT NOT NULL, tool TEXT NOT NULL, model TEXT NOT NULL DEFAULT '',
@@ -619,12 +623,73 @@ func resolvedLaunch(p Project, m ProjectMember) (tool, model string) {
 // CreateRunFor snapshots a Project into a new run with every member pending.
 // With positions it snapshots only those members, keeping their positions.
 func (s *Store) CreateRunFor(uid int64, projectID string, positions ...int) (Run, error) {
+	run, _, err := s.startRun(uid, projectID, "", positions)
+	return run, err
+}
+
+// StartRunFor is how a person starts a run. requestID (a terminal id: 16 to
+// 128 letters, digits, - and _) makes it idempotent: the same id with the
+// same members answers with the run it made (created false), the same id with
+// other members is ErrRunRequestChanged. A new run is refused with
+// ErrRunInProgress while any member of an earlier run of the Project is still
+// pending, so two runs never race for the same folders.
+func (s *Store) StartRunFor(uid int64, projectID, requestID string, positions []int) (Run, bool, error) {
+	if !terminalproto.ValidID(requestID) {
+		return Run{}, false, invalid("a start needs a request id of 16 to 128 letters, digits, - or _")
+	}
+	return s.startRun(uid, projectID, requestID, positions)
+}
+
+func samePositions(members []RunMember, positions []int) bool {
+	if len(members) != len(positions) {
+		return false
+	}
+	want := map[int]bool{}
+	for _, p := range positions {
+		want[p] = true
+	}
+	for _, m := range members {
+		if !want[m.Position] {
+			return false
+		}
+	}
+	return len(want) == len(members)
+}
+
+func (s *Store) startRun(uid int64, projectID, requestID string, positions []int) (Run, bool, error) {
 	id, err := projectRandomID()
 	if err != nil {
-		return Run{}, err
+		return Run{}, false, err
 	}
 	var run Run
+	created := false
 	err = s.withTx(func(tx *sql.Tx) error {
+		if requestID != "" {
+			var existing string
+			err := tx.QueryRow(`SELECT id FROM project_runs WHERE user_id=? AND project_id=? AND request_id=?`, uid, projectID, requestID).Scan(&existing)
+			if err == nil {
+				if run, err = loadRun(tx, uid, existing); err != nil {
+					return err
+				}
+				if !samePositions(run.Members, positions) {
+					return ErrRunRequestChanged
+				}
+				return nil
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			var busy int
+			err = tx.QueryRow(`SELECT 1 FROM project_run_members m JOIN project_runs r ON r.id=m.run_id AND r.user_id=m.user_id
+				WHERE r.user_id=? AND r.project_id=? AND m.state='pending' LIMIT 1`, uid, projectID).Scan(&busy)
+			if err == nil {
+				return ErrRunInProgress
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+		}
+		created = true
 		p, err := loadProject(tx, uid, projectID)
 		if err != nil {
 			return err
@@ -652,8 +717,8 @@ func (s *Store) CreateRunFor(uid int64, projectID string, positions ...int) (Run
 		}
 		seen := map[[2]string]bool{}
 		t := now()
-		if _, err := tx.Exec(`INSERT INTO project_runs(id,user_id,project_id,project_name,prompt,use_worktrees,created_at) VALUES(?,?,?,?,?,?,?)`,
-			id, uid, p.ID, p.Name, p.SharedPrompt, p.UseWorktrees, t); err != nil {
+		if _, err := tx.Exec(`INSERT INTO project_runs(id,user_id,project_id,project_name,prompt,use_worktrees,created_at,request_id) VALUES(?,?,?,?,?,?,?,?)`,
+			id, uid, p.ID, p.Name, p.SharedPrompt, p.UseWorktrees, t, requestID); err != nil {
 			return err
 		}
 		run = Run{ID: id, ProjectID: p.ID, ProjectName: p.Name, Prompt: p.SharedPrompt, UseWorktrees: p.UseWorktrees, CreatedAt: t}
@@ -674,9 +739,9 @@ func (s *Store) CreateRunFor(uid int64, projectID string, positions ...int) (Run
 		return nil
 	})
 	if err != nil {
-		return Run{}, err
+		return Run{}, false, err
 	}
-	return run, nil
+	return run, created, nil
 }
 
 func sortMembers(ms []ProjectMember) {

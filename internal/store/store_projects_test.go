@@ -1265,3 +1265,44 @@ func TestRacingRetriesAgreeOnOneAttempt(t *testing.T) {
 		}
 	}
 }
+
+func TestStartRunIsIdempotentAndRefusesOverlappingRuns(t *testing.T) {
+	s := newStore(t)
+	uid, other := projectUser(t, s, "a"), projectUser(t, s, "b")
+	p := mustProject(t, s, uid, baseProject("Start"))
+	q := mustProject(t, s, other, baseProject("Start"))
+	const req = "start-request-0000000001"
+	if _, _, err := s.StartRunFor(uid, p.ID, "short", []int{0}); !errors.Is(err, ErrProjectInvalid) {
+		t.Fatal("a bad request id", err)
+	}
+	first, created, err := s.StartRunFor(uid, p.ID, req, []int{0, 2})
+	if err != nil || !created || len(first.Members) != 2 {
+		t.Fatal(first, created, err)
+	}
+	again, created, err := s.StartRunFor(uid, p.ID, req, []int{2, 0})
+	if err != nil || created || again.ID != first.ID {
+		t.Fatal("replay", again.ID, created, err)
+	}
+	if _, _, err := s.StartRunFor(uid, p.ID, req, []int{0}); !errors.Is(err, ErrRunRequestChanged) {
+		t.Fatal("changed members", err)
+	}
+	if _, _, err := s.StartRunFor(uid, p.ID, "start-request-0000000002", []int{1}); !errors.Is(err, ErrRunInProgress) {
+		t.Fatal("overlap", err)
+	}
+	// Another account's run with the same request id is its own.
+	theirs, created, err := s.StartRunFor(other, q.ID, req, []int{0, 2})
+	if err != nil || !created || theirs.ID == first.ID {
+		t.Fatal(theirs, created, err)
+	}
+	if _, _, err := s.StartRunFor(other, p.ID, "start-request-0000000003", []int{0}); !errors.Is(err, ErrProjectNotFound) {
+		t.Fatal("another account's Project", err)
+	}
+	for _, pos := range []int{0, 2} {
+		if err := s.SetRunMemberState(uid, first.ID, pos, RunMemberFailed, "session_limit", "", "", "", "", 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if next, created, err := s.StartRunFor(uid, p.ID, "start-request-0000000002", []int{1}); err != nil || !created || next.ID == first.ID {
+		t.Fatal("after the first run finished", err)
+	}
+}

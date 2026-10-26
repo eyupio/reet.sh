@@ -31,6 +31,8 @@ type runMachine struct {
 	// decide answers a create; nil means start it and report the worktree.
 	decide func(terminalproto.Create) terminalproto.Body
 	drop   bool
+	// hold, when set, keeps every create waiting until it is closed.
+	hold chan struct{}
 }
 
 func runMachineFixture(t *testing.T) *runMachine {
@@ -61,8 +63,11 @@ func runMachineFixture(t *testing.T) *runMachine {
 		case terminalproto.Create:
 			f.mu.Lock()
 			f.got = append(f.got, m)
-			decide, drop := f.decide, f.drop
+			decide, drop, hold := f.decide, f.drop, f.hold
 			f.mu.Unlock()
+			if hold != nil {
+				<-hold
+			}
 			var body terminalproto.Body
 			if decide != nil {
 				body = decide(op)
@@ -168,7 +173,7 @@ func notRunning(r store.Run) bool { return r.State != store.RunRunning }
 func TestProjectRunStartsAtOnceAndEachMemberStartsInItsOwnWorktree(t *testing.T) {
 	f := runMachineFixture(t)
 	id := f.project(t)
-	code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"positions": []int{0, 2}})
+	code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"requestId": terminalbroker.ID(), "positions": []int{0, 2}})
 	if code != 201 || out["state"] != "running" || out["projectId"] != id || strings.Contains(raw, projectSentinel) {
 		t.Fatal(code, raw)
 	}
@@ -240,7 +245,7 @@ func TestProjectRunRetryUsesTheNextAttemptAfterARefusal(t *testing.T) {
 		return nil
 	}
 	id := f.project(t)
-	_, out, _ := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"positions": []int{0, 1, 2}})
+	_, out, _ := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"requestId": terminalbroker.ID(), "positions": []int{0, 1, 2}})
 	runID := out["id"].(string)
 	run := f.settled(t, runID, notRunning)
 	failed := run.Members[1]
@@ -282,7 +287,7 @@ func TestProjectRunResumedAfterALostAnswerAdoptsTheSessionAndStartsNoSecondAgent
 	f := runMachineFixture(t)
 	f.drop = true
 	id := f.project(t)
-	_, out, _ := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"positions": []int{0}})
+	_, out, _ := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"requestId": terminalbroker.ID(), "positions": []int{0}})
 	runID := out["id"].(string)
 	deadline := time.Now().Add(10 * time.Second)
 	for len(f.creates()) == 0 {
@@ -337,7 +342,7 @@ func TestProjectRunRoutesAreScopedToTheOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	b := terminalLogin(t, f.st, other.ID)
-	if code, out, raw := f.do(t, b, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"positions": []int{0}}); code != 404 || out["code"] != "not_found" {
+	if code, out, raw := f.do(t, b, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"requestId": terminalbroker.ID(), "positions": []int{0}}); code != 404 || out["code"] != "not_found" {
 		t.Fatal(code, raw)
 	}
 	if code, out, raw := f.do(t, b, "POST", "/api/v2/project-runs/"+run.ID+"/members/0/retry", map[string]any{}); code != 404 || out["code"] != "run_not_found" {
@@ -359,7 +364,7 @@ func TestProjectRunMembersOnAForgottenMachineAreNeverSent(t *testing.T) {
 	if err := f.st.ControlSyncAgent(f.uid, f.agent.ID, "revoke"); err != nil {
 		t.Skip("cannot forget the machine in this fixture:", err)
 	}
-	_, out, raw := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"positions": []int{0}})
+	_, out, raw := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"requestId": terminalbroker.ID(), "positions": []int{0}})
 	if out["id"] == nil {
 		t.Fatal(raw)
 	}
@@ -386,7 +391,7 @@ func TestProjectRunRoutesRefuseViewersLegacyAuthTokensOtherOriginsAndDisabledTer
 	viewerCookie := terminalLogin(t, f.st, viewer.ID)
 	p := &projectAPI{launchAPI: f.launchAPI}
 	routes := []struct{ path, body string }{
-		{"/api/v2/projects/" + id + "/runs", `{"positions":[0]}`},
+		{"/api/v2/projects/" + id + "/runs", `{"requestId":"` + terminalbroker.ID() + `","positions":[0]}`},
 		{"/api/v2/project-runs/" + run.ID + "/members/0/retry", `{}`},
 	}
 	origin := "https://reet.example"
@@ -441,22 +446,28 @@ func TestProjectRunRequestsAreStrict(t *testing.T) {
 	p := &projectAPI{launchAPI: f.launchAPI}
 	origin := "https://reet.example"
 	start := "/api/v2/projects/" + id + "/runs"
+	rq := `"requestId":"` + terminalbroker.ID() + `",`
 	for body, want := range map[string]string{
-		``:                                  "invalid_request",
-		`[0]`:                               "invalid_request",
-		`{"positions":"0"}`:                 "invalid_request",
-		`{"positions":[0],"prompt":"x"}`:    "invalid_request",
-		`{"positions":[0]}{}`:               "invalid_request",
-		`{"positions":[0]} x`:               "invalid_request",
-		`{"positions":[0.5]}`:               "invalid_request",
-		`{}`:                                "no_members",
-		`{"positions":[]}`:                  "no_members",
-		`{"positions":null}`:                "no_members",
-		`{"positions":[3]}`:                 "unknown_position",
-		`{"positions":[-1]}`:                "unknown_position",
-		`{"positions":[0,0]}`:               "unknown_position",
-		`{"positions":[0,1,2,99]}`:          "unknown_position",
-		`{"positions":[0],"positions2":[]}`: "invalid_request",
+		``:                            "invalid_request",
+		`[0]`:                         "invalid_request",
+		`{` + rq + `"positions":"0"}`: "invalid_request",
+		`{` + rq + `"positions":[0],"prompt":"x"}`:             "invalid_request",
+		`{` + rq + `"positions":[0]}{}`:                        "invalid_request",
+		`{` + rq + `"positions":[0]} x`:                        "invalid_request",
+		`{` + rq + `"positions":[0.5]}`:                        "invalid_request",
+		`{"requestId":7,"positions":[0]}`:                      "invalid_request",
+		`{}`:                                                   "request_id_required",
+		`{"positions":[0]}`:                                    "request_id_required",
+		`{"requestId":"short","positions":[0]}`:                "request_id_required",
+		`{"requestId":"has space in it here","positions":[0]}`: "request_id_required",
+		`{` + rq + `"positions":[]}`:                           "no_members",
+		`{` + rq + `"positions":null}`:                         "no_members",
+		`{"requestId":"` + terminalbroker.ID() + `"}`:          "no_members",
+		`{` + rq + `"positions":[3]}`:                          "unknown_position",
+		`{` + rq + `"positions":[-1]}`:                         "unknown_position",
+		`{` + rq + `"positions":[0,0]}`:                        "unknown_position",
+		`{` + rq + `"positions":[0,1,2,99]}`:                   "unknown_position",
+		`{` + rq + `"positions":[0],"positions2":[]}`:          "invalid_request",
 	} {
 		code, raw := p.raw(t, "POST", start, body, f.cookie, origin, "")
 		if !strings.Contains(raw, `"code":"`+want+`"`) || code < 400 {
@@ -466,7 +477,7 @@ func TestProjectRunRequestsAreStrict(t *testing.T) {
 			t.Fatal(body, code)
 		}
 	}
-	if code, raw := p.raw(t, "POST", "/api/v2/projects/"+strings.Repeat("0", 32)+"/runs", `{"positions":[0]}`, f.cookie, origin, ""); code != 404 {
+	if code, raw := p.raw(t, "POST", "/api/v2/projects/"+strings.Repeat("0", 32)+"/runs", `{"requestId":"`+terminalbroker.ID()+`","positions":[0]}`, f.cookie, origin, ""); code != 404 {
 		t.Fatal(code, raw)
 	}
 	run, err := f.st.CreateRunFor(f.uid, id, 0)
@@ -519,7 +530,7 @@ func TestProjectRunMachineRefusalsHaveTheirOwnSentences(t *testing.T) {
 	codes := map[string]terminalproto.ResultCode{"/home/tester/site": terminalproto.Capacity, "/home/tester/api": terminalproto.Denied, "/home/tester/docs": terminalproto.Conflict}
 	f.decide = func(in terminalproto.Create) terminalproto.Body { return terminalproto.Result{Code: codes[in.Dir]} }
 	id := f.project(t)
-	_, out, raw := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"positions": []int{0, 1, 2}})
+	_, out, raw := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"requestId": terminalbroker.ID(), "positions": []int{0, 1, 2}})
 	if out["id"] == nil {
 		t.Fatal(raw)
 	}
@@ -562,7 +573,7 @@ func TestProjectRunMachineRefusalsHaveTheirOwnSentences(t *testing.T) {
 func TestProjectRunJSONNamesEachWorktreeForStatusAndRemove(t *testing.T) {
 	f := runMachineFixture(t)
 	id := f.project(t)
-	_, out, _ := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"positions": []int{0, 2}})
+	_, out, _ := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"requestId": terminalbroker.ID(), "positions": []int{0, 2}})
 	runID := out["id"].(string)
 	f.settled(t, runID, notRunning)
 	// A rename afterwards changes neither the slug the run used nor the run.
@@ -585,5 +596,127 @@ func TestProjectRunJSONNamesEachWorktreeForStatusAndRemove(t *testing.T) {
 		if code != 200 || state["path"] != m["worktreePath"] || state["branch"] != m["worktreeBranch"] {
 			t.Fatal(code, raw)
 		}
+	}
+}
+
+func TestProjectRunStartIsIdempotentAndRefusesAnOverlappingRun(t *testing.T) {
+	f := runMachineFixture(t)
+	id := f.project(t)
+	hold := make(chan struct{})
+	f.mu.Lock()
+	f.hold = hold
+	f.mu.Unlock()
+	req := terminalbroker.ID()
+	body := map[string]any{"requestId": req, "positions": []int{0, 1}}
+	code, first, raw := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", body)
+	if code != 201 {
+		t.Fatal(code, raw)
+	}
+	runID := first["id"].(string)
+	code, again, raw := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"requestId": req, "positions": []int{1, 0}})
+	if code != 200 || again["id"] != runID {
+		t.Fatal("replay", code, raw)
+	}
+	if code, out, _ := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"requestId": req, "positions": []int{0}}); code != 409 || out["code"] != "request_changed" || out["error"] != "That request changed. Start it again." {
+		t.Fatal("changed", code, out)
+	}
+	if code, out, _ := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"requestId": terminalbroker.ID(), "positions": []int{2}}); code != 409 || out["code"] != "run_in_progress" ||
+		out["error"] != "This Project is still starting. Wait for it to finish, then start again." {
+		t.Fatal("overlap", code, out)
+	}
+	close(hold)
+	run := f.settled(t, runID, notRunning)
+	if run.State != store.RunComplete || len(f.creates()) != 2 {
+		t.Fatalf("%+v, %d creates", run.Members, len(f.creates()))
+	}
+	// A replay after it finished still answers with that run, sending nothing.
+	if code, again, _ = f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", body); code != 200 || again["id"] != runID || again["state"] != "complete" {
+		t.Fatal(code, again)
+	}
+	time.Sleep(30 * time.Millisecond)
+	if len(f.creates()) != 2 || len(projectEvents(t, f.st, f.uid, "project-run")) != 1 {
+		t.Fatal("a replay started or audited again")
+	}
+	// Now a new run may start.
+	if code, _, raw := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"requestId": terminalbroker.ID(), "positions": []int{2}}); code != 201 {
+		t.Fatal(code, raw)
+	}
+	// Another account using the same request id gets its own run.
+	other, err := f.st.CreateUser("runs-same-id@example.test", "Other", "admin", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherAgent, _, err := f.st.EnrollSyncAgent(other.ID, "desk", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := terminalLogin(t, f.st, other.ID)
+	code, theirs, raw := f.do(t, b, "POST", "/api/v2/projects", map[string]any{"name": "Shop", "defaultTool": "claude", "members": []map[string]any{{"host": otherAgent.ID, "dir": "/x"}}})
+	if code != 201 {
+		t.Fatal(raw)
+	}
+	code, out, raw := f.do(t, b, "POST", "/api/v2/projects/"+theirs["id"].(string)+"/runs", map[string]any{"requestId": req, "positions": []int{0}})
+	if code != 201 || out["id"] == runID {
+		t.Fatal(code, raw)
+	}
+}
+
+func TestProjectRunWithoutWorktreesSaysItSharesTheCheckout(t *testing.T) {
+	f := runMachineFixture(t)
+	code, p, raw := f.do(t, f.cookie, "POST", "/api/v2/projects", map[string]any{"name": "Plain", "defaultTool": "claude", "useWorktrees": false,
+		"members": []map[string]any{{"host": f.agent.ID, "dir": "/home/tester/site"}}})
+	if code != 201 {
+		t.Fatal(raw)
+	}
+	_, out, raw := f.do(t, f.cookie, "POST", "/api/v2/projects/"+p["id"].(string)+"/runs", map[string]any{"requestId": terminalbroker.ID(), "positions": []int{0}})
+	m := out["members"].([]any)[0].(map[string]any)
+	if out["worktreeProject"] != "" || m["sharesCheckout"] != true || m["worktreeRun"] != "" || m["worktreeProject"] != "" {
+		t.Fatal(raw)
+	}
+	f.settled(t, out["id"].(string), notRunning)
+	if in := f.creates()[0].Body.(terminalproto.Create); in.Worktree != "" || in.Project != "" {
+		t.Fatal(in)
+	}
+}
+
+func TestProjectRunConcurrentStartsMakeOneRun(t *testing.T) {
+	f := runMachineFixture(t)
+	id := f.project(t)
+	hold := make(chan struct{})
+	f.mu.Lock()
+	f.hold = hold
+	f.mu.Unlock()
+	req := terminalbroker.ID()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	codes := map[int]int{}
+	runs := map[string]bool{}
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			r := req
+			if i%2 == 1 {
+				r = terminalbroker.ID() // a different request for the same Project
+			}
+			code, out, _ := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"requestId": r, "positions": []int{0, 1}})
+			mu.Lock()
+			codes[code]++
+			if code < 300 {
+				runs[out["id"].(string)] = true
+			}
+			mu.Unlock()
+		}(i)
+	}
+	wg.Wait()
+	close(hold)
+	if len(runs) != 1 || codes[201] != 1 || codes[201]+codes[200]+codes[409] != 8 {
+		t.Fatal(codes, runs)
+	}
+	for runID := range runs {
+		f.settled(t, runID, notRunning)
+	}
+	if len(f.creates()) != 2 {
+		t.Fatal("creates", len(f.creates()))
 	}
 }

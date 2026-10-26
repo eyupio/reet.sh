@@ -2401,10 +2401,33 @@ work when this was written.
 - Mixed controller and connector versions are compatible: worktree fields and requests are only
   sent after `worktree-v1` is negotiated, and the new reply fields only answer those requests.
 
-**What remains.** PR 2: the controller (store, Project API and audit, run orchestration with
-derived request ids). PR 3: the web (Projects page, Project page, dialogs, browser fixture). PR 4:
-the layout matrix, `docs/projects.md`, the UI verification section, README sentence and the
-closing handoff. The landscape review runs after PR 2 merges.
+**PR 2 (the controller) is in this pull request.** It adds the Project store, the Projects API
+and audit, and the run orchestration (`internal/projectrun`). The API shapes:
+- `GET/POST /api/v2/projects`, `GET/PATCH/DELETE /api/v2/projects/{id}`;
+- `GET /api/v2/projects/{id}/runs` (newest 20) and `GET /api/v2/project-runs/{runId}`;
+- `POST /api/v2/projects/{id}/runs` with `{requestId, positions}`: 201 with the new run, 200 for a
+  replay of the same request, 409 `request_changed` or `run_in_progress`, 422
+  `request_id_required`;
+- `POST /api/v2/project-runs/{runId}/members/{position}/retry` with `{}`.
+
+Run members carry `state` (`pending`, `started`, `failed` with `code` and `sentence`, `removed`),
+`sessionId`, `worktreePath`, `worktreeRepo`, `worktreeBranch`, `worktreeRun`, `worktreeProject`,
+`sharesCheckout` and `attempt`. Audit rows: `project-create`, `project-update`, `project-delete`,
+`project-run`, `project-run-retry`, and `terminal-launch` per started member; none carries the
+prompt. Caveats recorded for PR 2:
+- a single controller process (claims and per-machine slots are in memory);
+- one create per machine at a time, so a 12-member run on one machine can take about 36 minutes in
+  the worst case (12 worktree creates of up to 3 minutes each);
+- a run without worktrees starts agents in the saved folder, which they share with anything else
+  there (`sharesCheckout`);
+- merging or revoking a machine leaves its members `unknown_machine` until the Project is edited;
+- a database created from earlier commits of this branch must be recreated (the Project tables
+  changed shape before release); a database from main upgrades cleanly (opened twice in a probe).
+See [Worktrees](docs/terminal-worktrees.md), "The run orchestration".
+
+**What remains.** PR 3: the web (Projects page, Project page, dialogs, browser fixture). PR 4: the
+layout matrix, `docs/projects.md`, the UI verification section, README sentence and the closing
+handoff. The landscape review runs after PR 2 merges.
 
 ### Roadmap ideas recorded
 

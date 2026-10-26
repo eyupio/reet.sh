@@ -125,7 +125,9 @@
   </div>
   <button type="button" class="btn" onclick={close} disabled={!!busy} aria-label="Close">Close ×</button>
  </header>
- <div class="body">
+ <!-- The folder, counts and changed paths can scroll on a small screen; as a named, focusable region a keyboard can scroll it. -->
+ <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+ <div class="body" tabindex="0" role="region" aria-label="What the machine reports">
   <dl>
    <div><dt>Folder</dt><dd class="mono">{status?.path || member.worktreePath || 'Not known yet'}</dd></div>
    <div><dt>Branch</dt><dd class="mono">{status?.branch || member.worktreeBranch || 'Not known yet'}</dd></div>

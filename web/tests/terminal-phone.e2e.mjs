@@ -14,9 +14,11 @@ const app=(cols,rows)=>{let out='\x1b[?1049h\x1b[2J'
  for(let row=1;row<=rows;row++)out+=`\x1b[${row};1H`+(row===1?`agent ${cols}x${rows}`:row===rows?'> ask anything':`row ${row}`).slice(0,cols)
  return Buffer.from(out)}
 
-async function open({width,height,touch,query=''}){
- const context=await browser.newContext({viewport:{width,height},hasTouch:touch,isMobile:touch})
+async function open({width,height,touch,query='',layout=null,motion='no-preference'}){
+ const context=await browser.newContext({viewport:{width,height},hasTouch:touch,isMobile:touch,reducedMotion:motion})
  const page=await context.newPage(),errors=[],tickets=[],frames=[]
+ // A saved sessions-panel layout, as a wider screen would have left it.
+ if(layout)await page.addInitScript(value=>{if(!sessionStorage.getItem('seeded')){sessionStorage.setItem('seeded','1');localStorage.setItem('reet-terminal-layout:1',value)}},JSON.stringify(layout))
  let sockets=0
  page.on('pageerror',error=>errors.push(error.message))
  await page.addInitScript(()=>{
@@ -249,9 +251,19 @@ try{
  await plain.context.close()
 
  // ── Phones held sideways: tools and keys share a row, the screen keeps the rows ──
- for(const [width,height] of [[844,390],[915,412]]){
-  const side=await open({width,height,touch:true})
+ for(const [width,height,motion] of [[844,390,'reduce'],[915,412,'no-preference']]){
+  const side=await open({width,height,touch:true,motion,layout:{open:true,mode:'mini',width:320,pinned:true}})
   const p=side.page
+  // A phone held sideways keeps the drawer, even with a pinned mini layout saved: no rail, no separator, closed on arrival.
+  const drawer=p.locator('aside#terminal-sessions.session-sidebar')
+  await expect(p.getByRole('complementary',{name:'Session rail'})).toHaveCount(0);await expect(drawer).toHaveCount(0)
+  await p.locator('.terminal-toolbar').getByRole('button',{name:'Show sessions',exact:true}).click()
+  await expect(drawer).toBeVisible();expect(await drawer.evaluate(e=>getComputedStyle(e).position)).toBe('absolute')
+  await expect(p.getByRole('separator')).toHaveCount(0);await expect(drawer.getByRole('button',{name:'Keep open'})).toHaveCount(0)
+  // The drawer slides in, unless the person asked for reduced motion.
+  const animation=await drawer.evaluate(e=>getComputedStyle(e).animationName)
+  if(motion==='reduce')expect(animation).toBe('none');else expect(animation).toContain('drawer-in')
+  await drawer.getByRole('button',{name:'Close session navigation',exact:true}).click();await expect(drawer).toHaveCount(0)
   await expect(p.locator('.xterm-rows')).toHaveCSS('font-size','11px')
   await expect(p.locator('.tool-rows .terminal-toolbar')).toBeVisible()
   await expect(p.locator('.tool-rows .mobile-keys')).toBeVisible()

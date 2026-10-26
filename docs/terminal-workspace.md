@@ -48,11 +48,54 @@ band or request terminal data. Viewing the band does not attach to a shell.
 
 The terminal route uses compact app navigation and the remaining usable viewport
 (see [Phones](#phones) for how that height is chosen while a keyboard is open).
-The session sidebar scrolls independently and can be collapsed with **Sessions**
-or its collapse button. Drag its edge on desktop, or focus the splitter and use
-Left/Right/Home/End, to resize it between 220 and 480 pixels. Collapse and width
-survive reloads in this browser, separately for each signed-in account. Phones
-show an overlay sidebar and close it when a session is selected.
+### The sessions panel
+
+The sessions panel scrolls independently and has three modes: **full**, a 64 px
+**mini rail**, and **closed**. **Sessions** in the workspace header opens or closes
+the full panel. The panel's chevron cycles full → mini → closed (on a phone it only
+closes). The rules live in `terminal/panelLayout.ts`, unit tested by
+`terminal/panelLayout.test.mjs`.
+
+- **Docked, never over the terminal.** On a window 960 px or wider, and on a tablet
+  (600 to 959 px) once **Keep open** is pressed in the panel header, the full panel
+  is a grid column beside the terminal. The terminal's column is `minmax(0, 1fr)` of
+  what remains, so the whole terminal stays visible with no horizontal scroll, and
+  it refits to its new width. A tablet without Keep open keeps the drawer: the panel
+  opens over the terminal and closes when a session is chosen. Keep open is shown
+  only where it changes something (600 to 959 px).
+- **Resizing.** Between the docked panel and the terminal is a separator
+  (`role="separator"`, vertical, with `aria-valuenow`, `aria-valuemin` 64 and
+  `aria-valuemax`). Its hit area is 24 px wide and it captures the pointer, so a drag
+  that leaves the handle keeps going; it works with a mouse, pen or touch. The panel
+  is 240 to 480 px and never more than 40 % of the workspace, so the terminal keeps at
+  least 60 %. A drag below 160 px snaps to the mini rail, and dragging the rail out
+  past 160 px opens the full panel again. Keyboard: Left/Right move 16 px (Left at
+  240 px becomes the rail, Right from the rail opens the panel at 240 px), Home is the
+  rail, End the widest. Double-click resets it to 280 px.
+- **Refit without a storm.** The grid column follows the drag; the terminal refits
+  through its own resize path (at most one xterm fit per animation frame) and the
+  host is sent one size 150 ms after the drag settles, never one per move. The
+  layout is saved when the drag ends.
+- **Mini rail.** One 44 px button per session, in the panel's order: a state dot
+  (running a filled circle, starting a ring, ending a half circle, lost a diamond,
+  finished a hollow square) and the title's initial. Its accessible name is
+  "Title on machine, state" and its tooltip shows the title, machine and state.
+  The rail also has **Expand sessions**, **New session**, **Find sessions** (opens the
+  full panel with its search focused) and a chevron that closes it. The rail lists
+  every session, whatever machine filter or search the full panel has.
+- **Saved layout.** Mode, width and Keep open are saved in this browser under the
+  existing per-account key (`reet-terminal-layout:<user>`), as
+  `{open, mode, width, pinned}`; `open` keeps older pages reading it. A layout saved
+  before the rail (`{open, width}`, width 220 to 480) still loads: `open` becomes full
+  or closed and the width is brought to 240 to 480. Unreadable values fall back to the
+  defaults. Only a person's change is saved; a breakpoint or a phone visit does not
+  overwrite it.
+- **Phones keep the drawer.** Below 600 px, and on a touch screen held sideways
+  (`LANDSCAPE_PHONE`), the panel is the overlay drawer, closed on arrival, whatever
+  was saved: no rail, no separator, no Keep open. A docked panel that would become a
+  drawer because the window narrowed closes instead of covering the terminal. The
+  drawer slides in briefly unless the system asks for reduced motion. The phone
+  keyboard focus layout is unchanged.
 
 **Your sessions → Machines** defaults to all machines, with individual selection
 and multi-machine checkboxes. Filtering or organising never creates or stops a
@@ -72,7 +115,7 @@ replace the attachment. Legacy `/machines?view=terminal` and account route links
 keep the same workspace behaviour. **Find** searches host and shell-user names,
 including enrolled hosts that need connection/setup. Each machine remembers its
 last selected session while this workspace is mounted. The selected user/host
-remains visible on phones; moving from desktop to phone closes the sidebar.
+remains visible on phones; moving from desktop to phone closes the panel.
 
 Each unconfirmed creation keeps its immutable request ID and original title per
 machine while the workspace is mounted. Switching machines cannot discard or
@@ -159,6 +202,9 @@ new direct SSH adapter. Phone viewport emulation is not a physical keyboard test
 - `terminal/TerminalWorkspace.svelte` owns selection, sidebar, visual-viewport
   sizing, dialogs and existing create/rename/end APIs. Confirmations capture IDs
   and display names at open time. `WorkspaceDialog.svelte` provides native modals.
+- `terminal/panelLayout.ts` holds the sessions panel's rules (modes, docking,
+  width clamp, separator keys, the saved layout); `terminal/panelLayout.test.mjs`
+  covers them.
 - `terminal/sizing.ts` holds the browser-free sizing rules: the phone font default,
   the 20×8 floor, the debounced resize sender with its repaint nudge, the usable
   viewport height and keyboard detection. `web/tests/terminal-sizing.test.mjs`
@@ -256,7 +302,8 @@ xterm scrollbar cannot expose its machine-side history.
 **Theatre view** hides the session panel and workspace toolbar while retaining the
 site navigation. Exit theatre restores the previous panel layout. **Maximise**
 remains the separate viewport-filling view (Alt+Shift+M). Both fit the existing
-terminal/PTY; neither disconnects, creates a shell or changes saved panel width.
+terminal/PTY; neither disconnects, creates a shell or changes the saved panel layout
+(mode, width, Keep open).
 
 
 ### Quick terminal actions
@@ -273,9 +320,10 @@ and clipboard controls; Shift+right-click keeps the browser menu. Control-page
 active-session menus also rename or request a stop, with explicit confirmation
 and the same remove-after-closure/account preference as the workspace.
 
-When the sidebar is hidden, **Show sessions** is visible in both the workspace
-header and the terminal toolbar. In theatre view the toolbar control exits theatre
-and restores the sidebar. Its saved width and organisation remain intact.
+When the panel is closed, **Show sessions** is visible in both the workspace
+header and the terminal toolbar (the mini rail has its own Expand instead). In theatre
+view the toolbar control exits theatre and restores the panel as it was. Its saved
+width and organisation remain intact.
 
 ## Phones
 

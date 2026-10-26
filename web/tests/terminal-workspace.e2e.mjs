@@ -41,12 +41,14 @@ await page.route('**/api/**',async route=>{
  await route.fulfill({json:data})
 })
 let releaseInitialRedraw,holdInitialRedraw=true
+const resizes=[]
 await page.routeWebSocket('**/api/v2/terminal/socket',socket=>{
  websockets++
  socket.onMessage(message=>{
   if(typeof message==='string'){
    const data=JSON.parse(message)
    if(data.ticket){socket.send('{"type":"ready"}');const redraw=()=>socket.send(Buffer.from('\x1b[?2026h\x1b[2J\x1b[HExisting persistent shell\r\nready> \x1b[?2026l'));if(holdInitialRedraw){holdInitialRedraw=false;releaseInitialRedraw=redraw}else redraw()}
+   if(data.type==='resize')resizes.push(data)
   }else{inputs.push(message.toString());socket.send(message)}
  })
 })
@@ -66,6 +68,137 @@ async function bounds(width,height){
  expect(await page.evaluate(()=>scrollY)).toBe(0)
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
  expect(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight+1)).toBe(true)
+}
+// ── The sessions panel docks beside the terminal: never over it, resizable, and shrinkable to a mini rail ──
+const panel=page.locator('aside#terminal-sessions.session-sidebar'),rail=page.getByRole('complementary',{name:'Session rail',exact:true}),separator=page.getByRole('separator',{name:'Resize session navigation'})
+const sessionsButton=page.locator('.workspace-actions button[aria-controls="terminal-sessions"]')
+const quiet=()=>page.waitForTimeout(450)
+// The terminal pane and the docked panel (or rail) never share a pixel, the terminal ends inside the window, and nothing scrolls sideways.
+async function besideTerminal(side){
+ const a=await side.boundingBox(),t=await pane.boundingBox(),width=await page.evaluate(()=>innerWidth)
+ expect(a.x+a.width).toBeLessThanOrEqual(t.x+.5)
+ expect(t.x+t.width).toBeLessThanOrEqual(width+.5)
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+ // The renderer fits its frame after the refit: no column hides under the panel or past the edge.
+ await expect.poll(async()=>{const frame=await page.locator('.screen').boundingBox(),grid=await page.locator('.xterm-screen').boundingBox();return Math.ceil(grid.x+grid.width-(frame.x+frame.width))}).toBeLessThanOrEqual(0)
+ return {panel:a,terminal:t}
+}
+async function openFull(){if(await sessionsButton.getAttribute('aria-expanded')!=='true')await sessionsButton.click();await expect(panel).toBeVisible()}
+async function dockedPanel(){
+ const key=await page.evaluate(()=>Object.keys(localStorage).find(k=>/^reet-terminal-layout:[^:]+$/.test(k)))
+ expect(key).toBeTruthy()
+ // pinned panel docks and the terminal is fully visible beside it (bounding boxes do not overlap, no horizontal scroll)
+ await page.setViewportSize({width:1360,height:900});await openFull();await live()
+ await besideTerminal(panel)
+ const body=await page.locator('.workspace-body').boundingBox()
+ // drag the separator resizes and the terminal refits once
+ await quiet();const before=resizes.length,colsBefore=resizes.at(-1)?.cols??ticketSizes.at(-1).cols
+ const start=await panel.boundingBox(),grip=await separator.boundingBox()
+ expect(grip.width).toBeGreaterThanOrEqual(24)
+ await page.mouse.move(grip.x+grip.width/2,grip.y+200);await page.mouse.down()
+ // The pointer leaves the handle (over the terminal) and the drag keeps going: the handle holds the pointer.
+ await page.mouse.move(grip.x+grip.width/2+130,grip.y+260,{steps:12});await page.mouse.up()
+ await expect.poll(async()=>Math.round((await panel.boundingBox()).width)).toBe(Math.round(start.width)+130)
+ await quiet()
+ expect(resizes.length).toBe(before+1)
+ expect(resizes.at(-1).cols).toBeLessThan(colsBefore)
+ const wide=await besideTerminal(panel)
+ expect(wide.terminal.width).toBeGreaterThanOrEqual((body.width-8)*.6-1)
+ // Dragging far right stops at 40 % of the workspace or 480 px, whichever is smaller.
+ const grip2=await separator.boundingBox()
+ await page.mouse.move(grip2.x+grip2.width/2,grip2.y+100);await page.mouse.down();await page.mouse.move(grip2.x+600,grip2.y+100,{steps:6});await page.mouse.up()
+ await expect(separator).toHaveAttribute('aria-valuenow',String(Math.min(480,Math.floor((body.width-8)*.4))))
+ await expect(separator).toHaveAttribute('aria-valuemax',String(Math.min(480,Math.floor((body.width-8)*.4))))
+ await expect(separator).toHaveAttribute('aria-valuemin','64')
+ await expect(separator).toHaveAttribute('aria-orientation','vertical')
+ // keyboard resize: arrows move 16 px, End is the widest, double-click resets to 280
+ await separator.dblclick();await expect(separator).toHaveAttribute('aria-valuenow','280')
+ await separator.focus();await separator.press('ArrowRight');await expect(separator).toHaveAttribute('aria-valuenow','296')
+ await separator.press('ArrowLeft');await separator.press('ArrowLeft');await expect(separator).toHaveAttribute('aria-valuenow','264')
+ expect(Math.round((await panel.boundingBox()).width)).toBe(264)
+ await separator.press('End');await expect(separator).toHaveAttribute('aria-valuenow','480')
+ // Home is the smallest: the mini rail; Right from the rail opens the panel at its 240 px minimum.
+ await separator.press('Home');await expect(rail).toBeVisible();await expect(separator).toHaveAttribute('aria-valuenow','64');await expect(separator).toHaveAttribute('aria-valuetext','Mini rail')
+ await separator.press('ArrowRight');await expect(panel).toBeVisible();await expect(separator).toHaveAttribute('aria-valuenow','240')
+ // Dragging below 160 px snaps to the mini rail.
+ const grip3=await separator.boundingBox()
+ await page.mouse.move(grip3.x+grip3.width/2,grip3.y+100);await page.mouse.down();await page.mouse.move(grip3.x-120,grip3.y+100,{steps:6});await page.mouse.up()
+ await expect(rail).toBeVisible();await expect(panel).toHaveCount(0)
+ // mini rail shows every session with names and a status word
+ await quiet();const railBefore=resizes.length
+ const railBox=await rail.boundingBox();expect(Math.round(railBox.width)).toBe(64)
+ if(process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/workspace-mini-rail.png`})
+ await besideTerminal(rail)
+ const railSessions=rail.getByRole('navigation',{name:'Terminal sessions'}).getByRole('button')
+ await expect(railSessions).toHaveCount(sessions.length)
+ await expect(railSessions.nth(0)).toHaveAccessibleName('Build workspace on dev-laptop, running')
+ await expect(railSessions.nth(1)).toHaveAccessibleName('Deployment checks on build-server, running')
+ await expect(railSessions.nth(0)).toHaveAttribute('aria-current','true')
+ await expect(railSessions.nth(1)).toHaveAttribute('title',/Deployment checks.*build-server/s)
+ for(const item of await railSessions.all()){const b=await item.boundingBox();expect(b.width).toBeGreaterThanOrEqual(44);expect(b.height).toBeGreaterThanOrEqual(44)}
+ await expect(rail.getByRole('button',{name:'New session',exact:true})).toBeVisible()
+ await expect(rail.getByRole('button',{name:'Expand sessions',exact:true})).toBeVisible()
+ // Find opens the full panel with its search focused.
+ await rail.getByRole('button',{name:'Find sessions',exact:true}).click()
+ await expect(panel.getByRole('searchbox',{name:'Find sessions'})).toBeFocused()
+ // The chevron cycles full → mini → closed.
+ await panel.getByRole('button',{name:'Shrink sessions to a mini rail',exact:true}).click();await expect(rail).toBeVisible()
+ await rail.getByRole('button',{name:'Close session navigation',exact:true}).click();await expect(rail).toHaveCount(0);await expect(separator).toHaveCount(0)
+ await expect(sessionsButton).toHaveAttribute('aria-expanded','false')
+ await sessionsButton.click();await expect(panel).toBeVisible()
+ // mini and width survive a reload
+ await separator.focus();for(let i=0;i<5;i++)await separator.press('ArrowRight')
+ await expect(separator).toHaveAttribute('aria-valuenow','320')
+ await panel.getByRole('button',{name:'Shrink sessions to a mini rail',exact:true}).click()
+ expect(JSON.parse(await page.evaluate(k=>localStorage.getItem(k),key))).toEqual({open:false,mode:'mini',width:320,pinned:false})
+ await page.reload();await live()
+ await expect(rail).toBeVisible();await expect(panel).toHaveCount(0)
+ await rail.getByRole('button',{name:'Expand sessions',exact:true}).click()
+ await expect(separator).toHaveAttribute('aria-valuenow','320')
+ // An old saved layout ({open,width} with a width below today's minimum) still loads.
+ await page.evaluate(k=>localStorage.setItem(k,JSON.stringify({open:true,width:220})),key)
+ await page.reload();await live();await expect(panel).toBeVisible();await expect(separator).toHaveAttribute('aria-valuenow','240')
+ await page.evaluate(k=>localStorage.setItem(k,'{broken'),key)
+ await page.reload();await live();await expect(panel).toBeVisible();await expect(separator).toHaveAttribute('aria-valuenow','280')
+ // tablet landscape does not cover the terminal when pinned
+ await page.setViewportSize({width:834,height:640})
+ await expect(panel).toHaveCount(0)
+ await sessionsButton.click();await expect(panel).toBeVisible()
+ // Unpinned, a tablet keeps today's drawer: it lies over the terminal and has no separator.
+ expect((await panel.boundingBox()).x+(await panel.boundingBox()).width).toBeGreaterThan((await pane.boundingBox()).x+1)
+ await expect(separator).toHaveCount(0)
+ await quiet();const beforePin=resizes.length,colsUnpinned=resizes.at(-1).cols
+ const keep=panel.getByRole('button',{name:'Keep open',exact:true})
+ await expect(keep).toHaveAttribute('aria-pressed','false')
+ await keep.click();await expect(keep).toHaveAttribute('aria-pressed','true')
+ await besideTerminal(panel);await expect(separator).toBeVisible()
+ if(process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/workspace-tablet-docked.png`})
+ await quiet();expect(resizes.length).toBe(beforePin+1);expect(resizes.at(-1).cols).toBeLessThan(colsUnpinned)
+ const tabletBody=await page.locator('.workspace-body').boundingBox()
+ expect((await pane.boundingBox()).width).toBeGreaterThanOrEqual((tabletBody.width-8)*.6-1)
+ // On a tablet 40 % is less than 480 px: dragging or End stops there, so the terminal keeps 60 %.
+ const tabletMax=String(Math.floor((tabletBody.width-8)*.4)),tabletGrip=await separator.boundingBox()
+ await page.mouse.move(tabletGrip.x+tabletGrip.width/2,tabletGrip.y+100);await page.mouse.down();await page.mouse.move(tabletGrip.x+400,tabletGrip.y+100,{steps:6});await page.mouse.up()
+ await expect(separator).toHaveAttribute('aria-valuenow',tabletMax);await expect(separator).toHaveAttribute('aria-valuemax',tabletMax)
+ expect((await pane.boundingBox()).width).toBeGreaterThanOrEqual((tabletBody.width-8)*.6-1);await besideTerminal(panel)
+ await separator.dblclick();await expect(separator).toHaveAttribute('aria-valuenow','280')
+ // Choosing a session keeps a pinned panel open; the terminal stays beside it.
+ await panel.getByRole('button',{name:/^Deployment checks/}).click();await live()
+ await expect(panel).toBeVisible();await besideTerminal(panel)
+ await page.reload();await live();await expect(panel).toBeVisible();await besideTerminal(panel)
+ // phone still uses the drawer: a pinned (or mini) saved layout gives the phone today's drawer, closed on arrival
+ await page.evaluate(k=>localStorage.setItem(k,JSON.stringify({open:false,mode:'mini',width:320,pinned:true})),key)
+ await page.setViewportSize({width:390,height:844});await page.reload();await live()
+ await expect(rail).toHaveCount(0);await expect(panel).toHaveCount(0)
+ await sessionsButton.click();await expect(panel).toBeVisible()
+ expect(await panel.evaluate(e=>getComputedStyle(e).position)).toBe('absolute')
+ await expect(separator).toHaveCount(0);await expect(panel.getByRole('button',{name:'Keep open'})).toHaveCount(0)
+ await panel.getByRole('button',{name:'Close session navigation',exact:true}).click();await expect(panel).toHaveCount(0)
+ expect(errors).toEqual([])
+ // Leave the fixture as it was: a desktop with the full panel.
+ await page.evaluate(k=>localStorage.removeItem(k),key)
+ await page.setViewportSize({width:1360,height:900})
+ console.log('Docked panel: beside the terminal at 1360 and 834 px, one refit per drag, keyboard resize, mini rail, saved layout, phone drawer.')
 }
 try{
  await page.goto(`${base}/control`)
@@ -213,6 +346,7 @@ try{
  await live();expect(tickets.at(-1)).toBe(sessionB);expect(writes).toHaveLength(0)
  await page.goto(`${base}/machines?view=terminal&agent=${agentA}&session=${sessionA}`)
  await live();await bounds(1360,900)
+ await dockedPanel()
  // A new session always names its machine first; arriving without one attaches nothing.
  await page.goto(`${base}/terminals`)
  await expect(page.getByRole('heading',{name:'Terminals'})).toBeVisible()

@@ -114,8 +114,7 @@
     if (refreshing || busy) return
     refreshing = true
     const generation = ++loadGeneration
-    if (!background) loading = true
-    error = ''
+    if (!background) { loading = true; error = '' }
     try {
       const next = await getSyncState()
       if (generation !== loadGeneration) return

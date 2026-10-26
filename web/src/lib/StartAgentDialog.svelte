@@ -17,7 +17,9 @@
   /** The machine this was opened from, preselected when it is ready. */
   initialAgent?: string
   opener?: HTMLElement | null
-  onstarted: (session: TerminalSession) => void
+  /** Hands over the started session. A page that answers 'leaving' is opening it at another address: the dialog then stays in
+   *  its Starting… state, with nothing left to press, until the page unloads. */
+  onstarted: (session: TerminalSession) => void | 'leaving'
   /** Opens the add-a-machine flow. The dialog closes first. */
   onaddmachine?: () => void
   /** Hands a lost sign-in to the page, as the other dialogs do. Without it the dialog only says so. */
@@ -135,8 +137,15 @@
     return
    }
    const started = onstarted
+   // The request is done, so nothing of it is kept, and the dialog's own work stops before the page takes the session.
+   life.abort(); prompt = ''; operation = null
+   if (started(session) === 'leaving') {
+    // The page is going to the session. Stay Starting… so a second press, Close or Escape does nothing in the moment before
+    // the next page arrives.
+    message = `Opening ${session.title}…`
+    return
+   }
    shutdown(false)
-   started(session)
    onclose()
   } catch (e) {
    if (life.signal.aborted) return

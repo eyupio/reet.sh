@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { getSyncState, UnauthorizedError, type Machine, type SyncState } from '../api'
   import { getRun, listProjects, machineHealth, terminalMachines, terminalSessions, TerminalError, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import type { Project, ProjectRun } from '../projects'
@@ -153,11 +153,12 @@
     notice = null
     if (await machinesForDialog()) creating = { opener }
   }
-  function started(session: TerminalSession) {
+  // A start goes straight to the new session, at the address the Machines and Terminals pages use. The row is added first, so
+  // Home has it if the browser brings this page back from its cache on Back; the dialog stays Starting… until the page goes.
+  function started(session: TerminalSession): 'leaving' {
     sessions = [session, ...(sessions ?? []).filter(s => s.id !== session.id)]
-    const host = health?.find(m => m.agentId === session.agentId)?.host ?? terminals?.find(m => m.agentId === session.agentId)?.host ?? session.agentId
-    notice = { text: `Started ${session.title} on ${host}.`, href: `/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}` }
-    void load(true)
+    location.assign(`/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`)
+    return 'leaving'
   }
   function saved(p: Project) {
     projects = [p, ...(projects ?? []).filter(x => x.id !== p.id)]
@@ -170,7 +171,19 @@
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void load() }, POLL_MS)
     const shown = () => { if (document.visibilityState === 'visible') void load() }
     document.addEventListener('visibilitychange', shown)
-    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', shown); life.abort() }
+    // Back from the session the person just started: a page restored from the browser's cache still has the dialog in its
+    // Starting… state and lists as they were, so it closes the dialog and reads everything again.
+    const restored = async (e: PageTransitionEvent) => {
+      if (!e.persisted) return
+      const back = starting?.opener
+      starting = null
+      void load(true)
+      // Once the dialog has gone, focus goes back to the button that opened it.
+      await tick()
+      if (back?.isConnected) back.focus()
+    }
+    window.addEventListener('pageshow', restored)
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', shown); window.removeEventListener('pageshow', restored); life.abort() }
   })
 </script>
 

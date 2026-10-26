@@ -274,9 +274,9 @@ try {
   await narrow.context.close()
  }
 
- // Start an agent sits docked at the foot of the page and opens the existing dialog; the started session joins In flight.
- if (run('Start an agent opens the existing dialog and the new session appears')) {
-  const {context,page,errors,box} = await home()
+ // Start an agent sits docked at the foot of the page and opens the existing dialog.
+ if (run('Start an agent opens the existing dialog')) {
+  const {context,page,errors} = await home()
   await page.goto(base)
   const start = page.getByRole('button',{name:'Start an agent',exact:true})
   await expect(start).toBeVisible()
@@ -287,10 +287,122 @@ try {
   const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
   await expect(dialog).toBeVisible()
   await expect(dialog.getByRole('combobox',{name:'Machine',exact:true})).toHaveValue('a1')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Starting from Home goes straight to the new session, at the address the other pages use: the terminal page shows its
+ // connecting state with the session's title, keyboard focus lands on the terminal once it is live, and Back returns to Home
+ // with the new row in In flight.
+ if (run('Start an agent from Home opens the session')) {
+  let ready
+  const attached = new Promise(r => { ready = r })
+  const {context,page,errors,box} = await home({terminalStatus:{configured:true,available:true,reason:''}, routes:{}})
+  await page.route('**/api/v2/terminal/sessions/*/attachments', route => route.fulfill({json:{ticket:'fixture-ticket00000000000'}}))
+  await page.routeWebSocket('**/api/v2/terminal/socket', socket => {
+   socket.onMessage(message => { if (typeof message === 'string' && JSON.parse(message).ticket) void attached.then(() => { socket.send('{"type":"ready"}'); socket.send(Buffer.from('ready> ')) }) })
+  })
+  await page.goto(base)
+  await page.getByRole('button',{name:'Start an agent',exact:true}).click()
+  const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
   await dialog.getByRole('button',{name:'Start',exact:true}).click()
-  await expect(dialog).toBeHidden()
-  expect(box.created).not.toBeNull()
-  await expect(inFlight(page).getByRole('link',{name:new RegExp(box.created.title.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'))})).toBeVisible()
+  await expect(page).toHaveURL(/\/terminals\?/)
+  const s = box.created
+  expect(s).not.toBeNull()
+  await expect(page).toHaveURL(`${base}/terminals?agent=${encodeURIComponent(s.agentId)}&session=${encodeURIComponent(s.id)}`)
+  // No blank screen: the pane is there at once with the title and its existing connecting state, and the region a screen
+  // reader enters is named with the title.
+  const pane = page.locator('.pane')
+  await expect(pane).toHaveAttribute('data-connection-state','connecting')
+  await expect(pane.locator('header .identity')).toContainText(s.title)
+  await expect(pane.locator('header .state')).toContainText('Connecting')
+  await expect(page.getByRole('region',{name:`${s.title} · Terminal on studio`,exact:true})).toBeVisible()
+  ready()
+  await expect(pane).toHaveAttribute('data-connection-state','live')
+  await expect(page.locator('.xterm-helper-textarea')).toBeFocused()
+  await page.goBack()
+  await expect(page).toHaveURL(`${base}/`)
+  await expect(page.getByRole('dialog',{name:'Start an agent',exact:true})).toHaveCount(0)
+  await expect(inFlight(page).getByRole('link',{name:new RegExp(s.title.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'))})).toBeVisible()
+  await expect(page.getByRole('button',{name:'Start an agent',exact:true})).toBeEnabled()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A browser may bring Home back from its cache on Back, with the dialog as it was when Home left. Home then closes the
+ // dialog and reads everything again. (Headless Chromium reloads instead, so the restore is simulated.)
+ if (run('Home restored from the browser cache closes the dialog and reads again')) {
+  const {context,page,errors,reads} = await home()
+  await page.goto(base)
+  await page.getByRole('button',{name:'Start an agent',exact:true}).click()
+  const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
+  await expect(dialog).toBeVisible()
+  const before = reads.filter(r => r === 'GET /api/v2/terminal/sessions').length
+  await page.evaluate(() => dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true})))
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(() => reads.filter(r => r === 'GET /api/v2/terminal/sessions').length).toBe(before + 1)
+  await expect(page.getByRole('button',{name:'Start an agent',exact:true})).toBeFocused()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A refusal or a lost reply leaves the dialog open on Home with its own sentence, as before; nothing navigates.
+ if (run('a refused start stays on Home with the sentence')) {
+  let answer = {status:422,json:{error:'not installed',code:'tool_not_installed'}}
+  const {context,page,errors,box} = await home({routes:{'/api/v2/terminal/sessions': request => request.method() === 'POST' ? answer : {sessions:box.sessions}}})
+  const navigations = []
+  page.on('framenavigated', f => { if (f === page.mainFrame()) navigations.push(f.url()) })
+  await page.goto(base)
+  await page.getByRole('button',{name:'Start an agent',exact:true}).click()
+  const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
+  await dialog.getByRole('button',{name:'Start',exact:true}).click()
+  await expect(dialog.getByRole('status')).toHaveText("That agent isn't installed on that machine.")
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button',{name:'Start',exact:true})).toBeEnabled()
+  // A lost reply: the dialog says so and keeps the same request for Retry.
+  answer = {status:502,json:{error:'bad gateway'}}
+  await dialog.getByRole('button',{name:'Start',exact:true}).click()
+  await expect(dialog.getByRole('status')).toContainText("We didn't hear back, so the agent may have started.")
+  await expect(dialog.getByRole('button',{name:'Try the same request again',exact:true})).toBeEnabled()
+  await page.waitForTimeout(500)
+  expect(page.url()).toBe(`${base}/`)
+  expect(navigations).toEqual([`${base}/`])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Between the answer and the terminal page arriving, the dialog keeps its Starting… state: a second press (or Escape) does
+ // nothing and sends nothing.
+ if (run('second press while starting sends nothing')) {
+  const {context,page,errors,reads,box} = await home()
+  // As Home goes (the moment the next page replaces it), the page notes what the dialog shows, then presses Start again, submits, presses Enter and
+  // Escape, and counts the creates it tried to send.
+  await page.addInitScript(() => {
+   if (location.pathname !== '/') return
+   let creates = 0
+   const send = window.fetch.bind(window)
+   window.fetch = (input, init) => { if ((init?.method ?? 'GET') === 'POST' && String(input instanceof Request ? input.url : input).includes('/terminal/sessions')) creates++; return send(input, init) }
+   addEventListener('pagehide', () => {
+    const d = document.querySelector('dialog[open]'), b = d?.querySelector('footer button[type=submit]'), x = d?.querySelector('[data-shell-close]')
+    const seen = {open: !!d, text: b?.textContent, disabled: b?.disabled, busy: b?.getAttribute('aria-busy'), close: x?.disabled, status: d?.querySelector('[role=status]')?.textContent}
+    const before = creates
+    if (d) {
+     b.click(); d.querySelector('form').requestSubmit()
+     for (const key of ['Enter','Escape']) d.dispatchEvent(new KeyboardEvent('keydown', {key, bubbles:true, cancelable:true}))
+     d.dispatchEvent(new Event('cancel', {cancelable:true}))
+    }
+    // Kept where the next page (same tab, same origin) can read it; the test's only use of browser storage.
+    sessionStorage.setItem('__e2e_leaving', JSON.stringify({...seen, stillOpen: !!document.querySelector('dialog[open]'), extra: creates - before}))
+   })
+  })
+  await page.goto(base)
+  await page.getByRole('button',{name:'Start an agent',exact:true}).click()
+  const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
+  await dialog.getByRole('button',{name:'Start',exact:true}).click()
+  await expect(page).toHaveURL(/\/terminals\?agent=a1&session=new-/)
+  const leaving = JSON.parse(await page.evaluate(() => sessionStorage.getItem('__e2e_leaving')))
+  expect(leaving).toEqual({open:true, text:'Starting…', disabled:true, busy:'true', close:true, status:`Opening ${box.created.title}…`, stillOpen:true, extra:0})
+  expect(reads.filter(r => r === 'POST /api/v2/terminal/sessions')).toHaveLength(1)
   expect(errors).toEqual([])
   await context.close()
  }
@@ -456,25 +568,14 @@ try {
   await context.close()
  }
 
- // A refresh already under way when an agent starts (or a Project is saved) must not drop it when its older answer lands.
- if (run('a slow refresh does not drop a just-started session')) {
+ // A refresh already under way when a Project is saved must not drop it when its older answer lands. (A start from Home now
+ // leaves for the session; the same generation guard covers its optimistic row.)
+ if (run('a slow refresh does not drop a just-saved Project')) {
   const {context,page,errors,box} = await home()
   await page.clock.install()
   await page.goto(base)
   await expect(inFlight(page).getByRole('link',{name:/Tidy the release notes/})).toBeVisible()
   let release
-  box.hold = new Promise(r => { release = r })
-  await page.clock.runFor(15_000)
-  await page.getByRole('button',{name:'Start an agent',exact:true}).click()
-  const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
-  await dialog.getByRole('button',{name:'Start',exact:true}).click()
-  await expect(dialog).toBeHidden()
-  const row = () => inFlight(page).getByRole('link',{name:new RegExp(box.created.title.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'))})
-  await expect(row()).toBeVisible()
-  release()
-  await page.waitForTimeout(1000)
-  await expect(row()).toBeVisible()
-  // The same for a Project saved while a refresh is slow.
   box.hold = new Promise(r => { release = r })
   await page.clock.runFor(15_000)
   const saved = {id:'p9',name:'Fresh project',defaultTool:'claude',defaultModel:'',useWorktrees:false,hasSharedPrompt:false,members:[{host:'a1',dir:'~/fresh',tool:'',model:'',position:0}],createdAt:1,updatedAt:1,version:1}
@@ -594,5 +695,5 @@ try {
   expect(errors).toEqual([])
   await context.close()
  }
- console.log('Home: fleet strip with sessions running, CPU or No reading and the skills line, no worktree figure, Add a machine, In flight grouped by Project, Machine and State with offline sessions kept, Needs you empty with a quiet bell, the read-only rail with Add, Start an agent, the read-only Home, refresh errors keeping the last lists, storage limited to the Group by key, the desktop, tablet and phone layouts, paused machines in words, and the width, theme, target, focus and motion matrix.')
+ console.log('Home: fleet strip with sessions running, CPU or No reading and the skills line, no worktree figure, Add a machine, In flight grouped by Project, Machine and State with offline sessions kept, Needs you empty with a quiet bell, the read-only rail with Add, Start an agent going straight to the new session (Starting… until Home leaves, refusals kept on Home, Back to the new row), the read-only Home, refresh errors keeping the last lists, storage limited to the Group by key, the desktop, tablet and phone layouts, paused machines in words, and the width, theme, target, focus and motion matrix.')
 } finally { await browser.close() }

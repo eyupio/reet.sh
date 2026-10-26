@@ -375,6 +375,7 @@ func (s *server) routes() http.Handler {
 	s.registerNotificationRoutes(mux)
 	s.registerHealthRoutes(mux)
 	s.registerTerminalRoutes(mux)
+	s.registerProjectRoutes(mux)
 	mux.HandleFunc("GET /quick", s.requireWriter(s.quick))
 	return mux
 }

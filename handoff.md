@@ -2532,3 +2532,50 @@ spike.
 - The landscape review of comparable open projects stays a separate workstream: its comparison is
   kept privately, and accepted items are recorded here in neutral wording without naming any
   product.
+
+## Phone terminal — keyboard, size and repaint (26 October 2026)
+
+**Problem.** Agent sessions were unusable on a phone: two rows with the keyboard open, about
+41 columns so the agent's layout wrapped, chrome taking most of the screen, a blank band above the
+keyboard, and a blank terminal on returning to the tab.
+
+**What changed (web only; no Go, protocol or tmux change).**
+- `web/src/lib/terminal/sizing.ts` (new, unit-tested in `web/tests/terminal-sizing.test.mjs`):
+  phone font default, the 20×8 size floor, a resize sender (150 ms debounce, never resends a size
+  the host has, a one-row repaint nudge), the usable viewport height and keyboard detection.
+- `TerminalPane.svelte`: phones default to 11 px when no font is stored; one-line pane header and
+  rows without vertical padding (touch controls keep 40 px); overflow fades on the toolbar and key
+  row; the key row is focusable; the Alt+Shift+M advice is hidden on touch screens; the size sent
+  is floored at 20×8 with the bottom rows kept in view; a reattach or a return to the page sends one
+  repaint nudge (height − 1 row, then the real size 300 ms later, using the existing resize
+  message); the footer hides while the keyboard is open; a maximised pane follows the usable
+  height and offset.
+- `TerminalWorkspace.svelte`: the keyboard focus layout. On a narrow touch screen, with the focus
+  in the terminal and the height at least 25% below the tallest seen, the site header and the
+  workspace toolbar are hidden (`html[data-terminal-keyboard]`); Show sessions stays in the
+  terminal toolbar.
+- `web/index.html`: `interactive-widget=resizes-content`. When the page itself shrinks for the
+  keyboard by 15% or more, `innerHeight` is used instead of a lower `visualViewport.height`.
+- `connection.ts`: `resize()` reports whether the frame was sent, so an undelivered size is retried.
+- Fixture `web/tests/terminal-phone.e2e.mjs` (added to `terminal-browser.yml`); docs in
+  `docs/terminal-workspace.md` (Phones) and `docs/ui-verification.md`.
+- The extra-key row is now reachable by keyboard, which resolves the earlier
+  `scrollable-region-focusable` note on `.mobile-keys`.
+
+**Needs a real-phone check.** The blank band is explained by a hypothesis that the emulation can't
+prove: an Android browser's visual viewport still subtracting a bottom toolbar it hides while the
+keyboard is open. On the owner's phone, open a terminal, tap into it so the keyboard opens, then run
+this in the browser's remote console (or a bookmarklet) and record the numbers with the keyboard
+closed and open, normal and maximised:
+
+```js
+JSON.stringify({vv: visualViewport.height, vvTop: visualViewport.offsetTop, inner: innerHeight, screen: screen.height, dpr: devicePixelRatio, keyboardLayout: document.documentElement.hasAttribute('data-terminal-keyboard')})
+```
+
+- Expected with `resizes-content` honoured: `inner` drops with the keyboard and the pane ends at the
+  keyboard. If `inner` does not drop (meta ignored) and `vv` is about 90 px short, the band can
+  remain; the next step would be a per-browser correction, which needs these numbers first.
+- Also check: rows with the keyboard open (expect at least 15 maximised at 390 px), that the agent's
+  screen repaints after switching apps and back, and that a long-idle tab that reloads shows the
+  agent rather than a blank screen.
+- Landscape phones are wider than 650 px and keep the tablet layout; not addressed here.

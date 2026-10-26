@@ -14,7 +14,8 @@ Creating/running/end-requested sessions count towards host (8) and account (32)
 limits. Detach and switching sessions leave the shell running.
 
 The terminal adds plain-text search, explicit selection copy and paste, font size
-(10–22, the only persisted terminal preference), maximise/restore, and mobile
+(10–22, the only persisted terminal preference; with nothing stored, 14 px, or 11 px
+on phones), maximise/restore, and mobile
 Esc/Tab/arrows/Enter/Ctrl+C plus one-shot Ctrl/Alt keys. Normal shell shortcuts
 remain available; terminal search uses Ctrl/Command+Shift+F. Multiline, control
 character and large pastes require an escaped preview confirmation. A connection

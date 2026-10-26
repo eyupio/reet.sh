@@ -4,14 +4,15 @@
  import { getRun, retryMember, TerminalError, type TerminalMachine, type TerminalSession } from './terminal/api'
  import { toolName } from './agentLaunch'
  import WorktreeDialog from './WorktreeDialog.svelte'
- import { STARTED_MEANS, memberLine, projectRefusalText, removeOffer, runPending, runSummary, type ProjectRun, type RunMember } from './projects'
+ import { STARTED_MEANS, hostLabel, memberLine, projectRefusalText, removeOffer, runPending, runSummary, type ProjectRun, type RunMember } from './projects'
 
  // One run: each repository's state, read again every 2 seconds while any is still waiting to start (and only while the
  // tab is visible). Open goes to the existing terminal session; Retry tries a failed repository again; Remove worktree
  // looks at the worktree first. Closing the page does not stop a run: the server carries on without it.
  let { run, machines, sessions, sessionsFailed = false, onchange, onsignedout }: {
   run: ProjectRun
-  machines: TerminalMachine[]
+  /** Undefined until they are read: a machine is then named by its id. */
+  machines: TerminalMachine[] | undefined
   /** The account's sessions, or undefined while they are not known: Remove worktree is then never offered. */
   sessions: TerminalSession[] | undefined
   /** The last sessions read failed. */
@@ -36,7 +37,7 @@
  // A newer copy from the page (after a start or a reload) replaces this one.
  $effect(() => { const next = run; untrack(() => { if (next !== current && next.id === current.id) { current = next; schedule() } }) })
 
- const hostOf = (agentId: string) => machines.find(m => m.agentId === agentId)?.host ?? 'A machine no longer on this account'
+ const hostOf = (agentId: string) => hostLabel(agentId, machines)
  const started = $derived(current.members.filter(m => m.state === 'started' && m.sessionId))
  const pending = $derived(runPending(current))
  const openURL = (m: RunMember) => `/terminals?agent=${encodeURIComponent(m.host)}&session=${encodeURIComponent(m.sessionId)}`

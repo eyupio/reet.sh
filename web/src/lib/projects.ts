@@ -281,3 +281,12 @@ export function projectInput(editing: Pick<Project, 'sharedPrompt'> | null, form
   if (!editing || (editing.sharedPrompt !== undefined && editing.sharedPrompt !== form.sharedPrompt)) input.sharedPrompt = form.sharedPrompt
   return input
 }
+
+/**
+ * A machine's name for the words: its host once the machines have been read, its id until then (the names are only a
+ * label, so a slow or failed machines read never holds a page back), and a plain phrase for one no longer enrolled.
+ */
+export function hostLabel(agentId: string, machines: Pick<TerminalMachine, 'agentId' | 'host'>[] | undefined): string {
+  if (!machines) return agentId
+  return machines.find(m => m.agentId === agentId)?.host ?? 'A machine no longer on this account'
+}

@@ -8,7 +8,7 @@
  import StartRunDialog from './StartRunDialog.svelte'
  import RunView from './RunView.svelte'
  import DeleteProjectDialog from './DeleteProjectDialog.svelte'
- import { projectRefusalText, resolvedModel, runStateLabel, type Project, type ProjectInput, type ProjectRun } from './projects'
+ import { hostLabel, projectRefusalText, resolvedModel, runStateLabel, type Project, type ProjectInput, type ProjectRun } from './projects'
 
  // One Project: its defaults and repositories, Start all, and its newest 20 runs. Writers in accounts mode only; the page
  // that includes this decides that. Only the Project id is in the address; nothing is kept in browser storage.
@@ -16,7 +16,8 @@
 
  let project = $state<Project | undefined>()
  let runs = $state<ProjectRun[]>([])
- let machines = $state<TerminalMachine[]>([])
+ // Undefined until a machines read answers: until then a machine is named by its id, and nothing is planned or edited.
+ let machines = $state<TerminalMachine[] | undefined>()
  // The account's sessions: undefined until the first read succeeds, and again after a read fails. Unknown is never "ended".
  let sessions = $state<TerminalSession[] | undefined>(), sessionsFailed = $state(false)
  let loadError = $state(''), notFound = $state(false), message = $state(''), runsError = $state('')
@@ -33,7 +34,7 @@
  const life = new AbortController()
 
  const when = (ms: number) => new Date(ms).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
- const hostOf = (agentId: string) => machines.find(m => m.agentId === agentId)?.host ?? 'A machine no longer on this account'
+ const hostOf = (agentId: string) => hostLabel(agentId, machines)
  function handOff(e: unknown): boolean {
   if (e instanceof TerminalError && e.status === 401) { life.abort(); onsignedout(new UnauthorizedError()); return true }
   return false
@@ -87,9 +88,21 @@
 
  function readFolders() {
   folders = undefined
-  void getSyncState().then(s => { if (!life.signal.aborted) folders = s.machines ?? [] }).catch(() => {})
+  void getSyncState(AbortSignal.any([life.signal, AbortSignal.timeout(15000)])).then(s => { if (!life.signal.aborted) folders = s.machines ?? [] }).catch(() => {})
  }
- function openEdit(opener: HTMLElement) { message = ''; editing = { opener }; readFolders() }
+ async function openEdit(opener: HTMLElement) {
+  if (checking) return
+  message = ''
+  // Change offers the account's machines, so it opens only once they are known.
+  if (!machines) {
+   checking = true
+   await refreshMachines(true)
+   checking = false
+   if (life.signal.aborted) return
+   if (!machines) { message = "Couldn't read your machines just now, so the Project can't be changed from here. Try again in a moment."; return }
+  }
+  editing = { opener }; readFolders()
+ }
  async function openStart(opener: HTMLElement) {
   if (checking) return
   checking = true
@@ -158,7 +171,7 @@
  <PageHeader eyebrow="Project" title={project.name} lede={project.members.length === 0 ? 'No repositories yet. Change the Project to add the folders an agent should work in.' : `${project.members.length === 1 ? 'One repository' : `${project.members.length} repositories`}, each started with ${toolName(project.defaultTool)} unless it says otherwise.`}>
   {#snippet actions()}
    <a class="btn quiet" href="/projects">All Projects</a>
-   <button type="button" class="btn" onclick={(e) => openEdit(e.currentTarget)}>Change</button>
+   <button type="button" class="btn" onclick={(e) => openEdit(e.currentTarget)} disabled={checking}>Change</button>
    <button type="button" class="btn danger" onclick={(e) => (deleting = { opener: e.currentTarget })}>Delete</button>
    <button type="button" class="btn primary" data-start-all onclick={(e) => openStart(e.currentTarget)} disabled={!project?.members.length || checking} aria-busy={checking}>Start all</button>
   {/snippet}
@@ -211,10 +224,10 @@
  </section>
 
  {#if editing}
-  <ProjectDialog {project} {machines} snapshot={folders} opener={editing.opener} onsaved={saved} onreload={() => void reload()} {onsignedout} onclose={() => (editing = null)} />
+  <ProjectDialog {project} machines={machines ?? []} snapshot={folders} opener={editing.opener} onsaved={saved} onreload={() => void reload()} {onsignedout} onclose={() => (editing = null)} />
  {/if}
  {#if starting}
-  <StartRunDialog {project} {machines} sessions={sessions ?? []} opener={starting.opener} onstarted={runStarted} onchanged={() => void sheetChanged()} onaddmachine={() => location.assign('/machines#add-machine')} {onsignedout} onclose={() => (starting = null)} />
+  <StartRunDialog {project} machines={machines ?? []} sessions={sessions ?? []} opener={starting.opener} onstarted={runStarted} onchanged={() => void sheetChanged()} onaddmachine={() => location.assign('/machines#add-machine')} {onsignedout} onclose={() => (starting = null)} />
  {/if}
  {#if deleting}
   <DeleteProjectDialog {project} opener={deleting.opener} ondeleted={(r) => (deleted = r.message || 'Its runs are kept.')} onreload={() => void reload()} {onsignedout} onclose={() => (deleting = null)} />

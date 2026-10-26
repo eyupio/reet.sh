@@ -401,3 +401,11 @@ test('an update sends the shared prompt only when it was read and has changed; a
   assert.equal('sharedPrompt' in projectInput({}, { ...form, sharedPrompt: '' }), false)
   assert.equal('sharedPrompt' in projectInput({ sharedPrompt: undefined }, { ...form, sharedPrompt: 'typed' }), false)
 })
+
+test('a machine is named by its host once the machines are read, by its id until then, and plainly when it has left', () => {
+  const { hostLabel } = p
+  const machines = [machine('a1')]
+  assert.equal(hostLabel('a1', machines), 'a1-host')
+  assert.equal(hostLabel('a1', undefined), 'a1')
+  assert.equal(hostLabel('gone', machines), 'A machine no longer on this account')
+})

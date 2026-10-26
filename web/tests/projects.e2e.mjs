@@ -30,7 +30,7 @@ const PROMPT='Read the README and tidy the tests'
 const LONG='x'.repeat(110)
 let authMode='accounts',viewer=false,signedOut=false,seq=0,eventSeq=0
 // How the sessions read answers: 'ok', 'fail', or a held promise.
-let sessionsMode='ok'
+let sessionsMode='ok',machinesMode='ok'
 let projects=[],runs=[],sessions=[],events=[]
 const statusAnswers=[]
 // One-off answers for a request, checked first: {match(method,path), answer(route,body)}; 'pass' falls through.
@@ -60,7 +60,12 @@ await page.route('**/api/**',async route=>{
  if(path==='/api/version')return json({version:'v1.2.3',commit:'fixture'})
  if(path==='/api/events')return json({events})
  if(path==='/api/v2/terminal/status')return json({available:true,configured:true,reason:''})
- if(path==='/api/v2/terminal/machines')return json({machines:tmachines})
+ if(path==='/api/v2/terminal/machines'){
+  // A held read answers when released; the page may have given up on it by then.
+  const mode=machinesMode
+  if(mode&&mode.promise){await mode.promise;return json({machines:tmachines}).catch(()=>{})}
+  return json({machines:tmachines})
+ }
  if(path==='/api/v2/terminal/sessions'&&method==='GET'){
   const mode=sessionsMode
   // A held read answers when released; the page may have given up on it by then.
@@ -501,6 +506,28 @@ try{
  // ── A Project without worktrees warns that sessions share the checkout; a new run gets a new request id; 401 hands over to sign-in. ──
  const plain=project({name:'Plain',useWorktrees:false,members:[member(A,'/home/dev/work/site',0)]})
  projects.push(plain)
+ // Machine reads that never answer hold nothing back: the list and the Project page show at once, naming machines by
+ // their ids, and New project and Change say they can't offer the machines until a read answers.
+ const heldMachines=deferred()
+ machinesMode=heldMachines
+ await page.goto(`${base}/projects`)
+ await expect(page.getByRole('link',{name:'Plain',exact:true})).toBeVisible({timeout:5000})
+ const plainCard=()=>page.locator('ul.projects li').filter({has:page.getByRole('link',{name:'Plain',exact:true})})
+ await expect(plainCard().getByText(`1 repository on ${A}`,{exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'New project',exact:true}).click()
+ await expect(page.getByText("Couldn't read your machines just now, so a new Project can't offer them. Try again in a moment.")).toBeVisible({timeout:35000})
+ await expect(page.getByRole('dialog',{name:'New project'})).toHaveCount(0)
+ await page.goto(`${base}/projects/${plain.id}`)
+ await expect(page.getByRole('heading',{level:1,name:'Plain'})).toBeVisible({timeout:5000})
+ await expect(page.locator('.repos').getByText(A,{exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'Change',exact:true}).click()
+ await expect(page.getByText("Couldn't read your machines just now, so the Project can't be changed from here. Try again in a moment.")).toBeVisible({timeout:35000})
+ machinesMode='ok';heldMachines.resolve()
+ await page.goto(`${base}/projects`)
+ await expect(plainCard().getByText('1 repository on dev-laptop',{exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'New project',exact:true}).click()
+ await expect(page.getByRole('dialog',{name:'New project'})).toBeVisible()
+ await page.keyboard.press('Escape')
  // Sessions reads that never answer are given up after 15 seconds each: Start all says so and opens nothing, then works
  // once the reads answer again. Nothing is planned from an unknown list.
  const stalled=deferred()
@@ -563,5 +590,5 @@ try{
 
  expect(errors).toEqual([])
  expect(unmocked.filter(u=>/project|worktree|terminal/.test(u))).toEqual([])
- console.log(`Projects UI passed: create checked before sending with one save per press while Escape and Close wait, the shared prompt kept across two changes (never sent unchanged), If-Match on every change and delete with 409 project_changed and Reload for both, Start all listing each reason a repository won't start (not enrolled with Add a machine, not ready, no launch, agent not installed, no worktrees, 8 per machine and 32 per account counting what it plans), a start from a sheet made before another tab saved refused (If-Match) with nothing started and the Project read again, a lost start resent with the same request id, positions and version and a new id for a new run, sessions reads that never answer given up after 15 seconds, a run through pending, started, failed, Retry (attempt 2) and removed with polling stopping at rest, Remove worktree never offered while a session runs or the sessions are unknown, the status read first, blocked by changes and commits on no branch, Check again, the confirmation stating the counts the remove repeats and a session that runs again stopping it, delete keeping runs, the no-worktree warning, 401 handed to sign-in, the Activity lines, nothing in storage or addresses, no Projects for viewers, open or token sign-in and no Projects calls from them, and no sideways scroll at 320px in light and dark. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
+ console.log(`Projects UI passed: create checked before sending with one save per press while Escape and Close wait, the shared prompt kept across two changes (never sent unchanged), If-Match on every change and delete with 409 project_changed and Reload for both, Start all listing each reason a repository won't start (not enrolled with Add a machine, not ready, no launch, agent not installed, no worktrees, 8 per machine and 32 per account counting what it plans), a start from a sheet made before another tab saved refused (If-Match) with nothing started and the Project read again, a lost start resent with the same request id, positions and version and a new id for a new run, sessions reads that never answer given up after 15 seconds, machine reads that never answer holding neither the list nor the Project page (machines named by id until read), a run through pending, started, failed, Retry (attempt 2) and removed with polling stopping at rest, Remove worktree never offered while a session runs or the sessions are unknown, the status read first, blocked by changes and commits on no branch, Check again, the confirmation stating the counts the remove repeats and a session that runs again stopping it, delete keeping runs, the no-worktree warning, 401 handed to sign-in, the Activity lines, nothing in storage or addresses, no Projects for viewers, open or token sign-in and no Projects calls from them, and no sideways scroll at 320px in light and dark. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
 }finally{await browser.close()}

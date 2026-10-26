@@ -5,23 +5,24 @@
  import { toolName } from './agentLaunch'
  import PageHeader from './PageHeader.svelte'
  import ProjectDialog from './ProjectDialog.svelte'
- import { MAX_PROJECTS, projectRefusalText, runStateLabel, type Project } from './projects'
+ import { MAX_PROJECTS, hostLabel, projectRefusalText, runStateLabel, type Project } from './projects'
 
  // The account's Projects: each with its repositories and its last run, and New project. Writers in accounts mode only;
  // the page that includes this decides that. Nothing here is kept in browser storage.
  let { onsignedout }: { onsignedout: (e: unknown) => void } = $props()
 
  let projects = $state<Project[] | undefined>()
- let machines = $state<TerminalMachine[]>([])
- let loadError = $state(''), message = $state('')
+ // The machines name the hosts and feed New project. Undefined until a read answers: the list never waits for them.
+ let machines = $state<TerminalMachine[] | undefined>()
+ let checking = $state(false)
+ let loadError = $state(''), message = $state(''), messageBad = $state(false)
  let creating = $state<{ opener: HTMLElement | null } | null>(null)
  let folders = $state<Machine[] | undefined>()
  const life = new AbortController()
 
  const when = (ms: number) => new Date(ms).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
- const hostOf = (agentId: string) => machines.find(m => m.agentId === agentId)?.host
  function hosts(p: Project): string {
-  const names = [...new Set(p.members.map(m => hostOf(m.host) ?? 'a machine no longer on this account'))]
+  const names = [...new Set(p.members.map(m => { const name = hostLabel(m.host, machines); return machines && !machines.some(x => x.agentId === m.host) ? 'a machine no longer on this account' : name }))]
   return names.length === 0 ? '' : names.length <= 3 ? names.join(', ') : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`
  }
  function failedWith(e: unknown): boolean {
@@ -31,25 +32,45 @@
 
  async function load() {
   loadError = ''
+  // The machine names are only a label: they are read beside the list, never in front of it.
+  void readMachines()
   try {
-   const [list, known] = await Promise.all([listProjects(life.signal), terminalMachines(life.signal).catch(() => [] as TerminalMachine[])])
+   const list = await listProjects(life.signal)
    if (life.signal.aborted) return
-   projects = list; machines = known
+   projects = list
   } catch (e) {
    if (life.signal.aborted || failedWith(e)) return
    loadError = e instanceof TerminalError ? projectRefusalText(e.status, e.code, e.message) : "Couldn't load your Projects just now. Reload the page to try again."
   }
  }
 
- function openNew(opener: HTMLElement) {
-  message = ''
+ // Every read here gives up after 15 seconds, so one that never answers holds nothing back.
+ const bounded = () => AbortSignal.any([life.signal, AbortSignal.timeout(15000)])
+ let reading: Promise<boolean> | null = null
+ /** True when the machines answered. A failed read keeps what was last known. */
+ function readMachines(): Promise<boolean> {
+  reading ??= terminalMachines(bounded()).then(m => { if (!life.signal.aborted) machines = m; return true }, e => { if (!life.signal.aborted) failedWith(e); return false }).finally(() => { reading = null })
+  return reading
+ }
+ async function openNew(opener: HTMLElement) {
+  if (checking) return
+  message = ''; messageBad = false
+  // New project offers the account's machines, so it opens only once they are known.
+  if (!machines) {
+   checking = true
+   await readMachines()
+   checking = false
+   if (life.signal.aborted) return
+   if (!machines) { messageBad = true; message = "Couldn't read your machines just now, so a new Project can't offer them. Try again in a moment."; return }
+  }
   creating = { opener }
   folders = undefined
   // The folders the machines reported, for the folder choices. Without them a typed path still works.
-  void getSyncState().then(s => { if (!life.signal.aborted) folders = s.machines ?? [] }).catch(() => {})
+  void getSyncState(bounded()).then(s => { if (!life.signal.aborted) folders = s.machines ?? [] }).catch(() => {})
  }
  async function saved(p: Project) {
   projects = [p, ...(projects ?? []).filter(x => x.id !== p.id)]
+  messageBad = false
   message = `Grand, ${p.name} is saved. Open it to start its repositories.`
   await tick()
  }
@@ -58,10 +79,10 @@
 </script>
 
 <PageHeader eyebrow="Projects" title="Projects." lede="Save a set of repositories once, then start an agent in each with one press. Right handy when the work spans more than one folder.">
- {#snippet actions()}{#if projects}<button type="button" class="btn primary" onclick={(e) => openNew(e.currentTarget)} disabled={projects.length >= MAX_PROJECTS}>New project</button>{/if}{/snippet}
+ {#snippet actions()}{#if projects}<button type="button" class="btn primary" onclick={(e) => openNew(e.currentTarget)} disabled={projects.length >= MAX_PROJECTS || checking} aria-busy={checking}>New project</button>{/if}{/snippet}
 </PageHeader>
 
-<p class="notice good" role="status" aria-live="polite" hidden={!message}>{message}</p>
+<p class="notice" class:good={!messageBad} class:bad={messageBad} role="status" aria-live="polite" hidden={!message}>{message}</p>
 {#if loadError}
  <p class="notice bad" role="alert">{loadError}</p>
 {:else if !projects}
@@ -86,7 +107,7 @@
 {/if}
 
 {#if creating}
- <ProjectDialog machines={machines} snapshot={folders} otherNames={(projects ?? []).map(p => p.name)} opener={creating.opener} onsaved={saved} {onsignedout} onclose={() => (creating = null)} />
+ <ProjectDialog machines={machines ?? []} snapshot={folders} otherNames={(projects ?? []).map(p => p.name)} opener={creating.opener} onsaved={saved} {onsignedout} onclose={() => (creating = null)} />
 {/if}
 
 <style>

@@ -1400,3 +1400,41 @@ func TestProjectVersionGuardsDelete(t *testing.T) {
 		t.Fatal("second delete", err)
 	}
 }
+
+func TestStartRunHonoursTheVersionShown(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	p := mustProject(t, s, uid, baseProject("versioned-start"))
+	edited := p
+	edited.Name = "edited elsewhere"
+	edited.Version = 0
+	if _, err := s.UpdateProjectFor(uid, edited); err != nil {
+		t.Fatal(err)
+	}
+	// The sheet was made from version 1; the Project is now at 2: nothing is created.
+	req := "start-request-version-0001"
+	if _, _, err := s.StartRunAtFor(uid, p.ID, req, 1, []int{0}); !errors.Is(err, ErrProjectStale) {
+		t.Fatal("stale start", err)
+	}
+	if runs, _ := s.RunsFor(uid, p.ID, 20); len(runs) != 0 {
+		t.Fatal("a stale start created a run", runs)
+	}
+	run, created, err := s.StartRunAtFor(uid, p.ID, req, 2, []int{0})
+	if err != nil || !created || run.ProjectName != "edited elsewhere" {
+		t.Fatal("current start", err, created, run.ProjectName)
+	}
+	// Edited again: a replay of the same request still answers with its run.
+	edited.Name = "edited twice"
+	if _, err := s.UpdateProjectFor(uid, edited); err != nil {
+		t.Fatal(err)
+	}
+	again, created, err := s.StartRunAtFor(uid, p.ID, req, 2, []int{0})
+	if err != nil || created || again.ID != run.ID {
+		t.Fatal("replay after an edit", err, created, again.ID)
+	}
+	// Another account's Project with the right version is not found.
+	other := projectUser(t, s, "b")
+	if _, _, err := s.StartRunAtFor(other, p.ID, "start-request-version-0002", 3, []int{0}); !errors.Is(err, ErrProjectNotFound) {
+		t.Fatal("cross-account", err)
+	}
+}

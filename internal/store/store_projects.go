@@ -642,7 +642,7 @@ func resolvedLaunch(p Project, m ProjectMember) (tool, model string) {
 // CreateRunFor snapshots a Project into a new run with every member pending.
 // With positions it snapshots only those members, keeping their positions.
 func (s *Store) CreateRunFor(uid int64, projectID string, positions ...int) (Run, error) {
-	run, _, err := s.startRun(uid, projectID, "", positions)
+	run, _, err := s.startRun(uid, projectID, "", 0, positions)
 	return run, err
 }
 
@@ -653,10 +653,19 @@ func (s *Store) CreateRunFor(uid int64, projectID string, positions ...int) (Run
 // ErrRunInProgress while any member of an earlier run of the Project is still
 // pending, so two runs never race for the same folders.
 func (s *Store) StartRunFor(uid int64, projectID, requestID string, positions []int) (Run, bool, error) {
+	return s.StartRunAtFor(uid, projectID, requestID, 0, positions)
+}
+
+// StartRunAtFor starts a run only while the Project's stored version is still
+// expect (the version the confirmation sheet was made from), in the same
+// transaction that creates the run; otherwise ErrProjectStale and nothing is
+// created. A replay of an existing request id answers with its run whatever
+// the version is now. An expect of 0 has no precondition.
+func (s *Store) StartRunAtFor(uid int64, projectID, requestID string, expect int64, positions []int) (Run, bool, error) {
 	if !terminalproto.ValidID(requestID) {
 		return Run{}, false, invalid("a start needs a request id of 16 to 128 letters, digits, - or _")
 	}
-	return s.startRun(uid, projectID, requestID, positions)
+	return s.startRun(uid, projectID, requestID, expect, positions)
 }
 
 func samePositions(members []RunMember, positions []int) bool {
@@ -675,7 +684,7 @@ func samePositions(members []RunMember, positions []int) bool {
 	return len(want) == len(members)
 }
 
-func (s *Store) startRun(uid int64, projectID, requestID string, positions []int) (Run, bool, error) {
+func (s *Store) startRun(uid int64, projectID, requestID string, expect int64, positions []int) (Run, bool, error) {
 	id, err := projectRandomID()
 	if err != nil {
 		return Run{}, false, err
@@ -697,6 +706,18 @@ func (s *Store) startRun(uid int64, projectID, requestID string, positions []int
 			}
 			if !errors.Is(err, sql.ErrNoRows) {
 				return err
+			}
+			if expect != 0 {
+				var version int64
+				if err := tx.QueryRow(`SELECT version FROM projects WHERE id=? AND user_id=?`, projectID, uid).Scan(&version); err != nil {
+					if errors.Is(err, sql.ErrNoRows) {
+						return ErrProjectNotFound
+					}
+					return err
+				}
+				if version != expect {
+					return ErrProjectStale
+				}
 			}
 			var busy int
 			err = tx.QueryRow(`SELECT 1 FROM project_run_members m JOIN project_runs r ON r.id=m.run_id AND r.user_id=m.user_id

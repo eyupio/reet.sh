@@ -40,7 +40,8 @@ const SCREENS = [
  {name:'support', path:'/support'},
  {name:'support ticket', path:'/support/41'},
  {name:'notifications', path:'/notifications'},
- ...['profile','security','sso','sessions','mcp','tokens','backups','activity'].map(p => ({name:`account ${p}`, path:`/account/${p}`})),
+ ...['profile','security','sso','sessions','mcp','tokens','backups'].map(p => ({name:`account ${p}`, path:`/account/${p}`})),
+ {name:'activity', path:'/activity'}, // /account/activity redirects here with location.replace; measuring the old page mid-reload zoomed it out
  ...['overview','environments','users','team','support','email','notifications','backups','settings','activity'].map(p => ({name:`admin ${p}`, path:`/admin/${p}`})),
 ]
 

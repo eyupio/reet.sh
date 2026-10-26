@@ -1363,3 +1363,40 @@ func TestRunMemberRemovedOnlyFromAStartedWorktree(t *testing.T) {
 		t.Fatal("a removed member moved", err)
 	}
 }
+
+func TestProjectVersionGuardsDelete(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	p := mustProject(t, s, uid, baseProject("guarded-delete"))
+	changed := p
+	changed.Name = "changed"
+	if _, err := s.UpdateProjectFor(uid, changed); err != nil {
+		t.Fatal(err)
+	}
+	// A delete that names the version read before the change is refused and deletes nothing.
+	if err := s.DeleteProjectAtFor(uid, p.ID, 1); !errors.Is(err, ErrProjectStale) {
+		t.Fatal("stale delete", err)
+	}
+	if got, err := s.ProjectFor(uid, p.ID); err != nil || got.Name != "changed" || len(got.Members) != 3 {
+		t.Fatal("stale delete removed the Project", got, err)
+	}
+	// Another account with the right version is still not found.
+	other := projectUser(t, s, "b")
+	if err := s.DeleteProjectAtFor(other, p.ID, 2); !errors.Is(err, ErrProjectNotFound) {
+		t.Fatal("cross-account", err)
+	}
+	if err := s.DeleteProjectAtFor(uid, p.ID, 2); err != nil {
+		t.Fatal("current version", err)
+	}
+	if _, err := s.ProjectFor(uid, p.ID); !errors.Is(err, ErrProjectNotFound) {
+		t.Fatal("not deleted", err)
+	}
+	// Without a precondition (0) the delete goes ahead, as DeleteProjectFor does.
+	q := mustProject(t, s, uid, baseProject("free-delete"))
+	if err := s.DeleteProjectAtFor(uid, q.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteProjectAtFor(uid, q.ID, 0); !errors.Is(err, ErrProjectNotFound) {
+		t.Fatal("second delete", err)
+	}
+}

@@ -488,16 +488,31 @@ func (s *Store) UpdateProjectFor(uid int64, p Project) (Project, error) {
 
 // DeleteProjectFor removes the Project and its members. Its runs stay, with
 // their name snapshot, and no longer name a Project.
-func (s *Store) DeleteProjectFor(uid int64, id string) error {
+func (s *Store) DeleteProjectFor(uid int64, id string) error { return s.DeleteProjectAtFor(uid, id, 0) }
+
+// DeleteProjectAtFor deletes the Project only while its stored version is
+// still expect, as an update does: a Project someone changed since it was
+// read is refused with ErrProjectStale. An expect of 0 has no precondition.
+func (s *Store) DeleteProjectAtFor(uid int64, id string, expect int64) error {
 	return s.withTx(func(tx *sql.Tx) error {
-		res, err := tx.Exec(`DELETE FROM projects WHERE id=? AND user_id=?`, id, uid)
+		var version int64
+		if err := tx.QueryRow(`SELECT version FROM projects WHERE id=? AND user_id=?`, id, uid).Scan(&version); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrProjectNotFound
+			}
+			return err
+		}
+		if expect != 0 && expect != version {
+			return ErrProjectStale
+		}
+		res, err := tx.Exec(`DELETE FROM projects WHERE id=? AND user_id=? AND version=?`, id, uid, version)
 		if err != nil {
 			return err
 		}
 		if n, err := res.RowsAffected(); err != nil {
 			return err
 		} else if n == 0 {
-			return ErrProjectNotFound
+			return ErrProjectStale
 		}
 		return nil
 	})

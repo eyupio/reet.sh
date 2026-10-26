@@ -59,7 +59,7 @@ func NormalizeHostedPrefix(raw string) (string, error) {
 
 func ReservedUsername(name string) bool {
 	switch name {
-	case "api", "admin", "account", "hosting", "assets", "lists", "l", "shared", "spaces", "community", "join", "quick", "healthz", "skills", "www", "support":
+	case "api", "admin", "account", "hosting", "assets", "lists", "l", "shared", "spaces", "community", "join", "quick", "healthz", "skills", "www", "support", "projects":
 		return true
 	}
 	return false

@@ -854,3 +854,59 @@ func TestProjectDeleteLooksAtEveryRunForWorktrees(t *testing.T) {
 		t.Fatal("old field", raw)
 	}
 }
+
+func TestProjectDeleteHonoursIfMatch(t *testing.T) {
+	f := projectFixture(t)
+	id := f.create(t, f.body())["id"].(string)
+	del := func(version string) (int, map[string]any, string) {
+		r := httptest.NewRequest("DELETE", "/api/v2/projects/"+id, nil)
+		r.Header.Set("Origin", "https://reet.example")
+		if version != "" {
+			r.Header.Set("If-Match", version)
+		}
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: f.cookie})
+		w := httptest.NewRecorder()
+		f.srv.ServeHTTP(w, r)
+		out := map[string]any{}
+		_ = json.Unmarshal(w.Body.Bytes(), &out)
+		return w.Code, out, w.Body.String()
+	}
+	if code, _, raw := f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, map[string]any{"name": "Changed"}); code != 200 {
+		t.Fatal("edit", code, raw)
+	}
+	// Read at version 1, changed since to 2: the delete is refused and nothing is deleted or audited.
+	code, out, raw := del(`"1"`)
+	if code != 409 || out["code"] != "project_changed" || out["error"] != "Someone changed this Project. Reload it and try again." {
+		t.Fatal("stale delete", code, raw)
+	}
+	if _, err := f.st.ProjectFor(f.uid, id); err != nil {
+		t.Fatal("stale delete removed the Project", err)
+	}
+	if len(projectEvents(t, f.st, f.uid, "project-delete")) != 0 {
+		t.Fatal("a refused delete was audited")
+	}
+	for _, bad := range []string{"abc", "0", "-1", `W/"2"`, "1.5"} {
+		if code, out, raw := del(bad); code != 400 || out["code"] != "invalid_version" {
+			t.Fatal("bad If-Match", bad, code, raw)
+		}
+	}
+	// Another account's id with the right version is not found.
+	owner := f.cookie
+	other, _ := f.st.CreateUser("projects-delete@example.test", "Other", "member", "hash")
+	f.cookie = terminalLogin(t, f.st, other.ID)
+	if code, out, _ := del(`"2"`); code != 404 || out["code"] != "not_found" {
+		t.Fatal("cross-account", code)
+	}
+	f.cookie = owner
+	if code, out, raw := del(`"2"`); code != 200 || out["ok"] != true {
+		t.Fatal("current delete", code, raw)
+	}
+	if len(projectEvents(t, f.st, f.uid, "project-delete")) != 1 {
+		t.Fatal("delete not audited once")
+	}
+	// Without If-Match the delete goes ahead, as an update does.
+	id = f.create(t, f.body())["id"].(string)
+	if code, _, raw := del(""); code != 200 {
+		t.Fatal("no header", code, raw)
+	}
+}

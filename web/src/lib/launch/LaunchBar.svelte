@@ -19,8 +19,10 @@
   // is one press; Start sends one create through the idempotent create path and opens the new session. While the request is
   // out the bar is locked; a reply that never came keeps the same request for Retry. On a phone the sentence folds into one
   // summary line with Change, and the tab bar steps aside while the prompt has the keyboard up. The prompt lives only here.
-  let { projects, machines, sessions, profile, ready, initialProject = '', selection = [], onproject, onstarted, onleavefailed, onsignedout, onaddproject, onrun, onrundone }: {
+  let { projects, projectsFailed = false, machines, sessions, profile, ready, initialProject = '', selection = [], onproject, onstarted, onleavefailed, onsignedout, onaddproject, onrun, onrundone }: {
     projects: FolderProject[] | undefined
+    /** The projects could not be read (and none were read before): the bar says so instead of waiting silently. */
+    projectsFailed?: boolean
     /** The terminal machines, with readiness and launch capabilities; undefined until read. */
     machines: TerminalMachine[] | undefined
     sessions: TerminalSession[] | undefined
@@ -84,18 +86,22 @@
       choice = withProject(choice!, p, profile)
     })
   })
-  // A project removed while chosen: the bar falls back as a fresh open would, keeping the prompt.
+  // A project removed while chosen: the bar falls back as a fresh open would, keeping the prompt. Not while a request is out
+  // or kept: the sentence then names what that request starts (from the projects as they were), until it is answered or
+  // discarded.
   $effect(() => {
     const list = projects
-    if (!choice || !list) return
+    if (!choice || !list || locked) return
     untrack(() => {
       if (choice!.projectIds.every(pid => list.some(p => p.id === pid))) return
       choice = { ...initialChoice(choice!, list, profile), prompt: choice!.prompt }
     })
   })
 
+  // Only once the bar has a choice: before that the page keeps marking the project its address named.
   $effect(() => {
-    const ids = choice?.projectIds ?? []
+    if (!choice) return
+    const ids = choice.projectIds
     const named = ids.length === 1 ? ids[0] : ''
     untrack(() => onproject?.(named))
   })
@@ -130,25 +136,33 @@
 
   const sameProjects = (a: LaunchChoice, b: LaunchChoice) => a.projectIds.join('\u0000') === b.projectIds.join('\u0000') && a.homeMachine === b.homeMachine
 
-  const picked = $derived(choice ? choice.projectIds.map(pid => projects?.find(p => p.id === pid)).filter((p): p is FolderProject => !!p) : [])
+  // The projects as they were when the current request was made, while it is out or kept.
+  let keptProjects = $state<FolderProject[] | null>(null)
+  const shownProjects = $derived(operation && keptProjects ? keptProjects : projects)
+  const picked = $derived(choice ? choice.projectIds.map(pid => shownProjects?.find(p => p.id === pid)).filter((p): p is FolderProject => !!p) : [])
   const one = $derived(picked.length === 1 ? picked[0] : null)
   const targetId = $derived(one ? one.host : choice?.homeMachine ?? '')
   const target = $derived(machines?.find(m => m.agentId === targetId))
   const hostOf = (agentId: string) => machines?.find(m => m.agentId === agentId)?.host ?? projects?.find(p => p.host === agentId)?.machine ?? agentId
 
   // The checkout's branches, read once per folder from the machine (only for a repository on a machine that lists them).
-  const branchReads = new SvelteMap<string, BranchesResult | 'failed'>()
+  // 'loading' while the read is out; 'failed' after a read that failed, read again when the Branch list is next opened.
+  const branchReads = new SvelteMap<string, BranchesResult | 'loading' | 'failed'>()
   const branchKey = $derived(one?.isRepo && target?.capabilities?.branches ? `${one.host}\u0000${one.dir}` : '')
+  function readBranches(key: string, p: FolderProject) {
+    branchReads.set(key, 'loading')
+    listBranches(p.host, p.dir, undefined, life.signal).then(r => branchReads.set(key, r), e => { branchReads.set(key, 'failed'); branchError = refusalSentence(e) })
+  }
   $effect(() => {
     const key = branchKey, p = one
     if (!key || !p || untrack(() => branchReads.has(key))) return
-    branchReads.set(key, 'failed')
-    listBranches(p.host, p.dir, undefined, life.signal).then(r => branchReads.set(key, r), () => {})
+    readBranches(key, p)
   })
-  const branches = $derived(branchKey ? branchReads.get(branchKey) : undefined)
+  const branchesRead = $derived(branchKey ? branchReads.get(branchKey) : undefined)
+  const branches = $derived(branchesRead === 'loading' ? undefined : branchesRead)
   const current = $derived(branches && branches !== 'failed' ? branches.current : '')
 
-  const parts = $derived(choice && projects ? sentence(choice, projects, machines ?? [], current) : [])
+  const parts = $derived(choice && shownProjects ? sentence(choice, shownProjects, machines ?? [], current) : [])
   const words = $derived(parts.filter(p => p.slot !== 'checkout'))
   const checkout = $derived(parts.find(p => p.slot === 'checkout')?.text ?? '')
   // The phone's summary line, with the project in bold as the mock-up draws it.
@@ -165,7 +179,8 @@
   // Why a rail card or New session here changed nothing (the bar was busy or not open yet); it goes once the bar is free.
   let hint = $state('')
   $effect(() => { if (!locked && choice) untrack(() => { hint = '' }) })
-  const shownStatus = $derived([message || (!locked ? reason ?? '' : ''), hint].filter(Boolean).join(' '))
+  const UNREAD = "Couldn't read your projects just now. Start waits until they have been read; Home tries again every 15 seconds."
+  const shownStatus = $derived([message || (!choice && projectsFailed ? UNREAD : '') || (!locked ? reason ?? '' : ''), hint].filter(Boolean).join(' '))
   // The session's title, shown before sending (the prompt's first line).
   const titled = $derived(choice?.prompt ? defaultTitle(choice.prompt) : '')
   const starter = $derived(!!choice && choice.prompt === '' && !!one?.hasStarterPrompt && !locked)
@@ -241,6 +256,7 @@
   function openSlot(slot: string, opener: HTMLElement) {
     if (locked) return
     branchFilter = null
+    if (slot === 'branch' && branchKey && one && branchReads.get(branchKey) === 'failed') readBranches(branchKey, one)
     open = open?.slot === slot ? null : { slot, opener }
   }
   // The branch list is filtered by the machine (it lists at most 200).
@@ -253,7 +269,7 @@
       e => { if (branchFilter?.text === text) { branchFilter = { text, result: 'failed' }; branchError = refusalSentence(e) } })
   }
   let branchError = $state('')
-  const pickerStatus = $derived(open?.slot !== 'branch' ? '' : branchFilter && branchFilter.result === null ? 'Reading branches…'
+  const pickerStatus = $derived(open?.slot !== 'branch' ? '' : (branchFilter ? branchFilter.result === null : branchesRead === 'loading') ? 'Reading branches…'
     : (branchFilter?.result ?? branches) === 'failed' ? branchError || "Couldn't read the branches just now." : !target?.capabilities?.branches ? 'Update reet on that machine to list its branches.' : '')
   // The machine follows its project (R18); with several projects the projects come from the rail and each keeps its own base.
   const slotButton = (part: SentencePart) => part.slot !== '' && part.slot !== 'checkout' && (part.slot !== 'machine' || !!choice?.homeMachine && picked.length === 0)
@@ -322,6 +338,7 @@
     if (busy || leaving || !choice || !projects || life.signal.aborted) return
     if (!operation) {
       if (reason !== null) return
+      keptProjects = [...projects]
       if (picked.length > 1) operation = { kind: 'run', body: toSelectionRun(choice, crypto.randomUUID()) }
       else {
         const req = toCreate(choice, one, crypto.randomUUID(), crypto.randomUUID().replaceAll('-', ''), profile)
@@ -426,7 +443,9 @@
     if (n > startedSeen) onrun?.()
     startedSeen = n
   }
-  // The run is read again every 1.5 seconds while a member waits to start; a read that fails is tried again.
+  const RUN_GONE = "reet no longer has this start, so it can't say more. Your sessions list shows what started."
+  // The run is read again every 1.5 seconds while a member waits to start; a read that fails is tried again, except when the
+  // server no longer has the run.
   function follow() {
     clearTimeout(poll)
     if (!run || !runPending(run)) return
@@ -440,6 +459,8 @@
       } catch (e) {
         if (life.signal.aborted || run?.id !== id) return
         if (e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+        // The server no longer has this start: reading it again cannot help.
+        if (e instanceof TerminalError && e.status === 404) { runNote = RUN_GONE; return }
         runNote = "Couldn't read the start just now. Trying again."
       }
       follow()
@@ -456,8 +477,9 @@
       retrying.delete(position)
     } catch (e) {
       if (life.signal.aborted || run?.id !== id) return
-      // Another retry (or the controller) already moved it on: read the run as it is.
-      if (e instanceof TerminalError && e.status === 409) { retrying.delete(position); try { run = await getSelectionRun(id, life.signal) } catch { /* the next read says */ } }
+      // Another retry (or the controller) already moved it on (409 not_failed): read the run as it is. Any other refusal is
+      // said beside the member.
+      if (e instanceof TerminalError && e.status === 409 && e.code === 'not_failed') { retrying.delete(position); try { run = await getSelectionRun(id, life.signal) } catch { /* the next read says */ } }
       else retrying.set(position, refusalSentence(e))
     }
     follow()
@@ -477,6 +499,7 @@
       } catch (e) {
         if (life.signal.aborted || lastRun?.id !== id) return
         if (e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+        if (e instanceof TerminalError && e.status === 404) { lastRun = null; return }
       }
       followLast()
     }, 3000)
@@ -571,14 +594,15 @@
   })
 </script>
 
-{#snippet approvals(name: string)}
+<!-- YOLO's reason: a tooltip in the bar, where the line has no room, and a visible line in the Change sheet. -->
+{#snippet approvals(name: string, shown = false)}
   <div class="approvals" role="radiogroup" aria-label="Approvals">
     <span class="lead" aria-hidden="true">Approvals</span>
     <span class="segments">
       <label class:on={choice?.approvals !== 'yolo'}><input type="radio" name={name} value="ask" checked={choice?.approvals !== 'yolo'} onchange={() => choice && (choice = { ...choice, approvals: 'ask' })} />Ask me</label>
-      <label class="off"><input type="radio" name={name} value="yolo" disabled aria-describedby={`${id}-${name}-why`} />YOLO</label>
+      <label class="off" title="reet doesn't start YOLO sessions yet."><input type="radio" name={name} value="yolo" disabled aria-describedby={`${id}-${name}-why`} />YOLO</label>
     </span>
-    <span class="vh" id={`${id}-${name}-why`}>reet doesn't start YOLO sessions yet.</span>
+    <span class={shown ? 'why' : 'vh'} id={`${id}-${name}-why`}>reet doesn't start YOLO sessions yet.</span>
   </div>
 {/snippet}
 
@@ -664,7 +688,7 @@
           {/if}
         {/each}
         {#if checkout}<p class="checkout">{checkout}</p>{/if}
-        {@render approvals(`${id}-sheet-approvals`)}
+        {@render approvals(`${id}-sheet-approvals`, true)}
       </div>
       <footer data-shell-foot>
         <button type="button" class="done" onclick={closeChange}>Done</button>
@@ -801,7 +825,8 @@
   .row-value { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
   .chev { color: var(--muted); font-size: 20px; }
   .rows .checkout { margin: 0; padding: 4px 12px; }
-  .rows .approvals { margin: 8px 12px 0; }
+  .rows .approvals { margin: 8px 12px 0; flex-wrap: wrap; row-gap: 4px; }
+  .why { flex-basis: 100%; font-size: 12px; color: var(--muted); }
   .rows .approvals .lead { display: inline; width: 72px; font-size: 14px; }
   .rows .segments label { min-height: 44px; padding: 0 16px; }
   .sheet footer { display: flex; justify-content: flex-end; padding: 8px 4px 0; }

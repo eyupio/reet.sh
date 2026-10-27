@@ -168,7 +168,8 @@
   }
   // Choosing a card (or New session here) puts that project in the launch bar's sentence and moves to the prompt; the rail
   // marks the project the sentence names.
-  let launchProject = $state('')
+  // The project the launch bar names ('' for none: the home folder or several projects); null until the bar has a choice.
+  let launchProject = $state<string | null>(null)
   function chooseProject(project: FolderProject) { bar?.choose(project) }
   // Select in the rail: the chosen projects, in rail order, are the launch bar's projects (Start in several projects). Only
   // this page holds them; nothing goes to browser storage.
@@ -337,8 +338,11 @@
     if (moved) void tick().then(() => { movedShown = true })
     void load()
     // The profile read gives up after 10 seconds, so the bar never waits on it for good (it then uses each project's own base).
+    // Once Home has gone, a late answer changes nothing and the timer is cleared.
     let giveUpTimer: ReturnType<typeof setTimeout> | undefined
-    if (writer) Promise.race([getProfile(), new Promise<never>((_, no) => { giveUpTimer = setTimeout(() => no(new Error('timeout')), 10_000) })]).then(p => { profile = { defaultBaseBranch: p.profile.defaultBaseBranch, worktreesByDefault: p.profile.worktreesByDefault } }, () => {}).finally(() => { profileRead = true; clearTimeout(giveUpTimer) })
+    if (writer) Promise.race([getProfile(), new Promise<never>((_, no) => { giveUpTimer = setTimeout(() => no(new Error('timeout')), 10_000) })])
+      .then(p => { if (!life.signal.aborted) profile = { defaultBaseBranch: p.profile.defaultBaseBranch, worktreesByDefault: p.profile.worktreesByDefault } }, () => {})
+      .finally(() => { clearTimeout(giveUpTimer); if (!life.signal.aborted) profileRead = true })
     if (writer && legacyProject) void findLegacy(legacyProject)
     const query = matchMedia(NARROW), resized = () => { narrow = query.matches }
     query.addEventListener('change', resized)
@@ -349,14 +353,14 @@
     // it reads everything again. (The launch bar unlocks itself.)
     const restored = (e: PageTransitionEvent) => { if (e.persisted) void load(true) }
     window.addEventListener('pageshow', restored)
-    return () => { query.removeEventListener('change', resized); clearInterval(timer); document.removeEventListener('visibilitychange', shown); window.removeEventListener('pageshow', restored); life.abort() }
+    return () => { clearTimeout(giveUpTimer); query.removeEventListener('change', resized); clearInterval(timer); document.removeEventListener('visibilitychange', shown); window.removeEventListener('pageshow', restored); life.abort() }
   })
 </script>
 
 <div class="home" class:writer>
   <h1 class="vh">Home</h1>
   {#snippet rail()}
-    <ProjectRail {projects} failed={projectsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees} {savedWaiting} chosen={launchProject || chosen} busy={checking} {importing} {pending} {moving}
+    <ProjectRail {projects} failed={projectsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees} {savedWaiting} chosen={launchProject ?? chosen} busy={checking} {importing} {pending} {moving}
       {selecting} {selected} onselecting={setSelecting} ontoggle={toggleSelected}
       onadd={openAdd} onchoose={(project) => chooseProject(project)} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}
       onremove={(project, opener) => (removing = { project, opener })} onmove={move} ondismiss={dismiss} onimport={bringIn} oncolour={colour} />
@@ -373,7 +377,7 @@
         <InFlight {groups} {owners} machines={health ?? []} {offline} {now} loaded={sessions !== undefined} failed={sessionsFailed} {groupBy} onchoose={choose} {projectColours} />
       </div>
       {#if narrow}{@render rail()}{/if}
-      <LaunchBar bind:this={bar} {projects} machines={terminals} sessions={sessions} {profile} initialProject={chosen} selection={selecting ? selected : []}
+      <LaunchBar bind:this={bar} {projects} {projectsFailed} machines={terminals} sessions={sessions} {profile} initialProject={chosen} selection={selecting ? selected : []}
         ready={projects !== undefined && (sessions !== undefined || sessionsFailed) && profileRead}
         onproject={(id) => (launchProject = id)} onstarted={started} onrun={() => void load(true)} onrundone={() => { if (selecting) setSelecting(false) }} onleavefailed={leaveFailed} onaddproject={openAdd} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
     {/if}

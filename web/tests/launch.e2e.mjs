@@ -56,6 +56,8 @@ async function launch(options={}) {
    box.reads.push(`branches ${u.searchParams.get('dir')}`)
    return {current:'main', default:'main', branches:['main','develop','release/1.2'], more:false}
   },
+  // Answered at once: a request sent after the page's others, so a test knows they have all reached these routes.
+  '/api/__e2e/sync': () => ({}),
   ...(options.routes ?? {}),
  }
  const opened = await openWorkspace(browser, {width:1440, height:900, sync:sync(), ...options, routes})
@@ -70,6 +72,9 @@ async function launch(options={}) {
  await opened.page.route(url => new URL(url).pathname === '/terminals', route => route.fulfill({status:200, contentType:'text/html', body:'<title>session</title>'}))
  return {...opened, box}
 }
+// Deterministic in place of a fixed wait: the page's pending work runs (a macrotask after Svelte's effects), then a request
+// sent after any the page has made is answered, so whatever the page sent before it has been recorded by the routes.
+const settled = page => page.evaluate(async () => { await new Promise(r => setTimeout(r, 0)); await fetch('/api/__e2e/sync') })
 const bar = page => page.getByRole('form',{name:'Start a session'})
 const prompt = page => bar(page).getByRole('textbox',{name:'Describe the job'})
 const startButton = page => bar(page).getByRole('button',{name:/^(Start the session|Try the same request again)$/})
@@ -255,13 +260,15 @@ try {
  if (run('select on touch, at 320 px and on the strip')) {
   const long = [...fprojects(), blog()].map(p => p.id === 'fp1' ? {...p, name:'the-store-rewrite-with-a-very-long-project-name-indeed'} : p)
   const phone = await launch({width:320, height:700, touch:true, projects:long})
+  await phone.page.clock.install()
   await phone.page.goto(base)
   const card = phone.page.locator('aside.rail .card').filter({hasText:'the-store-rewrite'})
   await card.scrollIntoViewIfNeeded()
   const at = await card.boundingBox()
   const point = {pointerType:'touch', isPrimary:true, clientX:at.x + 20, clientY:at.y + 10, bubbles:true}
   await card.dispatchEvent('pointerdown', point)
-  await phone.page.waitForTimeout(700)
+  // The long press (500 ms) on the page's own clock, not a real wait.
+  await phone.page.clock.runFor(600)
   await card.dispatchEvent('pointerup', point)
   const rail = phone.page.locator('aside.rail')
   await expect(rail.getByRole('checkbox',{name:/^the-store-rewrite/})).toHaveAttribute('aria-checked','true')
@@ -349,7 +356,7 @@ try {
   await expect(rail.getByText('1 chosen. Choose at least one more.',{exact:true})).toBeVisible()
   await startButton(page).click()
   await expect(startButton(page)).toHaveAccessibleName('Start the session')
-  await page.waitForTimeout(200)
+  await settled(page)
   await expect(bar(page).locator('.status')).toHaveText("reet doesn't start this agent yet.")
   await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
   // A different project set is a new start: the old sentence goes.
@@ -435,6 +442,148 @@ try {
   await rail.locator('.card').filter({hasText:'Site'}).click()
   await expect.poll(() => sentenceText(page)).toContain('on Site')
   await expect(status).toHaveText('')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The rail marks no card while the bar names the home folder, even when the address named a project.
+ if (run('the rail marks no card for the home folder')) {
+  const {context,page,errors} = await launch()
+  await page.goto(`${base}/?project=fp3`)
+  const rail = page.locator('aside.rail')
+  await expect.poll(() => sentenceText(page)).toContain('on Site at studio')
+  await expect(rail.locator('.card[aria-current="true"]')).toHaveCount(1)
+  await expect(rail.locator('.card[aria-current="true"]')).toContainText('Site')
+  await pick(page,'Project','Home folder on studio')
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on the home folder at studio')
+  await expect(rail.locator('[aria-current="true"]')).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The Branch list opened while the machine is still answering says it is reading, not that it failed; after a read that
+ // failed, opening the list again asks the machine again.
+ if (run('branch list while reading and after a failed read')) {
+  let release = () => {}, reads = 0
+  const routes = {'/api/v2/machines/a1/branches': () => {
+   reads++
+   if (reads === 1) return new Promise(r => { release = () => r({status:503, json:{error:'reconnecting', code:'machine_reconnecting'}}) })
+   return {current:'main', default:'main', branches:['main','develop'], more:false}
+  }}
+  const {context,page,errors} = await launch({routes})
+  await page.goto(base)
+  await expect.poll(() => reads).toBe(1)
+  await slot(page,'Branch').click()
+  const list = page.getByRole('listbox',{name:'Branch'})
+  await expect(list).toBeVisible()
+  await expect(page.getByText('Reading branches…',{exact:true})).toBeVisible()
+  await expect(page.getByText("Couldn't read the branches just now.")).toHaveCount(0)
+  release()
+  await expect(page.getByText('Reading branches…',{exact:true})).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(list).toBeHidden()
+  await slot(page,'Branch').click()
+  await expect.poll(() => reads).toBe(2)
+  await expect(list.getByRole('option',{name:'develop',exact:true})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // YOLO's reason can be read without a screen reader: a tooltip in the bar and a line in the Change sheet.
+ if (run('YOLO reason is visible')) {
+  const desk = await launch()
+  await desk.page.goto(base)
+  await expect(bar(desk.page).locator('label', {hasText:'YOLO'})).toHaveAttribute('title', "reet doesn't start YOLO sessions yet.")
+  expect(desk.errors).toEqual([])
+  await desk.context.close()
+  const {context,page,errors} = await launch({width:390, height:844, touch:true})
+  await page.goto(base)
+  await bar(page).getByRole('button',{name:'Change',exact:true}).click()
+  const sheet = page.getByRole('dialog',{name:'Change the launch'})
+  await expect(sheet.getByText("reet doesn't start YOLO sessions yet.",{exact:true})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Select started on the 56 px strip (1100 to 1239 px) can be stopped there too.
+ if (run('Stop selecting on the strip')) {
+  const {context,page,errors} = await launch({width:1180, height:800, projects:[...fprojects(), blog()]})
+  await page.goto(base)
+  const strip = page.locator('aside.rail .strip')
+  await page.getByRole('button',{name:/^Open the project rail/}).click()
+  await page.locator('aside.rail').getByRole('button',{name:'Projects menu'}).click()
+  await page.getByRole('menuitem',{name:'Select projects'}).click()
+  await page.locator('aside.rail').getByRole('button',{name:'Close the project rail'}).first().click()
+  await expect(strip.getByRole('checkbox')).toHaveCount(4)
+  const stop = strip.getByRole('button',{name:'Stop selecting'})
+  expect(Math.min(...Object.values(await stop.boundingBox()).slice(2))).toBeGreaterThanOrEqual(40)
+  await stop.click()
+  await expect(strip.getByRole('checkbox')).toHaveCount(0)
+  await expect(stop).toHaveCount(0)
+  await expect(strip.getByRole('button',{name:/^Open the project rail/})).toBeFocused()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Projects that can't be read leave the bar with a reason, not silently disabled.
+ if (run('projects never read: the bar says why')) {
+  const {context,page,errors} = await launch({routes:{'/api/v2/folder-projects': () => ({status:500, json:{error:'down'}})}})
+  await page.goto(base)
+  await expect(bar(page).locator('.status')).toHaveText("Couldn't read your projects just now. Start waits until they have been read; Home tries again every 15 seconds.")
+  await expect(startButton(page)).toBeDisabled()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A project removed while its request is kept does not change what the bar says that request starts.
+ if (run('a removed project leaves a kept request as it was')) {
+  const {context,page,errors,box} = await launch({answer:() => ({status:502, json:{error:'bad gateway'}})})
+  await page.clock.install()
+  await page.goto(base)
+  const said = 'Run Claude Code with default on Store rewrite at studio from main in a fresh worktree'
+  await expect.poll(() => sentenceText(page)).toBe(said)
+  await startButton(page).click()
+  await expect(startButton(page)).toHaveAccessibleName('Try the same request again')
+  box.projects = box.projects.filter(p => p.id !== 'fp1')
+  // Home reads its lists again every 15 seconds.
+  await page.clock.runFor(16_000)
+  await expect(page.locator('aside.rail .card').filter({hasText:'Store rewrite'})).toHaveCount(0)
+  await settled(page)
+  expect(await sentenceText(page)).toBe(said)
+  // Discarded, the bar falls back as a fresh open would.
+  await bar(page).getByRole('button',{name:'Discard this request'}).click()
+  await expect.poll(() => sentenceText(page)).not.toContain('Store rewrite')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A start the server no longer has stops being read and says so; a retry refused for any reason but "not failed" is said
+ // beside the member rather than read past.
+ if (run('a run that is gone, and a retry refused')) {
+  let reads = 0
+  const routes = {
+   '/api/v2/folder-projects/runs': () => ({status:201, json:selectionRun([runMember(0,'fp1','Store rewrite','started',{sessionId:'s-store'}), runMember(1,'fp3','Site','failed',{code:'session_limit',sentence:LIMIT}), runMember(2,'fp4','Blog','pending')])}),
+   '/api/v2/folder-projects/runs/run-1': () => { reads++; return {status:404, json:{error:'not found', code:'run_not_found'}} },
+   '/api/v2/folder-projects/runs/run-1/members/1/retry': () => ({status:409, json:{error:'One of those projects is still starting. Wait for it to finish, then start again.', code:'run_in_progress'}}),
+  }
+  const {context,page,errors} = await launch({projects:[...fprojects(), blog()], routes})
+  await page.clock.install()
+  await page.goto(base)
+  const rail = page.locator('aside.rail')
+  await rail.getByRole('button',{name:'Projects menu'}).click()
+  await page.getByRole('menuitem',{name:'Select projects'}).click()
+  for (const name of [/^Store rewrite/, /^Site/, /^Blog/]) await rail.getByRole('checkbox',{name}).click()
+  await startButton(page).click()
+  const sheet = page.getByRole('dialog',{name:'Start in several projects'})
+  await expect(sheet).toBeVisible()
+  await page.clock.runFor(1600)
+  await expect(sheet).toContainText("reet no longer has this start, so it can't say more. Your sessions list shows what started.")
+  await page.clock.runFor(10_000)
+  expect(reads).toBe(1)
+  const site = sheet.getByRole('listitem').filter({hasText:'Site'})
+  await site.getByRole('button',{name:'Retry Site'}).click()
+  await expect(site).toContainText('One of those projects is still starting. Wait for it to finish, then start again.')
+  expect(reads).toBe(1)
   expect(errors).toEqual([])
   await context.close()
  }
@@ -680,7 +829,7 @@ try {
   await expect(prompt(page)).toBeDisabled()
   for (const name of ['Agent','Model','Project','Branch','Worktree']) await expect(slot(page,name), name).toBeDisabled()
   await page.evaluate(() => { const f = document.querySelector('form[aria-label="Start a session"]'); f.requestSubmit(); f.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', ctrlKey:true, bubbles:true})) })
-  await page.waitForTimeout(200)
+  await settled(page)
   expect(box.posts).toHaveLength(1)
   release()
   await expect(page).toHaveURL(/\/terminals\?agent=a1&session=new-held/)
@@ -712,7 +861,7 @@ try {
   await prompt(page).press('Enter')
   await prompt(page).press('Control+Enter')
   await prompt(page).press('Meta+Enter')
-  await page.waitForTimeout(200)
+  await settled(page)
   expect(box.posts).toEqual([])
   await expect(prompt(page)).toHaveValue('Fix the failing tests\n')
   expect(page.url()).toBe(`${base}/`)
@@ -936,7 +1085,7 @@ try {
   await expect(bar(page).locator('.status')).toHaveText('Start waits until your machines have been read.')
   await prompt(page).fill('Fix the failing tests')
   await prompt(page).press('Control+Enter')
-  await page.waitForTimeout(200)
+  await settled(page)
   expect(box.posts).toEqual([])
   await page.clock.runFor(15_000)
   await expect(startButton(page)).toBeEnabled()
@@ -1011,7 +1160,7 @@ try {
   }
  }
 
- console.log('Launch bar: Select and start in several projects (lost reply, status sheet, retry, touch, 320 px, strip count), one press with the last choices, each slot, unready machines, the starter prompt chip, lost replies and refusals, a -x folder, the locked bar and a card chosen while it is locked, a refusal kept across the same selection, Show run status going once all started or after a later start, Enter and Ctrl+Enter (and no key on touch), the phone Change sheet and the landscape phone with one Change, the keyboard-open prompt and nothing in storage checked.')
+ console.log('Launch bar: Select and start in several projects (lost reply, status sheet, retry, touch, 320 px, strip count), one press with the last choices, each slot, unready machines, the starter prompt chip, lost replies and refusals, a -x folder, the locked bar and a card chosen while it is locked, a refusal kept across the same selection, Show run status going once all started or after a later start, Enter and Ctrl+Enter (and no key on touch), the phone Change sheet and the landscape phone with one Change, the keyboard-open prompt, Tab and Escape from a list, no card marked for the home folder, branch reads, the YOLO reason, Stop selecting on the strip, unread projects, a removed project under a kept request, a run that is gone and nothing in storage checked.')
 } finally {
  await browser.close()
 }

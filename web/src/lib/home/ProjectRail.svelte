@@ -127,6 +127,11 @@
     onselecting?.(false)
     void tick().then(() => headButton?.focus())
   }
+  // The strip's Stop selecting: focus goes to the strip's panel button, which stays where the stop button was.
+  function stopFromStrip() {
+    onselecting?.(false)
+    void tick().then(() => opener?.focus())
+  }
   function selectFromMenu() {
     headMenu = false
     onselecting?.(!selecting)
@@ -318,7 +323,13 @@
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
       {#if waiting}<i class="marker" aria-hidden="true"></i>{/if}
     </button>
-    {#if selecting}<p class="picked-count" title={pickedLine}><span class="vh">{'Chosen: '}</span>{selected.length}</p>{/if}
+    {#if selecting}
+      <p class="picked-count" title={pickedLine}><span class="vh">{'Chosen: '}</span>{selected.length}</p>
+      <!-- Select can start here (a long press on touch), so it can end here too. -->
+      <button type="button" class="add-icon stop" aria-label="Stop selecting" title="Stop selecting" onclick={stopFromStrip}>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18" /></svg>
+      </button>
+    {/if}
     {#each projects ?? [] as p (p.id)}
       {@const wt = worktrees.get(p.id) ?? 0}
       {@const picked = selecting && isPicked(p)}

@@ -429,6 +429,13 @@ try {
   await expect(rail(narrow.page).getByRole('button',{name:'Close the project rail'})).toHaveCount(0)
   await expect(launchBar(narrow.page).getByRole('button',{name:'Project: Notes'})).toBeVisible()
   await expect(narrow.page.getByRole('dialog',{name:'Start an agent'})).toHaveCount(0)
+  // The menu sits outside the panel's box (#228 moved it out of the cards): pressing one of its other items does not count
+  // as a press outside the panel, so Move down keeps the panel open with its new order.
+  await rail(narrow.page).getByRole('button',{name:'Open the project rail'}).click()
+  await rail(narrow.page).locator('.full').getByRole('button',{name:'More for Store rewrite',exact:true}).click()
+  await narrow.page.getByRole('menu',{name:'Store rewrite'}).getByRole('menuitem',{name:'Move down'}).click()
+  await expect.poll(() => narrow.box.writes.find(w => w.path === '/api/v2/folder-projects/reorder')?.body ?? null).toEqual({ids:['fp2','fp1'], versions:[1,1]})
+  await expect(rail(narrow.page).locator('.manage')).toHaveAttribute('aria-expanded','true')
   expect(narrow.errors).toEqual([])
   await narrow.context.close()
  }

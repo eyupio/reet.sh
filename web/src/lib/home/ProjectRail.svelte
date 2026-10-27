@@ -139,7 +139,8 @@
   function outside(event: PointerEvent) {
     const target = event.target as HTMLElement
     if (menuFor && !target.closest('.menu, .more')) closeMenu()
-    if (panelOpen && !target.closest('aside.rail') && !target.closest('dialog')) closePanel(false)
+    // The card menu is drawn outside the rail's box, but a press on it is a press inside the panel.
+    if (panelOpen && !target.closest('aside.rail') && !target.closest(`[id^="${CSS.escape(`${id}-menu-`)}"]`) && !target.closest('dialog')) closePanel(false)
   }
 </script>
 

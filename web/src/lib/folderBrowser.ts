@@ -9,7 +9,12 @@ import { validateDir } from './agentLaunch'
 export type Crumb = { label: string; path: string }
 
 // A path without its trailing slashes ("/" stays "/").
-const trim = (p: string): string => (p.length > 1 ? p.replace(/\/+$/, '') || '/' : p)
+// Trailing slashes are cut by index, not by a /\/+$/ pattern, which backtracks quadratically on a long run of slashes.
+const trim = (p: string): string => {
+  let end = p.length
+  while (end > 1 && p.charCodeAt(end - 1) === 47) end--
+  return end === p.length ? p : p.slice(0, end)
+}
 
 /** The part of `path` below `home`, or null when `path` is not the home or inside it (compared a whole name at a time). */
 function below(path: string, home: string): string | null {

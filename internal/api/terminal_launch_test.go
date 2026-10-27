@@ -180,7 +180,6 @@ func TestTerminalLaunchCreateIsStrictAndValidated(t *testing.T) {
 	f := launchAPIFixture(t, launchCaps("claude"))
 	for name, body := range map[string]string{
 		"unknown field":       `{"agentId":"` + f.agent.ID + `","requestId":"` + terminalbroker.ID() + `","title":"A","cols":80,"rows":24,"tool":"claude","command":"rm"}`,
-		"binary named":        `{"agentId":"` + f.agent.ID + `","requestId":"` + terminalbroker.ID() + `","title":"A","cols":80,"rows":24,"tool":"/bin/sh"}`,
 		"model shell string":  `{"agentId":"` + f.agent.ID + `","requestId":"` + terminalbroker.ID() + `","title":"A","cols":80,"rows":24,"tool":"claude","model":"x; rm -rf ~"}`,
 		"relative dir":        `{"agentId":"` + f.agent.ID + `","requestId":"` + terminalbroker.ID() + `","title":"A","cols":80,"rows":24,"tool":"claude","dir":"work"}`,
 		"flag prompt":         `{"agentId":"` + f.agent.ID + `","requestId":"` + terminalbroker.ID() + `","title":"A","cols":80,"rows":24,"tool":"claude","prompt":"--dangerously-skip-permissions now"}`,
@@ -189,6 +188,11 @@ func TestTerminalLaunchCreateIsStrictAndValidated(t *testing.T) {
 		if code, _, raw := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions", body); code != 400 {
 			t.Fatal(name, code, raw)
 		}
+	}
+	// A tool outside the catalogue is refused as one reet does not start.
+	binary := `{"agentId":"` + f.agent.ID + `","requestId":"` + terminalbroker.ID() + `","title":"A","cols":80,"rows":24,"tool":"/bin/sh"}`
+	if code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions", binary); code != 422 || out["code"] != "tool_unavailable" {
+		t.Fatal("binary named", code, raw)
 	}
 	if len(f.sent()) != 0 {
 		t.Fatal("invalid launch reached the connector", f.sent())
@@ -270,7 +274,9 @@ func TestTerminalLaunchFailedMapsToToolOrFolder(t *testing.T) {
 			}
 		}
 	}
-	if len(f.sent()) != 2 {
+	// Only the folder refusal reaches the machine: gemini is not advertised, so
+	// it is refused before any session is reserved.
+	if len(f.sent()) != 1 {
 		t.Fatal("a refused launch was dispatched again on retry", len(f.sent()))
 	}
 	if len(launchEvents(t, f.st, f.uid)) != 0 {

@@ -361,9 +361,10 @@ func TestTerminalPrivateLaunchStartsTheRecordedAgent(t *testing.T) {
 		}
 	}
 	after, _ := st.TerminalSessionsFor(uid)
-	// The one-word prompt never reached the connector or the store; the
-	// connector-refused launches are recorded as lost, never running.
-	if len(after) != len(before)+4 {
+	// The one-word prompt and the agent the machine does not advertise never
+	// reached the connector or the store; the connector-refused launches are
+	// recorded as lost, never running.
+	if len(after) != len(before)+3 {
 		t.Fatal("refusals recorded", len(before), len(after))
 	}
 	for _, s := range after {

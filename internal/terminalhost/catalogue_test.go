@@ -179,3 +179,21 @@ func TestClinePromptCannotChangeApprovalMode(t *testing.T) {
 		t.Fatal("prompt changed safe defaults", argv, err)
 	}
 }
+
+// TestControllerOptionTableMatchesCatalogue keeps the controller's pre-reservation
+// checks in step with the presets this connector actually starts.
+func TestControllerOptionTableMatchesCatalogue(t *testing.T) {
+	for _, p := range Catalogue {
+		enabled := p.DisabledReason == ""
+		if terminalproto.ValidToolV2(p.ID) != enabled {
+			t.Fatal(p.ID, "agents-v2 acceptance differs from the catalogue")
+		}
+		if !enabled {
+			continue
+		}
+		effort := len(p.EffortArgs["low"]) > 0 && len(p.EffortArgs["medium"]) > 0 && len(p.EffortArgs["high"]) > 0
+		if terminalproto.ToolTakesEffort(p.ID) != effort || terminalproto.ToolTakesModel(p.ID) != (p.ModelFlag != "") {
+			t.Fatal(p.ID, "controller option table differs from the catalogue")
+		}
+	}
+}

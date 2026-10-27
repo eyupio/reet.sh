@@ -58,7 +58,7 @@ func TestCreateStillComparable(t *testing.T) {
 	}
 }
 func TestCapabilitiesNewToolIDsNeedAgentsV2(t *testing.T) {
-	c := Capabilities{Launch: true, TerminalControl: true, Tools: []string{"pi"}, ProtocolVersion: Version, OS: "linux", OSUser: "test", TerminalEnabled: true, Readiness: Ready}
+	c := Capabilities{Launch: true, TerminalControl: true, Tools: []string{"cline"}, ProtocolVersion: Version, OS: "linux", OSUser: "test", TerminalEnabled: true, Readiness: Ready}
 	if c.Validate() == nil || c.ValidateFor("") == nil {
 		t.Fatal("old peer accepts new tool")
 	}
@@ -84,7 +84,7 @@ func TestCapabilitiesYoloRequiresLaunch(t *testing.T) {
 }
 
 func TestCapabilitiesAgentsV2AndOSVersion(t *testing.T) {
-	c := Capabilities{AgentsV2: true, Tools: []string{"pi"}, Launch: true, TerminalControl: true, ProtocolVersion: Version, OS: "linux", OSUser: "test", OSVersion: "6.1", TerminalEnabled: true, Readiness: Ready}
+	c := Capabilities{AgentsV2: true, Tools: []string{"cline"}, Launch: true, TerminalControl: true, ProtocolVersion: Version, OS: "linux", OSUser: "test", OSVersion: "6.1", TerminalEnabled: true, Readiness: Ready}
 	if c.Validate() != nil || c.ValidateFor(AgentsFeature) != nil {
 		t.Fatal("v2 capabilities refused")
 	}
@@ -94,5 +94,21 @@ func TestCapabilitiesAgentsV2AndOSVersion(t *testing.T) {
 	c.OSVersion = "bad\nversion"
 	if c.Validate() == nil {
 		t.Fatal("invalid OS version accepted")
+	}
+}
+
+func TestAgentsV2ToolsAndOptions(t *testing.T) {
+	for _, id := range []string{"pi", "cursor", "nonesuch", ""} {
+		if ValidToolV2(id) {
+			t.Fatalf("%q accepted under agents-v2", id)
+		}
+	}
+	for _, tc := range []struct {
+		tool          string
+		effort, model bool
+	}{{"claude", false, true}, {"codex", false, true}, {"opencode", false, true}, {"gemini", false, true}, {"cline", true, true}, {"pi", false, false}} {
+		if ToolTakesEffort(tc.tool) != tc.effort || ToolTakesModel(tc.tool) != tc.model {
+			t.Fatalf("%s: effort=%v model=%v", tc.tool, ToolTakesEffort(tc.tool), ToolTakesModel(tc.tool))
+		}
 	}
 }

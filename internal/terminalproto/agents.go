@@ -14,7 +14,27 @@ func SupportsAgents(features string) bool {
 	return false
 }
 
-// ValidToolV2 accepts the catalogue offered under agents-v2.
-func ValidToolV2(id string) bool {
-	return ValidTool(id) || id == "pi" || id == "cursor" || id == "cline"
+// agentOptions lists the agents a connector starts under agents-v2 and the
+// launch options each preset maps to arguments. It mirrors the enabled rows of
+// terminalhost.Catalogue (a test there keeps them equal) so the controller can
+// refuse an option before it reserves a session. Disabled presets (pi, cursor)
+// are absent until the connector starts them.
+var agentOptions = map[string]struct{ effort, model bool }{
+	"claude":   {model: true},
+	"codex":    {model: true},
+	"opencode": {model: true},
+	"gemini":   {model: true},
+	"cline":    {effort: true, model: true},
 }
+
+// ValidToolV2 accepts the agents started under agents-v2.
+func ValidToolV2(id string) bool {
+	_, ok := agentOptions[id]
+	return ok
+}
+
+// ToolTakesEffort reports whether the agent's preset maps an effort level.
+func ToolTakesEffort(id string) bool { return agentOptions[id].effort }
+
+// ToolTakesModel reports whether the agent's preset takes a model.
+func ToolTakesModel(id string) bool { return agentOptions[id].model }

@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -483,6 +484,11 @@ var (
 	// ErrLaunchFailed means the connector refused to start the agent
 	// (launch_failed): the tool or the folder is unavailable there.
 	ErrLaunchFailed = errors.New("machine could not start that agent")
+	// ErrToolUnavailable means no connector starts that agent: it is disabled
+	// in the catalogue or unknown.
+	ErrToolUnavailable = errors.New("that agent is not started by reet")
+	// ErrToolNotInstalled means the machine did not advertise that agent.
+	ErrToolNotInstalled = errors.New("that agent is not installed on the machine")
 	// ErrPromptUnsupported means the opening prompt is one word for a tool that
 	// could read it as a subcommand; it was refused before sending.
 	ErrPromptUnsupported = errors.New("opening prompt must be at least two words for that agent")
@@ -504,6 +510,11 @@ func (b *Broker) Create(ctx context.Context, uid int64, agent, request string, i
 func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request string, in terminalproto.Create) (store.TerminalSession, bool, error) {
 	// A launch is checked in full before any peer state, so a malformed or
 	// refused launch never reserves a session or reaches the connector.
+	// An agent no connector starts (disabled or unknown) is refused as such,
+	// not as a malformed request.
+	if in.Tool != "" && !terminalproto.ValidToolV2(in.Tool) {
+		return store.TerminalSession{}, false, ErrToolUnavailable
+	}
 	if launchRequested(in) && in.Validate() != nil {
 		return store.TerminalSession{}, false, terminalproto.ErrInvalid
 	}
@@ -530,6 +541,11 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		if in.Yolo {
 			return store.TerminalSession{}, false, ErrYoloRefused
 		}
+		// Options the agent's preset has no mapping for are refused here, not
+		// by the machine after a session is reserved.
+		if in.Effort != "" && !terminalproto.ToolTakesEffort(in.Tool) || in.Model != "" && !terminalproto.ToolTakesModel(in.Tool) {
+			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
+		}
 		// A peer without worktree-v1 is never sent the worktree fields, and the
 		// launch is not started without its worktree.
 		if worktreeRequested(in) && !caps.Capabilities.Worktree {
@@ -537,6 +553,9 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		}
 		if !caps.Capabilities.Launch {
 			return store.TerminalSession{}, false, ErrLaunchUnsupported
+		}
+		if in.Tool != "" && !slices.Contains(caps.Capabilities.Tools, in.Tool) {
+			return store.TerminalSession{}, false, ErrToolNotInstalled
 		}
 	}
 	s, created, err := b.st.ReserveTerminalCreateFor(uid, agent, request, p.Generation, in)

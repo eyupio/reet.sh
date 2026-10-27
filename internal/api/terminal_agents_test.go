@@ -14,7 +14,7 @@ import (
 )
 
 func TestCreateNewFieldsRefusedToOldPeer(t *testing.T) {
-	for _, fields := range []map[string]any{{"effort": "high"}, {"base": "main", "worktree": "0123456789abcdef0123456789abcdef", "project": "reet"}, {"yolo": true}, {"tool": "pi"}} {
+	for _, fields := range []map[string]any{{"effort": "high"}, {"base": "main", "worktree": "0123456789abcdef0123456789abcdef", "project": "reet"}, {"yolo": true}} {
 		f := launchAPIFixture(t, launchCaps("claude"))
 		body := launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "dir": "/home/tester/reet"})
 		for k, v := range fields {
@@ -66,13 +66,96 @@ func TestLaunchAuditCarriesEffortBaseYolo(t *testing.T) {
 		t.Fatalf("%s", detail)
 	}
 }
-func TestCreateYoloRefusedBeforeF(t *testing.T) {
+func TestCreateYoloRefusedBeforeForwarding(t *testing.T) {
 	caps := launchCaps("claude")
 	caps.AgentsV2 = true
 	f := launchAPIFixture(t, caps)
 	status, out, _ := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "yolo": true}))
 	if status != 409 || out["code"] != "yolo_refused" || len(f.sent()) != 0 {
 		t.Fatalf("%d %v", status, out)
+	}
+}
+
+// TestCreateUnsupportedAgentOptionsRefusedBeforeReserving checks every refusal
+// leaves no session, no create operation and nothing sent to the machine.
+func TestCreateUnsupportedAgentOptionsRefusedBeforeReserving(t *testing.T) {
+	const updateSentence = "Update reet on that machine to use that option."
+	const optionSentence = "That agent doesn't take that option."
+	const disabledSentence = "reet doesn't start this agent yet."
+	for _, tc := range []struct {
+		name         string
+		v2           bool
+		fields       map[string]any
+		status       int
+		code, errMsg string
+	}{
+		{"effort on codex", true, map[string]any{"tool": "codex", "effort": "high"}, 409, "launch_option_unsupported", optionSentence},
+		{"effort on claude", true, map[string]any{"tool": "claude", "effort": "low"}, 409, "launch_option_unsupported", optionSentence},
+		{"effort on claude old peer", false, map[string]any{"tool": "claude", "effort": "low"}, 409, "launch_option_unsupported", updateSentence},
+		{"tool pi", true, map[string]any{"tool": "pi"}, 422, "tool_unavailable", disabledSentence},
+		{"tool cursor", true, map[string]any{"tool": "cursor"}, 422, "tool_unavailable", disabledSentence},
+		{"tool pi old peer", false, map[string]any{"tool": "pi"}, 422, "tool_unavailable", disabledSentence},
+		{"unknown tool", true, map[string]any{"tool": "nonesuch"}, 422, "tool_unavailable", disabledSentence},
+		{"cline without agents-v2", false, map[string]any{"tool": "cline"}, 409, "launch_option_unsupported", updateSentence},
+		{"tool not advertised", true, map[string]any{"tool": "gemini"}, 422, "tool_not_installed", "That agent isn't installed on that machine."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			caps := launchCaps("claude", "codex")
+			if tc.v2 {
+				caps = launchCaps("claude", "cline", "codex")
+				caps.AgentsV2 = true
+			}
+			f := launchAPIFixture(t, caps)
+			request := terminalbroker.ID()
+			status, out, _ := f.create(t, launchBody(f.agent.ID, request, tc.fields))
+			if status != tc.status || out["code"] != tc.code || out["error"] != tc.errMsg {
+				t.Fatalf("status=%d body=%v", status, out)
+			}
+			if len(f.sent()) != 0 {
+				t.Fatalf("machine received %v", f.sent())
+			}
+			sessions, err := f.st.TerminalSessionsFor(f.uid)
+			if err != nil || len(sessions) != 0 {
+				t.Fatalf("session reserved: %v %v", sessions, err)
+			}
+			if op, err := f.st.TerminalOperationFor(f.uid, f.agent.ID, "create", request); err == nil {
+				t.Fatalf("operation reserved: %+v", op)
+			}
+		})
+	}
+}
+
+func TestCreateClineEffortAcceptedOnAgentsV2(t *testing.T) {
+	caps := launchCaps("claude", "cline")
+	caps.AgentsV2 = true
+	f := launchAPIFixture(t, caps)
+	status, out, _ := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "cline", "effort": "medium", "model": "sonnet"}))
+	if status != 200 || out["effort"] != "medium" {
+		t.Fatalf("%d %v", status, out)
+	}
+	if sent := f.sent(); len(sent) != 1 || sent[0].Tool != "cline" || sent[0].Effort != "medium" {
+		t.Fatalf("%v", sent)
+	}
+}
+
+// TestLaunchOptionRefusedByCurrentMachineSaysOption covers a refusal the
+// machine itself sends: an up-to-date machine is not told to update.
+func TestLaunchOptionRefusedByCurrentMachineSaysOption(t *testing.T) {
+	for _, v2 := range []bool{true, false} {
+		caps := launchCaps("claude")
+		caps.AgentsV2 = v2
+		f := launchAPIFixture(t, caps)
+		f.reply = func(terminalproto.Create) terminalproto.Body {
+			return terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
+		}
+		status, out, _ := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "model": "sonnet"}))
+		want := "Update reet on that machine to use that option."
+		if v2 {
+			want = "That agent doesn't take that option."
+		}
+		if status != 409 || out["code"] != "launch_option_unsupported" || out["error"] != want {
+			t.Fatalf("v2=%v: %d %v", v2, status, out)
+		}
 	}
 }
 

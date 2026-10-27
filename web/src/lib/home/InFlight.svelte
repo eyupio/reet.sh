@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { CATALOGUE } from '../catalogue'
   import type { MachineHealth } from '../terminal/api'
   import { shortAge, stateWord, type GroupBy, type Group, type HomeSession, type SessionOwner } from '../home'
 
@@ -21,6 +22,7 @@
   const id = $props.id()
   const choices: { value: GroupBy; label: string }[] = [{ value: 'project', label: 'Project' }, { value: 'machine', label: 'Machine' }, { value: 'state', label: 'State' }]
   const hostOf = (agentId: string) => machines.find(m => m.agentId === agentId)?.host || agentId
+  const toolName = (tool: string) => CATALOGUE.find(agent => agent.id === tool)?.name ?? tool
   const lastKnown = (s: HomeSession) => offline.some(m => m.agentId === s.agentId)
   const href = (s: HomeSession) => `/terminals?agent=${encodeURIComponent(s.agentId)}&session=${encodeURIComponent(s.id)}`
 </script>
@@ -58,7 +60,7 @@
                   <span class="dot {word.tone}" aria-hidden="true"></span>
                   <span class="main">
                     <span class="title">{s.title}</span>
-                    <span class="where">{owner ? `${owner.name} · ` : ''}{hostOf(s.agentId)}{#if s.worktreeBranch}{' · '}<code class="branch">{s.worktreeBranch}</code>{/if}</span>
+                    <span class="where">{#if s.tool}{toolName(s.tool)}{' · '}{/if}{owner ? `${owner.name} · ` : ''}{hostOf(s.agentId)}{#if s.worktreeBranch}{' · '}<code class="branch">{s.worktreeBranch}</code>{/if}</span>
                   </span>
                   <span class="state">
                     <span class="word {word.tone}">{word.word}{lastKnown(s) ? ' · last known' : ''}</span>

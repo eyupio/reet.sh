@@ -31,13 +31,13 @@
     .bottom-tabs {
       position: fixed; left: 0; right: 0; bottom: 0; z-index: 12; display: flex;
       height: calc(64px + env(safe-area-inset-bottom, 0px)); padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
-      box-sizing: border-box; border-top: 1px solid var(--line-soft); background: var(--bg);
+      box-sizing: border-box; border-top: 1px solid var(--line-soft); background: var(--bg-sunk);
     }
     .bottom-tabs.hidden { display: none; }
   }
   a, button {
     flex: 1 1 0; min-width: 44px; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-    padding: 0; border: 0; background: none; color: var(--muted); font: 500 0.75rem/1.2 var(--sans); text-decoration: none; cursor: pointer;
+    padding: 0; border: 0; background: none; color: var(--muted); font: 400 0.75rem/1.2 var(--sans); text-decoration: none; cursor: pointer;
   }
   a[aria-current='page'], button.current { position: relative; color: var(--accent-text); font-weight: 600; }
   /* Not colour alone: a bar along the top edge marks the current tab, or More when the page in view is inside it. */

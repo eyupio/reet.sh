@@ -18,15 +18,15 @@
 </nav>
 
 <style>
-  .top-tabs { display: flex; align-items: stretch; align-self: stretch; gap: 2px; min-width: 0; }
+  .top-tabs { display: flex; align-items: stretch; align-self: stretch; gap: 4px; min-width: 0; }
   a, .more {
     position: relative; display: flex; align-items: center; min-height: 44px; padding: 0 14px;
-    border: 0; background: none; color: var(--muted); font: 500 0.9rem/1 var(--sans); text-decoration: none; white-space: nowrap; cursor: pointer;
+    border: 0; background: none; color: var(--muted); font: 400 14px/1 var(--sans); text-decoration: none; white-space: nowrap; cursor: pointer;
   }
   a:hover, .more:hover { color: var(--ink); }
   a[aria-current='page'], .more.current { color: var(--ink); font-weight: 600; }
   a[aria-current='page']::after, .more.current::after {
-    content: ''; position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; border-radius: 2px; background: var(--accent-text);
+    content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 0; background: var(--accent-text);
   }
   a:focus-visible, .more:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -4px; border-radius: 8px; }
   .more { display: none; }
@@ -35,8 +35,9 @@
   @media (max-width: 1099.98px) {
     a.wide { display: none; }
     .more { display: flex; }
-    a, .more { padding: 0 12px; }
+    a, .more { padding: 0 14px; font-size: 15px; }
   }
+  @media (min-width: 651px) and (max-width: 799px) { a, .more { padding: 0 8px; font-size: 14px; } }
   /* Phone: the bottom tab bar takes over. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .top-tabs { display: none; }

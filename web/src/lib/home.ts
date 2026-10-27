@@ -10,7 +10,7 @@ import type { SyncJob, SyncState } from './api'
 export type Tone = 'good' | 'warn' | 'bad' | 'muted'
 export type FleetCard = {
   /** 'paused' is a connected machine whose sync agent is paused: the word Control gives it (fleet.ts), never "online". */
-  agentId: string; name: string; os: string; status: 'online' | 'paused' | 'offline' | 'reconnecting'
+  agentId: string; name: string; os: string; osVersion?: string; status: 'online' | 'paused' | 'offline' | 'reconnecting'
   /** Running and starting sessions of any kind on that machine: the listing cannot say which ones run an agent. A session
    *  whose end was asked for is not running; it is counted in sessionsEnding. */
   sessionsRunning: number
@@ -109,6 +109,7 @@ export function fleetCards(machines: MachineHealth[], sessions: TerminalSession[
     agentId: m.agentId,
     name: m.host,
     os: m.capabilities?.os ?? '',
+    osVersion: m.capabilities?.osVersion ?? '',
     status: statusOf(m, (sync.agents ?? []).some(a => a.id === m.agentId && a.paused)),
     sessionsRunning: sessions.filter(s => s.agentId === m.agentId && (s.state === 'running' || s.state === 'creating')).length,
     sessionsEnding: sessions.filter(s => s.agentId === m.agentId && s.state === 'end_requested').length,

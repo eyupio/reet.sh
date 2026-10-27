@@ -152,7 +152,10 @@
   .panel .theme button[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); font-weight: 650; }
   /* The top bar shows the initials only, as drawn; the name and email are at the top of the panel. */
   .who { display: none; }
-  summary { padding: 6px; border-radius: 50%; }
+  summary { min-width: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 50%; background: none; justify-content: center; }
+  .avatar { width: 36px; height: 36px; background: var(--accent-wash); font-size: 13px; font-weight: 600; letter-spacing: 0; }
+  summary:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 3px; }
+  @media (pointer: coarse) { summary { min-width: 44px; min-height: 44px; } }
   summary > svg { display: none; }
   .panel { max-height: calc(100dvh - 90px); overflow: auto; }
   @media (pointer: coarse) { .panel a, .panel button { min-height: 44px; } }

@@ -29,6 +29,13 @@ test('both palettes define every token, with the designed dark values', () => {
   for (const [k, v] of Object.entries(light)) assert.equal(TOKENS.light[k], v, k)
 })
 
+test('avatar text stays legible on the designed account disc', () => {
+  for (const p of PALETTES) {
+    assert.ok(TOKENS[p]['--accent-wash'], `${p}: account disc surface exists`)
+    assert.ok(contrast(TOKENS[p]['--accent-text'], TOKENS[p]['--accent-wash']) >= 4.5, `${p}: avatar initials meet AA`)
+  }
+})
+
 test('every text pair passes AA', () => {
   for (const p of PALETTES) {
     const t = TOKENS[p]

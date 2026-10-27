@@ -67,4 +67,9 @@
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .panel { position: fixed; top: 64px; left: 16px; right: 16px; width: auto; }
   }
+  @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
+    .bell-button { border: 0; }
+    .bell-button svg { width: 22px; height: 22px; }
+    .badge { top: 4px; right: 4px; }
+  }
 </style>

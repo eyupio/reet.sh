@@ -330,6 +330,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 				LaunchTools:     launchTools,
 				GitAvailable:    gitAvailable,
 				BrowseAllowed:   browseAllowed(*config, c),
+				TerminalAllowed: terminalAllowed(*config, c),
 				OnConnection:    state.connected.Store,
 				ServerURL:       c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,
 				Version: version, InstanceID: instance,

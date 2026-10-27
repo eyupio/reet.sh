@@ -30,7 +30,8 @@ How a machine answers a `browse` request (`internal/terminalhost/browse.go`). Th
   `branches-v1` was negotiated, `worktree` is reported and terminal access is on. A change of either
   local switch is sent to the controller within the consent poll (5 s), without a reconnect. The
   connector serves a negotiated browse or branches request only while it would advertise that
-  capability, worked out again for each request; otherwise it answers `denied` itself.
+  capability, worked out again for each request from cheap local reads (the enrollment file and
+  git on `PATH`, never the tmux readiness probe); otherwise it answers `denied` itself.
 - **Local switch.** `reet terminal browse off` (also `reet agent terminal browse off`) sets
   `browseOff` in the enrollment file; `on` removes it and `status` prints `Folder browse: on|off`
   (also shown by `reet agent terminal status`). Browse is on by default. While it is off, or while

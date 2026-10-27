@@ -14,3 +14,6 @@ var gitAvailable func() bool
 
 // browseAllowed is nil where the connector cannot browse folders.
 func browseAllowed(string, agentConfig) func() bool { return nil }
+
+// terminalAllowed is nil where the connector has no terminal access.
+func terminalAllowed(string, agentConfig) func() bool { return nil }

@@ -67,6 +67,11 @@ type AgentConfig struct {
 	// (reet terminal browse on|off). It is polled with Consent. Nil means
 	// browsing is refused.
 	BrowseAllowed func() bool
+	// TerminalAllowed re-reads the local terminal opt-in alone (the
+	// enrollment is still this one and terminal access is on), without
+	// probing readiness. Browse and branches requests are gated on it; nil
+	// refuses them.
+	TerminalAllowed func() bool
 
 	Collector        Collector
 	HTTPClient       *http.Client
@@ -347,14 +352,19 @@ func gateMachineRequests(cfg AgentConfig, control func(context.Context, terminal
 	}
 }
 
-// currentCapabilities is what the connector would advertise now, with
-// terminal consent and the browse switch read again.
+// currentCapabilities is the browse and branches part of what the
+// connector would advertise now, from cheap local reads only: the terminal
+// opt-in (TerminalAllowed) and the browse switch are read again, git is
+// looked up on PATH. It never calls Consent, whose readiness probe runs
+// tmux and can take seconds; neither capability depends on readiness.
 func currentCapabilities(cfg AgentConfig) terminalproto.Capabilities {
-	if cfg.Consent != nil {
-		cfg.TerminalEnabled, cfg.TerminalReadiness = readConsent(cfg.Consent)
+	enabled := cfg.TerminalAllowed != nil && cfg.TerminalAllowed()
+	readiness := terminalproto.DisabledLocally
+	if enabled {
+		readiness = terminalproto.Ready
 	}
 	cfg.browseAllowed = readBrowseAllowed(cfg)
-	return capabilities(cfg)
+	return capabilitiesFor(cfg, enabled, readiness)
 }
 
 // readBrowseAllowed reads the local folder-browse switch; without one,

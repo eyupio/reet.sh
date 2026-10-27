@@ -192,3 +192,34 @@ func TestTerminalBrowseHelpAndTerminalOff(t *testing.T) {
 		t.Fatalf("status with terminal off: %q %v", out.String(), err)
 	}
 }
+
+// terminalAllowed is the cheap terminal opt-in read browse and branches are
+// gated on: this enrollment, terminal access on. It probes nothing.
+func TestTerminalAllowedReadsOnlyTheEnrollment(t *testing.T) {
+	config, c := browseEnrollment(t)
+	allowed := terminalAllowed(config, c)
+	if allowed == nil || !allowed() {
+		t.Fatal("terminal access on is not allowed")
+	}
+	if err := runAgentTerminal([]string{"browse", "off", "--config", config}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if !allowed() {
+		t.Fatal("browse off must not turn terminal access off")
+	}
+	if err := runAgentTerminal([]string{"disable", "--config", config}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if allowed() {
+		t.Fatal("terminal access off is allowed")
+	}
+	other := c
+	other.Secret = "another0123456789abcdef"
+	other.TerminalEnabled = true
+	if err := writePrivate(config, other); err != nil {
+		t.Fatal(err)
+	}
+	if allowed() {
+		t.Fatal("a changed enrollment is allowed")
+	}
+}

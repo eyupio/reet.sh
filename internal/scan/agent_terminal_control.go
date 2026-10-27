@@ -47,13 +47,34 @@ func browseAllowed(config string, c agentConfig) func() bool {
 	return func() bool { return browseConsent(config, c) == nil }
 }
 
-func browseConsent(config string, c agentConfig) error {
+// terminalAllowed re-reads the enrollment alone: it is still this one and
+// terminal access is on. Unlike the consent poll it probes no readiness
+// (tmux), so it is cheap enough to check before every browse or branches
+// request.
+func terminalAllowed(config string, c agentConfig) func() bool {
+	return func() bool {
+		_, err := currentTerminalConfig(config, c)
+		return err == nil
+	}
+}
+
+// currentTerminalConfig loads the enrollment and checks it is still this
+// one with terminal access on.
+func currentTerminalConfig(config string, c agentConfig) (agentConfig, error) {
 	current, err := loadAgentConfig(config)
 	if err != nil {
-		return err
+		return agentConfig{}, err
 	}
 	if current.ID != c.ID || current.Secret != c.Secret || current.Server != c.Server || !current.TerminalEnabled {
-		return errors.New("terminal access disabled locally")
+		return agentConfig{}, errors.New("terminal access disabled locally")
+	}
+	return current, nil
+}
+
+func browseConsent(config string, c agentConfig) error {
+	current, err := currentTerminalConfig(config, c)
+	if err != nil {
+		return err
 	}
 	if current.BrowseOff {
 		return errors.New("folder browse disabled locally")

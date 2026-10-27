@@ -292,10 +292,15 @@ func TestMachineRequestsFollowTheAdvertisedCapabilities(t *testing.T) {
 	full := func() AgentConfig {
 		return AgentConfig{
 			TerminalSession: factory, launch: true, worktree: true, browse: true, branches: true,
-			LaunchTools:   func() []string { return []string{"claude"} },
-			GitAvailable:  func() bool { return true },
-			Consent:       func() (bool, terminalproto.Readiness, error) { return true, terminalproto.Ready, nil },
-			BrowseAllowed: func() bool { return true },
+			LaunchTools:  func() []string { return []string{"claude"} },
+			GitAvailable: func() bool { return true },
+			// Consent probes readiness (tmux) and must never be used here.
+			Consent: func() (bool, terminalproto.Readiness, error) {
+				t.Error("the readiness probe ran for a browse or branches request")
+				return true, terminalproto.Ready, nil
+			},
+			TerminalAllowed: func() bool { return true },
+			BrowseAllowed:   func() bool { return true },
 		}
 	}
 	browse := terminalproto.Message{Version: terminalproto.Version, RequestID: "browse-request-00001", Generation: 1, Body: &terminalproto.Browse{}}
@@ -314,12 +319,8 @@ func TestMachineRequestsFollowTheAdvertisedCapabilities(t *testing.T) {
 		{"git not found", func(c *AgentConfig) { c.GitAvailable = func() bool { return false } }, true, false},
 		{"worktree not negotiated", func(c *AgentConfig) { c.worktree = false }, true, false},
 		{"launch not negotiated", func(c *AgentConfig) { c.launch = false }, true, false},
-		{"terminal access off", func(c *AgentConfig) {
-			c.Consent = func() (bool, terminalproto.Readiness, error) { return false, terminalproto.DisabledLocally, nil }
-		}, false, false},
-		{"consent unreadable", func(c *AgentConfig) {
-			c.Consent = func() (bool, terminalproto.Readiness, error) { return true, terminalproto.Ready, errors.New("gone") }
-		}, false, false},
+		{"terminal access off", func(c *AgentConfig) { c.TerminalAllowed = func() bool { return false } }, false, false},
+		{"no terminal switch", func(c *AgentConfig) { c.TerminalAllowed = nil }, false, false},
 	} {
 		cfg := full()
 		tc.edit(&cfg)
@@ -390,9 +391,10 @@ func TestControlWorkersRefuseBrowseWhenOffLocally(t *testing.T) {
 	cfg := AgentConfig{
 		InstanceID: testInstance(), CollectTimeout: time.Hour, ReportInterval: time.Hour, ConsentInterval: time.Hour, browse: true,
 		TerminalSession: factory, TerminalEnabled: true, TerminalReadiness: terminalproto.Ready,
-		BrowseAllowed: func() bool { return false },
-		Collector:     collectorFunc(func(ctx context.Context, _ string) Sample { <-ctx.Done(); return Sample{} }),
-		control:       func(context.Context, terminalproto.Message) error { handled.Add(1); return nil },
+		TerminalAllowed: func() bool { return true },
+		BrowseAllowed:   func() bool { return false },
+		Collector:       collectorFunc(func(ctx context.Context, _ string) Sample { <-ctx.Done(); return Sample{} }),
+		control:         func(context.Context, terminalproto.Message) error { handled.Add(1); return nil },
 	}
 	sequence := int64(0)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -417,4 +419,52 @@ func TestControlWorkersRefuseBrowseWhenOffLocally(t *testing.T) {
 	}
 	cancel()
 	<-done
+}
+
+// Deciding whether to serve a browse or branches request reads only cheap
+// local state: it never runs the readiness probe (tmux, seconds when tmux is
+// wedged) on the dispatcher, so the connection's other requests never wait.
+func TestGateNeverWaitsOnTheReadinessProbe(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("terminal control is Linux and macOS only")
+	}
+	factory := func(context.Context, *http.Client, http.Header, int64, Sender) (func(context.Context, terminalproto.Message) error, func()) {
+		return nil, func() {}
+	}
+	var probes atomic.Int32
+	wedged := make(chan struct{})
+	defer close(wedged)
+	cfg := AgentConfig{
+		TerminalSession: factory, launch: true, worktree: true, browse: true, branches: true,
+		LaunchTools:  func() []string { return []string{"claude"} },
+		GitAvailable: func() bool { return true },
+		Consent: func() (bool, terminalproto.Readiness, error) {
+			probes.Add(1)
+			<-wedged
+			return true, terminalproto.Ready, nil
+		},
+		TerminalAllowed: func() bool { return true },
+		BrowseAllowed:   func() bool { return false },
+	}
+	var forwarded atomic.Int32
+	gate := gateMachineRequests(cfg, func(context.Context, terminalproto.Message) error { forwarded.Add(1); return nil },
+		func(context.Context, terminalproto.Message) error { return nil })
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for _, body := range []terminalproto.Body{&terminalproto.Browse{}, &terminalproto.Branches{Dir: "/home/someone/site"}} {
+			_ = gate(context.Background(), terminalproto.Message{Version: terminalproto.Version, RequestID: "gate-request-000001", Generation: 1, Body: body})
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("a browse or branches request waited on the readiness probe")
+	}
+	if n := probes.Load(); n != 0 {
+		t.Fatal("readiness probed", n)
+	}
+	if forwarded.Load() != 1 {
+		t.Fatal("branches not served, or browse served while off", forwarded.Load())
+	}
 }

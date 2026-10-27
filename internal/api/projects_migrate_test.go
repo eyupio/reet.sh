@@ -167,3 +167,98 @@ func TestFolderProjectMigrationNote(t *testing.T) {
 		t.Fatal(rows)
 	}
 }
+
+// Repositories that waited for room come in when the person asks, never by
+// themselves; the list says how many wait.
+func TestFolderProjectImportSaved(t *testing.T) {
+	f := projectFixture(t)
+	for i := 0; i < store.MaxFolderProjects-1; i++ {
+		if _, err := f.st.CreateFolderProjectFor(f.uid, store.FolderProject{Host: f.agent.ID, Dir: "/full/" + strings.Repeat("d", i+1)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	storeProject(t, f.st, f.uid, map[string]any{"name": "Shop", "defaultTool": "claude", "sharedPrompt": projectSentinel, "members": []map[string]any{
+		{"host": f.agent.ID, "dir": "/home/tester/a"}, {"host": f.agent.ID, "dir": "/home/tester/b"}, {"host": f.agent.ID, "dir": "/home/tester/c"}}})
+	if rep, err := f.st.MigrateProjectsToFolders(); err != nil || rep.Created != 1 || rep.Waiting != 2 {
+		t.Fatal(rep, err)
+	}
+	list := f.fpDo(t, f.cookie, "GET", "/api/v2/folder-projects", nil, "")
+	if list.code != 200 || list.out["savedWaiting"] != float64(2) {
+		t.Fatal(list.code, list.raw[:min(len(list.raw), 300)])
+	}
+	// Still no room: nothing comes in, and the answer says why.
+	res := f.fpDo(t, f.cookie, "POST", "/api/v2/folder-projects/import-saved", nil, "")
+	if res.code != 200 || res.out["created"] != float64(0) || res.out["savedWaiting"] != float64(2) ||
+		res.out["message"] != "2 saved repositories are waiting for room. Remove a project, then try again." || strings.Contains(res.raw, "zebra") {
+		t.Fatal(res.code, res.raw[:min(len(res.raw), 300)])
+	}
+	// Making room does not bring them in by itself.
+	projects := list.out["projects"].([]any)
+	for _, p := range projects[:2] {
+		p := p.(map[string]any)
+		if res := f.fpDo(t, f.cookie, "DELETE", "/api/v2/folder-projects/"+p["id"].(string), nil, ""); res.code != 200 {
+			t.Fatal(res.code, res.raw)
+		}
+	}
+	if list := f.fpDo(t, f.cookie, "GET", "/api/v2/folder-projects", nil, ""); list.out["savedWaiting"] != float64(2) || len(list.out["projects"].([]any)) != 98 {
+		t.Fatal("brought in without being asked", list.out["savedWaiting"])
+	}
+	before := len(projectEvents(t, f.st, f.uid, "projects-migrated"))
+	res = f.fpDo(t, f.cookie, "POST", "/api/v2/folder-projects/import-saved", "{}", "")
+	if res.code != 200 || res.out["created"] != float64(2) || res.out["savedWaiting"] != float64(0) || len(res.out["projects"].([]any)) != 100 ||
+		res.out["message"] != "Added 2 saved repositories as projects." || strings.Contains(res.raw, "zebra") {
+		t.Fatal(res.code, res.raw[:min(len(res.raw), 300)])
+	}
+	rows := projectEvents(t, f.st, f.uid, "projects-migrated")
+	if len(rows) != before+1 || rows[0]["project"] != "Shop" || len(rows[0]["folderProjects"].([]any)) != 3 {
+		t.Fatal(rows)
+	}
+	for _, e := range worktreeEvents(t, f.st, f.uid, "projects-migrated")[:1] {
+		if e.Source != "ui" {
+			t.Fatal(e.Source)
+		}
+	}
+	// Again: nothing waits, nothing changes.
+	res = f.fpDo(t, f.cookie, "POST", "/api/v2/folder-projects/import-saved", nil, "")
+	if res.code != 200 || res.out["created"] != float64(0) || res.out["message"] != "Nothing is waiting to be added." || len(projectEvents(t, f.st, f.uid, "projects-migrated")) != before+1 {
+		t.Fatal(res.code, res.raw[:min(len(res.raw), 300)])
+	}
+	// Strict body, and the access rules of every folder-project write.
+	if res := f.fpDo(t, f.cookie, "POST", "/api/v2/folder-projects/import-saved", `{"all":true}`, ""); res.code != 400 || res.out["code"] != "invalid_request" {
+		t.Fatal(res.code, res.raw)
+	}
+	viewer, _ := f.st.CreateUser("import-viewer@example.test", "Viewer", "viewer", "hash")
+	if code, raw := f.raw(t, "POST", "/api/v2/folder-projects/import-saved", "", terminalLogin(t, f.st, viewer.ID), "https://reet.example", ""); code != 403 || !strings.Contains(raw, "read_only") {
+		t.Fatal("viewer", code, raw)
+	}
+	if code, raw := f.raw(t, "POST", "/api/v2/folder-projects/import-saved", "", f.cookie, "https://evil.example", ""); code != 403 || !strings.Contains(raw, "origin_refused") {
+		t.Fatal("origin", code, raw)
+	}
+	// Another account's saved Projects are its own.
+	other, _ := f.st.CreateUser("import-other@example.test", "Other", "admin", "hash")
+	if res := f.fpDo(t, terminalLogin(t, f.st, other.ID), "POST", "/api/v2/folder-projects/import-saved", nil, ""); res.code != 200 || res.out["created"] != float64(0) || len(res.out["projects"].([]any)) != 0 {
+		t.Fatal(res.code, res.raw)
+	}
+}
+
+// A saved starter prompt that today's rules refuse does not block clearing
+// the note or editing other fields; a new prompt is checked.
+func TestFolderProjectEditKeepsAnOldOneWordPrompt(t *testing.T) {
+	f := projectFixture(t)
+	saved, err := f.st.CreateFolderProjectFor(f.uid, store.FolderProject{Host: f.agent.ID, Dir: "/home/tester/site", DefaultTool: "claude", StarterPrompt: "update"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v2/folder-projects/" + saved.ID
+	for _, body := range []map[string]any{{"note": ""}, {"name": "Renamed"}, {"defaultModel": "sonnet"}} {
+		if res := f.fpDo(t, f.cookie, "PATCH", path, body, ""); res.code != 200 {
+			t.Fatal(body, res.code, res.raw)
+		}
+	}
+	if res := f.fpDo(t, f.cookie, "PATCH", path, map[string]any{"starterPrompt": "review"}, ""); res.code != 422 || res.out["code"] != "prompt_unsupported" {
+		t.Fatal(res.code, res.raw)
+	}
+	if res := f.fpDo(t, f.cookie, "PATCH", path, map[string]any{"starterPrompt": "review the change"}, ""); res.code != 200 {
+		t.Fatal(res.code, res.raw)
+	}
+}

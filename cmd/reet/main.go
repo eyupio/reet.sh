@@ -228,8 +228,8 @@ func serve() error {
 	// Projects stay readable and the next start tries again.
 	if rep, err := st.MigrateProjectsToFolders(); err != nil {
 		log.Printf("projects migration: not finished, will try again at the next start: %v", err)
-	} else if rep.Created > 0 || rep.Skipped > 0 {
-		log.Printf("projects migration: %d accounts, %d folder projects made, %d repositories skipped", rep.Users, rep.Created, rep.Skipped)
+	} else if rep.Created > 0 || rep.Failed > 0 {
+		log.Printf("projects migration: %d accounts, %d folder projects made, %d accounts to try again", rep.Users, rep.Created, rep.Failed)
 	}
 	_ = st.PruneEvents(time.Now().AddDate(-1, 0, 0).UnixMilli())
 	_ = st.PruneSessions(time.Now().UnixMilli())

@@ -180,3 +180,18 @@ test('a project names its machine by enrollment id, which browse and branches ta
   assert.equal(calls[0].url, '/api/v2/machines/a1b2c3/branches?dir=%2Fw%2Freet')
   assert.ok(!calls[0].url.includes('studio'))
 })
+
+test('the list says how many saved repositories wait, and importing them is one POST', async () => {
+  let calls = fetchReplying(200, { projects: [project()], savedWaiting: 3 })
+  assert.deepEqual(await api.folderProjectList(), { projects: [project()], savedWaiting: 3 })
+  assert.equal(calls[0].url, '/api/v2/folder-projects')
+  cookieOnly(calls[0])
+
+  const answer = { projects: [project()], savedWaiting: 0, created: 3, skipped: 0, message: 'Added 3 saved repositories as projects.' }
+  calls = fetchReplying(200, answer)
+  assert.deepEqual(await api.importSavedProjects(), answer)
+  assert.equal(calls[0].url, '/api/v2/folder-projects/import-saved')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.deepEqual(JSON.parse(calls[0].init.body), {})
+  cookieOnly(calls[0])
+})

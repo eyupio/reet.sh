@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -16,8 +17,34 @@ const MaxFolderProjects = 100
 
 const maxFolderProjectPromptBytes = 2000
 
-// maxFolderProjectNoteBytes bounds Note, a list of saved Project names.
+// maxFolderProjectNoteBytes bounds the stored note, a JSON list of saved
+// Project names.
 const maxFolderProjectNoteBytes = 4000
+
+// noteNames reads a stored note: a JSON list of whole Project names.
+// Anything else (never written today) reads as one name.
+func noteNames(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	var names []string
+	if err := json.Unmarshal([]byte(raw), &names); err != nil {
+		return []string{raw}
+	}
+	return names
+}
+
+// encodeNote stores the names as a JSON list; none is "".
+func encodeNote(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(names)
+	return string(b)
+}
+
+// noteText is how a note reads: the names joined by ", ".
+func noteText(raw string) string { return strings.Join(noteNames(raw), ", ") }
 
 // maxFolderProjectHostBytes bounds Host, the machine's enrollment id
 // (sync_agents.id), as remote agent authentication bounds ids.
@@ -46,9 +73,10 @@ type FolderProject struct {
 	BaseBranch, WorktreeDefault, DefaultTool, DefaultModel, StarterPrompt string
 	Position                                                              int
 	LegacyProjectID                                                       string
-	// Note is a one-time notice from the migration of saved Projects: the
-	// names of the other Projects with this folder whose shared prompts
-	// differed from the one kept ("A, B"). The person can clear it.
+	// Note is a one-time notice from the migration of saved Projects, as it
+	// reads: the names of the other Projects with this folder whose shared
+	// prompts were not kept ("A, B"). It is stored as a list of whole names,
+	// is written only by the migration, and an update can only clear it ("").
 	Note                          string
 	CreatedAt, UpdatedAt, Version int64
 }
@@ -83,6 +111,11 @@ func (s *Store) migrateFolderProjects() error {
 				user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 				legacy_key TEXT NOT NULL, folder_project_id TEXT NOT NULL,
 				PRIMARY KEY(user_id,legacy_key))`,
+			// Each account's saved Projects as last migrated (counts and
+			// newest change): a start passes over an account that matches.
+			`CREATE TABLE IF NOT EXISTS folder_project_migration (
+				user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+				fingerprint TEXT NOT NULL)`,
 		} {
 			if _, err := tx.Exec(stmt); err != nil {
 				return err
@@ -133,6 +166,12 @@ func folderInvalid(format string, args ...any) error {
 // the account's other names (see resolveFolderName). It returns the project as
 // it will be stored. ID, Position, times and Version are the caller's to set.
 func normalizeFolderProject(p FolderProject) (FolderProject, error) {
+	return normalizeFolder(p, true)
+}
+
+// normalizeFolder is normalizeFolderProject; checkPrompt false leaves the
+// starter prompt unchecked (an update that keeps the saved one).
+func normalizeFolder(p FolderProject, checkPrompt bool) (FolderProject, error) {
 	if p.Host == "" || len(p.Host) > maxFolderProjectHostBytes || strings.TrimSpace(p.Host) != p.Host || !plainText(p.Host) {
 		return p, folderInvalid("machine id is required, at most %d bytes, plain text", maxFolderProjectHostBytes)
 	}
@@ -161,11 +200,8 @@ func normalizeFolderProject(p FolderProject) (FolderProject, error) {
 	if p.DefaultModel != "" && !terminalproto.ValidModel(p.DefaultModel) {
 		return p, folderInvalid("default model has characters or a length the connector would refuse")
 	}
-	if p.StarterPrompt != "" && (len(p.StarterPrompt) > maxFolderProjectPromptBytes || strings.HasPrefix(p.StarterPrompt, "-") || !terminalproto.ValidPrompt(p.StarterPrompt)) {
+	if checkPrompt && p.StarterPrompt != "" && (len(p.StarterPrompt) > maxFolderProjectPromptBytes || strings.HasPrefix(p.StarterPrompt, "-") || !terminalproto.ValidPrompt(p.StarterPrompt)) {
 		return p, folderInvalid("starter prompt must be valid text of at most %d bytes with no control characters except newline, and must not start with -", maxFolderProjectPromptBytes)
-	}
-	if len(p.Note) > maxFolderProjectNoteBytes || !plainText(p.Note) {
-		return p, folderInvalid("note must be plain text of at most %d bytes", maxFolderProjectNoteBytes)
 	}
 	return p, nil
 }
@@ -241,6 +277,7 @@ func scanFolderProject(r rowScanner) (FolderProject, error) {
 	var p FolderProject
 	err := r.Scan(&p.ID, &p.Host, &p.Dir, &p.Name, &p.IsRepo, &p.BaseBranch, &p.WorktreeDefault, &p.DefaultTool, &p.DefaultModel,
 		&p.StarterPrompt, &p.Position, &p.LegacyProjectID, &p.Note, &p.CreatedAt, &p.UpdatedAt, &p.Version)
+	p.Note = noteText(p.Note)
 	return p, err
 }
 
@@ -256,7 +293,11 @@ func (s *Store) CreateFolderProjectFor(uid int64, p FolderProject) (FolderProjec
 		if err := s.userExists(tx, uid); err != nil {
 			return ErrFolderProjectNotFound
 		}
-		saved, err = insertFolderProject(tx, uid, p)
+		var note []string
+		if p.Note != "" {
+			note = []string{p.Note}
+		}
+		saved, err = insertFolderProject(tx, uid, p, encodeNote(note))
 		return err
 	})
 	if err != nil {
@@ -266,8 +307,9 @@ func (s *Store) CreateFolderProjectFor(uid int64, p FolderProject) (FolderProjec
 }
 
 // insertFolderProject stores p, already normalized, at the end of uid's list
-// inside tx: the limit, position and name are settled there.
-func insertFolderProject(tx *sql.Tx, uid int64, p FolderProject) (FolderProject, error) {
+// inside tx, with note as stored (see encodeNote): the limit, position and
+// name are settled there.
+func insertFolderProject(tx *sql.Tx, uid int64, p FolderProject, note string) (FolderProject, error) {
 	var err error
 	if p.ID, err = projectRandomID(); err != nil {
 		return FolderProject{}, err
@@ -291,10 +333,11 @@ func insertFolderProject(tx *sql.Tx, uid int64, p FolderProject) (FolderProject,
 	}
 	_, err = tx.Exec(`INSERT INTO folder_projects(id,user_id,host,dir,name,name_key,is_repo,base_branch,worktree_default,default_tool,default_model,starter_prompt,position,legacy_project_id,note,created_at,updated_at,version)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
-		p.ID, uid, p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.StarterPrompt, p.Position, legacy, p.Note, t, t)
+		p.ID, uid, p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.StarterPrompt, p.Position, legacy, note, t, t)
 	if err != nil {
 		return FolderProject{}, folderConflict(err)
 	}
+	p.Note = noteText(note)
 	return p, nil
 }
 
@@ -302,13 +345,15 @@ func insertFolderProject(tx *sql.Tx, uid int64, p FolderProject) (FolderProject,
 // Position, LegacyProjectID and CreatedAt are kept. A non-zero expect is the
 // version the caller read: a different stored one is ErrFolderProjectChanged.
 // Zero means the last write wins. Either way the version goes up by one.
+// The starter prompt is checked only when it changes, so a saved one that
+// today's rules refuse does not block editing the other fields. The note can
+// only be cleared: an empty Note clears it, any other value keeps it.
 func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64) (FolderProject, error) {
 	id := p.ID
-	p, err := normalizeFolderProject(p)
-	if err != nil {
+	if _, err := normalizeFolder(p, false); err != nil {
 		return FolderProject{}, err
 	}
-	err = s.withTx(func(tx *sql.Tx) error {
+	err := s.withTx(func(tx *sql.Tx) error {
 		var cur FolderProject
 		cur, err := scanFolderProject(tx.QueryRow(`SELECT `+folderColumns+` FROM folder_projects WHERE id=? AND user_id=?`, id, uid))
 		if errors.Is(err, sql.ErrNoRows) {
@@ -319,6 +364,12 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 		if expect != 0 && expect != cur.Version {
 			return ErrFolderProjectChanged
 		}
+		if p, err = normalizeFolder(p, p.StarterPrompt != cur.StarterPrompt); err != nil {
+			return err
+		}
+		if p.Note != "" {
+			p.Note = cur.Note
+		}
 		if p.Name, err = resolveFolderName(tx, uid, id, p); err != nil {
 			return err
 		}
@@ -327,7 +378,7 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 			t = cur.CreatedAt
 		}
 		p.ID, p.Position, p.LegacyProjectID, p.CreatedAt, p.UpdatedAt, p.Version = id, cur.Position, cur.LegacyProjectID, cur.CreatedAt, t, cur.Version+1
-		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,default_tool=?,default_model=?,starter_prompt=?,note=?,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
+		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,default_tool=?,default_model=?,starter_prompt=?,note=CASE WHEN ?='' THEN '' ELSE note END,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
 			p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.StarterPrompt, p.Note, t, p.Version, id, uid, cur.Version)
 		if err != nil {
 			return folderConflict(err)

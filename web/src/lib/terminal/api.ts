@@ -162,6 +162,10 @@ export type FolderProject = {
  * `note` can only be cleared (anything else is 422 `invalid_note`). */
 export type FolderProjectInput = Partial<Pick<FolderProject, 'host' | 'dir' | 'name' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'defaultTool' | 'defaultModel' | 'starterPrompt'>> & { note?: '' }
 export type RemovedFolderProject = { ok: boolean; message: string }
+/** The rail's list; `savedWaiting` counts saved Project repositories still waiting for room (offer `importSavedProjects`). */
+export type FolderProjectList = { projects: FolderProject[]; savedWaiting: number }
+/** What bringing in the waiting saved repositories did, with the list as it now is and one sentence to show. */
+export type ImportedSavedProjects = FolderProjectList & { created: number; skipped: number; message: string }
 
 export type BrowseRepo = 'root' | 'inside' | 'none'
 export type BrowseEntry = { name: string; dir: boolean; repoRoot: boolean; hidden: boolean }
@@ -197,6 +201,11 @@ async function withVersion(response: Response): Promise<FolderProject> {
 }
 
 export async function listFolderProjects(signal?: AbortSignal): Promise<FolderProject[]> { return (await (await terminalRequest('/api/v2/folder-projects', { signal: within(signal) })).json()).projects }
+export async function folderProjectList(signal?: AbortSignal): Promise<FolderProjectList> { return (await terminalRequest('/api/v2/folder-projects', { signal: within(signal) })).json() }
+/** Brings in the saved Project repositories that waited for room; with nothing waiting it changes nothing. */
+export async function importSavedProjects(signal?: AbortSignal): Promise<ImportedSavedProjects> {
+  return (await terminalRequest('/api/v2/folder-projects/import-saved', { method: 'POST', signal: within(signal), body: '{}' })).json()
+}
 export async function getFolderProject(id: string, signal?: AbortSignal): Promise<FolderProject> { return withVersion(await terminalRequest(folderProjectPath(id), { signal: within(signal) })) }
 export async function createFolderProject(input: FolderProjectInput, signal?: AbortSignal): Promise<FolderProject> {
   return withVersion(await terminalRequest('/api/v2/folder-projects', { method: 'POST', signal: within(signal), body: JSON.stringify(input) }))

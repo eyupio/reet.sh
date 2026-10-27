@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // migrate runs the migration once and fails the test on an error.
@@ -39,6 +40,17 @@ func byDir(t *testing.T, s *Store, uid int64) map[string]FolderProject {
 		out[k] = p
 	}
 	return out
+}
+
+// forgetMigrated removes the setting and every account's marker, as if no
+// start had run.
+func forgetMigrated(t *testing.T, s *Store) {
+	t.Helper()
+	for _, stmt := range []string{`DELETE FROM settings WHERE key='projects_migrated'`, `DELETE FROM folder_project_migration`} {
+		if _, err := s.db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func countRows(t *testing.T, s *Store, table string) int {
@@ -250,10 +262,9 @@ func TestMigrationIsIdempotent(t *testing.T) {
 	if rep := migrate(t, s); rep != (MigrationReport{}) {
 		t.Fatalf("second run: %+v", rep)
 	}
-	// Without the setting the mapping alone keeps it from copying again.
-	if _, err := s.db.Exec(`DELETE FROM settings WHERE key='projects_migrated'`); err != nil {
-		t.Fatal(err)
-	}
+	// Without the setting and the account's marker, the mapping alone keeps
+	// it from copying again.
+	forgetMigrated(t, s)
 	if rep := migrate(t, s); rep.Created != 0 || rep.Users != 0 {
 		t.Fatalf("third run: %+v", rep)
 	}
@@ -261,9 +272,7 @@ func TestMigrationIsIdempotent(t *testing.T) {
 	if err := s.DeleteFolderProjectFor(uid, before[0].ID, 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`DELETE FROM settings WHERE key='projects_migrated'`); err != nil {
-		t.Fatal(err)
-	}
+	forgetMigrated(t, s)
 	if rep := migrate(t, s); rep.Created != 0 {
 		t.Fatalf("fourth run: %+v", rep)
 	}
@@ -442,13 +451,24 @@ func TestMigrationSkipsABadRowAndKeepsGoing(t *testing.T) {
 	if got := byDir(t, s, uid); len(got) != 2 || got[m+" /w/b"].ID == "" || got[m+" /w/d"].ID == "" {
 		t.Fatalf("%+v", got)
 	}
+	// Bad rows are settled for good: they do not wait, and are not tried again.
+	if n, err := s.SavedWaitingFor(uid); err != nil || n != 0 {
+		t.Fatal("waiting", n, err)
+	}
+	forgetMigrated(t, s)
+	if rep := migrate(t, s); rep.Skipped != 0 {
+		t.Fatalf("skipped again: %+v", rep)
+	}
 	// Bad rows do not hold the migration open.
 	if v, _ := s.GetSetting("projects_migrated"); v == "" {
 		t.Fatal("not marked done")
 	}
 }
 
-func TestMigrationLimitSkipsAndALaterRunContinues(t *testing.T) {
+// At the limit the rest waits. Starts do not take the room the person makes
+// (it may be for a folder of their own); the account's own action does.
+func TestMigrationLimitWaitsUntilThePersonBringsTheRestIn(t *testing.T) {
+	logs := captureLog(t)
 	s := newStore(t)
 	uid := projectUser(t, s, "a")
 	m := enrolledID(t, s, uid, "studio")
@@ -458,29 +478,42 @@ func TestMigrationLimitSkipsAndALaterRunContinues(t *testing.T) {
 	first := mustProject(t, s, uid, project("First", "", true, ProjectMember{Host: m, Dir: "/w/a"}, ProjectMember{Host: m, Dir: "/w/b"}))
 	second := mustProject(t, s, uid, project("Second", "", true, ProjectMember{Host: m, Dir: "/w/c"}))
 	rep := migrate(t, s)
-	if rep.Created != 1 || rep.Skipped != 2 {
+	if rep.Created != 1 || rep.Waiting != 2 || rep.Skipped != 0 || rep.Failed != 0 {
 		t.Fatalf("%+v", rep)
 	}
-	if v, _ := s.GetSetting("projects_migrated"); v != "" {
-		t.Fatal("marked done with Projects left over")
+	if n, err := s.SavedWaitingFor(uid); err != nil || n != 2 {
+		t.Fatal("waiting", n, err)
 	}
-	// The person makes room; the next start carries on where it stopped.
+	if lines := strings.Count(logs.String(), "\n"); lines != 1 {
+		t.Fatalf("one summary line, got %d: %s", lines, logs)
+	}
+	// The person makes room. A later start leaves it alone.
 	list, _ := s.ListFolderProjectsFor(uid)
 	for _, p := range list[:3] {
 		if err := s.DeleteFolderProjectFor(uid, p.ID, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
-	rep = migrate(t, s)
-	if rep.Created != 2 || rep.Skipped != 0 {
-		t.Fatalf("%+v", rep)
+	if _, err := s.db.Exec(`DELETE FROM settings WHERE key='projects_migrated'`); err != nil {
+		t.Fatal(err)
+	}
+	if rep := migrate(t, s); rep != (MigrationReport{}) {
+		t.Fatalf("a start took the room: %+v", rep)
+	}
+	// Bringing the rest in carries on where it stopped.
+	rep, err := s.MigrateProjectsToFoldersFor(uid)
+	if err != nil || rep.Created != 2 || rep.Waiting != 0 || rep.Skipped != 0 {
+		t.Fatalf("%+v %v", rep, err)
 	}
 	got := byDir(t, s, uid)
 	if got[m+" /w/a"].LegacyProjectID != first.ID+":0" || got[m+" /w/b"].LegacyProjectID != first.ID+":1" || got[m+" /w/c"].LegacyProjectID != second.ID+":0" {
 		t.Fatalf("%+v %+v %+v", got[m+" /w/a"], got[m+" /w/b"], got[m+" /w/c"])
 	}
-	if v, _ := s.GetSetting("projects_migrated"); v == "" {
-		t.Fatal("not marked done")
+	if n, _ := s.SavedWaitingFor(uid); n != 0 {
+		t.Fatal("still waiting", n)
+	}
+	if rep, err := s.MigrateProjectsToFoldersFor(uid); err != nil || rep != (MigrationReport{}) {
+		t.Fatalf("again: %+v %v", rep, err)
 	}
 	var names []string
 	for _, e := range migratedEvents(t, s, uid) {
@@ -491,6 +524,194 @@ func TestMigrationLimitSkipsAndALaterRunContinues(t *testing.T) {
 	if !reflect.DeepEqual(names, []string{"First", "First", "Second"}) {
 		t.Fatal(names)
 	}
+}
+
+// A row whose account is gone (only possible by hand) fails that account's
+// part alone: the others migrate, and the next start tries it again.
+func TestMigrationAccountErrorRollsBackOnlyThatAccount(t *testing.T) {
+	logs := captureLog(t)
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	m := enrolledID(t, s, uid, "studio")
+	mustProject(t, s, uid, project("Mine", "", true, ProjectMember{Host: m, Dir: "/a"}))
+	// Another account fails after its folder projects were written: they
+	// must go with the rest of its part.
+	b := projectUser(t, s, "b")
+	mustProject(t, s, b, project("Theirs", "", true, ProjectMember{Host: enrolledID(t, s, b, "desk"), Dir: "/b"}))
+	if _, err := s.db.Exec(fmt.Sprintf(`CREATE TEMP TRIGGER fail_b BEFORE INSERT ON events WHEN NEW.user_id=%d BEGIN SELECT RAISE(ABORT,'boom'); END`, b)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		t.Fatal(err)
+	}
+	t0 := now()
+	for _, stmt := range []string{
+		`INSERT INTO projects(id,user_id,name,name_key,default_tool,created_at,updated_at) VALUES('orphan',999,'Orphan secret','orphan secret','claude',?,?)`,
+		`INSERT INTO project_members(project_id,user_id,position,host,dir) VALUES('orphan',999,0,'h','/orphan-folder')`,
+	} {
+		if _, err := s.db.Exec(stmt, t0-1, t0-1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(`PRAGMA foreign_keys=ON`); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := s.MigrateProjectsToFolders()
+	if err != nil || rep.Failed != 2 || rep.Created != 1 || rep.Users != 1 {
+		t.Fatalf("%+v %v", rep, err)
+	}
+	if got := byDir(t, s, uid); len(got) != 1 {
+		t.Fatalf("%+v", got)
+	}
+	if got := byDir(t, s, b); len(got) != 0 {
+		t.Fatalf("a failed account kept its folder projects: %+v", got)
+	}
+	var orphanRows int
+	s.db.QueryRow(`SELECT (SELECT COUNT(*) FROM folder_projects WHERE user_id=999)+(SELECT COUNT(*) FROM folder_project_legacy WHERE user_id=999)+(SELECT COUNT(*) FROM events WHERE user_id=999)`).Scan(&orphanRows)
+	if orphanRows != 0 {
+		t.Fatal("the failed account's part was kept", orphanRows)
+	}
+	if v, _ := s.GetSetting("projects_migrated"); v != "" {
+		t.Fatal("marked done with an account failed")
+	}
+	if !strings.Contains(logs.String(), "could not be migrated") || strings.Contains(logs.String(), "Orphan") || strings.Contains(logs.String(), "orphan") {
+		t.Fatal(logs)
+	}
+	// The next start tries the failed account again and leaves the other alone.
+	if rep, err := s.MigrateProjectsToFolders(); err != nil || rep.Failed != 2 || rep.Created != 0 || rep.Users != 0 {
+		t.Fatalf("%+v %v", rep, err)
+	}
+	// Once the cause is gone, the next start migrates it.
+	if _, err := s.db.Exec(`DROP TRIGGER fail_b`); err != nil {
+		t.Fatal(err)
+	}
+	if rep, err := s.MigrateProjectsToFolders(); err != nil || rep.Failed != 1 || rep.Created != 1 {
+		t.Fatalf("%+v %v", rep, err)
+	}
+}
+
+// Notes compare whole names: "A, B" does not hide "A".
+func TestMigrationNoteKeepsWholeNames(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	m := enrolledID(t, s, uid, "studio")
+	mustProject(t, s, uid, project("X", "first prompt here", true, ProjectMember{Host: m, Dir: "/w"}))
+	mustProject(t, s, uid, project("A, B", "second prompt here", true, ProjectMember{Host: m, Dir: "/w"}))
+	mustProject(t, s, uid, project("A", "third prompt here", true, ProjectMember{Host: m, Dir: "/w"}))
+	migrate(t, s)
+	if got := byDir(t, s, uid)[m+" /w"]; got.Note != "A, B, A" || got.StarterPrompt != "first prompt here" {
+		t.Fatalf("%+v", got)
+	}
+}
+
+// A one-word prompt the agent would read as a subcommand is not copied; the
+// Project is named in the note instead.
+func TestMigrationLeavesOutAOneWordPrompt(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	m := enrolledID(t, s, uid, "studio")
+	p := mustProject(t, s, uid, project("Shop", "", true, ProjectMember{Host: m, Dir: "/w"}))
+	if _, err := s.db.Exec(`UPDATE projects SET shared_prompt='update' WHERE id=?`, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	migrate(t, s)
+	if got := byDir(t, s, uid)[m+" /w"]; got.StarterPrompt != "" || got.Note != "Shop" {
+		t.Fatalf("%+v", got)
+	}
+}
+
+// A starter prompt today's rules refuse does not block editing other fields
+// or clearing the note; only a new prompt is checked.
+func TestFolderProjectUpdateKeepsAnOldPromptItCannotSaveAgain(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	m := enrolledID(t, s, uid, "studio")
+	p := mustFP(t, s, uid, FolderProject{Host: m, Dir: "/w", StarterPrompt: "fix it"})
+	if _, err := s.db.Exec(`UPDATE folder_projects SET starter_prompt='-rm everything', note='["Old"]' WHERE id=?`, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	cur, _ := s.FolderProjectFor(uid, p.ID)
+	if cur.Note != "Old" {
+		t.Fatal(cur.Note)
+	}
+	cur.Name, cur.Note = "Renamed", ""
+	saved, err := s.UpdateFolderProjectFor(uid, cur, cur.Version)
+	if err != nil || saved.Name != "Renamed" || saved.Note != "" || saved.StarterPrompt != "-rm everything" {
+		t.Fatalf("%+v %v", saved, err)
+	}
+	saved.StarterPrompt = "-another one"
+	if _, err := s.UpdateFolderProjectFor(uid, saved, saved.Version); !errors.Is(err, ErrFolderProjectInvalid) {
+		t.Fatal("a new bad prompt was saved", err)
+	}
+}
+
+// 200 accounts × 50 Projects × 12 repositories, every account already full:
+// later starts cost almost nothing and the log stays short. Under the race
+// detector, which slows the database about tenfold, 20 accounts.
+func TestMigrationLaterStartsCostNothing(t *testing.T) {
+	if testing.Short() {
+		t.Skip("large")
+	}
+	logs := captureLog(t)
+	s := newStore(t)
+	tx, err := s.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	accounts := 200
+	if raceEnabled {
+		accounts = 20
+	}
+	t0 := now()
+	for a := 0; a < accounts; a++ {
+		res, err := tx.Exec(`INSERT INTO users(email,name,role,password_hash,created_at) VALUES(?,?,?,?,?)`, fmt.Sprintf("u%d@example.com", a), "u", "member", "hash", t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		uid, _ := res.LastInsertId()
+		for i := 0; i < MaxFolderProjects; i++ {
+			name := fmt.Sprintf("full %d", i)
+			if _, err := tx.Exec(`INSERT INTO folder_projects(id,user_id,host,dir,name,name_key,position,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`,
+				fmt.Sprintf("f%d-%d", a, i), uid, "machine", fmt.Sprintf("/full/%d", i), name, name, i, t0, t0); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for p := 0; p < MaxProjectsPerAccount; p++ {
+			pid := fmt.Sprintf("p%d-%d", a, p)
+			if _, err := tx.Exec(`INSERT INTO projects(id,user_id,name,name_key,default_tool,created_at,updated_at) VALUES(?,?,?,?,'claude',?,?)`, pid, uid, pid, pid, t0, t0); err != nil {
+				t.Fatal(err)
+			}
+			for m := 0; m < MaxProjectMembers; m++ {
+				if _, err := tx.Exec(`INSERT INTO project_members(project_id,user_id,position,host,dir) VALUES(?,?,?,'machine',?)`, pid, uid, m, fmt.Sprintf("/w/%d/%d", p, m)); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	rep := migrate(t, s)
+	first := time.Since(start)
+	if rep.Waiting != accounts*MaxProjectsPerAccount*MaxProjectMembers || rep.Created != 0 || rep.Failed != 0 {
+		t.Fatalf("%+v", rep)
+	}
+	if lines := strings.Count(logs.String(), "\n"); lines > 3 {
+		t.Fatalf("%d log lines", lines)
+	}
+	// Even without the setting, each account's marker answers at once.
+	if _, err := s.db.Exec(`DELETE FROM settings WHERE key='projects_migrated'`); err != nil {
+		t.Fatal(err)
+	}
+	logs.Reset()
+	start = time.Now()
+	rep = migrate(t, s)
+	again := time.Since(start)
+	if rep != (MigrationReport{}) || logs.Len() != 0 || again > 2*time.Second {
+		t.Fatalf("%+v %s %q", rep, again, logs)
+	}
+	t.Logf("first start %s, later start %s", first, again)
 }
 
 func TestMigrationOnAnOldDatabaseWithoutTheMappingTable(t *testing.T) {
@@ -523,7 +744,7 @@ func TestMigrationOnAnOldDatabaseWithoutTheMappingTable(t *testing.T) {
 	}
 	// The mapping table lost again, and the setting with it: the legacy
 	// column alone keeps the copies from being made twice.
-	for _, stmt := range []string{`DROP TABLE folder_project_legacy`, `DELETE FROM settings WHERE key='projects_migrated'`} {
+	for _, stmt := range []string{`DROP TABLE folder_project_legacy`, `DROP TABLE folder_project_migration`, `DELETE FROM settings WHERE key='projects_migrated'`} {
 		if _, err := s.db.Exec(stmt); err != nil {
 			t.Fatal(stmt, err)
 		}

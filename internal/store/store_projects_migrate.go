@@ -4,9 +4,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // Saved multi-repository Projects become folder projects (spec "Migration",
@@ -15,18 +18,29 @@ import (
 // runs, their members and their worktree records keep loading, and a run's
 // worktree can still be checked and removed.
 
-// MigrationReport says what one run of MigrateProjectsToFolders did. Users
-// counts the accounts with a Project audited in this run; Created the folder
-// projects made; Skipped the repositories not made into a folder project in
-// this run: a folder the person had already registered, a row today's rules
-// refuse, or one past the account's project limit.
+// MigrationReport says what one run did. Users counts the accounts with a
+// Project audited; Created the folder projects made; Skipped the repositories
+// not made into one for good (a folder the person had already registered, or
+// a row today's rules refuse); Waiting the repositories left for want of room
+// (the account has the most projects reet keeps); Failed the accounts whose
+// part failed and was rolled back, to be tried at the next start.
 type MigrationReport struct {
 	Users   int
 	Created int
 	Skipped int
+	Waiting int
+	Failed  int
 }
 
-// projectsMigratedSetting is set once a run left nothing to do later.
+func (r *MigrationReport) add(o MigrationReport) {
+	r.Users += o.Users
+	r.Created += o.Created
+	r.Skipped += o.Skipped
+	r.Waiting += o.Waiting
+	r.Failed += o.Failed
+}
+
+// projectsMigratedSetting is set once a start left no account failed.
 const projectsMigratedSetting = "projects_migrated"
 
 // legacyKey names one member of a saved Project: "<projectID>:<position>".
@@ -36,24 +50,30 @@ func legacyKey(projectID string, position int) string {
 
 // MigrateProjectsToFolders makes a folder project of every distinct machine
 // and cleaned folder in every account's saved Projects, oldest Project first,
-// in one transaction. It is meant to run at every controller start:
+// in one transaction. It runs at every controller start:
 //
-//   - Re-running creates nothing. Each member's folder project is recorded in
+//   - Re-running creates nothing. Each member's outcome is recorded in
 //     folder_project_legacy (and the first member of a folder in the folder
 //     project's legacy_project_id), so a member already handled is passed
-//     over even without the projects_migrated setting, and a folder project
-//     the person has since removed is not made again.
+//     over, and a folder project the person has since removed is not made
+//     again. An account whose saved Projects have not changed since its last
+//     run (folder_project_migration) is not even read.
 //   - A folder already registered by the person is left exactly as it is.
 //   - The first (oldest) Project's shared prompt becomes the starter prompt; a
 //     later Project with another prompt for the same folder is named in the
 //     folder project's Note.
-//   - A row today's rules refuse is skipped, counted and logged (without
-//     names, folders or prompts); the rest still migrate.
-//   - At the account's project limit the remaining members are skipped and
-//     the setting is left unset, so the next start carries on.
+//   - A row today's rules refuse is skipped for good and counted.
+//   - At the account's project limit the remaining members wait. A start never
+//     takes room the person makes later (it may be for a folder of their own):
+//     MigrateProjectsToFoldersFor, the person's own action, brings them in.
+//   - Each account runs inside its own savepoint: an unexpected error rolls
+//     back that account alone, counts it as Failed and leaves the setting
+//     unset, so the next start tries it again; the others migrate.
 //
-// Each Project gets one projects-migrated audit event naming its folder
-// projects (another when a later run adds to them); never a prompt or folder.
+// The log gets one summary line per start (and one per failed account), with
+// counts only: never names, folders, ids or prompts. Each Project gets one
+// projects-migrated audit event naming its folder projects (another when a
+// later run adds to them); never a prompt or folder.
 func (s *Store) MigrateProjectsToFolders() (MigrationReport, error) {
 	var rep MigrationReport
 	err := s.withTx(func(tx *sql.Tx) error {
@@ -66,34 +86,59 @@ func (s *Store) MigrateProjectsToFolders() (MigrationReport, error) {
 		if done != "" {
 			return nil
 		}
-		var users []int64
-		rows, err := tx.Query(`SELECT DISTINCT user_id FROM projects ORDER BY user_id`)
+		users, prints, err := projectFingerprints(tx)
+		if err != nil {
+			return err
+		}
+		marked := map[int64]string{}
+		rows, err := tx.Query(`SELECT user_id,fingerprint FROM folder_project_migration`)
 		if err != nil {
 			return err
 		}
 		for rows.Next() {
 			var uid int64
-			if err := rows.Scan(&uid); err != nil {
+			var print string
+			if err := rows.Scan(&uid, &print); err != nil {
 				rows.Close()
 				return err
 			}
-			users = append(users, uid)
+			marked[uid] = print
 		}
 		if err := rows.Close(); err != nil {
 			return err
 		}
-		pending := false
 		for _, uid := range users {
-			audited, more, err := migrateAccountProjects(tx, uid, &rep)
-			if err != nil {
+			if marked[uid] == prints[uid] {
+				continue
+			}
+			if _, err := tx.Exec(`SAVEPOINT migrate_account`); err != nil {
 				return err
 			}
-			if audited {
-				rep.Users++
+			var acct MigrationReport
+			err := migrateAccountProjects(tx, uid, &acct, "migration")
+			if err == nil {
+				err = markAccountMigrated(tx, uid, prints[uid])
 			}
-			pending = pending || more
+			if err != nil {
+				if _, rerr := tx.Exec(`ROLLBACK TO migrate_account`); rerr != nil {
+					return rerr
+				}
+				if _, rerr := tx.Exec(`RELEASE migrate_account`); rerr != nil {
+					return rerr
+				}
+				rep.Failed++
+				log.Printf("projects migration: one account's saved Projects could not be migrated; they will be tried again at the next start")
+				continue
+			}
+			if _, err := tx.Exec(`RELEASE migrate_account`); err != nil {
+				return err
+			}
+			rep.add(acct)
 		}
-		if pending {
+		if rep.Skipped > 0 || rep.Waiting > 0 {
+			log.Printf("projects migration: %d repositories skipped (already a project, or not valid as one), %d waiting for room", rep.Skipped, rep.Waiting)
+		}
+		if rep.Failed > 0 {
 			return nil
 		}
 		_, err = tx.Exec(`INSERT INTO settings(key,value) VALUES(?,'1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`, projectsMigratedSetting)
@@ -105,83 +150,155 @@ func (s *Store) MigrateProjectsToFolders() (MigrationReport, error) {
 	return rep, nil
 }
 
-func logMigrationSkip(reason string) {
-	log.Printf("projects migration: skipped one repository of a saved Project: %s", reason)
+// MigrateProjectsToFoldersFor runs the migration for uid alone, whatever
+// was done before, with the same rules: it brings in what waited for room. It
+// is idempotent; with nothing waiting it changes nothing.
+func (s *Store) MigrateProjectsToFoldersFor(uid int64) (MigrationReport, error) {
+	var rep MigrationReport
+	err := s.withTx(func(tx *sql.Tx) error {
+		rep = MigrationReport{}
+		_, prints, err := projectFingerprints(tx)
+		if err != nil {
+			return err
+		}
+		if _, any := prints[uid]; !any {
+			return nil
+		}
+		if err := migrateAccountProjects(tx, uid, &rep, "ui"); err != nil {
+			return err
+		}
+		return markAccountMigrated(tx, uid, prints[uid])
+	})
+	if err != nil {
+		return MigrationReport{}, err
+	}
+	return rep, nil
 }
 
-// migrateAccountProjects migrates uid's Projects. audited reports whether an
-// event was written; pending whether a member was left for a later run.
-func migrateAccountProjects(tx *sql.Tx, uid int64, rep *MigrationReport) (audited, pending bool, err error) {
+// SavedWaitingFor counts uid's saved Project repositories that are not yet
+// a folder project or settled (skipped for good): those waiting for room.
+func (s *Store) SavedWaitingFor(uid int64) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM project_members m WHERE m.user_id=?
+		AND NOT EXISTS(SELECT 1 FROM folder_project_legacy l WHERE l.user_id=m.user_id AND l.legacy_key=m.project_id||':'||m.position)
+		AND NOT EXISTS(SELECT 1 FROM folder_projects f WHERE f.user_id=m.user_id AND f.legacy_project_id=m.project_id||':'||m.position)`, uid).Scan(&n)
+	return n, err
+}
+
+// projectFingerprints returns the accounts with saved Projects, in order, and
+// for each a fingerprint of them (counts and newest change): an account whose
+// fingerprint matches its marker has nothing new to migrate.
+func projectFingerprints(tx *sql.Tx) ([]int64, map[int64]string, error) {
+	rows, err := tx.Query(`SELECT p.user_id,COUNT(DISTINCT p.id),COUNT(m.project_id),COALESCE(MAX(p.updated_at),0)
+		FROM projects p LEFT JOIN project_members m ON m.project_id=p.id AND m.user_id=p.user_id
+		GROUP BY p.user_id ORDER BY p.user_id`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	var users []int64
+	prints := map[int64]string{}
+	for rows.Next() {
+		var uid, projects, members, newest int64
+		if err := rows.Scan(&uid, &projects, &members, &newest); err != nil {
+			return nil, nil, err
+		}
+		users = append(users, uid)
+		prints[uid] = fmt.Sprintf("%d:%d:%d", projects, members, newest)
+	}
+	return users, prints, rows.Err()
+}
+
+func markAccountMigrated(tx *sql.Tx, uid int64, print string) error {
+	_, err := tx.Exec(`INSERT INTO folder_project_migration(user_id,fingerprint) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET fingerprint=excluded.fingerprint`, uid, print)
+	return err
+}
+
+// migrateAccountProjects migrates uid's Projects into rep. source is the
+// audit source of its events.
+func migrateAccountProjects(tx *sql.Tx, uid int64, rep *MigrationReport, source string) error {
 	var projects []Project
 	rows, err := tx.Query(`SELECT `+projectCols+` FROM projects WHERE user_id=? ORDER BY created_at, rowid`, uid)
 	if err != nil {
-		return false, false, err
+		return err
 	}
 	for rows.Next() {
 		p, err := scanProject(rows)
 		if err != nil {
 			rows.Close()
-			return false, false, err
+			return err
 		}
 		projects = append(projects, p)
 	}
 	if err := rows.Close(); err != nil {
-		return false, false, err
+		return err
 	}
 	for i := range projects {
 		if projects[i].Members, err = loadProjectMembers(tx, uid, projects[i].ID); err != nil {
-			return false, false, err
+			return err
 		}
 	}
 
 	// What is already there: the account's folder projects by machine and
-	// folder, the members already mapped, and the legacy column (for a
-	// database that lost its mapping table).
+	// folder with their notes, the members already handled, and the legacy
+	// column (for a database that lost its mapping table).
 	byFolder := map[string]*FolderProject{}
 	byLegacy := map[string]string{}
-	frows, err := tx.Query(`SELECT `+folderColumns+` FROM folder_projects WHERE user_id=?`, uid)
+	notes := map[string][]string{}
+	frows, err := tx.Query(`SELECT `+folderColumns+`,note FROM folder_projects WHERE user_id=?`, uid)
 	if err != nil {
-		return false, false, err
+		return err
 	}
 	for frows.Next() {
-		p, err := scanFolderProject(frows)
-		if err != nil {
+		var p FolderProject
+		var raw string
+		if err := frows.Scan(&p.ID, &p.Host, &p.Dir, &p.Name, &p.IsRepo, &p.BaseBranch, &p.WorktreeDefault, &p.DefaultTool, &p.DefaultModel,
+			&p.StarterPrompt, &p.Position, &p.LegacyProjectID, &p.Note, &p.CreatedAt, &p.UpdatedAt, &p.Version, &raw); err != nil {
 			frows.Close()
-			return false, false, err
+			return err
 		}
 		byFolder[p.Host+"\x00"+p.Dir] = &p
+		notes[p.ID] = noteNames(raw)
 		if p.LegacyProjectID != "" {
 			byLegacy[p.LegacyProjectID] = p.ID
 		}
 	}
 	if err := frows.Close(); err != nil {
-		return false, false, err
+		return err
 	}
+	count := len(byFolder)
 	mapped := map[string]string{}
 	mrows, err := tx.Query(`SELECT legacy_key,folder_project_id FROM folder_project_legacy WHERE user_id=?`, uid)
 	if err != nil {
-		return false, false, err
+		return err
 	}
 	for mrows.Next() {
 		var k, id string
 		if err := mrows.Scan(&k, &id); err != nil {
 			mrows.Close()
-			return false, false, err
+			return err
 		}
 		mapped[k] = id
 	}
 	if err := mrows.Close(); err != nil {
-		return false, false, err
+		return err
 	}
+	// record remembers a member's outcome: its folder project, or "" for a
+	// member skipped for good (it is not tried again).
 	record := func(key, id string) error {
 		mapped[key] = id
 		_, err := tx.Exec(`INSERT INTO folder_project_legacy(user_id,legacy_key,folder_project_id) VALUES(?,?,?) ON CONFLICT(user_id,legacy_key) DO NOTHING`, uid, key, id)
 		return err
 	}
-	// noted collects, per folder project made from an older Project, the
-	// later Projects whose prompt for it was not kept.
-	noted := map[string]*FolderProject{}
+	skip := func(key string) error {
+		rep.Skipped++
+		return record(key, "")
+	}
+	// noted names the folder projects made from an older Project whose note
+	// gained a later Project.
+	noted := map[string]bool{}
 
+	audited := false
 	for _, p := range projects {
 		var ids []string
 		added, waiting := false, false
@@ -193,20 +310,21 @@ func migrateAccountProjects(tx *sql.Tx, uid int64, rep *MigrationReport) (audite
 			}
 			if id, ok := byLegacy[key]; ok {
 				if err := record(key, id); err != nil {
-					return false, false, err
+					return err
 				}
 				ids, added = appendOnce(ids, id), true
 				continue
 			}
 			dir, derr := CleanProjectDir(m.Dir)
 			if derr != nil {
-				rep.Skipped++
-				logMigrationSkip("its folder is not a valid absolute path")
+				if err := skip(key); err != nil {
+					return err
+				}
 				continue
 			}
 			if have, ok := byFolder[m.Host+"\x00"+dir]; ok {
 				if err := record(key, have.ID); err != nil {
-					return false, false, err
+					return err
 				}
 				ids, added = appendOnce(ids, have.ID), true
 				if have.LegacyProjectID == "" {
@@ -215,41 +333,51 @@ func migrateAccountProjects(tx *sql.Tx, uid int64, rep *MigrationReport) (audite
 					continue
 				}
 				// Made from an older Project: its prompt stays.
-				if p.SharedPrompt != "" && p.SharedPrompt != have.StarterPrompt && addNote(have, p.Name) {
-					noted[have.ID] = have
+				if p.SharedPrompt != "" && p.SharedPrompt != have.StarterPrompt {
+					if names, changed := addName(notes[have.ID], p.Name); changed {
+						notes[have.ID], noted[have.ID] = names, true
+					}
 				}
 				continue
 			}
-			fp, ok := migratedFolderProject(p, m, dir, key)
+			fp, note, ok := migratedFolderProject(p, m, dir, key)
 			if !ok {
-				rep.Skipped++
-				logMigrationSkip("its machine, agent, model or prompt is not one a project can keep")
+				if err := skip(key); err != nil {
+					return err
+				}
+				continue
+			}
+			if count >= MaxFolderProjects {
+				rep.Waiting++
+				waiting = true
 				continue
 			}
 			solo := ""
 			if len(p.Members) == 1 {
 				solo = p.Name
 			}
-			saved, err := insertMigrated(tx, uid, fp, solo)
+			saved, err := insertMigrated(tx, uid, fp, solo, encodeNote(note))
 			if errors.Is(err, ErrFolderProjectLimit) {
-				rep.Skipped++
-				pending, waiting = true, true
-				logMigrationSkip("the account has the most projects reet keeps")
+				rep.Waiting++
+				waiting = true
 				continue
 			}
 			if errors.Is(err, ErrFolderProjectInvalid) || errors.Is(err, ErrFolderProjectExists) || errors.Is(err, ErrFolderProjectName) {
-				rep.Skipped++
-				logMigrationSkip("it could not be saved as a project")
+				if err := skip(key); err != nil {
+					return err
+				}
 				continue
 			}
 			if err != nil {
-				return false, false, err
+				return err
 			}
 			rep.Created++
+			count++
 			byFolder[saved.Host+"\x00"+saved.Dir] = &saved
 			byLegacy[key] = saved.ID
+			notes[saved.ID] = note
 			if err := record(key, saved.ID); err != nil {
-				return false, false, err
+				return err
 			}
 			ids, added = appendOnce(ids, saved.ID), true
 		}
@@ -259,29 +387,37 @@ func migrateAccountProjects(tx *sql.Tx, uid int64, rep *MigrationReport) (audite
 			continue
 		}
 		if err := record(p.ID, ""); err != nil {
-			return false, false, err
+			return err
 		}
 		if ids == nil {
 			ids = []string{}
 		}
 		detail, err := json.Marshal(map[string]any{"project": p.Name, "folderProjects": ids})
 		if err != nil {
-			return false, false, err
+			return err
 		}
-		if _, err := tx.Exec(`INSERT INTO events(at,user_id,actor,source,action,skill_id,detail) VALUES(?,?,'','migration','projects-migrated','',?)`, now(), uid, string(detail)); err != nil {
-			return false, false, err
+		if _, err := tx.Exec(`INSERT INTO events(at,user_id,actor,source,action,skill_id,detail) VALUES(?,?,'',?,'projects-migrated','',?)`, now(), uid, source, string(detail)); err != nil {
+			return err
 		}
 		audited = true
 	}
-	for _, fp := range noted {
-		if _, err := tx.Exec(`UPDATE folder_projects SET note=?,updated_at=MAX(updated_at,?),version=version+1 WHERE id=? AND user_id=?`, fp.Note, now(), fp.ID, uid); err != nil {
-			return false, false, err
+	for id := range noted {
+		if _, err := tx.Exec(`UPDATE folder_projects SET note=?,updated_at=MAX(updated_at,?),version=version+1 WHERE id=? AND user_id=?`, encodeNote(notes[id]), now(), id, uid); err != nil {
+			return err
 		}
 	}
-	return audited, pending, nil
+	if audited {
+		rep.Users++
+	}
+	return nil
 }
 
+// appendOnce adds a folder project id once; "" (a member skipped for good)
+// names none.
 func appendOnce(ids []string, id string) []string {
+	if id == "" {
+		return ids
+	}
 	for _, have := range ids {
 		if have == id {
 			return ids
@@ -290,64 +426,63 @@ func appendOnce(ids []string, id string) []string {
 	return append(ids, id)
 }
 
-// addNote adds a Project's name to the folder project's note, once, while it
-// fits. It reports whether the note changed.
-func addNote(p *FolderProject, name string) bool {
-	for _, have := range strings.Split(p.Note, ", ") {
+// addName adds a Project's whole name to a note's names, once, while the
+// stored note fits. It reports whether the names changed.
+func addName(names []string, name string) ([]string, bool) {
+	for _, have := range names {
 		if have == name {
-			return false
+			return names, false
 		}
 	}
-	next := name
-	if p.Note != "" {
-		next = p.Note + ", " + name
+	next := append(append([]string(nil), names...), name)
+	if len(encodeNote(next)) > maxFolderProjectNoteBytes {
+		return names, false
 	}
-	if len(next) > maxFolderProjectNoteBytes {
-		return false
-	}
-	p.Note = next
-	return true
+	return next, true
 }
 
 // migratedFolderProject is the folder project a Project member becomes,
-// normalized, or false when today's rules refuse it. The member's agent and
-// model beat the Project's defaults (as a run resolves them); a shared prompt
-// the starter-prompt rules refuse is left out, and the Project is named in the
-// note so the person can find it in the kept record.
-func migratedFolderProject(p Project, m ProjectMember, dir, key string) (FolderProject, bool) {
+// normalized, with its note's names, or false when today's rules refuse it.
+// The member's agent and model beat the Project's defaults (as a run resolves
+// them). A shared prompt the starter-prompt rules refuse, or a single word
+// the agent would read as a subcommand, is left out, and the Project is named
+// in the note so the person can find it in the kept record.
+func migratedFolderProject(p Project, m ProjectMember, dir, key string) (FolderProject, []string, bool) {
 	tool, model := resolvedLaunch(p, m)
 	worktrees := "no"
 	if p.UseWorktrees {
 		worktrees = "yes"
 	}
 	fp := FolderProject{Host: m.Host, Dir: dir, WorktreeDefault: worktrees, DefaultTool: tool, DefaultModel: model, StarterPrompt: p.SharedPrompt, LegacyProjectID: key}
-	if out, err := normalizeFolderProject(fp); err == nil {
-		return out, true
+	if !terminalproto.PromptNeedsWords(tool, fp.StarterPrompt) {
+		if out, err := normalizeFolderProject(fp); err == nil {
+			return out, nil, true
+		}
 	}
 	if fp.StarterPrompt == "" {
-		return FolderProject{}, false
+		return FolderProject{}, nil, false
 	}
 	fp.StarterPrompt = ""
-	addNote(&fp, p.Name)
 	out, err := normalizeFolderProject(fp)
-	return out, err == nil
+	return out, []string{p.Name}, err == nil
 }
 
-// insertMigrated stores a migrated folder project. A Project with one
-// repository (solo is its name) lends it that name when no other project has it; otherwise
-// the folder's name is used, with " (2)" and on after a clash.
-func insertMigrated(tx *sql.Tx, uid int64, fp FolderProject, solo string) (FolderProject, error) {
+// insertMigrated stores a migrated folder project with its stored note. A
+// Project with one repository (solo is its name) lends it that name when no
+// other project has it; otherwise the folder's name is used, with " (2)" and
+// on after a clash.
+func insertMigrated(tx *sql.Tx, uid int64, fp FolderProject, solo, note string) (FolderProject, error) {
 	if solo != "" {
 		named := fp
 		named.Name = solo
 		if n, err := normalizeFolderProject(named); err == nil {
-			saved, err := insertFolderProject(tx, uid, n)
+			saved, err := insertFolderProject(tx, uid, n, note)
 			if !errors.Is(err, ErrFolderProjectName) {
 				return saved, err
 			}
 		}
 	}
-	return insertFolderProject(tx, uid, fp)
+	return insertFolderProject(tx, uid, fp, note)
 }
 
 // FolderProjectForLegacyFor returns the folder project that the first

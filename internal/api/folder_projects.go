@@ -47,6 +47,7 @@ func (s *server) registerFolderProjectRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/folder-projects", s.folderAccess(s.folderProjectList))
 	mux.HandleFunc("POST /api/v2/folder-projects", s.folderAccess(s.folderProjectWrite(s.folderProjectCreate)))
 	mux.HandleFunc("POST /api/v2/folder-projects/reorder", s.folderAccess(s.folderProjectWrite(s.folderProjectReorder)))
+	mux.HandleFunc("POST /api/v2/folder-projects/import-saved", s.folderAccess(s.folderProjectWrite(s.folderProjectImportSaved)))
 	mux.HandleFunc("GET /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectGet))
 	mux.HandleFunc("PATCH /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectWrite(s.folderProjectUpdate)))
 	mux.HandleFunc("DELETE /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectWrite(s.folderProjectDelete)))
@@ -249,7 +250,9 @@ func (s *server) checkFolderProject(names map[string]string, p *store.FolderProj
 	if p.DefaultModel != "" && !terminalproto.ValidModel(p.DefaultModel) {
 		return &projectRefusal{422, "invalid_model", "defaultModel", sentenceModel, ""}
 	}
-	if p.StarterPrompt != "" {
+	// A saved prompt is checked again only when it changes, so one that
+	// today's rules refuse does not block editing anything else.
+	if p.StarterPrompt != "" && (saved == nil || p.StarterPrompt != saved.StarterPrompt) {
 		if len(p.StarterPrompt) > terminalproto.MaxPromptBytes || strings.HasPrefix(p.StarterPrompt, "-") || !terminalproto.ValidPrompt(p.StarterPrompt) {
 			return &projectRefusal{422, "invalid_prompt", "starterPrompt", sentenceFolderPrompt, ""}
 		}
@@ -310,11 +313,94 @@ func (s *server) writeFolderProjects(w http.ResponseWriter, uid int64) {
 		folderRefusal(err, "").write(w)
 		return
 	}
+	waiting, err := s.st.SavedWaitingFor(uid)
+	if err != nil {
+		folderRefusal(err, "").write(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.folderListAnswer(projects, names, waiting, nil))
+}
+
+// folderListAnswer is the list answer: the projects in rail order and
+// savedWaiting, how many saved Project repositories wait for room. extra
+// adds fields (the import's counts and sentence).
+func (s *server) folderListAnswer(projects []store.FolderProject, names map[string]string, waiting int, extra map[string]any) map[string]any {
 	out := make([]folderProjectView, 0, len(projects))
 	for _, p := range projects {
 		out = append(out, viewFolderProject(p, names))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"projects": out})
+	answer := map[string]any{"projects": out, "savedWaiting": waiting}
+	for k, v := range extra {
+		answer[k] = v
+	}
+	return answer
+}
+
+// folderProjectImportSaved brings in the account's saved Project
+// repositories that waited for room (MigrateProjectsToFoldersFor), with the
+// migration's rules and audit. The body is empty or {}. Nothing waiting, or
+// still no room, is a 200 that creates nothing and says so.
+func (s *server) folderProjectImportSaved(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxFolderProjectBodyBytes)
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeErrCode(w, http.StatusRequestEntityTooLarge, "too_large", "", "That request is too large for a project.", "")
+		return
+	}
+	if strings.TrimSpace(string(raw)) != "" {
+		r.Body = io.NopCloser(strings.NewReader(string(raw)))
+		var in struct{}
+		if !folderProjectBody(w, r, &in) {
+			return
+		}
+	}
+	uid := s.uid(r)
+	rep, err := s.st.MigrateProjectsToFoldersFor(uid)
+	if err != nil {
+		folderRefusal(err, "").write(w)
+		return
+	}
+	projects, err := s.st.ListFolderProjectsFor(uid)
+	if err != nil {
+		folderRefusal(err, "").write(w)
+		return
+	}
+	names, err := s.machineNames(uid)
+	if err != nil {
+		folderRefusal(err, "").write(w)
+		return
+	}
+	waiting, err := s.st.SavedWaitingFor(uid)
+	if err != nil {
+		folderRefusal(err, "").write(w)
+		return
+	}
+	var message string
+	switch {
+	case rep.Created > 0 && waiting > 0:
+		message = fmt.Sprintf("Added %s as projects. %s still waiting for room.", savedRepositories(rep.Created), savedRepositoriesAre(waiting))
+	case rep.Created > 0:
+		message = fmt.Sprintf("Added %s as projects.", savedRepositories(rep.Created))
+	case waiting > 0:
+		message = fmt.Sprintf("%s waiting for room. Remove a project, then try again.", savedRepositoriesAre(waiting))
+	default:
+		message = "Nothing is waiting to be added."
+	}
+	writeJSON(w, http.StatusOK, s.folderListAnswer(projects, names, waiting, map[string]any{"created": rep.Created, "skipped": rep.Skipped, "message": message}))
+}
+
+func savedRepositories(n int) string {
+	if n == 1 {
+		return "1 saved repository"
+	}
+	return fmt.Sprintf("%d saved repositories", n)
+}
+
+func savedRepositoriesAre(n int) string {
+	if n == 1 {
+		return "1 saved repository is"
+	}
+	return fmt.Sprintf("%d saved repositories are", n)
 }
 
 func (s *server) folderProjectList(w http.ResponseWriter, r *http.Request) {

@@ -18,8 +18,8 @@ Runner-minutes actually spent in the sample window:
 | private connection | 16 | 60 | `local relay (macos-latest)`, mean 2.3 min |
 
 The waste is not in caches or concurrency: every Go job uses `actions/setup-go`'s module and build cache, every non-Go
-job sets `cache: npm`, and all six pull-request workflows already cancel superseded runs with a per-PR concurrency
-group. Three drivers account for the waste.
+job sets `cache: npm`, and every pull-request workflow already cancels superseded runs with a per-PR concurrency group.
+Three drivers account for the waste.
 
 1. **The Go suite runs twice on every code pull request.** `image.yml`'s `test` job runs `npm run check`, the MCP tests,
    `go vet ./...` and `go test -race -timeout=20m ./...`; `release.yml`'s `verify` runs exactly

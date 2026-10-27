@@ -3,7 +3,7 @@
   import { SvelteMap } from 'svelte/reactivity'
   import { shell } from '../dialogShell'
   import { canAutoFocus } from '../focus'
-  import { MAX_PROMPT_BYTES, TOOLS, cleanModel, validateModel, validatePrompt } from '../agentLaunch'
+  import { MAX_PROMPT_BYTES, TOOLS, cleanModel, toolName, validateModel, validatePrompt } from '../agentLaunch'
   import { repoMessage, topFolder, validateFolderInput } from '../folderBrowser'
   import { browseFolder, createFolderProject, getFolderProject, listBranches, readiness, refusalSentence, updateFolderProject, TerminalError,
     type BrowseRepo, type BrowseResult, type FolderProject, type FolderProjectInput, type TerminalMachine, type WorktreeDefault } from '../terminal/api'
@@ -303,7 +303,6 @@
     message = ''
     void tick().then(() => submitButton?.focus())
   }
-  const toolLabel = (t: string) => TOOLS.find(x => x.id === t)?.name ?? t
   const WORKTREE_WORDS: Record<WorktreeDefault, string> = { inherit: 'Use the account default', yes: 'Yes', no: 'No' }
   function mineLines(m: Mine): { label: string; value: string }[] {
     const out: { label: string; value: string }[] = []
@@ -314,7 +313,7 @@
     if (m.worktreeDefault !== undefined) out.push({ label: 'Worktree for each session', value: WORKTREE_WORDS[m.worktreeDefault] })
     if (m.starterPrompt !== undefined) out.push({ label: 'Starter prompt', value: shown(m.starterPrompt) })
     if (m.baseBranch !== undefined) out.push({ label: 'Default base branch', value: shown(m.baseBranch) })
-    if (m.defaultTool !== undefined) out.push({ label: 'Default agent', value: m.defaultTool ? toolLabel(m.defaultTool) : "The launch bar's choice" })
+    if (m.defaultTool !== undefined) out.push({ label: 'Default agent', value: m.defaultTool ? toolName(m.defaultTool) : "The launch bar's choice" })
     if (m.defaultModel !== undefined) out.push({ label: 'Default model', value: shown(m.defaultModel) })
     return out
   }

@@ -23,7 +23,7 @@ test('contrast follows WCAG relative luminance', () => {
 
 test('both palettes define every token, with the designed dark values', () => {
   for (const p of PALETTES) for (const name of NAMES) assert.match(TOKENS[p][name] ?? '', /^#[0-9a-f]{6}$/, `${p} ${name}`)
-  const dark = { '--bg': '#14110f', '--card': '#1a1613', '--card-raised': '#1d1815', '--line-soft': '#2a241f', '--line': '#342d27', '--line-strong': '#4a4037', '--ink': '#f1ebe4', '--muted': '#a39a90', '--accent': '#c2410c', '--accent-text': '#ff8d63', '--accent-ink': '#ffffff', '--good': '#7fc79a', '--warn': '#e9b44c', '--info': '#7fb3d9', '--repo': '#5fc2a8', '--bg-sunk': '#110e0c', '--faint': '#8c837a', '--ink-soft': '#cfc6bc', '--repo-line': '#2a5f52', '--line-deep': '#5a5047', '--line-mid': '#3d342d' }
+  const dark = { '--bg': '#14110f', '--card': '#1a1613', '--card-raised': '#1d1815', '--line-soft': '#2a241f', '--line': '#342d27', '--line-strong': '#4a4037', '--ink': '#f1ebe4', '--muted': '#a39a90', '--accent': '#c2410c', '--accent-text': '#ff8d63', '--accent-ink': '#ffffff', '--good': '#7fc79a', '--warn': '#e9b44c', '--info': '#7fb3d9', '--repo': '#5fc2a8', '--bg-sunk': '#110e0c', '--faint': '#8c837a', '--ink-soft': '#cfc6bc', '--repo-line': '#2a5f52', '--line-deep': '#5a5047', '--line-mid': '#3d342d', '--dock-bg': '#110e0c' }
   for (const [k, v] of Object.entries(dark)) assert.equal(TOKENS.dark[k], v, k)
   const light = { '--bg': '#f7f6f2', '--card': '#fffdf9', '--ink': '#1d1c1a', '--muted': '#5f5c54', '--accent': '#c2410c', '--accent-text': '#c2410c', '--accent-ink': '#ffffff' }
   for (const [k, v] of Object.entries(light)) assert.equal(TOKENS.light[k], v, k)

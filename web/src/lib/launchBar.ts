@@ -1,5 +1,5 @@
 import type { Profile } from './api'
-import type { BranchesResult, FolderProject, LaunchRequest, TerminalMachine } from './terminal/api'
+import type { BranchesResult, FolderProject, LaunchRequest, TerminalMachine, TerminalSession } from './terminal/api'
 import { readiness } from './terminal/api'
 import { CATALOGUE, agentChoices } from './catalogue'
 import { cleanModel, codeSentence, titleFor, toolName, validateModel, validatePrompt } from './agentLaunch'
@@ -90,6 +90,55 @@ export function initialChoice(last: LaunchChoice | null, projects: LaunchProject
     agent: first?.defaultTool || CATALOGUE[0].id, model: first?.defaultModel ?? '', projectIds: first ? [first.id] : [],
     branch: first?.baseBranch || profile.defaultBaseBranch || '', worktree: worktreeFor(first, profile), effort: '', prompt: '', approvals: 'ask',
   }
+}
+
+const EFFORTS: Effort[] = ['low', 'medium', 'high']
+
+/**
+ * The last launch, read from the sessions list (the newest session that names an agent): its agent, model, effort and
+ * project, with a worktree when it ran in one, or the home folder on its machine when it belonged to no project. Never from
+ * browser storage. null when no session names an agent. A project since removed gives no project (`initialChoice` then
+ * takes the first one).
+ */
+export function lastChoice(sessions: Pick<TerminalSession, 'agentId' | 'createdAt' | 'tool' | 'model' | 'effort' | 'projectId' | 'worktreePath'>[], projects: LaunchProject[], profile: LaunchDefaults): LaunchChoice | null {
+  const newest = sessions.filter(s => s.tool).reduce<typeof sessions[number] | null>((a, s) => (!a || s.createdAt > a.createdAt ? s : a), null)
+  if (!newest?.tool) return null
+  const project = newest.projectId ? projects.find(p => p.id === newest.projectId) : undefined
+  const effort = takesEffort(newest.tool) && EFFORTS.includes(newest.effort as Effort) ? newest.effort as Effort : ''
+  const out: LaunchChoice = {
+    agent: newest.tool, model: newest.model ?? '', projectIds: project ? [project.id] : [],
+    branch: project?.baseBranch || profile.defaultBaseBranch || '', worktree: project?.isRepo ? !!newest.worktreePath : worktreeFor(project, profile),
+    effort, prompt: '', approvals: 'ask',
+  }
+  if (!newest.projectId) out.homeMachine = newest.agentId
+  return out
+}
+
+/** The choice with one project in it (the rail's card or the project slot): its base and worktree default, and its own default
+ * agent and model when it names one. The prompt and Approvals stay as they are. */
+export function withProject(choice: LaunchChoice, project: LaunchProject, profile: LaunchDefaults): LaunchChoice {
+  const agent = project.defaultTool || choice.agent
+  const { homeMachine: _, ...rest } = choice
+  return {
+    ...rest, agent, model: project.defaultTool ? project.defaultModel : choice.model, projectIds: [project.id],
+    branch: project.baseBranch || profile.defaultBaseBranch || '', worktree: worktreeFor(project, profile), effort: takesEffort(agent) ? choice.effort : '',
+  }
+}
+
+/** The choice for *Home folder on* a machine: no project, so no branch. */
+export function withHome(choice: LaunchChoice, agentId: string): LaunchChoice {
+  return { ...choice, projectIds: [], homeMachine: agentId, branch: '' }
+}
+
+/** The phone's one summary line: "Claude Code on reet at studio · main · fresh worktree" (the model is in the Change sheet). */
+export function summary(parts: SentencePart[]): string {
+  const text = (slot: SentencePart['slot']) => parts.find(p => p.slot === slot)?.text ?? ''
+  const out = [`${text('agent')} on ${text('project')} at ${text('machine')}`]
+  const worktree = text('worktree')
+  if (worktree === 'a fresh worktree') out.push(text('branch'), 'fresh worktree')
+  else if (worktree) out.push(worktree)
+  if (parts.some(p => p.slot === 'effort')) out.push(`thinking ${text('effort')}`)
+  return out.join(' · ')
 }
 
 /** After a launch: the same slots for a second session, the prompt cleared and Approvals back on *Ask me*. */

@@ -76,7 +76,8 @@
   .dot.offline { background: transparent; border: 2px solid var(--muted); }
   .dot.paused { border-radius: 2px; }
   .dot.reconnecting { background: linear-gradient(90deg, var(--warn) 50%, transparent 50%); border: 2px solid var(--warn); }
-  .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The name is the card's label: a long OS string gives way first and never cuts it. */
+  .name { flex-shrink: 0; max-width: 100%; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .status { font-size: 12px; color: var(--muted); }
   .status.online { color: var(--good); }
   .status.reconnecting { color: var(--warn); }

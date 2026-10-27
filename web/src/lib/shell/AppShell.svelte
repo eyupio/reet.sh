@@ -4,6 +4,7 @@
   import { browserViewport, keyboardChrome, keyboardLikelyOpen, PHONE_SCREEN, ViewportTracker } from '../terminal/sizing'
   import Bell from './Bell.svelte'
   import BottomTabs from './BottomTabs.svelte'
+  import { chromeFocus } from './chrome.svelte'
   import JumpSearch from './JumpSearch.svelte'
   import MoreSheet from './MoreSheet.svelte'
   import TopTabs from './TopTabs.svelte'
@@ -46,7 +47,9 @@
   let input = $state<HTMLInputElement>()
   let searchFocused = $state(false)
   let keyboardOpen = $state(false)
-  const barHidden = $derived(keyboardChrome(searchFocused ? 'search' : null, keyboardOpen))
+  // Jump in the top bar, or the launch bar's prompt on Home.
+  const editing = $derived(searchFocused || chromeFocus.launch)
+  const barHidden = $derived(keyboardChrome(searchFocused ? 'search' : chromeFocus.launch ? 'launch' : null, keyboardOpen))
 
   function openMore(opener: HTMLElement, all = false) { moreOpener = opener; moreAll = all; moreOpen = true }
   async function openSearch() {
@@ -70,8 +73,8 @@
     else input?.focus()
   }
 
-  // The phone keyboard: the same usable-height rule as the phone terminal (sizing.ts). While Jump has the keyboard up the
-  // bottom tab bar steps aside (keyboardChrome).
+  // The phone keyboard: the same usable-height rule as the phone terminal (sizing.ts). While Jump or the launch prompt has the
+  // keyboard up the bottom tab bar steps aside (keyboardChrome).
   let measureKeyboard = () => {}
   onMount(() => {
     const tracker = new ViewportTracker()
@@ -81,7 +84,7 @@
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
         const usable = tracker.read(browserViewport())
-        keyboardOpen = keyboardLikelyOpen(usable.shrink, { coarse: coarse.matches, narrow: phone.matches, editing: searchFocused, scale: window.visualViewport?.scale ?? 1 })
+        keyboardOpen = keyboardLikelyOpen(usable.shrink, { coarse: coarse.matches, narrow: phone.matches, editing, scale: window.visualViewport?.scale ?? 1 })
       })
     }
     measureKeyboard()
@@ -96,6 +99,9 @@
       vv?.removeEventListener('scroll', measureKeyboard)
     }
   })
+
+  // A field outside the top bar (the launch prompt) taking or losing focus is measured again, as Jump's focus change is.
+  $effect(() => { void chromeFocus.launch; measureKeyboard() })
 
   // The page keeps room at its foot for the phone's tab bar (app.css reads this attribute under the phone rule).
   $effect(() => {

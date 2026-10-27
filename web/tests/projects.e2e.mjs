@@ -87,12 +87,15 @@ try {
   const rail = page.getByRole('complementary',{name:'Projects'})
   await expect(rail.getByRole('button',{name:/^site, studio/})).toHaveAttribute('aria-current','true')
   await expect(rail.getByRole('button',{name:/^api, studio/})).not.toHaveAttribute('aria-current','true')
+  await expect(page.getByRole('form',{name:'Start a session'}).getByRole('button',{name:'Project: site'})).toBeVisible()
   expect(box.requests).toContain('GET /api/v2/folder-projects?legacy=p1')
   await page.goto(`${base}/projects/nope/`)
   await expect(page.getByText(NOTE,{exact:true})).toBeVisible()
   await expect.poll(() => box.requests.includes('GET /api/v2/folder-projects?legacy=nope')).toBe(true)
   await expect(page).toHaveURL(`${base}/`)
-  await expect(rail.locator('[aria-current="true"]')).toHaveCount(0)
+  // Nothing is chosen from the address: the rail marks only the launch bar's own project, the first one.
+  await expect(rail.locator('.card[aria-current="true"]')).toHaveCount(1)
+  await expect(rail.locator('.card[aria-current="true"]')).toHaveAccessibleName(/^site, studio/)
   expect(errors).toEqual([])
   await context.close()
  }

@@ -228,6 +228,8 @@ test('the keyboard focus layout needs a phone, touch, typing in the terminal, an
 test('the phone chrome steps aside only while a listed field has the keyboard up', () => {
   assert.equal(s.keyboardChrome('search', true), true)
   assert.equal(s.keyboardChrome('search', false), false)
+  assert.equal(s.keyboardChrome('launch', true), true)
+  assert.equal(s.keyboardChrome('launch', false), false)
   assert.equal(s.keyboardChrome(null, true), false)
   assert.equal(s.keyboardChrome(null, false), false)
 })

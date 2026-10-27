@@ -4,8 +4,8 @@
   import { railState, worktreesInUse } from '../home'
 
   // The folder projects, in the person's order: one folder on one machine each, with a repository diamond or a folder icon,
-  // the machine, the base branch when one is set, the state in words and the worktrees in use. Choosing a card starts an
-  // agent in that folder (the launch bar takes this over in a later release). Each card's menu: New session here, Edit,
+  // the machine, the base branch when one is set, the state in words and the worktrees in use. Choosing a card puts that
+  // project in the launch bar's sentence (and the card is marked while it is there). Each card's menu: New session here, Edit,
   // Worktrees, Move up, Move down and Remove from reet. Under 1240 px on a desktop the rail is a 56 px strip of the same
   // cards; on a tablet or phone it sits under In flight (the Sessions tab takes it in a later release).
   let { projects, failed = false, reporting, running, known = true, worktrees, savedWaiting = 0, chosen = '', busy, importing = false, pending, moving = false,
@@ -21,7 +21,7 @@
     worktrees: Map<string, number>
     /** Saved Project folders still waiting for room (offer to bring them in). */
     savedWaiting?: number
-    /** The project an address chose (`/?project=<id>`). */
+    /** The project in the launch bar's sentence (or the one an address chose, `/?project=<id>`), marked. */
     chosen?: string
     busy: boolean
     importing?: boolean
@@ -30,6 +30,7 @@
     /** A move is on its way: no other move is offered until it lands. */
     moving?: boolean
     onadd: (opener: HTMLElement) => void
+    /** Sets the launch bar's project (a card, or New session here). */
     onchoose: (project: FolderProject, opener: HTMLElement) => void
     onedit: (project: FolderProject, opener: HTMLElement) => void
     onworktrees: (project: FolderProject, opener: HTMLElement) => void
@@ -113,11 +114,16 @@
     else if (event.key === 'End') { event.preventDefault(); items.at(-1)?.focus() }
     else if (event.key === 'Tab') closeMenu()
   }
-  // A choice closes the menu first; the dialog it opens gives focus back to the card's menu button.
+  // A choice closes the menu first; a dialog it opens gives focus back to the card's menu button.
   function pick(action: (opener: HTMLElement) => void) {
     const opener = menuButton
     closeMenu()
     if (opener) action(opener)
+  }
+  // Choosing a project from the panel opened over the page closes it: the launch bar under it takes the focus.
+  function chooseCard(p: FolderProject, el: HTMLElement) {
+    if (panelOpen) closePanel(false)
+    onchoose(p, el)
   }
   function outside(event: PointerEvent) {
     const target = event.target as HTMLElement
@@ -156,7 +162,7 @@
           {@const state = stateOf(p)}
           {@const wt = worktrees.get(p.id) ?? 0}
           <li class="item">
-            <button type="button" class="card" class:chosen={chosen === p.id} aria-current={chosen === p.id ? 'true' : undefined} aria-label={label(p)} onclick={(e) => onchoose(p, e.currentTarget)}>
+            <button type="button" class="card" class:chosen={chosen === p.id} aria-current={chosen === p.id ? 'true' : undefined} aria-label={label(p)} onclick={(e) => chooseCard(p, e.currentTarget)}>
               <span class="top">
                 {#if p.isRepo}
                   <svg class="icon repo" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2l10 10-10 10L2 12z" /></svg>
@@ -179,7 +185,7 @@
             {#if menuFor === p.id}
               <!-- svelte-ignore a11y_interactive_supports_focus -->
               <div class="menu" id={`${id}-menu-${p.id}`} role="menu" aria-label={p.name} tabindex="-1" onkeydown={menuKeys}>
-                <button type="button" role="menuitem" onclick={() => pick(o => onchoose(p, o))}>New session here</button>
+                <button type="button" role="menuitem" onclick={() => pick(o => chooseCard(p, o))}>New session here</button>
                 <button type="button" role="menuitem" onclick={() => pick(o => onedit(p, o))}>Edit</button>
                 <button type="button" role="menuitem" onclick={() => pick(o => onworktrees(p, o))}>Worktrees</button>
                 <button type="button" role="menuitem" disabled={moving || pending.size > 0 || i === 0} onclick={() => { closeMenu(true); onmove(p, -1) }}>Move up</button>

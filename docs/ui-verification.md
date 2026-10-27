@@ -1025,3 +1025,49 @@ Cursor Agent and Cline labels use catalogue names in the In flight subtitle, inc
 Residual differences are explicit: tablet and phone keep the existing Jump and account access, group controls and the current-tab marker pending the owner-call items recorded in `docs/design/agents-home/fidelity-audit-1.md`. Fleet card CPU/status layout, the grouped rows, Needs you layout and the single-button launch dock remain the existing shell until PR E's agreed polish and launch bar; attention stays an honest empty state. This check is not a claim that the whole Home matches the finished drawing. No real phone or Safari run was performed, and this slice adds no new axe result.
 
 Validation: the screenshot-and-metrics matrix passed in both themes at 1440, 1239, 1100, 834, 651, 390 and 320 pixels (14 cases). It checks page width, the chrome geometry, reported OS version, the two longer agent names and phone target sizes. Extra desktop/tablet boundaries guard the spaces between breakpoints. The final assertion run also checks that visible header controls remain within the viewport and never overlap. Local artifacts are `work/c-polish/home-{dark,light}-{width}.png` and `work/c-polish/metrics.json`; they are scratch evidence, not product data. Theme tests: 10 passed; Home pure tests: 22 passed; Svelte diagnostics: zero errors and warnings. A missing avatar-surface test, missing OS-version propagation test and absent tool-label browser test were each observed failing before implementation. A white avatar-surface mutation fails contrast checks; the source was then restored byte-identically.
+
+## Agents Home — launch bar, 27 October 2026 (PR E, task E2)
+
+Synthetic API answers, Chromium on Linux. The fidelity fixture is shaped like the mock-up: machines studio, server and desk (all ready, with launch, worktree, branches and agents-v2), projects reet (studio, `main`, with a starter prompt), site (server, `develop`) and notes (desk, `main`), and five sessions, the newest Claude Code with sonnet in a worktree of reet. The bar therefore opens on "Run Claude Code with sonnet on reet at studio from main in a fresh worktree", the mock-up's sentence. No agent program is started.
+
+The shipped Home was rendered at 1440×900, 1360×800, 834×1112 and 390×844 in dark and light and compared with `Main.dc.html`, `ref-home-desktop.png`, `Tablet.dc.html` and `PhoneHome.dc.html`. Measured: on a desktop the bar is 1091 px wide at x=325, 18 px above the foot, 118 px tall (the drawing's is about 116), with the 16 px prompt row (padding 14/18/8) over the sentence row, a 40 px Start with a 10 px radius and the `Ctrl ↵` hint, and Approvals *Ask me | YOLO* at the right of the sentence. On a tablet the bar is 135 px tall with a 44 px Start without the hint and the segments without the "Approvals" word, as drawn. On a phone it is a one-line prompt, a round 48 × 48 Start and one summary line with **Change** above the tab bar. At 1360×800 and 834×1112 the bar is sticky, so In flight, Needs you and the rail scroll under it.
+
+Deviations from the drawings, each with its reason:
+
+- The key hint is drawn at full strength, not 80%: at 80% it fails AA on the accent (axe `color-contrast`).
+- The machine word is bold without the dashed underline and is not a button while a project is chosen: the machine follows the project (R18). It is a slot only for *Home folder on…*.
+- The dashed underline uses `--line-deep` and the selected segment `--line-soft`. The drawing's `#6b5f54` and `#2e2822` are not theme tokens, and the components use tokens only.
+- Rows the drawing does not show appear only when their state does: the **Use the starter prompt** chip and the secrets note (R2 and the prompt rules), the read-only "Works in the checkout on main." line, and the status line ("Starting Claude Code on studio…", refusals, why Start waits).
+- The *YOLO* half is disabled with "reet doesn't start YOLO sessions yet." as its description until PR F.
+- **Owner call:** the tablet sentence keeps the model and worktree slots, which `Tablet.dc.html` leaves out. The spec's slot list has no tablet exception, and without them a tablet could not choose either. This is not a "no data source yet" case, so it is flagged for the reviewer.
+- On touch each slot is a 44 × 44 px target, so short words ("main", "reet") get a little side space.
+- On a phone, Start is 48 px (the spec and plan) rather than the drawing's 44. The summary line wraps rather than ending in an ellipsis (PR E tweak: it wraps without pushing Start off the screen at 320 px). The Change sheet ("Change the launch": slot rows, Approvals, Done) is not drawn, so it follows the spec's text.
+- The spec's "Titled “…”" preview is not shown. It is not in any drawing, and the title is still made from the prompt's first line.
+- Unchanged by this task: the rail's chosen-card style (accent border), the fleet cards and the In flight rows. The rail now marks the project the sentence names, as the drawing does.
+
+Accessibility: axe-core 4.10.2 (installed outside the repository), WCAG 2.0/2.1 A and AA plus 2.2 AA. It ran in 26 states: each width and theme, with a slot list open on desktop and tablet, and with the Change sheet and the Agent sheet open on a phone. The results:
+
+- Every state is clean except the tablet default view.
+- There, `target-size` flags the menu button of the second rail card, which sits partly under the docked bar before the page is scrolled. The rail stays under In flight until PR H moves it to Sessions.
+- The key-hint contrast finding was fixed, as described above.
+
+Validation:
+
+- `web/tests/launch.e2e.mjs` covers 12 cases. It passed four runs in a row, and every case was seen failing against the previous build first.
+- `home.e2e.mjs` has been reworked for the bar, including "no Start an agent button on Home".
+- `projects.e2e.mjs`, `phone-zoom.e2e.mjs` (the Change sheet replaces the Home dialog), `shell-fidelity`, `navigation`, `start-agent` and the rest of the browser suite pass.
+- `npm test` passes all 340 tests, and Svelte diagnostics report zero errors or warnings.
+
+Nine mutations of `LaunchBar.svelte` were each caught by their fixture, and the file was then restored byte-identically:
+
+- Retry with a new request.
+- Plain Enter sends.
+- The starter prompt fills itself.
+- The bar is not locked.
+- The prompt is stored.
+- The chrome is never told about the keyboard.
+- The last launch is ignored.
+- An unready project is offered.
+- The Change sheet loses its rows.
+
+No real phone or Safari run was done.

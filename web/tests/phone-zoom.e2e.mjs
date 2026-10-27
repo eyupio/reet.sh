@@ -30,14 +30,14 @@ const addProjectExtra = {
 
 // Dialogs open from the long-host machine's card, the one whose name is hardest to fit.
 const click = name => async page => { const b = page.getByRole('article', {name:LONGHOST}).getByRole('button', {name, exact:true}).first(); await b.scrollIntoViewIfNeeded(); await b.click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }
-// Home with 80-character machine, session and Project names, the More list opened over it, Jump's results and the Start an
-// agent dialog opened from Home (its fields must be 16 px).
+// Home with 80-character machine, session and Project names, the More list opened over it, Jump's results and the launch
+// bar's Change sheet opened from Home.
 const home = {path:'/', extra:homeExtra, ready:async page => { for (const name of [HOST80, SESSION80, PROJECT80]) await page.getByText(name).first().waitFor({state:'attached', timeout:5000}) }}
 const SCREENS = [
  {name:'home', ...home},
  {name:'home: more list', ...home, action:async page => { await page.getByRole('navigation', {name:'Main navigation'}).getByRole('button', {name:'More'}).click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }},
  {name:'home: jump results', ...home, action:async page => { await page.getByRole('button', {name:'Jump to a session, project or machine'}).click(); await page.getByRole('combobox', {name:'Jump to a session, project or machine'}).fill('abcdefghij'); await page.getByRole('listbox', {name:'Jump results'}).getByRole('option').first().waitFor({timeout:3000}) }},
- {name:'home: start agent dialog', ...home, action:async page => { await page.getByRole('button', {name:'Start an agent', exact:true}).click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }},
+ {name:'home: launch Change sheet', ...home, action:async page => { await page.getByRole('form', {name:'Start a session'}).getByRole('button', {name:'Change', exact:true}).click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }},
  {name:'control', path:'/control'},
  {name:'machines', path:'/machines'},
  {name:'machines: start agent dialog', path:'/machines', action:click('Start an agent')},

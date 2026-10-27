@@ -25,6 +25,8 @@
   let busy = $state(false)
   let error = $state('')
   let notice = $state('')
+  // A link that goes with the notice ("Open it"), when it names something to open.
+  let noticeHref = $state('')
   let banner = $state<HTMLElement>()
   let lastRefresh = $state(0)
   let serverBuild = $state<{ version: string; commit: string } | null>(null)
@@ -97,6 +99,7 @@
     busy = true
     error = ''
     notice = ''
+    noticeHref = ''
     try {
       syncState = change.to ? await mergeMachines(change.from, change.to) : await forgetMachine(change.from)
       notice = change.to ? `Reet, reports now belong to ${change.to}. Old names remain aliases; future scans update this machine.` : `Forgot ${change.from}. Installed files and shelf entries are unchanged; a future scan can report it again.`
@@ -233,7 +236,7 @@
   {#if lastRefresh && reportedMachines.length}<p class="hint">Status refreshed {when(lastRefresh)} · updates automatically while this page is open.</p>{/if}
   <div class="banners" bind:this={banner}>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
-    {#if notice}<p class="notice" role="status">{notice}</p>{/if}
+    {#if notice}<p class="notice" role="status">{notice}{#if noticeHref}{' '}<a href={noticeHref}>Open it</a>{/if}</p>{/if}
   </div>
 
   {#if view === 'compare'}
@@ -249,7 +252,7 @@
   {:else}
     <MachineSetup {terminalAccess} {site} {machines} {profiles} {token} {tokenSetup} {serverBuild} snapshot={syncState} bind:open={setupOpen} bind:host={setupHost} initialMode={initialSetupMode} onrefresh={() => load()} />
     {#if visibleMachines.length}
-      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {accounts} {terminalAccess} {monitorAccess} onadd={openSetup} onjoin={canAdd ? openJoin : undefined} {landing} onlanded={() => { landing = null }} highlight={justAdded} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e); void showOutcome() }} {onsignedout} onnotice={(message) => { notice = message; void showOutcome() }} />
+      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {accounts} {terminalAccess} {monitorAccess} onadd={openSetup} onjoin={canAdd ? openJoin : undefined} {landing} onlanded={() => { landing = null }} highlight={justAdded} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e); void showOutcome() }} {onsignedout} onnotice={(message, href) => { notice = message; noticeHref = href ?? ''; void showOutcome() }} />
     {/if}
   {/if}
 

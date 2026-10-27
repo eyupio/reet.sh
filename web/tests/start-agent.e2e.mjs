@@ -483,6 +483,10 @@ try{
  expect(await held()).toEqual({url:'/machines',open:true,text:'Starting…',close:true})
  await expect.poll(held,{timeout:9000}).toMatchObject({url:'/machines',open:false})
  expect(posts.length).toBe(postsBefore+1)
+ // When it lets go it says what started, with the way to it, as Home does.
+ const stalled=body(-1),stalledSession=`session-${stalled.requestId.replaceAll('-','').slice(0,20)}`
+ const said=await page.evaluate(()=>{const n=[...document.querySelectorAll('.notice')].find(x=>x.textContent.startsWith('Started '));return{text:n?.textContent??null,href:n?.querySelector('a')?.getAttribute('href')??null}})
+ expect(said).toEqual({text:`Started ${stalled.title} on dev-laptop. Open it`,href:`/terminals?agent=${A}&session=${stalledSession}`})
  await page.unroute(onlyTerminals)
 
  // A 401 from the card's dialog hands over to the sign-in card, as the page's other dialogs do.

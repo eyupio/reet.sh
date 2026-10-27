@@ -198,23 +198,28 @@ func TestFullTerminalQueueAnswersUnavailableAndKeepsTheConnection(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	// One message in the handler, terminalQueueSize waiting.
-	for i := 0; i <= terminalQueueSize; i++ {
-		write(i, &terminalproto.Reconcile{}, "")
-	}
-	deadline := time.Now().Add(2 * time.Second)
-	for {
+	// One message in the handler, terminalQueueSize waiting. The first is
+	// written alone and must be held before the rest are written: with one
+	// CPU the reader can read a whole burst before the dispatcher runs, and
+	// would then find the queue full early.
+	write(0, &terminalproto.Reconcile{}, "")
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(time.Millisecond) {
 		mu.Lock()
 		n := len(handled)
 		mu.Unlock()
-		if n == 1 || time.Now().After(deadline) {
+		if n == 1 {
 			break
 		}
-		time.Sleep(5 * time.Millisecond)
+		if time.Now().After(deadline) {
+			t.Fatal("the handler never took the first message")
+		}
+	}
+	for i := 1; i <= terminalQueueSize; i++ {
+		write(i, &terminalproto.Reconcile{}, "")
 	}
 	read := func() terminalproto.Message {
 		t.Helper()
-		readCtx, readCancel := context.WithTimeout(t.Context(), time.Second)
+		readCtx, readCancel := context.WithTimeout(t.Context(), 5*time.Second)
 		defer readCancel()
 		_, data, err := peer.Read(readCtx)
 		if err != nil {
@@ -248,7 +253,7 @@ func TestFullTerminalQueueAnswersUnavailableAndKeepsTheConnection(t *testing.T) 
 	default:
 	}
 	close(release)
-	deadline = time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(3 * time.Second)
 	for {
 		mu.Lock()
 		n := len(handled)

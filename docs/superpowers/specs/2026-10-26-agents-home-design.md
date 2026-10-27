@@ -597,8 +597,12 @@ with its own gate line.
 A negotiated, optional control request, built like `worktree-v1`: the controller advertises
 `browse-v1` in `X-Reet-Terminal-Features`; a connector that understands it records it and reports the
 capability `browse` (omitempty, requires `terminalControl`) unless the machine refuses browsing
-locally. The controller never sends a browse request to a connection without it and answers 409
-`browse_unsupported`: "Update reet on that machine to browse its folders."
+locally; a connector whose browse switch is off reports `browseOff` instead (omitempty, requires
+`terminalControl`, never with `browse`, sent only on a connection that negotiated `browse-v1` because
+an older controller's strict decoder would refuse it). The controller never sends a browse request to
+a connection without `browse`: it answers 409 `browse_off` ("That machine has folder browsing switched
+off.") to one that reports `browseOff`, and 409 `browse_unsupported` ("Update reet on that machine to
+browse its folders.") to one that reports neither.
 
 **Request** `Browse{Path, After, Filter string; Hidden bool}`: `Path` absolute (the existing `ValidDir`
 rule) or empty for the enrolled home; `After` a continuation name (at most 255 bytes); `Filter` an
@@ -638,11 +642,15 @@ comparable.
   `false` with `partial` set.
 - **Concurrency.** One browse at a time per connection; a second is answered `conflict` at once.
 - **Refusal.** `reet terminal browse off` on the machine (local, like terminal consent) removes the
-  capability and makes the connector answer `denied`. Default on, because every folder listed is one
-  the enrolled user can already open in a terminal session.
-- **Errors.** Not found, not a directory, outside the home, permission denied: each a typed reason mapped
-  to one sentence ("That folder isn't on studio.", "That folder is outside the home folder reet was
-  set up with.", "reet can't read that folder.").
+  capability: the connector reports `browseOff` and answers `off` (a browse is also refused `off`
+  while terminal access is off); `denied` stays for a folder the user cannot read. Default on, because
+  every folder listed is one the enrolled user can already open in a terminal session.
+- **Errors.** Typed reasons `not_found`, `not_dir`, `outside_home`, `denied` (permission denied),
+  `unreadable`, `conflict` (another browse is running) and `off` (browsing switched off there), each
+  mapped to one sentence ("That folder isn't on studio." for not found and not a directory, "That
+  folder is outside the home folder reet was set up with.", "reet can't read that folder." for denied
+  and unreadable, "That machine is already listing a folder. Try again in a moment." for conflict,
+  "That machine has folder browsing switched off." for off).
 
 **Controller rules.** Writers only, owner-scoped, canonical origin, the terminal rollout flag. Rate limit
 20 browse requests per 10 seconds per account and machine (429 `browse_rate_limited`: "Slow down a
@@ -662,11 +670,21 @@ it is a separate negotiated request, `Branches{Dir, Filter string}`, under `bran
 root, inside the home) and runs, with the worktree environment and hooks rules and a 5-second timeout,
 exactly: `git -C <dir> for-each-ref --count=201 --sort=-committerdate --format=%(refname)
 refs/heads refs/remotes`, then `git -C <dir> symbolic-ref --quiet --short HEAD` and `git -C <dir>
-symbolic-ref --quiet --short refs/remotes/origin/HEAD`. The reply `BranchesResult{current, default,
-branches, more}`: `current` the checked-out branch (empty when detached), `default` the remote's default
-when `refs/remotes/origin/HEAD` exists, at most 200 short names (each a valid ref name of at most 255
-bytes), newest first, `Filter` applied as a case-insensitive substring. Rate limit 10 per 10 seconds per
-account and machine; nothing stored.
+symbolic-ref --quiet --short refs/remotes/origin/HEAD`. Each call also gets `GIT_DIR=<dir>/.git` and
+`GIT_CEILING_DIRECTORIES=<parent of dir>`, so git reads that folder's own `.git` or fails, never a
+repository around it. The reply `BranchesResult{current, default, branches, more}`: `current` the
+checked-out branch (empty when detached), `default` the remote's default when
+`refs/remotes/origin/HEAD` exists, at most 200 short names (each a valid ref name of at most 255
+bytes), newest first, `Filter` applied as a case-insensitive substring. A refusal is a typed reason
+instead: `not_repo_root` ("That folder isn't the top of a git repository."), `outside_home` ("That
+folder is outside the home folder reet was set up with."), `git_failed` ("Git couldn't list the
+branches there."; nothing of git's output is sent), `conflict` (another listing is running: "That
+machine is already listing branches. Try again in a moment.") or `denied`, meaning the machine does
+not offer branches now: terminal access is off there, or no git, or no worktrees ("That machine isn't
+offering its branches right now. Check that terminal access is on there and git is installed."). A
+connection without `branches` is answered 409 `branches_unsupported` ("Update reet on that machine to
+list its branches.") or, when it reports `browse` or `browseOff`, 409 `branches_denied`. Rate limit
+10 per 10 seconds per account and machine; nothing stored.
 
 ## Project registry
 

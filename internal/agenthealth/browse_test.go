@@ -176,18 +176,16 @@ func TestFullTerminalQueueAnswersBrowseOnlyWhenNegotiated(t *testing.T) {
 				return nil
 			})
 		}()
-		for i := 0; i <= terminalQueueSize; i++ {
-			if err := peer.Write(t.Context(), websocket.MessageText, controlMessage(t, fmt.Sprintf("request-%012d", i), &terminalproto.Reconcile{})); err != nil {
-				t.Fatal(err)
-			}
-		}
-		for deadline := time.Now().Add(2 * time.Second); handled.Load() == 0 && time.Now().Before(deadline); {
-			time.Sleep(5 * time.Millisecond)
-		}
+		fillQueue(t, peer, &handled)
 		if err := peer.Write(t.Context(), websocket.MessageText, controlMessage(t, "request-overflowing", tc.body)); err != nil {
 			t.Fatal(err)
 		}
-		readCtx, readCancel := context.WithTimeout(t.Context(), time.Second)
+		// An answer is waited for generously; a silence needs only a short wait.
+		wait := time.Second
+		if tc.answered {
+			wait = 5 * time.Second
+		}
+		readCtx, readCancel := context.WithTimeout(t.Context(), wait)
 		_, data, err := peer.Read(readCtx)
 		readCancel()
 		if tc.answered {
@@ -258,14 +256,7 @@ func TestControlWorkersAnswerAnOverflowingBrowse(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- runControlWorkers(ctx, cfg, client, 1, &sequence, clientSender(client)) }()
-	for i := 0; i <= terminalQueueSize; i++ {
-		if err := peer.Write(t.Context(), websocket.MessageText, controlMessage(t, fmt.Sprintf("request-%012d", i), &terminalproto.Reconcile{})); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for deadline := time.Now().Add(2 * time.Second); handled.Load() == 0 && time.Now().Before(deadline); {
-		time.Sleep(5 * time.Millisecond)
-	}
+	fillQueue(t, peer, &handled)
 	if err := peer.Write(t.Context(), websocket.MessageText, controlMessage(t, "request-overflowing", &terminalproto.Browse{})); err != nil {
 		t.Fatal(err)
 	}
@@ -473,5 +464,27 @@ func TestGateNeverWaitsOnTheReadinessProbe(t *testing.T) {
 	}
 	if forwarded.Load() != 1 {
 		t.Fatal("branches not served, or browse served while off", forwarded.Load())
+	}
+}
+
+// fillQueue leaves the handler holding one message and the dispatcher queue
+// full: the first message is written alone and the handler must hold it
+// before the rest are written, so the reader never finds the queue full early
+// (with one CPU it can read a whole burst before the dispatcher runs).
+func fillQueue(t *testing.T, peer *websocket.Conn, handled *atomic.Int32) {
+	t.Helper()
+	write := func(i int) {
+		if err := peer.Write(t.Context(), websocket.MessageText, controlMessage(t, fmt.Sprintf("request-%012d", i), &terminalproto.Reconcile{})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(0)
+	for deadline := time.Now().Add(10 * time.Second); handled.Load() == 0; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the handler never took the first message")
+		}
+	}
+	for i := 1; i <= terminalQueueSize; i++ {
+		write(i)
 	}
 }

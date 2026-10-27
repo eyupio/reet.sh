@@ -151,6 +151,21 @@ What PR D uses, and from where:
 
 **PR D validation, review and merge:** the common steps. PR title "Add the app shell and Home on today's data".
 
+## PR P — Home fidelity polish (lands right after PR B)
+
+Source: `docs/design/agents-home/fidelity-audit-1.md` (audit of the shipped Home against the mock-up at 1440, 834 and 390 px: 37 items fixable now, 8 needing a ruling, 20 waiting on later PRs, 4 that conflict with rulings). Rulings made on the audit (user directive: the mock-up wins everywhere it does not conflict with an honesty ruling; where it hides a feature, the feature stays reachable elsewhere):
+
+- In flight is a **flat list with no group headings** (as drawn); **Group by** reorders it, and the project, machine or state still reads in each row's subtitle. Branch is plain text on desktop as drawn and omitted on tablet and phone rows.
+- **Group by is hidden on tablet and phone** (as drawn); the stored choice still applies.
+- The **top bar on tablet and phone shows no search button or avatar** (as drawn); **Jump search and the account menu move into the More sheet** so nothing becomes unreachable.
+- The phone current tab keeps a non-colour cue (weight 600 as drawn).
+- The machine's status stays a dot plus a visually hidden word; the dot for a machine that is not connected is grey (connection state, not activity).
+- Phone submit says "Add this project", desktop "Add project", as each screen draws it.
+- The OS version ("Ubuntu 24.04") needs a connector field no PR carries: show "Linux" or "macOS" now and add `osVersion` to PR C's capability work (Task C2).
+- Rail changes (P-3) are folded into **Task B6**, which rewrites the rail anyway; the other four tasks form this PR.
+
+Tasks (exact target values are in the audit report): **P1** tokens and base spacing (`--bg-sunk`, `--line-mid`, `--faint`, `--accent-wash`, dock shadow; line-height 1.3 on Home and the shell bar; 15 px base font at 1099 px and under; no site footer on Home); **P2** top bar and tab bars (desktop gaps, 326 px search, tab type, 2 px underline, 36 px solid avatar; tablet/phone chrome; logo 120 px; phone bell and tab bar); **P3 (inside B6)** rail 301 px column and card structure; **P4** fleet strip (card height, "CPU 38%" on the figure row, OS word, Add tile, tablet and phone chips); **P5** In flight rows, Needs you count, dock. Each task ends with the fidelity check from Global Constraints (render at the three sizes, compare with `ref-home-desktop.png` and the `.dc.html`, list remaining deviations with reasons).
+
 ## PR A — browse and branches on the wire
 
 **Swaps into the shell.** Nothing visible: PR A is wire-only. It unblocks PR B's folder browser, which replaces the legacy New project dialog behind the rail's **Add**.

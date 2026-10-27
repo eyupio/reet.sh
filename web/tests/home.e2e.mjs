@@ -35,12 +35,14 @@ const projects = [
 ]
 const runs = {r1:{id:'r1',projectId:'p1',projectName:'Store rewrite',state:'running',startedAt:now-HOUR,useWorktrees:true,worktreeProject:'store',members:[member('s1')]},
  r2:{id:'r2',projectId:'p2',projectName:'Notes',state:'complete',startedAt:now-3*24*HOUR,useWorktrees:false,worktreeProject:'',members:[member('s3','a2')]}}
-const job = (id, agentId, targetId, actions, ago) => ({id,agentId,targetId,kind:'preview',status:'awaiting-approval',revision:'r',hash:'h',plan:{actions:Array.from({length:actions},(_,i)=>({add:true,skill:{id:`k${i}`,name:`k${i}`}}))},message:'',createdAt:now-ago-MIN,updatedAt:now-ago})
-const target = (id, host) => ({target:{id,host,agent:'claude'},sourceId:'s',sourceName:'src',desired:[],missing:[],extra:[],revision:'r',updatedAt:now})
-const sync = {environments:[],machines:[],runs:[],updateJobs:[],
- agents:[{id:'a1',host:'studio',version:'1',lastSeen:now,paused:false,autoUpdate:false},{id:'a2',host:'desk',version:'1',lastSeen:now-2*HOUR,paused:false,autoUpdate:false}],
+const job = (id, agentId, targetId, actions, ago) => ({id,agentId,targetId,kind:'preview',status:'awaiting-approval',revision:'r',hash:'h',plan:{actions:Array.from({length:actions},(_,i)=>({add:true,skill:{id:`k${i}`,name:`k${i}`}}))},message:'',createdAt:Date.now()-ago-MIN,updatedAt:Date.now()-ago})
+const target = (id, host) => ({target:{id,host,agent:'claude'},sourceId:'s',sourceName:'src',desired:[],missing:[],extra:[],revision:'r',updatedAt:Date.now()})
+// Built per test: the ages it shows are read against the page's clock, so a copy made when the file started would drift a
+// minute for every minute the earlier tests took.
+const makeSync = () => ({environments:[],machines:[],runs:[],updateJobs:[],
+ agents:[{id:'a1',host:'studio',version:'1',lastSeen:Date.now(),paused:false,autoUpdate:false},{id:'a2',host:'desk',version:'1',lastSeen:Date.now()-2*HOUR,paused:false,autoUpdate:false}],
  targets:[target('t1','studio'),target('t2','desk')],
- jobs:[job('j1','a1','t1',0,5*MIN),job('j2','a2','t2',2,HOUR)]}
+ jobs:[job('j1','a1','t1',0,5*MIN),job('j2','a2','t2',2,HOUR)]})
 
 // A writer's Home with the fixtures above. `fail` names paths that answer 500 from now on; `sessions` is the live list.
 async function home(options={}) {
@@ -72,7 +74,7 @@ async function home(options={}) {
   '/api/v2/project-runs/r2': runs.r2,
   ...(options.routes ?? {}),
  }
- const opened = await openWorkspace(browser, {width:1440, sync, routes, ...options, routes})
+ const opened = await openWorkspace(browser, {width:1440, sync:makeSync(), routes, ...options, routes})
  opened.page.on('request', r => { const u = new URL(r.url()); if (u.pathname.startsWith('/api/')) reads.push(`${r.method()} ${u.pathname}`) })
  await opened.page.exposeFunction('__recordStorage', (op, key, value) => { storage.push({op, key, value}) })
  await opened.page.addInitScript(() => {
@@ -582,7 +584,8 @@ try {
  // A machine whose sync agent is paused but still reporting says "paused", the word Control uses (fleet.ts), never "online":
  // from the sync agents (a single-token sign-in) and beside a health report alike, on a phone chip too.
  if (run('a paused agent that still reports reads paused')) {
-  const paused = {...sync, agents:[{...sync.agents[0], paused:true}, sync.agents[1], {id:'a3',host:'quiet-box',version:'1',lastSeen:now,paused:true,autoUpdate:false}]}
+  const synced = makeSync()
+   const paused = {...synced, agents:[{...synced.agents[0], paused:true}, synced.agents[1], {id:'a3',host:'quiet-box',version:'1',lastSeen:now,paused:true,autoUpdate:false}]}
   for (const [what, options] of [['token',{status:{mode:'token',user:null}}],['writer',{}],['phone',{width:390,touch:true}]]) {
    const {context,page,errors} = await home({...options, sync:paused})
    if (what === 'token') await page.addInitScript(() => localStorage.setItem('reet-token','fixture-token'))

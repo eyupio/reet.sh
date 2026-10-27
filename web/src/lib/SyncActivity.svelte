@@ -44,7 +44,7 @@
   const displayJobs = $derived(activeJobs.length ? activeJobs : latest ? [latest] : [])
   const currentTarget = $derived(run && run.cursor < run.targets.length ? (sync?.targets ?? []).find(target => target.target.id === run.targets[run.cursor]) : undefined)
   const progress = $derived(run ? Math.round((run.cursor / Math.max(1, run.targets.length)) * 100) : 0)
-  const title = $derived(context?.title ?? (live ? run ? (run.status === 'review' ? 'Review sync changes' : 'Syncing your machines') : activeJobs[0] ? activeJobs[0].status === 'awaiting-approval' ? 'Review sync changes' : activeJobs[0].status === 'queued' ? 'Waiting for machine' : activeJobKindLabel(activeJobs[0]) : 'Syncing your machines' : latest ? (latest.status === 'succeeded' ? 'Sync complete' : latest.status === 'failed' ? 'Sync needs attention' : 'Sync stopped') : 'Sync activity'))
+  const title = $derived(waiting ? 'Waiting for machine' : context?.title ?? (live ? run ? (run.status === 'review' ? 'Review sync changes' : 'Syncing your machines') : activeJobs[0] ? activeJobs[0].status === 'awaiting-approval' ? 'Review sync changes' : activeJobs[0].status === 'queued' ? 'Waiting for machine' : activeJobKindLabel(activeJobs[0]) : 'Syncing your machines' : latest ? (latest.status === 'succeeded' ? 'Sync complete' : latest.status === 'failed' ? 'Sync needs attention' : 'Sync stopped') : 'Sync activity'))
   const subtitle = $derived(context?.note || hostForRunOrJob() || 'All connected machines')
   const doneCounts = $derived(latest ? jobPlanCounts(latest) : { installs: 0, removals: 0, total: 0 })
 
@@ -165,7 +165,7 @@
         {@const counts = jobPlanCounts(job)}
         <article class="job" class:done={job.status === 'succeeded'} class:failed={job.status === 'failed'} aria-busy={['queued', 'running'].includes(job.status)}>
           <div class="job-head">
-            <div><strong>{targetLabel(job)}</strong><small>{job.status === 'queued' ? 'Queued · starts when the machine reconnects' : kindTitle(job)}</small></div>
+            <div><strong>{targetLabel(job)}</strong><small>{job.status === 'queued' ? 'Queued · waiting for the machine to pick up this job' : kindTitle(job)}</small></div>
             <span class="job-state {tone(job)}">{statusText(job)}</span>
           </div>
           <ol class="steps">

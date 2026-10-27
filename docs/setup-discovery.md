@@ -1,6 +1,6 @@
 # Local AI agent setup discovery
 
-`reet setup scan` is the first slice of [portable setup management](agent-setup-plan.md).
+`reet setup scan` is the first slice of portable setup management.
 It is available without a server, account, token or network connection.
 
 ```sh
@@ -155,8 +155,7 @@ not a transactional snapshot or a hardened archive collector.
 
 Current fixtures validate declared JSON, TOML and JSONC shapes rather than installed
 agent release versions. Other formats remain unsupported. Verified package provenance,
-content capture, encrypted snapshots and restore verification remain later stages in
-the implementation plan.
+content capture, encrypted snapshots and restore verification remain later stages.
 
 ## Opt-in export policy declarations (S1c)
 
@@ -238,8 +237,7 @@ so review a report before sharing it. No configuration values, commands, URLs,
 environment values, headers or credential material are returned. Unknown formats
 and unsupported adapters remain explicit. The policy is not a sanitised
 configuration export, a backup manifest or evidence that restoration is supported.
-See the [implementation plan](agent-setup-plan.md) for the snapshot, encryption and
-restore acceptance gates.
+
 
 ## Backup preview (S2a)
 

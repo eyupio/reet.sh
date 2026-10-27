@@ -427,8 +427,8 @@ verification and verified cross-OS restore remain unproven. Discovered global an
 project instruction files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `GEMINI.md`) are
 included as encrypted text; other instruction locations are not inventoried. Existing
 instance and shelf backups below remain separate.
-See [setup discovery and limits](docs/setup-discovery.md), the
-[implementation plan](docs/agent-setup-plan.md) and [handoff](handoff.md).
+See [setup discovery and limits](docs/setup-discovery.md) and
+[handoff](handoff.md).
 
 ### Instance and personal shelf backups
 
@@ -465,7 +465,7 @@ cd .. && go test ./... && go run ./cmd/reet serve
 
 For UI work, run `npm run dev` in `web/` (it proxies the API to `localhost:8080`).
 
-The [whole UI design studies](docs/ui-redesign.md) compare Library, Workbench and Focus across the signed-out pages, shelf, lists, account and admin. Open `web/concepts/controller.html` directly, or visit `/concepts/controller.html` on the Vite dev server. The app implements Library throughout: shared account forms, page headings, bordered shelf cards, list and account panels, grouped tools, and spacious admin tables. The other two directions remain concepts for reference. See [Library implementation](docs/library-implementation.md) for screenshots and validation.
+The whole UI design studies compare Library, Workbench and Focus across the signed-out pages, shelf, lists, account and admin. Open `web/concepts/controller.html` directly, or visit `/concepts/controller.html` on the Vite dev server. The app implements Library throughout: shared account forms, page headings, bordered shelf cards, list and account panels, grouped tools, and spacious admin tables. The other two directions remain concepts for reference.
 
 Version tags also publish checksummed Linux and macOS binaries through the [binary release workflow](.github/workflows/release.yml).
 
@@ -523,7 +523,7 @@ The workspace separates **Skills**, **Lists**, **Setups** and **Machines**. Use 
 **Prepare a machine** action to review its skills against a target inventory. Setup
 profiles show captured coverage, exclusions and revision comparisons, with a guided
 local recovery flow. Syncing a profile transfers metadata, not its encrypted snapshot.
-See [UX rebalance](docs/ux-rebalance.md) and [binary installation](docs/binary-installation.md).
+See [binary installation](docs/binary-installation.md).
 
 Remote Linux/macOS terminals have a dedicated **Terminals** workspace. The active-session
 band on **Control** links directly back to each existing shell. The screen fills the

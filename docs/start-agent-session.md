@@ -3,8 +3,8 @@
 Pick a machine, an agent, a folder and, if you like, a model and an opening prompt. Press **Start**
 and you land in a new browser terminal session with that agent already running. The dialog is
 `web/src/lib/StartAgentDialog.svelte`. The launch request it sends and how a machine handles it are
-in [Launch requests](terminal-launch.md). The design is in
-[the start-an-agent spec](superpowers/specs/2026-10-25-start-agent-session-design.md).
+in [Launch requests](terminal-launch.md). The design spec was removed in the docs tidy-up
+(see git history before bd9e56c).
 
 The browser never sends a command line. It names a tool id (`claude`, `codex`, `opencode` or
 `gemini`) and the values you chose. The machine looks the tool up in a table built into its own

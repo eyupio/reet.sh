@@ -4,8 +4,8 @@ When the machine you want isn't listed, you can bring it in without leaving the 
 The **Add a machine** dialog (`web/src/lib/AddMachineDialog.svelte`) shows one block of commands to
 paste on that machine, watches the controller for it, and carries on where you started: back on the
 Machines page with its card marked, or in the Private skills dialog on the new machine's matching
-folder. Nothing on screen says more than the controller has been told. The design is in
-[the add-a-machine spec](superpowers/specs/2026-10-25-add-machine-in-context-design.md).
+folder. Nothing on screen says more than the controller has been told. The design spec was removed in the docs tidy-up
+(see git history before bd9e56c).
 
 ## Purpose and non-goals
 

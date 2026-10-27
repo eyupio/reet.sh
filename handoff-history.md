@@ -1,5 +1,7 @@
 # Historical handoff archive
 
+> Plans, specs and implementation notes named below (`docs/superpowers/plans|specs/2026-10-2[145]*`, `docs/agent-setup-plan.md`, `remote-machine-*`) were removed in the docs tidy-up; see git history before bd9e56c.
+
 Archived on 23 October 2026, including the handoff refresh through PR #113.
 For current status and next work, read [handoff.md](handoff.md).
 The statements below are historical observations at different implementation stages.
@@ -12,7 +14,7 @@ Expand reet from skills management to portable AI agent setups. The first
 milestone is complete backup and restore of supported setups on a new machine;
 profile sync follows, then reviewed updates/diagnostics/rollback.
 
-The authoritative detailed plan is [docs/agent-setup-plan.md](docs/agent-setup-plan.md).
+The authoritative detailed plan was `docs/agent-setup-plan.md` (removed in the docs tidy-up; see git history before bd9e56c).
 It records the owner's decisions, architecture, delivery slices, acceptance gates,
 validation and compatibility constraints. Do not reopen settled choices without
 new evidence.

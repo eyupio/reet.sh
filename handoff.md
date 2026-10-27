@@ -1,5 +1,7 @@
 # Reet central-control implementation handoff
 
+> Plans, specs and implementation notes named below (`docs/superpowers/plans|specs/2026-10-2[145]*`, `docs/agent-setup-plan.md`, `remote-machine-*`) were removed in the docs tidy-up; see git history before bd9e56c.
+
 ## Read this first — 24 October 2026
 
 **Agents home redesign (27 October 2026) — in progress, updated with every pull request in the stack.**
@@ -107,13 +109,12 @@ Read alongside:
 
 - [Control-centre behaviour and boundaries](docs/control-centre.md).
 - [Terminal workspace behaviour and implementation map](docs/terminal-workspace.md).
-- [Controller sync](docs/controller-sync.md) and
-  [verification evidence](docs/controller-sync-verification.md).
-- [Portable agent setup architecture](docs/agent-setup-plan.md), especially format,
+- [Controller sync](docs/controller-sync.md) (its verification evidence note was removed in the docs tidy-up; see git history before bd9e56c).
+- Portable agent setup architecture (`docs/agent-setup-plan.md`; removed in the docs tidy-up; see git history before bd9e56c), especially format,
   ownership, credential, rollback and partial-recovery requirements.
-- [Remote machine architecture](remote-machine-implementation-plan.md), with
-  [stage 7](docs/remote-machine-stage7.md), [stage 8](docs/remote-machine-stage8.md),
-  [stage 9](docs/remote-machine-stage9.md), and
+- Remote machine architecture (`remote-machine-implementation-plan.md` and the
+  `docs/remote-machine-stage*.md` notes, removed in the docs tidy-up; see git history before bd9e56c), the
+  [remote machine operations guide](docs/remote-machine-operations.md), and
   [controller terminal commands](docs/terminal-controller-commands.md).
 - CONTRIBUTING.md and [voice/copy](docs/voice-and-copy.md).
 
@@ -2353,8 +2354,8 @@ and worktrees, reusing the folder list and the launch request.
 
 ## Projects PR 1 — worktrees on the machine
 
-Plan: [docs/superpowers/plans/2026-10-25-projects.md](docs/superpowers/plans/2026-10-25-projects.md).
-Spec: [docs/superpowers/specs/2026-10-25-projects-design.md](docs/superpowers/specs/2026-10-25-projects-design.md)
+Plan: `docs/superpowers/plans/2026-10-25-projects.md`.
+Spec: `docs/superpowers/specs/2026-10-25-projects-design.md`
 (amended where the implementation found it overclaimed). What the code does:
 [docs/terminal-worktrees.md](docs/terminal-worktrees.md). The spec and plan are on PR #201; the PR 1
 implementation commits are on the working branch and had not been opened as a pull request when

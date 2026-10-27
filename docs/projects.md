@@ -13,7 +13,7 @@ the Worktrees list `ProjectWorktrees.svelte`. The controller code is `internal/a
 `internal/store/store_projects_migrate.go`. The design is in
 [the agents home spec](superpowers/specs/2026-10-26-agents-home-design.md) ("Project registry",
 "Migration"); the multi-repository Projects it replaces are in
-[the Projects spec](superpowers/specs/2026-10-25-projects-design.md).
+the Projects spec (removed in the docs tidy-up; see git history before bd9e56c).
 
 A started session means only that the machine started the program in tmux in that folder. It does
 not show that the agent is signed in, understands the prompt or is making progress.

@@ -9,8 +9,8 @@
 
   // One slot of the launch sentence: a listbox in a popover above its button with a mouse, or in a bottom sheet on touch.
   // Arrow keys, Home and End move through the options, Enter or Space chooses, Escape (or Close) closes and gives focus back
-  // to the slot's button. A filter, when there is one, narrows the list as it is typed (or asks the page to, for a list read
-  // from a machine). `other` adds a typed value (the model's Other…).
+  // to the slot's button; Tab from the popover closes it and moves on from the slot. A filter, when there is one, narrows the
+  // list as it is typed (or asks the page to, for a list read from a machine). `other` adds a typed value (the model's Other…).
   let { label, options, value, sheet, opener, filter, onfilter, other, status = '', onpick, onclose }: {
     label: string
     options: SlotOption[]
@@ -76,10 +76,15 @@
     else if (event.key === 'Home' && at >= 0) move(0)
     else if (event.key === 'End' && at >= 0) move(all.length - 1)
     else if ((event.key === 'Enter' || event.key === ' ') && at >= 0) { event.preventDefault(); all[at].click() }
-    else if (event.key === 'Tab' && !sheet) close(false)
+    else if (event.key === 'Tab' && !sheet) tabOut()
   }
+  // Tab from the popover (drawn at the end of the page) gives focus back to the slot first, so the browser's own Tab move
+  // goes on from there: to the next slot, or the one before with Shift.
+  function tabOut() { close(true) }
   function filterKeys(event: KeyboardEvent) {
-    if (event.key === 'ArrowDown') { event.preventDefault(); items()[0]?.focus() }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() }
+    else if (event.key === 'Tab' && !sheet) tabOut()
+    else if (event.key === 'ArrowDown') { event.preventDefault(); items()[0]?.focus() }
     else if (event.key === 'Enter') { event.preventDefault(); const first = all.find(o => !o.disabled); if (first) choose(first) }
   }
   let timer: ReturnType<typeof setTimeout> | undefined

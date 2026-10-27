@@ -470,6 +470,35 @@ try {
  }
 
  // Each slot is a button named for its slot and value; it opens a listbox, and the choice shows in the sentence and goes out.
+ // With a keyboard on a desktop, Tab or Escape from an open list (or from the project list's filter) closes it and leaves focus
+ // in the bar: Escape on its slot, Tab on the next slot, never on the page's first control.
+ if (run('Tab and Escape from a slot list keep focus in the bar')) {
+  const {context,page,errors,box} = await launch()
+  await page.goto(base)
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await slot(page,'Agent').click()
+  const agents = page.getByRole('listbox',{name:'Agent'})
+  await expect(agents.getByRole('option',{name:/^Claude Code/})).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(agents).toBeHidden()
+  await expect(slot(page,'Model')).toBeFocused()
+  await slot(page,'Project').click()
+  const find = page.getByRole('searchbox',{name:'Find a project'})
+  const projects = page.getByRole('listbox',{name:'Project'})
+  await expect(find).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(projects).toBeHidden()
+  await expect(slot(page,'Project')).toBeFocused()
+  await slot(page,'Project').click()
+  await expect(find).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(projects).toBeHidden()
+  await expect(slot(page,'Branch')).toBeFocused()
+  expect(box.posts).toEqual([])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  if (run('each slot opens and sets its value')) {
   const {context,page,errors,box} = await launch()
   await page.goto(base)

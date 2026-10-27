@@ -134,18 +134,52 @@ func checkCapturedVersion(t *testing.T, p Preset, help string) {
 
 // flagBlock returns the help text describing flag: from the flag to the next
 // option line.
+func isFlagRune(r byte) bool {
+	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_'
+}
+
 func flagBlock(help, flag string) string {
-	i := strings.Index(help, flag)
-	if i < 0 {
-		return ""
+	for from := 0; ; {
+		i := strings.Index(help[from:], flag)
+		if i < 0 {
+			return ""
+		}
+		i += from
+		end := i + len(flag)
+		from = end
+		// Whole-token match only: "--thinking" is not "--thinking-budget".
+		if i > 0 && isFlagRune(help[i-1]) || end < len(help) && isFlagRune(help[end]) {
+			continue
+		}
+		rest := help[end:]
+		for _, sep := range []string{"\n  -", "\n\n"} {
+			if j := strings.Index(rest, sep); j >= 0 {
+				rest = rest[:j]
+			}
+		}
+		return rest
 	}
-	rest := help[i+len(flag):]
-	for _, sep := range []string{"\n  -", "\n\n"} {
-		if j := strings.Index(rest, sep); j >= 0 {
-			rest = rest[:j]
+}
+
+// blockHasToken reports whether value appears in block as a whole token.
+func blockHasToken(block, value string) bool {
+	for _, tok := range strings.FieldsFunc(block, func(r rune) bool { return r > 127 || !isFlagRune(byte(r)) && r != '.' }) {
+		if tok == value {
+			return true
 		}
 	}
-	return rest
+	return false
+}
+
+func TestHelpTokenMatching(t *testing.T) {
+	help := "  --thinking-budget <n>   tokens: hig\n  --thinking <level>      none|low|medium|high|xhigh\n  -c, --cwd <path>\n"
+	block := flagBlock(help, "--thinking")
+	if !blockHasToken(block, "high") || blockHasToken(block, "hig") || blockHasToken(block, "hi") {
+		t.Fatalf("token match wrong for %q", block)
+	}
+	if blockHasToken(flagBlock(help, "--thinking-budget"), "high") || flagBlock("  --thinking-budget x", "--thinking") != "" {
+		t.Fatal("prefix flag matched")
+	}
 }
 
 func TestPresetFlagValuesAppearInHelpText(t *testing.T) {
@@ -165,7 +199,7 @@ func TestPresetFlagValuesAppearInHelpText(t *testing.T) {
 				}
 				block, value := flagBlock(help, args[i]), args[i+1]
 				boolean := (value == "true" || value == "false") && strings.Contains(block, "<boolean>")
-				if !boolean && !strings.Contains(block, value) {
+				if !boolean && !blockHasToken(block, value) {
 					t.Fatalf("%s: value %q for %s not described by captured help", p.ID, value, args[i])
 				}
 			}
@@ -178,6 +212,21 @@ func TestPresetFlagValuesAppearInHelpText(t *testing.T) {
 	}
 }
 
+// bypassPair reports flag/value pairs that disable approval or sandboxing.
+func bypassPair(flag, value string) bool {
+	switch flag {
+	case "--approval-mode":
+		return value == "yolo" || value == "auto_edit" || value == "auto-edit"
+	case "--ask-for-approval", "-a":
+		return value == "never"
+	case "--sandbox", "-s":
+		return value == "danger-full-access"
+	case "--permission-mode":
+		return value == "acceptedits" || value == "bypasspermissions" || value == "dontask"
+	}
+	return false
+}
+
 // approvalBypass reports why args could switch off tool approval, or "".
 func approvalBypass(args []string) string {
 	for i, arg := range args {
@@ -187,6 +236,8 @@ func approvalBypass(args []string) string {
 			return arg
 		case strings.HasPrefix(lower, "--dangerously"), strings.Contains(lower, "bypass"), strings.Contains(lower, "skip-permission"), strings.HasPrefix(lower, "--allow-all"), strings.HasPrefix(lower, "--trust-all"):
 			return arg
+		case i+1 < len(args) && bypassPair(lower, strings.ToLower(args[i+1])):
+			return arg + " " + args[i+1]
 		case lower == "--auto-approve" || strings.HasPrefix(lower, "--auto-approve="):
 			value := strings.TrimPrefix(lower, "--auto-approve=")
 			if lower == "--auto-approve" {
@@ -204,12 +255,12 @@ func approvalBypass(args []string) string {
 }
 
 func TestApprovalBypassDenylist(t *testing.T) {
-	for _, bad := range [][]string{{"--yolo"}, {"-y"}, {"--auto-approve", "true"}, {"--auto-approve"}, {"--auto-approve=true"}, {"--dangerously-skip-permissions"}, {"--full-auto"}} {
+	for _, bad := range [][]string{{"--yolo"}, {"-y"}, {"--auto-approve", "true"}, {"--auto-approve"}, {"--auto-approve=true"}, {"--dangerously-skip-permissions"}, {"--full-auto"}, {"--approval-mode", "yolo"}, {"--ask-for-approval", "never"}, {"--sandbox", "danger-full-access"}, {"--permission-mode", "acceptEdits"}} {
 		if approvalBypass(bad) == "" {
 			t.Fatal("denylist missed", bad)
 		}
 	}
-	if approvalBypass([]string{"--auto-approve", "false", "--tui", "--thinking", "high"}) != "" {
+	if approvalBypass([]string{"--auto-approve", "false", "--tui", "--thinking", "high", "--approval-mode", "default", "--sandbox", "workspace-write"}) != "" {
 		t.Fatal("safe cline defaults denied")
 	}
 }

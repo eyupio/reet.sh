@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -272,7 +273,14 @@ func (s *server) finishSyncJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.FinishSyncJob(s.uid(r), a.ID, in.ID, in.Status, in.Hash, in.Message, in.Plan); err != nil {
-		writeErr(w, 409, err.Error())
+		var refused store.SyncJobResultRefused
+		if errors.As(err, &refused) {
+			writeErr(w, 409, err.Error())
+			return
+		}
+		// A storage or transaction failure may clear up; keep the agent's
+		// durable result for another attempt instead of calling it a refusal.
+		writeErr(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})

@@ -546,6 +546,16 @@ func (s *Store) ClaimSyncJob(uid int64, a SyncAgent) (*SyncJob, error) {
 	})
 	return job, err
 }
+
+// SyncJobResultRefused marks a result the controller will never accept for
+// this job. The agent may discard its durable copy; any other FinishSyncJob
+// error is transient and should be retried with the same result.
+type SyncJobResultRefused struct{ Reason string }
+
+func (e SyncJobResultRefused) Error() string { return e.Reason }
+
+func refuseSyncJobResult(reason string) error { return SyncJobResultRefused{Reason: reason} }
+
 func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message string, plan json.RawMessage) error {
 	if len(message) > 8000 {
 		message = message[:8000]
@@ -554,12 +564,15 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 		plan = json.RawMessage(`{}`)
 	}
 	if !json.Valid(plan) || len(plan) > 1<<20 {
-		return errors.New("invalid plan")
+		return refuseSyncJobResult("invalid plan")
 	}
 	return s.withTx(func(tx *sql.Tx) error {
 		j, err := scanJob(tx.QueryRow(`SELECT `+jobCols+` FROM sync_jobs WHERE user_id=? AND agent_id=? AND id=?`, uid, agentID, id))
+		if errors.Is(err, sql.ErrNoRows) {
+			return refuseSyncJobResult("job not found")
+		}
 		if err != nil {
-			return ErrNotFound
+			return err
 		}
 		var received int
 		if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_receipts WHERE job_id=? AND status=? AND hash=?`, id, status, hash).Scan(&received); err != nil {
@@ -579,11 +592,11 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 				_, err = tx.Exec(`INSERT OR IGNORE INTO sync_receipts(job_id,status,hash) VALUES(?,?,?)`, id, status, hash)
 				return err
 			} else {
-				return errors.New("job is no longer running")
+				return refuseSyncJobResult("job is no longer running")
 			}
 		}
 		if status != "failed" && status != "succeeded" && !(j.Kind == "update" && status == "rolled_back") && !((j.Kind == "preview" || j.Kind == "auto") && status == "awaiting-approval" && len(hash) == 64) {
-			return errors.New("invalid job result")
+			return refuseSyncJobResult("invalid job result")
 		}
 		if status == "succeeded" && j.Kind == "apply" {
 			var revision string

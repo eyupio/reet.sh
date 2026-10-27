@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -435,6 +436,35 @@ func TestSyncRunChainsScopesAndAutoApprovesAdditivePlans(t *testing.T) {
 	runs, _ := s.SyncRunsFor(uid)
 	if len(runs) == 0 || runs[0].Status != "review" || runs[0].Cursor != 2 {
 		t.Fatalf("review run: %+v", runs)
+	}
+}
+
+func TestFinishSyncJobDistinguishesRefusalsFromTransientErrors(t *testing.T) {
+	s, uid, id := controlFixture(t)
+	a, _, err := s.EnrollSyncAgent(uid, "laptop", "v1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", SkillIDs: []string{"a/b/one"}, Mode: "additive"}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.QueueSyncJob(uid, a.ID, id, "preview")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ClaimSyncJob(uid, a); err != nil {
+		t.Fatal(err)
+	}
+	hash := strings.Repeat("a", 64)
+	if err = s.FinishSyncJob(uid, a.ID, job.ID, "succeeded", hash, "", json.RawMessage(`{"actions":[]}`)); err != nil {
+		t.Fatal(err)
+	}
+	var refused SyncJobResultRefused
+	if err = s.FinishSyncJob(uid, a.ID, job.ID, "failed", strings.Repeat("b", 64), "", json.RawMessage(`{}`)); !errors.As(err, &refused) {
+		t.Fatalf("closed job refused without a terminal marker: %v", err)
+	}
+	if err = s.FinishSyncJob(uid, a.ID, "missing-job", "succeeded", "", "", nil); !errors.As(err, &refused) {
+		t.Fatalf("missing job refused without a terminal marker: %v", err)
 	}
 }
 

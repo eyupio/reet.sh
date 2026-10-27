@@ -478,7 +478,7 @@ Tasks (exact target values are in the audit report): **P1** tokens and base spac
 
 ### Task F5: Docs that said auto-approve is not offered
 
-**Files:** Modify `docs/start-agent-session.md`, `docs/terminal-launch.md`, `docs/superpowers/specs/2026-10-25-start-agent-session-design.md` ("No permission-bypass flags" line amended), `docs/roadmap.md`.
+**Files:** Modify `docs/start-agent-session.md`, `docs/terminal-launch.md`, `docs/roadmap.md`. (The start-agent-session design spec this step once named was removed in the docs tidy-up of 27 October 2026; its "No permission-bypass flags" line now lives only in git history, so it is not amended.)
 
 - [ ] Step 1: amend each passage to say YOLO exists, is off by default, needs the account setting, the machine's acceptance and a per-session confirmation, and is audited; update the test that pins the only flags (`TestPresetFlags…`) to allow exactly `YoloArgs` when `Yolo` is true. Commit "Document YOLO and its gates".
 

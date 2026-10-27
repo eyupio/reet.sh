@@ -39,7 +39,7 @@ try {
   const first = lastBrowse(box)
   expect(first.searchParams.has('path')).toBe(false)
   expect(first.searchParams.get('session')).toMatch(/^[A-Za-z0-9_-]{16,128}$/)
-  expect(await crumbText(page)).toBe('~')
+  await expect.poll(() => crumbText(page)).toBe('~')
   await expect(d.locator('.count')).toHaveText('7 folders')
   // Hidden folders are left out until asked for; repositories get the diamond, bold names and the REPO badge.
   await expect(folders(page).getByRole('listitem')).toHaveCount(7)
@@ -53,7 +53,7 @@ try {
   // A name with a space and a # goes back to the machine exactly as listed.
   await row(page, 'my work #1').click()
   await expect.poll(() => lastBrowse(box).searchParams.get('path')).toBe(`${HOME}/my work #1`)
-  expect(await crumbText(page)).toBe('~ / my work #1')
+  await expect.poll(() => crumbText(page)).toBe('~ / my work #1')
   await expect(d.locator('.here')).toContainText(`${HOME}/my work #1`)
   // Names that are not ASCII go back as they were listed too.
   await row(page, 'café').click()
@@ -227,7 +227,7 @@ try {
   await row(page, 'reet, git repository').click()
   await expect(d.locator('.browse-error')).toContainText('That machine is reconnecting. Try again in a moment.')
   // The breadcrumb, list and typed path stay as they were.
-  expect(await crumbText(page)).toBe('~')
+  await expect.poll(() => crumbText(page)).toBe('~')
   await expect(folders(page).getByRole('listitem')).toHaveCount(7)
   await expect(folderField(page)).toHaveValue(`${HOME}/typed`)
   await expect(d.getByRole('button', {name:'Add project', exact:true})).toBeEnabled()
@@ -247,7 +247,7 @@ try {
   await row(page, 'archive').click()
   await expect(d.locator('.browse-error')).toContainText('Slow down a moment, then try again.')
   await expect(folders(page).getByRole('listitem')).toHaveCount(7)
-  expect(await crumbText(page)).toBe('~')
+  await expect.poll(() => crumbText(page)).toBe('~')
   await d.getByRole('button', {name:'Try again'}).click()
   await expect.poll(() => crumbText(page)).toBe('~ / archive')
   expect(errors).toEqual([])
@@ -371,7 +371,7 @@ try {
    await expect(d.locator('.browse-error p')).toHaveText(sentence)
    await expect(d.locator('.browse-error')).toContainText('Try again')
    await expect(folders(page).getByRole('listitem')).toHaveCount(7)
-   expect(await crumbText(page)).toBe('~')
+   await expect.poll(() => crumbText(page)).toBe('~')
   }
   expect(errors).toEqual([])
   await context.close()

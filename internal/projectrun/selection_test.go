@@ -274,3 +274,80 @@ func TestSelectionRunOptionRefusalNamesTheMachineOrTheAgent(t *testing.T) {
 		}
 	}
 }
+
+// A base the member only inherits from the account's default is not sent to a
+// machine that has not negotiated agents-v2 (it would refuse the whole start);
+// a project's own base branch is still sent, so an older machine says it needs
+// an update. The choice is made once per member and kept: a retry with the same
+// request id sends the same bytes even after the machine is upgraded.
+func TestSelectionRunInheritedBaseSkipsOlderMachines(t *testing.T) {
+	f := newFixture(t)
+	p, err := f.st.ProfileFor(f.uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.DefaultBaseBranch = "main"
+	if err := f.st.SaveProfileFor(f.uid, p); err != nil {
+		t.Fatal(err)
+	}
+	caps := func(v2 bool) terminalproto.Capabilities {
+		return terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "t", TerminalControl: true, TerminalEnabled: true, Readiness: terminalproto.Ready, Launch: true, Worktree: true, AgentsV2: v2, Tools: []string{"claude"}}
+	}
+	for agent, v2 := range map[string]bool{f.laptop: false, f.server: true} {
+		if _, err := f.st.BeginRemoteConnectionFor(f.uid, agent, terminalbroker.ID(), caps(v2)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	own := f.folder(t, store.FolderProject{Host: f.laptop, Dir: "/home/t/own", Name: "own", IsRepo: true, BaseBranch: "develop"})
+	inherits := f.folder(t, store.FolderProject{Host: f.laptop, Dir: "/home/t/inherits", Name: "inherits", IsRepo: true})
+	current := f.folder(t, store.FolderProject{Host: f.server, Dir: "/srv/current", Name: "current", IsRepo: true})
+	// The older machine's inherited member: the first answer is lost, so a retry
+	// replays its request id.
+	f.broker.answer = func(s sent) answer {
+		if s.in.Dir == "/home/t/inherits" {
+			return answer{kind: lost}
+		}
+		return answer{}
+	}
+	o := f.orchestrator(t)
+	r := f.selection(t, store.RunLaunch{Tool: "claude", Prompt: selectionSentinel, Worktree: true}, own, inherits, current)
+	o.Start(f.uid, r.ID)
+	got := settle(t, o, f.st, f.uid, r.ID)
+	bases := map[string]string{}
+	for _, c := range f.broker.sent() {
+		bases[c.in.Dir] = c.in.Base
+	}
+	if want := map[string]string{"/home/t/own": "develop", "/home/t/inherits": "", "/srv/current": "main"}; fmt.Sprint(bases) != fmt.Sprint(want) {
+		t.Fatalf("bases sent: %v, want %v", bases, want)
+	}
+	var lost store.RunMember
+	for _, m := range got.Members {
+		if m.Dir == "/home/t/inherits" {
+			lost = m
+		}
+		if m.BaseInherited {
+			t.Fatalf("an inherited base was left undecided after the send: %+v", m)
+		}
+	}
+	if lost.State != store.RunMemberFailed || !lost.Sent || lost.Base != "" {
+		t.Fatalf("%+v", lost)
+	}
+	// Upgraded since: the retry still sends exactly what the first send did.
+	if _, err := f.st.BeginRemoteConnectionFor(f.uid, f.laptop, terminalbroker.ID(), caps(true)); err != nil {
+		t.Fatal(err)
+	}
+	f.broker.answer = nil
+	if _, err := o.Retry(f.uid, r.ID, lost.Position); err != nil {
+		t.Fatal(err)
+	}
+	settle(t, o, f.st, f.uid, r.ID)
+	var sends []terminalproto.Create
+	for _, c := range f.broker.sent() {
+		if c.in.Dir == "/home/t/inherits" {
+			sends = append(sends, c.in)
+		}
+	}
+	if len(sends) != 2 || fmt.Sprintf("%+v", sends[0]) != fmt.Sprintf("%+v", sends[1]) {
+		t.Fatalf("the replay changed: %+v", sends)
+	}
+}

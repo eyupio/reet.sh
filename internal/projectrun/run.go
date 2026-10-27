@@ -191,6 +191,7 @@ type Store interface {
 	ReleaseRunMember(uid int64, runID string, position int)
 	SetRunMemberState(uid int64, runID string, position int, state, code, sessionID, worktreePath, worktreeRepo, worktreeBranch string, attempt int) error
 	SetRunMemberWorktreeToken(uid int64, runID string, position int, token string) error
+	SettleRunMemberBase(uid int64, runID string, position int, keep bool) error
 	MarkRunMemberSent(uid int64, runID string, position, attempt int) error
 	ClearRunMemberSent(uid int64, runID string, position, attempt int) error
 	RetryRunMember(uid int64, runID string, position int) (store.RunMember, error)
@@ -537,6 +538,25 @@ func (o *Orchestrator) startMember(uid int64, run store.Run, position int, code 
 		}
 		in.Worktree = token
 		in.Project = terminalproto.Slug(project, "project")
+		if m.BaseInherited {
+			// Only the account's default: a machine without agents-v2 would
+			// refuse the start for it, so it starts from the checkout's HEAD
+			// there instead. Decided once and stored before anything is sent,
+			// so a replay of this request id carries the same base.
+			keep := true
+			if caps, err := o.cfg.Store.RemoteCapabilitiesFor(uid, m.Host); err == nil && !caps.Capabilities.AgentsV2 {
+				keep = false
+			}
+			if err := o.cfg.Store.SettleRunMemberBase(uid, run.ID, position, keep); err != nil {
+				o.cfg.Logf("project run %s member %d: settle base: %v", run.ID, position, err)
+				o.fail(uid, run.ID, m, CodeInternalError) // nothing was sent now
+				return
+			}
+			if !keep {
+				m.Base = ""
+			}
+			m.BaseInherited = false
+		}
 		in.Base = m.Base
 	}
 	request := RequestID(run.ID, position, m.Attempt)

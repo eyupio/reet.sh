@@ -252,3 +252,55 @@ func TestTerminalProjectNeedsItsFolder(t *testing.T) {
 		}
 	}
 }
+
+// A member's base taken from the account's default is marked inherited until it
+// is settled, once: kept, or cleared for a machine that can't take it. A
+// project's own base is never inherited, and settling again changes nothing.
+func TestSelectionRunInheritedBaseIsSettledOnce(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	p, err := s.ProfileFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.DefaultBaseBranch = "main"
+	if err := s.SaveProfileFor(uid, p); err != nil {
+		t.Fatal(err)
+	}
+	own := mustFP(t, s, uid, FolderProject{Host: "studio", Dir: "/home/a/own", Name: "own", IsRepo: true, BaseBranch: "develop"})
+	inherits := mustFP(t, s, uid, FolderProject{Host: "studio", Dir: "/home/a/inherits", Name: "inherits", IsRepo: true})
+	run, _, err := s.StartSelectionRunFor(uid, syncID(), []string{own.ID, inherits.ID}, selectionLaunch())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := run.Members[0]; m.Base != "develop" || m.BaseInherited {
+		t.Fatalf("own base: %+v", m)
+	}
+	if m := run.Members[1]; m.Base != "main" || !m.BaseInherited {
+		t.Fatalf("inherited base: %+v", m)
+	}
+	for _, keep := range []bool{false, true} { // the second call is too late to change it
+		if err := s.SettleRunMemberBase(uid, run.ID, 1, keep); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SettleRunMemberBase(uid, run.ID, 0, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.RunFor(uid, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := got.Members[1]; m.Base != "" || m.BaseInherited {
+		t.Fatalf("settled: %+v", m)
+	}
+	if m := got.Members[0]; m.Base != "develop" {
+		t.Fatalf("a project's own base was cleared: %+v", m)
+	}
+	if err := s.SettleRunMemberBase(uid, run.ID, 9, true); !errors.Is(err, ErrRunNotFound) {
+		t.Fatal(err)
+	}
+	if err := s.SettleRunMemberBase(projectUser(t, s, "b"), run.ID, 1, true); !errors.Is(err, ErrRunNotFound) {
+		t.Fatal(err)
+	}
+}

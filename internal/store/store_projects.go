@@ -169,6 +169,11 @@ type RunMember struct {
 	Name       string
 	Base       string
 	NoWorktree bool
+	// BaseInherited is true while Base came from the account's default base
+	// branch (the project names none) and the orchestrator has not yet decided
+	// whether to send it: it is not sent to a machine without agents-v2. The
+	// decision is made once, before the first send, and kept (SettleRunMemberBase).
+	BaseInherited bool
 }
 
 // InWorktree reports whether the member of r starts in a fresh worktree.
@@ -302,6 +307,7 @@ func (s *Store) migrateProjects() error {
 			{"project_run_members", "name", `TEXT NOT NULL DEFAULT ''`},
 			{"project_run_members", "base", `TEXT NOT NULL DEFAULT ''`},
 			{"project_run_members", "no_worktree", `INTEGER NOT NULL DEFAULT 0`},
+			{"project_run_members", "base_inherited", `INTEGER NOT NULL DEFAULT 0`},
 		} {
 			var n int
 			if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name=?`, c[0], c[1]).Scan(&n); err != nil {
@@ -995,12 +1001,12 @@ func (s *Store) StartSelectionRunFor(uid int64, requestID string, projectIDs []s
 				m.NoWorktree = true
 			case launch.Worktree:
 				m.Base = p.BaseBranch
-				if m.Base == "" {
-					m.Base = profileBase
+				if m.Base == "" && profileBase != "" {
+					m.Base, m.BaseInherited = profileBase, true
 				}
 			}
-			if _, err := tx.Exec(`INSERT INTO project_run_members(run_id,user_id,position,host,dir,tool,model,folder_project_id,name,base,no_worktree) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-				id, uid, m.Position, m.Host, m.Dir, m.Tool, m.Model, m.ProjectID, m.Name, m.Base, m.NoWorktree); err != nil {
+			if _, err := tx.Exec(`INSERT INTO project_run_members(run_id,user_id,position,host,dir,tool,model,folder_project_id,name,base,no_worktree,base_inherited) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+				id, uid, m.Position, m.Host, m.Dir, m.Tool, m.Model, m.ProjectID, m.Name, m.Base, m.NoWorktree, m.BaseInherited); err != nil {
 				return err
 			}
 			run.Members = append(run.Members, m)
@@ -1046,11 +1052,11 @@ func DeriveRunState(members []RunMember) string {
 	return RunPartial
 }
 
-const runMemberCols = `position,host,dir,tool,model,state,code,session_id,worktree_token,worktree_path,worktree_repo,worktree_branch,attempt,sent,folder_project_id,name,base,no_worktree`
+const runMemberCols = `position,host,dir,tool,model,state,code,session_id,worktree_token,worktree_path,worktree_repo,worktree_branch,attempt,sent,folder_project_id,name,base,no_worktree,base_inherited`
 
 func scanRunMember(row interface{ Scan(...any) error }) (m RunMember, err error) {
 	err = row.Scan(&m.Position, &m.Host, &m.Dir, &m.Tool, &m.Model, &m.State, &m.Code, &m.SessionID, &m.WorktreeToken, &m.WorktreePath, &m.WorktreeRepo, &m.WorktreeBranch, &m.Attempt, &m.Sent,
-		&m.ProjectID, &m.Name, &m.Base, &m.NoWorktree)
+		&m.ProjectID, &m.Name, &m.Base, &m.NoWorktree, &m.BaseInherited)
 	return
 }
 
@@ -1364,6 +1370,28 @@ func (s *Store) SetRunMemberRemovedFor(uid int64, agent, token string) error {
 	_, err := s.db.Exec(`UPDATE project_run_members SET state='removed' WHERE user_id=? AND host=? AND worktree_token=? AND state IN ('started','failed') AND worktree_path<>''`,
 		uid, agent, token)
 	return err
+}
+
+// SettleRunMemberBase decides, once, whether a member's inherited base is
+// sent: keep leaves it, otherwise it is cleared. Either way the member no
+// longer has an undecided inherited base, so every later send (a replay of the
+// same request id included) carries the same base. A member already settled,
+// or one whose base is its project's own, is left as it is.
+func (s *Store) SettleRunMemberBase(uid int64, runID string, position int, keep bool) error {
+	res, err := s.db.Exec(`UPDATE project_run_members SET base=CASE WHEN ? THEN base ELSE '' END, base_inherited=0 WHERE run_id=? AND user_id=? AND position=? AND base_inherited=1`,
+		keep, runID, uid, position)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		var one int
+		if err := s.db.QueryRow(`SELECT 1 FROM project_run_members WHERE run_id=? AND user_id=? AND position=?`, runID, uid, position).Scan(&one); errors.Is(err, sql.ErrNoRows) {
+			return ErrRunNotFound
+		} else if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SetRunMemberWorktreeToken records the per-member worktree token the

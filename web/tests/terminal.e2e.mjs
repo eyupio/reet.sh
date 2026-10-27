@@ -33,7 +33,7 @@ try {
   let firstCreate=true
   await page.route('**/api/v2/terminal/sessions',async route=>{if(route.request().method()==='POST'&&firstCreate){firstCreate=false;await createGate}await route.continue()})
   await page.goto(`${base}/machines?view=terminal&agent=${encodeURIComponent(process.env.REET_BROWSER_AGENT)}`)
-  await expect(page.getByRole('heading', { name: 'Terminals' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Sessions' })).toBeVisible()
   await page.getByRole('button',{name:'Details & help',exact:true}).click()
   const reference=page.getByRole('region',{name:'Terminal command reference'})
   await expect(reference.locator('.badge')).toHaveText('Active')

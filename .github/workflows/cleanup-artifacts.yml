@@ -40,7 +40,7 @@ concurrency:
 jobs:
   cleanup:
     name: Cleanup Actions artifacts
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     timeout-minutes: 15
     permissions:
       actions: write

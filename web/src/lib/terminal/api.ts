@@ -138,3 +138,86 @@ export type RemovedWorktree = { ok: boolean; path?: string; branch: string; conf
 export async function removeWorktree(target: WorktreeTarget, shown: { changed: number; unpushed: number }, signal?: AbortSignal): Promise<RemovedWorktree> {
   return (await terminalRequest('/api/v2/terminal/worktrees/remove', { method: 'POST', signal: within(signal), body: JSON.stringify({ ...target, changed: shown.changed, unpushed: shown.unpushed }) })).json()
 }
+
+// Folder projects: one folder on one machine (GET/POST /api/v2/folder-projects, GET/PATCH/DELETE …/{id}, POST …/reorder).
+// The same cookie-only requests as terminals and Projects; an update or delete names the version it read (If-Match), and
+// a project changed since answers 409 `project_changed`. The single read and every write give the version (the ETag).
+export type WorktreeDefault = 'inherit' | 'yes' | 'no'
+export type FolderProject = {
+  id: string; host: string; dir: string; name: string; isRepo: boolean; baseBranch: string; worktreeDefault: WorktreeDefault
+  defaultTool: string; defaultModel: string; hasStarterPrompt: boolean
+  /** Only in the single read (`getFolderProject`), for the edit form. */
+  starterPrompt?: string
+  position: number; createdAt: number; updatedAt: number; version: number
+}
+/** A create sends host and dir at least; an update sends only what changed (absent keeps, "" clears a text field). */
+export type FolderProjectInput = Partial<Pick<FolderProject, 'host' | 'dir' | 'name' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'defaultTool' | 'defaultModel' | 'starterPrompt'>>
+export type RemovedFolderProject = { ok: boolean; message: string }
+
+export type BrowseRepo = 'root' | 'inside' | 'none'
+export type BrowseEntry = { name: string; dir: boolean; repoRoot: boolean; hidden: boolean }
+export type BrowseResult = { path: string; home: string; parent: string; repo: BrowseRepo; repoTop: string; entries: BrowseEntry[]; more: boolean; partial: boolean; scanned: number; omitted: number }
+/** The machine's reasons for not listing a folder; `off` (folder browsing switched off there) reaches the page as `browse_off`. */
+export type BrowseReason = 'not_found' | 'not_dir' | 'outside_home' | 'denied' | 'unreadable' | 'conflict' | 'off'
+/** `session` names one opened browser (a fresh id per dialog), so its pages share one audit row. */
+export type BrowseQuery = { path?: string; after?: string; filter?: string; hidden?: boolean; session: string }
+export type BranchesResult = { current: string; default: string; branches: string[]; more: boolean }
+
+export const FOLDER_PROJECT_ERROR_CODES = ['project_exists', 'project_limit', 'project_changed', 'project_rate_limited', 'name_taken', 'unknown_machine', 'not_found', 'invalid_version', 'invalid_order'] as const
+export const BROWSE_ERROR_CODES = ['browse_unsupported', 'browse_off', 'browse_busy', 'browse_rate_limited', 'not_found', 'not_dir', 'outside_home', 'denied', 'unreadable', 'machine_timeout', 'machine_error', 'machine_unavailable'] as const
+export const BRANCHES_ERROR_CODES = ['branches_unsupported', 'branches_denied', 'branches_busy', 'branches_rate_limited', 'not_repo_root', 'outside_home', 'git_failed', 'machine_timeout', 'machine_error', 'machine_unavailable'] as const
+export type FolderProjectErrorCode = typeof FOLDER_PROJECT_ERROR_CODES[number]
+export type BrowseErrorCode = typeof BROWSE_ERROR_CODES[number]
+export type BranchesErrorCode = typeof BRANCHES_ERROR_CODES[number]
+/** The refusal's code when it is one the caller handles, else undefined (show the sentence, `error.message`, as it is). */
+export function refusalCode<C extends string>(error: unknown, codes: readonly C[]): C | undefined {
+  return error instanceof TerminalError && error.code && (codes as readonly string[]).includes(error.code) ? error.code as C : undefined
+}
+
+export const folderProjectPath = (id: string): string => `/api/v2/folder-projects/${encodeURIComponent(id)}`
+function versionHeader(version: number): Record<string, string> {
+  if (!Number.isSafeInteger(version) || version < 1) throw new Error('A change needs the version of the project it was made from.')
+  return ifMatch(version)
+}
+/** The version a response names: its ETag when it has one, else the body's. */
+async function withVersion(response: Response): Promise<FolderProject> {
+  const project: FolderProject = await response.json()
+  const tag = /^"(\d+)"$/.exec(response.headers.get('ETag') ?? '')
+  if (tag) project.version = Number(tag[1])
+  return project
+}
+
+export async function listFolderProjects(signal?: AbortSignal): Promise<FolderProject[]> { return (await (await terminalRequest('/api/v2/folder-projects', { signal: within(signal) })).json()).projects }
+export async function getFolderProject(id: string, signal?: AbortSignal): Promise<FolderProject> { return withVersion(await terminalRequest(folderProjectPath(id), { signal: within(signal) })) }
+export async function createFolderProject(input: FolderProjectInput, signal?: AbortSignal): Promise<FolderProject> {
+  return withVersion(await terminalRequest('/api/v2/folder-projects', { method: 'POST', signal: within(signal), body: JSON.stringify(input) }))
+}
+export async function updateFolderProject(id: string, input: FolderProjectInput, version: number, signal?: AbortSignal): Promise<FolderProject> {
+  const headers = versionHeader(version)
+  return withVersion(await terminalRequest(folderProjectPath(id), { method: 'PATCH', signal: within(signal), body: JSON.stringify(input), headers }))
+}
+export async function deleteFolderProject(id: string, version: number, signal?: AbortSignal): Promise<RemovedFolderProject> {
+  const headers = versionHeader(version)
+  return (await terminalRequest(folderProjectPath(id), { method: 'DELETE', signal: within(signal), headers })).json()
+}
+/** Every project once, each with the version read; answers the list in its new order with the new versions. */
+export async function reorderFolderProjects(ids: string[], versions: number[], signal?: AbortSignal): Promise<FolderProject[]> {
+  if (ids.length !== versions.length) throw new Error('Every project needs the version that was read.')
+  return (await (await terminalRequest('/api/v2/folder-projects/reorder', { method: 'POST', signal: within(signal), body: JSON.stringify({ ids, versions }) })).json()).projects
+}
+
+/** Only the parameters that are set, each once; `hidden` only when true. */
+export function browseURL(agentId: string, query: BrowseQuery): string {
+  const params = new URLSearchParams()
+  for (const key of ['path', 'after', 'filter'] as const) if (query[key]) params.set(key, query[key] as string)
+  if (query.hidden) params.set('hidden', 'true')
+  params.set('session', query.session)
+  return `/api/v2/machines/${encodeURIComponent(agentId)}/browse?${params}`
+}
+export function branchesURL(agentId: string, dir: string, filter?: string): string {
+  const params = new URLSearchParams({ dir })
+  if (filter) params.set('filter', filter)
+  return `/api/v2/machines/${encodeURIComponent(agentId)}/branches?${params}`
+}
+export async function browseFolder(agentId: string, query: BrowseQuery, signal?: AbortSignal): Promise<BrowseResult> { return (await terminalRequest(browseURL(agentId, query), { signal: within(signal) })).json() }
+export async function listBranches(agentId: string, dir: string, filter?: string, signal?: AbortSignal): Promise<BranchesResult> { return (await terminalRequest(branchesURL(agentId, dir, filter), { signal: within(signal) })).json() }

@@ -200,6 +200,7 @@ await page.route('**/api/**',async route=>{
   if(!p||p.state!=='captured'||(p.reasons??[]).length||!breakdowns[rev])return route.fulfill({status:409,json:{error:SHARED_409}})
   return route.fulfill({json:breakdowns[rev]()}).catch(()=>{})
  }
+ else if(path==='/api/v2/folder-projects')data={projects:[],savedWaiting:0}
  else{unmocked.push(`${method} ${path}`);return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})}
  // A reply that never arrives: the server has kept the write, the browser sees the connection fail.
  if(dropNextSave&&method==='POST'&&path==='/api/v2/skill-content-targets'){dropNextSave=false;return route.abort('failed')}

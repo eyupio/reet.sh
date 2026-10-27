@@ -230,14 +230,14 @@
     {@const index = (projects ?? []).findIndex(item => item.id === project.id)}
     <!-- svelte-ignore a11y_interactive_supports_focus -->
     <div class="menu" id={`${id}-menu-${project.id}`} style:left={`${menuX}px`} style:top={`${menuY}px`} role="menu" aria-label={project.name} tabindex="-1" onkeydown={menuKeys}>
-      <button type="button" role="menuitem" onclick={() => pick(o => onchoose(project, o))}>New session here</button>
-      <button type="button" role="menuitem" onclick={() => pick(o => onedit(project, o))}>Edit</button>
+      <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => onchoose(target, o)) }}>New session here</button>
+      <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => onedit(target, o)) }}>Edit</button>
+      <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => onworktrees(target, o)) }}>Worktrees</button>
+      <button type="button" role="menuitem" disabled={moving || pending.size > 0 || index === 0} onclick={() => { const target = project; closeMenu(true); onmove(target, -1) }}>Move up</button>
+      <button type="button" role="menuitem" disabled={moving || pending.size > 0 || index === (projects ?? []).length - 1} onclick={() => { const target = project; closeMenu(true); onmove(target, 1) }}>Move down</button>
+      <button type="button" role="menuitem" class="danger" disabled={pending.has(project.id)} onclick={() => { const target = project; pick(o => onremove(target, o)) }}>Remove from reet</button>
       <span class="colour-label">Project colour</span>
       <div class="colours">{#each PROJECT_COLOURS as choice}<button type="button" role="menuitemradio" aria-checked={projectColour(project.colour) === choice.id} aria-label={choice.name} title={choice.name} style={`--swatch:${choice.hex}`} onclick={() => oncolour(project, choice.id)}>{choice.id === '' ? '×' : ''}</button>{/each}</div>
-      <button type="button" role="menuitem" onclick={() => pick(o => onworktrees(project, o))}>Worktrees</button>
-      <button type="button" role="menuitem" disabled={moving || pending.size > 0 || index === 0} onclick={() => { closeMenu(true); onmove(project, -1) }}>Move up</button>
-      <button type="button" role="menuitem" disabled={moving || pending.size > 0 || index === (projects ?? []).length - 1} onclick={() => { closeMenu(true); onmove(project, 1) }}>Move down</button>
-      <button type="button" role="menuitem" class="danger" disabled={pending.has(project.id)} onclick={() => pick(o => onremove(project, o))}>Remove from reet</button>
     </div>
   {/if}
 {/if}

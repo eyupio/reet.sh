@@ -50,7 +50,7 @@
         <span class="resources">
           {#each readings(c) as reading (reading.label)}
             <span class="metric">
-              <span class="cpu"><span class="label">{reading.label}</span> <span class="value">{reading.text}</span></span>
+              <span class="reading" class:cpu={reading.label === 'CPU'}><span class="label">{reading.label}</span> <span class="value">{reading.text}</span></span>
               <span class="bar {load(reading)}" aria-hidden="true">{#if reading.percent !== null}<span style:width={`${Math.max(0, Math.min(100, reading.percent))}%`}></span>{/if}</span>
             </span>
           {/each}
@@ -95,7 +95,7 @@
   .caption { margin-top: -6px; font-size: 12px; color: var(--muted); }
   .resources { display: grid; gap: 6px; }
   .metric { display: grid; gap: 3px; }
-  .cpu { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+  .reading { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
   .cpu .value { color: var(--ink); }
   .bar { display: block; height: 6px; border-radius: 3px; background: var(--line-soft); overflow: hidden; }
   .bar > span { display: block; height: 100%; border-radius: 3px; background: var(--good); }
@@ -120,7 +120,7 @@
     .add { flex-basis: 150px; min-height: 44px; }
     .os { display: none; }
     .resources { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-    .cpu { font-size: 11px; }
+    .reading { font-size: 11px; }
     .figure { font-size: 26px; }
     .caption { margin-top: -4px; }
   }

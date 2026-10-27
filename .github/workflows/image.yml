@@ -35,8 +35,8 @@ jobs:
         working-directory: web
       - run: npm ci
         working-directory: mcp
-      - name: Fetch Go modules before the MCP tests build their fixture
-        run: go mod download
+      - name: Compile the MCP test fixture once, outside the tests' 180 s build limit
+        run: go build -o /dev/null ./mcp/test/fixture
       - run: npm test
         working-directory: mcp
       - run: go vet ./...

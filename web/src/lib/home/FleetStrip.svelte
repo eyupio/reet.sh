@@ -26,6 +26,8 @@
     parts.push(`CPU ${c.cpu.text}`, `memory ${c.memory.text}`, `disk ${diskText(c)}`, c.skills.text)
     return parts.join(', ')
   }
+  const osNames: Record<string, string> = { linux: 'Linux', darwin: 'macOS', windows: 'Windows' }
+  const osName = (os: string) => osNames[os] ?? os
   const load = (r: { percent: number | null }) => r.percent === null ? 'muted' : r.percent >= 80 ? 'warn' : 'good'
   const diskText = (c: FleetCard) => c.disk.availableBytes === null ? 'No reading' : `${bytes(c.disk.availableBytes)} free`
   const readings = (c: FleetCard) => [c.cpu, c.memory, { label: 'Disk', percent: c.disk.percent, text: diskText(c) }]
@@ -39,7 +41,7 @@
           <span class="dot {c.status}" aria-hidden="true"></span>
           <span class="name">{c.name}</span>
           <span class="status {c.status}">{c.status}</span>
-          {#if c.os}<span class="os">{c.os}</span>{/if}
+          {#if c.os}<span class="os">{osName(c.os)}{#if c.osVersion}{' '}{c.osVersion}{/if}</span>{/if}
         </span>
         {#if sessions}
           <span class="sessions"><span class="figure">{c.sessionsRunning}</span> <span class="unit">{c.sessionsRunning === 1 ? 'session running' : 'sessions running'}</span>{#if c.sessionsEnding}{' '}<span class="ending">· {c.sessionsEnding} ending</span>{/if}</span>
@@ -85,7 +87,7 @@
   .status { font-size: 12px; color: var(--muted); }
   .status.online { color: var(--good); }
   .status.reconnecting { color: var(--warn); }
-  .os { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .os { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .sessions { display: flex; align-items: baseline; gap: 6px; }
   .figure { font: 600 28px/1 var(--serif); }
   .unit { color: var(--muted); }

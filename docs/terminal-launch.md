@@ -209,3 +209,43 @@ something else into the session afterwards.
 The web dialog, its entry points (the Terminals workspace and the machine card)
 and the Activity label for `terminal-launch` are described in
 [Start an agent session](start-agent-session.md).
+
+## Catalogue and named bases (`agents-v2`)
+
+The controller advertises `agents-v2` alongside the existing feature tokens. A
+connector reports `agentsV2:true` and optional `osVersion` only after negotiating
+that token. Without it, the connector reports only the original four tool ids
+and never sends the added capability fields. OS version is informational: Linux
+reports its kernel release and macOS its product version; a failed local reading
+leaves it absent.
+
+Create accepts optional `base`, `effort` and `yolo`. An older peer receives none
+of those fields and no new tool id: the controller answers 409
+`launch_option_unsupported` with "Update reet on that machine to use that option."
+A named base requires a worktree. The connector resolves a local branch first,
+then a remote branch, to a commit before creating the worktree. A missing branch
+answers 422 `base_missing`, naming the machine in the sentence. An empty base
+keeps the existing HEAD behaviour.
+
+Effort accepts `low`, `medium` or `high`. Cline 3.0.74 maps these to its
+confirmed `--thinking` option; other presets have no effort mapping until their
+exact CLI arguments have captured help evidence. An
+unsupported mapping answers `launch_option_unsupported`; it never silently
+ignores the choice. YOLO remains refused (`yolo_refused`) in this pass.
+
+Cline 3.0.74 is enabled after a pinned, help-only installation confirmed its
+`--auto-approve false --tui` safety and interactive arguments, `--model` and
+`--thinking` options. The display catalogue includes Pi and Cursor Agent with the
+reason "reet doesn't start this agent yet." Pi 0.73.1 help was captured, but
+its lack of a built-in approval policy and its prompt parser's file expansion
+leave its safe launch boundary unresolved, so it remains disabled. Cursor Agent
+remains disabled because the official download destination was denied by this
+environment's network policy and no real help capture could be obtained. That is
+a validation limitation, not a runtime refusal shown to users. The owner
+authorised the pinned help-only installations; no agent task was run.
+The web catalogue holds display names only and never supplies executable paths
+or argument vectors. No additional agents were inferred from an unavailable
+owner list.
+
+The session listing retains tool, model and effort; it never includes the opening
+prompt. The launch audit records `effort`, `base` and `yolo`, without prompt text.

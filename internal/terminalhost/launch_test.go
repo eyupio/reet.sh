@@ -24,7 +24,7 @@ func fakeLookPath(installed ...string) func(string) (string, error) {
 }
 
 func TestLaunchArgvPresets(t *testing.T) {
-	look := fakeLookPath("claude", "codex", "opencode", "gemini")
+	look := fakeLookPath("claude", "codex", "opencode", "gemini", "cline")
 	const model, prompt = "sonnet-4.5", "fix the failing tests"
 	// Each row: neither, model, prompt, both.
 	cases := map[string][][]string{
@@ -45,6 +45,12 @@ func TestLaunchArgvPresets(t *testing.T) {
 			{"/opt/fake/bin/opencode", "--model", model},
 			{"/opt/fake/bin/opencode", "--prompt", prompt},
 			{"/opt/fake/bin/opencode", "--model", model, "--prompt", prompt},
+		},
+		"cline": {
+			{"/opt/fake/bin/cline", "--auto-approve", "false", "--tui"},
+			{"/opt/fake/bin/cline", "--auto-approve", "false", "--tui", "--model", model},
+			{"/opt/fake/bin/cline", "--auto-approve", "false", "--tui", "--", prompt},
+			{"/opt/fake/bin/cline", "--auto-approve", "false", "--tui", "--model", model, "--", prompt},
 		},
 		"gemini": {
 			{"/opt/fake/bin/gemini"},
@@ -114,7 +120,7 @@ func TestLaunchArgvPlainShellAndRefusals(t *testing.T) {
 }
 
 func TestLaunchArgvPromptIsOneArgumentNeverAFlag(t *testing.T) {
-	look := fakeLookPath("claude", "codex", "opencode", "gemini")
+	look := fakeLookPath("claude", "codex", "opencode", "gemini", "cline")
 	for tool := range launchPresets {
 		// A leading '-' is refused outright, so it can never be read as a flag.
 		for _, prompt := range []string{"-rf", "--help", "--dangerously-skip-permissions now"} {
@@ -134,7 +140,7 @@ func TestLaunchArgvPromptIsOneArgumentNeverAFlag(t *testing.T) {
 					count++
 				}
 			}
-			if count != 1 || len(argv) != 5 {
+			if count != 1 || len(argv) != 5+len(launchPresets[tool].safeArgs) {
 				t.Fatal("prompt was split or duplicated", tool, argv)
 			}
 			if p := launchPresets[tool]; p.promptFlag == "" && argv[len(argv)-2] != "--" || p.promptFlag != "" && argv[len(argv)-2] != p.promptFlag {
@@ -145,11 +151,11 @@ func TestLaunchArgvPromptIsOneArgumentNeverAFlag(t *testing.T) {
 }
 
 func TestLaunchArgvRefusesSubcommandShapedPositionalPrompt(t *testing.T) {
-	look := fakeLookPath("claude", "codex", "opencode", "gemini")
+	look := fakeLookPath("claude", "codex", "opencode", "gemini", "cline")
 	// claude's parser dispatches a subcommand from the first operand even after
 	// "--", so a one-word positional prompt such as "purge" or "update" would run
 	// that subcommand instead of starting the TUI.
-	for _, tool := range []string{"claude", "codex"} {
+	for _, tool := range []string{"claude", "codex", "cline"} {
 		for _, prompt := range []string{"purge", "update", "hello"} {
 			if argv, err := LaunchArgv(terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: tool, Prompt: prompt}, look); argv != nil || !errors.Is(err, ErrLaunchUnavailable) {
 				t.Fatal("single-word positional prompt must be refused", tool, prompt, argv, err)

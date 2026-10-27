@@ -384,7 +384,8 @@
   /* The header is 61 px on a desktop, 65 px on a tablet and 57 px on a phone (measured at each breakpoint). These only set the
      column's minimum height, so the docked Start an agent starts at the foot of the first screen; if the header changes,
      the cost is a small gap or a little extra scroll, never an overlap. */
-  .home { --top: 61px; display: grid; grid-template-columns: minmax(0, 1fr); }
+  .home { line-height: 1.3; --top: 61px; display: grid; grid-template-columns: minmax(0, 1fr); }
+  .home :global(p) { line-height: 1.55; }
   /* The rail is the mock-up's 272 px of cards inside 14 px padding and a 1 px rule: 301 px. */
   .home.writer { grid-template-columns: 301px minmax(0, 1fr); }
   .column { min-width: 0; display: flex; flex-direction: column; gap: 18px; padding: 20px 24px 0; min-height: calc(100dvh - var(--top) - var(--bottom-chrome, 0px)); }
@@ -409,7 +410,7 @@
   @media (max-width: 1239px) { .home.writer { grid-template-columns: 56px minmax(0, 1fr); } }
   /* Tablet: machines, Needs you, In flight, then the project rail, one column (the Sessions tab takes the rail later). */
   @media (max-width: 1099px) {
-    .home { --top: 65px; }
+    .home { font-size: 15px; --top: 65px; }
     .home.writer { grid-template-columns: minmax(0, 1fr); }
     .work { grid-template-columns: minmax(0, 1fr); }
     .work > :global(.needs), .work > :global(.flight) { grid-column: 1; grid-row: auto; }

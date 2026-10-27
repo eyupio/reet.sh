@@ -296,3 +296,11 @@ test('short age', () => {
   assert.deepEqual([0, 59_000, 12 * MIN, 3 * HOUR, 49 * HOUR].map(h.shortAge), ['now', 'now', '12m', '3h', '2d'])
 })
 
+
+ test('fleet OS version comes only from machine capabilities', () => {
+  const m=machine('a1','studio')
+  m.capabilities.osVersion='6.1'
+  assert.equal(fleetCards([m], [], emptySync(), NOW)[0].osVersion,'6.1')
+  delete m.capabilities.osVersion
+  assert.equal(fleetCards([m], [], emptySync(), NOW)[0].osVersion,'')
+ })

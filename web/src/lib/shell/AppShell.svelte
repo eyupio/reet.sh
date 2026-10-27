@@ -131,8 +131,8 @@
 {#if moreOpen}<MoreSheet items={sheetItems} opener={moreOpener} onclose={() => (moreOpen = false)} />{/if}
 
 <style>
-  .shell-bar { position: relative; display: flex; align-items: center; gap: 12px; height: 60px; padding: 0 24px; }
-  .shell-bar > :global(.top-tabs) { margin-left: 16px; }
+  .shell-bar { position: relative; display: flex; align-items: center; gap: 28px; height: 60px; line-height: 1.3; padding: 0 24px; }
+  .shell-bar > :global(.top-tabs) { margin-left: 0; }
   .home { display: flex; align-items: center; flex: none; color: inherit; text-decoration: none; }
   .home :global(.logo) { width: 120px; }
   /* A finger-sized target on touch screens; the bar is taller than this at every width. */
@@ -146,11 +146,12 @@
   .icon.current { position: relative; color: var(--accent-text); border-color: var(--accent-text); }
   .icon svg { width: 20px; height: 20px; }
   @media (max-width: 1099.98px) {
-    .shell-bar { height: 64px; }
-    .shell-bar > :global(.top-tabs) { margin-left: 4px; }
-    .home :global(.logo) { width: 104px; }
+    .shell-bar { height: 64px; gap: 20px; font-size: 15px; }
+    .shell-bar > :global(.top-tabs) { margin-left: 0; }
     .search-button { display: grid; }
   }
+  /* Keep all destinations and search reachable on narrow tablets. */
+  @media (min-width: 651px) and (max-width: 799px) { .shell-bar { gap: 8px; padding: 0 16px; } }
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .shell-bar { height: 56px; padding: 0 16px; gap: 8px; }
     .compact-more { display: grid; }

@@ -192,7 +192,7 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	var worktree Worktree
 	started := false
 	if in.Worktree != "" {
-		if worktree, err = PrepareWorktree(ctx, m.home, dir, in.Project, in.Worktree, m.git); err != nil {
+		if worktree, err = PrepareWorktree(ctx, m.home, dir, in.Project, in.Worktree, in.Base, m.git); err != nil {
 			return ManagedSession{}, err
 		}
 		dir = worktree.Path

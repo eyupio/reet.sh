@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -18,61 +17,27 @@ import (
 // (see LaunchResultCode); it never falls back to a plain shell.
 var ErrLaunchUnavailable = errors.New("the requested agent cannot be started here")
 
+// These errors deliberately distinguish unsupported options from missing tools.
+var ErrLaunchOptionUnsupported = errors.New("the requested launch option is not supported")
+var ErrYoloRefused = errors.New("approval bypass is not available")
+
 func launchUnavailable(reason string) error {
 	return fmt.Errorf("%w: %s", ErrLaunchUnavailable, reason)
 }
 
-// LaunchResultCode is the single mapping point from a host error to the
-// launch_failed wire code. It returns "" for any other error, which keeps its
-// existing mapping (normally Unavailable).
+// LaunchResultCode maps launch refusals to their wire codes. It returns ""
+// for other errors, preserving their existing mapping (normally Unavailable).
 func LaunchResultCode(err error) terminalproto.ResultCode {
+	if errors.Is(err, ErrYoloRefused) {
+		return terminalproto.YoloRefused
+	}
+	if errors.Is(err, ErrLaunchOptionUnsupported) {
+		return terminalproto.LaunchOptionUnsupported
+	}
 	if errors.Is(err, ErrLaunchUnavailable) {
 		return terminalproto.LaunchFailed
 	}
 	return ""
-}
-
-// launchPreset is how one agent CLI is started in its interactive TUI. It is
-// built into the connector; the controller only ever names the tool id.
-type launchPreset struct {
-	binary    string
-	modelFlag string // passed as two arguments: modelFlag, model
-	// promptFlag is passed as two arguments, promptFlag and prompt. Empty means
-	// the prompt is the positional operand placed after a "--" separator.
-	promptFlag string
-}
-
-// launchPresets is the allowlist. Every row was confirmed against the CLI's own
-// help or official documentation on 2026-10-25; none uses an approval-bypass,
-// auto-approve, print or other one-shot flag. A tool not listed here is never
-// offered or started, whatever terminalproto.ValidTool accepts.
-var launchPresets = map[string]launchPreset{
-	// Claude Code 2.1.310, `claude --help` on the reference machine:
-	//   "Usage: claude [options] [command] [prompt]" — "starts an interactive
-	//   session by default, use -p/--print for non-interactive output";
-	//   "--model <model>  Model for the current session".
-	// Its parser (commander) ends options at "--", but still dispatches a
-	// subcommand (purge, update, install, ...) when the first operand is a bare
-	// command name, so positional prompts must contain whitespace (below).
-	"claude": {binary: "claude", modelFlag: "--model"},
-	// Codex CLI, https://learn.chatgpt.com/docs/developer-commands?surface=cli
-	// (redirected from https://developers.openai.com/codex/cli/reference):
-	//   "Running `codex` with no subcommand launches the interactive terminal UI";
-	//   global flag "--model, -m  Override the model set in configuration";
-	//   global "PROMPT  Optional text instruction to start the session".
-	// Source: openai/codex codex-rs/tui/src/cli.rs `prompt: Option<String>`
-	// (positional) flattened into the clap MultitoolCli; clap ends options at "--".
-	"codex": {binary: "codex", modelFlag: "--model"},
-	// OpenCode, https://opencode.ai/docs/cli/ : "opencode [project]  Start the
-	// OpenCode terminal user interface", flags "--prompt  Prompt to use" and
-	// "--model (-m)  Model to use in the form of provider/model". The positional
-	// is a project path, so the prompt goes through --prompt.
-	"opencode": {binary: "opencode", modelFlag: "--model", promptFlag: "--prompt"},
-	// Gemini CLI, https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/cli-reference.md
-	// and packages/cli/src/config/config.ts (yargs): "--prompt-interactive (-i)
-	// Execute the provided prompt and continue in interactive mode", "--model
-	// (-m)  Model". Not -p/--prompt, which is headless.
-	"gemini": {binary: "gemini", modelFlag: "--model", promptFlag: "--prompt-interactive"},
 }
 
 // tmux hands a single-argument command to the shell (`sh -c`), so a binary
@@ -109,8 +74,22 @@ func LaunchArgv(in terminalproto.Create, lookPath func(string) (string, error)) 
 	if !ok {
 		return nil, launchUnavailable("tool not installed")
 	}
-	argv := []string{path}
+	// The catalogue never enables approval bypass in this slice.
+	if in.Yolo {
+		return nil, ErrYoloRefused
+	}
+	argv := append([]string{path}, p.safeArgs...)
+	if in.Effort != "" {
+		args, supported := p.effortArgs[in.Effort]
+		if !supported || len(args) == 0 {
+			return nil, ErrLaunchOptionUnsupported
+		}
+		argv = append(argv, args...)
+	}
 	if in.Model != "" {
+		if p.modelFlag == "" {
+			return nil, ErrLaunchOptionUnsupported
+		}
 		argv = append(argv, p.modelFlag, in.Model)
 	}
 	if in.Prompt != "" {
@@ -126,18 +105,6 @@ func LaunchArgv(in terminalproto.Create, lookPath func(string) (string, error)) 
 		}
 	}
 	return argv, nil
-}
-
-// InstalledTools lists, sorted, the preset tool ids whose binary lookPath finds.
-func InstalledTools(lookPath func(string) (string, error)) []string {
-	out := []string{}
-	for id, p := range launchPresets {
-		if _, ok := resolveBinary(p, lookPath); ok {
-			out = append(out, id)
-		}
-	}
-	sort.Strings(out)
-	return out
 }
 
 // ResolveDir returns the working directory for a launch: home when dir is

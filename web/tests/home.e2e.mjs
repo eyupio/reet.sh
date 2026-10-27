@@ -148,11 +148,12 @@ try {
   await expect(studio).toHaveAccessibleName(/^studio, online, 2 sessions running, 1 worktree in use, CPU 38%, skills in sync · checked 5 min ago$/)
   await expect(studio.locator('.figure')).toHaveText('2')
   await expect(studio).toContainText('sessions running')
-  await expect(studio).toContainText('linux')
+  await expect(studio.locator('.os')).toHaveText('Linux')
   await expect(studio.locator('.cpu')).toHaveText(/CPU\s*38%/)
   await expect(studio.locator('.skills')).toHaveText('skills in sync · checked 5 min ago')
   await expect(studio.locator('.skills')).toHaveClass(/good/)
   const desk = card(page,'desk')
+  await expect(desk.locator('.os')).toHaveText('macOS')
   await expect(desk.locator('.skills')).toHaveText('2 skills out of date')
   await expect(desk.locator('.skills')).toHaveClass(/warn/)
   // An offline machine's count is what was last known: the card says so.
@@ -914,7 +915,7 @@ try {
  // from the sync agents (a single-token sign-in) and beside a health report alike, on a phone chip too.
  if (run('a paused agent that still reports reads paused')) {
   const synced = makeSync()
-   const paused = {...synced, agents:[{...synced.agents[0], paused:true}, synced.agents[1], {id:'a3',host:'quiet-box',version:'1',lastSeen:now,paused:true,autoUpdate:false}]}
+   const paused = {...synced, agents:[{...synced.agents[0], paused:true}, synced.agents[1], {id:'a3',host:'quiet-box',version:'1',lastSeen:Date.now(),paused:true,autoUpdate:false}]}
   for (const [what, options] of [['token',{status:{mode:'token',user:null}}],['writer',{}],['phone',{width:390,touch:true}]]) {
    const {context,page,errors} = await home({...options, sync:paused})
    if (what === 'token') await page.addInitScript(() => localStorage.setItem('reet-token','fixture-token'))

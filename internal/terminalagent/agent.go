@@ -167,6 +167,16 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Worktree != "" && !terminalproto.SupportsWorktree(headers.Get(terminalproto.FeatureHeader)) {
 				return respond(terminalhost.ErrLaunchUnavailable)
 			}
+			if create, ok := msg.Body.(*terminalproto.Create); ok {
+				if (create.Base != "" || create.Effort != "" || create.Yolo || create.Tool != "" && !terminalproto.ValidTool(create.Tool)) && !terminalproto.SupportsAgents(headers.Get(terminalproto.FeatureHeader)) {
+					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
+					return send(callCtx, reply)
+				}
+				if create.Yolo {
+					reply.Body = terminalproto.Result{Code: terminalproto.YoloRefused}
+					return send(callCtx, reply)
+				}
+			}
 			// Worktree status and remove are served only on a generation that
 			// negotiated worktree-v1, and are always answered with a
 			// worktree_state or worktree_result.

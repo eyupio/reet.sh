@@ -101,7 +101,7 @@
 
 <style>
   .jump {
-    position: relative; display: flex; align-items: center; gap: 8px; width: clamp(200px, 22vw, 300px); height: 36px; padding: 0 10px;
+    position: relative; display: flex; align-items: center; gap: 8px; width: clamp(200px, 25vw, 326px); height: 36px; padding: 0 12px;
     border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--muted);
   }
   .jump:focus-within { border-color: var(--line-strong); }

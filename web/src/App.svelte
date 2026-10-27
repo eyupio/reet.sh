@@ -1115,7 +1115,7 @@
 </main>
 
 {#if authMode === 'accounts' && currentUser && !needsAuth && !isMCPConsent}<WebMCP />{/if}
-{#if !terminalLayout}<Footer
+{#if !terminalLayout && !homeLayout}<Footer
   signedIn={!isPublicList && authMode !== 'none' && authenticated && !needsAuth}
   showAdmin={!isPublicList && authenticated && !needsAuth && isAdminUser}
   userName={currentUser?.name ?? ''}

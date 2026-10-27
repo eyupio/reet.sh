@@ -35,11 +35,14 @@ const (
 	BranchesGitFailed BranchesReason = "git_failed"
 	// BranchesConflict: the listing could not run now (another one is running).
 	BranchesConflict BranchesReason = "conflict"
+	// BranchesDenied: the machine refuses the listing locally (terminal
+	// access is off there).
+	BranchesDenied BranchesReason = "denied"
 )
 
 func (r BranchesReason) valid() bool {
 	switch r {
-	case BranchesNotRepoRoot, BranchesOutsideHome, BranchesGitFailed, BranchesConflict:
+	case BranchesNotRepoRoot, BranchesOutsideHome, BranchesGitFailed, BranchesConflict, BranchesDenied:
 		return true
 	}
 	return false
@@ -87,6 +90,10 @@ func (r BranchesResult) valid() bool {
 	data, err := json.Marshal(r)
 	return err == nil && len(data) <= MaxBrowseReplyBytes
 }
+
+// ValidRefName reports whether s is a branch name a branches_result can
+// carry (see validRefName).
+func ValidRefName(s string) bool { return validRefName(s) }
 
 // validRefName applies the worktree branch rule (non-empty plain text of at
 // most 255 bytes) together with git's own ref-name rules (git

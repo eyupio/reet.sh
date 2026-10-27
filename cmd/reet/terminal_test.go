@@ -30,3 +30,25 @@ func TestTerminalCLIConfiguresNextControllerStart(t *testing.T) {
 		t.Fatal("unknown action succeeded")
 	}
 }
+
+// reet terminal browse is the machine's local folder-browse switch, not a
+// controller command.
+func TestTerminalBrowseIsTheMachineSwitch(t *testing.T) {
+	err := runTerminal([]string{"browse"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "reet terminal browse on|off|status") {
+		t.Fatal(err)
+	}
+	dir, err := os.MkdirTemp("/tmp", "reet-cli-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	err = runTerminal([]string{"browse", "status", "--config", dir + "/missing.json"}, &bytes.Buffer{})
+	if err == nil || strings.Contains(err.Error(), "unexpected terminal command arguments") {
+		t.Fatal("browse reached the controller command", err)
+	}
+	var out bytes.Buffer
+	if err := runTerminal([]string{"--help"}, &out); err != nil || !strings.Contains(out.String(), "reet terminal browse on|off|status") {
+		t.Fatal(out.String(), err)
+	}
+}

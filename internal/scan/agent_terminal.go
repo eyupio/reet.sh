@@ -18,14 +18,28 @@ import (
 
 var rootUser = func() bool { return os.Geteuid() == 0 }
 
+// RunTerminalBrowse runs reet terminal browse on|off|status: the machine's
+// local folder-browse switch, the same as reet agent terminal browse.
+func RunTerminalBrowse(args []string, out io.Writer) error {
+	return runAgentTerminalInput(append([]string{"browse"}, args...), os.Stdin, out, "")
+}
+
 func runAgentTerminal(args []string, out io.Writer) error {
 	return runAgentTerminalInput(args, os.Stdin, out, "")
 }
 func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet agent terminal setup|enable|disable|status|sessions|end [--config PATH]")
+		return errors.New("usage: reet agent terminal setup|enable|disable|status|sessions|end|browse [--config PATH]")
 	}
 	action := args[0]
+	// browse takes its own word: on, off or status.
+	browse := ""
+	if action == "browse" {
+		if len(args) < 2 || args[1] != "on" && args[1] != "off" && args[1] != "status" {
+			return errors.New("usage: reet terminal browse on|off|status [--config PATH]")
+		}
+		browse, args = args[1], args[1:]
+	}
 	fs := flag.NewFlagSet("agent terminal "+action, flag.ContinueOnError)
 	fs.SetOutput(out)
 	config := fs.String("config", agentConfigPath(), "private machine enrollment file")
@@ -90,7 +104,7 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 		return nil
 	case "status":
 		readiness := terminalhost.Readiness(context.Background(), layout, c.TerminalEnabled)
-		fmt.Fprintf(out, "Machine: %s\nTerminal access: %t\nReadiness: %s\n", c.Host, c.TerminalEnabled, readiness)
+		fmt.Fprintf(out, "Machine: %s\nTerminal access: %t\nReadiness: %s\nFolder browse: %s\n", c.Host, c.TerminalEnabled, readiness, onOff(!c.BrowseOff))
 		if tmux, err := terminalhost.FindTmux(context.Background()); err == nil {
 			fmt.Fprintf(out, "tmux: %s (%s)\n", tmux.Path, tmux.Version)
 		} else {
@@ -140,9 +154,32 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 		}
 		fmt.Fprintf(out, "Ended local terminal session %s.\n", *session)
 		return nil
+	case "browse":
+		switch browse {
+		case "on", "off":
+			c.BrowseOff = browse == "off"
+			if err := writePrivate(*config, c); err != nil {
+				return err
+			}
+			if c.BrowseOff {
+				fmt.Fprintf(out, "Folder browse off for %s. reet can no longer list this machine's folders; a folder can still be typed.\n", c.Host)
+			} else {
+				fmt.Fprintf(out, "Folder browse on for %s. reet can list the folders in your home folder; file names never leave this machine.\n", c.Host)
+			}
+		default:
+			fmt.Fprintf(out, "Folder browse: %s\n", onOff(!c.BrowseOff))
+		}
+		return nil
 	default:
-		return errors.New("unknown terminal action; use enable, disable, status, sessions or end")
+		return errors.New("unknown terminal action; use enable, disable, status, sessions, end or browse")
 	}
+}
+
+func onOff(on bool) string {
+	if on {
+		return "on"
+	}
+	return "off"
 }
 
 func runAgentService(args []string, out io.Writer) error {

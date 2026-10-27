@@ -91,7 +91,7 @@ func TestProbeIsAnsweredWhileATerminalRequestRuns(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		readControlWithTerminal(ctx, client, 1, clientSender(client), errorsSeen, terminal)
+		readControlWithTerminal(ctx, client, 1, clientSender(client), errorsSeen, "", terminal)
 	}()
 	ids := []string{"request-aaaaaaaaaaaa", "request-bbbbbbbbbbbb", "request-cccccccccccc"}
 	for _, id := range ids {
@@ -144,7 +144,7 @@ func TestTerminalHandlerErrorEndsTheConnection(t *testing.T) {
 	client, peer := controlPair(t)
 	errorsSeen := make(chan error, 3)
 	failure := errors.New("handler failed")
-	go readControlWithTerminal(t.Context(), client, 1, clientSender(client), errorsSeen, func(context.Context, terminalproto.Message) error { return failure })
+	go readControlWithTerminal(t.Context(), client, 1, clientSender(client), errorsSeen, "", func(context.Context, terminalproto.Message) error { return failure })
 	if err := peer.Write(t.Context(), websocket.MessageText, controlMessage(t, "request-aaaaaaaaaaaa", &terminalproto.Reconcile{})); err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestFullTerminalQueueAnswersUnavailableAndKeepsTheConnection(t *testing.T) 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		readControlWithTerminal(ctx, client, 1, clientSender(client), errorsSeen, func(ctx context.Context, m terminalproto.Message) error {
+		readControlWithTerminal(ctx, client, 1, clientSender(client), errorsSeen, "", func(ctx context.Context, m terminalproto.Message) error {
 			mu.Lock()
 			handled = append(handled, m.RequestID)
 			first := len(handled) == 1

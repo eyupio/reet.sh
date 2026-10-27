@@ -201,7 +201,10 @@ Surviving local tmux sessions and registries remain intact. Run `reet terminal s
 with the same database, sealing key and enrollments, then resume existing sessions.
 
 `reet agent terminal disable` removes local remote-terminal consent and closes
-attachments; local shells remain. Revoking enrollment cuts private access and
+attachments; local shells remain. `reet terminal browse off` (also `reet agent terminal browse off`)
+keeps terminal access but stops reet listing this machine's folders; `on` allows it
+again and `status` shows it. It is on by default and also refused while terminal
+access is off. Revoking enrollment cuts private access and
 prevents new authorization; it does not terminate independent local tmux work.
 Sign-out closes that browser login's attachments. Forgetting an inventory report
 is not credential revocation. End work locally if the controller is unavailable.

@@ -38,6 +38,8 @@ type agentConfig struct {
 	Projects        []string `json:"projects"`
 	AllowApply      bool     `json:"allowApply"`
 	TerminalEnabled bool     `json:"terminalEnabled,omitempty"`
+	// BrowseOff refuses folder browsing locally (reet terminal browse off).
+	BrowseOff bool `json:"browseOff,omitempty"`
 }
 
 func agentConfigPath() string {
@@ -327,6 +329,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 				TerminalSession: terminalControl(*config, c),
 				LaunchTools:     launchTools,
 				GitAvailable:    gitAvailable,
+				BrowseAllowed:   browseAllowed(*config, c),
 				OnConnection:    state.connected.Store,
 				ServerURL:       c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,
 				Version: version, InstanceID: instance,

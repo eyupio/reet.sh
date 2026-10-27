@@ -98,15 +98,18 @@ func TestBranchesRoundTripAndLimits(t *testing.T) {
 			t.Error("accepted", name)
 		}
 	}
-	for _, reason := range []BranchesReason{BranchesNotRepoRoot, BranchesOutsideHome, BranchesGitFailed, BranchesConflict} {
+	for _, reason := range []BranchesReason{BranchesNotRepoRoot, BranchesOutsideHome, BranchesGitFailed, BranchesConflict, BranchesDenied} {
 		if !(BranchesResult{Reason: reason}).valid() {
 			t.Error("refused", reason)
 		}
 	}
 	for _, name := range []string{"main", "feature/x", "release-1.2", "v1.0.0", "a@b", "ünï"} {
-		if !validRefName(name) {
+		if !validRefName(name) || !ValidRefName(name) {
 			t.Error("refused", name)
 		}
+	}
+	if BranchesDenied != "denied" || ValidRefName("a..b") || ValidRefName("") {
+		t.Error("exported rule differs")
 	}
 }
 

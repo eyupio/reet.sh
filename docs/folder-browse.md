@@ -19,6 +19,51 @@ How a machine answers a `browse` request (`internal/terminalhost/browse.go`). Th
   and its answer is at most 12 KiB. After 3 seconds it makes no more repository checks, and the page
   ends at the next link.
 
+## On the connector
+
+- **Negotiation.** The connector serves `browse` only on a connection whose controller advertised
+  `browse-v1`, and `branches` only with `branches-v1`. On any other connection such a message is a
+  protocol error: nothing is sent back (a peer that did not negotiate the kind could drop the
+  connection on its answer) and nothing runs.
+- **Capabilities.** `browse` is reported when `browse-v1` was negotiated, the connector has terminal
+  control, terminal access is on locally and folder browse is not off. `branches` is reported when
+  `branches-v1` was negotiated, `worktree` is reported and terminal access is on. A change of either
+  local switch is sent to the controller within the consent poll (5 s), without a reconnect.
+- **Local switch.** `reet terminal browse off` (also `reet agent terminal browse off`) sets
+  `browseOff` in the enrollment file; `on` removes it and `status` prints `Folder browse: on|off`
+  (also shown by `reet agent terminal status`). Browse is on by default. While it is off, or while
+  terminal access is off, a browse is answered `denied`. Each request re-reads the enrollment file.
+- **One at a time.** Each connection runs one browse and one branch listing at a time, aside from
+  the dispatcher; a second is answered `conflict` at once. A browse that has not returned after 4 s
+  (a listing after 8 s) is answered `unreadable` (`git_failed`) and its slot is freed, even if the
+  call is still stuck; its result is dropped when it comes. At most 4 browses (and, separately, 4
+  listings) stay alive in the connector process: while that many are stuck, a new one is answered
+  `conflict` until one finishes. When the connector's queue of waiting requests is full, a browse or
+  listing is likewise answered `conflict` by the reader, but only on a connection that negotiated its
+  feature; otherwise it ends the connection as a protocol error. An answer given at the deadline can
+  reach the controller after its own deadline, so the controller must drop a late `browse_result` or
+  `branches_result` rather than treat it as a protocol error.
+
+## Branch listing (branches-v1)
+
+`ListBranches` (`internal/terminalhost/branches.go`) answers `branches`:
+
+- **Folder.** `dir` is cleaned and resolved as a browse resolves its path. A path that leaves home
+  is `outside_home`; anything else that is not a repository root is `not_repo_root`. A repository
+  root has a real `.git` folder (not a link, not a `.git` file) holding a `HEAD` file, checked
+  beneath an `os.Root` at home. The folder is resolved and checked again after git ran.
+- **Git.** Exactly `git -C <dir> for-each-ref --count=201 --sort=-committerdate
+  --format=%(refname) refs/heads refs/remotes`, then `symbolic-ref --quiet --short HEAD` and
+  `symbolic-ref --quiet --short refs/remotes/origin/HEAD`, as an argument vector with the worktree
+  environment (`HOME`, `PATH` and `LANG` only), within 5 seconds in all. The filter never reaches git.
+- **Names.** Short names (`main`, `origin/main`), newest first, at most 200, and the answer fits
+  12 KiB; `more` says the list was cut. A remote's `HEAD`, a branch called `HEAD`, a repeated short
+  name and any name the protocol cannot carry (for example `@`, a space, or a control or format
+  character) are skipped, since one would invalidate the whole answer. `current` is empty on a
+  detached HEAD; `default` is the branch `origin/HEAD` points at, without `origin/`.
+- **Errors.** A git failure is `git_failed`, with nothing of git's output. Terminal access off is
+  `denied`.
+
 ## Known limits
 
 - **Search-only folders.** `os.Root` opens each folder on the way down for reading. A folder the
@@ -36,6 +81,13 @@ How a machine answers a `browse` request (`internal/terminalhost/browse.go`). Th
   read the text of a link outside home. That text only steers the walk, which stays inside home
   and answers `outside_home` otherwise.
 - **Hung filesystems.** Some calls cannot be cut short by the deadline: resolving the path, opening
-  the root, and reading the folder. A hung network or FUSE mount can hold one browse, so the connector
-  must free its one-browse-at-a-time slot at the deadline even while that call is stuck.
+  the root, and reading the folder. A hung network or FUSE mount can hold one browse. The connector
+  answers it at 4 s and frees its slot (see above); the stuck call stays until the mount answers, and
+  four stuck calls make further browses `conflict` until one returns.
+- **A repository swapped while git reads it.** `ListBranches` checks the folder, runs git in the
+  resolved path, then checks the folder again and answers `outside_home` if it changed. Someone who
+  can write inside home and swaps the folder for a link in between makes git read (never write) a
+  repository elsewhere; its names are not sent.
+- **`more` on branches is conservative.** It is set whenever git returned 201 lines, including a
+  remote's `HEAD` or a name that was skipped, so it can be set when nothing more exists.
 - **Windows.** There is no `O_DIRECTORY`, so the guarantees rest on `os.Root` and the re-checks.

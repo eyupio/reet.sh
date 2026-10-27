@@ -382,10 +382,10 @@
   .dock {
     position: sticky; bottom: calc(var(--bottom-chrome, 0px) + 18px); z-index: 2; margin: auto 0 18px; display: flex; align-items: center; gap: 12px;
     padding: 12px 12px 12px 18px; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--card-raised);
-    box-shadow: 0 -8px 30px -12px color-mix(in srgb, var(--bg) 80%, transparent);
+    box-shadow: var(--shadow-dock);
   }
   .dock p { flex-grow: 1; margin: 0; color: var(--muted); }
-  .start { flex: none; min-height: 40px; padding: 0 18px; }
+  .start { flex: none; min-height: 40px; padding: 0 18px; border-radius: 10px; }
 
   @media (max-width: 1239px) { .home.writer { grid-template-columns: 56px minmax(0, 1fr); } }
   /* Tablet: machines, Needs you, In flight, then the project rail, one column (the Sessions tab takes the rail later). */

@@ -145,7 +145,7 @@ try {
   const studio = card(page,'studio')
   await expect(studio).toBeVisible()
   await expect(studio).toHaveAttribute('href','/machines?machine=studio')
-  await expect(studio).toHaveAccessibleName(/^studio, online, 2 sessions running, 1 worktree in use, CPU 38%, skills in sync · checked 5 min ago$/)
+  await expect(studio).toHaveAccessibleName(/^studio, online, 2 sessions running, 1 worktree in use, CPU 38%, skills in sync · checked 5 min ago, Linux$/)
   await expect(studio.locator('.figure')).toHaveText('2')
   await expect(studio).toContainText('sessions running')
   await expect(studio.locator('.os')).toHaveText('Linux')
@@ -157,7 +157,7 @@ try {
   await expect(desk.locator('.skills')).toHaveText('2 skills out of date')
   await expect(desk.locator('.skills')).toHaveClass(/warn/)
   // An offline machine's count is what was last known: the card says so.
-  await expect(desk).toHaveAccessibleName(/^desk, offline, 1 session running \(last known, not reporting\), no worktrees in use, CPU No reading, 2 skills out of date$/)
+  await expect(desk).toHaveAccessibleName(/^desk, offline, 1 session running \(last known, not reporting\), no worktrees in use, CPU No reading, 2 skills out of date, macOS$/)
   await expect(desk.locator('.caption')).toHaveText('Last known count. desk is not reporting.')
   await expect(studio.locator('.caption')).toHaveCount(0)
   await expect(page.locator('main')).not.toContainText(/agents? running/i)
@@ -176,7 +176,7 @@ try {
    session('s3','a2','Speed up the runner pool','end_requested'), session('s5','a2','Bench the cache','end_requested')]
   await page.goto(base)
   const desk = card(page,'desk')
-  await expect(desk).toHaveAccessibleName(/^desk, offline, 0 sessions running · 2 ending \(last known, not reporting\), no worktrees in use, CPU No reading, 2 skills out of date$/)
+  await expect(desk).toHaveAccessibleName(/^desk, offline, 0 sessions running · 2 ending \(last known, not reporting\), no worktrees in use, CPU No reading, 2 skills out of date, macOS$/)
   await expect(desk.locator('.figure')).toHaveText('0')
   await expect(desk.locator('.sessions')).toHaveText(/^0\s+sessions running\s*· 2 ending$/)
   await expect(desk.locator('.caption')).toHaveText('Last known count. desk is not reporting.')
@@ -915,8 +915,9 @@ try {
  // from the sync agents (a single-token sign-in) and beside a health report alike, on a phone chip too.
  if (run('a paused agent that still reports reads paused')) {
   const synced = makeSync()
-   const paused = {...synced, agents:[{...synced.agents[0], paused:true}, synced.agents[1], {id:'a3',host:'quiet-box',version:'1',lastSeen:Date.now(),paused:true,autoUpdate:false}]}
   for (const [what, options] of [['token',{status:{mode:'token',user:null}}],['writer',{}],['phone',{width:390,touch:true}]]) {
+   // Stamped on every pass: the client calls an agent offline after 90 s, and a slow runner can take that long over three contexts.
+   const paused = {...synced, agents:[{...synced.agents[0], paused:true}, synced.agents[1], {id:'a3',host:'quiet-box',version:'1',lastSeen:Date.now(),paused:true,autoUpdate:false}]}
    const {context,page,errors} = await home({...options, sync:paused})
    if (what === 'token') await page.addInitScript(() => localStorage.setItem('reet-token','fixture-token'))
    await page.goto(base)

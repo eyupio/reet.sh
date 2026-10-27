@@ -3,9 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import ts from 'typescript'
 const source = readFileSync(new URL('./catalogue.ts', import.meta.url), 'utf8')
-const helper = ts.transpileModule(readFileSync(new URL('./agentLaunch.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const helperURL = `data:text/javascript;base64,${Buffer.from(helper).toString('base64')}`
-const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText.replace("'./agentLaunch'", JSON.stringify(helperURL))
+const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
 const { CATALOGUE, agentChoices } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
 const machine = (tools, v2 = true) => ({ agentId: 'a', host: 'studio', ready: true, capabilities: { launch: true, agentsV2: v2, tools } })
 test('installed first, then not installed, then disabled', () => {

@@ -7,7 +7,7 @@ import ts from 'typescript'
 // compiled copy, so the test runs the real modules without a bundler.
 const compile = name => ts.transpileModule(readFileSync(new URL(name, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
 const asURL = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
-const launch = asURL(compile('./agentLaunch.ts'))
+const launch = asURL(compile('./agentLaunch.ts').replace("from './catalogue'", `from '${asURL(compile('./catalogue.ts'))}'`))
 const f = await import(asURL(compile('./folderBrowser.ts').replace("from './agentLaunch'", `from '${launch}'`)))
 const { breadcrumbs, repoMessage, topFolder, countLabel, validateFolderInput, homeRelative, addedLine, childPath } = f
 

@@ -1,4 +1,5 @@
 import type { Machine } from './api'
+import { CATALOGUE } from './catalogue'
 
 // What the "Start an agent" dialog checks before it asks a machine to start an agent CLI, and the exact sentences it
 // shows when the machine or the controller refuses. Pure: no DOM, no fetch. The limits match the controller and the
@@ -11,18 +12,12 @@ export const TOOLS: { id: string; name: string }[] = [
   { id: 'opencode', name: 'OpenCode' },
   { id: 'gemini', name: 'Gemini CLI' },
 ]
-const SUGGESTIONS: Record<string, string[]> = {
-  claude: ['sonnet', 'opus', 'haiku'],
-  codex: ['gpt-5-codex'],
-  opencode: [],
-  gemini: ['gemini-2.5-pro', 'gemini-2.5-flash'],
-}
 // These two take the prompt as an operand and could read a one-word prompt as a subcommand.
 const NEEDS_TWO_WORDS = new Set(['claude', 'codex'])
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,99}$/
 const SOMETHING_CHANGED = 'Something changed. Check again.'
 
-const nameOf = (tool: string): string => TOOLS.find(t => t.id === tool)?.name ?? tool
+const nameOf = (tool: string): string => CATALOGUE.find(agent => agent.id === tool)?.name ?? tool
 
 /** The display name for a tool id; an unknown id is shown as given, and a missing one as "an agent". */
 export const toolName = (tool: string | undefined): string => (tool ? nameOf(tool) : 'an agent')
@@ -46,7 +41,7 @@ export function launchActivity(d: { tool?: string; model?: string; dir?: string;
 }
 
 /** Hints only: the machine's agent decides whether a model name exists. */
-export function modelSuggestions(tool: string): string[] { return [...(SUGGESTIONS[tool] ?? [])] }
+export function modelSuggestions(tool: string): string[] { return [...(CATALOGUE.find(agent => agent.id === tool)?.models ?? [])] }
 
 /** An empty model is fine (the agent picks its own). */
 /** The value to send: validateModel looks at the trimmed text, so the caller must send this, not the raw input. */

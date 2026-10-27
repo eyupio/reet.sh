@@ -5,7 +5,7 @@ import ts from 'typescript'
 
 const compile = name => ts.transpileModule(readFileSync(new URL(name, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
 const asURL = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
-const launchURL = asURL(compile('./agentLaunch.ts'))
+const launchURL = asURL(compile('./agentLaunch.ts').replace("from './catalogue'", `from '${asURL(compile('./catalogue.ts'))}'`))
 const apiURL = asURL(compile('./terminal/api.ts').replace("from '../projects'", `from '${asURL('export {}')}'`))
 const p = await import(asURL(compile('./projects.ts').replace("from './agentLaunch'", `from '${launchURL}'`).replace("from './terminal/api'", `from '${apiURL}'`)))
 const launch = await import(launchURL)

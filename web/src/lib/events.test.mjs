@@ -5,7 +5,7 @@ import ts from 'typescript'
 // Compile the pure label helper without a browser or an extra test dependency.
 const compile = name => ts.transpileModule(readFileSync(new URL(name, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
 const asURL = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
-const launchURL = asURL(compile('./agentLaunch.ts'))
+const launchURL = asURL(compile('./agentLaunch.ts').replace("from './catalogue'", `from '${asURL(compile('./catalogue.ts'))}'`))
 const { eventLabel } = await import(asURL(compile('./events.ts').replace("from './agentLaunch'", `from '${launchURL}'`)))
 const event = (action, detail) => ({ id: 1, at: 0, source: 'ui', action, ...(detail ? { detail: JSON.stringify(detail) } : {}) })
 test('ownership receipt events read as plain sentences from their metadata', () => {

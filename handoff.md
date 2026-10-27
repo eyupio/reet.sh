@@ -22,7 +22,7 @@ the first pass, and the structured-chat spike runs in parallel with the Home wor
 | F | YOLO (off by default, per session, audited, machines can refuse) | **deferred past the first pass**; the design decisions stand |
 | G | Attention and Needs you | **deferred past the first pass**; Needs you stays an honest empty state until then |
 | H | Session screen, tablet and phone | not started |
-| Program 2 | Structured chat over the agent protocol, with command-approval cards | feasibility spike running in parallel with C, E and H; written plan follows the spike |
+| Program 2 | Structured chat over the agent protocol, with command-approval cards | research spike done (27 Oct 2026): go with conditions, first slice is Claude only with approval cards, about 7–9 engineer-weeks; report in `.superpowers/sdd/2026-10-26-agents-home/program2-spike.md` (git-ignored, to be moved into `docs/design/` with the plan); hands-on probe not yet run, it needs the owner's go-ahead; written plan follows |
 
 Until Program 2, reet starts agents in terminal sessions and wraps them with projects, the launch bar,
 YOLO, attention and the session screen; it is not yet a structured chat front end.

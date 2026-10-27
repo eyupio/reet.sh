@@ -2,6 +2,7 @@ package terminalhost
 
 import (
 	"embed"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"reflect"
@@ -13,7 +14,7 @@ import (
 
 // Captured help travels with standalone test binaries used by the tmux matrix.
 //
-//go:embed testdata/help/*.txt
+//go:embed testdata/help/*.txt testdata/help/sources.json
 var catalogueHelp embed.FS
 
 func TestCatalogueHasSevenAgents(t *testing.T) {
@@ -81,9 +82,7 @@ func TestPresetFlagsAppearInHelpText(t *testing.T) {
 			}
 			continue
 		}
-		if !strings.Contains(string(help), "0.163.0") && p.ID == "codex" {
-			t.Fatal("capture has no pinned version")
-		}
+		checkCapturedVersion(t, p, string(help))
 		flags := []string{p.ModelFlag, p.PromptFlag}
 		flags = append(flags, p.SafeArgs...)
 		flags = append(flags, p.YoloArgs...)
@@ -98,10 +97,139 @@ func TestPresetFlagsAppearInHelpText(t *testing.T) {
 	}
 }
 
+// capturedVersions maps a captured binary to the version recorded in
+// sources.json. Codex predates sources.json and keeps its reviewed version.
+func capturedVersions(t *testing.T) map[string]string {
+	t.Helper()
+	raw, err := catalogueHelp.ReadFile("testdata/help/sources.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Sources []struct{ Capture, Version string }
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]string{"codex": "0.163.0"}
+	for _, s := range doc.Sources {
+		out[s.Capture] = s.Version
+	}
+	return out
+}
+
+// checkCapturedVersion requires the capture's first line (the CLI's own
+// version output) to carry the version its source record pins.
+func checkCapturedVersion(t *testing.T, p Preset, help string) {
+	t.Helper()
+	want := capturedVersions(t)[p.Binary]
+	if want == "" {
+		t.Fatal(p.ID, "capture has no pinned version in sources.json")
+	}
+	first, _, _ := strings.Cut(help, "\n")
+	if !strings.Contains(first, want) {
+		t.Fatalf("%s: captured version line %q does not match pinned %s", p.ID, first, want)
+	}
+}
+
+// flagBlock returns the help text describing flag: from the flag to the next
+// option line.
+func flagBlock(help, flag string) string {
+	i := strings.Index(help, flag)
+	if i < 0 {
+		return ""
+	}
+	rest := help[i+len(flag):]
+	for _, sep := range []string{"\n  -", "\n\n"} {
+		if j := strings.Index(rest, sep); j >= 0 {
+			rest = rest[:j]
+		}
+	}
+	return rest
+}
+
+func TestPresetFlagValuesAppearInHelpText(t *testing.T) {
+	for _, p := range Catalogue {
+		if p.DisabledReason != "" {
+			continue
+		}
+		raw, err := catalogueHelp.ReadFile("testdata/help/" + p.Binary + ".txt")
+		if err != nil {
+			continue
+		}
+		help := string(raw)
+		check := func(args []string) {
+			for i := 0; i+1 < len(args); i++ {
+				if !strings.HasPrefix(args[i], "-") || strings.HasPrefix(args[i+1], "-") {
+					continue
+				}
+				block, value := flagBlock(help, args[i]), args[i+1]
+				boolean := (value == "true" || value == "false") && strings.Contains(block, "<boolean>")
+				if !boolean && !strings.Contains(block, value) {
+					t.Fatalf("%s: value %q for %s not described by captured help", p.ID, value, args[i])
+				}
+			}
+		}
+		check(p.SafeArgs)
+		check(p.YoloArgs)
+		for _, level := range []string{"low", "medium", "high"} {
+			check(p.EffortArgs[level])
+		}
+	}
+}
+
+// approvalBypass reports why args could switch off tool approval, or "".
+func approvalBypass(args []string) string {
+	for i, arg := range args {
+		lower := strings.ToLower(arg)
+		switch {
+		case lower == "-y", lower == "--yolo", lower == "--full-auto", lower == "--force", lower == "-f":
+			return arg
+		case strings.HasPrefix(lower, "--dangerously"), strings.Contains(lower, "bypass"), strings.Contains(lower, "skip-permission"), strings.HasPrefix(lower, "--allow-all"), strings.HasPrefix(lower, "--trust-all"):
+			return arg
+		case lower == "--auto-approve" || strings.HasPrefix(lower, "--auto-approve="):
+			value := strings.TrimPrefix(lower, "--auto-approve=")
+			if lower == "--auto-approve" {
+				value = ""
+				if i+1 < len(args) {
+					value = strings.ToLower(args[i+1])
+				}
+			}
+			if value != "false" {
+				return arg + " " + value
+			}
+		}
+	}
+	return ""
+}
+
+func TestApprovalBypassDenylist(t *testing.T) {
+	for _, bad := range [][]string{{"--yolo"}, {"-y"}, {"--auto-approve", "true"}, {"--auto-approve"}, {"--auto-approve=true"}, {"--dangerously-skip-permissions"}, {"--full-auto"}} {
+		if approvalBypass(bad) == "" {
+			t.Fatal("denylist missed", bad)
+		}
+	}
+	if approvalBypass([]string{"--auto-approve", "false", "--tui", "--thinking", "high"}) != "" {
+		t.Fatal("safe cline defaults denied")
+	}
+}
+
 func TestCatalogueDoesNotEnableApprovalBypass(t *testing.T) {
 	for _, p := range Catalogue {
 		if len(p.YoloArgs) != 0 {
 			t.Fatal("YOLO must remain deferred", p.ID)
+		}
+		if p.DisabledReason != "" {
+			continue
+		}
+		groups := map[string][]string{"SafeArgs": p.SafeArgs, "YoloArgs": p.YoloArgs}
+		for level, args := range p.EffortArgs {
+			groups["EffortArgs["+level+"]"] = args
+		}
+		for name, args := range groups {
+			if hit := approvalBypass(args); hit != "" {
+				t.Fatalf("%s %s enables approval bypass: %s", p.ID, name, hit)
+			}
 		}
 	}
 }

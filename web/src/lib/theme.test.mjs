@@ -161,3 +161,47 @@ test('no literal colour in a component', () => {
   }
   assert.deepEqual(offences, [])
 })
+
+// applyTheme leaves the choice where index.html's pre-paint script can read it,
+// so a dark preference is painted dark before the profile arrives.
+const { applyTheme } = await import(`data:text/javascript;base64,${Buffer.from(compile('./api.ts')).toString('base64')}`)
+
+function page() {
+  const store = new Map()
+  const root = { dataset: {} }
+  globalThis.document = { documentElement: root }
+  globalThis.window = { dispatchEvent: () => true }
+  globalThis.CustomEvent = class { constructor(type, init) { this.type = type; this.detail = init?.detail } }
+  globalThis.localStorage = { getItem: key => store.get(key) ?? null, setItem: (key, value) => store.set(key, value) }
+  return { root, store }
+}
+
+test('a chosen theme is cached for the next first paint', () => {
+  const { root, store } = page()
+  applyTheme('dark')
+  assert.equal(root.dataset.theme, 'dark')
+  assert.equal(store.get('reet-theme'), 'dark')
+  applyTheme('light')
+  assert.equal(root.dataset.theme, 'light')
+  assert.equal(store.get('reet-theme'), 'light')
+})
+
+test('following the system clears the attribute and caches that choice', () => {
+  const { root, store } = page()
+  applyTheme('dark')
+  applyTheme('system')
+  assert.equal('theme' in root.dataset, false)
+  assert.equal(store.get('reet-theme'), 'system')
+})
+
+test('a blocked store still applies the theme to this visit', () => {
+  const { root } = page()
+  globalThis.localStorage.setItem = () => { throw new Error('storage disabled') }
+  applyTheme('dark')
+  assert.equal(root.dataset.theme, 'dark')
+})
+
+test('the boot script reads the key applyTheme writes', () => {
+  const html = readFileSync(join(web, 'index.html'), 'utf8')
+  assert.match(html, /localStorage\.getItem\('reet-theme'\)/)
+})

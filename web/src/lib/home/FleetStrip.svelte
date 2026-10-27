@@ -49,6 +49,7 @@
           <span class="sessions"><span class="figure">{c.sessionsRunning}</span> <span class="unit">{c.sessionsRunning === 1 ? 'session running' : 'sessions running'}</span>{#if c.sessionsEnding}{' '}<span class="ending">· {c.sessionsEnding} ending</span>{/if}</span>
           {#if !reporting(c)}<span class="caption">Last known count. {c.name} is not reporting.</span><span class="chip-note" aria-hidden="true">· last known</span>{/if}
         {/if}
+        {#if reporting(c)}
         <span class="resources">
           {#each readings(c) as reading (reading.label)}
             <span class="metric">
@@ -57,6 +58,9 @@
             </span>
           {/each}
         </span>
+        {:else}
+          <span class="unavailable">Live stats unavailable while {c.status}.</span>
+        {/if}
         <span class="foot">{#if sessions}<span class="worktrees">{worktreesInUse(c.worktrees)}</span>{/if}<span class="skills {c.skills.tone}">{c.skills.text}</span></span>
       </a>
     {/each}
@@ -96,9 +100,10 @@
   .unit { color: var(--muted); }
   .ending { color: var(--muted); white-space: nowrap; }
   .caption { margin-top: -6px; font-size: 12px; color: var(--muted); }
+  .unavailable { color: var(--muted); font-size: 12px; line-height: 1.5; }
   .resources { display: grid; gap: 6px; }
   .metric { display: grid; gap: 3px; }
-  .reading { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+  .reading { display: flex; flex-wrap: wrap; gap: 2px 8px; justify-content: space-between; font-size: 12px; color: var(--muted); }
   .cpu .value { color: var(--ink); }
   .bar { display: block; height: 6px; border-radius: 3px; background: var(--line-soft); overflow: hidden; }
   .bar > span { display: block; height: 100%; border-radius: 3px; background: var(--good); }
@@ -131,7 +136,7 @@
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .cards { gap: 8px; margin-right: -16px; padding-right: 16px; mask-image: linear-gradient(90deg, var(--ink) 85%, transparent); -webkit-mask-image: linear-gradient(90deg, var(--ink) 85%, transparent); }
     .card { flex: none; flex-direction: row; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 999px; }
-    .foot, .caption, .status.online, .resources { display: none; }
+    .foot, .caption, .status.online, .resources, .unavailable { display: none; }
     .status { white-space: nowrap; }
     .sessions { gap: 4px; color: var(--muted); font-size: 13px; }
     .figure { font: inherit; color: var(--muted); }

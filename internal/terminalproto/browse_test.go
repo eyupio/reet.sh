@@ -3,6 +3,7 @@ package terminalproto
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -10,7 +11,7 @@ import (
 func browseResult() BrowseResult {
 	return BrowseResult{
 		Path: "/home/u/code", Home: "/home/u", Parent: "/home/u",
-		Repo: "none", Entries: []BrowseEntry{{Name: "api", Dir: true, RepoRoot: true}, {Name: ".cache", Dir: true, Hidden: true}},
+		Repo: "none", Entries: []BrowseEntry{{Name: ".cache", Dir: true, Hidden: true}, {Name: "api", Dir: true, RepoRoot: true}},
 		Scanned: 2,
 	}
 }
@@ -87,9 +88,13 @@ func TestBrowseRequestLimits(t *testing.T) {
 
 func TestBrowseResultLimits(t *testing.T) {
 	entries := func(n int, name string) []BrowseEntry {
+		// Distinct names in order: the last three bytes number them.
 		out := make([]BrowseEntry, n)
 		for i := range out {
 			out[i] = BrowseEntry{Name: name, Dir: true}
+			if n > 1 {
+				out[i].Name = strings.TrimSuffix(name, name[max(0, len(name)-3):]) + fmt.Sprintf("%03d", i)
+			}
 		}
 		return out
 	}
@@ -136,7 +141,7 @@ func TestBrowseResultLimits(t *testing.T) {
 		}
 	}
 	ok := with(func(r *BrowseResult) {
-		r.Repo, r.RepoTop, r.More, r.Partial, r.Omitted = "inside", "/home/u", true, true, 5
+		r.Repo, r.RepoTop, r.More, r.Partial, r.Omitted, r.Scanned = "inside", "/home/u", true, true, 5, 7
 	})
 	if !ok.valid() {
 		t.Error("refused inside a repository")
@@ -146,7 +151,7 @@ func TestBrowseResultLimits(t *testing.T) {
 	full := with(func(r *BrowseResult) {
 		r.Entries = make([]BrowseEntry, MaxBrowseEntries)
 		for i := range r.Entries {
-			r.Entries[i] = BrowseEntry{Name: strings.Repeat("a", 16), Dir: true, RepoRoot: true}
+			r.Entries[i] = BrowseEntry{Name: fmt.Sprintf("%016d", i), Dir: true, RepoRoot: true}
 		}
 	})
 	data, err := json.Marshal(full)
@@ -197,5 +202,72 @@ func TestCapabilitiesBrowseRequiresTerminalControl(t *testing.T) {
 	data, _ := json.Marshal(c)
 	if !bytes.Contains(data, []byte(`"browse":true`)) {
 		t.Fatal(string(data))
+	}
+}
+
+// A reply must make sense as a whole: a controller relays it as it is.
+func TestBrowseResultIsCoherent(t *testing.T) {
+	with := func(f func(*BrowseResult)) BrowseResult {
+		r := browseResult()
+		f(&r)
+		return r
+	}
+	named := func(names ...string) []BrowseEntry {
+		out := []BrowseEntry{}
+		for _, n := range names {
+			out = append(out, BrowseEntry{Name: n, Dir: true})
+		}
+		return out
+	}
+	valid := map[string]BrowseResult{
+		"home itself":          with(func(r *BrowseResult) { r.Path, r.Parent = "/home/u", "" }),
+		"home is /":            {Path: "/srv", Home: "/", Parent: "/", Repo: "none"},
+		"browsing / as home":   {Path: "/", Home: "/", Repo: "none"},
+		"root at path":         with(func(r *BrowseResult) { r.Repo, r.RepoTop = "root", "/home/u/code" }),
+		"inside, top at home":  with(func(r *BrowseResult) { r.Repo, r.RepoTop = "inside", "/home/u" }),
+		"deep inside":          {Path: "/home/u/r/a/b", Home: "/home/u", Parent: "/home/u/r/a", Repo: "inside", RepoTop: "/home/u/r"},
+		"case then bytes":      with(func(r *BrowseResult) { r.Entries = named("A", "a", "b", "B2", "c") }),
+		"more after entries":   with(func(r *BrowseResult) { r.More = true }),
+		"empty, no more":       with(func(r *BrowseResult) { r.Entries = nil }),
+		"empty, partial":       with(func(r *BrowseResult) { r.Entries, r.Partial = nil, true }),
+		"no entries, omitted":  with(func(r *BrowseResult) { r.Entries, r.Omitted, r.Scanned = nil, 3, 3 }),
+		"multibyte order":      with(func(r *BrowseResult) { r.Entries = named("z", "é") }),
+		"hidden before letter": with(func(r *BrowseResult) { r.Entries = named(".a", "_b", "a") }),
+	}
+	for name, r := range valid {
+		if !r.valid() {
+			t.Error("refused", name)
+		}
+	}
+	invalid := map[string]BrowseResult{
+		"more with no entries":  with(func(r *BrowseResult) { r.Entries, r.More = nil, true }),
+		"root elsewhere":        with(func(r *BrowseResult) { r.Repo, r.RepoTop = "root", "/elsewhere" }),
+		"root at parent":        with(func(r *BrowseResult) { r.Repo, r.RepoTop = "root", "/home/u" }),
+		"inside at path":        with(func(r *BrowseResult) { r.Repo, r.RepoTop = "inside", "/home/u/code" }),
+		"inside below path":     with(func(r *BrowseResult) { r.Repo, r.RepoTop = "inside", "/home/u/code/x" }),
+		"inside above home":     with(func(r *BrowseResult) { r.Repo, r.RepoTop = "inside", "/home" }),
+		"inside a sibling":      with(func(r *BrowseResult) { r.Repo, r.RepoTop = "inside", "/home/u/co" }),
+		"path outside home":     {Path: "/etc", Home: "/home/u", Parent: "/", Repo: "none"},
+		"path a home sibling":   {Path: "/home/u2", Home: "/home/u", Parent: "/home", Repo: "none"},
+		"path above home":       {Path: "/home", Home: "/home/u", Parent: "/", Repo: "none"},
+		"path not clean":        with(func(r *BrowseResult) { r.Path = "/home/u/x/../code" }),
+		"path trailing slash":   with(func(r *BrowseResult) { r.Path = "/home/u/code/" }),
+		"home not clean":        {Path: "/home/u/", Home: "/home/u/", Repo: "none"},
+		"parent not the parent": with(func(r *BrowseResult) { r.Parent = "/home" }),
+		"parent missing":        with(func(r *BrowseResult) { r.Parent = "" }),
+		"parent at home":        with(func(r *BrowseResult) { r.Path, r.Parent = "/home/u", "/home" }),
+		"unsorted":              with(func(r *BrowseResult) { r.Entries = named("b", "a") }),
+		"case unsorted":         with(func(r *BrowseResult) { r.Entries = named("a", "A") }),
+		"duplicate":             with(func(r *BrowseResult) { r.Entries = named("a", "a") }),
+		"case folded unsorted":  with(func(r *BrowseResult) { r.Entries = named("B", "a") }),
+		"omitted over scanned":  with(func(r *BrowseResult) { r.Omitted = r.Scanned + 1 }),
+	}
+	for name, r := range invalid {
+		if r.valid() {
+			t.Error("accepted", name)
+		}
+	}
+	if !BrowseNameLess("A", "a") || BrowseNameLess("a", "A") || !BrowseNameLess("a", "B") || BrowseNameLess("a", "a") {
+		t.Error("BrowseNameLess is not case-folded then byte order")
 	}
 }

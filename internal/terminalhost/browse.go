@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -23,27 +24,61 @@ const (
 	browseDeadline = 3 * time.Second
 	// maxBrowseScan is the most directory entries one browse reads.
 	maxBrowseScan = 5000
+	// maxBrowseHops bounds the links whyNot follows, as the kernel does.
+	maxBrowseHops = 255
 )
 
 // FS is everything a browse may do to the filesystem: list a folder it has
 // already contained, and lstat or stat a path for its type. There is no way
-// to open or read a file through it, by design.
+// to open or read a file through it, by design. Paths are absolute.
 type FS interface {
 	ReadDir(string) ([]os.DirEntry, error)
 	Lstat(string) (os.FileInfo, error)
 	Stat(string) (os.FileInfo, error)
 }
 
+// rooter is an FS that can confine every later call beneath one folder.
+// Browse roots its FS at the real home for the whole browse; a test fake that
+// wraps another FS passes rootAt through so it is confined too.
+type rooter interface {
+	rootAt(dir string) (FS, func(), error)
+}
+
+// rootBeneath confines fsys beneath dir when it can, and returns it as it is
+// otherwise. done releases what was opened.
+func rootBeneath(fsys FS, dir string) (FS, func(), error) {
+	if r, ok := fsys.(rooter); ok {
+		return r.rootAt(dir)
+	}
+	return fsys, func() {}, nil
+}
+
 type osFS struct{}
 
-// ReadDir opens name only as a directory and never through a final symbolic
-// link (where the system allows; see dirOpenFlags), so neither a file nor a
-// FIFO is ever opened, and reads at most maxBrowseScan+1 entries, unsorted.
+// rootAt opens dir as an os.Root: every call through the returned FS is
+// resolved component by component beneath it, and a link (or "..") that
+// would leave it, even one swapped in mid-browse, is refused there.
+func (osFS) rootAt(dir string) (FS, func(), error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	return rootFS{root: root, dir: dir}, func() { root.Close() }, nil
+}
+
+// The unrooted methods only serve callers that never root (none in Browse).
 func (osFS) ReadDir(name string) ([]os.DirEntry, error) {
 	f, err := os.OpenFile(name, os.O_RDONLY|dirOpenFlags, 0)
 	if err != nil {
 		return nil, err
 	}
+	return readDirFile(f)
+}
+func (osFS) Lstat(name string) (os.FileInfo, error) { return os.Lstat(name) }
+func (osFS) Stat(name string) (os.FileInfo, error)  { return os.Stat(name) }
+
+// readDirFile reads at most maxBrowseScan+1 entries, unsorted, and closes f.
+func readDirFile(f *os.File) ([]os.DirEntry, error) {
 	defer f.Close()
 	entries, err := f.ReadDir(maxBrowseScan + 1)
 	if errors.Is(err, io.EOF) {
@@ -51,8 +86,51 @@ func (osFS) ReadDir(name string) ([]os.DirEntry, error) {
 	}
 	return entries, err
 }
-func (osFS) Lstat(name string) (os.FileInfo, error) { return os.Lstat(name) }
-func (osFS) Stat(name string) (os.FileInfo, error)  { return os.Stat(name) }
+
+// errOutsideRoot refuses a path that is not beneath the browse root.
+var errOutsideRoot = errors.New("path is outside the browse root")
+
+// rootFS is the machine's filesystem confined beneath dir.
+type rootFS struct {
+	root *os.Root
+	dir  string
+}
+
+func (r rootFS) rel(p string) (string, error) {
+	rel, err := filepath.Rel(r.dir, p)
+	if err != nil || !within(r.dir, p) {
+		return "", errOutsideRoot
+	}
+	return rel, nil
+}
+
+// ReadDir opens name only as a directory (dirOpenFlags), so neither a file
+// nor a FIFO is ever opened.
+func (r rootFS) ReadDir(name string) ([]os.DirEntry, error) {
+	rel, err := r.rel(name)
+	if err != nil {
+		return nil, err
+	}
+	f, err := r.root.OpenFile(rel, os.O_RDONLY|dirOpenFlags, 0)
+	if err != nil {
+		return nil, err
+	}
+	return readDirFile(f)
+}
+func (r rootFS) Lstat(name string) (os.FileInfo, error) {
+	rel, err := r.rel(name)
+	if err != nil {
+		return nil, err
+	}
+	return r.root.Lstat(rel)
+}
+func (r rootFS) Stat(name string) (os.FileInfo, error) {
+	rel, err := r.rel(name)
+	if err != nil {
+		return nil, err
+	}
+	return r.root.Stat(rel)
+}
 
 // OSFS is the machine's filesystem, for Browse.
 var OSFS FS = osFS{}
@@ -61,8 +139,13 @@ var OSFS FS = osFS{}
 // for a remote controller that must be treated as hostile:
 //
 //   - The folder is resolved by ResolveDir, symlinks followed, and must be
-//     home or inside it; it is checked again after it is read, so a folder
-//     swapped for a link mid-browse is refused rather than listed.
+//     home or inside it. When it is refused, the reason is found by walking
+//     from home one component at a time, and a path that leaves home at any
+//     point is outside_home whether or not anything exists there.
+//   - Every filesystem call is made through an os.Root opened at the real
+//     home, so a component swapped for a link that leads out, even between
+//     two calls, is refused rather than followed. The folder is also
+//     resolved again after it is read.
 //   - Only folders are listed. Files are known from the directory entry's
 //     type alone: no file is opened, read or even stat'ed. A symlink is
 //     listed, under its own name, only when ResolveDir puts its target in a
@@ -74,11 +157,16 @@ var OSFS FS = osFS{}
 //     stopping at home.
 //   - Names that cannot be shown or sent back safely (invalid UTF-8, control
 //     or format characters, over 255 bytes) are omitted and counted.
-//   - At most 5,000 entries are read and 200 returned, and the answer always
-//     fits terminalproto.MaxBrowseReplyBytes: a page ends early with More set.
-//   - After the deadline (3 s, or ctx's if sooner) no filesystem call is
-//     made: folders still known from their entry are listed with RepoRoot
-//     false, links are omitted, and Partial is set.
+//   - At most 5,000 entries are read (Scanned shows the cap) and 200
+//     returned, and the answer always fits terminalproto.MaxBrowseReplyBytes.
+//     More is set only when a page ends before an entry it could still list,
+//     so a page with More always has a last name to continue from; an entry
+//     too wide to fit any page is omitted.
+//   - After the deadline (3 s, or ctx's if sooner) no repository check is
+//     made (folders are listed with RepoRoot false, and Partial is set), and
+//     the page ends with More at the next link, which needs a filesystem call
+//     to resolve. A page that has nothing yet resolves that one link, so
+//     paging always makes progress.
 //
 // Omitted counts the entries examined for this page and left out (hidden
 // folders and filter misses are not counted). The answer is always a valid
@@ -119,6 +207,13 @@ func (b *browser) browse(home string, req terminalproto.Browse) (terminalproto.B
 	if err != nil {
 		return terminalproto.BrowseResult{}, terminalproto.BrowseUnreadable
 	}
+	rooted, done, err := rootBeneath(b.fsys, realHome)
+	if err != nil {
+		return terminalproto.BrowseResult{}, terminalproto.BrowseUnreadable
+	}
+	defer done()
+	b.fsys = rooted
+
 	path := req.Path
 	if path == "" {
 		path = realHome
@@ -137,35 +232,23 @@ func (b *browser) browse(home string, req terminalproto.Browse) (terminalproto.B
 	if err != nil {
 		return terminalproto.BrowseResult{}, readReason(err)
 	}
-	// What was read must still resolve to dir: a component swapped for a link
-	// between resolving and reading could have led anywhere. (The machine's
-	// ReadDir also refuses to open a final link.)
+	// What was read must still resolve to dir. The root already refuses a
+	// component swapped for a link that leads out; this also catches an FS
+	// that cannot be rooted.
 	if again, err := ResolveDir(realHome, dir); err != nil || again != dir {
 		return terminalproto.BrowseResult{}, terminalproto.BrowseOutsideHome
 	}
 	if len(list) > maxBrowseScan {
-		list, r.More = list[:maxBrowseScan], true
+		list = list[:maxBrowseScan]
 	}
 	r.Scanned = len(list)
-	keys := make([]string, len(list))
-	order := make([]int, len(list))
-	for i, e := range list {
-		keys[i], order[i] = strings.ToLower(e.Name()), i
-	}
-	sort.Slice(order, func(i, j int) bool {
-		a, c := order[i], order[j]
-		if keys[a] != keys[c] {
-			return keys[a] < keys[c]
-		}
-		return list[a].Name() < list[c].Name()
-	})
+	sort.Slice(list, func(i, j int) bool { return terminalproto.BrowseNameLess(list[i].Name(), list[j].Name()) })
 
-	afterKey := strings.ToLower(req.After)
 	filter := strings.ToLower(req.Filter)
 	size := browseBaseSize(r)
-	for _, i := range order {
-		name := list[i].Name()
-		if req.After != "" && (keys[i] < afterKey || keys[i] == afterKey && name <= req.After) {
+	for _, entry := range list {
+		name := entry.Name()
+		if req.After != "" && !terminalproto.BrowseNameLess(req.After, name) {
 			continue
 		}
 		if !browseName(name) {
@@ -173,10 +256,10 @@ func (b *browser) browse(home string, req terminalproto.Browse) (terminalproto.B
 			continue
 		}
 		hidden := strings.HasPrefix(name, ".")
-		if hidden && !req.Hidden || !strings.Contains(keys[i], filter) {
+		if hidden && !req.Hidden || !strings.Contains(strings.ToLower(name), filter) {
 			continue
 		}
-		typ := list[i].Type()
+		typ := entry.Type()
 		if !typ.IsDir() && typ&fs.ModeSymlink == 0 {
 			r.Omitted++ // a file, device, FIFO or socket
 			continue
@@ -187,9 +270,9 @@ func (b *browser) browse(home string, req terminalproto.Browse) (terminalproto.B
 		}
 		target := filepath.Join(dir, name)
 		if typ&fs.ModeSymlink != 0 {
-			if b.late() {
-				r.Omitted++
-				continue
+			if b.late() && len(r.Entries) > 0 {
+				r.More = true
+				break
 			}
 			resolved, ok := b.linkedDir(realHome, target)
 			if !ok {
@@ -204,6 +287,10 @@ func (b *browser) browse(home string, req terminalproto.Browse) (terminalproto.B
 		}
 		n := browseEntrySize(e)
 		if size+n > terminalproto.MaxBrowseReplyBytes {
+			if len(r.Entries) == 0 {
+				r.Omitted++ // too wide for any page here
+				continue
+			}
 			r.More = true
 			break
 		}
@@ -214,38 +301,99 @@ func (b *browser) browse(home string, req terminalproto.Browse) (terminalproto.B
 	return r, ""
 }
 
-// whyNot names why ResolveDir refused path. A path outside home is answered
-// outside_home before anything there is looked at, so a browse never tells
-// whether something outside home exists.
+// whyNot names why ResolveDir refused path. It resolves path itself, one
+// component at a time from the real home, following links by reading them,
+// and answers outside_home as soon as the walk would leave home: nothing
+// beyond that point is looked at, so whether a path outside home exists is
+// never told. Every lstat is of an entry in a folder already inside home.
 func (b *browser) whyNot(home, realHome, path string) terminalproto.BrowseReason {
 	if !filepath.IsAbs(path) {
 		return terminalproto.BrowseOutsideHome
 	}
-	clean := filepath.Clean(path)
-	if !within(realHome, clean) && !within(filepath.Clean(home), clean) {
+	cleanHome := filepath.Clean(home)
+	// beneath splits an absolute path inside home (by either spelling) into
+	// its components below the real home.
+	beneath := func(p string) ([]string, bool) {
+		p = filepath.Clean(p)
+		for _, h := range []string{realHome, cleanHome} {
+			if within(h, p) {
+				rel, err := filepath.Rel(h, p)
+				return splitPath(rel), err == nil
+			}
+		}
+		return nil, false
+	}
+	rest, ok := beneath(path)
+	if !ok {
 		return terminalproto.BrowseOutsideHome
 	}
-	resolved, err := filepath.EvalSymlinks(clean)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return terminalproto.BrowseNotFound
-	case errors.Is(err, fs.ErrPermission):
-		return terminalproto.BrowseDenied
-	case err != nil:
-		return terminalproto.BrowseUnreadable
-	case !within(realHome, resolved):
-		return terminalproto.BrowseOutsideHome
+	cur := realHome
+	for hops := 0; len(rest) > 0; {
+		c := rest[0]
+		rest = rest[1:]
+		switch c {
+		case ".":
+			continue
+		case "..":
+			if cur == realHome {
+				return terminalproto.BrowseOutsideHome
+			}
+			cur = filepath.Dir(cur)
+			continue
+		}
+		next := filepath.Join(cur, c)
+		info, err := b.fsys.Lstat(next)
+		if err != nil {
+			return statReason(err)
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			if hops++; hops > maxBrowseHops {
+				return terminalproto.BrowseUnreadable
+			}
+			target, err := os.Readlink(next)
+			if err != nil {
+				return terminalproto.BrowseUnreadable
+			}
+			if filepath.IsAbs(target) {
+				parts, ok := beneath(target)
+				if !ok {
+					return terminalproto.BrowseOutsideHome
+				}
+				cur, rest = realHome, append(parts, rest...)
+			} else {
+				rest = append(splitPath(target), rest...)
+			}
+			continue
+		}
+		if !info.IsDir() {
+			if len(rest) > 0 {
+				return terminalproto.BrowseNotFound // a file used as a folder
+			}
+			return terminalproto.BrowseNotDir
+		}
+		cur = next
 	}
-	info, err := b.fsys.Lstat(resolved)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return terminalproto.BrowseNotFound
-	case err != nil:
-		return terminalproto.BrowseUnreadable
-	case !info.IsDir():
-		return terminalproto.BrowseNotDir
-	}
+	// The walk found a folder inside home that ResolveDir refused: it changed
+	// in between, or could not be read.
 	return terminalproto.BrowseUnreadable
+}
+
+// splitPath splits a relative path into its components, dropping empty ones.
+func splitPath(p string) []string {
+	var parts []string
+	for _, part := range strings.Split(filepath.ToSlash(p), "/") {
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return parts
+}
+
+func statReason(err error) terminalproto.BrowseReason {
+	if errors.Is(err, syscall.ENOTDIR) {
+		return terminalproto.BrowseNotFound
+	}
+	return readReason(err)
 }
 
 func readReason(err error) terminalproto.BrowseReason {

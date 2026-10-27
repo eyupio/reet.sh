@@ -77,10 +77,12 @@ func (r BranchesResult) valid() bool {
 	if len(r.Branches) > MaxBranchNames || r.Current != "" && !validRefName(r.Current) || r.Default != "" && !validRefName(r.Default) {
 		return false
 	}
+	seen := make(map[string]bool, len(r.Branches))
 	for _, name := range r.Branches {
-		if !validRefName(name) {
+		if !validRefName(name) || seen[name] {
 			return false
 		}
+		seen[name] = true
 	}
 	data, err := json.Marshal(r)
 	return err == nil && len(data) <= MaxBrowseReplyBytes

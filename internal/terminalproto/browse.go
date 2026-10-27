@@ -2,6 +2,7 @@ package terminalproto
 
 import (
 	"encoding/json"
+	"path"
 	"strings"
 )
 
@@ -89,6 +90,47 @@ func (b Browse) valid() bool {
 	return (b.Path == "" || validDir(b.Path)) && validBrowseText(b.After, MaxBrowseNameBytes) && validBrowseText(b.Filter, MaxBrowseFilterBytes)
 }
 
+// coherent reports whether the answer's folders fit together: Path is a clean
+// folder at or inside Home, Parent its parent (empty at home), RepoTop the
+// Path itself for root and a folder strictly between Home (inclusive) and Path
+// for inside, More only after at least one entry (its name is the next After),
+// and Omitted at most Scanned.
+func (r BrowseResult) coherent() bool {
+	if path.Clean(r.Path) != r.Path || path.Clean(r.Home) != r.Home || !pathWithin(r.Home, r.Path) {
+		return false
+	}
+	if r.Path == r.Home && r.Parent != "" || r.Path != r.Home && r.Parent != path.Dir(r.Path) {
+		return false
+	}
+	switch r.Repo {
+	case BrowseRepoRoot:
+		if r.RepoTop != r.Path {
+			return false
+		}
+	case BrowseRepoInside:
+		if r.RepoTop == r.Path || path.Clean(r.RepoTop) != r.RepoTop || !pathWithin(r.Home, r.RepoTop) || !pathWithin(r.RepoTop, r.Path) {
+			return false
+		}
+	}
+	return (!r.More || len(r.Entries) > 0) && r.Omitted <= r.Scanned
+}
+
+// pathWithin reports whether the clean slash path p is root or inside it.
+func pathWithin(root, p string) bool {
+	return p == root || root == "/" && strings.HasPrefix(p, "/") || strings.HasPrefix(p, root+"/")
+}
+
+// BrowseNameLess is the order of BrowseResult entries, strictly increasing:
+// by strings.ToLower first, then by bytes, so names that fold alike still
+// have one order and a page's last name is a stable After.
+func BrowseNameLess(a, b string) bool {
+	la, lb := strings.ToLower(a), strings.ToLower(b)
+	if la != lb {
+		return la < lb
+	}
+	return a < b
+}
+
 func validBrowseText(s string, max int) bool { return len(s) <= max && plainText(s, max) }
 
 // BrowseEntry is one folder. RepoRoot marks the top of a git working tree.
@@ -136,8 +178,11 @@ func (r BrowseResult) valid() bool {
 	if (r.Repo == BrowseRepoNone) != (r.RepoTop == "") || r.RepoTop != "" && !validDir(r.RepoTop) {
 		return false
 	}
-	for _, e := range r.Entries {
-		if !e.valid() {
+	if !r.coherent() {
+		return false
+	}
+	for i, e := range r.Entries {
+		if !e.valid() || i > 0 && !BrowseNameLess(r.Entries[i-1].Name, e.Name) {
 			return false
 		}
 	}

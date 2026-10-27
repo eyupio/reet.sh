@@ -136,3 +136,12 @@ func TestCapabilitiesBranchesRequiresWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBranchesResultNamesAreUnique(t *testing.T) {
+	if (BranchesResult{Branches: []string{"main", "dev", "main"}}).valid() {
+		t.Error("duplicate branch names accepted")
+	}
+	if !(BranchesResult{Branches: []string{"main", "dev", "Main"}}).valid() {
+		t.Error("distinct branch names refused")
+	}
+}

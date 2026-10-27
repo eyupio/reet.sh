@@ -28,16 +28,25 @@ func TestBrowseSkipsSpecialFiles(t *testing.T) {
 	if r.Omitted != 1 {
 		t.Fatalf("omitted %d, want the FIFO", r.Omitted)
 	}
-	for _, path := range []string{fifo, filepath.Join(home, "folder-link")} {
-		done := make(chan error, 1)
-		go func() { _, err := OSFS.ReadDir(path); done <- err }()
+	rooted, done, err := rootBeneath(OSFS, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer done()
+	for _, c := range []struct {
+		fsys FS
+		path string
+	}{{OSFS, fifo}, {OSFS, filepath.Join(home, "folder-link")}, {rooted, fifo}} {
+		got := make(chan error, 1)
+		go func() { _, err := c.fsys.ReadDir(c.path); got <- err }()
 		select {
-		case err := <-done:
+		case err := <-got:
 			if err == nil {
-				t.Fatalf("ReadDir(%q) opened something that is not a real directory", path)
+				t.Fatalf("ReadDir(%q) opened something that is not a real directory", c.path)
 			}
 		case <-time.After(2 * time.Second):
-			t.Fatalf("ReadDir(%q) blocked opening a FIFO", path)
+			t.Fatalf("ReadDir(%q) blocked opening a FIFO", c.path)
 		}
 	}
+	requireReason(t, browseOS(t, home, terminalproto.Browse{Path: fifo}), terminalproto.BrowseNotDir)
 }

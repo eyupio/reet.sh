@@ -2,6 +2,7 @@ package terminalhost
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -9,8 +10,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -100,14 +103,27 @@ func requireReason(t *testing.T, r terminalproto.BrowseResult, want terminalprot
 	}
 }
 
+// The fakes below wrap another FS. Each passes rootAt through to it, so a
+// browse over a fake wrapping OSFS still runs every call beneath os.Root.
+
 // recordingFS records every call the browser makes.
 type recordingFS struct {
-	base  FS
-	mu    sync.Mutex
-	calls []string
+	base   FS
+	parent *recordingFS
+	mu     sync.Mutex
+	calls  []string
+}
+
+func (f *recordingFS) rootAt(dir string) (FS, func(), error) {
+	base, done, err := rootBeneath(f.base, dir)
+	return &recordingFS{base: base, parent: f}, done, err
 }
 
 func (f *recordingFS) record(op, path string) {
+	if f.parent != nil {
+		f.parent.record(op, path)
+		return
+	}
 	f.mu.Lock()
 	f.calls = append(f.calls, op+" "+path)
 	f.mu.Unlock()
@@ -125,19 +141,24 @@ func (f *recordingFS) Stat(p string) (os.FileInfo, error) { f.record("stat", p);
 // hookFS lets a test change what one call sees.
 type hookFS struct {
 	base    FS
-	readDir func(string) ([]os.DirEntry, error)
-	lstat   func(string) (os.FileInfo, error)
+	readDir func(base FS, p string) ([]os.DirEntry, error)
+	lstat   func(base FS, p string) (os.FileInfo, error)
 }
 
+func (f hookFS) rootAt(dir string) (FS, func(), error) {
+	base, done, err := rootBeneath(f.base, dir)
+	f.base = base
+	return f, done, err
+}
 func (f hookFS) ReadDir(p string) ([]os.DirEntry, error) {
 	if f.readDir != nil {
-		return f.readDir(p)
+		return f.readDir(f.base, p)
 	}
 	return f.base.ReadDir(p)
 }
 func (f hookFS) Lstat(p string) (os.FileInfo, error) {
 	if f.lstat != nil {
-		return f.lstat(p)
+		return f.lstat(f.base, p)
 	}
 	return f.base.Lstat(p)
 }
@@ -276,8 +297,8 @@ func TestBrowseContainment(t *testing.T) {
 	})
 	t.Run("a link target swapped for a link after resolving is omitted", func(t *testing.T) {
 		site := filepath.Join(home, "work", "site")
-		fsys := hookFS{base: OSFS, lstat: func(p string) (os.FileInfo, error) {
-			info, err := OSFS.Lstat(p)
+		fsys := hookFS{base: OSFS, lstat: func(base FS, p string) (os.FileInfo, error) {
+			info, err := base.Lstat(p)
 			if p == site && err == nil {
 				return linkInfo{info}, nil
 			}
@@ -290,7 +311,7 @@ func TestBrowseContainment(t *testing.T) {
 		victim := filepath.Join(home, "victim")
 		mkdirs(t, home, "victim")
 		swapped := false
-		fsys := hookFS{base: OSFS, readDir: func(p string) ([]os.DirEntry, error) {
+		fsys := hookFS{base: OSFS, readDir: func(_ FS, p string) ([]os.DirEntry, error) {
 			if p == victim && !swapped {
 				swapped = true
 				if err := os.Rename(victim, victim+"-old"); err != nil {
@@ -304,6 +325,105 @@ func TestBrowseContainment(t *testing.T) {
 		r := browseWith(t, home, terminalproto.Browse{Path: victim}, fsys)
 		if !swapped || r.Reason != terminalproto.BrowseOutsideHome || len(r.Entries) != 0 {
 			t.Fatalf("a folder swapped for a link mid-browse leaked: %+v", r)
+		}
+	})
+	t.Run("nothing outside home is told apart", func(t *testing.T) {
+		mkdirs(t, outside, "exists/deeper")
+		putFile(t, filepath.Join(outside, "file.txt"), "x")
+		symlink(t, outside, filepath.Join(home, "out"))
+		symlink(t, "out", filepath.Join(home, "hop"))
+		symlink(t, "work/../out/exists", filepath.Join(home, "hop2"))
+		symlink(t, filepath.Join(root, "home", "out"), filepath.Join(home, "abs-hop"))
+		for _, path := range []string{
+			filepath.Join(home, "to-root", "etc"),
+			filepath.Join(home, "to-root", "etc", "passwd"),
+			filepath.Join(home, "to-root", "etc", "definitely-not-here"),
+			filepath.Join(home, "to-root", "root", ".ssh"),
+			filepath.Join(home, "to-root", "root", ".nope"),
+			filepath.Join(home, "out", "exists"),
+			filepath.Join(home, "out", "exists", "deeper"),
+			filepath.Join(home, "out", "nope"),
+			filepath.Join(home, "out", "file.txt"),
+			filepath.Join(home, "out", "file.txt", "x"),
+			filepath.Join(home, "hop", "nope"),
+			filepath.Join(home, "hop", "exists"),
+			filepath.Join(home, "hop2"),
+			filepath.Join(home, "hop2", "nope"),
+			filepath.Join(home, "abs-hop", "nope"),
+			filepath.Join(home, "to-parent", "home-other"),
+			filepath.Join(home, "to-parent", "nope"),
+			filepath.Join(home, "work", "..", "to-parent", "nope"),
+		} {
+			r := browseOS(t, home, terminalproto.Browse{Path: path})
+			if r.Reason != terminalproto.BrowseOutsideHome {
+				t.Errorf("Browse(%q) = %q, want outside_home whether or not it exists", path, r.Reason)
+			}
+		}
+		putFile(t, filepath.Join(home, "work", "f.txt"), "x")
+		for path, want := range map[string]terminalproto.BrowseReason{
+			filepath.Join(home, "work", "missing"):          terminalproto.BrowseNotFound,
+			filepath.Join(home, "to-work", "missing"):       terminalproto.BrowseNotFound,
+			filepath.Join(home, "to-work", "missing", "x"):  terminalproto.BrowseNotFound,
+			filepath.Join(home, "to-site", "..", "missing"): terminalproto.BrowseNotFound,
+			filepath.Join(home, "work", "f.txt"):            terminalproto.BrowseNotDir,
+			filepath.Join(home, "to-work", "f.txt"):         terminalproto.BrowseNotDir,
+			filepath.Join(home, "work", "f.txt", "x"):       terminalproto.BrowseNotFound,
+		} {
+			if r := browseOS(t, home, terminalproto.Browse{Path: path}); r.Reason != want {
+				t.Errorf("Browse(%q) = %q, want %q", path, r.Reason, want)
+			}
+		}
+	})
+	t.Run("an intermediate folder swapped for an outside link while reading", func(t *testing.T) {
+		mkdirs(t, home, "mid/b")
+		mkdirs(t, outside, "b/SECRET-NAME")
+		mid := filepath.Join(home, "mid")
+		fsys := hookFS{base: OSFS, readDir: func(base FS, p string) ([]os.DirEntry, error) {
+			// Swap mid for a link out, read, and swap it back before any
+			// re-check can see it.
+			if err := os.Rename(mid, mid+".real"); err != nil {
+				t.Fatal(err)
+			}
+			symlink(t, outside, mid)
+			defer func() {
+				if err := os.Remove(mid); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Rename(mid+".real", mid); err != nil {
+					t.Fatal(err)
+				}
+			}()
+			return base.ReadDir(p)
+		}}
+		r := browseWith(t, home, terminalproto.Browse{Path: filepath.Join(mid, "b")}, fsys)
+		for _, e := range r.Entries {
+			if e.Name == "SECRET-NAME" {
+				t.Fatalf("listed a folder outside home through a swapped component: %+v", r)
+			}
+		}
+	})
+	t.Run("an entry swapped for an outside repository", func(t *testing.T) {
+		mkdirs(t, home, "swapme")
+		makeRepo(t, filepath.Join(outside, "outrepo"))
+		entry := filepath.Join(home, "swapme")
+		fsys := hookFS{base: OSFS, readDir: func(base FS, p string) ([]os.DirEntry, error) {
+			list, err := base.ReadDir(p)
+			if p == home {
+				if err := os.Remove(entry); err != nil {
+					t.Fatal(err)
+				}
+				symlink(t, filepath.Join(outside, "outrepo"), entry)
+			}
+			return list, err
+		}}
+		r := browseWith(t, home, terminalproto.Browse{}, fsys)
+		for _, e := range r.Entries {
+			if e.Name == "swapme" && e.RepoRoot {
+				t.Fatalf("read a repository bit outside home through a swapped entry: %+v", r.Entries)
+			}
+		}
+		if err := os.Remove(entry); err != nil {
+			t.Fatal(err)
 		}
 	})
 }
@@ -428,13 +548,33 @@ func TestBrowseEntryCap(t *testing.T) {
 	if r.Scanned != 5000 || !r.More || len(r.Entries) != 200 {
 		t.Fatalf("scanned %d more %v entries %d; want 5000, true, 200", r.Scanned, r.More, len(r.Entries))
 	}
+	// A client that follows More and After finishes: the cap is shown by
+	// Scanned, never by a More with no name to continue from.
+	seen, after := 0, ""
+	for pages := 1; ; pages++ {
+		r := browseOS(t, home, terminalproto.Browse{After: after})
+		if r.Reason != "" || r.More && len(r.Entries) == 0 {
+			t.Fatalf("page %d after %d folders: %+v", pages, seen, r)
+		}
+		seen += len(r.Entries)
+		if !r.More {
+			break
+		}
+		after = r.Entries[len(r.Entries)-1].Name
+		if pages > 40 {
+			t.Fatal("paging past the cap does not end")
+		}
+	}
+	if seen != 5000 {
+		t.Fatalf("paged %d folders, want the 5000 scanned", seen)
+	}
 	// A filesystem that hands back more than the cap is cut to it too.
 	many := make([]os.DirEntry, 6000)
 	for i := range many {
 		many[i] = fakeDirEntry{name: "f" + strconv.Itoa(i)}
 	}
-	r = browseWith(t, home, terminalproto.Browse{}, hookFS{base: OSFS, readDir: func(string) ([]os.DirEntry, error) { return many, nil }})
-	if r.Scanned != 5000 || !r.More || r.Omitted != 5000 || len(r.Entries) != 0 {
+	r = browseWith(t, home, terminalproto.Browse{}, hookFS{base: OSFS, readDir: func(FS, string) ([]os.DirEntry, error) { return many, nil }})
+	if r.Scanned != 5000 || r.More || r.Omitted != 5000 || len(r.Entries) != 0 {
 		t.Fatalf("over-long listing: scanned %d more %v omitted %d", r.Scanned, r.More, r.Omitted)
 	}
 }
@@ -461,6 +601,11 @@ type slowFS struct {
 	late  int
 }
 
+func (f *slowFS) rootAt(dir string) (FS, func(), error) {
+	base, done, err := rootBeneath(f.base, dir)
+	f.base = base
+	return f, done, err
+}
 func (f *slowFS) ReadDir(p string) ([]os.DirEntry, error) { return f.base.ReadDir(p) }
 func (f *slowFS) Stat(p string) (os.FileInfo, error)      { return f.base.Stat(p) }
 func (f *slowFS) Lstat(p string) (os.FileInfo, error) {
@@ -487,14 +632,19 @@ func TestBrowseDeadline(t *testing.T) {
 	r := Browse(context.Background(), home, terminalproto.Browse{}, fsys, clock.now)
 	requireEncodable(t, r)
 	requireNames(t, r, names...)
-	if !r.Partial || r.Omitted != 1 {
-		t.Fatalf("partial %v omitted %d; want a partial answer omitting the unchecked link", r.Partial, r.Omitted)
+	if !r.Partial || !r.More || r.Omitted != 0 {
+		t.Fatalf("partial %v more %v omitted %d; want a partial page that stops at the unchecked link", r.Partial, r.More, r.Omitted)
 	}
 	if !r.Entries[0].RepoRoot || r.Entries[len(r.Entries)-1].RepoRoot {
 		t.Fatalf("repoRoot checks before the deadline report true, after it false: %+v", r.Entries)
 	}
 	if fsys.late > 1 {
 		t.Fatalf("%d filesystem calls after the deadline", fsys.late)
+	}
+	next := browseOS(t, home, terminalproto.Browse{After: r.Entries[len(r.Entries)-1].Name})
+	requireNames(t, next, "zz-link")
+	if next.More {
+		t.Fatalf("last page %+v", next)
 	}
 
 	t.Run("an earlier context deadline wins", func(t *testing.T) {
@@ -532,6 +682,19 @@ func TestBrowseDeadline(t *testing.T) {
 			}
 		}
 	})
+	t.Run("a late page still makes progress", func(t *testing.T) {
+		home := browseHome(t)
+		mkdirs(t, home, "target")
+		symlink(t, filepath.Join(home, "target"), filepath.Join(home, "a-link"))
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		r := Browse(ctx, home, terminalproto.Browse{}, OSFS, time.Now)
+		requireEncodable(t, r)
+		requireNames(t, r, "a-link", "target")
+		if !r.Partial || r.More {
+			t.Fatalf("late first link = %+v", r)
+		}
+	})
 }
 
 func TestBrowseUnusualNames(t *testing.T) {
@@ -539,17 +702,28 @@ func TestBrowseUnusualNames(t *testing.T) {
 	long := strings.Repeat("n", 255)
 	listed := []string{" leading space", "#tag", "-rf", "it's", "my folder", long, `say "hi"`, "ünïcødé"}
 	mkdirs(t, home, listed...)
-	for _, bad := range []string{"new\nline", "\xff\xfe", "tab\there", "‮evil", "zero​width"} {
-		mkdirs(t, home, bad)
+	bad := 0
+	for _, name := range []string{"new\nline", "\xff\xfe", "tab\there", "\u202eevil", "zero\u200bwidth"} {
+		err := os.Mkdir(filepath.Join(home, name), 0o700)
+		if err != nil && !utf8.ValidString(name) && (errors.Is(err, syscall.EILSEQ) || errors.Is(err, syscall.EINVAL)) {
+			// APFS refuses names that are not UTF-8; Linux keeps the case.
+			t.Logf("this filesystem refuses %q (%v); that case is skipped", name, err)
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		bad++
 	}
+	invalidUTF8 := bad == 5
 	r := browseOS(t, home, terminalproto.Browse{})
 	requireNames(t, r, listed...)
-	if r.Omitted != 5 || r.Scanned != 13 {
-		t.Fatalf("omitted %d scanned %d; want 5 and 13", r.Omitted, r.Scanned)
+	if r.Omitted != bad || r.Scanned != len(listed)+bad {
+		t.Fatalf("omitted %d scanned %d; want %d and %d", r.Omitted, r.Scanned, bad, len(listed)+bad)
 	}
 
 	// Names longer than 255 bytes (possible on some filesystems) are omitted.
-	fsys := hookFS{base: OSFS, readDir: func(string) ([]os.DirEntry, error) {
+	fsys := hookFS{base: OSFS, readDir: func(FS, string) ([]os.DirEntry, error) {
 		return []os.DirEntry{fakeDirEntry{name: strings.Repeat("x", 256), typ: fs.ModeDir}, fakeDirEntry{name: "ok", typ: fs.ModeDir}, fakeDirEntry{name: "a/b", typ: fs.ModeDir}}, nil
 	}}
 	r = browseWith(t, home, terminalproto.Browse{}, fsys)
@@ -563,7 +737,9 @@ func TestBrowseUnusualNames(t *testing.T) {
 		t.Fatalf("Browse into an unusual name = %+v", r)
 	}
 	// A folder whose own path cannot be sent is refused, not mangled.
-	requireReason(t, browseOS(t, home, terminalproto.Browse{Path: filepath.Join(home, "\xff\xfe")}), terminalproto.BrowseUnreadable)
+	if invalidUTF8 {
+		requireReason(t, browseOS(t, home, terminalproto.Browse{Path: filepath.Join(home, "\xff\xfe")}), terminalproto.BrowseUnreadable)
+	}
 }
 
 func TestBrowseSymlinkLoop(t *testing.T) {
@@ -625,4 +801,28 @@ func TestBrowseReplyFitsFrame(t *testing.T) {
 	if pages < 8 {
 		t.Fatalf("only %d pages: long names were not split", pages)
 	}
+
+	t.Run("a deep folder whose own path fills the reply", func(t *testing.T) {
+		home := browseHome(t)
+		d := home
+		for depth := 1; depth <= 14; depth++ {
+			d = filepath.Join(d, strings.Repeat("<", 250)+strconv.Itoa(depth%10))
+			if err := os.Mkdir(d, 0o700); err != nil {
+				t.Logf("stopped at depth %d: %v", depth, err)
+				break
+			}
+			mkdirs(t, d, strings.Repeat("&", 255))
+			r := browseOS(t, home, terminalproto.Browse{Path: d})
+			t.Logf("depth %d: %d bytes reason %q entries %d omitted %d more %v", depth, len(d), r.Reason, len(r.Entries), r.Omitted, r.More)
+			if r.More && len(r.Entries) == 0 {
+				t.Fatalf("depth %d (%d-byte path): More with no entries", depth, len(d))
+			}
+			// While the folder itself can be answered, it is: a child too wide
+			// for any page is omitted, not left as an endless More.
+			bare := terminalproto.BrowseResult{Path: d, Home: home, Parent: filepath.Dir(d), Repo: terminalproto.BrowseRepoNone, Scanned: 1, Omitted: 1}
+			if browseResultValid(bare) && r.Reason != "" {
+				t.Fatalf("depth %d (%d-byte path): %q, though the folder fits a reply", depth, len(d), r.Reason)
+			}
+		}
+	})
 }

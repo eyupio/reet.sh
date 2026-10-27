@@ -3,8 +3,8 @@
   import type { HealthResponse } from './terminal/api'
   import { getMachineHealth as machineHealth } from './api'
   import MachineHealthStrip from './terminal/MachineHealthStrip.svelte'
-  import type { Machine, SyncAgent, SyncEnvironment, SyncState } from './api'
-  import { controlSyncAgent, forgetEnvironment, forgetMachine, queueSyncJob, startSyncRun, updateSyncAgent } from './api'
+  import type { Machine, SyncAgent, SyncEnvironment, SyncJob, SyncState } from './api'
+  import { controlSyncAgent, controlSyncJob, forgetEnvironment, forgetMachine, queueSyncJob, startSyncRun, updateSyncAgent } from './api'
   import { agentGroups, groupLabel } from './machines'
   import { machineStatus, scanOnlyAgents, supportedAgents, syncLink } from './machineSetup'
   import MachineCommands from './MachineCommands.svelte'
@@ -95,6 +95,9 @@
     const agent = agentFor(machine)
     return agent ? (snapshot.runs ?? []).find(run => run.agentId === agent.id && ['running', 'review'].includes(run.status)) : undefined
   }
+  function pendingUpdate(agent: SyncAgent): SyncJob | undefined {
+    return (snapshot.jobs ?? []).find(job => job.agentId === agent.id && job.kind === 'update' && ['queued', 'running', 'awaiting-approval'].includes(job.status))
+  }
   async function syncNow(machine: Machine, agent: SyncAgent) {
     if (await run(`sync-${agent.id}`, () => startSyncRun(agent.id, savedTargets(machine).map(item => item.target.id)))) {
       onnotice(`Automatic sync started for ${machine.host}. Additive plans apply on their own; removals wait for review.`)
@@ -105,6 +108,9 @@
     if (await run(`update-${agent.id}`, () => updateSyncAgent(agent.id, version))) {
       onnotice(`Update to ${version} queued for ${agent.host}. The agent verifies the release, keeps the previous binary, then restarts.`)
     }
+  }
+  async function cancelUpdate(job: SyncJob) {
+    if (await run(`cancel-${job.id}`, () => controlSyncJob(job.id, 'cancel'))) onnotice('Queued update cancelled. The machine keeps its current build.')
   }
   function askForgetMachine(machine: Machine) {
     confirm = {
@@ -169,6 +175,7 @@
           <span><strong>{groups.length}</strong> agent {groups.length === 1 ? 'scope' : 'scopes'}</span>
           <span>Last report <strong>{lastSeen(machine)}</strong></span>
           {#if enrolled}<span class="live"><span aria-hidden="true">●</span> {agentState(enrolled)} · {enrolled.version}</span>{/if}
+          {#if enrolled}{@const pending = pendingUpdate(enrolled)}{#if pending}<span class="sync-run">{pending.status === 'running' ? 'Update in progress' : 'Update queued'}</span>{/if}{/if}
           {#if activeRun(machine)}{@const run = activeRun(machine)!}<span class="sync-run">Sync run {run.cursor}/{run.targets.length}{run.status === 'review' ? ' · review needed' : ''}</span>{/if}
         </div>
         <div class="agent-chips" aria-label="Agent scopes">
@@ -190,9 +197,11 @@
               <summary>Manage</summary>
               <div class="manage-menu">
                 {#if enrolled}
+                  {@const pending = pendingUpdate(enrolled)}
                   <button type="button" disabled={!!busy || enrolled.paused} onclick={() => scan(enrolled)}>{busy === `scan-${enrolled.id}` ? 'Queueing…' : 'Scan now'}</button>
                   {#if savedTargets(machine).length}<button type="button" disabled={!!busy || enrolled.paused} onclick={() => syncNow(machine, enrolled)}>Sync saved skills</button>{/if}
-                  <button type="button" disabled={!!busy} onclick={() => updateAgent(enrolled)}>{busy === `update-${enrolled.id}` ? 'Queueing update…' : 'Update reet'} <small>{enrolled.version === 'dev' ? 'dev' : 'latest'}</small></button>
+                  <button type="button" disabled={!!busy || !!pending} onclick={() => updateAgent(enrolled)}>{pending ? (pending.status === 'running' ? 'Update in progress…' : 'Update queued') : busy === `update-${enrolled.id}` ? 'Queueing update…' : 'Update reet'} {#if !pending}<small>{enrolled.version === 'dev' ? 'dev' : 'latest'}</small>{/if}</button>
+                  {#if pending && pending.status !== 'running'}<button type="button" disabled={!!busy} onclick={() => cancelUpdate(pending)}>Cancel queued update</button>{/if}
                   <button type="button" disabled={!!busy} onclick={() => pause(enrolled)}>{enrolled.paused ? 'Resume sync jobs' : 'Pause sync jobs'}</button>
                 {/if}
                 <button type="button" class="danger" onclick={() => askForgetMachine(machine)}>Forget machine</button>

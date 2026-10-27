@@ -20,6 +20,7 @@
   let busy = $state(false)
   let error = $state('')
   let notice = $state('')
+  let banner = $state<HTMLElement>()
   let lastRefresh = $state(0)
   let serverBuild = $state<{ version: string; commit: string } | null>(null)
   let loadGeneration = 0
@@ -86,12 +87,19 @@
       busy = false
     }
   }
+  // The outcome of an action on a machine card appears up here; without this a
+  // person who acted far down the page sees the dialog close and nothing else.
+  // Background refresh failures set the banner too, but they are not the person's doing.
+  async function showOutcome() {
+    await tick()
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    banner?.querySelector('p')?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' })
+  }
   async function load(background = false) {
     if (refreshing || busy) return
     refreshing = true
     const generation = ++loadGeneration
-    if (!background) loading = true
-    error = ''
+    if (!background) { loading = true; error = '' }
     try {
       const next = await getSyncState()
       if (generation !== loadGeneration) return
@@ -136,8 +144,10 @@
   {#if !compact}<p class="lede">{reportedMachines.length ? 'Your machines are one unit here: agent scopes live inside each machine, and every command is ready to run on that machine.' : 'Bring a machine in, scan what its agents have installed, and sync the skills and setups you want.'}</p>{/if}
   {#if focusedMachine}<p class="hint machine-focus"><a href="/machines">All machines</a> / <strong>{focusedMachine.host}</strong></p>{:else if focusHost && !loading}<p class="hint">No machine named {focusHost} is connected. <a href="/machines">Show all machines</a>.</p>{/if}
   {#if lastRefresh && reportedMachines.length}<p class="hint">Status refreshed {when(lastRefresh)} · updates automatically while this page is open.</p>{/if}
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
-  {#if notice}<p class="notice" role="status">{notice}</p>{/if}
+  <div class="banners" bind:this={banner}>
+    {#if error}<p class="error" role="alert">{error}</p>{/if}
+    {#if notice}<p class="notice" role="status">{notice}</p>{/if}
+  </div>
 
   {#if view === 'compare'}
     {#if reportedMachines.length}
@@ -148,7 +158,7 @@
   {:else}
     <MachineSetup {terminalAccess} {site} {machines} {profiles} {token} {tokenSetup} {serverBuild} bind:open={setupOpen} initialMode={initialSetupMode} onrefresh={() => load()} />
     {#if visibleMachines.length}
-      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {terminalAccess} {monitorAccess} onadd={openSetup} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e) }} onnotice={(message) => { notice = message }} />
+      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {terminalAccess} {monitorAccess} onadd={openSetup} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e); void showOutcome() }} onnotice={(message) => { notice = message; void showOutcome() }} />
     {/if}
   {/if}
 
@@ -214,6 +224,7 @@
   pre { flex: 1 1 260px; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: .78rem/1.6 var(--mono); }
   .advanced-fleet { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 16px; }
   .advanced-fleet > summary { cursor: pointer; font-weight: 650; font-size: .88rem; }
+  .banners { display: contents; }
   .error, .notice { padding: 12px; border: 1px solid var(--bad); border-radius: 8px; overflow-wrap: anywhere; }
   .notice { border-color: var(--good); }
   @media (max-width: 560px) {

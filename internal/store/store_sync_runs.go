@@ -234,22 +234,39 @@ func (s *Store) QueueAgentUpdate(uid int64, agentID, version string) (SyncJob, e
 	if version != "latest" && version != "dev" && !strings.HasPrefix(version, "v") && !strings.HasPrefix(version, "V") {
 		return SyncJob{}, errors.New("choose latest, dev or a release tag")
 	}
-	var owned int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sync_agents WHERE id=? AND user_id=?`, agentID, uid).Scan(&owned); err != nil {
-		return SyncJob{}, err
-	}
-	if owned == 0 {
-		return SyncJob{}, ErrNotFound
-	}
-	var active int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND status IN ('queued','running','awaiting-approval')`, uid, agentID).Scan(&active); err != nil {
-		return SyncJob{}, err
-	}
-	if active > 0 {
-		return SyncJob{}, errors.New("finish or cancel this machine's current job first")
-	}
 	j := SyncJob{ID: syncID(), AgentID: agentID, Kind: "update", Status: "queued", Revision: version, Plan: json.RawMessage(`{}`), CreatedAt: now(), UpdatedAt: now()}
-	_, err := s.db.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,revision,created_at,updated_at) VALUES(?,?,?,'',?,?,?,?,?)`, j.ID, uid, agentID, j.Kind, j.Status, j.Revision, j.CreatedAt, j.UpdatedAt)
+	err := s.withTx(func(tx *sql.Tx) error {
+		var owned int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_agents WHERE id=? AND user_id=?`, agentID, uid).Scan(&owned); err != nil {
+			return err
+		}
+		if owned == 0 {
+			return ErrNotFound
+		}
+		// Expired work is never replayed automatically, so it must not keep
+		// blocking a person who asks for an update.
+		if _, err := tx.Exec(`UPDATE sync_jobs SET status='failed',message='Agent disconnected or timed out; inspect local files and preview again.',updated_at=? WHERE user_id=? AND agent_id=? AND status='running' AND updated_at<?`, now(), uid, agentID, time.Now().Add(-10*time.Minute).UnixMilli()); err != nil {
+			return err
+		}
+		var running, pendingUpdate int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND status='running'`, uid, agentID).Scan(&running); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND kind='update' AND status IN ('queued','awaiting-approval')`, uid, agentID).Scan(&pendingUpdate); err != nil {
+			return err
+		}
+		// Queued and awaiting-approval skill work is safe to wait behind: the
+		// agent executes one job at a time, so the update keeps its turn after
+		// the reviewed work instead of being refused until someone cancels it.
+		if running > 0 {
+			return errors.New("a sync operation is still running on this machine; wait for it to finish")
+		}
+		if pendingUpdate > 0 {
+			return errors.New("an update is already queued for this machine; wait for it or cancel it")
+		}
+		_, err := tx.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,revision,created_at,updated_at) VALUES(?,?,?,'',?,?,?,?,?)`, j.ID, uid, agentID, j.Kind, j.Status, j.Revision, j.CreatedAt, j.UpdatedAt)
+		return err
+	})
 	return j, err
 }
 

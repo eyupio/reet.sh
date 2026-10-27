@@ -366,6 +366,18 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	}
 }
 
+// permanentAgentError reports a controller refusal that will not change by
+// resending the same request.
+func permanentAgentError(err error) bool {
+	message := err.Error()
+	for _, code := range []string{"controller 400", "controller 403", "controller 404", "controller 409"} {
+		if strings.HasPrefix(message, code) {
+			return true
+		}
+	}
+	return false
+}
+
 type agentResult struct {
 	ID      string   `json:"id"`
 	Status  string   `json:"status"`
@@ -383,6 +395,11 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 			return err
 		}
 		if err = agentRequestContext(ctx, c, "/api/v2/sync/result", result, nil, version); err != nil {
+			// A controller that has already closed this job will never take the
+			// result, so drop it instead of blocking every later cycle on it.
+			if permanentAgentError(err) {
+				_ = os.Remove(config + ".result")
+			}
 			return err
 		}
 		if err = os.Remove(config + ".result"); err != nil {

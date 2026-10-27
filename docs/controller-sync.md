@@ -65,6 +65,8 @@ Machines provides **Scan now**, **Sync saved skills**, **Update reet**, **Pause*
 
 **Update reet** queues a binary update through the enrolled agent. The controller only names the release channel (`latest`, or `dev` for a dev build). The agent resolves and downloads the published release itself, verifies its checksum and version, keeps the current executable as `reet.previous`, and re-execs into the new binary. A supervised service therefore restarts without a terminal command. If the release cannot be downloaded or verified, the installed binary is left unchanged and the job reports the failure.
 
+An update may wait behind another queued job or a plan awaiting approval; those jobs do not block it. It is refused only while an operation is still running on the machine, or while another update is already queued. A running job that has sent no result for ten minutes is treated as failed before this check, so an interrupted attempt does not keep blocking later updates.
+
 Queued or awaiting-approval jobs can be cancelled. Running operations are not presented as cancellable filesystem transactions. Failed or cancelled jobs offer **Retry with fresh preview/scan**, so an old approved plan is never blindly replayed. Distinct agent scopes may queue read-only previews together. Duplicate previews for a scope are blocked, scans wait for active work, and an active scan or apply blocks new previews. Execution remains serial on each installation. Each preview requires its own approval. Execution has an eight-minute command context; work with no result after ten minutes becomes failed and requires inspection and a new preview. A local result is persisted before acknowledgment; reconnecting resends the result rather than reinstalling skills.
 
 Removed entries are moved to `.reet-sync-backups/removed-*/SKILL` beside the selected skills directory. Sync activity includes **Copy restore command** for each successfully backed-up removal, including partial failures. Run it on the enrolled machine:
@@ -75,7 +77,7 @@ reet agent restore --target 'TARGET_ID' --backup '/path/to/.reet-sync-backups/re
 
 Restore verifies enrollment and backup scope, requires typing the target name, refuses to overwrite an existing skill, takes the target lock, moves the original entry back, and rescans. Review the desired set afterward so the next sync does not remove it again. Symlink entries are restored as symlinks.
 
-A killed agent or sync may leave a `.lock` file. Check that the relevant process is no longer running before removing that specific stale lock. Keep any `.result` file for acknowledgment/recovery. Do not run multiple workers using copied configuration files.
+A killed agent or sync may leave a `.lock` file. Check that the relevant process is no longer running before removing that specific stale lock. Keep any `.result` file for acknowledgment/recovery; the agent drops it only when the controller refuses it permanently (for example because that job has already closed). Do not run multiple workers using copied configuration files.
 
 Renaming an enrolled machine preserves its identity and mode/baseline, cancels old queued approvals, and requires a new preview. Renaming during a running job is rejected. Two active enrolled installations cannot be merged; revoke one enrollment first if consolidating duplicate reports.
 

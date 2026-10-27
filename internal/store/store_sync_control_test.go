@@ -458,3 +458,80 @@ func TestQueueAgentUpdateUsesExistingJobGate(t *testing.T) {
 		t.Fatal("cross-account update accepted")
 	}
 }
+
+func TestQueueAgentUpdateWaitsBehindReviewedSkillWork(t *testing.T) {
+	s, uid, id := controlFixture(t)
+	a, _, err := s.EnrollSyncAgent(uid, "laptop", "v1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", SkillIDs: []string{"a/b/one"}, Mode: "additive"}); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := s.QueueSyncJob(uid, a.ID, id, "preview")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.QueueAgentUpdate(uid, a.ID, "latest"); err != nil {
+		t.Fatalf("queued preview blocked an update: %v", err)
+	}
+	if _, err = s.QueueAgentUpdate(uid, a.ID, "latest"); err == nil || !strings.Contains(err.Error(), "already queued") {
+		t.Fatalf("duplicate update not identified: %v", err)
+	}
+	claim, err := s.ClaimSyncJob(uid, a)
+	if err != nil || claim == nil || claim.ID != preview.ID {
+		t.Fatalf("older queued work must keep its turn: %+v %v", claim, err)
+	}
+	hash := strings.Repeat("e", 64)
+	if err = s.FinishSyncJob(uid, a.ID, preview.ID, "awaiting-approval", hash, "", json.RawMessage(`{"actions":[]}`)); err != nil {
+		t.Fatal(err)
+	}
+	update, err := s.ClaimSyncJob(uid, a)
+	if err != nil || update == nil || update.Kind != "update" {
+		t.Fatalf("update was not claimed after review work: %+v %v", update, err)
+	}
+}
+
+func TestQueueAgentUpdateStillRefusesRunningWork(t *testing.T) {
+	s, uid, id := controlFixture(t)
+	a, _, err := s.EnrollSyncAgent(uid, "laptop", "v1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", SkillIDs: []string{"a/b/one"}, Mode: "additive"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.QueueSyncJob(uid, a.ID, id, "preview"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ClaimSyncJob(uid, a); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.QueueAgentUpdate(uid, a.ID, "latest"); err == nil || !strings.Contains(err.Error(), "still running") {
+		t.Fatalf("running operation did not block an update: %v", err)
+	}
+}
+
+func TestQueueAgentUpdateIgnoresExpiredRunningWork(t *testing.T) {
+	s, uid, id := controlFixture(t)
+	a, _, err := s.EnrollSyncAgent(uid, "laptop", "v1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", SkillIDs: []string{"a/b/one"}, Mode: "additive"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.QueueSyncJob(uid, a.ID, id, "preview"); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.ClaimSyncJob(uid, a)
+	if err != nil || job == nil {
+		t.Fatal(err)
+	}
+	if _, err = s.db.Exec(`UPDATE sync_jobs SET updated_at=? WHERE id=?`, time.Now().Add(-11*time.Minute).UnixMilli(), job.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.QueueAgentUpdate(uid, a.ID, "latest"); err != nil {
+		t.Fatalf("expired running work blocked an update: %v", err)
+	}
+}

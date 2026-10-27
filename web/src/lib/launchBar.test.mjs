@@ -14,7 +14,7 @@ const source = compile('./launchBar.ts')
   .replace("from './catalogue'", `from '${catalogue}'`)
   .replace("from './agentLaunch'", `from '${agentLaunch}'`)
   .replace("from './terminal/api'", `from '${terminalApi}'`)
-const { initialChoice, afterLaunch, baseBranchFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug } = await import(asURL(source))
+const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug } = await import(asURL(source))
 const { refusalText } = await import(agentLaunch)
 
 const caps = (extra = {}) => ({ protocolVersion: 1, os: 'linux', osUser: 'u', terminalEnabled: true, terminalControl: true, healthEnabled: true, readiness: 'ready',
@@ -117,15 +117,16 @@ test('first choice comes from the first project and the profile', () => {
 
 test('Enter never sends on touch; Ctrl+Enter and Cmd+Enter send', () => {
   const key = (extra = {}) => ({ key: 'Enter', ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, isComposing: false, ...extra })
-  for (const touch of [true, false]) {
-    assert.equal(sendKey(key(), touch), false)
-    assert.equal(sendKey(key({ shiftKey: true }), touch), false)
-    assert.equal(sendKey(key({ ctrlKey: true }), touch), true)
-    assert.equal(sendKey(key({ metaKey: true }), touch), true)
-    assert.equal(sendKey(key({ ctrlKey: true, isComposing: true }), touch), false)
-    assert.equal(sendKey(key({ ctrlKey: true, altKey: true }), touch), false)
-    assert.equal(sendKey(key({ key: 'a', ctrlKey: true }), touch), false)
-  }
+  // A hardware keyboard: only Ctrl+Enter or Cmd+Enter sends.
+  assert.equal(sendKey(key(), false), false)
+  assert.equal(sendKey(key({ shiftKey: true }), false), false)
+  assert.equal(sendKey(key({ ctrlKey: true }), false), true)
+  assert.equal(sendKey(key({ metaKey: true }), false), true)
+  assert.equal(sendKey(key({ ctrlKey: true, isComposing: true }), false), false)
+  assert.equal(sendKey(key({ ctrlKey: true, altKey: true }), false), false)
+  assert.equal(sendKey(key({ key: 'a', ctrlKey: true }), false), false)
+  // Touch: the Start button is the only way to send (R8), whatever the key.
+  for (const extra of [{}, { ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { key: 'a', ctrlKey: true }]) assert.equal(sendKey(key(extra), true), false)
 })
 
 test('title from the first line', () => {
@@ -194,4 +195,40 @@ test('refusals for options and disabled agents', () => {
   assert.equal(refusalText(409, 'launch_option_unsupported', "That agent doesn't take that option."), "That agent doesn't take that option.")
   assert.equal(refusalText(409, 'launch_option_unsupported', 'Update reet on that machine to use that option.'), 'Update reet on that machine to use that option.')
   assert.equal(refusalText(422, 'tool_unavailable', "reet doesn't start this agent yet."), "reet doesn't start this agent yet.")
+})
+
+test('several projects: each sends its own base, never the single choice', () => {
+  const r = 'r'.repeat(16), a = 'a'.repeat(16)
+  const own = { ...reet, baseBranch: 'release' }
+  const many = choice({ projectIds: ['p-reet', 'p-site'], branch: 'release' })
+  assert.equal(toCreate(many, own, r, a).launch.base, 'release')
+  assert.equal(toCreate(many, site, r, a).launch.base, undefined)
+  assert.equal(toCreate(many, site, r, a, { defaultBaseBranch: 'develop' }).launch.base, 'develop')
+  assert.equal(toCreate(many, { ...site, baseBranch: 'trunk' }, r, a, { defaultBaseBranch: 'develop' }).launch.base, 'trunk')
+  // The probe: reet on a current machine, site on one without agents-v2 and no base of its own.
+  const mixed = [machines[0], machine('m-server', 'server', { agentsV2: false })]
+  assert.equal(startable(many, [own, site], mixed), null)
+  assert.equal(startable(many, [own, { ...site, baseBranch: 'trunk' }], mixed), 'Update reet on that machine to use that option.')
+  assert.equal(startable(many, [own, site], mixed, { defaultBaseBranch: 'develop' }), 'Update reet on that machine to use that option.')
+  // startable and toCreate use one rule.
+  for (const p of [own, site, { ...site, baseBranch: 'trunk' }]) for (const prof of [{}, { defaultBaseBranch: 'develop' }]) assert.equal(baseFor(many, p, prof), toCreate(many, p, r, a, prof).launch.base ?? '')
+})
+
+test('a branch only goes out when chosen or set by the project or profile', () => {
+  const r = 'r'.repeat(16), a = 'a'.repeat(16)
+  const old = [machine('m-studio', 'studio', { agentsV2: false })]
+  // '' means the checkout's current commit: nothing sent, and an old machine still starts a worktree.
+  const unset = choice({ branch: '' })
+  assert.equal(toCreate(unset, reet, r, a).launch.base, undefined)
+  assert.equal(startable(unset, projects, old), null)
+  // The suggestion from the machine's branches is for the picker and the sentence only.
+  const branches = { current: 'main', default: 'main', branches: ['main'], more: false }
+  assert.equal(baseBranchFor(reet, profile, branches), 'main')
+  assert.equal(initialChoice(null, [reet], profile).branch, '')
+  assert.equal(words(sentence(unset, projects, machines, 'main')), 'Run Claude Code with sonnet on reet at studio from main in a fresh worktree')
+  // A base the project sets is sent, and an old machine is told to update.
+  const set = initialChoice(null, [{ ...reet, baseBranch: 'release' }], profile)
+  assert.equal(set.branch, 'release')
+  assert.equal(toCreate(set, { ...reet, baseBranch: 'release' }, r, a).launch.base, 'release')
+  assert.equal(startable(set, [{ ...reet, baseBranch: 'release' }], old), 'Update reet on that machine to use that option.')
 })

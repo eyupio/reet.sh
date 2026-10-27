@@ -15,7 +15,9 @@ export type LaunchChoice = {
   projectIds: string[]
   /** The machine's enrollment id for *Home folder on…*, used only when no project is chosen. */
   homeMachine?: string
-  /** The base branch for a fresh worktree; '' sends nothing (the worktree starts from the checkout's current commit). */
+  /** The base branch for one project's fresh worktree, only when the person chose it or the project or profile sets one.
+   * '' means "use the default": nothing is sent and the worktree starts from the checkout's current commit. A branch
+   * suggested from the machine's own list (`baseBranchFor`) is shown, never put here unless the person picks it. */
   branch: string
   worktree: boolean
   effort: Effort
@@ -48,9 +50,19 @@ function worktreeFor(project: LaunchProject | undefined, profile: LaunchDefaults
   return profile.worktreesByDefault !== false
 }
 
-/** The base branch for a project's fresh worktree: the project's own, else the account's, else the repository's default, else its current branch. */
+/** The branch the picker suggests for a project's fresh worktree: the project's own, else the account's, else the repository's
+ * default, else its current branch. For display only: the default and current branches are never sent as `base` (see `baseFor`). */
 export function baseBranchFor(project: Pick<FolderProject, 'baseBranch'> | null | undefined, profile: LaunchDefaults, branches: BranchesResult | null | undefined): string {
   return project?.baseBranch || profile.defaultBaseBranch || branches?.default || branches?.current || ''
+}
+
+/**
+ * The base a project's create sends ('' for none). One project: the branch in the choice. Several: each project's own
+ * `baseBranch`, else the account's default, never the single choice's branch. Only a repository with a fresh worktree has one.
+ */
+export function baseFor(choice: LaunchChoice, project: Pick<LaunchProject, 'isRepo' | 'baseBranch'> | null | undefined, profile: LaunchDefaults = {}): string {
+  if (!project?.isRepo || !choice.worktree) return ''
+  return choice.projectIds.length > 1 ? project.baseBranch || profile.defaultBaseBranch || '' : choice.branch
 }
 
 /**
@@ -87,8 +99,8 @@ export function afterLaunch(choice: LaunchChoice): LaunchChoice {
 
 /**
  * The launch sentence: "Run [agent] with [model] on [project] at [machine] from [branch] in [a fresh worktree] · thinking
- * [effort]". A checkout has no branch slot and ends "Works in the checkout on main." (`current` is the checkout's branch
- * from `listBranches`, when known); a folder that isn't a repository (and the home folder) has neither branch nor worktree.
+ * [effort]". `current` is the checkout's branch from `listBranches`, when known: an unset branch reads as it (the worktree
+ * starts there), and a checkout has no branch slot and ends "Works in the checkout on main."; a folder that isn't a repository (and the home folder) has neither branch nor worktree.
  */
 export function sentence(choice: LaunchChoice, projects: LaunchProject[], machines: LaunchMachine[], current = ''): SentencePart[] {
   const picked = chosen(choice, projects)
@@ -117,7 +129,7 @@ export function sentence(choice: LaunchChoice, projects: LaunchProject[], machin
   ]
   if (picked.some(p => p.isRepo)) {
     if (choice.worktree) {
-      const branch = picked.length > 1 ? "each project's default" : choice.branch || 'the current branch'
+      const branch = picked.length > 1 ? "each project's default" : choice.branch || current || 'the current branch'
       parts.push(word('from'), { slot: 'branch', text: branch }, word('in'), { slot: 'worktree', text: 'a fresh worktree' })
     } else {
       parts.push(word('in'), { slot: 'worktree', text: 'the checkout' })
@@ -129,7 +141,7 @@ export function sentence(choice: LaunchChoice, projects: LaunchProject[], machin
 }
 
 /** Why Start can't be pressed yet, as the one sentence to show; null when it can. The first reason wins. */
-export function startable(choice: LaunchChoice, projects: LaunchProject[], machines: LaunchMachine[]): string | null {
+export function startable(choice: LaunchChoice, projects: LaunchProject[], machines: LaunchMachine[], profile: LaunchDefaults = {}): string | null {
   if (!choice.agent) return 'Choose an agent.'
   const picked = chosen(choice, projects)
   if (picked.length === 0 && !choice.homeMachine) return 'Choose a project or a home folder.'
@@ -141,7 +153,7 @@ export function startable(choice: LaunchChoice, projects: LaunchProject[], machi
   if (model) return model
   if (choice.effort && !agent.effort) return NO_OPTION
   const targets: { agentId: string; repo: boolean; base: boolean }[] = picked.length > 0
-    ? picked.map(p => ({ agentId: p.host, repo: p.isRepo, base: p.isRepo && choice.worktree && (picked.length > 1 ? !!p.baseBranch : !!choice.branch) }))
+    ? picked.map(p => ({ agentId: p.host, repo: p.isRepo, base: !!baseFor(choice, p, profile) }))
     : [{ agentId: choice.homeMachine ?? '', repo: false, base: false }]
   for (const target of targets) {
     const m = machines.find(x => x.agentId === target.agentId)
@@ -175,10 +187,10 @@ export function defaultTitle(prompt: string, fallback = ''): string {
 }
 
 /**
- * One session's create request. `base` only with a fresh worktree and a chosen branch, `effort` only for an agent that
+ * One session's create request. `base` only as `baseFor` gives it (pass the profile for several projects), `effort` only for an agent that
  * takes it, `yolo` only when chosen; nothing else is added. The project folder is sent as it is, whatever its name.
  */
-export function toCreate(choice: LaunchChoice, project: LaunchProject | null, requestId: string, runToken: string): LaunchCreate {
+export function toCreate(choice: LaunchChoice, project: LaunchProject | null, requestId: string, runToken: string, profile: LaunchDefaults = {}): LaunchCreate {
   const launch: LaunchRequest = { tool: choice.agent }
   const model = cleanModel(choice.model)
   if (model) launch.model = model
@@ -188,7 +200,8 @@ export function toCreate(choice: LaunchChoice, project: LaunchProject | null, re
   if (project?.isRepo && choice.worktree) {
     launch.worktree = runToken
     launch.project = projectSlug(project.name)
-    if (choice.branch) launch.base = choice.branch
+    const base = baseFor(choice, project, profile)
+    if (base) launch.base = base
   }
   if (choice.effort && takesEffort(choice.agent)) launch.effort = choice.effort
   if (choice.approvals === 'yolo') launch.yolo = true
@@ -200,8 +213,9 @@ export function toCreate(choice: LaunchChoice, project: LaunchProject | null, re
   }
 }
 
-/** R8: Enter adds a line everywhere (and never sends on touch); Ctrl+Enter or Cmd+Enter on a hardware keyboard sends. */
+/** R8: on touch the Start button is the only way to send, whatever the key. On a hardware keyboard Enter adds a line and
+ * Ctrl+Enter or Cmd+Enter sends. */
 export function sendKey(e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey' | 'isComposing'>, touch: boolean): boolean {
-  void touch
+  if (touch) return false
   return e.key === 'Enter' && !e.isComposing && !e.shiftKey && !e.altKey && (e.ctrlKey || e.metaKey)
 }

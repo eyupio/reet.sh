@@ -39,6 +39,7 @@ const (
 type AgentConfig struct {
 	commandHistory    bool
 	launch            bool
+	agentsV2          bool
 	worktree          bool
 	browse            bool
 	branches          bool
@@ -517,7 +518,7 @@ func consentControl(ctx context.Context, cfg AgentConfig, generation int64, enab
 		previousBrowse := cfg.browseAllowed
 		cfg.browseAllowed = nextBrowse
 		caps := capabilitiesFor(cfg, nextEnabled, nextReadiness)
-		if caps.Validate() != nil {
+		if caps.ValidateFor(terminalFeatures(cfg)) != nil {
 			cfg.browseAllowed = previousBrowse
 			continue
 		}
@@ -626,6 +627,7 @@ func authHeaders(cfg AgentConfig) http.Header {
 func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.commandHistory = terminalproto.SupportsCommandHistory(advertised)
 	cfg.launch = terminalproto.SupportsLaunch(advertised)
+	cfg.agentsV2 = terminalproto.SupportsAgents(advertised)
 	cfg.worktree = terminalproto.SupportsWorktree(advertised)
 	cfg.browse = terminalproto.SupportsBrowse(advertised)
 	cfg.branches = terminalproto.SupportsBranches(advertised)
@@ -645,6 +647,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	var features []string
 	if cfg.commandHistory {
 		features = append(features, terminalproto.CommandHistoryFeature)
+	}
+	if cfg.agentsV2 {
+		features = append(features, terminalproto.AgentsFeature)
 	}
 	if cfg.launch {
 		features = append(features, terminalproto.LaunchFeature)
@@ -666,7 +671,7 @@ func terminalFeatures(cfg AgentConfig) string {
 func launchTools(cfg AgentConfig) []string {
 	var tools []string
 	for _, tool := range cfg.LaunchTools() {
-		if terminalproto.ValidTool(tool) && !slices.Contains(tools, tool) {
+		if (terminalproto.ValidTool(tool) || cfg.agentsV2 && terminalproto.ValidToolV2(tool)) && !slices.Contains(tools, tool) {
 			tools = append(tools, tool)
 		}
 	}
@@ -718,10 +723,12 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 	// browse also the local folder-browse switch on, branches worktrees.
 	control := cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin")
 	return terminalproto.Capabilities{
-		Launch:   launch,
-		Tools:    tools,
-		Worktree: worktree,
-		Browse:   cfg.browse && control && enabled && cfg.browseAllowed,
+		Launch:    launch,
+		AgentsV2:  cfg.agentsV2,
+		OSVersion: reportedOSVersion(cfg.agentsV2),
+		Tools:     tools,
+		Worktree:  worktree,
+		Browse:    cfg.browse && control && enabled && cfg.browseAllowed,
 		// Only on a connection that negotiated browse-v1: an older
 		// controller's strict decoder would refuse the field.
 		BrowseOff:       cfg.browse && control && enabled && !cfg.browseAllowed,

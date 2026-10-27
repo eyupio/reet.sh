@@ -144,7 +144,7 @@ func TestPrepareWorktreeCreatesBranchAtHead(t *testing.T) {
 	home := worktreeHome(t)
 	repo := newRepo(t, home, "code/Site")
 	head := testGit(t, repo, "rev-parse", "HEAD")
-	w, err := PrepareWorktree(context.Background(), home, repo, "My Project", testRun, ExecGit)
+	w, err := PrepareWorktree(context.Background(), home, repo, "My Project", testRun, "", ExecGit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestPrepareWorktreeFollowsSymlinkedRepoInsideHome(t *testing.T) {
 	if err := os.Symlink(repo, link); err != nil {
 		t.Fatal(err)
 	}
-	w, err := PrepareWorktree(context.Background(), home, link, "p", testRun, ExecGit)
+	w, err := PrepareWorktree(context.Background(), home, link, "p", testRun, "", ExecGit)
 	if err != nil || w.Path != wantPath(home, "p", "real", testRun) {
 		t.Fatal(w, err)
 	}
@@ -256,7 +256,7 @@ func TestPrepareWorktreeRefusesWhatIsNotARepositoryRoot(t *testing.T) {
 	for name, setup := range cases {
 		t.Run(name, func(t *testing.T) {
 			dir := setup()
-			_, err := PrepareWorktree(context.Background(), home, dir, "p", testRun, ExecGit)
+			_, err := PrepareWorktree(context.Background(), home, dir, "p", testRun, "", ExecGit)
 			refusedWith(t, err, terminalproto.WorktreeNotRepoRoot)
 			if _, err := os.Lstat(wantPath(home, "p", filepath.Base(dir), testRun)); err == nil {
 				t.Fatal("destination created")
@@ -273,7 +273,7 @@ func TestPrepareWorktreeRefusesUnbornHead(t *testing.T) {
 	dir := filepath.Join(home, "empty")
 	os.MkdirAll(dir, 0o700)
 	testGit(t, dir, "init", "-q", "-b", "main")
-	_, err := PrepareWorktree(context.Background(), home, dir, "p", testRun, ExecGit)
+	_, err := PrepareWorktree(context.Background(), home, dir, "p", testRun, "", ExecGit)
 	refusedWith(t, err, terminalproto.WorktreeNotRepoRoot)
 	if _, err := os.Lstat(filepath.Join(home, ".reet")); err == nil {
 		t.Fatal("~/.reet made for a refused repository")
@@ -294,7 +294,7 @@ func TestPrepareWorktreeRefusesBusyRepository(t *testing.T) {
 			} else {
 				writeFile(t, path, testGit(t, repo, "rev-parse", "HEAD")+"\n")
 			}
-			_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+			_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 			refusedWith(t, err, terminalproto.WorktreeRepoBusy)
 			nothingCreated(t, home, repo)
 		})
@@ -327,7 +327,7 @@ func TestPrepareWorktreeRefusesBusyRepository(t *testing.T) {
 			if out, err := testGitErr(repo, start...); err == nil {
 				t.Fatalf("expected a conflict from %v: %s", start, out)
 			}
-			_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+			_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 			refusedWith(t, err, terminalproto.WorktreeRepoBusy)
 			nothingCreated(t, home, repo)
 		})
@@ -335,7 +335,7 @@ func TestPrepareWorktreeRefusesBusyRepository(t *testing.T) {
 	t.Run("real bisect", func(t *testing.T) {
 		repo := newRepo(t, home, "bisect")
 		testGit(t, repo, "bisect", "start")
-		_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+		_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 		refusedWith(t, err, terminalproto.WorktreeRepoBusy)
 		nothingCreated(t, home, repo)
 	})
@@ -348,7 +348,7 @@ func TestPrepareWorktreeAllowsDirtyTree(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "untracked"), "new\n")
 	testGit(t, repo, "add", "README")
 	writeFile(t, filepath.Join(repo, "README"), "changed again\n")
-	w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+	w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 	if err != nil || !w.Created {
 		t.Fatal(w, err)
 	}
@@ -371,7 +371,7 @@ func TestPrepareWorktreeRefusesExistingDestinationOrBranch(t *testing.T) {
 		dest := wantPath(home, "p", "dest", testRun)
 		os.MkdirAll(dest, 0o700)
 		writeFile(t, filepath.Join(dest, "keep"), "mine")
-		_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+		_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 		refusedWith(t, err, terminalproto.WorktreeExists)
 		if data, _ := os.ReadFile(filepath.Join(dest, "keep")); string(data) != "mine" {
 			t.Fatal("existing destination touched")
@@ -386,7 +386,7 @@ func TestPrepareWorktreeRefusesExistingDestinationOrBranch(t *testing.T) {
 		os.MkdirAll(filepath.Dir(dest), 0o700)
 		target := shortTempDir(t)
 		os.Symlink(target, dest)
-		_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+		_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 		refusedWith(t, err, terminalproto.WorktreeExists)
 		if entries, _ := os.ReadDir(target); len(entries) != 0 {
 			t.Fatal("wrote through the symlink")
@@ -398,7 +398,7 @@ func TestPrepareWorktreeRefusesExistingDestinationOrBranch(t *testing.T) {
 		before := testGit(t, repo, "rev-parse", "reet/p-"+testRun)
 		writeFile(t, filepath.Join(repo, "README"), "moved\n")
 		testGit(t, repo, "commit", "-q", "-am", "move on")
-		_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+		_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 		refusedWith(t, err, terminalproto.WorktreeExists)
 		if after := testGit(t, repo, "rev-parse", "reet/p-"+testRun); after != before {
 			t.Fatal("existing branch moved")
@@ -409,22 +409,22 @@ func TestPrepareWorktreeRefusesExistingDestinationOrBranch(t *testing.T) {
 	})
 	t.Run("registered worktree on another branch", func(t *testing.T) {
 		repo := newRepo(t, home, "d/switched")
-		w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+		w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 		if err != nil {
 			t.Fatal(err)
 		}
 		testGit(t, w.Path, "switch", "-q", "-c", "elsewhere")
-		_, err = PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+		_, err = PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 		refusedWith(t, err, terminalproto.WorktreeExists)
 	})
 	t.Run("branch left after the folder was deleted", func(t *testing.T) {
 		repo := newRepo(t, home, "e/stale")
-		w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+		w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 		if err != nil {
 			t.Fatal(err)
 		}
 		os.RemoveAll(w.Path)
-		_, err = PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+		_, err = PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 		refusedWith(t, err, terminalproto.WorktreeExists)
 	})
 }
@@ -432,13 +432,13 @@ func TestPrepareWorktreeRefusesExistingDestinationOrBranch(t *testing.T) {
 func TestPrepareWorktreeRetryAdopts(t *testing.T) {
 	home := worktreeHome(t)
 	repo := newRepo(t, home, "retry")
-	first, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+	first, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 	if err != nil || !first.Created {
 		t.Fatal(first, err)
 	}
 	writeFile(t, filepath.Join(first.Path, "work"), "agent output")
 	calls, git := recordingGit(ExecGit)
-	again, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, git)
+	again, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", git)
 	if err != nil || again.Created || again.Path != first.Path || again.Branch != first.Branch {
 		t.Fatal(again, err)
 	}
@@ -467,11 +467,11 @@ func TestPrepareWorktreeSameTokenOtherRepositoryRefused(t *testing.T) {
 	home := worktreeHome(t)
 	a := newRepo(t, home, "one/site")
 	b := newRepo(t, home, "two/site")
-	w, err := PrepareWorktree(context.Background(), home, a, "p", testRun, ExecGit)
+	w, err := PrepareWorktree(context.Background(), home, a, "p", testRun, "", ExecGit)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = PrepareWorktree(context.Background(), home, b, "p", testRun, ExecGit)
+	_, err = PrepareWorktree(context.Background(), home, b, "p", testRun, "", ExecGit)
 	refusedWith(t, err, terminalproto.WorktreeExists)
 	if br := reetBranches(t, b); len(br) != 0 || worktreeCount(t, b) != 1 {
 		t.Fatal("the second repository changed", br)
@@ -480,10 +480,10 @@ func TestPrepareWorktreeSameTokenOtherRepositoryRefused(t *testing.T) {
 		t.Fatal("first worktree changed", got)
 	}
 	// Another run token, or another Project, is another worktree.
-	if w2, err := PrepareWorktree(context.Background(), home, b, "p", otherRun, ExecGit); err != nil || !w2.Created {
+	if w2, err := PrepareWorktree(context.Background(), home, b, "p", otherRun, "", ExecGit); err != nil || !w2.Created {
 		t.Fatal(w2, err)
 	}
-	if w3, err := PrepareWorktree(context.Background(), home, b, "q", testRun, ExecGit); err != nil || !w3.Created || w3.Branch != "reet/q-"+testRun {
+	if w3, err := PrepareWorktree(context.Background(), home, b, "q", testRun, "", ExecGit); err != nil || !w3.Created || w3.Branch != "reet/q-"+testRun {
 		t.Fatal(w3, err)
 	}
 }
@@ -499,7 +499,7 @@ func TestPrepareWorktreeRefusesSymlinkedReetFolders(t *testing.T) {
 			if err := os.Symlink(outside, link); err != nil {
 				t.Fatal(err)
 			}
-			_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+			_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 			refusedWith(t, err, terminalproto.WorktreeOutsideHome)
 			if entries, _ := os.ReadDir(outside); len(entries) != 0 {
 				t.Fatal("wrote through the symlink", entries)
@@ -513,14 +513,14 @@ func TestPrepareWorktreeRefusesSymlinkedReetFolders(t *testing.T) {
 		home := worktreeHome(t)
 		repo := newRepo(t, home, "site")
 		writeFile(t, filepath.Join(home, ".reet"), "")
-		_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+		_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 		refusedWith(t, err, terminalproto.WorktreeOutsideHome)
 	})
 	t.Run("existing open ~/.reet is used", func(t *testing.T) {
 		home := worktreeHome(t)
 		repo := newRepo(t, home, "site")
 		os.Mkdir(filepath.Join(home, ".reet"), 0o755)
-		if _, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit); err != nil {
+		if _, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -532,7 +532,7 @@ func TestPrepareWorktreeRefusesRepositoryOutsideHome(t *testing.T) {
 	repo := newRepo(t, outside, "site")
 	os.Symlink(repo, filepath.Join(home, "escape"))
 	for _, dir := range []string{repo, filepath.Join(home, "escape"), "relative/site", filepath.Join(home, "missing")} {
-		if _, err := PrepareWorktree(context.Background(), home, dir, "p", testRun, ExecGit); !errors.Is(err, ErrLaunchUnavailable) {
+		if _, err := PrepareWorktree(context.Background(), home, dir, "p", testRun, "", ExecGit); !errors.Is(err, ErrLaunchUnavailable) {
 			t.Fatal("folder outside home not refused as a launch", dir, err)
 		}
 	}
@@ -553,7 +553,7 @@ func TestPrepareWorktreeSlugs(t *testing.T) {
 		{strings.Repeat("Long", 30), strings.Repeat("r", 120), "", ""},
 	} {
 		repo := newRepo(t, home, filepath.Join("slugs", string(rune('a'+i)), tc.repo))
-		w, err := PrepareWorktree(context.Background(), home, repo, tc.project, testRun, ExecGit)
+		w, err := PrepareWorktree(context.Background(), home, repo, tc.project, testRun, "", ExecGit)
 		if err != nil {
 			t.Fatal(tc, err)
 		}
@@ -572,7 +572,7 @@ func TestPrepareWorktreeSlugs(t *testing.T) {
 			t.Fatal(got)
 		}
 	}
-	if _, err := PrepareWorktree(context.Background(), home, newRepo(t, home, "bad"), "p", "NOTATOKEN", ExecGit); !errors.Is(err, terminalproto.ErrInvalid) {
+	if _, err := PrepareWorktree(context.Background(), home, newRepo(t, home, "bad"), "p", "NOTATOKEN", "", ExecGit); !errors.Is(err, terminalproto.ErrInvalid) {
 		t.Fatal("bad run token", err)
 	}
 }
@@ -599,7 +599,7 @@ func TestPrepareWorktreeNeverRunsHooks(t *testing.T) {
 		}
 		os.Remove(marker)
 		testGit(t, repo, "-c", "core.hooksPath=/dev/null", "checkout", "-q", "main")
-		if _, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit); err != nil {
+		if _, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := os.Stat(marker); err == nil {
@@ -617,7 +617,7 @@ func TestPrepareWorktreeNeverRunsHooks(t *testing.T) {
 		}
 		os.Remove(marker)
 		testGit(t, repo, "-c", "core.hooksPath=/dev/null", "checkout", "-q", "main")
-		if _, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit); err != nil {
+		if _, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := os.Stat(marker); err == nil {
@@ -647,7 +647,7 @@ func TestExecGitIgnoresGitEnvironment(t *testing.T) {
 	t.Setenv("GIT_CONFIG_VALUE_0", hooks)
 	t.Setenv("GIT_INDEX_FILE", filepath.Join(home, "decoy-index"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
-	w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+	w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -744,7 +744,7 @@ func TestExecGitRefusesWhenGitIsMissing(t *testing.T) {
 	if _, err := ExecGit(context.Background(), repo, "status"); !errors.Is(err, errGitMissing) {
 		t.Fatal(err)
 	}
-	_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+	_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 	refusedWith(t, err, terminalproto.WorktreeGitFailed)
 	var w *WorktreeError
 	errors.As(err, &w)
@@ -791,7 +791,7 @@ func TestPrepareWorktreeArgumentVectorIsExact(t *testing.T) {
 	home := worktreeHome(t)
 	repo := newRepo(t, home, "exact")
 	calls, git := recordingGit(ExecGit)
-	w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, git)
+	w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", git)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -828,7 +828,7 @@ func TestWorktreeUndoRemovesWorktreeAndBranch(t *testing.T) {
 	home := worktreeHome(t)
 	repo := newRepo(t, home, "undo")
 	testGit(t, repo, "branch", "keep-me")
-	w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+	w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -863,7 +863,7 @@ func TestPrepareWorktreeCleansUpAFailedAdd(t *testing.T) {
 		}
 		return out, err
 	}
-	_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, git)
+	_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", git)
 	refusedWith(t, err, terminalproto.WorktreeGitFailed)
 	var w *WorktreeError
 	errors.As(err, &w)
@@ -878,7 +878,7 @@ func TestPrepareWorktreeCleansUpAFailedAdd(t *testing.T) {
 	// folder-shaped ref conflict does. A branch "reet" makes "reet/..." fail.
 	repo2 := newRepo(t, home, "conflict")
 	testGit(t, repo2, "branch", "reet")
-	_, err = PrepareWorktree(context.Background(), home, repo2, "p", testRun, ExecGit)
+	_, err = PrepareWorktree(context.Background(), home, repo2, "p", testRun, "", ExecGit)
 	refusedWith(t, err, terminalproto.WorktreeGitFailed)
 	errors.As(err, &w)
 	if w.Detail == "" {
@@ -1020,7 +1020,7 @@ func TestManagerWorktreeFailedStartUndoesOnlyWhatItMade(t *testing.T) {
 	m, _, _, _, repo, realHome := worktreeManager(t)
 	realRepo, _ := filepath.EvalSymlinks(repo)
 	// A worktree from an earlier attempt, adopted by this one.
-	adopted, err := PrepareWorktree(context.Background(), realHome, realRepo, "p", otherRun, ExecGit)
+	adopted, err := PrepareWorktree(context.Background(), realHome, realRepo, "p", otherRun, "", ExecGit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1111,5 +1111,99 @@ func TestManagerPlainAndLaunchCreatesNeverRunGit(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(opts.Home, ".reet")); err == nil {
 		t.Fatal("~/.reet made without a worktree")
+	}
+}
+
+func TestWorktreeFromLocalBase(t *testing.T) {
+	home := worktreeHome(t)
+	repo := newRepo(t, home, "local")
+	base := testGit(t, repo, "rev-parse", "HEAD")
+	testGit(t, repo, "branch", "chosen")
+	writeFile(t, filepath.Join(repo, "README"), "new head\n")
+	testGit(t, repo, "commit", "-qam", "second")
+	// A local branch takes precedence over a same-named remote reference.
+	testGit(t, repo, "update-ref", "refs/remotes/chosen", "HEAD")
+	w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "chosen", ExecGit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := testGit(t, w.Path, "rev-parse", "HEAD"); got != base {
+		t.Fatalf("got %s, want base %s", got, base)
+	}
+}
+
+func TestWorktreeFromRemoteBase(t *testing.T) {
+	home := worktreeHome(t)
+	repo := newRepo(t, home, "remote")
+	base := testGit(t, repo, "rev-parse", "HEAD")
+	testGit(t, repo, "update-ref", "refs/remotes/origin/chosen", base)
+	writeFile(t, filepath.Join(repo, "README"), "new head\n")
+	testGit(t, repo, "commit", "-qam", "second")
+	w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "origin/chosen", ExecGit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := testGit(t, w.Path, "rev-parse", "HEAD"); got != base {
+		t.Fatalf("got %s, want base %s", got, base)
+	}
+}
+
+func TestWorktreeBaseMissing(t *testing.T) {
+	home := worktreeHome(t)
+	repo := newRepo(t, home, "missing")
+	_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "absent", ExecGit)
+	refusedWith(t, err, terminalproto.WorktreeReason("base_missing"))
+	nothingCreated(t, home, repo)
+}
+
+func TestWorktreeBaseArgvExact(t *testing.T) {
+	home := worktreeHome(t)
+	repo := newRepo(t, home, "exact-base")
+	commit := testGit(t, repo, "rev-parse", "HEAD")
+	testGit(t, repo, "update-ref", "refs/remotes/origin/chosen", commit)
+	var resolutions [][]string
+	var add []string
+	git := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		if len(args) > 2 && args[0] == "rev-parse" && args[1] == "--verify" && args[2] == "--end-of-options" {
+			resolutions = append(resolutions, append([]string(nil), args...))
+		}
+		if len(args) > 3 && args[0] == "-c" && args[2] == "worktree" && args[3] == "add" {
+			add = append([]string(nil), args...)
+		}
+		return ExecGit(ctx, dir, args...)
+	}
+	_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "origin/chosen", git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"rev-parse", "--verify", "--end-of-options", "refs/heads/origin/chosen^{commit}"}, {"rev-parse", "--verify", "--end-of-options", "refs/remotes/origin/chosen^{commit}"}}
+	if !reflect.DeepEqual(resolutions, want) {
+		t.Fatalf("resolutions: %q, want %q", resolutions, want)
+	}
+	if len(add) == 0 || add[len(add)-1] != commit {
+		t.Fatalf("add must use resolved commit: %q", add)
+	}
+	calls := 0
+	invalidGit := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		calls++
+		return nil, errors.New("must not run")
+	}
+	if _, err := PrepareWorktree(context.Background(), home, repo, "p", otherRun, "-x", invalidGit); !errors.Is(err, terminalproto.ErrInvalid) || calls != 0 {
+		t.Fatalf("invalid base: %v, calls=%d", err, calls)
+	}
+}
+
+func TestWorktreeBaseRemovedRetryAdoptsExisting(t *testing.T) {
+	home := worktreeHome(t)
+	repo := newRepo(t, home, "retry-base")
+	testGit(t, repo, "branch", "chosen")
+	first, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "chosen", ExecGit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testGit(t, repo, "branch", "-D", "chosen")
+	again, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "chosen", ExecGit)
+	if err != nil || again.Created || again.Path != first.Path {
+		t.Fatalf("retry must adopt existing worktree after source branch disappears: %+v, %v", again, err)
 	}
 }

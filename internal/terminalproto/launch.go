@@ -38,9 +38,9 @@ func ValidDir(dir string) bool { return validDir(dir) }
 // ValidPrompt accepts a non-empty opening prompt within MaxPromptBytes.
 func ValidPrompt(prompt string) bool { return validPrompt(prompt) }
 
-func validTools(tools []string) bool {
+func validTools(tools []string, v2 bool) bool {
 	for i, tool := range tools {
-		if !ValidTool(tool) || i > 0 && tools[i-1] >= tool {
+		if !(ValidTool(tool) || v2 && ValidToolV2(tool)) || i > 0 && tools[i-1] >= tool {
 			return false
 		}
 	}
@@ -87,16 +87,16 @@ func validPrompt(prompt string) bool {
 
 func (c Create) validLaunch() bool {
 	if c.Tool == "" {
-		return c.Model == "" && c.Dir == "" && c.Prompt == ""
+		return c.Model == "" && c.Dir == "" && c.Prompt == "" && c.Effort == "" && !c.Yolo
 	}
-	return ValidTool(c.Tool) && (c.Model == "" || validModel(c.Model)) && (c.Dir == "" || validDir(c.Dir)) && (c.Prompt == "" || validPrompt(c.Prompt))
+	return ValidToolV2(c.Tool) && (c.Effort == "" || c.Effort == "low" || c.Effort == "medium" || c.Effort == "high") && (c.Model == "" || validModel(c.Model)) && (c.Dir == "" || validDir(c.Dir)) && (c.Prompt == "" || validPrompt(c.Prompt))
 }
 
 // positionalPromptTools take the opening prompt as a positional operand after
 // "--". Their parsers can still treat a bare first operand as a subcommand name
 // (claude dispatches `purge`, `update`, `install` that way), so such a prompt
 // must contain whitespace, which no command name does.
-var positionalPromptTools = map[string]bool{"claude": true, "codex": true}
+var positionalPromptTools = map[string]bool{"claude": true, "codex": true, "cline": true}
 
 // PromptNeedsWords reports whether prompt is refused for tool because it is a
 // single word that the tool could read as a subcommand. The controller refuses

@@ -149,6 +149,7 @@ jobs:
             sleep 1
           done
           node web/tests/phone-zoom.e2e.mjs
+          node web/tests/shell-fidelity.e2e.mjs
           node web/tests/home.e2e.mjs
           node web/tests/projects.e2e.mjs
       # The Add project dialog's later fixes (stale edit, branch suggestions, filter while a folder opens). It serves the

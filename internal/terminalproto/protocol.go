@@ -118,6 +118,9 @@ const (
 // older controller's strict decoder would refuse the field.
 type Capabilities struct {
 	Launch          bool      `json:"launch,omitempty"`
+	Yolo            bool      `json:"yolo,omitempty"`
+	AgentsV2        bool      `json:"agentsV2,omitempty"`
+	OSVersion       string    `json:"osVersion,omitempty"`
 	Tools           []string  `json:"tools,omitempty"`
 	CommandHistory  bool      `json:"commandHistory,omitempty"`
 	Worktree        bool      `json:"worktree,omitempty"`
@@ -134,7 +137,18 @@ type Capabilities struct {
 }
 
 func (c Capabilities) Validate() error {
-	if c.Launch && !c.TerminalControl || len(c.Tools) > 0 && !c.Launch || !validTools(c.Tools) {
+	if c.AgentsV2 {
+		return c.ValidateFor(AgentsFeature)
+	}
+	return c.ValidateFor("")
+}
+
+// ValidateFor validates capabilities against the features negotiated by the peer.
+func (c Capabilities) ValidateFor(features string) error {
+	if (c.AgentsV2 || c.OSVersion != "") && !SupportsAgents(features) || !plainText(c.OSVersion, 128) {
+		return ErrInvalid
+	}
+	if c.Launch && !c.TerminalControl || len(c.Tools) > 0 && !c.Launch || !validTools(c.Tools, SupportsAgents(features)) || c.Yolo && (!c.Launch || !SupportsAgents(features)) {
 		return ErrInvalid
 	}
 	if c.CommandHistory && !c.TerminalControl || c.Worktree && !c.Launch {
@@ -193,8 +207,10 @@ type Hello struct {
 	Capabilities    Capabilities `json:"capabilities"`
 }
 
-func (Hello) kind() string  { return "hello" }
-func (h Hello) valid() bool { return ValidID(h.AgentInstanceID) && h.Capabilities.Validate() == nil }
+func (Hello) kind() string { return "hello" }
+func (h Hello) valid() bool {
+	return ValidID(h.AgentInstanceID) && h.Capabilities.Validate() == nil
+}
 
 type SessionSnapshot struct {
 	ID       string       `json:"id"`
@@ -246,12 +262,15 @@ type Create struct {
 	// It is the controller's own record: never encoded, so never sent to a
 	// machine nor stored with the create's parameters.
 	ProjectID string `json:"-"`
+	Base      string `json:"base,omitempty"`
+	Effort    string `json:"effort,omitempty"`
+	Yolo      bool   `json:"yolo,omitempty"`
 }
 
 func (Create) kind() string  { return "create" }
 func (c Create) valid() bool { return c.Validate() == nil }
 func (c Create) Validate() error {
-	if !ValidTitle(c.Title) || !ValidDimensions(c.Cols, c.Rows) || !c.validLaunch() || !c.validWorktree() {
+	if !ValidTitle(c.Title) || !ValidDimensions(c.Cols, c.Rows) || !c.validLaunch() || !c.validWorktree() || c.Base != "" && (c.Worktree == "" || !validRefName(c.Base)) {
 		return ErrInvalid
 	}
 	return nil
@@ -331,11 +350,13 @@ const (
 	Failed      ResultCode = "failed"
 	Conflict    ResultCode = "conflict"
 	// LaunchFailed means the requested agent could not be started.
-	LaunchFailed ResultCode = "launch_failed"
+	LaunchFailed            ResultCode = "launch_failed"
+	LaunchOptionUnsupported ResultCode = "launch_option_unsupported"
+	YoloRefused             ResultCode = "yolo_refused"
 )
 
 func (c ResultCode) Valid() bool {
-	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict || c == LaunchFailed || c == WorktreeChanged || c == WorktreeRefused
+	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict || c == LaunchFailed || c == LaunchOptionUnsupported || c == YoloRefused || c == WorktreeChanged || c == WorktreeRefused
 }
 
 type Result struct {

@@ -186,3 +186,15 @@ test('a refused create carries the status, the server sentence and its code', as
     assert.equal(e.code, undefined)
   })
 })
+test('agents-v2 create preserves selected options and omits false approvals', async () => {
+  await withFetch(() => new Response('{"id":"s"}', { status: 200 }), async requests => {
+    const launch = { tool:'claude', base:'main', effort:'high', worktree:'0123456789abcdef', project:'reet', yolo:false }
+    await createTerminal('a','r','T',100,30,undefined,launch)
+    await createTerminal('a','r2','T',100,30,undefined,{ ...launch, yolo:true })
+    const body = JSON.parse(requests[0].init.body)
+    assert.equal(body.base,'main'); assert.equal(body.effort,'high')
+    assert.equal(body.worktree,launch.worktree); assert.equal(body.project,'reet')
+    assert.equal('yolo' in body,false)
+    assert.equal(JSON.parse(requests[1].init.body).yolo,true)
+  })
+})

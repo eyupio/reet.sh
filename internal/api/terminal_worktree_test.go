@@ -464,7 +464,7 @@ func TestPrivateControlAdvertisesWorktreeBesideLaunch(t *testing.T) {
 	}
 	defer c.CloseNow()
 	features := response.Header.Get(terminalproto.FeatureHeader)
-	if features != "command-history-v1,launch-v1,worktree-v1,browse-v1,branches-v1" || !terminalproto.SupportsWorktree(features) {
+	if features != "command-history-v1,launch-v1,worktree-v1,browse-v1,branches-v1,"+terminalproto.AgentsFeature || !terminalproto.SupportsWorktree(features) {
 		t.Fatal("features", features)
 	}
 }

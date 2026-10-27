@@ -293,8 +293,8 @@ type TerminalSession struct {
 	WorktreeRepo   string `json:"worktreeRepo,omitempty"`
 	WorktreeBranch string `json:"worktreeBranch,omitempty"`
 	// Launch metadata for the listing. The opening prompt is deliberately
-	// absent: it is kept only with the create request. Effort and Yolo have
-	// no source yet and are always "" and false, so the shape is stable.
+	// absent: it is kept only with the create request. Effort is the requested
+	// launch level; Yolo stays false while approval bypass is deferred.
 	// ProjectID is null for a session started outside a folder project.
 	Tool      string  `json:"tool"`
 	Model     string  `json:"model"`
@@ -435,11 +435,11 @@ func (s *Store) ReserveTerminalCreateFor(uid int64, agentID, requestID string, g
 		if accountCount >= terminalproto.MaxSessionsPerAccount || agentCount >= terminalproto.MaxSessionsPerAgent {
 			return ErrTerminalCapacity
 		}
-		t = TerminalSession{ID: syncID(), AgentID: agentID, Title: in.Title, State: terminalproto.Creating, CreatedAt: now(), UpdatedAt: now(), Tool: in.Tool, Model: in.Model}
+		t = TerminalSession{ID: syncID(), AgentID: agentID, Title: in.Title, State: terminalproto.Creating, CreatedAt: now(), UpdatedAt: now(), Tool: in.Tool, Model: in.Model, Effort: in.Effort, Yolo: in.Yolo}
 		if project.Valid {
 			t.ProjectID = &project.String
 		}
-		if _, err := tx.Exec(`INSERT INTO terminal_sessions(id,user_id,agent_id,title,state,created_at,updated_at,tool,model,project_id) VALUES(?,?,?,?,?,?,?,?,?,?)`, t.ID, uid, agentID, t.Title, t.State, t.CreatedAt, t.UpdatedAt, t.Tool, t.Model, project); err != nil {
+		if _, err := tx.Exec(`INSERT INTO terminal_sessions(id,user_id,agent_id,title,state,created_at,updated_at,tool,model,effort,yolo,project_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, t.ID, uid, agentID, t.Title, t.State, t.CreatedAt, t.UpdatedAt, t.Tool, t.Model, t.Effort, t.Yolo, project); err != nil {
 			return err
 		}
 		_, err = tx.Exec(`INSERT INTO terminal_operations(request_id,user_id,agent_id,session_id,kind,state,parameters,created_at,updated_at) VALUES(?,?,?,?,'create','pending',?,?,?)`, requestID, uid, agentID, t.ID, string(parameters), t.CreatedAt, t.UpdatedAt)

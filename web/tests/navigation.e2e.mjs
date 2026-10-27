@@ -113,9 +113,9 @@ try {
    await expect(more).toBeHidden()
    await expect(bar.getByRole('button',{name:'More'})).toBeFocused()
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
-   // The last thing on the page can be scrolled clear of the bar.
+   // The last thing on the page (the footer, or the main area on Home, which has none) can be scrolled clear of the bar.
    await page.evaluate(()=>scrollTo(0,document.documentElement.scrollHeight))
-   const footer = await page.locator('footer').last().evaluate(el=>el.getBoundingClientRect().bottom)
+   const footer = await page.locator('footer, main').last().evaluate(el=>el.getBoundingClientRect().bottom)
    expect(footer).toBeLessThanOrEqual(812-64+1)
    expect(errors).toEqual([])
    await context.close()

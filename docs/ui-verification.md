@@ -959,9 +959,12 @@ in reet and one in zoomies-platform, each in a worktree. Boxes from `getBounding
 Add, **Open the project rail** and one 44 px wide button per project named in full ("reet, Elitebook, main, 3 running,
 3 worktrees in use"). In place, each shows its initial, its base branch (10 px mono, cut at 40 px), an 8 px repository
 diamond, a 7 px running dot and the worktrees in use as a 15 px count on its corner. Open the project rail carries a
-dot when a migration note or saved folders are waiting (named in words) and opens the full rail as a 301 px panel over
-the page, where every card menu, note Dismiss and the saved-folders prompt are; Escape gives focus back. Fix round 1
-of B6; `home.e2e.mjs` "collapsed strip reaches every rail action by keyboard" at 1239 and 1100 px.
+dot when a migration note or folders are waiting (named in words) and opens the full rail as a 301 px panel over
+the page, where every card menu, note Dismiss and the waiting-folders prompt are. The panel is managed: it starts where
+the strip is on screen (so a scrolled page leaves no gap above it), Tab and Shift+Tab stay inside it, the toggle is
+named "Close the project rail" while it is open, and Escape, its Close button or the toggle gives focus back to the
+toggle. The chosen project's strip button carries `aria-current`. Fix round 1 and the final fix round of B6;
+`home.e2e.mjs` "collapsed strip reaches every rail action by keyboard" at 1239 and 1100 px.
 
 **834 × 1112 (tablet) and 390 × 844 (phone): the rail sits under In flight**, as the plan's B6 tweak says, until the
 Sessions tab takes it (PR H). It keeps the desktop cards at full width (786 and 358 px), 62 px tall, with "Projects"

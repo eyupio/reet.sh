@@ -18,6 +18,8 @@
 
   let runs = $state<ProjectRun[] | undefined>()
   let runsFailed = $state(false)
+  // How many saved Projects the account has: null until read (or when the read failed).
+  let savedCount = $state<number | null>(null)
   // Saved Projects whose runs could not be read: the others are still listed.
   let unread = $state<string[]>([])
   let machines = $state<TerminalMachine[] | undefined>()
@@ -51,6 +53,7 @@
     if (life.signal.aborted) return
     if ([list, m, s].some(r => r.status === 'rejected' && signedOut(r.reason))) { onsignedout?.(new UnauthorizedError()); return }
     if (list.status === 'fulfilled') {
+      savedCount = list.value.length
       const read = await Promise.allSettled(list.value.map(p => projectRuns(p.id, life.signal)))
       if (life.signal.aborted) return
       if (read.some(r => r.status === 'rejected' && signedOut(r.reason))) { onsignedout?.(new UnauthorizedError()); return }
@@ -79,7 +82,8 @@
   {/if}
 </section>
 
-{#if writer}
+<!-- Only an account that had saved Projects sees their runs; nothing is said about a retired feature otherwise. -->
+{#if writer && (savedCount === null || savedCount > 0)}
   <section class="block runs" aria-labelledby="runs-title">
     <h2 id="runs-title">Runs from Projects</h2>
     <p class="muted">Runs of your saved Projects, kept to read: the newest 20 runs of each saved Project. Their worktrees can still be checked and removed here.</p>

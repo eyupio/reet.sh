@@ -353,8 +353,8 @@ one token for a whole run: two members on one machine whose folders are the same
 repository then still get separate worktrees and branches. The Projects run takes
 the repository name for status and remove from the create reply's `worktreeRepo`,
 never recomputing it from the saved folder. Members with the same machine and the
-same folder are refused as a duplicate repository when the Project is saved and
-started; two different saved folders that resolve to one repository on the machine
+same folder were refused as a duplicate repository when the Project was saved
+(saved Projects can no longer be changed) and are refused when a run starts; two different saved folders that resolve to one repository on the machine
 are not caught by the controller.
 
 ## The run orchestration
@@ -387,8 +387,8 @@ Projects PR 2 adds the controller code that starts a run (`internal/projectrun`)
   say `sharesCheckout`, because any other run or session there shares that checkout.
 - A member's machine is its enrollment (agent id). Merging or revoking a machine
   does not rewrite saved Projects or runs: members of the old enrollment then fail
-  `unknown_machine` (nothing is sent), and the Project has to be edited to name the
-  remaining machine.
+  `unknown_machine` (nothing is sent). A saved Project can no longer be edited (410
+  `projects_moved`); its folder project is moved to the remaining machine instead.
 - The controller is single-process: claims and per-machine slots are in memory.
 
 ## Audit

@@ -1,0 +1,16 @@
+name: Install tmux when the runner lacks it
+description: >-
+  Installs tmux with apt when it is not already on PATH (the Zoomies runner image has none). As root (a container
+  runner) apt-get runs directly; otherwise through sudo, which must then be present. Fails with a clear message when
+  neither is possible.
+runs:
+  using: composite
+  steps:
+    - name: Install tmux when the runner lacks it
+      shell: bash
+      run: |
+        if command -v tmux >/dev/null; then tmux -V; exit 0; fi
+        if [ "$(id -u)" = 0 ]; then as_root=""; elif command -v sudo >/dev/null; then as_root="sudo"; else
+          echo "::error::tmux is missing and this runner is neither root nor has sudo to install it."; exit 1; fi
+        $as_root apt-get update && $as_root apt-get install -y tmux
+        tmux -V

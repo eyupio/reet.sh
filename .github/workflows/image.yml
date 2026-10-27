@@ -19,8 +19,8 @@ jobs:
     runs-on: zoomies-linux-x64
     steps:
       - uses: actions/checkout@v4
-      - name: Install tmux when the runner image lacks it
-        run: command -v tmux >/dev/null || (sudo apt-get update && sudo apt-get install -y tmux)
+      # The Go tests start tmux (internal/terminalhost); one shared, root-aware install for every Go test job.
+      - uses: ./.github/actions/install-tmux
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod

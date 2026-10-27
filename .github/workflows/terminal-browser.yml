@@ -33,7 +33,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: sudo apt-get update && sudo apt-get install -y tmux
+      - uses: ./.github/actions/install-tmux
       - run: npm ci && npm run check && npm run build
         working-directory: web
       - name: Prepare Chromium
@@ -46,7 +46,12 @@ jobs:
           else
             npx playwright install --with-deps chromium
             # The tests default to /usr/bin/chromium; point them at the browser Playwright just installed.
-            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$(node -e "console.log(require('@playwright/test').chromium.executablePath())")" >> "$GITHUB_ENV"
+            chromium_path="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")" || chromium_path=""
+            if [ -z "$chromium_path" ] || [ ! -x "$chromium_path" ]; then
+              echo "::error::Playwright installed Chromium but gave no usable executable path ('$chromium_path'); the browser tests can't start."
+              exit 1
+            fi
+            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$chromium_path" >> "$GITHUB_ENV"
           fi
       - name: Exercise dashboard and terminal workspace UI
         env:
@@ -117,7 +122,12 @@ jobs:
           else
             npx playwright install --with-deps chromium
             # The tests default to /usr/bin/chromium; point them at the browser Playwright just installed.
-            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$(node -e "console.log(require('@playwright/test').chromium.executablePath())")" >> "$GITHUB_ENV"
+            chromium_path="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")" || chromium_path=""
+            if [ -z "$chromium_path" ] || [ ! -x "$chromium_path" ]; then
+              echo "::error::Playwright installed Chromium but gave no usable executable path ('$chromium_path'); the browser tests can't start."
+              exit 1
+            fi
+            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$chromium_path" >> "$GITHUB_ENV"
           fi
       - name: Long names never zoom a phone out, and Home across screens and themes
         env:
@@ -162,7 +172,12 @@ jobs:
           else
             npx playwright install --with-deps chromium
             # The tests default to /usr/bin/chromium; point them at the browser Playwright just installed.
-            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$(node -e "console.log(require('@playwright/test').chromium.executablePath())")" >> "$GITHUB_ENV"
+            chromium_path="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")" || chromium_path=""
+            if [ -z "$chromium_path" ] || [ ! -x "$chromium_path" ]; then
+              echo "::error::Playwright installed Chromium but gave no usable executable path ('$chromium_path'); the browser tests can't start."
+              exit 1
+            fi
+            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$chromium_path" >> "$GITHUB_ENV"
           fi
       - name: Dialogs hold the page still and keep the field in view on phones
         env:

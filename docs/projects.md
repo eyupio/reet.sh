@@ -1,8 +1,8 @@
 # Projects
 
-A **project** is one folder on one machine, kept in the project rail on Home. Choosing a card starts
-an agent in that folder on its machine (the launch bar takes this over in a later release), and the
-session is listed under the project in In flight. A project can carry an optional **starter prompt**,
+A **project** is one folder on one machine, kept in the project rail on Home. Choosing a card opens
+Start an agent on its machine with that folder filled in (the launch bar takes this over in a later
+release); a session started there is listed under the project in In flight. A project can carry an optional **starter prompt**,
 a default agent and model, a default base branch and whether each session gets its own worktree.
 There is no separate Projects page: `/projects` and `/projects/<id>` go to Home.
 
@@ -55,10 +55,12 @@ starter prompt as at least two words.").
 
 Desktop: the left column, 301 px (272 px cards inside 14 px padding and a 1 px rule). From 1100 to
 1239 px wide it is a 56 px strip: **Add**, **Open the project rail** (marked with a dot, and named, when a
-migration note or saved folders are waiting), then one button per project showing its initial, its base
+migration note or folders are waiting), then one button per project showing its initial, its base
 branch in mono (cut short), the repository diamond, a running dot and the worktrees in use as a small count,
-each named in full. Open the project rail shows the full rail over the page as a 301 px panel, with every
-card menu, note and prompt; Escape or a press outside closes it and gives focus back. On a tablet or phone
+each named in full (the chosen one is marked current). Open the project rail shows the full rail over the
+page as a 301 px panel starting where the strip is on screen, with every card menu, note and prompt and a
+Close button; while it is open the toggle is named "Close the project rail", Tab stays inside the panel,
+and Escape, Close, the toggle or a press outside closes it and gives focus back to the toggle. On a tablet or phone
 it sits under In flight; the Sessions tab takes it in a later release.
 
 Each card shows, in words: a repository diamond (or a folder icon for a plain folder), the name, the
@@ -125,20 +127,34 @@ not enrolled"). A terminal create may carry `projectId`; the controller checks i
 account and to that machine (404 `project_not_found`, 422 `project_machine_mismatch`) and never
 sends it to the machine.
 
+## Session and profile fields
+
+The session listing (`GET /api/v2/terminal/sessions`) now carries, for every session, `tool`, `model`,
+`effort` (always `""` for now), `yolo` (always `false` for now) and `projectId` (the folder project it
+was started in, `null` otherwise), and never the prompt. The profile (`GET`/`PATCH /api/v2/profile`)
+gains `defaultBaseBranch` (blank, the repository's own default, or a valid branch name) and
+`worktreesByDefault` (true unless changed): the account default a project's `inherit` means. No page
+sets either yet; until the launch bar they are set only through the profile API.
+
 ## Starter prompts
 
 A starter prompt lives in the project record only: never in the audit, logs, browser storage or an
-address. The list never carries it. The launch bar (a later release) offers it as **Use the starter
-prompt**; reet never sends it by itself. Until then a start from the rail does not use it.
+address. The list never carries it. Nothing uses it yet: a start from the rail does not send it, and
+the Add and Edit dialog says so. The launch bar (a later release) is to offer it as **Use the starter
+prompt**; reet never sends it by itself.
 
 ## Moving saved Projects
 
 Saved multi-repository Projects became folder projects when the controller first started with this
-release, once, inside one transaction per account, and idempotently:
+release, once and idempotently: one transaction per controller start, with a savepoint per account so
+one account's failure is rolled back alone and tried again at the next start (the rail's import below
+is its own transaction):
 
 - Every distinct machine and cleaned folder across an account's saved Projects became one folder
   project, oldest Project first. The name is the folder's (a Project with one repository lends its own
-  name when it is free); the member's agent and model, else the Project's defaults; `useWorktrees`
+  name when it is free); the member's own agent and model, else the Project's defaults (a member that
+names its own agent but no model gets that agent's own default, an empty model, not the Project's
+default model); `useWorktrees`
   became `yes` or `no`; the shared prompt became the starter prompt.
 - A folder the person had already registered was left as it was. Where one folder belonged to several
   Projects with different prompts, the oldest Project's prompt was kept and the card shows a one-time
@@ -147,8 +163,9 @@ release, once, inside one transaction per account, and idempotently:
   the person dismisses it, and once cleared on the server it never comes back.
 - Each Project wrote one `projects-migrated` event naming the folder projects made, never the prompt.
 - An account with the most projects reet keeps was left with the rest waiting. The rail then says
-  "N saved folders from your old Projects are waiting for room." with **Add your remaining saved
-  Projects (N)**; nothing comes in by itself, not even after a remove. N counts folders (machine and
+  "N folders from your saved Projects aren't in the rail yet." with **Add the waiting folders (N)**;
+  nothing comes in by itself, not even after a remove. (The wording holds whether or not there is room
+  now: see the downgrade limit below.) N counts folders (machine and
   cleaned folder), not Project members: several Projects naming one folder count once, and a folder
   that is already a project, or one reet can't use, is not counted. The answer is shown as sent:
   "Added N saved repositories as projects.", "N saved repositories are waiting for room. Remove a
@@ -159,7 +176,11 @@ release, once, inside one transaction per account, and idempotently:
   Home."
 - `/projects` and `/projects/<id>` are client-side redirects to `/`, and `/projects/<id>` to
   `/?project=<folder project id>` when one was made from it. Home then says "Projects now live in the
-  rail on Home." once, for that page load; nothing is stored to say it again.
+  rail on Home." once, for that page load (put into the status line after the page is drawn, so it is
+  announced); nothing is stored to say it again. Viewers and other sign-ins without a rail are told
+  "Projects are on Home for accounts that can start sessions." instead. On a tablet or phone, where the
+  rail is below In flight, the chosen card is scrolled into view and named ("Showing reet in Projects
+  below.").
 
 ## Runs from Projects
 
@@ -203,8 +224,9 @@ Starting a run:
 | 422 `request_id_required` | no request id, or not 16 to 128 letters, digits, hyphens or underscores |
 | 422 `no_members` / `unknown_position` | no positions, or one that isn't in the Project or is named twice. Without `If-Match`, or with the current version, a replay whose positions have since been removed from the Project also gets `unknown_position` |
 
-No page sends a start or a retry any more: the routes stay for one release so an old tab explains
-itself, and are removed with the old tables.
+No page of this release sends a start or a retry. The routes stay for one release, so a browser tab
+opened before the upgrade can still start and retry its saved Projects' runs; those sessions carry no
+project id and are not listed under a folder project. The routes go with the old tables.
 
 Retrying a member:
 
@@ -302,7 +324,7 @@ starts it.
 | --- | --- |
 | Every browser request | given up after 15 seconds |
 | Run view | read every 2 seconds while a member is pending and the tab is visible |
-| Machines and sessions on the Project page | read again every 15 seconds while the tab is visible |
+| Machines and sessions (the retired Project page) | read again every 15 seconds while the tab was visible |
 | A machine that isn't ready when its member's turn comes | 30 seconds, or 2 minutes after a controller restart, without holding a slot; then `machine_unavailable` |
 | A worktree create, status or remove through the controller | up to 180 seconds |
 | On the machine | 60 seconds for a worktree create (plus 30 for cleanup) or a status; a remove takes at most 60 seconds in all (30 for its checks, 30 for `git worktree remove`) |
@@ -329,16 +351,18 @@ sends it only when it changed; a save reply leaves it out.
 ### Shared checkouts
 
 A Project with worktrees switched off starts each agent in the saved folder itself. Any other run or
-session in that folder shares the same checkout and files. The sheet, the run view (each member's
-`sharesCheckout`) and the Project page say so.
+session in that folder shares the same checkout and files. The run view says so for each member
+(`sharesCheckout`).
 
 ### Machines that are merged or revoked
 
 A member names its machine by enrollment id. Merging or revoking a machine rewrites no saved Project
 or run. Members of the old enrollment are listed as "A machine no longer on this account", are
 unticked on the sheet with **Add a machine**, and if started fail `unknown_machine` with nothing sent.
-Change the Project to name the remaining machine. A repository already saved on a revoked machine
-can be kept unchanged in an edit; a new folder on it is refused (422 `unknown_machine`).
+A saved Project can no longer be changed (410 `projects_moved`); its folder project is changed instead:
+Edit, then choose the remaining machine (PATCH `host`). A folder project already on a revoked machine
+can be kept unchanged in an edit; moving it to a new folder on that machine is refused (422
+`unknown_machine`).
 
 ### Check and remove a run's worktree
 
@@ -397,8 +421,18 @@ projects" and "Browsed folders from ~ (3 pages)". The old runs' `project-run`, `
 - **Old runs listed: the newest 20 per saved Project** (what the run list answers); older runs and their
   worktrees are not listed.
 - **Rail menu reorder only.** Moving is one place at a time from the menu; there is no drag.
-- **Waiting needs the person.** Saved folders left waiting for room come in only from the rail's
-  prompt.
+- **Waiting needs the person.** Saved folders left waiting come in only from the rail's prompt.
+- **Downgrade, then upgrade again.** `reet upgrade --version` can go back to a release without folder
+  projects. Saved Projects created or changed while downgraded are not migrated at the next upgrade
+  (the migration has already run); their new folders show as waiting in the rail, even when there is
+  room, and come in with **Add the waiting folders**. Changes to folders already moved are not carried
+  over.
+- **A session's project is checked for account and machine, not folder.** A start may name any of the
+  account's projects on that machine, whatever folder it starts in; the rail then counts that session
+  under the project. Choosing a card only sends the id while the folder is still the project's. (The
+  launch bar may check the folder too.)
+- **No running state without sessions.** When the session list could not be read, cards say nothing
+  about running, idle or worktrees in use ("machine offline" still shows from the health report).
 
 - **One controller process.** Member claims and per-machine slots are held in memory. Two
   controllers on one database could start a member twice.
@@ -409,9 +443,9 @@ projects" and "Browsed folders from ~ (3 pages)". The old runs' `project-run`, `
   are not caught; they get separate worktrees and branches.
 - **A lost create reply.** If a worktree create's reply never arrives, the session is found by
   reconciling, which doesn't carry the worktree's folder or repository name. The run then can't name
-  that worktree, so *Remove worktree* isn't offered for it; remove it on the machine by hand. Deleting
-  the Project doesn't mention such a worktree either, nor one whose create was answered
-  `worktree_mismatch`: Delete's warning covers only worktrees a run recorded.
+  that worktree, so *Remove worktree* isn't offered for it; remove it on the machine by hand. The same
+  holds for one whose create was answered `worktree_mismatch`: only worktrees a run recorded are
+  listed.
 - **An agent still running in the worktree** is not checked by the machine; the page offers removal
   only after the session has ended, from the sessions it read.
 - **A slow remove** can outlast the browser's 15 seconds; Check again reports the outcome.

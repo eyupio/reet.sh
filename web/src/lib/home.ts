@@ -235,12 +235,14 @@ export function projectWorktrees(sessions: TerminalSession[]): Map<string, numbe
 
 /**
  * The rail's state words for a project: its live sessions, else "machine offline" when its machine is known not to be
- * reporting, else "idle". (The spec's "waiting" needs the attention signal, which a later release brings.)
+ * reporting, else "idle"; nothing when the sessions were not read. (The spec's "waiting" needs the attention signal, which
+ * a later release brings.)
  */
-export function railState(running: number, reporting: boolean | undefined): { text: string; tone: Tone } {
-  if (running > 0) return { text: `${running} running`, tone: 'good' }
+export function railState(running: number | null, reporting: boolean | undefined): { text: string; tone: Tone } | null {
+  if (running !== null && running > 0) return { text: `${running} running`, tone: 'good' }
   if (reporting === false) return { text: 'machine offline', tone: 'warn' }
-  return { text: 'idle', tone: 'muted' }
+  // `running` is null when the sessions were not read: nothing is known, so nothing is said (never a false "idle").
+  return running === null ? null : { text: 'idle', tone: 'muted' }
 }
 
 /** Age since the last state change, short: "now", "12m", "3h", "2d". */

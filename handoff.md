@@ -15,10 +15,10 @@ the first pass, and the structured-chat spike runs in parallel with the Home wor
 | --- | --- | --- |
 | D | App shell (top and bottom tabs, bell, jump search, More sheet) and Home | merged, [#218](https://github.com/eyupio/reet.sh/pull/218) |
 | A | Machine folder browse and branches (`agents`, `browse-v1`, `branches-v1`), start-agent navigates to the session, dockable and resizable sessions panel | merged, [#219](https://github.com/eyupio/reet.sh/pull/219); contract in [docs/folder-browse.md](docs/folder-browse.md) |
-| B | Folder projects: store and API (`/api/v2/folder-projects`, reorder, `import-saved`, `?legacy=`), saved Projects moved over (old create/edit/delete answer 410 `projects_moved`), the Add project dialog with the folder browser, and the rail on Home (card menu, Worktrees, the one-time migration note, the "remaining saved Projects" prompt); `/projects` and `/projects/<id>` redirect to Home, old runs are read-only in Activity (*Runs from Projects*); read [docs/projects.md](docs/projects.md) | [#221](https://github.com/eyupio/reet.sh/pull/221): B1–B6 done; ready for the broad review and merge. No release tag until PR E merges (R22) |
+| B | Folder projects: store and API (`/api/v2/folder-projects`, reorder, `import-saved`, `?legacy=`), saved Projects moved over (old create/edit/delete answer 410 `projects_moved`), the Add project dialog with the folder browser, and the rail on Home (card menu, Worktrees, the one-time migration note, the "waiting folders" prompt; a 1100–1239 px strip with a managed panel); `/projects` and `/projects/<id>` redirect to Home, old runs are read-only in Activity (*Runs from Projects*); read [docs/projects.md](docs/projects.md) | [#221](https://github.com/eyupio/reet.sh/pull/221): B1–B6 done, broad reviews (web, cross-cutting, Go) addressed in a final fix round; ready to merge. No release tag until PR E merges (R22) |
 | P | Home fidelity polish: tokens, spacing, top and tab bars go into C; fleet strip, In flight, Needs you and the dock go into E | folded into C and E, no PR of its own |
 | C | Agent catalogue and launch fields (tool on the session listing, `osVersion`) | not started |
-| E | Launch bar, start in several projects, retire the old Projects page | not started |
+| E | Launch bar, start in several projects (PR B already retired the old Projects page; the old Start-all routes and tables go at the later release step). Notes for E: take folder-project versions from the reorder reply (every moved project's version changes); check `dir` (or the worktree's source) for a session's `projectId`, which PR B checks for account and machine only; apply the project's defaults and starter prompt (Use the starter prompt) | not started |
 | F | YOLO (off by default, per session, audited, machines can refuse) | **deferred past the first pass**; the design decisions stand |
 | G | Attention and Needs you | **deferred past the first pass**; Needs you stays an honest empty state until then |
 | H | Session screen, tablet and phone | not started |
@@ -33,7 +33,10 @@ git calls share the lazy-fetch and fsmonitor hazard the folder browser already g
 (live sessions only: no record says which worktrees were removed), choosing a rail card opens Start an agent
 until the launch bar (E) applies the project's defaults and starter prompt, and the old Projects tables and
 their start/retry routes stay one release before they are dropped (ruling: no page calls them; the web client for them
-and the run Retry are already removed); the MCP test
+and the run Retry are already removed); a downgrade then re-upgrade leaves Projects saved while downgraded as "waiting
+folders" in the rail (not migrated automatically); a session's `projectId` is checked for account and machine, not
+folder (see the E row); the import's answer still says "saved repositories" (a Go sentence) where the rail says
+"folders"; the MCP test
 `mcp/test/oauth.test.mjs` needs the fixture precompiled in CI (done in `image.yml`).
 **Rule for this stack: every PR updates this block (state column and any new limits) before it merges.**
 

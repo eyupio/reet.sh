@@ -249,7 +249,7 @@ Start a new shell with the + beside a machine in Control or Terminals. Right-cli
 
 To start an AI agent instead of a shell, use **New agent session** in Terminals or **Start an agent** on a machine's card (disabled, with the reason, while the machine isn't ready): choose the agent, an optional model, a folder inside the machine's home and an optional opening prompt, and you land in the new session; the machine decides how the agent is started. [What it does and what it does not establish](docs/start-agent-session.md).
 
-Keep the folders you work in as **projects** in the rail on Home: one folder on one machine each, picked by browsing the machine's folders live. Choosing one starts an agent there; saved multi-repository Projects were moved into the rail, and their old runs stay readable in Activity, where their worktrees can still be checked and removed; reet never removes a worktree by itself. [How projects work and their limits](docs/projects.md).
+Keep the folders you work in as **projects** in the rail on Home: one folder on one machine each, picked by browsing the machine's folders live. Choosing one opens Start an agent with that folder filled in; saved multi-repository Projects were moved into the rail, and their old runs stay readable in Activity, where their worktrees can still be checked and removed; reet never removes a worktree by itself. [How projects work and their limits](docs/projects.md).
 
 Machine terminals retain the OS account’s usual sudo permissions and authentication. See [sudo setup and migration](docs/terminal-controller-commands.md#sudo-in-a-machine-terminal) for older restricted Linux service units.
 

@@ -117,18 +117,20 @@ try {
   await page.getByRole('button', {name:'Add a project', exact:true}).click()
   const d = dialog(page)
   const filter = d.getByRole('textbox', {name:'Filter folders'})
-  // Each way round: the folder answers before the filter's pause (300 ms) ends, and after it. A filter request queues
-  // behind the folder's (one browse at a time), so the second case waits out the pause itself.
+  // Each way round: the folder answers before the filter's pause (300 ms) ends, and after it. The page's clock is driven
+  // by hand, so the pause ends exactly when the test says.
+  await page.clock.install()
   for (const late of [false, true]) {
    await expect(row(page, 'reet, git repository')).toBeVisible()
    let release
    gates['/api/v2/machines/a1/browse'] = new Promise(r => { release = r })
    await row(page, 'reet, git repository').click()
    await filter.fill('do')
-   if (late) await page.waitForTimeout(600)
+   if (late) await page.clock.runFor(400)
    delete gates['/api/v2/machines/a1/browse']
    release()
    await expect.poll(() => crumbText(page), `late ${late}`).toBe('~ / reet')
+   if (!late) await page.clock.runFor(400)
    await expect.poll(() => box.browses.at(-1).searchParams.get('filter'), `late ${late}`).toBe('do')
    expect(box.browses.at(-1).searchParams.get('path')).toBe(`${HOME}/reet`)
    await expect(folders(page).getByRole('listitem')).toHaveCount(1)
@@ -143,7 +145,55 @@ try {
   await context.close()
  }
 
- console.log('Add project, later fixes: a stale edit loads the latest version and keeps my changes to use again, retyping a folder keeps its branch suggestions, a failed branch read is tried again, and a filter typed while a folder opens keeps that folder.')
+ // A folder typed and saved at once: the save waits for the folder check, so a repository is stored as one.
+ if (run('a typed folder is checked before it is saved')) {
+  const gates = {}
+  const {context,page,errors,box} = await open({gates})
+  await page.getByRole('button', {name:'Add a project', exact:true}).click()
+  const d = dialog(page)
+  await d.getByRole('button', {name:'Hide browser'}).click()
+  let release, asked = 0
+  page.on('request', r => { const u = new URL(r.url()); if (u.pathname === '/api/v2/machines/a1/browse' && u.searchParams.get('path') === `${HOME}/blog`) asked++ })
+  gates['/api/v2/machines/a1/browse'] = new Promise(r => { release = r })
+  await folderField(page).fill(`${HOME}/blog`)
+  await d.getByRole('button', {name:'Add project'}).click()
+  await expect.poll(() => asked).toBe(1)
+  expect(box.writes).toEqual([])
+  delete gates['/api/v2/machines/a1/browse']
+  release()
+  await expect.poll(() => box.writes.length).toBe(1)
+  expect(box.writes[0].body).toEqual({host:'a1', dir:`${HOME}/blog`, isRepo:true, worktreeDefault:'inherit'})
+  expect(asked).toBe(1)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // An edit that moves a repository project to a folder nobody could check (an offline machine) says it is not known to be
+ // a repository, and drops the old base branch the person did not set again.
+ if (run('an edit to another folder drops the repository flag and base branch')) {
+  const patches = []
+  const routes = {'/api/v2/folder-projects/fp1': request => {
+   if (request.method() === 'GET') return saved({baseBranch:'main', starterPrompt:''})
+   patches.push(request.postDataJSON())
+   return saved({version:4, host:'a2', machine:'desk', dir:`${HOME}/notes`, isRepo:false, baseBranch:''})
+  }}
+  const {context,page,errors} = await open({query:'?edit=fp1', routes})
+  await page.getByRole('button', {name:'Edit', exact:true}).click()
+  const d = dialog(page)
+  // The starter prompt's hint says what is true today: nothing starts with it yet.
+  await d.locator('summary', {hasText:'Starter prompt'}).click()
+  await expect(d.locator('.hint', {hasText:'bytes.'})).toContainText("starting from the rail doesn't use it yet")
+  await expect(d.locator('.hint', {hasText:'bytes.'})).not.toContainText('launch bar')
+  await d.getByRole('combobox', {name:'Machine'}).selectOption('a2')
+  await folderField(page).fill(`${HOME}/notes`)
+  await d.getByRole('button', {name:'Save changes'}).click()
+  await expect.poll(() => patches.length).toBe(1)
+  expect(patches[0]).toEqual({host:'a2', dir:`${HOME}/notes`, isRepo:false, baseBranch:''})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ console.log('Add project, later fixes: a typed folder is checked before it is saved, an edit to another folder drops the repository flag and base branch, a stale edit loads the latest version and keeps my changes to use again, retyping a folder keeps its branch suggestions, a failed branch read is tried again, and a filter typed while a folder opens keeps that folder.')
 } finally {
  await browser.close()
  await harness.close()

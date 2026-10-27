@@ -267,6 +267,12 @@ test('rail state in words: running, machine offline or idle', () => {
   assert.deepEqual(h.railState(0, undefined), { text: 'idle', tone: 'muted' }, 'an unknown machine is not called offline')
 })
 
+test('rail state says nothing about running or idle when the sessions were not read', () => {
+  assert.equal(h.railState(null, true), null, 'no false "idle" without a sessions read')
+  assert.equal(h.railState(null, undefined), null)
+  assert.deepEqual(h.railState(null, false), { text: 'machine offline', tone: 'warn' }, 'the machine word comes from health, not sessions')
+})
+
 test('short age', () => {
   assert.deepEqual([0, 59_000, 12 * MIN, 3 * HOUR, 49 * HOUR].map(h.shortAge), ['now', 'now', '12m', '3h', '2d'])
 })

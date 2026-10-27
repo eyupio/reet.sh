@@ -8,7 +8,7 @@
   // agent in that folder (the launch bar takes this over in a later release). Each card's menu: New session here, Edit,
   // Worktrees, Move up, Move down and Remove from reet. Under 1240 px on a desktop the rail is a 56 px strip of the same
   // cards; on a tablet or phone it sits under In flight (the Sessions tab takes it in a later release).
-  let { projects, failed = false, reporting, running, worktrees, savedWaiting = 0, chosen = '', busy, importing = false, pending, moving = false,
+  let { projects, failed = false, reporting, running, known = true, worktrees, savedWaiting = 0, chosen = '', busy, importing = false, pending, moving = false,
     onadd, onchoose, onedit, onworktrees, onremove, onmove, ondismiss, onimport }: {
     projects: FolderProject[] | undefined
     /** The projects could not be read and none were read before. */
@@ -16,6 +16,8 @@
     /** Whether each machine (by enrollment id) is reporting now; a machine not in it is not called offline. */
     reporting: Map<string, boolean>
     running: Map<string, number>
+    /** False while the sessions have not been read: no card then says how many run, "idle" or worktrees in use. */
+    known?: boolean
     worktrees: Map<string, number>
     /** Saved Project folders still waiting for room (offer to bring them in). */
     savedWaiting?: number
@@ -39,34 +41,53 @@
 
   const id = $props.id()
   const machineTag = (p: FolderProject) => p.machine || 'machine not enrolled'
-  const stateOf = (p: FolderProject) => railState(running.get(p.id) ?? 0, reporting.get(p.host))
+  const stateOf = (p: FolderProject) => railState(known ? running.get(p.id) ?? 0 : null, reporting.get(p.host))
   /** Everything the card shows, in words: name, machine, branch, state and worktrees in use. */
   function label(p: FolderProject): string {
     const wt = worktrees.get(p.id) ?? 0
-    return [p.name, machineTag(p), p.baseBranch, stateOf(p).text, wt ? worktreesInUse(wt) : ''].filter(Boolean).join(', ')
+    return [p.name, machineTag(p), p.baseBranch, stateOf(p)?.text, wt ? worktreesInUse(wt) : ''].filter(Boolean).join(', ')
   }
   const initial = (name: string) => Array.from(name.trim())[0]?.toUpperCase() ?? '?'
-  const folders = (n: number) => `${n} saved ${n === 1 ? 'folder' : 'folders'}`
+  const folders = (n: number) => `${n} ${n === 1 ? 'folder' : 'folders'}`
 
   // From 1100 to 1239 px the rail is a 56 px strip. Open the project rail shows the full rail over the page as a panel, so
-  // every action (card menus, the migration notes, the saved folders waiting) stays reachable; the button is marked when
-  // a note or saved folders are waiting. Escape, or a press outside, closes it and gives focus back.
-  let panelOpen = $state(false)
-  let opener = $state<HTMLButtonElement>(), full = $state<HTMLDivElement>()
+  // every action (card menus, the migration notes, the waiting folders) stays reachable; the button is marked when a note
+  // or folders are waiting. While it is open, Tab stays inside it; Escape, its Close button, the toggle or a press outside
+  // closes it, and focus goes back to the toggle. It starts where the strip starts on screen, so a scrolled page shows no
+  // gap above it.
+  let panelOpen = $state(false), panelTop = $state(0)
+  let opener = $state<HTMLButtonElement>(), full = $state<HTMLDivElement>(), aside = $state<HTMLElement>()
+  const place = () => { if (aside) panelTop = Math.max(0, aside.getBoundingClientRect().top) }
+  $effect(() => {
+    if (!panelOpen) return
+    place()
+    window.addEventListener('scroll', place, { passive: true })
+    window.addEventListener('resize', place)
+    return () => { window.removeEventListener('scroll', place); window.removeEventListener('resize', place) }
+  })
   const notes = $derived((projects ?? []).filter(p => p.note).length)
   const waiting = $derived([notes ? `${notes} ${notes === 1 ? 'note' : 'notes'}` : '', savedWaiting > 0 ? `${folders(savedWaiting)} waiting` : ''].filter(Boolean).join(', '))
+  const toggleName = $derived(panelOpen ? 'Close the project rail' : `Open the project rail${waiting ? `: ${waiting}` : ''}`)
   async function openPanel() {
     if (panelOpen) { closePanel(true); return }
     panelOpen = true
     await tick()
-    full?.querySelector<HTMLElement>('button:not(:disabled)')?.focus()
+    ;(full?.querySelector<HTMLElement>('button.add:not(:disabled)') ?? full?.querySelector<HTMLElement>('button:not(:disabled)'))?.focus()
   }
   function closePanel(returnFocus: boolean) {
     panelOpen = false
     if (returnFocus) opener?.focus()
   }
   function panelKeys(event: KeyboardEvent) {
-    if (panelOpen && event.key === 'Escape' && !menuFor) { event.preventDefault(); closePanel(true) }
+    if (!panelOpen) return
+    if (event.key === 'Escape' && !menuFor) { event.preventDefault(); closePanel(true); return }
+    if (event.key !== 'Tab' || !full) return
+    // Focus stays in the panel: the page drawn under it can't take it.
+    const stops = [...full.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input, select, textarea, [tabindex="0"]')].filter(el => el.getClientRects().length > 0)
+    if (stops.length === 0) return
+    const first = stops[0], last = stops[stops.length - 1]
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
   }
 
   // One menu open at a time. Arrow keys move between its items, Escape closes it and gives focus back to its button.
@@ -107,19 +128,20 @@
 
 <svelte:document onpointerdown={outside} />
 
-<aside class="rail" class:open={panelOpen} aria-labelledby={`${id}-title`}>
+<aside class="rail" class:open={panelOpen} bind:this={aside} aria-labelledby={`${id}-title`}>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="full" id={`${id}-full`} bind:this={full} onkeydown={panelKeys}>
+  <div class="full" id={`${id}-full`} bind:this={full} onkeydown={panelKeys} style:top={panelOpen ? `${panelTop}px` : undefined} style:height={panelOpen ? `calc(100dvh - ${panelTop}px)` : undefined}>
     <header>
       <h2 id={`${id}-title`}>Projects</h2>
+      {#if panelOpen}<button type="button" class="close-panel" aria-label="Close the project rail" onclick={() => closePanel(true)}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18" /></svg></button>{/if}
       <button type="button" class="add" aria-label="Add a project" disabled={busy} aria-busy={busy} onclick={(e) => onadd(e.currentTarget)}>
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" /></svg>Add
       </button>
     </header>
     {#if savedWaiting > 0}
       <div class="waiting">
-        <p>{folders(savedWaiting)} from your old Projects {savedWaiting === 1 ? 'is' : 'are'} waiting for room.</p>
-        <button type="button" class="ghost" disabled={importing} aria-busy={importing} onclick={onimport}>Add your remaining saved Projects ({savedWaiting})</button>
+        <p>{folders(savedWaiting)} from your saved Projects {savedWaiting === 1 ? "isn't" : "aren't"} in the rail yet.</p>
+        <button type="button" class="ghost" disabled={importing} aria-busy={importing} onclick={onimport}>Add the waiting folders ({savedWaiting})</button>
       </div>
     {/if}
     {#if !projects && failed}
@@ -146,7 +168,7 @@
               </span>
               <span class="meta">
                 {#if p.baseBranch}<span class="branch">{p.baseBranch}</span>{/if}
-                <span class="state {state.tone}">{state.text}</span>
+                {#if state}<span class="state {state.tone}">{state.text}</span>{/if}
                 {#if wt}<span class="wt">{worktreesInUse(wt)}</span>{/if}
               </span>
             </button>
@@ -160,8 +182,8 @@
                 <button type="button" role="menuitem" onclick={() => pick(o => onchoose(p, o))}>New session here</button>
                 <button type="button" role="menuitem" onclick={() => pick(o => onedit(p, o))}>Edit</button>
                 <button type="button" role="menuitem" onclick={() => pick(o => onworktrees(p, o))}>Worktrees</button>
-                <button type="button" role="menuitem" disabled={moving || i === 0} onclick={() => { closeMenu(true); onmove(p, -1) }}>Move up</button>
-                <button type="button" role="menuitem" disabled={moving || i === projects.length - 1} onclick={() => { closeMenu(true); onmove(p, 1) }}>Move down</button>
+                <button type="button" role="menuitem" disabled={moving || pending.size > 0 || i === 0} onclick={() => { closeMenu(true); onmove(p, -1) }}>Move up</button>
+                <button type="button" role="menuitem" disabled={moving || pending.size > 0 || i === projects.length - 1} onclick={() => { closeMenu(true); onmove(p, 1) }}>Move down</button>
                 <button type="button" role="menuitem" class="danger" disabled={pending.has(p.id)} onclick={() => pick(o => onremove(p, o))}>Remove from reet</button>
               </div>
             {/if}
@@ -184,14 +206,14 @@
     <button type="button" class="add-icon" aria-label="Add a project" disabled={busy} aria-busy={busy} onclick={(e) => onadd(e.currentTarget)}>
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" /></svg>
     </button>
-    <button type="button" class="manage" bind:this={opener} aria-label={`Open the project rail${waiting ? `: ${waiting}` : ''}`} title={`Open the project rail${waiting ? `: ${waiting}` : ''}`}
+    <button type="button" class="manage" bind:this={opener} aria-label={toggleName} title={toggleName}
       aria-expanded={panelOpen} aria-controls={`${id}-full`} onclick={openPanel}>
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
       {#if waiting}<i class="marker" aria-hidden="true"></i>{/if}
     </button>
     {#each projects ?? [] as p (p.id)}
       {@const wt = worktrees.get(p.id) ?? 0}
-      <button type="button" class="mini" class:chosen={chosen === p.id} aria-label={label(p)} title={label(p)} onclick={(e) => onchoose(p, e.currentTarget)}>
+      <button type="button" class="mini" class:chosen={chosen === p.id} aria-current={chosen === p.id ? 'true' : undefined} aria-label={label(p)} title={label(p)} onclick={(e) => onchoose(p, e.currentTarget)}>
         <span class="mini-initial" aria-hidden="true">{initial(p.name)}</span>
         {#if p.baseBranch}<span class="mini-branch" aria-hidden="true">{p.baseBranch}</span>{/if}
         {#if p.isRepo}<svg class="badge" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2l10 10-10 10L2 12z" /></svg>{/if}
@@ -247,8 +269,11 @@
   .foot { margin: auto 0 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px dashed var(--line-mid); border-radius: 11px; color: var(--muted); font-size: 13px; }
   .foot svg { width: 16px; height: 16px; flex: none; }
   .strip { display: none; }
+  .close-panel { display: grid; place-items: center; width: 30px; height: 30px; margin-right: 8px; padding: 0; border: 1px solid var(--line-mid); border-radius: 8px; background: transparent; color: var(--ink-soft); cursor: pointer; }
+  .close-panel svg { width: 14px; height: 14px; }
 
   @media (pointer: coarse) {
+    .close-panel { width: 44px; height: 44px; }
     .add { height: 44px; }
     .card { padding-right: 56px; }
     .more { opacity: 1; top: 50%; right: 4px; transform: translateY(-50%); width: 44px; height: 44px; border: 0; background: transparent; }
@@ -276,7 +301,7 @@
     .live { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
     .mini-wt { position: absolute; bottom: -5px; right: -5px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card-raised); color: var(--ink-soft); font: 500 10px/13px var(--sans); text-align: center; }
     /* The full rail, opened over the page from the strip. */
-    .rail.open .full { display: flex; position: fixed; z-index: 20; top: 61px; left: 0; width: 301px; height: calc(100dvh - 61px); max-height: none; min-height: 0; background: var(--bg); border-right: 1px solid var(--line-soft); box-shadow: 12px 0 40px var(--scrim); }
+    .rail.open .full { display: flex; position: fixed; z-index: 20; top: 0; left: 0; width: 301px; height: 100dvh; max-height: none; min-height: 0; background: var(--bg); border-right: 1px solid var(--line-soft); box-shadow: 12px 0 40px var(--scrim); }
   }
   @media (pointer: coarse) and (min-width: 1100px) and (max-width: 1239px) { .add-icon, .manage { width: 44px; min-height: 44px; } .mini { min-height: 44px; } }
   /* Tablet and phone: the rail is a section under In flight, with the same cards. */

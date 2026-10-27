@@ -14,13 +14,15 @@
   // (offline, an older reet, browsing switched off) still takes a typed path, checked again at launch. One save per press; a
   // change names the version it was read at. The starter prompt lives only in this component while it is open: never in
   // browser storage, the URL or a log.
-  let { machines, project, opener = null, onadded, onclose }: {
+  let { machines, project, opener = null, onadded, onsignedout, onclose }: {
     machines: TerminalMachine[]
     /** The project to change, read with its starter prompt (the single read); absent adds a new one. */
     project?: FolderProject
     opener?: HTMLElement | null
     /** After a save: the project as the server answered it. The dialog then closes; the page shows the success line. */
     onadded: (project: FolderProject) => void
+    /** Hands a lost sign-in (401) to the page, as the other dialogs do; the dialog closes. */
+    onsignedout?: (e: unknown) => void
     onclose: () => void
   } = $props()
 
@@ -102,7 +104,14 @@
     return { text: repoMessage(r) ?? '', kind: 'plain', top: topFolder(r) ?? undefined }
   }
   // Leaving the field: one browse of the typed folder, only when it changed and the machine can be asked.
-  async function checkFolder() {
+  // The folder check in flight (one serialised browse), so a save can wait for its answer.
+  let checking: { dir: string; host: string; done: Promise<void> } | null = null
+  function checkFolder(): Promise<void> {
+    const done = askFolder()
+    checking = { dir, host, done }
+    return done
+  }
+  async function askFolder() {
     const v = dir
     if (v === '') { fieldNote = null; return }
     const problem = validateFolderInput(v)
@@ -121,6 +130,13 @@
       if (ask !== checkSeq || dir !== v || life.signal.aborted) return
       fieldNote = { text: refusalSentence(e), kind: 'bad' }
     }
+  }
+  // A save waits for the typed folder's check (it may still be on its way, or not asked yet), so what is saved about it
+  // (a repository or not) is what the machine said, not a guess. A folder that cannot be checked stays unknown.
+  async function folderSettled() {
+    if (block || dir === '' || validateFolderInput(dir) || known.has(dir)) return
+    if (checking && checking.dir === dir && checking.host === host) await checking.done
+    else await checkFolder()
   }
   // Typing drops what was said about the folder, unless it is one already asked about: then its note and branch
   // suggestions come back without asking the machine again (no change event fires when the value ends where it began).
@@ -202,11 +218,16 @@
     const input: FolderProjectInput = {}
     if (host !== editing.host) input.host = host
     if (dir !== editing.dir) input.dir = dir
+    // Another folder (or machine) that is not known to be a repository is saved as not one, without the old folder's base
+    // branch, unless the person set one again: the saved flag and branch belonged to the folder left behind.
+    const moved = host !== editing.host || dir !== editing.dir
     if (isRepo !== undefined && isRepo !== editing.isRepo) input.isRepo = isRepo
+    else if (isRepo === undefined && moved && editing.isRepo) input.isRepo = false
     if (n && n !== editing.name) input.name = n
     if (worktreeDefault !== editing.worktreeDefault) input.worktreeDefault = worktreeDefault
     if (promptKnown && starterPrompt !== (editing.starterPrompt ?? '')) input.starterPrompt = starterPrompt
     if (branch !== editing.baseBranch) input.baseBranch = branch
+    else if (moved && branch && isRepo !== true) input.baseBranch = ''
     if (defaultTool !== editing.defaultTool) input.defaultTool = defaultTool
     if (model !== editing.defaultModel) input.defaultModel = model
     return input
@@ -297,6 +318,10 @@
   async function save() {
     if (busy || stale || life.signal.aborted || !ready) return
     if (!operation) {
+      busy = true; failed = false; message = 'Checking the folder…'
+      try { await folderSettled() } finally { if (!life.signal.aborted) busy = false }
+      if (life.signal.aborted || stale) return
+      message = ''
       const invalid: [string, string] | null = nameProblem() ? ['name', nameProblem()]
         : promptKnown && validatePrompt(defaultTool, starterPrompt) ? ['starterPrompt', validatePrompt(defaultTool, starterPrompt)!]
         : validateModel(defaultModel) ? ['defaultModel', validateModel(defaultModel)!] : null
@@ -318,6 +343,7 @@
       onclose()
     } catch (e) {
       if (life.signal.aborted) return
+      if (e instanceof TerminalError && e.status === 401 && onsignedout) { const out = onsignedout; shutdown(false); onclose(); out(e); return }
       failed = true
       busy = false
       if (definite(e)) {
@@ -432,7 +458,7 @@
           <div class="fold-body">
             <label class="label" for={`${id}-prompt`}>Starter prompt</label>
             <textarea id={`${id}-prompt`} bind:value={starterPrompt} rows="3" disabled={!promptKnown} aria-describedby={`${id}-prompt-hint`}></textarea>
-            <p class="hint" id={`${id}-prompt-hint`}><span class:over={promptBytes > MAX_PROMPT_BYTES}>{promptBytes.toLocaleString('en-GB')} of {MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes.</span> The launch bar offers it as <strong>Use the starter prompt</strong>; reet never sends it by itself. Secrets don't belong here.</p>
+            <p class="hint" id={`${id}-prompt-hint`}><span class:over={promptBytes > MAX_PROMPT_BYTES}>{promptBytes.toLocaleString('en-GB')} of {MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes.</span> It is kept with the project; starting from the rail doesn't use it yet, and reet never sends it by itself. Secrets don't belong here.</p>
             {#if !promptKnown}<p class="hint">The saved starter prompt wasn't read with this project, so it is kept exactly as it is.</p>{/if}
           </div>
         </details>

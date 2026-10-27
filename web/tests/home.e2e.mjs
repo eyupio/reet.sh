@@ -111,7 +111,8 @@ async function home(options={}) {
    const path = new URL(request.url()).searchParams.get('path') || '/home/dev'
    return {path, home:'/home/dev', parent:'', repo:path === '/home/dev/site' ? 'root' : 'none', repoTop:'', entries:path === '/home/dev' ? [{name:'site',dir:true,repoRoot:true,hidden:false}] : [], more:false, partial:false, scanned:1, omitted:0}
   },
-  '/api/v2/projects': {projects:[oldProject]},
+  '/api/v2/projects': {projects:[oldProject, {...oldProject, id:'p9', name:'Broken shop'}]},
+  '/api/v2/projects/p9/runs': {status:500, json:{error:'down'}},
   '/api/v2/projects/p1/runs': {runs:[oldRun]},
   ...(options.routes ?? {}),
  }
@@ -395,6 +396,8 @@ try {
   // The old Project saved the folder as /home/dev//./store/: cleaned as the server cleans it, it is this project's.
   await expect(d).toContainText('reet/store-rewrite-r1')
   await expect(d).toContainText('the newest 20 runs of each saved Project')
+  // One saved Project's runs could not be read: it is named, and the others are still listed.
+  await expect(d).toContainText("Couldn't read the runs of Broken shop just now.")
   await d.getByRole('button',{name:'Check and remove reet/store-rewrite-r1'}).click()
   await expect(page.getByRole('dialog',{name:/worktree/i}).last()).toBeVisible()
   expect(errors).toEqual([])
@@ -435,14 +438,21 @@ try {
   await expect(note).toContainText('Moved from your saved Projects.')
   await expect(note).toContainText('Old shop, Site')
   // Pressed twice while the first is on its way: one change is sent, and nobody else is said to have changed it.
+  // Both presses run in one task, so a second request would be issued right after the first, before any answer.
   let release
+  const issued = []
+  page.on('request', r => { if (r.method() === 'PATCH') issued.push(new URL(r.url()).pathname) })
   gates['/api/v2/folder-projects/fp1'] = new Promise(r => { release = r })
   await note.getByRole('button',{name:'Dismiss the note on Store rewrite',exact:true}).evaluate(b => { b.click(); b.click() })
-  await page.waitForTimeout(200)
+  await expect.poll(() => issued.length).toBe(1)
+  // While it is on its way no card can be moved: the order would name the version the dismiss is replacing.
+  await rail(page).getByRole('button',{name:'More for Notes',exact:true}).click()
+  await expect(page.getByRole('menu',{name:'Notes'}).getByRole('menuitem',{name:'Move up'})).toBeDisabled()
+  await page.keyboard.press('Escape')
   delete gates['/api/v2/folder-projects/fp1']
   release()
   await expect(rail(page).getByRole('note')).toHaveCount(0)
-  await page.waitForTimeout(300)
+  expect(issued).toEqual(['/api/v2/folder-projects/fp1'])
   expect(box.writes.filter(w => w.method === 'PATCH')).toHaveLength(1)
   await expect(page.getByText(/Someone changed/)).toHaveCount(0)
   const patch = box.writes.find(w => w.method === 'PATCH')
@@ -459,7 +469,7 @@ try {
  if (run('remaining saved Projects come in when asked')) {
   const {context,page,errors,box} = await home({savedWaiting:2})
   await page.goto(base)
-  const prompt = rail(page).getByRole('button',{name:'Add your remaining saved Projects (2)',exact:true})
+  const prompt = rail(page).getByRole('button',{name:'Add the waiting folders (2)',exact:true})
   await expect(prompt).toBeVisible()
   await prompt.click()
   await expect(page.getByText('Added 2 saved repositories as projects.',{exact:true})).toBeVisible()
@@ -492,12 +502,13 @@ try {
   box.projects = box.projects.map(p => p.id === 'fp1' ? {...p, version:p.version + 5} : p)
   await more('Store rewrite').click()
   await page.getByRole('menu',{name:'Store rewrite'}).getByRole('menuitem',{name:'Remove from reet'}).click()
+  const reread = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v2/folder-projects' && r.request().method() === 'GET')
   await page.getByRole('dialog',{name:'Remove Store rewrite from reet?',exact:true}).getByRole('button',{name:'Remove from reet'}).click()
   await expect(page.getByText('Someone changed this project. Reload it, then try again.',{exact:true})).toBeVisible()
   await expect(more('Store rewrite')).toBeFocused()
   // Read again, then removed: focus goes to a card that is still there.
+  await reread
   await expect.poll(async () => (await rail(page).getByRole('button',{name:/^Store rewrite, /}).count())).toBe(1)
-  await page.waitForTimeout(300)
   await more('Notes').click()
   await page.getByRole('menu',{name:'Notes'}).getByRole('menuitem',{name:'Remove from reet'}).click()
   await page.getByRole('dialog',{name:'Remove Notes from reet?',exact:true}).getByRole('button',{name:'Remove from reet'}).click()
@@ -513,20 +524,34 @@ try {
  if (run('collapsed strip reaches every rail action by keyboard')) {
   for (const width of [1239, 1100]) {
    const {context,page,errors,box} = await home({width, savedWaiting:2, projects:[fproject('fp1','Store rewrite','a1','/home/dev/store',{baseBranch:'main',note:'Old shop'}), fproject('fp2','Notes','a2','/home/dev/notes',{isRepo:false,position:1})]})
-   await page.goto(base)
+   await page.goto(`${base}/?project=fp1`)
    const strip = rail(page).locator('.strip')
    const store = strip.getByRole('button',{name:'Store rewrite, studio, main, 1 running, 1 worktree in use',exact:true})
+   await expect(store).toHaveAttribute('aria-current','true')
+   await expect(strip.getByRole('button',{name:/^Notes, /})).not.toHaveAttribute('aria-current','true')
    await expect(store, `${width}`).toBeVisible()
    await expect(store.locator('.badge')).toBeVisible()
    await expect(store.locator('.mini-branch')).toHaveText('main')
    await expect(store.locator('.mini-wt')).toHaveText('1')
    expect(Math.round(await rail(page).evaluate(el => el.getBoundingClientRect().width))).toBe(56)
-   const open = strip.getByRole('button',{name:'Open the project rail: 1 note, 2 saved folders waiting',exact:true})
-   await open.focus()
+   const toggle = strip.locator('button.manage')
+   await expect(toggle).toHaveAccessibleName('Open the project rail: 1 note, 2 folders waiting')
+   // Opened from a scrolled page, the panel starts where the strip is on screen (the header has scrolled away).
+   await page.evaluate(() => scrollTo(0, 120))
+   await toggle.focus()
    await page.keyboard.press('Enter')
-   await expect(open).toHaveAttribute('aria-expanded','true')
+   await expect(toggle).toHaveAttribute('aria-expanded','true')
+   await expect(toggle).toHaveAccessibleName('Close the project rail')
    const panel = rail(page).locator('.full')
    await expect(panel.getByRole('button',{name:'Add a project'})).toBeFocused()
+   const [panelTop, stripTop] = await page.evaluate(() => [document.querySelector('aside.rail .full').getBoundingClientRect().top, document.querySelector('aside.rail').getBoundingClientRect().top])
+   expect(Math.round(panelTop)).toBe(Math.max(0, Math.round(stripTop)))
+   // Tab and Shift+Tab stay inside the panel: the page drawn under it never takes focus.
+   for (const key of [...Array(25).fill('Tab'), ...Array(5).fill('Shift+Tab')]) {
+    await page.keyboard.press(key)
+    expect(await page.evaluate(() => !!document.activeElement?.closest('aside.rail .full')), `${width}px ${key}`).toBe(true)
+   }
+   await panel.getByRole('button',{name:'Add a project'}).focus()
    // The card menu.
    await panel.getByRole('button',{name:'More for Store rewrite',exact:true}).focus()
    await page.keyboard.press('Enter')
@@ -545,21 +570,55 @@ try {
    await dismiss.focus()
    await page.keyboard.press('Enter')
    await expect.poll(() => box.writes.filter(w => w.method === 'PATCH').length).toBe(1)
-   const bring = panel.getByRole('button',{name:'Add your remaining saved Projects (2)',exact:true})
+   const bring = panel.getByRole('button',{name:'Add the waiting folders (2)',exact:true})
    await bring.focus()
    await page.keyboard.press('Enter')
    await expect.poll(() => box.writes.filter(w => w.path === '/api/v2/folder-projects/import-saved').length).toBe(1)
    // Escape closes the panel and gives focus back.
    await panel.getByRole('button',{name:'Add a project'}).focus()
    await page.keyboard.press('Escape')
-   const plain = strip.getByRole('button',{name:/^Open the project rail/})
-   await expect(plain).toHaveAttribute('aria-expanded','false')
-   await expect(plain).toBeFocused()
+   await expect(toggle).toHaveAttribute('aria-expanded','false')
+   await expect(toggle).toHaveAccessibleName(/^Open the project rail/)
+   await expect(toggle).toBeFocused()
    await expect(panel).toBeHidden()
+   // Its own Close button does the same.
+   await toggle.click()
+   await panel.getByRole('button',{name:'Close the project rail',exact:true}).click()
+   await expect(panel).toBeHidden()
+   await expect(toggle).toBeFocused()
    expect(await noSideways(page)).toBe(true)
    expect(errors).toEqual([])
    await context.close()
   }
+ }
+
+ // On a tablet or phone the rail is below In flight: a project chosen by the address is scrolled into view and named.
+ if (run('a chosen project is shown on a phone')) {
+  const {context,page,errors} = await home({width:390, touch:true})
+  await page.goto(`${base}/?project=fp2`)
+  const card = rail(page).getByRole('button',{name:/^Notes, /})
+  await expect(card).toHaveAttribute('aria-current','true')
+  await expect(page.getByText('Showing Notes in Projects below.',{exact:true})).toBeVisible()
+  await expect(card).toBeInViewport()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A sign-in lost while adding a project goes back to sign in, as the other dialogs do.
+ if (run('a lost sign-in while adding returns to sign in')) {
+  const {context,page,errors} = await home({routes:{'/api/v2/folder-projects': request => request.method() === 'POST' ? {status:401, json:{error:'Sign in to use projects.', code:'signed_out'}} : {projects:fprojects(), savedWaiting:0}}})
+  await page.goto(base)
+  await rail(page).getByRole('button',{name:'Add a project'}).click()
+  const d = page.getByRole('dialog',{name:'Add a project',exact:true})
+  await d.getByRole('button',{name:'Hide browser'}).click()
+  await d.getByRole('textbox',{name:'Folder',exact:true}).fill('/home/dev/site')
+  await d.getByRole('button',{name:'Add project'}).click()
+  // Signed out on / is the welcome and sign-in page.
+  await expect(page).toHaveTitle('Your AI fleet control room · reet.sh')
+  await expect(rail(page)).toHaveCount(0)
+  await expect(page.getByRole('dialog',{name:'Add a project',exact:true})).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
  }
 
  // Start an agent sits docked at the foot of the page and opens the existing dialog.
@@ -902,6 +961,12 @@ try {
   await expect(inFlight(page).getByText("Couldn't read your sessions just now.",{exact:true})).toBeVisible()
   await expect(inFlight(page)).not.toContainText('Reading your sessions')
   await expect(rail(page).getByText("Couldn't read your projects just now.",{exact:true})).toBeVisible()
+  // Projects read but sessions not: no card says "idle" or how many run; the offline machine is still named.
+  box.fail.delete('projects')
+  await page.reload()
+  await expect(rail(page).getByRole('button',{name:'Store rewrite, studio, main',exact:true})).toBeVisible()
+  await expect(rail(page).getByRole('button',{name:'Notes, desk, machine offline',exact:true})).toBeVisible()
+  await expect(rail(page)).not.toContainText('idle')
   await expect(rail(page)).not.toContainText('Reading your projects')
   expect(errors).toEqual([])
   await context.close()
@@ -924,8 +989,11 @@ try {
   await d.getByRole('button',{name:'Add project'}).click()
   await expect(d).toBeHidden()
   await expect(rail(page).getByRole('button',{name:/^fresh, studio/})).toBeVisible()
+  // The older list's answer arrives and is handled (two frames later); the new project is still there.
+  const older = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v2/folder-projects' && r.request().method() === 'GET')
   release()
-  await page.waitForTimeout(1000)
+  await older
+  await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
   await expect(rail(page).getByRole('button',{name:/^fresh, studio/})).toBeVisible()
   expect(errors).toEqual([])
   await context.close()

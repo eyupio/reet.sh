@@ -114,7 +114,7 @@
       else failed = true
       if (writer) {
         if (s.status === 'fulfilled' && s.value) { sessions = s.value; sessionsFailed = false } else { failed = true; sessionsFailed = sessions === undefined }
-        if (p.status === 'fulfilled' && p.value) { projects = p.value.projects; savedWaiting = p.value.savedWaiting ?? 0; projectsFailed = false } else { failed = true; projectsFailed = projects === undefined }
+        if (p.status === 'fulfilled' && p.value) { projects = p.value.projects; savedWaiting = p.value.savedWaiting ?? 0; projectsFailed = false; void revealChosen() } else { failed = true; projectsFailed = projects === undefined }
       }
       now = at
       problem = !failed ? '' : readOnce ? "Couldn't refresh just now. Showing what was last read." : "Couldn't read everything just now. Home tries again every 15 seconds."
@@ -216,7 +216,8 @@
   }
   // Moving a card sends the whole order with the version of each project as read; a changed list is read again.
   async function move(project: FolderProject, by: -1 | 1) {
-    if (moving) return
+    // The order names every project's version as read: a dismiss or remove on its way would make it stale.
+    if (moving || pending.size > 0) return
     const list = [...(projects ?? [])]
     const at = list.findIndex(p => p.id === project.id), to = at + by
     if (at < 0 || to < 0 || to >= list.length) return
@@ -258,6 +259,18 @@
       notice = { text: refusalSentence(e), bad: true }
     } finally { importing = false }
   }
+  // On a tablet or phone the rail sits below In flight: a project chosen by the address (Jump, an old link) is scrolled into
+  // view once and named in the status line, so the person sees where it went.
+  let revealed = false
+  async function revealChosen() {
+    if (revealed || !chosen || !narrow) return
+    const p = projects?.find(x => x.id === chosen)
+    if (!p) return
+    revealed = true
+    await tick()
+    document.querySelector<HTMLElement>('aside.rail .card[aria-current="true"]')?.scrollIntoView({ block: 'center' })
+    notice = { text: `Showing ${p.name} in Projects below.` }
+  }
   // An old /projects/<id> address: its folder project, if one was made from it, is chosen and named in the address.
   async function findLegacy(id: string) {
     try {
@@ -265,6 +278,7 @@
       if (!found || life.signal.aborted) return
       chosen = found
       history.replaceState(history.state, '', `/?project=${encodeURIComponent(found)}`)
+      void revealChosen()
     } catch { /* no folder project was made from it: Home stays at / */ }
   }
 
@@ -283,7 +297,10 @@
     void load(true)
   }
 
+  // The redirect note goes into its live region after the page is drawn, so it is announced.
+  let movedShown = $state(false)
   onMount(() => {
+    if (moved) void tick().then(() => { movedShown = true })
     void load()
     if (writer && legacyProject) void findLegacy(legacyProject)
     const query = matchMedia(NARROW), resized = () => { narrow = query.matches }
@@ -302,14 +319,14 @@
 <div class="home" class:writer>
   <h1 class="vh">Home</h1>
   {#snippet rail()}
-    <ProjectRail {projects} failed={projectsFailed} reporting={machineReporting} {running} {worktrees} {savedWaiting} {chosen} busy={checking} {importing} {pending} {moving}
+    <ProjectRail {projects} failed={projectsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees} {savedWaiting} {chosen} busy={checking} {importing} {pending} {moving}
       onadd={openAdd} onchoose={openProjectStart} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}
       onremove={(project, opener) => (removing = { project, opener })} onmove={move} ondismiss={dismiss} onimport={bringIn} />
   {/snippet}
   <!-- On a desktop the rail is the left column; on a tablet or phone it sits under In flight (the Sessions tab takes it later). -->
   {#if writer && !narrow}{@render rail()}{/if}
   <div class="column">
-    <div class="live" role="status" aria-live="polite">{#if moved}<p class="notice">Projects now live in the rail on Home.</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
+    <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? 'Projects now live in the rail on Home.' : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
     <FleetStrip {cards} sessions={writer && sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined} />
     {#if writer}
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}</div>
@@ -332,7 +349,7 @@
 {/if}
 {#if adding && terminals}
   {@const wasEdit = !!adding.project}
-  <AddProjectDialog machines={terminals} project={adding.project} opener={adding.opener} onadded={(p) => added(p, wasEdit)} onclose={() => (adding = null)} />
+  <AddProjectDialog machines={terminals} project={adding.project} opener={adding.opener} onadded={(p) => added(p, wasEdit)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} onclose={() => (adding = null)} />
 {/if}
 {#if removing}
   {@const p = removing.project}

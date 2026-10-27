@@ -11,6 +11,20 @@ const run = name => !only || only === name
 
 const now = Date.now()
 const NOTE = 'Projects now live in the rail on Home.'
+const VIEWER_NOTE = 'Projects are on Home for accounts that can start sessions.'
+// Records text put into a live region that was already on the page: what a screen reader announces. Text drawn with the
+// region itself, at load, is not announced.
+const recordAnnouncements = page => page.addInitScript(() => {
+ window.__announced = []
+ const known = new WeakSet()
+ new MutationObserver(records => {
+  for (const r of records) {
+   const region = (r.target.nodeType === 1 ? r.target : r.target.parentElement)?.closest('[aria-live]')
+   if (region && known.has(region) && region.textContent.trim()) window.__announced.push(region.textContent.trim())
+  }
+  for (const region of document.querySelectorAll('[aria-live]')) known.add(region)
+ }).observe(document, {childList:true, subtree:true, characterData:true})
+})
 const caps = {protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,worktree:true,tools:['claude']}
 const tmachines = [{agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:caps}]
 const fproject = (id, name, dir) => ({id,host:'a1',machine:'studio',dir,name,isRepo:true,baseBranch:'',worktreeDefault:'inherit',defaultTool:'',defaultModel:'',hasStarterPrompt:false,note:'',position:0,createdAt:1,updatedAt:1,version:1})
@@ -47,8 +61,10 @@ try {
  // The old list address goes to Home and says where projects live now, once: a reload of Home does not say it again.
  if (run('old list redirects with the note')) {
   const {context,page,errors} = await workspace()
+  await recordAnnouncements(page)
   await page.goto(`${base}/projects`)
   await expect(page).toHaveURL(`${base}/`)
+  await expect.poll(() => page.evaluate(() => window.__announced)).toContain(NOTE)
   expect(await page.title()).toBe('Home · reet.sh')
   await expect(page.getByText(NOTE,{exact:true})).toBeVisible()
   await expect(page.getByRole('complementary',{name:'Projects'}).getByRole('button',{name:/^site, studio/})).toBeVisible()
@@ -126,16 +142,26 @@ try {
  }
 
  // A viewer has no Projects runs to look at: Activity shows their own activity only, and no run is read.
+ if (run('no Runs from Projects without saved Projects')) {
+  const {context,page,errors} = await workspace({routes:{'/api/v2/projects':{projects:[]}}})
+  await page.goto(`${base}/activity`)
+  await expect(page.getByText('Moved saved Project Site into the rail as 2 projects',{exact:true})).toBeVisible()
+  await expect(page.getByRole('region',{name:'Runs from Projects'})).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  if (run('viewer sees no Runs from Projects')) {
   const {context,page,errors,box} = await workspace({status:{user:{...owner,role:'viewer'}}})
   await page.goto(`${base}/activity`)
   await expect(page.getByText('Moved saved Project Site into the rail as 2 projects',{exact:true})).toBeVisible()
   await expect(page.getByRole('region',{name:'Runs from Projects'})).toHaveCount(0)
   expect(box.requests.filter(r => r.includes('/api/v2/projects'))).toEqual([])
-  // The old address takes a viewer to Home too, with the note and no rail.
+  // The old address takes a viewer to Home too, with a sentence true for them (they have no rail).
   await page.goto(`${base}/projects/p1`)
   await expect(page).toHaveURL(`${base}/`)
-  await expect(page.getByText(NOTE,{exact:true})).toBeVisible()
+  await expect(page.getByText(VIEWER_NOTE,{exact:true})).toBeVisible()
+  await expect(page.getByText(NOTE,{exact:true})).toHaveCount(0)
   await expect(page.getByRole('complementary',{name:'Projects'})).toHaveCount(0)
   expect(box.requests.filter(r => r.includes('legacy='))).toEqual([])
   expect(errors).toEqual([])

@@ -25,6 +25,8 @@
   type Recorded = { member: RunMember; project: string; startedAt: number }
   let recorded = $state<Recorded[] | undefined>()
   let failed = $state('')
+  // Saved Projects whose runs could not be read: the rest are still listed.
+  let unread = $state<string[]>([])
   let removing = $state<{ member: RunMember; opener: HTMLElement } | null>(null)
   const host = $derived(project.machine || 'its machine')
   // Saved folders are matched as the server cleaned them (path.Clean): /a//b/ and /a/./b are /a/b.
@@ -36,9 +38,11 @@
     failed = ''
     try {
       const saved = (await listProjects(life.signal)).filter(p => p.members.some(m => m.host === project.host && clean(m.dir) === project.dir))
-      const runs = await Promise.all(saved.map(p => projectRuns(p.id, life.signal)))
+      const read = await Promise.allSettled(saved.map(p => projectRuns(p.id, life.signal)))
       if (life.signal.aborted) return
-      recorded = runs.flat().flatMap(run => run.members
+      if (read.some(r => r.status === 'rejected' && r.reason instanceof TerminalError && r.reason.status === 401) && onsignedout) { life.abort(); onsignedout(new UnauthorizedError()); return }
+      unread = saved.filter((_, i) => read[i].status === 'rejected').map(p => p.name)
+      recorded = read.flatMap(r => r.status === 'fulfilled' ? r.value : []).flatMap(run => run.members
         .filter(m => m.host === project.host && clean(m.dir) === project.dir && m.worktreeRun && (m.state === 'started' || m.state === 'removed'))
         .map(member => ({ member, project: run.projectName, startedAt: run.startedAt })))
         .sort((a, b) => b.startedAt - a.startedAt)
@@ -76,6 +80,7 @@
   </header>
   <div class="body" data-shell-body>
     {#if failed}<p class="bad" role="alert">{failed}</p>{/if}
+    {#each unread as name (name)}<p class="bad" role="alert">Couldn't read the runs of {name} just now.</p>{/each}
     {#if !recorded && !failed}
       <p class="muted" role="status">Reading the worktrees…</p>
     {:else if live.length === 0 && (recorded ?? []).length === 0}

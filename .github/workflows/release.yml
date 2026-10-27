@@ -89,6 +89,8 @@ jobs:
         with:
           name: release-web
           path: web/dist
+      # The Go tests start tmux (internal/terminalhost); the Zoomies runner image has none.
+      - uses: ./.github/actions/install-tmux
       - run: go vet ./... && go test -race -timeout=20m ./...
 
   build:

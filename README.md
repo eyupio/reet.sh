@@ -1,3 +1,5 @@
+[![CI has the Zoomies](https://zoomies.sh/badge.svg)](https://zoomies.sh)
+
 <div align="center">
 
 <picture>

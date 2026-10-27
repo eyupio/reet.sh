@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   terminal-browser:
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -96,7 +96,7 @@ jobs:
   # dialog's later fixes run alongside the terminal job instead of adding to its time. (Local runs take roughly 45, 60, 5
   # and 10 s; CI's times differ, so read them from the job log, not from here.)
   phone-zoom:
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -141,7 +141,7 @@ jobs:
   # Its own job, so the phone dialog contract (about 50-55 s) and the Add project dialog (about 15-20 s) run alongside the
   # others instead of adding to their time.
   phone-dialogs:
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4

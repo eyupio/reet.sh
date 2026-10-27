@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     steps:
       - uses: actions/checkout@v4
       - name: Install tmux when the runner image lacks it
@@ -47,7 +47,7 @@ jobs:
   publish:
     needs: test
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     permissions:
       contents: read
       packages: write

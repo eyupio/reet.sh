@@ -9,6 +9,7 @@
   --bg: #14110f; --card: #1a1613; --card-raised: #1d1815; --line-soft: #2a241f; --line: #342d27; --line-strong: #4a4037;
   --ink: #f1ebe4; --muted: #a39a90; --accent: #c2410c; --accent-text: #ff8d63; --accent-ink: #ffffff; --tint: #3a2615; --heart: #ff7a9c;
   --good: #7fc79a; --warn: #e9b44c; --info: #7fb3d9; --repo: #5fc2a8; --bad: #f87171;
+  --bg-sunk: #110e0c; --faint: #8c837a; --ink-soft: #cfc6bc; --repo-line: #2a5f52; --line-deep: #5a5047; --scrim: rgb(0 0 0 / 0.62);
   --serif: 'Fraunces', 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
   --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
@@ -24,6 +25,7 @@
     --bg: #f7f6f2; --card: #fffdf9; --card-raised: #fffdf9; --line-soft: #e8e4db; --line: #dedbd2; --line-strong: #c9c3b6;
     --ink: #1d1c1a; --muted: #5f5c54; --accent: #c2410c; --accent-text: #c2410c; --accent-ink: #ffffff; --tint: #feefe3; --heart: #be1f4a;
     --good: #15703b; --warn: #92400e; --info: #1d5f8a; --repo: #0f766e; --bad: #b91c1c;
+    --bg-sunk: #f0eee8; --faint: #6f6b62; --ink-soft: #3d3a35; --repo-line: #8fc7ba; --line-deep: #a49b8d; --scrim: rgb(20 18 15 / 0.45);
   }
 }
 :root[data-theme='dark'] {
@@ -31,12 +33,14 @@
   --bg: #14110f; --card: #1a1613; --card-raised: #1d1815; --line-soft: #2a241f; --line: #342d27; --line-strong: #4a4037;
   --ink: #f1ebe4; --muted: #a39a90; --accent: #c2410c; --accent-text: #ff8d63; --accent-ink: #ffffff; --tint: #3a2615; --heart: #ff7a9c;
   --good: #7fc79a; --warn: #e9b44c; --info: #7fb3d9; --repo: #5fc2a8; --bad: #f87171;
+  --bg-sunk: #110e0c; --faint: #8c837a; --ink-soft: #cfc6bc; --repo-line: #2a5f52; --line-deep: #5a5047; --scrim: rgb(0 0 0 / 0.62);
 }
 :root[data-theme='light'] {
   color-scheme: light;
   --bg: #f7f6f2; --card: #fffdf9; --card-raised: #fffdf9; --line-soft: #e8e4db; --line: #dedbd2; --line-strong: #c9c3b6;
   --ink: #1d1c1a; --muted: #5f5c54; --accent: #c2410c; --accent-text: #c2410c; --accent-ink: #ffffff; --tint: #feefe3; --heart: #be1f4a;
   --good: #15703b; --warn: #92400e; --info: #1d5f8a; --repo: #0f766e; --bad: #b91c1c;
+  --bg-sunk: #f0eee8; --faint: #6f6b62; --ink-soft: #3d3a35; --repo-line: #8fc7ba; --line-deep: #a49b8d; --scrim: rgb(20 18 15 / 0.45);
 }
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 var(--sans); min-width: 320px; }

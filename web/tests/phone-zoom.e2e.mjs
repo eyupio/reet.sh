@@ -14,11 +14,22 @@
 // REET_E2E_ONLY=<regexp> limits the screens (matched against the name), REET_E2E_WIDTHS=320,390 the widths.
 import { chromium } from '@playwright/test'
 import { homeExtra, HOST80, installApi, LONGHOST, LONGSKILL, PROJECT80, SESSION80 } from './helpers/longtext.mjs'
+import { startHarness } from './helpers/harness.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 const only = process.env.REET_E2E_ONLY ? new RegExp(process.env.REET_E2E_ONLY, 'i') : null
 const widths = (process.env.REET_E2E_WIDTHS || '320,360,390,412').split(',').map(Number)
 const UA = 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36'
+
+// A machine whose home holds one 120-character folder path with no break opportunities, and folders with long names in it.
+const PATH120 = ('/home/dev/' + 'an_unbroken_folder_name_for_the_add_project_sheet'.repeat(3)).slice(0, 120)
+const addProjectExtra = {
+ '/api/v2/terminal/machines': {machines:[{agentId:'connector-long120', host:HOST80, ready:true, serverEnabled:true, capabilities:{protocolVersion:1, os:'linux', osUser:'dev', terminalEnabled:true, terminalControl:true, healthEnabled:true, readiness:'ready', launch:true, browse:true, tools:['claude']}}]},
+ '/api/v2/machines/connector-long120/browse': () => ({path:PATH120, home:'/home/dev', parent:'/home/dev', repo:'root', repoTop:'', more:true, partial:false, scanned:3, omitted:0,
+  entries:[{name:LONGSKILL, dir:true, repoRoot:true, hidden:false}, {name:PROJECT80, dir:true, repoRoot:false, hidden:false}]}),
+}
+// Started only when a screen needs a component fixture.
+let harness = null
 
 // Dialogs open from the long-host machine's card, the one whose name is hardest to fit.
 const click = name => async page => { const b = page.getByRole('article', {name:LONGHOST}).getByRole('button', {name, exact:true}).first(); await b.scrollIntoViewIfNeeded(); await b.click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }
@@ -49,7 +60,16 @@ const SCREENS = [
  {name:'support ticket', path:'/support/41'},
  {name:'notifications', path:'/notifications'},
  ...['profile','security','sso','sessions','mcp','tokens','backups'].map(p => ({name:`account ${p}`, path:`/account/${p}`})),
- {name:'activity', path:'/activity'}, // /account/activity redirects here with location.replace; measuring the old page mid-reload zoomed it out
+ {name:'activity', path:'/activity'},
+ // The Add project sheet (on its component fixture until B6 puts it behind the rail's Add), with a 120-character folder
+ // chosen and the browser open on it: the folder field, the breadcrumb, the folder names and the pinned chosen folder.
+ {name:'add project sheet', fixture:'/tests/fixtures/add-project.html', extra:addProjectExtra, action:async page => {
+  await page.getByRole('button', {name:'Add a project', exact:true}).click()
+  const d = page.locator('dialog[open]')
+  await d.getByRole('button', {name:'Use this folder'}).click()
+  await d.getByRole('button', {name:'Browse'}).click()
+  await d.getByRole('list', {name:/^Folders in /}).getByRole('button').first().waitFor({timeout:3000})
+ }}, // /account/activity redirects here with location.replace; measuring the old page mid-reload zoomed it out
  ...['overview','environments','users','team','support','email','notifications','backups','settings','activity'].map(p => ({name:`admin ${p}`, path:`/admin/${p}`})),
 ]
 
@@ -119,7 +139,7 @@ async function phone(width) {
  for (const ev of ['requestfinished', 'requestfailed']) page.on(ev, r => { if (open.delete(r)) last = Date.now() })
  const busy = () => [...open.values()].some(t => Date.now() - t < 1000)
  const settled = async () => { const until = Date.now() + 5000; while (Date.now() < until && (busy() || Date.now() - last < 120)) await new Promise(r => setTimeout(r, 20)) }
- const visit = async path => { open.clear(); await page.goto(base + path); await page.locator('main').first().waitFor(); await settled() }
+ const visit = async path => { open.clear(); await page.goto(/^https?:/.test(path) ? path : base + path); await page.locator('main').first().waitFor(); await settled() }
  return {context, page, errors, unmocked, settled, visit, extra}
 }
 
@@ -127,7 +147,7 @@ async function screen(p, width, s) {
  const found = []
  for (const k of Object.keys(p.extra)) delete p.extra[k]
  Object.assign(p.extra, s.extra ?? {})
- await p.visit(s.path)
+ await p.visit(s.fixture ? harness.url + s.fixture : s.path)
  if (s.ready) await s.ready(p.page)
  if (s.action) { await s.action(p.page); await p.settled() }
  for (const state of ['closed', 'open']) {
@@ -166,7 +186,8 @@ async function check(width) {
 
 try {
  const started = Date.now()
+ if (SCREENS.some(s => s.fixture && (!only || only.test(s.name)))) harness = await startHarness()
  const failures = [...new Set((await Promise.all(widths.map(check))).flat())]
  if (failures.length) throw new Error(`${failures.length} phone zoom problems:\n${failures.join('\n')}`)
  console.log(`Phone zoom: ${only ? 'selected' : SCREENS.length} screens at ${widths.join(', ')}px keep the device width with every control reachable (${((Date.now() - started) / 1000).toFixed(1)}s).`)
-} finally { await browser.close() }
+} finally { await browser.close(); await harness?.close() }

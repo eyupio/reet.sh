@@ -133,7 +133,8 @@ jobs:
           node web/tests/phone-zoom.e2e.mjs
           node web/tests/home.e2e.mjs
 
-  # Its own job, so the phone dialog contract (about 50-55 s) runs alongside the others instead of adding to their time.
+  # Its own job, so the phone dialog contract (about 50-55 s) and the Add project dialog (about 15-20 s) run alongside the
+  # others instead of adding to their time.
   phone-dialogs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -170,3 +171,7 @@ jobs:
             sleep 1
           done
           node web/tests/phone-dialogs.e2e.mjs
+      # The Add project dialog and its folder browser (about 15-20 s). It serves its own component fixture with Vite, so it
+      # needs no preview server, and it runs here rather than in the terminal job, which is close to its time limit.
+      - name: Add a project by browsing a machine's folders
+        run: node web/tests/add-project.e2e.mjs

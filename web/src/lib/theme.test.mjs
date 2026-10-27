@@ -12,7 +12,7 @@ const { TOKENS, contrast } = await import(`data:text/javascript;base64,${Buffer.
 const web = fileURLToPath(new URL('../../', import.meta.url))
 const css = readFileSync(join(web, 'src/app.css'), 'utf8')
 const PALETTES = ['dark', 'light']
-const NAMES = ['--bg', '--card', '--card-raised', '--line-soft', '--line', '--line-strong', '--ink', '--muted', '--accent', '--accent-text', '--accent-ink', '--good', '--warn', '--info', '--repo', '--bad']
+const NAMES = ['--bg', '--card', '--card-raised', '--line-soft', '--line', '--line-strong', '--ink', '--muted', '--accent', '--accent-text', '--accent-ink', '--good', '--warn', '--info', '--repo', '--bad', '--bg-sunk', '--faint', '--ink-soft', '--repo-line', '--line-deep']
 
 test('contrast follows WCAG relative luminance', () => {
   assert.equal(Math.round(contrast('#000000', '#ffffff') * 100) / 100, 21)
@@ -23,7 +23,7 @@ test('contrast follows WCAG relative luminance', () => {
 
 test('both palettes define every token, with the designed dark values', () => {
   for (const p of PALETTES) for (const name of NAMES) assert.match(TOKENS[p][name] ?? '', /^#[0-9a-f]{6}$/, `${p} ${name}`)
-  const dark = { '--bg': '#14110f', '--card': '#1a1613', '--card-raised': '#1d1815', '--line-soft': '#2a241f', '--line': '#342d27', '--line-strong': '#4a4037', '--ink': '#f1ebe4', '--muted': '#a39a90', '--accent': '#c2410c', '--accent-text': '#ff8d63', '--accent-ink': '#ffffff', '--good': '#7fc79a', '--warn': '#e9b44c', '--info': '#7fb3d9', '--repo': '#5fc2a8' }
+  const dark = { '--bg': '#14110f', '--card': '#1a1613', '--card-raised': '#1d1815', '--line-soft': '#2a241f', '--line': '#342d27', '--line-strong': '#4a4037', '--ink': '#f1ebe4', '--muted': '#a39a90', '--accent': '#c2410c', '--accent-text': '#ff8d63', '--accent-ink': '#ffffff', '--good': '#7fc79a', '--warn': '#e9b44c', '--info': '#7fb3d9', '--repo': '#5fc2a8', '--bg-sunk': '#110e0c', '--faint': '#8c837a', '--ink-soft': '#cfc6bc', '--repo-line': '#2a5f52', '--line-deep': '#5a5047' }
   for (const [k, v] of Object.entries(dark)) assert.equal(TOKENS.dark[k], v, k)
   const light = { '--bg': '#f7f6f2', '--card': '#fffdf9', '--ink': '#1d1c1a', '--muted': '#5f5c54', '--accent': '#c2410c', '--accent-text': '#c2410c', '--accent-ink': '#ffffff' }
   for (const [k, v] of Object.entries(light)) assert.equal(TOKENS.light[k], v, k)
@@ -32,10 +32,12 @@ test('both palettes define every token, with the designed dark values', () => {
 test('every text pair passes AA', () => {
   for (const p of PALETTES) {
     const t = TOKENS[p]
-    for (const fg of ['--ink', '--muted', '--accent-text', '--good', '--warn', '--info', '--repo', '--bad'])
+    for (const fg of ['--ink', '--ink-soft', '--muted', '--faint', '--accent-text', '--good', '--warn', '--info', '--repo', '--bad'])
       for (const bg of ['--bg', '--card', '--card-raised'])
         assert.ok(contrast(t[fg], t[bg]) >= 4.5, `${p}: ${fg} ${t[fg]} on ${bg} ${t[bg]} is ${contrast(t[fg], t[bg]).toFixed(2)}`)
     assert.ok(contrast(t['--accent-ink'], t['--accent']) >= 4.5, `${p}: --accent-ink on --accent`)
+    // The sunk surface (the phone sheet's pinned footer) carries plain text and the repository word.
+    for (const fg of ['--ink', '--ink-soft', '--muted', '--faint', '--repo']) assert.ok(contrast(t[fg], t['--bg-sunk']) >= 4.5, `${p}: ${fg} ${t[fg]} on --bg-sunk ${t['--bg-sunk']} is ${contrast(t[fg], t['--bg-sunk']).toFixed(2)}`)
     // Selected and hover states put text on --tint; the pressed Liked filter puts --bg on --heart (App.svelte).
     for (const fg of ['--ink', '--accent-text']) assert.ok(contrast(t[fg], t['--tint']) >= 4.5, `${p}: ${fg} ${t[fg]} on --tint ${t['--tint']} is ${contrast(t[fg], t['--tint']).toFixed(2)}`)
     assert.ok(contrast(t['--bg'], t['--heart']) >= 4.5, `${p}: --bg on --heart is ${contrast(t['--bg'], t['--heart']).toFixed(2)}`)

@@ -7,7 +7,7 @@ left out or says so in words.
 
 **The tabs.** A desktop (1100 px and wider) shows Home, Sessions, Machines, Skills and Activity in the top bar, with
 **Jump to a session, project or machine**, the bell and the account menu. The account menu holds **More**: Control,
-Projects, Setups, Sync, Lists, Community, Support, Teams & organisations and Host skills. An open instance has no
+Setups, Sync, Lists, Community, Support, Teams & organisations and Host skills. An open instance has no
 account menu, so it keeps More in the top bar. A tablet (651–1099 px) keeps
 Home, Sessions and Machines in the top bar, with **More** beside them for the rest and a search button for Jump. A phone
 has a slim top bar (logo, search, bell, account) and a 64 px bottom tab bar: Home, Sessions, Machines and More. While
@@ -18,10 +18,10 @@ the bell are for a writer in accounts mode only.
 
 | Part | What it shows, and from where | Arrives with |
 | --- | --- | --- |
-| Fleet strip | One card per machine from the health report: the status in words (online, paused, reconnecting or offline) with a dot that also differs by shape, the live sessions on it of any kind ("sessions running"), CPU from a fresh report or **No reading**, and the skills line from the last finished sync check for the current desired skills, or **Not checked**. A machine that is not reporting shows its last known count and says so. There is no worktree figure. **Add a machine** opens the existing dialog on Machines. | Worktree count: PR B |
-| In flight | Live sessions, and finished ones for a day, grouped by Project, Machine or State. A session joins a Project when a recent run of that Project started it. Each row shows the state word and where it came from ("from the session's state" or "from the exit code"). There is no step or progress bar. | Folder Projects: PR B. Attention states: PR G |
+| Fleet strip | One card per machine from the health report: the status in words (online, paused, reconnecting or offline) with a dot that also differs by shape, the live sessions on it of any kind ("sessions running"), CPU from a fresh report or **No reading**, the worktrees live sessions there are in ("3 worktrees in use"; no record says which other worktrees were removed), and the skills line from the last finished sync check for the current desired skills, or **Not checked**. A machine that is not reporting shows its last known count and says so. **Add a machine** opens the existing dialog on Machines. | OS version: PR C |
+| In flight | Live sessions, and finished ones for a day, grouped by project, Machine or State. A session joins the folder project it was started in (its own project id); the subtitle is `project · machine · branch`. Each row shows the state word and where it came from ("from the session's state" or "from the exit code"). There is no step or progress bar. | Attention states: PR G |
 | Needs you | "Nothing needs you." with a count of 0. Nothing signals today that a session needs the person. | Cards: PR G. Decision cards: a later programme |
-| Project rail | Your saved Projects, read-only, with **Add** opening the existing New project dialog. Under 1240 px it is a 56 px strip. | Folder Projects and the card menu: PR B. Select: PR E |
+| Project rail | Your folder projects ([Projects](projects.md)): each card's machine, base branch, state in words and worktrees in use; choosing one opens Start an agent in its folder; a menu with New session here, Edit, Worktrees, Move up and down, and Remove from reet. **Add** opens the folder browser. Under 1240 px it is a 56 px strip; on a tablet or phone it sits under In flight. | Setting the launch bar's project, Select: PR E. The phone rail on Sessions: PR H |
 | Start an agent | A docked button that opens the existing Start an agent dialog. | The launch sentence: PR E |
 | Bell | The Needs you count, which is 0 today and shows no badge. | PR G |
 

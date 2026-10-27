@@ -12,6 +12,9 @@
 
 ## Global Constraints
 
+- Quicker plan (ruling, 27 October 2026, user-approved): PR P is folded into C (P1 tokens/spacing, P2 top bar/tab bars) and E (P4 fleet strip, P5 In flight/Needs you/dock); PRs F (YOLO) and G (attention) are deferred past the first pass, and the Program 2 spike runs in parallel. Fidelity checks still apply to every PR that carries a P task.
+- Handoff: every PR in this stack updates the "Agents home redesign" block at the top of `handoff.md` (its row in the state table and any new limits) before it merges. The last task of each PR owns this.
+
 - Never name the products behind the reference designs or other products in repo files or UI; say "the reference designs". Example machines in tests and docs: `studio`, `server`, `desk`; projects `reet`, `site`, `notes`.
 - "Started" means the connector started the program in tmux; "verified" and "healthy" never describe a machine, session or worktree; no step count or progress bar for a terminal session (R10).
 - Voice (`docs/voice-and-copy.md`): Yorkshire only in headings, ledes and success lines; buttons, states, refusals and the YOLO dialog are plain. Copy is taken verbatim from the spec.
@@ -26,6 +29,8 @@
 - Breakpoints: phone `PHONE_SCREEN` (`web/src/lib/terminal/sizing.ts`), tablet 651–1099 px, desktop ≥1100 px.
 - Platform: Linux and macOS; tests resolve `/tmp` symlinks and never assume `sh`. Build the frontend before Go checks. Commit trailers as the session requires.
 - Do not edit the shared dialog shell (`web/src/lib/dialogShell.ts`, `web/src/dialog-shell.css`); consume its `shell` action. PR D starts after it merges (#217).
+- **Design fidelity (user ruling, 27 Oct): every pull request aims at the approved mock-up 100%, in layout, spacing, type, colour, copy and behaviour at 1440, 834 and 390 px.** The mock-up lives in the repo at `docs/design/agents-home/` (`Main`, `Tablet`, `Session`, `AddProject`, `Yolo`, `PhoneHome`, `PhoneRail`, `PhoneSession`, `PhoneAdd` as `.dc.html`, plus the reference renders `ref-home-desktop.png`, `ref-session-desktop.png`, `ref-yolo-dialog.png`). Where real data cannot yet fill a part, the part is built to the mock-up's shape and says so in words (never invented data, R10/R12), so each later PR only swaps data in and never re-lays-out. A UI task is not done until its fidelity check passes (below).
+- **Fidelity check (every UI task and every PR):** the implementer renders the shipped screen at the mock-up's own sizes (1440x900, 834x1112 and 390x844) with fixture data shaped like the mock-up's, compares it with the matching `.dc.html`/reference render, and lists every deviation (layout, spacing, type size/weight, colour token, copy, icon, state, interaction) in the task report with a reason; "no data source yet" is the only accepted reason and must show the honest empty form. The reviewer repeats the comparison independently; an unexplained deviation is a blocking finding. `docs/ui-verification.md` records the comparison per PR.
 - PR D uses existing APIs only and shows no figure without a source; every later pull request swaps its real piece into the shell and lists its layout tweaks.
 
 ## Execution order
@@ -148,6 +153,21 @@ What PR D uses, and from where:
 - [ ] Step 4: add `home.e2e.mjs` to the workflow split across the existing jobs (≤60 s added); docs: `docs/terminal-workspace.md` (Home, the tabs, what Home shows today and what arrives with which pull request), `docs/control-centre.md` (Home sits at `/`; Control stays under More until PR H folds it in, R4). Commit "Check the shell and Home across screens and themes".
 
 **PR D validation, review and merge:** the common steps. PR title "Add the app shell and Home on today's data".
+
+## PR P — Home fidelity polish (lands right after PR B)
+
+Source: `docs/design/agents-home/fidelity-audit-1.md` (audit of the shipped Home against the mock-up at 1440, 834 and 390 px: 37 items fixable now, 8 needing a ruling, 20 waiting on later PRs, 4 that conflict with rulings). Rulings made on the audit (user directive: the mock-up wins everywhere it does not conflict with an honesty ruling; where it hides a feature, the feature stays reachable elsewhere):
+
+- In flight is a **flat list with no group headings** (as drawn); **Group by** reorders it, and the project, machine or state still reads in each row's subtitle. Branch is plain text on desktop as drawn and omitted on tablet and phone rows.
+- **Group by is hidden on tablet and phone** (as drawn); the stored choice still applies.
+- The **top bar on tablet and phone shows no search button or avatar** (as drawn); **Jump search and the account menu move into the More sheet** so nothing becomes unreachable.
+- The phone current tab keeps a non-colour cue (weight 600 as drawn).
+- The machine's status stays a dot plus a visually hidden word; the dot for a machine that is not connected is grey (connection state, not activity).
+- Phone submit says "Add this project", desktop "Add project", as each screen draws it.
+- The OS version ("Ubuntu 24.04") needs a connector field no PR carries: show "Linux" or "macOS" now and add `osVersion` to PR C's capability work (Task C2).
+- Rail changes (P-3) are folded into **Task B6**, which rewrites the rail anyway; the other four tasks form this PR.
+
+Tasks (exact target values are in the audit report): **P1** tokens and base spacing (`--bg-sunk`, `--line-mid`, `--faint`, `--accent-wash`, dock shadow; line-height 1.3 on Home and the shell bar; 15 px base font at 1099 px and under; no site footer on Home); **P2** top bar and tab bars (desktop gaps, 326 px search, tab type, 2 px underline, 36 px solid avatar; tablet/phone chrome; logo 120 px; phone bell and tab bar); **P3 (inside B6)** rail 301 px column and card structure; **P4** fleet strip (card height, "CPU 38%" on the figure row, OS word, Add tile, tablet and phone chips); **P5** In flight rows, Needs you count, dock. Each task ends with the fidelity check from Global Constraints (render at the three sizes, compare with `ref-home-desktop.png` and the `.dc.html`, list remaining deviations with reasons).
 
 ## PR A — browse and branches on the wire
 

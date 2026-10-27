@@ -15,14 +15,24 @@ import (
 )
 
 var (
-	ErrRemoteNotFound   = errors.New("remote machine record unavailable")
-	ErrTerminalConflict = errors.New("terminal operation conflicts with existing state")
-	ErrTerminalCapacity = errors.New("terminal session capacity reached")
-	ErrTerminalNotReady = errors.New("terminal is not ready")
+	ErrRemoteNotFound         = errors.New("remote machine record unavailable")
+	ErrTerminalConflict       = errors.New("terminal operation conflicts with existing state")
+	ErrTerminalCapacity       = errors.New("terminal session capacity reached")
+	ErrTerminalNotReady       = errors.New("terminal is not ready")
+	ErrProjectMachineMismatch = errors.New("project is on another machine")
 )
 
 func (s *Store) migrateTerminal() error {
 	if err := s.migrateTerminalTables(); err != nil {
+		return err
+	}
+	// Launch metadata the session listing shows. tool and model are copied
+	// from the stored create (never its prompt) when the column first appears,
+	// so sessions started before then list them too. effort and yolo have no
+	// source yet and stay '' and 0. project_id is NULL for a session started
+	// outside a project.
+	hadTool, err := hasColumn(s.db, "terminal_sessions", "tool")
+	if err != nil {
 		return err
 	}
 	// Columns added for worktrees: where a worktree create made its worktree,
@@ -33,6 +43,11 @@ func (s *Store) migrateTerminal() error {
 		{"terminal_sessions", "worktree_branch TEXT NOT NULL DEFAULT ''"},
 		{"terminal_operations", "reason TEXT NOT NULL DEFAULT ''"},
 		{"terminal_operations", "detail TEXT NOT NULL DEFAULT ''"},
+		{"terminal_sessions", "tool TEXT NOT NULL DEFAULT ''"},
+		{"terminal_sessions", "model TEXT NOT NULL DEFAULT ''"},
+		{"terminal_sessions", "effort TEXT NOT NULL DEFAULT ''"},
+		{"terminal_sessions", "yolo INTEGER NOT NULL DEFAULT 0 CHECK(yolo IN (0,1))"},
+		{"terminal_sessions", "project_id TEXT"},
 	} {
 		ok, err := hasColumn(s.db, c.table, strings.Fields(c.ddl)[0])
 		if err != nil {
@@ -42,6 +57,13 @@ func (s *Store) migrateTerminal() error {
 			if _, err := s.db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.ddl); err != nil {
 				return err
 			}
+		}
+	}
+	if !hadTool {
+		if _, err := s.db.Exec(`UPDATE terminal_sessions SET
+			tool=COALESCE((SELECT json_extract(o.parameters,'$.tool') FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='create' AND json_valid(o.parameters)),''),
+			model=COALESCE((SELECT json_extract(o.parameters,'$.model') FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='create' AND json_valid(o.parameters)),'')`); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -266,21 +288,34 @@ type TerminalSession struct {
 	ExitCode      *int                       `json:"exitCode"`
 	// Set only for a session started in its own worktree: the folder, the
 	// repository name the machine used (what worktree status and remove take)
-	// and the branch.
+	// and the branch. All three are absent from the JSON without a worktree.
 	WorktreePath   string `json:"worktreePath,omitempty"`
 	WorktreeRepo   string `json:"worktreeRepo,omitempty"`
 	WorktreeBranch string `json:"worktreeBranch,omitempty"`
+	// Launch metadata for the listing. The opening prompt is deliberately
+	// absent: it is kept only with the create request. Effort and Yolo have
+	// no source yet and are always "" and false, so the shape is stable.
+	// ProjectID is null for a session started outside a folder project.
+	Tool      string  `json:"tool"`
+	Model     string  `json:"model"`
+	Effort    string  `json:"effort"`
+	Yolo      bool    `json:"yolo"`
+	ProjectID *string `json:"projectId"`
 }
 
-const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}')`
+const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,tool,model,effort,yolo,project_id,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}')`
 
 func readTerminal(row interface{ Scan(...any) error }) (TerminalSession, error) {
 	var t TerminalSession
 	var exit sql.NullInt64
-	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.RemoveHistory)
+	var project sql.NullString
+	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.Tool, &t.Model, &t.Effort, &t.Yolo, &project, &t.RemoveHistory)
 	if exit.Valid {
 		n := int(exit.Int64)
 		t.ExitCode = &n
+	}
+	if project.Valid {
+		t.ProjectID = &project.String
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return t, ErrRemoteNotFound
@@ -366,10 +401,25 @@ func (s *Store) ReserveTerminalCreateFor(uid int64, agentID, requestID string, g
 				return ErrTerminalConflict
 			}
 			t, err = terminalForTx(tx, uid, agentID, sessionID)
-			return err
+			if err != nil {
+				return err
+			}
+			// The project is not in the stored parameters; a retry must
+			// name the same one (or none) all the same.
+			if (t.ProjectID == nil && in.ProjectID != "") || (t.ProjectID != nil && *t.ProjectID != in.ProjectID) {
+				return ErrTerminalConflict
+			}
+			return nil
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
+		}
+		var project sql.NullString
+		if in.ProjectID != "" {
+			if err := projectOnMachine(tx, uid, agentID, in.ProjectID); err != nil {
+				return err
+			}
+			project = sql.NullString{String: in.ProjectID, Valid: true}
 		}
 		c, err := currentGeneration(tx, uid, agentID, generation)
 		if err != nil {
@@ -385,8 +435,11 @@ func (s *Store) ReserveTerminalCreateFor(uid int64, agentID, requestID string, g
 		if accountCount >= terminalproto.MaxSessionsPerAccount || agentCount >= terminalproto.MaxSessionsPerAgent {
 			return ErrTerminalCapacity
 		}
-		t = TerminalSession{ID: syncID(), AgentID: agentID, Title: in.Title, State: terminalproto.Creating, CreatedAt: now(), UpdatedAt: now()}
-		if _, err := tx.Exec(`INSERT INTO terminal_sessions(id,user_id,agent_id,title,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, t.ID, uid, agentID, t.Title, t.State, t.CreatedAt, t.UpdatedAt); err != nil {
+		t = TerminalSession{ID: syncID(), AgentID: agentID, Title: in.Title, State: terminalproto.Creating, CreatedAt: now(), UpdatedAt: now(), Tool: in.Tool, Model: in.Model}
+		if project.Valid {
+			t.ProjectID = &project.String
+		}
+		if _, err := tx.Exec(`INSERT INTO terminal_sessions(id,user_id,agent_id,title,state,created_at,updated_at,tool,model,project_id) VALUES(?,?,?,?,?,?,?,?,?,?)`, t.ID, uid, agentID, t.Title, t.State, t.CreatedAt, t.UpdatedAt, t.Tool, t.Model, project); err != nil {
 			return err
 		}
 		_, err = tx.Exec(`INSERT INTO terminal_operations(request_id,user_id,agent_id,session_id,kind,state,parameters,created_at,updated_at) VALUES(?,?,?,?,'create','pending',?,?,?)`, requestID, uid, agentID, t.ID, string(parameters), t.CreatedAt, t.UpdatedAt)
@@ -397,6 +450,32 @@ func (s *Store) ReserveTerminalCreateFor(uid int64, agentID, requestID string, g
 		return TerminalSession{}, false, err
 	}
 	return t, created, nil
+}
+
+// projectOnMachine checks that a folder project is the account's own and on
+// the session's machine. An unknown id and another account's id give the same
+// ErrFolderProjectNotFound, so the reply never says whether an id exists.
+func projectOnMachine(q interface {
+	QueryRow(string, ...any) *sql.Row
+}, uid int64, agentID, projectID string) error {
+	var same bool
+	err := q.QueryRow(`SELECT EXISTS(SELECT 1 FROM sync_agents a WHERE a.id=? AND a.user_id=p.user_id AND a.id=p.host) FROM folder_projects p WHERE p.user_id=? AND p.id=?`, agentID, uid, projectID).Scan(&same)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrFolderProjectNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if !same {
+		return ErrProjectMachineMismatch
+	}
+	return nil
+}
+
+// TerminalProjectCheckFor answers, before any machine is asked, whether a
+// session on agentID may belong to projectID (see projectOnMachine).
+func (s *Store) TerminalProjectCheckFor(uid int64, agentID, projectID string) error {
+	return projectOnMachine(s.db, uid, agentID, projectID)
 }
 
 // RequestTerminalEndFor is deliberately independent of connection freshness or

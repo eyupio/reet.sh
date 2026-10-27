@@ -81,6 +81,9 @@ type server struct {
 	browseOnce   sync.Once
 	browseLimits *browseLimits
 	browseAudit  *browseAudit
+	// Folder-project writes per account (folder_projects.go).
+	folderWritesMu sync.Mutex
+	folderWrites   *auth.Limiter
 }
 
 // AuthMode selects how the instance authenticates requests.
@@ -260,7 +263,8 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 		st: st, f: f, token: token, version: "dev", commit: "unknown",
 		authMode: AuthToken, limiter: auth.NewLimiter(5, time.Minute), oauthLimiter: auth.NewLimiter(30, time.Minute), dummyHash: dummy,
 		ssoLimiter: auth.NewLimiter(60, time.Minute), logoutLimiter: auth.NewLimiter(60, time.Minute),
-		queue: make(chan ref.Ref, 256),
+		folderWrites: auth.NewLimiter(folderProjectWriteLimit, time.Minute),
+		queue:        make(chan ref.Ref, 256),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -388,6 +392,7 @@ func (s *server) routes() http.Handler {
 	s.registerTerminalRoutes(mux)
 	s.registerBrowseRoutes(mux)
 	s.registerProjectRoutes(mux)
+	s.registerFolderProjectRoutes(mux)
 	s.registerProjectRunRoutes(mux)
 	mux.HandleFunc("GET /quick", s.requireWriter(s.quick))
 	return mux

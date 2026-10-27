@@ -97,7 +97,12 @@ type Profile struct {
 	ShelfView             string `json:"shelfView"`
 	CardsExpanded         bool   `json:"cardsExpanded"`
 	HostedPrefix          string `json:"hostedPrefix"`
-	UpdatedAt             int64  `json:"updatedAt"`
+	// DefaultBaseBranch is the branch a new worktree starts from when the
+	// project names none; blank means the repository's own default.
+	DefaultBaseBranch string `json:"defaultBaseBranch"`
+	// WorktreesByDefault is the person's answer for projects that inherit it.
+	WorktreesByDefault bool  `json:"worktreesByDefault"`
+	UpdatedAt          int64 `json:"updatedAt"`
 }
 
 // SessionInfo is one signed-in browser.
@@ -175,6 +180,9 @@ func (s *Store) migrateBackups() error {
 		{"cards_expanded", "cards_expanded INTEGER NOT NULL DEFAULT 0"},
 		{"terminal_remove_on_close", "terminal_remove_on_close INTEGER NOT NULL DEFAULT 0"},
 		{"hosted_prefix", "hosted_prefix TEXT NOT NULL DEFAULT 'reet-'"},
+		{"default_base_branch", "default_base_branch TEXT NOT NULL DEFAULT ''"},
+		// Rows stored before this setting existed read as yes.
+		{"worktrees_by_default", "worktrees_by_default INTEGER NOT NULL DEFAULT 1"},
 	} {
 		ok, err := hasColumn(s.db, "user_profiles", column.name)
 		if err != nil {
@@ -453,15 +461,15 @@ func (s *Store) DeleteBackupRemote(ownerID int64, name string) error {
 // time so the page has something to show.
 func (s *Store) ProfileFor(userID int64) (Profile, error) {
 	var p Profile
-	err := s.db.QueryRow(`SELECT theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,hosted_prefix,updated_at FROM user_profiles WHERE user_id=?`, userID).
-		Scan(&p.Theme, &p.Timezone, &p.DateFormat, &p.ShelfView, &p.CardsExpanded, &p.TerminalRemoveOnClose, &p.HostedPrefix, &p.UpdatedAt)
+	err := s.db.QueryRow(`SELECT theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,hosted_prefix,default_base_branch,worktrees_by_default,updated_at FROM user_profiles WHERE user_id=?`, userID).
+		Scan(&p.Theme, &p.Timezone, &p.DateFormat, &p.ShelfView, &p.CardsExpanded, &p.TerminalRemoveOnClose, &p.HostedPrefix, &p.DefaultBaseBranch, &p.WorktreesByDefault, &p.UpdatedAt)
 	if err == nil {
 		return p, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return p, err
 	}
-	p = Profile{Theme: "system", DateFormat: "locale", ShelfView: "list", HostedPrefix: DefaultHostedPrefix}
+	p = Profile{Theme: "system", DateFormat: "locale", ShelfView: "list", HostedPrefix: DefaultHostedPrefix, WorktreesByDefault: true}
 	if _, err := s.db.Exec(`INSERT OR IGNORE INTO user_profiles(user_id,theme,timezone,date_format,hosted_prefix,updated_at) VALUES(?,?,?,?,?,?)`,
 		userID, p.Theme, p.Timezone, p.DateFormat, p.HostedPrefix, now()); err != nil {
 		return p, err
@@ -473,11 +481,11 @@ func (s *Store) SaveProfileFor(userID int64, p Profile) error {
 	if p.ShelfView == "" {
 		p.ShelfView = "list"
 	}
-	_, err := s.db.Exec(`INSERT INTO user_profiles(user_id,theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,hosted_prefix,updated_at) VALUES(?,?,?,?,?,?,?,?,?)
+	_, err := s.db.Exec(`INSERT INTO user_profiles(user_id,theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,hosted_prefix,default_base_branch,worktrees_by_default,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(user_id) DO UPDATE SET theme=excluded.theme, timezone=excluded.timezone,
 			date_format=excluded.date_format, shelf_view=excluded.shelf_view, cards_expanded=excluded.cards_expanded, terminal_remove_on_close=excluded.terminal_remove_on_close,
-			hosted_prefix=excluded.hosted_prefix, updated_at=excluded.updated_at`,
-		userID, p.Theme, p.Timezone, p.DateFormat, p.ShelfView, p.CardsExpanded, p.TerminalRemoveOnClose, p.HostedPrefix, now())
+			hosted_prefix=excluded.hosted_prefix, default_base_branch=excluded.default_base_branch, worktrees_by_default=excluded.worktrees_by_default, updated_at=excluded.updated_at`,
+		userID, p.Theme, p.Timezone, p.DateFormat, p.ShelfView, p.CardsExpanded, p.TerminalRemoveOnClose, p.HostedPrefix, p.DefaultBaseBranch, p.WorktreesByDefault, now())
 	return err
 }
 

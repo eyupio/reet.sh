@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { reporting, type FleetCard } from '../home'
+  import { reporting, worktreesInUse, type FleetCard } from '../home'
 
   // One card per enrolled machine in the person's machine order, then Add a machine. Every figure is labelled with what it
   // measures (R12): the running sessions on that machine of any kind, and how many are ending (the listing cannot say which run an agent), the CPU from
-  // a fresh health report or "No reading", and the skills line from the last finished sync check. No worktree figure: no
-  // existing record says which worktrees reet made and has not removed. A card opens that machine on Machines.
+  // a fresh health report or "No reading", the worktrees live sessions there are in ("in use": no record says which other
+  // worktrees reet made and has not removed) and the skills line from the last finished sync check. A card opens that
+  // machine on Machines.
   let { cards, sessions, addHref, loaded }: {
     cards: FleetCard[]
     /** False on the read-only Home: those sign-ins cannot read sessions, so no count is shown rather than a false 0. */
@@ -19,7 +20,7 @@
     const parts = [c.name, c.status]
     if (sessions) {
       const count = running(c.sessionsRunning) + (c.sessionsEnding ? ` · ${c.sessionsEnding} ending` : '')
-      parts.push(reporting(c) ? count : `${count} (last known, not reporting)`)
+      parts.push(reporting(c) ? count : `${count} (last known, not reporting)`, worktreesInUse(c.worktrees))
     }
     parts.push(`CPU ${c.cpu.text}`, c.skills.text)
     return parts.join(', ')
@@ -43,7 +44,7 @@
         {/if}
         <span class="cpu"><span class="label">CPU</span> <span class="value">{c.cpu.text}</span></span>
         <span class="bar {load(c)}" aria-hidden="true">{#if c.cpu.percent !== null}<span style:width={`${Math.max(0, Math.min(100, c.cpu.percent))}%`}></span>{/if}</span>
-        <span class="skills {c.skills.tone}">{c.skills.text}</span>
+        <span class="foot">{#if sessions}<span class="worktrees">{worktreesInUse(c.worktrees)}</span>{/if}<span class="skills {c.skills.tone}">{c.skills.text}</span></span>
       </a>
     {/each}
     {#if addHref}
@@ -86,6 +87,7 @@
   .bar { display: block; height: 6px; border-radius: 3px; background: var(--line-soft); overflow: hidden; }
   .bar > span { display: block; height: 100%; border-radius: 3px; background: var(--good); }
   .bar.warn > span { background: var(--warn); }
+  .foot { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; color: var(--muted); }
   .skills { font-size: 12px; color: var(--muted); }
   .skills.good { color: var(--good); }
   .skills.warn { color: var(--warn); }
@@ -111,7 +113,7 @@
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .cards { gap: 8px; margin-right: -16px; padding-right: 16px; mask-image: linear-gradient(90deg, var(--ink) 85%, transparent); -webkit-mask-image: linear-gradient(90deg, var(--ink) 85%, transparent); }
     .card { flex: none; flex-direction: row; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 999px; }
-    .skills, .caption, .status.online { display: none; }
+    .foot, .caption, .status.online { display: none; }
     .status { white-space: nowrap; }
     .sessions { gap: 4px; color: var(--muted); font-size: 13px; }
     .figure { font: inherit; color: var(--muted); }

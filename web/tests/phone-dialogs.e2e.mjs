@@ -33,6 +33,8 @@ const press = (name, options = {}) => async page => { const b = page.getByRole('
 // A terminal page with a live pane, and a button in its toolbar (which may scroll sideways on a phone).
 const live = `/terminals?agent=${sessions[0].agentId}&session=${sessions[0].id}`
 const tool = name => async page => { await page.locator('.pane[data-connection-state=live]').first().waitFor({timeout:5000}); const b = page.locator('.pane').first().getByRole('button', {name, exact:true}).first(); await b.scrollIntoViewIfNeeded(); await b.click() }
+// A choice in a rail card's menu.
+const menu = (project, item) => async page => { await press(`More for ${project}`, {exact:true})(page); await page.getByRole('menuitem', {name:item, exact:true}).click() }
 const TEXT = 'input:not([type=checkbox]):not([type=radio]):not([type=hidden])'
 const ended = {'/api/v2/terminal/sessions': {sessions:sessions.map(s => ({...s, state:'ended'}))}}
 // field: the text field typed into with the keyboard open. primary: the main action, when it is not the dialog's
@@ -45,11 +47,13 @@ const DIALOGS = [
  {name:'machine commands', path:'/machines', open:p => card(p, 'Commands').click(), primary:'Done', sheet:'full'},
  {name:'machine settings', path:'/machines', open:p => card(p, 'Settings').click(), primary:'Forget machine…', sheet:'full'},
  {name:'confirmation', path:'/machines', open:async p => { await card(p, 'Settings').click(); await p.getByRole('button', {name:'Forget machine…'}).click() }, sheet:'bottom'},
- {name:'new project', path:'/projects', open:press(/^New project/), field:TEXT, sheet:'full'},
- {name:'change project', path:'/projects/proj1', open:press('Change', {exact:true}), field:'textarea', sheet:'full'},
- {name:'start all', path:'/projects/proj1', open:press('Start all', {exact:true}), sheet:'full'},
- {name:'delete project', path:'/projects/proj1', open:press('Delete', {exact:true}), sheet:'bottom'},
- {name:'remove worktree', path:'/projects/proj1', extra:ended, open:press(/^Remove worktree/), sheet:'full'},
+ // Folder projects in Home's rail (under In flight on a phone): Add, a card's Edit, Worktrees and Remove from reet.
+ {name:'add project', path:'/', open:press('Add a project', {exact:true}), field:TEXT, sheet:'full'},
+ {name:'edit project', path:'/', open:menu('site', 'Edit'), field:TEXT, sheet:'full'},
+ {name:'project worktrees', path:'/', open:menu('site', 'Worktrees'), sheet:'full'},
+ {name:'remove project', path:'/', open:menu('site', 'Remove from reet'), sheet:'bottom'},
+ // An old Project run's worktree, from Runs from Projects in Activity.
+ {name:'remove worktree', path:'/activity', extra:ended, open:async p => { await press(/^Site/)(p); await press(/^Remove worktree/)(p) }, sheet:'full'},
  {name:'new list', path:'/shared', open:press('Create a list'), field:TEXT, sheet:'full'},
  // A field low in the form (Selected people), so the browser's own scroll leaves it on the bottom edge, under the pinned
  // (sticky) footer.

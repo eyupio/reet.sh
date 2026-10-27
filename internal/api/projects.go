@@ -21,14 +21,28 @@ const maxProjectBodyBytes = 128 << 10
 
 func (s *server) registerProjectRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/projects", s.projectAccess(s.projectList))
-	mux.HandleFunc("POST /api/v2/projects", s.projectAccess(s.projectCreate))
+	// Saved Projects moved into folder projects (MigrateProjectsToFolders):
+	// they can no longer be made, changed or deleted, so the two cannot
+	// drift apart. Reading them, their runs, starting and retrying a run and
+	// removing a run's worktree keep working until runs move to the rail.
+	mux.HandleFunc("POST /api/v2/projects", s.projectAccess(s.projectsMoved))
 	mux.HandleFunc("GET /api/v2/projects/{id}", s.projectAccess(s.projectGet))
-	mux.HandleFunc("PATCH /api/v2/projects/{id}", s.projectAccess(s.projectUpdate))
-	mux.HandleFunc("DELETE /api/v2/projects/{id}", s.projectAccess(s.projectDelete))
+	mux.HandleFunc("PATCH /api/v2/projects/{id}", s.projectAccess(s.projectsMoved))
+	mux.HandleFunc("DELETE /api/v2/projects/{id}", s.projectAccess(s.projectsMoved))
 	mux.HandleFunc("GET /api/v2/projects/{id}/runs", s.projectAccess(s.projectRuns))
 	// A run lives under its own prefix: /projects/runs/{runId} would clash
 	// with /projects/{id}/runs in the mux (both match /projects/runs/runs).
 	mux.HandleFunc("GET /api/v2/project-runs/{runId}", s.projectAccess(s.projectRun))
+}
+
+// accessWords are the three refusal sentences of featureAccess, naming the
+// feature the routes belong to.
+type accessWords struct{ accounts, signedOut, readOnly string }
+
+var projectsAccessWords = accessWords{
+	accounts:  "Projects need an account signed in through the browser.",
+	signedOut: "Sign in to use Projects.",
+	readOnly:  "This account is read-only, so it can't use Projects.",
 }
 
 // projectAccess admits only a signed-in browser account that may write, as
@@ -36,20 +50,25 @@ func (s *server) registerProjectRoutes(mux *http.ServeMux) {
 // single-token and open modes, and viewers are refused; every change must come
 // from the canonical origin.
 func (s *server) projectAccess(next http.HandlerFunc) http.HandlerFunc {
+	return s.featureAccess(projectsAccessWords, next)
+}
+
+// featureAccess is projectAccess with the feature's own refusal sentences.
+func (s *server) featureAccess(words accessWords, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if s.authMode != AuthAccounts || requestToken(r) != "" {
-			writeErrCode(w, http.StatusForbidden, "accounts_required", "", "Projects need an account signed in through the browser.", "")
+			writeErrCode(w, http.StatusForbidden, "accounts_required", "", words.accounts, "")
 			return
 		}
 		u, ok := s.sessionUser(r)
 		if !ok {
-			writeErrCode(w, http.StatusUnauthorized, "signed_out", "", "Sign in to use Projects.", "")
+			writeErrCode(w, http.StatusUnauthorized, "signed_out", "", words.signedOut, "")
 			return
 		}
 		if u.Role == "viewer" {
-			writeErrCode(w, http.StatusForbidden, "read_only", "", "This account is read-only, so it can't use Projects.", "")
+			writeErrCode(w, http.StatusForbidden, "read_only", "", words.readOnly, "")
 			return
 		}
 		if r.Method != http.MethodGet && !s.terminalOrigin(r) {
@@ -86,52 +105,6 @@ func projectBody(w http.ResponseWriter, r *http.Request, out any) bool {
 	return false
 }
 
-type projectMemberInput struct {
-	Host  string `json:"host"`
-	Dir   string `json:"dir"`
-	Tool  string `json:"tool"`
-	Model string `json:"model"`
-}
-
-// projectInput is the body of a create or an update. A member's position is
-// its place in the list. On an update a field that is absent or null keeps its
-// saved value, and "" clears a text field (sharedPrompt, defaultModel);
-// members, when present and not null, replace the whole list ([] removes
-// every repository).
-type projectInput struct {
-	Name         *string               `json:"name"`
-	DefaultTool  *string               `json:"defaultTool"`
-	DefaultModel *string               `json:"defaultModel"`
-	SharedPrompt *string               `json:"sharedPrompt"`
-	UseWorktrees *bool                 `json:"useWorktrees"`
-	Members      *[]projectMemberInput `json:"members"`
-}
-
-func (in projectInput) apply(p store.Project) store.Project {
-	if in.Name != nil {
-		p.Name = *in.Name
-	}
-	if in.DefaultTool != nil {
-		p.DefaultTool = *in.DefaultTool
-	}
-	if in.DefaultModel != nil {
-		p.DefaultModel = *in.DefaultModel
-	}
-	if in.SharedPrompt != nil {
-		p.SharedPrompt = *in.SharedPrompt
-	}
-	if in.UseWorktrees != nil {
-		p.UseWorktrees = *in.UseWorktrees
-	}
-	if in.Members != nil {
-		p.Members = make([]store.ProjectMember, len(*in.Members))
-		for i, m := range *in.Members {
-			p.Members[i] = store.ProjectMember{Host: m.Host, Dir: m.Dir, Tool: m.Tool, Model: m.Model, Position: i}
-		}
-	}
-	return p
-}
-
 // projectRefusal is a refusal with a stable code and one plain sentence.
 // Statuses: 422 for a field the person can correct in the form (including
 // member_limit and duplicate_member, which are about this request's list);
@@ -150,7 +123,6 @@ func (e projectRefusal) write(w http.ResponseWriter) {
 const (
 	sentenceToolChoice = "Choose one of the agents reet can start."
 	sentenceModel      = "That model name isn't one reet can pass on. Use letters, digits and . _ : / @ + -, up to 100 characters, starting with a letter or digit."
-	sentencePrompt     = "The shared prompt must be valid text of at most 2,000 bytes, without control characters other than line breaks, and must not start with a dash."
 	sentenceTwoWords   = "Write the opening prompt as at least two words."
 	sentenceNotFound   = "That Project isn't on this account."
 	sentenceRunMissing = "That run isn't on this account."
@@ -160,68 +132,6 @@ const (
 func sentenceDir(n int) string {
 	return fmt.Sprintf("Repository %d: the folder must be an absolute path starting with /, at most %d bytes, without control characters or line separators.", n, terminalproto.MaxDirBytes)
 }
-
-// checkProject refuses, with a precise code, every field the store would
-// refuse only with a general invalid-Project error, and every machine that is
-// not one of the account's enrolled machines. The store checks again and owns
-// the name, limit and duplicate rules. keep names the repositories (machine
-// and cleaned folder, exactly as saved) already in the Project: those stay
-// acceptable after their machine is revoked; a new folder on it does not.
-func (s *server) checkProject(uid int64, p store.Project, keep map[string]bool, membersChanged bool) *projectRefusal {
-	if !terminalproto.ValidTool(p.DefaultTool) {
-		return &projectRefusal{422, "invalid_tool", "defaultTool", sentenceToolChoice, ""}
-	}
-	if p.DefaultModel != "" && !terminalproto.ValidModel(p.DefaultModel) {
-		return &projectRefusal{422, "invalid_model", "defaultModel", sentenceModel, ""}
-	}
-	if p.SharedPrompt != "" && !terminalproto.ValidPrompt(p.SharedPrompt) {
-		return &projectRefusal{422, "invalid_prompt", "sharedPrompt", sentencePrompt, ""}
-	}
-	if len(p.Members) > store.MaxProjectMembers {
-		return storeRefusal(store.ErrMemberLimit)
-	}
-	enrolled := map[string]bool{}
-	if membersChanged {
-		agents, err := s.st.SyncAgentsFor(uid)
-		if err != nil {
-			return storeRefusal(err)
-		}
-		for _, a := range agents {
-			enrolled[a.ID] = true
-		}
-	}
-	for i, m := range p.Members {
-		field := fmt.Sprintf("members.%d.", i)
-		n := i + 1
-		dir, err := store.CleanProjectDir(m.Dir)
-		if err != nil {
-			return &projectRefusal{422, "invalid_dir", field + "dir", sentenceDir(n), ""}
-		}
-		if membersChanged && !enrolled[m.Host] && !keep[savedRepository(m.Host, dir)] {
-			return &projectRefusal{422, "unknown_machine", field + "host", fmt.Sprintf("Repository %d: that machine isn't enrolled on this account.", n), ""}
-		}
-		if m.Tool != "" && !terminalproto.ValidTool(m.Tool) {
-			return &projectRefusal{422, "invalid_tool", field + "tool", fmt.Sprintf("Repository %d: choose one of the agents reet can start.", n), ""}
-		}
-		if m.Model != "" && !terminalproto.ValidModel(m.Model) {
-			return &projectRefusal{422, "invalid_model", field + "model", fmt.Sprintf("Repository %d: that model name isn't one reet can pass on. Use letters, digits and . _ : / @ + -, up to 100 characters, starting with a letter or digit.", n), ""}
-		}
-		tool := m.Tool
-		if tool == "" {
-			tool = p.DefaultTool
-		}
-		if terminalproto.PromptNeedsWords(tool, p.SharedPrompt) {
-			return &projectRefusal{422, "prompt_unsupported", "sharedPrompt", sentenceTwoWords, ""}
-		}
-	}
-	if len(p.Members) == 0 && terminalproto.PromptNeedsWords(p.DefaultTool, p.SharedPrompt) {
-		return &projectRefusal{422, "prompt_unsupported", "sharedPrompt", sentenceTwoWords, ""}
-	}
-	return nil
-}
-
-// savedRepository keys a repository by its exact machine id and cleaned folder.
-func savedRepository(host, dir string) string { return host + "\x00" + dir }
 
 // storeRefusal maps every store error for Projects and runs to a stable code
 // and a plain sentence. Unknown errors are a 500 and are logged without
@@ -395,16 +305,6 @@ func viewRun(r store.Run) runView {
 	return v
 }
 
-// auditProject records a Project change: its id, name and repository count.
-// The shared prompt is never part of it.
-func (s *server) auditProject(uid int64, action string, p store.Project, extra map[string]any) {
-	detail := map[string]any{"project": p.ID, "name": p.Name, "members": len(p.Members)}
-	for k, v := range extra {
-		detail[k] = v
-	}
-	s.event(uid, "ui", action, "", detail)
-}
-
 func (s *server) projectList(w http.ResponseWriter, r *http.Request) {
 	uid := s.uid(r)
 	projects, err := s.st.ListProjectsFor(uid)
@@ -441,27 +341,6 @@ func (s *server) projectGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, v)
 }
 
-func (s *server) projectCreate(w http.ResponseWriter, r *http.Request) {
-	var in projectInput
-	if !projectBody(w, r, &in) {
-		return
-	}
-	uid := s.uid(r)
-	// A new Project makes worktrees unless the person says otherwise.
-	p := in.apply(store.Project{UseWorktrees: true})
-	if refusal := s.checkProject(uid, p, nil, true); refusal != nil {
-		refusal.write(w)
-		return
-	}
-	saved, err := s.st.CreateProjectFor(uid, p)
-	if err != nil {
-		storeRefusal(err).write(w)
-		return
-	}
-	s.auditProject(uid, "project-create", saved, nil)
-	writeJSON(w, http.StatusCreated, viewProject(saved))
-}
-
 func projectETag(version int64) string { return `"` + strconv.FormatInt(version, 10) + `"` }
 
 // ifMatch reads an optional If-Match header: the Project version the editor
@@ -478,84 +357,10 @@ func ifMatch(r *http.Request) (int64, bool) {
 	return v, err == nil && v > 0
 }
 
-// projectUpdate merges the body into the saved Project and saves it. With
-// If-Match, the store saves only if the stored version is still that one, so
-// a second editor working from an old read gets project_changed instead of
-// silently undoing the first; without it the last write wins.
-func (s *server) projectUpdate(w http.ResponseWriter, r *http.Request) {
-	var in projectInput
-	if !projectBody(w, r, &in) {
-		return
-	}
-	expect, ok := ifMatch(r)
-	if !ok {
-		writeErrCode(w, http.StatusBadRequest, "invalid_version", "", "The If-Match header must be the Project's version number.", "")
-		return
-	}
-	uid := s.uid(r)
-	current, err := s.st.ProjectFor(uid, r.PathValue("id"))
-	if err != nil {
-		storeRefusal(err).write(w)
-		return
-	}
-	keep := map[string]bool{}
-	for _, m := range current.Members {
-		keep[savedRepository(m.Host, m.Dir)] = true
-	}
-	p := in.apply(current)
-	// The store compares this with the stored version inside its transaction.
-	p.Version = expect
-	if refusal := s.checkProject(uid, p, keep, in.Members != nil); refusal != nil {
-		refusal.write(w)
-		return
-	}
-	saved, err := s.st.UpdateProjectFor(uid, p)
-	if err != nil {
-		storeRefusal(err).write(w)
-		return
-	}
-	var extra map[string]any
-	if saved.Name != current.Name {
-		extra = map[string]any{"previousName": current.Name}
-	}
-	s.auditProject(uid, "project-update", saved, extra)
-	w.Header().Set("ETag", projectETag(saved.Version))
-	writeJSON(w, http.StatusOK, viewProject(saved))
-}
-
-// projectDelete deletes a Project; its runs stay. With If-Match it deletes
-// only the version that was read (409 project_changed otherwise), exactly as
-// an update; without it the delete goes ahead.
-func (s *server) projectDelete(w http.ResponseWriter, r *http.Request) {
-	expect, ok := ifMatch(r)
-	if !ok {
-		writeErrCode(w, http.StatusBadRequest, "invalid_version", "", "The If-Match header must be the Project's version number.", "")
-		return
-	}
-	uid := s.uid(r)
-	id := r.PathValue("id")
-	p, err := s.st.ProjectFor(uid, id)
-	if err != nil {
-		storeRefusal(err).write(w)
-		return
-	}
-	// Any run, however old, that recorded a worktree means some may still be
-	// on a machine; deleting the Project removes none of them and keeps runs.
-	mayHave, err := s.st.ProjectMayHaveWorktrees(uid, id)
-	if err != nil {
-		storeRefusal(err).write(w)
-		return
-	}
-	if err := s.st.DeleteProjectAtFor(uid, id, expect); err != nil {
-		storeRefusal(err).write(w)
-		return
-	}
-	s.auditProject(uid, "project-delete", p, nil)
-	message := "Project deleted. Its runs are kept."
-	if mayHave {
-		message = "Project deleted. Its runs are kept. Worktrees those runs made, if still there, stay on their machines."
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "mayHaveWorktrees": mayHave, "message": message})
+// projectsMoved answers a create, change or delete of a saved Project: they
+// now live in the rail on Home as folder projects. Nothing is read or saved.
+func (s *server) projectsMoved(w http.ResponseWriter, r *http.Request) {
+	writeErrCode(w, http.StatusGone, "projects_moved", "", "Projects now live in the rail on Home.", "")
 }
 
 // projectRuns lists a Project's newest 20 runs, newest first.

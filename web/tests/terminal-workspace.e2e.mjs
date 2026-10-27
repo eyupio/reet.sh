@@ -252,7 +252,7 @@ try{
  failSessions=false
  await hero.getByRole('button',{name:'Refresh active sessions'}).click()
  await expect(hero.getByText('Last known',{exact:true})).toHaveCount(0)
- const started=Date.now()
+ const started=Date.now(),ticketsBefore=tickets.length,socketsBefore=websockets
  await hero.getByRole('link',{name:'Continue Build workspace on dev-laptop'}).click()
  await expect(pane).toHaveAttribute('data-connection-state','resynchronising')
  // Let the restoration status change the layout before the host redraw arrives.
@@ -260,9 +260,15 @@ try{
  expect(await page.locator('.xterm-accessibility-tree [role=listitem]').count()).toBe(ticketSizes[0].rows)
  releaseInitialRedraw()
  await live()
+ // Time the redraw on screen: xterm paints its rows on the next frame, but mirrors them to the
+ // accessibility tree at most once a second (TimeBasedDebouncer), which would put a 1 s step in the clock.
+ await page.waitForFunction(text=>document.querySelector('.xterm-rows')?.textContent.includes(text),'Existing persistent shell')
+ const continued=Date.now()-started
  await expect(page.locator('.xterm-accessibility-tree')).toContainText('Existing persistent shell')
- console.log(`Synthetic continuation: ${Date.now()-started}ms`)
- expect(Date.now()-started).toBeLessThan(2000)
+ console.log(`Synthetic continuation: ${continued}ms (screen reader text by ${Date.now()-started}ms)`)
+ expect(continued).toBeLessThan(2000)
+ // One attachment and one socket: continuing never costs an extra resynchronisation round trip.
+ expect(tickets.length-ticketsBefore).toBe(1);expect(websockets-socketsBefore).toBe(1)
  expect(tickets.at(-1)).toBe(sessionA)
  expect(writes).toHaveLength(0)
  await bounds(1360,900)

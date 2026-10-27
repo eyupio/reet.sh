@@ -50,19 +50,20 @@ try {
   await context.close()
  }
 
- // Jump finds sessions, Projects and machines the workspace already has, and opens the matching page.
+ // Jump finds sessions, folder projects and machines the workspace already has, and opens the matching page (a project on
+ // Home, chosen).
  if (run('jump')) {
   const session = {id:'s1',agentId:'a',title:'Refactor the store layer',state:'running',createdAt:Date.now(),updatedAt:Date.now(),exitCode:null}
-  const project = {id:'p1',name:'Store rewrite',defaultTool:'',defaultModel:'',useWorktrees:false,hasSharedPrompt:false,members:[],createdAt:1,updatedAt:1,version:1}
+  const project = {id:'fp1',host:'a',machine:'studio',dir:'/home/dev/store',name:'Store rewrite',isRepo:true,baseBranch:'',worktreeDefault:'inherit',defaultTool:'',defaultModel:'',hasStarterPrompt:false,note:'',position:0,createdAt:1,updatedAt:1,version:1}
   const {context,page,errors} = await open({width:1440,terminalStatus:active,terminalMachines:[terminalMachine('a','studio',true)],
-   routes:{'/api/v2/terminal/sessions':{sessions:[session]},'/api/v2/projects':{projects:[project]}}})
+   routes:{'/api/v2/terminal/sessions':{sessions:[session]},'/api/v2/folder-projects':{projects:[project],savedWaiting:0}}})
   await page.goto(`${base}/skills`)
   const jump = page.getByRole('combobox',{name:'Jump to a session, project or machine'})
   await jump.fill('store')
   const results = page.getByRole('listbox',{name:'Jump results'})
   await expect(results.getByRole('option')).toHaveCount(2)
   await expect(results.getByRole('option',{name:/Refactor the store layer/})).toHaveAttribute('href','/terminals?agent=a&session=s1')
-  await expect(results.getByRole('option',{name:/Store rewrite/})).toHaveAttribute('href','/projects/p1')
+  await expect(results.getByRole('option',{name:/Store rewrite/})).toHaveAttribute('href','/?project=fp1')
   await jump.fill('stud')
   await expect(results.getByRole('option',{name:/studio/})).toHaveAttribute('href','/machines?machine=studio')
   await jump.press('ArrowDown')
@@ -106,9 +107,8 @@ try {
    const more = page.getByRole('dialog',{name:'More'})
    await expect(more).toBeVisible()
    const links = await more.getByRole('link').allInnerTexts()
-   expect(links.map(t=>t.trim())).toEqual(['Skills','Activity','Control','Projects','Setups','Sync','Lists','Community','Support','Teams & organisations','Host skills'])
+   expect(links.map(t=>t.trim())).toEqual(['Skills','Activity','Control','Setups','Sync','Lists','Community','Support','Teams & organisations','Host skills'])
    await expect(more.getByRole('link',{name:'Control'})).toHaveAttribute('href','/control')
-   await expect(more.getByRole('link',{name:'Projects'})).toHaveAttribute('href','/projects')
    await page.keyboard.press('Escape')
    await expect(more).toBeHidden()
    await expect(bar.getByRole('button',{name:'More'})).toBeFocused()
@@ -144,18 +144,18 @@ try {
  }
 
  // Nothing the old navigation reached is lost: every former destination is a tab or sits under More in the account menu.
- if (run('every former nav destination reachable, Control and Projects under More')) {
+ // Projects left More: folder projects live in Home's rail, and /projects goes there.
+ if (run('every former nav destination reachable, Control under More')) {
   const {context,page,errors} = await open({width:1440})
   await page.goto(base)
   await page.locator('summary[aria-label^="Account menu"]').click()
   const more = page.locator('.panel').getByRole('group',{name:'More'})
   const names = await more.getByRole('link').allInnerTexts()
-  expect(names.map(t=>t.trim())).toEqual(['Control','Projects','Setups','Sync','Lists','Community','Support','Teams & organisations','Host skills'])
+  expect(names.map(t=>t.trim())).toEqual(['Control','Setups','Sync','Lists','Community','Support','Teams & organisations','Host skills'])
   const hrefs = [...await tabs(page).getByRole('link').evaluateAll(els=>els.map(e=>e.getAttribute('href'))), ...await more.getByRole('link').evaluateAll(els=>els.map(e=>e.getAttribute('href')))]
-  for (const former of ['/control','/machines','/terminals','/projects','/skills','/profiles','/sync','/shared','/community','/support','/spaces','/hosting'])
+  for (const former of ['/control','/machines','/terminals','/skills','/profiles','/sync','/shared','/community','/support','/spaces','/hosting'])
    expect(hrefs, `${former} is reachable`).toContain(former)
   await expect(more.getByRole('link',{name:'Control'})).toHaveAttribute('href','/control')
-  await expect(more.getByRole('link',{name:'Projects'})).toHaveAttribute('href','/projects')
   // Notifications, the account and the theme are still in the same menu.
   await expect(page.locator('.panel').getByRole('link',{name:/^Notifications/})).toHaveAttribute('href','/notifications')
   await expect(page.locator('.panel').getByRole('group',{name:'Theme'})).toBeVisible()
@@ -163,7 +163,28 @@ try {
   await context.close()
  }
 
- // The existing pages keep their addresses: /terminals is the Sessions tab, /control and /projects open as before.
+ // Projects is no longer under More, in the account menu or the phone's More sheet: the rail on Home has them.
+ if (run('Projects no longer under More')) {
+  for (const [width,touch] of [[1440,false],[390,true]]) {
+   const {context,page,errors} = await open({width,touch})
+   await page.goto(base)
+   if (touch) {
+    await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'More'}).click()
+    await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Control'})).toBeVisible()
+    await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Projects'})).toHaveCount(0)
+   } else {
+    await page.locator('summary[aria-label^="Account menu"]').click()
+    await expect(page.locator('.panel').getByRole('group',{name:'More'}).getByRole('link',{name:'Control'})).toBeVisible()
+    await expect(page.locator('.panel').getByRole('link',{name:'Projects'})).toHaveCount(0)
+   }
+   await expect(page.locator('a[href="/projects"], a[href^="/projects/"]')).toHaveCount(0)
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+
+ // The existing pages keep their addresses: /terminals is the Sessions tab and /control opens as before; /projects goes to
+ // Home, where folder projects live.
  if (run('/terminals and /control still open their pages')) {
   const {context,page,errors} = await open({width:1440})
   await page.goto(`${base}/control`)
@@ -174,7 +195,8 @@ try {
   expect(await page.title()).toBe('Terminals · reet.sh')
   await expect(tabs(page).getByRole('link',{name:'Sessions',exact:true})).toHaveAttribute('aria-current','page')
   await page.goto(`${base}/projects`)
-  expect(await page.title()).toBe('Projects · reet.sh')
+  await expect(page).toHaveURL(`${base}/`)
+  expect(await page.title()).toBe('Home · reet.sh')
   expect(errors).toEqual([])
   await context.close()
  }
@@ -240,7 +262,7 @@ try {
    await expect(tabs(page).locator('[aria-current]')).toHaveCount(1)
    await context.close()
   }
-  for (const [path,link] of [['/sync','Sync'],['/profiles','Setups'],['/projects','Projects'],['/control','Control']]) {
+  for (const [path,link] of [['/sync','Sync'],['/profiles','Setups'],['/control','Control']]) {
    const {context,page} = await open({width:1440})
    await page.goto(`${base}${path}`)
    await expect(tabs(page).locator('[aria-current]')).toHaveCount(0)
@@ -408,5 +430,5 @@ try {
   expect(errors).toEqual([])
   await context.close()
  }
- console.log('Navigation: five desktop tabs with Home current, the bell and Jump, four phone tabs with More, every former page reachable, /terminals /control /projects kept, /activity, no Sessions or bell for viewers, token and open sign-ins, aria-current, phone search with the keyboard up, notifications in the account menu, one name per area, same-origin fonts.')
+ console.log('Navigation: five desktop tabs with Home current, the bell and Jump, four phone tabs with More, every former page reachable, /terminals and /control kept, /projects to Home and Projects no longer under More, /activity, no Sessions or bell for viewers, token and open sign-ins, aria-current, phone search with the keyboard up, notifications in the account menu, one name per area, same-origin fonts.')
 } finally {await browser.close()}

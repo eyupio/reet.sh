@@ -17,7 +17,9 @@ concurrency:
 jobs:
   terminal-browser:
     runs-on: zoomies-linux-x64
-    timeout-minutes: 15
+    # The UI fixtures take about 8 minutes and the real-binary step then compiles Go from a cold cache; 15 was enough on
+    # the GitHub-hosted runners but cancelled the job mid-compile on the Zoomies runners.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,7 +35,13 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Install tmux when the runner lacks it
+        run: |
+          if command -v tmux >/dev/null; then tmux -V; exit 0; fi
+          if [ "$(id -u)" = 0 ]; then as_root=""; elif command -v sudo >/dev/null; then as_root="sudo"; else
+            echo "::error::tmux is missing and this runner is neither root nor has sudo to install it."; exit 1; fi
+          $as_root apt-get update && $as_root apt-get install -y tmux
+          tmux -V
       - run: npm ci && npm run check && npm run build
         working-directory: web
       - name: Prepare Chromium
@@ -45,6 +53,13 @@ jobs:
             "$browser_path" --version
           else
             npx playwright install --with-deps chromium
+            # The tests default to /usr/bin/chromium; point them at the browser Playwright just installed.
+            chromium_path="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")" || chromium_path=""
+            if [ -z "$chromium_path" ] || [ ! -x "$chromium_path" ]; then
+              echo "::error::Playwright installed Chromium but gave no usable executable path ('$chromium_path'); the browser tests can't start."
+              exit 1
+            fi
+            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$chromium_path" >> "$GITHUB_ENV"
           fi
       - name: Exercise dashboard and terminal workspace UI
         env:
@@ -72,7 +87,6 @@ jobs:
           node web/tests/skill-content.e2e.mjs
           node web/tests/add-machine.e2e.mjs
           node web/tests/start-agent.e2e.mjs
-          node web/tests/projects.e2e.mjs
           node web/tests/terminal-workspace.e2e.mjs
           node web/tests/terminal-lifecycle.e2e.mjs
           node web/tests/terminal-organisation.e2e.mjs
@@ -91,8 +105,9 @@ jobs:
           path: ${{ runner.temp }}/terminal-browser
           if-no-files-found: ignore
 
-  # Its own job, so the phone zoom contract (about 30-40 s) and Home (about 25 s) run alongside the terminal job instead of
-  # adding to its time.
+  # Its own job, so the phone zoom contract, Home with its project rail, the retired Projects addresses and the Add project
+  # dialog's later fixes run alongside the terminal job instead of adding to its time. (Local runs take roughly 45, 60, 5
+  # and 10 s; CI's times differ, so read them from the job log, not from here.)
   phone-zoom:
     runs-on: zoomies-linux-x64
     timeout-minutes: 10
@@ -114,6 +129,13 @@ jobs:
             "$browser_path" --version
           else
             npx playwright install --with-deps chromium
+            # The tests default to /usr/bin/chromium; point them at the browser Playwright just installed.
+            chromium_path="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")" || chromium_path=""
+            if [ -z "$chromium_path" ] || [ ! -x "$chromium_path" ]; then
+              echo "::error::Playwright installed Chromium but gave no usable executable path ('$chromium_path'); the browser tests can't start."
+              exit 1
+            fi
+            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$chromium_path" >> "$GITHUB_ENV"
           fi
       - name: Long names never zoom a phone out, and Home across screens and themes
         env:
@@ -128,8 +150,14 @@ jobs:
           done
           node web/tests/phone-zoom.e2e.mjs
           node web/tests/home.e2e.mjs
+          node web/tests/projects.e2e.mjs
+      # The Add project dialog's later fixes (stale edit, branch suggestions, filter while a folder opens). It serves the
+      # dialog's component fixture with Vite, so it needs no preview server.
+      - name: Add project dialog, later fixes
+        run: node web/tests/add-project-edit.e2e.mjs
 
-  # Its own job, so the phone dialog contract (about 50-55 s) runs alongside the others instead of adding to their time.
+  # Its own job, so the phone dialog contract (about 50-55 s) and the Add project dialog (about 15-20 s) run alongside the
+  # others instead of adding to their time.
   phone-dialogs:
     runs-on: zoomies-linux-x64
     timeout-minutes: 10
@@ -151,6 +179,13 @@ jobs:
             "$browser_path" --version
           else
             npx playwright install --with-deps chromium
+            # The tests default to /usr/bin/chromium; point them at the browser Playwright just installed.
+            chromium_path="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")" || chromium_path=""
+            if [ -z "$chromium_path" ] || [ ! -x "$chromium_path" ]; then
+              echo "::error::Playwright installed Chromium but gave no usable executable path ('$chromium_path'); the browser tests can't start."
+              exit 1
+            fi
+            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$chromium_path" >> "$GITHUB_ENV"
           fi
       - name: Dialogs hold the page still and keep the field in view on phones
         env:
@@ -164,3 +199,7 @@ jobs:
             sleep 1
           done
           node web/tests/phone-dialogs.e2e.mjs
+      # The Add project dialog and its folder browser (about 15-20 s). It serves its own component fixture with Vite, so it
+      # needs no preview server, and it runs here rather than in the terminal job, which is close to its time limit.
+      - name: Add a project by browsing a machine's folders
+        run: node web/tests/add-project.e2e.mjs

@@ -81,6 +81,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.source.outputs.sha }}
+      - name: Install tmux when the runner lacks it
+        run: |
+          if command -v tmux >/dev/null; then tmux -V; exit 0; fi
+          if [ "$(id -u)" = 0 ]; then as_root=""; elif command -v sudo >/dev/null; then as_root="sudo"; else
+            echo "::error::tmux is missing and this runner is neither root nor has sudo to install it."; exit 1; fi
+          $as_root apt-get update && $as_root apt-get install -y tmux
+          tmux -V
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod

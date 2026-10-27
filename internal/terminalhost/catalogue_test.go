@@ -1,15 +1,20 @@
 package terminalhost
 
 import (
+	"embed"
 	"errors"
-	"os"
-	"path/filepath"
+	"io/fs"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
+
+// Captured help travels with standalone test binaries used by the tmux matrix.
+//
+//go:embed testdata/help/*.txt
+var catalogueHelp embed.FS
 
 func TestCatalogueHasSevenAgents(t *testing.T) {
 	var ids []string
@@ -61,10 +66,12 @@ func TestUnconfirmedPresetsNeverLaunch(t *testing.T) {
 }
 
 func TestPresetFlagsAppearInHelpText(t *testing.T) {
+	// A standalone test binary must not depend on its launch directory.
+	t.Chdir(t.TempDir())
 	for _, p := range Catalogue {
-		help, err := os.ReadFile(filepath.Join("testdata", "help", p.Binary+".txt"))
+		help, err := catalogueHelp.ReadFile("testdata/help/" + p.Binary + ".txt")
 		if err != nil {
-			if !os.IsNotExist(err) {
+			if !errors.Is(err, fs.ErrNotExist) {
 				t.Fatal(err)
 			}
 			// The four shipped commands retain their pre-catalogue reviewed flags.

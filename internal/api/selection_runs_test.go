@@ -79,7 +79,9 @@ func TestSelectionRunAuditHasNoPrompt(t *testing.T) {
 	if code != 200 || again["id"] != runID || strings.Contains(raw, "zebra") {
 		t.Fatal(code, raw)
 	}
-	time.Sleep(50 * time.Millisecond)
+	// The replay registered its driver before answering: once that driver has
+	// finished, anything it sent has been counted.
+	waitUntil(t, "the replay's pass to finish", func() bool { return !f.srv.s.runs.Driving(f.uid, runID) })
 	if len(f.creates()) != 3 {
 		t.Fatal("a replay started something")
 	}
@@ -100,9 +102,24 @@ func TestSelectionRunAuditHasNoPrompt(t *testing.T) {
 	launched, _ := json.Marshal(worktreeEvents(t, f.st, f.uid, "terminal-launch"))
 	_, _, read := f.do(t, f.cookie, "GET", "/api/v2/folder-projects/runs/"+runID, nil)
 	_, _, sessions := f.do(t, f.cookie, "GET", "/api/v2/terminal/sessions", nil)
+	// The prompt's second line is nowhere; its first line only as the
+	// sessions' titles (the title a single launch would give).
 	for _, text := range []string{string(events), string(launched), read, sessions, f.logs.String()} {
-		if strings.Contains(text, "zebra-sentinel") || strings.Contains(text, "Fix the failing tests\\n") {
-			t.Fatal("the prompt leaked:", text)
+		if strings.Contains(text, "zebra-sentinel") {
+			t.Fatal("the prompt's second line leaked:", text)
+		}
+	}
+	for _, text := range []string{string(events), read, f.logs.String()} {
+		if strings.Contains(text, "Fix the failing tests") {
+			t.Fatal("the prompt's first line leaked outside a title:", text)
+		}
+	}
+	if n := strings.Count(sessions, `"title":"Fix the failing tests"`); n != 3 {
+		t.Fatalf("%d sessions titled from the prompt's first line: %s", n, sessions)
+	}
+	for name, text := range map[string]string{"sessions": sessions, "launch audit": string(launched)} {
+		if n, titled := strings.Count(text, "Fix the failing tests"), strings.Count(text, `"title":"Fix the failing tests"`); n != titled {
+			t.Fatalf("the %s carry the prompt's first line %d times, only %d as a title: %s", name, n, titled, text)
 		}
 	}
 }
@@ -294,5 +311,17 @@ func TestSelectionRunReplayIsNotRateLimited(t *testing.T) {
 	}
 	if code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/folder-projects/runs", selectionBody(terminalbroker.ID(), ids)); code != 429 || out["code"] != "project_rate_limited" {
 		t.Fatal("a new start past the limit", code, raw)
+	}
+}
+
+// waitUntil polls cond until it holds, failing the test after 20 seconds.
+func waitUntil(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for " + what)
+		}
+		time.Sleep(2 * time.Millisecond)
 	}
 }

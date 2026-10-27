@@ -294,6 +294,16 @@ func (o *Orchestrator) Resume() error {
 	return nil
 }
 
+// Driving reports whether the run has a driver: started and not yet through
+// its last pass. Start registers the driver before it returns, so once Driving
+// is false every create that Start led to has returned.
+func (o *Orchestrator) Driving(uid int64, runID string) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	_, ok := o.runs[runKey{uid, runID}]
+	return ok
+}
+
 // Done is closed when the orchestrator is closed.
 func (o *Orchestrator) Done() <-chan struct{} { return o.ctx.Done() }
 

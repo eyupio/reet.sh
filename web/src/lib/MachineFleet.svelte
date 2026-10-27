@@ -7,7 +7,7 @@
   import type { Machine, SyncAgent, SyncEnvironment, SyncJob, SyncState } from './api'
   import { controlSyncAgent, controlSyncJob, forgetEnvironment, forgetMachine, queueSyncJob, startSyncRun, updateSyncAgent } from './api'
   import { agentBuild, agentGroups, agentUpdateTarget, groupLabel, updateJobFor } from './machines'
-  import { machineStatus, scanOnlyAgents, supportedAgents, syncLink } from './machineSetup'
+  import { machineStatus, scanOnlyAgents, supportedAgents } from './machineSetup'
   import MachineCommands from './MachineCommands.svelte'
   import AgentUpdate from './AgentUpdate.svelte'
   import MachineSettings from './MachineSettings.svelte'
@@ -18,6 +18,7 @@
   import { scopeEligibility } from './contentReview'
   import type { JoinContext } from './machineJoin'
   import ConfirmDialog from './ConfirmDialog.svelte'
+  import { machineSyncOverview } from './syncOverview'
 
   let {
     machines,
@@ -211,14 +212,22 @@
   function savedTargets(machine: Machine) {
     return snapshot.targets.filter(item => item.target.host.toLowerCase() === machine.host.toLowerCase())
   }
-  function activeRun(machine: Machine) {
-    const agent = agentFor(machine)
-    return agent ? (snapshot.runs ?? []).find(run => run.agentId === agent.id && ['running', 'review'].includes(run.status)) : undefined
-  }
   async function syncNow(machine: Machine, agent: SyncAgent) {
     if (await run(`sync-${agent.id}`, () => startSyncRun(agent.id, savedTargets(machine).map(item => item.target.id)))) {
       onnotice(`Automatic sync started for ${machine.host}. Additive plans apply on their own; removals wait for review.`)
     }
+  }
+  function closeMenu(event: MouseEvent) {
+    (event.currentTarget as HTMLElement | null)?.closest('details')?.removeAttribute('open')
+  }
+  async function previewNow(machine: Machine, agent: SyncAgent) {
+    const targets = savedTargets(machine)
+    if (!targets.length) return
+    if (await run(`preview-${agent.id}`, async () => {
+      let next = snapshot
+      for (const item of targets) next = await queueSyncJob(agent.id, item.target.id, 'preview')
+      return next
+    })) onnotice(`Preview queued for ${targets.length} agent ${targets.length === 1 ? 'scope' : 'scopes'} on ${machine.host}. Installed files stay unchanged until you approve.`)
   }
   async function updateAgent(agent: SyncAgent, version: string = agentUpdateTarget(agent)) {
     if (await run(`update-${agent.id}`, () => updateSyncAgent(agent.id, version))) {
@@ -318,6 +327,7 @@
       {@const supported = supportedAgents(machine)}
       {@const scanOnly = scanOnlyAgents(machine)}
       {@const state = machineStatus(machine)}
+      {@const sync = machineSyncOverview(machine, snapshot)}
       <article class="machine" class:just-added={highlight === machine.host} aria-current={highlight === machine.host ? 'true' : undefined} aria-labelledby={`machine-${machine.host}`}>
         <header class="machine-head">
           <div class="identity">
@@ -330,6 +340,34 @@
           </div>
           <span class="badge {state}">{stateLabel(machine)}</span>
         </header>
+
+        <div class="sync-band {sync.tone}">
+          <div class="sync-copy">
+            <span class="sync-pulse" class:live={sync.tone === 'working'} aria-hidden="true"></span>
+            <div><strong>{sync.label}</strong><small>{sync.detail}</small></div>
+          </div>
+          <div class="sync-cta">
+            {#if sync.canSync}
+              <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); if (enrolled) void syncNow(machine, enrolled) }}>{busy === `sync-${enrolled?.id}` ? 'Starting…' : 'Sync now'}</button>
+            {:else if sync.tone === 'working'}
+              <a class="btn sync-now" href="/sync#sync-jobs">View progress</a>
+            {:else}
+              <a class="btn sync-now" href={sync.href}>{sync.tone === 'setup' ? 'Set up sync' : 'Open sync'}</a>
+            {/if}
+            <details class="sync-menu">
+              <summary aria-label={`More sync options for ${machine.host}`} title="More sync options"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg></summary>
+              <div class="sync-menu-panel" role="menu">
+                <a role="menuitem" href={`/sync?machine=${encodeURIComponent(machine.host)}`}>Choose skills &amp; scopes</a>
+                {#if enrolled && savedTargets(machine).length}<button type="button" role="menuitem" disabled={!!busy || enrolled.paused || sync.tone === 'working'} onclick={(event) => { closeMenu(event); void previewNow(machine, enrolled) }}>Preview changes only</button>{/if}
+                {#if enrolled}<button type="button" role="menuitem" disabled={!!busy} onclick={(event) => { closeMenu(event); void scan(enrolled) }}>Rescan machine</button>{/if}
+                <a role="menuitem" href="/sync#sync-jobs">Review sync activity</a>
+              </div>
+            </details>
+          </div>
+          {#if sync.progress}
+            <div class="sync-track" aria-hidden="true"><span style:width={`${Math.round((sync.progress.done / Math.max(1, sync.progress.total)) * 100)}%`}></span></div>
+          {/if}
+        </div>
         {#if enrolled&&health.machines.some(item=>item.agentId===enrolled.id)}<MachineHealthStrip compact health={health.machines.find(item=>item.agentId===enrolled.id)} serverNow={health.serverNow+healthElapsed} />{/if}
 
         <div class="meta">
@@ -337,7 +375,6 @@
           <span><strong>{groups.length}</strong> agent {groups.length === 1 ? 'scope' : 'scopes'}</span>
           <span>Last report <strong>{lastSeen(machine)}</strong></span>
           {#if enrolled}<span class="live"><span aria-hidden="true">●</span> {agentState(enrolled)}</span><span class="build" title={enrolled.commit ? `commit ${enrolled.commit}` : undefined}>reet {agentBuild(enrolled)}</span>{/if}
-          {#if activeRun(machine)}{@const run = activeRun(machine)!}<span class="sync-run">Sync run {run.cursor}/{run.targets.length}{run.status === 'review' ? ' · review needed' : ''}</span>{/if}
         </div>
         <div class="agent-chips" aria-label="Agent scopes">
           {#each supported as group (group.id)}<span class="agent-chip">{groupLabel(group)} <strong>{group.skillCount ?? 0}</strong></span>{/each}
@@ -357,11 +394,6 @@
         {/if}
 
         <div class="actions">
-          {#if enrolled && savedTargets(machine).length}
-            <button class="btn primary" type="button" disabled={!!busy || enrolled.paused} onclick={() => syncNow(machine, enrolled)}>{busy === `sync-${enrolled.id}` ? 'Starting…' : savedTargets(machine).length > 1 ? 'Sync saved skills' : 'Sync this machine'}</button>
-          {:else}
-            <a class="btn primary" href={syncLink(machine.host)}>Choose skills to sync</a>
-          {/if}
           {#if terminalAccess&&enrolled}<a class="btn" href={`/machines?view=terminal&agent=${encodeURIComponent(enrolled.id)}`}>Open terminal</a>{/if}
           {#if terminalAccess&&enrolled}{@const why = agentReadiness(enrolled.id)}<button class="btn" type="button" disabled={!!why} aria-describedby={why ? `start-agent-${m}` : undefined} onclick={(event) => (startAgent = { agent: enrolled.id, opener: event.currentTarget })}>Start an agent</button>{/if}
           <button class="btn" type="button" onclick={() => (commandsFor = machine)}>Commands</button>
@@ -489,7 +521,36 @@
   .meta strong { color: var(--ink); font-weight: 600; }
   .live { color: var(--good); }
   .build { color: var(--ink); }
-  .sync-run { color: var(--accent-text); }
+  .sync-band { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--bg) 52%, var(--card)); }
+  .sync-copy { display: flex; align-items: flex-start; gap: 9px; min-width: 0; flex: 1 1 220px; }
+  .sync-copy > div { display: grid; gap: 1px; min-width: 0; }
+  .sync-copy strong { font-size: 0.8rem; overflow-wrap: anywhere; }
+  .sync-copy small { color: var(--muted); font-size: 0.72rem; line-height: 1.45; overflow-wrap: anywhere; }
+  .sync-pulse { width: 9px; height: 9px; border-radius: 50%; flex: none; margin-top: 5px; background: var(--muted); }
+  .sync-band.action { border-color: color-mix(in srgb, var(--accent) 32%, var(--line)); }
+  .sync-band.action .sync-pulse { background: var(--accent); }
+  .sync-band.review { border-color: color-mix(in srgb, var(--warn) 32%, var(--line)); }
+  .sync-band.review .sync-pulse { background: var(--warn); }
+  .sync-band.attention { border-color: color-mix(in srgb, var(--bad) 30%, var(--line)); }
+  .sync-band.attention .sync-pulse { background: var(--bad); }
+  .sync-band.synced .sync-pulse { background: var(--good); }
+  .sync-band.setup .sync-pulse { background: var(--line-strong); }
+  .sync-pulse.live { background: var(--accent); animation: sync-pulse 1.4s ease-in-out infinite; }
+  @keyframes sync-pulse { 50% { opacity: 0.35; transform: scale(0.8); } }
+  .sync-cta { display: flex; align-items: center; gap: 6px; flex: none; }
+  .sync-now { min-height: 36px; padding: 6px 12px; font-size: 0.78rem; }
+  .sync-menu { position: relative; }
+  .sync-menu > summary { list-style: none; display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card); color: var(--muted); cursor: pointer; }
+  .sync-menu > summary::-webkit-details-marker { display: none; }
+  .sync-menu > summary:hover, .sync-menu[open] > summary { color: var(--ink); border-color: var(--muted); }
+  .sync-menu > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sync-menu > summary svg { width: 18px; height: 18px; }
+  .sync-menu-panel { position: absolute; z-index: 20; right: 0; top: calc(100% + 6px); display: grid; min-width: 214px; padding: 6px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card-raised); box-shadow: var(--shadow); }
+  .sync-menu-panel a, .sync-menu-panel button { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: inherit; font-size: 0.78rem; text-align: left; text-decoration: none; cursor: pointer; }
+  .sync-menu-panel a:hover, .sync-menu-panel button:hover:not(:disabled) { background: var(--tint); }
+  .sync-menu-panel button:disabled { color: var(--muted); cursor: default; }
+  .sync-track { flex-basis: 100%; height: 4px; overflow: hidden; border-radius: 999px; background: var(--line); }
+  .sync-track span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--info)); transition: width 0.4s var(--ease-out); }
   .agent-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   /* A scope's label can carry a long folder path with no spaces: let it break anywhere so it never widens the page. */
   .agent-chip { min-width: 0; max-width: 100%; padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 0.69rem; overflow-wrap: anywhere; }
@@ -519,5 +580,11 @@
     @media (max-width: 560px) {
     .machine { padding: 14px; }
     .actions .btn { flex: 1 1 auto; }
+    .sync-cta { width: 100%; }
+    .sync-cta .btn { flex: 1 1 auto; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sync-pulse.live { animation: none; }
+    .sync-track span { transition: none; }
   }
 </style>

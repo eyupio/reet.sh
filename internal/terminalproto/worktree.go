@@ -23,6 +23,7 @@ type WorktreeReason string
 const (
 	// WorktreeNotRepoRoot: the folder is not the top of a normal git working tree.
 	WorktreeNotRepoRoot WorktreeReason = "not_repo_root"
+	WorktreeBaseMissing WorktreeReason = "base_missing"
 	// WorktreeRepoBusy: a merge, rebase, cherry-pick, revert or bisect is in progress.
 	WorktreeRepoBusy WorktreeReason = "repo_busy"
 	// WorktreeExists: the destination or branch exists and is not this run's.
@@ -56,7 +57,7 @@ const (
 
 func (r WorktreeReason) Valid() bool {
 	switch r {
-	case WorktreeNotRepoRoot, WorktreeRepoBusy, WorktreeExists, WorktreeGitFailed, WorktreeOutsideHome, WorktreeNotRegistered, WorktreeHasChanges,
+	case WorktreeBaseMissing, WorktreeNotRepoRoot, WorktreeRepoBusy, WorktreeExists, WorktreeGitFailed, WorktreeOutsideHome, WorktreeNotRegistered, WorktreeHasChanges,
 		WorktreeUnreferencedCommits, WorktreeNestedRepository, WorktreeHiddenChanges, WorktreeCheckIncomplete:
 		return true
 	}

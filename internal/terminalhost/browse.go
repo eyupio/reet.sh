@@ -63,7 +63,7 @@ type osFS struct{}
 // resolved component by component beneath it, and a link (or "..") that
 // would leave it, even one swapped in mid-browse, is refused there.
 func (osFS) rootAt(dir string) (FS, func(), error) {
-	root, err := os.OpenRoot(dir)
+	root, err := openRootNoBlock(dir)
 	if err != nil {
 		return nil, nil, err
 	}

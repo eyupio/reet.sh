@@ -81,7 +81,10 @@ folder browser protocol").
   `partialclone` or `promisor`, the repository config includes another file, a `.promisor` pack is
   there, or one of them cannot be read for certain, the first call is instead `for-each-ref
   --count=201 --sort=refname --format=%(refname) refs/heads refs/remotes`, which reads refs and no
-  objects, and the branches come in name order rather than newest first.
+  objects, and the branches come in name order rather than newest first. These files are read only
+  when they are regular files (checked before opening) and are opened without blocking, so a FIFO or
+  device in their place counts as "cannot be read for certain" at once and never holds the listing;
+  the `.git` folder itself is opened as a directory only, without blocking.
 - **Names.** Short names (`main`, `origin/main`), newest first (by name for a partial clone, see
   above), at most 200, and the answer fits
   12 KiB; `more` says the list was cut. A remote's `HEAD`, a branch called `HEAD`, a repeated short

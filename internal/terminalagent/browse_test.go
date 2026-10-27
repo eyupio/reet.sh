@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -383,6 +384,36 @@ func TestAgentBrowseRefusedLocally(t *testing.T) {
 		}
 		if body := branchesCall(t, handle, got, &terminalproto.Branches{Dir: filepath.Join(home, "site")}); !reflect.DeepEqual(body, want) {
 			t.Fatalf("%s: branches %+v", name, body)
+		}
+	}
+}
+
+// A FIFO as the repository's .git/config never holds a listing: it is
+// answered at once and its slot (and the process-wide count) is freed.
+func TestAgentBranchesFifoConfigFreesItsSlot(t *testing.T) {
+	waitIdle(t)
+	handle, got, home := browseConnector(t, allFeatures, nil)
+	t.Setenv("HOME", home)
+	pipe := filepath.Join(home, "site", ".git", "config")
+	if err := syscall.Mkfifo(pipe, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if f, err := os.OpenFile(pipe, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+			f.Close()
+		}
+	})
+	start := time.Now()
+	m := branchesCall(t, handle, got, &terminalproto.Branches{Dir: filepath.Join(home, "site")})
+	if !reflect.DeepEqual(m, terminalproto.BranchesResult{Current: "main", Branches: []string{"main"}}) {
+		t.Fatalf("%+v", m)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatal("the listing waited on the FIFO for", elapsed)
+	}
+	for deadline := time.Now().Add(time.Second); branchesRunning.Load() != 0; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("a listing is still running", branchesRunning.Load())
 		}
 	}
 }

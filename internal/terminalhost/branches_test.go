@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -598,5 +599,129 @@ func TestPromisorRepositoryIsSeenWithoutGit(t *testing.T) {
 	symlink(t, outside, filepath.Join(repo, ".git", "config"))
 	if !promisorRepo(repo) {
 		t.Error("a config link leading out of .git was trusted")
+	}
+}
+
+// fifo makes a FIFO at path that nothing writes to, so a plain open for
+// reading would block for ever. Cleanup opens it for writing once, which
+// frees any reader stuck on it.
+func fifo(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if f, err := os.OpenFile(path, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+			f.Close()
+		}
+	})
+}
+
+// A FIFO where the partial-clone check reads a file never holds the
+// listing: it answers at once, listing by name (a file that cannot be read
+// for certain counts as a possible partial clone).
+func TestListBranchesNeverBlocksOnAFifo(t *testing.T) {
+	system := systemGitConfig
+	t.Cleanup(func() { systemGitConfig = system })
+	for _, tc := range []struct {
+		name string
+		at   func(home, repo string) string
+	}{
+		{"repository config", func(_, repo string) string { return filepath.Join(repo, ".git", "config") }},
+		{"pack folder", func(_, repo string) string { return filepath.Join(repo, ".git", "objects", "pack") }},
+		{"promisor pack entry", func(_, repo string) string { return filepath.Join(repo, ".git", "objects", "pack", "pack-1.promisor") }},
+		{"~/.gitconfig", func(home, _ string) string { return filepath.Join(home, ".gitconfig") }},
+		{"~/.config/git/config", func(home, _ string) string { return filepath.Join(home, ".config", "git", "config") }},
+		{"system config", func(home, _ string) string { return filepath.Join(home, "etc-gitconfig") }},
+	} {
+		home := browseHome(t)
+		t.Setenv("HOME", home)
+		systemGitConfig = filepath.Join(home, "etc-gitconfig")
+		repo := filepath.Join(home, "site")
+		makeRepo(t, repo)
+		fifo(t, tc.at(home, repo))
+		calls, git := recordingGit(cannedGit("refs/heads/main\n", "main", ""))
+		done := make(chan terminalproto.BranchesResult, 1)
+		go func() { done <- ListBranches(context.Background(), home, terminalproto.Branches{Dir: repo}, git) }()
+		select {
+		case r := <-done:
+			if !reflect.DeepEqual(r, terminalproto.BranchesResult{Current: "main", Branches: []string{"main"}}) {
+				t.Fatalf("%s: %+v", tc.name, r)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s: the listing is stuck on a FIFO", tc.name)
+		}
+		if got := calls(); len(got) == 0 || !reflect.DeepEqual(got[0].args, branchesByNameArgv) {
+			t.Fatalf("%s: not listed by name: %q", tc.name, got)
+		}
+	}
+}
+
+// openRootNoBlock refuses anything but a directory without waiting on it.
+func TestOpenRootNeverBlocks(t *testing.T) {
+	dir := shortTempDir(t)
+	pipe := filepath.Join(dir, "pipe")
+	fifo(t, pipe)
+	done := make(chan error, 1)
+	go func() {
+		root, err := openRootNoBlock(pipe)
+		if err == nil {
+			root.Close()
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a FIFO opened as a root")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("opening a FIFO as a root is stuck")
+	}
+	putFile(t, filepath.Join(dir, "file"), "x")
+	if root, err := openRootNoBlock(filepath.Join(dir, "file")); err == nil {
+		root.Close()
+		t.Fatal("a file opened as a root")
+	}
+	root, err := openRootNoBlock(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if _, err := root.Lstat("file"); err != nil {
+		t.Fatal("the root does not reach its folder", err)
+	}
+}
+
+// The opens behind the regular-file checks never wait, even on a FIFO that
+// got past the check (swapped in after it), and what they open is refused.
+func TestConfigOpensNeverBlock(t *testing.T) {
+	dir := shortTempDir(t)
+	fifo(t, filepath.Join(dir, "pipe"))
+	root, err := openRootNoBlock(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	for name, open := range map[string]func() (*os.File, error){
+		"beneath a root": func() (*os.File, error) { return openNoBlockIn(root, "pipe") },
+		"by path":        func() (*os.File, error) { return openNoBlock(filepath.Join(dir, "pipe")) },
+	} {
+		done := make(chan error, 1)
+		go func() {
+			_, err := readSmall(open())
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Fatal(name, ": a FIFO was read as a config")
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal(name, ": opening a FIFO is stuck")
+		}
 	}
 }

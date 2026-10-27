@@ -225,6 +225,10 @@ func branchesResultValid(r terminalproto.BranchesResult) bool {
 	return err == nil
 }
 
+// systemGitConfig is the system-wide git config promisorRepo reads; tests
+// point it elsewhere.
+var systemGitConfig = "/etc/gitconfig"
+
 // maxGitConfigBytes bounds a git config file read to look for promisor
 // settings; a larger one is taken as a possible partial clone.
 const maxGitConfigBytes = 1 << 20
@@ -243,27 +247,15 @@ const maxGitConfigBytes = 1 << 20
 //
 // It errs towards true: a repository listed by name loses only the order.
 func promisorRepo(dir string) bool {
-	root, err := os.OpenRoot(filepath.Join(dir, ".git"))
+	root, err := openRootNoBlock(filepath.Join(dir, ".git"))
 	if err != nil {
 		return true
 	}
 	defer root.Close()
-	if promisorConfig(func() ([]byte, error) { return readSmall(root.Open("config")) }, true) {
+	if promisorConfig(func() ([]byte, error) { return readRegularIn(root, "config") }, true) {
 		return true
 	}
-	pack, err := root.Open(filepath.Join("objects", "pack"))
-	if err == nil {
-		names, err := pack.Readdirnames(-1)
-		pack.Close()
-		if err != nil {
-			return true
-		}
-		for _, name := range names {
-			if strings.HasSuffix(name, ".promisor") {
-				return true
-			}
-		}
-	} else if !errors.Is(err, fs.ErrNotExist) {
+	if promisorPacks(root) {
 		return true
 	}
 	home := ""
@@ -272,12 +264,12 @@ func promisorRepo(dir string) bool {
 			home = v
 		}
 	}
-	files := []string{"/etc/gitconfig"}
+	files := []string{systemGitConfig}
 	if filepath.IsAbs(home) {
 		files = append(files, filepath.Join(home, ".gitconfig"), filepath.Join(home, ".config", "git", "config"))
 	}
 	for _, f := range files {
-		if promisorConfig(func() ([]byte, error) { return readSmall(os.Open(f)) }, false) {
+		if promisorConfig(func() ([]byte, error) { return readRegularPath(f) }, false) {
 			return true
 		}
 	}
@@ -297,6 +289,86 @@ func promisorConfig(read func() ([]byte, error), includes bool) bool {
 	}
 	text := strings.ToLower(string(data))
 	return strings.Contains(text, "promisor") || strings.Contains(text, "partialclone") || includes && strings.Contains(text, "[include")
+}
+
+// maxPackNames bounds the names read from objects/pack; a folder with more
+// is taken as a possible partial clone.
+const maxPackNames = 1 << 16
+
+// promisorPacks reports whether objects/pack beneath root (a repository's
+// .git) holds a .promisor file, or may: anything there that is not a plain
+// folder, or that cannot be read in full, counts. Only names are read; the
+// folder is opened as a directory, never followed, without blocking.
+func promisorPacks(root *os.Root) bool {
+	name := filepath.Join("objects", "pack")
+	info, err := root.Lstat(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	if err != nil || !info.IsDir() {
+		return true
+	}
+	dir, err := root.OpenFile(name, os.O_RDONLY|dirOpenFlags|nonBlockFlag, 0)
+	if err != nil {
+		return true
+	}
+	defer dir.Close()
+	for read := 0; ; {
+		names, err := dir.Readdirnames(1024)
+		for _, n := range names {
+			if strings.HasSuffix(n, ".promisor") {
+				return true
+			}
+		}
+		read += len(names)
+		if errors.Is(err, io.EOF) {
+			return false
+		}
+		if err != nil || read > maxPackNames {
+			return true
+		}
+	}
+}
+
+// readRegularIn reads name beneath root only if it is a regular file there
+// (lstat first, so a FIFO, device or link is refused unopened) and opens it
+// without blocking or following a link, so one swapped in after the lstat
+// is refused too.
+func readRegularIn(root *os.Root, name string) ([]byte, error) {
+	info, err := root.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("not a regular file")
+	}
+	return readSmall(openNoBlockIn(root, name))
+}
+
+// openNoBlockIn opens name beneath root for reading without blocking or
+// following a final link: a FIFO swapped in after a check opens at once
+// (and readSmall refuses it), a link fails.
+func openNoBlockIn(root *os.Root, name string) (*os.File, error) {
+	return root.OpenFile(name, os.O_RDONLY|regularOpenFlags, 0)
+}
+
+// readRegularPath reads one of the user's or the system's git config files
+// only if it is a regular file (links followed: a dotfile is often a link),
+// opened without blocking, so a FIFO is refused unopened or at once.
+func readRegularPath(path string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("not a regular file")
+	}
+	return readSmall(openNoBlock(path))
+}
+
+// openNoBlock opens path for reading without blocking on a FIFO.
+func openNoBlock(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDONLY|nonBlockFlag, 0)
 }
 
 // readSmall reads an opened regular file of at most maxGitConfigBytes.

@@ -274,7 +274,7 @@ func TestWorktreeManyWorktreesInOneRepository(t *testing.T) {
 		t.Fatalf("the listing (%d bytes) must exceed the old cap for this test", len(out))
 	}
 	w := madeWorktree(t, home, repo, testRun)
-	again, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+	again, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 	if err != nil || again.Created || again.Path != w.Path {
 		t.Fatal("retry must adopt", again, err)
 	}
@@ -311,7 +311,7 @@ func TestTruncatedListingsAreNotTrusted(t *testing.T) {
 	}
 	_, err := WorktreeStatus(context.Background(), home, "p", "site", testRun, padded("worktree"))
 	refusedWith(t, err, terminalproto.WorktreeNotRegistered)
-	if _, err := prepareWorktree(context.Background(), home, repo, "p", testRun, padded("worktree"), gitTimeout, cleanupTimeout); !errors.Is(err, ErrWorktreeRefused) {
+	if _, err := prepareWorktree(context.Background(), home, repo, "p", testRun, "", padded("worktree"), gitTimeout, cleanupTimeout); !errors.Is(err, ErrWorktreeRefused) {
 		t.Fatal("a truncated listing must not adopt", err)
 	}
 	s, err := WorktreeStatus(context.Background(), home, "p", "site", testRun, padded("ls-files"))

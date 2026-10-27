@@ -261,7 +261,8 @@ var busyMarkers = []string{"MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY
 //     directory inside home) and must be the root of a normal working tree:
 //     `.git` a real directory (not a file, not a symlink, not bare), equal to
 //     `git rev-parse --show-toplevel`, no merge, rebase, cherry-pick, revert or
-//     bisect in progress, and HEAD a commit. A dirty tree is allowed.
+//     bisect in progress, and HEAD a commit. A dirty tree is allowed. A named base is resolved
+//     to a local branch commit, then a remote-tracking branch commit.
 //  2. The destination is <home>/.reet/worktrees/<project slug>/<repo slug>/<run>
 //     and the branch reet/<project slug>-<run>. Every folder up to the
 //     destination's parent must be a real directory owned by this user (new
@@ -270,21 +271,21 @@ var busyMarkers = []string{"MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY
 //     exactly that path on exactly that branch for this repository (Created
 //     false); anything else is refused.
 //  4. Otherwise it runs exactly
-//     `git -C <repo> -c core.hooksPath=/dev/null worktree add -b <branch> <destination> HEAD`.
+//     `git -C <repo> -c core.hooksPath=/dev/null worktree add -b <branch> <destination> <commit>` (HEAD when base is empty).
 //
 // Refusals are *WorktreeError (errors.Is ErrWorktreeRefused); a folder that
 // ResolveDir refuses keeps its ErrLaunchUnavailable error.
-func PrepareWorktree(ctx context.Context, home, repo, project, run string, git GitRunner) (Worktree, error) {
-	return prepareWorktree(ctx, home, repo, project, run, git, gitTimeout, cleanupTimeout)
+func PrepareWorktree(ctx context.Context, home, repo, project, run, base string, git GitRunner) (Worktree, error) {
+	return prepareWorktree(ctx, home, repo, project, run, base, git, gitTimeout, cleanupTimeout)
 }
 
 // prepareWorktree bounds every git call it makes by one budget (60 s in
 // PrepareWorktree; runGit also caps each call); cleaning up a failed add has
 // its own budget so it still runs after that one has ended.
-func prepareWorktree(ctx context.Context, home, repo, project, run string, git GitRunner, budget, cleanupBudget time.Duration) (Worktree, error) {
+func prepareWorktree(ctx context.Context, home, repo, project, run, base string, git GitRunner, budget, cleanupBudget time.Duration) (Worktree, error) {
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
-	if !terminalproto.ValidRunToken(run) || git == nil {
+	if !terminalproto.ValidRunToken(run) || git == nil || base != "" && !terminalproto.ValidRefName(base) {
 		return Worktree{}, terminalproto.ErrInvalid
 	}
 	repoPath, err := ResolveDir(home, repo)
@@ -298,10 +299,10 @@ func prepareWorktree(ctx context.Context, home, repo, project, run string, git G
 	if repoPath, err = filepath.EvalSymlinks(repoPath); err != nil {
 		return Worktree{}, launchUnavailable("folder is unavailable")
 	}
-	base := filepath.Join(realHome, ".reet")
+	worktreeRoot := filepath.Join(realHome, ".reet")
 	// A repository that contains ~/.reet (home itself, or a parent of it) would
 	// hold its own worktrees as untracked files that a clean deletes.
-	if inside(repoPath, base) {
+	if inside(repoPath, worktreeRoot) {
 		return Worktree{}, refuseWorktree(terminalproto.WorktreeNotRepoRoot, "worktrees cannot be made inside the repository they come from")
 	}
 	gitDir := filepath.Join(repoPath, ".git")
@@ -334,7 +335,7 @@ func prepareWorktree(ctx context.Context, home, repo, project, run string, git G
 
 	projectSlug := terminalproto.Slug(project, "project")
 	repoSlug := terminalproto.Slug(filepath.Base(repoPath), "repo")
-	parent := filepath.Join(base, "worktrees", projectSlug, repoSlug)
+	parent := filepath.Join(worktreeRoot, "worktrees", projectSlug, repoSlug)
 	dest := filepath.Join(parent, run)
 	branch := "reet/" + projectSlug + "-" + run
 	if hasControl(dest) {
@@ -365,7 +366,31 @@ func prepareWorktree(ctx context.Context, home, repo, project, run string, git G
 		return Worktree{}, refuseWorktree(terminalproto.WorktreeExists, "")
 	}
 
-	out, err = git(ctx, repoPath, "-c", "core.hooksPath=/dev/null", "worktree", "add", "-b", branch, dest, "HEAD")
+	// A retry adopts above without depending on whether the original base
+	// branch still exists. New worktrees pin the chosen branch to a commit.
+	start := "HEAD"
+	if base != "" {
+		start = ""
+		for _, prefix := range []string{"refs/heads/", "refs/remotes/"} {
+			out, err := git(ctx, repoPath, "rev-parse", "--verify", "--end-of-options", prefix+base+"^{commit}")
+			if err != nil {
+				if errors.Is(err, errGitMissing) || ctx.Err() != nil {
+					return Worktree{}, gitFailed(out, err)
+				}
+				continue
+			}
+			start = strings.TrimSpace(string(out))
+			if !validHeadLine("HEAD " + start) {
+				return Worktree{}, gitFailed(nil, errors.New("git returned an invalid commit"))
+			}
+			break
+		}
+		if start == "" {
+			return Worktree{}, refuseWorktree(terminalproto.WorktreeBaseMissing, "")
+		}
+	}
+
+	out, err = git(ctx, repoPath, "-c", "core.hooksPath=/dev/null", "worktree", "add", "-b", branch, dest, start)
 	if err != nil {
 		cleanupFailedAdd(ctx, git, w, cleanupBudget)
 		return Worktree{}, gitFailed(out, err)

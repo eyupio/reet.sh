@@ -42,7 +42,7 @@ func TestTimedOutAddKillsGitsChildrenAndCleansUp(t *testing.T) {
 	testGit(t, repo, "commit", "-q", "-m", "attributes")
 	testGit(t, repo, "config", "filter.slow.smudge", "echo $$ > '"+pidfile+"'; exec sleep 30")
 	start := time.Now()
-	_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, newExecGit(2*time.Second))
+	_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", newExecGit(2*time.Second))
 	refusedWith(t, err, terminalproto.WorktreeGitFailed)
 	if elapsed := time.Since(start); elapsed > 20*time.Second {
 		t.Fatal("the timed-out add was waited for", elapsed)
@@ -67,7 +67,7 @@ func TestTimedOutAddKillsGitsChildrenAndCleansUp(t *testing.T) {
 		t.Fatal("worktree still registered", testGit(t, repo, "worktree", "list", "--porcelain"))
 	}
 	testGit(t, repo, "config", "filter.slow.smudge", "cat")
-	w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+	w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 	if err != nil || !w.Created || w.Path != dest {
 		t.Fatal("retry did not make a fresh worktree", w, err)
 	}
@@ -77,17 +77,17 @@ func TestLockedOrPrunableWorktreeIsNotAdopted(t *testing.T) {
 	home := worktreeHome(t)
 	t.Run("locked", func(t *testing.T) {
 		repo := newRepo(t, home, "locked")
-		w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+		w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 		if err != nil {
 			t.Fatal(err)
 		}
 		testGit(t, repo, "worktree", "lock", "--reason", "initializing", w.Path)
-		_, err = PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+		_, err = PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 		refusedWith(t, err, terminalproto.WorktreeExists)
 	})
 	t.Run("prunable", func(t *testing.T) {
 		repo := newRepo(t, home, "prunable")
-		w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+		w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -97,7 +97,7 @@ func TestLockedOrPrunableWorktreeIsNotAdopted(t *testing.T) {
 		if !strings.Contains(testGit(t, repo, "worktree", "list", "--porcelain"), "prunable") {
 			t.Skip("this git does not report prunable worktrees")
 		}
-		_, err = PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+		_, err = PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 		refusedWith(t, err, terminalproto.WorktreeExists)
 	})
 }
@@ -140,7 +140,7 @@ func TestPrepareWorktreeRefusesHomeWithControlCharacters(t *testing.T) {
 			base := worktreeHome(t)
 			home := filepath.Join(base, part)
 			repo := newRepo(t, home, "site")
-			_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+			_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 			refusedWith(t, err, terminalproto.WorktreeOutsideHome)
 			if b := reetBranches(t, repo); len(b) != 0 {
 				t.Fatal(b)
@@ -162,7 +162,7 @@ func TestPrepareWorktreeRefusesWritableReetFolders(t *testing.T) {
 			if err := os.Chmod(dir, tc.mode); err != nil {
 				t.Fatal(err)
 			}
-			_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+			_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 			refusedWith(t, err, terminalproto.WorktreeOutsideHome)
 			if b := reetBranches(t, repo); len(b) != 0 {
 				t.Fatal(b)
@@ -175,7 +175,7 @@ func TestPrepareWorktreeRefusesSequencer(t *testing.T) {
 	home := worktreeHome(t)
 	repo := newRepo(t, home, "seq")
 	os.Mkdir(filepath.Join(repo, ".git", "sequencer"), 0o700)
-	_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, ExecGit)
+	_, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
 	refusedWith(t, err, terminalproto.WorktreeRepoBusy)
 	nothingCreated(t, home, repo)
 }
@@ -193,7 +193,7 @@ func TestPrepareWorktreeHasOneOverallBudget(t *testing.T) {
 	outer, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	start := time.Now()
-	_, err := prepareWorktree(outer, home, repo, "p", testRun, blockingGit, 300*time.Millisecond, time.Second)
+	_, err := prepareWorktree(outer, home, repo, "p", testRun, "", blockingGit, 300*time.Millisecond, time.Second)
 	refusedWith(t, err, terminalproto.WorktreeGitFailed)
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
 		t.Fatal("prepare exceeded its budget", elapsed)
@@ -221,7 +221,7 @@ func TestCleanupRunsAfterThePrepareBudgetExpired(t *testing.T) {
 		}
 		return ExecGit(ctx, dir, args...)
 	}
-	_, err := prepareWorktree(context.Background(), home, repo, "p", testRun, git, 2*time.Second, 30*time.Second)
+	_, err := prepareWorktree(context.Background(), home, repo, "p", testRun, "", git, 2*time.Second, 30*time.Second)
 	refusedWith(t, err, terminalproto.WorktreeGitFailed)
 	nothingCreated(t, home, repo)
 	if _, err := os.Lstat(wantPath(home, "p", "late", testRun)); err == nil {

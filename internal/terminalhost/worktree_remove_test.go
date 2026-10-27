@@ -21,7 +21,7 @@ import (
 // Project run would.
 func madeWorktree(t *testing.T, home, repo, run string) Worktree {
 	t.Helper()
-	w, err := PrepareWorktree(context.Background(), home, repo, "p", run, ExecGit)
+	w, err := PrepareWorktree(context.Background(), home, repo, "p", run, "", ExecGit)
 	if err != nil || !w.Created {
 		t.Fatal(w, err)
 	}

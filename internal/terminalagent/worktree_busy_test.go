@@ -83,7 +83,7 @@ func connectorWorktreeSending(t *testing.T, git terminalhost.GitRunner, send fun
 	}
 	gitT(t, repo, "add", "README")
 	gitT(t, repo, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "first")
-	w, err := terminalhost.PrepareWorktree(t.Context(), home, repo, "p", testRun, terminalhost.ExecGit)
+	w, err := terminalhost.PrepareWorktree(t.Context(), home, repo, "p", testRun, "", terminalhost.ExecGit)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
-	"unicode/utf8"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 var osVersionOnce sync.Once
@@ -29,12 +29,20 @@ func reportedOSVersion(enabled bool) string {
 const osReleasePath = "/etc/os-release"
 
 func readOSVersion() string {
-	if runtime.GOOS == "linux" {
-		if v := osReleaseVersion(osReleasePath); v != "" {
-			return v
-		}
+	if runtime.GOOS != "linux" {
+		return commandOSVersion()
 	}
-	return commandOSVersion()
+	return readOSVersionFrom(osReleasePath, commandOSVersion)
+}
+
+// readOSVersionFrom prefers the os-release distribution name and falls back to
+// the platform command (the kernel release on Linux) when it is absent or
+// rejected.
+func readOSVersionFrom(path string, fallback func() string) string {
+	if v := osReleaseVersion(path); v != "" {
+		return v
+	}
+	return fallback()
 }
 
 // osReleaseVersion returns a distribution name such as "Ubuntu 24.04" from an
@@ -91,15 +99,12 @@ func commandOSVersion() string {
 	return sanitiseOSVersion(string(out))
 }
 
+// sanitiseOSVersion applies the same rule Capabilities.Validate enforces, so a
+// value that passes here can never make the connector's own hello invalid.
 func sanitiseOSVersion(value string) string {
 	value = strings.TrimSpace(value)
-	if value == "" || len(value) > 128 || !utf8.ValidString(value) {
+	if value == "" || !terminalproto.ValidPlainText(value, 128) {
 		return ""
-	}
-	for _, r := range value {
-		if unicode.IsControl(r) {
-			return ""
-		}
 	}
 	return value
 }

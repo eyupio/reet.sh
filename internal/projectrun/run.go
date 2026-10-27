@@ -86,6 +86,9 @@ const (
 	CodeYoloRefused             = "yolo_refused"
 	CodeLaunchOptionUnsupported = "launch_option_unsupported"
 	CodeToolUnavailable         = "tool_unavailable"
+	// CodeOptionNeedsUpdate: an option (base, effort, YOLO) refused because
+	// the machine has not negotiated agents-v2; updating reet there helps.
+	CodeOptionNeedsUpdate = "option_needs_update"
 	// CodeProjectMoved: the member's folder project was removed, or moved to
 	// another machine or folder, since the run started; the session is not
 	// put in it.
@@ -629,7 +632,12 @@ func (o *Orchestrator) classify(uid int64, m store.RunMember, request string, se
 	case errors.Is(err, terminalbroker.ErrYoloRefused):
 		return CodeYoloRefused, true
 	case errors.Is(err, terminalbroker.ErrLaunchOptionUnsupported):
-		return CodeLaunchOptionUnsupported, true
+		// As a single launch words it: the agent's own limit on a machine
+		// with agents-v2, else the machine's version.
+		if caps, e := o.cfg.Store.RemoteCapabilitiesFor(uid, m.Host); e == nil && caps.Capabilities.AgentsV2 {
+			return CodeLaunchOptionUnsupported, true
+		}
+		return CodeOptionNeedsUpdate, true
 	case errors.Is(err, terminalbroker.ErrToolUnavailable):
 		return CodeToolUnavailable, true
 	case errors.Is(err, terminalbroker.ErrToolNotInstalled):

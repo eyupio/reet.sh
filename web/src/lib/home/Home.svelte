@@ -177,18 +177,15 @@
   function setSelecting(on: boolean, first?: FolderProject) {
     selecting = on
     selected = on && first ? [first.id] : []
-    bar?.select(selected)
   }
   function toggleSelected(project: FolderProject) {
     selected = inRailOrder(selected.includes(project.id) ? selected.filter(id => id !== project.id) : [...selected, project.id])
-    bar?.select(selected)
   }
   // A project removed while chosen leaves the selection.
   $effect(() => {
     const list = projects
     if (!list || selected.every(id => list.some(p => p.id === id))) return
     selected = inRailOrder(selected)
-    bar?.select(selected)
   })
   // Edit reads the project again with its starter prompt (only the single read carries it), then opens the dialog.
   async function openEdit(project: FolderProject, opener: HTMLElement) {
@@ -376,7 +373,7 @@
         <InFlight {groups} {owners} machines={health ?? []} {offline} {now} loaded={sessions !== undefined} failed={sessionsFailed} {groupBy} onchoose={choose} {projectColours} />
       </div>
       {#if narrow}{@render rail()}{/if}
-      <LaunchBar bind:this={bar} {projects} machines={terminals} sessions={sessions} {profile} initialProject={chosen}
+      <LaunchBar bind:this={bar} {projects} machines={terminals} sessions={sessions} {profile} initialProject={chosen} selection={selecting ? selected : []}
         ready={projects !== undefined && (sessions !== undefined || sessionsFailed) && profileRead}
         onproject={(id) => (launchProject = id)} onstarted={started} onrun={() => void load(true)} onrundone={() => { if (selecting) setSelecting(false) }} onleavefailed={leaveFailed} onaddproject={openAdd} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
     {/if}

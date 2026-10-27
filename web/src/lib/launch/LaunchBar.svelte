@@ -5,7 +5,7 @@
   import { UnauthorizedError } from '../api'
   import { CATALOGUE, agentChoices } from '../catalogue'
   import { cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
-  import { afterLaunch, defaultTitle, initialChoice, lastChoice, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withHome, withProject, withSelection, sendKey,
+  import { afterLaunch, defaultTitle, initialChoice, lastChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withHome, withProject, withSelection, sendKey,
     type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SelectionRunRequest, type SentencePart } from '../launchBar'
   import { createTerminal, getFolderProject, getSelectionRun, listBranches, readiness, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
     type BranchesResult, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
@@ -19,7 +19,7 @@
   // is one press; Start sends one create through the idempotent create path and opens the new session. While the request is
   // out the bar is locked; a reply that never came keeps the same request for Retry. On a phone the sentence folds into one
   // summary line with Change, and the tab bar steps aside while the prompt has the keyboard up. The prompt lives only here.
-  let { projects, machines, sessions, profile, ready, initialProject = '', onproject, onstarted, onleavefailed, onsignedout, onaddproject, onrun, onrundone }: {
+  let { projects, machines, sessions, profile, ready, initialProject = '', selection = [], onproject, onstarted, onleavefailed, onsignedout, onaddproject, onrun, onrundone }: {
     projects: FolderProject[] | undefined
     /** The terminal machines, with readiness and launch capabilities; undefined until read. */
     machines: TerminalMachine[] | undefined
@@ -29,6 +29,8 @@
     ready: boolean
     /** The project an address chose (`/?project=<id>`). */
     initialProject?: string
+    /** The rail's Select choice, in rail order ([] when Select is off): two or more are the bar's projects. */
+    selection?: string[]
     /** The project the sentence names now ('' for none, or several), so the rail can mark it. */
     onproject?: (id: string) => void
     /** Hands over the started session; 'leaving' when the page is opening it at another address. */
@@ -106,12 +108,19 @@
     void tick().then(() => field?.focus({ preventScroll: phone }))
   }
   export function focusPrompt() { field?.focus() }
-  /** The rail's selection, in rail order: two or more projects start together; one is that project; none goes back to one. */
-  export function select(ids: string[]) {
-    if (!choice || !projects || locked) return
-    choice = withSelection(choice, ids, projects, profile)
-    message = ''
-  }
+  // The rail's selection, in rail order: two or more projects start together; one is that project; none goes back to one.
+  // It is applied whenever it changes and the bar is free, so a change made while the bar was locked (a kept request) or
+  // before its first choice is applied as soon as it can be: the rail and the bar never name different projects.
+  let appliedSelection = ''
+  $effect(() => {
+    const ids = selection, key = ids.join('\u0000')
+    if (!choice || !projects || locked || key === appliedSelection) return
+    untrack(() => {
+      appliedSelection = key
+      choice = withSelection(choice!, ids, projects!, profile)
+      message = ''
+    })
+  })
 
   const picked = $derived(choice ? choice.projectIds.map(pid => projects?.find(p => p.id === pid)).filter((p): p is FolderProject => !!p) : [])
   const one = $derived(picked.length === 1 ? picked[0] : null)
@@ -349,6 +358,19 @@
   // until none is waiting. "Started" counts only what the controller says started.
   let run = $state<ProjectRun | null>(null), runDialog = $state<HTMLDialogElement>(), runNote = $state('')
   const retrying = new SvelteMap<number, string>()
+  // The last run, kept after its sheet closes while a member waits or failed, so Show run status brings it back.
+  let lastRun = $state<ProjectRun | null>(null)
+  const runOpen = $derived(!run && !!lastRun && lastRun.members.some(m => m.state === 'pending' || m.state === 'failed'))
+  async function reopenRun() {
+    const id = lastRun?.id
+    if (!id) return
+    let next = lastRun!
+    try { next = await getSelectionRun(id, life.signal) } catch (e) {
+      if (e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+    }
+    if (life.signal.aborted) return
+    await showRun(next)
+  }
   let poll: ReturnType<typeof setTimeout> | undefined, startedSeen = 0
   async function startRun(body: SelectionRunRequest) {
     busy = true; failed = false
@@ -363,10 +385,13 @@
     } catch (e) {
       if (life.signal.aborted) return
       failed = true
-      if (definite(e)) {
+      if (e instanceof TerminalError && e.status === 429) {
+        // Refused for speed before anything was made: nothing started, and the same request is kept for the retry.
+        message = runRefusalText(e.status, e.code, e.message)
+      } else if (definite(e)) {
         const err = e as TerminalError
         operation = null
-        message = refusalText(err.status, err.code, err.message)
+        message = runRefusalText(err.status, err.code, err.message)
         if (err.status === 401) onsignedout?.(new UnauthorizedError())
       } else message = LOST_RUN
     } finally {
@@ -426,6 +451,7 @@
   function closeRun() {
     clearTimeout(poll)
     runDialog?.close()
+    lastRun = run
     run = null; retrying.clear()
     onrundone?.()
     void tick().then(() => field?.focus())
@@ -533,8 +559,9 @@
         aria-describedby={[choice?.prompt ? `${id}-secrets` : '', shownStatus ? `${id}-status` : ''].filter(Boolean).join(' ') || undefined}
         autocomplete="off" spellcheck="true"></textarea>
     </div>
-    {#if starter || choice?.prompt}
+    {#if starter || choice?.prompt || runOpen}
       <div class="under">
+        {#if runOpen}<button type="button" class="chip" onclick={reopenRun}>Show run status</button>{/if}
         {#if starter}<button type="button" class="chip" onclick={useStarter}>Use the starter prompt</button>{/if}
         {#if titled}<p class="titled">Titled “{titled}”</p>{/if}
         {#if choice?.prompt}<p class="secrets" id={`${id}-secrets`}>Secrets don't belong here. The prompt is visible in the machine's process list.</p>{/if}

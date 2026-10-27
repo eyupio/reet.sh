@@ -207,7 +207,8 @@ func TestSelectionRunRefusalsBeforeSendingAreDefinite(t *testing.T) {
 		code string
 	}{
 		{terminalbroker.ErrYoloRefused, CodeYoloRefused},
-		{terminalbroker.ErrLaunchOptionUnsupported, CodeLaunchOptionUnsupported},
+		// The machine's capabilities are not known here: the option is put down to its version.
+		{terminalbroker.ErrLaunchOptionUnsupported, CodeOptionNeedsUpdate},
 		{terminalbroker.ErrToolUnavailable, CodeToolUnavailable},
 		{terminalbroker.ErrToolNotInstalled, CodeToolNotInstalled},
 		{store.ErrProjectFolderMismatch, CodeProjectMoved},
@@ -242,6 +243,34 @@ func TestSelectionRunRefusalsBeforeSendingAreDefinite(t *testing.T) {
 		}
 		if got := settle(t, o, f.st, f.uid, r.ID); got.State != store.RunComplete {
 			t.Fatalf("%v: %+v", tc.err, got.Members)
+		}
+	}
+}
+
+// An option refused by a machine that negotiated agents-v2 is the agent's
+// own limit; on an older machine it is the version, as a single launch says.
+func TestSelectionRunOptionRefusalNamesTheMachineOrTheAgent(t *testing.T) {
+	for _, v2 := range []bool{false, true} {
+		f := newFixture(t)
+		caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "t", TerminalControl: true, TerminalEnabled: true, Readiness: terminalproto.Ready, Launch: true, Worktree: true, AgentsV2: v2, Tools: []string{"claude"}}
+		if _, err := f.st.BeginRemoteConnectionFor(f.uid, f.laptop, terminalbroker.ID(), caps); err != nil {
+			t.Fatal(err)
+		}
+		f.broker.answer = func(s sent) answer { return answer{kind: before, err: terminalbroker.ErrLaunchOptionUnsupported} }
+		o := f.orchestrator(t)
+		a := f.folder(t, store.FolderProject{Host: f.laptop, Dir: "/a/0", IsRepo: true, BaseBranch: "main"})
+		b := f.folder(t, store.FolderProject{Host: f.laptop, Dir: "/a/1", IsRepo: true})
+		r := f.selection(t, clineLaunch(), a, b)
+		o.Start(f.uid, r.ID)
+		got := settle(t, o, f.st, f.uid, r.ID)
+		want := CodeOptionNeedsUpdate
+		if v2 {
+			want = CodeLaunchOptionUnsupported
+		}
+		for _, m := range got.Members {
+			if m.State != store.RunMemberFailed || m.Code != want || m.Sent {
+				t.Fatalf("agents-v2 %v: %+v", v2, m)
+			}
 		}
 	}
 }

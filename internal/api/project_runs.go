@@ -21,7 +21,9 @@ func (s *server) registerProjectRunRoutes(mux *http.ServeMux) {
 	// Start in several projects: a run of folder projects chosen in the rail,
 	// read and retried under the folder projects' own routes (the routes
 	// above go with the saved Projects).
-	mux.HandleFunc("POST /api/v2/folder-projects/runs", s.folderAccess(s.folderProjectWrite(s.selectionRunStart)))
+	// A new start counts as a folder-project write; a resend of one already
+	// made (a lost reply) does not, so it always gets its run back.
+	mux.HandleFunc("POST /api/v2/folder-projects/runs", s.folderAccess(s.selectionRunStart))
 	mux.HandleFunc("GET /api/v2/folder-projects/runs/{runId}", s.folderAccess(s.projectRun))
 	mux.HandleFunc("POST /api/v2/folder-projects/runs/{runId}/members/{position}/retry", s.folderAccess(s.projectRunRetry))
 }
@@ -179,6 +181,18 @@ func (s *server) selectionRunStart(w http.ResponseWriter, r *http.Request) {
 	if !folderProjectBody(w, r, &in) {
 		return
 	}
+	uid := s.uid(r)
+	replay := false
+	if terminalproto.ValidID(in.RequestID) {
+		var err error
+		if replay, err = s.st.SelectionRunForRequest(uid, in.RequestID); err != nil {
+			storeRefusal(err).write(w)
+			return
+		}
+	}
+	if !replay && !s.chargeFolderWrite(w, uid) {
+		return
+	}
 	refuse := func(status int, code, field, sentence string) { writeErrCode(w, status, code, field, sentence, "") }
 	distinct := map[string]bool{}
 	for _, id := range in.ProjectIDs {
@@ -204,7 +218,6 @@ func (s *server) selectionRunStart(w http.ResponseWriter, r *http.Request) {
 	case in.Yolo:
 		refuse(http.StatusConflict, "yolo_refused", "", sentenceYoloNotYet)
 	default:
-		uid := s.uid(r)
 		run, created, err := s.st.StartSelectionRunFor(uid, in.RequestID, in.ProjectIDs, store.RunLaunch{Tool: in.Tool, Model: in.Model, Effort: in.Effort, Prompt: in.Prompt, Worktree: in.Worktree, Yolo: in.Yolo})
 		switch {
 		case errors.Is(err, store.ErrRunRequestChanged):

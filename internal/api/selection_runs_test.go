@@ -251,3 +251,48 @@ func TestCreateWithProjectIDInAnotherFolderRefused(t *testing.T) {
 		t.Fatal(code, raw)
 	}
 }
+
+// A selection member's refusals read as a single launch's: an option an old
+// machine can't take asks for an update.
+func TestSelectionRunMemberSentences(t *testing.T) {
+	for code, want := range map[string]string{
+		projectrun.CodeOptionNeedsUpdate:       "Update reet on that machine to use that option.",
+		projectrun.CodeLaunchOptionUnsupported: "That agent doesn't take that option.",
+		projectrun.CodeYoloRefused:             "reet doesn't start YOLO sessions yet.",
+		projectrun.CodeToolUnavailable:         "reet doesn't start this agent yet.",
+		projectrun.CodeProjectMoved:            "That project was removed, or moved to another machine or folder, since this start. Start it again from the rail.",
+		"base_missing":                         "That branch isn't in the repository on that machine.",
+	} {
+		if got := runMemberSentence(store.RunMemberFailed, code); got != want {
+			t.Fatal(code, got)
+		}
+	}
+}
+
+// A lost reply sent again is never refused for speed: a replay of a start
+// already made answers with its run whatever the write limit says, while a
+// new start is still counted and refused.
+func TestSelectionRunReplayIsNotRateLimited(t *testing.T) {
+	f := runMachineFixture(t)
+	ids := f.folders(t, "/home/tester/site", "/home/tester/api")
+	request := terminalbroker.ID()
+	code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/folder-projects/runs", selectionBody(request, ids))
+	if code != 201 {
+		t.Fatal(code, raw)
+	}
+	runID := out["id"]
+	for i := 1; i < folderProjectWriteLimit; i++ {
+		bad := selectionBody(terminalbroker.ID(), ids[:1])
+		if code, _, raw := f.do(t, f.cookie, "POST", "/api/v2/folder-projects/runs", bad); code != 422 {
+			t.Fatal(i, code, raw)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		if code, again, raw := f.do(t, f.cookie, "POST", "/api/v2/folder-projects/runs", selectionBody(request, ids)); code != 200 || again["id"] != runID {
+			t.Fatal("replay", i, code, raw)
+		}
+	}
+	if code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/folder-projects/runs", selectionBody(terminalbroker.ID(), ids)); code != 429 || out["code"] != "project_rate_limited" {
+		t.Fatal("a new start past the limit", code, raw)
+	}
+}

@@ -14,7 +14,7 @@ const source = compile('./launchBar.ts')
   .replace("from './catalogue'", `from '${catalogue}'`)
   .replace("from './agentLaunch'", `from '${agentLaunch}'`)
   .replace("from './terminal/api'", `from '${terminalApi}'`)
-const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, lastChoice, withProject, withHome, summary, toSelectionRun, startedLine, withSelection } = await import(asURL(source))
+const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, lastChoice, withProject, withHome, summary, toSelectionRun, startedLine, withSelection, runRefusalText } = await import(asURL(source))
 const { refusalText } = await import(agentLaunch)
 
 const caps = (extra = {}) => ({ protocolVersion: 1, os: 'linux', osUser: 'u', terminalEnabled: true, terminalControl: true, healthEnabled: true, readiness: 'ready',
@@ -301,4 +301,25 @@ test('a selection puts its projects in the sentence and one project its own defa
   // Nothing chosen: the sentence goes back to the first project it named.
   assert.deepEqual(withSelection(many, [], projects, profile).projectIds, ['p-site'])
   assert.deepEqual(withSelection(start, [], projects, profile).projectIds, ['p-reet'])
+})
+
+test('a start in several projects words its own refusals', () => {
+  const cases = [
+    [409, 'run_in_progress', 'One of those projects is still starting. Wait for it to finish, then start again.'],
+    [422, 'invalid_selection', 'Choose 2 to 12 different projects.'],
+    [409, 'yolo_refused', "reet doesn't start YOLO sessions yet."],
+    [422, 'invalid_effort', "Choose low, medium or high thinking, or the agent's default."],
+    [422, 'invalid_model', "That model name isn't one reet can pass on. Use letters, digits and . _ : / @ + -, up to 100 characters, starting with a letter or digit."],
+    [422, 'request_id_required', 'Starting needs a request id: 16 to 128 letters, digits, hyphens or underscores.'],
+    [422, 'invalid_prompt', 'The prompt must be valid text of at most 2,000 bytes, without control characters other than line breaks, and must not start with a dash.'],
+    [404, 'project_not_found', "That project isn't on this account."],
+    [429, 'project_rate_limited', 'Slow down a moment, then try again.'],
+    [409, 'request_changed', 'That request changed. Start it again.'],
+    [422, 'prompt_unsupported', 'Write the opening prompt as at least two words.'],
+    [409, 'launch_option_unsupported', "That agent doesn't take that option."],
+  ]
+  for (const [status, code, want] of cases) assert.equal(runRefusalText(status, code, 'server words'), want, code)
+  // A refusal it doesn't know keeps the server's own sentence rather than a vague one.
+  assert.equal(runRefusalText(422, 'something_new', 'Choose fewer projects.'), 'Choose fewer projects.')
+  assert.equal(runRefusalText(401, 'x', 'no'), "You've been signed out. Sign in again to continue.")
 })

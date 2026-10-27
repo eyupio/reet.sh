@@ -894,6 +894,17 @@ func sameSelection(r Run, projectIDs []string, l RunLaunch) bool {
 	return true
 }
 
+// SelectionRunForRequest reports whether uid already has a selection run made
+// by requestID, so a resend of a lost reply can be told from a new start.
+func (s *Store) SelectionRunForRequest(uid int64, requestID string) (bool, error) {
+	var one int
+	err := s.db.QueryRow(`SELECT 1 FROM project_runs WHERE user_id=? AND origin='selection' AND request_id=? AND request_id<>''`, uid, requestID).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // StartSelectionRunFor is how a person starts agents in several folder
 // projects at once (2 to 12, each once, in the order given). The run snapshots
 // one member per project: its machine, folder and name and, with a worktree,

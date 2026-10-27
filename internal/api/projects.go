@@ -285,6 +285,7 @@ var runMemberSentences = func() map[string]string {
 		// A selection run's own codes.
 		"yolo_refused":              sentenceYoloNotYet,
 		"launch_option_unsupported": sentenceNoOption,
+		"option_needs_update":       "Update reet on that machine to use that option.",
 		"tool_unavailable":          "reet doesn't start this agent yet.",
 		"project_moved":             "That project was removed, or moved to another machine or folder, since this start. Start it again from the rail.",
 		"base_missing":              "That branch isn't in the repository on that machine.",

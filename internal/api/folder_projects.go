@@ -57,19 +57,27 @@ func (s *server) registerFolderProjectRoutes(mux *http.ServeMux) {
 // account per minute. Every write that reaches it counts, refused or not.
 func (s *server) folderProjectWrite(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		key := strconv.FormatInt(s.uid(r), 10)
-		s.folderWritesMu.Lock()
-		allowed := s.folderWrites.Allow(key)
-		if allowed {
-			s.folderWrites.Hit(key)
-		}
-		s.folderWritesMu.Unlock()
-		if !allowed {
-			writeErrCode(w, http.StatusTooManyRequests, "project_rate_limited", "", sentenceSlowDown, "")
+		if !s.chargeFolderWrite(w, s.uid(r)) {
 			return
 		}
 		next(w, r)
 	}
+}
+
+// chargeFolderWrite counts one folder-project write for uid, or answers 429
+// (and reports false) when the minute's writes are used up.
+func (s *server) chargeFolderWrite(w http.ResponseWriter, uid int64) bool {
+	key := strconv.FormatInt(uid, 10)
+	s.folderWritesMu.Lock()
+	allowed := s.folderWrites.Allow(key)
+	if allowed {
+		s.folderWrites.Hit(key)
+	}
+	s.folderWritesMu.Unlock()
+	if !allowed {
+		writeErrCode(w, http.StatusTooManyRequests, "project_rate_limited", "", sentenceSlowDown, "")
+	}
+	return allowed
 }
 
 // folderProjectBody decodes exactly one JSON object with no unknown fields.

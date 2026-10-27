@@ -144,10 +144,19 @@ try {
   expect(box.posts).toEqual([])
   const sheet = page.getByRole('dialog',{name:'Start in several projects'})
   await expect(sheet).toBeVisible()
-  await expect(sheet.getByRole('status')).toHaveText('2 of 3 started')
+  // Every member has settled (Blog started on the second read) before the count is read, so a count that took the failed
+  // member for started would read 3.
   const siteRow = sheet.getByRole('listitem').filter({hasText:'Site'})
+  await expect(sheet.getByRole('listitem').filter({hasText:'Blog'})).toContainText('Started.')
   await expect(siteRow).toContainText(LIMIT)
   await expect(sheet.getByRole('listitem').filter({hasText:'Store rewrite'})).toContainText('Started.')
+  await expect(sheet.getByRole('status')).toHaveText('2 of 3 started')
+  // Closed with a member that failed, the run stays one press away.
+  await sheet.getByRole('button',{name:'Close'}).click()
+  await expect(sheet).toBeHidden()
+  await bar(page).getByRole('button',{name:'Show run status'}).click()
+  await expect(sheet).toBeVisible()
+  await expect(sheet.getByRole('status')).toHaveText('2 of 3 started')
   await expect(sheet.getByRole('link',{name:'Open Store rewrite'})).toHaveAttribute('href','/terminals?agent=a1&session=s-store')
   await expect(sheet).not.toContainText(/verified|healthy|\d+%/i)
   await expect(sheet.locator('progress, [role=progressbar]')).toHaveCount(0)
@@ -161,6 +170,82 @@ try {
   await expect(sheet).toBeHidden()
   await expect(rail.getByRole('checkbox')).toHaveCount(0)
   await expect(prompt(page)).toHaveValue('')
+  // Every member started: nothing is left to show.
+  await expect(bar(page).getByRole('button',{name:'Show run status'})).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The rail and the bar never fall out of step: a run request kept after a lost reply and then discarded once the rail
+ // has left Select goes back to one project; projects chosen before the bar is ready are the bar's projects once it is.
+ if (run('the bar follows the rail after a discarded run and before it is ready')) {
+  const runs = []
+  const routes = {'/api/v2/folder-projects/runs': request => { runs.push(request.postDataJSON()); return {status:502, json:{error:'bad gateway'}} }}
+  const {context,page,errors,box} = await launch({projects:[...fprojects(), blog()], routes})
+  await page.goto(base)
+  const rail = page.locator('aside.rail')
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await rail.getByRole('button',{name:'Projects menu'}).click()
+  await page.getByRole('menuitem',{name:'Select projects'}).click()
+  for (const name of [/^Site/, /^Blog/, /^Store rewrite/]) await rail.getByRole('checkbox',{name}).click()
+  await startButton(page).click()
+  await expect(startButton(page)).toHaveAccessibleName('Try the same request again')
+  await rail.getByRole('button',{name:'Done selecting'}).click()
+  await expect(rail.getByRole('checkbox')).toHaveCount(0)
+  // While the request is kept the bar still names it; once discarded it names one project, as the rail does.
+  await expect.poll(() => sentenceText(page)).toContain('on 3 projects')
+  await bar(page).getByRole('button',{name:'Discard this request'}).click()
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect(slot(page,'Project')).toHaveAccessibleName('Project: Store rewrite')
+  await startButton(page).click()
+  await expect(page).toHaveURL(/\/terminals\?/)
+  expect(runs).toHaveLength(1)
+  expect(box.posts).toHaveLength(1)
+  expect(box.posts[0]).toMatchObject({projectId:'fp1'})
+  expect(errors).toEqual([])
+  await context.close()
+  // Home's profile read is held, so the bar has no choice yet while three projects are chosen.
+  let release = () => {}, reads = 0
+  const profile = {user:{id:1,name:'Sam',email:'sam@example.test',role:'owner'},sessionCount:1,accounts:true,profile:{theme:'light',timezone:'Europe/London',dateFormat:'',shelfView:'list',cardsExpanded:false,hostedPrefix:'reet-',updatedAt:1}}
+  const held = await launch({projects:[...fprojects(), blog()], routes:{'/api/v2/profile': () => reads++ === 0 ? profile : new Promise(r => { release = () => r(profile) })}})
+  await held.page.goto(base)
+  const heldRail = held.page.locator('aside.rail')
+  await heldRail.getByRole('button',{name:'Projects menu'}).click()
+  await held.page.getByRole('menuitem',{name:'Select projects'}).click()
+  for (const name of [/^Site/, /^Blog/, /^Store rewrite/]) await heldRail.getByRole('checkbox',{name}).click()
+  await expect(heldRail.getByText('3 chosen.',{exact:true})).toBeVisible()
+  release()
+  await expect.poll(() => sentenceText(held.page)).toBe("Run Claude Code with default on 3 projects at studio from each project's default in a fresh worktree")
+  expect(held.errors).toEqual([])
+  await held.context.close()
+ }
+
+ // A start in several projects refused for speed keeps its request (nothing started) and says so; one refused because a
+ // project is still starting says it in this start's words.
+ if (run('a run start refused for speed keeps its request; refusals in its own words')) {
+  const runs = []
+  let n = 0
+  const routes = {'/api/v2/folder-projects/runs': request => {
+   runs.push(request.postDataJSON())
+   n++
+   if (n === 1) return {status:429, json:{code:'project_rate_limited', error:'Slow down a moment, then try again.'}}
+   return {status:409, json:{code:'run_in_progress', error:'One of those projects is still starting. Wait for it to finish, then start again.'}}
+  }}
+  const {context,page,errors,box} = await launch({projects:[...fprojects(), blog()], routes})
+  await page.goto(base)
+  const rail = page.locator('aside.rail')
+  await rail.getByRole('button',{name:'Projects menu'}).click()
+  await page.getByRole('menuitem',{name:'Select projects'}).click()
+  for (const name of [/^Site/, /^Blog/]) await rail.getByRole('checkbox',{name}).click()
+  await startButton(page).click()
+  await expect(bar(page).locator('.status')).toHaveText('Slow down a moment, then try again.')
+  await expect(startButton(page)).toHaveAccessibleName('Try the same request again')
+  await startButton(page).click()
+  await expect(bar(page).locator('.status')).toHaveText('One of those projects is still starting. Wait for it to finish, then start again.')
+  expect(runs).toHaveLength(2)
+  expect(runs[1]).toEqual(runs[0])
+  await expect(startButton(page)).toHaveAccessibleName('Start the session')
+  expect(box.posts).toEqual([])
   expect(errors).toEqual([])
   await context.close()
  }
@@ -171,7 +256,7 @@ try {
   const long = [...fprojects(), blog()].map(p => p.id === 'fp1' ? {...p, name:'the-store-rewrite-with-a-very-long-project-name-indeed'} : p)
   const phone = await launch({width:320, height:700, touch:true, projects:long})
   await phone.page.goto(base)
-  const card = phone.page.locator('aside.rail .card').filter({hasText:'Site'})
+  const card = phone.page.locator('aside.rail .card').filter({hasText:'the-store-rewrite'})
   await card.scrollIntoViewIfNeeded()
   const at = await card.boundingBox()
   const point = {pointerType:'touch', isPrimary:true, clientX:at.x + 20, clientY:at.y + 10, bubbles:true}
@@ -179,8 +264,13 @@ try {
   await phone.page.waitForTimeout(700)
   await card.dispatchEvent('pointerup', point)
   const rail = phone.page.locator('aside.rail')
-  await expect(rail.getByRole('checkbox',{name:/^Site/})).toHaveAttribute('aria-checked','true')
-  await rail.getByRole('checkbox',{name:/^the-store-rewrite/}).click()
+  await expect(rail.getByRole('checkbox',{name:/^the-store-rewrite/})).toHaveAttribute('aria-checked','true')
+  // One chosen: the summary names it, wraps, and keeps Start on the screen.
+  await expect(phone.page.locator('.summary-text')).toContainText('the-store-rewrite-with-a-very-long-project-name-indeed')
+  const one = await startButton(phone.page).boundingBox()
+  expect(one.x + one.width).toBeLessThanOrEqual(320)
+  expect(await phone.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await rail.getByRole('checkbox',{name:/^Site/}).click()
   await rail.getByRole('checkbox',{name:/^Blog/}).click()
   await expect(rail.getByText('3 chosen.',{exact:true})).toBeVisible()
   await expect(phone.page.locator('.summary-text')).toContainText('3 projects')
@@ -192,6 +282,9 @@ try {
    expect(b.height).toBeGreaterThanOrEqual(44)
    expect(b.x + b.width).toBeLessThanOrEqual(320)
   }
+  // Done leaves Select and gives focus back to the heading's menu button.
+  await rail.getByRole('button',{name:'Done selecting'}).click()
+  await expect(rail.getByRole('button',{name:'Projects menu'})).toBeFocused()
   expect(phone.errors).toEqual([])
   await phone.context.close()
   const strip = await launch({width:1180, height:800, projects:[...fprojects(), blog()]})

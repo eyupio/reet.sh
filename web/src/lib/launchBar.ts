@@ -2,7 +2,7 @@ import type { Profile } from './api'
 import type { BranchesResult, FolderProject, LaunchRequest, TerminalMachine, TerminalSession } from './terminal/api'
 import { readiness } from './terminal/api'
 import { CATALOGUE, agentChoices } from './catalogue'
-import { cleanModel, codeSentence, titleFor, toolName, validateModel, validatePrompt } from './agentLaunch'
+import { cleanModel, codeSentence, refusalText, titleFor, toolName, validateModel, validatePrompt } from './agentLaunch'
 
 // The launch bar's logic: what the sentence says, what it starts from, whether Start may be pressed, and the one create
 // request per session. Pure: no DOM, no fetch, no storage. The controller and the machine check everything again.
@@ -287,6 +287,30 @@ export function toSelectionRun(choice: LaunchChoice, requestId: string): Selecti
     requestId, projectIds: [...choice.projectIds], tool: choice.agent, model: cleanModel(choice.model),
     effort: takesEffort(choice.agent) ? choice.effort : '', prompt: choice.prompt, worktree: choice.worktree,
   }
+}
+
+// The controller's own sentences for refusing a start in several projects (internal/api/project_runs.go), so the bar never
+// falls back to a Project's words or a vague line.
+const RUN_REFUSALS: Record<string, string> = {
+  run_in_progress: 'One of those projects is still starting. Wait for it to finish, then start again.',
+  invalid_selection: 'Choose 2 to 12 different projects.',
+  yolo_refused: "reet doesn't start YOLO sessions yet.",
+  invalid_effort: "Choose low, medium or high thinking, or the agent's default.",
+  invalid_model: "That model name isn't one reet can pass on. Use letters, digits and . _ : / @ + -, up to 100 characters, starting with a letter or digit.",
+  request_id_required: 'Starting needs a request id: 16 to 128 letters, digits, hyphens or underscores.',
+  invalid_prompt: 'The prompt must be valid text of at most 2,000 bytes, without control characters other than line breaks, and must not start with a dash.',
+  project_not_found: "That project isn't on this account.",
+  project_rate_limited: 'Slow down a moment, then try again.',
+}
+const SOMETHING_CHANGED = 'Something changed. Check again.'
+const PLAIN = /^[^\p{Cc}\p{Cf}\u2028\u2029]{1,300}$/u
+
+/** The sentence for a refused start in several projects: its own words, then a launch's, then the server's sentence as sent. */
+export function runRefusalText(status: number, code?: string, message?: string): string {
+  if (status !== 401 && code && Object.hasOwn(RUN_REFUSALS, code)) return RUN_REFUSALS[code]
+  const known = refusalText(status, code, message)
+  const msg = String(message ?? '').trim()
+  return known === SOMETHING_CHANGED && PLAIN.test(msg) ? msg : known
 }
 
 /** The status sheet's line: how many members the controller says started (a removed worktree's member did start), of all. */

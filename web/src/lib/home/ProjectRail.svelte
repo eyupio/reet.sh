@@ -122,6 +122,11 @@
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); headMenu = false; headButton?.focus() }
     else if (event.key === 'Tab') headMenu = false
   }
+  // Done leaves Select; the focus goes to the heading's menu button, where Select was turned on.
+  function doneSelecting() {
+    onselecting?.(false)
+    void tick().then(() => headButton?.focus())
+  }
   function selectFromMenu() {
     headMenu = false
     onselecting?.(!selecting)
@@ -240,7 +245,7 @@
     {#if selecting}
       <div class="picking">
         <p role="status" aria-live="polite">{pickedLine}</p>
-        <button type="button" class="ghost" aria-label="Done selecting" onclick={() => onselecting?.(false)}>Done</button>
+        <button type="button" class="ghost" aria-label="Done selecting" onclick={doneSelecting}>Done</button>
       </div>
     {/if}
     {#if savedWaiting > 0}
@@ -421,6 +426,8 @@
   .card.picked .tick { border-color: var(--accent); background: var(--accent); }
   .card[aria-disabled='true'] { opacity: 0.55; cursor: default; }
   .item.selecting .card { min-height: 44px; }
+  /* A long press on a card starts Select: the browser's own text selection and link callout stay out of its way. */
+  @media (pointer: coarse) { .card, .mini { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; } }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .close-panel { display: grid; place-items: center; width: 30px; height: 30px; margin-right: 8px; padding: 0; border: 1px solid var(--line-mid); border-radius: 8px; background: transparent; color: var(--ink-soft); cursor: pointer; }
   .close-panel svg { width: 14px; height: 14px; }

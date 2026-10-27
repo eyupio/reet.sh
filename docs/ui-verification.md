@@ -19,7 +19,7 @@ Validation on the updated source:
 
 Browser tests used isolated SQLite fixtures and local Chromium with reduced motion. No production instance, native service installation or deployment was changed. Physical touch, screen readers, Safari/Firefox and native macOS lifecycle behaviour remain outside these checks. Consolidating Sharing & access, team administration, and the mobile navigation are subsequent review work.
 
-This records the initial concepts and shared foundation. See [Library implementation and binary validation](library-implementation.md) for the selected production design and its follow-up checks.
+This records the initial concepts and shared foundation. The selected production design and its follow-up checks are described below and in the feature docs.
 
 ## Collapsible skill cards
 
@@ -95,7 +95,7 @@ Automated axe results are not a WCAG certification. Screen-reader behaviour, phy
 
 The explorer has no external asset dependencies. The production build emits roughly 62.4 kB of CSS and 177.1 kB of JavaScript (10.5 kB and 54.5 kB gzip). These are build sizes, not measured load times. The explorer is outside the production entry graph.
 
-No deployment was performed. The three directions remain concepts; the app contains the shared Library foundation and improvements described in `ui-redesign.md`.
+No deployment was performed. The three directions remain concepts; the app contains the shared Library foundation and improvements (the design notes were removed in the docs tidy-up; see git history).
 
 ## Screenshot follow-up: navigation, density and reports
 

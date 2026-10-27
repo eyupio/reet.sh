@@ -4,7 +4,23 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  # This job is the full suite (web check, MCP tests, go vet, go test -race ./...), so it has to run whenever anything
+  # it compiles could change. Documentation, brand artwork and the other workflows are not compiled into the binary or
+  # the image, so a pull request that only touches those does not need a 20-minute Go run. Pushes and tags stay
+  # unfiltered: every image that is published has been tested.
   pull_request:
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'web/**'
+      - 'mcp/**'
+      - 'scripts/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'docker-compose.yml'
+      - '.github/workflows/image.yml'
   workflow_dispatch:
 
 permissions:

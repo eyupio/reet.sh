@@ -187,11 +187,12 @@ try {
   await context.close()
  }
 
- if (run('missing CPU reads No reading')) {
+ if (run('offline machine shows one unavailable message instead of resource meters')) {
   const {context,page,errors} = await home()
   await page.goto(base)
   const desk = card(page,'desk')
-  await expect(desk.locator('.cpu')).toHaveText(/CPU\s*No reading/)
+  await expect(desk.locator('.unavailable')).toHaveText('Live stats unavailable while offline.')
+  await expect(desk.locator('.resources')).toHaveCount(0)
   await expect(desk).not.toContainText('91%')
   await expect(desk).not.toContainText('0%')
   await expect(desk.locator('.bar > span')).toHaveCount(0)

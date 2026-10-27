@@ -88,3 +88,16 @@ test('plan counts and relative time labels are stable', () => {
   assert.equal(agoLabel(now - 5 * 60_000, now), '5 min ago')
   assert.equal(agoLabel(0, now), 'never')
 })
+
+
+test('disconnected machines wait without claiming to install or being ready to sync', () => {
+  for (const jobs of [[], [{ id: 'j', agentId: 'agent-1', kind: 'apply', status: 'queued', updatedAt: now }]]) {
+    const overview = machineSyncOverview(machine([group('a')]), state({
+      agents: [{ id: 'agent-1', host: 'laptop', lastSeen: now - 90_000 }],
+      jobs, targets: [target('a', [skill('two')])], environments: [group('a')],
+    }), now)
+    assert.equal(overview.canSync, false)
+    assert.equal(overview.label, jobs.length ? 'Waiting for machine' : 'Machine offline')
+    assert.match(overview.detail, /Reconnect laptop/)
+  }
+})

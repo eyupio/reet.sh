@@ -331,7 +331,7 @@
       <article class="machine" class:just-added={highlight === machine.host} aria-current={highlight === machine.host ? 'true' : undefined} aria-labelledby={`machine-${machine.host}`}>
         <header class="machine-head">
           <div class="identity">
-            <span class="dot {state}" aria-hidden="true"></span>
+            <span class="dot" class:current={!!enrolled && enrolled.lastSeen > Date.now() - 90000} class:offline={!!enrolled && enrolled.lastSeen <= Date.now() - 90000} aria-hidden="true"></span>
             <div>
               <h3 id={`machine-${machine.host}`}>{machine.host}</h3>
               {#if highlight === machine.host}<p class="added-note">Just added</p>{/if}
@@ -507,6 +507,7 @@
   .machine-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
   .identity { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
   .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; margin-top: 5px; background: var(--muted); }
+  .dot.offline { background: transparent; border: 2px solid var(--muted); }
   .dot.current { background: var(--good); }
   .dot.stale { background: var(--warn, #b45309); }
   .dot.partial { background: var(--bad); }

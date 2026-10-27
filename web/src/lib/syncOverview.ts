@@ -130,6 +130,9 @@ export function machineSyncOverview(machine: Machine, snapshot: SyncState, now =
   if (agent.paused) {
     return { ...base, tone: 'attention', label: 'Sync paused', detail: 'Resume sync in Settings before changes can be applied.', canSync: false }
   }
+  if (agent.lastSeen <= now - 90_000) {
+    return { ...base, tone: 'setup', label: active || run ? 'Waiting for machine' : 'Machine offline', detail: `Reconnect ${machine.host} to resume sync. Saved inventory is from its last report.`, canSync: false }
+  }
   if (run) {
     return {
       ...base,

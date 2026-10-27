@@ -193,7 +193,46 @@ try {
   await context.close()
  }
 
- console.log('Add project, later fixes: a typed folder is checked before it is saved, an edit to another folder drops the repository flag and base branch, a stale edit loads the latest version and keeps my changes to use again, retyping a folder keeps its branch suggestions, a failed branch read is tried again, and a filter typed while a folder opens keeps that folder.')
+ // Clearing the Name gives the project its folder's name back (the server's default): an emptied field is sent as "",
+ // alone or with another change. A project already named after its folder, with the field emptied, has nothing to save.
+ if (run('clearing the name gives the folder name back')) {
+  const patches = []
+  let current = saved({name:'My reet', starterPrompt:''})
+  const routes = {'/api/v2/folder-projects/fp1': request => {
+   if (request.method() === 'GET') return current
+   const body = request.postDataJSON()
+   patches.push(body)
+   current = saved({...current, ...body, name:body.name === '' ? 'reet' : body.name ?? current.name, version:current.version + 1, starterPrompt:''})
+   return current
+  }}
+  const {context,page,errors} = await open({query:'?edit=fp1', routes})
+  const edit = async () => { await page.getByRole('button', {name:'Edit', exact:true}).click(); const d = page.getByRole('dialog'); await expect(d).toBeVisible(); return d }
+  // (a) Only the name, cleared.
+  let d = await edit()
+  await d.getByRole('textbox', {name:/^Name/}).fill('')
+  await d.getByRole('button', {name:'Save changes'}).click()
+  await expect(page.getByRole('status').filter({hasText:'Sorted.'})).toHaveText('Sorted. reet saved.')
+  expect(patches).toEqual([{name:''}])
+  // (b) Cleared with another change: both are sent.
+  current = saved({name:'My reet', starterPrompt:'', version:7})
+  d = await edit()
+  await d.getByRole('textbox', {name:/^Name/}).fill('  ')
+  await d.getByRole('combobox', {name:'Worktree for each session'}).selectOption('no')
+  await d.getByRole('button', {name:'Save changes'}).click()
+  await expect(page.getByRole('status').filter({hasText:'Sorted.'})).toHaveText('Sorted. reet saved.')
+  expect(patches[1]).toEqual({name:'', worktreeDefault:'no'})
+  // (c) Already the folder's name: an emptied field changes nothing and sends nothing.
+  current = saved({starterPrompt:''})
+  d = await edit()
+  await d.getByRole('textbox', {name:/^Name/}).fill('')
+  await d.getByRole('button', {name:'Save changes'}).click()
+  await expect(d.getByRole('status')).toHaveText('Nothing has changed.')
+  expect(patches).toHaveLength(2)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ console.log('Add project, later fixes: clearing the name gives the folder name back, a typed folder is checked before it is saved, an edit to another folder drops the repository flag and base branch, a stale edit loads the latest version and keeps my changes to use again, retyping a folder keeps its branch suggestions, a failed branch read is tried again, and a filter typed while a folder opens keeps that folder.')
 } finally {
  await browser.close()
  await harness.close()

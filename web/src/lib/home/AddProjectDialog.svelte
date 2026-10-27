@@ -7,6 +7,7 @@
   import { repoMessage, topFolder, validateFolderInput } from '../folderBrowser'
   import { browseFolder, createFolderProject, getFolderProject, listBranches, readiness, refusalSentence, updateFolderProject, TerminalError,
     type BrowseRepo, type BrowseResult, type FolderProject, type FolderProjectInput, type TerminalMachine, type WorktreeDefault } from '../terminal/api'
+  import { cleanPath } from '../projects'
   import FolderBrowser from './FolderBrowser.svelte'
 
   // Add a project (one folder on one machine), or change one. The folder is typed or picked by browsing the machine's folders
@@ -223,7 +224,10 @@
     const moved = host !== editing.host || dir !== editing.dir
     if (isRepo !== undefined && isRepo !== editing.isRepo) input.isRepo = isRepo
     else if (isRepo === undefined && moved && editing.isRepo) input.isRepo = false
-    if (n && n !== editing.name) input.name = n
+    // An emptied Name is sent as "": the server then names the project after its folder. It is no change when the
+    // project already has that name (for the folder it will have after this save).
+    const folderName = cleanPath(dir).split('/').pop() || '/'
+    if (n !== editing.name && !(n === '' && editing.name === folderName)) input.name = n
     if (worktreeDefault !== editing.worktreeDefault) input.worktreeDefault = worktreeDefault
     if (promptKnown && starterPrompt !== (editing.starterPrompt ?? '')) input.starterPrompt = starterPrompt
     if (branch !== editing.baseBranch) input.baseBranch = branch

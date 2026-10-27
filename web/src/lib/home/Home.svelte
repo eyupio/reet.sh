@@ -299,7 +299,9 @@
   onMount(() => {
     if (moved) void tick().then(() => { movedShown = true })
     void load()
-    if (writer) getProfile().then(p => { profile = { defaultBaseBranch: p.profile.defaultBaseBranch, worktreesByDefault: p.profile.worktreesByDefault } }, () => {}).finally(() => { profileRead = true })
+    // The profile read gives up after 10 seconds, so the bar never waits on it for good (it then uses each project's own base).
+    let giveUpTimer: ReturnType<typeof setTimeout> | undefined
+    if (writer) Promise.race([getProfile(), new Promise<never>((_, no) => { giveUpTimer = setTimeout(() => no(new Error('timeout')), 10_000) })]).then(p => { profile = { defaultBaseBranch: p.profile.defaultBaseBranch, worktreesByDefault: p.profile.worktreesByDefault } }, () => {}).finally(() => { profileRead = true; clearTimeout(giveUpTimer) })
     if (writer && legacyProject) void findLegacy(legacyProject)
     const query = matchMedia(NARROW), resized = () => { narrow = query.matches }
     query.addEventListener('change', resized)

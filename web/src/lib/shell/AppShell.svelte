@@ -108,7 +108,10 @@
     const root = document.documentElement
     // Off while the bar steps aside for the keyboard, so the page does not keep an empty band above it.
     root.toggleAttribute('data-bottom-tabs', !compact && !barHidden)
-    return () => root.removeAttribute('data-bottom-tabs')
+    // The launch prompt with the keyboard up takes the top bar's room too (the spec's keyboard-open rule); Jump lives in it, so
+    // it stays for Jump.
+    root.toggleAttribute('data-chrome-aside', barHidden && !searchFocused && chromeFocus.launch)
+    return () => { root.removeAttribute('data-bottom-tabs'); root.removeAttribute('data-chrome-aside') }
   })
 </script>
 

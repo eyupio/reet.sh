@@ -85,4 +85,6 @@ textarea { width: 100%; resize: vertical; }
 @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
   html[data-bottom-tabs] { --bottom-chrome: calc(64px + env(safe-area-inset-bottom, 0px)); }
   html[data-bottom-tabs] body { padding-bottom: var(--bottom-chrome); }
+  /* The launch prompt has the keyboard up: the top bar steps aside as well (shell/AppShell.svelte). */
+  html[data-chrome-aside] .site-header { display: none; }
 }

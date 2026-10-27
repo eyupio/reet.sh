@@ -1039,21 +1039,22 @@ Deviations from the drawings, each with its reason:
 - The dashed underline uses `--line-deep` and the selected segment `--line-soft`. The drawing's `#6b5f54` and `#2e2822` are not theme tokens, and the components use tokens only.
 - Rows the drawing does not show appear only when their state does: the **Use the starter prompt** chip and the secrets note (R2 and the prompt rules), the read-only "Works in the checkout on main." line, and the status line ("Starting Claude Code on studio…", refusals, why Start waits).
 - The *YOLO* half is disabled with "reet doesn't start YOLO sessions yet." as its description until PR F.
-- **Owner call:** the tablet sentence keeps the model and worktree slots, which `Tablet.dc.html` leaves out. The spec's slot list has no tablet exception, and without them a tablet could not choose either. This is not a "no data source yet" case, so it is flagged for the reviewer.
-- On touch each slot is a 44 × 44 px target, so short words ("main", "reet") get a little side space.
+- On a tablet the sentence is the drawing's, "Run Claude Code on reet at studio from main", with no model or worktree slot inline (owner ruling, 27 October). A **Change** button after the sentence opens the phone's Change sheet, where model and worktree are chosen; the drawing has no such button, and without it neither could be chosen.
+- On touch each slot is a 44 × 44 px target. The extra width hangs into the gaps beside the word (negative side margins), so the words keep the drawing's spacing.
 - On a phone, Start is 48 px (the spec and plan) rather than the drawing's 44. The summary line wraps rather than ending in an ellipsis (PR E tweak: it wraps without pushing Start off the screen at 320 px). The Change sheet ("Change the launch": slot rows, Approvals, Done) is not drawn, so it follows the spec's text.
-- The spec's "Titled “…”" preview is not shown. It is not in any drawing, and the title is still made from the prompt's first line.
+- The spec's "Titled “…”" preview shows under the prompt while it has text, in the row with the secrets note. It is not in any drawing.
+- On a phone with the prompt's keyboard up, both the top bar and the tab bar step aside (the spec's keyboard-open rule); Jump keeps the top bar.
 - Unchanged by this task: the rail's chosen-card style (accent border), the fleet cards and the In flight rows. The rail now marks the project the sentence names, as the drawing does.
 
 Accessibility: axe-core 4.10.2 (installed outside the repository), WCAG 2.0/2.1 A and AA plus 2.2 AA. It ran in 26 states: each width and theme, with a slot list open on desktop and tablet, and with the Change sheet and the Agent sheet open on a phone. The results:
 
-- Every state is clean except the tablet default view.
-- There, `target-size` flags the menu button of the second rail card, which sits partly under the docked bar before the page is scrolled. The rail stays under In flight until PR H moves it to Sessions.
+- In the first pass every state was clean except the tablet default view, where `target-size` flagged a rail card's menu button partly under the docked bar before the page was scrolled.
+- Fix round 1: Home's page keeps `scroll-padding-bottom` equal to the bar's height and offset, so a control that takes keyboard focus is scrolled clear of the bar (WCAG 2.4.11; checked by Tabbing to the last rail card menu at 834×1112 and the last In flight row at 1360×800). The tablet bar is also one row shorter. A re-run at 1440, 834 and 390 in both themes, with the Change sheet open at 834 and 390, is clean. A pointer target can still sit partly under the bar at some scroll positions, as under any docked bar.
 - The key-hint contrast finding was fixed, as described above.
 
 Validation:
 
-- `web/tests/launch.e2e.mjs` covers 12 cases. It passed four runs in a row, and every case was seen failing against the previous build first.
+- `web/tests/launch.e2e.mjs` covers 18 cases. It passed four runs in a row, and every case was seen failing against the previous build first. Fix round 1 added: the Change sheet with a mouse at 390, 600 and 834 px; the tablet sentence; Start waiting for the machines; focus never hidden under the bar; the title preview; the profile read failing or never answering; the top bar stepping aside.
 - `home.e2e.mjs` has been reworked for the bar, including "no Start an agent button on Home".
 - `projects.e2e.mjs`, `phone-zoom.e2e.mjs` (the Change sheet replaces the Home dialog), `shell-fidelity`, `navigation`, `start-agent` and the rest of the browser suite pass.
 - `npm test` passes all 340 tests, and Svelte diagnostics report zero errors or warnings.
@@ -1069,5 +1070,7 @@ Nine mutations of `LaunchBar.svelte` were each caught by their fixture, and the 
 - The last launch is ignored.
 - An unready project is offered.
 - The Change sheet loses its rows.
+
+Fix round 1 added ten more, each caught by its new case and restored byte-identically: lists open as popovers behind the Change sheet; Done ignored while a list is set; Start allowed before the machines are read; the tablet sentence shows model and worktree; touch slots spread the words; no scroll padding; no title preview; the top bar stays; the profile read never gives up; list fields at 15 px with a mouse at 600 px.
 
 No real phone or Safari run was done.

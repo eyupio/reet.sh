@@ -392,9 +392,13 @@ try {
    // The dock sits above the tab bar.
    const dock = await bar(page).boundingBox(), tabBox = await tabs.boundingBox()
    expect(dock.y + dock.height).toBeLessThanOrEqual(tabBox.y + 1)
+   const top = page.locator('.shell-bar')
+   await expect(top).toBeVisible()
    await field.focus()
    await page.evaluate(() => window.__keyboard(420))
    await expect(tabs).toBeHidden()
+   // The top bar steps aside too (the spec's keyboard-open rule), so the prompt keeps the room above the keyboard.
+   await expect(top).toBeHidden()
    await expect.poll(async () => { const b = await field.boundingBox(); return b.y + b.height }).toBeLessThanOrEqual(420)
    expect((await field.boundingBox()).y).toBeGreaterThanOrEqual(0)
    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -404,6 +408,7 @@ try {
    await expect(tabs).toBeHidden()
    await field.blur()
    await expect(tabs).toBeVisible()
+   await expect(top).toBeVisible()
    expect(errors).toEqual([])
    await context.close()
   }
@@ -427,6 +432,158 @@ try {
   expect(page.url()).not.toContain('Fix')
   expect(errors).toEqual([])
   await context.close()
+ }
+
+ // With a mouse at phone and tablet widths the Change sheet's slot lists open as sheets above it, and Escape and Done always close.
+ if (run('Change sheet works with a mouse')) {
+  for (const width of [390, 600, 834]) {
+   const {context,page,errors,box} = await launch({width, height:width === 834 ? 1112 : 844})
+   await page.goto(base)
+   const change = bar(page).getByRole('button',{name:'Change',exact:true})
+   await change.click()
+   const sheet = page.getByRole('dialog',{name:'Change the launch'})
+   await expect(sheet).toBeVisible()
+   const row = name => sheet.getByRole('button',{name:new RegExp(`^${name}: `)})
+   await row('Agent').click()
+   const agents = page.getByRole('dialog',{name:'Agent'}).getByRole('listbox',{name:'Agent'})
+   await expect(agents, `${width}`).toBeVisible()
+   await agents.getByRole('option',{name:/^Codex/}).click()
+   await expect(row('Agent')).toHaveAccessibleName('Agent: Codex')
+   await row('Model').click()
+   await page.getByRole('listbox',{name:'Model'}).getByRole('option',{name:'gpt-5-codex'}).click()
+   await row('Worktree').click()
+   await page.getByRole('listbox',{name:'Worktree'}).getByRole('option',{name:'the checkout'}).click()
+   // Typed fields in a list are 16 px at phone width whatever the pointer, so focusing never zooms.
+   await row('Project').click()
+   const find = page.getByRole('searchbox',{name:'Find a project'})
+   if (width < 651) expect(await find.evaluate(el => parseFloat(getComputedStyle(el).fontSize)), `${width}`).toBeGreaterThanOrEqual(16)
+   await page.keyboard.press('Escape')
+   // Escape on a list closes only the list; Escape on the sheet closes it; Done closes it.
+   await row('Agent').click()
+   await expect(page.getByRole('listbox',{name:'Agent'})).toBeVisible()
+   await page.keyboard.press('Escape')
+   await expect(page.getByRole('listbox',{name:'Agent'})).toBeHidden()
+   await expect(sheet).toBeVisible()
+   await page.keyboard.press('Escape')
+   await expect(sheet, `${width} Escape`).toBeHidden()
+   await expect(change).toBeFocused()
+   await change.click()
+   await sheet.getByRole('button',{name:'Done',exact:true}).click()
+   await expect(sheet, `${width} Done`).toBeHidden()
+   // Done closes the sheet even with one of its lists still open (pressed from the page: the list is modal over it).
+   await change.click()
+   await row('Agent').click()
+   await expect(page.getByRole('listbox',{name:'Agent'})).toBeVisible()
+   await page.evaluate(() => [...document.querySelectorAll('dialog[open] button')].find(b => b.textContent.trim() === 'Done').click())
+   await expect(sheet, `${width} Done over a list`).toBeHidden()
+   await expect(page.getByRole('listbox',{name:'Agent'})).toBeHidden()
+   await startButton(page).click()
+   await expect(page).toHaveURL(/\/terminals\?/)
+   expect(box.posts[0]).toMatchObject({tool:'codex', model:'gpt-5-codex', dir:'/home/dev/store'})
+   expect(box.posts[0]).not.toHaveProperty('worktree')
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+
+ // A tablet's sentence is the drawing's: no model or worktree inline; both are in the Change sheet.
+ if (run('tablet sentence matches the drawing')) {
+  const {context,page,errors} = await launch({width:834, height:1112, touch:true})
+  await page.goto(base)
+  const visible = () => bar(page).locator('.sentence').evaluate(el => [...el.querySelectorAll('.part')].filter(p => p.getClientRects().length).map(p => p.textContent.trim()).join(' '))
+  await expect.poll(visible).toBe('Run Claude Code on Store rewrite at studio from main')
+  await expect(slot(page,'Model')).toBeHidden()
+  await expect(slot(page,'Worktree')).toBeHidden()
+  await bar(page).getByRole('button',{name:'Change',exact:true}).click()
+  const sheet = page.getByRole('dialog',{name:'Change the launch'})
+  await expect(sheet.getByRole('button',{name:'Model: default'})).toBeVisible()
+  await expect(sheet.getByRole('button',{name:'Worktree: a fresh worktree'})).toBeVisible()
+  // Words keep their spacing: a 44 px target does not push the sentence apart.
+  await sheet.getByRole('button',{name:'Done'}).click()
+  const gaps = await bar(page).locator('.sentence').evaluate(el => { const parts = [...el.querySelectorAll('.part')].filter(p => p.getClientRects().length); const text = p => { const r = document.createRange(); r.selectNodeContents(p); return r.getBoundingClientRect() }; const out = []; for (let i = 1; i < parts.length; i++) { const a = text(parts[i-1]), b = text(parts[i]); if (Math.abs(a.top - b.top) < 4) out.push(Math.round(b.left - a.right)) } return out })
+  for (const g of gaps) expect(g, `gap ${gaps}`).toBeLessThanOrEqual(12)
+  for (const name of ['Agent','Project','Branch']) { const b = await slot(page,name).boundingBox(); expect(Math.min(b.width, b.height), name).toBeGreaterThanOrEqual(44) }
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Until the machines have been read, Start waits and says so: nothing is sent unchecked. A later refresh lets it go.
+ if (run('Start waits for the machines')) {
+  let reads = 0
+  const {context,page,errors,box} = await launch({routes:{'/api/v2/terminal/machines': () => reads++ === 0 ? {status:500, json:{error:'down'}} : {machines:tmachines()}}})
+  await page.clock.install()
+  await page.goto(base)
+  await expect.poll(() => sentenceText(page)).toContain('Store rewrite')
+  await expect(startButton(page)).toBeDisabled()
+  await expect(bar(page).locator('.status')).toHaveText('Start waits until your machines have been read.')
+  await prompt(page).fill('Fix the failing tests')
+  await prompt(page).press('Control+Enter')
+  await page.waitForTimeout(200)
+  expect(box.posts).toEqual([])
+  await page.clock.runFor(15_000)
+  await expect(startButton(page)).toBeEnabled()
+  await startButton(page).click()
+  await expect.poll(() => box.posts.length).toBe(1)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The docked bar never hides the control that has keyboard focus (WCAG 2.4.11): the page scrolls it clear.
+ if (run('focus is never hidden under the bar')) {
+  const many = [...fprojects(), ...['wiki','api','docs','blog'].map((n, i) => fproject(`fq${i}`, n, 'a1', `/home/dev/${n}`, {position:3 + i}))]
+  const sessions = Array.from({length:12}, (_, i) => session(`r${i}`, 'a1', `Session number ${i}`, {tool:'claude', projectId:'fp1'}))
+  for (const [width, height, touch, target] of [[834, 1112, true, 'aside.rail .item .more'], [1360, 800, false, '.flight a.row']]) {
+   const {context,page,errors} = await launch({width, height, touch, projects:many, sessions})
+   await page.goto(base)
+   await expect(bar(page)).toBeVisible()
+   await page.locator(target).last().waitFor()
+   const last = await page.locator(target).count()
+   // Tab forward from the page top until the last of them has focus.
+   await page.locator('body').click({position:{x:1, y:1}})
+   for (let i = 0; i < 200; i++) {
+    await page.keyboard.press('Tab')
+    if (await page.locator(target).nth(last - 1).evaluate(el => el === document.activeElement)) break
+   }
+   const hidden = await page.locator(target).nth(last - 1).evaluate(el => { const r = el.getBoundingClientRect(), f = document.querySelector('form[aria-label="Start a session"]').getBoundingClientRect(); return el === document.activeElement ? r.bottom > f.top + 1 : 'not focused' })
+   expect(hidden, `${width}px`).toBe(false)
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+
+ // The title is shown before sending, made from the prompt's first line.
+ if (run('title preview')) {
+  const {context,page,errors,box} = await launch()
+  await page.goto(base)
+  await expect(bar(page).getByText(/^Titled /)).toHaveCount(0)
+  await prompt(page).fill('Fix the failing tests\nThen tidy up')
+  await expect(bar(page).getByText('Titled “Fix the failing tests”',{exact:true})).toBeVisible()
+  await startButton(page).click()
+  await expect(page).toHaveURL(/\/terminals\?/)
+  expect(box.posts[0].title).toBe('Fix the failing tests')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Home's own profile read failing, or never answering, leaves the bar usable (each project's own base, worktrees by default).
+ if (run('profile read failing leaves the bar usable')) {
+  for (const how of ['fails', 'hangs']) {
+   let reads = 0, release = () => {}
+   const profile = {user:{id:1,name:'Sam',email:'sam@example.test',role:'owner'},sessionCount:1,accounts:true,profile:{theme:'light',timezone:'Europe/London',dateFormat:'',shelfView:'list',cardsExpanded:false,hostedPrefix:'reet-',updatedAt:1}}
+   // The first read is the app's own; Home's is the second.
+   const {context,page,errors,box} = await launch({routes:{'/api/v2/profile': () => reads++ === 0 ? profile : how === 'fails' ? {status:500, json:{error:'down'}} : new Promise(r => { release = () => r({status:500, json:{error:'late'}}) })}})
+   await page.clock.install()
+   await page.goto(base)
+   if (how === 'hangs') { await expect.poll(() => reads).toBe(2); await page.clock.runFor(11_000) }
+   await expect(startButton(page), how).toBeEnabled()
+   await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+   await startButton(page).click()
+   await expect.poll(() => box.posts.length).toBe(1)
+   expect(errors).toEqual([])
+   // The held answer is let go, so closing never waits on a route handler that never finishes.
+   release()
+   await context.close()
+  }
  }
 
  console.log('Launch bar: one press with the last choices, each slot, unready machines, the starter prompt chip, lost replies and refusals, a -x folder, the locked bar, Enter and Ctrl+Enter, the phone Change sheet, the keyboard-open prompt and nothing in storage checked.')

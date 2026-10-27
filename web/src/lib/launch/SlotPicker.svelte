@@ -224,6 +224,8 @@
   .close svg { width: 20px; height: 20px; }
   .body { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: auto; padding: 4px; }
   /* On touch every row is a thumb-sized target, and fields are 16 px so focusing never zooms. */
+  /* At phone width typed fields are 16 px whatever the pointer, so focusing never zooms. */
+  @media (max-width: 650px) { .filter, .other input { font-size: 16px; } }
   @media (pointer: coarse) {
     .option { min-height: 48px; padding: 8px 12px; font-size: 15px; }
     .filter, .other input { min-height: 44px; font-size: 16px; }

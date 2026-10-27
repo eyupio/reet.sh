@@ -5,7 +5,7 @@
   import { UnauthorizedError } from '../api'
   import { CATALOGUE, agentChoices } from '../catalogue'
   import { cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
-  import { afterLaunch, initialChoice, lastChoice, sentence, startable, summary, toCreate, withHome, withProject, sendKey,
+  import { afterLaunch, defaultTitle, initialChoice, lastChoice, sentence, startable, summary, toCreate, withHome, withProject, sendKey,
     type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SentencePart } from '../launchBar'
   import { createTerminal, getFolderProject, listBranches, readiness, refusalSentence, TerminalError,
     type BranchesResult, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
@@ -127,10 +127,14 @@
     const at = project ? line.indexOf(` on ${project} at `) : -1
     return at < 0 ? { before: line, bold: '', after: '' } : { before: line.slice(0, at + 4), bold: project, after: line.slice(at + 4 + project.length) }
   })
-  // Why Start can't be pressed yet ('' while the machines are still being read).
-  const reason = $derived(!choice || !projects || !machines ? null : startable(choice, projects, machines, profile))
+  // A tablet's sentence is the drawing's: the model and worktree slots (with the word before each) are in the Change sheet.
+  const tabletHidden = $derived(new Set(words.flatMap((p, i) => p.slot === 'model' || p.slot === 'worktree' ? [i - 1, i] : [])))
+  // Why Start can't be pressed yet. Until the machines have been read nothing is checked, so nothing is sent.
+  const reason = $derived(!choice || !projects ? '' : !machines ? 'Start waits until your machines have been read.' : startable(choice, projects, machines, profile))
   const locked = $derived(busy || leaving || operation !== null)
-  const shownStatus = $derived(message || (machines && !locked ? reason ?? '' : ''))
+  const shownStatus = $derived(message || (!locked ? reason ?? '' : ''))
+  // The session's title, shown before sending (the prompt's first line).
+  const titled = $derived(choice?.prompt ? defaultTitle(choice.prompt) : '')
   const starter = $derived(!!choice && choice.prompt === '' && !!one?.hasStarterPrompt && !locked)
 
   // Touch gets sheets and never sends on a key; a phone gets the one-line layout and the keyboard rule.
@@ -220,17 +224,35 @@
     : (branchFilter?.result ?? branches) === 'failed' ? branchError || "Couldn't read the branches just now." : !target?.capabilities?.branches ? 'Update reet on that machine to list its branches.' : '')
   const slotButton = (part: SentencePart) => part.slot !== '' && part.slot !== 'checkout' && (part.slot !== 'machine' || !!choice?.homeMachine && picked.length === 0)
 
+  // A finger-sized slot (44 px on touch) keeps the sentence's spacing: the extra width hangs into the gaps beside the word
+  // (negative side margins), so short words are not pushed apart.
+  function hit(node: HTMLElement) {
+    const word = node.firstElementChild as HTMLElement | null
+    const fit = () => {
+      if (!word) return
+      const extra = Math.min(0, (word.getBoundingClientRect().width - (parseFloat(getComputedStyle(node).minWidth) || 0)) / 2)
+      node.style.marginInline = extra ? `${extra}px` : ''
+    }
+    const watch = new ResizeObserver(fit)
+    if (word) watch.observe(word)
+    watch.observe(node)
+    fit()
+    return { destroy() { watch.disconnect() } }
+  }
+
   // --- the phone's Change sheet ------------------------------------------------------------------------------------------
-  let changing = $state(false), changeButton = $state<HTMLButtonElement>(), changeDialog = $state<HTMLDialogElement>()
-  async function openChange() {
+  let changing = $state(false), changeButton: HTMLElement | null = null, changeDialog = $state<HTMLDialogElement>()
+  async function openChange(opener: HTMLElement) {
     if (locked) return
+    changeButton = opener
     changing = true
     await tick()
     changeDialog?.showModal()
     changeDialog?.querySelector<HTMLElement>('.row')?.focus()
   }
+  // Escape, Close and Done always close it, and a list opened from it with it.
   function closeChange() {
-    if (open) return
+    open = null; branchFilter = null
     changeDialog?.close()
     changing = false
     changeButton?.focus()
@@ -347,6 +369,23 @@
     return () => { chromeFocus.launch = false }
   })
 
+  // The docked bar must never hide the control that has focus (WCAG 2.4.11): the page keeps that much room at its foot when it
+  // scrolls something into view. Only while the bar is on the page.
+  $effect(() => {
+    const bar = form
+    if (!bar) return
+    const root = document.documentElement
+    const fit = () => {
+      const below = parseFloat(getComputedStyle(bar).bottom) || 0
+      root.style.scrollPaddingBottom = `${Math.ceil(bar.getBoundingClientRect().height + below + 8)}px`
+    }
+    const watch = new ResizeObserver(fit)
+    watch.observe(bar)
+    addEventListener('resize', fit)
+    fit()
+    return () => { watch.disconnect(); removeEventListener('resize', fit); root.style.removeProperty('scroll-padding-bottom') }
+  })
+
   onMount(() => {
     const coarse = matchMedia('(pointer: coarse)'), narrow = matchMedia(PHONE_SCREEN)
     const read = () => { touch = coarse.matches; phone = narrow.matches; measureKeyboard() }
@@ -391,6 +430,7 @@
     {#if starter || choice?.prompt}
       <div class="under">
         {#if starter}<button type="button" class="chip" onclick={useStarter}>Use the starter prompt</button>{/if}
+        {#if titled}<p class="titled">Titled “{titled}”</p>{/if}
         {#if choice?.prompt}<p class="secrets" id={`${id}-secrets`}>Secrets don't belong here. The prompt is visible in the machine's process list.</p>{/if}
       </div>
     {/if}
@@ -398,21 +438,22 @@
       <p class="sentence">
         {#each words as part, i (i)}
           {#if slotButton(part)}
-            <button type="button" class="part slot" aria-label={`${LABELS[part.slot]}: ${part.text}`} aria-haspopup="listbox" aria-expanded={open?.slot === part.slot}
-              onclick={(e) => openSlot(part.slot, e.currentTarget)}>{part.text}</button>
+            <button type="button" class="part slot" class:tablet-hide={tabletHidden.has(i)} aria-label={`${LABELS[part.slot]}: ${part.text}`} aria-haspopup="listbox" aria-expanded={open?.slot === part.slot}
+              use:hit onclick={(e) => openSlot(part.slot, e.currentTarget)}><span>{part.text}</span></button>
           {:else if part.slot}
-            <b class="part fixed">{part.text}</b>
+            <b class="part fixed" class:tablet-hide={tabletHidden.has(i)}>{part.text}</b>
           {:else}
-            <span class="part">{part.text}</span>
+            <span class="part" class:tablet-hide={tabletHidden.has(i)}>{part.text}</span>
           {/if}
         {/each}
       </p>
+      <button type="button" class="change tablet-change" aria-haspopup="dialog" onclick={(e) => openChange(e.currentTarget)}>Change</button>
       {@render approvals(`${id}-approvals`)}
     </div>
     {#if checkout}<p class="checkout">{checkout}</p>{/if}
     <div class="summary">
       <p class="summary-text">{#if summaryParts.bold}{summaryParts.before}<b>{summaryParts.bold}</b>{summaryParts.after}{:else}{summaryParts.before}{/if}</p>
-      <button type="button" class="change" bind:this={changeButton} aria-haspopup="dialog" onclick={openChange}>Change</button>
+      <button type="button" class="change" aria-haspopup="dialog" onclick={(e) => openChange(e.currentTarget)}>Change</button>
     </div>
   </fieldset>
   <div class="go">
@@ -428,7 +469,7 @@
 
 {#if open && choice}
   {@const slot = open?.slot ?? ''}
-  <SlotPicker label={LABELS[slot]} options={optionsFor(slot)} value={valueOf(slot)} sheet={touch} opener={open?.opener ?? null}
+  <SlotPicker label={LABELS[slot]} options={optionsFor(slot)} value={valueOf(slot)} sheet={touch || changing} opener={open?.opener ?? null}
     filter={slot === 'project' ? 'Find a project' : slot === 'branch' && target?.capabilities?.branches ? 'Filter branches' : undefined}
     onfilter={slot === 'branch' ? filterBranches : undefined} status={pickerStatus}
     other={slot === 'model' ? { label: 'Other…', field: 'Model name', validate: validateModel } : undefined}
@@ -479,7 +520,8 @@
   .under { grid-column: 1 / -1; grid-row: 2; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; padding: 0 18px 8px; }
   .line { grid-column: 1 / -1; grid-row: 3; display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; padding: 8px 18px 14px; border-top: 1px solid var(--line-soft); }
   .checkout { grid-column: 1 / -1; grid-row: 4; margin: -8px 0 0; padding: 0 18px 12px; font-size: 13px; color: var(--muted); }
-  .summary { display: none; }
+  .summary, .tablet-change { display: none; }
+  .titled { margin: 0; max-width: 100%; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .status { grid-column: 1 / -1; grid-row: 5; margin: 0; padding: 0 18px 12px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
   .status:empty { display: none; }
   .status.bad { color: var(--bad); }
@@ -573,6 +615,11 @@
     .start { height: 44px; padding: 0 22px; }
     .line { padding-bottom: 12px; }
     .approvals .lead { display: none; }
+  }
+  /* Tablet only: the drawing's shorter sentence, with Change for the rest (owner ruling, 27 Oct). */
+  @media (min-width: 651px) and (max-width: 1099px) {
+    .sentence .tablet-hide { display: none; }
+    .tablet-change { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; border: 0; background: none; color: var(--ink-soft); font: inherit; font-weight: 500; cursor: pointer; }
   }
   /* Phone: a one-line prompt with a round 48 px Start, and the sentence folded into one summary line with Change. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {

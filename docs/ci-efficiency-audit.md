@@ -1,9 +1,10 @@
 # GitHub Actions efficiency audit — 27 October 2026
 
 Measured with the `gh` CLI against `eyupio/reet.sh` over the 24 hours from 2026-10-26T15:00Z to 2026-10-27T15:00Z: 83
-runs across the five heavy workflows, every one of them a pull request, about 940 runner-minutes in total. The fixes are
-in [`ci-efficiency-audit.patch`](./ci-efficiency-audit.patch). The impact figures are expected, not measured, because no
-run has happened since.
+runs across the five heavy workflows, every one of them a pull request, about 940 runner-minutes in total. The three
+fixes are implemented in [`ci-efficiency-audit.patch`](./ci-efficiency-audit.patch); they could not be committed to a
+branch on origin because the GitHub App behind this work has no `workflows` permission (see [Landing the
+patch](#landing-the-patch)). The impact figures are expected, not measured, because no run has happened since.
 
 ## Waste sources
 
@@ -42,8 +43,7 @@ Three drivers account for the waste.
 
 ## Proposed fixes
 
-Apply the patch with `git apply docs/ci-efficiency-audit.patch`. It is a patch rather than a commit because the
-automation token that pushed this branch is not allowed to write `.github/workflows/**`. Both workflows pass
+They are implemented and waiting in [`ci-efficiency-audit.patch`](./ci-efficiency-audit.patch); both workflows pass
 `actionlint` 1.7.12 with the change applied and still parse as YAML.
 
 **1. Stop duplicating the Go suite (`release.yml`).** `verify` gains `if: github.event_name != 'pull_request'`, so pull
@@ -125,3 +125,25 @@ before/after GitHub Actions runs.
   serialising two 2-minute suites.
 - `image`'s 20-minute suite is the feedback floor. Splitting `go test -race ./...` across package groups would cut pull
   request wall clock to roughly 8 minutes, at slightly higher runner spend.
+
+## Landing the patch
+
+The patch applies without conflicts to `9777bd7`. Applying and committing it needs a token with `workflows` permission;
+the GitHub App that wrote this branch has only `contents: write`, so `git push` of a commit touching
+`.github/workflows/**` is rejected with:
+
+```
+! [remote rejected] cline/caevpfsc -> cline/caevpfsc (refusing to allow a GitHub App to create or update workflow
+`.github/workflows/image.yml` without `workflows` permission)
+```
+
+Either grant that permission to the app and re-run the push, or land it by hand:
+
+```sh
+git apply docs/ci-efficiency-audit.patch
+git add .github/workflows/image.yml .github/workflows/release.yml
+git commit -m "Stop paying for duplicate and unused CI work on pull requests"
+git push
+```
+
+Once it is on a branch, the four checks in [Validation](#validation) confirm it against live runs.

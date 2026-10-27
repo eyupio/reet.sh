@@ -109,6 +109,18 @@ const ifMatch = (version: number): Record<string, string> => ({ 'If-Match': `"${
 export async function listProjects(signal?: AbortSignal): Promise<Project[]> { return (await (await terminalRequest('/api/v2/projects', { signal: within(signal) })).json()).projects }
 export async function projectRuns(projectId: string, signal?: AbortSignal): Promise<ProjectRun[]> { return (await (await terminalRequest(`${projectPath(projectId)}/runs`, { signal: within(signal) })).json()).runs }
 export async function getRun(runId: string, signal?: AbortSignal): Promise<ProjectRun> { return (await terminalRequest(`/api/v2/project-runs/${encodeURIComponent(runId)}`, { signal: within(signal) })).json() }
+// Start in several projects: one run of the folder projects chosen in the rail (POST /api/v2/folder-projects/runs), read and
+// retried under the folder projects' routes. The start is idempotent by its request id; a member's retry asks the controller,
+// which keeps the same request id while the earlier create may have started an agent.
+export type SelectionRunBody = { requestId: string; projectIds: string[]; tool: string; model: string; effort: string; prompt: string; worktree: boolean }
+const selectionRunPath = (runId: string): string => `/api/v2/folder-projects/runs/${encodeURIComponent(runId)}`
+export async function startSelectionRun(body: SelectionRunBody, signal?: AbortSignal): Promise<ProjectRun> {
+  return (await terminalRequest('/api/v2/folder-projects/runs', { method: 'POST', signal: within(signal), body: JSON.stringify(body) })).json()
+}
+export async function getSelectionRun(runId: string, signal?: AbortSignal): Promise<ProjectRun> { return (await terminalRequest(selectionRunPath(runId), { signal: within(signal) })).json() }
+export async function retrySelectionMember(runId: string, position: number, signal?: AbortSignal): Promise<ProjectRun> {
+  return (await terminalRequest(`${selectionRunPath(runId)}/members/${position}/retry`, { method: 'POST', signal: within(signal), body: '{}' })).json()
+}
 export async function worktreeStatus(target: WorktreeTarget, signal?: AbortSignal): Promise<WorktreeStatus> {
   return (await terminalRequest('/api/v2/terminal/worktrees/status', { method: 'POST', signal: within(signal), body: JSON.stringify(target) })).json()
 }

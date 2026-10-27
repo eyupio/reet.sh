@@ -156,14 +156,16 @@ func TestCreateWithProjectIDOnAnotherMachineRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code, out, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"projectId": here.ID})); code != 200 || out["projectId"] != here.ID {
-		t.Fatal("plain shell in a project", code, raw)
+	// A session is in a project only in its folder (see TestCreateWithProjectIDInAnotherFolderRefused).
+	inside := map[string]any{"tool": "claude", "dir": "/srv/site", "projectId": here.ID}
+	if code, out, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), inside)); code != 200 || out["projectId"] != here.ID {
+		t.Fatal("an agent in a project", code, raw)
 	}
 	// Renaming the machine keeps its id, and its projects still launch.
 	if err := f.st.MergeMachinesFor(f.uid, f.agent.Host, "work-laptop"); err != nil {
 		t.Fatal(err)
 	}
-	if code, out, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"projectId": here.ID})); code != 200 || out["projectId"] != here.ID {
+	if code, out, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), inside)); code != 200 || out["projectId"] != here.ID {
 		t.Fatal("after a rename", code, raw)
 	}
 }

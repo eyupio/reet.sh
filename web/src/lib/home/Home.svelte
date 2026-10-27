@@ -170,6 +170,26 @@
   // marks the project the sentence names.
   let launchProject = $state('')
   function chooseProject(project: FolderProject) { bar?.choose(project) }
+  // Select in the rail: the chosen projects, in rail order, are the launch bar's projects (Start in several projects). Only
+  // this page holds them; nothing goes to browser storage.
+  let selecting = $state(false), selected = $state<string[]>([])
+  const inRailOrder = (ids: string[]) => (projects ?? []).filter(p => ids.includes(p.id)).map(p => p.id)
+  function setSelecting(on: boolean, first?: FolderProject) {
+    selecting = on
+    selected = on && first ? [first.id] : []
+    bar?.select(selected)
+  }
+  function toggleSelected(project: FolderProject) {
+    selected = inRailOrder(selected.includes(project.id) ? selected.filter(id => id !== project.id) : [...selected, project.id])
+    bar?.select(selected)
+  }
+  // A project removed while chosen leaves the selection.
+  $effect(() => {
+    const list = projects
+    if (!list || selected.every(id => list.some(p => p.id === id))) return
+    selected = inRailOrder(selected)
+    bar?.select(selected)
+  })
   // Edit reads the project again with its starter prompt (only the single read carries it), then opens the dialog.
   async function openEdit(project: FolderProject, opener: HTMLElement) {
     if (checking) return
@@ -340,6 +360,7 @@
   <h1 class="vh">Home</h1>
   {#snippet rail()}
     <ProjectRail {projects} failed={projectsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees} {savedWaiting} chosen={launchProject || chosen} busy={checking} {importing} {pending} {moving}
+      {selecting} {selected} onselecting={setSelecting} ontoggle={toggleSelected}
       onadd={openAdd} onchoose={(project) => chooseProject(project)} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}
       onremove={(project, opener) => (removing = { project, opener })} onmove={move} ondismiss={dismiss} onimport={bringIn} oncolour={colour} />
   {/snippet}
@@ -357,7 +378,7 @@
       {#if narrow}{@render rail()}{/if}
       <LaunchBar bind:this={bar} {projects} machines={terminals} sessions={sessions} {profile} initialProject={chosen}
         ready={projects !== undefined && (sessions !== undefined || sessionsFailed) && profileRead}
-        onproject={(id) => (launchProject = id)} onstarted={started} onleavefailed={leaveFailed} onaddproject={openAdd} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
+        onproject={(id) => (launchProject = id)} onstarted={started} onrun={() => void load(true)} onrundone={() => { if (selecting) setSelecting(false) }} onleavefailed={leaveFailed} onaddproject={openAdd} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
     {/if}
   </div>
 </div>

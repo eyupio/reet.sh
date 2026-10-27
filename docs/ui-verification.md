@@ -1074,3 +1074,20 @@ Nine mutations of `LaunchBar.svelte` were each caught by their fixture, and the 
 Fix round 1 added ten more, each caught by its new case and restored byte-identically: lists open as popovers behind the Change sheet; Done ignored while a list is set; Start allowed before the machines are read; the tablet sentence shows model and worktree; touch slots spread the words; no scroll padding; no title preview; the top bar stays; the profile read never gives up; list fields at 15 px with a mouse at 600 px.
 
 No real phone or Safari run was done.
+
+## Agents Home — Start in several projects, 27 October 2026 (PR E, task E3)
+
+Synthetic API answers, Chromium on Linux. The fixture is shaped like the mock-up: machines studio, server and desk (ready, with launch, worktree, branches and agents-v2), projects reet (studio, `main`, blue), site (server) and notes (desk, not a repository), one Claude Code session running in reet. Select was turned on from the rail heading's menu and all three were chosen; then a start was made whose run answers reet and notes started and site failed with the session limit. Rendered at 1440×900, 834×1112 and 390×844 in dark and light and compared with `Main.dc.html`, `Tablet.dc.html`, `PhoneHome.dc.html` and `ref-home-desktop.png`. No drawing has Select or the status sheet, so both are built from the drawings' rail cards, tokens, type and spacing and the Change sheet's card.
+
+Measured and seen: the cards keep their size (at least 44 px tall, the drawing's padding and 11 px radius); a chosen card has the accent border and a filled tick box where its menu button was; the heading row gains a ⋮ button (30 × 30 with a mouse, 44 × 44 on touch) before **Add**; under the heading a line says how many are chosen ("3 chosen.") with **Done**. The sentence reads "Run Claude Code with sonnet on 3 projects at each project's machine from each project's default in a fresh worktree" (E1's words), with the project and branch words bold but not buttons. On the 56 px strip (1100 to 1239 px) the minis are checkboxes and an accent pill under the toggle shows the count. At 320 px with a long project name the summary wraps and Start and every card stay on screen, with no sideways scroll (tested).
+
+Deviations, each with its reason:
+
+- Select, its ⋮ heading button and its menu (**Select projects** / **Stop selecting**), the count line and **Done**, the tick boxes and the strip's count pill are not drawn: the spec names Select (heading menu, long press on touch) without a drawing. Built from the rail's own tokens and sizes.
+- The status sheet ("Start in several projects": "2 of 3 started", the started-means note, one row per project with **Open** or **Retry**, **Done**) is not drawn. It uses the Change sheet's card, a bottom sheet on the shared dialog shell. "2 of 3 started" counts only members the controller says started (a removed worktree's member did start); there is no progress bar or percentage (R10).
+- In Select mode the cards' ⋮ menus are hidden, so a press on a card only ticks it.
+- The project and branch words are fixed while several projects are chosen: the projects come from the rail and each keeps its own base, so neither is a choice in the bar.
+
+Accessibility: axe-core 4.10.2 (outside the repository), WCAG 2.0/2.1 A and AA plus 2.2 AA, in Select mode with three chosen and with the status sheet open, at 1440×900, 834×1112 (touch) and 390×844 (touch), dark and light: 12 states, all clean.
+
+Validation: `launch.e2e.mjs` gains "select three projects and start; one fails and retries" (a lost reply sent again identically, one run request and no session create, the sheet's count, Open and Retry), "select on touch, at 320 px and on the strip" and "a rail card applies the project defaults and offers its starter prompt"; the first two were seen failing before the change, the third passed on E2's code. The file passed four runs in a row; home, projects, phone-zoom, shell-fidelity, navigation, phone-layout, start-agent, phone-dialogs, empty-states, add-project, add-project-edit, terminal-workspace, readiness, first-run, public-workspace and control pass. No real phone or Safari run was done.

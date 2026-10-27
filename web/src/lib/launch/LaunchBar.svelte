@@ -5,10 +5,11 @@
   import { UnauthorizedError } from '../api'
   import { CATALOGUE, agentChoices } from '../catalogue'
   import { cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
-  import { afterLaunch, defaultTitle, initialChoice, lastChoice, sentence, startable, summary, toCreate, withHome, withProject, sendKey,
-    type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SentencePart } from '../launchBar'
-  import { createTerminal, getFolderProject, listBranches, readiness, refusalSentence, TerminalError,
+  import { afterLaunch, defaultTitle, initialChoice, lastChoice, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withHome, withProject, withSelection, sendKey,
+    type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SelectionRunRequest, type SentencePart } from '../launchBar'
+  import { createTerminal, getFolderProject, getSelectionRun, listBranches, readiness, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
     type BranchesResult, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { memberLine, runPending, STARTED_MEANS, type ProjectRun } from '../projects'
   import { keyboardLikelyOpen, PHONE_SCREEN, ViewportTracker, browserViewport } from '../terminal/sizing'
   import { chromeFocus } from '../shell/chrome.svelte'
   import SlotPicker, { type SlotOption } from './SlotPicker.svelte'
@@ -18,7 +19,7 @@
   // is one press; Start sends one create through the idempotent create path and opens the new session. While the request is
   // out the bar is locked; a reply that never came keeps the same request for Retry. On a phone the sentence folds into one
   // summary line with Change, and the tab bar steps aside while the prompt has the keyboard up. The prompt lives only here.
-  let { projects, machines, sessions, profile, ready, initialProject = '', onproject, onstarted, onleavefailed, onsignedout, onaddproject }: {
+  let { projects, machines, sessions, profile, ready, initialProject = '', onproject, onstarted, onleavefailed, onsignedout, onaddproject, onrun, onrundone }: {
     projects: FolderProject[] | undefined
     /** The terminal machines, with readiness and launch capabilities; undefined until read. */
     machines: TerminalMachine[] | undefined
@@ -37,6 +38,10 @@
     onsignedout?: (e: unknown) => void
     /** The project slot's *Add a project…*. */
     onaddproject?: (opener: HTMLElement) => void
+    /** A start in several projects moved on (a member started): the page may read its sessions again. */
+    onrun?: () => void
+    /** The status sheet of a start in several projects was closed: the rail leaves Select. */
+    onrundone?: () => void
   } = $props()
 
   const id = $props.id()
@@ -44,12 +49,14 @@
   const LABELS: Record<string, string> = { agent: 'Agent', model: 'Model', project: 'Project', machine: 'Machine', branch: 'Branch', worktree: 'Worktree', effort: 'Thinking' }
   const LOST_TAIL = 'Check your sessions before starting another. If you discard it and start again, a second agent may start.'
   const LOST = `We didn't hear back, so the agent may have started. ${LOST_TAIL}`
+  const LOST_RUN = "We didn't hear back, so the agents may have started. Check your sessions before starting again. If you discard it and start again, more agents may start."
 
   let choice = $state<LaunchChoice | null>(null)
   let busy = $state(false), leaving = $state(false), message = $state(''), failed = $state(false)
   // One attempt: the request id, the run token and every field, kept while its outcome is unknown so Retry asks about the same
   // start and a lost reply can never start a second agent. Dropped only when the server has definitely answered.
-  let operation = $state<(LaunchCreate & { host: string }) | null>(null)
+  // A start in several projects keeps its one run request (request id and every field) the same way.
+  let operation = $state<({ kind: 'one' } & LaunchCreate & { host: string }) | { kind: 'run'; body: SelectionRunRequest } | null>(null)
   const life = new AbortController()
   let form = $state<HTMLFormElement>(), field = $state<HTMLTextAreaElement>(), startButton = $state<HTMLButtonElement>()
 
@@ -99,6 +106,12 @@
     void tick().then(() => field?.focus({ preventScroll: phone }))
   }
   export function focusPrompt() { field?.focus() }
+  /** The rail's selection, in rail order: two or more projects start together; one is that project; none goes back to one. */
+  export function select(ids: string[]) {
+    if (!choice || !projects || locked) return
+    choice = withSelection(choice, ids, projects, profile)
+    message = ''
+  }
 
   const picked = $derived(choice ? choice.projectIds.map(pid => projects?.find(p => p.id === pid)).filter((p): p is FolderProject => !!p) : [])
   const one = $derived(picked.length === 1 ? picked[0] : null)
@@ -222,7 +235,9 @@
   let branchError = $state('')
   const pickerStatus = $derived(open?.slot !== 'branch' ? '' : branchFilter && branchFilter.result === null ? 'Reading branches…'
     : (branchFilter?.result ?? branches) === 'failed' ? branchError || "Couldn't read the branches just now." : !target?.capabilities?.branches ? 'Update reet on that machine to list its branches.' : '')
+  // The machine follows its project (R18); with several projects the projects come from the rail and each keeps its own base.
   const slotButton = (part: SentencePart) => part.slot !== '' && part.slot !== 'checkout' && (part.slot !== 'machine' || !!choice?.homeMachine && picked.length === 0)
+    && (picked.length < 2 || (part.slot !== 'project' && part.slot !== 'branch'))
 
   // A finger-sized slot (44 px on touch) keeps the sentence's spacing: the extra width hangs into the gaps beside the word
   // (negative side margins), so short words are not pushed apart.
@@ -286,10 +301,14 @@
   async function start() {
     if (busy || leaving || !choice || !projects || life.signal.aborted) return
     if (!operation) {
-      if (reason !== null || picked.length > 1) return
-      const req = toCreate(choice, one, crypto.randomUUID(), crypto.randomUUID().replaceAll('-', ''), profile)
-      operation = { ...req, host: hostOf(req.agentId) }
+      if (reason !== null) return
+      if (picked.length > 1) operation = { kind: 'run', body: toSelectionRun(choice, crypto.randomUUID()) }
+      else {
+        const req = toCreate(choice, one, crypto.randomUUID(), crypto.randomUUID().replaceAll('-', ''), profile)
+        operation = { kind: 'one', ...req, host: hostOf(req.agentId) }
+      }
     }
+    if (operation.kind === 'run') return startRun(operation.body)
     const op = operation
     busy = true; failed = false
     message = `Starting ${toolName(op.launch.tool)} on ${op.host}…`
@@ -325,6 +344,93 @@
       if (!leaving && !life.signal.aborted) void tick().then(() => (operation ? startButton : field)?.focus())
     }
   }
+  // --- start in several projects ------------------------------------------------------------------------------------------
+  // One request makes the run; the controller starts its members (2 at a time, 1 per machine) and the sheet reads the run
+  // until none is waiting. "Started" counts only what the controller says started.
+  let run = $state<ProjectRun | null>(null), runDialog = $state<HTMLDialogElement>(), runNote = $state('')
+  const retrying = new SvelteMap<number, string>()
+  let poll: ReturnType<typeof setTimeout> | undefined, startedSeen = 0
+  async function startRun(body: SelectionRunRequest) {
+    busy = true; failed = false
+    message = `Starting ${toolName(body.tool)} in ${body.projectIds.length} projects…`
+    try {
+      const answer = await startSelectionRun(body, AbortSignal.any([life.signal, AbortSignal.timeout(15000)]))
+      if (life.signal.aborted) return
+      operation = null
+      choice = afterLaunch(choice!)
+      message = ''
+      await showRun(answer)
+    } catch (e) {
+      if (life.signal.aborted) return
+      failed = true
+      if (definite(e)) {
+        const err = e as TerminalError
+        operation = null
+        message = refusalText(err.status, err.code, err.message)
+        if (err.status === 401) onsignedout?.(new UnauthorizedError())
+      } else message = LOST_RUN
+    } finally {
+      busy = false
+      if (!run && !life.signal.aborted) void tick().then(() => (operation ? startButton : field)?.focus())
+    }
+  }
+  async function showRun(next: ProjectRun) {
+    run = next; runNote = ''; startedSeen = 0
+    noteStarted(next)
+    await tick()
+    runDialog?.showModal()
+    runDialog?.querySelector<HTMLElement>('[data-shell-close]')?.focus()
+    follow()
+  }
+  function noteStarted(next: ProjectRun) {
+    const n = next.members.filter(m => m.state === 'started').length
+    if (n > startedSeen) onrun?.()
+    startedSeen = n
+  }
+  // The run is read again every 1.5 seconds while a member waits to start; a read that fails is tried again.
+  function follow() {
+    clearTimeout(poll)
+    if (!run || !runPending(run)) return
+    const id = run.id
+    poll = setTimeout(async () => {
+      try {
+        const next = await getSelectionRun(id, life.signal)
+        if (run?.id !== id) return
+        run = next; runNote = ''
+        noteStarted(next)
+      } catch (e) {
+        if (life.signal.aborted || run?.id !== id) return
+        if (e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+        runNote = "Couldn't read the start just now. Trying again."
+      }
+      follow()
+    }, 1500)
+  }
+  async function retryMember(position: number) {
+    if (!run || retrying.has(position)) return
+    const id = run.id
+    retrying.set(position, '')
+    try {
+      const next = await retrySelectionMember(id, position, life.signal)
+      if (run?.id !== id) return
+      run = next
+      retrying.delete(position)
+    } catch (e) {
+      if (life.signal.aborted || run?.id !== id) return
+      // Another retry (or the controller) already moved it on: read the run as it is.
+      if (e instanceof TerminalError && e.status === 409) { retrying.delete(position); try { run = await getSelectionRun(id, life.signal) } catch { /* the next read says */ } }
+      else retrying.set(position, refusalSentence(e))
+    }
+    follow()
+  }
+  function closeRun() {
+    clearTimeout(poll)
+    runDialog?.close()
+    run = null; retrying.clear()
+    onrundone?.()
+    void tick().then(() => field?.focus())
+  }
+
   function discard() {
     if (busy) return
     operation = null; message = ''; failed = false
@@ -397,7 +503,7 @@
     vv?.addEventListener('resize', measureKeyboard)
     vv?.addEventListener('scroll', measureKeyboard)
     return () => {
-      stopLeaving(); life.abort(); cancelAnimationFrame(frame)
+      stopLeaving(); life.abort(); cancelAnimationFrame(frame); clearTimeout(poll)
       coarse.removeEventListener('change', read); narrow.removeEventListener('change', read)
       removeEventListener('resize', measureKeyboard); vv?.removeEventListener('resize', measureKeyboard); vv?.removeEventListener('scroll', measureKeyboard)
       chromeFocus.launch = false
@@ -506,6 +612,45 @@
   </dialog>
 {/if}
 
+{#if run}
+  {@const shown = run}
+  <dialog class="run-sheet" bind:this={runDialog} use:shell={{ sheet: 'bottom' }} aria-labelledby={`${id}-run-title`}
+    oncancel={(event) => { event.preventDefault(); closeRun() }}>
+    <div class="sheet" data-shell-card>
+      <header data-shell-head>
+        <h2 id={`${id}-run-title`}>Start in several projects</h2>
+        <button type="button" class="close" data-shell-close aria-label="Close" onclick={closeRun}>
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
+      </header>
+      <div class="run-body" data-shell-body>
+        <p class="started" role="status" aria-live="polite" aria-atomic="true">{startedLine(shown)}</p>
+        <p class="means" data-shell-aside>{STARTED_MEANS}</p>
+        <ul class="members">
+          {#each shown.members as m (m.position)}
+            {@const name = m.name || m.dir}
+            {@const why = retrying.get(m.position)}
+            <li class="member {m.state}">
+              <span class="member-head"><b class="member-name">{name}</b><span class="member-machine">{hostOf(m.host)}</span></span>
+              <span class="member-line">{memberLine(m)}</span>
+              {#if why}<span class="member-line bad">{why}</span>{/if}
+              {#if (m.state === 'started' || m.state === 'removed') && m.sessionId}
+                <a class="member-act" href={sessionHref({ agentId: m.host, id: m.sessionId })} aria-label={`Open ${name}`}>Open</a>
+              {:else if m.state === 'failed'}
+                <button type="button" class="member-act" aria-label={`Retry ${name}`} disabled={retrying.has(m.position) && !why} onclick={() => retryMember(m.position)}>Retry</button>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+        {#if runNote}<p class="member-line">{runNote}</p>{/if}
+      </div>
+      <footer data-shell-foot>
+        <button type="button" class="done" onclick={closeRun}>Done</button>
+      </footer>
+    </div>
+  </dialog>
+{/if}
+
 <style>
   /* The mock-up's docked bar: a raised card with a 16 px radius; the prompt row above the sentence row. */
   .launch {
@@ -599,6 +744,21 @@
   .rows .approvals .lead { display: inline; width: 72px; font-size: 14px; }
   .rows .segments label { min-height: 44px; padding: 0 16px; }
   .sheet footer { display: flex; justify-content: flex-end; padding: 8px 4px 0; }
+  /* The status sheet of a start in several projects: no drawing, so the Change sheet's card, type and spacing. */
+  .run-body { display: flex; flex-direction: column; gap: 8px; padding: 4px 12px; overflow: auto; }
+  .started { margin: 0; font: 600 15px/1.4 var(--sans); }
+  .means { margin: 0; font-size: 12px; color: var(--muted); }
+  .members { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .member { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 12px; min-height: 52px; padding: 6px 0; border-top: 1px solid var(--line-soft); }
+  .member-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .member-name { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+  .member-machine { flex: none; font-size: 12px; color: var(--muted); }
+  .member-line { grid-column: 1; margin: 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .member.failed .member-line { color: var(--bad); }
+  .member.started .member-line { color: var(--good); }
+  .member-act { grid-column: 2; grid-row: 1 / span 2; display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 64px; padding: 0 14px;
+    border: 1px solid var(--line-strong); border-radius: 10px; background: transparent; color: var(--ink); font: inherit; font-size: 14px; font-weight: 500; text-decoration: none; cursor: pointer; }
+  .member-act:disabled { opacity: 0.55; cursor: default; }
   .done { min-height: 48px; padding: 0 24px; border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font: inherit; font-weight: 600; cursor: pointer; }
 
   @media (pointer: coarse) {

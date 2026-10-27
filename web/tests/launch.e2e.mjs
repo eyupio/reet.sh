@@ -83,7 +83,164 @@ const pick = async (page, name, option) => {
  await expect(list).toBeHidden()
 }
 
+// A start in several projects: the run as the server keeps it, with one member per project.
+const runMember = (position, projectId, name, state, over={}) => ({position,host:'a1',dir:`/home/dev/${name.toLowerCase()}`,tool:'claude',model:'',state,code:'',sentence:'',sessionId:'',
+ worktreePath:'',worktreeRepo:'',worktreeBranch:'',worktreeRun:'',worktreeProject:'',sharesCheckout:false,attempt:1,projectId,name,base:'',...over})
+const LIMIT = 'The terminal session limit has been reached. End a session and try again.'
+const selectionRun = members => ({id:'run-1',origin:'selection',projectId:'',projectName:members.map(m => m.name).join(', '),state:members.some(m => m.state === 'pending') ? 'running' : 'partial',startedAt:now,useWorktrees:true,worktreeProject:'',members})
+const blog = () => fproject('fp4','Blog','a1','/home/dev/blog',{position:3})
+
 try {
+ // Select (from the rail heading's menu) turns the cards into checkboxes; with three chosen, Start sends one run request and
+ // never a session create. A lost reply is sent again exactly; the status sheet counts only what the controller says started,
+ // and a member that failed is retried on its own.
+ if (run('select three projects and start; one fails and retries')) {
+  const runs = [], retries = []
+  let reads = 0, retried = false, lostOnce = true
+  const routes = {
+   '/api/v2/folder-projects/runs': async request => {
+    runs.push(request.postDataJSON())
+    if (lostOnce) { lostOnce = false; return {status:502, json:{error:'bad gateway'}} }
+    return {status:201, json:selectionRun([runMember(0,'fp1','Store rewrite','pending'), runMember(1,'fp3','Site','pending'), runMember(2,'fp4','Blog','pending')])}
+   },
+   '/api/v2/folder-projects/runs/run-1': () => {
+    reads++
+    const site = retried ? runMember(1,'fp3','Site','started',{sessionId:'s-site',attempt:2}) : runMember(1,'fp3','Site','failed',{code:'session_limit',sentence:LIMIT})
+    const blogMember = reads < 2 ? runMember(2,'fp4','Blog','pending') : runMember(2,'fp4','Blog','started',{sessionId:'s-blog'})
+    return selectionRun([runMember(0,'fp1','Store rewrite','started',{sessionId:'s-store'}), site, blogMember])
+   },
+   '/api/v2/folder-projects/runs/run-1/members/1/retry': request => {
+    retries.push(request.postDataJSON())
+    retried = true
+    return selectionRun([runMember(0,'fp1','Store rewrite','started',{sessionId:'s-store'}), runMember(1,'fp3','Site','pending',{attempt:2}), runMember(2,'fp4','Blog','started',{sessionId:'s-blog'})])
+   },
+  }
+  const {context,page,errors,box} = await launch({projects:[...fprojects(), blog()], routes})
+  await page.goto(base)
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  const rail = page.locator('aside.rail')
+  await rail.getByRole('button',{name:'Projects menu'}).click()
+  await page.getByRole('menuitem',{name:'Select projects'}).click()
+  for (const name of [/^Store rewrite/, /^Site/, /^Blog/]) {
+   const box = rail.getByRole('checkbox',{name})
+   await box.click()
+   await expect(box).toHaveAttribute('aria-checked','true')
+  }
+  await expect(rail.getByText('3 chosen.',{exact:true})).toBeVisible()
+  // The cards keep their finger-sized targets while they are checkboxes.
+  for (const card of await rail.getByRole('checkbox').all()) expect((await card.boundingBox()).height).toBeGreaterThanOrEqual(44)
+  await expect.poll(() => sentenceText(page)).toBe("Run Claude Code with default on 3 projects at studio from each project's default in a fresh worktree")
+  await expect(slot(page,'Project')).toHaveCount(0)
+  await prompt(page).fill('Fix the failing tests')
+  await startButton(page).click()
+  // The reply was lost: the same request, every field the same, goes again.
+  await expect(startButton(page)).toHaveAccessibleName('Try the same request again')
+  await expect(bar(page).locator('.status')).toContainText('the agents may have started')
+  await startButton(page).click()
+  await expect.poll(() => runs.length).toBe(2)
+  expect(runs[1]).toEqual(runs[0])
+  expect(runs[0]).toEqual({requestId:runs[0].requestId, projectIds:['fp1','fp3','fp4'], tool:'claude', model:'', effort:'', prompt:'Fix the failing tests', worktree:true})
+  expect(runs[0].requestId).toMatch(/^[0-9a-f-]{36}$/)
+  expect(box.posts).toEqual([])
+  const sheet = page.getByRole('dialog',{name:'Start in several projects'})
+  await expect(sheet).toBeVisible()
+  await expect(sheet.getByRole('status')).toHaveText('2 of 3 started')
+  const siteRow = sheet.getByRole('listitem').filter({hasText:'Site'})
+  await expect(siteRow).toContainText(LIMIT)
+  await expect(sheet.getByRole('listitem').filter({hasText:'Store rewrite'})).toContainText('Started.')
+  await expect(sheet.getByRole('link',{name:'Open Store rewrite'})).toHaveAttribute('href','/terminals?agent=a1&session=s-store')
+  await expect(sheet).not.toContainText(/verified|healthy|\d+%/i)
+  await expect(sheet.locator('progress, [role=progressbar]')).toHaveCount(0)
+  await siteRow.getByRole('button',{name:'Retry Site'}).click()
+  await expect(sheet.getByRole('status')).toHaveText('3 of 3 started')
+  expect(retries).toEqual([{}])
+  await expect(siteRow.getByRole('button',{name:'Retry Site'})).toHaveCount(0)
+  expect(box.posts).toEqual([])
+  // Done closes the sheet and the rail leaves Select; the prompt is cleared for the next start.
+  await sheet.getByRole('button',{name:'Done'}).click()
+  await expect(sheet).toBeHidden()
+  await expect(rail.getByRole('checkbox')).toHaveCount(0)
+  await expect(prompt(page)).toHaveValue('')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // On touch a long press on a card starts Select; at 320 px long names wrap and Start stays on screen; from 1100 to 1239 px
+ // the 56 px strip shows how many are chosen.
+ if (run('select on touch, at 320 px and on the strip')) {
+  const long = [...fprojects(), blog()].map(p => p.id === 'fp1' ? {...p, name:'the-store-rewrite-with-a-very-long-project-name-indeed'} : p)
+  const phone = await launch({width:320, height:700, touch:true, projects:long})
+  await phone.page.goto(base)
+  const card = phone.page.locator('aside.rail .card').filter({hasText:'Site'})
+  await card.scrollIntoViewIfNeeded()
+  const at = await card.boundingBox()
+  const point = {pointerType:'touch', isPrimary:true, clientX:at.x + 20, clientY:at.y + 10, bubbles:true}
+  await card.dispatchEvent('pointerdown', point)
+  await phone.page.waitForTimeout(700)
+  await card.dispatchEvent('pointerup', point)
+  const rail = phone.page.locator('aside.rail')
+  await expect(rail.getByRole('checkbox',{name:/^Site/})).toHaveAttribute('aria-checked','true')
+  await rail.getByRole('checkbox',{name:/^the-store-rewrite/}).click()
+  await rail.getByRole('checkbox',{name:/^Blog/}).click()
+  await expect(rail.getByText('3 chosen.',{exact:true})).toBeVisible()
+  await expect(phone.page.locator('.summary-text')).toContainText('3 projects')
+  const s = await startButton(phone.page).boundingBox()
+  expect(s.x + s.width).toBeLessThanOrEqual(320)
+  expect(await phone.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  for (const c of await rail.getByRole('checkbox').all()) {
+   const b = await c.boundingBox()
+   expect(b.height).toBeGreaterThanOrEqual(44)
+   expect(b.x + b.width).toBeLessThanOrEqual(320)
+  }
+  expect(phone.errors).toEqual([])
+  await phone.context.close()
+  const strip = await launch({width:1180, height:800, projects:[...fprojects(), blog()]})
+  await strip.page.goto(base)
+  const panel = strip.page.getByRole('button',{name:/^Open the project rail/})
+  await panel.click()
+  await strip.page.locator('aside.rail').getByRole('button',{name:'Projects menu'}).click()
+  await strip.page.getByRole('menuitem',{name:'Select projects'}).click()
+  await strip.page.locator('aside.rail .full').getByRole('checkbox',{name:/^Site/}).click()
+  await strip.page.locator('aside.rail .full').getByRole('checkbox',{name:/^Blog/}).click()
+  await strip.page.locator('aside.rail').getByRole('button',{name:'Close the project rail'}).first().click()
+  await expect(strip.page.locator('aside.rail .strip .picked-count')).toHaveText('Chosen: 2')
+  await expect(strip.page.locator('aside.rail .strip').getByRole('checkbox')).toHaveCount(4)
+  await expect.poll(() => sentenceText(strip.page)).toContain('on 2 projects at studio')
+  expect(strip.errors).toEqual([])
+  await strip.context.close()
+ }
+
+ // A rail card (or its New session here) puts that project in the sentence with its own defaults: agent, model and worktree
+ // choice; its starter prompt is offered with the chip and goes out only once the person uses it.
+ if (run('a rail card applies the project defaults and offers its starter prompt')) {
+  const projects = fprojects().map(p => p.id === 'fp3' ? {...p, defaultTool:'codex', defaultModel:'gpt-5-codex', worktreeDefault:'no', hasStarterPrompt:true} : p)
+  const routes = {'/api/v2/folder-projects/fp3': () => ({...projects.find(p => p.id === 'fp3'), starterPrompt:'Tidy the site build and say what changed'})}
+  const {context,page,errors,box} = await launch({projects, routes})
+  await page.goto(base)
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  const rail = page.locator('aside.rail')
+  await rail.locator('.card').filter({hasText:'Site'}).click()
+  await expect.poll(() => sentenceText(page)).toBe('Run Codex with gpt-5-codex on Site at studio in the checkout')
+  await expect(prompt(page)).toBeFocused()
+  await expect(prompt(page)).toHaveValue('')
+  // Back to a project that names no agent (the choice stays, with its own base and worktree), then New session here from
+  // Site's menu: Site's defaults again.
+  await pick(page,'Agent','Claude Code')
+  await rail.locator('.card').filter({hasText:'Store rewrite'}).click()
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await rail.getByRole('button',{name:'More for Site'}).click()
+  await page.getByRole('menuitem',{name:'New session here'}).click()
+  await expect.poll(() => sentenceText(page)).toBe('Run Codex with gpt-5-codex on Site at studio in the checkout')
+  await bar(page).getByRole('button',{name:'Use the starter prompt'}).click()
+  await expect(prompt(page)).toHaveValue('Tidy the site build and say what changed')
+  await startButton(page).click()
+  await expect(page).toHaveURL(/\/terminals\?/)
+  expect(box.posts[0]).toMatchObject({agentId:'a1', tool:'codex', model:'gpt-5-codex', dir:'/home/dev/site', projectId:'fp3', prompt:'Tidy the site build and say what changed'})
+  for (const key of ['worktree','project','base']) expect(box.posts[0], key).not.toHaveProperty(key)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // Home has no Start an agent button: the bar is the way to start.
  if (run('one press starts with the last choices')) {
   // The newest session that names an agent is the last launch: Codex with gpt-5-codex in Store rewrite, in a worktree.
@@ -588,7 +745,7 @@ try {
   }
  }
 
- console.log('Launch bar: one press with the last choices, each slot, unready machines, the starter prompt chip, lost replies and refusals, a -x folder, the locked bar, Enter and Ctrl+Enter, the phone Change sheet, the keyboard-open prompt and nothing in storage checked.')
+ console.log('Launch bar: Select and start in several projects (lost reply, status sheet, retry, touch, 320 px, strip count), one press with the last choices, each slot, unready machines, the starter prompt chip, lost replies and refusals, a -x folder, the locked bar, Enter and Ctrl+Enter, the phone Change sheet, the keyboard-open prompt and nothing in storage checked.')
 } finally {
  await browser.close()
 }

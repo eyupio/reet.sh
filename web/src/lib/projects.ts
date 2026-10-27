@@ -29,9 +29,14 @@ export type RunMember = {
   /** True when the run made no worktree: the agent works in the saved folder itself. */
   sharesCheckout: boolean
   attempt: number
+  /** A start in several projects: the member's folder project, its name and the base its worktree starts from ('' for none). */
+  projectId?: string; name?: string; base?: string
 }
 export type ProjectRun = {
-  id: string; projectId: string; projectName: string; state: RunState | string; startedAt: number
+  id: string
+  /** 'set' for a saved Project's run, 'selection' for a start in several folder projects. */
+  origin?: 'set' | 'selection'
+  projectId: string; projectName: string; state: RunState | string; startedAt: number
   useWorktrees: boolean; worktreeProject: string; members: RunMember[]
 }
 export type WorktreeTarget = { agentId: string; project: string; repo: string; run: string }

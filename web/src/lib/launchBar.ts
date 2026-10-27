@@ -125,6 +125,23 @@ export function withProject(choice: LaunchChoice, project: LaunchProject, profil
   }
 }
 
+/**
+ * The choice for the rail's selection (in rail order): two or more projects keep the agent, model, worktree and prompt and
+ * name them all; one project is that project as its card would choose it; none goes back to the first project the
+ * sentence named.
+ */
+export function withSelection(choice: LaunchChoice, ids: string[], projects: LaunchProject[], profile: LaunchDefaults): LaunchChoice {
+  const known = ids.filter(id => projects.some(p => p.id === id))
+  if (known.length > 1) {
+    const { homeMachine: _, ...rest } = choice
+    return { ...rest, projectIds: known }
+  }
+  const one = projects.find(p => p.id === (known[0] ?? choice.projectIds[0]))
+  if (!one) return choice
+  if (known.length === 0 && choice.projectIds.length <= 1) return choice
+  return withProject(choice, one, profile)
+}
+
 /** The choice for *Home folder on* a machine: no project, so no branch. */
 export function withHome(choice: LaunchChoice, agentId: string): LaunchChoice {
   return { ...choice, projectIds: [], homeMachine: agentId, branch: '' }
@@ -260,6 +277,22 @@ export function toCreate(choice: LaunchChoice, project: LaunchProject | null, re
     title: defaultTitle(choice.prompt, titleFor(choice.agent, project?.dir ?? '')),
     launch,
   }
+}
+
+/** What a start in several projects sends: one request for a run (POST /api/v2/folder-projects/runs). Each project's base is
+ * the controller's to settle (`baseFor`'s rule); YOLO is never sent until reet starts YOLO sessions. */
+export type SelectionRunRequest = { requestId: string; projectIds: string[]; tool: string; model: string; effort: Effort; prompt: string; worktree: boolean }
+export function toSelectionRun(choice: LaunchChoice, requestId: string): SelectionRunRequest {
+  return {
+    requestId, projectIds: [...choice.projectIds], tool: choice.agent, model: cleanModel(choice.model),
+    effort: takesEffort(choice.agent) ? choice.effort : '', prompt: choice.prompt, worktree: choice.worktree,
+  }
+}
+
+/** The status sheet's line: how many members the controller says started (a removed worktree's member did start), of all. */
+export function startedLine(run: { members: { state: string }[] }): string {
+  const started = run.members.filter(m => m.state === 'started' || m.state === 'removed').length
+  return `${started} of ${run.members.length} started`
 }
 
 /** R8: on touch the Start button is the only way to send, whatever the key. On a hardware keyboard Enter adds a line and

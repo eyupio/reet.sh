@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -20,6 +21,9 @@ var (
 	ErrTerminalCapacity       = errors.New("terminal session capacity reached")
 	ErrTerminalNotReady       = errors.New("terminal is not ready")
 	ErrProjectMachineMismatch = errors.New("project is on another machine")
+	// ErrProjectFolderMismatch: the session would not start in the project's
+	// folder, so it is not put in that project.
+	ErrProjectFolderMismatch = errors.New("session is not in the project's folder")
 )
 
 func (s *Store) migrateTerminal() error {
@@ -416,7 +420,7 @@ func (s *Store) ReserveTerminalCreateFor(uid int64, agentID, requestID string, g
 		}
 		var project sql.NullString
 		if in.ProjectID != "" {
-			if err := projectOnMachine(tx, uid, agentID, in.ProjectID); err != nil {
+			if err := projectOnMachine(tx, uid, agentID, in.ProjectID, in.Dir); err != nil {
 				return err
 			}
 			project = sql.NullString{String: in.ProjectID, Valid: true}
@@ -452,14 +456,17 @@ func (s *Store) ReserveTerminalCreateFor(uid int64, agentID, requestID string, g
 	return t, created, nil
 }
 
-// projectOnMachine checks that a folder project is the account's own and on
-// the session's machine. An unknown id and another account's id give the same
-// ErrFolderProjectNotFound, so the reply never says whether an id exists.
+// projectOnMachine checks that a folder project is the account's own, on the
+// session's machine and in the session's folder (dir, cleaned; a session with
+// no folder starts in the home folder, which is not the project's). An unknown
+// id and another account's id give the same ErrFolderProjectNotFound, so the
+// reply never says whether an id exists.
 func projectOnMachine(q interface {
 	QueryRow(string, ...any) *sql.Row
-}, uid int64, agentID, projectID string) error {
+}, uid int64, agentID, projectID, dir string) error {
 	var same bool
-	err := q.QueryRow(`SELECT EXISTS(SELECT 1 FROM sync_agents a WHERE a.id=? AND a.user_id=p.user_id AND a.id=p.host) FROM folder_projects p WHERE p.user_id=? AND p.id=?`, agentID, uid, projectID).Scan(&same)
+	var folder string
+	err := q.QueryRow(`SELECT EXISTS(SELECT 1 FROM sync_agents a WHERE a.id=? AND a.user_id=p.user_id AND a.id=p.host),p.dir FROM folder_projects p WHERE p.user_id=? AND p.id=?`, agentID, uid, projectID).Scan(&same, &folder)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrFolderProjectNotFound
 	}
@@ -469,13 +476,16 @@ func projectOnMachine(q interface {
 	if !same {
 		return ErrProjectMachineMismatch
 	}
+	if dir == "" || path.Clean(dir) != folder {
+		return ErrProjectFolderMismatch
+	}
 	return nil
 }
 
 // TerminalProjectCheckFor answers, before any machine is asked, whether a
-// session on agentID may belong to projectID (see projectOnMachine).
-func (s *Store) TerminalProjectCheckFor(uid int64, agentID, projectID string) error {
-	return projectOnMachine(s.db, uid, agentID, projectID)
+// session on agentID in dir may belong to projectID (see projectOnMachine).
+func (s *Store) TerminalProjectCheckFor(uid int64, agentID, projectID, dir string) error {
+	return projectOnMachine(s.db, uid, agentID, projectID, dir)
 }
 
 // RequestTerminalEndFor is deliberately independent of connection freshness or

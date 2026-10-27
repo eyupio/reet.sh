@@ -14,7 +14,7 @@ const source = compile('./launchBar.ts')
   .replace("from './catalogue'", `from '${catalogue}'`)
   .replace("from './agentLaunch'", `from '${agentLaunch}'`)
   .replace("from './terminal/api'", `from '${terminalApi}'`)
-const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, lastChoice, withProject, withHome, summary } = await import(asURL(source))
+const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, lastChoice, withProject, withHome, summary, toSelectionRun, startedLine, withSelection } = await import(asURL(source))
 const { refusalText } = await import(agentLaunch)
 
 const caps = (extra = {}) => ({ protocolVersion: 1, os: 'linux', osUser: 'u', terminalEnabled: true, terminalControl: true, healthEnabled: true, readiness: 'ready',
@@ -271,4 +271,34 @@ test('the phone summary is the sentence in one line', () => {
   assert.equal(summary(sentence(choice({ worktree: false }), projects, machines, 'main')), 'Claude Code on reet at studio · the checkout')
   assert.equal(summary(sentence(choice({ projectIds: ['p-notes'] }), projects, machines)), 'Claude Code on notes at desk')
   assert.equal(summary(sentence(choice({ agent: 'cline', effort: 'low' }), projects, machines)), 'Cline on reet at studio · main · fresh worktree · thinking low')
+})
+
+test('several projects send one run request, never YOLO', () => {
+  const r = 'r'.repeat(36)
+  const many = choice({ agent: 'cline', model: ' sonnet ', effort: 'high', projectIds: ['p-reet', 'p-site', 'p-notes'], prompt: 'Fix the failing tests', approvals: 'yolo', branch: 'release' })
+  assert.deepEqual(toSelectionRun(many, r), { requestId: r, projectIds: ['p-reet', 'p-site', 'p-notes'], tool: 'cline', model: 'sonnet', effort: 'high', prompt: 'Fix the failing tests', worktree: true })
+  // Effort only for an agent that takes it; no model is ''; the checkout is worktree false.
+  assert.deepEqual(toSelectionRun(choice({ agent: 'claude', model: '', effort: 'high', projectIds: ['p-reet', 'p-site'], worktree: false, prompt: '' }), r),
+    { requestId: r, projectIds: ['p-reet', 'p-site'], tool: 'claude', model: '', effort: '', prompt: '', worktree: false })
+})
+
+test('the started line counts only what the controller says started', () => {
+  const m = state => ({ state })
+  assert.equal(startedLine({ members: [m('started'), m('failed'), m('pending')] }), '1 of 3 started')
+  assert.equal(startedLine({ members: [m('started'), m('removed'), m('failed')] }), '2 of 3 started')
+  assert.equal(startedLine({ members: [m('pending'), m('pending')] }), '0 of 2 started')
+})
+
+test('a selection puts its projects in the sentence and one project its own defaults', () => {
+  const start = choice({ agent: 'codex', model: 'gpt-5-codex', projectIds: ['p-reet'], prompt: 'keep me' })
+  const many = withSelection(start, ['p-site', 'p-notes'], projects, profile)
+  assert.deepEqual(many.projectIds, ['p-site', 'p-notes'])
+  assert.equal(many.agent, 'codex')
+  assert.equal(many.prompt, 'keep me')
+  assert.equal(words(sentence(many, projects, machines)), "Run Codex with gpt-5-codex on 2 projects at each project's machine from each project's default in a fresh worktree")
+  const one = withSelection(many, ['p-site'], projects, profile)
+  assert.deepEqual(one.projectIds, ['p-site'])
+  // Nothing chosen: the sentence goes back to the first project it named.
+  assert.deepEqual(withSelection(many, [], projects, profile).projectIds, ['p-site'])
+  assert.deepEqual(withSelection(start, [], projects, profile).projectIds, ['p-reet'])
 })

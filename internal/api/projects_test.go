@@ -376,11 +376,14 @@ func TestProjectDeleteKeepsRunsReadable(t *testing.T) {
 	if failed["state"] != "failed" || failed["code"] != "tool_not_installed" || failed["sentence"] != "That agent isn't installed on that machine." || failed["tool"] != "codex" || failed["model"] != "gpt-5-codex" {
 		t.Fatal("failed member", failed)
 	}
-	wantRun := []string{"id", "members", "projectId", "projectName", "startedAt", "state", "useWorktrees", "worktreeProject"}
+	wantRun := []string{"id", "members", "origin", "projectId", "projectName", "startedAt", "state", "useWorktrees", "worktreeProject"}
 	if keys := keysOf(got); !reflect.DeepEqual(keys, wantRun) {
 		t.Fatal("run keys", keys)
 	}
-	wantMember := []string{"attempt", "code", "dir", "host", "model", "position", "sentence", "sessionId", "sharesCheckout", "state", "tool", "worktreeBranch", "worktreePath", "worktreeProject", "worktreeRepo", "worktreeRun"}
+	if got["origin"] != "set" || started["projectId"] != "" || started["name"] != "" || started["base"] != "" {
+		t.Fatal("a saved Project's run reads as a selection", got)
+	}
+	wantMember := []string{"attempt", "base", "code", "dir", "host", "model", "name", "position", "projectId", "sentence", "sessionId", "sharesCheckout", "state", "tool", "worktreeBranch", "worktreePath", "worktreeProject", "worktreeRepo", "worktreeRun"}
 	if keys := keysOf(started); !reflect.DeepEqual(keys, wantMember) {
 		t.Fatal("run member keys", keys)
 	}

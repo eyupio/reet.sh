@@ -125,7 +125,7 @@ func TestWorktreeStatusPathsAreBoundedAndPlain(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(w.Path, "0dir", long), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	special := []string{"0a\nnewline", "0b‮evil.txt", "0c\x1b[2Jesc", filepath.Join("0dir", long, strings.Repeat("m", 200))}
+	special := []string{"0a\nnewline", "0b\u202eevil.txt", "0c\x1b[2Jesc", filepath.Join("0dir", long, strings.Repeat("m", 200))}
 	for _, name := range special {
 		writeFile(t, filepath.Join(w.Path, name), "x\n")
 	}
@@ -156,9 +156,9 @@ func TestPlainPath(t *testing.T) {
 	for in, want := range map[string]string{
 		"ok.txt":                       "ok.txt",
 		"a\tb":                         "a�b",
-		"a b c":                        "a�b�c",
+		"a\u2028b\u2029c":              "a�b�c",
 		"bad\xffutf8":                  "bad�utf8",
-		"zero​width":                   "zero�width",
+		"zero\u200bwidth":              "zero�width",
 		strings.Repeat("é", 200):       strings.Repeat("é", 127),
 		"x" + strings.Repeat("é", 200): "x" + strings.Repeat("é", 127),
 	} {

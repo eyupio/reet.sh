@@ -186,7 +186,7 @@ func worktreeDetail(out []byte) string {
 	}
 	var b strings.Builder
 	for _, r := range strings.ToValidUTF8(line, "") {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == ' ' || r == ' ' {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
 			continue
 		}
 		if b.Len()+utf8.RuneLen(r) > terminalproto.MaxWorktreeDetailBytes {
@@ -793,7 +793,7 @@ func parseStatus(out []byte) (int, []string) {
 func plainPath(p string) string {
 	var b strings.Builder
 	for _, r := range strings.ToValidUTF8(p, "�") {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == ' ' || r == ' ' {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
 			r = '�'
 		}
 		if b.Len()+utf8.RuneLen(r) > terminalproto.MaxWorktreePathBytes {

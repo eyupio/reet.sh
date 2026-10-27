@@ -44,13 +44,17 @@ type rooter interface {
 	rootAt(dir string) (FS, func(), error)
 }
 
-// rootBeneath confines fsys beneath dir when it can, and returns it as it is
-// otherwise. done releases what was opened.
+// errNotRootable refuses a browse over an FS that cannot be confined.
+var errNotRootable = errors.New("this filesystem cannot be confined beneath home")
+
+// rootBeneath confines fsys beneath dir. It fails closed: an FS that cannot
+// be rooted is an error, never used unconfined. done releases what was
+// opened.
 func rootBeneath(fsys FS, dir string) (FS, func(), error) {
 	if r, ok := fsys.(rooter); ok {
 		return r.rootAt(dir)
 	}
-	return fsys, func() {}, nil
+	return nil, nil, errNotRootable
 }
 
 type osFS struct{}
@@ -218,6 +222,11 @@ func (b *browser) browse(home string, req terminalproto.Browse) (terminalproto.B
 	if path == "" {
 		path = realHome
 	}
+	// ".." is taken lexically, before anything is resolved. Resolving first
+	// would follow a link out of home and lstat the name before a "..",
+	// so whether "~/link-out/<probe>/../.." succeeds would tell whether
+	// <probe> exists outside home.
+	path = filepath.Clean(path)
 	dir, err := ResolveDir(realHome, path)
 	if err != nil {
 		return terminalproto.BrowseResult{}, b.whyNot(home, realHome, path)
@@ -468,7 +477,7 @@ func browseName(name string) bool {
 		return false
 	}
 	for _, c := range name {
-		if unicode.IsControl(c) || unicode.Is(unicode.Cf, c) || c == ' ' || c == ' ' {
+		if unicode.IsControl(c) || unicode.Is(unicode.Cf, c) || c == '\u2028' || c == '\u2029' {
 			return false
 		}
 	}

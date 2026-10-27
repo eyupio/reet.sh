@@ -897,7 +897,7 @@ func TestWorktreeDetail(t *testing.T) {
 		"": "",
 		"Preparing worktree (new branch 'x')\nfatal: bad\n": "fatal: bad",
 		"\n\n  first line  \nsecond":                        "first line",
-		"error: a‮b c\x00d\xff":                             "error: abcd",
+		"error: a\u202eb\u2028c\x00d\xff":                   "error: abcd",
 		"fatal: " + strings.Repeat("é", 300):                "fatal: " + strings.Repeat("é", (200-7)/2),
 	} {
 		got := worktreeDetail([]byte(in))

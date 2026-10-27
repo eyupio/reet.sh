@@ -7,12 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"testing"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -426,6 +428,38 @@ func TestBrowseContainment(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+	t.Run("a path out through a link and back with .. tells nothing", func(t *testing.T) {
+		putFile(t, filepath.Join(outside, "file2"), "x")
+		fromRoot := strings.TrimPrefix(home, "/")
+		back, err := filepath.Rel(outside, home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, group := range [][]string{
+			{
+				home + "/to-root/etc/../" + fromRoot,
+				home + "/to-root/definitely-not-here/../" + fromRoot,
+				home + "/to-root/etc/passwd/../../" + fromRoot,
+			},
+			{
+				home + "/to-sibling/private-folder/../" + back,
+				home + "/to-sibling/nope/../" + back,
+				home + "/to-sibling/file2/../" + back,
+			},
+			{
+				home + "/to-sibling/private-folder/../" + back + "/work",
+				home + "/to-sibling/nope/../" + back + "/work",
+				home + "/to-sibling/file2/../" + back + "/work",
+			},
+		} {
+			first := browseOS(t, home, terminalproto.Browse{Path: group[0]})
+			for _, path := range group[1:] {
+				if r := browseOS(t, home, terminalproto.Browse{Path: path}); !reflect.DeepEqual(r, first) {
+					t.Errorf("Browse(%q) = %+v\nbut Browse(%q) = %+v: whether a path outside home exists is told", path, r, group[0], first)
+				}
+			}
+		}
+	})
 }
 
 func TestBrowseRepoDetection(t *testing.T) {
@@ -804,14 +838,24 @@ func TestBrowseReplyFitsFrame(t *testing.T) {
 
 	t.Run("a deep folder whose own path fills the reply", func(t *testing.T) {
 		home := browseHome(t)
-		d := home
-		for depth := 1; depth <= 14; depth++ {
+		d, reached, short := home, 0, false
+		for depth := 1; depth <= 14 && !short; depth++ {
 			d = filepath.Join(d, strings.Repeat("<", 250)+strconv.Itoa(depth%10))
-			if err := os.Mkdir(d, 0o700); err != nil {
-				t.Logf("stopped at depth %d: %v", depth, err)
+			if err := os.Mkdir(d, 0o700); errors.Is(err, syscall.ENAMETOOLONG) {
+				// macOS has a 1,024-byte PATH_MAX; Linux keeps the full case.
+				t.Logf("paths stop at depth %d here: %v", depth, err)
+				short = true
 				break
+			} else if err != nil {
+				t.Fatal(err)
 			}
-			mkdirs(t, d, strings.Repeat("&", 255))
+			if err := os.Mkdir(filepath.Join(d, strings.Repeat("&", 255)), 0o700); errors.Is(err, syscall.ENAMETOOLONG) {
+				t.Logf("no child fits at depth %d here: %v", depth, err)
+				short = true // browse this one without its child, then stop
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			reached = depth
 			r := browseOS(t, home, terminalproto.Browse{Path: d})
 			t.Logf("depth %d: %d bytes reason %q entries %d omitted %d more %v", depth, len(d), r.Reason, len(r.Entries), r.Omitted, r.More)
 			if r.More && len(r.Entries) == 0 {
@@ -824,5 +868,48 @@ func TestBrowseReplyFitsFrame(t *testing.T) {
 				t.Fatalf("depth %d (%d-byte path): %q, though the folder fits a reply", depth, len(d), r.Reason)
 			}
 		}
+		if reached < 3 || runtime.GOOS == "linux" && (short || reached != 14) {
+			t.Fatalf("built only %d levels (short %v); want 3 anywhere and all 14 with children on Linux", reached, short)
+		}
 	})
+}
+
+// passFS hides rootAt: a wrapper that cannot be rooted.
+type passFS struct{ FS }
+
+// A filesystem that cannot be confined beneath home is refused, never used
+// unconfined.
+func TestBrowseFailsClosedWithoutRoot(t *testing.T) {
+	home := browseHome(t)
+	mkdirs(t, home, "folder")
+	requireReason(t, browseWith(t, home, terminalproto.Browse{}, passFS{OSFS}), terminalproto.BrowseUnreadable)
+	requireNames(t, browseWith(t, home, terminalproto.Browse{}, hookFS{base: OSFS}), "folder")
+}
+
+// Source files hold no literal control, format or bidi characters (U+202E,
+// U+200B, U+2028 and the like): they are written as escapes, so what a
+// reviewer reads is what the compiler sees.
+func TestPackageSourceHasNoInvisibleCharacters(t *testing.T) {
+	for _, dir := range []string{".", "../terminalproto"} {
+		files, err := filepath.Glob(filepath.Join(dir, "*.go"))
+		if err != nil || len(files) == 0 {
+			t.Fatal(dir, err)
+		}
+		for _, file := range files {
+			data, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			line := 1
+			for _, c := range string(data) {
+				if c == '\n' {
+					line++
+					continue
+				}
+				if c != '\t' && unicode.IsControl(c) || unicode.Is(unicode.Cf, c) || c == '\u2028' || c == '\u2029' {
+					t.Errorf("%s:%d holds a literal %U; write it as an escape", file, line, c)
+				}
+			}
+		}
+	}
 }

@@ -634,3 +634,30 @@ func TestDeleteUserRemovesTheirData(t *testing.T) {
 		t.Fatal("owner state was touched")
 	}
 }
+
+func TestUpdateEventDetailForKeepsToTheOwnersRowOfThatAction(t *testing.T) {
+	s := newStore(t)
+	owner, _ := s.DefaultOwner()
+	other, err := s.CreateUser("events-other@example.test", "Other", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := s.AddEventIDFor(owner, "ui", "folder-browse", "", map[string]any{"pages": 1})
+	if err != nil || id == 0 {
+		t.Fatal(id, err)
+	}
+	if err := s.UpdateEventDetailFor(owner, id, "folder-browse", map[string]any{"pages": 2}); err != nil {
+		t.Fatal(err)
+	}
+	// Another account's update, or one naming another action, changes nothing.
+	if err := s.UpdateEventDetailFor(other.ID, id, "folder-browse", map[string]any{"pages": 9}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateEventDetailFor(owner, id, "worktree-remove", map[string]any{"pages": 8}); err != nil {
+		t.Fatal(err)
+	}
+	events, _ := s.ListEventsFor(owner, 10, "")
+	if len(events) != 1 || events[0].ID != id || events[0].Detail != `{"pages":2}` {
+		t.Fatal(events)
+	}
+}

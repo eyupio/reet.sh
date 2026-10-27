@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { shell } from './dialogShell'
   import AudiencePicker from './AudiencePicker.svelte'
   import { createList, type ListDetail, type Audience } from './api'
 
@@ -45,11 +46,11 @@
   }
 </script>
 
-<dialog bind:this={dialog} aria-labelledby="new-list-title" oncancel={(e) => { e.preventDefault(); cancel() }}>
-  <form class="box" onsubmit={submit}>
-    <p class="eyebrow">Your lists</p>
+<dialog bind:this={dialog} use:shell aria-labelledby="new-list-title" oncancel={(e) => { e.preventDefault(); cancel() }}>
+  <form class="box" data-shell-card onsubmit={submit}>
+    <p class="eyebrow" data-shell-aside>Your lists</p>
     <h2 id="new-list-title">Start a list</h2>
-    <p class="lede">Keep a set of skills together, add a note to each, and choose exactly who can access it.</p>
+    <p class="lede" data-shell-aside>Keep a set of skills together, add a note to each, and choose exactly who can access it.</p>
 
     <label class="field">
       <span>Name</span>
@@ -63,7 +64,7 @@
     <AudiencePicker bind:visibility bind:audience {linkEnabled} />
 
     {#if error}<p class="error" role="alert">{error}</p>{/if}
-    <div class="actions">
+    <div class="actions" data-shell-foot>
       <button type="button" class="btn quiet" onclick={cancel} disabled={busy}>Cancel</button>
       <button type="submit" class="btn primary" disabled={busy || !name.trim()}>{busy ? 'Saving…' : visibility === 'public' ? 'Publish to public community' : 'Create list'}</button>
     </div>
@@ -77,7 +78,7 @@
     padding: 28px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
     box-shadow: 0 28px 80px -24px rgb(0 0 0 / 0.45);
   }
-  .eyebrow { margin: 0; color: var(--accent); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
   h2 { margin: 6px 0 0; font: 500 1.8rem/1.15 var(--serif); letter-spacing: -0.02em; }
   .lede { margin: 8px 0 18px; color: var(--muted); font-size: 0.9rem; }
   .field { display: grid; gap: 6px; margin-top: 12px; font-size: 0.82rem; font-weight: 600; }

@@ -1,7 +1,13 @@
 <script lang="ts">
-  import NavigationMenu from './lib/NavigationMenu.svelte'
+  import AppShell from './lib/shell/AppShell.svelte'
+  import type { JumpItem, Tab } from './lib/shell/tabs'
+  import ActivityPage from './lib/ActivityPage.svelte'
+  import { listProjects, terminalMachines, terminalSessions } from './lib/terminal/api'
+  import ProjectsPage from './lib/ProjectsPage.svelte'
+  import ProjectPage from './lib/ProjectPage.svelte'
   import Machines from './lib/Machines.svelte'
   import ControlCenter from './lib/ControlCenter.svelte'
+  import Home from './lib/home/Home.svelte'
   import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
   import Community from './lib/Community.svelte'
   import SharedLists from './lib/SharedLists.svelte'
@@ -24,10 +30,12 @@
   import ConfirmDialog from './lib/ConfirmDialog.svelte'
   import CopyButton from './lib/CopyButton.svelte'
   import Footer from './lib/Footer.svelte'
+  import { canAutoFocus } from './lib/focus'
   import Join from './lib/Join.svelte'
   import ListView from './lib/ListView.svelte'
   import Logo from './lib/Logo.svelte'
   import NewList from './lib/NewList.svelte'
+  import NotFound from './lib/NotFound.svelte'
   import PublicList from './lib/PublicList.svelte'
   import ResetPassword from './lib/ResetPassword.svelte'
   import PageHeader from './lib/PageHeader.svelte'
@@ -42,6 +50,7 @@
   import SkillCard from './lib/SkillCard.svelte'
   import Bookmarklets from './lib/Bookmarklets.svelte'
   import Toast from './lib/Toast.svelte'
+  import { ssoErrorFromSearch, ssoErrorMessage, withoutSsoError, type SsoStatus } from './lib/sso'
   import Tools from './lib/Tools.svelte'
   import { copyText } from './lib/clipboard'
   import { installCommand } from './lib/install'
@@ -73,6 +82,7 @@
   let signupEnabled = $state(false)
   let contactEmail = $state('')
   let passwordReset = $state(false)
+  let sso = $state<SsoStatus | undefined>(undefined)
   let unreadNotifications = $state(0)
   let currentUser = $state<User | null>(null)
   let search = $state<HTMLInputElement>()
@@ -104,13 +114,21 @@
   let bulkRemoving = $state<Skill[]>([])
 
   const origin = location.origin
-  const isControl = location.pathname === '/' || location.pathname === '/control'
+  // `/` is Home: the full Home for a writer in accounts mode, the fleet strip alone for everyone else signed in (R16).
+  // Control keeps its own address at /control, under More.
+  const isHome = location.pathname === '/'
+  const isControl = location.pathname === '/control'
+  const isActivity = location.pathname === '/activity'
   const isSkills = location.pathname === '/skills'
   const machineView = new URLSearchParams(location.search).get('view')
   const legacyMachinePage = ['/machines', '/account/machines', '/account/sync'].includes(location.pathname)
   const isTerminals = location.pathname === '/terminals' || legacyMachinePage && machineView === 'terminal'
   const isSync = location.pathname === '/sync' || legacyMachinePage && !isTerminals && (machineView === 'compare' || location.pathname === '/account/sync')
   const isHosting = location.pathname === '/hosting'
+  // /projects lists them; /projects/<id> is one Project. Only the id is ever in the address.
+  const projectMatch = location.pathname.match(/^\/projects(?:\/([^/]+))?\/?$/)
+  const isProjects = projectMatch !== null
+  const projectId = projectMatch?.[1] ? decodeURIComponent(projectMatch[1]) : ''
   const isCommunity = location.pathname === '/community'
   const isShared = location.pathname === '/shared'
   const isSpaces = location.pathname === '/spaces'
@@ -129,6 +147,8 @@
   const isWelcome = location.pathname === '/' || location.pathname === '/welcome'
   const isSignIn = location.pathname === '/signin'
   const isSignUp = location.pathname === '/signup'
+  // Addresses that only make sense before sign-in. Finishing sign-in or setup on one of them continues at Control.
+  const entryPaths = ['/welcome', '/signin', '/signup', '/setup']
   const listMatch = location.pathname.match(/^\/lists\/(\d+)\/?$/)
   const isList = listMatch !== null
   const listId = listMatch ? Number(listMatch[1]) : 0
@@ -143,24 +163,51 @@
   const canWrite = $derived(authMode !== 'accounts' || role !== 'viewer')
   const terminalLayout = $derived(isTerminals && authMode === 'accounts' && authenticated && canWrite && !needsAuth)
   const isAdminUser = $derived(authMode !== 'accounts' || role === 'owner' || role === 'admin')
-  const mainNavigation = $derived([
-    { href: '/', label: 'Control', current: isControl },
+  // Navigation (R13): five tabs on a desktop; Home, Sessions and Machines stay in view on a tablet or phone and the rest
+  // move into More. Sessions and the bell are for a writer in accounts mode only (R16), as Terminals and Projects were.
+  const sessionsAccess = $derived(authMode === 'accounts' && canWrite)
+  // The bell's Needs you count, as Home reads it. Nothing signals that a session needs the person today, so it stays 0.
+  let attention = $state(0)
+  // Home spans the page: the project rail on the left and the docked Start an agent at the foot.
+  const homeLayout = $derived(isHome && authChecked && !!authMode && authenticated && !needsAuth && !(authMode === 'accounts' && setupRequired))
+  const tabs = $derived<Tab[]>([
+    { href: '/', label: 'Home', current: isHome },
+    ...(sessionsAccess ? [{ href: '/terminals', label: 'Sessions', current: isTerminals }] : []),
     { href: '/machines', label: 'Machines', current: isMachines && !isSync && !isTerminals },
-    ...(authMode === 'accounts' && canWrite ? [{ href: '/terminals', label: 'Terminals', current: isTerminals }] : []),
-    { href: '/community', label: 'More', current: isShared || isList || isProfiles || isSpaces || isCommunity || isHosting || isSupport || isTicket || isNotifications || isSkills || isSync,
-      children: [
-        { href: '/skills', label: 'Skills', current: isSkills },
-        { href: '/sync', label: 'Sync', current: isSync },
-        { href: '/shared', label: 'Lists', current: isShared || isList },
-        { href: '/profiles', label: 'Portable setups', current: isProfiles },
-        { href: '/community', label: 'Community', current: isCommunity },
-        { href: '/support', label: 'Support', current: isSupport || isTicket },
-        { href: '/notifications', label: unreadNotifications > 0 ? `Notifications (${unreadNotifications})` : 'Notifications', current: isNotifications },
-        { href: '/spaces', label: 'Teams & organisations', current: isSpaces },
-        ...(canWrite ? [{ href: '/hosting', label: 'Host skills', current: isHosting }] : []),
-      ],
-    },
+    { href: '/skills', label: 'Skills', current: isSkills },
+    { href: '/activity', label: 'Activity', current: isActivity },
   ])
+  const barTabs = $derived(tabs.filter(tab => ['/', '/terminals', '/machines'].includes(tab.href)))
+  const more = $derived<Tab[]>([
+    { href: '/control', label: 'Control', current: isControl },
+    ...(sessionsAccess ? [{ href: '/projects', label: 'Projects', current: isProjects }] : []),
+    { href: '/profiles', label: 'Setups', current: isProfiles },
+    { href: '/sync', label: 'Sync', current: isSync },
+    { href: '/shared', label: 'Lists', current: isShared || isList },
+    { href: '/community', label: 'Community', current: isCommunity },
+    { href: '/support', label: 'Support', current: isSupport || isTicket },
+    { href: '/spaces', label: 'Teams & organisations', current: isSpaces },
+    ...(canWrite ? [{ href: '/hosting', label: 'Host skills', current: isHosting }] : []),
+  ])
+  // Jump searches what the workspace already lists: sessions, existing Projects and machines (a writer's terminal machines,
+  // and the machines on the shelf inventory for everyone). Read when Jump is used; a list that cannot be read is left out.
+  async function jumpItems(): Promise<JumpItem[]> {
+    const items: JumpItem[] = []
+    const hosts = new Map<string, string>()
+    if (sessionsAccess) {
+      const [sessions, projects, terminal] = await Promise.allSettled([terminalSessions(), listProjects(), terminalMachines()])
+      if (terminal.status === 'fulfilled') for (const machine of terminal.value) hosts.set(machine.agentId, machine.host)
+      if (sessions.status === 'fulfilled') for (const session of sessions.value) {
+        const host = hosts.get(session.agentId)
+        items.push({ kind: 'session', label: session.title, detail: host ? `Session · ${host}` : 'Session', href: `/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}` })
+      }
+      if (projects.status === 'fulfilled') for (const project of projects.value) items.push({ kind: 'project', label: project.name, detail: 'Project', href: `/projects/${encodeURIComponent(project.id)}` })
+      if ([sessions, projects, terminal].every(result => result.status === 'rejected')) throw new Error('Nothing could be read.')
+    }
+    const names = new Set([...hosts.values(), ...shelfMachines.map(machine => machine.host)])
+    for (const host of names) items.push({ kind: 'machine', label: host, detail: 'Machine', href: `/machines?machine=${encodeURIComponent(host)}` })
+    return items
+  }
   const scanCommand = $derived(`reet scan --prune --server ${origin}`)
   const suggestions = [
     { slug: 'anthropics/skills/pdf', name: 'PDF', blurb: 'Read, extract and combine PDF files.' },
@@ -314,8 +361,21 @@
       signupEnabled = status.signupEnabled ?? false
       contactEmail = status.contactEmail ?? ''
       passwordReset = status.passwordReset ?? false
+      sso = status.sso
       currentUser = status.user
-      if (status.user && location.pathname === '/welcome') {
+      // The server sends a sign-in that could not finish to the home page, which for someone signed out is the welcome page:
+      // take the code to the sign-in page, where it is said in words.
+      if (!status.user && status.mode === 'accounts' && ssoErrorFromSearch(location.search) && location.pathname !== '/signin') {
+        location.replace('/signin' + location.search)
+        return
+      }
+      // A link that could not finish lands on a signed-in page with a code in the address: say it once.
+      const ssoProblem = ssoErrorMessage(ssoErrorFromSearch(location.search))
+      if (status.user && ssoProblem) {
+        showToast(ssoProblem)
+        window.history.replaceState(null, '', withoutSsoError(location.pathname + location.search + location.hash))
+      }
+      if (status.user && entryPaths.includes(location.pathname)) {
         location.replace('/')
         return
       }
@@ -355,7 +415,7 @@
     needsAuth = false
     token = ''
     clearToken()
-    if (['/signin', '/signup', '/welcome'].includes(location.pathname)) {
+    if (entryPaths.includes(location.pathname)) {
       location.replace('/')
       return
     }
@@ -365,7 +425,7 @@
     await loadMeta()
     await loadNotificationCount()
     await tick()
-    addEl?.focus()
+    if (canAutoFocus()) addEl?.focus()
   }
 
   async function afterJoin(user: User) {
@@ -380,7 +440,7 @@
       token = getToken()
       message = ''
       await tick()
-      addEl?.focus()
+      if (canAutoFocus()) addEl?.focus()
       return null
     }
     if (needsAuth) return 'That token was not accepted.'
@@ -741,43 +801,44 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isControl ? 'Control' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : 'Your shelf'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isControl ? 'Control' : isActivity ? 'Activity' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isProjects ? 'Projects' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found'} · reet.sh</title>
   {/if}
 </svelte:head>
 
 <a class="skip" href="#main-content">Skip to content</a>
 <header class="site-header" class:terminal-chrome={terminalLayout}>
-  <div class="header-inner">
-    <div>
-      <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
-    </div>
-    {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-      <div class="app-nav">
-        <NavigationMenu label="Main navigation" primary items={mainNavigation} />
-        <a class="notif-link" href="/notifications" aria-label={unreadNotifications > 0 ? `Notifications, ${unreadNotifications} unread` : 'Notifications'}>
-          <span>Notifications</span>
-          {#if unreadNotifications > 0}<span class="notif-count">{unreadNotifications > 99 ? '99+' : unreadNotifications}</span>{/if}
-        </a>
+  {#if authenticated && !needsAuth && !isPublicList && !isJoin}
+    <AppShell {tabs} bar={barTabs} {more} {attention} compact={terminalLayout} bell={sessionsAccess} moreInAccount={authMode !== 'none'} jump={jumpItems}>
+      {#snippet account()}
         {#if authMode !== 'none'}
           <AccountMenu
             name={currentUser?.name ?? ''}
             email={currentUser?.email ?? ''}
             admin={isAdminUser}
             accounts={authMode === 'accounts'}
-            active={isAccount || isAdmin}
+            active={isAccount || isAdmin || isNotifications || more.some(item => item.current)}
+            unread={unreadNotifications}
+            {more}
             onsignout={signOut}
           />
         {/if}
-      </div>
-    {:else if !authenticated && authMode==='accounts' && !isPublicList && !isCommunity && !isJoin}
-      <nav class="site-nav" aria-label="Public navigation"><a href="/welcome">Workspace</a><a href="/welcome#self-host">Self-host</a><a class="entry-link" href="/signin">Sign in →</a></nav>
+      {/snippet}
+    </AppShell>
+  {:else}
+  <div class="header-inner">
+    <div>
+      <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
+    </div>
+    {#if !authenticated && authMode==='accounts' && !isPublicList && !isCommunity && !isJoin}
+      <nav class="site-nav" aria-label="Public navigation">{#if !isWelcome}<a href="/welcome">Workspace</a>{/if}<a href="/welcome#self-host">Self-host</a>{#if !setupRequired}<a class="entry-link" href="/signin">Sign in →</a>{/if}</nav>
     {:else if isPublicList || isCommunity || isJoin}
       <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a class="entry-link" href="/">Open your workspace →</a></nav>
     {/if}
     {#if (!authenticated || needsAuth) && authMode !== 'accounts' && !isPublicList && !isCommunity && !isJoin && !isWelcome}<span class="tag">Your AI workspace</span>{/if}
   </div>
+  {/if}
 </header>
-<main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout} class:auth-page={!isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
+<main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout} class:home-layout={homeLayout} class:auth-page={!isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
   {#if isCommunity}
     <Community canSave={authenticated && !needsAuth && canWrite} />
   {:else if isPublicList}
@@ -796,7 +857,7 @@
     {:else if isSignUp && signupEnabled}
       <SignUp onsuccess={afterAuth} />
     {:else}
-      <AccountSignIn onsuccess={afterAuth} {signupEnabled} {contactEmail} {passwordReset} />
+      <AccountSignIn onsuccess={afterAuth} {signupEnabled} {contactEmail} {passwordReset} {sso} />
     {/if}
   {:else if authMode === 'token' && needsAuth}
     <SignIn onattempt={attemptSignIn} />
@@ -807,10 +868,21 @@
     <Hosting {canWrite} />
   {:else if isShared}
     <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
+  {:else if isActivity}
+    <ActivityPage accounts={authMode === 'accounts'} onsignedout={fail} />
+  {:else if isHome}
+    <Home userId={currentUser?.id ?? 0} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} onsignedout={fail} onattention={count => (attention = count)} />
   {:else if isControl}
     <ControlCenter {canWrite} terminalAccess={authMode === 'accounts' && canWrite} monitorAccess={authMode === 'accounts' || authMode === 'token'} />
+  {:else if isProjects && !(authMode === 'accounts' && canWrite)}
+    <PageHeader eyebrow="Projects" title="Projects need a writer's account." />
+    <p class="notice bad" role="alert">{authMode === 'accounts' ? "This account is read-only, so it can't use Projects." : 'Projects need an account signed in through the browser.'}</p>
+  {:else if isProjects && projectId}
+    <ProjectPage id={projectId} onsignedout={fail} />
+  {:else if isProjects}
+    <ProjectsPage onsignedout={fail} />
   {:else if isMachines}
-    <Machines userId={currentUser?.id??0} {canWrite} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} />
+    <Machines userId={currentUser?.id??0} onsignedout={fail} {canWrite} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} />
   {:else if isProfiles}
     <SetupProfiles {canWrite} onerror={fail} />
   {:else if isNotifications}
@@ -835,9 +907,9 @@
     <p class="notice bad" role="alert">Admins only. Your account does not have access to this page.</p>
   {:else if isAdmin}
     <Admin onerror={fail} {role} accounts={authMode === 'accounts'} currentEmail={currentUser?.email ?? ''} />
-  {:else}
-    <PageHeader eyebrow="Ey up. Your skill shelf." title="Your central skill library." lede="Keep the good finds here, then choose which machines receive them. Shelf stages organise your library; Sync controls installation.">
-      {#snippet actions()}<a class="btn" href="/sync">Distribute skills</a>{#if canWrite}<a class="btn primary" href="/hosting">Create a skill</a>{/if}{/snippet}
+  {:else if isSkills}
+    <PageHeader eyebrow="Ey up. Your skill shelf." title="Skills." lede="Keep the good finds here, then choose which machines receive them. Shelf stages organise your library; Sync controls installation.">
+      {#snippet actions()}{#if loading || counts.all > 0}<a class="btn" href="/sync">Sync skills</a>{/if}{#if canWrite}<a class="btn" href="/hosting">Create a skill</a>{/if}{/snippet}
     </PageHeader>
     {#if canWrite}
       <form class="add" onsubmit={add} aria-busy={adding}>
@@ -966,7 +1038,10 @@
 
     <div id="sections" class:board={view === 'board' && !loading && counts.all > 0 && total > 0} class:single-stage={show !== 'all'}>
       {#if loading}
-        <p class="empty" role="status">Loading…</p>
+        <div class="shelf-skeleton" role="status" aria-busy="true" aria-label="Loading your shelf">
+          <span class="vh">Loading your shelf…</span>
+          {#each [0, 1, 2] as n (n)}<div class="skeleton-card" data-skeleton aria-hidden="true"><i></i><i></i><i></i></div>{/each}
+        </div>
       {:else if counts.all === 0 && !filtering && !canWrite}
         <section class="start" aria-labelledby="start-title">
           <p class="eyebrow">Read-only</p>
@@ -988,10 +1063,9 @@
             {/each}
           </ul>
           <div class="start-options">
-            {#if authMode === 'accounts'}<a class="btn" href="/account/machines#connect-machine" title="Install the reet CLI and scan your agent folders.">Connect this machine</a>{/if}
+            {#if authMode === 'accounts'}<a class="btn" href="/machines#add-machine" title="Install the reet CLI and scan your agent folders.">Connect this machine</a>{/if}
             <a class="btn" href="/community">Explore community</a>
             <a href="https://www.skills.sh/topic" target="_blank" rel="noopener noreferrer">Find a skill on skills.sh<span class="vh"> (opens in a new tab)</span></a>
-            <a href="/hosting">Host your own skill</a>
           </div>
           {#if authMode === 'accounts'}<p class="start-note">Connecting a machine takes about 2 minutes and needs the reet CLI.</p>{/if}
           <details class="save-anywhere">
@@ -1039,10 +1113,12 @@
         <Tools
           onchange={reloadAll} {ok} {fail} {token} canManageTags={isAdminUser}
           filters={{ tab: onlyLiked ? 'liked' : 'all', q, sort, tags: selectedTags, env: selectedEnv, machine: selectedMachine, only: onlyOne ? 'one-machine' : '', stage: show === 'all' ? '' : show }}
-          startOpen={false}
+          startOpen={false} quiet={counts.all === 0}
         />
       {/key}
     {/if}
+  {:else}
+    <NotFound />
   {/if}
 </main>
 
@@ -1109,13 +1185,10 @@
   .skip:focus { top: 8px; }
   main { width: 100%; max-width: var(--content-width); margin: 0 auto; padding: 36px 40px 56px; flex: 1; }
   main.auth-page { max-width: 960px; }
+  main.home-layout { max-width: none; padding: 0; }
   main:focus { outline: none; }
-  .site-header { border-bottom: 1px solid var(--line); }
-  .header-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: var(--content-width); margin: auto; padding: 24px 40px; }
-  .app-nav { display: flex; align-items: center; gap: 8px; min-width: 0; margin-left: auto; }
-  .notif-link { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.78rem; font-weight: 600; text-decoration: none; white-space: nowrap; }
-  .notif-link:hover { color: var(--ink); border-color: var(--muted); }
-  .notif-count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 0.68rem; }
+  .site-header { border-bottom: 1px solid var(--line-soft); }
+  .header-inner { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: var(--content-width); margin: auto; padding: 24px 40px; }
   .site-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
   .site-nav a, .entry-link { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--muted); font-size: 0.8rem; font-weight: 600; text-decoration: none; border-radius: 8px; }
   .site-nav a:hover, .entry-link:hover { color: var(--ink); background: var(--card); }
@@ -1143,7 +1216,7 @@
   .filters button { background: none; border: 0; padding: 6px 10px; border-radius: 999px; cursor: pointer; color: var(--muted); font-weight: 500; min-height: 36px; }
   .filters button:hover { color: var(--ink); }
   .filters button[aria-pressed='true'] { background: var(--tint); color: var(--ink); font-weight: 650; }
-  .filters .liked[aria-pressed='true'] { background: var(--heart); color: #fff; }
+  .filters .liked[aria-pressed='true'] { background: var(--heart); color: var(--bg); }
   .filters small { margin-left: 4px; font-variant-numeric: tabular-nums; }
   .sep { width: 1px; height: 20px; background: var(--line); margin: 0 6px; }
   .controls { display: flex; gap: 8px; }
@@ -1158,15 +1231,17 @@
     text-transform: uppercase; margin-right: 4px;
   }
   .filterbar .chip {
-    display: inline-flex; align-items: center; gap: 5px; max-width: 260px; min-height: 32px;
+    display: inline-flex; align-items: center; gap: 5px; max-width: min(260px, 100%); min-height: 32px;
     padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px;
     background: transparent; color: var(--muted); font-size: 0.8rem; text-align: left; cursor: pointer;
+    /* A machine's host name can be one long word: it wraps inside the chip rather than running out of it. */
+    overflow-wrap: anywhere;
   }
   .filterbar .chip:hover { border-color: var(--muted); color: var(--ink); }
   .filterbar .chip[aria-pressed='true'] { background: var(--tint); color: var(--ink); border-color: var(--accent); }
   .filterbar .chip small { font-variant-numeric: tabular-nums; font-size: 0.75rem; }
   .filterbar .chip.old { opacity: 0.55; }
-  .filterbar .chip.action { border-style: dashed; border-color: var(--accent); color: var(--accent); }
+  .filterbar .chip.action { border-style: dashed; border-color: var(--accent); color: var(--accent-text); }
   .filterbar .chip.clear { border-style: dashed; }
   .filterbar .sep { height: 18px; }
   @media (pointer: coarse) { .filterbar .chip { min-height: 44px; } }
@@ -1195,7 +1270,7 @@
     .select option + option { margin-top: 4px; }
     .select option:hover, .select option:focus { background: var(--tint); border-color: var(--accent); outline: none; }
     .select option:checked { font-weight: 650; }
-    .select option::checkmark { color: var(--accent); }
+    .select option::checkmark { color: var(--accent-text); }
   }
 
   .count { margin: 14px 0 0; color: var(--muted); font-size: 0.9rem; }
@@ -1217,6 +1292,11 @@
   .no-matches { padding: 48px 20px; text-align: center; }
   .no-matches h2 { display: block; }
   .no-matches p { color: var(--muted); }
+  .shelf-skeleton { display: grid; gap: 12px; margin-top: 8px; }
+  .skeleton-card { display: grid; align-content: start; gap: 14px; height: 112px; padding: 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+  .skeleton-card i { display: block; height: 14px; border-radius: 5px; background: var(--line); }
+  .skeleton-card i:first-child { width: 36%; height: 18px; }
+  .skeleton-card i:last-child { width: 70%; }
   .empty { text-align: center; color: var(--muted); font: italic 1.15rem/1.5 var(--serif); padding: 56px 0; }
 
   .start {
@@ -1224,7 +1304,7 @@
     background: var(--card); border: 1px solid var(--line); border-radius: 16px;
     box-shadow: 0 28px 70px -56px rgb(0 0 0 / 0.35);
   }
-  .eyebrow { margin: 0; color: var(--accent); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
   .start h2 { display: block; margin: 8px 0 0; font: 600 clamp(1.5rem, 4vw, 1.9rem)/1.1 var(--serif); letter-spacing: -0.02em; }
   .lede { margin: 8px 0 0; color: var(--muted); max-width: 48ch; }
   .start > p { max-width: 64ch; }
@@ -1239,12 +1319,12 @@
   .start-note { margin: 10px 0 0; color: var(--muted); font-size: 0.78rem; }
   .save-anywhere { margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--line); }
   .save-anywhere > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; font-weight: 600; font-size: 0.85rem; }
-  .save-anywhere > summary::before { content: '+'; color: var(--accent); font-size: 1.05rem; width: 12px; }
+  .save-anywhere > summary::before { content: '+'; color: var(--accent-text); font-size: 1.05rem; width: 12px; }
   .save-anywhere[open] > summary::before { content: '−'; }
   .save-anywhere > summary::-webkit-details-marker { display: none; }
   .save-anywhere > p { margin: 2px 0 0; color: var(--muted); font-size: 0.8rem; }
   .start-options { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
-  .start-options > a:not(.btn) { color: var(--accent); padding: 10px 0; }
+  .start-options > a:not(.btn) { color: var(--accent-text); padding: 10px 0; }
   .scan-help { margin-top: 20px; }
   .scan-help summary { cursor: pointer; font-weight: 600; }
   .command { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
@@ -1274,7 +1354,6 @@
   @media (max-width: 560px) {
     main { padding: 28px 16px 40px; }
     .header-inner { flex-wrap: wrap; gap: 14px; padding: 20px 16px; }
-    .app-nav { gap: 6px; }
     .tag { margin-left: auto; max-width: 26ch; text-align: right; white-space: nowrap; }
     .site-nav { width: 100%; }
     .site-nav a { flex: 1; justify-content: center; border: 1px solid var(--line); }
@@ -1290,7 +1369,7 @@
   }
   .shelf-filters { border-bottom: 1px solid var(--line); }
   .shelf-filters > summary { display: flex; align-items: center; gap: 12px; padding: 12px 2px; min-height: 44px; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
-  .shelf-filters > summary::before { content: '+'; color: var(--accent); font-size: 1.1rem; width: 12px; }
+  .shelf-filters > summary::before { content: '+'; color: var(--accent-text); font-size: 1.1rem; width: 12px; }
   .shelf-filters[open] > summary::before { content: '−'; }
   .shelf-filters > summary span { margin-left: auto; color: var(--muted); font-size: 0.75rem; font-weight: 400; }
   .filter-panel { display: grid; gap: 8px; padding: 4px 0 16px; }
@@ -1300,8 +1379,8 @@
     .site-nav { flex-wrap: nowrap; width: 100%; min-width: 0; overflow-x: auto; padding-bottom: 8px; }
     .site-nav a { flex: none; justify-content: center; white-space: nowrap; border: 0; }
     .toolbar { position: static; padding: 10px 0; gap: 8px; }
-    .filters { flex-wrap: nowrap; overflow-x: auto; width: 100%; min-width: 0; }
-    .filters button { flex: none; white-space: nowrap; }
+    .filters { flex-wrap: wrap; width: 100%; min-width: 0; }
+    .filters button { white-space: nowrap; }
     .controls { display: flex; width: 100%; flex-wrap: nowrap; min-width: 0; }
     .controls input { flex: 1; width: 0; min-width: 50px; }
     .view-switch { flex: none; }
@@ -1319,9 +1398,5 @@
   }
   @media (pointer: coarse) { .filters button, .view-switch button { min-height: 44px; } }
   main.terminal-layout {max-width:none;padding:8px 12px;min-height:0;flex:1;}
-  .terminal-chrome .header-inner {max-width:none;padding:6px 16px;gap:12px;min-height:56px;flex-wrap:nowrap;}
-  .terminal-chrome .home {display:flex;align-items:center;}
-  .terminal-chrome .home :global(.logo) {width:126px;}
-  .terminal-chrome .home :global(svg) {width:100%;height:auto;}
-  @media(max-width:700px){main.terminal-layout{padding:4px 6px}.terminal-chrome .header-inner{padding:4px 10px;min-height:54px}.terminal-chrome .notif-link{display:none}.terminal-chrome .home :global(.logo){width:110px}}
+  @media(max-width:700px){main.terminal-layout{padding:4px 6px}}
 </style>

@@ -111,7 +111,7 @@
   h1 { margin: 4px 0 6px; font: 500 clamp(1.8rem, 3vw, 2.6rem)/1.15 var(--serif); letter-spacing: -0.03em; overflow-wrap: anywhere; }
   .meta { margin: 0; color: var(--muted); font-size: 0.82rem; overflow-wrap: anywhere; }
   .state { flex: none; padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.74rem; }
-  .state.open { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); color: var(--accent); }
+  .state.open { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); color: var(--accent-text); }
   .state.waiting { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); color: var(--warn); }
   .state.closed { border-color: color-mix(in srgb, var(--good) 35%, var(--line)); color: var(--good); }
   .thread { display: grid; gap: 10px; margin: 0 0 20px; }

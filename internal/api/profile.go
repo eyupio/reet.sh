@@ -50,6 +50,7 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 		ShelfView             *string `json:"shelfView"`
 		CardsExpanded         *bool   `json:"cardsExpanded"`
 		TerminalRemoveOnClose *bool   `json:"terminalRemoveOnClose"`
+		HostedPrefix          *string `json:"hostedPrefix"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -63,6 +64,15 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	if in.ShelfView != nil && *in.ShelfView != "list" && *in.ShelfView != "board" {
 		writeErr(w, http.StatusBadRequest, "shelfView must be list or board")
 		return
+	}
+	hostedPrefix := ""
+	if in.HostedPrefix != nil {
+		var err error
+		hostedPrefix, err = store.NormalizeHostedPrefix(*in.HostedPrefix)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	profile, err := s.st.ProfileFor(user.ID)
 	if err != nil {
@@ -129,6 +139,10 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	if in.TerminalRemoveOnClose != nil {
 		profile.TerminalRemoveOnClose = *in.TerminalRemoveOnClose
 		detail["terminalRemoveOnClose"] = *in.TerminalRemoveOnClose
+	}
+	if in.HostedPrefix != nil {
+		profile.HostedPrefix = hostedPrefix
+		detail["hostedPrefix"] = hostedPrefix
 	}
 	if err := s.st.SaveProfileFor(user.ID, profile); err != nil {
 		writeErr(w, 500, err.Error())
@@ -214,7 +228,19 @@ func (s *server) newSessionFor(w http.ResponseWriter, r *http.Request, user stor
 		return "", err
 	}
 	expires := time.Now().Add(sessionTTL)
-	if err := s.st.CreateSession(auth.HashToken(token), user.ID, expires.UnixMilli(), r.UserAgent()); err != nil {
+	// A session that replaces another is the same sign-in, so it stays the
+	// provider's session when the one it replaces was: a later sign-out at the
+	// provider has to find it.
+	var issuer, sid, subject string
+	if c, err := r.Cookie(sessionCookie); err == nil {
+		issuer, sid, subject, _ = s.st.SessionSSO(auth.HashToken(c.Value), user.ID, time.Now().UnixMilli())
+	}
+	if issuer != "" {
+		err = s.st.CreateSSOSession(auth.HashToken(token), user.ID, expires.UnixMilli(), r.UserAgent(), issuer, sid, subject)
+	} else {
+		err = s.st.CreateSession(auth.HashToken(token), user.ID, expires.UnixMilli(), r.UserAgent())
+	}
+	if err != nil {
 		return "", err
 	}
 	s.setSession(w, r, token, expires)

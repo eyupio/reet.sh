@@ -111,8 +111,19 @@ const (
 	Ready                 Readiness = "ready"
 )
 
+// Capabilities is what a connector reports. BrowseOff is reported, instead
+// of Browse, by a connector that negotiated browse-v1 but has folder browse
+// switched off locally, so a controller can tell that from an older
+// connector. It is sent only on a connection that negotiated browse-v1: an
+// older controller's strict decoder would refuse the field.
 type Capabilities struct {
+	Launch          bool      `json:"launch,omitempty"`
+	Tools           []string  `json:"tools,omitempty"`
 	CommandHistory  bool      `json:"commandHistory,omitempty"`
+	Worktree        bool      `json:"worktree,omitempty"`
+	Browse          bool      `json:"browse,omitempty"`
+	Branches        bool      `json:"branches,omitempty"`
+	BrowseOff       bool      `json:"browseOff,omitempty"`
 	TerminalControl bool      `json:"terminalControl,omitempty"`
 	ProtocolVersion int       `json:"protocolVersion"`
 	OS              string    `json:"os"`
@@ -123,7 +134,13 @@ type Capabilities struct {
 }
 
 func (c Capabilities) Validate() error {
-	if c.CommandHistory && !c.TerminalControl {
+	if c.Launch && !c.TerminalControl || len(c.Tools) > 0 && !c.Launch || !validTools(c.Tools) {
+		return ErrInvalid
+	}
+	if c.CommandHistory && !c.TerminalControl || c.Worktree && !c.Launch {
+		return ErrInvalid
+	}
+	if c.Browse && !c.TerminalControl || c.Branches && !c.Worktree || c.BrowseOff && (c.Browse || !c.TerminalControl) {
 		return ErrInvalid
 	}
 	if c.ProtocolVersion < 1 || c.ProtocolVersion > 65535 || !plainText(c.OSUser, 128) || strings.TrimSpace(c.OSUser) == "" {
@@ -214,12 +231,23 @@ type Create struct {
 	Title string `json:"title"`
 	Cols  int    `json:"cols"`
 	Rows  int    `json:"rows"`
+	// Launch fields stay plain strings so Create remains comparable.
+	Tool   string `json:"tool,omitempty"`
+	Model  string `json:"model,omitempty"`
+	Dir    string `json:"dir,omitempty"`
+	Prompt string `json:"prompt,omitempty"`
+	// Worktree is a run token; the connector makes the agent's own git worktree.
+	Worktree string `json:"worktree,omitempty"`
+	// Project is the Project's slug (see Slug), required with Worktree and
+	// refused without it. It names the worktree folder and branch on the
+	// machine: ~/.reet/worktrees/<project>/<repo>/<worktree>, reet/<project>-<worktree>.
+	Project string `json:"project,omitempty"`
 }
 
 func (Create) kind() string  { return "create" }
 func (c Create) valid() bool { return c.Validate() == nil }
 func (c Create) Validate() error {
-	if !ValidTitle(c.Title) || !ValidDimensions(c.Cols, c.Rows) {
+	if !ValidTitle(c.Title) || !ValidDimensions(c.Cols, c.Rows) || !c.validLaunch() || !c.validWorktree() {
 		return ErrInvalid
 	}
 	return nil
@@ -298,26 +326,52 @@ const (
 	NotFound    ResultCode = "not_found"
 	Failed      ResultCode = "failed"
 	Conflict    ResultCode = "conflict"
+	// LaunchFailed means the requested agent could not be started.
+	LaunchFailed ResultCode = "launch_failed"
 )
 
 func (c ResultCode) Valid() bool {
-	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict
+	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict || c == LaunchFailed || c == WorktreeChanged || c == WorktreeRefused
 }
 
 type Result struct {
 	Code ResultCode `json:"code"`
+	// Reason and Detail explain a worktree_refused answer; they are never set
+	// on any other code, so every other result encodes exactly as before.
+	Reason WorktreeReason `json:"reason,omitempty"`
+	Detail string         `json:"detail,omitempty"`
 }
 
-func (Result) kind() string  { return "result" }
-func (r Result) valid() bool { return r.Code.Valid() }
+func (Result) kind() string { return "result" }
+func (r Result) valid() bool {
+	if !r.Code.Valid() {
+		return false
+	}
+	if r.Reason != "" && (r.Code != WorktreeRefused || !r.Reason.Valid()) {
+		return false
+	}
+	return r.Detail == "" || r.Reason != "" && validWorktreeDetail(r.Detail)
+}
 
 type SessionChanged struct {
 	State    SessionState `json:"state"`
 	ExitCode *int         `json:"exitCode"`
+	// WorktreePath and WorktreeRepo say where a worktree create made the
+	// worktree: its folder and the repository name status and remove need.
+	// They are set together, only in answer to a worktree create (which only
+	// a controller that negotiated worktree-v1 sends), so every other session
+	// change encodes exactly as before.
+	WorktreePath string `json:"worktreePath,omitempty"`
+	WorktreeRepo string `json:"worktreeRepo,omitempty"`
 }
 
-func (SessionChanged) kind() string  { return "session_changed" }
-func (s SessionChanged) valid() bool { return s.State.Valid() && validExit(s.State, s.ExitCode) }
+func (SessionChanged) kind() string { return "session_changed" }
+func (s SessionChanged) valid() bool {
+	if (s.WorktreePath == "") != (s.WorktreeRepo == "") || s.WorktreePath != "" && (!validDir(s.WorktreePath) || !validRepoName(s.WorktreeRepo)) {
+		return false
+	}
+	return s.State.Valid() && validExit(s.State, s.ExitCode)
+}
 
 func (m Message) Validate() error {
 	if m.Body == nil || reflect.ValueOf(m.Body).Kind() == reflect.Pointer && reflect.ValueOf(m.Body).IsNil() {
@@ -392,6 +446,22 @@ func Decode(data []byte) (Message, error) {
 		b = &ProbeResult{}
 	case "health_report":
 		b = &HealthReport{}
+	case "worktree_status":
+		b = &WorktreeStatus{}
+	case "worktree_remove":
+		b = &WorktreeRemove{}
+	case "worktree_state":
+		b = &WorktreeState{}
+	case "worktree_result":
+		b = &WorktreeResult{}
+	case "browse":
+		b = &Browse{}
+	case "browse_result":
+		b = &BrowseResult{}
+	case "branches":
+		b = &Branches{}
+	case "branches_result":
+		b = &BranchesResult{}
 	case "result":
 		b = &Result{}
 	case "session_changed":

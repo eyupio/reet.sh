@@ -53,6 +53,12 @@ connection sealing key (`REET_BACKUP_KEY`, or the instance's protected
 [backup keys](backups.md). Generate a key with `reet backup keygen` only when
 initialising an instance; preserve the existing key during upgrades/recovery.
 
+Folder browse and branch listing (`docs/folder-browse.md`) send the folder path,
+filter and repository folder in the query string of `GET /api/v2/machines/{id}/browse`
+and `.../branches`. reet's own request log never records query strings, but a reverse
+proxy's default access log does: drop the query from those two routes, or treat the
+proxy's access logs as holding the folder paths people browse on their machines.
+
 The browser needs no VPN client. It uses same-origin HTTPS/WebSocket to reet.sh.
 The controller decrypts browser traffic and bridges it over the authenticated,
 encrypted, host-initiated Tailcat connection. This is not browser-to-host end-to-end
@@ -62,8 +68,14 @@ URLs. Outbound relay discovery/connectivity and the configured relay map must be
 available. A relay outage pauses remote access; it does not end host tmux shells.
 
 Use the same updated reet binary on controller and hosts. The UI identifies old
-agents and missing tmux/supervision. New terminal control is negotiated separately
-from health; older health-only agents keep monitoring without gaining shells.
+agents and missing tmux/supervision, and shows each machine's reported build next
+to the latest published build, with the update's steps while it runs and its
+outcome afterwards. Automatic updates are on by default per machine and are set
+in the machine's **Settings**; they wait an hour after an attempt that ended.
+Turning them off leaves **Review update** on the card for a deliberate one. An update
+keeps the previous binary and restores it automatically if the new build cannot
+report to the controller. New terminal control is negotiated separately from
+health; older health-only agents keep monitoring without gaining shells.
 
 ## Host setup and root
 
@@ -73,7 +85,7 @@ consent and private file ownership as any other account; the browser cannot
 choose another OS user or escalate an existing enrollment. A project directory
 is not a sandbox. Existing enrollments default to terminal access disabled.
 
-Install tmux 3.3 or newer, then:
+Install tmux 3.2 or newer, then:
 
 ```sh
 reet agent terminal enable
@@ -195,7 +207,10 @@ Surviving local tmux sessions and registries remain intact. Run `reet terminal s
 with the same database, sealing key and enrollments, then resume existing sessions.
 
 `reet agent terminal disable` removes local remote-terminal consent and closes
-attachments; local shells remain. Revoking enrollment cuts private access and
+attachments; local shells remain. `reet terminal browse off` (also `reet agent terminal browse off`)
+keeps terminal access but stops reet listing this machine's folders; `on` allows it
+again and `status` shows it. It is on by default and also refused while terminal
+access is off. Revoking enrollment cuts private access and
 prevents new authorization; it does not terminate independent local tmux work.
 Sign-out closes that browser login's attachments. Forgetting an inventory report
 is not credential revocation. End work locally if the controller is unavailable.
@@ -206,6 +221,13 @@ unmanaged servers. New tmux configuration takes effect on an explicit local
 terminal-service restart, which ends its shells. `reet agent service uninstall`
 stops both services and therefore ends tmux sessions; it is not the rollback
 procedure. Enrollment/consent and metadata remain for inspection.
+
+Native shells retain the enrolling OS user's normal sudo policy. Older Linux
+units applied an inherited no-new-privileges restriction; replacing templates
+does not clear it in a live tmux server. Service install/status reports a detected
+restricted server. Follow the [sudo migration procedure](terminal-controller-commands.md#sudo-in-a-machine-terminal)
+from normal SSH after finishing terminal work; no automatic service refresh
+restarts tmux or silently ends jobs.
 
 ## Pilot and release evidence
 

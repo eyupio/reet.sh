@@ -18,14 +18,34 @@ import (
 
 var rootUser = func() bool { return os.Geteuid() == 0 }
 
+// RunTerminalBrowse runs reet terminal browse on|off|status: the machine's
+// local folder-browse switch, the same as reet agent terminal browse.
+func RunTerminalBrowse(args []string, out io.Writer) error {
+	return runAgentTerminalInput(append([]string{"browse"}, args...), os.Stdin, out, "")
+}
+
 func runAgentTerminal(args []string, out io.Writer) error {
 	return runAgentTerminalInput(args, os.Stdin, out, "")
 }
 func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet agent terminal setup|enable|disable|status|sessions|end [--config PATH]")
+		return errors.New("usage: reet agent terminal setup|enable|disable|status|sessions|end|browse [--config PATH]")
 	}
 	action := args[0]
+	// browse takes its own word: on, off or status.
+	browse := ""
+	if action == "browse" {
+		for _, arg := range args[1:] {
+			if arg == "-h" || arg == "--help" || arg == "-help" {
+				fmt.Fprintln(out, terminalBrowseUsage+"\nAllow or refuse folder browsing from reet on this enrolled machine (on by default).\nBrowsing also needs terminal access on (reet agent terminal enable).")
+				return nil
+			}
+		}
+		if len(args) < 2 || args[1] != "on" && args[1] != "off" && args[1] != "status" {
+			return errors.New("usage: " + terminalBrowseUsage)
+		}
+		browse, args = args[1], args[1:]
+	}
 	fs := flag.NewFlagSet("agent terminal "+action, flag.ContinueOnError)
 	fs.SetOutput(out)
 	config := fs.String("config", agentConfigPath(), "private machine enrollment file")
@@ -90,7 +110,7 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 		return nil
 	case "status":
 		readiness := terminalhost.Readiness(context.Background(), layout, c.TerminalEnabled)
-		fmt.Fprintf(out, "Machine: %s\nTerminal access: %t\nReadiness: %s\n", c.Host, c.TerminalEnabled, readiness)
+		fmt.Fprintf(out, "Machine: %s\nTerminal access: %t\nReadiness: %s\nFolder browse: %s\n", c.Host, c.TerminalEnabled, readiness, browseState(c))
 		if tmux, err := terminalhost.FindTmux(context.Background()); err == nil {
 			fmt.Fprintf(out, "tmux: %s (%s)\n", tmux.Path, tmux.Version)
 		} else {
@@ -140,9 +160,47 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 		}
 		fmt.Fprintf(out, "Ended local terminal session %s.\n", *session)
 		return nil
+	case "browse":
+		switch browse {
+		case "on", "off":
+			c.BrowseOff = browse == "off"
+			if err := writePrivate(*config, c); err != nil {
+				return err
+			}
+			switch {
+			case c.BrowseOff:
+				fmt.Fprintf(out, "Folder browse off for %s. reet can no longer list this machine's folders; a folder can still be typed.\n", c.Host)
+			case !c.TerminalEnabled:
+				fmt.Fprintf(out, "Folder browse on for %s, but terminal access is off on this machine, so reet still cannot list its folders. Turn terminal access on with: reet agent terminal enable\n", c.Host)
+			default:
+				fmt.Fprintf(out, "Folder browse on for %s. reet can list the folders in your home folder; file names never leave this machine.\n", c.Host)
+			}
+		default:
+			fmt.Fprintf(out, "Folder browse: %s\n", browseState(c))
+		}
+		return nil
 	default:
-		return errors.New("unknown terminal action; use enable, disable, status, sessions or end")
+		return errors.New("unknown terminal action; use enable, disable, status, sessions, end or browse")
 	}
+}
+
+// terminalBrowseUsage is the usage line of the folder-browse switch.
+const terminalBrowseUsage = "reet terminal browse on|off|status [--config PATH]"
+
+// browseState is the switch as status shows it: on or off, and whether
+// browsing is unavailable anyway because terminal access is off.
+func browseState(c agentConfig) string {
+	if !c.BrowseOff && !c.TerminalEnabled {
+		return "on (unavailable while terminal access is off)"
+	}
+	return onOff(!c.BrowseOff)
+}
+
+func onOff(on bool) string {
+	if on {
+		return "on"
+	}
+	return "off"
 }
 
 func runAgentService(args []string, out io.Writer) error {
@@ -187,10 +245,12 @@ func runAgentService(args []string, out io.Writer) error {
 		fmt.Fprintf(out, "Installed %s and %s.\n", plan.AgentName, plan.TerminalName)
 		fmt.Fprintln(out, terminalhost.LingerGuidance(context.Background()))
 		fmt.Fprintln(out, "A running terminal service is preserved during refresh. New tmux settings take effect after you explicitly restart it locally.")
+		warnTerminalPrivileges(plan, out)
 		return nil
 	case "status":
 		status := terminalhost.ReadStatus(context.Background(), plan)
 		fmt.Fprintf(out, "Agent unit: %s\nTerminal unit: %s\nInstalled: %t\nActive: %t\n", plan.AgentPath, plan.TerminalPath, status.Installed, status.Active)
+		warnTerminalPrivileges(plan, out)
 		if !status.ManagerAvailable {
 			fmt.Fprintln(out, "Service manager unavailable or user services are not enabled on this host.")
 		}
@@ -221,4 +281,12 @@ func terminalReadiness(configPath, agentID string, enabled bool) terminalproto.R
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 	return terminalhost.Readiness(ctx, layout, enabled)
+}
+
+func warnTerminalPrivileges(plan terminalhost.ServicePlan, out io.Writer) {
+	restricted, err := terminalhost.TerminalNoNewPrivileges(context.Background(), plan)
+	if err == nil && restricted {
+		fmt.Fprintln(out, "Existing terminal server has NoNewPrivileges set; sudo cannot elevate in its shells.")
+		fmt.Fprintln(out, "Refreshing units preserves that server and cannot clear the flag. Finish its terminal work, then plan a local terminal-service restart from a normal SSH/login shell. Restarting the terminal service ends its sessions and jobs.")
+	}
 }

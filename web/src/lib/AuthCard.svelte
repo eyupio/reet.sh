@@ -7,7 +7,7 @@
 <section class="auth" aria-labelledby="auth-title">
   <aside class="intro" aria-label="About your workspace">
     <p class="eyebrow">{eyebrow}</p>
-    <p class="headline">Your AI workspace.<br />A reet good place to work.</p>
+    <p class="headline">Your AI workspace. <br />A reet good place to work.</p>
     <p class="intro-copy">Bring your machines, AI agents, skills and setups together. Open a terminal to use your installed tools and return to ongoing work.</p>
     <ol class="stages" aria-label="How your workspace works">
       <li><span aria-hidden="true">01</span><div><strong>Your fleet</strong><small>One place to reach your laptops and servers.</small></div></li>
@@ -31,12 +31,12 @@
     box-shadow: var(--shadow);
   }
   .intro { display: flex; flex-direction: column; padding: clamp(24px, 4vw, 40px); background: color-mix(in srgb, var(--tint) 28%, var(--bg)); border-right: 1px solid var(--line); }
-  .eyebrow { margin: 0; color: var(--accent); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
   .headline { margin: 22px 0 0; font: 500 clamp(1.75rem, 3vw, 2.25rem)/1.12 var(--serif); letter-spacing: -0.03em; }
   .intro-copy { margin: 14px 0 0; color: var(--muted); font-size: 0.9rem; }
   .stages { list-style: none; display: grid; gap: 20px; padding: 0; margin: 32px 0; }
   .stages li { display: flex; align-items: baseline; gap: 14px; }
-  .stages li > span { color: var(--accent); font: 0.72rem var(--mono); }
+  .stages li > span { color: var(--accent-text); font: 0.72rem var(--mono); }
   .stages strong { display: block; font-size: 0.88rem; font-weight: 600; }
   .stages small { display: block; margin-top: 2px; color: var(--muted); font-size: 0.8rem; }
   .local { margin: auto 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.75rem; }
@@ -45,7 +45,9 @@
   .lede { margin: 8px 0 0; color: var(--muted); max-width: 40ch; }
   @media (max-width: 560px) {
     .auth { grid-template-columns: 1fr; margin-top: 24px; border-radius: 14px; }
-    .intro { padding: 22px; border-right: 0; border-bottom: 1px solid var(--line); }
+    /* The form and its button come first on a phone; the explanation follows it. */
+    .intro { order: 2; padding: 22px; border-right: 0; border-top: 1px solid var(--line); }
+    .form-panel { order: 1; }
     .headline { margin-top: 10px; font-size: 1.65rem; }
     .headline br { display: none; }
     .intro-copy { font-size: 0.84rem; }

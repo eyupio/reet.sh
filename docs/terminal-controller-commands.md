@@ -78,7 +78,7 @@ checks remain required. See the updated [operator runbook](remote-machine-operat
 
 Run `reet agent terminal setup` in the machine's own interactive OS-user shell.
 Use `--config PATH` for a non-default enrollment. This resumable wizard handles
-missing enrollment, explicit local shell consent, tmux 3.3+, native service
+missing enrollment, explicit local shell consent, tmux 3.2+, native service
 installation/repair and the private connection. Existing enrollment credentials
 and consent are reused. No root shell is enabled without explicit local consent.
 
@@ -110,7 +110,7 @@ A completed scan is never presented as proof that a terminal can connect.
 
 If tmux is missing, check `tmux -V` and the service PATH. Ubuntu/Debian operators
 can install it with `sudo apt install tmux`; macOS operators can use
-`brew install tmux`. Versions before 3.3 remain unsupported. The wizard offers a
+`brew install tmux`. Versions before 3.2 remain unsupported. The wizard offers a
 local package-manager install only after confirmation, then verifies the result.
 Readiness is not claimed for an unavailable service manager or disconnected peer.
 
@@ -119,3 +119,52 @@ paths, preservation after optional failure, stopped-controller behavior, Compose
 namespace separation, actionable tmux diagnostics, local daemon-version checks,
 and web readiness independent of scan inventory. Native Linux/macOS CI validates
 services; local Linux checks alone do not establish macOS package-manager behavior.
+
+## Bring a local skill into reet privately
+
+Inside the machine's normal shell or reet terminal, use
+`reet agent skill import --agent agents --name NAME` for a local file preview.
+Repeat with `--upload`, then type `IMPORT` to copy the reviewed files into your
+account's private revision store. Use `--exclude RELATIVE_FILE` to omit supporting
+files; SKILL.md remains required. This does not publish, install or execute the skill.
+The CLI and controller must support this feature and the enrollment must use an
+active account personal token. See [machine skill import](machine-skill-import.md)
+for project scopes, credential blocking, explicit revision bases and stable retries.
+
+## Sudo in a machine terminal
+
+A machine terminal runs as the enrolled OS user. `sudo` follows that account's
+host permissions and password policy; reet does not grant sudo access or bypass
+authentication. The native agent and tmux service templates use
+`NoNewPrivileges=false` so their shells retain those normal OS capabilities.
+Both units need this: agent recovery can also start a tmux server.
+
+Older unit templates set `NoNewPrivileges=true`, causing sudo to report that the
+“no new privileges” flag is set. It is inherited and cannot be cleared in an
+already running tmux server or its shells. Updating a unit and opening another
+session in the same server is insufficient. Service install/status detects a
+restricted server on Linux and explains the pending restart.
+
+After installing a build containing this fix, refresh units from a normal
+SSH/login shell as the enrolling user:
+
+```sh
+reet agent service install
+reet agent service status
+```
+
+Refresh preserves running tmux work. Finish or safely save that work before a
+planned terminal-host restart. For the default **user** service, perform this
+from the separate normal SSH/login shell:
+
+```sh
+systemctl --user restart reet-terminal.service
+```
+
+That restart ends the reet terminal service's sessions and jobs. Use the actual
+unit name for a custom service prefix; root enrollments use their system service
+instead. Reopen a new terminal afterwards. Keep normal SSH available for package
+maintenance until migration is complete. Never kill the machine's shared/default
+tmux server to repair this enrollment. A container or parent service that itself
+enforces no-new-privileges also needs its own host configuration addressed; a
+child unit cannot undo an inherited kernel flag.

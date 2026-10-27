@@ -1,4 +1,5 @@
 import type { Event } from './api'
+import { launchActivity } from './agentLaunch'
 
 type Detail = {
   host?: string
@@ -14,6 +15,7 @@ type Detail = {
   restored?: number
   already?: boolean
   count?: number
+  files?: number
   liked?: boolean
   role?: string
   email?: string
@@ -33,6 +35,14 @@ type Detail = {
   by?: string
   subject?: string
   group?: string
+  tool?: string
+  model?: string
+  dir?: string
+  members?: number
+  previousName?: string
+  position?: number
+  attempt?: number
+  branch?: string
 }
 
 function detail(e: Event): Detail {
@@ -44,6 +54,8 @@ function detail(e: Event): Detail {
   }
 }
 
+const repositories = (n: number): string => `${n} ${n === 1 ? 'repository' : 'repositories'}`
+
 function subject(e: Event, d: Detail): string {
   return d.name || e.skillName || e.skillId || 'a skill'
 }
@@ -54,6 +66,15 @@ export function eventLabel(e: Event): string {
   switch (e.action) {
     case 'merge-machines': return `Consolidated machine ${d.from || ''} as ${d.to || ''}`
     case 'forget-machine': return `Forgot machine ${d.host || ''}`
+    case 'terminal-launch': return launchActivity(d)
+    case 'project-create': return d.name ? `Created project ${d.name}${typeof d.members === 'number' ? ` with ${repositories(d.members)}` : ''}` : 'Created a project'
+    case 'project-update': return d.previousName && d.name ? `Renamed project ${d.previousName} to ${d.name}` : d.name ? `Updated project ${d.name}` : 'Updated a project'
+    case 'project-delete': return d.name ? `Deleted project ${d.name}` : 'Deleted a project'
+    case 'project-run': return typeof d.members === 'number' ? `Started a Project run on ${repositories(d.members)}` : 'Started a Project run'
+    case 'project-run-retry': return typeof d.position === 'number' ? `Tried repository ${d.position + 1} of a Project run again${typeof d.attempt === 'number' ? ` (attempt ${d.attempt})` : ''}` : 'Tried a repository of a Project run again'
+    case 'worktree-remove': return `Removed a worktree on ${d.host || 'a machine'}${d.branch ? `; the branch ${d.branch} is kept` : ''}`
+    case 'sync-agent-update': return `Queued a reet update for ${d.name || 'a machine'}`
+    case 'sync-agent-auto-update': return `Queued a reet update for ${d.name || 'a machine'} automatically`
     case 'add':
       return `Added ${name}`
     case 'like':
@@ -219,6 +240,10 @@ export function eventLabel(e: Event): string {
       return `Changed backup destination ${d.name || ''}`.trim()
     case 'backup-remote-remove':
       return `Removed backup destination ${d.name || ''}`.trim()
+    case 'skill-content-adopt':
+      return `Recorded ownership of ${d.files === 1 ? '1 file' : `${d.files ?? 0} files`} of ${name}`
+    case 'skill-content-release':
+      return `Released ownership of ${name}`
   }
   return `${e.action.replace(/-/g, ' ')} ${name}`.trim()
 }

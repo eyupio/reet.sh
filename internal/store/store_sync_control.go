@@ -218,11 +218,13 @@ func ReconcileSkills(base, desired, actual []SyncSkill) ([]SyncSkill, []string) 
 }
 
 type SyncAgent struct {
-	ID       string `json:"id"`
-	Host     string `json:"host"`
-	Version  string `json:"version"`
-	LastSeen int64  `json:"lastSeen"`
-	Paused   bool   `json:"paused"`
+	ID         string `json:"id"`
+	Host       string `json:"host"`
+	Version    string `json:"version"`
+	Commit     string `json:"commit"`
+	LastSeen   int64  `json:"lastSeen"`
+	Paused     bool   `json:"paused"`
+	AutoUpdate bool   `json:"autoUpdate"`
 }
 type SyncJob struct {
 	ID        string          `json:"id"`
@@ -234,11 +236,68 @@ type SyncJob struct {
 	Plan      json.RawMessage `json:"plan"`
 	Hash      string          `json:"hash"`
 	Message   string          `json:"message"`
+	Stage     string          `json:"stage,omitempty"`
+	Stages    []UpdateStage   `json:"stages,omitempty"`
 	CreatedAt int64           `json:"createdAt"`
 	UpdatedAt int64           `json:"updatedAt"`
 }
 
+func cleanAgentBuild(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > 64 || strings.ContainsAny(value, "\x00\r\n") {
+		return ""
+	}
+	return value
+}
+
+func (s *Store) migrateSyncAgents() error {
+	for _, c := range []struct{ name, ddl string }{
+		{"source_commit", "source_commit TEXT NOT NULL DEFAULT ''"},
+		{"auto_update", "auto_update INTEGER NOT NULL DEFAULT 1"},
+	} {
+		ok, err := hasColumn(s.db, "sync_agents", c.name)
+		if err != nil {
+			return err
+		}
+		if ok {
+			continue
+		}
+		if _, err = s.db.Exec(`ALTER TABLE sync_agents ADD COLUMN ` + c.ddl); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// migrateSyncJobs adds the update timeline to databases made before it. Old
+// jobs read as having no stages, which every reader treats as "not an update
+// timeline" rather than as an empty progress bar.
+func (s *Store) migrateSyncJobs() error {
+	for _, c := range []struct{ name, ddl string }{
+		{"stage", "stage TEXT NOT NULL DEFAULT ''"},
+		{"stages", "stages TEXT NOT NULL DEFAULT '[]'"},
+	} {
+		ok, err := hasColumn(s.db, "sync_jobs", c.name)
+		if err != nil {
+			return err
+		}
+		if ok {
+			continue
+		}
+		if _, err = s.db.Exec(`ALTER TABLE sync_jobs ADD COLUMN ` + c.ddl); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Store) EnrollSyncAgent(uid int64, host, version string) (SyncAgent, string, error) {
+	return s.EnrollSyncAgentBuild(uid, host, version, "")
+}
+
+// EnrollSyncAgentBuild also records the source commit so dev builds remain
+// distinguishable after the controller restarts.
+func (s *Store) EnrollSyncAgentBuild(uid int64, host, version, commit string) (SyncAgent, string, error) {
 	host = strings.TrimSpace(host)
 	if !validMachineName(host) {
 		return SyncAgent{}, "", ErrMachineName
@@ -247,37 +306,61 @@ func (s *Store) EnrollSyncAgent(uid int64, host, version string) (SyncAgent, str
 	if err != nil {
 		return SyncAgent{}, "", err
 	}
-	a := SyncAgent{ID: syncID(), Host: canonical, Version: version, LastSeen: now()}
+	a := SyncAgent{ID: syncID(), Host: canonical, Version: cleanAgentBuild(version), Commit: cleanAgentBuild(commit), LastSeen: now(), AutoUpdate: true}
 	secret := syncID()
-	_, err = s.db.Exec(`INSERT INTO sync_agents(id,user_id,host,secret_hash,version,last_seen) VALUES(?,?,?,?,?,?)`, a.ID, uid, a.Host, secretHash(secret), version, a.LastSeen)
+	_, err = s.db.Exec(`INSERT INTO sync_agents(id,user_id,host,secret_hash,version,source_commit,last_seen,paused,auto_update) VALUES(?,?,?,?,?,?,?,0,1)`, a.ID, uid, a.Host, secretHash(secret), a.Version, a.Commit, a.LastSeen)
 	if err != nil {
 		return a, "", errors.New("machine already enrolled; revoke its existing enrollment before enrolling again")
 	}
 	return a, secret, nil
 }
+
+const agentCols = `id,host,version,source_commit,last_seen,paused,auto_update`
+
+func scanAgent(row interface{ Scan(...any) error }) (SyncAgent, error) {
+	var a SyncAgent
+	err := row.Scan(&a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate)
+	return a, err
+}
+
 func (s *Store) SyncAgentsFor(uid int64) ([]SyncAgent, error) {
-	rows, err := s.db.Query(`SELECT id,host,version,last_seen,paused FROM sync_agents WHERE user_id=? ORDER BY host`, uid)
+	rows, err := s.db.Query(`SELECT `+agentCols+` FROM sync_agents WHERE user_id=? ORDER BY host`, uid)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []SyncAgent{}
 	for rows.Next() {
-		var a SyncAgent
-		if err = rows.Scan(&a.ID, &a.Host, &a.Version, &a.LastSeen, &a.Paused); err != nil {
+		a, err := scanAgent(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, a)
 	}
 	return out, rows.Err()
 }
+
 func (s *Store) AuthenticateSyncAgent(uid int64, id, secret, version string) (SyncAgent, error) {
-	var a SyncAgent
-	err := s.db.QueryRow(`SELECT id,host,version,last_seen,paused FROM sync_agents WHERE user_id=? AND id=? AND secret_hash=?`, uid, id, secretHash(secret)).Scan(&a.ID, &a.Host, &a.Version, &a.LastSeen, &a.Paused)
+	return s.AuthenticateSyncAgentBuild(uid, id, secret, version, "")
+}
+
+// AuthenticateSyncAgentBuild updates the reported build alongside last-seen.
+// An empty commit keeps the last known commit, so an older agent cannot erase it.
+func (s *Store) AuthenticateSyncAgentBuild(uid int64, id, secret, version, commit string) (SyncAgent, error) {
+	a, err := scanAgent(s.db.QueryRow(`SELECT `+agentCols+` FROM sync_agents WHERE user_id=? AND id=? AND secret_hash=?`, uid, id, secretHash(secret)))
 	if err != nil {
 		return a, errors.New("machine enrollment is missing or revoked")
 	}
-	_, err = s.db.Exec(`UPDATE sync_agents SET last_seen=?,version=? WHERE id=?`, now(), version, id)
+	version = cleanAgentBuild(version)
+	commit = cleanAgentBuild(commit)
+	if version == "" {
+		version = a.Version
+	}
+	if commit != "" {
+		a.Commit = commit
+	}
+	_, err = s.db.Exec(`UPDATE sync_agents SET last_seen=?,version=?,source_commit=? WHERE id=?`, now(), version, a.Commit, id)
+	a.Version, a.LastSeen = version, now()
 	return a, err
 }
 
@@ -292,7 +375,7 @@ func (s *Store) AuthenticateRemoteAgent(id, secret, version string) (int64, Sync
 	if id == "" || secret == "" || len(id) > 128 || len(secret) > 256 || len(version) > 64 || strings.ContainsAny(version, "\x00\r\n") {
 		return 0, a, errors.New("machine enrollment is missing or revoked")
 	}
-	err := s.db.QueryRow(`SELECT a.user_id,a.id,a.host,a.version,a.last_seen,a.paused FROM sync_agents a JOIN users u ON u.id=a.user_id WHERE a.id=? AND a.secret_hash=? AND u.disabled_at=0`, id, secretHash(secret)).Scan(&uid, &a.ID, &a.Host, &a.Version, &a.LastSeen, &a.Paused)
+	err := s.db.QueryRow(`SELECT a.user_id,a.id,a.host,a.version,a.source_commit,a.last_seen,a.paused,a.auto_update FROM sync_agents a JOIN users u ON u.id=a.user_id WHERE a.id=? AND a.secret_hash=? AND u.disabled_at=0`, id, secretHash(secret)).Scan(&uid, &a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate)
 	if err != nil {
 		return 0, a, errors.New("machine enrollment is missing or revoked")
 	}
@@ -308,24 +391,29 @@ func (s *Store) ControlSyncAgent(uid int64, id, action string) error {
 	case "pause", "resume":
 		_, err := s.db.Exec(`UPDATE sync_agents SET paused=? WHERE id=? AND user_id=?`, action == "pause", id, uid)
 		return err
+	case "auto-update-on", "auto-update-off":
+		_, err := s.db.Exec(`UPDATE sync_agents SET auto_update=? WHERE id=? AND user_id=?`, action == "auto-update-on", id, uid)
+		return err
 	case "revoke":
 		_, err := s.db.Exec(`DELETE FROM sync_agents WHERE id=? AND user_id=?`, id, uid)
 		return err
 	}
 	return errors.New("unknown machine action")
 }
+
 func scanJob(row interface{ Scan(...any) error }) (SyncJob, error) {
 	var j SyncJob
-	var plan string
-	err := row.Scan(&j.ID, &j.AgentID, &j.TargetID, &j.Kind, &j.Status, &j.Revision, &plan, &j.Hash, &j.Message, &j.CreatedAt, &j.UpdatedAt)
+	var plan, stages string
+	err := row.Scan(&j.ID, &j.AgentID, &j.TargetID, &j.Kind, &j.Status, &j.Revision, &plan, &j.Hash, &j.Message, &j.Stage, &stages, &j.CreatedAt, &j.UpdatedAt)
 	j.Plan = json.RawMessage(plan)
+	j.Stages = decodeStages(stages)
 	return j, err
 }
 
-const jobCols = `id,agent_id,target_id,kind,status,revision,plan,hash,message,created_at,updated_at`
+const jobCols = `id,agent_id,target_id,kind,status,revision,plan,hash,message,stage,stages,created_at,updated_at`
 
 func (s *Store) SyncJobsFor(uid int64) ([]SyncJob, error) {
-	if _, err := s.db.Exec(`UPDATE sync_jobs SET status='failed',message='Agent disconnected or timed out; inspect local files and preview again.',updated_at=? WHERE user_id=? AND status='running' AND updated_at<?`, now(), uid, time.Now().Add(-10*time.Minute).UnixMilli()); err != nil {
+	if _, err := s.db.Exec(`UPDATE sync_jobs SET status='failed',message=CASE WHEN kind='update' THEN 'The machine did not report back. It may still be restarting; check its build and try again.' ELSE 'Agent disconnected or timed out; inspect local files and preview again.' END,updated_at=? WHERE user_id=? AND status='running' AND updated_at<?`, now(), uid, time.Now().Add(-10*time.Minute).UnixMilli()); err != nil {
 		return nil, err
 	}
 
@@ -415,7 +503,7 @@ func (s *Store) ClaimSyncJob(uid int64, a SyncAgent) (*SyncJob, error) {
 	var job *SyncJob
 	err := s.withTx(func(tx *sql.Tx) error {
 		// Expired work is never replayed automatically: it may have partially applied.
-		_, err := tx.Exec(`UPDATE sync_jobs SET status='failed',message='Agent disconnected or timed out; inspect local files and preview again.',updated_at=? WHERE agent_id=? AND status='running' AND updated_at<?`, now(), a.ID, time.Now().Add(-10*time.Minute).UnixMilli())
+		_, err := tx.Exec(`UPDATE sync_jobs SET status='failed',message=CASE WHEN kind='update' THEN 'The machine did not report back. It may still be restarting; check its build and try again.' ELSE 'Agent disconnected or timed out; inspect local files and preview again.' END,updated_at=? WHERE agent_id=? AND status='running' AND updated_at<?`, now(), a.ID, time.Now().Add(-10*time.Minute).UnixMilli())
 		if err != nil {
 			return err
 		}
@@ -440,6 +528,19 @@ func (s *Store) ClaimSyncJob(uid int64, a SyncAgent) (*SyncJob, error) {
 		}
 		_, err = tx.Exec(`UPDATE sync_jobs SET status='running',updated_at=? WHERE id=?`, now(), j.ID)
 		j.Status = "running"
+		if j.Kind == "update" {
+			// The agent is collecting the job now; the download is the first
+			// step it can be seen working on.
+			stages := j.Stages
+			if len(stages) == 0 {
+				stages = NewUpdateStages()
+			}
+			advanceStages(stages, UpdateStageDownload, "The machine is downloading the release.")
+			j.Stage, j.Stages = UpdateStageDownload, stages
+			if _, err = tx.Exec(`UPDATE sync_jobs SET stage=?,stages=? WHERE id=?`, j.Stage, encodeStages(stages), j.ID); err != nil {
+				return err
+			}
+		}
 		job = &j
 		return err
 	})
@@ -468,14 +569,20 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 			return nil
 		}
 		if j.Status != "running" {
-			if j.Status == "failed" && strings.HasPrefix(j.Message, "Agent disconnected or timed out") {
+			// An update the controller gave up on can still report the truth:
+			// the machine did restart, or it rolled itself back. Taking that
+			// late account is better than showing a failure that is not one.
+			if j.Status == "failed" && j.Kind == "update" && strings.HasPrefix(j.Message, "The machine did not report back") && (status == "succeeded" || status == "rolled_back") {
+				j.Status = "running"
+			} else if j.Status == "failed" && (strings.HasPrefix(j.Message, "Agent disconnected or timed out") || strings.HasPrefix(j.Message, "The machine did not report back")) {
 				// Preserve the unknown/partial outcome; a fresh scan and preview are required.
 				_, err = tx.Exec(`INSERT OR IGNORE INTO sync_receipts(job_id,status,hash) VALUES(?,?,?)`, id, status, hash)
 				return err
+			} else {
+				return errors.New("job is no longer running")
 			}
-			return errors.New("job is no longer running")
 		}
-		if status != "failed" && status != "succeeded" && !((j.Kind == "preview" || j.Kind == "auto") && status == "awaiting-approval" && len(hash) == 64) {
+		if status != "failed" && status != "succeeded" && !(j.Kind == "update" && status == "rolled_back") && !((j.Kind == "preview" || j.Kind == "auto") && status == "awaiting-approval" && len(hash) == 64) {
 			return errors.New("invalid job result")
 		}
 		if status == "succeeded" && j.Kind == "apply" {
@@ -513,7 +620,12 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 				message = "Removals need review before applying."
 			}
 		}
-		if _, err = tx.Exec(`UPDATE sync_jobs SET kind=?,status=?,plan=?,hash=?,message=?,updated_at=? WHERE id=?`, finalKind, finalStatus, string(plan), hash, message, now(), id); err != nil {
+		stage := j.Stage
+		stages := j.Stages
+		if j.Kind == "update" {
+			stage, stages = finishStages(stages, finalStatus, message)
+		}
+		if _, err = tx.Exec(`UPDATE sync_jobs SET kind=?,status=?,plan=?,hash=?,message=?,stage=?,stages=?,updated_at=? WHERE id=?`, finalKind, finalStatus, string(plan), hash, message, stage, encodeStages(stages), now(), id); err != nil {
 			return err
 		}
 		outcome := runNext

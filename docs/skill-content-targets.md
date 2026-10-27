@@ -1,0 +1,176 @@
+# Pinned private skill targets (S4 desired-state slice)
+
+Accounts can now record an exact private bundle revision for a reported machine
+scope through `/api/v2/skill-content-targets`. These optional pins are separate
+from legacy name/source desired sets. They do not install files, establish an
+ownership baseline, dispatch connector work or authorise a future apply. Every
+response is labelled `verification: "not_verified"`.
+
+This slice supplies the persistent desired input for the
+[pure content planner](skill-content-planner.md). The
+[negotiated metadata-only preview](skill-content-preview.md) now reads a pin and
+observes one machine, and [ownership receipts with explicit adoption](skill-content-receipts.md)
+have since been added; reviewed execution remains a separate stage. This slice added no
+browser control; the [Private skills dialog](skill-content-review-ui.md) has since given
+pins one (pin, change and remove, with the pin's version sent on every write).
+
+## Ownership and scope
+
+A pin belongs to the signed-in active account with a write role. The private
+bundle **and** immutable revision must belong to that account. The selected
+revision need not be the library head: later publications cannot silently update
+machine intent, and an explicit version-checked rollback can select an older
+revision without changing library history. Different owned bundles may share a
+name; selecting another bundle for that same scope/name slot also needs the current
+version. This changes intent only. Never retag an installed ownership receipt to
+match a newly selected bundle: the planner rejects that baseline mismatch
+(`baseline_bundle_mismatch`) until a separately reviewed ownership transition exists.
+
+The selected enrollment and environment must belong to the same account and
+canonical host. A complete inventory within the previous fourteen days must
+report the scope. Paused or revoked connectors cannot acquire/change pins.
+An offline connector can have desired state if its last complete inventory is
+recent enough; saving intent does not establish connector readiness.
+
+Supported scopes follow existing writable root adapters: home `claude`, `agents`,
+`cursor` and `opencode`, plus absolute, reported `claude`/`agents` project scopes.
+Legacy `codex` stays scan-only. No request can supply a destination filesystem
+path, slot name, installed baseline, digest or execution flag. The slot name comes
+from the owned bundle. A reported project is a local adapter lookup key, never
+permission for the controller to choose an arbitrary directory.
+
+Pins remain inspectable/removable while a connector is paused/offline. Revoking
+an enrollment or forgetting its environment cascades its pins and its
+[ownership receipts](skill-content-receipts.md); a replacement
+connector does not inherit them. Neither operation deletes private revisions.
+Machine renames within the same enrollment preserve pin IDs and selected revisions,
+move their environment IDs and issue fresh versions so old reviews expire; ownership
+receipts move with them, also with fresh versions. Merging
+identical duplicate pins retains the destination pin with a fresh version;
+conflicting pins block and roll back the complete rename (HTTP 409), as does a
+destination that already holds a receipt for the same skill name. Generic report merges
+into another scope require removing the source pins first (409 `environment_has_pins`)
+and releasing its receipts (409 `environment_has_receipts`); they cannot silently
+transfer private intent or ownership across roots, and the merge dry run previews the same
+refusal. A removed pin leaves its receipt in place. Ordinary process reconnects retain the
+same enrollment's intent; later previews
+must independently fence their current connection/process and inventory identity.
+
+## API
+
+All endpoints use the existing private-skill account boundary: accounts mode only,
+active writer, no query parameters, no caching, and same-origin browser writes or
+an owning personal API token. Anonymous users, viewers and legacy auth modes cannot
+access this feature. MCP credentials keep their existing endpoint allowlist.
+
+| Method | Path | Result |
+| --- | --- | --- |
+| GET | `/api/v2/skill-content-targets` | Own `targets` array, sorted by scope/name/id |
+| POST | `/api/v2/skill-content-targets` | Create/change one scope/name pin |
+| GET | `/api/v2/skill-content-targets/{id}` | One owned pin or 404 |
+| DELETE | `/api/v2/skill-content-targets/{id}` | Version-checked removal of intent |
+
+POST requires exactly these fields (substitute real IDs):
+
+```json
+{
+  "environmentId": "1/workstation/agents",
+  "agentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "bundleId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "revisionId": "cccccccccccccccccccccccccccccccc",
+  "mode": "additive",
+  "expectedVersion": ""
+}
+```
+
+Use empty `expectedVersion` only to create a new scope/name pin. To change an
+existing pin, send its current 48-character opaque version. Accepted modes are
+`additive` and `managed`, with the planner's managed-file semantics; legacy
+`mirror`/`bidirectional` strings are not aliases for content ownership.
+
+Responses contain `id`, `environmentId`, `agentId`, `name`, `bundleId`, `revisionId`,
+`manifestDigest`, `mode`, `version`, `updatedAt` and `verification`. They contain
+no skill file bytes, per-file manifests or enrollment secrets. `manifestDigest`
+is the private revision's desired identity, **not** observed/installed equality.
+A meaningful change creates a new version. Saving the identical current intent
+returns its unchanged version/timestamp, including after a lost response, and
+cannot rewind a different newer selection.
+
+DELETE requires `{"expectedVersion":"CURRENT_VERSION"}`. A stale version returns
+409; a foreign/missing pin returns 404. Successful removal returns
+`{"removed":true}` and removes only the pin. It never requests an uninstall,
+removes a baseline (an ownership receipt stays until it is released), deletes private
+revisions or changes a legacy desired set.
+
+POST/DELETE strictly reject unknown fields, extra JSON, missing/null versions and
+bodies above 16 KiB. Invalid inputs return 400; unavailable scopes, version conflicts
+and the 1024-pin/account limit return 409. Foreign private revisions return 404.
+
+### Uncertain responses
+
+These desired-state writes are not durable execution receipts. After an uncertain
+POST, read the collection and compare environment/name, selected revision and mode.
+After an uncertain DELETE, GET the pin: 404 means it is no longer present. Do not
+blindly replay a create after another user action has removed its pin: an empty
+expected version intentionally permits a new creation. An old nonempty update
+version cannot recreate a removed pin. Future execution needs separate request IDs,
+expiry, approvals, journals and durable original-result receipts; it must never
+reuse pin upserts as permission to replay a host operation.
+
+## Storage and compatibility
+
+`skill_content_targets` is an optional table, migrated after private revisions and
+enrollments. It has one row per account/environment/bundle-name slot, owner-bound
+foreign keys to enrollment and exact revision, an environment cascade and an
+independent random version. Private revision history remains immutable. Account
+checks, scope checks, version comparison and writes share one transaction; the
+initial account write lock serialises competing edits, including across Store
+connections. Unchanged saves do not invalidate review state through version churn.
+
+No fields or hash meanings in `SyncSkill`, `SyncTarget`, `sync_targets`,
+`sync_options` or legacy jobs are changed. Old connectors receive no new job and
+reference-only desired targets retain their existing content-verification limits.
+Full SQLite backups include pins; personal shelf exports do not export private
+content or pins. There is no new export/restore format in this slice.
+
+## Granular continuation
+
+1. **Done in a following slice:** the negotiated metadata-only preview, bound to the
+   pin ID **and version**, enrolment, connector process generation and inventory
+   revision, with physical-root identity and alias detection. See
+   [the preview contract](skill-content-preview.md). A pin that changes away and back
+   to the same revision has a new version and invalidates old reviews.
+2. **Done in a following slice:** ownership receipts, stored separately from pins and
+   observations, and explicit adoption for existing unowned roots. See
+   [the receipts contract](skill-content-receipts.md). Adopted receipts are
+   controller-attested; verified `applied` receipts remain for the executor, and a tree
+   with no receipt still needs adoption.
+3. **Done in a following slice:** a review UI joined to pin selection, connected only to
+   truthful metadata states: the [Private skills dialog](skill-content-review-ui.md) covers
+   pins, checks and ownership records.
+4. Add reviewed execution as a subsequent slice: full payload staging, local locks,
+   immediate precondition revalidation, recoverable journal/backups, installed
+   verification and durable receipts. Do not close S4 or begin S5 fleet apply until
+   temporary-filesystem failure/crash/recovery gates in handoff.md pass.
+
+Preserve terminal sessions and controls, the approved sudo template behaviour and
+the deferred user-controlled security/PIN preference note in handoff.md.
+
+## Verification boundaries
+
+Real SQLite/store and HTTP tests cover pinned history and explicit rollback,
+metadata-only responses, account/token/origin/role isolation, stale version edits
+and deletes, unsupported/stale/incomplete scopes, pause/revocation, account/scope
+cascades, replacement enrollments, transaction rollback, competing connections,
+capacity, migration/reopen, rename preservation/conflict rollback, cross-scope
+merge fences and unchanged legacy dispatch/state. These tests do not
+establish remote file installation, ownership adoption, on-disk recovery or a live
+fleet rollout. No production machine or terminal service was changed.
+
+Full local validation passed: frontend check/build (zero Svelte diagnostics),
+`go vet ./...`, `go test -race ./...` with tmux 3.5a on PATH, and all 16 MCP tests.
+The published workflows must pass for the final PR head before merge.
+
+The final PR integrates main through the separately merged connector-update
+operation in PR #170 (`d040518`). Its staged binary update UI/protocol are preserved;
+they are separate from private content pins and future AI-agent maintenance.

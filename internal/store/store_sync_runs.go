@@ -234,7 +234,7 @@ func (s *Store) QueueAgentUpdate(uid int64, agentID, version string) (SyncJob, e
 	if version != "latest" && version != "dev" && !strings.HasPrefix(version, "v") && !strings.HasPrefix(version, "V") {
 		return SyncJob{}, errors.New("choose latest, dev or a release tag")
 	}
-	j := SyncJob{ID: syncID(), AgentID: agentID, Kind: "update", Status: "queued", Revision: version, Plan: json.RawMessage(`{}`), CreatedAt: now(), UpdatedAt: now()}
+	j := SyncJob{ID: syncID(), AgentID: agentID, Kind: "update", Status: "queued", Revision: version, Plan: json.RawMessage(`{}`), Stage: UpdateStageQueued, Stages: NewUpdateStages(), CreatedAt: now(), UpdatedAt: now()}
 	err := s.withTx(func(tx *sql.Tx) error {
 		var owned int
 		if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_agents WHERE id=? AND user_id=?`, agentID, uid).Scan(&owned); err != nil {
@@ -245,7 +245,7 @@ func (s *Store) QueueAgentUpdate(uid int64, agentID, version string) (SyncJob, e
 		}
 		// Expired work is never replayed automatically, so it must not keep
 		// blocking a person who asks for an update.
-		if _, err := tx.Exec(`UPDATE sync_jobs SET status='failed',message='Agent disconnected or timed out; inspect local files and preview again.',updated_at=? WHERE user_id=? AND agent_id=? AND status='running' AND updated_at<?`, now(), uid, agentID, time.Now().Add(-10*time.Minute).UnixMilli()); err != nil {
+		if _, err := tx.Exec(`UPDATE sync_jobs SET status='failed',message=CASE WHEN kind='update' THEN 'The machine did not report back. It may still be restarting; check its build and try again.' ELSE 'Agent disconnected or timed out; inspect local files and preview again.' END,updated_at=? WHERE user_id=? AND agent_id=? AND status='running' AND updated_at<?`, now(), uid, agentID, time.Now().Add(-10*time.Minute).UnixMilli()); err != nil {
 			return err
 		}
 		var running, pendingUpdate int
@@ -264,7 +264,7 @@ func (s *Store) QueueAgentUpdate(uid int64, agentID, version string) (SyncJob, e
 		if pendingUpdate > 0 {
 			return errors.New("an update is already queued for this machine; wait for it or cancel it")
 		}
-		_, err := tx.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,revision,created_at,updated_at) VALUES(?,?,?,'',?,?,?,?,?)`, j.ID, uid, agentID, j.Kind, j.Status, j.Revision, j.CreatedAt, j.UpdatedAt)
+		_, err := tx.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,revision,stage,stages,created_at,updated_at) VALUES(?,?,?,'',?,?,?,?,?,?,?)`, j.ID, uid, agentID, j.Kind, j.Status, j.Revision, j.Stage, encodeStages(j.Stages), j.CreatedAt, j.UpdatedAt)
 		return err
 	})
 	return j, err

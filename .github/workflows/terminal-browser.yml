@@ -16,10 +16,14 @@ concurrency:
 
 jobs:
   terminal-browser:
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history, so npm run check's literal-colour test can diff this branch against origin/main instead of
+          # checking Logo.svelte alone (a shallow clone has no merge base).
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -43,6 +47,8 @@ jobs:
             npx playwright install --with-deps chromium
           fi
       - name: Exercise dashboard and terminal workspace UI
+        env:
+          REET_UI_URL: http://127.0.0.1:4173
         run: |
           npm --prefix web run preview -- --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/terminal-ui.log" 2>&1 &
           ui_pid=$!
@@ -52,10 +58,25 @@ jobs:
             sleep 1
           done
           node web/tests/public-workspace.e2e.mjs
+          node web/tests/first-run.e2e.mjs
+          node web/tests/phone-layout.e2e.mjs
+          node web/tests/navigation.e2e.mjs
+          node web/tests/readiness.e2e.mjs
+          node web/tests/single-sign-on.e2e.mjs
+          node web/tests/first-machine.e2e.mjs
+          node web/tests/first-skills.e2e.mjs
+          node web/tests/empty-states.e2e.mjs
+          node web/tests/skill-card.e2e.mjs
           node web/tests/control.e2e.mjs
+          node web/tests/machine-import.e2e.mjs
+          node web/tests/skill-content.e2e.mjs
+          node web/tests/add-machine.e2e.mjs
+          node web/tests/start-agent.e2e.mjs
+          node web/tests/projects.e2e.mjs
           node web/tests/terminal-workspace.e2e.mjs
           node web/tests/terminal-lifecycle.e2e.mjs
           node web/tests/terminal-organisation.e2e.mjs
+          node web/tests/terminal-phone.e2e.mjs
       - name: Exercise real browser, broker and persistent tmux shell
         env:
           REET_BROWSER_TESTS: '1'
@@ -69,3 +90,77 @@ jobs:
           name: terminal-browser
           path: ${{ runner.temp }}/terminal-browser
           if-no-files-found: ignore
+
+  # Its own job, so the phone zoom contract (about 30-40 s) and Home (about 25 s) run alongside the terminal job instead of
+  # adding to its time.
+  phone-zoom:
+    runs-on: zoomies-linux-x64
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci && npm run build
+        working-directory: web
+      - name: Prepare Chromium
+        working-directory: web
+        run: |
+          browser_path="$(command -v google-chrome || command -v chromium || true)"
+          if [ -n "$browser_path" ]; then
+            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$browser_path" >> "$GITHUB_ENV"
+            "$browser_path" --version
+          else
+            npx playwright install --with-deps chromium
+          fi
+      - name: Long names never zoom a phone out, and Home across screens and themes
+        env:
+          REET_UI_URL: http://127.0.0.1:4173
+        run: |
+          npm --prefix web run preview -- --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/phone-zoom-ui.log" 2>&1 &
+          ui_pid=$!
+          trap 'kill "$ui_pid"' EXIT
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node web/tests/phone-zoom.e2e.mjs
+          node web/tests/home.e2e.mjs
+
+  # Its own job, so the phone dialog contract (about 50-55 s) runs alongside the others instead of adding to their time.
+  phone-dialogs:
+    runs-on: zoomies-linux-x64
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci && npm run build
+        working-directory: web
+      - name: Prepare Chromium
+        working-directory: web
+        run: |
+          browser_path="$(command -v google-chrome || command -v chromium || true)"
+          if [ -n "$browser_path" ]; then
+            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$browser_path" >> "$GITHUB_ENV"
+            "$browser_path" --version
+          else
+            npx playwright install --with-deps chromium
+          fi
+      - name: Dialogs hold the page still and keep the field in view on phones
+        env:
+          REET_UI_URL: http://127.0.0.1:4173
+        run: |
+          npm --prefix web run preview -- --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/phone-dialogs-ui.log" 2>&1 &
+          ui_pid=$!
+          trap 'kill "$ui_pid"' EXIT
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node web/tests/phone-dialogs.e2e.mjs

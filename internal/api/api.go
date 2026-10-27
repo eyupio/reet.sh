@@ -23,11 +23,14 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/agenthealth"
+	"github.com/eyupio/reet.sh/internal/agentupdate"
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/backup"
 	"github.com/eyupio/reet.sh/internal/mail"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/notify"
+	"github.com/eyupio/reet.sh/internal/oidc"
+	"github.com/eyupio/reet.sh/internal/projectrun"
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/sealed"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -56,16 +59,28 @@ type server struct {
 	backups      *backup.Service
 	mail         *mail.Mailer
 	notify       *notify.Service
+	releases     *agentupdate.Checker
+
+	sso                *oidc.Provider
+	ssoLimiter         *auth.Limiter
+	logoutLimiter      *auth.Limiter
+	afterSessionsEnded func(ids []string) // a test seam: which sessions were just ended
 
 	privateSealer     *sealed.Sealer
 	privateRelayURL   string
 	private           privateTransport
 	healthHub         *agenthealth.Hub
 	terminals         *terminalbroker.Broker
+	runs              *projectrun.Orchestrator
+	resumeDone        chan struct{} // closed when ResumeProjectRuns' watcher ends
 	remoteTerminals   bool
 	terminalOverride  atomic.Pointer[bool]
 	publicURLOverride atomic.Pointer[string]
 	terminalControlMu sync.Mutex
+	// Folder browse and branch listing (terminal_browse.go).
+	browseOnce   sync.Once
+	browseLimits *browseLimits
+	browseAudit  *browseAudit
 }
 
 // AuthMode selects how the instance authenticates requests.
@@ -105,6 +120,12 @@ func WithVersion(version, commit string) Option {
 			s.commit = commit
 		}
 	}
+}
+
+// WithReleaseChecker enables published-channel lookups for agent update status.
+// Without it the controller reports no available versions and never auto-updates.
+func WithReleaseChecker(c *agentupdate.Checker) Option {
+	return func(s *server) { s.releases = c }
 }
 
 // WithDebug enables per-fetch debug logging.
@@ -215,6 +236,9 @@ func (s *Server) Close() error {
 	if s.s.healthHub != nil {
 		s.s.healthHub.Close()
 	}
+	if s.s.runs != nil {
+		s.s.runs.Close()
+	}
 	if s.s.terminals != nil {
 		s.s.terminals.Close()
 	}
@@ -235,6 +259,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	s := &server{
 		st: st, f: f, token: token, version: "dev", commit: "unknown",
 		authMode: AuthToken, limiter: auth.NewLimiter(5, time.Minute), oauthLimiter: auth.NewLimiter(30, time.Minute), dummyHash: dummy,
+		ssoLimiter: auth.NewLimiter(60, time.Minute), logoutLimiter: auth.NewLimiter(60, time.Minute),
 		queue: make(chan ref.Ref, 256),
 	}
 	for _, opt := range opts {
@@ -258,6 +283,8 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 		log.Printf("machine health: "+format, args...)
 	}})
 	s.terminals = terminalbroker.New(st)
+	s.terminals.OnLateWorktreeRemoval(s.auditLateWorktreeRemoval)
+	s.runs = s.newProjectRuns()
 	s.configurePrivate()
 	return s
 }
@@ -314,6 +341,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v2/auth/me", s.me)
 	mux.HandleFunc("GET /api/v2/auth/invite", s.inviteInfo)
 	mux.HandleFunc("POST /api/v2/auth/join", s.join)
+	s.registerSSORoutes(mux)
 	mux.HandleFunc("GET /api/v2/tokens", s.requireWriter(s.listTokens))
 	mux.HandleFunc("POST /api/v2/tokens", s.requireWriter(s.createToken))
 	mux.HandleFunc("DELETE /api/v2/tokens", s.requireWriter(s.revokeToken))
@@ -352,11 +380,15 @@ func (s *server) routes() http.Handler {
 	s.registerProfileRoutes(mux)
 	s.registerMCPRoutes(mux)
 	s.registerHostedRoutes(mux)
+	s.registerPrivateSkillRoutes(mux)
 	s.registerMailRoutes(mux)
 	s.registerTicketRoutes(mux)
 	s.registerNotificationRoutes(mux)
 	s.registerHealthRoutes(mux)
 	s.registerTerminalRoutes(mux)
+	s.registerBrowseRoutes(mux)
+	s.registerProjectRoutes(mux)
+	s.registerProjectRunRoutes(mux)
 	mux.HandleFunc("GET /quick", s.requireWriter(s.quick))
 	return mux
 }
@@ -428,7 +460,8 @@ func guardedPath(path string) bool {
 
 func openAuthPath(path string) bool {
 	switch path {
-	case "/api/version", "/api/v2/auth/status", "/api/v2/auth/setup", "/api/v2/auth/signup", "/api/v2/auth/sign-in", "/api/v2/auth/sign-out", "/api/v2/auth/invite", "/api/v2/auth/join", "/api/v2/auth/forgot", "/api/v2/auth/reset":
+	case "/api/version", "/api/v2/auth/status", "/api/v2/auth/setup", "/api/v2/auth/signup", "/api/v2/auth/sign-in", "/api/v2/auth/sign-out", "/api/v2/auth/invite", "/api/v2/auth/join", "/api/v2/auth/forgot", "/api/v2/auth/reset",
+		"/api/v2/auth/oidc/start", "/api/v2/auth/oidc/callback", ssoLogoutPath:
 		return true
 	}
 	return path == "/api/community" || strings.HasPrefix(path, "/api/v2/public/lists/")
@@ -525,7 +558,9 @@ func (s *server) auth(next http.Handler) http.Handler {
 				writeErr(w, http.StatusForbidden, "cross-site requests are not allowed")
 				return
 			}
-			if (r.Method == http.MethodPost || r.Method == http.MethodPatch) &&
+			// An identity provider's logout call is a form post, by its standard;
+			// it is exempt on its exact path and nowhere else.
+			if (r.Method == http.MethodPost || r.Method == http.MethodPatch) && r.URL.Path != ssoLogoutPath &&
 				!strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
 				writeErr(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 				return
@@ -846,19 +881,21 @@ func writeErrCode(w http.ResponseWriter, code int, errCode, field, msg, hint str
 }
 
 const (
-	errConfirmRequired      = "confirm_required"
-	errEnvironmentHasSkills = "environment_has_skills"
-	errEnvironmentNotFound  = "environment_not_found"
-	errLocalSkillInList     = "local_skill_not_allowed_in_list"
-	errAmbiguousSkillID     = "ambiguous_skill_id"
-	errSkillNotFound        = "skill_not_found"
-	errListNotFound         = "list_not_found"
-	errTagNotFound          = "tag_not_found"
-	errInvalidArgument      = "invalid_argument"
-	errReadOnly             = "read_only"
-	errConflict             = "conflict"
-	errNoMatchingSkills     = "no_matching_skills"
-	errInvalidField         = "invalid_field"
+	errConfirmRequired        = "confirm_required"
+	errEnvironmentHasSkills   = "environment_has_skills"
+	errEnvironmentHasReceipts = "environment_has_receipts"
+	errEnvironmentHasPins     = "environment_has_pins"
+	errEnvironmentNotFound    = "environment_not_found"
+	errLocalSkillInList       = "local_skill_not_allowed_in_list"
+	errAmbiguousSkillID       = "ambiguous_skill_id"
+	errSkillNotFound          = "skill_not_found"
+	errListNotFound           = "list_not_found"
+	errTagNotFound            = "tag_not_found"
+	errInvalidArgument        = "invalid_argument"
+	errReadOnly               = "read_only"
+	errConflict               = "conflict"
+	errNoMatchingSkills       = "no_matching_skills"
+	errInvalidField           = "invalid_field"
 )
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
@@ -983,6 +1020,11 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
+	}
+	// A reet-hosted skill is something to try, not just a link to file away.
+	if rf.SourceType == "hosted" && in.Bookmarked == nil && in.Used == nil {
+		test := true
+		in.Bookmarked = &test
 	}
 	_ = s.st.UnignoreFor(s.uid(r), rf.ID)
 	sk, err := s.st.UpsertFor(s.uid(r), rf, in.Patch)
@@ -1692,6 +1734,7 @@ func (s *server) authStatus(w http.ResponseWriter, r *http.Request) {
 		"contactEmail":      s.contactEmail,
 		"passwordReset":     s.mail != nil && s.mail.Delivers(),
 		"user":              user,
+		"sso":               s.ssoStatus(),
 	})
 }
 
@@ -1878,7 +1921,13 @@ func (s *server) signIn(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "email or password is not correct")
 		return
 	}
-	if user.DisabledAt != 0 || !auth.VerifyPassword(user.PasswordHash, in.Password) {
+	good := auth.VerifyPassword(user.PasswordHash, in.Password)
+	// Where password sign-in is off for everyone but the owner, a right
+	// password is answered exactly as a wrong one: a different answer would
+	// tell anybody guessing whether a leaked password is still good. The sign-in
+	// page already points people at single sign-on.
+	passwordsOff := s.ssoOn() && !s.sso.PasswordLogin() && user.Role != "owner"
+	if user.DisabledAt != 0 || !good || passwordsOff {
 		writeErr(w, http.StatusUnauthorized, "email or password is not correct")
 		return
 	}
@@ -1897,7 +1946,7 @@ func (s *server) signOut(w http.ResponseWriter, r *http.Request) {
 			s.event(user.ID, "ui", "sign-out", "", map[string]any{"name": user.Name, "email": user.Email})
 		}
 		_ = s.st.DeleteSession(hash)
-		s.terminals.RevokeSource(hash)
+		s.endSessions([]string{hash})
 	}
 	s.clearSession(w, r)
 	w.WriteHeader(http.StatusNoContent)
@@ -2058,8 +2107,11 @@ func (s *server) adminUserUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if *in.Disabled {
+			// Their open terminals are bound to the sessions being ended.
+			ids, _ := s.st.UserSessionIDs(target.ID)
 			_ = s.st.DeleteUserSessions(target.ID)
 			_ = s.st.RevokeUserTokens(target.ID)
+			s.endSessions(ids)
 		}
 		s.event(actor.ID, "ui", "user-disable", "", map[string]any{"name": target.Name, "email": target.Email, "disabled": *in.Disabled})
 	}
@@ -2080,10 +2132,12 @@ func (s *server) adminUserDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	ids, _ := s.st.UserSessionIDs(target.ID)
 	if err := s.st.DeleteUser(target.ID); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.endSessions(ids)
 	s.eventRequest(r, "user-delete", "", map[string]any{"name": target.Name, "email": target.Email})
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -38,12 +38,12 @@ jobs:
       - run: npm test
         working-directory: mcp
       - run: go vet ./...
-      - run: go test -race ./...
+      - run: go test -race -timeout=20m ./...
 
   publish:
     needs: test
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     permissions:
       contents: read
       packages: write

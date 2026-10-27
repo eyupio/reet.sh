@@ -1863,7 +1863,7 @@
   {
     "name": "reet_delete_environment",
     "title": "Delete environment reports",
-    "description": "Delete one or more environment reports. Dry run by default; set dry_run=false and confirm=true to apply. Refuses an environment that still has skills unless force=true. Does not remove shelf skills or installed files. Returns {data: object} as structured content and text.",
+    "description": "Delete one or more environment reports. Dry run by default; set dry_run=false and confirm=true to apply. Refuses an environment that still has skills or ownership records unless force=true. Does not remove shelf skills or installed files. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1886,7 +1886,7 @@
         },
         "force": {
           "default": false,
-          "description": "Also delete reports that still have linked skills.",
+          "description": "Also delete reports that still have linked skills or ownership records.",
           "type": "boolean"
         },
         "dry_run": {
@@ -2136,7 +2136,7 @@
   {
     "name": "reet_merge_environments",
     "title": "Merge environment reports",
-    "description": "Move one environment report’s skills into another and delete the source report. Dry run by default; set dry_run=false and confirm=true to apply. Does not merge two enrolled machine identities. Returns {data: object} as structured content and text.",
+    "description": "Move one environment report’s skills into another and delete the source report. Dry run by default; set dry_run=false and confirm=true to apply. Refuses a report that still holds private skill pins or ownership records. Does not merge two enrolled machine identities. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {

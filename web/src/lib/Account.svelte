@@ -8,24 +8,26 @@
   import MCPAccess from './MCPAccess.svelte'
   import PageHeader from './PageHeader.svelte'
   import {
-    applyTheme, changePassword, createToken, endOtherProfileSessions, endProfileSession, getProfile, listEvents,
-    listProfileSessions, listTokens, revokeToken, saveProfile,
-    type APIToken, type Event, type Profile, type ProfileSession, type User,
+    applyTheme, changePassword, createToken, endOtherProfileSessions, endProfileSession, getProfile,
+    getSsoIdentity, listProfileSessions, listTokens, revokeToken, saveProfile, THEME_EVENT, unlinkSsoIdentity,
+    type APIToken, type Profile, type ProfileSession, type User,
   } from './api'
-  import { eventLabel, eventTitle } from './events'
-  import { elapsed } from './time'
+  import { linkedLine, ssoLinkHref, type SsoIdentity } from './sso'
 
   let {
     user, onsignout, onerror, onuserchange,
   }: { user: User; onsignout: () => void; onerror?: (e: unknown) => void; onuserchange?: (u: User) => void } = $props()
 
-  type Section = 'machines' | 'sync' | 'profile' | 'security' | 'sessions' | 'tokens' | 'mcp' | 'backups' | 'activity'
+  type Section = 'machines' | 'sync' | 'profile' | 'security' | 'sso' | 'sessions' | 'tokens' | 'mcp' | 'backups' | 'activity'
   // svelte-ignore state_referenced_locally
   let who = $state<User>(user)
+  let sso = $state<SsoIdentity | null>(null)
+  let ssoUnlinkAsk = $state(false)
   const canWrite = $derived(who.role !== 'viewer')
   const sections: { key: Section; label: string }[] = $derived([
     { key: 'profile', label: 'Profile' },
     { key: 'security', label: 'Password' },
+    ...(sso?.enabled ? [{ key: 'sso' as const, label: 'Single sign-on' }] : []),
     { key: 'sessions', label: 'Sessions' },
     { key: 'mcp', label: 'MCP access' },
     { key: 'machines', label: 'Machines' },
@@ -37,9 +39,8 @@
 
   const startConnect = location.hash === '#connect-machine'
   let section = $state<Section>(sectionFromHash())
-  let profile = $state<Profile>({ theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list', cardsExpanded: false, updatedAt: 0 })
+  let profile = $state<Profile>({ theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list', cardsExpanded: false, hostedPrefix: 'reet-', updatedAt: 0 })
   let sessions = $state<ProfileSession[]>([])
-  let events = $state<Event[]>([])
   let tokens = $state<APIToken[]>([])
   let freshToken = $state('')
   let tokenName = $state('scan token')
@@ -51,26 +52,59 @@
 
   // svelte-ignore state_referenced_locally
   let profileForm = $state({ name: user.name, theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list' as 'list' | 'board', cardsExpanded: false, terminalRemoveOnClose: false })
+  let prefixEnabled = $state(true)
+  let prefixValue = $state('reet-')
   let passwordForm = $state({ current: '', password: '', confirm: '' })
 
   function sectionFromHash(): Section {
     const h = location.hash.slice(1) || location.pathname.split('/')[2] || 'profile'
     if (h === 'connect-machine') return 'machines'
-    return ['profile', 'security', 'sessions', 'machines', 'sync', 'tokens', 'mcp', 'backups', 'activity'].includes(h) ? h as Section : 'profile'
+    return ['profile', 'security', 'sso', 'sessions', 'machines', 'sync', 'tokens', 'mcp', 'backups', 'activity'].includes(h) ? h as Section : 'profile'
   }
 
   onMount(() => {
+    // The activity list lives at /activity now; an old link to it here goes there.
+    if (section === 'activity') { location.replace('/activity'); return }
     history.replaceState(null, '', `/account/${section}`)
     document.title = `${sections.find(s => s.key === section)?.label ?? 'Account'} · Account · reet.sh`
     void loadProfile()
+    void loadSso()
     if (section === 'sessions') void loadSessions()
-    if (section === 'activity') void loadActivity()
     if (section === 'tokens') void loadTokens()
+    // The account menu can change the theme while this form is open; saving another preference must not put the old one back.
+    const followTheme = (e: unknown) => { profileForm.theme = (e as CustomEvent<string>).detail }
+    window.addEventListener(THEME_EVENT, followTheme)
+    return () => window.removeEventListener(THEME_EVENT, followTheme)
   })
 
   function fail(e: unknown) {
     error = e instanceof Error ? e.message : String(e)
     onerror?.(e)
+  }
+
+  // Single sign-on is an addition: an instance without it answers {enabled: false}, and a failure here hides the section
+  // rather than the page.
+  async function loadSso() {
+    try {
+      sso = await getSsoIdentity()
+    } catch {
+      sso = null
+    }
+  }
+
+  async function unlinkSso() {
+    ssoUnlinkAsk = false
+    busy = 'sso'
+    error = ''
+    try {
+      await unlinkSsoIdentity()
+      await loadSso()
+      notice = 'Your identity is unlinked.'
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+    } finally {
+      busy = ''
+    }
   }
 
   async function loadProfile() {
@@ -79,6 +113,8 @@
       who = r.user
       profile = r.profile
       profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat, shelfView: r.profile.shelfView, cardsExpanded: r.profile.cardsExpanded, terminalRemoveOnClose: r.profile.terminalRemoveOnClose??false }
+      prefixEnabled = r.profile.hostedPrefix !== ''
+      prefixValue = r.profile.hostedPrefix || 'reet-'
       applyTheme(r.profile.theme)
       error = ''
     } catch (e) {
@@ -89,15 +125,6 @@
   async function loadSessions() {
     try {
       sessions = (await listProfileSessions()).sessions
-      error = ''
-    } catch (e) {
-      fail(e)
-    }
-  }
-
-  async function loadActivity() {
-    try {
-      events = (await listEvents(50)).events
       error = ''
     } catch (e) {
       fail(e)
@@ -120,9 +147,12 @@
     notice = ''
     try {
       const { name, ...preferences } = profileForm
-      const r = await saveProfile(canWrite ? profileForm : preferences)
+      const hostedPrefix = prefixEnabled ? (prefixValue.trim() || 'reet-') : ''
+      const r = await saveProfile({ ...(canWrite ? profileForm : preferences), hostedPrefix })
       who = r.user
       profile = r.profile
+      prefixEnabled = r.profile.hostedPrefix !== ''
+      prefixValue = r.profile.hostedPrefix || 'reet-'
       onuserchange?.(r.user)
       applyTheme(r.profile.theme)
       notice = 'Reet, defaults saved. Your preferences follow you to every browser you sign in from.'
@@ -274,7 +304,7 @@
     <PageHeader eyebrow="Your account" title={who.name || who.email} titleId="account-title" lede={`${who.email} · ${who.role}`} />
   </div>
 
-  <NavigationMenu label="Account" items={sections.map(s => ({ label: s.label, href: s.key === 'machines' ? '/machines' : s.key === 'sync' ? '/machines?view=compare' : `/account/${s.key}`, current: section === s.key }))} />
+  <NavigationMenu label="Account" items={sections.map(s => ({ label: s.label, href: s.key === 'machines' ? '/machines' : s.key === 'sync' ? '/machines?view=compare' : s.key === 'activity' ? '/activity' : `/account/${s.key}`, current: section === s.key }))} />
 
   {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
   {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
@@ -318,6 +348,13 @@
             <select bind:value={profileForm.cardsExpanded}><option value={false}>Collapsed — quick actions and core data</option><option value={true}>Expanded — all details</option></select>
             <small>Individual cards and Expand all / Collapse all can override this during your visit.</small>
           </label>
+          <div class="wide field"><span>Hosted skill name prefix</span>
+            <div class="prefix-row">
+              <span class="prefix-toggle"><input id="hosted-prefix-toggle" type="checkbox" bind:checked={prefixEnabled} /><label for="hosted-prefix-toggle">Prefix new and renamed hosted skills</label></span>
+              <input class="prefix-input" bind:value={prefixValue} placeholder="reet-" maxlength="33" disabled={!prefixEnabled} aria-label="Hosted skill name prefix" />
+            </div>
+            <small>Reet adds this to skills you host so they stand out from imports. Type a custom prefix such as <code>acme-</code>, or turn it off to use the bare skill name. Existing names are not changed automatically.</small>
+          </div>
         </div>
         <div class="formacts">
           <button type="submit" class="btn primary" disabled={busy === 'profile'}>{busy === 'profile' ? 'Saving…' : 'Save profile'}</button>
@@ -345,6 +382,27 @@
           <button type="submit" class="btn primary" disabled={busy === 'password'}>{busy === 'password' ? 'Changing…' : 'Change password'}</button>
         </div>
       </form>
+    </section>
+  {:else if section === 'sso'}
+    <section class="block" aria-labelledby="sso-title">
+      <h2 id="sso-title">Single sign-on</h2>
+      {#if !sso?.enabled}
+        <p class="muted">Single sign-on is not set up on this instance.</p>
+      {:else if sso.linked}
+        <p class="muted">{linkedLine(sso, ms => new Date(ms).toLocaleDateString(undefined, { dateStyle: 'medium' }))}</p>
+        <p class="muted">You can sign in here with your identity provider{sso.hasPassword ? ' or with your password' : ''}.</p>
+        {#if !sso.canUnlink}
+          <p class="muted">Set a password before unlinking, or ask an admin: unlinking now would leave you no way to sign in.</p>
+        {/if}
+        <div class="formacts">
+          <button type="button" class="btn" disabled={!sso.canUnlink || busy === 'sso'} onclick={() => (ssoUnlinkAsk = true)}>Unlink</button>
+        </div>
+      {:else}
+        <p class="muted">Link your identity provider to this account so you can sign in with it. You will be sent there to confirm, and brought back here.</p>
+        <div class="formacts">
+          <a class="btn primary" href={ssoLinkHref()}>Link your identity</a>
+        </div>
+      {/if}
     </section>
   {:else if section === 'sessions'}
     <section class="block" aria-labelledby="sessions-title">
@@ -377,7 +435,7 @@
       {/if}
     </section>
   {:else if section === 'machines'}
-    <EnvironmentSync {canWrite} token={freshToken} {startConnect} view="machines">
+    <EnvironmentSync {canWrite} accounts token={freshToken} {startConnect} onsignedout={onerror} view="machines">
       {#snippet tokenSetup()}{@render tokenForm()}{/snippet}
     </EnvironmentSync>
   {:else if section === 'sync'}
@@ -409,20 +467,6 @@
     <MCPAccess timeZone={profile.timezone} dateFormat={profile.dateFormat} />
   {:else if section === 'backups'}
     <Backups {onerror} role={who.role} admin={false} {canWrite} timeZone={profile.timezone} dateFormat={profile.dateFormat} />
-  {:else if section === 'activity'}
-    <section class="block" aria-labelledby="activity-title">
-      <h2 id="activity-title">Activity</h2>
-      <p class="muted">What you changed lately, newest first.</p>
-      {#if events.length === 0}
-        <p class="muted">Nothing recorded yet.</p>
-      {:else}
-        <ul class="events">
-          {#each events as event (event.id)}
-            <li title={eventTitle(event)}><span>{eventLabel(event)}</span><time datetime={new Date(event.at).toISOString()}>{elapsed(event.at)}</time></li>
-          {/each}
-        </ul>
-      {/if}
-    </section>
   {/if}
 
   {#if section === 'sessions'}
@@ -434,6 +478,10 @@
   {/if}
 </section>
 
+{#if ssoUnlinkAsk}
+  <ConfirmDialog title="Unlink your identity?" body="You will no longer be able to sign in with your identity provider. Sign in with your password instead, or link it again from this page." confirmLabel="Unlink" danger onconfirm={() => void unlinkSso()} oncancel={() => (ssoUnlinkAsk = false)} />
+{/if}
+
 {#if revokePending}
   <ConfirmDialog title={`Revoke ${revokePending.name}?`} body="Scanners and API clients using this token will lose access immediately. You can create a replacement, but this token cannot be restored." confirmLabel="Revoke token" danger onconfirm={() => { if (revokePending) void revoke(revokePending.id) }} oncancel={() => (revokePending = null)} />
 {/if}
@@ -444,7 +492,7 @@
   .avatar {
     display: inline-grid; place-items: center; flex: none; width: 64px; height: 64px;
     border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line)); border-radius: 999px;
-    background: color-mix(in srgb, var(--tint) 45%, var(--card)); color: var(--accent);
+    background: color-mix(in srgb, var(--tint) 45%, var(--card)); color: var(--accent-text);
     font: 600 1.3rem/1 var(--sans); letter-spacing: 0.03em;
   }
   .notice { margin: 16px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
@@ -453,23 +501,29 @@
   .block { margin-top: 24px; padding: clamp(18px, 3vw, 28px); border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
   .blockhead { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
   .muted { margin: 8px 0 0; color: var(--muted); }
-  form { display: grid; gap: 14px; margin-top: 16px; }
+  /* minmax(0, 1fr): a text field is about 20 characters wide by default, which overflowed the card on a 320 px phone. */
+  form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 16px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   .grid2 label { display: grid; gap: 4px; font-size: 0.84rem; color: var(--muted); }
-  .grid2 label.wide { grid-column: 1 / -1; }
+  .grid2 label.wide, .grid2 .field.wide { grid-column: 1 / -1; }
+  .grid2 .field { display: grid; gap: 4px; font-size: 0.84rem; color: var(--muted); }
   .grid2 small { color: var(--muted); font-size: 0.76rem; }
   .formacts { display: flex; justify-content: flex-end; }
+  .prefix-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .prefix-toggle { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 0.84rem; }
+  .prefix-toggle input { width: auto; }
+  .prefix-input { flex: 1 1 140px; max-width: 220px; }
   .rows { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
   .rows li { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .rows small { display: block; color: var(--muted); font-size: 0.78rem; }
+  /* Token, session and connection names can be one long word: they wrap rather than widen the card past the screen. */
+  .rows li > div { min-width: 0; }
+  .rows strong { overflow-wrap: anywhere; }
   .tag { margin-left: 6px; padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.65rem; }
   .fresh { margin-top: 14px; padding: 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--tint); }
   .fresh p { margin: 0 0 8px; font-size: 0.88rem; }
   .createrow { display: flex; gap: 8px; flex-wrap: wrap; }
   .createrow input { flex: 1; min-width: 0; }
-  .events { list-style: none; margin: 12px 0 0; padding: 0; }
-  .events li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 0.84rem; }
-  .events time { flex: none; }
   .token-secret { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
   .token-secret code { min-width: 0; overflow-wrap: anywhere; }
   .signout { margin-top: 28px; }
@@ -477,7 +531,8 @@
     .grid2 { grid-template-columns: 1fr; }
     .idcard { gap: 12px; }
     .avatar { width: 52px; height: 52px; font-size: 1.05rem; }
-    .createrow { flex-direction: column; }
+    /* One line: a wrapping column is as wide as its widest item, so the field ran out of the card. */
+    .createrow { flex-direction: column; flex-wrap: nowrap; }
 
   }
 </style>

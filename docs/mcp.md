@@ -115,11 +115,17 @@ Inventories include scan time and completeness: an old or incomplete scan does
 not prove what is installed today.
 
 Environment reports can be deleted or merged by ID. Deletes and merges default
-to a dry run and need `confirm: true`; a non-empty report is refused unless
-`force: true`. Owner settings can prune empty `reet-server` reports older than a
-chosen number of days. Local skills can be added to personal lists only; shared
-or published lists return `local_skill_not_allowed_in_list`. Ambiguous display
-names return `ambiguous_skill_id` with the exact candidate IDs.
+to a dry run and need `confirm: true`. A delete refuses a report that still has skills
+(`environment_has_skills`) or still holds private skill ownership receipts
+(`environment_has_receipts`) unless `force: true`; a forced delete forgets the
+receipts with the report, and pins always go with it. A merge has no `force`: it
+refuses a report that holds private skill pins (`environment_has_pins`) or ownership
+receipts (`environment_has_receipts`) with a 409, and its dry run reports the same
+refusal. Pins, previews and receipts themselves are not available through MCP. Owner
+settings can prune empty `reet-server` reports older than a chosen number of days.
+Local skills can be added to personal lists only; shared or published lists return
+`local_skill_not_allowed_in_list`. Ambiguous display names return
+`ambiguous_skill_id` with the exact candidate IDs.
 
 ## Validation
 

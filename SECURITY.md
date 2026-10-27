@@ -28,4 +28,5 @@ Out of scope: running with `REET_AUTH=none` on an untrusted network (it is docum
 
 - Keep the default `REET_AUTH=accounts`, and put the instance behind HTTPS if it is reachable beyond your LAN.
 - Treat `REET_TOKEN` like a password and rotate it with `sh scripts/init-env.sh --rotate`.
+- If you turn on single sign-on (`REET_OIDC_ISSUER`, see [docs/single-sign-on.md](docs/single-sign-on.md)), keep `REET_OIDC_LINK_BY_EMAIL` off unless your provider verifies every address it issues, keep `REET_OIDC_AUTO_CREATE` off unless anyone who can sign in there should get a reet.sh account, and put the client secret in `REET_OIDC_CLIENT_SECRET_FILE`. The owner always keeps password sign-in, so a provider outage never locks the instance.
 - Back up `reet.db` and the exported JSON somewhere you control.

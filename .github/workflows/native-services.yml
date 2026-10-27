@@ -41,6 +41,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  tmux-minimum:
+    name: tmux minimum (3.2)
+    runs-on: zoomies-linux-x64
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build terminal host test binary
+        run: CGO_ENABLED=0 go test -c -o "$RUNNER_TEMP/terminalhost.test" ./internal/terminalhost
+      - name: Run tests against tmux 3.2
+        run: |
+          docker run --rm \
+            -v "$RUNNER_TEMP/terminalhost.test:/terminalhost.test:ro" \
+            ubuntu:22.04 \
+            bash -ec '
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux >/dev/null
+              tmux -V
+              tmux -V | grep -Eq "^tmux 3\.2"
+              /terminalhost.test -test.timeout=3m
+            '
+
   native-service:
     name: native service (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

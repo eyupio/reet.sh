@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/eyupio/reet.sh/internal/contentobs"
 )
 
 var ErrSync = errors.New("sync requires two different, recently scanned environments owned by this account")
@@ -22,7 +24,8 @@ type MachineInfo struct {
 }
 
 type SyncEnvironment struct {
-	Error string `json:"error,omitempty"`
+	Content *contentobs.Inventory `json:"content,omitempty"`
+	Error   string                `json:"error,omitempty"`
 	Environment
 	ScannedAt int64       `json:"scannedAt"`
 	Complete  bool        `json:"complete"`
@@ -57,10 +60,12 @@ type SyncTarget struct {
 	UpdatedAt       int64       `json:"updatedAt"`
 }
 
+// Each inventory receives a fresh opaque generation, including after a scope
+// is forgotten/recreated. Timestamps or per-row counters can revive old hashes.
 func (s *Store) RecordInventoryFor(userID int64, envID string, complete bool, machine MachineInfo) error {
-	_, err := s.db.Exec(`INSERT INTO environment_scans(env_id,scanned_at,complete,os,arch,version)
- SELECT id,?,?,?,?,? FROM environments WHERE id=? AND user_id=?
- ON CONFLICT(env_id) DO UPDATE SET scanned_at=excluded.scanned_at,complete=excluded.complete,os=excluded.os,arch=excluded.arch,version=excluded.version`, now(), complete, machine.OS, machine.Arch, machine.Version, envID, userID)
+	_, err := s.db.Exec(`INSERT INTO environment_scans(env_id,scanned_at,complete,os,arch,version,inventory_revision)
+ SELECT id,?,?,?,?,?,(random() & 9223372036854775807) FROM environments WHERE id=? AND user_id=?
+ ON CONFLICT(env_id) DO UPDATE SET scanned_at=excluded.scanned_at,complete=excluded.complete,os=excluded.os,arch=excluded.arch,version=excluded.version,inventory_revision=excluded.inventory_revision`, now(), complete, machine.OS, machine.Arch, machine.Version, envID, userID)
 	return err
 }
 
@@ -95,6 +100,10 @@ func (s *Store) SyncEnvironmentsFor(userID int64) ([]SyncEnvironment, error) {
 		}
 		_ = s.db.QueryRow(`SELECT error FROM scan_errors WHERE env_id=?`, env.ID).Scan(&item.Error)
 		item.Skills, err = s.EnvironmentSkillsFor(userID, env.ID)
+		if err != nil {
+			return nil, err
+		}
+		item.Content, err = s.ContentObservationFor(userID, env.ID)
 		if err != nil {
 			return nil, err
 		}

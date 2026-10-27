@@ -1,15 +1,18 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { getHosting, claimPublishingUsername, saveHostedSkill, deleteHostedSkill, type HostedSkill } from './api'
-  import { MAX_BUNDLE_BYTES, prepareImports, renameSkillContent, uniqueSkillName, type ImportInput, type PreparedImport } from './skillImport'
+  import { getHosting, claimPublishingUsername, saveHostedSkill, renameHostedSkill, deleteHostedSkill, type HostedSkill } from './api'
+  import { MAX_BUNDLE_BYTES, addPrefix, prepareImports, renameSkillContent, sanitizeSkillName, uniqueSkillName, type ImportInput, type PreparedImport } from './skillImport'
   import PageHeader from './PageHeader.svelte'
   import CopyButton from './CopyButton.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
 
   let { canWrite = true }: { canWrite?: boolean } = $props()
   let username = $state('')
+  let prefix = $state('')
   let wantedName = $state('')
   let skills = $state<HostedSkill[]>([])
+  let search = $state('')
+  let filter = $state<'all' | 'published' | 'draft'>('all')
   let editor = $state<HostedSkill | null>(null)
   let originalSlug = $state('')
   let baseline = $state('')
@@ -27,12 +30,22 @@
   let importBusy = $state(false)
   let importProgress = $state('')
   let dropActive = $state(false)
-  let prefixImports = $state(true)
   let filePicker = $state<HTMLInputElement>()
   let folderPicker = $state<HTMLInputElement>()
   const command = $derived(`npx skills add ${location.origin}/${username}/${originalSlug}`)
   const dirty = $derived(editor ? fingerprint(editor) !== baseline : false)
   const chosenImports = $derived(importBundles.filter(skill => skill.selected && !skill.problem))
+  const publishedCount = $derived(skills.filter(skill => skill.published).length)
+  const draftCount = $derived(skills.length - publishedCount)
+  const visibleSkills = $derived(
+    skills
+      .filter(skill => filter === 'all' || (filter === 'published' ? skill.published : !skill.published))
+      .filter(skill => !search.trim() || `${skill.slug} ${skill.description}`.toLowerCase().includes(search.trim().toLowerCase())),
+  )
+  const slugBody = $derived(prefix && editor?.slug.startsWith(prefix) ? editor.slug.slice(prefix.length) : editor?.slug ?? '')
+  const renameNeeded = $derived(!!originalSlug && !!editor && editor.slug !== originalSlug)
+  const prefixMisplaced = $derived(!!prefix && !!originalSlug && !!editor && !editor.slug.startsWith(prefix))
+  const showPrefixChip = $derived(!!prefix && (!originalSlug || (editor?.slug.startsWith(prefix) ?? false)))
   onMount(() => { void load() })
   function fail(e: unknown) { error = e instanceof Error ? e.message : String(e) }
   function fingerprint(skill: HostedSkill) {
@@ -45,12 +58,12 @@
   }
   function track(skill: HostedSkill) { baseline = fingerprint(skill) }
   async function load() {
-    try { const data = await getHosting(); username = data.username; skills = data.skills }
+    try { const data = await getHosting(); username = data.username; prefix = data.prefix ?? ''; skills = data.skills }
     catch (e) { fail(e) } finally { loading = false }
   }
   async function claim(event: SubmitEvent) {
     event.preventDefault(); busy = true; error = ''; notice = ''
-    try { const data = await claimPublishingUsername(wantedName); username = data.username; skills = data.skills; notice = 'Username claimed. Create your first skill.' }
+    try { const data = await claimPublishingUsername(wantedName); username = data.username; prefix = data.prefix ?? ''; skills = data.skills; notice = 'Username claimed. Create your first skill.' }
     catch (e) { fail(e) } finally { busy = false }
   }
   function resetImport() {
@@ -59,7 +72,8 @@
   }
   function newSkill() {
     resetImport(); originalSlug = ''; error = ''; notice = ''
-    editor = { slug: 'my-skill', description: '', content: '---\nname: my-skill\ndescription: Describe what this skill does and when to use it.\n---\n\n# My skill\n\nWrite the instructions your agent should follow here.\n', files: {}, published: false, createdAt: 0, updatedAt: 0 }
+    const name = `${prefix}my-skill`
+    editor = { slug: name, description: '', content: `---\nname: ${name}\ndescription: Describe what this skill does and when to use it.\n---\n\n# My skill\n\nWrite the instructions your agent should follow here.\n`, files: {}, published: false, createdAt: 0, updatedAt: 0 }
     track(editor)
   }
   function guardImports(run: () => void) {
@@ -108,21 +122,44 @@
     if (busy || importBusy) return
     importing = true; error = ''; notice = ''; importError = ''; importNotice = ''
   }
-  function rename(event: Event) {
+  function setSlugBody(value: string) {
     if (!editor) return
-    const name = (event.target as HTMLInputElement).value
-    editor.content = editor.content.replace(/^(name:\s*).*$/m, (_, prefix) => `${prefix}${name}`)
+    const clean = sanitizeSkillName(value)
+    const body = prefix && clean.startsWith(prefix) ? clean.slice(prefix.length) : clean
+    const name = prefix ? `${prefix}${body}` : body
     editor.slug = name
+    editor.content = renameSkillContent(editor.content, name)
+  }
+
+  function applyPrefix() {
+    if (editor) setSlugBody(editor.slug)
   }
   async function save(event: SubmitEvent) {
     event.preventDefault(); if (!editor) return
+    if (!editor.slug) { error = 'Give the skill a name before saving.'; return }
+    if (prefix && (!originalSlug || editor.slug !== originalSlug) && !editor.slug.startsWith(prefix)) {
+      error = `Skill names must start with ${prefix}. Add the prefix or change it in Account → Profile.`
+      return
+    }
     if (!originalSlug && skills.some(s => s.slug === editor?.slug)) { error = 'You already have a skill with this name. Select it from your skills to edit it.'; return }
     busy = true; error = ''; notice = ''
+    let didRename = false
     try {
-      const saved = await saveHostedSkill(editor)
+      let current = editor
+      if (originalSlug && editor.slug !== originalSlug) {
+        didRename = true
+        const renamed = await renameHostedSkill(originalSlug, editor.slug)
+        current = { ...editor, slug: renamed.slug, content: renameSkillContent(editor.content, renamed.slug) }
+        editor = current
+        originalSlug = renamed.slug
+        skills = [...skills.filter(s => s.slug !== renamed.slug), renamed].sort((a, b) => a.slug.localeCompare(b.slug))
+      }
+      const saved = await saveHostedSkill(current)
       editor = saved; originalSlug = saved.slug; track(saved)
       skills = [...skills.filter(s => s.slug !== saved.slug), saved].sort((a, b) => a.slug.localeCompare(b.slug))
-      notice = saved.published ? 'Skill published. Anyone with the link can view and install it.' : 'Draft saved. Its page and install files are private.'
+      notice = didRename
+        ? saved.published ? 'Renamed and published. The public URL and install command changed; existing installs are untouched. It is also on your shelf under To test.' : 'Renamed. Update any private links you shared.'
+        : saved.published ? 'Skill published. It is also on your shelf so you can test it.' : 'Draft saved. Its page and install files are private.'
     } catch (e) { fail(e) } finally { busy = false }
   }
   async function upload(event: Event, main = false) {
@@ -135,8 +172,12 @@
         if (main) {
           editor.content = await file.text()
           if (!originalSlug) {
-            const name = editor.content.match(/^name:\s*["']?([a-z0-9-]+)["']?\s*$/m)?.[1]
-            if (name) editor.slug = name
+            const found = editor.content.match(/^name:\s*["']?([a-z0-9-]+)["']?\s*$/m)?.[1]
+            if (found) {
+              const name = prefix ? addPrefix(sanitizeSkillName(found), prefix) : sanitizeSkillName(found)
+              editor.slug = name
+              editor.content = renameSkillContent(editor.content, name)
+            }
           }
         } else {
           const bytes = new Uint8Array(await file.arrayBuffer())
@@ -201,7 +242,7 @@
   }
   function rebuildImports(preserve: boolean) {
     const previous = new Map(importBundles.map(skill => [skill.key, skill.selected]))
-    importBundles = prepareImports(importInputs, skills.map(skill => skill.slug), prefixImports).map(skill => ({
+    importBundles = prepareImports(importInputs, skills.map(skill => skill.slug), prefix).map(skill => ({
       ...skill,
       selected: skill.problem ? false : preserve ? previous.get(skill.key) ?? skill.selected : skill.selected,
     }))
@@ -252,10 +293,6 @@
     input.value = ''
     await loadImports(files)
   }
-  function togglePrefix(event: Event) {
-    prefixImports = (event.currentTarget as HTMLInputElement).checked
-    rebuildImports(true)
-  }
   function selectImport(index: number, selected: boolean) {
     importBundles = importBundles.map((skill, at) => at === index ? { ...skill, selected } : skill)
   }
@@ -303,6 +340,12 @@
 {:else if !canWrite}<p class="notice">Your account is read-only. Ask an admin for publishing access.</p>
 {:else if !username}
   <section class="panel">
+    <h2>What hosting gives you</h2>
+    <p>Write a skill here and reet.sh serves it at its own address, ready to install with one command. For example:</p>
+    <pre><code>npx skills add {location.origin}/your-username/skill-name</code></pre>
+    <p>Your username is the first part of that address.</p>
+  </section>
+  <section class="panel">
     <h2>Choose your publishing username</h2>
     <p>Your skills will live at <code>{location.host}/username/skill-name</code>. This username is permanent, so shared install links keep their owner.</p>
     <form onsubmit={claim}>
@@ -313,12 +356,42 @@
     </form>
   </section>
 {:else}
-  <div class="toolbar"><p>Publishing as <strong>{username}</strong></p><div class="toolbar-actions"><button class="btn" onclick={openImport} disabled={busy || importBusy}>Import skills</button><button class="btn primary" onclick={requestNewSkill} disabled={busy || importBusy}>New skill</button></div></div>
+  <div class="toolbar">
+    <div class="publisher">
+      <p>Publishing as <strong>{username}</strong></p>
+      <div class="stats">
+        <span class="stat">{publishedCount} published</span>
+        <span class="stat">{draftCount} {draftCount === 1 ? 'draft' : 'drafts'}</span>
+        {#if prefix}<span class="stat">names start with <code>{prefix}</code></span>{/if}
+      </div>
+    </div>
+    <div class="toolbar-actions"><button class="btn" onclick={openImport} disabled={busy || importBusy}>Import skills</button><button class="btn primary" onclick={requestNewSkill} disabled={busy || importBusy}>New skill</button></div>
+  </div>
   <div class="workspace" class:with-dock={editor && !importing}>
-    <aside class="panel" aria-label="Your hosted skills">
-      <h2>Your skills</h2>
-      {#if !skills.length}<p>No skills yet. Create a skill and save it as a draft or publish it.</p>{/if}
-      {#each skills as skill (skill.slug)}<button class="skill-choice" aria-current={originalSlug === skill.slug ? 'true' : undefined} onclick={() => requestEdit(skill)} disabled={busy || importBusy}><strong>{skill.slug}</strong><span>{skill.published ? 'Published' : 'Draft'}</span></button>{/each}
+    <aside class="panel skills-panel" aria-label="Your hosted skills">
+      <div class="panel-head"><h2>Your skills</h2></div>
+      {#if skills.length}
+        <input class="search" type="search" bind:value={search} placeholder="Search your skills…" aria-label="Search your hosted skills" />
+        <div class="filters" role="group" aria-label="Filter hosted skills">
+          <button type="button" class="chip" class:on={filter === 'all'} onclick={() => filter = 'all'}>All</button>
+          <button type="button" class="chip" class:on={filter === 'published'} onclick={() => filter = 'published'}>Published</button>
+          <button type="button" class="chip" class:on={filter === 'draft'} onclick={() => filter = 'draft'}>Drafts</button>
+        </div>
+      {/if}
+      {#if !skills.length}
+        <div class="empty"><strong>No skills yet</strong><p>Create a skill or import a folder to get started.</p></div>
+      {:else if !visibleSkills.length}
+        <p class="hint">No skills match that search.</p>
+      {/if}
+      <div class="skill-list">
+        {#each visibleSkills as skill (skill.slug)}
+          <button class="skill-choice" aria-current={originalSlug === skill.slug ? 'true' : undefined} onclick={() => requestEdit(skill)} disabled={busy || importBusy}>
+            <span class="choice-top"><strong>{skill.slug}</strong><span class="pill" class:published={skill.published}>{skill.published ? 'Published' : 'Draft'}</span></span>
+            <small>{skill.description || 'No description yet'}</small>
+            <span class="choice-meta">Updated {new Date(skill.updatedAt).toLocaleDateString()}</span>
+          </button>
+        {/each}
+      </div>
     </aside>
     {#if importing}
       <section class="panel import-panel" aria-labelledby="import-heading">
@@ -334,8 +407,11 @@
         {#if importError}<p class="notice bad" role="alert">{importError}</p>{/if}
         {#if importNotice}<p class="notice good" role="status">{importNotice}</p>{/if}
         {#if importBundles.length}
-          <label class="prefix"><input type="checkbox" checked={prefixImports} onchange={togglePrefix} disabled={importBusy} /> Prefix imported names with <code>reet-</code></label>
-          <p class="hint">So your own hosted skills stand out from the ones you imported elsewhere. Names in SKILL.md and install links are updated.</p>
+          {#if prefix}
+            <p class="hint">Imported names start with <code>{prefix}</code> from your profile. <a href="/account/profile">Change prefix</a>.</p>
+          {:else}
+            <p class="hint">Your profile has the hosted skill prefix turned off, so imported names are used as they are. <a href="/account/profile">Add a prefix</a>.</p>
+          {/if}
           <ul class="import-list">
             {#each importBundles as skill, index (skill.key)}
               <li class:invalid={!!skill.problem}>
@@ -352,29 +428,72 @@
       </section>
     {:else if editor}
       <section class="panel editor">
-        <h2>{originalSlug ? 'Edit skill' : 'New skill'}</h2>
+        <div class="panel-head">
+          <div>
+            <h2>{originalSlug ? 'Edit skill' : 'New skill'}</h2>
+            <p class="hint">{originalSlug ? `Editing ${originalSlug}` : 'Save a draft first, then publish when it is ready.'}</p>
+          </div>
+          <span class="pill" class:published={editor.published}>{editor.published ? 'Published' : 'Draft'}</span>
+        </div>
         <form id="skill-form" onsubmit={save}>
-          <label for="hosted-slug">Skill name</label>
-          <input id="hosted-slug" value={editor.slug} oninput={rename} required pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="64" disabled={busy || !!originalSlug} aria-describedby="slug-help" />
-          <small id="slug-help">Used in your URL and the SKILL.md name. Saved skill names are permanent.</small>
-          <label for="skill-upload">Upload an existing SKILL.md</label><input id="skill-upload" type="file" accept=".md" onchange={(event) => upload(event, true)} disabled={busy} />
-          <label for="hosted-content">SKILL.md</label><textarea id="hosted-content" bind:value={editor.content} rows="18" required spellcheck="false" disabled={busy}></textarea>
-          <small>Include YAML frontmatter with a matching name and a description, followed by your instructions.</small>
-          <label for="support-upload">Supporting files (optional)</label><input id="support-upload" type="file" multiple onchange={(event) => upload(event)} disabled={busy} />
-          <small>Up to 100 files, 2 MiB total including SKILL.md. Edit paths below for folders such as scripts/ or references/.</small>
-          {#each Object.keys(editor.files) as name (name)}<div class="file-row"><input aria-label={`Path for ${name}`} value={name} onchange={(event) => renameFile(name, event.currentTarget.value)} disabled={busy} /><button type="button" class="btn quiet" onclick={() => removeFile(name)} disabled={busy}>Remove</button></div>{/each}
-          <label class="publish"><input type="checkbox" bind:checked={editor.published} disabled={busy} /> Publish publicly</label>
-          <small>Publishing makes the instructions and all supporting files available to everyone. Uncheck and save to unpublish.</small>
-          <div class="actions"><button class="btn primary" disabled={busy}>{busy ? 'Saving…' : editor.published ? 'Save and publish' : 'Save draft'}</button>{#if originalSlug}<button type="button" class="btn quiet" disabled={busy} onclick={() => deleting = skills.find(s => s.slug === originalSlug) ?? null}>Delete skill</button>{/if}</div>
+          <div class="form-block">
+            <h3>Name and location</h3>
+            <label for="hosted-slug">Skill name</label>
+            <div class="slug-row">
+              {#if showPrefixChip}<span class="slug-prefix">{prefix}</span>{/if}
+              <input id="hosted-slug" value={slugBody} oninput={(event) => setSlugBody(event.currentTarget.value)} required pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength={showPrefixChip ? 64 - prefix.length : 64} disabled={busy} aria-describedby="slug-help" placeholder="my-skill" />
+            </div>
+            <small id="slug-help">Used in your public URL and the SKILL.md name. Renaming changes the install link; existing installs are untouched.</small>
+            {#if prefix}<small>Your profile prefix <code>{prefix}</code> is added automatically. <a href="/account/profile">Change it</a>.</small>{/if}
+            {#if prefixMisplaced}<p class="notice warn" role="status">This skill predates your <code>{prefix}</code> prefix. <button type="button" class="btn quiet" onclick={applyPrefix} disabled={busy}>Add prefix</button></p>{/if}
+            {#if renameNeeded}<p class="notice warn" role="status">Renaming <code>{originalSlug}</code> to <code>{editor.slug}</code> changes its public URL and install command. Your shelf, lists and tags move with it.</p>{/if}
+          </div>
+          <div class="form-block">
+            <h3>Instructions</h3>
+            <label for="skill-upload">Upload an existing SKILL.md</label>
+            <input id="skill-upload" type="file" accept=".md" onchange={(event) => upload(event, true)} disabled={busy} />
+            <label for="hosted-content">SKILL.md</label>
+            <textarea id="hosted-content" bind:value={editor.content} rows="16" required spellcheck="false" disabled={busy}></textarea>
+            <small>Include YAML frontmatter with a matching name and a description, followed by your instructions.</small>
+          </div>
+          <div class="form-block">
+            <h3>Supporting files</h3>
+            <label for="support-upload">Add files</label>
+            <input id="support-upload" type="file" multiple onchange={(event) => upload(event)} disabled={busy} />
+            <small>Up to 100 files, 2 MiB total including SKILL.md. Edit paths for folders such as scripts/ or references/.</small>
+            {#if Object.keys(editor.files).length}
+              <ul class="file-list">
+                {#each Object.keys(editor.files) as name (name)}
+                  <li class="file-row"><input aria-label={`Path for ${name}`} value={name} onchange={(event) => renameFile(name, event.currentTarget.value)} disabled={busy} /><button type="button" class="btn quiet" onclick={() => removeFile(name)} disabled={busy}>Remove</button></li>
+                {/each}
+              </ul>
+            {:else}<p class="hint">No supporting files yet.</p>{/if}
+          </div>
+          <div class="form-block visibility">
+            <h3>Visibility</h3>
+            <label class="publish"><input type="checkbox" bind:checked={editor.published} disabled={busy} /> Publish publicly</label>
+            <small>Publishing makes the instructions and supporting files available to everyone, and puts the skill on your shelf under To test. Uncheck and save to unpublish.</small>
+          </div>
+          <div class="actions">
+            <button class="btn primary" disabled={busy}>{busy ? 'Saving…' : renameNeeded ? 'Rename and save' : editor.published ? 'Save and publish' : 'Save draft'}</button>
+            {#if originalSlug}<button type="button" class="btn quiet" disabled={busy} onclick={() => deleting = skills.find(s => s.slug === originalSlug) ?? null}>Delete skill</button>{/if}
+          </div>
         </form>
-        {#if originalSlug && skills.find(s => s.slug === originalSlug)?.published}<div class="install"><h3>Share and install</h3><a href={`/${username}/${originalSlug}`} target="_blank" rel="noopener noreferrer">View public skill page ↗</a><code>{command}</code><CopyButton text={command} label="Copy install command" /></div>{/if}
+        {#if originalSlug && skills.find(s => s.slug === originalSlug)?.published}
+          <div class="install">
+            <h3>Share and install</h3>
+            <div class="install-links"><a href={`/${username}/${originalSlug}`} target="_blank" rel="noopener noreferrer">View public skill page ↗</a><a href="/">Open your shelf</a></div>
+            <code>{command}</code>
+            <CopyButton text={command} label="Copy install command" />
+          </div>
+        {/if}
       </section>
     {:else}<section class="panel"><h2>A home for your skills</h2><p>Choose a skill to edit, or create a new one. Drafts stay private until you publish them.</p></section>{/if}
   </div>
   {#if editor && !importing}
     <div class="save-dock" role="region" aria-label="Save your skill">
       <span class="save-state" aria-live="polite">{busy ? 'Saving…' : dirty ? 'Unsaved changes' : originalSlug ? 'All changes saved' : 'Not saved yet'}</span>
-      <button type="submit" form="skill-form" class="btn primary" disabled={busy}>{busy ? 'Saving…' : editor.published ? 'Save and publish' : 'Save draft'}</button>
+      <button type="submit" form="skill-form" class="btn primary" disabled={busy}>{busy ? 'Saving…' : renameNeeded ? 'Rename and save' : editor.published ? 'Save and publish' : 'Save draft'}</button>
     </div>
   {/if}
 {/if}
@@ -384,8 +503,15 @@
 <style>
   .panel { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 24px; min-width: 0; }
   .panel h2 { margin-top: 0; font-size: 1.1rem; }
+  .panel + .panel { margin-top: 16px; }
+  .panel pre { margin: 12px 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); overflow: auto; font: 0.82rem/1.6 var(--mono); }
   .toolbar, .actions, .file-row { display: flex; align-items: center; gap: 12px; }
   .toolbar { justify-content: space-between; margin-bottom: 16px; }
+  .publisher { display: grid; gap: 6px; }
+  .publisher p { margin: 0; }
+  .stats { display: flex; gap: 8px; flex-wrap: wrap; }
+  .stat { padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: .75rem; color: var(--muted); }
+  .stat code { color: var(--ink); }
   .toolbar-actions, .import-pickers { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .workspace { display: grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); align-items: start; gap: 20px; }
   .workspace.with-dock { padding-bottom: 76px; }
@@ -396,9 +522,35 @@
   textarea, code { font-family: var(--mono); }
   textarea { resize: vertical; }
   form > .btn { align-self: flex-start; margin-top: 12px; }
-  .skill-choice { width: 100%; text-align: left; padding: 12px; display: flex; flex-direction: column; gap: 4px; margin-top: 8px; overflow-wrap: anywhere; }
-  .skill-choice[aria-current='true'] { background: var(--tint); }
+  .skills-panel { display: flex; flex-direction: column; gap: 10px; position: sticky; top: 16px; }
+  .skills-panel h2 { margin: 0; }
+  .search { margin: 0; }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { width: auto; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--muted); font-size: .76rem; cursor: pointer; }
+  .chip.on { border-color: var(--accent); color: var(--ink); background: var(--tint); }
+  .empty { padding: 8px 0; }
+  .empty p { margin: 4px 0 0; color: var(--muted); font-size: .84rem; }
+  .skill-list { display: grid; gap: 6px; }
+  .skill-choice { width: 100%; text-align: left; padding: 10px; display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; border: 1px solid transparent; border-radius: 10px; background: transparent; }
+  .skill-choice:hover:not(:disabled) { background: var(--bg); border-color: var(--line); }
+  .skill-choice[aria-current='true'] { background: var(--tint); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
   .skill-choice span { font-size: .8rem; color: var(--muted); }
+  .choice-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .choice-top strong { color: var(--ink); }
+  .choice-meta { font-size: .74rem !important; }
+  .skill-choice small { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .pill { flex: none; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: .68rem !important; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .pill.published { border-color: color-mix(in srgb, var(--good) 45%, var(--line)); color: var(--good); }
+  .form-block { display: grid; gap: 8px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+  .form-block h3 { margin: 0; font-size: .9rem; }
+  .form-block > label:first-of-type { margin-top: 0; }
+  .slug-row { display: flex; align-items: stretch; }
+  .slug-row input { flex: 1; }
+  .slug-prefix { display: flex; align-items: center; padding: 0 10px; border: 1px solid var(--line); border-right: 0; border-radius: 8px 0 0 8px; background: var(--tint); color: var(--muted); font-family: var(--mono); font-size: .85rem; }
+  .slug-row .slug-prefix + input { border-radius: 0 8px 8px 0; }
+  .file-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .install-links { display: flex; gap: 14px; flex-wrap: wrap; margin: 6px 0 2px; font-size: .88rem; }
+  .notice.warn { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 7%, var(--card)); }
   .publish { display: flex; align-items: center; gap: 10px; }
   .publish input { width: auto; }
   .actions { flex-wrap: wrap; margin-top: 12px; }
@@ -412,8 +564,6 @@
   .dropzone:disabled { opacity: .65; cursor: default; }
   .dropzone strong { font-size: 1rem; }
   .dropzone span { color: var(--muted); font-size: .84rem; }
-  .prefix { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
-  .prefix input { width: auto; }
   .hint { margin: 0; color: var(--muted); font-size: .82rem; }
   .import-list { display: grid; gap: 8px; list-style: none; margin: 4px 0 0; padding: 0; }
   .import-list li { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
@@ -424,7 +574,7 @@
   .import-check small { color: var(--muted); }
   .import-meta { display: flex; gap: 12px; flex-wrap: wrap; padding-left: 26px; color: var(--muted); font-size: .78rem; }
   .import-meta .problem { color: var(--bad); }
-  .save-dock { position: fixed; right: 20px; bottom: 20px; z-index: 14; display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 16px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; background: var(--card); box-shadow: 0 18px 50px -20px rgb(0 0 0 / .4); }
+  .save-dock { position: fixed; right: 20px; bottom: calc(20px + var(--bottom-chrome, 0px)); z-index: 14; display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 16px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; background: var(--card); box-shadow: 0 18px 50px -20px rgb(0 0 0 / .4); }
   .save-state { font-size: .8rem; color: var(--muted); }
   @media (max-width: 720px) { .workspace { grid-template-columns: 1fr; } .panel { padding: 16px; } }
   @media (max-width: 560px) {
@@ -432,7 +582,7 @@
     .toolbar-actions { width: 100%; }
     .toolbar-actions .btn { flex: 1; }
     .workspace.with-dock { padding-bottom: 88px; }
-    .save-dock { left: 12px; right: 12px; bottom: 12px; justify-content: space-between; }
+    .save-dock { left: 12px; right: 12px; bottom: calc(12px + var(--bottom-chrome, 0px)); justify-content: space-between; }
     .save-dock .btn { flex: 1; }
   }
   @media (prefers-reduced-motion: no-preference) {

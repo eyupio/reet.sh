@@ -867,6 +867,37 @@ func (s *Store) AddEventFor(userID int64, source, action, skillID string, detail
 	return err
 }
 
+// AddEventIDFor records an event like AddEventFor and returns its id, so the
+// caller can later update the same row with UpdateEventDetailFor.
+func (s *Store) AddEventIDFor(userID int64, source, action, skillID string, detail any) (int64, error) {
+	detailJSON := ""
+	if detail != nil {
+		b, err := json.Marshal(detail)
+		if err != nil {
+			return 0, err
+		}
+		detailJSON = string(b)
+	}
+	res, err := s.db.Exec(`INSERT INTO events(at,user_id,actor,source,action,skill_id,detail) VALUES(?,?,?,?,?,?,?)`,
+		now(), userID, "", source, action, skillID, detailJSON)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// UpdateEventDetailFor replaces the detail of one of the user's events with
+// the given action. It changes nothing when no such row exists (for example
+// after events were pruned).
+func (s *Store) UpdateEventDetailFor(userID, id int64, action string, detail any) error {
+	b, err := json.Marshal(detail)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`UPDATE events SET detail=? WHERE id=? AND user_id=? AND action=?`, string(b), id, userID, action)
+	return err
+}
+
 func (s *Store) ListEventsFor(userID int64, limit int, skillID string) ([]Event, error) {
 	return s.listEvents(`WHERE ev.user_id=?`, []any{userID}, limit, skillID)
 }
@@ -1240,13 +1271,19 @@ func (s *Store) TransferOwner(currentOwnerID, targetID int64) error {
 		return errors.New("already the owner")
 	}
 	return s.withTx(func(tx *sql.Tx) error {
-		var role string
+		var role, hash string
 		var disabled int64
-		if err := tx.QueryRow(`SELECT role,disabled_at FROM users WHERE id=?`, targetID).Scan(&role, &disabled); err != nil {
+		if err := tx.QueryRow(`SELECT role,password_hash,disabled_at FROM users WHERE id=?`, targetID).Scan(&role, &hash, &disabled); err != nil {
 			return err
 		}
 		if disabled != 0 {
 			return errors.New("the target account is disabled")
+		}
+		// The owner signs in with a password and never through a provider, and
+		// a passwordless account cannot add one, so the transfer would leave
+		// the new owner with no way in.
+		if hash == "" {
+			return errors.New("the target account has no password; the owner signs in with one")
 		}
 		if _, err := tx.Exec(`UPDATE users SET role='admin' WHERE id=?`, currentOwnerID); err != nil {
 			return err

@@ -1,13 +1,14 @@
 <script lang="ts">
   import { onMount, type Snippet } from 'svelte'
+  import { shell } from '../dialogShell'
   let { title, onclose, children, placement='center' }: { placement?:'center'|'drawer';title: string; onclose: () => void; children: Snippet } = $props()
   let dialog = $state<HTMLDialogElement>()
   const id = $props.id()
   onMount(() => { dialog?.showModal(); return () => dialog?.close() })
 </script>
-<dialog class:drawer={placement==='drawer'} bind:this={dialog} aria-labelledby={id} oncancel={event => { event.preventDefault(); onclose() }}>
-  <header><h2 id={id}>{title}</h2><button class="btn quiet" onclick={onclose} aria-label={`Close ${title}`}>Close ×</button></header>
-  <div class="content">{@render children()}</div>
+<dialog class:drawer={placement==='drawer'} bind:this={dialog} use:shell aria-labelledby={id} oncancel={event => { event.preventDefault(); onclose() }}>
+  <header data-shell-head><h2 id={id}>{title}</h2><button class="btn quiet" onclick={onclose} aria-label={`Close ${title}`} data-shell-close>Close ×</button></header>
+  <div class="content" data-shell-body>{@render children()}</div>
 </dialog>
 <style>
   .drawer{position:fixed;inset:76px 16px 16px auto;margin:0;width:min(390px,calc(100vw - 24px));max-height:calc(100dvh - 92px)}@media(max-width:650px){.drawer{inset:64px 8px 8px;width:calc(100vw - 16px);max-height:calc(100dvh - 72px)}}

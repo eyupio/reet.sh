@@ -227,7 +227,7 @@
     <p>Or save and push in steps:</p>
     <pre><code>reet setup profile save work
 reet setup profile push work</code></pre>
-    <p>The synced profile is metadata, not the encrypted snapshot. On another machine, pull the profile first, then copy the snapshot or fetch it from your configured S3 destination.</p><a class="btn quiet" href="/machines#connect-machine">Install or connect the CLI →</a>
+    <details class="stored"><summary>How setups are stored</summary><p>The synced profile is metadata, not the encrypted snapshot. On another machine, pull the profile first, then copy the snapshot or fetch it from your configured S3 destination.</p></details><a class="btn quiet" href="/machines#connect-machine">Install or connect the CLI →</a>
   </section>
 {:else}
   <div class="profiles">
@@ -543,7 +543,7 @@ reet setup profile push work</code></pre>
   .profile-row.active { border-color: var(--accent); background: var(--tint); }
   .profile-row:disabled { opacity: 0.65; cursor: default; }
   .name { font-weight: 650; overflow-wrap: anywhere; }
-  .revision { color: var(--accent); font-size: 0.76rem; font-weight: 600; }
+  .revision { color: var(--accent-text); font-size: 0.76rem; font-weight: 600; }
   .updated { grid-column: 1 / -1; color: var(--muted); font-size: 0.75rem; overflow-wrap: anywhere; }
   .profile-detail { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 20px; min-width: 0; }
   .detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
@@ -557,7 +557,7 @@ reet setup profile push work</code></pre>
   .rename-form textarea { width: 100%; box-sizing: border-box; margin: 4px 0 8px; font: inherit; }
   .override-kinds { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 4px 0 10px; font-size: 0.8rem; }
   .override-kinds label { display: flex; align-items: center; gap: 4px; margin: 0; }
-  .eyebrow { margin: 0; color: var(--accent); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
   h2 { margin: 4px 0 6px; font: 500 1.7rem/1.1 var(--serif); letter-spacing: -0.02em; overflow-wrap: anywhere; }
   h3 { margin: 22px 0 8px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
   .muted { color: var(--muted); overflow-wrap: anywhere; }
@@ -600,10 +600,13 @@ reet setup profile push work</code></pre>
   .history ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
   .history li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 6px 8px; border-radius: 6px; font-size: 0.8rem; }
   .history li > .muted {grid-column:2}.history button {font-size:.8rem}.history li.current { background: var(--tint); }
-  .rev { color: var(--accent); font-weight: 650; }
+  .rev { color: var(--accent-text); font-weight: 650; }
   .empty-state { border: 1px dashed var(--line); border-radius: 12px; padding: 24px; }
   .empty-state h2 { margin-top: 0; }
   .empty-state p { color: var(--muted); max-width: 60ch; }
+  .stored { margin: 6px 0 12px; }
+  .stored summary { display: inline-flex; align-items: center; min-height: 32px; color: var(--muted); font-weight: 600; cursor: pointer; }
+  .stored summary:hover { color: var(--ink); }
   pre { overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
   @media (max-width: 900px) {
     .profiles { grid-template-columns: 1fr; }

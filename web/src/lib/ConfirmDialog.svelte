@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { shell } from './dialogShell'
   import type { Snippet } from 'svelte'
 
   let {
@@ -52,13 +53,13 @@
   }
 </script>
 
-<dialog bind:this={dialog} aria-labelledby={titleId} oncancel={(e) => { e.preventDefault(); cancel() }}>
-  <div class="box">
+<dialog bind:this={dialog} use:shell={{ sheet: 'bottom' }} aria-labelledby={titleId} oncancel={(e) => { e.preventDefault(); cancel() }}>
+  <div class="box" data-shell-card>
     <h2 id={titleId}>{title}</h2>
     <p>{body}</p>
     {#if details}<textarea class="details" readonly rows="8" aria-label="Proposed changes" value={details}></textarea>{/if}
     {#if children}{@render children()}{/if}
-    <div class="actions">
+    <div class="actions" data-shell-foot>
       <button type="button" class="btn quiet" bind:this={cancelBtn} onclick={cancel}>Cancel</button>
       {#if secondaryLabel && onsecondary}
         <button type="button" class="btn quiet secondary" onclick={secondary}>{secondaryLabel}</button>

@@ -12,12 +12,15 @@ let wireBytes=0,wirePrompt=false
 let sockets = 0
 let lastSize
 page.on('websocket', socket => {sockets++;socket.on('framereceived',({payload})=>{if(typeof payload!=='string'){wireBytes+=payload.length;wirePrompt ||= payload.toString().includes('stage6-ready>')}});socket.on('framesent',({payload})=>{try{const message=JSON.parse(String(payload));if(message.type==='resize')lastSize={cols:message.cols,rows:message.rows}}catch{/* binary input */}})})
+// The attachment ticket also sets the host's size; the browser sends no resize frame for a size the host already has.
+page.on('request', request => {if(request.method()==='POST'&&new URL(request.url()).pathname.endsWith('/attachments')){const body=request.postDataJSON();lastSize={cols:body.cols,rows:body.rows}}})
 page.on('pageerror', error => errors.push(error.message))
 const pane = page.locator('.pane')
 const screen = page.locator('.xterm-accessibility-tree')
 async function live() { await expect(pane).toHaveAttribute('data-connection-state', 'live', { timeout: 20000 }) }
 async function command(text) { await page.getByRole('button', { name: 'Focus terminal' }).click(); await page.keyboard.type(text); await page.keyboard.press('Enter') }
 async function state() { return page.evaluate(async () => (await fetch('/_test/state')).json()) }
+async function chooseMachine(id){const toggle=page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/});if(await toggle.getAttribute('aria-expanded')!=='true')await toggle.click();await page.getByLabel('Machine',{exact:true}).selectOption(id)}
 async function renderedScreenFits(){await expect.poll(async()=>{const host=await page.getByRole('region',{name:'Remote terminal screen',exact:true}).boundingBox(),rendered=await page.locator('.xterm-screen').boundingBox();return Math.ceil(rendered.y+rendered.height-host.y-host.height)}).toBeLessThanOrEqual(0)}
 
 
@@ -45,17 +48,17 @@ try {
   await reference.getByText('Quick command reference',{exact:true}).click()
   await expect(page.getByText(/Resource readings are temporarily unavailable/)).toBeVisible()
   await page.getByRole('button',{name:'Close Machine & terminal details'}).click()
-  await expect(page.getByRole('button', { name: 'New terminal' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'New terminal', exact: true })).toBeEnabled()
   await page.unroute('**/api/v2/machines/health')
   await page.getByLabel('New session name').fill('Browser durability')
   await page.getByRole('button', { name: 'New terminal', exact: true }).click()
-  await page.getByLabel('Machine',{exact:true}).selectOption(otherAgent)
+  await chooseMachine(otherAgent)
   const created=page.waitForResponse(response=>response.request().method()==='POST'&&response.url().endsWith('/api/v2/terminal/sessions'))
   releaseCreate();await created
   await expect(page.getByRole('button',{name:'New terminal',exact:true})).toBeDisabled()
   expect(new URL(page.url()).searchParams.get('agent')).toBe(otherAgent)
   expect(new URL(page.url()).searchParams.get('session')).toBeNull()
-  await page.getByLabel('Machine',{exact:true}).selectOption(process.env.REET_BROWSER_AGENT)
+  await chooseMachine(process.env.REET_BROWSER_AGENT)
   await live()
   await expect(screen).toContainText('stage6-ready>')
   await expect.poll(async()=>{const remote=await page.evaluate(async()=>(await fetch('/_test/size')).json());return remote.grid===`${lastSize?.rows} ${lastSize?.cols}`},{timeout:10000}).toBe(true)
@@ -70,7 +73,19 @@ try {
   const original = await state()
   expect(original.sessions).toBe(1)
   expect(Number(original.pid)).toBeGreaterThan(0)
-  await page.goto(base)
+  const actionSockets=sockets
+  await page.getByRole('region',{name:'Remote terminal screen',exact:true}).click({button:'right'})
+  await page.getByRole('menu',{name:'Terminal actions',exact:true}).getByRole('menuitem',{name:'Saved commands…',exact:true}).click()
+  await expect(page.getByRole('dialog')).toHaveAccessibleName('Saved commands')
+  await page.getByRole('button',{name:'Close Saved commands',exact:true}).click()
+  // The panel's chevron shrinks it to the mini rail; the rail's chevron closes it.
+  await page.getByRole('button',{name:'Shrink sessions to a mini rail',exact:true}).click()
+  await page.getByRole('complementary',{name:'Session rail'}).getByRole('button',{name:'Close session navigation',exact:true}).click()
+  await page.locator('.terminal-toolbar').getByRole('button',{name:'Show sessions',exact:true}).click()
+  await expect(page.getByRole('complementary',{name:'Session navigation'})).toBeVisible()
+  expect(sockets).toBe(actionSockets);expect(await state()).toEqual(original)
+
+  await page.goto(`${base}/control`)
   const activeBand=page.locator('#active-sessions')
   await expect(activeBand).toContainText('1 active session')
   const continuedAt=Date.now()
@@ -196,7 +211,7 @@ try {
   const secondContext=await browser.newContext({viewport:{width:1360,height:1000}})
   await secondContext.addCookies([{name:'reet_session',value:process.env.REET_BROWSER_COOKIE,url:base,httpOnly:true,sameSite:'Lax'}])
   const secondPage=await secondContext.newPage()
-  await secondPage.goto(base)
+  await secondPage.goto(`${base}/control`)
   await secondPage.getByRole('button',{name:/Your command library/}).click()
   await expect(secondPage.getByRole('dialog').locator('code')).toHaveText(savedText)
   await secondContext.close()
@@ -272,6 +287,8 @@ try {
   await page.setViewportSize({width:390,height:844})
   await page.evaluate(()=>document.documentElement.dataset.theme='dark')
   await expect(page.getByRole('button',{name:'Send Ctrl+C'})).toBeVisible()
+  // Resizes are sent once the layout settles; wait for the phone width to reach the wire.
+  await expect.poll(()=>lastSize?.cols||0).toBeLessThan(80)
   await expect.poll(async()=>{const remote=await page.evaluate(async()=>(await fetch('/_test/size')).json());return remote.grid===`${lastSize?.rows} ${lastSize?.cols}`},{timeout:10000}).toBe(true)
   const phoneSize={...lastSize}
   await command("set -- $(stty size); printf '__phone_pty_%s_%s__\\n' \"$1\" \"$2\"")
@@ -326,11 +343,11 @@ try {
   const builderOriginal=await fixture('state-builder')
   expect(Number(builderOriginal.pid)).toBeGreaterThan(0)
   expect(builderOriginal.pid).not.toBe(original.pid)
-  await page.getByLabel('Machine',{exact:true}).selectOption(process.env.REET_BROWSER_AGENT);await live()
+  await chooseMachine(process.env.REET_BROWSER_AGENT);await live()
   await command("kill -0 \"$LONG_PID\" && printf '__two_host_%s__\\n' 'primary'")
   await expect(screen).toContainText('__two_host_primary__')
   expect((await state()).pid).toBe(original.pid)
-  await page.getByLabel('Machine',{exact:true}).selectOption(builder)
+  await chooseMachine(builder)
   await page.getByRole('button',{name:'New session',exact:true}).click()
   await expect(page.getByLabel('New session name')).toHaveValue('Builder work')
   await page.getByRole('button',{name:'Retry creation',exact:true}).click();await live()
@@ -368,7 +385,7 @@ try {
   await expect(page.getByRole('dialog')).toContainText('Builder renamed')
   await page.getByRole('dialog').getByRole('button',{name:'End session',exact:true}).click()
   await expect(page.getByText(/End requested. Waiting for this machine/)).toBeVisible()
-  await page.getByLabel('Machine',{exact:true}).selectOption(process.env.REET_BROWSER_AGENT);await live()
+  await chooseMachine(process.env.REET_BROWSER_AGENT);await live()
   await command("kill -0 \"$LONG_PID\" && printf '__other_end_%s__\\n' 'safe'")
   await expect(screen).toContainText('__other_end_safe__')
   await fixture('online-builder')

@@ -38,6 +38,8 @@ type agentConfig struct {
 	Projects        []string `json:"projects"`
 	AllowApply      bool     `json:"allowApply"`
 	TerminalEnabled bool     `json:"terminalEnabled,omitempty"`
+	// BrowseOff refuses folder browsing locally (reet terminal browse off).
+	BrowseOff bool `json:"browseOff,omitempty"`
 }
 
 func agentConfigPath() string {
@@ -109,6 +111,7 @@ func agentRequestContext(ctx context.Context, c agentConfig, path string, body a
 	req.Header.Set("X-Reet-Agent", c.ID)
 	req.Header.Set("X-Reet-Agent-Key", c.Secret)
 	req.Header.Set("X-Reet-Version", version)
+	req.Header.Set("X-Reet-Commit", buildCommit)
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
 		return err
@@ -117,7 +120,7 @@ func agentRequestContext(ctx context.Context, c agentConfig, path string, body a
 	if resp.StatusCode >= 300 {
 		var e struct{ Error string }
 		_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&e)
-		return fmt.Errorf("controller %s: %s", resp.Status, e.Error)
+		return controllerError{Status: resp.StatusCode, Message: e.Error}
 	}
 	if result == nil {
 		return nil
@@ -131,9 +134,12 @@ func RunAgent(args []string, out io.Writer, version string) error {
 }
 func runAgentInput(args []string, in io.Reader, out io.Writer, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet agent enroll|start|stop|restart|status|run|restore|terminal|service [--config PATH]; run backgrounds by default; --foreground for debugging")
+		return errors.New("usage: reet agent enroll|start|stop|restart|status|run|restore|terminal|service|skill [--config PATH]; run backgrounds by default; --foreground for debugging")
 	}
 	action := args[0]
+	if action == "skill" {
+		return runAgentSkillImport(args[1:], in, out, version)
+	}
 	if action == "terminal" {
 		return runAgentTerminalInput(args[1:], in, out, version)
 	}
@@ -225,7 +231,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			Agent  store.SyncAgent
 			Secret string
 		}
-		if err = agentRequest(c, "/api/v2/sync/agents", map[string]string{"host": *host, "version": version}, &result, version); err != nil {
+		if err = agentRequest(c, "/api/v2/sync/agents", map[string]string{"host": *host, "version": version, "commit": buildCommit}, &result, version); err != nil {
 			return err
 		}
 		c.ID = result.Agent.ID
@@ -321,6 +327,10 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			defer close(monitorDone)
 			if err := agenthealth.RunAgent(ctx, agenthealth.AgentConfig{
 				TerminalSession: terminalControl(*config, c),
+				LaunchTools:     launchTools,
+				GitAvailable:    gitAvailable,
+				BrowseAllowed:   browseAllowed(*config, c),
+				TerminalAllowed: terminalAllowed(*config, c),
 				OnConnection:    state.connected.Store,
 				ServerURL:       c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,
 				Version: version, InstanceID: instance,
@@ -366,14 +376,27 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	}
 }
 
+// controllerError is a refusal or failure the controller answered with. The
+// status separates a permanent refusal from a server that is restarting.
+type controllerError struct {
+	Status  int
+	Message string
+}
+
+func (e controllerError) Error() string {
+	return fmt.Sprintf("controller %d %s: %s", e.Status, http.StatusText(e.Status), e.Message)
+}
+
 // permanentAgentError reports a controller refusal that will not change by
 // resending the same request.
 func permanentAgentError(err error) bool {
-	message := err.Error()
-	for _, code := range []string{"controller 400", "controller 403", "controller 404", "controller 409"} {
-		if strings.HasPrefix(message, code) {
-			return true
-		}
+	var refusal controllerError
+	if !errors.As(err, &refusal) {
+		return false
+	}
+	switch refusal.Status {
+	case http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict:
+		return true
 	}
 	return false
 }
@@ -406,6 +429,23 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 			return err
 		}
 	}
+	// A re-exec into a new build leaves a marker: prove the new build can reach
+	// the controller, or put the previous one back.
+	if _, err := checkPendingUpdate(c, config, version); err != nil {
+		return err
+	}
+	if handled, err := processRemoteImport(ctx, c, version); handled {
+		return err
+	} else if err != nil {
+		fmt.Fprintln(out, "Skill import channel unavailable; continuing inventory and sync work.")
+	}
+	// Metadata-only previews read files only after the controller names this
+	// process, and never write. They wait their turn behind an import, if any.
+	if handled, err := processContentPreview(ctx, c, version); handled {
+		return err
+	} else if err != nil {
+		fmt.Fprintln(out, "Skill content preview channel unavailable; continuing inventory and sync work.")
+	}
 	var reply struct {
 		Agent store.SyncAgent
 		Job   *store.SyncJob
@@ -425,7 +465,10 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 				failures = append(failures, err)
 			}
 		}
-		return errors.Join(failures...)
+		if err := errors.Join(failures...); err != nil {
+			return err
+		}
+		return reportContentObservations(ctx, c, version)
 	}
 	if reply.Job == nil {
 		if time.Since(*lastScan) >= time.Minute {
@@ -444,7 +487,8 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 		if !allowRestart {
 			operationErr = errors.New("updating reet requires the long-running background or service agent")
 		} else {
-			result.Message, restartPath, operationErr = updateAgentBinary(ctx, j.Revision, version)
+			report := func(stage, detail string) { reportAgentStage(c, j.ID, stage, detail, version) }
+			result.Message, restartPath, operationErr = updateAgentBinary(ctx, config, j.ID, j.Revision, version, report)
 		}
 	} else {
 		target, err := fetchTarget(c.Server, c.Token, j.TargetID)
@@ -496,15 +540,13 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 		result.Message = operationErr.Error()
 	}
 	if restartPath != "" {
-		// Leave the successful result durable before replacing the process image.
-		// The new process sends it on its first cycle. If exec fails, record and
-		// send the failure from this process instead.
-		if err := writePrivate(config+".result", result); err != nil {
-			return err
-		}
+		// The pending marker is the durable state now: the new process proves
+		// itself and sends the result. If exec fails here, put the old binary
+		// back and report the failure from this process instead.
 		if err := restartAgent(restartPath); err != nil {
+			undoPendingUpdate(config)
 			result.Status = "failed"
-			result.Message = "Binary updated but the agent restart failed: " + err.Error()
+			result.Message = "The new binary was installed but the agent could not restart; the previous binary is in place. " + err.Error()
 		} else {
 			return nil
 		}

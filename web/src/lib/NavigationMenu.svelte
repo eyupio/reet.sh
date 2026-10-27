@@ -1,5 +1,7 @@
 <script lang="ts">
-  let { label, items, primary = false }: { label: string; items: { label: string; href: string; current: boolean; children?: { label: string; href: string; current: boolean }[] }[]; primary?: boolean } = $props()
+  // A section's own navigation (Account, Admin): links in a row, folded into one menu on a narrow screen. The site's main
+  // navigation is the app shell (shell/AppShell.svelte).
+  let { label, items }: { label: string; items: { label: string; href: string; current: boolean; children?: { label: string; href: string; current: boolean }[] }[] } = $props()
   let root = $state<HTMLElement>()
   let menu = $state<HTMLDetailsElement>()
   let trigger = $state<HTMLElement>()
@@ -22,10 +24,10 @@
     {:else}<a href={item.href} aria-current={item.current ? 'page' : undefined}>{item.label}</a>{/if}
   {/each}
 {/snippet}
-<nav bind:this={root} aria-label={label} class:primary>
+<nav bind:this={root} aria-label={label}>
   <div class="desktop">{@render links()}</div>
   <details class="mobile" bind:this={menu}>
-    <summary bind:this={trigger}>{primary ? 'Menu' : label}<span>{current}</span><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6" /></svg></summary>
+    <summary bind:this={trigger}>{label}<span>{current}</span><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6" /></svg></summary>
     <div class="links">{@render links()}</div>
   </details>
 </nav>
@@ -42,7 +44,7 @@
   a { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--muted); font-size: 0.82rem; font-weight: 500; text-decoration: none; border-radius: 8px; }
   a:hover { background: var(--card); color: var(--ink); }
   a[aria-current='page'] { color: var(--ink); background: var(--tint); font-weight: 600; }
-  nav:not(.primary) { border-bottom: 1px solid var(--line); padding-bottom: 12px; margin: 12px 0 20px; }
+  nav { border-bottom: 1px solid var(--line); padding-bottom: 12px; margin: 12px 0 20px; }
   .mobile { display: none; }
   @media (max-width: 1000px) {
     .desktop { display: none; }
@@ -54,7 +56,5 @@
     details[open] summary svg { transform: rotate(180deg); }
     .links { display: grid; gap: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); box-shadow: 0 12px 28px rgb(0 0 0 / 0.1); margin-top: 6px; }
     .group-links { position: static; min-width: 0; box-shadow: none; margin: 4px 0; border: 0; padding: 0 0 0 12px; }
-    .primary .links { position: absolute; z-index: 20; right: 0; min-width: min(260px, calc(100vw - 32px)); }
-    .primary summary span { display: none; }
   }
 </style>

@@ -19,11 +19,11 @@ export function moves(stage: Stage): Move[] {
     case 'shelf':
       return [
         { label: 'Save to test', flags: { bookmarked: true }, primary: true },
-        { label: 'Start using', flags: { used: true } },
+        { label: 'Mark in use', flags: { used: true } },
       ]
     case 'try':
       return [
-        { label: 'Start using', flags: { used: true }, primary: true },
+        { label: 'Mark in use', flags: { used: true }, primary: true },
         { label: 'Back to shelf', flags: { bookmarked: false } },
       ]
     case 'use':

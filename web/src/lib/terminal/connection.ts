@@ -104,7 +104,7 @@ export class TerminalConnection {
     try { for (let offset = 0; offset < bytes.length; offset += frameLimit) socket.send(new Uint8Array(bytes.subarray(offset, offset + frameLimit)).buffer); return true } catch { this.interrupt(this.epoch, 'Input delivery was interrupted. It will not be replayed.'); return false }
   }
   text(text: string): boolean { return this.send(new TextEncoder().encode(text)) }
-  resize(cols: number, rows: number) { if (this.state === 'live' && this.socket?.readyState === WebSocket.OPEN) {try {this.socket.send(JSON.stringify({ type: 'resize', cols, rows }))}catch{this.interrupt(this.epoch,'Resize interrupted; restoring the existing shell.')}} }
+  resize(cols: number, rows: number): boolean { if (this.state === 'live' && this.socket?.readyState === WebSocket.OPEN) {try {this.socket.send(JSON.stringify({ type: 'resize', cols, rows }));return true}catch{this.interrupt(this.epoch,'Resize interrupted; restoring the existing shell.')}} return false }
   recover() { if (this.state === 'reconnecting' || this.state === 'connecting') { this.backoff = 1000; void this.connect() } }
   detach() { this.manual = true; ++this.epoch; this.clear(); this.set('detached', 'Disconnected from this browser. The shell keeps running on the machine.') }
   dispose() { this.disposed = true; this.manual = true; ++this.epoch; this.clear() }

@@ -8,7 +8,7 @@ const url = source => `data:text/javascript;base64,${Buffer.from(source).toStrin
 const apiURL = url(transpile('api'))
 const { TerminalConnection } = await import(url(transpile('connection').replace("from './api'", `from '${apiURL}'`)))
 const { value, percent, fresh, uptime } = await import(url(transpile('health')))
-const { readiness, validTerminalTitle } = await import(apiURL)
+const { readiness, cardReadiness, validTerminalTitle } = await import(apiURL)
 test('session titles reject terminal controls, format controls and overlong names before creating a retry key',()=>{
   for(const title of ['', '   ', 'a'.repeat(81),'bad\x1btitle','bad\u202etitle','bad\u2028title'])assert.equal(validTerminalTitle(title),false)
   for(const title of ['Root build','Café 💥','a'.repeat(80)])assert.equal(validTerminalTitle(title),true)
@@ -59,6 +59,18 @@ test('terminal input waits for redraw and disconnected keystrokes are never repl
   } finally { f.cleanup() }
 })
 
+test('a resize reports whether it reached the host, so an undelivered size is not treated as sent', async () => {
+  const f = fixture()
+  try {
+    assert.equal(f.connection.resize(54, 30), false)
+    const socket = await f.open()
+    assert.equal(f.connection.resize(54, 30), false)
+    socket.message(new Uint8Array([65]).buffer); f.renders.at(-1).done()
+    assert.equal(f.connection.resize(54, 30), true)
+    assert.deepEqual(JSON.parse(socket.sent.at(-1)), { type: 'resize', cols: 54, rows: 30 })
+  } finally { f.cleanup() }
+})
+
 test('UTF-8 output remains bytes across frame boundaries and stale sockets are fenced', async () => {
   const f = fixture()
   try {
@@ -96,6 +108,13 @@ test('health preserves missing readings and distinguishes last-known observation
   assert.equal(readiness({ready:true,capabilities:{osUser:'root',terminalControl:true,terminalEnabled:true,readiness:'ready'}}),'')
 })
 
+test('a machine card says plainly when the terminal list does not know the machine yet', () => {
+  assert.equal(cardReadiness(undefined), "This machine hasn't connected for terminals yet.")
+  assert.equal(cardReadiness({ready:true,capabilities:{osUser:'root',terminalControl:true,terminalEnabled:true,readiness:'ready'}}),'')
+  assert.equal(cardReadiness({ready:false,capabilities:{osUser:'root',terminalControl:true,terminalEnabled:true,readiness:'ready'}}),'The machine is reconnecting. Existing shells will be kept.')
+  assert.equal(readiness(undefined), 'Choose an enrolled machine.')
+})
+
 const { terminalShortcut } = await import(url(transpile('keyboard')))
 test('terminal shortcuts preserve interrupts and editor keys while using native paste exactly once', () => {
   const key = (name, changes = {}) => ({ type:'keydown',key:name,ctrlKey:true,metaKey:false,shiftKey:false,altKey:false,...changes })
@@ -123,4 +142,47 @@ test('manual disconnect survives online/visibility recovery until explicitly rec
     socket=await f.open();socket.message(new Uint8Array([66]).buffer);f.renders.at(-1).done()
     assert.equal(f.states.at(-1),'live')
   } finally { f.cleanup() }
+})
+
+const { createTerminal, TerminalError } = await import(apiURL)
+async function withFetch(reply, run) {
+  const original = globalThis.fetch, requests = []
+  globalThis.fetch = async (path, init) => { requests.push({ path, init }); return reply() }
+  try { await run(requests) } finally { globalThis.fetch = original }
+}
+test('a plain create sends exactly the fields it always sent', async () => {
+  await withFetch(() => new Response('{"id":"s"}', { status: 200 }), async requests => {
+    await createTerminal('agent1', 'req1', 'Shell', 100, 30)
+    await createTerminal('agent1', 'req1', 'Shell', 100, 30, undefined, {})
+    await createTerminal('agent1', 'req1', 'Shell', 100, 30, undefined, { tool: '', model: '', dir: '', prompt: '' })
+    for (const r of requests) assert.equal(r.init.body, '{"agentId":"agent1","requestId":"req1","title":"Shell","cols":100,"rows":30}')
+  })
+})
+test('a launch create sends only the launch fields that are set', async () => {
+  await withFetch(() => new Response('{"id":"s"}', { status: 200 }), async requests => {
+    await createTerminal('a', 'r', 'Claude Code', 100, 30, undefined, { tool: 'claude' })
+    await createTerminal('a', 'r', 'Claude Code · site', 100, 30, undefined, { tool: 'claude', model: 'opus', dir: '/home/me/site', prompt: 'fix it' })
+    assert.deepEqual(JSON.parse(requests[0].init.body), { agentId: 'a', requestId: 'r', title: 'Claude Code', cols: 100, rows: 30, tool: 'claude' })
+    assert.deepEqual(JSON.parse(requests[1].init.body), { agentId: 'a', requestId: 'r', title: 'Claude Code · site', cols: 100, rows: 30, tool: 'claude', model: 'opus', dir: '/home/me/site', prompt: 'fix it' })
+  })
+})
+test('a refused create carries the status, the server sentence and its code', async () => {
+  const refuse = (status, body) => () => new Response(JSON.stringify(body), { status })
+  await withFetch(refuse(422, { error: "That folder isn't available on that machine.", code: 'folder_unavailable', message: "That folder isn't available on that machine.", field: 'dir' }), async () => {
+    const e = await createTerminal('a', 'r', 'T', 100, 30, undefined, { tool: 'claude', dir: '/x' }).catch(e => e)
+    assert.ok(e instanceof TerminalError)
+    assert.equal(e.status, 422); assert.equal(e.code, 'folder_unavailable'); assert.equal(e.message, "That folder isn't available on that machine.")
+  })
+  await withFetch(refuse(409, { error: 'terminal session limit reached' }), async () => {
+    const e = await createTerminal('a', 'r', 'T').catch(e => e)
+    assert.equal(e.status, 409); assert.equal(e.code, undefined); assert.equal(e.message, 'terminal session limit reached')
+  })
+  await withFetch(() => new Response('not json', { status: 502 }), async () => {
+    const e = await createTerminal('a', 'r', 'T').catch(e => e)
+    assert.equal(e.status, 502); assert.equal(e.code, undefined); assert.equal(e.message, 'The terminal connection is unavailable.')
+  })
+  await withFetch(refuse(422, { error: 'x', code: 7 }), async () => {
+    const e = await createTerminal('a', 'r', 'T').catch(e => e)
+    assert.equal(e.code, undefined)
+  })
 })

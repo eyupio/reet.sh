@@ -92,6 +92,7 @@ export type AuthStatus = {
   signupEnabled?: boolean
   contactEmail?: string
   passwordReset?: boolean
+  sso?: import('./sso').SsoStatus
   user: User | null
 }
 export type APIToken = { id: number; name: string; createdAt: number; lastUsedAt?: number }
@@ -135,6 +136,20 @@ export class UnauthorizedError extends Error {
   constructor(message = 'missing or wrong token') {
     super(message)
     this.name = 'UnauthorizedError'
+  }
+}
+
+/**
+ * The server refused the request. The message is its own text (or the status line when it sent none), exactly as
+ * before, so callers that read e.message are unchanged; status lets a caller tell one refusal from another.
+ * A 401 is an UnauthorizedError instead.
+ */
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
   }
 }
 
@@ -185,7 +200,7 @@ async function req(path: string, init: RequestInit = {}): Promise<Response> {
     } catch {
       /* keep status text */
     }
-    throw new Error(msg)
+    throw new ApiError(msg, res.status)
   }
   return res
 }
@@ -205,6 +220,15 @@ export async function signUpAccount(data: { name: string; email: string; passwor
 }
 export async function signInAccount(email: string, password: string): Promise<User> {
   return (await req('/api/v2/auth/sign-in', { method: 'POST', body: json({ email, password }) })).json()
+}
+export async function getSsoIdentity(): Promise<import('./sso').SsoIdentity> {
+  return (await req('/api/v2/auth/oidc/identity')).json()
+}
+export async function unlinkSsoIdentity(): Promise<void> {
+  await req('/api/v2/auth/oidc/identity', { method: 'DELETE' })
+}
+export async function getAdminSso(): Promise<import('./sso').AdminSso> {
+  return (await req('/api/v2/admin/sso')).json()
 }
 export async function signOutAccount(): Promise<void> {
   await req('/api/v2/auth/sign-out', { method: 'POST', body: json({}) })
@@ -431,7 +455,8 @@ export async function getRollup(): Promise<Rollup> {
   return (await req('/api/admin/rollup')).json()
 }
 
-export type SyncEnvironment = Environment & { error?: string; project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string; skills: SyncSkill[] }
+export type ContentInventory = { state: string; schemaVersion?: number; observedAt?: number; receivedAt?: number; skills: { name: string; complete: boolean; digest?: string; files: number; bytes: number; issues?: string[] }[] }
+export type SyncEnvironment = Environment & { content?: ContentInventory; error?: string; project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string; skills: SyncSkill[] }
 export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source' | 'sourceType'>
 export type SyncTarget = { mode?: string; baseline?: SyncSkill[]; appliedRevision?: string; hostAliases?: string[]; targetAliases?: string[]; target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
 export type SetupProfileSummary = { name: string; revision: number; snapshotId: string; snapshotDigest: string; updatedAt: number }
@@ -471,8 +496,10 @@ export type SetupProfileRevision = {
 export type SetupProfileRecord = { schema_version: number; name: string; revisions: SetupProfileRevision[] }
 export type Machine = { aliases?: string[]; host: string; groups: SyncEnvironment[]; skillCount: number }
 export type SyncRun = { id: string; agentId: string; targets: string[]; cursor: number; status: string; createdAt: number; updatedAt: number }
-export type SyncState = { agents?: SyncAgent[]; jobs?: SyncJob[]; runs?: SyncRun[]; machines?: Machine[]; environments: SyncEnvironment[]; targets: SyncTarget[] }
-export async function getSyncState(): Promise<SyncState> { return (await req('/api/v2/sync')).json() }
+export type ReleaseChannel = { version?: string; commit?: string; checkedAt?: number; error?: string }
+export type ReleaseInfo = { dev?: ReleaseChannel; latest?: ReleaseChannel }
+export type SyncState = { agents?: SyncAgent[]; jobs?: SyncJob[]; updateJobs?: SyncJob[]; runs?: SyncRun[]; machines?: Machine[]; environments: SyncEnvironment[]; targets: SyncTarget[]; releases?: ReleaseInfo }
+export async function getSyncState(signal?: AbortSignal): Promise<SyncState> { return (await req('/api/v2/sync', { signal })).json() }
 export async function saveSyncTarget(sourceId: string, targetId: string): Promise<SyncState> { return (await req('/api/v2/sync', { method: 'PUT', body: json({ sourceId, targetId }) })).json() }
 export async function deleteSyncTarget(targetId: string): Promise<SyncState> { return (await req(`/api/v2/sync?target=${encodeURIComponent(targetId)}`, { method: 'DELETE' })).json() }
 export async function mergeMachines(from: string, to: string): Promise<SyncState> { return (await req('/api/v2/machines/merge', { method: 'POST', body: json({ from, to }) })).json() }
@@ -835,19 +862,22 @@ export function backupDownloadUrl(admin: boolean, id: string): string {
 
 // --- profile ---------------------------------------------------------------
 
-export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; shelfView: 'list' | 'board'; cardsExpanded: boolean; terminalRemoveOnClose?: boolean; updatedAt: number }
+export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; shelfView: 'list' | 'board'; cardsExpanded: boolean; terminalRemoveOnClose?: boolean; hostedPrefix: string; updatedAt: number }
 export type ProfileInfo = { user: User; profile: Profile; sessionCount: number; accounts: boolean }
 export type ProfileSession = { id: string; device: string; createdAt: number; lastSeen: number; expiresAt: number; current: boolean }
 
+// Sent on window whenever the page theme changes, so a mounted form holding the theme follows instead of saving a stale one.
+export const THEME_EVENT = 'reet:theme'
 export function applyTheme(theme: string) {
   const root = document.documentElement
   if (theme === 'light' || theme === 'dark') root.dataset.theme = theme
   else delete root.dataset.theme
+  window.dispatchEvent(new CustomEvent<string>(THEME_EVENT, { detail: theme }))
 }
 export async function getProfile(): Promise<ProfileInfo> {
   return (await req('/api/v2/profile')).json()
 }
-export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean }): Promise<ProfileInfo> {
+export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean; hostedPrefix?: string }): Promise<ProfileInfo> {
   return (await req('/api/v2/profile', { method: 'PATCH', body: json(input) })).json()
 }
 export async function changePassword(current: string, password: string): Promise<void> {
@@ -864,7 +894,7 @@ export async function endOtherProfileSessions(): Promise<{ ended: number }> {
 }
 
 export type HostedSkill = { slug: string; description: string; content: string; files: Record<string, string>; published: boolean; createdAt: number; updatedAt: number }
-export type Hosting = { username: string; skills: HostedSkill[] }
+export type Hosting = { username: string; prefix: string; skills: HostedSkill[] }
 export async function getHosting(): Promise<Hosting> { return (await req('/api/v2/hosting')).json() }
 export async function claimPublishingUsername(username: string): Promise<Hosting> {
   return (await req('/api/v2/hosting/username', { method: 'POST', body: json({ username }) })).json()
@@ -872,13 +902,17 @@ export async function claimPublishingUsername(username: string): Promise<Hosting
 export async function saveHostedSkill(skill: HostedSkill): Promise<HostedSkill> {
   return (await req(`/api/v2/hosting/skills/${encodeURIComponent(skill.slug)}`, { method: 'PUT', body: json(skill) })).json()
 }
+export async function renameHostedSkill(slug: string, name: string): Promise<HostedSkill> {
+  return (await req(`/api/v2/hosting/skills/${encodeURIComponent(slug)}/rename`, { method: 'POST', body: json({ name }) })).json()
+}
 export async function deleteHostedSkill(slug: string): Promise<void> {
   await req(`/api/v2/hosting/skills/${encodeURIComponent(slug)}`, { method: 'DELETE' })
 }
 
-export type SyncAgent = { id: string; host: string; version: string; lastSeen: number; paused: boolean }
+export type SyncAgent = { id: string; host: string; version: string; commit?: string; lastSeen: number; paused: boolean; autoUpdate: boolean }
 export type SyncPlan = { backups?: string[]; target: string; directory: string; revision: string; actions: { add: boolean; skill: SyncSkill }[] }
-export type SyncJob = { id: string; agentId: string; targetId: string; kind: string; status: string; revision: string; hash: string; plan: Partial<SyncPlan>; message: string; createdAt: number; updatedAt: number }
+export type UpdateStage = { key: string; label: string; status: 'pending' | 'running' | 'done' | 'failed' | 'skipped'; detail?: string }
+export type SyncJob = { id: string; agentId: string; targetId: string; kind: string; status: string; revision: string; hash: string; plan: Partial<SyncPlan>; message: string; stage?: string; stages?: UpdateStage[]; createdAt: number; updatedAt: number }
 export async function syncCandidates(listId = 0, collection = 'shelf'): Promise<{ skills: SyncSkill[] }> { return (await req(`/api/v2/sync/candidates?list=${listId}&collection=${encodeURIComponent(collection)}`)).json() }
 export async function saveDesired(data: { targetId: string; sourceId: string; listId: number; skillIds: string[]; mode: string; revision: string }): Promise<SyncState> { return (await req('/api/v2/sync/desired', { method: 'PUT', body: json(data) })).json() }
 export async function reconcileDesired(targetId: string): Promise<{ skills: SyncSkill[]; conflicts: string[]; revision: string }> { return (await req('/api/v2/sync/reconcile', { method: 'POST', body: json({ targetId }) })).json() }
@@ -904,3 +938,97 @@ export async function updateSetupProfileOverrides(name: string, overrides: Setup
 export async function deleteSetupProfile(name: string): Promise<void> {
   await req(`/api/v2/setup/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' })
 }
+
+export type ImportPreviewFile = { path: string; bytes: number; digest: string; executable: boolean; blocked?: string }
+export type ImportRequest = {
+ id: string; requestKey: string; agentId: string; environmentId: string; host: string; agent: string; project: string; name: string
+ state: string; bundleId: string; expectedBase: string; createdAt: number; updatedAt: number; expiresAt: number
+ previewHash?: string; digest?: string; excluded: string[]; error?: string
+ preview?: { schemaVersion: number; sourceDigest: string; skillValid: boolean; files: ImportPreviewFile[] }
+ receipt?: { bundle: { id: string; name: string; head: string }; revision: { id: string; manifestDigest: string } }
+}
+export type PrivateBundle = { id: string; name: string; head: string; createdAt: number }
+export type PrivateRevision = { id: string; parent?: string; manifestDigest: string; createdAt: number; origin: { kind: string; reference?: string } }
+export type ImportState = { requests: ImportRequest[]; capabilities: { agentId: string; ready: boolean; observedAt: number }[] }
+export async function getImports(signal?: AbortSignal): Promise<ImportState> { return (await req('/api/v2/skill-imports', { signal })).json() }
+export async function getImport(id: string, signal?: AbortSignal): Promise<ImportRequest> { return (await req(`/api/v2/skill-imports/${encodeURIComponent(id)}`, { signal })).json() }
+export async function requestImport(input: { requestKey: string; agentId: string; environmentId: string; name: string; bundleId: string; expectedBase: string }): Promise<ImportRequest> { return (await req('/api/v2/skill-imports', { method: 'POST', body: json(input) })).json() }
+export async function approveImport(id: string, previewHash: string, excluded: string[]): Promise<ImportRequest> { return (await req(`/api/v2/skill-imports/${encodeURIComponent(id)}/approve`, { method: 'POST', body: json({ previewHash, excluded }) })).json() }
+export async function cancelImport(id: string): Promise<void> { await req(`/api/v2/skill-imports/${encodeURIComponent(id)}`, { method: 'DELETE' }) }
+export async function getPrivateBundles(signal?: AbortSignal): Promise<{ bundles: PrivateBundle[] }> { return (await req('/api/v2/skill-bundles', { signal })).json() }
+export async function getPrivateRevisions(id: string, signal?: AbortSignal): Promise<{ revisions: PrivateRevision[] }> { return (await req(`/api/v2/skill-bundles/${encodeURIComponent(id)}/revisions`, { signal })).json() }
+
+export async function stopImport(id: string): Promise<ImportRequest> { return (await req(`/api/v2/skill-imports/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: json({}) })).json() }
+
+// Private skill content: pins, checks and ownership records. The types mirror the Go JSON exactly (see
+// docs/skill-content-targets.md, skill-content-preview.md and skill-content-receipts.md); optional fields are
+// omitempty on the server. The wrappers hold no logic. None of them reads a revision's file bytes: the
+// library's revision read is deliberately absent, and revision lists come from getPrivateRevisions (metadata).
+export type ContentIssue = { path: string; code: string }
+export type ContentFile = { path: string; bytes: number; digest: string; executable: boolean }
+export type ContentManifest = { schemaVersion: number; algorithm: string; modeSemantics: string; complete: boolean; files: ContentFile[]; totalBytes: number; digest?: string; issues?: ContentIssue[] }
+export type ContentPin = { id: string; environmentId: string; agentId: string; name: string; bundleId: string; revisionId: string; manifestDigest: string; mode: string; version: string; updatedAt: number; verification: string }
+export type ContentPinWrite = { environmentId: string; agentId: string; bundleId: string; revisionId: string; mode: 'additive' | 'managed'; expectedVersion: string }
+export type ContentCapture = { schemaVersion: number; adapter: string; rootId: string; rootOwnership: string; presence: string; complete: boolean; manifest?: ContentManifest; issues: ContentIssue[] }
+export type ContentTarget = { ownerId: number; agentId: string; environmentId: string; generation: string; rootId: string; skillName: string; adapter: string; schema: number }
+// The planner's snapshot carries its inventoryRevision as a JSON number, which a browser cannot hold exactly
+// for a 63-bit value. Nothing here compares it; ContentPreview.inventoryRevision is the string to use.
+export type ContentSnapshot = {
+  inventoryRevision: number
+  target: ContentTarget
+  desired: { ownerId: number; bundleId: string; revisionId: string; name: string; manifest: ContentManifest }
+  observation: { inventoryRevision: number; generation: string; presence: string; complete: boolean; receivedAt: number; manifest?: ContentManifest }
+  baseline?: { target: ContentTarget; bundleId: string; revisionId: string; manifest: ContentManifest }
+  rootOwnership: string
+  mode: string
+}
+export type ContentPlan = {
+  version: number
+  preconditions: ContentSnapshot
+  ready: boolean
+  actions: { path: string; kind: string; before?: ContentFile; after?: ContentFile }[]
+  conflicts: { path: string; code: string }[]
+  preserved: { path: string; reason: string }[]
+  expectedInstalled?: ContentManifest
+  expectedManaged?: ContentManifest
+  hash: string
+}
+export type AdoptionCandidate = { revisionId: string; matched: number; observedOnly: number; revisionOnly: number }
+export type AdoptionOffer = { candidates: AdoptionCandidate[] }
+export type AdoptionFile = { path: string; bytes: number; digest: string; executable: boolean; status: 'claimed' | 'stays_yours' | 'library_only' }
+export type AdoptionBreakdown = { revisionId: string; files: AdoptionFile[]; matched: number; observedOnly: number; revisionOnly: number }
+export type ContentPreview = {
+  id: string; requestKey: string; targetId: string; targetVersion: string; environmentId: string; agentId: string; agent: string; project: string; name: string
+  bundleId: string; revisionId: string; manifestDigest: string; mode: string
+  instanceId: string
+  // A 63-bit random value, so it travels as a string.
+  inventoryRevision: string
+  state: string; reasons: string[]; createdAt: number; updatedAt: number; expiresAt: number
+  capturedAt?: number; capture?: ContentCapture; captureHash?: string; receiptVersion?: string; plan?: ContentPlan; reviewHash?: string
+  authority: string; error?: string
+  // Item reads only, never listed.
+  adoption?: AdoptionOffer
+}
+export type ContentPreviewCapability = { agentId: string; ready: boolean; observedAt: number }
+export type ContentReceipt = {
+  id: string; environmentId: string; agentId: string; name: string; bundleId: string; revisionId: string; managedDigest: string; fileCount: number
+  // Item reads only.
+  managed?: ContentManifest
+  // Listed rows whose stored data no longer decodes: only the identity and version are good, and it can still be released.
+  damaged?: boolean
+  provenance: string; verification: string
+  evidence: { previewId: string; reviewHash: string; captureHash: string; observedDigest: string; pinId: string; pinVersion: string; capturedAt: number; adoptedAt: number; adoptedBy: number }
+  version: string; createdAt: number; updatedAt: number
+}
+export async function getContentPins(signal?: AbortSignal): Promise<{ targets: ContentPin[] }> { return (await req('/api/v2/skill-content-targets', { signal })).json() }
+export async function saveContentPin(input: ContentPinWrite): Promise<ContentPin> { return (await req('/api/v2/skill-content-targets', { method: 'POST', body: json(input) })).json() }
+export async function removeContentPin(id: string, expectedVersion: string): Promise<{ removed: boolean }> { return (await req(`/api/v2/skill-content-targets/${encodeURIComponent(id)}`, { method: 'DELETE', body: json({ expectedVersion }) })).json() }
+export async function getContentPreviews(signal?: AbortSignal): Promise<{ previews: ContentPreview[]; capabilities: ContentPreviewCapability[] }> { return (await req('/api/v2/skill-content-previews', { signal })).json() }
+export async function getContentPreview(id: string, signal?: AbortSignal): Promise<ContentPreview> { return (await req(`/api/v2/skill-content-previews/${encodeURIComponent(id)}`, { signal })).json() }
+export async function requestContentPreview(input: { requestKey: string; targetId: string; expectedTargetVersion: string }): Promise<ContentPreview> { return (await req('/api/v2/skill-content-previews', { method: 'POST', body: json(input) })).json() }
+export async function stopContentPreview(id: string): Promise<ContentPreview> { return (await req(`/api/v2/skill-content-previews/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: json({}) })).json() }
+export async function dismissContentPreview(id: string): Promise<{ ok: boolean }> { return (await req(`/api/v2/skill-content-previews/${encodeURIComponent(id)}`, { method: 'DELETE' })).json() }
+export async function getContentReceipts(signal?: AbortSignal): Promise<{ receipts: ContentReceipt[] }> { return (await req('/api/v2/skill-content-receipts', { signal })).json() }
+export async function adoptContent(input: { requestKey: string; previewId: string; reviewHash: string; adoptAsRevisionId: string }): Promise<ContentReceipt> { return (await req('/api/v2/skill-content-receipts', { method: 'POST', body: json(input) })).json() }
+export async function releaseContentReceipt(id: string, expectedVersion: string): Promise<{ removed: boolean }> { return (await req(`/api/v2/skill-content-receipts/${encodeURIComponent(id)}`, { method: 'DELETE', body: json({ expectedVersion }) })).json() }
+export async function getAdoptionBreakdown(previewId: string, revisionId: string, signal?: AbortSignal): Promise<AdoptionBreakdown> { return (await req(`/api/v2/skill-content-previews/${encodeURIComponent(previewId)}/adoption/${encodeURIComponent(revisionId)}`, { signal })).json() }

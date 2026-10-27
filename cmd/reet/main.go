@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/agentupdate"
 	"github.com/eyupio/reet.sh/internal/api"
 	"github.com/eyupio/reet.sh/internal/backup"
 	"github.com/eyupio/reet.sh/internal/clientconfig"
@@ -25,6 +26,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/mail"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/notify"
+	"github.com/eyupio/reet.sh/internal/oidc"
 	"github.com/eyupio/reet.sh/internal/scan"
 	"github.com/eyupio/reet.sh/internal/setup"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -57,12 +59,13 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	scan.SetBuildCommit(commit)
 	if cmd == "configure" || cmd == "install" || cmd == "init" || cmd == "upgrade" || cmd == "update" || cmd == "help" || cmd == "--help" || cmd == "-h" {
 		cliui.Banner(os.Stderr)
 	}
 	switch cmd {
 	case "version", "--version", "-v":
-		fmt.Printf("reet %s (%s)\n", version, commit)
+		printVersion(os.Stdout, version, commit)
 	case "help", "--help", "-h":
 		fmt.Print(`reet.sh — your AI agent toolkit. Get your toolkit reet.
 
@@ -127,6 +130,8 @@ Configuration (environment variables):
   REET_TOPICS     off to disable topic seeding
   REET_REFRESH    off to disable background metadata refresh
   REET_RELAY_MAP_URL  Optional HTTPS Tailcat relay map for private agent connections
+  REET_OIDC_ISSUER    Turn on sign-in through an identity provider (see docs/single-sign-on.md;
+                      also REET_OIDC_CLIENT_ID, REET_OIDC_CLIENT_SECRET[_FILE], REET_OIDC_*)
   REET_REMOTE_TERMINALS  Legacy initial default; use reet terminal start|stop|restart|status
 
 Local example:
@@ -186,6 +191,17 @@ backup to preserve accounts, lists, teams and sync references.
 	}
 }
 
+// printVersion answers the agent update protocol probe before the ordinary
+// version line. The probe lets a newer agent know whether a target build can
+// read the pending-update marker it would otherwise leave behind.
+func printVersion(out io.Writer, version, commit string) {
+	if os.Getenv("REET_AGENT_UPDATE_PROTOCOL") == "1" {
+		fmt.Fprintln(out, scan.AgentUpdateProtocol)
+		return
+	}
+	fmt.Fprintf(out, "reet %s (%s)\n", version, commit)
+}
+
 func serve() error {
 	terminalControl, err := terminalcontrol.Open(env("REET_DATA_DIR", "./data"), os.Getenv("REET_REMOTE_TERMINALS") == "on")
 	if err != nil {
@@ -225,6 +241,23 @@ func serve() error {
 	if mode == api.AuthAccounts && os.Getenv("REET_TOKEN") != "" {
 		log.Printf("accounts enabled; REET_TOKEN is the setup bootstrap and scan token")
 	}
+	// A half-set configuration stops the server here, with what to fix, rather
+	// than starting with single sign-on quietly off.
+	sso, err := oidc.FromEnv(func(k string) string {
+		if k == "REET_PUBLIC_URL" {
+			return publicURL
+		}
+		return os.Getenv(k)
+	})
+	if err != nil {
+		return err
+	}
+	if sso != nil && mode != api.AuthAccounts {
+		return fmt.Errorf("single sign-on needs REET_AUTH=accounts (it is %s)", mode)
+	}
+	if sso != nil {
+		log.Printf("single sign-on: enabled for %s; callback %s", sso.Issuer(), sso.RedirectURL())
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	bcfg, berr := backup.FromEnv(os.Getenv)
@@ -248,17 +281,22 @@ func serve() error {
 	signup := strings.EqualFold(strings.TrimSpace(os.Getenv("REET_SIGNUP")), "open") ||
 		strings.TrimSpace(os.Getenv("REET_SIGNUP")) == "1" ||
 		strings.EqualFold(strings.TrimSpace(os.Getenv("REET_SIGNUP")), "true")
+	releases := agentupdate.NewChecker()
+	go releases.Info(context.Background())
 	h := api.New(st, meta.Default(os.Getenv("SKILLS_SH_TOKEN")), os.Getenv("REET_TOKEN"),
 		api.WithRemoteTerminals(terminalControl.Enabled()),
 		api.WithAuthMode(mode), api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"),
 		api.WithTopics(os.Getenv("REET_TOPICS") != "off"), api.WithPublicURL(publicURL),
 		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"), api.WithBackups(backups),
 		api.WithSignup(signup), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")), api.WithMail(mailer), api.WithNotify(notifier),
-		api.WithPrivateConnection(bcfg.Sealer, os.Getenv("REET_RELAY_MAP_URL")))
+		api.WithPrivateConnection(bcfg.Sealer, os.Getenv("REET_RELAY_MAP_URL")),
+		api.WithReleaseChecker(releases), api.WithOIDC(sso))
 	defer func() { terminalControl.Close(); h.Close() }()
 	if err := terminalControl.Serve(h.SetRemoteTerminals, h.RemoteTerminalsAvailable, terminalcontrol.Options{Configure: h.ConfigureTerminalOrigin, Reason: h.RemoteTerminalsReason, PublicURL: h.RemoteTerminalPublicURL, AuthMode: h.RemoteTerminalAuthMode}); err != nil {
 		return err
 	}
+	// Project runs interrupted by the last stop continue their pending members.
+	h.ResumeProjectRuns(ctx)
 	mux := http.NewServeMux()
 	mux.Handle("/api/", h)
 	mux.Handle("/quick", h)

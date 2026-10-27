@@ -148,7 +148,7 @@ set -g default-terminal "screen-256color"
 set -g escape-time 10
 set -g focus-events off
 set -g set-clipboard off
-set -g allow-passthrough off
+set -gq allow-passthrough off
 set -g destroy-unattached off
 set -g status off
 `

@@ -2,6 +2,7 @@
   import { tick } from 'svelte'
   import { setupAccount, type User } from './api'
   import AuthCard from './AuthCard.svelte'
+  import { canAutoFocus } from './focus'
   import PasswordInput from './PasswordInput.svelte'
 
   let { bootstrapRequired = false, onsuccess }: {
@@ -19,7 +20,7 @@
   let nameInput = $state<HTMLInputElement>()
 
   $effect(() => {
-    nameInput?.focus()
+    if (canAutoFocus()) nameInput?.focus()
   })
 
   async function submit(e: SubmitEvent) {

@@ -2,6 +2,7 @@
   import { tick } from 'svelte'
   import { signUpAccount, type User } from './api'
   import AuthCard from './AuthCard.svelte'
+  import { canAutoFocus } from './focus'
   import PasswordInput from './PasswordInput.svelte'
 
   let { onsuccess }: { onsuccess: (user: User) => Promise<void> | void } = $props()
@@ -13,6 +14,10 @@
   let error = $state('')
   let busy = $state(false)
   let nameInput = $state<HTMLInputElement>()
+
+  $effect(() => {
+    if (canAutoFocus()) nameInput?.focus()
+  })
 
   async function submit(e: SubmitEvent) {
     e.preventDefault()
@@ -70,5 +75,5 @@
   .submit { width: 100%; margin-top: 4px; }
   .error { margin: 0; color: var(--bad); font-size: 0.9rem; }
   .help { margin: 20px 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.82rem; }
-  .help a { color: var(--accent); font-weight: 600; }
+  .help a { color: var(--accent-text); font-weight: 600; }
 </style>

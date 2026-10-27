@@ -6,16 +6,23 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/agentupdate"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
 func (s *server) registerSyncControl(mux *http.ServeMux) {
+	s.registerRemoteImports(mux)
+	mux.HandleFunc("GET /api/v2/sync/skill-import", s.privateSkillAccess(s.machineSkillImport))
+	mux.HandleFunc("POST /api/v2/sync/skill-import", s.privateSkillAccess(s.machineSkillImport))
+	mux.HandleFunc("POST /api/v2/sync/content-observations/prepare", s.requireWriter(s.contentObservation))
+	mux.HandleFunc("POST /api/v2/sync/content-observations", s.requireWriter(s.contentObservation))
 	mux.HandleFunc("GET /api/v2/sync/candidates", s.syncCandidates)
 	mux.HandleFunc("PUT /api/v2/sync/desired", s.requireWriter(s.saveDesired))
 	mux.HandleFunc("POST /api/v2/sync/reconcile", s.requireWriter(s.reconcileDesired))
 	mux.HandleFunc("POST /api/v2/sync/adopt", s.requireWriter(s.adoptSyncSkills))
 	mux.HandleFunc("POST /api/v2/sync/run", s.requireWriter(s.startSyncRun))
 	mux.HandleFunc("POST /api/v2/sync/agents/update", s.requireWriter(s.updateSyncAgent))
+	mux.HandleFunc("POST /api/v2/sync/agents/update/stage", s.requireWriter(s.reportUpdateStage))
 	mux.HandleFunc("POST /api/v2/sync/agents", s.requireWriter(s.enrollSyncAgent))
 	mux.HandleFunc("PATCH /api/v2/sync/agents", s.requireWriter(s.controlSyncAgent))
 	mux.HandleFunc("POST /api/v2/sync/jobs", s.requireWriter(s.queueSyncJob))
@@ -134,11 +141,12 @@ func (s *server) enrollSyncAgent(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Host    string `json:"host"`
 		Version string `json:"version"`
+		Commit  string `json:"commit"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	a, secret, err := s.st.EnrollSyncAgent(s.uid(r), in.Host, in.Version)
+	a, secret, err := s.st.EnrollSyncAgentBuild(s.uid(r), in.Host, in.Version, in.Commit)
 	if err != nil {
 		writeErr(w, 409, err.Error())
 		return
@@ -182,7 +190,7 @@ func (s *server) controlSyncJob(w http.ResponseWriter, r *http.Request) {
 	s.syncState(w, r)
 }
 func (s *server) agentIdentity(w http.ResponseWriter, r *http.Request) (store.SyncAgent, bool) {
-	a, err := s.st.AuthenticateSyncAgent(s.uid(r), r.Header.Get("X-Reet-Agent"), r.Header.Get("X-Reet-Agent-Key"), r.Header.Get("X-Reet-Version"))
+	a, err := s.st.AuthenticateSyncAgentBuild(s.uid(r), r.Header.Get("X-Reet-Agent"), r.Header.Get("X-Reet-Agent-Key"), r.Header.Get("X-Reet-Version"), r.Header.Get("X-Reet-Commit"))
 	if err != nil {
 		writeErr(w, 403, err.Error())
 		return a, false
@@ -195,11 +203,55 @@ func (s *server) syncIdentity(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, a)
 	}
 }
+
+// autoUpdateCooldown keeps a failed, rolled-back or ineffective update from
+// being queued on every poll. A successful update usually makes the agent
+// current, so the wait costs nothing there; it only matters when the machine
+// still reports the old build afterwards.
+const autoUpdateCooldown = time.Hour
+
+func (s *server) maybeAutoUpdateAgent(r *http.Request, a store.SyncAgent) {
+	if s.releases == nil || !a.AutoUpdate || a.Paused {
+		return
+	}
+	target, update := agentupdate.UpdateTarget(a.Version, a.Commit, s.releases.Info(r.Context()))
+	if !update {
+		return
+	}
+	recent, err := s.st.AgentUpdateSettledSince(s.uid(r), a.ID, time.Now().Add(-autoUpdateCooldown).UnixMilli())
+	if err != nil || recent {
+		return
+	}
+	if _, err = s.st.QueueAgentUpdate(s.uid(r), a.ID, target); err == nil {
+		s.eventRequest(r, "sync-agent-auto-update", "", map[string]string{"agent": a.ID, "version": target, "commit": a.Commit})
+	}
+}
+
+// reportUpdateStage lets the enrolled agent narrate its own update. The
+// controller keeps the timeline the person watches; it never supplies the
+// binary or its stages' outcome.
+func (s *server) reportUpdateStage(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.agentIdentity(w, r)
+	if !ok {
+		return
+	}
+	var in struct{ ID, Stage, Detail string }
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := s.st.SetAgentUpdateStage(s.uid(r), a.ID, in.ID, in.Stage, in.Detail); err != nil {
+		writeErr(w, 409, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
 func (s *server) pollSyncAgent(w http.ResponseWriter, r *http.Request) {
 	a, ok := s.agentIdentity(w, r)
 	if !ok {
 		return
 	}
+	s.maybeAutoUpdateAgent(r, a)
 	job, err := s.st.ClaimSyncJob(s.uid(r), a)
 	if err != nil {
 		writeErr(w, 500, err.Error())

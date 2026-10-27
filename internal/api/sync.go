@@ -2,8 +2,10 @@ package api
 
 import (
 	"errors"
-	"github.com/eyupio/reet.sh/internal/store"
 	"net/http"
+
+	"github.com/eyupio/reet.sh/internal/agentupdate"
+	"github.com/eyupio/reet.sh/internal/store"
 )
 
 func (s *server) syncState(w http.ResponseWriter, r *http.Request) {
@@ -32,12 +34,21 @@ func (s *server) syncState(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	updateJobs, err := s.st.LatestUpdateJobsFor(s.uid(r))
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
 	runs, err := s.st.SyncRunsFor(s.uid(r))
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"agents": agents, "jobs": jobs, "runs": runs, "environments": envs, "machines": machines, "targets": targets, "canWrite": s.currentUser(r).Role != "viewer"})
+	releases := agentupdate.Info{}
+	if s.releases != nil {
+		releases = s.releases.Info(r.Context())
+	}
+	writeJSON(w, 200, map[string]any{"agents": agents, "jobs": jobs, "updateJobs": updateJobs, "runs": runs, "environments": envs, "machines": machines, "targets": targets, "releases": releases, "canWrite": s.currentUser(r).Role != "viewer"})
 }
 func (s *server) saveSync(w http.ResponseWriter, r *http.Request) {
 	var in struct {
@@ -87,7 +98,7 @@ func (s *server) mergeMachines(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, store.ErrMachineName) {
 			code = http.StatusBadRequest
 		}
-		if errors.Is(err, store.ErrMachineConflict) {
+		if errors.Is(err, store.ErrMachineConflict) || errors.Is(err, store.ErrSkillContentReceiptMerge) || errors.Is(err, store.ErrSkillContentTargetMerge) {
 			code = http.StatusConflict
 		}
 		writeErr(w, code, err.Error())

@@ -32,8 +32,8 @@ func testMessage(body Body) Message {
 func TestRoundTripEveryOperation(t *testing.T) {
 	for _, body := range []Body{
 		Hello{testID, testCapabilities()}, Reconcile{Complete: true, Sessions: []SessionSnapshot{{ID: testID, Title: "Shell", State: Running}}},
-		Create{"Shell", 80, 24}, Attach{Cols: 80, Rows: 24, LeaseSeconds: 60}, Resize{100, 30}, RenewAttachment{60}, Detach{}, End{}, History{Lines: 2000},
-		Probe{1, testID}, ProbeResult{1, testID}, testHealth(), Result{OK}, SessionChanged{State: Running},
+		Create{Title: "Shell", Cols: 80, Rows: 24}, Attach{Cols: 80, Rows: 24, LeaseSeconds: 60}, Resize{100, 30}, RenewAttachment{60}, Detach{}, End{}, History{Lines: 2000},
+		Probe{1, testID}, ProbeResult{1, testID}, testHealth(), Result{Code: OK}, SessionChanged{State: Running},
 	} {
 		t.Run(body.kind(), func(t *testing.T) {
 			m := testMessage(body)
@@ -53,7 +53,7 @@ func TestRoundTripEveryOperation(t *testing.T) {
 	}
 }
 func TestRejectMalformedAndAmbiguousControl(t *testing.T) {
-	valid, _ := Encode(testMessage(Create{"Shell", 80, 24}))
+	valid, _ := Encode(testMessage(Create{Title: "Shell", Cols: 80, Rows: 24}))
 	cases := map[string][]byte{
 		"version":          bytes.Replace(valid, []byte(`"version":1`), []byte(`"version":2`), 1),
 		"operation":        bytes.Replace(valid, []byte(`"type":"create"`), []byte(`"type":"exec"`), 1),
@@ -210,7 +210,7 @@ func TestHealthNullSemanticsAndBounds(t *testing.T) {
 	}
 }
 func FuzzDecode(f *testing.F) {
-	valid, _ := Encode(testMessage(Create{"Shell", 80, 24}))
+	valid, _ := Encode(testMessage(Create{Title: "Shell", Cols: 80, Rows: 24}))
 	f.Add(valid)
 	f.Add([]byte(`{"body":null}`))
 	f.Fuzz(func(t *testing.T, data []byte) {

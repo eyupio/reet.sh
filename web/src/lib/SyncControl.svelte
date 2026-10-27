@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { syncCandidates, listLists, getList, saveDesired, reconcileDesired, adoptSyncSkills, queueSyncJob, controlSyncJob, deleteSyncTarget, type SyncState, type SyncSkill, type SharedList, type SyncTarget, type SyncJob } from './api'
+  import { syncCandidates, listLists, getList, saveDesired, reconcileDesired, adoptSyncSkills, queueSyncJob, controlSyncJob, deleteSyncTarget, updateSyncAgent, type SyncState, type SyncSkill, type SharedList, type SyncTarget, type SyncJob } from './api'
   import { agentGroups, groupLabel, inventory, inventoryMachines } from './machines'
   import { elapsed } from './time'
+  import ContentObservation from './ContentObservation.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import CopyButton from './CopyButton.svelte'
   import FleetActions from './FleetActions.svelte'
@@ -210,10 +211,13 @@
       <div class="scope-head"><strong>Agent scopes · {selectedMachine === '*' ? 'all machines' : machine?.host}</strong><div><button type="button" class="link" onclick={() => (selectedAgents = selectableGroups.map(g => g.id))}>All</button><button type="button" class="link" onclick={() => (selectedAgents = [])}>None</button></div></div>
       <div class="scope-grid">
         {#each selectableGroups as env (env.id)}
+          <div>
           <label class="scope-option" class:selected={selectedAgents.includes(env.id)}>
             <input type="checkbox" checked={selectedAgents.includes(env.id)} onchange={() => toggleAgent(env.id)} disabled={busy} />
             <span><strong>{selectedMachine === '*' ? `${env.host} · ` : ''}{groupLabel(env)}</strong><small>{env.skillCount ?? 0} skills · {!env.complete ? 'Incomplete' : env.scannedAt <= Date.now() - 14 * 86400000 ? 'Out of date' : 'Recent complete'} scan</small></span>
           </label>
+          <ContentObservation content={env.content} />
+          </div>
         {/each}
       </div>
       {#if scanOnlyGroups.length}<p class="hint">Scan-only: {scanOnlyGroups.map(g => groupLabel(g)).join(', ')}. These scopes cannot receive sync jobs.</p>{/if}
@@ -271,11 +275,11 @@
 
 <section id="sync-jobs" aria-labelledby="sync-jobs-title"><details class="history" open={location.hash === '#sync-jobs' || (snapshot.jobs ?? []).some(j => ['queued','running','awaiting-approval'].includes(j.status))}><summary id="sync-jobs-title">Sync activity ({snapshot.jobs?.length ?? 0}){snapshot.jobs?.[0] ? ` · latest: ${snapshot.jobs[0].status.replaceAll('-', ' ')}` : ''}</summary>
 {#each snapshot.jobs ?? [] as job (job.id)}
- <article class="control"><h4>{snapshot.agents?.find(a => a.id === job.agentId)?.host || 'Machine'} · {job.kind}</h4><p role="status">{job.status.replaceAll('-', ' ')} · {ago(job.updatedAt)}</p>
- {#if job.message}<p class="bad">{job.message}</p>{/if}
+ <article class="control"><h4>{snapshot.agents?.find(a => a.id === job.agentId)?.host || 'Machine'} · {job.kind === 'update' ? 'reet update' : job.kind}</h4><p role="status">{job.status.replaceAll('-', ' ')} · {ago(job.updatedAt)}</p>
+ {#if job.message}<p class={job.status === 'failed' || job.status === 'rolled_back' ? 'bad' : ''}>{job.message}</p>{/if}
  {#if job.plan.backups?.length}<details><summary>Restore removed skills</summary><p>Run on the enrolled machine. Restore asks for confirmation and never overwrites an existing skill.</p>{#each job.plan.backups as backup}<div class="command"><code>{`reet agent restore --target ${quote(job.targetId)} --backup ${quote(backup)}`}</code><CopyButton text={`reet agent restore --target ${quote(job.targetId)} --backup ${quote(backup)}`} label="Copy restore command" /></div>{/each}</details>{/if}
  {#if job.plan.actions}<details open={job.status === 'awaiting-approval'}><summary>Plan: {job.plan.actions.length} {job.plan.actions.length === 1 ? 'change' : 'changes'}</summary><p><code>{job.plan.directory}</code></p><ul>{#each job.plan.actions as action}<li>{action.add ? 'Install' : 'Remove'} {action.skill.name} <small>{action.skill.source}</small></li>{:else}<li>Already matches the desired set.</li>{/each}</ul></details>{/if}
- {#if canWrite}<div class="actions">{#if job.status === 'awaiting-approval'}<button class="btn primary" disabled={busy} onclick={() => approve(job)}>Review & approve</button>{/if}{#if ['queued','awaiting-approval'].includes(job.status)}<button class="btn quiet" disabled={busy} onclick={() => run(async () => onupdate(await controlSyncJob(job.id, 'cancel')))}>Cancel</button>{/if}{#if ['failed','cancelled'].includes(job.status)}<button class="btn" disabled={busy} onclick={() => run(async () => onupdate(await queueSyncJob(job.agentId, job.targetId, job.kind === 'scan' ? 'scan' : 'preview')))}>Retry with fresh {job.kind === 'scan' ? 'scan' : 'preview'}</button>{/if}</div>{/if}
+ {#if canWrite}<div class="actions">{#if job.status === 'awaiting-approval'}<button class="btn primary" disabled={busy} onclick={() => approve(job)}>Review & approve</button>{/if}{#if ['queued','awaiting-approval'].includes(job.status)}<button class="btn quiet" disabled={busy} onclick={() => run(async () => onupdate(await controlSyncJob(job.id, 'cancel')))}>Cancel</button>{/if}{#if job.kind === 'update' && ['failed','cancelled','rolled_back'].includes(job.status)}<button class="btn" disabled={busy} onclick={() => run(async () => onupdate(await updateSyncAgent(job.agentId, job.revision || 'latest')))}>Try update again</button>{:else if job.kind !== 'update' && ['failed','cancelled'].includes(job.status)}<button class="btn" disabled={busy} onclick={() => run(async () => onupdate(await queueSyncJob(job.agentId, job.targetId, job.kind === 'scan' ? 'scan' : 'preview')))}>Retry with fresh {job.kind === 'scan' ? 'scan' : 'preview'}</button>{/if}</div>{/if}
  </article>
 {:else}<p class="hint">No jobs yet. Preview a desired set or request a scan from Machines.</p>{/each}
 </details></section>
@@ -292,7 +296,7 @@
  .agent-scopes{margin:16px 0;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
  .scope-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:.85rem}
  .scope-head > div{display:flex;gap:10px}
- .link{padding:0;border:0;background:none;color:var(--accent);font:inherit;font-size:.76rem;font-weight:600;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+ .link{padding:0;border:0;background:none;color:var(--accent-text);font:inherit;font-size:.76rem;font-weight:600;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
  .scope-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;margin:10px 0 8px}
  .scope-option{display:flex;align-items:flex-start;gap:8px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);font-weight:400;cursor:pointer}
  .scope-option.selected{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));background:var(--tint)}
@@ -300,17 +304,19 @@
  .scope-option span{display:grid;gap:2px;min-width:0}
  .scope-option strong{font-size:.8rem;overflow-wrap:anywhere}
  .scope-option small{font-size:.71rem}
- .machine-set{padding:0;overflow:clip}
- .set-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 18px;border-bottom:1px solid var(--line);background:var(--bg)}
+ /* No clip: a card holding actions must never cut them off. The header rounds its own top corners instead. */
+ .machine-set{padding:0}
+ .set-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 18px;border-bottom:1px solid var(--line);border-radius:9px 9px 0 0;background:var(--bg)}
+ .set-head > div{min-width:0}
  .set-head h4{margin:0}
  .set-head p{margin:3px 0 0;font-size:.78rem}
- .scope-sets{display:grid}
+ .scope-sets{display:grid;grid-template-columns:minmax(0,1fr)}
  .scope-set{padding:14px 18px;border-top:1px solid var(--line)}
  .scope-set:first-child{border-top:0}
  .scope-title{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
- .scope-title strong{font-size:.85rem}
+ .scope-title strong{min-width:0;font-size:.85rem;overflow-wrap:anywhere}
  .badge{padding:3px 8px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:.7rem}
- .scope-set > p{margin:5px 0}
+ .scope-set > p{margin:5px 0;overflow-wrap:anywhere}
  .local-preview{margin:8px 0 0}
  .local-preview summary{font-size:.78rem}
  @media(max-width:600px){.pickers{grid-template-columns:1fr}.control{padding:12px}.actions .btn{flex:1 1 auto}.scope-grid{grid-template-columns:1fr}.set-head{align-items:flex-start}.set-head .btn{width:100%}}

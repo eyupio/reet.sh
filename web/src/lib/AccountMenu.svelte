@@ -1,14 +1,21 @@
 <script lang="ts">
-  let { name = '', email = '', admin = false, accounts = true, active = false, onsignout }: {
+  import { applyTheme, saveProfile } from './api'
+  import type { Tab } from './shell/tabs'
+
+  let { name = '', email = '', admin = false, accounts = true, active = false, unread = 0, more = [], onsignout }: {
     name?: string
     email?: string
     admin?: boolean
     accounts?: boolean
     active?: boolean
+    unread?: number
+    /** Pages under More (R13): the ones the top tabs do not show. */
+    more?: Tab[]
     onsignout: () => void
   } = $props()
 
   let root = $state<HTMLElement>()
+  const moreId = $props.id()
   let menu = $state<HTMLDetailsElement>()
 
   const initials = $derived((name.trim() || email.trim() || 'You')
@@ -18,12 +25,30 @@
     .slice(0, 2)
     .toUpperCase())
   const label = $derived(name.trim() || 'your account')
+  const unreadLabel = $derived(unread > 99 ? '99+' : String(unread))
 
   function close(event: KeyboardEvent) {
     if (event.key !== 'Escape' || !menu?.open) return
     menu.open = false
     menu.querySelector('summary')?.focus()
     event.preventDefault()
+  }
+
+  // Light, dark or follow the device. The page's current theme is read when the menu opens, because the saved one loads after sign-in.
+  type Theme = 'system' | 'light' | 'dark'
+  const themes: { id: Theme; label: string }[] = [{ id: 'system', label: 'Match this device' }, { id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }]
+  const currentTheme = (): Theme => {
+    const value = document.documentElement.dataset.theme
+    return value === 'light' || value === 'dark' ? value : 'system'
+  }
+  let theme = $state<Theme>(currentTheme())
+  async function chooseTheme(next: Theme) {
+    const previous = theme
+    theme = next
+    applyTheme(next)
+    // Only an account has somewhere to keep the choice; a sign-in without accounts keeps it for this visit.
+    if (!accounts) return
+    try { await saveProfile({ theme: next }) } catch { theme = previous; applyTheme(previous) }
   }
 
   function signOut() {
@@ -39,17 +64,29 @@
 }} />
 
 <div class="account" bind:this={root}>
-  <details bind:this={menu}>
-    <summary class:active aria-label={`Account menu for ${label}`}>
-      <span class="avatar" aria-hidden="true">{initials}</span>
-      <span class="who"><strong>{name || 'Your shelf'}</strong>{#if email}<small>{email}</small>{/if}</span>
+  <details bind:this={menu} ontoggle={() => { if (menu?.open) theme = currentTheme() }}>
+    <summary class:active aria-label={`Account menu for ${label}${unread > 0 ? `, ${unread} unread notifications` : ''}`}>
+      <span class="avatar" aria-hidden="true">{initials}{#if unread > 0}<span class="badge">{unreadLabel}</span>{/if}</span>
+      <span class="who"><strong>{name || 'Your account'}</strong>{#if email}<small>{email}</small>{/if}</span>
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6" /></svg>
     </summary>
     <div class="panel">
       <div class="panel-who">
-        <strong>{name || 'Your shelf'}</strong>
+        <strong>{name || 'Your account'}</strong>
         {#if email}<span>{email}</span>{/if}
       </div>
+      <div class="theme" role="group" aria-label="Theme">
+        {#each themes as option (option.id)}
+          <button type="button" aria-pressed={theme === option.id} onclick={() => chooseTheme(option.id)}>{option.label}</button>
+        {/each}
+      </div>
+      {#if more.length}
+        <div class="more" role="group" aria-labelledby={`${moreId}-title`}>
+          <p class="more-title" id={`${moreId}-title`}>More</p>
+          {#each more as item (item.href)}<a href={item.href} aria-current={item.current ? 'page' : undefined}>{item.label}</a>{/each}
+        </div>
+      {/if}
+      <a href="/notifications">Notifications{#if unread > 0}<span class="count">{unreadLabel}</span>{/if}</a>
       {#if accounts}<a href="/account/profile">Account &amp; preferences</a>{/if}
       {#if admin}<a href="/admin/overview">Instance administration</a>{/if}
       <button type="button" onclick={signOut}>Sign out</button>
@@ -69,9 +106,18 @@
   summary:hover, summary.active { border-color: var(--muted); }
   summary.active .avatar { background: var(--accent); color: var(--accent-ink); }
   .avatar {
-    width: 30px; height: 30px; display: grid; place-items: center; flex: none;
-    border-radius: 50%; background: var(--tint); color: var(--accent);
+    position: relative; width: 30px; height: 30px; display: grid; place-items: center; flex: none;
+    border-radius: 50%; background: var(--tint); color: var(--accent-text);
     font-size: 0.7rem; font-weight: 700; letter-spacing: 0.03em;
+  }
+  .badge {
+    position: absolute; top: -5px; right: -7px; min-width: 18px; height: 18px; padding: 0 5px; display: grid; place-items: center;
+    border-radius: 999px; background: var(--accent); color: var(--accent-ink); border: 2px solid var(--card);
+    font-size: 0.62rem; font-weight: 700; letter-spacing: 0; line-height: 1;
+  }
+  .count {
+    margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; display: inline-grid; place-items: center;
+    border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 0.7rem; font-weight: 700;
   }
   .who { display: grid; line-height: 1.15; min-width: 0; }
   .who strong {
@@ -98,8 +144,16 @@
     font: inherit; font-size: 0.82rem; text-align: left; text-decoration: none; cursor: pointer;
   }
   .panel a:hover, .panel button:hover { background: var(--tint); }
-  @media (max-width: 1000px) {
-    .who { display: none; }
-    summary { padding: 4px; border-radius: 50%; }
-  }
+  .panel a[aria-current='page'] { background: var(--tint); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent-text); }
+  .more { display: grid; padding-bottom: 4px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+  .more-title { margin: 4px 10px 2px; color: var(--muted); font-size: 0.68rem; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; }
+  .theme { display: flex; gap: 4px; padding: 6px 4px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+  .panel .theme button { flex: 1; width: auto; min-height: 36px; justify-content: center; padding: 6px 4px; border: 1px solid var(--line); font-size: 0.74rem; text-align: center; }
+  .panel .theme button[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); font-weight: 650; }
+  /* The top bar shows the initials only, as drawn; the name and email are at the top of the panel. */
+  .who { display: none; }
+  summary { padding: 6px; border-radius: 50%; }
+  summary > svg { display: none; }
+  .panel { max-height: calc(100dvh - 90px); overflow: auto; }
+  @media (pointer: coarse) { .panel a, .panel button { min-height: 44px; } }
 </style>

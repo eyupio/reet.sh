@@ -562,7 +562,10 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	if worktreeRequested(in) {
 		limit = WorktreeCallTimeout
 	}
-	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: request, SessionID: s.ID, Body: in}, limit)
+	// The project id is the controller's own record, never the machine's.
+	wire := in
+	wire.ProjectID = ""
+	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: request, SessionID: s.ID, Body: wire}, limit)
 	if err != nil {
 		return s, false, err
 	}

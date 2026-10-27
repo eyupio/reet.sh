@@ -201,12 +201,24 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		// same token so the machine adopts the worktree it already made.
 		Worktree string `json:"worktree"`
 		Project  string `json:"project"`
+		// ProjectID is the folder project the session belongs to, checked
+		// here and recorded by the controller only; the machine never sees it.
+		ProjectID string `json:"projectId"`
 	}
 	if !terminalJSON(w, r, &in) {
 		return
 	}
-	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project}
+	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project, ProjectID: in.ProjectID}
 	uid := s.uid(r)
+	// The project is checked before any machine is asked, so an unknown
+	// project is refused the same way whether the machine is online or not.
+	// The store checks it again when it reserves the session.
+	if in.ProjectID != "" {
+		if err := s.st.TerminalProjectCheckFor(uid, in.AgentID, in.ProjectID); err != nil {
+			s.terminalCreateError(w, err, uid, in.AgentID, in.Tool)
+			return
+		}
+	}
 	session, started, err := s.terminals.CreateSession(r.Context(), uid, in.AgentID, in.RequestID, create)
 	if err != nil {
 		s.terminalCreateError(w, err, uid, in.AgentID, in.Tool)
@@ -222,6 +234,11 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 // sentences; every other error keeps its existing terminal mapping.
 func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64, agent, tool string) {
 	switch {
+	case errors.Is(err, store.ErrFolderProjectNotFound):
+		// The same reply for an unknown id and another account's id.
+		writeErrCode(w, http.StatusNotFound, "project_not_found", "projectId", "That project isn't on this account.", "")
+	case errors.Is(err, store.ErrProjectMachineMismatch):
+		writeErrCode(w, http.StatusUnprocessableEntity, "project_machine_mismatch", "projectId", "That project is on another machine. Start the session on its machine.", "")
 	case errors.Is(err, terminalbroker.ErrPromptUnsupported):
 		writeErrCode(w, http.StatusUnprocessableEntity, "prompt_unsupported", "prompt", "Write the opening prompt as at least two words.", "")
 	case errors.Is(err, terminalbroker.ErrWorktreeUnsupported):
@@ -253,6 +270,9 @@ func (s *server) terminalToolInstalled(uid int64, agent, tool string) bool {
 func (s *server) auditTerminalLaunch(uid int64, agent string, in terminalproto.Create, session store.TerminalSession) {
 	host := s.machineHost(uid, agent)
 	detail := map[string]string{"machine": agent, "host": host, "tool": in.Tool, "model": in.Model, "dir": in.Dir}
+	if in.ProjectID != "" {
+		detail["projectId"] = in.ProjectID
+	}
 	// For a worktree launch: the run token, project and branch, and the
 	// folder the machine reported making (absent only if that report was lost).
 	if in.Worktree != "" {

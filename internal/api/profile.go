@@ -9,6 +9,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 func (s *server) registerProfileRoutes(mux *http.ServeMux) {
@@ -51,6 +52,8 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 		CardsExpanded         *bool   `json:"cardsExpanded"`
 		TerminalRemoveOnClose *bool   `json:"terminalRemoveOnClose"`
 		HostedPrefix          *string `json:"hostedPrefix"`
+		DefaultBaseBranch     *string `json:"defaultBaseBranch"`
+		WorktreesByDefault    *bool   `json:"worktreesByDefault"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -71,6 +74,14 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 		hostedPrefix, err = store.NormalizeHostedPrefix(*in.HostedPrefix)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	baseBranch := ""
+	if in.DefaultBaseBranch != nil {
+		baseBranch = strings.TrimSpace(*in.DefaultBaseBranch)
+		if baseBranch != "" && !terminalproto.ValidRefName(baseBranch) {
+			writeErr(w, http.StatusBadRequest, "defaultBaseBranch must be blank or a valid git branch name of at most 255 bytes")
 			return
 		}
 	}
@@ -143,6 +154,14 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	if in.HostedPrefix != nil {
 		profile.HostedPrefix = hostedPrefix
 		detail["hostedPrefix"] = hostedPrefix
+	}
+	if in.DefaultBaseBranch != nil {
+		profile.DefaultBaseBranch = baseBranch
+		detail["defaultBaseBranch"] = baseBranch
+	}
+	if in.WorktreesByDefault != nil {
+		profile.WorktreesByDefault = *in.WorktreesByDefault
+		detail["worktreesByDefault"] = *in.WorktreesByDefault
 	}
 	if err := s.st.SaveProfileFor(user.ID, profile); err != nil {
 		writeErr(w, 500, err.Error())

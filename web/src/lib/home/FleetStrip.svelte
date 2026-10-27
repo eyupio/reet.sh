@@ -1,5 +1,6 @@
 <script lang="ts">
   import { reporting, worktreesInUse, type FleetCard } from '../home'
+  import { bytes } from '../terminal/health'
 
   // One card per enrolled machine in the person's machine order, then Add a machine. Every figure is labelled with what it
   // measures (R12): the running sessions on that machine of any kind, and how many are ending (the listing cannot say which run an agent), the CPU from
@@ -22,10 +23,12 @@
       const count = running(c.sessionsRunning) + (c.sessionsEnding ? ` · ${c.sessionsEnding} ending` : '')
       parts.push(reporting(c) ? count : `${count} (last known, not reporting)`, worktreesInUse(c.worktrees))
     }
-    parts.push(`CPU ${c.cpu.text}`, c.skills.text)
+    parts.push(`CPU ${c.cpu.text}`, `memory ${c.memory.text}`, `disk ${diskText(c)}`, c.skills.text)
     return parts.join(', ')
   }
-  const load = (c: FleetCard) => c.cpu.percent === null ? 'muted' : c.cpu.percent >= 70 ? 'warn' : 'good'
+  const load = (r: { percent: number | null }) => r.percent === null ? 'muted' : r.percent >= 80 ? 'warn' : 'good'
+  const diskText = (c: FleetCard) => c.disk.availableBytes === null ? 'No reading' : `${bytes(c.disk.availableBytes)} free`
+  const readings = (c: FleetCard) => [c.cpu, c.memory, { label: 'Disk', percent: c.disk.percent, text: diskText(c) }]
 </script>
 
 <section class="fleet" aria-label="Your machines">
@@ -42,8 +45,14 @@
           <span class="sessions"><span class="figure">{c.sessionsRunning}</span> <span class="unit">{c.sessionsRunning === 1 ? 'session running' : 'sessions running'}</span>{#if c.sessionsEnding}{' '}<span class="ending">· {c.sessionsEnding} ending</span>{/if}</span>
           {#if !reporting(c)}<span class="caption">Last known count. {c.name} is not reporting.</span><span class="chip-note" aria-hidden="true">· last known</span>{/if}
         {/if}
-        <span class="cpu"><span class="label">CPU</span> <span class="value">{c.cpu.text}</span></span>
-        <span class="bar {load(c)}" aria-hidden="true">{#if c.cpu.percent !== null}<span style:width={`${Math.max(0, Math.min(100, c.cpu.percent))}%`}></span>{/if}</span>
+        <span class="resources">
+          {#each readings(c) as reading (reading.label)}
+            <span class="metric">
+              <span class="cpu"><span class="label">{reading.label}</span> <span class="value">{reading.text}</span></span>
+              <span class="bar {load(reading)}" aria-hidden="true">{#if reading.percent !== null}<span style:width={`${Math.max(0, Math.min(100, reading.percent))}%`}></span>{/if}</span>
+            </span>
+          {/each}
+        </span>
         <span class="foot">{#if sessions}<span class="worktrees">{worktreesInUse(c.worktrees)}</span>{/if}<span class="skills {c.skills.tone}">{c.skills.text}</span></span>
       </a>
     {/each}
@@ -82,7 +91,9 @@
   .unit { color: var(--muted); }
   .ending { color: var(--muted); white-space: nowrap; }
   .caption { margin-top: -6px; font-size: 12px; color: var(--muted); }
-  .cpu { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: -6px; }
+  .resources { display: grid; gap: 6px; }
+  .metric { display: grid; gap: 3px; }
+  .cpu { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
   .cpu .value { color: var(--ink); }
   .bar { display: block; height: 6px; border-radius: 3px; background: var(--line-soft); overflow: hidden; }
   .bar > span { display: block; height: 100%; border-radius: 3px; background: var(--good); }
@@ -105,7 +116,9 @@
     .cards { gap: 12px; }
     .card { flex: 0 0 236px; gap: 8px; }
     .add { flex-basis: 150px; min-height: 44px; }
-    .os, .cpu, .bar { display: none; }
+    .os { display: none; }
+    .resources { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .cpu { font-size: 11px; }
     .figure { font-size: 26px; }
     .caption { margin-top: -4px; }
   }
@@ -113,7 +126,7 @@
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .cards { gap: 8px; margin-right: -16px; padding-right: 16px; mask-image: linear-gradient(90deg, var(--ink) 85%, transparent); -webkit-mask-image: linear-gradient(90deg, var(--ink) 85%, transparent); }
     .card { flex: none; flex-direction: row; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 999px; }
-    .foot, .caption, .status.online { display: none; }
+    .foot, .caption, .status.online, .resources { display: none; }
     .status { white-space: nowrap; }
     .sessions { gap: 4px; color: var(--muted); font-size: 13px; }
     .figure { font: inherit; color: var(--muted); }

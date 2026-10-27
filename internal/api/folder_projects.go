@@ -111,6 +111,8 @@ type folderProjectInput struct {
 	DefaultTool     *string `json:"defaultTool"`
 	DefaultModel    *string `json:"defaultModel"`
 	StarterPrompt   *string `json:"starterPrompt"`
+	// Colour is the rail colour ("" clears it).
+	Colour *string `json:"colour"`
 	// Note can only be cleared (""): it is written by the migration of
 	// saved Projects and shown once.
 	Note *string `json:"note"`
@@ -138,6 +140,7 @@ func (in folderProjectInput) apply(p store.FolderProject) store.FolderProject {
 	set(&p.DefaultTool, in.DefaultTool)
 	set(&p.DefaultModel, in.DefaultModel)
 	set(&p.StarterPrompt, in.StarterPrompt)
+	set(&p.Colour, in.Colour)
 	set(&p.Note, in.Note)
 	if in.IsRepo != nil {
 		p.IsRepo = *in.IsRepo
@@ -177,6 +180,21 @@ func folderRefusal(err error, machine string) *projectRefusal {
 	}
 	log.Printf("folder projects: store error: %v", err)
 	return &projectRefusal{500, "server_error", "", "reet couldn't do that just now. Try again.", ""}
+}
+
+// validProjectColour accepts "" (no colour) and the store's palette ids, so
+// the API refuses a bad colour against the field rather than the general
+// invalid project.
+func validProjectColour(c string) bool {
+	if c == "" {
+		return true
+	}
+	for _, allowed := range store.FolderProjectColours {
+		if c == allowed {
+			return true
+		}
+	}
+	return false
 }
 
 // folderNameShape is the store's name rule: 1 to 80 characters of plain text.
@@ -244,6 +262,9 @@ func (s *server) checkFolderProject(names map[string]string, p *store.FolderProj
 	default:
 		return &projectRefusal{422, "invalid_worktree_default", "worktreeDefault", "Choose whether each session gets a worktree: inherit, yes or no.", ""}
 	}
+	if !validProjectColour(p.Colour) {
+		return &projectRefusal{422, "invalid_colour", "colour", "Choose a colour from the palette, or no colour.", ""}
+	}
 	if p.DefaultTool != "" && !terminalproto.ValidTool(p.DefaultTool) {
 		return &projectRefusal{422, "invalid_tool", "defaultTool", sentenceToolChoice, ""}
 	}
@@ -278,6 +299,7 @@ type folderProjectView struct {
 	Name             string  `json:"name"`
 	IsRepo           bool    `json:"isRepo"`
 	BaseBranch       string  `json:"baseBranch"`
+	Colour           string  `json:"colour"`
 	WorktreeDefault  string  `json:"worktreeDefault"`
 	DefaultTool      string  `json:"defaultTool"`
 	DefaultModel     string  `json:"defaultModel"`
@@ -294,7 +316,7 @@ type folderProjectView struct {
 
 func viewFolderProject(p store.FolderProject, names map[string]string) folderProjectView {
 	return folderProjectView{ID: p.ID, Host: p.Host, Machine: names[p.Host], Dir: p.Dir, Name: p.Name, IsRepo: p.IsRepo, BaseBranch: p.BaseBranch, WorktreeDefault: p.WorktreeDefault,
-		DefaultTool: p.DefaultTool, DefaultModel: p.DefaultModel, HasStarterPrompt: p.StarterPrompt != "", Note: p.Note, Position: p.Position,
+		DefaultTool: p.DefaultTool, DefaultModel: p.DefaultModel, HasStarterPrompt: p.StarterPrompt != "", Colour: p.Colour, Note: p.Note, Position: p.Position,
 		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Version: p.Version}
 }
 

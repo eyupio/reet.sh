@@ -165,7 +165,7 @@ try {
  await expect(page.getByRole('heading',{name:'Skills.',exact:true})).toBeVisible()
  await expect(page.getByRole('link',{name:'Create a skill',exact:true})).toBeVisible()
  await page.goto(`${base}/terminals`)
- await expect(page.getByRole('heading',{name:'Terminals'})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'Sessions'})).toBeVisible()
  await page.goto(`${base}/machines?view=compare`)
  await expect(page.getByLabel('Destination',{exact:true})).toBeVisible()
  // A scan is not proof of a live terminal connection. The wizard verifies both separately.
@@ -215,7 +215,7 @@ try {
  await page.goto(`${base}/control`)
  await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
  await expect(page.getByRole('button',{name:'Scan all',exact:true})).toHaveCount(0)
- await expect(page.getByRole('link',{name:'Terminals',exact:true})).toHaveCount(0)
+ await expect(page.getByRole('link',{name:'Sessions',exact:true})).toHaveCount(0)
  viewer=false;failState=true
  await page.goto(`${base}/control`)
  await expect(page.getByRole('alert')).toContainText('Inventory unavailable')

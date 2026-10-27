@@ -34,7 +34,7 @@ func TestFolderProjectRoundTrip(t *testing.T) {
 	if err != nil || read != got {
 		t.Fatalf("%v\n%+v\n%+v", err, read, got)
 	}
-	if read.BaseBranch != "main" || !read.IsRepo || read.WorktreeDefault != "yes" || read.StarterPrompt != "fix the build" || read.LegacyProjectID != "old:1" || read.DefaultTool != "claude" || read.DefaultModel != "claude-opus-4.1" {
+	if read.BaseBranch != "main" || !read.IsRepo || read.WorktreeDefault != "yes" || read.StarterPrompt != "fix the build" || read.LegacyProjectID != "old:1" || read.DefaultTool != "claude" || read.DefaultModel != "claude-opus-4.1" || read.Colour != "" {
 		t.Fatalf("%+v", read)
 	}
 	// Blank worktreeDefault means inherit; positions follow creation order.
@@ -255,6 +255,8 @@ func TestFolderProjectValidation(t *testing.T) {
 		"worktree uppercase": func(p *FolderProject) { p.WorktreeDefault = "YES" },
 		"bad tool":           func(p *FolderProject) { p.DefaultTool = "vim" },
 		"bad model":          func(p *FolderProject) { p.DefaultModel = "m o d" },
+		"bad colour":         func(p *FolderProject) { p.Colour = "chartreuse" },
+		"colour uppercase":   func(p *FolderProject) { p.Colour = "BLUE" },
 	}
 	for name, mod := range cases {
 		p := fp("laptop", "/ok")
@@ -281,9 +283,13 @@ func TestFolderProjectValidation(t *testing.T) {
 	ok.Name = strings.Repeat("é", 80)
 	ok.StarterPrompt = strings.Repeat("a", 2000)
 	ok.WorktreeDefault = "no"
+	ok.Colour = "blue"
 	ok.BaseBranch = "feature/x-1"
 	ok.DefaultTool = "codex"
 	made := mustFP(t, s, uid, ok)
+	if made.Colour != "blue" {
+		t.Fatalf("colour round trip: %+v", made)
+	}
 	bad := made
 	bad.StarterPrompt = "-secret prompt text"
 	_, err := s.UpdateFolderProjectFor(uid, bad, 0)

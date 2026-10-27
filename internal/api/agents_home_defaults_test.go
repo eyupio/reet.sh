@@ -53,7 +53,7 @@ func TestSessionListingCarriesLaunchMetadataNotPrompt(t *testing.T) {
 	t.Cleanup(func() { log.SetOutput(original) })
 	f := launchAPIFixture(t, launchCaps("claude"))
 	f.srv.s.debug = true
-	project, err := f.st.CreateFolderProjectFor(f.uid, store.FolderProject{Host: f.agent.Host, Dir: "/home/tester/site"})
+	project, err := f.st.CreateFolderProjectFor(f.uid, store.FolderProject{Host: f.agent.ID, Dir: "/home/tester/site"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestCreateWithUnknownProjectIDRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	theirs, err := f.st.CreateFolderProjectFor(other.ID, store.FolderProject{Host: f.agent.Host, Dir: "/home/other/site"})
+	theirs, err := f.st.CreateFolderProjectFor(other.ID, store.FolderProject{Host: f.agent.ID, Dir: "/home/other/site"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,12 +143,57 @@ func TestCreateWithProjectIDOnAnotherMachineRefused(t *testing.T) {
 	if len(f.sent()) != 0 {
 		t.Fatal("a refused create reached the machine")
 	}
-	// The same machine under another letter case is the same machine.
-	here, err := f.st.CreateFolderProjectFor(f.uid, store.FolderProject{Host: strings.ToUpper(f.agent.Host), Dir: "/srv/site"})
+	// A project names its machine by enrollment id; the machine's name is not
+	// its key.
+	named, err := f.st.CreateFolderProjectFor(f.uid, store.FolderProject{Host: f.agent.Host, Dir: "/srv/named"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, out, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"projectId": named.ID})); code != 422 || out["code"] != "project_machine_mismatch" {
+		t.Fatal("project by machine name", code, raw)
+	}
+	here, err := f.st.CreateFolderProjectFor(f.uid, store.FolderProject{Host: f.agent.ID, Dir: "/srv/site"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if code, out, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"projectId": here.ID})); code != 200 || out["projectId"] != here.ID {
 		t.Fatal("plain shell in a project", code, raw)
+	}
+	// Renaming the machine keeps its id, and its projects still launch.
+	if err := f.st.MergeMachinesFor(f.uid, f.agent.Host, "work-laptop"); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"projectId": here.ID})); code != 200 || out["projectId"] != here.ID {
+		t.Fatal("after a rename", code, raw)
+	}
+}
+
+// A create whose reply was lost is resent with the same request id. If the
+// project was removed meanwhile, the resend still resolves to the session that
+// started, rather than being refused by the project check.
+func TestCreateRetryAfterTheProjectIsRemoved(t *testing.T) {
+	f := launchAPIFixture(t, launchCaps("claude"))
+	project, err := f.st.CreateFolderProjectFor(f.uid, store.FolderProject{Host: f.agent.ID, Dir: "/home/tester/site"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "dir": "/home/tester/site", "projectId": project.ID})
+	code, first, raw := f.create(t, body)
+	if code != 200 {
+		t.Fatal("create", code, raw)
+	}
+	if err := f.st.DeleteFolderProjectFor(f.uid, project.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	code, again, raw := f.create(t, body)
+	if code != 200 || again["id"] != first["id"] || again["projectId"] != project.ID {
+		t.Fatal("retry", code, raw)
+	}
+	if all, _ := f.st.TerminalSessionsFor(f.uid); len(all) != 1 {
+		t.Fatal("a retry made a second session", all)
+	}
+	// A new request for the removed project is still refused.
+	if code, out, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "projectId": project.ID})); code != 404 || out["code"] != "project_not_found" {
+		t.Fatal("new request", code, raw)
 	}
 }

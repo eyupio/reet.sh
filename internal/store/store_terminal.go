@@ -459,7 +459,7 @@ func projectOnMachine(q interface {
 	QueryRow(string, ...any) *sql.Row
 }, uid int64, agentID, projectID string) error {
 	var same bool
-	err := q.QueryRow(`SELECT EXISTS(SELECT 1 FROM sync_agents a WHERE a.id=? AND a.user_id=p.user_id AND lower(a.host)=lower(p.host)) FROM folder_projects p WHERE p.user_id=? AND p.id=?`, agentID, uid, projectID).Scan(&same)
+	err := q.QueryRow(`SELECT EXISTS(SELECT 1 FROM sync_agents a WHERE a.id=? AND a.user_id=p.user_id AND a.id=p.host) FROM folder_projects p WHERE p.user_id=? AND p.id=?`, agentID, uid, projectID).Scan(&same)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrFolderProjectNotFound
 	}

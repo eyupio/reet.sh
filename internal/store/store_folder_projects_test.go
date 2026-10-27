@@ -77,35 +77,109 @@ func TestFolderProjectLimit(t *testing.T) {
 	mustFP(t, s, uid, fp("m", "/d/extra"))
 }
 
+// enrolledID enrolls a machine named host for uid and returns its id, the
+// value a folder project's Host holds.
+func enrolledID(t *testing.T, s *Store, uid int64, host string) string {
+	t.Helper()
+	a, _, err := s.EnrollSyncAgent(uid, host, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a.ID
+}
+
 func TestFolderProjectUniqueMachineFolder(t *testing.T) {
 	s := newStore(t)
 	uid := projectUser(t, s, "a")
-	mustFP(t, s, uid, fp("Laptop", "/a/b/"))
-	if _, err := s.CreateFolderProjectFor(uid, fp("laptop", "/a/b")); !errors.Is(err, ErrFolderProjectExists) {
+	laptop, server := enrolledID(t, s, uid, "laptop"), enrolledID(t, s, uid, "server")
+	mustFP(t, s, uid, fp(laptop, "/a/b/"))
+	if _, err := s.CreateFolderProjectFor(uid, fp(laptop, "/a/b")); !errors.Is(err, ErrFolderProjectExists) {
 		t.Fatalf("cleaned dir: %v", err)
 	}
-	if _, err := s.CreateFolderProjectFor(uid, fp("laptop", "/a//b/./")); !errors.Is(err, ErrFolderProjectExists) {
+	if _, err := s.CreateFolderProjectFor(uid, fp(laptop, "/a//b/./")); !errors.Is(err, ErrFolderProjectExists) {
 		t.Fatalf("dotted dir: %v", err)
 	}
-	// Another machine, or another account, may use the same folder.
-	got := mustFP(t, s, uid, fp("server", "/a/b"))
-	if got.Dir != "/a/b" {
-		t.Fatalf("dir stored uncleaned: %q", got.Dir)
+	// The machine is its enrollment id, compared exactly: another spelling is
+	// another key (the API admits only real ids).
+	if _, err := s.CreateFolderProjectFor(uid, fp(strings.ToUpper(laptop), "/a/b")); err != nil {
+		t.Fatalf("hosts compared ignoring case: %v", err)
 	}
-	mustFP(t, s, projectUser(t, s, "b"), fp("laptop", "/a/b"))
+	// Another machine, or another account, may use the same folder.
+	got := mustFP(t, s, uid, fp(server, "/a/b"))
+	if got.Dir != "/a/b" || got.Host != server {
+		t.Fatalf("stored: %+v", got)
+	}
+	mustFP(t, s, projectUser(t, s, "b"), fp(laptop, "/a/b"))
 	// Moving a project onto a taken folder is refused too.
-	c := mustFP(t, s, uid, fp("laptop", "/c"))
+	c := mustFP(t, s, uid, fp(laptop, "/c"))
 	c.Dir = "/a/b/"
 	if _, err := s.UpdateFolderProjectFor(uid, c, 0); !errors.Is(err, ErrFolderProjectExists) {
 		t.Fatalf("update: %v", err)
 	}
 	// A legacy source can only be imported once.
-	l := fp("laptop", "/l1")
+	l := fp(laptop, "/l1")
 	l.LegacyProjectID = "p:0"
 	mustFP(t, s, uid, l)
 	l.Dir = "/l2"
 	if _, err := s.CreateFolderProjectFor(uid, l); !errors.Is(err, ErrFolderProjectExists) {
 		t.Fatalf("legacy: %v", err)
+	}
+}
+
+// A database made before hosts were enrollment ids: opening it turns each
+// host name into the account's machine id where exactly one machine has that
+// name, leaves anything else as it was, and swaps the unique index.
+func TestFolderProjectHostNamesBecomeAgentIDs(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid := projectUser(t, s, "a")
+	other := projectUser(t, s, "b")
+	laptop, server := enrolledID(t, s, uid, "laptop"), enrolledID(t, s, uid, "server")
+	theirLaptop := enrolledID(t, s, other, "laptop")
+	for _, stmt := range []string{`DROP INDEX IF EXISTS folder_projects_agent_dir`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS folder_projects_machine ON folder_projects(user_id,lower(host),dir)`} {
+		if _, err := s.db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	byName := mustFP(t, s, uid, fp("LAPTOP", "/a"))
+	byName2 := mustFP(t, s, uid, fp("server", "/b"))
+	gone := mustFP(t, s, uid, fp("gone", "/c"))
+	byID := mustFP(t, s, uid, fp(laptop, "/d"))
+	// The same folder saved under both the id and the name: converting the
+	// name would collide, so that row is left alone.
+	clashID := mustFP(t, s, uid, fp(laptop, "/e"))
+	clashName := mustFP(t, s, uid, fp("laptop", "/e"))
+	theirs := mustFP(t, s, other, fp("laptop", "/z"))
+	s.Close()
+	want := map[string]string{byName.ID: laptop, byName2.ID: server, gone.ID: "gone", byID.ID: laptop, clashID.ID: laptop, clashName.ID: "laptop"}
+	for i := 0; i < 2; i++ {
+		s, err = Open(dir)
+		if err != nil {
+			t.Fatal(i, err)
+		}
+		for id, host := range want {
+			p, err := s.FolderProjectFor(uid, id)
+			if err != nil || p.Host != host {
+				t.Fatalf("open %d: %s host %q, want %q (%v)", i, id, p.Host, host, err)
+			}
+		}
+		if p, _ := s.FolderProjectFor(other, theirs.ID); p.Host != theirLaptop {
+			t.Fatalf("open %d: another account's row: %+v", i, p)
+		}
+		var oldIndex, newIndex int
+		s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='folder_projects_machine'`).Scan(&oldIndex)
+		s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='folder_projects_agent_dir'`).Scan(&newIndex)
+		if oldIndex != 0 || newIndex != 1 {
+			t.Fatalf("open %d: indexes old=%d new=%d", i, oldIndex, newIndex)
+		}
+		if _, err := s.CreateFolderProjectFor(uid, fp(laptop, "/a")); !errors.Is(err, ErrFolderProjectExists) {
+			t.Fatalf("open %d: converted row not unique: %v", i, err)
+		}
+		s.Close()
 	}
 }
 
@@ -164,6 +238,10 @@ func TestFolderProjectValidation(t *testing.T) {
 		"empty dir":          func(p *FolderProject) { p.Dir = "" },
 		"control in dir":     func(p *FolderProject) { p.Dir = "/a\nb" },
 		"empty host":         func(p *FolderProject) { p.Host = "  " },
+		"blank host":         func(p *FolderProject) { p.Host = "" },
+		"129-byte host":      func(p *FolderProject) { p.Host = strings.Repeat("h", 129) },
+		"host with a space":  func(p *FolderProject) { p.Host = " laptop" },
+		"control in host":    func(p *FolderProject) { p.Host = "lap\ttop" },
 		"81 char name":       func(p *FolderProject) { p.Name = strings.Repeat("n", 81) },
 		"control name":       func(p *FolderProject) { p.Name = "a\x07b" },
 		"format name":        func(p *FolderProject) { p.Name = "a‮b" },
@@ -380,6 +458,34 @@ func TestFolderProjectReorderChecksVersions(t *testing.T) {
 	// The old versions are now stale.
 	if err := s.ReorderFolderProjectsFor(uid, []string{a.ID, b.ID, c.ID}, []int64{a.Version, b.Version, c.Version}); !errors.Is(err, ErrFolderProjectChanged) {
 		t.Fatalf("%v", err)
+	}
+	// Another tab deleted a project: the stale view is "changed", not "not
+	// found", as long as the account still has projects. An account with none
+	// gets not found, and another account's id reads exactly like an unknown one.
+	x := mustFP(t, s, uid, fp("m", "/x"))
+	if err := s.DeleteFolderProjectFor(uid, x.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	l, _ = s.ListFolderProjectsFor(uid)
+	ids, versions := []string{x.ID}, []int64{x.Version}
+	for _, p := range l {
+		ids, versions = append(ids, p.ID), append(versions, p.Version)
+	}
+	if err := s.ReorderFolderProjectsFor(uid, ids, versions); !errors.Is(err, ErrFolderProjectChanged) {
+		t.Fatalf("after a delete: %v", err)
+	}
+	other := projectUser(t, s, "b")
+	if err := s.ReorderFolderProjectsFor(other, []string{a.ID}, []int64{a.Version}); !errors.Is(err, ErrFolderProjectNotFound) {
+		t.Fatalf("account with none: %v", err)
+	}
+	mine := mustFP(t, s, other, fp("m", "/mine"))
+	for _, id := range []string{a.ID, "0123456789abcdef0123456789abcdef"} {
+		if err := s.ReorderFolderProjectsFor(other, []string{mine.ID, id}, []int64{1, 1}); !errors.Is(err, ErrFolderProjectChanged) {
+			t.Fatalf("other account %s: %v", id, err)
+		}
+	}
+	if order() != "c,a,b" {
+		t.Fatalf("%s", order())
 	}
 	// A new project lands at the end.
 	d := mustFP(t, s, uid, fp("m", "/d"))

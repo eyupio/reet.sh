@@ -16,7 +16,7 @@ function fetchReplying(status, body, headers = {}) {
   }
   return calls
 }
-const project = (over = {}) => ({ id: 'p1', host: 'studio', dir: '/w/reet', name: 'reet', isRepo: true, baseBranch: '', worktreeDefault: 'inherit', defaultTool: '', defaultModel: '', hasStarterPrompt: false, position: 0, createdAt: 1, updatedAt: 1, version: 1, ...over })
+const project = (over = {}) => ({ id: 'p1', host: 'a1b2c3', machine: 'studio', dir: '/w/reet', name: 'reet', isRepo: true, baseBranch: '', worktreeDefault: 'inherit', defaultTool: '', defaultModel: '', hasStarterPrompt: false, position: 0, createdAt: 1, updatedAt: 1, version: 1, ...over })
 
 function cookieOnly(call) {
   assert.equal(call.init.credentials, 'same-origin')
@@ -34,7 +34,7 @@ test('folder project routes and methods', async () => {
   cookieOnly(calls[0])
 
   calls = fetchReplying(201, project(), { ETag: '"1"' })
-  const input = { host: 'studio', dir: '/w/reet', starterPrompt: 'two words' }
+  const input = { host: 'a1b2c3', dir: '/w/reet', starterPrompt: 'two words' }
   await api.createFolderProject(input)
   assert.equal(calls[0].url, '/api/v2/folder-projects')
   assert.equal(calls[0].init.method, 'POST')
@@ -145,6 +145,7 @@ test('refusals keep the sentence, code and field', async () => {
     [409, { code: 'branches_denied', error: "That machine isn't offering its branches right now. Check that terminal access is on there and git is installed." }, () => api.listBranches('m1', '/w'), api.BRANCHES_ERROR_CODES],
     [409, { code: 'branches_busy', error: 'That machine is already listing branches. Try again in a moment.' }, () => api.listBranches('m1', '/w'), api.BRANCHES_ERROR_CODES],
     [422, { code: 'unknown_machine', field: 'host', error: "That machine isn't enrolled on this account." }, () => api.createFolderProject({ host: 'x', dir: '/w' }), api.FOLDER_PROJECT_ERROR_CODES],
+    [404, { code: 'project_not_found', error: "That project isn't on this account." }, () => api.getFolderProject('gone'), api.FOLDER_PROJECT_ERROR_CODES],
   ]
   for (const [status, body, call, codes] of cases) {
     fetchReplying(status, body)
@@ -167,4 +168,15 @@ test('refusals keep the sentence, code and field', async () => {
   assert.equal(html.code, undefined)
   assert.equal(api.refusalCode(new Error('x'), api.BROWSE_ERROR_CODES), undefined)
   for (const code of ['off', 'not_dir']) assert.equal(api.refusalCode(new api.TerminalError(409, 'x', code), api.FOLDER_PROJECT_ERROR_CODES), undefined)
+})
+
+test('a project names its machine by enrollment id, which browse and branches take as it is', async () => {
+  // The same 404 code as a terminal create naming a removed project.
+  assert.ok(api.FOLDER_PROJECT_ERROR_CODES.includes('project_not_found'))
+  assert.ok(!api.FOLDER_PROJECT_ERROR_CODES.includes('not_found'))
+  const p = project({ host: 'a1b2c3', machine: 'studio' })
+  const calls = fetchReplying(200, { current: 'main', default: 'main', branches: [], more: false })
+  await api.listBranches(p.host, p.dir)
+  assert.equal(calls[0].url, '/api/v2/machines/a1b2c3/branches?dir=%2Fw%2Freet')
+  assert.ok(!calls[0].url.includes('studio'))
 })

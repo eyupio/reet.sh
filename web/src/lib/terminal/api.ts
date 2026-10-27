@@ -144,13 +144,18 @@ export async function removeWorktree(target: WorktreeTarget, shown: { changed: n
 // a project changed since answers 409 `project_changed`. The single read and every write give the version (the ETag).
 export type WorktreeDefault = 'inherit' | 'yes' | 'no'
 export type FolderProject = {
-  id: string; host: string; dir: string; name: string; isRepo: boolean; baseBranch: string; worktreeDefault: WorktreeDefault
+  id: string
+  /** The machine's enrollment id: pass it as it is as the agentId of `browseFolder`, `listBranches` and `createTerminal`. */
+  host: string
+  /** The machine's current name for display; "" once the machine is no longer enrolled. */
+  machine: string
+  dir: string; name: string; isRepo: boolean; baseBranch: string; worktreeDefault: WorktreeDefault
   defaultTool: string; defaultModel: string; hasStarterPrompt: boolean
   /** Only in the single read (`getFolderProject`), for the edit form. */
   starterPrompt?: string
   position: number; createdAt: number; updatedAt: number; version: number
 }
-/** A create sends host and dir at least; an update sends only what changed (absent keeps, "" clears a text field). */
+/** A create sends host (the machine's enrollment id) and dir at least; an update sends only what changed (absent keeps, "" clears a text field). */
 export type FolderProjectInput = Partial<Pick<FolderProject, 'host' | 'dir' | 'name' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'defaultTool' | 'defaultModel' | 'starterPrompt'>>
 export type RemovedFolderProject = { ok: boolean; message: string }
 
@@ -163,7 +168,7 @@ export type BrowseReason = 'not_found' | 'not_dir' | 'outside_home' | 'denied' |
 export type BrowseQuery = { path?: string; after?: string; filter?: string; hidden?: boolean; session: string }
 export type BranchesResult = { current: string; default: string; branches: string[]; more: boolean }
 
-export const FOLDER_PROJECT_ERROR_CODES = ['project_exists', 'project_limit', 'project_changed', 'project_rate_limited', 'name_taken', 'unknown_machine', 'not_found', 'invalid_version', 'invalid_order'] as const
+export const FOLDER_PROJECT_ERROR_CODES = ['project_exists', 'project_limit', 'project_changed', 'project_rate_limited', 'name_taken', 'unknown_machine', 'project_not_found', 'invalid_version', 'invalid_order'] as const
 export const BROWSE_ERROR_CODES = ['browse_unsupported', 'browse_off', 'browse_busy', 'browse_rate_limited', 'not_found', 'not_dir', 'outside_home', 'denied', 'unreadable', 'machine_timeout', 'machine_error', 'machine_unavailable'] as const
 export const BRANCHES_ERROR_CODES = ['branches_unsupported', 'branches_denied', 'branches_busy', 'branches_rate_limited', 'not_repo_root', 'outside_home', 'git_failed', 'machine_timeout', 'machine_error', 'machine_unavailable'] as const
 export type FolderProjectErrorCode = typeof FOLDER_PROJECT_ERROR_CODES[number]

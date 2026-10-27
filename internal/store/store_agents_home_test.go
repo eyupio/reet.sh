@@ -94,7 +94,7 @@ func listed(t *testing.T, s *Store, uid int64, id string) (TerminalSession, stri
 
 func TestSessionListingCarriesLaunchMetadataNotPrompt(t *testing.T) {
 	s, uid, a, c := terminalFixture(t)
-	project := mustFP(t, s, uid, fp("LAPTOP", "/home/tester/site"))
+	project := mustFP(t, s, uid, fp(a.ID, "/home/tester/site"))
 	in := terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, Tool: "claude", Model: "sonnet", Dir: "/home/tester/site", Prompt: agentsHomeTestPrompt, ProjectID: project.ID}
 	got, created, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, in)
 	if err != nil || !created {
@@ -142,7 +142,11 @@ func TestReserveWithProjectIDChecksAccountAndMachine(t *testing.T) {
 	s, uid, a, c := terminalFixture(t)
 	other := projectUser(t, s, "b")
 	theirs := mustFP(t, s, other, fp("laptop", "/home/b/site"))
-	elsewhere := mustFP(t, s, uid, fp("server", "/srv/site"))
+	server, _ := terminalAgent(t, s, uid, "server")
+	elsewhere := mustFP(t, s, uid, fp(server.ID, "/srv/site"))
+	// The machine's name is not its key: only the enrollment id matches.
+	byName := mustFP(t, s, uid, fp(a.Host, "/srv/named"))
+	upper := mustFP(t, s, uid, fp(strings.ToUpper(a.ID), "/srv/upper"))
 	for name, tc := range map[string]struct {
 		id   string
 		want error
@@ -150,6 +154,8 @@ func TestReserveWithProjectIDChecksAccountAndMachine(t *testing.T) {
 		"unknown":         {"0123456789abcdef0123456789abcdef", ErrFolderProjectNotFound},
 		"other account":   {theirs.ID, ErrFolderProjectNotFound},
 		"another machine": {elsewhere.ID, ErrProjectMachineMismatch},
+		"by name":         {byName.ID, ErrProjectMachineMismatch},
+		"id in upper":     {upper.ID, ErrProjectMachineMismatch},
 	} {
 		in := terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, ProjectID: tc.id}
 		if _, _, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, in); !errors.Is(err, tc.want) {
@@ -159,6 +165,18 @@ func TestReserveWithProjectIDChecksAccountAndMachine(t *testing.T) {
 	all, _ := s.TerminalSessionsFor(uid)
 	if len(all) != 0 {
 		t.Fatal("a refused create reserved a session", all)
+	}
+	// Renaming the machine keeps its id, so its projects still launch there.
+	here := mustFP(t, s, uid, fp(a.ID, "/home/tester/site"))
+	if err := s.MergeMachinesFor(uid, a.Host, "work-laptop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.TerminalProjectCheckFor(uid, a.ID, here.ID); err != nil {
+		t.Fatal("after a rename", err)
+	}
+	in := terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, ProjectID: here.ID}
+	if _, created, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, in); err != nil || !created {
+		t.Fatal("launch after a rename", created, err)
 	}
 }
 

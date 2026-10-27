@@ -32,13 +32,24 @@ const folderProjectWriteLimit = 30
 // does a reorder of 100 ids and versions.
 const maxFolderProjectBodyBytes = 64 << 10
 
+var folderAccessWords = accessWords{
+	accounts:  "Using projects needs an account signed in through the browser.",
+	signedOut: "Sign in to use projects.",
+	readOnly:  "This account is read-only, so it can't use projects.",
+}
+
+// folderAccess is the Projects access rule with sentences naming projects.
+func (s *server) folderAccess(next http.HandlerFunc) http.HandlerFunc {
+	return s.featureAccess(folderAccessWords, next)
+}
+
 func (s *server) registerFolderProjectRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/v2/folder-projects", s.projectAccess(s.folderProjectList))
-	mux.HandleFunc("POST /api/v2/folder-projects", s.projectAccess(s.folderProjectWrite(s.folderProjectCreate)))
-	mux.HandleFunc("POST /api/v2/folder-projects/reorder", s.projectAccess(s.folderProjectWrite(s.folderProjectReorder)))
-	mux.HandleFunc("GET /api/v2/folder-projects/{id}", s.projectAccess(s.folderProjectGet))
-	mux.HandleFunc("PATCH /api/v2/folder-projects/{id}", s.projectAccess(s.folderProjectWrite(s.folderProjectUpdate)))
-	mux.HandleFunc("DELETE /api/v2/folder-projects/{id}", s.projectAccess(s.folderProjectWrite(s.folderProjectDelete)))
+	mux.HandleFunc("GET /api/v2/folder-projects", s.folderAccess(s.folderProjectList))
+	mux.HandleFunc("POST /api/v2/folder-projects", s.folderAccess(s.folderProjectWrite(s.folderProjectCreate)))
+	mux.HandleFunc("POST /api/v2/folder-projects/reorder", s.folderAccess(s.folderProjectWrite(s.folderProjectReorder)))
+	mux.HandleFunc("GET /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectGet))
+	mux.HandleFunc("PATCH /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectWrite(s.folderProjectUpdate)))
+	mux.HandleFunc("DELETE /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectWrite(s.folderProjectDelete)))
 }
 
 // folderProjectWrite admits at most folderProjectWriteLimit writes per
@@ -131,16 +142,18 @@ const (
 )
 
 // folderRefusal maps every store error for folder projects to a code and one
-// sentence. host is the machine's name for project_exists. Unknown errors are
+// sentence. machine is the machine's name for project_exists (see
+// machineLabel). Unknown errors are
 // a 500 and are logged without request content.
-func folderRefusal(err error, host string) *projectRefusal {
+func folderRefusal(err error, machine string) *projectRefusal {
 	switch {
 	case errors.Is(err, store.ErrFolderProjectNotFound):
-		return &projectRefusal{404, "not_found", "", sentenceFolderNotFound, ""}
+		// The same code and sentence as a terminal create naming the project.
+		return &projectRefusal{404, "project_not_found", "", sentenceFolderNotFound, ""}
 	case errors.Is(err, store.ErrFolderProjectChanged):
 		return &projectRefusal{409, "project_changed", "", sentenceFolderChanged, ""}
 	case errors.Is(err, store.ErrFolderProjectExists):
-		return &projectRefusal{409, "project_exists", "dir", host + " already has a project for that folder.", ""}
+		return &projectRefusal{409, "project_exists", "dir", machine + " already has a project for that folder.", ""}
 	case errors.Is(err, store.ErrFolderProjectLimit):
 		return &projectRefusal{409, "project_limit", "", fmt.Sprintf("You have %d projects, the most reet keeps. Remove one first.", store.MaxFolderProjects), ""}
 	case errors.Is(err, store.ErrFolderProjectName):
@@ -166,34 +179,45 @@ func folderNameShape(name string) bool {
 	return true
 }
 
+// machineNames maps each of the account's enrolled machines (its enrollment
+// id, which a project's Host holds) to its current name.
+func (s *server) machineNames(uid int64) (map[string]string, error) {
+	agents, err := s.st.SyncAgentsFor(uid)
+	if err != nil {
+		return nil, err
+	}
+	names := make(map[string]string, len(agents))
+	for _, a := range agents {
+		names[a.ID] = a.Host
+	}
+	return names, nil
+}
+
+// machineLabel is the machine's name for a sentence, or "that machine" when
+// it is no longer enrolled.
+func machineLabel(names map[string]string, host string) string {
+	if name := names[host]; name != "" {
+		return name
+	}
+	return "that machine"
+}
+
 // checkFolderProject refuses, with a precise code and field, everything the
 // store would refuse only as a general invalid project, and a machine that is
-// not one of the account's enrolled machines. On success p.Host is the
-// machine's name as the machine reports it and p.Dir is cleaned. saved is the
+// not one of the account's enrolled machines. Host is the machine's
+// enrollment id, matched exactly; p.Dir comes back cleaned. saved is the
 // project being updated (nil on create): its own machine and folder stay
 // acceptable after the machine is forgotten; anything else on it does not.
-func (s *server) checkFolderProject(uid int64, p *store.FolderProject, saved *store.FolderProject) *projectRefusal {
+func (s *server) checkFolderProject(names map[string]string, p *store.FolderProject, saved *store.FolderProject) *projectRefusal {
 	dir, err := store.CleanProjectDir(p.Dir)
 	if err != nil {
 		return &projectRefusal{422, "invalid_dir", "dir", sentenceFolderDir, ""}
 	}
 	p.Dir = dir
 	if saved == nil || p.Host != saved.Host || p.Dir != saved.Dir {
-		agents, err := s.st.SyncAgentsFor(uid)
-		if err != nil {
-			return folderRefusal(err, "")
-		}
-		known := ""
-		for _, a := range agents {
-			if p.Host != "" && strings.EqualFold(a.Host, p.Host) {
-				known = a.Host
-				break
-			}
-		}
-		if known == "" {
+		if _, enrolled := names[p.Host]; !enrolled {
 			return &projectRefusal{422, "unknown_machine", "host", sentenceFolderMachine, ""}
 		}
-		p.Host = known
 	}
 	p.Name = strings.TrimSpace(p.Name)
 	if p.Name != "" && !folderNameShape(p.Name) {
@@ -227,8 +251,11 @@ func (s *server) checkFolderProject(uid int64, p *store.FolderProject, saved *st
 // folderProjectView is a project as the API shows it. StarterPrompt is set
 // only by the single read, for its owner's edit form.
 type folderProjectView struct {
-	ID               string  `json:"id"`
+	ID string `json:"id"`
+	// Host is the machine's enrollment id (the agentId of browse, branches
+	// and terminal create); Machine is its current name, "" once forgotten.
 	Host             string  `json:"host"`
+	Machine          string  `json:"machine"`
 	Dir              string  `json:"dir"`
 	Name             string  `json:"name"`
 	IsRepo           bool    `json:"isRepo"`
@@ -244,16 +271,17 @@ type folderProjectView struct {
 	Version          int64   `json:"version"`
 }
 
-func viewFolderProject(p store.FolderProject) folderProjectView {
-	return folderProjectView{ID: p.ID, Host: p.Host, Dir: p.Dir, Name: p.Name, IsRepo: p.IsRepo, BaseBranch: p.BaseBranch, WorktreeDefault: p.WorktreeDefault,
+func viewFolderProject(p store.FolderProject, names map[string]string) folderProjectView {
+	return folderProjectView{ID: p.ID, Host: p.Host, Machine: names[p.Host], Dir: p.Dir, Name: p.Name, IsRepo: p.IsRepo, BaseBranch: p.BaseBranch, WorktreeDefault: p.WorktreeDefault,
 		DefaultTool: p.DefaultTool, DefaultModel: p.DefaultModel, HasStarterPrompt: p.StarterPrompt != "", Position: p.Position,
 		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Version: p.Version}
 }
 
-// auditFolderProject records a change: the project, its machine, folder and
-// name. The starter prompt is never part of it.
-func (s *server) auditFolderProject(uid int64, action string, p store.FolderProject) {
-	s.event(uid, "ui", action, "", map[string]any{"project": p.ID, "machine": p.Host, "folder": p.Dir, "name": p.Name})
+// auditFolderProject records a change: the project, its machine (id, and
+// name as host, as a terminal launch records them), folder and name. The
+// starter prompt is never part of it.
+func (s *server) auditFolderProject(uid int64, action string, p store.FolderProject, names map[string]string) {
+	s.event(uid, "ui", action, "", map[string]any{"project": p.ID, "machine": p.Host, "host": names[p.Host], "folder": p.Dir, "name": p.Name})
 }
 
 func (s *server) writeFolderProjects(w http.ResponseWriter, uid int64) {
@@ -262,9 +290,14 @@ func (s *server) writeFolderProjects(w http.ResponseWriter, uid int64) {
 		folderRefusal(err, "").write(w)
 		return
 	}
+	names, err := s.machineNames(uid)
+	if err != nil {
+		folderRefusal(err, "").write(w)
+		return
+	}
 	out := make([]folderProjectView, 0, len(projects))
 	for _, p := range projects {
-		out = append(out, viewFolderProject(p))
+		out = append(out, viewFolderProject(p, names))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"projects": out})
 }
@@ -274,12 +307,18 @@ func (s *server) folderProjectList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) folderProjectGet(w http.ResponseWriter, r *http.Request) {
-	p, err := s.st.FolderProjectFor(s.uid(r), r.PathValue("id"))
+	uid := s.uid(r)
+	p, err := s.st.FolderProjectFor(uid, r.PathValue("id"))
 	if err != nil {
 		folderRefusal(err, "").write(w)
 		return
 	}
-	v := viewFolderProject(p)
+	names, err := s.machineNames(uid)
+	if err != nil {
+		folderRefusal(err, "").write(w)
+		return
+	}
+	v := viewFolderProject(p, names)
 	prompt := p.StarterPrompt
 	v.StarterPrompt = &prompt
 	w.Header().Set("ETag", projectETag(p.Version))
@@ -292,19 +331,24 @@ func (s *server) folderProjectCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := s.uid(r)
+	names, err := s.machineNames(uid)
+	if err != nil {
+		folderRefusal(err, "").write(w)
+		return
+	}
 	p := in.apply(store.FolderProject{})
-	if refusal := s.checkFolderProject(uid, &p, nil); refusal != nil {
+	if refusal := s.checkFolderProject(names, &p, nil); refusal != nil {
 		refusal.write(w)
 		return
 	}
 	saved, err := s.st.CreateFolderProjectFor(uid, p)
 	if err != nil {
-		folderRefusal(err, p.Host).write(w)
+		folderRefusal(err, machineLabel(names, p.Host)).write(w)
 		return
 	}
-	s.auditFolderProject(uid, "project-add", saved)
+	s.auditFolderProject(uid, "project-add", saved, names)
 	w.Header().Set("ETag", projectETag(saved.Version))
-	writeJSON(w, http.StatusCreated, viewFolderProject(saved))
+	writeJSON(w, http.StatusCreated, viewFolderProject(saved, names))
 }
 
 func folderVersionRefused(w http.ResponseWriter) {
@@ -331,19 +375,24 @@ func (s *server) folderProjectUpdate(w http.ResponseWriter, r *http.Request) {
 		folderRefusal(err, "").write(w)
 		return
 	}
+	names, err := s.machineNames(uid)
+	if err != nil {
+		folderRefusal(err, "").write(w)
+		return
+	}
 	p := in.apply(current)
-	if refusal := s.checkFolderProject(uid, &p, &current); refusal != nil {
+	if refusal := s.checkFolderProject(names, &p, &current); refusal != nil {
 		refusal.write(w)
 		return
 	}
 	saved, err := s.st.UpdateFolderProjectFor(uid, p, expect)
 	if err != nil {
-		folderRefusal(err, p.Host).write(w)
+		folderRefusal(err, machineLabel(names, p.Host)).write(w)
 		return
 	}
-	s.auditFolderProject(uid, "project-update", saved)
+	s.auditFolderProject(uid, "project-update", saved, names)
 	w.Header().Set("ETag", projectETag(saved.Version))
-	writeJSON(w, http.StatusOK, viewFolderProject(saved))
+	writeJSON(w, http.StatusOK, viewFolderProject(saved, names))
 }
 
 // folderProjectDelete removes the registry entry only; sessions and worktrees
@@ -361,17 +410,23 @@ func (s *server) folderProjectDelete(w http.ResponseWriter, r *http.Request) {
 		folderRefusal(err, "").write(w)
 		return
 	}
-	if err := s.st.DeleteFolderProjectFor(uid, id, expect); err != nil {
-		folderRefusal(err, p.Host).write(w)
+	names, err := s.machineNames(uid)
+	if err != nil {
+		folderRefusal(err, "").write(w)
 		return
 	}
-	s.auditFolderProject(uid, "project-remove", p)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Project removed. Its sessions and any worktrees stay on " + p.Host + "."})
+	if err := s.st.DeleteFolderProjectFor(uid, id, expect); err != nil {
+		folderRefusal(err, machineLabel(names, p.Host)).write(w)
+		return
+	}
+	s.auditFolderProject(uid, "project-remove", p, names)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Project removed. Its sessions and any worktrees stay on " + machineLabel(names, p.Host) + "."})
 }
 
 // folderProjectReorder puts the account's projects in the order given. ids
 // names every project once and versions[i] is the version read for ids[i]; a
-// stale or partial view is 409 project_changed and nothing moves. It answers
+// stale or partial view (including one naming a project another tab
+// removed) is 409 project_changed and nothing moves. It answers
 // the list in its new order, with the new versions.
 func (s *server) folderProjectReorder(w http.ResponseWriter, r *http.Request) {
 	var in struct {

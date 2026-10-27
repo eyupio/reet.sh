@@ -212,8 +212,11 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 	uid := s.uid(r)
 	// The project is checked before any machine is asked, so an unknown
 	// project is refused the same way whether the machine is online or not.
-	// The store checks it again when it reserves the session.
-	if in.ProjectID != "" {
+	// The store checks it again when it reserves the session. A resend of a
+	// create already recorded (its reply was lost) skips this check: the
+	// store compares its project with the recorded one and answers the
+	// session that started, even if the project was removed since.
+	if in.ProjectID != "" && !s.terminalCreateRecorded(uid, in.AgentID, in.RequestID) {
 		if err := s.st.TerminalProjectCheckFor(uid, in.AgentID, in.ProjectID); err != nil {
 			s.terminalCreateError(w, err, uid, in.AgentID, in.Tool)
 			return
@@ -228,6 +231,16 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		s.auditTerminalLaunch(uid, in.AgentID, create, session)
 	}
 	writeJSON(w, 200, session)
+}
+
+// terminalCreateRecorded reports whether uid already has a create with this
+// request id on agent.
+func (s *server) terminalCreateRecorded(uid int64, agent, requestID string) bool {
+	if requestID == "" {
+		return false
+	}
+	_, err := s.st.TerminalOperationFor(uid, agent, "create", requestID)
+	return err == nil
 }
 
 // terminalCreateError maps launch refusals to stable codes and plain

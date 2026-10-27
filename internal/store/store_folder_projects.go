@@ -16,6 +16,10 @@ const MaxFolderProjects = 100
 
 const maxFolderProjectPromptBytes = 2000
 
+// maxFolderProjectHostBytes bounds Host, the machine's enrollment id
+// (sync_agents.id), as remote agent authentication bounds ids.
+const maxFolderProjectHostBytes = 128
+
 var (
 	ErrFolderProjectLimit    = fmt.Errorf("an account can have at most %d projects", MaxFolderProjects)
 	ErrFolderProjectExists   = errors.New("that machine and folder is already a project")
@@ -27,7 +31,9 @@ var (
 	ErrFolderProjectInvalid = errors.New("invalid project")
 )
 
-// FolderProject is one folder on one machine. WorktreeDefault is "inherit"
+// FolderProject is one folder on one machine. Host is the machine's
+// enrollment id (sync_agents.id), never its name, so a rename keeps it.
+// WorktreeDefault is "inherit"
 // (use the person's setting), "yes" or "no". LegacyProjectID names the old
 // multi-repository Project member it was made from ("" for a new project), so
 // the migration can run again without making a second copy.
@@ -57,7 +63,6 @@ func (s *Store) migrateFolderProjects() error {
 				created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
 				version INTEGER NOT NULL DEFAULT 1,
 				PRIMARY KEY(user_id,id))`,
-			`CREATE UNIQUE INDEX IF NOT EXISTS folder_projects_machine ON folder_projects(user_id,lower(host),dir)`,
 			`CREATE UNIQUE INDEX IF NOT EXISTS folder_projects_name ON folder_projects(user_id,name_key)`,
 			`CREATE UNIQUE INDEX IF NOT EXISTS folder_projects_legacy ON folder_projects(user_id,legacy_project_id) WHERE legacy_project_id IS NOT NULL`,
 		} {
@@ -65,7 +70,30 @@ func (s *Store) migrateFolderProjects() error {
 				return err
 			}
 		}
-		return nil
+		// Hosts were once machine names (index folder_projects_machine, on
+		// lower(host)). Where exactly one of the account's machines has the
+		// name, and no row already holds that machine and folder, the name
+		// becomes the machine's id; any other row is left as it was. Runs
+		// once: the old index is dropped right after.
+		var old int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='folder_projects_machine'`).Scan(&old); err != nil {
+			return err
+		}
+		if old > 0 {
+			if _, err := tx.Exec(`UPDATE folder_projects SET host=(SELECT a.id FROM sync_agents a WHERE a.user_id=folder_projects.user_id AND lower(a.host)=lower(folder_projects.host))
+				WHERE NOT EXISTS(SELECT 1 FROM sync_agents a WHERE a.user_id=folder_projects.user_id AND a.id=folder_projects.host)
+				AND (SELECT COUNT(*) FROM sync_agents a WHERE a.user_id=folder_projects.user_id AND lower(a.host)=lower(folder_projects.host))=1
+				AND NOT EXISTS(SELECT 1 FROM folder_projects q JOIN sync_agents a ON a.user_id=q.user_id AND a.id=q.host
+					WHERE q.user_id=folder_projects.user_id AND q.dir=folder_projects.dir AND lower(a.host)=lower(folder_projects.host))`); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`DROP INDEX folder_projects_machine`); err != nil {
+				return err
+			}
+		}
+		// The machine is its enrollment id (sync_agents.id), compared exactly.
+		_, err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS folder_projects_agent_dir ON folder_projects(user_id,host,dir)`)
+		return err
 	})
 }
 
@@ -77,9 +105,8 @@ func folderInvalid(format string, args ...any) error {
 // the account's other names (see resolveFolderName). It returns the project as
 // it will be stored. ID, Position, times and Version are the caller's to set.
 func normalizeFolderProject(p FolderProject) (FolderProject, error) {
-	p.Host = strings.TrimSpace(p.Host)
-	if p.Host == "" || len(p.Host) > maxHostBytes || !plainText(p.Host) {
-		return p, folderInvalid("machine is required, at most %d bytes, plain text", maxHostBytes)
+	if p.Host == "" || len(p.Host) > maxFolderProjectHostBytes || strings.TrimSpace(p.Host) != p.Host || !plainText(p.Host) {
+		return p, folderInvalid("machine id is required, at most %d bytes, plain text", maxFolderProjectHostBytes)
 	}
 	dir, err := CleanProjectDir(p.Dir)
 	if err != nil {
@@ -375,6 +402,12 @@ func (s *Store) ReorderFolderProjectsFor(uid int64, ids []string, versions []int
 		}
 		for _, id := range ids {
 			if _, ok := have[id]; !ok {
+				// An account with projects reads a missing one as a view
+				// gone stale (another tab removed it); one with none has
+				// nothing to reorder. Another account's id is just unknown.
+				if len(have) > 0 {
+					return ErrFolderProjectChanged
+				}
 				return ErrFolderProjectNotFound
 			}
 		}

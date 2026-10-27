@@ -31,25 +31,40 @@ func (s *server) registerProjectRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/project-runs/{runId}", s.projectAccess(s.projectRun))
 }
 
+// accessWords are the three refusal sentences of featureAccess, naming the
+// feature the routes belong to.
+type accessWords struct{ accounts, signedOut, readOnly string }
+
+var projectsAccessWords = accessWords{
+	accounts:  "Projects need an account signed in through the browser.",
+	signedOut: "Sign in to use Projects.",
+	readOnly:  "This account is read-only, so it can't use Projects.",
+}
+
 // projectAccess admits only a signed-in browser account that may write, as
 // terminals do: Projects start agents on the person's machines. API tokens,
 // single-token and open modes, and viewers are refused; every change must come
 // from the canonical origin.
 func (s *server) projectAccess(next http.HandlerFunc) http.HandlerFunc {
+	return s.featureAccess(projectsAccessWords, next)
+}
+
+// featureAccess is projectAccess with the feature's own refusal sentences.
+func (s *server) featureAccess(words accessWords, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if s.authMode != AuthAccounts || requestToken(r) != "" {
-			writeErrCode(w, http.StatusForbidden, "accounts_required", "", "Projects need an account signed in through the browser.", "")
+			writeErrCode(w, http.StatusForbidden, "accounts_required", "", words.accounts, "")
 			return
 		}
 		u, ok := s.sessionUser(r)
 		if !ok {
-			writeErrCode(w, http.StatusUnauthorized, "signed_out", "", "Sign in to use Projects.", "")
+			writeErrCode(w, http.StatusUnauthorized, "signed_out", "", words.signedOut, "")
 			return
 		}
 		if u.Role == "viewer" {
-			writeErrCode(w, http.StatusForbidden, "read_only", "", "This account is read-only, so it can't use Projects.", "")
+			writeErrCode(w, http.StatusForbidden, "read_only", "", words.readOnly, "")
 			return
 		}
 		if r.Method != http.MethodGet && !s.terminalOrigin(r) {

@@ -464,6 +464,31 @@ try{
  await expect(page).toHaveURL(`${base}/machines`)
  await page.keyboard.press('Escape')
 
+ // From Machines, too, the dialog stays Starting… until the page has gone; if the next page never arrives (here a 204), it
+ // lets go after a few seconds instead of leaving a modal with no way out.
+ await page.goto(`${base}/machines`)
+ const onlyTerminals=url=>new URL(url).pathname==='/terminals'
+ await page.route(onlyTerminals,route=>route.fulfill({status:204,body:''}))
+ await cardEntry('dev-laptop').click()
+ d=dialog();p=parts(d)
+ await expect(p.machine).toHaveValue(A)
+ const postsBefore=posts.length
+ await expect(p.start).toBeEnabled()
+ // Pressed from inside: Playwright's own click waits for the navigation it starts, which a 204 never finishes.
+ await page.evaluate(()=>document.querySelector('dialog[open] footer button[type=submit]').click())
+ // Playwright's locators wait for a navigation a 204 never finishes, so the page is read from inside.
+ const held=()=>page.evaluate(()=>{const x=document.querySelector('dialog[open]');return{url:location.pathname,open:!!x,text:x?.querySelector('footer button[type=submit]')?.textContent,close:x?.querySelector('[data-shell-close]')?.disabled}})
+ await expect.poll(()=>posts.length).toBe(postsBefore+1)
+ await page.waitForTimeout(1500)
+ expect(await held()).toEqual({url:'/machines',open:true,text:'Starting…',close:true})
+ await expect.poll(held,{timeout:9000}).toMatchObject({url:'/machines',open:false})
+ expect(posts.length).toBe(postsBefore+1)
+ // When it lets go it says what started, with the way to it, as Home does.
+ const stalled=body(-1),stalledSession=`session-${stalled.requestId.replaceAll('-','').slice(0,20)}`
+ const said=await page.evaluate(()=>{const n=[...document.querySelectorAll('.notice')].find(x=>x.textContent.startsWith('Started '));return{text:n?.textContent??null,href:n?.querySelector('a')?.getAttribute('href')??null}})
+ expect(said).toEqual({text:`Started ${stalled.title} on dev-laptop. Open it`,href:`/terminals?agent=${A}&session=${stalledSession}`})
+ await page.unroute(onlyTerminals)
+
  // A 401 from the card's dialog hands over to the sign-in card, as the page's other dialogs do.
  await page.goto(`${base}/machines`)
  await cardEntry('dev-laptop').click()
@@ -702,8 +727,8 @@ try{
  await page.keyboard.press('Escape')
  await page.emulateMedia({reducedMotion:'no-preference',colorScheme:'light'})
 
- // The matrix wrote nothing to browser storage under any key not already written before it (the workspace's layout preference and
- // the sign-in token's clean-up), and nothing about a prompt, model or folder.
+ // The matrix wrote nothing to browser storage under any key not already written before it (the sign-in token's clean-up), and
+ // nothing about a prompt, model or folder. Opening the sessions list the way a person does writes no layout either.
  const keyOf=w=>w.split(' ',2).join(' ')
  const knownKeys=new Set(storageWrites.slice(0,writesBefore).map(keyOf))
  const matrixWrites=storageWrites.slice(writesBefore)
@@ -716,7 +741,9 @@ try{
  const kept=await page.evaluate(async()=>JSON.stringify({local:{...localStorage},session:{...sessionStorage},calls:window.__storageCalls,idb:(await indexedDB.databases()).map(x=>x.name)}))
  const addresses=[...urls,...await page.evaluate(()=>window.__urls)].join('\n')
  const written=storageWrites.join('\n')
- expect(written).toContain('reet-terminal-layout')   // the recorder works: the layout preference is written
+ // The storage recorder works: a write made here is seen (the workspace writes its layout only when a person changes it).
+ await page.evaluate(()=>{localStorage.setItem('recorder-probe','x');localStorage.removeItem('recorder-probe')})
+ expect(storageWrites.slice(-2)).toEqual(['setItem recorder-probe x','removeItem recorder-probe '])
  for(const secret of [...secrets,'tidy the readme','look around here','wait for me please','sonnet-4','/home/dev/held','purge','-fix','"tool"'])for(const where of [kept,addresses,written])expect(where.includes(secret)).toBe(false)
  expect(JSON.parse(kept).idb).toEqual([])
  expect(storageWrites.filter(w=>w.startsWith('idb-'))).toEqual([])

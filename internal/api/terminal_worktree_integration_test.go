@@ -20,6 +20,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/eyupio/reet.sh/internal/agenthealth"
 	"github.com/eyupio/reet.sh/internal/privateconn"
+	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalagent"
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
@@ -159,7 +160,7 @@ func startTestMachine(t *testing.T, srv *Server, uid int64, agentID, secret, dir
 		defer mu.Unlock()
 		return c.Write(ctx, websocket.MessageText, data)
 	}
-	factory := terminalagent.Factory(terminalhost.ManagerOptions{EnrollmentID: agentID, Layout: layout, Home: home, Consent: func() error { return nil }})
+	factory := terminalagent.Factory(terminalhost.ManagerOptions{EnrollmentID: agentID, Layout: layout, Home: home, Consent: func() error { return nil }, BrowseConsent: func() error { return nil }})
 	handle, cleanup := factory(ctx, privateClient, headers, reply.Generation, agenthealth.Sender(send))
 	done := make(chan struct{})
 	go func() {
@@ -555,5 +556,203 @@ func TestTerminalPrivateWorktreeStartsTheRecordedAgentInItsOwnWorktree(t *testin
 	}
 	if !found {
 		t.Fatal("terminal-launch audit lacks the worktree", launches)
+	}
+}
+
+// TestTerminalPrivateBrowseAndBranches browses a real machine's home, enters a
+// repository and lists its branches over a real private connection; an older
+// machine is asked to update and keeps its connection; the controller keeps
+// only one audit row, without a folder name from the machine.
+func TestTerminalPrivateBrowseAndBranches(t *testing.T) {
+	if _, err := terminalhost.FindTmux(t.Context()); err != nil {
+		if os.Getenv("REET_BROWSER_TESTS") == "1" {
+			t.Fatal("browse gate requires installed tmux", err)
+		}
+		t.Skip(err)
+	}
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		if os.Getenv("REET_BROWSER_TESTS") == "1" {
+			t.Fatal("browse gate requires installed git", err)
+		}
+		t.Skip("git is not on PATH; the branch listing needs real git")
+	}
+	tmux, _ := terminalhost.FindTmux(t.Context())
+	dir, err := os.MkdirTemp("/tmp", "reet-browse-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	home := filepath.Join(dir, "home")
+	oldHome := filepath.Join(dir, "old-home")
+	for _, d := range []string{home, oldHome, filepath.Join(home, "work", "plain-walrus"), filepath.Join(home, ".hidden-ibis")} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", filepath.Dir(tmux.Path)+":"+filepath.Dir(gitPath)+":/usr/bin:/bin")
+	t.Setenv("HOME", home)
+	realHome, _ := filepath.EvalSymlinks(home) // /tmp is a symlink on macOS
+	if err := os.WriteFile(filepath.Join(home, "secret-pelican.txt"), []byte("never listed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	site := filepath.Join(home, "work", "site-heron")
+	integrationRepo(t, site)
+	mustGit(t, site, "branch", "feature-tapir")
+
+	storeDir := t.TempDir()
+	st, err := store.Open(storeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	uid, _ := st.DefaultOwner()
+	agent, secret, err := st.EnrollSyncAgent(uid, "studio", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldAgent, oldSecret, err := st.EnrollSyncAgent(uid, "old-desktop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(st, deadFetcher(t), "", WithAuthMode(AuthAccounts), WithRemoteTerminals(true), WithPublicURL("https://reet.example"))
+	t.Cleanup(func() { srv.Close() })
+	cookie := terminalLogin(t, st, uid)
+	public := httptest.NewServer(srv)
+	defer public.Close()
+	srv.s.publicURL = public.URL
+
+	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", TerminalControl: true, TerminalEnabled: true, HealthEnabled: true, Readiness: terminalproto.Ready, CommandHistory: true, Launch: true, Tools: []string{"claude"}, Worktree: true, Browse: true, Branches: true}
+	startTestMachine(t, srv, uid, agent.ID, secret, dir, home, terminalproto.CommandHistoryFeature+","+terminalproto.LaunchFeature+","+terminalproto.WorktreeFeature+","+terminalproto.BrowseFeature+","+terminalproto.BranchesFeature, caps)
+	oldCaps := caps
+	oldCaps.Browse, oldCaps.Branches = false, false
+	old := startTestMachine(t, srv, uid, oldAgent.ID, oldSecret, dir, oldHome, terminalproto.CommandHistoryFeature+","+terminalproto.LaunchFeature+","+terminalproto.WorktreeFeature, oldCaps)
+
+	get := func(cookie, path string) (int, map[string]any, string) {
+		t.Helper()
+		r, _ := http.NewRequestWithContext(t.Context(), "GET", public.URL+path, nil)
+		r.Header.Set("Sec-Fetch-Site", "same-origin")
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+		resp, err := public.Client().Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(resp.Body)
+		out := map[string]any{}
+		_ = json.Unmarshal(raw, &out)
+		return resp.StatusCode, out, string(raw)
+	}
+	names := func(out map[string]any) []string {
+		var got []string
+		entries, _ := out["entries"].([]any)
+		for _, e := range entries {
+			got = append(got, e.(map[string]any)["name"].(string))
+		}
+		return got
+	}
+	time.Sleep(50 * time.Millisecond)
+	before := storeDump(t, storeDir)
+	nonce := browseNonce()
+
+	// Home: folders only, hidden ones left out, and no file name.
+	code, out, raw := get(cookie, browsePath(agent.ID, nonce, nil))
+	if code != 200 || out["home"] != realHome || out["path"] != realHome || out["parent"] != "" || out["repo"] != "none" || strings.Join(names(out), ",") != "work" {
+		t.Fatal("home", code, raw)
+	}
+	if strings.Contains(raw, "secret-pelican") || strings.Contains(raw, "hidden-ibis") {
+		t.Fatal("home listed a file or a hidden folder", raw)
+	}
+	// Enter work: the repository is marked.
+	code, out, raw = get(cookie, browsePath(agent.ID, nonce, url.Values{"path": {filepath.Join(home, "work")}}))
+	if code != 200 || strings.Join(names(out), ",") != "plain-walrus,site-heron" || out["parent"] != realHome {
+		t.Fatal("work", code, raw)
+	}
+	entries := out["entries"].([]any)
+	if entries[0].(map[string]any)["repoRoot"] != false || entries[1].(map[string]any)["repoRoot"] != true || entries[1].(map[string]any)["dir"] != true {
+		t.Fatal("repository marks", raw)
+	}
+	// Enter the repository.
+	realSite := filepath.Join(realHome, "work", "site-heron")
+	code, out, raw = get(cookie, browsePath(agent.ID, nonce, url.Values{"path": {site}}))
+	if code != 200 || out["path"] != realSite || out["repo"] != "root" || out["repoTop"] != realSite {
+		t.Fatal("repository", code, raw)
+	}
+	// Its branches, through real git on the machine.
+	code, out, raw = get(cookie, branchesPath(agent.ID, site, ""))
+	branches, _ := out["branches"].([]any)
+	if code != 200 || out["current"] != "main" || out["more"] != false || len(branches) != 2 {
+		t.Fatal("branches", code, raw)
+	}
+	got := map[any]bool{branches[0]: true, branches[1]: true}
+	if !got["main"] || !got["feature-tapir"] {
+		t.Fatal("branch names", raw)
+	}
+	code, out, raw = get(cookie, branchesPath(agent.ID, site, "TAPIR"))
+	if code != 200 || len(out["branches"].([]any)) != 1 || out["branches"].([]any)[0] != "feature-tapir" {
+		t.Fatal("filtered branches", code, raw)
+	}
+	// Refusals from the machine itself.
+	if code, out, raw := get(cookie, browsePath(agent.ID, nonce, url.Values{"path": {filepath.Join(home, "missing")}})); code != 404 || out["error"] != "That folder isn't on studio." {
+		t.Fatal("missing folder", code, raw)
+	}
+	if code, out, raw := get(cookie, browsePath(agent.ID, nonce, url.Values{"path": {dir}})); code != 422 || out["code"] != "outside_home" || out["error"] != "That folder is outside the home folder reet was set up with." {
+		t.Fatal("outside home", code, raw)
+	}
+	if code, out, raw := get(cookie, branchesPath(agent.ID, filepath.Join(home, "work", "plain-walrus"), "")); code != 422 || out["code"] != "not_repo_root" {
+		t.Fatal("branches of a plain folder", code, raw)
+	}
+
+	// The older machine is asked to update, and keeps its connection.
+	if code, out, raw := get(cookie, browsePath(oldAgent.ID, nonce, nil)); code != 409 || out["code"] != "browse_unsupported" || out["error"] != "Update reet on that machine to browse its folders." {
+		t.Fatal("old machine browse", code, raw)
+	}
+	if code, out, raw := get(cookie, branchesPath(oldAgent.ID, oldHome, "")); code != 409 || out["code"] != "branches_unsupported" {
+		t.Fatal("old machine branches", code, raw)
+	}
+	if !srv.s.terminals.Ready(uid, oldAgent.ID) {
+		t.Fatal("the old machine's connection ended")
+	}
+	// One audit row for this browser, with no name from the machine, and
+	// nothing else stored about the browse.
+	rows := browseEvents(t, st, uid)
+	if len(rows) != 1 || len(rows[0]) != 3 || rows[0]["machine"] != agent.ID || rows[0]["path"] != "~" || rows[0]["pages"] != 5.0 {
+		t.Fatal("folder-browse audit", rows)
+	}
+	time.Sleep(50 * time.Millisecond)
+	changes := storeChanges(before, storeDump(t, storeDir))
+	for table, rows := range changes {
+		for _, row := range rows {
+			if table == "events" && strings.Contains(row, "action=folder-browse;") {
+				continue
+			}
+			t.Fatal("a browse wrote to the store", table, row)
+		}
+	}
+	data, _ := json.Marshal(map[string]any{"agentId": oldAgent.ID, "requestId": terminalbroker.ID(), "title": "Shell", "cols": 80, "rows": 24})
+	r, _ := http.NewRequestWithContext(t.Context(), "POST", public.URL+"/api/v2/terminal/sessions", strings.NewReader(string(data)))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Origin", public.URL)
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+	resp, err := public.Client().Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 || len(old.sessions()) != 1 {
+		t.Fatal("plain shell on the old machine", resp.StatusCode, old.sessions())
+	}
+
+	// A viewer is refused.
+	viewer, err := st.CreateUser("browse-viewer@example.test", "Viewer", "viewer", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _, raw := get(terminalLogin(t, st, viewer.ID), browsePath(agent.ID, browseNonce(), nil)); code != 403 {
+		t.Fatal("viewer", code, raw)
+	}
+
+	if found := filesContain(t, storeDir, "plain-walrus", "site-heron", "secret-pelican", "hidden-ibis", "feature-tapir"); len(found) != 0 {
+		t.Fatal("the store's files hold names from the machine", found)
 	}
 }

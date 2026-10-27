@@ -78,7 +78,9 @@ try {
   await page.getByRole('menu',{name:'Terminal actions',exact:true}).getByRole('menuitem',{name:'Saved commands…',exact:true}).click()
   await expect(page.getByRole('dialog')).toHaveAccessibleName('Saved commands')
   await page.getByRole('button',{name:'Close Saved commands',exact:true}).click()
-  await page.getByRole('button',{name:'Close session navigation',exact:true}).click()
+  // The panel's chevron shrinks it to the mini rail; the rail's chevron closes it.
+  await page.getByRole('button',{name:'Shrink sessions to a mini rail',exact:true}).click()
+  await page.getByRole('complementary',{name:'Session rail'}).getByRole('button',{name:'Close session navigation',exact:true}).click()
   await page.locator('.terminal-toolbar').getByRole('button',{name:'Show sessions',exact:true}).click()
   await expect(page.getByRole('complementary',{name:'Session navigation'})).toBeVisible()
   expect(sockets).toBe(actionSockets);expect(await state()).toEqual(original)

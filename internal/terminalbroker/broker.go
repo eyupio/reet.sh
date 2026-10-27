@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -37,6 +38,9 @@ type Broker struct {
 	closed  bool
 	// lateRemoved hears of a remove whose ok answer came after its call.
 	lateRemoved func(uid int64, target WorktreeTarget, result terminalproto.WorktreeResult)
+	// lateReplies counts browse and branches answers that came after their
+	// request gave up; they are dropped, never treated as protocol errors.
+	lateReplies atomic.Int64
 }
 type Peer struct {
 	b            *Broker
@@ -338,6 +342,12 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 	// any remove, and a remove's outcome is read again by asking for status.
 	switch m.Body.(type) {
 	case *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.WorktreeState, *terminalproto.WorktreeResult:
+		return nil
+	case *terminalproto.BrowseResult, *terminalproto.BranchesResult:
+		// The machine answers a browse by 4 s and a listing by 8 s, which can
+		// be after the request gave up. Such an answer is read-only and has
+		// no request left to answer: it is counted and dropped.
+		p.b.lateReplies.Add(1)
 		return nil
 	}
 	return terminalproto.ErrInvalid

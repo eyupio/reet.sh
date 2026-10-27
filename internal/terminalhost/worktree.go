@@ -119,7 +119,7 @@ func runGit(ctx context.Context, path string, timeout time.Duration, limit int, 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, append([]string{"-C", dir}, args...)...)
-	cmd.Env = gitEnvironment(os.Environ())
+	cmd.Env = append(gitEnvironment(os.Environ()), pinnedGitEnv(ctx)...)
 	out := &truncatingBuffer{limit: limit}
 	cmd.Stdout, cmd.Stderr = out, out
 	killGroupOnCancel(cmd)
@@ -129,6 +129,32 @@ func runGit(ctx context.Context, path string, timeout time.Duration, limit int, 
 		return out.Bytes(), fmt.Errorf("git timed out: %w", ctx.Err())
 	}
 	return out.Bytes(), err
+}
+
+// pinnedGitKey carries, in a context, the repository a git call is pinned
+// to (see pinGitDir).
+type pinnedGitKey struct{}
+
+// pinGitDir returns ctx with git calls made through ExecGit pinned to the
+// repository at dir: GIT_DIR=<dir>/.git and GIT_CEILING_DIRECTORIES=<parent
+// of dir>, added to the hardened environment. git then reads that .git or
+// fails; it never searches the folders above dir for another repository,
+// which it would do for a .git it does not accept as a git directory.
+func pinGitDir(ctx context.Context, dir string) context.Context {
+	return context.WithValue(ctx, pinnedGitKey{}, dir)
+}
+
+// pinnedGitEnv is the environment pinGitDir adds, or nothing.
+func pinnedGitEnv(ctx context.Context) []string {
+	dir, ok := ctx.Value(pinnedGitKey{}).(string)
+	if !ok || !filepath.IsAbs(dir) {
+		return nil
+	}
+	// GIT_NO_LAZY_FETCH: in a partial clone, git never fetches a missing
+	// object (which would run the repository's configured ssh command or
+	// remote helper). Older gits ignore it; ListBranches then also avoids
+	// reading objects in such a repository.
+	return []string{"GIT_DIR=" + filepath.Join(dir, ".git"), "GIT_CEILING_DIRECTORIES=" + filepath.Dir(dir), "GIT_NO_LAZY_FETCH=1"}
 }
 
 // gitEnvironment keeps only HOME, PATH and LANG (the first of each). No
@@ -186,7 +212,7 @@ func worktreeDetail(out []byte) string {
 	}
 	var b strings.Builder
 	for _, r := range strings.ToValidUTF8(line, "") {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == ' ' || r == ' ' {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
 			continue
 		}
 		if b.Len()+utf8.RuneLen(r) > terminalproto.MaxWorktreeDetailBytes {
@@ -793,7 +819,7 @@ func parseStatus(out []byte) (int, []string) {
 func plainPath(p string) string {
 	var b strings.Builder
 	for _, r := range strings.ToValidUTF8(p, "�") {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == ' ' || r == ' ' {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
 			r = '�'
 		}
 		if b.Len()+utf8.RuneLen(r) > terminalproto.MaxWorktreePathBytes {

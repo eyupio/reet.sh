@@ -386,7 +386,7 @@ func TestWorktreeResultCarriesReason(t *testing.T) {
 		"unknown reason":        {Code: WorktreeRefused, Reason: "nope"},
 		"detail without reason": {Code: WorktreeRefused, Detail: "x"},
 		"detail control":        {Code: WorktreeRefused, Reason: WorktreeGitFailed, Detail: "a\nb"},
-		"detail bidi":           {Code: WorktreeRefused, Reason: WorktreeGitFailed, Detail: "a‮b"},
+		"detail bidi":           {Code: WorktreeRefused, Reason: WorktreeGitFailed, Detail: "a\u202eb"},
 		"detail too long":       {Code: WorktreeRefused, Reason: WorktreeGitFailed, Detail: strings.Repeat("a", MaxWorktreeDetailBytes+1)},
 	} {
 		if _, err := Encode(Message{Version: Version, RequestID: "request-0123456789", Generation: 1, Body: r}); err == nil {

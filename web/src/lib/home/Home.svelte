@@ -153,10 +153,18 @@
     notice = null
     if (await machinesForDialog()) creating = { opener }
   }
-  function started(session: TerminalSession) {
+  // A start goes straight to the new session, at the address the Machines and Terminals pages use. The row is added first, so
+  // Home has it if the browser brings this page back from its cache on Back; the dialog stays Starting… until the page goes.
+  const sessionHref = (session: TerminalSession) => `/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`
+  function started(session: TerminalSession): 'leaving' {
     sessions = [session, ...(sessions ?? []).filter(s => s.id !== session.id)]
+    location.assign(sessionHref(session))
+    return 'leaving'
+  }
+  // The next page never arrived (the dialog let go after a few seconds): say what started, with the way to it.
+  function leaveFailed(session: TerminalSession) {
     const host = health?.find(m => m.agentId === session.agentId)?.host ?? terminals?.find(m => m.agentId === session.agentId)?.host ?? session.agentId
-    notice = { text: `Started ${session.title} on ${host}.`, href: `/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}` }
+    notice = { text: `Started ${session.title} on ${host}.`, href: sessionHref(session) }
     void load(true)
   }
   function saved(p: Project) {
@@ -170,7 +178,11 @@
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void load() }, POLL_MS)
     const shown = () => { if (document.visibilityState === 'visible') void load() }
     document.addEventListener('visibilitychange', shown)
-    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', shown); life.abort() }
+    // Back from the session the person just started: a page restored from the browser's cache shows lists as they were, so
+    // it reads everything again. (The Start dialog closes itself and gives focus back to its button.)
+    const restored = (e: PageTransitionEvent) => { if (e.persisted) void load(true) }
+    window.addEventListener('pageshow', restored)
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', shown); window.removeEventListener('pageshow', restored); life.abort() }
   })
 </script>
 
@@ -197,7 +209,7 @@
 </div>
 
 {#if starting && terminals}
-  <StartAgentDialog machines={terminals} snapshot={folders} opener={starting.opener} onstarted={started} onaddmachine={() => location.assign(machinesAt('add-machine'))} {onsignedout} onclose={() => (starting = null)} />
+  <StartAgentDialog machines={terminals} snapshot={folders} opener={starting.opener} onstarted={started} onleavefailed={leaveFailed} onaddmachine={() => location.assign(machinesAt('add-machine'))} {onsignedout} onclose={() => (starting = null)} />
 {/if}
 {#if creating && terminals}
   <ProjectDialog machines={terminals} snapshot={folders} otherNames={(projects ?? []).map(p => p.name)} opener={creating.opener} onsaved={saved} {onsignedout} onclose={() => (creating = null)} />

@@ -77,6 +77,10 @@ type server struct {
 	terminalOverride  atomic.Pointer[bool]
 	publicURLOverride atomic.Pointer[string]
 	terminalControlMu sync.Mutex
+	// Folder browse and branch listing (terminal_browse.go).
+	browseOnce   sync.Once
+	browseLimits *browseLimits
+	browseAudit  *browseAudit
 }
 
 // AuthMode selects how the instance authenticates requests.
@@ -382,6 +386,7 @@ func (s *server) routes() http.Handler {
 	s.registerNotificationRoutes(mux)
 	s.registerHealthRoutes(mux)
 	s.registerTerminalRoutes(mux)
+	s.registerBrowseRoutes(mux)
 	s.registerProjectRoutes(mux)
 	s.registerProjectRunRoutes(mux)
 	mux.HandleFunc("GET /quick", s.requireWriter(s.quick))

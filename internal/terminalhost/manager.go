@@ -24,8 +24,13 @@ type ManagerOptions struct {
 	// Consent must re-read locally bound enrollment/opt-in. A controller cannot
 	// supply it. Later network callers must additionally authenticate the owner.
 	Consent func() error
-	// Git runs git for worktrees; nil means ExecGit. Only tests set it.
+	// Git runs git for worktrees and branch listings; nil means ExecGit.
+	// Only tests set it.
 	Git GitRunner
+	// BrowseConsent re-reads the machine's local folder-browse switch
+	// (reet terminal browse on|off) before each browse request. nil or an
+	// error refuses browsing. The connector reads it; the manager does not.
+	BrowseConsent func() error
 }
 
 type Manager struct {

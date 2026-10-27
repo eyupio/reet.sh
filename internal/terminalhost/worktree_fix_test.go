@@ -135,7 +135,7 @@ func TestWorktreeListParseResistsNewlinePaths(t *testing.T) {
 }
 
 func TestPrepareWorktreeRefusesHomeWithControlCharacters(t *testing.T) {
-	for name, part := range map[string]string{"newline": "a\nb", "bidi": "a‮b", "tab": "a\tb"} {
+	for name, part := range map[string]string{"newline": "a\nb", "bidi": "a\u202eb", "tab": "a\tb"} {
 		t.Run(name, func(t *testing.T) {
 			base := worktreeHome(t)
 			home := filepath.Join(base, part)

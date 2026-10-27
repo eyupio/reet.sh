@@ -55,7 +55,7 @@
     highlight?: string
     onupdate: (state: SyncState) => void
     onerror: (error: unknown) => void
-    onnotice: (message: string) => void
+    onnotice: (message: string, href?: string) => void
     // The sign-in ran out inside a dialog: the page clears it and shows its sign-in card.
     onsignedout?: (error: unknown) => void
   } = $props()
@@ -101,8 +101,16 @@
     if (!terminals) return 'Checking whether this machine is ready for terminals.'
     return cardReadiness(terminals.find((item) => item.agentId === agentId))
   }
-  function agentStarted(session: TerminalSession) {
-    location.assign(`/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`)
+  // The dialog stays Starting… until the Terminals page arrives, and lets go by itself if it never does.
+  const sessionHref = (session: TerminalSession) => `/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`
+  function agentStarted(session: TerminalSession): 'leaving' {
+    location.assign(sessionHref(session))
+    return 'leaving'
+  }
+  // The Terminals page never arrived (the dialog let go after a few seconds): say what started, with the way to it, as Home does.
+  function agentLeaveFailed(session: TerminalSession) {
+    const host = terminals?.find((m) => m.agentId === session.agentId)?.host ?? session.agentId
+    onnotice(`Started ${session.title} on ${host}.`, sessionHref(session))
   }
   // From Start an agent, Not listed? closes it and opens Add a machine, which hands focus back to Start an agent's button.
   function addFromStart(source: { opener: HTMLElement | null }): (() => void) | undefined {
@@ -403,7 +411,7 @@
   </div>
 </section>
 
-{#if startAgent && terminalAccess && terminals}<StartAgentDialog machines={terminals} snapshot={snapshot.machines ?? []} initialAgent={startAgent.agent} opener={startAgent.opener} onstarted={agentStarted} onaddmachine={addFromStart(startAgent)} {onsignedout} onclose={() => (startAgent = null)} />{/if}
+{#if startAgent && terminalAccess && terminals}<StartAgentDialog machines={terminals} snapshot={snapshot.machines ?? []} initialAgent={startAgent.agent} opener={startAgent.opener} onstarted={agentStarted} onleavefailed={agentLeaveFailed} onaddmachine={addFromStart(startAgent)} {onsignedout} onclose={() => (startAgent = null)} />{/if}
 
 {#if importSource}<MachineSkillImports {snapshot} source={importSource} onclose={() => importSource = null} />{/if}
 

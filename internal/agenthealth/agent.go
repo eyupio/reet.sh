@@ -40,6 +40,9 @@ type AgentConfig struct {
 	commandHistory    bool
 	launch            bool
 	worktree          bool
+	browse            bool
+	branches          bool
+	browseAllowed     bool
 	OnConnection      func(bool)
 	TerminalSession   TerminalFactory
 	control           func(context.Context, terminalproto.Message) error
@@ -60,6 +63,15 @@ type AgentConfig struct {
 	// GitAvailable reports whether git is on this connector's PATH, for run
 	// worktrees. Nil means the connector cannot make worktrees.
 	GitAvailable func() bool
+	// BrowseAllowed re-reads the machine's local folder-browse switch
+	// (reet terminal browse on|off). It is polled with Consent. Nil means
+	// browsing is refused.
+	BrowseAllowed func() bool
+	// TerminalAllowed re-reads the local terminal opt-in alone (the
+	// enrollment is still this one and terminal access is on), without
+	// probing readiness. Browse and branches requests are gated on it; nil
+	// refuses them.
+	TerminalAllowed func() bool
 
 	Collector        Collector
 	HTTPClient       *http.Client
@@ -197,6 +209,7 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 	if cfg.Consent != nil {
 		cfg.TerminalEnabled, cfg.TerminalReadiness = readConsent(cfg.Consent)
 	}
+	cfg.browseAllowed = readBrowseAllowed(cfg)
 	address, err := bootstrap(ctx, cfg)
 	if err != nil {
 		return false, err
@@ -291,7 +304,13 @@ func runControlWorkers(ctx context.Context, cfg AgentConfig, conn *websocket.Con
 	var workers sync.WaitGroup
 	start := func(fn func()) { workers.Add(1); go func() { defer workers.Done(); fn() }() }
 	defer func() { cancel(); conn.CloseNow(); workers.Wait() }()
-	start(func() { readControlWithTerminal(sessionCtx, conn, generation, send, errorsSeen, cfg.control) })
+	control := cfg.control
+	if control != nil {
+		control = gateMachineRequests(cfg, control, send)
+	}
+	start(func() {
+		readControlWithTerminal(sessionCtx, conn, generation, send, errorsSeen, terminalFeatures(cfg), control)
+	})
 	start(func() { reportHealth(sessionCtx, cfg, generation, sequence, send, errorsSeen) })
 	if cfg.Consent != nil {
 		initial := capabilities(cfg)
@@ -307,6 +326,50 @@ func runControlWorkers(ctx context.Context, cfg AgentConfig, conn *websocket.Con
 		return err
 	}
 }
+
+// gateMachineRequests serves a browse or branches request whose feature was
+// negotiated only while the connector would advertise the matching
+// capability, worked out afresh (terminal consent and the browse switch are
+// re-read) for each request; otherwise it answers off (browse) or denied
+// (branches) itself, so the connector never serves more than it offers. Everything else, including a
+// browse or branches request that was not negotiated (a protocol error
+// there), goes to control.
+func gateMachineRequests(cfg AgentConfig, control func(context.Context, terminalproto.Message) error, send Sender) func(context.Context, terminalproto.Message) error {
+	return func(ctx context.Context, m terminalproto.Message) error {
+		switch m.Body.(type) {
+		case *terminalproto.Browse:
+			if cfg.browse && !currentCapabilities(cfg).Browse {
+				m.Body = terminalproto.BrowseResult{Reason: terminalproto.BrowseOff}
+				return send(ctx, m)
+			}
+		case *terminalproto.Branches:
+			if cfg.branches && !currentCapabilities(cfg).Branches {
+				m.Body = terminalproto.BranchesResult{Reason: terminalproto.BranchesDenied}
+				return send(ctx, m)
+			}
+		}
+		return control(ctx, m)
+	}
+}
+
+// currentCapabilities is the browse and branches part of what the
+// connector would advertise now, from cheap local reads only: the terminal
+// opt-in (TerminalAllowed) and the browse switch are read again, git is
+// looked up on PATH. It never calls Consent, whose readiness probe runs
+// tmux and can take seconds; neither capability depends on readiness.
+func currentCapabilities(cfg AgentConfig) terminalproto.Capabilities {
+	enabled := cfg.TerminalAllowed != nil && cfg.TerminalAllowed()
+	readiness := terminalproto.DisabledLocally
+	if enabled {
+		readiness = terminalproto.Ready
+	}
+	cfg.browseAllowed = readBrowseAllowed(cfg)
+	return capabilitiesFor(cfg, enabled, readiness)
+}
+
+// readBrowseAllowed reads the local folder-browse switch; without one,
+// browsing is refused.
+func readBrowseAllowed(cfg AgentConfig) bool { return cfg.BrowseAllowed != nil && cfg.BrowseAllowed() }
 
 func readConsent(read func() (bool, terminalproto.Readiness, error)) (bool, terminalproto.Readiness) {
 	enabled, readiness, err := read()
@@ -325,27 +388,41 @@ func readConsent(read func() (bool, terminalproto.Readiness, error)) (bool, term
 const terminalQueueSize = 64
 
 // unavailable is the answer to a request the dispatcher cannot take: a
-// worktree request gets a worktree_result, every other request a result,
-// with the request's own envelope.
-func unavailable(m terminalproto.Message) terminalproto.Message {
+// worktree request gets a worktree_result, a browse or branches request its
+// own result as conflict (busy), every other request a result, with the
+// request's own envelope. A browse or branches request whose feature is not
+// in features (what this connection negotiated) has no answer: it is a
+// protocol error, as the dispatcher would treat it, and false is returned.
+func unavailable(m terminalproto.Message, features string) (terminalproto.Message, bool) {
 	switch m.Body.(type) {
 	case *terminalproto.WorktreeStatus, *terminalproto.WorktreeRemove:
 		m.Body = terminalproto.WorktreeResult{Code: terminalproto.Unavailable}
+	case *terminalproto.Browse:
+		if !terminalproto.SupportsBrowse(features) {
+			return m, false
+		}
+		m.Body = terminalproto.BrowseResult{Reason: terminalproto.BrowseConflict}
+	case *terminalproto.Branches:
+		if !terminalproto.SupportsBranches(features) {
+			return m, false
+		}
+		m.Body = terminalproto.BranchesResult{Reason: terminalproto.BranchesConflict}
 	default:
 		m.Body = terminalproto.Result{Code: terminalproto.Unavailable}
 	}
-	return m
+	return m, true
 }
 
 func readControl(ctx context.Context, conn *websocket.Conn, generation int64, send Sender, errorsSeen chan<- error) {
-	readControlWithTerminal(ctx, conn, generation, send, errorsSeen, nil)
+	readControlWithTerminal(ctx, conn, generation, send, errorsSeen, "", nil)
 }
+
 // readControlWithTerminal answers probes on the reader itself and hands every
 // other message to one dispatcher goroutine, in arrival order, over a bounded
 // queue. A slow terminal request (a worktree's git, for example) therefore
 // never delays a probe answer, and the terminal handler still sees one
 // message at a time, as its attachment bookkeeping requires.
-func readControlWithTerminal(ctx context.Context, conn *websocket.Conn, generation int64, send Sender, errorsSeen chan<- error, terminal func(context.Context, terminalproto.Message) error) {
+func readControlWithTerminal(ctx context.Context, conn *websocket.Conn, generation int64, send Sender, errorsSeen chan<- error, features string, terminal func(context.Context, terminalproto.Message) error) {
 	report := func(err error) {
 		select {
 		case errorsSeen <- err:
@@ -401,7 +478,12 @@ func readControlWithTerminal(ctx context.Context, conn *websocket.Conn, generati
 			select {
 			case queue <- message:
 			default:
-				if err := send(ctx, unavailable(message)); err != nil {
+				answer, ok := unavailable(message, features)
+				if !ok {
+					report(terminalproto.ErrInvalid)
+					return
+				}
+				if err := send(ctx, answer); err != nil {
 					report(err)
 					return
 				}
@@ -428,11 +510,15 @@ func consentControl(ctx context.Context, cfg AgentConfig, generation int64, enab
 		case <-ticker.C:
 		}
 		nextEnabled, nextReadiness := readConsent(cfg.Consent)
-		if nextEnabled == enabled && nextReadiness == readiness {
+		nextBrowse := readBrowseAllowed(cfg)
+		if nextEnabled == enabled && nextReadiness == readiness && nextBrowse == cfg.browseAllowed {
 			continue
 		}
+		previousBrowse := cfg.browseAllowed
+		cfg.browseAllowed = nextBrowse
 		caps := capabilitiesFor(cfg, nextEnabled, nextReadiness)
 		if caps.Validate() != nil {
+			cfg.browseAllowed = previousBrowse
 			continue
 		}
 		requestID, err := randomID()
@@ -541,11 +627,21 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.commandHistory = terminalproto.SupportsCommandHistory(advertised)
 	cfg.launch = terminalproto.SupportsLaunch(advertised)
 	cfg.worktree = terminalproto.SupportsWorktree(advertised)
+	cfg.browse = terminalproto.SupportsBrowse(advertised)
+	cfg.branches = terminalproto.SupportsBranches(advertised)
 }
 
 // setTerminalFeatures tells the terminal dispatcher which negotiated
 // extensions it may serve on this connection generation.
 func setTerminalFeatures(headers http.Header, cfg AgentConfig) {
+	if features := terminalFeatures(cfg); features != "" {
+		headers.Set(terminalproto.FeatureHeader, features)
+	}
+}
+
+// terminalFeatures lists the negotiated extensions the terminal dispatcher
+// may serve, comma-separated, or "" for none.
+func terminalFeatures(cfg AgentConfig) string {
 	var features []string
 	if cfg.commandHistory {
 		features = append(features, terminalproto.CommandHistoryFeature)
@@ -556,9 +652,13 @@ func setTerminalFeatures(headers http.Header, cfg AgentConfig) {
 	if cfg.worktree {
 		features = append(features, terminalproto.WorktreeFeature)
 	}
-	if len(features) > 0 {
-		headers.Set(terminalproto.FeatureHeader, strings.Join(features, ","))
+	if cfg.browse {
+		features = append(features, terminalproto.BrowseFeature)
 	}
+	if cfg.branches {
+		features = append(features, terminalproto.BranchesFeature)
+	}
+	return strings.Join(features, ",")
 }
 
 // launchTools returns the installed tools to report, keeping only known ids
@@ -610,12 +710,22 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 	if launch {
 		tools = launchTools(cfg)
 	}
+	// Worktrees need launch (a run starts an agent in one), the negotiated
+	// worktree-v1 and git on PATH.
+	worktree := launch && cfg.worktree && cfg.GitAvailable != nil && cfg.GitAvailable()
+	// Browse and branches act on this machine's folders for the controller,
+	// so they need terminal access on as well as their negotiated feature:
+	// browse also the local folder-browse switch on, branches worktrees.
+	control := cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin")
 	return terminalproto.Capabilities{
-		Launch: launch,
-		Tools:  tools,
-		// Worktrees need launch (a run starts an agent in one), the negotiated
-		// worktree-v1 and git on PATH.
-		Worktree:        launch && cfg.worktree && cfg.GitAvailable != nil && cfg.GitAvailable(),
+		Launch:   launch,
+		Tools:    tools,
+		Worktree: worktree,
+		Browse:   cfg.browse && control && enabled && cfg.browseAllowed,
+		// Only on a connection that negotiated browse-v1: an older
+		// controller's strict decoder would refuse the field.
+		BrowseOff:       cfg.browse && control && enabled && !cfg.browseAllowed,
+		Branches:        cfg.branches && worktree && enabled,
 		TerminalControl: cfg.TerminalSession != nil,
 		CommandHistory:  cfg.commandHistory && cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin"),
 		ProtocolVersion: terminalproto.Version,

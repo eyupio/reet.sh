@@ -35,6 +35,8 @@ jobs:
         working-directory: web
       - run: npm ci
         working-directory: mcp
+      - name: Fetch Go modules before the MCP tests build their fixture
+        run: go mod download
       - run: npm test
         working-directory: mcp
       - run: go vet ./...

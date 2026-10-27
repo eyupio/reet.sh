@@ -12,6 +12,7 @@
 
 ## Global Constraints
 
+- Quicker plan (ruling, 27 October 2026, user-approved): PR P is folded into C (P1 tokens/spacing, P2 top bar/tab bars) and E (P4 fleet strip, P5 In flight/Needs you/dock); PRs F (YOLO) and G (attention) are deferred past the first pass, and the Program 2 spike runs in parallel. Fidelity checks still apply to every PR that carries a P task.
 - Handoff: every PR in this stack updates the "Agents home redesign" block at the top of `handoff.md` (its row in the state table and any new limits) before it merges. The last task of each PR owns this.
 
 - Never name the products behind the reference designs or other products in repo files or UI; say "the reference designs". Example machines in tests and docs: `studio`, `server`, `desk`; projects `reet`, `site`, `notes`.

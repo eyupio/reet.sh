@@ -7,20 +7,22 @@ Home, the shell and the machine-folder projects are being rebuilt to the mock-up
 [docs/design/agents-home/](docs/design/agents-home/) (reference renders at 1440, 834 and 390 px; each PR
 is checked against them and says so in `docs/ui-verification.md`). The plan, with its rulings and global
 constraints, is [docs/superpowers/plans/2026-10-26-agents-home.md](docs/superpowers/plans/2026-10-26-agents-home.md).
-Work goes out as stacked PRs on `claude/gallant-darwin-n9oqfj`, in this order:
+Work goes out as stacked PRs on `claude/gallant-darwin-n9oqfj`. **Quicker plan, agreed 27 October 2026:** the
+fidelity polish (P) is folded into the PRs that touch the same screens, YOLO (F) and attention (G) are left out of
+the first pass, and the structured-chat spike runs in parallel with the Home work. Order:
 
 | PR | What | State |
 | --- | --- | --- |
 | D | App shell (top and bottom tabs, bell, jump search, More sheet) and Home | merged, [#218](https://github.com/eyupio/reet.sh/pull/218) |
 | A | Machine folder browse and branches (`agents`, `browse-v1`, `branches-v1`), start-agent navigates to the session, dockable and resizable sessions panel | merged, [#219](https://github.com/eyupio/reet.sh/pull/219); contract in [docs/folder-browse.md](docs/folder-browse.md) |
 | B | Folder projects: store and API (`/api/v2/folder-projects`, reorder, `import-saved`), saved Projects moved over (old create/edit/delete answer 410 `projects_moved`), then the Add project dialog and the rail | [#221](https://github.com/eyupio/reet.sh/pull/221): B1–B4 done and pushed; B5 (folder browser and Add project dialog) and B6 (rail, import prompt, `?legacy=` lookup, `/projects` kept as run history) not done |
-| P | Home fidelity polish (tokens, top bar, fleet strip, In flight, Needs you, dock) | not started |
+| P | Home fidelity polish: tokens, spacing, top and tab bars go into C; fleet strip, In flight, Needs you and the dock go into E | folded into C and E, no PR of its own |
 | C | Agent catalogue and launch fields (tool on the session listing, `osVersion`) | not started |
 | E | Launch bar, start in several projects, retire the old Projects page | not started |
-| F | YOLO (off by default, per session, audited, machines can refuse) | not started |
-| G | Attention and Needs you | not started |
+| F | YOLO (off by default, per session, audited, machines can refuse) | **deferred past the first pass**; the design decisions stand |
+| G | Attention and Needs you | **deferred past the first pass**; Needs you stays an honest empty state until then |
 | H | Session screen, tablet and phone | not started |
-| Program 2 | Structured chat over the agent protocol, with command-approval cards | not started; needs its own spike and plan |
+| Program 2 | Structured chat over the agent protocol, with command-approval cards | feasibility spike running in parallel with C, E and H; written plan follows the spike |
 
 Until Program 2, reet starts agents in terminal sessions and wraps them with projects, the launch bar,
 YOLO, attention and the session screen; it is not yet a structured chat front end.

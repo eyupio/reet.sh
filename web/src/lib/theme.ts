@@ -54,7 +54,7 @@ export const TOKENS: Record<Palette, Record<string, string>> = {
     '--faint': '#6f6b62',
     '--ink-soft': '#3d3a35',
     '--repo-line': '#8fc7ba',
-    '--line-deep': '#a49b8d',
+    '--line-deep': '#8f8679',
     '--scrim': 'rgb(20 18 15 / 0.45)',
   },
 }

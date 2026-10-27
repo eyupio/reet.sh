@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { breadcrumbs, childPath, countLabel, repoMessage, topFolder } from '../folderBrowser'
-  import { browseFolder, TerminalError, type BrowseEntry, type BrowseQuery, type BrowseResult } from '../terminal/api'
+  import { browseFolder, refusalSentence, type BrowseEntry, type BrowseQuery, type BrowseResult } from '../terminal/api'
 
   // One machine's folders, listed live by the machine (browse-v1): folders only, never file names. Clicking a folder enters
   // it; the breadcrumb goes back, never above the home. A request that fails (the machine went offline, a refusal, a slow
@@ -22,27 +22,33 @@
     onuse: (picked: Pick<BrowseResult, 'path' | 'home' | 'repo' | 'repoTop'>) => void
   } = $props()
 
-  const id = $props.id()
   const life = new AbortController()
   let result = $state<BrowseResult | null>(null)
   let entries = $state<BrowseEntry[]>([])
   let busy = $state(false)
   let failure = $state<{ text: string; retry: () => void } | null>(null)
   let filter = $state(''), hidden = $state(false)
-  let list = $state<HTMLUListElement>()
+  // A filter typed but not sent yet: the list shown is another query's, so it offers no Show more.
+  let pending = $state(false)
+  // The query the list shown came from; Show more continues that query and no other.
+  let listed = { filter: '', hidden: false }
+  let list = $state<HTMLUListElement>(), useButton = $state<HTMLButtonElement>(), retryButton = $state<HTMLButtonElement>()
   let seq = 0, timer: ReturnType<typeof setTimeout> | undefined
 
   const crumbs = $derived(result ? breadcrumbs(result.path, result.home) : [])
   const note = $derived(result ? repoMessage(result) : null)
   const top = $derived(result ? topFolder(result) : null)
+  const here = () => result?.path ?? start
 
-  const sentence = (e: unknown): string => (e instanceof TerminalError ? e.message : "That didn't reach reet. Check your connection, then try again.")
-
-  // The latest request wins: an answer to an earlier one is dropped. A page (after) adds to the list; anything else replaces it.
-  // `focus` is set when the person moved (entered a folder, a crumb, Show more), never on the first list or a filter.
+  // The latest request wins: an answer to an earlier one is dropped. A page (after) adds to the list and keeps the query it
+  // continues; anything else replaces the list with the current filter and hidden choice. `focus` is set when the person
+  // moved (entered a folder, a crumb, Show more, Try again), never on the first list or a filter. Controls are only marked
+  // aria-disabled while a request runs, so the one holding focus keeps it; then focus goes to the first folder, the first
+  // new one after Show more, Use this folder in an empty folder, or Try again when the request failed.
   async function load(path: string, after = '', focus = false) {
     const mine = ++seq
-    const query: BrowseQuery = { path: path || undefined, after: after || undefined, filter: filter || undefined, hidden, session }
+    const q = after ? listed : { filter, hidden }
+    const query: BrowseQuery = { path: path || undefined, after: after || undefined, filter: q.filter || undefined, hidden: q.hidden, session }
     busy = true
     failure = null
     try {
@@ -52,30 +58,37 @@
       const before = entries.length
       entries = after ? [...entries, ...dirs] : dirs
       result = r
+      listed = q
       busy = false
       if (!focus) return
-      // The rows are enabled again once the list is drawn.
       await tick()
-      // After Show more, the first new folder; after entering one, the first in it.
-      list?.querySelectorAll<HTMLButtonElement>('button.row')[after ? before : 0]?.focus({ preventScroll: !after })
+      const rows = list?.querySelectorAll<HTMLButtonElement>('button.row')
+      ;(rows?.[after ? before : 0] ?? useButton)?.focus({ preventScroll: !after })
     } catch (e) {
       if (mine !== seq || life.signal.aborted) return
-      failure = { text: sentence(e), retry: () => void load(path, after, focus) }
+      failure = { text: refusalSentence(e), retry: () => void load(path, after, true) }
+      busy = false
+      if (focus) { await tick(); retryButton?.focus() }
     } finally {
       if (mine === seq) busy = false
     }
   }
   function enter(path: string) {
+    if (busy) return
     clearTimeout(timer)
+    pending = false
     filter = ''
     void load(path, '', true)
   }
-  // The machine filters; one request once typing pauses.
+  // The machine filters; one request once typing pauses. Anything still on its way (a Show more) is dropped.
   function filtered() {
     clearTimeout(timer)
-    timer = setTimeout(() => void load(result?.path ?? start), 300)
+    seq++
+    busy = false
+    pending = true
+    timer = setTimeout(() => { pending = false; void load(here()) }, 300)
   }
-  const here = () => result?.path ?? start
+  function more() { if (!busy && !pending) void load(here(), entries.at(-1)?.name ?? '', true) }
 
   onMount(() => {
     void load(start)
@@ -89,14 +102,14 @@
       {#each crumbs as c, i (c.path)}
         {#if i > 0}<span class="sep" aria-hidden="true">/</span>{/if}
         {#if i === crumbs.length - 1}<span class="crumb current" class:home={i === 0} aria-current="location">{c.label}</span>
-        {:else}<button type="button" class="crumb" class:home={i === 0} onclick={() => enter(c.path)} disabled={busy}>{c.label}</button>{/if}
+        {:else}<button type="button" class="crumb" class:home={i === 0} onclick={() => enter(c.path)} aria-disabled={busy || undefined}>{c.label}</button>{/if}
       {/each}
     </nav>
     <span class="count">{result ? countLabel(entries.length, result.more) : busy ? 'Listing…' : ''}</span>
   </div>
   <div class="tools">
     <input class="filter" type="text" enterkeyhint="search" aria-label="Filter folders" placeholder="Type to filter…" autocomplete="off" spellcheck="false" maxlength="64" bind:value={filter} oninput={filtered} />
-    <label class="hidden"><input type="checkbox" bind:checked={hidden} onchange={() => { clearTimeout(timer); void load(here()) }} /><span class="box" aria-hidden="true"></span>Show hidden folders</label>
+    <label class="hidden"><input type="checkbox" bind:checked={hidden} onchange={() => { clearTimeout(timer); pending = false; void load(here()) }} /><span class="box" aria-hidden="true"></span>Show hidden folders</label>
   </div>
   <div class="scroll">
     {#if result && entries.length === 0}<p class="empty">{filter ? 'No folders match.' : 'No folders here.'}</p>{/if}
@@ -105,7 +118,7 @@
         {@const path = childPath(result?.path ?? '', e.name)}
         <li>
           <button type="button" class="row" class:repo={e.repoRoot} class:selected={path === chosen} aria-current={path === chosen ? 'true' : undefined}
-            aria-label={e.repoRoot ? `${e.name}, git repository` : e.name} onclick={() => enter(path)} disabled={busy}>
+            aria-label={e.repoRoot ? `${e.name}, git repository` : e.name} onclick={() => enter(path)} aria-disabled={busy || undefined}>
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               {#if e.repoRoot}<path d="M12 2l10 10-10 10L2 12z" />{:else}<path d="M3 6a2 2 0 012-2h4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z" />{/if}
             </svg>
@@ -115,16 +128,16 @@
         </li>
       {/each}
     </ul>
-    {#if result?.more}<button type="button" class="more" onclick={() => void load(here(), entries.at(-1)?.name ?? '', true)} disabled={busy}>Show more</button>{/if}
+    {#if result?.more && !pending}<button type="button" class="more" onclick={more} aria-disabled={busy || undefined}>Show more</button>{/if}
   </div>
   <div class="foot" aria-live="polite">
     {#if failure}
-      <div class="browse-error"><p>{failure.text}</p><button type="button" class="ghost" onclick={failure.retry}>Try again</button>{#if !result}<button type="button" class="ghost" onclick={() => enter('')}>Open the home folder</button>{/if}</div>
+      <div class="browse-error"><p>{failure.text}</p><button type="button" class="ghost" bind:this={retryButton} onclick={() => { if (!busy) failure?.retry() }}>Try again</button>{#if !result}<button type="button" class="ghost" onclick={() => enter('')}>Open the home folder</button>{/if}</div>
     {/if}
     {#if result}
       <div class="here-row">
         <p class="here">{result.path}{#if result.repo === 'root'}{' '}<span class="repo-word">is a git repository</span>{/if}</p>
-        <button type="button" class="use" onclick={() => result && onuse(result)} disabled={busy}>Use this folder</button>
+        <button type="button" class="use" bind:this={useButton} onclick={() => { if (!busy && result) onuse(result) }} aria-disabled={busy || undefined}>Use this folder</button>
       </div>
       {#if note}
         <div class="note-row"><p class="repo-note">{note}</p>{#if top}<button type="button" class="ghost" onclick={() => result && top && onuse({ path: top, home: result.home, repo: 'root', repoTop: '' })}>Use the top folder</button>{/if}</div>
@@ -139,7 +152,7 @@
   .crumb-row { display: flex; align-items: center; gap: 6px; padding: 10px 14px; font-size: 13px; color: var(--ink-soft); border-bottom: 1px solid var(--line-soft); }
   nav { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
   .crumb { display: inline-flex; align-items: center; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; overflow-wrap: anywhere; text-align: left; }
-  .crumb:hover:not(:disabled) { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+  .crumb:hover:not([aria-disabled]) { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
   .crumb.home { color: var(--muted); }
   .current { overflow-wrap: anywhere; }
   .current.home { color: var(--muted); }
@@ -159,9 +172,9 @@
   .scroll { height: 300px; overflow-y: auto; overscroll-behavior: contain; }
   ul { list-style: none; margin: 0; padding: 0; }
   .row { display: flex; align-items: center; gap: 12px; width: 100%; height: 44px; padding: 0 14px; border: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
-  .row:hover:not(:disabled) { background: var(--card); }
+  .row:hover:not([aria-disabled]) { background: var(--card); }
   .row.selected { background: var(--line-soft); }
-  .row:disabled { cursor: progress; }
+  [aria-disabled='true'] { cursor: progress; }
   .row:focus-visible { outline-offset: -2px; }
   .icon { width: 16px; height: 16px; flex: none; fill: var(--muted); }
   .row.repo .icon { fill: var(--repo); }
@@ -183,7 +196,7 @@
   .use, .ghost { flex: none; height: 36px; padding: 0 14px; border-radius: 8px; font-weight: 500; cursor: pointer; background: transparent; }
   .use { border: 1px solid var(--accent-text); color: var(--accent-text); }
   .ghost { border: 1px solid var(--line); color: var(--ink); }
-  .use:disabled, .more:disabled, .crumb:disabled { opacity: .6; cursor: progress; }
+  .use[aria-disabled='true'], .more[aria-disabled='true'] { opacity: .6; }
   @media (pointer: coarse) { .tools input.filter, .use, .ghost, .more { height: 44px; min-height: 44px; } .hidden { min-height: 44px; } button.crumb { min-height: 44px; min-width: 24px; } }
 
   /* Phone: the sheet's own rows instead of a boxed panel; the folders a card of 52 px rows; fields 16 px so focusing never zooms. */

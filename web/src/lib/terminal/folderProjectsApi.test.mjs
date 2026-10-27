@@ -195,3 +195,9 @@ test('the list says how many saved repositories wait, and importing them is one 
   assert.deepEqual(JSON.parse(calls[0].init.body), {})
   cookieOnly(calls[0])
 })
+
+test('one sentence for a refusal or a request that never arrived', () => {
+  assert.equal(api.refusalSentence(new api.TerminalError(422, "reet can't read that folder.", 'denied')), "reet can't read that folder.")
+  assert.equal(api.refusalSentence(new TypeError('Failed to fetch')), "That didn't reach reet. Check your connection, then try again.")
+  assert.equal(api.refusalSentence(undefined), "That didn't reach reet. Check your connection, then try again.")
+})

@@ -44,6 +44,15 @@ test('every text pair passes AA', () => {
   }
 })
 
+// Non-text contrast (WCAG 1.4.11): --line-deep is the only edge of an unchecked checkbox, so it needs 3:1 against the
+// surfaces it sits on. Light passes. Dark keeps the mock-up's #5a5047 (2.39:1 on --bg), an owner call recorded beside the
+// --line-strong gap; this pins it so a change is deliberate.
+test('the checkbox edge (--line-deep) is 3:1 in light; dark is the recorded mock-up value', () => {
+  for (const bg of ['--bg', '--card', '--card-raised', '--bg-sunk'])
+    assert.ok(contrast(TOKENS.light['--line-deep'], TOKENS.light[bg]) >= 3, `light --line-deep ${TOKENS.light['--line-deep']} on ${bg} is ${contrast(TOKENS.light['--line-deep'], TOKENS.light[bg]).toFixed(2)}`)
+  assert.equal(TOKENS.dark['--line-deep'], '#5a5047')
+})
+
 test('the pressed Liked filter draws its text in --bg, not a literal white', () => {
   const app = readFileSync(join(web, 'src/App.svelte'), 'utf8')
   assert.match(app, /\.filters \.liked\[aria-pressed='true'\] \{ background: var\(--heart\); color: var\(--bg\); \}/)

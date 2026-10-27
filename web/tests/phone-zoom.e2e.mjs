@@ -60,7 +60,7 @@ const SCREENS = [
  {name:'support ticket', path:'/support/41'},
  {name:'notifications', path:'/notifications'},
  ...['profile','security','sso','sessions','mcp','tokens','backups'].map(p => ({name:`account ${p}`, path:`/account/${p}`})),
- {name:'activity', path:'/activity'},
+ {name:'activity', path:'/activity'}, // /account/activity redirects here with location.replace; measuring the old page mid-reload zoomed it out
  // The Add project sheet (on its component fixture until B6 puts it behind the rail's Add), with a 120-character folder
  // chosen and the browser open on it: the folder field, the breadcrumb, the folder names and the pinned chosen folder.
  {name:'add project sheet', fixture:'/tests/fixtures/add-project.html', extra:addProjectExtra, action:async page => {
@@ -69,7 +69,7 @@ const SCREENS = [
   await d.getByRole('button', {name:'Use this folder'}).click()
   await d.getByRole('button', {name:'Browse'}).click()
   await d.getByRole('list', {name:/^Folders in /}).getByRole('button').first().waitFor({timeout:3000})
- }}, // /account/activity redirects here with location.replace; measuring the old page mid-reload zoomed it out
+ }},
  ...['overview','environments','users','team','support','email','notifications','backups','settings','activity'].map(p => ({name:`admin ${p}`, path:`/admin/${p}`})),
 ]
 

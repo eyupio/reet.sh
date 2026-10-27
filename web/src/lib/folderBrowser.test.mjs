@@ -32,6 +32,21 @@ test('breadcrumb of a path with spaces and #', () => {
   assert.equal(childPath('/', 'srv'), '/srv')
 })
 
+test('breadcrumb of a non-ASCII path', () => {
+  const path = '/home/me/projets/café/日本語'
+  assert.deepEqual(breadcrumbs(path, HOME), [
+    { label: '~', path: HOME },
+    { label: 'projets', path: '/home/me/projets' },
+    { label: 'café', path: '/home/me/projets/café' },
+    { label: '日本語', path: '/home/me/projets/café/日本語' },
+  ])
+  assert.equal(childPath('/home/me/projets/café', '日本語'), path)
+  assert.equal(homeRelative(path, HOME), '~/projets/café/日本語')
+  // A home whose own name is not ASCII.
+  assert.deepEqual(breadcrumbs('/home/zoë/a', '/home/zoë'), [{ label: '~', path: '/home/zoë' }, { label: 'a', path: '/home/zoë/a' }])
+  assert.equal(validateFolderInput(path), null)
+})
+
 test('never above home', () => {
   assert.deepEqual(breadcrumbs(HOME, HOME), [{ label: '~', path: HOME }])
   // A path that is not inside the home (a sibling that shares its prefix, the parent, the root) shows the home alone: no

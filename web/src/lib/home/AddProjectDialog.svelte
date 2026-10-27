@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
+  import { SvelteMap } from 'svelte/reactivity'
   import { shell } from '../dialogShell'
   import { canAutoFocus } from '../focus'
   import { MAX_PROMPT_BYTES, TOOLS, cleanModel, validateModel, validatePrompt } from '../agentLaunch'
   import { repoMessage, topFolder, validateFolderInput } from '../folderBrowser'
-  import { browseFolder, createFolderProject, listBranches, readiness, updateFolderProject, TerminalError,
+  import { browseFolder, createFolderProject, listBranches, readiness, refusalSentence, updateFolderProject, TerminalError,
     type BrowseRepo, type BrowseResult, type FolderProject, type FolderProjectInput, type TerminalMachine, type WorktreeDefault } from '../terminal/api'
   import FolderBrowser from './FolderBrowser.svelte'
 
@@ -24,8 +25,8 @@
   } = $props()
 
   const id = $props.id()
-  // The Machines page opens Add a machine when it arrives with this fragment.
-  const ADD_MACHINE = '/machines#add-machine'
+  // The Machines page opens Add a machine when it arrives with this fragment (as Home builds the link).
+  const machinesAt = (fragment: string) => `/machines#${fragment}`
   // svelte-ignore state_referenced_locally
   const editing = project
   const session = crypto.randomUUID()
@@ -57,7 +58,7 @@
   // svelte-ignore state_referenced_locally
   let browsing = $state(!editing && !browseBlock(machineFor(host)))
   // What the machine said about each folder this dialog has seen: whether it is a repository.
-  const known = new Map<string, BrowseRepo>()
+  const known = new SvelteMap<string, BrowseRepo>()
   let fieldNote = $state<{ text: string; kind: 'repo' | 'plain' | 'bad'; top?: string } | null>(null)
   let checked = ''
   let checkSeq = 0
@@ -74,7 +75,7 @@
   const folderProblem = $derived(validateFolderInput(dir))
   const ready = $derived(host !== '' && folderProblem === null)
   const promptBytes = $derived(new TextEncoder().encode(starterPrompt).length)
-  const chosenRepo = $derived.by(() => { void fieldNote; return known.get(dir) })
+  const chosenRepo = $derived(known.get(dir))
 
   // Browse requests one at a time for this dialog: the machine answers a second at once with "already listing".
   let queue: Promise<unknown> = Promise.resolve()
@@ -84,7 +85,6 @@
     return next
   }
 
-  const sentence = (e: unknown): string => (e instanceof TerminalError ? e.message : "That didn't reach reet. Check your connection, then try again.")
   function noteFor(r: Pick<BrowseResult, 'repo' | 'repoTop' | 'home'>): NonNullable<typeof fieldNote> {
     if (r.repo === 'root') return { text: 'A git repository.', kind: 'repo' }
     return { text: repoMessage(r) ?? '', kind: 'plain', top: topFolder(r) ?? undefined }
@@ -103,10 +103,11 @@
       if (mine !== checkSeq || dir !== v || life.signal.aborted) return
       known.set(v, r.repo)
       fieldNote = noteFor(r)
+      void readBranches()
     } catch (e) {
       if (mine !== checkSeq || dir !== v || life.signal.aborted) return
       checked = ''
-      fieldNote = { text: sentence(e), kind: 'bad' }
+      fieldNote = { text: refusalSentence(e), kind: 'bad' }
     }
   }
   function use(picked: Pick<BrowseResult, 'path' | 'home' | 'repo' | 'repoTop'>) {
@@ -114,22 +115,35 @@
     checked = picked.path
     checkSeq++
     known.set(picked.path, picked.repo)
+    clearBranches()
+    void readBranches()
     fieldNote = noteFor(picked)
     browsing = false
     edited()
     void tick().then(() => folderInput?.focus())
   }
   function machineChanged() {
-    known.clear(); checked = ''; checkSeq++; fieldNote = null; branches = []; branchNote = ''
+    known.clear(); checked = ''; checkSeq++; fieldNote = null; clearBranches()
     if (block) browsing = false
     else if (!editing) browsing = true
     edited()
   }
-  // The base branch suggestions, read once when More defaults opens on a repository's top folder.
+  // The base branch suggestions belong to one folder on one machine: dropped whenever the folder or machine changes, and
+  // read while More defaults is open on a repository's top folder (when it opens, or when the folder becomes one). An
+  // answer for a folder no longer chosen is dropped.
+  let branchesFor = '', branchSeq = 0
+  function clearBranches() { branchSeq++; branchesFor = ''; branches = []; branchNote = '' }
   async function readBranches() {
-    if (!moreFold?.open || branches.length || !machine?.capabilities?.branches || known.get(dir) !== 'root' || block) return
-    try { branches = (await listBranches(host, dir, undefined, life.signal)).branches; branchNote = '' }
-    catch (e) { if (!life.signal.aborted) branchNote = sentence(e) }
+    const key = `${host}\u0000${dir}`
+    if (!moreFold?.open || branchesFor === key || !machine?.capabilities?.branches || known.get(dir) !== 'root' || block) return
+    const mine = ++branchSeq
+    branchesFor = key
+    try {
+      const r = await listBranches(host, dir, undefined, life.signal)
+      if (mine === branchSeq) { branches = r.branches; branchNote = '' }
+    } catch (e) {
+      if (mine === branchSeq && !life.signal.aborted) { branches = []; branchNote = refusalSentence(e) }
+    }
   }
 
   function shutdown(returnFocus: boolean) {
@@ -272,13 +286,13 @@
             </select>
           </div>
           {#if block && machine}<p class="machine-note" id={`${id}-machine-note`}>{block}</p>{/if}
-          {#if machines.length === 0}<p class="hint">No machine is enrolled yet. <a href={ADD_MACHINE}>Add a machine</a> first.</p>{/if}
+          {#if machines.length === 0}<p class="hint">No machine is enrolled yet. <a href={machinesAt('add-machine')}>Add a machine</a> first.</p>{/if}
         </div>
 
         <div class="field">
           <label class="label" for={`${id}-folder`}>Folder</label>
           <div class="folder-row">
-            <input id={`${id}-folder`} bind:this={folderInput} bind:value={dir} onchange={checkFolder} oninput={() => { checkSeq++; fieldNote = null }}
+            <input id={`${id}-folder`} bind:this={folderInput} bind:value={dir} onchange={checkFolder} oninput={() => { checkSeq++; fieldNote = null; clearBranches() }}
               placeholder="/path/to/repo" autocomplete="off" autocapitalize="off" spellcheck="false"
               aria-invalid={fieldNote?.kind === 'bad' ? 'true' : undefined} aria-describedby={fieldNote ? `${id}-folder-note` : undefined} />
             <button type="button" class="toggle" aria-expanded={browsing} aria-controls={browsing ? `${id}-browser` : undefined} disabled={!!block}
@@ -335,7 +349,7 @@
               <label class="label" for={`${id}-branch`}>Default base branch</label>
               <input id={`${id}-branch`} bind:value={baseBranch} list={`${id}-branches`} placeholder="The repository's default" autocomplete="off" spellcheck="false" maxlength="255" />
               <datalist id={`${id}-branches`}>{#each branches as b (b)}<option value={b}></option>{/each}</datalist>
-              {#if branchNote}<p class="hint">{branchNote}</p>{/if}
+              {#if branchNote}<p class="hint branch-note">{branchNote}</p>{/if}
             </div>
             <div class="field">
               <label class="label" for={`${id}-tool`}>Default agent</label>

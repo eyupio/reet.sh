@@ -187,6 +187,11 @@ export function refusalCode<C extends string>(error: unknown, codes: readonly C[
   return error instanceof TerminalError && error.code && (codes as readonly string[]).includes(error.code) ? error.code as C : undefined
 }
 
+/** The sentence to show for a failed request: the server's own refusal as sent, or one plain sentence when no answer came. */
+export function refusalSentence(error: unknown): string {
+  return error instanceof TerminalError ? error.message : "That didn't reach reet. Check your connection, then try again."
+}
+
 export const folderProjectPath = (id: string): string => `/api/v2/folder-projects/${encodeURIComponent(id)}`
 function versionHeader(version: number): Record<string, string> {
   if (!Number.isSafeInteger(version) || version < 1) throw new Error('A change needs the version of the project it was made from.')

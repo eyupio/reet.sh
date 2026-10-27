@@ -23,10 +23,13 @@ const tree = {
  [HOME]: {repo:'none', entries:[dir('.config'), dir('archive'), dir('big'), dir('blog',true), {name:'commands.txt',dir:false,repoRoot:false,hidden:false}, dir('my work #1'), dir('reet',true), dir('scratch'), dir('site',true)]},
  [`${HOME}/archive`]: {repo:'none', entries:[]},
  [`${HOME}/big`]: {repo:'none', entries:Array.from({length:250}, (_, i) => dir(`f${String(i).padStart(3,'0')}`))},
- [`${HOME}/my work #1`]: {repo:'none', entries:[dir('notes')]},
+ [`${HOME}/my work #1`]: {repo:'none', entries:[dir('café'), dir('notes')]},
+ [`${HOME}/my work #1/café`]: {repo:'none', entries:[dir('日本語')]},
+ [`${HOME}/my work #1/café/日本語`]: {repo:'none', entries:[]},
  [`${HOME}/reet`]: {repo:'root', entries:[dir('docs'), dir('web')]},
  [`${HOME}/reet/web`]: {repo:'inside', repoTop:`${HOME}/reet`, entries:[dir('src')]},
  [`${HOME}/blog`]: {repo:'root', entries:[]},
+ [`${HOME}/site`]: {repo:'root', entries:[]},
  [`${HOME}/notes`]: {repo:'none', entries:[]},
 }
 const refuse = (status, code, error) => ({status, json:{error, code}})
@@ -46,7 +49,7 @@ const saved = (over={}) => ({id:'fp1',host:'a1',machine:'studio',dir:`${HOME}/re
 
 // The fixture page with the API above. `box.fail` answers the next browse with a refusal; `box.browses` records each one.
 async function open(options={}) {
- const box = {browses:[], writes:[], fail:null}
+ const box = {browses:[], writes:[], fail:null, branchReads:[], branchFail:null}
  const routes = {
   '/api/v2/terminal/machines': {machines},
   '/api/v2/machines/a1/browse': request => {
@@ -55,7 +58,14 @@ async function open(options={}) {
    return browseAnswer(request.url())
   },
   '/api/v2/machines/a2/browse': request => { box.browses.push(new URL(request.url())); return refuse(503, 'machine_unavailable', 'That machine is reconnecting. Try again in a moment.') },
-  '/api/v2/machines/a1/branches': {current:'main',default:'main',branches:['main','dev'],more:false},
+  // Each repository its own branches; site has none. `box.branchFail` answers the next listing with a refusal.
+  '/api/v2/machines/a1/branches': request => {
+   const dir = new URL(request.url()).searchParams.get('dir')
+   box.branchReads.push(dir)
+   if (box.branchFail) { const f = box.branchFail; box.branchFail = null; return f }
+   const branches = {[`${HOME}/reet`]:['main','dev'], [`${HOME}/blog`]:['trunk'], [`${HOME}/site`]:[]}[dir]
+   return branches ? {current:branches[0] ?? '', default:branches[0] ?? '', branches, more:false} : refuse(422, 'not_repo_root', "That folder isn't the top of a git repository.")
+  },
   '/api/v2/folder-projects': request => {
    const body = request.postDataJSON()
    box.writes.push({method:request.method(), body, headers:request.headers()})
@@ -115,6 +125,12 @@ try {
   await expect.poll(() => lastBrowse(box).searchParams.get('path')).toBe(`${HOME}/my work #1`)
   expect(await crumbText(page)).toBe('~ / my work #1')
   await expect(d.locator('.here')).toContainText(`${HOME}/my work #1`)
+  // Names that are not ASCII go back as they were listed too.
+  await row(page, 'café').click()
+  await row(page, '日本語').click()
+  await expect.poll(() => lastBrowse(box).searchParams.get('path')).toBe(`${HOME}/my work #1/café/日本語`)
+  await expect.poll(() => crumbText(page)).toBe('~ / my work #1 / café / 日本語')
+  await expect(d.locator('.here')).toHaveText(`${HOME}/my work #1/café/日本語`)
   // Back to the home by its crumb; the crumbs never go above it.
   await crumbs(page).getByRole('button', {name:'~'}).click()
   await expect.poll(() => crumbText(page)).toBe('~')
@@ -145,6 +161,14 @@ try {
   await row(page, 'big').click()
   await expect(dialog(page).locator('.count')).toHaveText('200+ folders')
   await expect(folders(page).getByRole('listitem')).toHaveCount(200)
+  // A continuation belongs to the query that listed it: while a new filter waits to be sent there is no Show more, so no
+  // page is asked for with one query's continuation and another's filter.
+  const filterBox = dialog(page).getByRole('textbox', {name:'Filter folders'})
+  await filterBox.fill('f2')
+  expect(await dialog(page).getByRole('button', {name:'Show more'}).count()).toBe(0)
+  await expect(folders(page).getByRole('listitem')).toHaveCount(50)
+  await filterBox.fill('')
+  await expect(folders(page).getByRole('listitem')).toHaveCount(200)
   await dialog(page).getByRole('button', {name:'Show more'}).click()
   await expect(folders(page).getByRole('listitem')).toHaveCount(250)
   expect(lastBrowse(box).searchParams.get('after')).toBe('f199')
@@ -153,6 +177,8 @@ try {
   await expect(dialog(page).getByRole('button', {name:'Show more'})).toHaveCount(0)
   // Focus moves to the first folder of the new page, not back to the top.
   await expect(row(page, 'f200')).toBeFocused()
+  expect(box.browses.filter(u => u.searchParams.has('after')).map(u => u.searchParams.get('filter'))).toEqual([null])
+  expect(box.browses.filter(u => u.searchParams.has('after') && u.searchParams.get('filter'))).toEqual([])
   expect(errors).toEqual([])
   await context.close()
  }
@@ -366,5 +392,109 @@ try {
   expect(errors).toEqual([])
   await context.close()
  }
- console.log('Add project: browsing, paging, hidden and filter, repository notes, offline and refusals, edit, phone sheet and focus checked.')
+ // Keyboard only: a folder that fails to list leaves focus on Try again, and an empty folder on Use this folder, never on
+ // the page behind the dialog.
+ if (run('keyboard focus after a failed browse and an empty folder')) {
+  const gates = {}
+  const {context,page,errors,box} = await open({gates})
+  await openDialog(page)
+  const d = dialog(page)
+  box.fail = refuse(429, 'browse_rate_limited', 'Slow down a moment, then try again.')
+  // While the request is held, the row pressed keeps focus (marked busy, never disabled out from under it).
+  let release
+  gates['/api/v2/machines/a1/browse'] = new Promise(r => { release = r })
+  await row(page, 'reet, git repository').focus()
+  await page.keyboard.press('Enter')
+  await expect(row(page, 'reet, git repository')).toHaveAttribute('aria-disabled', 'true')
+  await expect(row(page, 'reet, git repository')).toBeFocused()
+  delete gates['/api/v2/machines/a1/browse']
+  release()
+  await expect(d.locator('.browse-error p')).toHaveText('Slow down a moment, then try again.')
+  await expect(d.getByRole('button', {name:'Try again'})).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect.poll(() => crumbText(page)).toBe('~ / reet')
+  await expect(row(page, 'docs')).toBeFocused()
+  await crumbs(page).getByRole('button', {name:'~'}).focus()
+  await page.keyboard.press('Enter')
+  await expect(row(page, 'archive')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(d.locator('.empty')).toHaveText('No folders here.')
+  await expect(d.getByRole('button', {name:'Use this folder'})).toBeFocused()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Each refusal from the machine or the controller is shown as it was sent, with Try again, and the list stays.
+ if (run('machine refusals keep their sentence')) {
+  const {context,page,errors,box} = await open()
+  await openDialog(page)
+  const d = dialog(page)
+  for (const [status, code, sentence] of [
+   [422, 'denied', "reet can't read that folder."],
+   [422, 'unreadable', "reet can't read that folder."],
+   [409, 'browse_busy', 'That machine is already listing a folder. Try again in a moment.'],
+   [409, 'browse_off', 'That machine has folder browsing switched off.'],
+   [409, 'browse_unsupported', 'Update reet on that machine to browse its folders.'],
+  ]) {
+   box.fail = refuse(status, code, sentence)
+   await row(page, 'scratch').click()
+   await expect(d.locator('.browse-error p')).toHaveText(sentence)
+   await expect(d.locator('.browse-error')).toContainText('Try again')
+   await expect(folders(page).getByRole('listitem')).toHaveCount(7)
+   expect(await crumbText(page)).toBe('~')
+  }
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The base branch suggestions are the chosen folder's own: read when More defaults is open on a repository's top folder,
+ // read again when the folder changes, none for a folder that is not a top, and a refusal said as sent.
+ if (run('branch suggestions follow the folder')) {
+  const {context,page,errors,box} = await open()
+  await openDialog(page)
+  const d = dialog(page)
+  const options = () => d.locator(`datalist option`).evaluateAll(els => els.map(e => e.value))
+  const note = d.locator('.branch-note')
+  const browseTo = async name => {
+   await d.getByRole('button', {name:'Browse'}).click()
+   await crumbs(page).getByRole('button', {name:'~'}).click()
+   await row(page, name).click()
+   await expect.poll(() => crumbText(page)).toBe(`~ / ${name.replace(', git repository', '')}`)
+   await d.getByRole('button', {name:'Use this folder'}).click()
+  }
+  await row(page, 'reet, git repository').click()
+  await d.getByRole('button', {name:'Use this folder'}).click()
+  // Read when More defaults opens on a repository's top folder.
+  await d.locator('summary', {hasText:'More defaults'}).click()
+  await expect.poll(options).toEqual(['main', 'dev'])
+  // A folder that is not a repository's top is not asked about, and the last folder's branches go.
+  await browseTo('archive')
+  await expect.poll(options).toEqual([])
+  // With More defaults open, another repository chosen in the browser brings its own.
+  await browseTo('blog, git repository')
+  await expect.poll(options).toEqual(['trunk'])
+  // Typing another folder drops them too.
+  const reads = box.branchReads.length
+  await folderField(page).fill(`${HOME}/archive`)
+  await folderField(page).blur()
+  await expect(d.locator('.field-note')).toHaveText("This folder isn't a git repository, so sessions there can't use worktrees.")
+  await expect.poll(options).toEqual([])
+  expect(box.branchReads.length).toBe(reads)
+  // A repository without branches: none offered, nothing invented.
+  await folderField(page).fill(`${HOME}/site`)
+  await folderField(page).blur()
+  await expect.poll(() => box.branchReads.at(-1)).toBe(`${HOME}/site`)
+  await expect.poll(options).toEqual([])
+  await expect(note).toHaveCount(0)
+  // A refusal is said as the machine sent it.
+  box.branchFail = refuse(422, 'git_failed', "Git couldn't list the branches there.")
+  await folderField(page).fill(`${HOME}/reet`)
+  await folderField(page).blur()
+  await expect(note).toHaveText("Git couldn't list the branches there.")
+  await expect.poll(options).toEqual([])
+  expect(box.branchReads).toEqual([`${HOME}/reet`, `${HOME}/blog`, `${HOME}/site`, `${HOME}/reet`])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+ console.log('Add project: browsing, paging, hidden and filter, repository notes, offline and refusals, edit, phone sheet, focus, keyboard focus and branch suggestions checked.')
 } finally { await browser.close(); await harness.close() }

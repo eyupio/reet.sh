@@ -1,6 +1,8 @@
 # Start an agent session
 
-Pick a machine, an agent, a folder and, if you like, a model and an opening prompt. Press **Start**
+Home starts sessions from its launch bar ([below](#on-home-the-launch-bar)). The **Start an agent**
+dialog stays for Machines and the Sessions panel: pick a machine, an agent, a folder and, if you like,
+a model and an opening prompt. Press **Start**
 and you land in a new browser terminal session with that agent already running. The dialog is
 `web/src/lib/StartAgentDialog.svelte`. The launch request it sends and how a machine handles it are
 in [Launch requests](terminal-launch.md). The design spec was removed in the docs tidy-up
@@ -31,6 +33,78 @@ local consent, and the session limits (8 per machine, 32 per account).
 
 **Close** and Escape both close the dialog without sending anything and return focus to the button
 you pressed, except while a request is in flight (see below).
+
+Home has no Start an agent button: a rail card and its **New session here** set the launch bar's
+project instead of opening this dialog.
+
+## On Home: the launch bar
+
+The bar is docked at the foot of Home (`web/src/lib/launch/LaunchBar.svelte`; its rules are in
+`web/src/lib/launchBar.ts`). It is a **Describe the job** box, **Start**, and the launch sentence,
+whose bold words are the choices:
+
+> Run **Claude Code** with **default** on **Store rewrite** at **studio** from **main** in **a fresh worktree** · thinking **high**
+
+Each bold word is a button named for its slot and value ("Agent: Claude Code") that opens a list:
+Agent, Model, Project, Branch, Worktree and, for an agent that takes it, Thinking. The machine
+follows the project and is named, not chosen, except for **Home folder on** a machine. A project on a
+machine that isn't ready is listed, disabled, with that machine's readiness sentence.
+
+- **What it opens on.** The last launch, read from the sessions list (never from browser storage),
+  with the prompt empty and Approvals on **Ask me**. After every start Approvals is back on Ask me.
+  **YOLO** is shown disabled ("reet doesn't start YOLO sessions yet.") and the controller refuses it
+  (409 `yolo_refused`) until a later release.
+- **The rail.** Choosing a rail card, or **New session here** in its menu, puts that project in the
+  sentence with its own default agent, model, base branch and worktree choice, then moves focus to the
+  prompt. `/?project=<id>` does the same once. While a start is out or kept for a retry, a card
+  changes nothing and the status line says "Finish or discard the current start first." ("Wait for the
+  current start to finish." while the request is out), after what the bar already said.
+- **Base branch.** The Branch slot is the base of the fresh worktree. `base` is sent only when it is
+  chosen: by the person, by the project's base branch or by the account's default base branch.
+  Otherwise nothing is sent, the worktree starts from the checkout's current commit, and the sentence
+  names the checkout's current branch as the machine reported it. A branch only suggested from the
+  machine's list is shown, never sent unless picked. In the checkout there is no Branch slot; a line
+  under the sentence says "Works in the checkout on main."
+- **Branch listing.** The Branch list comes from the machine (`GET /api/v2/machines/{agentId}/branches`,
+  see [Folder browse and branch listing](folder-browse.md)): read once per folder, at most 200 names,
+  with a filter that asks the machine again. A machine that can't list branches says "Update reet on
+  that machine to list its branches."
+- **Starter prompt.** A project's starter prompt is offered as **Use the starter prompt** while the
+  box is empty. It is never put in the box, or sent, by itself.
+- **Title.** The prompt's first line is the session's title, shown as Titled "…" before sending (and
+  stored as the session title); without a prompt it is \<Agent\> · \<folder name\>.
+- **Keys.** Enter adds a line. Ctrl+Enter (Cmd+Enter on a Mac) sends from a hardware keyboard. On
+  touch no key sends, Enter included: only **Start** does.
+- **Starting, refusals and lost replies** work as in the dialog: the bar is locked while the request
+  is out; a definite refusal unlocks it with its sentence; a lost reply keeps the same request (request
+  id, run token and every field) for **Try the same request again**, and **Discard this request**
+  drops it.
+- **Phone and tablet.** A phone (and a phone held sideways) folds the sentence into one summary line
+  with **Change**, which opens the **Change the launch** sheet with the slots as large rows and
+  Approvals. A tablet shows the shorter sentence (no model or worktree) with its own **Change** for
+  the rest. Only one Change shows at a time.
+
+### Start in several projects
+
+**Select projects** in the rail heading's menu, or a long press on a card on touch, turns the cards
+into checkboxes (44 px targets; the 56 px strip shows how many are chosen). With 2 to 12 projects
+chosen the sentence reads "on 3 projects at studio from each project's default", and Start sends one
+request, never a session create:
+
+`POST /api/v2/folder-projects/runs` with `{requestId, projectIds, tool, model, effort, prompt, worktree}`
+
+Each project starts from its own base: its base branch, else the account's default, else the
+checkout's current commit; the one-project Branch choice is never used. The controller starts the
+members, at most two at a time and one per machine. The **Start in several projects** sheet counts
+only what the controller says started ("2 of 3 started"), opens each started session, and offers
+**Retry** for a member that failed (`POST …/runs/{runId}/members/{position}/retry`). Closed with a
+member waiting or failed, the bar keeps **Show run status** until every member has started or a later
+start in one project is made. **Done** leaves Select.
+
+A lost reply keeps the same run request for **Try the same request again**, and so does a refusal for
+speed (429 `project_rate_limited`). Other refusals are in this start's own words, for example "One of
+those projects is still starting. Wait for it to finish, then start again." (409 `run_in_progress`)
+and "Choose 2 to 12 different projects." YOLO is refused here too.
 
 ## The dialog
 
@@ -124,8 +198,9 @@ attempt did start, it appears in your sessions list on the next refresh.
   setting.
 - Model: 1 to 100 characters from the set above. Prompt: 2,000 bytes. Typed folder: 4,096 bytes.
 - The opening prompt can't start with `-`. For Claude Code and Codex it must be at least two words.
-- No agent status (working, waiting or idle), no resuming an earlier conversation, no choosing
-  several folders at once, and no Windows machines.
+- No agent status (working, waiting or idle), no resuming an earlier conversation and no Windows
+  machines. Several folders start together only from Home's Select (2 to 12 folder projects).
+- YOLO is refused (409 `yolo_refused`) until a later release.
 
 ## What this does not establish
 
@@ -145,5 +220,10 @@ session more than started. After the start, anyone in the session can type anyth
 - that nothing is written to storage
 - a layout, focus and motion matrix
 
-The matrix results and their limits are in
+`web/src/lib/launchBar.test.mjs` covers the launch bar's rules, and `web/tests/launch.e2e.mjs` the bar
+on Home: the sentence and each slot, the rail card and New session here, the base sent only when
+chosen, Select and the status sheet with Retry, lost replies and refusals, the keys on touch and with
+a keyboard, the phone and tablet sheets, and that nothing reaches browser storage.
+
+The dialog's matrix results and their limits are in
 [UI verification](ui-verification.md#start-an-agent-session-layout-focus-and-motion-matrix--25-october-2026).

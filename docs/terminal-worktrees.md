@@ -107,7 +107,9 @@ folder rules: absolute, inside home, symlinks resolved):
 4. `git for-each-ref --format=%(refname) refs/heads/reet/<project>-<run>`.
 5. `git worktree list --porcelain`.
 6. `git -c core.hooksPath=/dev/null worktree add -b <branch> <destination> HEAD`,
-   the only command that changes anything when all goes well.
+   the only command that changes anything when all goes well. With a named
+   `base` (`agents-v2`, [Launch requests](terminal-launch.md#catalogue-and-named-bases-agents-v2))
+   the worktree starts from that branch's commit instead of HEAD.
 
 If the add fails, the connector removes only what this same call created:
 `git worktree unlock <destination>`, then `git worktree remove --force
@@ -356,6 +358,23 @@ never recomputing it from the saved folder. Members with the same machine and th
 same folder were refused as a duplicate repository when the Project was saved
 (saved Projects can no longer be changed) and are refused when a run starts; two different saved folders that resolve to one repository on the machine
 are not caught by the controller.
+
+## Starts from Home's launch bar
+
+Home's launch bar ([Start an agent session](start-agent-session.md#on-home-the-launch-bar)) asks for
+a worktree whenever its sentence says **in a fresh worktree** (the project's worktree choice, else the
+account's). The base:
+
+- **One project.** `base` is sent only when it was chosen: by the person in the Branch slot, by the
+  project's base branch or by the account's default base branch. Otherwise nothing is sent and the
+  worktree starts from the checkout's HEAD; the sentence names that branch as the machine reported it.
+- **Branch listing.** The Branch slot's names come from the machine
+  (`GET /api/v2/machines/{agentId}/branches`, [Folder browse and branch listing](folder-browse.md)),
+  at most 200, filtered by the machine. A name only suggested from that list is never sent unless the
+  person picks it.
+- **Several projects** (Select, 2 to 12). Each member's create carries its own project's base branch,
+  else the account's default, else none; the one-project choice is never applied to all of them.
+  The run is a selection run (`origin: selection`) and its members follow the orchestration below.
 
 ## The run orchestration
 

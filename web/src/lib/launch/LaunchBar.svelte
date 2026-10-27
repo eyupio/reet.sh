@@ -102,7 +102,9 @@
 
   /** The rail's card (or New session here): this project in the sentence, then the prompt. */
   export function choose(project: FolderProject) {
-    if (!choice || locked) return
+    // Nothing changes while a start is out or kept, or before the bar's first choice: the status line says why.
+    if (!choice) { hint = 'The bar is still opening. Choose the project again in a moment.'; return }
+    if (locked) { hint = busy || leaving ? 'Wait for the current start to finish.' : 'Finish or discard the current start first.'; return }
     choice = withProject(choice, project, profile)
     message = ''
     void tick().then(() => field?.focus({ preventScroll: phone }))
@@ -117,10 +119,16 @@
     if (!choice || !projects || locked || key === appliedSelection) return
     untrack(() => {
       appliedSelection = key
-      choice = withSelection(choice!, ids, projects!, profile)
+      // The same projects (a card chosen in Select that the bar already names): nothing changes, so a refusal the bar shows
+      // after a kept request stays. Only a different project set is a new start.
+      const next = withSelection(choice!, ids, projects!, profile)
+      if (sameProjects(next, choice!)) return
+      choice = next
       message = ''
     })
   })
+
+  const sameProjects = (a: LaunchChoice, b: LaunchChoice) => a.projectIds.join('\u0000') === b.projectIds.join('\u0000') && a.homeMachine === b.homeMachine
 
   const picked = $derived(choice ? choice.projectIds.map(pid => projects?.find(p => p.id === pid)).filter((p): p is FolderProject => !!p) : [])
   const one = $derived(picked.length === 1 ? picked[0] : null)
@@ -154,7 +162,10 @@
   // Why Start can't be pressed yet. Until the machines have been read nothing is checked, so nothing is sent.
   const reason = $derived(!choice || !projects ? '' : !machines ? 'Start waits until your machines have been read.' : startable(choice, projects, machines, profile))
   const locked = $derived(busy || leaving || operation !== null)
-  const shownStatus = $derived(message || (!locked ? reason ?? '' : ''))
+  // Why a rail card or New session here changed nothing (the bar was busy or not open yet); it goes once the bar is free.
+  let hint = $state('')
+  $effect(() => { if (!locked && choice) untrack(() => { hint = '' }) })
+  const shownStatus = $derived([message || (!locked ? reason ?? '' : ''), hint].filter(Boolean).join(' '))
   // The session's title, shown before sending (the prompt's first line).
   const titled = $derived(choice?.prompt ? defaultTitle(choice.prompt) : '')
   const starter = $derived(!!choice && choice.prompt === '' && !!one?.hasStarterPrompt && !locked)
@@ -328,6 +339,8 @@
       const notStarted = notStartedText(session.state)
       if (notStarted) { operation = null; failed = true; message = notStarted; return }
       operation = null
+      // A later start in one project: the older run's Show run status goes.
+      lastRun = null; clearTimeout(lastPoll)
       const next = afterLaunch(choice!)
       if (onstarted(session) === 'leaving') {
         // The page is going to the session: stay locked so nothing is pressed again before the next page arrives.
@@ -400,6 +413,7 @@
     }
   }
   async function showRun(next: ProjectRun) {
+    clearTimeout(lastPoll)
     run = next; runNote = ''; startedSeen = 0
     noteStarted(next)
     await tick()
@@ -448,11 +462,31 @@
     }
     follow()
   }
+  // A run closed while a member waits is still read (every 3 seconds) so Show run status goes once every member has started.
+  let lastPoll: ReturnType<typeof setTimeout> | undefined
+  function followLast() {
+    clearTimeout(lastPoll)
+    if (!lastRun || run || !runPending(lastRun)) return
+    const id = lastRun.id
+    lastPoll = setTimeout(async () => {
+      try {
+        const next = await getSelectionRun(id, life.signal)
+        if (lastRun?.id !== id || run) return
+        lastRun = next
+        noteStarted(next)
+      } catch (e) {
+        if (life.signal.aborted || lastRun?.id !== id) return
+        if (e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+      }
+      followLast()
+    }, 3000)
+  }
   function closeRun() {
     clearTimeout(poll)
     runDialog?.close()
     lastRun = run
     run = null; retrying.clear()
+    followLast()
     onrundone?.()
     void tick().then(() => field?.focus())
   }
@@ -529,7 +563,7 @@
     vv?.addEventListener('resize', measureKeyboard)
     vv?.addEventListener('scroll', measureKeyboard)
     return () => {
-      stopLeaving(); life.abort(); cancelAnimationFrame(frame); clearTimeout(poll)
+      stopLeaving(); life.abort(); cancelAnimationFrame(frame); clearTimeout(poll); clearTimeout(lastPoll)
       coarse.removeEventListener('change', read); narrow.removeEventListener('change', read)
       removeEventListener('resize', measureKeyboard); vv?.removeEventListener('resize', measureKeyboard); vv?.removeEventListener('scroll', measureKeyboard)
       chromeFocus.launch = false

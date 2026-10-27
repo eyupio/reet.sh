@@ -334,6 +334,111 @@ try {
   await context.close()
  }
 
+ // A refusal shown after a kept request stays when the bar is free again and its projects are the same: the rail's selection,
+ // made while the request was kept, is applied without wiping the sentence that says why nothing started.
+ if (run('a refusal after a kept request survives the same selection')) {
+  const {context,page,errors,box} = await launch({answer:(body, n) => n === 1 ? {status:502, json:{error:'bad gateway'}} : {status:422, json:{error:'tool unavailable', code:'tool_unavailable'}}})
+  await page.goto(base)
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await startButton(page).click()
+  await expect(startButton(page)).toHaveAccessibleName('Try the same request again')
+  const rail = page.locator('aside.rail')
+  await rail.getByRole('button',{name:'Projects menu'}).click()
+  await page.getByRole('menuitem',{name:'Select projects'}).click()
+  await rail.getByRole('checkbox',{name:/^Store rewrite/}).click()
+  await expect(rail.getByText('1 chosen. Choose at least one more.',{exact:true})).toBeVisible()
+  await startButton(page).click()
+  await expect(startButton(page)).toHaveAccessibleName('Start the session')
+  await page.waitForTimeout(200)
+  await expect(bar(page).locator('.status')).toHaveText("reet doesn't start this agent yet.")
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  // A different project set is a new start: the old sentence goes.
+  await rail.getByRole('checkbox',{name:/^Site/}).click()
+  await expect.poll(() => sentenceText(page)).toContain('on 2 projects')
+  await expect(bar(page).locator('.status')).toHaveText('')
+  expect(box.posts).toHaveLength(2)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Show run status is never stale: it goes once every member has started (read after the sheet closed), and a later start in
+ // one project drops it.
+ if (run('Show run status goes once all started or after a later start')) {
+  let reads = 0
+  const routes = {
+   '/api/v2/folder-projects/runs': () => ({status:201, json:selectionRun([runMember(0,'fp1','Store rewrite','started',{sessionId:'s-store'}), runMember(1,'fp3','Site','pending')])}),
+   '/api/v2/folder-projects/runs/run-1': () => { reads++; return selectionRun([runMember(0,'fp1','Store rewrite','started',{sessionId:'s-store'}), reads < 3 ? runMember(1,'fp3','Site','pending') : runMember(1,'fp3','Site','started',{sessionId:'s-site'})]) },
+  }
+  const {context,page,errors} = await launch({routes})
+  await page.goto(base)
+  const rail = page.locator('aside.rail')
+  await rail.getByRole('button',{name:'Projects menu'}).click()
+  await page.getByRole('menuitem',{name:'Select projects'}).click()
+  for (const name of [/^Store rewrite/, /^Site/]) await rail.getByRole('checkbox',{name}).click()
+  await startButton(page).click()
+  const sheet = page.getByRole('dialog',{name:'Start in several projects'})
+  await expect(sheet.getByRole('status')).toHaveText('1 of 2 started')
+  await sheet.getByRole('button',{name:'Close'}).click()
+  const chip = bar(page).getByRole('button',{name:'Show run status'})
+  await expect(chip).toBeVisible()
+  // Site starts while the sheet is closed: the chip goes.
+  await expect(chip).toHaveCount(0, {timeout:10_000})
+  expect(errors).toEqual([])
+  await context.close()
+  // A member that failed keeps the chip until a later start in one project, which drops it.
+  const failedRuns = {
+   '/api/v2/folder-projects/runs': () => ({status:201, json:selectionRun([runMember(0,'fp1','Store rewrite','started',{sessionId:'s-store'}), runMember(1,'fp3','Site','failed',{code:'session_limit',sentence:LIMIT})])}),
+  }
+  const later = await launch({routes:failedRuns})
+  await later.page.route(url => new URL(url).pathname === '/terminals', route => route.fulfill({status:204, body:''}))
+  await later.page.goto(base)
+  const lrail = later.page.locator('aside.rail')
+  await lrail.getByRole('button',{name:'Projects menu'}).click()
+  await later.page.getByRole('menuitem',{name:'Select projects'}).click()
+  for (const name of [/^Store rewrite/, /^Site/]) await lrail.getByRole('checkbox',{name}).click()
+  await startButton(later.page).click()
+  const lsheet = later.page.getByRole('dialog',{name:'Start in several projects'})
+  await expect(lsheet.getByRole('status')).toHaveText('1 of 2 started')
+  await lsheet.getByRole('button',{name:'Done'}).click()
+  await expect(lrail.getByRole('checkbox')).toHaveCount(0)
+  const lchip = bar(later.page).getByRole('button',{name:'Show run status'})
+  await expect(lchip).toBeVisible()
+  // Pressed and read from inside: Playwright's own click and locators wait for a navigation that a 204 never finishes.
+  await later.page.evaluate(() => document.querySelector('form[aria-label="Start a session"] button[type=submit]').click())
+  await expect.poll(() => later.box.posts.length).toBe(1)
+  // The next page never arrives: the bar lets go after a few seconds, with no chip for the older run.
+  const look = () => later.page.evaluate(() => { const f = document.querySelector('form[aria-label="Start a session"]'), b = f.querySelector('button[type=submit]')
+   return {disabled:b.disabled, chip:[...f.querySelectorAll('button')].some(x => x.textContent.trim() === 'Show run status')} })
+  await expect.poll(look, {timeout:9000}).toEqual({disabled:false, chip:false})
+  expect(later.errors).toEqual([])
+  await later.context.close()
+ }
+
+ // A rail card or New session here while the bar is busy with a start says why nothing changed, in the bar's status line,
+ // and keeps what the bar already said.
+ if (run('choosing a project while the bar is locked says why')) {
+  const {context,page,errors} = await launch({answer:() => ({status:502, json:{error:'bad gateway'}})})
+  await page.goto(base)
+  await startButton(page).click()
+  await expect(startButton(page)).toHaveAccessibleName('Try the same request again')
+  const rail = page.locator('aside.rail')
+  await rail.locator('.card').filter({hasText:'Site'}).click()
+  const status = bar(page).locator('.status')
+  await expect(status).toContainText("We didn't hear back, so the agent may have started.")
+  await expect(status).toContainText('Finish or discard the current start first.')
+  await rail.getByRole('button',{name:'More for Site'}).click()
+  await page.getByRole('menuitem',{name:'New session here'}).click()
+  await expect(status).toContainText('Finish or discard the current start first.')
+  await expect.poll(() => sentenceText(page)).toContain('on Store rewrite')
+  await bar(page).getByRole('button',{name:'Discard this request'}).click()
+  await expect(status).toHaveText('')
+  await rail.locator('.card').filter({hasText:'Site'}).click()
+  await expect.poll(() => sentenceText(page)).toContain('on Site')
+  await expect(status).toHaveText('')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // Home has no Start an agent button: the bar is the way to start.
  if (run('one press starts with the last choices')) {
   // The newest session that names an agent is the last launch: Codex with gpt-5-codex in Store rewrite, in a worktree.
@@ -570,6 +675,38 @@ try {
   await context.close()
  }
 
+ // On touch no key sends (R8): Enter and Ctrl+Enter add a line, and only Start sends.
+ if (run('Enter never sends on touch')) {
+  const {context,page,errors,box} = await launch({width:390, height:844, touch:true})
+  await page.goto(base)
+  await prompt(page).fill('Fix the failing tests')
+  await prompt(page).press('Enter')
+  await prompt(page).press('Control+Enter')
+  await prompt(page).press('Meta+Enter')
+  await page.waitForTimeout(200)
+  expect(box.posts).toEqual([])
+  await expect(prompt(page)).toHaveValue('Fix the failing tests\n')
+  expect(page.url()).toBe(`${base}/`)
+  await startButton(page).click()
+  await expect(page).toHaveURL(/\/terminals\?/)
+  expect(box.posts).toHaveLength(1)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A phone held sideways (844 × 390, touch) takes the phone's layout: one summary line with one Change, never the tablet's too.
+ if (run('landscape phone shows one Change')) {
+  const {context,page,errors} = await launch({width:844, height:390, touch:true})
+  await page.goto(base)
+  await expect(bar(page).locator('.summary-text')).toHaveText('Claude Code on Store rewrite at studio · main · fresh worktree')
+  await expect(bar(page).getByRole('button',{name:'Change',exact:true})).toHaveCount(1)
+  expect(await bar(page).locator('button.change').evaluateAll(list => list.filter(b => b.getClientRects().length > 0).map(b => b.parentElement.className.split(' ')[0]))).toEqual(['summary'])
+  await expect(bar(page).locator('.sentence')).toBeHidden()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // A phone: one-line prompt, a round 48 px Start and one summary line; Change opens a bottom sheet with the slots as large rows
  // and Approvals.
  if (run('phone Change sheet')) {
@@ -798,6 +935,13 @@ try {
    }
    const hidden = await page.locator(target).nth(last - 1).evaluate(el => { const r = el.getBoundingClientRect(), f = document.querySelector('form[aria-label="Start a session"]').getBoundingClientRect(); return el === document.activeElement ? r.bottom > f.top + 1 : 'not focused' })
    expect(hidden, `${width}px`).toBe(false)
+   // In flight's last row and Needs you can be scrolled clear of the docked bar.
+   for (const [what, el] of [['In flight', page.locator('.flight a.row').last()], ['Needs you', page.getByRole('region',{name:'Needs you'})]]) {
+    await expect(el, `${width}px ${what}`).toBeAttached()
+    await el.evaluate(e => e.scrollIntoView({block:'end'}))
+    const clear = await el.evaluate(e => { const r = e.getBoundingClientRect(), f = document.querySelector('form[aria-label="Start a session"]').getBoundingClientRect(); return r.bottom <= f.top + 1 })
+    expect(clear, `${width}px ${what}`).toBe(true)
+   }
    expect(errors).toEqual([])
    await context.close()
   }
@@ -838,7 +982,7 @@ try {
   }
  }
 
- console.log('Launch bar: Select and start in several projects (lost reply, status sheet, retry, touch, 320 px, strip count), one press with the last choices, each slot, unready machines, the starter prompt chip, lost replies and refusals, a -x folder, the locked bar, Enter and Ctrl+Enter, the phone Change sheet, the keyboard-open prompt and nothing in storage checked.')
+ console.log('Launch bar: Select and start in several projects (lost reply, status sheet, retry, touch, 320 px, strip count), one press with the last choices, each slot, unready machines, the starter prompt chip, lost replies and refusals, a -x folder, the locked bar and a card chosen while it is locked, a refusal kept across the same selection, Show run status going once all started or after a later start, Enter and Ctrl+Enter (and no key on touch), the phone Change sheet and the landscape phone with one Change, the keyboard-open prompt and nothing in storage checked.')
 } finally {
  await browser.close()
 }

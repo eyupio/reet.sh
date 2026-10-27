@@ -31,7 +31,7 @@
     .bottom-tabs {
       position: fixed; left: 0; right: 0; bottom: 0; z-index: 12; display: flex;
       height: calc(64px + env(safe-area-inset-bottom, 0px)); padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
-      box-sizing: border-box; border-top: 1px solid var(--line-soft); background: var(--bg-sunk);
+      box-sizing: border-box; border-top: 1px solid var(--line-soft); background: var(--dock-bg);
     }
     .bottom-tabs.hidden { display: none; }
   }

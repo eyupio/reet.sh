@@ -12,7 +12,7 @@ const { TOKENS, contrast } = await import(`data:text/javascript;base64,${Buffer.
 const web = fileURLToPath(new URL('../../', import.meta.url))
 const css = readFileSync(join(web, 'src/app.css'), 'utf8')
 const PALETTES = ['dark', 'light']
-const NAMES = ['--bg', '--card', '--card-raised', '--line-soft', '--line', '--line-strong', '--ink', '--muted', '--accent', '--accent-text', '--accent-ink', '--good', '--warn', '--info', '--repo', '--bad', '--bg-sunk', '--faint', '--ink-soft', '--repo-line', '--line-deep', '--line-mid']
+const NAMES = ['--bg', '--card', '--card-raised', '--line-soft', '--line', '--line-strong', '--ink', '--muted', '--accent', '--accent-text', '--accent-ink', '--good', '--warn', '--info', '--repo', '--bad', '--bg-sunk', '--faint', '--ink-soft', '--repo-line', '--line-deep', '--line-mid', '--dock-bg']
 
 test('contrast follows WCAG relative luminance', () => {
   assert.equal(Math.round(contrast('#000000', '#ffffff') * 100) / 100, 21)
@@ -47,6 +47,8 @@ test('every text pair passes AA', () => {
     for (const fg of ['--ink', '--ink-soft', '--muted', '--faint', '--repo']) assert.ok(contrast(t[fg], t['--bg-sunk']) >= 4.5, `${p}: ${fg} ${t[fg]} on --bg-sunk ${t['--bg-sunk']} is ${contrast(t[fg], t['--bg-sunk']).toFixed(2)}`)
     // Selected and hover states put text on --tint; the pressed Liked filter puts --bg on --heart (App.svelte).
     for (const fg of ['--ink', '--accent-text']) assert.ok(contrast(t[fg], t['--tint']) >= 4.5, `${p}: ${fg} ${t[fg]} on --tint ${t['--tint']} is ${contrast(t[fg], t['--tint']).toFixed(2)}`)
+    // The phone tab bar draws its current label in --accent-text on --dock-bg (BottomTabs.svelte).
+    for (const fg of ['--ink', '--muted', '--accent-text']) assert.ok(contrast(t[fg], t['--dock-bg']) >= 4.5, `${p}: ${fg} ${t[fg]} on --dock-bg ${t['--dock-bg']} is ${contrast(t[fg], t['--dock-bg']).toFixed(2)}`)
     assert.ok(contrast(t['--bg'], t['--heart']) >= 4.5, `${p}: --bg on --heart is ${contrast(t['--bg'], t['--heart']).toFixed(2)}`)
   }
 })

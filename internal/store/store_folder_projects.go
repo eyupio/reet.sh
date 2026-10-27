@@ -16,6 +16,9 @@ const MaxFolderProjects = 100
 
 const maxFolderProjectPromptBytes = 2000
 
+// maxFolderProjectNoteBytes bounds Note, a list of saved Project names.
+const maxFolderProjectNoteBytes = 4000
+
 // maxFolderProjectHostBytes bounds Host, the machine's enrollment id
 // (sync_agents.id), as remote agent authentication bounds ids.
 const maxFolderProjectHostBytes = 128
@@ -43,7 +46,11 @@ type FolderProject struct {
 	BaseBranch, WorktreeDefault, DefaultTool, DefaultModel, StarterPrompt string
 	Position                                                              int
 	LegacyProjectID                                                       string
-	CreatedAt, UpdatedAt, Version                                         int64
+	// Note is a one-time notice from the migration of saved Projects: the
+	// names of the other Projects with this folder whose shared prompts
+	// differed from the one kept ("A, B"). The person can clear it.
+	Note                          string
+	CreatedAt, UpdatedAt, Version int64
 }
 
 func (s *Store) migrateFolderProjects() error {
@@ -60,13 +67,34 @@ func (s *Store) migrateFolderProjects() error {
 				starter_prompt TEXT NOT NULL DEFAULT '',
 				position INTEGER NOT NULL CHECK(position>=0),
 				legacy_project_id TEXT,
+				note TEXT NOT NULL DEFAULT '',
 				created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
 				version INTEGER NOT NULL DEFAULT 1,
 				PRIMARY KEY(user_id,id))`,
 			`CREATE UNIQUE INDEX IF NOT EXISTS folder_projects_name ON folder_projects(user_id,name_key)`,
 			`CREATE UNIQUE INDEX IF NOT EXISTS folder_projects_legacy ON folder_projects(user_id,legacy_project_id) WHERE legacy_project_id IS NOT NULL`,
+			// Which folder project each member of a saved Project became
+			// (legacy_key "<projectID>:<position>"), also when two Projects
+			// share one folder or the folder was already registered; a
+			// legacy_key of just "<projectID>" with an empty folder_project_id
+			// marks a Project whose migration was audited. No foreign key: a
+			// folder project the person removes stays removed.
+			`CREATE TABLE IF NOT EXISTS folder_project_legacy (
+				user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+				legacy_key TEXT NOT NULL, folder_project_id TEXT NOT NULL,
+				PRIMARY KEY(user_id,legacy_key))`,
 		} {
 			if _, err := tx.Exec(stmt); err != nil {
+				return err
+			}
+		}
+		// Tables made before the migration notice gain the column.
+		var hasNote int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('folder_projects') WHERE name='note'`).Scan(&hasNote); err != nil {
+			return err
+		}
+		if hasNote == 0 {
+			if _, err := tx.Exec(`ALTER TABLE folder_projects ADD COLUMN note TEXT NOT NULL DEFAULT ''`); err != nil {
 				return err
 			}
 		}
@@ -136,6 +164,9 @@ func normalizeFolderProject(p FolderProject) (FolderProject, error) {
 	if p.StarterPrompt != "" && (len(p.StarterPrompt) > maxFolderProjectPromptBytes || strings.HasPrefix(p.StarterPrompt, "-") || !terminalproto.ValidPrompt(p.StarterPrompt)) {
 		return p, folderInvalid("starter prompt must be valid text of at most %d bytes with no control characters except newline, and must not start with -", maxFolderProjectPromptBytes)
 	}
+	if len(p.Note) > maxFolderProjectNoteBytes || !plainText(p.Note) {
+		return p, folderInvalid("note must be plain text of at most %d bytes", maxFolderProjectNoteBytes)
+	}
 	return p, nil
 }
 
@@ -202,14 +233,14 @@ func folderConflict(err error) error {
 	return ErrFolderProjectExists
 }
 
-const folderColumns = `id,host,dir,name,is_repo,base_branch,worktree_default,default_tool,default_model,starter_prompt,position,COALESCE(legacy_project_id,''),created_at,updated_at,version`
+const folderColumns = `id,host,dir,name,is_repo,base_branch,worktree_default,default_tool,default_model,starter_prompt,position,COALESCE(legacy_project_id,''),note,created_at,updated_at,version`
 
 type rowScanner interface{ Scan(dest ...any) error }
 
 func scanFolderProject(r rowScanner) (FolderProject, error) {
 	var p FolderProject
 	err := r.Scan(&p.ID, &p.Host, &p.Dir, &p.Name, &p.IsRepo, &p.BaseBranch, &p.WorktreeDefault, &p.DefaultTool, &p.DefaultModel,
-		&p.StarterPrompt, &p.Position, &p.LegacyProjectID, &p.CreatedAt, &p.UpdatedAt, &p.Version)
+		&p.StarterPrompt, &p.Position, &p.LegacyProjectID, &p.Note, &p.CreatedAt, &p.UpdatedAt, &p.Version)
 	return p, err
 }
 
@@ -220,37 +251,49 @@ func (s *Store) CreateFolderProjectFor(uid int64, p FolderProject) (FolderProjec
 	if err != nil {
 		return FolderProject{}, err
 	}
+	var saved FolderProject
+	err = s.withTx(func(tx *sql.Tx) error {
+		if err := s.userExists(tx, uid); err != nil {
+			return ErrFolderProjectNotFound
+		}
+		saved, err = insertFolderProject(tx, uid, p)
+		return err
+	})
+	if err != nil {
+		return FolderProject{}, err
+	}
+	return saved, nil
+}
+
+// insertFolderProject stores p, already normalized, at the end of uid's list
+// inside tx: the limit, position and name are settled there.
+func insertFolderProject(tx *sql.Tx, uid int64, p FolderProject) (FolderProject, error) {
+	var err error
 	if p.ID, err = projectRandomID(); err != nil {
 		return FolderProject{}, err
 	}
 	t := now()
 	p.CreatedAt, p.UpdatedAt, p.Version = t, t, 1
-	err = s.withTx(func(tx *sql.Tx) error {
-		if err := s.userExists(tx, uid); err != nil {
-			return ErrFolderProjectNotFound
-		}
-		var n, next int
-		if err := tx.QueryRow(`SELECT COUNT(*),COALESCE(MAX(position)+1,0) FROM folder_projects WHERE user_id=?`, uid).Scan(&n, &next); err != nil {
-			return err
-		}
-		if n >= MaxFolderProjects {
-			return ErrFolderProjectLimit
-		}
-		p.Position = next
-		if p.Name, err = resolveFolderName(tx, uid, "", p); err != nil {
-			return err
-		}
-		var legacy any
-		if p.LegacyProjectID != "" {
-			legacy = p.LegacyProjectID
-		}
-		_, err := tx.Exec(`INSERT INTO folder_projects(id,user_id,host,dir,name,name_key,is_repo,base_branch,worktree_default,default_tool,default_model,starter_prompt,position,legacy_project_id,created_at,updated_at,version)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
-			p.ID, uid, p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.StarterPrompt, p.Position, legacy, t, t)
-		return folderConflict(err)
-	})
-	if err != nil {
+	var n, next int
+	if err := tx.QueryRow(`SELECT COUNT(*),COALESCE(MAX(position)+1,0) FROM folder_projects WHERE user_id=?`, uid).Scan(&n, &next); err != nil {
 		return FolderProject{}, err
+	}
+	if n >= MaxFolderProjects {
+		return FolderProject{}, ErrFolderProjectLimit
+	}
+	p.Position = next
+	if p.Name, err = resolveFolderName(tx, uid, "", p); err != nil {
+		return FolderProject{}, err
+	}
+	var legacy any
+	if p.LegacyProjectID != "" {
+		legacy = p.LegacyProjectID
+	}
+	_, err = tx.Exec(`INSERT INTO folder_projects(id,user_id,host,dir,name,name_key,is_repo,base_branch,worktree_default,default_tool,default_model,starter_prompt,position,legacy_project_id,note,created_at,updated_at,version)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+		p.ID, uid, p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.StarterPrompt, p.Position, legacy, p.Note, t, t)
+	if err != nil {
+		return FolderProject{}, folderConflict(err)
 	}
 	return p, nil
 }
@@ -284,8 +327,8 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 			t = cur.CreatedAt
 		}
 		p.ID, p.Position, p.LegacyProjectID, p.CreatedAt, p.UpdatedAt, p.Version = id, cur.Position, cur.LegacyProjectID, cur.CreatedAt, t, cur.Version+1
-		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,default_tool=?,default_model=?,starter_prompt=?,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
-			p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.StarterPrompt, t, p.Version, id, uid, cur.Version)
+		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,default_tool=?,default_model=?,starter_prompt=?,note=?,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
+			p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.StarterPrompt, p.Note, t, p.Version, id, uid, cur.Version)
 		if err != nil {
 			return folderConflict(err)
 		}

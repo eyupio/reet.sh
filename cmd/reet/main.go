@@ -223,6 +223,14 @@ func serve() error {
 		return err
 	}
 	defer st.Close()
+	// Saved Projects become folder projects once; a later start finds nothing
+	// to do. A failure is logged and never stops the controller: the saved
+	// Projects stay readable and the next start tries again.
+	if rep, err := st.MigrateProjectsToFolders(); err != nil {
+		log.Printf("projects migration: not finished, will try again at the next start: %v", err)
+	} else if rep.Created > 0 || rep.Skipped > 0 {
+		log.Printf("projects migration: %d accounts, %d folder projects made, %d repositories skipped", rep.Users, rep.Created, rep.Skipped)
+	}
 	_ = st.PruneEvents(time.Now().AddDate(-1, 0, 0).UnixMilli())
 	_ = st.PruneSessions(time.Now().UnixMilli())
 	_ = st.PruneInvites(time.Now().UnixMilli())

@@ -110,6 +110,17 @@ type folderProjectInput struct {
 	DefaultTool     *string `json:"defaultTool"`
 	DefaultModel    *string `json:"defaultModel"`
 	StarterPrompt   *string `json:"starterPrompt"`
+	// Note can only be cleared (""): it is written by the migration of
+	// saved Projects and shown once.
+	Note *string `json:"note"`
+}
+
+// checkNote refuses a note other than "": only the migration writes one.
+func (in folderProjectInput) checkNote() *projectRefusal {
+	if in.Note != nil && *in.Note != "" {
+		return &projectRefusal{422, "invalid_note", "note", "The note can only be cleared.", ""}
+	}
+	return nil
 }
 
 func (in folderProjectInput) apply(p store.FolderProject) store.FolderProject {
@@ -126,6 +137,7 @@ func (in folderProjectInput) apply(p store.FolderProject) store.FolderProject {
 	set(&p.DefaultTool, in.DefaultTool)
 	set(&p.DefaultModel, in.DefaultModel)
 	set(&p.StarterPrompt, in.StarterPrompt)
+	set(&p.Note, in.Note)
 	if in.IsRepo != nil {
 		p.IsRepo = *in.IsRepo
 	}
@@ -265,15 +277,18 @@ type folderProjectView struct {
 	DefaultModel     string  `json:"defaultModel"`
 	HasStarterPrompt bool    `json:"hasStarterPrompt"`
 	StarterPrompt    *string `json:"starterPrompt,omitempty"`
-	Position         int     `json:"position"`
-	CreatedAt        int64   `json:"createdAt"`
-	UpdatedAt        int64   `json:"updatedAt"`
-	Version          int64   `json:"version"`
+	// Note is the migration's one-time notice: the saved Projects (by name)
+	// with this folder whose shared prompts were not kept. "" when none.
+	Note      string `json:"note"`
+	Position  int    `json:"position"`
+	CreatedAt int64  `json:"createdAt"`
+	UpdatedAt int64  `json:"updatedAt"`
+	Version   int64  `json:"version"`
 }
 
 func viewFolderProject(p store.FolderProject, names map[string]string) folderProjectView {
 	return folderProjectView{ID: p.ID, Host: p.Host, Machine: names[p.Host], Dir: p.Dir, Name: p.Name, IsRepo: p.IsRepo, BaseBranch: p.BaseBranch, WorktreeDefault: p.WorktreeDefault,
-		DefaultTool: p.DefaultTool, DefaultModel: p.DefaultModel, HasStarterPrompt: p.StarterPrompt != "", Position: p.Position,
+		DefaultTool: p.DefaultTool, DefaultModel: p.DefaultModel, HasStarterPrompt: p.StarterPrompt != "", Note: p.Note, Position: p.Position,
 		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Version: p.Version}
 }
 
@@ -336,6 +351,10 @@ func (s *server) folderProjectCreate(w http.ResponseWriter, r *http.Request) {
 		folderRefusal(err, "").write(w)
 		return
 	}
+	if refusal := in.checkNote(); refusal != nil {
+		refusal.write(w)
+		return
+	}
 	p := in.apply(store.FolderProject{})
 	if refusal := s.checkFolderProject(names, &p, nil); refusal != nil {
 		refusal.write(w)
@@ -378,6 +397,10 @@ func (s *server) folderProjectUpdate(w http.ResponseWriter, r *http.Request) {
 	names, err := s.machineNames(uid)
 	if err != nil {
 		folderRefusal(err, "").write(w)
+		return
+	}
+	if refusal := in.checkNote(); refusal != nil {
+		refusal.write(w)
 		return
 	}
 	p := in.apply(current)

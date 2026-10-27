@@ -153,10 +153,14 @@ export type FolderProject = {
   defaultTool: string; defaultModel: string; hasStarterPrompt: boolean
   /** Only in the single read (`getFolderProject`), for the edit form. */
   starterPrompt?: string
+  /** The one-time notice from moving saved Projects here: the names of the other Projects with this folder whose shared
+   * prompts were not kept ("A, B"), or "". Show it once; an update with `note: ''` clears it. */
+  note: string
   position: number; createdAt: number; updatedAt: number; version: number
 }
-/** A create sends host (the machine's enrollment id) and dir at least; an update sends only what changed (absent keeps, "" clears a text field). */
-export type FolderProjectInput = Partial<Pick<FolderProject, 'host' | 'dir' | 'name' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'defaultTool' | 'defaultModel' | 'starterPrompt'>>
+/** A create sends host (the machine's enrollment id) and dir at least; an update sends only what changed (absent keeps, "" clears a text field).
+ * `note` can only be cleared (anything else is 422 `invalid_note`). */
+export type FolderProjectInput = Partial<Pick<FolderProject, 'host' | 'dir' | 'name' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'defaultTool' | 'defaultModel' | 'starterPrompt'>> & { note?: '' }
 export type RemovedFolderProject = { ok: boolean; message: string }
 
 export type BrowseRepo = 'root' | 'inside' | 'none'

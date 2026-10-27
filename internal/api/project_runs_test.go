@@ -145,11 +145,7 @@ func (f *runMachine) project(t *testing.T) string {
 	t.Helper()
 	body := map[string]any{"name": "Shop", "defaultTool": "claude", "sharedPrompt": projectSentinel, "members": []map[string]any{
 		{"host": f.agent.ID, "dir": "/home/tester/site"}, {"host": f.agent.ID, "dir": "/home/tester/api", "tool": "codex"}, {"host": f.agent.ID, "dir": "/home/tester/docs"}}}
-	code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/projects", body)
-	if code != 201 {
-		t.Fatal(code, raw)
-	}
-	return out["id"].(string)
+	return storeProject(t, f.st, f.uid, body).ID
 }
 
 func (f *runMachine) settled(t *testing.T, runID string, done func(store.Run) bool) store.Run {
@@ -581,8 +577,13 @@ func TestProjectRunJSONNamesEachWorktreeForStatusAndRemove(t *testing.T) {
 	runID := out["id"].(string)
 	f.settled(t, runID, notRunning)
 	// A rename afterwards changes neither the slug the run used nor the run.
-	if code, _, raw := f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, map[string]any{"name": "Renamed Shop"}); code != 200 {
-		t.Fatal(raw)
+	renamed, err := f.st.ProjectFor(f.uid, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed.Name, renamed.Version = "Renamed Shop", 0
+	if _, err := f.st.UpdateProjectFor(f.uid, renamed); err != nil {
+		t.Fatal(err)
 	}
 	_, view, raw := f.do(t, f.cookie, "GET", "/api/v2/project-runs/"+runID, nil)
 	if view["worktreeProject"] != "shop" {
@@ -655,11 +656,8 @@ func TestProjectRunStartIsIdempotentAndRefusesAnOverlappingRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	b := terminalLogin(t, f.st, other.ID)
-	code, theirs, raw := f.do(t, b, "POST", "/api/v2/projects", map[string]any{"name": "Shop", "defaultTool": "claude", "members": []map[string]any{{"host": otherAgent.ID, "dir": "/x"}}})
-	if code != 201 {
-		t.Fatal(raw)
-	}
-	code, out, raw := f.do(t, b, "POST", "/api/v2/projects/"+theirs["id"].(string)+"/runs", map[string]any{"requestId": req, "positions": []int{0}})
+	theirs := storeProject(t, f.st, other.ID, map[string]any{"name": "Shop", "defaultTool": "claude", "members": []map[string]any{{"host": otherAgent.ID, "dir": "/x"}}})
+	code, out, raw := f.do(t, b, "POST", "/api/v2/projects/"+theirs.ID+"/runs", map[string]any{"requestId": req, "positions": []int{0}})
 	if code != 201 || out["id"] == runID {
 		t.Fatal(code, raw)
 	}
@@ -667,12 +665,9 @@ func TestProjectRunStartIsIdempotentAndRefusesAnOverlappingRun(t *testing.T) {
 
 func TestProjectRunWithoutWorktreesSaysItSharesTheCheckout(t *testing.T) {
 	f := runMachineFixture(t)
-	code, p, raw := f.do(t, f.cookie, "POST", "/api/v2/projects", map[string]any{"name": "Plain", "defaultTool": "claude", "useWorktrees": false,
+	p := storeProject(t, f.st, f.uid, map[string]any{"name": "Plain", "defaultTool": "claude", "useWorktrees": false,
 		"members": []map[string]any{{"host": f.agent.ID, "dir": "/home/tester/site"}}})
-	if code != 201 {
-		t.Fatal(raw)
-	}
-	_, out, raw := f.do(t, f.cookie, "POST", "/api/v2/projects/"+p["id"].(string)+"/runs", map[string]any{"requestId": terminalbroker.ID(), "positions": []int{0}})
+	_, out, raw := f.do(t, f.cookie, "POST", "/api/v2/projects/"+p.ID+"/runs", map[string]any{"requestId": terminalbroker.ID(), "positions": []int{0}})
 	m := out["members"].([]any)[0].(map[string]any)
 	if out["worktreeProject"] != "" || m["sharesCheckout"] != true || m["worktreeRun"] != "" || m["worktreeProject"] != "" {
 		t.Fatal(raw)
@@ -856,9 +851,21 @@ func TestProjectRunStartHonoursIfMatch(t *testing.T) {
 	}
 	// Edited in another tab after the sheet was made from version 1. The edit drops a member, so the
 	// sheet's positions no longer all exist: the answer is still that the Project changed.
-	if code, _, raw := f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, map[string]any{"members": []map[string]any{{"host": f.agent.ID, "dir": "/home/tester/elsewhere"}}}); code != 200 {
-		t.Fatal("edit", code, raw)
+	edit := func(change func(*store.Project)) {
+		t.Helper()
+		p, err := f.st.ProjectFor(f.uid, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		change(&p)
+		p.Version = 0
+		if _, err := f.st.UpdateProjectFor(f.uid, p); err != nil {
+			t.Fatal("edit", err)
+		}
 	}
+	edit(func(p *store.Project) {
+		p.Members = []store.ProjectMember{{Host: f.agent.ID, Dir: "/home/tester/elsewhere"}}
+	})
 	req := terminalbroker.ID()
 	for _, positions := range [][]int{{0}, {0, 2}} {
 		code, out, raw := start(`"1"`, map[string]any{"requestId": req, "positions": positions})
@@ -885,9 +892,7 @@ func TestProjectRunStartHonoursIfMatch(t *testing.T) {
 	runID := first["id"].(string)
 	f.settled(t, runID, notRunning)
 	// Edited again: the same request resent with the version it was made from still answers with its run.
-	if code, _, raw := f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, map[string]any{"name": "Shop, renamed"}); code != 200 {
-		t.Fatal("second edit", code, raw)
-	}
+	edit(func(p *store.Project) { p.Name = "Shop, renamed" })
 	if code, again, raw := start(`"2"`, map[string]any{"requestId": req, "positions": []int{0}}); code != 200 || again["id"] != runID {
 		t.Fatal("replay after an edit", code, raw)
 	}

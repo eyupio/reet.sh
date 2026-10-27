@@ -1,4 +1,4 @@
-import type { Project, ProjectInput, ProjectRun, WorktreeStatus, WorktreeTarget } from '../projects'
+import type { Project, ProjectRun, WorktreeStatus, WorktreeTarget } from '../projects'
 
 export type SessionState = 'creating' | 'running' | 'end_requested' | 'ended' | 'exited' | 'lost'
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string }
@@ -97,41 +97,15 @@ export type CommandHistoryEntry={command:string;source:'bash'|'zsh';timestamp?:n
 export type CommandHistorySnapshot={entries:CommandHistoryEntry[];sources:{source:'bash'|'zsh';available:boolean;reason?:string}[];truncated:boolean;skipped:number}
 export async function commandHistory(id:string,signal?:AbortSignal):Promise<CommandHistorySnapshot>{return(await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/command-history`,{signal:signal?AbortSignal.any([signal,AbortSignal.timeout(15000)]):AbortSignal.timeout(15000)})).json()}
 
-// Projects. Same cookie-only requests as terminals; every call gives up after 15 seconds. An update or delete always
-// names the version it read (If-Match), and starting a run always carries a request id, so a lost reply can be resent.
+// Saved Projects, kept to read: the list, their runs and a run, and the worktree status and remove a run's worktree
+// takes. Same cookie-only requests as terminals; every call gives up after 15 seconds. Nothing here changes a Project.
 const within = (signal?: AbortSignal): AbortSignal => (signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000))
 const projectPath = (id: string): string => `/api/v2/projects/${encodeURIComponent(id)}`
 const ifMatch = (version: number): Record<string, string> => ({ 'If-Match': `"${version}"` })
 
 export async function listProjects(signal?: AbortSignal): Promise<Project[]> { return (await (await terminalRequest('/api/v2/projects', { signal: within(signal) })).json()).projects }
-/** One Project with its shared prompt (for the edit form) and the version to send back when saving. */
-export async function getProject(id: string, signal?: AbortSignal): Promise<Project> { return (await terminalRequest(projectPath(id), { signal: within(signal) })).json() }
-/** Create (no `current`) or update. An update sends If-Match with the version read; a changed Project answers 409 `project_changed`. */
-export async function saveProject(input: ProjectInput, current?: { id: string; version: number }, signal?: AbortSignal): Promise<Project> {
-  return (await terminalRequest(current ? projectPath(current.id) : '/api/v2/projects', {
-    method: current ? 'PATCH' : 'POST', signal: within(signal), body: JSON.stringify(input), headers: current ? ifMatch(current.version) : undefined,
-  })).json()
-}
-export type DeletedProject = { ok: boolean; mayHaveWorktrees: boolean; message: string }
-export async function deleteProject(current: { id: string; version: number }, signal?: AbortSignal): Promise<DeletedProject> {
-  return (await terminalRequest(projectPath(current.id), { method: 'DELETE', signal: within(signal), headers: ifMatch(current.version) })).json()
-}
 export async function projectRuns(projectId: string, signal?: AbortSignal): Promise<ProjectRun[]> { return (await (await terminalRequest(`${projectPath(projectId)}/runs`, { signal: within(signal) })).json()).runs }
 export async function getRun(runId: string, signal?: AbortSignal): Promise<ProjectRun> { return (await terminalRequest(`/api/v2/project-runs/${encodeURIComponent(runId)}`, { signal: within(signal) })).json() }
-/**
- * Starts a run of the chosen member positions, from the Project version the confirmation sheet was made from (If-Match):
- * a Project changed since answers 409 `project_changed` and nothing starts. 201 (new) and 200 (the same request resent,
- * whatever the version is now) both give the run.
- */
-export async function startRun(project: { id: string; version: number }, positions: number[], requestId: string, signal?: AbortSignal): Promise<ProjectRun> {
-  if (!requestId) throw new Error('A run needs a request id.')
-  if (positions.length === 0) throw new Error('Choose at least one repository to start.')
-  if (!Number.isSafeInteger(project.version) || project.version < 1) throw new Error('A run needs the version of the Project it was confirmed from.')
-  return (await terminalRequest(`${projectPath(project.id)}/runs`, { method: 'POST', signal: within(signal), body: JSON.stringify({ requestId, positions }), headers: ifMatch(project.version) })).json()
-}
-export async function retryMember(runId: string, position: number, signal?: AbortSignal): Promise<ProjectRun> {
-  return (await terminalRequest(`/api/v2/project-runs/${encodeURIComponent(runId)}/members/${position}/retry`, { method: 'POST', signal: within(signal), body: '{}' })).json()
-}
 export async function worktreeStatus(target: WorktreeTarget, signal?: AbortSignal): Promise<WorktreeStatus> {
   return (await terminalRequest('/api/v2/terminal/worktrees/status', { method: 'POST', signal: within(signal), body: JSON.stringify(target) })).json()
 }

@@ -3,7 +3,7 @@
   import { shell } from '../dialogShell'
   import { UnauthorizedError } from '../api'
   import { listProjects, projectRuns, TerminalError, type FolderProject, type TerminalSession } from '../terminal/api'
-  import { removeOffer, type RunMember } from '../projects'
+  import { cleanPath, removeOffer, type RunMember } from '../projects'
   import WorktreeDialog from '../WorktreeDialog.svelte'
 
   // The worktrees reet has a record of for one folder project: the ones its live sessions are working in now, and the ones
@@ -27,7 +27,8 @@
   let failed = $state('')
   let removing = $state<{ member: RunMember; opener: HTMLElement } | null>(null)
   const host = $derived(project.machine || 'its machine')
-  const clean = (dir: string) => dir.length > 1 ? dir.replace(/\/+$/, '') : dir
+  // Saved folders are matched as the server cleaned them (path.Clean): /a//b/ and /a/./b are /a/b.
+  const clean = cleanPath
   const live = $derived((sessions ?? []).filter(s => s.projectId === project.id && s.worktreePath && ['creating', 'running', 'end_requested'].includes(s.state)))
 
   // Old runs are read through the saved Projects (read-only now): every run of a Project with a member in this folder.
@@ -69,7 +70,7 @@
     <div>
       <p class="eyebrow" data-shell-aside>{host}</p>
       <h2 id={`${id}-title`}>Worktrees for {project.name}</h2>
-      <p class="lede" data-shell-aside>The worktrees reet has a record of in <span class="mono">{project.dir}</span>.</p>
+      <p class="lede" data-shell-aside>The worktrees reet has a record of in <span class="mono">{project.dir}</span>: those live sessions are in, and those made by the newest 20 runs of each saved Project.</p>
     </div>
     <button type="button" class="btn" bind:this={closeButton} onclick={close} aria-label="Close" data-shell-close>Close ×</button>
   </header>

@@ -32,7 +32,8 @@ git calls share the lazy-fetch and fsmonitor hazard the folder browser already g
 `projects.e2e.mjs` out of it into `phone-zoom`); since PR B the worktree figure on Home is "worktrees in use"
 (live sessions only: no record says which worktrees were removed), choosing a rail card opens Start an agent
 until the launch bar (E) applies the project's defaults and starter prompt, and the old Projects tables and
-their start/retry routes stay one release before they are dropped (still to confirm); the MCP test
+their start/retry routes stay one release before they are dropped (ruling: no page calls them; the web client for them
+and the run Retry are already removed); the MCP test
 `mcp/test/oauth.test.mjs` needs the fixture precompiled in CI (done in `image.yml`).
 **Rule for this stack: every PR updates this block (state column and any new limits) before it merges.**
 

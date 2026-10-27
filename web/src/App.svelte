@@ -115,7 +115,8 @@
   // /projects and /projects/<id> are retired: folder projects live in Home's rail. The address becomes / at once (Home then
   // looks an old Project id up and shows /?project=<its folder project>), and Home says so once, for this page load only.
   const retiredProjects = location.pathname.match(/^\/projects(?:\/([^/]+))?\/?$/)
-  const legacyProject = retiredProjects?.[1] ? decodeURIComponent(retiredProjects[1]) : ''
+  // A malformed escape in an old link (/projects/%E0) still goes to Home, just without a project to look up.
+  const legacyProject = (() => { try { return retiredProjects?.[1] ? decodeURIComponent(retiredProjects[1]) : '' } catch { return '' } })()
   if (retiredProjects) window.history.replaceState(window.history.state, '', '/')
   // `/` is Home: the full Home for a writer in accounts mode, the fleet strip alone for everyone else signed in (R16).
   // Control keeps its own address at /control, under More.

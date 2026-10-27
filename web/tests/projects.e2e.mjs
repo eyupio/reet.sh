@@ -29,7 +29,8 @@ async function workspace(options={}) {
    if (legacy === null) return {projects:[fproject('fp1','site','/home/dev/site'), fproject('fp2','api','/home/dev/api')], savedWaiting:0}
    return legacy === 'p1' ? {id:'fp1'} : {status:404, json:{error:"That project isn't on this account.", code:'project_not_found'}}
   },
-  '/api/v2/projects': {projects:[{id:'p1',name:'Site',defaultTool:'claude',defaultModel:'',useWorktrees:true,hasSharedPrompt:false,members:[{host:'a1',dir:'/home/dev/site',tool:'',model:'',position:0}],createdAt:1,updatedAt:1,version:1}]},
+  '/api/v2/projects': {projects:[{id:'p2',name:'Broken',defaultTool:'claude',defaultModel:'',useWorktrees:true,hasSharedPrompt:false,members:[],createdAt:1,updatedAt:1,version:1}, {id:'p1',name:'Site',defaultTool:'claude',defaultModel:'',useWorktrees:true,hasSharedPrompt:false,members:[{host:'a1',dir:'/home/dev/site',tool:'',model:'',position:0}],createdAt:1,updatedAt:1,version:1}]},
+  '/api/v2/projects/p2/runs': {status:500, json:{error:'down'}},
   '/api/v2/projects/p1/runs': () => ({runs:[box.removed ? {...oldRun(), members:oldRun().members.map(m => m.position === 0 ? {...m, state:'removed'} : m)} : oldRun()]}),
   '/api/v2/project-runs/r1': () => box.removed ? {...oldRun(), members:oldRun().members.map(m => m.position === 0 ? {...m, state:'removed'} : m)} : oldRun(),
   '/api/v2/terminal/worktrees/status': {path:'/home/dev/.reet/worktrees/site/0',branch:'reet/site-r1-0',changed:0,unpushed:0,paths:[],unreferenced:0,hidden:0,nested:false,incomplete:false},
@@ -80,6 +81,20 @@ try {
   await context.close()
  }
 
+ // A malformed old address (a broken escape) still goes to Home with the note; the app does not fail to start.
+ if (run('a malformed old address goes to Home')) {
+  const {context,page,errors,box} = await workspace()
+  // The preview server refuses the address itself; reet's server serves the app for it, so the page is served here.
+  await page.route(url => new URL(url).pathname === '/projects/%E0', async route => route.fulfill({response:await route.fetch({url:`${base}/`})}))
+  await page.goto(`${base}/projects/%E0`)
+  await expect(page).toHaveURL(`${base}/`)
+  await expect(page.getByText(NOTE,{exact:true})).toBeVisible()
+  await expect(page.getByRole('complementary',{name:'Projects'}).getByRole('button',{name:/^site, studio/})).toBeVisible()
+  expect(box.requests.filter(r => r.includes('legacy='))).toEqual([])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // Activity keeps the old runs to read: each opens its run, with no Retry; a worktree of a run whose session has ended can
  // still be checked and removed through the existing sheet.
  if (run('old run is read-only in Activity and its worktree can be checked and removed')) {
@@ -87,6 +102,9 @@ try {
   await page.goto(`${base}/activity`)
   await expect(page.getByText('Moved saved Project Site into the rail as 2 projects',{exact:true})).toBeVisible()
   const runs = page.getByRole('region',{name:'Runs from Projects'})
+  // One saved Project's runs could not be read: the others are still listed, and it says which.
+  await expect(runs).toContainText("Couldn't read the runs of Broken just now.")
+  await expect(runs).toContainText('the newest 20 runs of each saved Project')
   const head = runs.getByRole('button',{name:/^Site/})
   await expect(head).toHaveAttribute('aria-expanded','false')
   await head.click()

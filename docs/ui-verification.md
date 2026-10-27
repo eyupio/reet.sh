@@ -955,9 +955,13 @@ in reet and one in zoomies-platform, each in a worktree. Boxes from `getBounding
   browsed live on the machine" (R9), at the foot of the column.
 - Side by side with the reference (`cmp-rail.png` in the task's scratchpad): same columns, rows, type and colours.
 
-**1239 × 900 (collapsed): the 56 px strip** runs the full height (R12: `min-height` on the strip), with Add and one
-40 px button per project (44 px on touch) named in full: "reet, Elitebook, main, 3 running, 3 worktrees in use". A
-repository shows a 9 px diamond badge in its corner, a running one a 7 px dot.
+**1239 × 900 and 1100 × 900 (collapsed): the 56 px strip** runs the full height (R12: `min-height` on the strip), with
+Add, **Open the project rail** and one 44 px wide button per project named in full ("reet, Elitebook, main, 3 running,
+3 worktrees in use"). In place, each shows its initial, its base branch (10 px mono, cut at 40 px), an 8 px repository
+diamond, a 7 px running dot and the worktrees in use as a 15 px count on its corner. Open the project rail carries a
+dot when a migration note or saved folders are waiting (named in words) and opens the full rail as a 301 px panel over
+the page, where every card menu, note Dismiss and the saved-folders prompt are; Escape gives focus back. Fix round 1
+of B6; `home.e2e.mjs` "collapsed strip reaches every rail action by keyboard" at 1239 and 1100 px.
 
 **834 × 1112 (tablet) and 390 × 844 (phone): the rail sits under In flight**, as the plan's B6 tweak says, until the
 Sessions tab takes it (PR H). It keeps the desktop cards at full width (786 and 358 px), 62 px tall, with "Projects"
@@ -986,6 +990,11 @@ with the Add tile scrolling as before; the figure adds no height (the skills lin
 7. *The one-time migration note and the "remaining saved Projects" prompt* are spec copy the mock-up's frame does not
    show; they sit inside the card and above the list, in the rail's own type.
 8. *Light theme.* The mock-up is dark only; light uses the tokens' light values (`--line-mid` `#d4cfc4`).
+9. *The collapsed strip's panel.* The mock-up draws the strip as initials only and has no way to manage projects at
+   that width. The rail is now the only place to manage them, so the strip gains **Open the project rail**, which shows
+   the full rail as a panel over the page (the least invasive fit for 56 px: one button, the full rail's own controls),
+   and each project button shows its branch and worktree count in place as the plan's B6 tweak asks, at 10 px (the full
+   values are in the button's name and tooltip).
 
 **What the fixtures check.** `home.e2e.mjs`: "rail lists folder projects with their menu" (the card's words and
 icons, 301 px, choosing a card starts in its folder with its project id, the menu's items and keys, Move down with

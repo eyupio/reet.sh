@@ -54,7 +54,11 @@ starter prompt as at least two words.").
 ## The rail
 
 Desktop: the left column, 301 px (272 px cards inside 14 px padding and a 1 px rule). From 1100 to
-1239 px wide it is a 56 px strip of the same cards, each a button named in full. On a tablet or phone
+1239 px wide it is a 56 px strip: **Add**, **Open the project rail** (marked with a dot, and named, when a
+migration note or saved folders are waiting), then one button per project showing its initial, its base
+branch in mono (cut short), the repository diamond, a running dot and the worktrees in use as a small count,
+each named in full. Open the project rail shows the full rail over the page as a 301 px panel, with every
+card menu, note and prompt; Escape or a press outside closes it and gives focus back. On a tablet or phone
 it sits under In flight; the Sessions tab takes it in a later release.
 
 Each card shows, in words: a repository diamond (or a folder icon for a plain folder), the name, the
@@ -139,7 +143,8 @@ release, once, inside one transaction per account, and idempotently:
 - A folder the person had already registered was left as it was. Where one folder belonged to several
   Projects with different prompts, the oldest Project's prompt was kept and the card shows a one-time
   note: "Moved from your saved Projects. The starter prompts of A, B weren't kept here; their old runs
-  are in Activity." **Dismiss** clears it for good.
+  are in Activity." **Dismiss** clears it for good. "Shown once" means exactly this: the note stays on its card until
+  the person dismisses it, and once cleared on the server it never comes back.
 - Each Project wrote one `projects-migrated` event naming the folder projects made, never the prompt.
 - An account with the most projects reet keeps was left with the rest waiting. The rail then says
   "N saved folders from your old Projects are waiting for room." with **Add your remaining saved
@@ -389,6 +394,8 @@ projects" and "Browsed folders from ~ (3 pages)". The old runs' `project-run`, `
 - **No launch bar yet.** Choosing a card opens Start an agent; the project's default agent, model,
   base branch, worktree choice and starter prompt are not applied until the launch bar (a later
   release). A session started there with the same folder carries the project id.
+- **Old runs listed: the newest 20 per saved Project** (what the run list answers); older runs and their
+  worktrees are not listed.
 - **Rail menu reorder only.** Moving is one place at a time from the menu; there is no drag.
 - **Waiting needs the person.** Saved folders left waiting for room come in only from the rail's
   prompt.

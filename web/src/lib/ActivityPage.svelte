@@ -18,6 +18,8 @@
 
   let runs = $state<ProjectRun[] | undefined>()
   let runsFailed = $state(false)
+  // Saved Projects whose runs could not be read: the others are still listed.
+  let unread = $state<string[]>([])
   let machines = $state<TerminalMachine[] | undefined>()
   let sessions = $state<TerminalSession[] | undefined>()
   let sessionsFailed = $state(false)
@@ -41,17 +43,20 @@
     }
   }
   const signedOut = (e: unknown) => e instanceof TerminalError && e.status === 401
-  // Every saved Project's runs, newest first. The machines and sessions are for the run view: names, and whether a run's
+  // Every saved Project's runs (the server keeps the newest 20 of each), newest first, read one Project at a time so one
+  // that fails leaves the others listed. The machines and sessions are for the run view: names, and whether a run's
   // session has ended (only then is its worktree offered for removal).
   async function loadRuns() {
-    const [list, m, s] = await Promise.allSettled([
-      listProjects(life.signal).then(projects => Promise.all(projects.map(p => projectRuns(p.id, life.signal)))),
-      terminalMachines(life.signal), terminalSessions(life.signal),
-    ])
+    const [list, m, s] = await Promise.allSettled([listProjects(life.signal), terminalMachines(life.signal), terminalSessions(life.signal)])
     if (life.signal.aborted) return
     if ([list, m, s].some(r => r.status === 'rejected' && signedOut(r.reason))) { onsignedout?.(new UnauthorizedError()); return }
-    if (list.status === 'fulfilled') runs = list.value.flat().sort((a, b) => b.startedAt - a.startedAt)
-    else { runsFailed = true; runs = [] }
+    if (list.status === 'fulfilled') {
+      const read = await Promise.allSettled(list.value.map(p => projectRuns(p.id, life.signal)))
+      if (life.signal.aborted) return
+      if (read.some(r => r.status === 'rejected' && signedOut(r.reason))) { onsignedout?.(new UnauthorizedError()); return }
+      unread = list.value.filter((_, i) => read[i].status === 'rejected').map(p => p.name)
+      runs = read.flatMap(r => r.status === 'fulfilled' ? r.value : []).sort((a, b) => b.startedAt - a.startedAt)
+    } else { runsFailed = true; runs = [] }
     if (m.status === 'fulfilled') machines = m.value
     if (s.status === 'fulfilled') sessions = s.value; else sessionsFailed = true
   }
@@ -77,7 +82,8 @@
 {#if writer}
   <section class="block runs" aria-labelledby="runs-title">
     <h2 id="runs-title">Runs from Projects</h2>
-    <p class="muted">Runs of your saved Projects, kept to read. Their worktrees can still be checked and removed here.</p>
+    <p class="muted">Runs of your saved Projects, kept to read: the newest 20 runs of each saved Project. Their worktrees can still be checked and removed here.</p>
+    {#each unread as name (name)}<p class="bad" role="alert">Couldn't read the runs of {name} just now.</p>{/each}
     {#if runsFailed}
       <p class="bad" role="alert">Couldn't read the runs just now.</p>
     {:else if !runs}
@@ -93,7 +99,7 @@
               <span class="muted">{runSummary(run)}</span>
             </button>
             {#if open === run.id}
-              <div id={`run-${run.id}`} class="run-body"><RunView {run} {machines} {sessions} {sessionsFailed} readonly {onsignedout} /></div>
+              <div id={`run-${run.id}`} class="run-body"><RunView {run} {machines} {sessions} {sessionsFailed} {onsignedout} /></div>
             {/if}
           </li>
         {/each}

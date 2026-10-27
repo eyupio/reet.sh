@@ -32,8 +32,8 @@ const baseSessions = () => [
 const fproject = (id, name, host, dir, over={}) => ({id,host,machine:host === 'a1' ? 'studio' : 'desk',dir,name,isRepo:true,baseBranch:'',worktreeDefault:'inherit',defaultTool:'',defaultModel:'',hasStarterPrompt:false,note:'',position:0,createdAt:1,updatedAt:1,version:1,...over})
 const fprojects = () => [fproject('fp1','Store rewrite','a1','/home/dev/store',{baseBranch:'main'}), fproject('fp2','Notes','a2','/home/dev/notes',{isRepo:false,position:1})]
 // An old saved Project run whose worktree on studio is still recorded, for the Worktrees menu.
-const oldProject = {id:'p1',name:'Store rewrite',defaultTool:'claude',defaultModel:'',useWorktrees:true,hasSharedPrompt:false,members:[{host:'a1',dir:'/home/dev/store',tool:'',model:'',position:0}],createdAt:1,updatedAt:1,version:1}
-const oldRun = {id:'r1',projectId:'p1',projectName:'Store rewrite',state:'complete',startedAt:now-3*24*HOUR,useWorktrees:true,worktreeProject:'store-rewrite',members:[{position:0,host:'a1',dir:'/home/dev/store',tool:'claude',model:'',state:'started',code:'',sentence:'',sessionId:'old1',worktreePath:'/home/dev/.reet/worktrees/store-rewrite/store/r1',worktreeRepo:'store',worktreeBranch:'reet/store-rewrite-r1',worktreeRun:'r1',worktreeProject:'store-rewrite',sharesCheckout:false,attempt:1}]}
+const oldProject = {id:'p1',name:'Store rewrite',defaultTool:'claude',defaultModel:'',useWorktrees:true,hasSharedPrompt:false,members:[{host:'a1',dir:'/home/dev//./store/',tool:'',model:'',position:0}],createdAt:1,updatedAt:1,version:1}
+const oldRun = {id:'r1',projectId:'p1',projectName:'Store rewrite',state:'complete',startedAt:now-3*24*HOUR,useWorktrees:true,worktreeProject:'store-rewrite',members:[{position:0,host:'a1',dir:'/home/dev//./store/',tool:'claude',model:'',state:'started',code:'',sentence:'',sessionId:'old1',worktreePath:'/home/dev/.reet/worktrees/store-rewrite/store/r1',worktreeRepo:'store',worktreeBranch:'reet/store-rewrite-r1',worktreeRun:'r1',worktreeProject:'store-rewrite',sharesCheckout:false,attempt:1}]}
 const job = (id, agentId, targetId, actions, ago) => ({id,agentId,targetId,kind:'preview',status:'awaiting-approval',revision:'r',hash:'h',plan:{actions:Array.from({length:actions},(_,i)=>({add:true,skill:{id:`k${i}`,name:`k${i}`}}))},message:'',createdAt:Date.now()-ago-MIN,updatedAt:Date.now()-ago})
 const target = (id, host) => ({target:{id,host,agent:'claude'},sourceId:'s',sourceName:'src',desired:[],missing:[],extra:[],revision:'r',updatedAt:Date.now()})
 // Built per test: the ages it shows are read against the page's clock, so a copy made when the file started would drift a
@@ -392,7 +392,9 @@ try {
   const d = page.getByRole('dialog',{name:'Worktrees for Store rewrite',exact:true})
   await expect(d).toContainText('reet/store-split')
   await expect(d).toContainText('In use by Refactor the store layer')
+  // The old Project saved the folder as /home/dev//./store/: cleaned as the server cleans it, it is this project's.
   await expect(d).toContainText('reet/store-rewrite-r1')
+  await expect(d).toContainText('the newest 20 runs of each saved Project')
   await d.getByRole('button',{name:'Check and remove reet/store-rewrite-r1'}).click()
   await expect(page.getByRole('dialog',{name:/worktree/i}).last()).toBeVisible()
   expect(errors).toEqual([])
@@ -425,14 +427,24 @@ try {
 
  // The note from moving saved Projects shows on its card until the person dismisses it; dismissing clears it for good.
  if (run('migration note shown once')) {
-  const {context,page,errors,box} = await home({projects:[fproject('fp1','Store rewrite','a1','/home/dev/store',{note:'Old shop, Site'}), fproject('fp2','Notes','a2','/home/dev/notes',{isRepo:false,position:1})]})
+  const gates = {}
+  const {context,page,errors,box} = await home({gates, projects:[fproject('fp1','Store rewrite','a1','/home/dev/store',{note:'Old shop, Site'}), fproject('fp2','Notes','a2','/home/dev/notes',{isRepo:false,position:1})]})
   await page.goto(base)
   const note = rail(page).getByRole('note')
   await expect(note).toHaveCount(1)
   await expect(note).toContainText('Moved from your saved Projects.')
   await expect(note).toContainText('Old shop, Site')
-  await note.getByRole('button',{name:'Dismiss'}).click()
+  // Pressed twice while the first is on its way: one change is sent, and nobody else is said to have changed it.
+  let release
+  gates['/api/v2/folder-projects/fp1'] = new Promise(r => { release = r })
+  await note.getByRole('button',{name:'Dismiss the note on Store rewrite',exact:true}).evaluate(b => { b.click(); b.click() })
+  await page.waitForTimeout(200)
+  delete gates['/api/v2/folder-projects/fp1']
+  release()
   await expect(rail(page).getByRole('note')).toHaveCount(0)
+  await page.waitForTimeout(300)
+  expect(box.writes.filter(w => w.method === 'PATCH')).toHaveLength(1)
+  await expect(page.getByText(/Someone changed/)).toHaveCount(0)
   const patch = box.writes.find(w => w.method === 'PATCH')
   expect(patch.body).toEqual({note:''})
   expect(patch.match).toBe('"1"')
@@ -456,6 +468,98 @@ try {
   expect(box.writes.filter(w => w.path === '/api/v2/folder-projects/import-saved')).toHaveLength(1)
   expect(errors).toEqual([])
   await context.close()
+ }
+
+ // One change at a time per press: a second Move while the first is on its way sends nothing; after Remove from reet the
+ // focus goes to the next card (or Add), and when the remove is refused it goes back to the card's menu button.
+ if (run('moves and removes are sent once and keep the focus')) {
+  const gates = {}
+  const {context,page,errors,box} = await home({gates})
+  await page.goto(base)
+  let release
+  gates['/api/v2/folder-projects/reorder'] = new Promise(r => { release = r })
+  const more = name => rail(page).getByRole('button',{name:`More for ${name}`,exact:true})
+  await more('Store rewrite').click()
+  await page.getByRole('menu',{name:'Store rewrite'}).getByRole('menuitem',{name:'Move down'}).click()
+  await more('Store rewrite').click()
+  await expect(page.getByRole('menu',{name:'Store rewrite'}).getByRole('menuitem',{name:'Move down'})).toBeDisabled()
+  await page.keyboard.press('Escape')
+  delete gates['/api/v2/folder-projects/reorder']
+  release()
+  await expect.poll(() => rail(page).locator('.full .card .name').allTextContents()).toEqual(['Notes','Store rewrite'])
+  expect(box.writes.filter(w => w.path === '/api/v2/folder-projects/reorder')).toHaveLength(1)
+  // A refused remove (someone else changed the project): the sentence, and focus back on the menu button.
+  box.projects = box.projects.map(p => p.id === 'fp1' ? {...p, version:p.version + 5} : p)
+  await more('Store rewrite').click()
+  await page.getByRole('menu',{name:'Store rewrite'}).getByRole('menuitem',{name:'Remove from reet'}).click()
+  await page.getByRole('dialog',{name:'Remove Store rewrite from reet?',exact:true}).getByRole('button',{name:'Remove from reet'}).click()
+  await expect(page.getByText('Someone changed this project. Reload it, then try again.',{exact:true})).toBeVisible()
+  await expect(more('Store rewrite')).toBeFocused()
+  // Read again, then removed: focus goes to a card that is still there.
+  await expect.poll(async () => (await rail(page).getByRole('button',{name:/^Store rewrite, /}).count())).toBe(1)
+  await page.waitForTimeout(300)
+  await more('Notes').click()
+  await page.getByRole('menu',{name:'Notes'}).getByRole('menuitem',{name:'Remove from reet'}).click()
+  await page.getByRole('dialog',{name:'Remove Notes from reet?',exact:true}).getByRole('button',{name:'Remove from reet'}).click()
+  await expect(rail(page).getByRole('button',{name:/^Notes, /})).toHaveCount(0)
+  await expect(rail(page).getByRole('button',{name:/^Store rewrite, /})).toBeFocused()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // From 1100 to 1239 px the rail is a 56 px strip: each project shows its repository badge, branch and worktrees in use in
+ // place, and every action of the full rail is reachable by keyboard through Open the project rail, which marks a note or
+ // saved folders waiting.
+ if (run('collapsed strip reaches every rail action by keyboard')) {
+  for (const width of [1239, 1100]) {
+   const {context,page,errors,box} = await home({width, savedWaiting:2, projects:[fproject('fp1','Store rewrite','a1','/home/dev/store',{baseBranch:'main',note:'Old shop'}), fproject('fp2','Notes','a2','/home/dev/notes',{isRepo:false,position:1})]})
+   await page.goto(base)
+   const strip = rail(page).locator('.strip')
+   const store = strip.getByRole('button',{name:'Store rewrite, studio, main, 1 running, 1 worktree in use',exact:true})
+   await expect(store, `${width}`).toBeVisible()
+   await expect(store.locator('.badge')).toBeVisible()
+   await expect(store.locator('.mini-branch')).toHaveText('main')
+   await expect(store.locator('.mini-wt')).toHaveText('1')
+   expect(Math.round(await rail(page).evaluate(el => el.getBoundingClientRect().width))).toBe(56)
+   const open = strip.getByRole('button',{name:'Open the project rail: 1 note, 2 saved folders waiting',exact:true})
+   await open.focus()
+   await page.keyboard.press('Enter')
+   await expect(open).toHaveAttribute('aria-expanded','true')
+   const panel = rail(page).locator('.full')
+   await expect(panel.getByRole('button',{name:'Add a project'})).toBeFocused()
+   // The card menu.
+   await panel.getByRole('button',{name:'More for Store rewrite',exact:true}).focus()
+   await page.keyboard.press('Enter')
+   const menu = page.getByRole('menu',{name:'Store rewrite'})
+   await expect(menu.getByRole('menuitem')).toHaveText(['New session here','Edit','Worktrees','Move up','Move down','Remove from reet'])
+   await expect(menu.getByRole('menuitem',{name:'New session here'})).toBeFocused()
+   for (const item of ['Edit','Worktrees','Move down','Remove from reet']) {
+    await page.keyboard.press('ArrowDown')
+    if (item !== 'Edit') continue
+    await expect(menu.getByRole('menuitem',{name:'Edit'})).toBeFocused()
+   }
+   await expect(menu.getByRole('menuitem',{name:'Remove from reet'})).toBeFocused()
+   await page.keyboard.press('Escape')
+   // The note's Dismiss and the saved folders prompt.
+   const dismiss = panel.getByRole('button',{name:'Dismiss the note on Store rewrite',exact:true})
+   await dismiss.focus()
+   await page.keyboard.press('Enter')
+   await expect.poll(() => box.writes.filter(w => w.method === 'PATCH').length).toBe(1)
+   const bring = panel.getByRole('button',{name:'Add your remaining saved Projects (2)',exact:true})
+   await bring.focus()
+   await page.keyboard.press('Enter')
+   await expect.poll(() => box.writes.filter(w => w.path === '/api/v2/folder-projects/import-saved').length).toBe(1)
+   // Escape closes the panel and gives focus back.
+   await panel.getByRole('button',{name:'Add a project'}).focus()
+   await page.keyboard.press('Escape')
+   const plain = strip.getByRole('button',{name:/^Open the project rail/})
+   await expect(plain).toHaveAttribute('aria-expanded','false')
+   await expect(plain).toBeFocused()
+   await expect(panel).toBeHidden()
+   expect(await noSideways(page)).toBe(true)
+   expect(errors).toEqual([])
+   await context.close()
+  }
  }
 
  // Start an agent sits docked at the foot of the page and opens the existing dialog.

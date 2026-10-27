@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
+  import { SvelteSet } from 'svelte/reactivity'
   import { getSyncState, UnauthorizedError, type Machine, type SyncState } from '../api'
   import { deleteFolderProject, folderProjectList, getFolderProject, importSavedProjects, machineHealth, refusalSentence, reorderFolderProjects, terminalMachines,
     folderProjectForLegacy, terminalSessions, updateFolderProject, TerminalError, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
@@ -137,6 +138,10 @@
   let removing = $state<{ opener: HTMLElement | null; project: FolderProject } | null>(null)
   let listing = $state<{ opener: HTMLElement | null; project: FolderProject } | null>(null)
   let importing = $state(false)
+  // One change at a time: a project with a dismiss or remove on its way, and a move on its way, ignore a second press, so
+  // the second never meets the first one's new version as "someone changed this project".
+  const pending = new SvelteSet<string>()
+  let moving = $state(false)
   const folders = $derived<Machine[] | undefined>(sync?.machines)
   // Read on every open, never from an earlier one: a machine's readiness and launch capabilities change while Home stays
   // open, and the polls refresh health, not these. `checking` stops a second open racing the first read.
@@ -186,35 +191,50 @@
     settle([...(projects ?? []).filter(x => x.id !== p.id), p].sort((a, b) => a.position - b.position))
     notice = { text: wasEdit ? `Sorted. ${p.name} saved.` : addedLine(p.name) }
   }
-  async function remove(project: FolderProject) {
+  // After a remove the focus goes to the card now in its place (or the one before, or Add); a refused remove gives it back
+  // to the control that opened the confirmation.
+  async function remove(project: FolderProject, opener: HTMLElement | null) {
+    if (pending.has(project.id)) return
+    pending.add(project.id)
     notice = null
+    const at = (projects ?? []).findIndex(p => p.id === project.id)
     try {
       const answer = await deleteFolderProject(project.id, project.version, bounded())
       settle((projects ?? []).filter(p => p.id !== project.id))
       notice = { text: answer.message }
+      await tick()
+      const shown = (el: HTMLElement) => el.getClientRects().length > 0
+      const cards = [...document.querySelectorAll<HTMLElement>('aside.rail .card, aside.rail .mini')].filter(shown)
+      const add = [...document.querySelectorAll<HTMLElement>('aside.rail button[aria-label="Add a project"]')].find(shown)
+      ;(cards[Math.min(Math.max(at, 0), cards.length - 1)] ?? add)?.focus()
     } catch (e) {
       if (refused(e, true)) { life.abort(); onsignedout(new UnauthorizedError()); return }
       notice = { text: refusalSentence(e), bad: true }
+      if (opener?.isConnected) opener.focus()
       void load(true)
-    }
+    } finally { pending.delete(project.id) }
   }
   // Moving a card sends the whole order with the version of each project as read; a changed list is read again.
   async function move(project: FolderProject, by: -1 | 1) {
+    if (moving) return
     const list = [...(projects ?? [])]
     const at = list.findIndex(p => p.id === project.id), to = at + by
     if (at < 0 || to < 0 || to >= list.length) return
     ;[list[at], list[to]] = [list[to], list[at]]
     notice = null
+    moving = true
     try {
       settle(await reorderFolderProjects(list.map(p => p.id), list.map(p => p.version), bounded()))
     } catch (e) {
       if (refused(e, true)) { life.abort(); onsignedout(new UnauthorizedError()); return }
       notice = { text: refusalSentence(e), bad: true }
       void load(true)
-    }
+    } finally { moving = false }
   }
   // The migration's note goes once the person has read it: clearing it is the one change made.
   async function dismiss(project: FolderProject) {
+    if (pending.has(project.id)) return
+    pending.add(project.id)
     try {
       const saved = await updateFolderProject(project.id, { note: '' }, project.version, bounded())
       settle((projects ?? []).map(p => p.id === saved.id ? saved : p))
@@ -222,7 +242,7 @@
       if (refused(e, true)) { life.abort(); onsignedout(new UnauthorizedError()); return }
       notice = { text: refusalSentence(e), bad: true }
       void load(true)
-    }
+    } finally { pending.delete(project.id) }
   }
   // The saved Project folders that waited for room come in only when the person asks; the answer is said as it came.
   async function bringIn() {
@@ -282,7 +302,7 @@
 <div class="home" class:writer>
   <h1 class="vh">Home</h1>
   {#snippet rail()}
-    <ProjectRail {projects} failed={projectsFailed} reporting={machineReporting} {running} {worktrees} {savedWaiting} {chosen} busy={checking} {importing}
+    <ProjectRail {projects} failed={projectsFailed} reporting={machineReporting} {running} {worktrees} {savedWaiting} {chosen} busy={checking} {importing} {pending} {moving}
       onadd={openAdd} onchoose={openProjectStart} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}
       onremove={(project, opener) => (removing = { project, opener })} onmove={move} ondismiss={dismiss} onimport={bringIn} />
   {/snippet}
@@ -317,7 +337,7 @@
 {#if removing}
   {@const p = removing.project}
   <ConfirmDialog title={`Remove ${p.name} from reet?`} body={`It leaves the rail. Its sessions and any worktrees stay on ${p.machine || 'its machine'}, and the folder isn't touched.`}
-    confirmLabel="Remove from reet" danger onconfirm={() => { const target = p; removing = null; void remove(target) }} oncancel={() => { const o = removing?.opener; removing = null; o?.focus() }} />
+    confirmLabel="Remove from reet" danger onconfirm={() => { const target = p, opener = removing?.opener ?? null; removing = null; void remove(target, opener) }} oncancel={() => { const o = removing?.opener; removing = null; o?.focus() }} />
 {/if}
 {#if listing}
   <ProjectWorktrees project={listing.project} {sessions} {sessionsFailed} opener={listing.opener} {onsignedout} onclose={() => (listing = null)} />

@@ -92,9 +92,9 @@ jobs:
           path: ${{ runner.temp }}/terminal-browser
           if-no-files-found: ignore
 
-  # Its own job, so the phone zoom contract (about 40-50 s), Home with its project rail (about 60 s), the retired Projects
-  # addresses (about 5 s) and the Add project dialog's later fixes (about 10 s) run alongside the terminal job instead of
-  # adding to its time.
+  # Its own job, so the phone zoom contract, Home with its project rail, the retired Projects addresses and the Add project
+  # dialog's later fixes run alongside the terminal job instead of adding to its time. (Local runs take roughly 45, 60, 5
+  # and 10 s; CI's times differ, so read them from the job log, not from here.)
   phone-zoom:
     runs-on: ubuntu-latest
     timeout-minutes: 10

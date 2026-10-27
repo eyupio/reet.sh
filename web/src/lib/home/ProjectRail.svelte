@@ -8,7 +8,7 @@
   // agent in that folder (the launch bar takes this over in a later release). Each card's menu: New session here, Edit,
   // Worktrees, Move up, Move down and Remove from reet. Under 1240 px on a desktop the rail is a 56 px strip of the same
   // cards; on a tablet or phone it sits under In flight (the Sessions tab takes it in a later release).
-  let { projects, failed = false, reporting, running, worktrees, savedWaiting = 0, chosen = '', busy, importing = false,
+  let { projects, failed = false, reporting, running, worktrees, savedWaiting = 0, chosen = '', busy, importing = false, pending, moving = false,
     onadd, onchoose, onedit, onworktrees, onremove, onmove, ondismiss, onimport }: {
     projects: FolderProject[] | undefined
     /** The projects could not be read and none were read before. */
@@ -23,6 +23,10 @@
     chosen?: string
     busy: boolean
     importing?: boolean
+    /** Projects with a change on its way (a dismiss or remove): their buttons wait for it. */
+    pending: ReadonlySet<string>
+    /** A move is on its way: no other move is offered until it lands. */
+    moving?: boolean
     onadd: (opener: HTMLElement) => void
     onchoose: (project: FolderProject, opener: HTMLElement) => void
     onedit: (project: FolderProject, opener: HTMLElement) => void
@@ -43,6 +47,27 @@
   }
   const initial = (name: string) => Array.from(name.trim())[0]?.toUpperCase() ?? '?'
   const folders = (n: number) => `${n} saved ${n === 1 ? 'folder' : 'folders'}`
+
+  // From 1100 to 1239 px the rail is a 56 px strip. Open the project rail shows the full rail over the page as a panel, so
+  // every action (card menus, the migration notes, the saved folders waiting) stays reachable; the button is marked when
+  // a note or saved folders are waiting. Escape, or a press outside, closes it and gives focus back.
+  let panelOpen = $state(false)
+  let opener = $state<HTMLButtonElement>(), full = $state<HTMLDivElement>()
+  const notes = $derived((projects ?? []).filter(p => p.note).length)
+  const waiting = $derived([notes ? `${notes} ${notes === 1 ? 'note' : 'notes'}` : '', savedWaiting > 0 ? `${folders(savedWaiting)} waiting` : ''].filter(Boolean).join(', '))
+  async function openPanel() {
+    if (panelOpen) { closePanel(true); return }
+    panelOpen = true
+    await tick()
+    full?.querySelector<HTMLElement>('button:not(:disabled)')?.focus()
+  }
+  function closePanel(returnFocus: boolean) {
+    panelOpen = false
+    if (returnFocus) opener?.focus()
+  }
+  function panelKeys(event: KeyboardEvent) {
+    if (panelOpen && event.key === 'Escape' && !menuFor) { event.preventDefault(); closePanel(true) }
+  }
 
   // One menu open at a time. Arrow keys move between its items, Escape closes it and gives focus back to its button.
   let menuFor = $state<string | null>(null)
@@ -74,14 +99,17 @@
     if (opener) action(opener)
   }
   function outside(event: PointerEvent) {
-    if (menuFor && !(event.target as HTMLElement).closest('.menu, .more')) closeMenu()
+    const target = event.target as HTMLElement
+    if (menuFor && !target.closest('.menu, .more')) closeMenu()
+    if (panelOpen && !target.closest('aside.rail') && !target.closest('dialog')) closePanel(false)
   }
 </script>
 
 <svelte:document onpointerdown={outside} />
 
-<aside class="rail" aria-labelledby={`${id}-title`}>
-  <div class="full">
+<aside class="rail" class:open={panelOpen} aria-labelledby={`${id}-title`}>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="full" id={`${id}-full`} bind:this={full} onkeydown={panelKeys}>
     <header>
       <h2 id={`${id}-title`}>Projects</h2>
       <button type="button" class="add" aria-label="Add a project" disabled={busy} aria-busy={busy} onclick={(e) => onadd(e.currentTarget)}>
@@ -132,15 +160,15 @@
                 <button type="button" role="menuitem" onclick={() => pick(o => onchoose(p, o))}>New session here</button>
                 <button type="button" role="menuitem" onclick={() => pick(o => onedit(p, o))}>Edit</button>
                 <button type="button" role="menuitem" onclick={() => pick(o => onworktrees(p, o))}>Worktrees</button>
-                <button type="button" role="menuitem" disabled={i === 0} onclick={() => { closeMenu(true); onmove(p, -1) }}>Move up</button>
-                <button type="button" role="menuitem" disabled={i === projects.length - 1} onclick={() => { closeMenu(true); onmove(p, 1) }}>Move down</button>
-                <button type="button" role="menuitem" class="danger" onclick={() => pick(o => onremove(p, o))}>Remove from reet</button>
+                <button type="button" role="menuitem" disabled={moving || i === 0} onclick={() => { closeMenu(true); onmove(p, -1) }}>Move up</button>
+                <button type="button" role="menuitem" disabled={moving || i === projects.length - 1} onclick={() => { closeMenu(true); onmove(p, 1) }}>Move down</button>
+                <button type="button" role="menuitem" class="danger" disabled={pending.has(p.id)} onclick={() => pick(o => onremove(p, o))}>Remove from reet</button>
               </div>
             {/if}
             {#if p.note}
               <div class="note" role="note">
                 <p>Moved from your saved Projects. The starter prompts of {p.note} weren't kept here; their old runs are in Activity.</p>
-                <button type="button" class="ghost" onclick={() => ondismiss(p)}>Dismiss</button>
+                <button type="button" class="ghost" aria-label={`Dismiss the note on ${p.name}`} disabled={pending.has(p.id)} onclick={() => ondismiss(p)}>Dismiss</button>
               </div>
             {/if}
           </li>
@@ -156,11 +184,19 @@
     <button type="button" class="add-icon" aria-label="Add a project" disabled={busy} aria-busy={busy} onclick={(e) => onadd(e.currentTarget)}>
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" /></svg>
     </button>
+    <button type="button" class="manage" bind:this={opener} aria-label={`Open the project rail${waiting ? `: ${waiting}` : ''}`} title={`Open the project rail${waiting ? `: ${waiting}` : ''}`}
+      aria-expanded={panelOpen} aria-controls={`${id}-full`} onclick={openPanel}>
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+      {#if waiting}<i class="marker" aria-hidden="true"></i>{/if}
+    </button>
     {#each projects ?? [] as p (p.id)}
+      {@const wt = worktrees.get(p.id) ?? 0}
       <button type="button" class="mini" class:chosen={chosen === p.id} aria-label={label(p)} title={label(p)} onclick={(e) => onchoose(p, e.currentTarget)}>
-        <span aria-hidden="true">{initial(p.name)}</span>
+        <span class="mini-initial" aria-hidden="true">{initial(p.name)}</span>
+        {#if p.baseBranch}<span class="mini-branch" aria-hidden="true">{p.baseBranch}</span>{/if}
         {#if p.isRepo}<svg class="badge" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2l10 10-10 10L2 12z" /></svg>{/if}
         {#if (running.get(p.id) ?? 0) > 0}<i class="live" aria-hidden="true"></i>{/if}
+        {#if wt}<span class="mini-wt" aria-hidden="true">{wt}</span>{/if}
       </button>
     {/each}
   </div>
@@ -225,13 +261,24 @@
   @media (min-width: 1100px) and (max-width: 1239px) {
     .full { display: none; }
     .strip { position: sticky; top: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px 0; min-height: calc(100dvh - 61px); box-sizing: border-box; }
-    .add-icon, .mini { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--line-mid); border-radius: 10px; background: var(--card); color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
-    .add-icon { background: transparent; }
+    .add-icon, .manage, .mini { position: relative; display: grid; place-items: center; width: 40px; min-height: 40px; padding: 0; border: 1px solid var(--line-mid); border-radius: 10px; background: var(--card); color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
+    .add-icon, .manage { background: transparent; }
+    .manage svg { width: 16px; height: 16px; }
+    .manage[aria-expanded='true'] { border-color: var(--accent); }
+    .marker { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent-text); border: 2px solid var(--bg); }
+    /* Each project: its initial, then its base branch (mono, cut short; the whole is in the button's name), the repository
+       diamond, a running dot and the worktrees in use as a small count. */
+    .mini { width: 44px; padding: 5px 0 4px; gap: 1px; align-content: center; }
+    .mini-initial { font-size: 14px; line-height: 1.2; }
+    .mini-branch { max-width: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 10px/1.2 var(--mono); color: var(--muted); }
     .mini.chosen { border-color: var(--accent); }
-    .badge { position: absolute; bottom: 3px; right: 3px; width: 9px; height: 9px; fill: var(--repo); }
+    .badge { position: absolute; top: 3px; left: 3px; width: 8px; height: 8px; fill: var(--repo); }
     .live { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
+    .mini-wt { position: absolute; bottom: -5px; right: -5px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card-raised); color: var(--ink-soft); font: 500 10px/13px var(--sans); text-align: center; }
+    /* The full rail, opened over the page from the strip. */
+    .rail.open .full { display: flex; position: fixed; z-index: 20; top: 61px; left: 0; width: 301px; height: calc(100dvh - 61px); max-height: none; min-height: 0; background: var(--bg); border-right: 1px solid var(--line-soft); box-shadow: 12px 0 40px var(--scrim); }
   }
-  @media (pointer: coarse) and (min-width: 1100px) and (max-width: 1239px) { .add-icon, .mini { width: 44px; height: 44px; } }
+  @media (pointer: coarse) and (min-width: 1100px) and (max-width: 1239px) { .add-icon, .manage { width: 44px; min-height: 44px; } .mini { min-height: 44px; } }
   /* Tablet and phone: the rail is a section under In flight, with the same cards. */
   @media (max-width: 1099px) {
     .rail { border-right: 0; }

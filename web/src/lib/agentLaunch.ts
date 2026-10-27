@@ -186,6 +186,9 @@ export function refusalText(status: number, code?: string, message?: string): st
   const known = codeSentence(c)
   if (known) return known
   if (status === 409 && c === 'launch_unsupported') return 'Update reet on that machine to start agents.'
+  // The server words these: the update sentence when the machine lacks agents-v2, else that the agent has no such option.
+  if (c === 'launch_option_unsupported') return msg.startsWith('update reet') ? 'Update reet on that machine to use that option.' : "That agent doesn't take that option."
+  if (c === 'tool_unavailable') return "reet doesn't start this agent yet."
   if (status === 422 && c === 'tool_not_installed') return "That agent isn't installed on that machine."
   if (status === 422 && c === 'folder_unavailable') return "That folder isn't available on that machine."
   if (status === 422 && c === 'prompt_unsupported') return 'Write the opening prompt as at least two words.'

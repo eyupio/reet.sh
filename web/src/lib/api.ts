@@ -862,7 +862,9 @@ export function backupDownloadUrl(admin: boolean, id: string): string {
 
 // --- profile ---------------------------------------------------------------
 
-export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; shelfView: 'list' | 'board'; cardsExpanded: boolean; terminalRemoveOnClose?: boolean; hostedPrefix: string; updatedAt: number }
+export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; shelfView: 'list' | 'board'; cardsExpanded: boolean; terminalRemoveOnClose?: boolean; hostedPrefix: string; updatedAt: number
+  /** Launch defaults: the base branch for fresh worktrees ('' for none) and whether sessions get a worktree by default. */
+  defaultBaseBranch?: string; worktreesByDefault?: boolean }
 export type ProfileInfo = { user: User; profile: Profile; sessionCount: number; accounts: boolean }
 export type ProfileSession = { id: string; device: string; createdAt: number; lastSeen: number; expiresAt: number; current: boolean }
 

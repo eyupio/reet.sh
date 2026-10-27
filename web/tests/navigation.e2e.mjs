@@ -194,7 +194,7 @@ try {
   expect(await page.title()).toBe('Control · reet.sh')
   await expect(tabs(page).locator('[aria-current="page"]')).toHaveCount(0)
   await page.goto(`${base}/terminals`)
-  expect(await page.title()).toBe('Terminals · reet.sh')
+  expect(await page.title()).toBe('Sessions · reet.sh')
   await expect(tabs(page).getByRole('link',{name:'Sessions',exact:true})).toHaveAttribute('aria-current','page')
   await page.goto(`${base}/projects`)
   await expect(page).toHaveURL(`${base}/`)
@@ -365,7 +365,7 @@ try {
   await expect(page.locator('main').getByText('Control',{exact:true})).toBeVisible()
   await expect(page.getByText('Your control centre')).toHaveCount(0)
   const tabs = await page.locator('nav[aria-label="Machines"] a').allInnerTexts()
-  expect(tabs.map(t=>t.trim())).toEqual(['Inventory & connection','Sync','Terminals','Setups →'])
+  expect(tabs.map(t=>t.trim())).toEqual(['Inventory & connection','Sync','Sessions','Setups →'])
   await context.close()
  }
  // Light, dark or system can be chosen from the account menu, takes effect at once, and is saved to the profile.

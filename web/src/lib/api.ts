@@ -870,10 +870,19 @@ export type ProfileSession = { id: string; device: string; createdAt: number; la
 
 // Sent on window whenever the page theme changes, so a mounted form holding the theme follows instead of saving a stale one.
 export const THEME_EVENT = 'reet:theme'
+// The inline script in index.html reads this before the first paint, so the key
+// is shared with it and a stale copy is corrected here once the profile arrives.
+const THEME_KEY = 'reet-theme'
+
 export function applyTheme(theme: string) {
   const root = document.documentElement
   if (theme === 'light' || theme === 'dark') root.dataset.theme = theme
   else delete root.dataset.theme
+  try {
+    localStorage.setItem(THEME_KEY, theme === 'light' || theme === 'dark' ? theme : 'system')
+  } catch {
+    /* storage blocked: the theme still applies for this visit */
+  }
   window.dispatchEvent(new CustomEvent<string>(THEME_EVENT, { detail: theme }))
 }
 export async function getProfile(): Promise<ProfileInfo> {

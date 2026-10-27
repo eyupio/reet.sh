@@ -6,7 +6,7 @@ import ts from 'typescript'
 const source = readFileSync(new URL('./home.ts', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
 const h = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
-const { fleetCards, sessionOwners, inFlight, rowSubtitle, stateWord, needsYou, attentionCount, reporting } = h
+const { fleetCards, sessionOwners, inFlight, rowSubtitle, stateWord, needsYou, attentionCount, reporting, sessionTabTitle } = h
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000, HOUR = 60 * MIN
@@ -40,6 +40,12 @@ test('worktree figure counts only the worktrees live sessions are in', () => {
   assert.deepEqual([0, 1, 2].map(h.worktreesInUse), ['no worktrees in use', '1 worktree in use', '2 worktrees in use'])
 })
 
+test('the Sessions tab names the session and its project, or its machine', () => {
+  assert.equal(sessionTabTitle(undefined), 'Sessions · reet.sh')
+  assert.equal(sessionTabTitle({ title: 'Build', projectId: 'p1' }, 'reet'), 'Build · reet · reet.sh')
+  assert.equal(sessionTabTitle({ title: 'Build', projectId: null }, '', 'studio'), 'Build · studio · reet.sh')
+})
+
 test('cpu null shows No reading, labelled CPU', () => {
   const cards = fleetCards([
     machine('a1', 'studio', { cpu: 37.6 }),
@@ -50,6 +56,19 @@ test('cpu null shows No reading, labelled CPU', () => {
   ], [], emptySync(), NOW)
   assert.deepEqual(cards[0].cpu, { label: 'CPU', percent: 37.6, text: '38%' })
   for (const card of cards.slice(1)) assert.deepEqual(card.cpu, { label: 'CPU', percent: null, text: 'No reading' }, card.name)
+})
+
+test('memory and disk come from the same fresh report as the CPU', () => {
+  const live = machine('a1', 'studio', { connection: { connected: true, reportFresh: true, missedProbes: 0, reconnects: 0, path: 'direct', report: report(10, {
+    memory: { totalBytes: { value: 8_000_000_000 }, availableBytes: { value: 2_000_000_000 } },
+    disk: { totalBytes: { value: 100_000_000_000 }, availableBytes: { value: 25_000_000_000 } },
+  }) } })
+  const [card] = fleetCards([live], [], emptySync(), NOW)
+  assert.deepEqual(card.memory, { label: 'Memory', percent: 75, text: '75%' })
+  assert.deepEqual(card.disk, { label: 'Disk', percent: 75, availableBytes: 25_000_000_000 })
+  const [stale] = fleetCards([machine('a2', 'old', { fresh: false })], [], emptySync(), NOW)
+  assert.deepEqual(stale.memory, { label: 'Memory', percent: null, text: 'No reading' })
+  assert.deepEqual(stale.disk, { label: 'Disk', percent: null, availableBytes: null })
 })
 
 test('cards keep the machine order, name, OS and connection word', () => {

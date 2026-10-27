@@ -148,7 +148,7 @@ try {
   const studio = card(page,'studio')
   await expect(studio).toBeVisible()
   await expect(studio).toHaveAttribute('href','/machines?machine=studio')
-  await expect(studio).toHaveAccessibleName(/^studio, online, 2 sessions running, 1 worktree in use, CPU 38%, skills in sync · checked 5 min ago, Linux$/)
+  await expect(studio).toHaveAccessibleName(/^studio, online, 2 sessions running, 1 worktree in use, CPU 38%, memory 0%, disk 1 B free, skills in sync · checked 5 min ago, Linux$/)
   await expect(studio.locator('.figure')).toHaveText('2')
   await expect(studio).toContainText('sessions running')
   await expect(studio.locator('.os')).toHaveText('Linux')
@@ -160,7 +160,7 @@ try {
   await expect(desk.locator('.skills')).toHaveText('2 skills out of date')
   await expect(desk.locator('.skills')).toHaveClass(/warn/)
   // An offline machine's count is what was last known: the card says so.
-  await expect(desk).toHaveAccessibleName(/^desk, offline, 1 session running \(last known, not reporting\), no worktrees in use, CPU No reading, 2 skills out of date, macOS$/)
+  await expect(desk).toHaveAccessibleName(/^desk, offline, 1 session running \(last known, not reporting\), no worktrees in use, CPU No reading, memory No reading, disk No reading, 2 skills out of date, macOS$/)
   await expect(desk.locator('.caption')).toHaveText('Last known count. desk is not reporting.')
   await expect(studio.locator('.caption')).toHaveCount(0)
   await expect(page.locator('main')).not.toContainText(/agents? running/i)
@@ -179,7 +179,7 @@ try {
    session('s3','a2','Speed up the runner pool','end_requested'), session('s5','a2','Bench the cache','end_requested')]
   await page.goto(base)
   const desk = card(page,'desk')
-  await expect(desk).toHaveAccessibleName(/^desk, offline, 0 sessions running · 2 ending \(last known, not reporting\), no worktrees in use, CPU No reading, 2 skills out of date, macOS$/)
+  await expect(desk).toHaveAccessibleName(/^desk, offline, 0 sessions running · 2 ending \(last known, not reporting\), no worktrees in use, CPU No reading, memory No reading, disk No reading, 2 skills out of date, macOS$/)
   await expect(desk.locator('.figure')).toHaveText('0')
   await expect(desk.locator('.sessions')).toHaveText(/^0\s+sessions running\s*· 2 ending$/)
   await expect(desk.locator('.caption')).toHaveText('Last known count. desk is not reporting.')
@@ -198,7 +198,7 @@ try {
   await expect(desk).not.toContainText('91%')
   await expect(desk).not.toContainText('0%')
   await expect(desk.locator('.bar > span')).toHaveCount(0)
-  await expect(card(page,'studio').locator('.bar > span')).toHaveAttribute('style',/width: ?38(\.\d+)?%/)
+  await expect(card(page,'studio').locator('.metric').first().locator('.bar > span')).toHaveAttribute('style',/width: ?38(\.\d+)?%/)
   expect(errors).toEqual([])
   await context.close()
  }
@@ -388,6 +388,48 @@ try {
   await expect(n.getByRole('button',{name:'Add a project'})).toBeVisible()
   expect(Math.round(await n.evaluate(el => el.getBoundingClientRect().width))).toBe(56)
   expect(await noSideways(narrow.page)).toBe(true)
+  await narrow.context.close()
+ }
+
+ // #228's card menu (right-click or its button) on Home: New session here sets the launch bar's project like choosing the
+ // card, never the Start an agent dialog (that dialog stays on Machines and the Sessions panel); the colour is saved on
+ // the project with the version read, and the card names it.
+ if (run('rail menu sets the launch bar and saves the colour')) {
+  const {context,page,errors,box} = await home()
+  await page.goto(base)
+  const r = rail(page)
+  const notes = r.getByRole('button',{name:'Notes, desk, machine offline',exact:true})
+  await notes.click({button:'right'})
+  const menu = page.getByRole('menu',{name:'Notes'})
+  await expect(menu.getByRole('menuitem',{name:'New session here'})).toBeFocused()
+  await menu.getByRole('menuitem',{name:'New session here'}).click()
+  await expect(menu).toBeHidden()
+  await expect(launchBar(page).getByRole('button',{name:'Project: Notes'})).toBeVisible()
+  await expect(notes).toHaveAttribute('aria-current','true')
+  await expect(page.getByRole('dialog',{name:'Start an agent'})).toHaveCount(0)
+  await r.getByRole('button',{name:'More for Store rewrite',exact:true}).click()
+  const storeMenu = page.getByRole('menu',{name:'Store rewrite'})
+  await expect(storeMenu.getByRole('menuitemradio')).toHaveCount(6)
+  await storeMenu.getByRole('menuitemradio',{name:'Blue'}).click()
+  await expect.poll(() => box.writes.find(w => w.method === 'PATCH')?.body ?? null).toEqual({colour:'blue'})
+  expect(box.writes.find(w => w.method === 'PATCH').match).toBe('"1"')
+  await expect(r.getByRole('button',{name:/^Store rewrite, Blue, studio, main/})).toBeVisible()
+  // Choosing the project in the bar is unchanged by the colour.
+  await expect(launchBar(page).getByRole('button',{name:'Project: Notes'})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+  // From the panel over the 56 px strip, New session here closes the panel and sets the bar the same way.
+  const narrow = await home({width:1200})
+  await narrow.page.goto(base)
+  await rail(narrow.page).getByRole('button',{name:'Open the project rail'}).click()
+  await rail(narrow.page).locator('.full').getByRole('button',{name:'More for Notes',exact:true}).click()
+  // By keyboard, so no press outside the panel closes it first: the choice itself must.
+  await expect(narrow.page.getByRole('menu',{name:'Notes'}).getByRole('menuitem',{name:'New session here'})).toBeFocused()
+  await narrow.page.keyboard.press('Enter')
+  await expect(rail(narrow.page).getByRole('button',{name:'Close the project rail'})).toHaveCount(0)
+  await expect(launchBar(narrow.page).getByRole('button',{name:'Project: Notes'})).toBeVisible()
+  await expect(narrow.page.getByRole('dialog',{name:'Start an agent'})).toHaveCount(0)
+  expect(narrow.errors).toEqual([])
   await narrow.context.close()
  }
 
@@ -880,7 +922,7 @@ try {
    await page.clock.install()
    if (what === 'token') await page.addInitScript(() => { if (!sessionStorage.getItem('seeded')) { localStorage.setItem('reet-token','fixture-token'); sessionStorage.setItem('seeded','1') } })
    await page.goto(base)
-   await expect(card(page,'studio'), what).toHaveAccessibleName(/^studio, online, CPU No reading, skills in sync/)
+   await expect(card(page,'studio'), what).toHaveAccessibleName(/^studio, online, CPU No reading, memory No reading, disk No reading, skills in sync/)
    await expect(card(page,'desk'), what).toHaveAccessibleName(/^desk, offline, /)
    await page.clock.runFor(15_000)
    await expect(card(page,'studio')).toBeVisible()

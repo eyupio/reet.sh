@@ -3,7 +3,9 @@
 A **project** is one folder on one machine, kept in the project rail on Home. Choosing a card opens
 Start an agent on its machine with that folder filled in (the launch bar takes this over in a later
 release); a session started there is listed under the project in In flight. A project can carry an optional **starter prompt**,
-a default agent and model, a default base branch and whether each session gets its own worktree.
+a default agent and model, a default base branch, whether each session gets its own worktree, and a
+rail **colour** (blank, red, amber, green, blue or violet) that marks it in the rail and, by default,
+the sessions started in it.
 There is no separate Projects page: `/projects` and `/projects/<id>` go to Home.
 
 The rail is `web/src/lib/home/ProjectRail.svelte`, the Add and Edit dialog `AddProjectDialog.svelte`
@@ -42,6 +44,7 @@ Every reply is `Cache-Control: no-store`. `projects` stays a reserved hosted use
 | Folder | an absolute path of at most 4,096 bytes, saved cleaned |
 | Base branch | blank or a valid git branch name of at most 255 bytes |
 | Worktree for each session | `inherit` (the account default), `yes` or `no` |
+| Colour | blank, or `red`, `amber`, `green`, `blue` or `violet` (422 `invalid_colour`) |
 | Starter prompt | the opening-prompt rules: at most 2,000 bytes, valid text, no control characters but line breaks, not starting with `-`; for Claude Code and Codex at least two words |
 | Writes | 30 a minute per account (429 `project_rate_limited`) |
 | Body | 64 KiB (413 `too_large`); exactly one JSON object with no unknown fields (400 `invalid_request`) |
@@ -57,8 +60,9 @@ Desktop: the left column, 301 px (272 px cards inside 14 px padding and a 1 px r
 1239 px wide it is a 56 px strip: **Add**, **Open the project rail** (marked with a dot, and named, when a
 migration note or folders are waiting), then one button per project showing its initial, its base
 branch in mono (cut short), the repository diamond, a running dot and the worktrees in use as a small count,
-each named in full (the chosen one is marked current). Open the project rail shows the full rail over the
-page as a 301 px panel starting where the strip is on screen, with every card menu, note and prompt and a
+each named in full (the chosen one is marked current). A card's menu (its button, or a right-click on the
+card) sets the project's colour; the colour is saved on the project and follows the person to every
+browser. Open the project rail shows the full rail over the page as a 301 px panel starting where the strip is on screen, with every card menu, note and prompt and a
 Close button; while it is open the toggle is named "Close the project rail", Tab stays inside the panel,
 and Escape, Close, the toggle or a press outside closes it and gives focus back to the toggle. On a tablet or phone
 it sits under In flight; the Sessions tab takes it in a later release.

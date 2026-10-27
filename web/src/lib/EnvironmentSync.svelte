@@ -11,6 +11,7 @@
   import type { JoinContext } from './machineJoin'
   import { agentGroups, inventoryMachines } from './machines'
   import ConfirmDialog from './ConfirmDialog.svelte'
+  import SyncActivity from './SyncActivity.svelte'
 
   let { canWrite, accounts=false, terminalAccess=false, monitorAccess=false, token = '', tokenSetup, view = 'machines', startConnect = false, compact = false, onsignedout }: { canWrite: boolean; accounts?: boolean; terminalAccess?:boolean;monitorAccess?:boolean;token?: string; tokenSetup?: Snippet; view?: 'machines' | 'compare'; startConnect?: boolean; compact?: boolean; onsignedout?: (e: unknown) => void } = $props()
 
@@ -293,6 +294,8 @@
     </details>
   {/if}
 </section>
+
+<SyncActivity snapshot={syncState} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e) }} />
 
 {#if joining && canAdd}
   <AddMachineDialog {site} {machines} snapshot={loaded ? syncState : undefined} {accounts} {canWrite} {token} {tokenSetup} context={joining.context} opener={joining.opener}

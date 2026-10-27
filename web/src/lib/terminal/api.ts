@@ -129,6 +129,8 @@ export type FolderProject = {
   /** The machine's current name for display; "" once the machine is no longer enrolled. */
   machine: string
   dir: string; name: string; isRepo: boolean; baseBranch: string; worktreeDefault: WorktreeDefault
+  /** The rail colour's id from projectColour.ts, "" when none. */
+  colour: string
   defaultTool: string; defaultModel: string; hasStarterPrompt: boolean
   /** Only in the single read (`getFolderProject`), for the edit form. */
   starterPrompt?: string
@@ -139,7 +141,7 @@ export type FolderProject = {
 }
 /** A create sends host (the machine's enrollment id) and dir at least; an update sends only what changed (absent keeps, "" clears a text field).
  * `note` can only be cleared (anything else is 422 `invalid_note`). */
-export type FolderProjectInput = Partial<Pick<FolderProject, 'host' | 'dir' | 'name' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'defaultTool' | 'defaultModel' | 'starterPrompt'>> & { note?: '' }
+export type FolderProjectInput = Partial<Pick<FolderProject, 'host' | 'dir' | 'name' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'colour' | 'defaultTool' | 'defaultModel' | 'starterPrompt'>> & { note?: '' }
 export type RemovedFolderProject = { ok: boolean; message: string }
 /** The rail's list; `savedWaiting` counts saved Project repositories still waiting for room (offer `importSavedProjects`). */
 export type FolderProjectList = { projects: FolderProject[]; savedWaiting: number }

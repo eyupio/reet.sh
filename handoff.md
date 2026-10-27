@@ -49,6 +49,12 @@ the first pass, and the structured-chat spike runs in parallel with the Home wor
 | H | Session screen, tablet and phone | not started |
 | Program 2 | Structured chat over the agent protocol, with command-approval cards | research spike done (27 Oct 2026): go with conditions, the owner chose **OpenCode first** (27 Oct 2026) instead of Claude: it speaks the protocol natively (`opencode acp`, MIT, single binary, no adapter to install), so the first slice needs no install step; its resume after a lost runner and its permission behaviour are less documented than Claude's and must be probed before the plan is fixed; first slice is OpenCode with approval cards, the spike's 7–9 engineer-weeks was sized for Claude and needs re-checking; report in `.superpowers/sdd/2026-10-26-agents-home/program2-spike.md` (git-ignored, to be moved into `docs/design/` with the plan); hands-on probe not yet run, it needs the owner's go-ahead; written plan follows |
 
+Merged into main by the owner while #227 was open:
+
+- [#229](https://github.com/eyupio/reet.sh/pull/229) "Add live sync feedback and one-click installs from skills", as `4850c5d`.
+- [#228](https://github.com/eyupio/reet.sh/pull/228) "Start sessions from project lists, and paint the chosen theme before first paint", as `4c16e69`.
+- #227 merged main (`4c16e69`) in: on Home, a rail card and its menu's New session here set the launch bar's project; the Start an agent dialog stays for Machines and the Sessions panel as #228 built it.
+
 **Merge rule:** a PR in this work merges only when all checks are green on its final head **and** Codex
 has reviewed it cleanly, or the owner gives an explicit exception. #221 and #226 merged without a
 Codex review.

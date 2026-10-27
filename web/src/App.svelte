@@ -46,6 +46,8 @@
   import Ticket from './lib/Ticket.svelte'
   import Welcome from './lib/Welcome.svelte'
   import SkillCard from './lib/SkillCard.svelte'
+  import SyncActivity from './lib/SyncActivity.svelte'
+  import { installSkillOnMachine } from './lib/syncActions'
   import Bookmarklets from './lib/Bookmarklets.svelte'
   import Toast from './lib/Toast.svelte'
   import { ssoErrorFromSearch, ssoErrorMessage, withoutSsoError, type SsoStatus } from './lib/sso'
@@ -98,6 +100,8 @@
   let selectedMachine = $state('')
   let machines = $state<import('./lib/api').Machine[]>([])
   let inventoryNow = $state(Date.now())
+  let installing = $state('')
+  let syncWatch = $state<{ host: string; title: string; note: string } | null>(null)
   const shelfMachines = $derived(inventoryMachines(machines))
   const machineReports = $derived(installationReports(shelfMachines, inventoryNow))
   let onlyOne = $state(false)
@@ -710,6 +714,22 @@
     selectedMachine = env.host; toggleEnv(env.id)
   }
 
+  async function installNow(skill: Skill, host: string) {
+    if (!canWrite || installing) return
+    const key = `${skill.id}:${host}`
+    installing = key
+    try {
+      const result = await installSkillOnMachine(skill, host)
+      syncWatch = { host: result.host, title: `Installing ${skill.name}`, note: `on ${result.host} · live progress` }
+      ok(`Installing ${skill.name} on ${result.host}. Follow the live progress in the corner.`)
+      void loadMeta()
+    } catch (e) {
+      fail(e)
+    } finally {
+      installing = ''
+    }
+  }
+
   async function copyMissing() {
     if (!selectedEnv && !selectedMachine) return
     copying = true
@@ -800,7 +820,7 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isControl ? 'Control' : isActivity ? 'Activity' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isControl ? 'Control' : isActivity ? 'Activity' : isSync ? 'Sync' : isTerminals ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found'} · reet.sh</title>
   {/if}
 </svelte:head>
 
@@ -1087,6 +1107,7 @@
                 expanded={expandedSkills[s.id] ?? defaultExpanded} onexpand={expanded => (expandedSkills[s.id] = expanded)}
                 installationReports={machineReports}
                 selecting={selecting} selectedIDs={selected} onselect={select} {canWrite}
+                oninstall={(s, host) => void installNow(s, host)} {installing}
                 onpatch={patch} onrefresh={refreshOne} onlink={link} onremove={remove}
                 onfiltertag={filterTag} onfilterenv={filterEnv} ontags={tags} onhistory={history}
                 onopenlist={openList}
@@ -1115,6 +1136,7 @@
 </main>
 
 {#if authMode === 'accounts' && currentUser && !needsAuth && !isMCPConsent}<WebMCP />{/if}
+{#if isSkills && authenticated && !needsAuth}<SyncActivity open={syncWatch !== null} context={syncWatch} onclose={() => (syncWatch = null)} />{/if}
 {#if !terminalLayout && !homeLayout}<Footer
   signedIn={!isPublicList && authMode !== 'none' && authenticated && !needsAuth}
   showAdmin={!isPublicList && authenticated && !needsAuth && isAdminUser}

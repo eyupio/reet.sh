@@ -427,7 +427,9 @@ try {
   for (const secret of SECRETS) expect(await dump(), secret).not.toContain(secret)
   await startButton(page).click()
   await expect(page).toHaveURL(/\/terminals\?/)
-  expect(box.storage.filter(w => !/^reet\.home\.groupBy\./.test(w.key))).toEqual([])
+  // The theme cache (#228) holds only light, dark or system, for the first paint; nothing else may be written.
+  expect(box.storage.filter(w => w.key === 'reet-theme').every(w => ['light','dark','system'].includes(w.value))).toBe(true)
+  expect(box.storage.filter(w => !/^reet\.home\.groupBy\./.test(w.key) && w.key !== 'reet-theme')).toEqual([])
   for (const secret of SECRETS) expect(JSON.stringify(box.storage), secret).not.toContain(secret)
   expect(page.url()).not.toContain('Fix')
   expect(errors).toEqual([])

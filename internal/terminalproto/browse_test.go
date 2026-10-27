@@ -135,7 +135,7 @@ func TestBrowseResultLimits(t *testing.T) {
 			t.Error("accepted", name)
 		}
 	}
-	for _, reason := range []BrowseReason{BrowseNotFound, BrowseNotDir, BrowseOutsideHome, BrowseDenied, BrowseUnreadable, BrowseConflict} {
+	for _, reason := range []BrowseReason{BrowseNotFound, BrowseNotDir, BrowseOutsideHome, BrowseDenied, BrowseUnreadable, BrowseConflict, BrowseOff} {
 		if !(BrowseResult{Reason: reason}).valid() {
 			t.Error("refused", reason)
 		}
@@ -269,5 +269,29 @@ func TestBrowseResultIsCoherent(t *testing.T) {
 	}
 	if !BrowseNameLess("A", "a") || BrowseNameLess("a", "A") || !BrowseNameLess("a", "B") || BrowseNameLess("a", "a") {
 		t.Error("BrowseNameLess is not case-folded then byte order")
+	}
+}
+
+// browseOff says a current connector has browse switched off: it needs
+// terminal control, never comes with browse itself, and is not sent unless set.
+func TestCapabilitiesBrowseOffNeedsTerminalControlAndNotBrowse(t *testing.T) {
+	c := testCapabilities()
+	if data, _ := json.Marshal(c); bytes.Contains(data, []byte("browseOff")) {
+		t.Fatal("browseOff sent when unset", string(data))
+	}
+	c.TerminalControl, c.BrowseOff = true, true
+	if err := c.Validate(); err != nil {
+		t.Fatal("browse off refused", err)
+	}
+	if data, _ := json.Marshal(c); !bytes.Contains(data, []byte(`"browseOff":true`)) {
+		t.Fatal(string(data))
+	}
+	c.Browse = true
+	if c.Validate() == nil {
+		t.Fatal("browse and browseOff together accepted")
+	}
+	c.Browse, c.TerminalControl = false, false
+	if c.Validate() == nil {
+		t.Fatal("browseOff without terminal control accepted")
 	}
 }

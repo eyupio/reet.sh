@@ -48,11 +48,15 @@ const (
 	BrowseUnreadable BrowseReason = "unreadable"
 	// BrowseConflict: the browse could not run now (another one is running).
 	BrowseConflict BrowseReason = "conflict"
+	// BrowseOff: the machine does not offer browsing now: its folder-browse
+	// switch or terminal access is off there. Unlike denied (the folder
+	// cannot be read), it says nothing about the folder.
+	BrowseOff BrowseReason = "off"
 )
 
 func (r BrowseReason) valid() bool {
 	switch r {
-	case BrowseNotFound, BrowseNotDir, BrowseOutsideHome, BrowseDenied, BrowseUnreadable, BrowseConflict:
+	case BrowseNotFound, BrowseNotDir, BrowseOutsideHome, BrowseDenied, BrowseUnreadable, BrowseConflict, BrowseOff:
 		return true
 	}
 	return false

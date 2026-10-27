@@ -30,18 +30,20 @@ func TestBrowseCapabilityNeedsNegotiationTerminalAndTheLocalSwitch(t *testing.T)
 		return AgentConfig{TerminalSession: factory, TerminalEnabled: true, TerminalReadiness: terminalproto.Ready, launch: true, worktree: true, browse: true, branches: true, browseAllowed: true, LaunchTools: tools, GitAvailable: git}
 	}
 	for _, tc := range []struct {
-		name             string
-		edit             func(*AgentConfig)
-		browse, branches bool
+		name                        string
+		edit                        func(*AgentConfig)
+		browse, branches, browseOff bool
 	}{
-		{"everything", func(*AgentConfig) {}, true, true},
-		{"browse not negotiated", func(c *AgentConfig) { c.browse = false }, false, true},
-		{"branches not negotiated", func(c *AgentConfig) { c.branches = false }, true, false},
-		{"browse off locally", func(c *AgentConfig) { c.browseAllowed = false }, false, true},
-		{"terminal access off", func(c *AgentConfig) { c.TerminalEnabled = false }, false, false},
-		{"no terminal control", func(c *AgentConfig) { c.TerminalSession = nil }, false, false},
-		{"no worktrees (git not found)", func(c *AgentConfig) { c.GitAvailable = func() bool { return false } }, true, false},
-		{"no worktrees (not negotiated)", func(c *AgentConfig) { c.worktree = false }, true, false},
+		{"everything", func(*AgentConfig) {}, true, true, false},
+		{"browse not negotiated", func(c *AgentConfig) { c.browse = false }, false, true, false},
+		{"browse off, not negotiated", func(c *AgentConfig) { c.browse, c.browseAllowed = false, false }, false, true, false},
+		{"branches not negotiated", func(c *AgentConfig) { c.branches = false }, true, false, false},
+		{"browse off locally", func(c *AgentConfig) { c.browseAllowed = false }, false, true, true},
+		{"browse off and no git", func(c *AgentConfig) { c.browseAllowed = false; c.GitAvailable = func() bool { return false } }, false, false, true},
+		{"terminal access off", func(c *AgentConfig) { c.TerminalEnabled = false }, false, false, false},
+		{"no terminal control", func(c *AgentConfig) { c.TerminalSession = nil }, false, false, false},
+		{"no worktrees (git not found)", func(c *AgentConfig) { c.GitAvailable = func() bool { return false } }, true, false, false},
+		{"no worktrees (not negotiated)", func(c *AgentConfig) { c.worktree = false }, true, false, false},
 	} {
 		cfg := full()
 		tc.edit(&cfg)
@@ -55,6 +57,9 @@ func TestBrowseCapabilityNeedsNegotiationTerminalAndTheLocalSwitch(t *testing.T)
 		}
 		if caps.Branches != tc.branches || strings.Contains(string(data), `"branches"`) != tc.branches {
 			t.Fatal(tc.name, "branches", string(data))
+		}
+		if caps.BrowseOff != tc.browseOff || strings.Contains(string(data), `"browseOff"`) != tc.browseOff {
+			t.Fatal(tc.name, "browseOff", string(data))
 		}
 	}
 }
@@ -306,7 +311,9 @@ func TestMachineRequestsFollowTheAdvertisedCapabilities(t *testing.T) {
 	browse := terminalproto.Message{Version: terminalproto.Version, RequestID: "browse-request-00001", Generation: 1, Body: &terminalproto.Browse{}}
 	branches := terminalproto.Message{Version: terminalproto.Version, RequestID: "branches-request-0001", Generation: 1, Body: &terminalproto.Branches{Dir: "/home/someone/site"}}
 	other := terminalproto.Message{Version: terminalproto.Version, RequestID: "reconcile-request-001", Generation: 1, Body: &terminalproto.Reconcile{}}
-	browseDenied := terminalproto.BrowseResult{Reason: terminalproto.BrowseDenied}
+	// A machine that does not offer browse says so (off); denied is kept for
+	// a folder it may not read.
+	browseDenied := terminalproto.BrowseResult{Reason: terminalproto.BrowseOff}
 	branchesDenied := terminalproto.BranchesResult{Reason: terminalproto.BranchesDenied}
 	for _, tc := range []struct {
 		name                     string
@@ -411,7 +418,7 @@ func TestControlWorkersRefuseBrowseWhenOffLocally(t *testing.T) {
 		t.Fatal("no answer", err)
 	}
 	m, err := terminalproto.Decode(data)
-	if r, ok := m.Body.(*terminalproto.BrowseResult); err != nil || !ok || m.RequestID != "request-browse-off01" || r.Reason != terminalproto.BrowseDenied {
+	if r, ok := m.Body.(*terminalproto.BrowseResult); err != nil || !ok || m.RequestID != "request-browse-off01" || r.Reason != terminalproto.BrowseOff {
 		t.Fatalf("%s %v", data, err)
 	}
 	if handled.Load() != 0 {

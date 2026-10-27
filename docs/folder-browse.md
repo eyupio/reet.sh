@@ -28,16 +28,21 @@ folder browser protocol").
   protocol error: nothing is sent back (a peer that did not negotiate the kind could drop the
   connection on its answer) and nothing runs.
 - **Capabilities.** `browse` is reported when `browse-v1` was negotiated, the connector has terminal
-  control, terminal access is on locally and folder browse is not off. `branches` is reported when
+  control, terminal access is on locally and folder browse is not off; with folder browse off (and
+  the rest true) the connector reports `browseOff` instead, so the controller can tell a switched-off
+  machine from an older one. `browseOff` is sent only on a connection that negotiated `browse-v1`,
+  because an older controller's strict decoder would refuse the field. `branches` is reported when
   `branches-v1` was negotiated, `worktree` is reported and terminal access is on. A change of either
   local switch is sent to the controller within the consent poll (5 s), without a reconnect. The
   connector serves a negotiated browse or branches request only while it would advertise that
   capability, worked out again for each request from cheap local reads (the enrollment file and
-  git on `PATH`, never the tmux readiness probe); otherwise it answers `denied` itself.
+  git on `PATH`, never the tmux readiness probe); otherwise it answers itself: a browse `off`, a
+  listing `denied`.
 - **Local switch.** `reet terminal browse off` (also `reet agent terminal browse off`) sets
   `browseOff` in the enrollment file; `on` removes it and `status` prints `Folder browse: on|off`
   (also shown by `reet agent terminal status`). Browse is on by default. While it is off, or while
-  terminal access is off, a browse is answered `denied`. Each request re-reads the enrollment file.
+  terminal access is off, a browse is answered `off`. `denied` is kept for a folder the user may not
+  read. Each request re-reads the enrollment file.
   `on` while terminal access is off says that browsing stays unavailable until terminal access is
   on, and `status` then shows `on (unavailable while terminal access is off)`. Enrolling the machine
   again writes a fresh enrollment file, so browse is on again afterwards.
@@ -72,7 +77,7 @@ folder browser protocol").
   character) are skipped, since one would invalidate the whole answer. `current` is empty on a
   detached HEAD; `default` is the branch `origin/HEAD` points at, without `origin/`.
 - **Errors.** A git failure is `git_failed`, with nothing of git's output. `denied` (a reason
-  added for `branches-v1`, matching browse's) means the machine refuses the listing locally:
+  added for `branches-v1`, like browse's `off`) means the machine refuses the listing locally:
   terminal access is off, or it does not offer `branches` at the moment (no git, or worktrees not
   available).
 
@@ -81,7 +86,10 @@ folder browser protocol").
 - **Negotiation.** The controller advertises `browse-v1` and `branches-v1` in
   `X-Reet-Terminal-Features` beside its other features. It sends a `browse` only to a connection
   whose current capabilities report `browse`, and a `branches` only with `branches`; it never sends
-  either to an older connector, which would end the connection on a kind it does not know. The
+  either to an older connector, which would end the connection on a kind it does not know. A
+  connection that reports `browseOff` is answered `browse_off`; one that reports neither is an older
+  reet (`browse_unsupported`). Because `branches-v1` shipped with `browse-v1`, a connection that
+  reports `browse` or `browseOff` but not `branches` is answered `branches_denied`. The
   request is checked with the protocol's own rules first, so a malformed one never reaches a machine.
 - **API.** `GET /api/v2/machines/{agentId}/browse?path=&after=&filter=&hidden=&session=` and
   `GET /api/v2/machines/{agentId}/branches?dir=&filter=`. Each parameter may appear once and no
@@ -95,26 +103,38 @@ folder browser protocol").
   viewers are refused (403). Both routes are reads, so the browser sends no `Origin` header on them;
   a request the browser marks as coming from another site or origin (`Sec-Fetch-Site` other than
   `same-origin`, or an `Origin` that is not reet's own address) is refused (403 `origin_refused`).
-  Another account's machine is answered exactly as an offline one.
+  Another account's machine, or an id that is no machine at all, is answered exactly as an offline
+  one, before any rate limit or audit state is touched.
 - **Limits.** 20 browses and, separately, 10 branch listings per 10 seconds per account and machine
-  (429 `browse_rate_limited` or `branches_rate_limited`). The controller waits 6 seconds for a
-  browse and 10 for a listing (the machine answers by 4 and 8 seconds).
+  (429 `browse_rate_limited` or `branches_rate_limited`); buckets are made only for the account's own
+  ready machines. The controller waits 6 seconds for a browse and 10 for a listing (the machine
+  answers by 4 and 8 seconds). Each connection carries at most 32 requests in flight; on a machine
+  that never answers, the rate limits allow up to 30 browses and listings waiting at once, so for up
+  to 10 seconds that machine's other requests (starting a session, a worktree check) can be refused
+  as conflicting. A working connector answers a second browse or listing `conflict` at once and
+  never holds them.
 - **Late answers.** Answers are matched to requests only by their request id. A `browse_result` or
   `branches_result` that arrives after its request gave up has no request to go to: the controller
   counts it and drops it, and the connection stays up. It is never passed to another request.
 - **Offline and disconnects.** A machine that is offline, reconnecting or not ready is answered at
   once, without waiting, and a machine that disconnects while a request is in flight fails only that
   request at once; both with the readiness sentence. A machine that stays connected but does not
-  answer by the deadline gets `machine_timeout`.
+  answer by the deadline gets `machine_timeout`, and one that answers with a reply of another kind
+  gets `machine_error`; the connection stays in both cases.
 - **Nothing kept.** The controller keeps no folder names, branch names, paths it was shown, filters
   or listings: no cache, no store write, no log line. The only record is one `folder-browse` audit
   event per opened browser (one `session` id on one machine), written when the machine answers its
   first page, with exactly `machine` (the machine's id), `path` (the folder the browser started at,
-  as the person typed or chose it; `~` for the home) and `pages` (pages the machine answered,
-  including a folder it refused; a busy answer is not a page). Later pages only update `pages`,
-  which stops counting at 1,000. An account may have 32 browsers open at once; a browser idle for 30
-  minutes is forgotten, and a new browser past the bound is answered `browse_rate_limited`. Branch
-  listings are not audited.
+  cleaned; `~` for the home) and `pages` (pages the machine answered, including a folder it
+  refused; a busy, offline, timed-out or malformed answer is not a page). Later pages only update
+  `pages`, which stops counting at 1,000. A browser is remembered only once its machine answered a
+  page, so requests that reach no machine cost nothing. The controller remembers 32 browsers per
+  account: past that, the least recently used is forgotten, as is a browser with no page for 30
+  minutes; a forgotten browser that goes on starts a second row. Branch listings are not audited.
+- **Logs outside reet.** reet's own request log never records a query string, but both routes carry
+  the folder path, filter and branch folder in the query. A reverse proxy in front of reet that logs
+  full request URLs (its default access log) records every folder browsed. See the operator runbook
+  (`docs/remote-machine-operations.md`, Enablement and network).
 
 ### What a person reads
 
@@ -134,22 +154,19 @@ folder browser protocol").
 | `branches_busy` | 409 | That machine is already listing branches. Try again in a moment. |
 | `machine_unavailable` | 503 | That machine is reconnecting. Try again in a moment. |
 | `machine_timeout` | 504 | That machine didn't answer in time. Try again. |
+| `machine_error` | 502 | That machine sent an answer reet didn't expect. Try again. |
 
 The answer never repeats the path or anything the machine sent.
 
 ### What is not established
 
-- **Old reet or switched off.** Capabilities do not say why `browse` is missing. Because
-  `branches-v1` shipped with `browse-v1`, a machine that reports `branches` but not `browse` is read
-  as having its browse switch off (`browse_off`), and one that reports `browse` but not `branches`
-  as not offering branches now (`branches_denied`). A current machine that reports neither (browse
-  off and no git, say) is told to update.
-- **`denied` has two meanings.** The machine answers a browse `denied` both for a folder it may not
-  read and while its switch is off. The controller reads the capabilities again: if `browse` is
-  gone, the answer is `browse_off`. In the few seconds before the machine reports the change (its
-  consent poll), a switched-off machine reads as "reet can't read that folder."
-- **The starting folder is the person's input.** `path` in the audit row is what the browser asked
-  for first, so a typed path is kept as typed. Nothing the machine listed is kept.
+- **Why branches are missing.** A machine that reports `browse` or `browseOff` but not `branches`
+  is told `branches_denied` (terminal access, git or worktrees there), which relies on
+  `branches-v1` having shipped with `browse-v1`.
+- **The starting folder can hold listed names.** `path` in the audit row is the folder the browser
+  asked for first. When the person typed it, it is their input; when it was filled from an earlier
+  browse (**Use this folder**), it is made of folder names that machine listed. No other name the
+  machine listed is kept: not the entries of any page, not later folders, not branch names.
 - **Pages are counted in memory.** A controller restart forgets open browsers, so a browser that
   keeps going after a restart starts a second audit row.
 

@@ -327,11 +327,23 @@ func TestBrowseOnOldPeerAsksForUpdate(t *testing.T) {
 	}
 	// A current machine with folder browse switched off still lists branches.
 	off := browseCaps()
-	off.Browse = false
+	off.Browse, off.BrowseOff = false, true
 	offAgent := f.addMachine(t, "laptop", off)
 	code, out, raw = f.get(t, f.cookie, browsePath(offAgent, browseNonce(), nil))
 	if code != 409 || out["code"] != "browse_off" || out["error"] != "That machine has folder browsing switched off." {
 		t.Fatal("switched off", code, raw)
+	}
+	// One with browse off and no git is not told to update reet.
+	offNoGit := off
+	offNoGit.Branches = false
+	offNoGitAgent := f.addMachine(t, "tablet", offNoGit)
+	code, out, raw = f.get(t, f.cookie, browsePath(offNoGitAgent, browseNonce(), nil))
+	if code != 409 || out["code"] != "browse_off" {
+		t.Fatal("switched off, no git", code, raw)
+	}
+	code, out, raw = f.get(t, f.cookie, branchesPath(offNoGitAgent, browseTestHome+"/site", ""))
+	if code != 409 || out["code"] != "branches_denied" {
+		t.Fatal("switched off, no git, branches", code, raw)
 	}
 	noGit := browseCaps()
 	noGit.Branches = false
@@ -552,10 +564,17 @@ func TestBrowseRefusalsMapToSentences(t *testing.T) {
 			t.Fatal(tc.reply.Reason, code, raw)
 		}
 	}
-	// Turning the switch off: a denied answer from a machine that stops
-	// reporting browse as it answers is the switch, not the folder.
+	// off is the machine's switch; denied is about the folder, even from a
+	// machine whose switch went off while it answered.
+	f.answering(func(terminalproto.Body) terminalproto.Body {
+		return terminalproto.BrowseResult{Reason: terminalproto.BrowseOff}
+	})
+	code, out, raw := f.get(t, f.cookie, browsePath(f.agent, browseNonce(), nil))
+	if code != 409 || out["code"] != "browse_off" || out["error"] != "That machine has folder browsing switched off." {
+		t.Fatal("switched off", code, raw)
+	}
 	off := browseCaps()
-	off.Browse = false
+	off.Browse, off.BrowseOff = false, true
 	record, _ := f.st.RemoteCapabilitiesFor(f.uid, f.agent)
 	f.answering(func(terminalproto.Body) terminalproto.Body {
 		if err := f.st.UpdateRemoteCapabilitiesFor(f.uid, f.agent, record.InstanceID, record.Generation, off); err != nil {
@@ -563,9 +582,35 @@ func TestBrowseRefusalsMapToSentences(t *testing.T) {
 		}
 		return terminalproto.BrowseResult{Reason: terminalproto.BrowseDenied}
 	})
-	code, out, raw := f.get(t, f.cookie, browsePath(f.agent, browseNonce(), nil))
-	if code != 409 || out["code"] != "browse_off" || out["error"] != "That machine has folder browsing switched off." {
-		t.Fatal("switched off", code, raw)
+	code, out, raw = f.get(t, f.cookie, browsePath(f.agent, browseNonce(), nil))
+	if code != 422 || out["code"] != "denied" || out["error"] != "reet can't read that folder." {
+		t.Fatal("denied", code, raw)
+	}
+}
+
+// A reply of another kind than the request's is not "reconnecting": it gets
+// a sentence of its own, and the connection stays.
+func TestBrowseWrongKindAnswerKeepsTheConnection(t *testing.T) {
+	f := browseAPIFixture(t, browseCaps())
+	f.answering(func(body terminalproto.Body) terminalproto.Body {
+		if _, ok := body.(terminalproto.Browse); ok {
+			return terminalproto.BranchesResult{Branches: []string{"main"}}
+		}
+		return browseHomeListing()
+	})
+	for _, path := range []string{browsePath(f.agent, browseNonce(), nil), branchesPath(f.agent, browseTestHome+"/site", "")} {
+		code, out, raw := f.get(t, f.cookie, path)
+		if code != 502 || out["code"] != "machine_error" || out["error"] != "That machine sent an answer reet didn't expect. Try again." {
+			t.Fatal(path, code, raw)
+		}
+	}
+	select {
+	case <-f.peers[f.agent].Done():
+		t.Fatal("a wrong-kind answer ended the connection")
+	default:
+	}
+	if len(browseEvents(t, f.st, f.uid)) != 0 {
+		t.Fatal("a wrong-kind answer was audited as a page")
 	}
 }
 
@@ -793,31 +838,122 @@ func TestBrowseAuditIsBounded(t *testing.T) {
 	browseBrowsersPerUser, browsePagesCounted = 3, 2
 	t.Cleanup(func() { browseBrowsersPerUser, browsePagesCounted = browsers, pages })
 	f := browseAPIFixture(t, browseCaps())
-	nonce := browseNonce()
-	for i := 0; i < 4; i++ {
+	page := func(nonce string) {
+		t.Helper()
 		if code, _, raw := f.get(t, f.cookie, browsePath(f.agent, nonce, nil)); code != 200 {
 			t.Fatal(code, raw)
 		}
 	}
+	first, second, third, fourth := browseNonce(), browseNonce(), browseNonce(), browseNonce()
+	for i := 0; i < 4; i++ {
+		page(first)
+	}
 	if rows := browseEvents(t, f.st, f.uid); len(rows) != 1 || rows[0]["pages"] != 2.0 {
 		t.Fatal("pages past the cap", rows)
 	}
-	for i := 0; i < 2; i++ {
-		if code, _, raw := f.get(t, f.cookie, browsePath(f.agent, browseNonce(), nil)); code != 200 {
+	page(second)
+	page(third)
+	// A fourth browser is served: the least recently used one is forgotten.
+	page(fourth)
+	if rows := browseEvents(t, f.st, f.uid); len(rows) != 4 {
+		t.Fatal("a fourth browser", rows)
+	}
+	// The forgotten browser starts a row of its own if it goes on (and
+	// forgets the next least recently used, the second); the third is kept.
+	page(first)
+	page(third)
+	rows := browseEvents(t, f.st, f.uid)
+	if len(rows) != 5 || rows[0]["pages"] != 1.0 {
+		t.Fatal("the forgotten browser", rows)
+	}
+	total := 0.0
+	for _, r := range rows {
+		total += r["pages"].(float64)
+	}
+	if total != 2+1+2+1+1 {
+		t.Fatal("pages", rows)
+	}
+}
+
+// A browser takes one of the account's slots only once its machine answered
+// a page: requests that never reached a machine cannot lock browsing out.
+func TestBrowseSlotsAreTakenOnlyByAnsweredPages(t *testing.T) {
+	f := browseAPIFixture(t, browseCaps())
+	offline, _, err := f.st.EnrollSyncAgent(f.uid, "laptop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < browseBrowsersPerUser+4; i++ {
+		agent := fmt.Sprintf("not-a-machine-%08d", i)
+		if i%2 == 1 {
+			agent = offline.ID
+		}
+		if code, _, raw := f.get(t, f.cookie, browsePath(agent, browseNonce(), nil)); code != 503 {
+			t.Fatal(i, code, raw)
+		}
+	}
+	if code, _, raw := f.get(t, f.cookie, browsePath(f.agent, browseNonce(), nil)); code != 200 {
+		t.Fatal("browsing after requests that reached no machine", code, raw)
+	}
+	// Answers that are not pages (busy, timed out) do not take a slot from
+	// a browser that is open: with room for one, it keeps its row.
+	browsers := browseBrowsersPerUser
+	browseBrowsersPerUser = 1
+	t.Cleanup(func() { browseBrowsersPerUser = browsers })
+	open := browseNonce()
+	if code, _, raw := f.get(t, f.cookie, browsePath(f.agent, open, nil)); code != 200 {
+		t.Fatal(code, raw)
+	}
+	f.answering(func(terminalproto.Body) terminalproto.Body {
+		return terminalproto.BrowseResult{Reason: terminalproto.BrowseConflict}
+	})
+	for i := 0; i < 3; i++ {
+		if code, _, raw := f.get(t, f.cookie, browsePath(f.agent, browseNonce(), nil)); code != 409 {
 			t.Fatal(code, raw)
 		}
 	}
-	sent := len(f.sentRequests())
-	code, out, raw := f.get(t, f.cookie, browsePath(f.agent, browseNonce(), nil))
-	if code != 429 || out["code"] != "browse_rate_limited" || out["error"] != slowDownSentence {
-		t.Fatal("a fourth browser", code, raw)
-	}
-	if len(f.sentRequests()) != sent || len(browseEvents(t, f.st, f.uid)) != 3 {
-		t.Fatal("a browser past the bound was sent or audited")
-	}
-	// Browsers already open keep working.
-	if code, _, raw := f.get(t, f.cookie, browsePath(f.agent, nonce, nil)); code != 200 {
+	f.answering(func(terminalproto.Body) terminalproto.Body { return browseHomeListing() })
+	if code, _, raw := f.get(t, f.cookie, browsePath(f.agent, open, nil)); code != 200 {
 		t.Fatal(code, raw)
+	}
+	rows := browseEvents(t, f.st, f.uid)
+	if len(rows) != 2 || rows[0]["pages"] != 2.0 {
+		t.Fatal("a busy answer took the open browser's slot", rows)
+	}
+}
+
+// The audit row keeps the starting folder cleaned, as the machine reads it.
+func TestBrowseAuditCleansTheStartingFolder(t *testing.T) {
+	f := browseAPIFixture(t, browseCaps())
+	if code, _, raw := f.get(t, f.cookie, browsePath(f.agent, browseNonce(), url.Values{"path": {browseTestHome + "/work/../site//./"}})); code != 200 {
+		t.Fatal(code, raw)
+	}
+	if rows := browseEvents(t, f.st, f.uid); len(rows) != 1 || rows[0]["path"] != browseTestHome+"/site" {
+		t.Fatal(rows)
+	}
+}
+
+// Rate-limit buckets are made only for the account's own connected
+// machines: other ids cannot make keys without end.
+func TestBrowseRateLimitKeysOnlyTheAccountsMachines(t *testing.T) {
+	f := browseAPIFixture(t, browseCaps())
+	for i := 0; i < 50; i++ {
+		agent := fmt.Sprintf("not-a-machine-%08d", i)
+		if code, _, raw := f.get(t, f.cookie, browsePath(agent, browseNonce(), nil)); code != 503 {
+			t.Fatal(code, raw)
+		}
+		if code, _, raw := f.get(t, f.cookie, branchesPath(agent, browseTestHome+"/site", "")); code != 503 {
+			t.Fatal(code, raw)
+		}
+	}
+	limits, _ := f.srv.s.browseState()
+	if n, m := limits.browse.Len(), limits.branches.Len(); n != 0 || m != 0 {
+		t.Fatal("rate-limit keys for machines that are not the account's", n, m)
+	}
+	f.get(t, f.cookie, browsePath(f.agent, browseNonce(), nil))
+	f.get(t, f.cookie, branchesPath(f.agent, browseTestHome+"/site", ""))
+	if n, m := limits.browse.Len(), limits.branches.Len(); n != 1 || m != 1 {
+		t.Fatal("the account's own machine", n, m)
 	}
 }
 

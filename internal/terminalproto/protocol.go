@@ -111,6 +111,11 @@ const (
 	Ready                 Readiness = "ready"
 )
 
+// Capabilities is what a connector reports. BrowseOff is reported, instead
+// of Browse, by a connector that negotiated browse-v1 but has folder browse
+// switched off locally, so a controller can tell that from an older
+// connector. It is sent only on a connection that negotiated browse-v1: an
+// older controller's strict decoder would refuse the field.
 type Capabilities struct {
 	Launch          bool      `json:"launch,omitempty"`
 	Tools           []string  `json:"tools,omitempty"`
@@ -118,6 +123,7 @@ type Capabilities struct {
 	Worktree        bool      `json:"worktree,omitempty"`
 	Browse          bool      `json:"browse,omitempty"`
 	Branches        bool      `json:"branches,omitempty"`
+	BrowseOff       bool      `json:"browseOff,omitempty"`
 	TerminalControl bool      `json:"terminalControl,omitempty"`
 	ProtocolVersion int       `json:"protocolVersion"`
 	OS              string    `json:"os"`
@@ -134,7 +140,7 @@ func (c Capabilities) Validate() error {
 	if c.CommandHistory && !c.TerminalControl || c.Worktree && !c.Launch {
 		return ErrInvalid
 	}
-	if c.Browse && !c.TerminalControl || c.Branches && !c.Worktree {
+	if c.Browse && !c.TerminalControl || c.Branches && !c.Worktree || c.BrowseOff && (c.Browse || !c.TerminalControl) {
 		return ErrInvalid
 	}
 	if c.ProtocolVersion < 1 || c.ProtocolVersion > 65535 || !plainText(c.OSUser, 128) || strings.TrimSpace(c.OSUser) == "" {

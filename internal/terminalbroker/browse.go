@@ -25,7 +25,7 @@ var (
 	// ErrBranchesUnsupported means the machine did not negotiate branches-v1.
 	ErrBranchesUnsupported = errors.New("machine does not support branch listing")
 	// ErrBrowseOff means a current machine does not offer browse: its
-	// folder-browse switch is off. Nothing was sent, or it answered denied.
+	// folder-browse switch is off (it reports browseOff, or answered off).
 	ErrBrowseOff = errors.New("machine has folder browse switched off")
 	// ErrBranchesUnavailable means a current machine does not offer branch
 	// listing now (terminal access off there, no git, or no worktrees).
@@ -38,6 +38,9 @@ var (
 	// ErrMachineTimeout means the request was sent on a live connection but
 	// no answer came by the deadline. An answer that comes later is dropped.
 	ErrMachineTimeout = errors.New("machine did not answer in time")
+	// ErrMachineAnswer means the machine answered with a reply of another
+	// kind than the request's; nothing of it is used.
+	ErrMachineAnswer = errors.New("machine sent an unexpected answer")
 )
 
 // BrowseError is a browse the machine refused for the folder asked about:
@@ -113,9 +116,9 @@ func (b *Broker) Browse(ctx context.Context, uid int64, agent string, req termin
 		return terminalproto.BrowseResult{}, err
 	}
 	if !caps.Browse {
-		// branches-v1 shipped with browse-v1: a machine that lists branches
-		// but not folders has its browse switch off, not an older reet.
-		if caps.Branches {
+		// A connector that negotiated browse-v1 but has it switched off says
+		// so; without either, it is an older reet.
+		if caps.BrowseOff {
 			return terminalproto.BrowseResult{}, ErrBrowseOff
 		}
 		return terminalproto.BrowseResult{}, ErrBrowseUnsupported
@@ -126,19 +129,15 @@ func (b *Broker) Browse(ctx context.Context, uid int64, agent string, req termin
 	}
 	r, ok := body.(*terminalproto.BrowseResult)
 	if !ok {
-		return terminalproto.BrowseResult{}, ErrOffline
+		return terminalproto.BrowseResult{}, ErrMachineAnswer
 	}
 	switch r.Reason {
 	case "":
 		return *r, nil
 	case terminalproto.BrowseConflict:
 		return terminalproto.BrowseResult{}, ErrBrowseBusy
-	case terminalproto.BrowseDenied:
-		// denied is also the answer while the switch is off; the machine
-		// reports the change within its consent poll.
-		if now, err := b.st.RemoteCapabilitiesFor(uid, agent); err == nil && !now.Capabilities.Browse {
-			return terminalproto.BrowseResult{}, ErrBrowseOff
-		}
+	case terminalproto.BrowseOff:
+		return terminalproto.BrowseResult{}, ErrBrowseOff
 	}
 	return terminalproto.BrowseResult{}, &BrowseError{Reason: r.Reason}
 }
@@ -152,7 +151,9 @@ func (b *Broker) Branches(ctx context.Context, uid int64, agent string, req term
 		return terminalproto.BranchesResult{}, err
 	}
 	if !caps.Branches {
-		if caps.Browse {
+		// branches-v1 shipped with browse-v1: a connector that reports
+		// either browse capability negotiated it and does not offer it now.
+		if caps.Browse || caps.BrowseOff {
 			return terminalproto.BranchesResult{}, ErrBranchesUnavailable
 		}
 		return terminalproto.BranchesResult{}, ErrBranchesUnsupported
@@ -163,7 +164,7 @@ func (b *Broker) Branches(ctx context.Context, uid int64, agent string, req term
 	}
 	r, ok := body.(*terminalproto.BranchesResult)
 	if !ok {
-		return terminalproto.BranchesResult{}, ErrOffline
+		return terminalproto.BranchesResult{}, ErrMachineAnswer
 	}
 	switch r.Reason {
 	case "":

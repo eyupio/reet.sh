@@ -214,7 +214,7 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 					return terminalproto.ErrInvalid
 				}
 				if !allowed(opts.Consent) || !allowed(opts.BrowseConsent) {
-					reply.Body = terminalproto.BrowseResult{Reason: terminalproto.BrowseDenied}
+					reply.Body = terminalproto.BrowseResult{Reason: terminalproto.BrowseOff}
 					return send(callCtx, reply)
 				}
 				req, home, fn := *op, opts.Home, browse

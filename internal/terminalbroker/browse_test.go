@@ -127,9 +127,19 @@ func TestBrowseIsNeverSentToAPeerWithoutTheCapability(t *testing.T) {
 		caps                   terminalproto.Capabilities
 		browseErr, branchesErr error
 	}{
-		"old peer":             {worktreeCapabilities("claude"), ErrBrowseUnsupported, ErrBranchesUnsupported},
-		"legacy peer":          {legacyCapabilities(), ErrBrowseUnsupported, ErrBranchesUnsupported},
-		"browse switched off":  {func() terminalproto.Capabilities { c := browseCapabilities(); c.Browse = false; return c }(), ErrBrowseOff, nil},
+		"old peer":    {worktreeCapabilities("claude"), ErrBrowseUnsupported, ErrBranchesUnsupported},
+		"legacy peer": {legacyCapabilities(), ErrBrowseUnsupported, ErrBranchesUnsupported},
+		"browse switched off": {func() terminalproto.Capabilities {
+			c := browseCapabilities()
+			c.Browse, c.BrowseOff = false, true
+			return c
+		}(), ErrBrowseOff, nil},
+		// A current machine with browse off and no git is not an older reet.
+		"browse off and no git": {func() terminalproto.Capabilities {
+			c := browseCapabilities()
+			c.Browse, c.BrowseOff, c.Branches = false, true, false
+			return c
+		}(), ErrBrowseOff, ErrBranchesUnavailable},
 		"branches not offered": {func() terminalproto.Capabilities { c := browseCapabilities(); c.Branches = false; return c }(), nil, ErrBranchesUnavailable},
 	} {
 		f := browseFixture(t, tc.caps)
@@ -248,10 +258,16 @@ func TestBrowseReasonsMapToErrors(t *testing.T) {
 	if _, err := f.b.Branches(t.Context(), f.uid, f.agent, terminalproto.Branches{Dir: "/home/test/site"}); !errors.Is(err, ErrBranchesBusy) {
 		t.Fatal("branches conflict", err)
 	}
-	// A denied browse from a machine that stopped reporting the capability
-	// while answering means the switch was turned off there.
+	// off says the machine has browse switched off; denied is always about
+	// the folder, even from a machine whose switch went off meanwhile.
+	f.answering(func(terminalproto.Body) terminalproto.Body {
+		return terminalproto.BrowseResult{Reason: terminalproto.BrowseOff}
+	})
+	if _, err := f.b.Browse(t.Context(), f.uid, f.agent, terminalproto.Browse{}); !errors.Is(err, ErrBrowseOff) {
+		t.Fatal("off", err)
+	}
 	off := browseCapabilities()
-	off.Browse = false
+	off.Browse, off.BrowseOff = false, true
 	record, _ := f.st.RemoteCapabilitiesFor(f.uid, f.agent)
 	f.answering(func(terminalproto.Body) terminalproto.Body {
 		if err := f.st.UpdateRemoteCapabilitiesFor(f.uid, f.agent, record.InstanceID, record.Generation, off); err != nil {
@@ -259,8 +275,9 @@ func TestBrowseReasonsMapToErrors(t *testing.T) {
 		}
 		return terminalproto.BrowseResult{Reason: terminalproto.BrowseDenied}
 	})
-	if _, err := f.b.Browse(t.Context(), f.uid, f.agent, terminalproto.Browse{}); !errors.Is(err, ErrBrowseOff) {
-		t.Fatal("denied after the switch went off", err)
+	var refusal *BrowseError
+	if _, err := f.b.Browse(t.Context(), f.uid, f.agent, terminalproto.Browse{}); !errors.As(err, &refusal) || refusal.Reason != terminalproto.BrowseDenied {
+		t.Fatal("denied is about the folder", err)
 	}
 }
 
@@ -370,10 +387,15 @@ func TestBrowseAnswerOfTheWrongKindIsRefused(t *testing.T) {
 		}
 		return homeListing()
 	})
-	if _, err := f.b.Browse(t.Context(), f.uid, f.agent, terminalproto.Browse{}); err == nil {
-		t.Fatal("a branches answer to a browse was accepted")
+	if _, err := f.b.Browse(t.Context(), f.uid, f.agent, terminalproto.Browse{}); !errors.Is(err, ErrMachineAnswer) || errors.Is(err, ErrOffline) {
+		t.Fatal("a branches answer to a browse", err)
 	}
-	if _, err := f.b.Branches(t.Context(), f.uid, f.agent, terminalproto.Branches{Dir: "/home/test/site"}); err == nil {
-		t.Fatal("a browse answer to a branches request was accepted")
+	if _, err := f.b.Branches(t.Context(), f.uid, f.agent, terminalproto.Branches{Dir: "/home/test/site"}); !errors.Is(err, ErrMachineAnswer) || errors.Is(err, ErrOffline) {
+		t.Fatal("a browse answer to a branches request", err)
+	}
+	select {
+	case <-f.peer.Done():
+		t.Fatal("a wrong-kind answer ended the connection")
+	default:
 	}
 }

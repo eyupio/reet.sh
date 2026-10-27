@@ -53,6 +53,12 @@ connection sealing key (`REET_BACKUP_KEY`, or the instance's protected
 [backup keys](backups.md). Generate a key with `reet backup keygen` only when
 initialising an instance; preserve the existing key during upgrades/recovery.
 
+Folder browse and branch listing (`docs/folder-browse.md`) send the folder path,
+filter and repository folder in the query string of `GET /api/v2/machines/{id}/browse`
+and `.../branches`. reet's own request log never records query strings, but a reverse
+proxy's default access log does: drop the query from those two routes, or treat the
+proxy's access logs as holding the folder paths people browse on their machines.
+
 The browser needs no VPN client. It uses same-origin HTTPS/WebSocket to reet.sh.
 The controller decrypts browser traffic and bridges it over the authenticated,
 encrypted, host-initiated Tailcat connection. This is not browser-to-host end-to-end

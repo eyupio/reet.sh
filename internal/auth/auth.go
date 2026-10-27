@@ -137,6 +137,14 @@ func (l *Limiter) Allow(keys ...string) bool {
 	return true
 }
 
+// Len reports how many keys have attempts inside the window.
+func (l *Limiter) Len() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.pruneLocked(time.Now())
+	return len(l.hits)
+}
+
 // Hit records one attempt for every key.
 func (l *Limiter) Hit(keys ...string) {
 	l.mu.Lock()

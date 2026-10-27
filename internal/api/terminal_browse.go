@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
 	"sync"
 	"time"
@@ -28,9 +29,9 @@ var (
 	// browseLimiter and branchesLimiter allow 20 browses and 10 listings per
 	// 10 seconds per account and machine.
 	browseLimit, branchesLimit = 20, 10
-	// browseBrowsersPerUser bounds the browsers one account has open at once
-	// (each is one audit row); a browser idle for browseBrowserIdle is
-	// forgotten. browsePagesCounted caps a row's page count.
+	// browseBrowsersPerUser bounds the browsers remembered per account (each
+	// is one audit row); past it, and after browseBrowserIdle without a page,
+	// a browser is forgotten. browsePagesCounted caps a row's page count.
 	browseBrowsersPerUser = 32
 	browseBrowserIdle     = 30 * time.Minute
 	browsePagesCounted    = 1000
@@ -41,6 +42,7 @@ const (
 	sentenceOutsideHome     = "That folder is outside the home folder reet was set up with."
 	sentenceCantRead        = "reet can't read that folder."
 	sentenceMachineTimeout  = "That machine didn't answer in time. Try again."
+	sentenceMachineAnswer   = "That machine sent an answer reet didn't expect. Try again."
 	sentenceMachineOffline  = "That machine is reconnecting. Try again in a moment."
 	sentenceBranchesDenied  = "That machine isn't offering its branches right now. Check that terminal access is on there and git is installed."
 	sentenceBrowseOff       = "That machine has folder browsing switched off."
@@ -78,12 +80,15 @@ type browseVisit struct {
 	path  string
 	pages int
 	last  time.Time
+	used  uint64 // order of last use, for forgetting the least recently used
 }
 
-// browseAudit remembers the open browsers, so each writes one audit row.
+// browseAudit remembers the open browsers, so each writes one audit row. A
+// browser is remembered only once its machine answered a page.
 type browseAudit struct {
 	mu    sync.Mutex
 	users map[int64]map[string]*browseVisit
+	clock uint64
 }
 
 func (s *server) browseState() (*browseLimits, *browseAudit) {
@@ -95,48 +100,53 @@ func (s *server) browseState() (*browseLimits, *browseAudit) {
 	return s.browseLimits, s.browseAudit
 }
 
-// open finds or starts the browser named by nonce on agent. It is false when
-// the account already has as many browsers open as it may.
-func (a *browseAudit) open(uid int64, agent, nonce string, now time.Time) bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+// visit finds the browser named by nonce on agent, or starts it. Browsers
+// idle for browseBrowserIdle are forgotten; at the bound the least recently
+// used is forgotten (if it goes on, it starts a second audit row).
+func (a *browseAudit) visit(uid int64, agent, nonce string, now time.Time) *browseVisit {
 	visits := a.users[uid]
-	for k, v := range visits {
-		if now.Sub(v.last) > browseBrowserIdle {
-			delete(visits, k)
-		}
-	}
-	key := agent + "/" + nonce
-	if v := visits[key]; v != nil {
-		v.last = now
-		return true
-	}
-	if len(visits) >= browseBrowsersPerUser {
-		return false
-	}
 	if visits == nil {
 		visits = map[string]*browseVisit{}
 		a.users[uid] = visits
 	}
-	visits[key] = &browseVisit{last: now}
-	return true
+	a.clock++
+	key := agent + "/" + nonce
+	if v := visits[key]; v != nil {
+		v.last, v.used = now, a.clock
+		return v
+	}
+	var oldest string
+	for k, v := range visits {
+		if now.Sub(v.last) > browseBrowserIdle {
+			delete(visits, k)
+		} else if oldest == "" || v.used < visits[oldest].used {
+			oldest = k
+		}
+	}
+	if len(visits) >= browseBrowsersPerUser && oldest != "" {
+		delete(visits, oldest)
+	}
+	v := &browseVisit{last: now, used: a.clock}
+	visits[key] = v
+	return v
 }
 
 // page records one page the machine answered: the first writes the browser's
 // audit row (machine, starting folder, pages), later ones update its count.
-func (s *server) browsePage(uid int64, agent, nonce, path string) {
+func (s *server) browsePage(uid int64, agent, nonce, start string) {
 	_, a := s.browseState()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	v := a.users[uid][agent+"/"+nonce]
-	if v == nil || v.pages >= browsePagesCounted {
+	v := a.visit(uid, agent, nonce, time.Now())
+	if v.pages >= browsePagesCounted {
 		return
 	}
 	v.pages++
 	if v.id == 0 {
-		v.path = path
-		if v.path == "" {
-			v.path = "~"
+		// Cleaned as the machine reads it; the home is "~".
+		v.path = "~"
+		if start != "" {
+			v.path = path.Clean(start)
 		}
 	}
 	detail := map[string]any{"machine": agent, "path": v.path, "pages": v.pages}
@@ -205,9 +215,14 @@ func (s *server) machineBrowse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := s.uid(r)
-	limits, audit := s.browseState()
-	if !limits.take(func(l *browseLimits) *auth.Limiter { return l.browse }, strconv.FormatInt(uid, 10)+"/"+agent) ||
-		!audit.open(uid, agent, nonce, time.Now()) {
+	// Only the account's own ready machine gets a rate-limit bucket; any
+	// other id is answered at once as an offline machine.
+	if !s.terminals.Ready(uid, agent) {
+		s.machineRequestError(w, terminalbroker.ErrOffline, uid, agent)
+		return
+	}
+	limits, _ := s.browseState()
+	if !limits.take(func(l *browseLimits) *auth.Limiter { return l.browse }, strconv.FormatInt(uid, 10)+"/"+agent) {
 		writeErrCode(w, http.StatusTooManyRequests, "browse_rate_limited", "", sentenceSlowDown, "")
 		return
 	}
@@ -236,6 +251,10 @@ func (s *server) machineBranches(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := s.uid(r)
+	if !s.terminals.Ready(uid, agent) {
+		s.machineRequestError(w, terminalbroker.ErrOffline, uid, agent)
+		return
+	}
 	limits, _ := s.browseState()
 	if !limits.take(func(l *browseLimits) *auth.Limiter { return l.branches }, strconv.FormatInt(uid, 10)+"/"+agent) {
 		writeErrCode(w, http.StatusTooManyRequests, "branches_rate_limited", "", sentenceSlowDown, "")
@@ -333,6 +352,8 @@ func (s *server) machineRequestError(w http.ResponseWriter, err error, uid int64
 		writeErrCode(w, http.StatusConflict, "browse_busy", "", sentenceBrowseBusy, "")
 	case errors.Is(err, terminalbroker.ErrBranchesBusy):
 		writeErrCode(w, http.StatusConflict, "branches_busy", "", sentenceBranchesBusy, "")
+	case errors.Is(err, terminalbroker.ErrMachineAnswer):
+		writeErrCode(w, http.StatusBadGateway, "machine_error", "", sentenceMachineAnswer, "")
 	case errors.Is(err, terminalbroker.ErrMachineTimeout):
 		writeErrCode(w, http.StatusGatewayTimeout, "machine_timeout", "", sentenceMachineTimeout, "")
 	case errors.Is(err, terminalproto.ErrInvalid):

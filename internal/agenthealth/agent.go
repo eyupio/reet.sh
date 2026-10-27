@@ -330,8 +330,8 @@ func runControlWorkers(ctx context.Context, cfg AgentConfig, conn *websocket.Con
 // gateMachineRequests serves a browse or branches request whose feature was
 // negotiated only while the connector would advertise the matching
 // capability, worked out afresh (terminal consent and the browse switch are
-// re-read) for each request; otherwise it answers denied itself, so the
-// connector never serves more than it offers. Everything else, including a
+// re-read) for each request; otherwise it answers off (browse) or denied
+// (branches) itself, so the connector never serves more than it offers. Everything else, including a
 // browse or branches request that was not negotiated (a protocol error
 // there), goes to control.
 func gateMachineRequests(cfg AgentConfig, control func(context.Context, terminalproto.Message) error, send Sender) func(context.Context, terminalproto.Message) error {
@@ -339,7 +339,7 @@ func gateMachineRequests(cfg AgentConfig, control func(context.Context, terminal
 		switch m.Body.(type) {
 		case *terminalproto.Browse:
 			if cfg.browse && !currentCapabilities(cfg).Browse {
-				m.Body = terminalproto.BrowseResult{Reason: terminalproto.BrowseDenied}
+				m.Body = terminalproto.BrowseResult{Reason: terminalproto.BrowseOff}
 				return send(ctx, m)
 			}
 		case *terminalproto.Branches:
@@ -718,10 +718,13 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 	// browse also the local folder-browse switch on, branches worktrees.
 	control := cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin")
 	return terminalproto.Capabilities{
-		Launch:          launch,
-		Tools:           tools,
-		Worktree:        worktree,
-		Browse:          cfg.browse && control && enabled && cfg.browseAllowed,
+		Launch:   launch,
+		Tools:    tools,
+		Worktree: worktree,
+		Browse:   cfg.browse && control && enabled && cfg.browseAllowed,
+		// Only on a connection that negotiated browse-v1: an older
+		// controller's strict decoder would refuse the field.
+		BrowseOff:       cfg.browse && control && enabled && !cfg.browseAllowed,
 		Branches:        cfg.branches && worktree && enabled,
 		TerminalControl: cfg.TerminalSession != nil,
 		CommandHistory:  cfg.commandHistory && cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin"),

@@ -371,7 +371,7 @@ func TestAgentBrowseRefusedLocally(t *testing.T) {
 		if err := handle(t.Context(), message("browse-refused-0001", &terminalproto.Browse{})); err != nil {
 			t.Fatal(name, err)
 		}
-		if m := next(t, got, "browse-refused-0001"); !reflect.DeepEqual(m.Body, terminalproto.BrowseResult{Reason: terminalproto.BrowseDenied}) {
+		if m := next(t, got, "browse-refused-0001"); !reflect.DeepEqual(m.Body, terminalproto.BrowseResult{Reason: terminalproto.BrowseOff}) {
 			t.Fatalf("%s: %+v", name, m.Body)
 		}
 		if g.count() != 0 {

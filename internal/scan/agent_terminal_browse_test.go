@@ -107,11 +107,11 @@ func TestTerminalBrowseOffRemovesCapability(t *testing.T) {
 	}
 	// The running connector sees the switch without a restart: the
 	// capability goes (BrowseAllowed is what agenthealth reports it from)
-	// and a browse is answered denied.
+	// and a browse is answered off.
 	if allowed() {
 		t.Fatal("capability still reported")
 	}
-	if r := browseThrough(t, config, c); !reflect.DeepEqual(r, terminalproto.BrowseResult{Reason: terminalproto.BrowseDenied}) {
+	if r := browseThrough(t, config, c); !reflect.DeepEqual(r, terminalproto.BrowseResult{Reason: terminalproto.BrowseOff}) {
 		t.Fatalf("browse off: %+v", r)
 	}
 	var out bytes.Buffer
@@ -139,7 +139,7 @@ func TestTerminalBrowseOffRemovesCapability(t *testing.T) {
 	if allowed() {
 		t.Fatal("browse allowed with terminal access off")
 	}
-	if r := browseThrough(t, config, c); r.Reason != terminalproto.BrowseDenied {
+	if r := browseThrough(t, config, c); r.Reason != terminalproto.BrowseOff {
 		t.Fatalf("terminal off: %+v", r)
 	}
 

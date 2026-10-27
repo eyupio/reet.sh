@@ -12,6 +12,8 @@
 
 ## Global Constraints
 
+- Handoff: every PR in this stack updates the "Agents home redesign" block at the top of `handoff.md` (its row in the state table and any new limits) before it merges. The last task of each PR owns this.
+
 - Never name the products behind the reference designs or other products in repo files or UI; say "the reference designs". Example machines in tests and docs: `studio`, `server`, `desk`; projects `reet`, `site`, `notes`.
 - "Started" means the connector started the program in tmux; "verified" and "healthy" never describe a machine, session or worktree; no step count or progress bar for a terminal session (R10).
 - Voice (`docs/voice-and-copy.md`): Yorkshire only in headings, ledes and success lines; buttons, states, refusals and the YOLO dialog are plain. Copy is taken verbatim from the spec.

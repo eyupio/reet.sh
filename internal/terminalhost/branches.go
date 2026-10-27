@@ -28,8 +28,9 @@ const branchesCount = terminalproto.MaxBranchNames + 1
 //     one: <dir>/.git a real directory (never a link or a .git file) holding
 //     a regular HEAD file, both lstat'ed beneath an os.Root at the real home.
 //   - Only then git runs, through git (ExecGit: argument vector, no shell,
-//     the worktree environment of HOME, PATH and LANG only), in the resolved
-//     folder, exactly
+//     the worktree environment of HOME, PATH and LANG only, plus GIT_DIR
+//     and GIT_CEILING_DIRECTORIES pinning it to <dir>/.git so it never
+//     finds a repository above dir), in the resolved folder, exactly
 //     `for-each-ref --count=201 --sort=-committerdate --format=%(refname) refs/heads refs/remotes`,
 //     `symbolic-ref --quiet --short HEAD` and
 //     `symbolic-ref --quiet --short refs/remotes/origin/HEAD`, within 5
@@ -57,6 +58,9 @@ func ListBranches(ctx context.Context, home string, req terminalproto.Branches, 
 	if git == nil {
 		return terminalproto.BranchesResult{Reason: terminalproto.BranchesGitFailed}
 	}
+	// git reads dir/.git and nothing above it: a .git git does not accept
+	// fails the listing instead of listing an enclosing repository.
+	ctx = pinGitDir(ctx, dir)
 	out, err := git(ctx, dir, "for-each-ref", "--count=201", "--sort=-committerdate", "--format=%(refname)", "refs/heads", "refs/remotes")
 	if err != nil || ctx.Err() != nil {
 		return terminalproto.BranchesResult{Reason: terminalproto.BranchesGitFailed}

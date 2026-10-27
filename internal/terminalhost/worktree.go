@@ -119,7 +119,7 @@ func runGit(ctx context.Context, path string, timeout time.Duration, limit int, 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, append([]string{"-C", dir}, args...)...)
-	cmd.Env = gitEnvironment(os.Environ())
+	cmd.Env = append(gitEnvironment(os.Environ()), pinnedGitEnv(ctx)...)
 	out := &truncatingBuffer{limit: limit}
 	cmd.Stdout, cmd.Stderr = out, out
 	killGroupOnCancel(cmd)
@@ -129,6 +129,28 @@ func runGit(ctx context.Context, path string, timeout time.Duration, limit int, 
 		return out.Bytes(), fmt.Errorf("git timed out: %w", ctx.Err())
 	}
 	return out.Bytes(), err
+}
+
+// pinnedGitKey carries, in a context, the repository a git call is pinned
+// to (see pinGitDir).
+type pinnedGitKey struct{}
+
+// pinGitDir returns ctx with git calls made through ExecGit pinned to the
+// repository at dir: GIT_DIR=<dir>/.git and GIT_CEILING_DIRECTORIES=<parent
+// of dir>, added to the hardened environment. git then reads that .git or
+// fails; it never searches the folders above dir for another repository,
+// which it would do for a .git it does not accept as a git directory.
+func pinGitDir(ctx context.Context, dir string) context.Context {
+	return context.WithValue(ctx, pinnedGitKey{}, dir)
+}
+
+// pinnedGitEnv is the environment pinGitDir adds, or nothing.
+func pinnedGitEnv(ctx context.Context) []string {
+	dir, ok := ctx.Value(pinnedGitKey{}).(string)
+	if !ok || !filepath.IsAbs(dir) {
+		return nil
+	}
+	return []string{"GIT_DIR=" + filepath.Join(dir, ".git"), "GIT_CEILING_DIRECTORIES=" + filepath.Dir(dir)}
 }
 
 // gitEnvironment keeps only HOME, PATH and LANG (the first of each). No

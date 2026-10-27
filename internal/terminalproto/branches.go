@@ -36,7 +36,7 @@ const (
 	// BranchesConflict: the listing could not run now (another one is running).
 	BranchesConflict BranchesReason = "conflict"
 	// BranchesDenied: the machine refuses the listing locally (terminal
-	// access is off there).
+	// access is off there, or it does not offer branches now).
 	BranchesDenied BranchesReason = "denied"
 )
 

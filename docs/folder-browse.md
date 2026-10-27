@@ -28,11 +28,16 @@ How a machine answers a `browse` request (`internal/terminalhost/browse.go`). Th
 - **Capabilities.** `browse` is reported when `browse-v1` was negotiated, the connector has terminal
   control, terminal access is on locally and folder browse is not off. `branches` is reported when
   `branches-v1` was negotiated, `worktree` is reported and terminal access is on. A change of either
-  local switch is sent to the controller within the consent poll (5 s), without a reconnect.
+  local switch is sent to the controller within the consent poll (5 s), without a reconnect. The
+  connector serves a negotiated browse or branches request only while it would advertise that
+  capability, worked out again for each request; otherwise it answers `denied` itself.
 - **Local switch.** `reet terminal browse off` (also `reet agent terminal browse off`) sets
   `browseOff` in the enrollment file; `on` removes it and `status` prints `Folder browse: on|off`
   (also shown by `reet agent terminal status`). Browse is on by default. While it is off, or while
   terminal access is off, a browse is answered `denied`. Each request re-reads the enrollment file.
+  `on` while terminal access is off says that browsing stays unavailable until terminal access is
+  on, and `status` then shows `on (unavailable while terminal access is off)`. Enrolling the machine
+  again writes a fresh enrollment file, so browse is on again afterwards.
 - **One at a time.** Each connection runs one browse and one branch listing at a time, aside from
   the dispatcher; a second is answered `conflict` at once. A browse that has not returned after 4 s
   (a listing after 8 s) is answered `unreadable` (`git_failed`) and its slot is freed, even if the
@@ -56,13 +61,18 @@ How a machine answers a `browse` request (`internal/terminalhost/browse.go`). Th
   --format=%(refname) refs/heads refs/remotes`, then `symbolic-ref --quiet --short HEAD` and
   `symbolic-ref --quiet --short refs/remotes/origin/HEAD`, as an argument vector with the worktree
   environment (`HOME`, `PATH` and `LANG` only), within 5 seconds in all. The filter never reaches git.
+  Each call also gets `GIT_DIR=<dir>/.git` and `GIT_CEILING_DIRECTORIES=<parent of dir>`, so git
+  reads that `.git` or fails: a `.git` folder git does not accept (a `HEAD` alone, a garbage `HEAD`)
+  is `git_failed`, never a listing of a repository around it, inside home or above it.
 - **Names.** Short names (`main`, `origin/main`), newest first, at most 200, and the answer fits
   12 KiB; `more` says the list was cut. A remote's `HEAD`, a branch called `HEAD`, a repeated short
   name and any name the protocol cannot carry (for example `@`, a space, or a control or format
   character) are skipped, since one would invalidate the whole answer. `current` is empty on a
   detached HEAD; `default` is the branch `origin/HEAD` points at, without `origin/`.
-- **Errors.** A git failure is `git_failed`, with nothing of git's output. Terminal access off is
-  `denied`.
+- **Errors.** A git failure is `git_failed`, with nothing of git's output. `denied` (a reason
+  added for `branches-v1`, matching browse's) means the machine refuses the listing locally:
+  terminal access is off, or it does not offer `branches` at the moment (no git, or worktrees not
+  available).
 
 ## Known limits
 
@@ -89,5 +99,14 @@ How a machine answers a `browse` request (`internal/terminalhost/browse.go`). Th
   can write inside home and swaps the folder for a link in between makes git read (never write) a
   repository elsewhere; its names are not sent.
 - **`more` on branches is conservative.** It is set whenever git returned 201 lines, including a
-  remote's `HEAD` or a name that was skipped, so it can be set when nothing more exists.
+  remote's `HEAD`, a name that was skipped, or a warning line git printed (its output is read with
+  its error output), so it can be set when nothing more exists.
+- **Repository metadata that points elsewhere.** git follows what a repository's own files say:
+  `.git/commondir`, a symlinked `.git/refs` or ref, `objects/info/alternates` and `include.path` in
+  its config can make a listing read refs, objects or configuration outside home. Planting them
+  needs write access inside home, and worktree-v1 reads the same repositories the same way. Nothing
+  in a repository's configuration is run by the three listing commands.
+- **Short names can collapse.** A local branch called `origin/main` and the remote branch
+  `origin/main` have the same short name; only the newer is listed. `symbolic-ref --short` can name
+  the current branch `heads/x` when a tag `x` also exists; that name is sent as it is.
 - **Windows.** There is no `O_DIRECTORY`, so the guarantees rest on `os.Root` and the re-checks.

@@ -277,3 +277,144 @@ func TestControlWorkersAnswerAnOverflowingBrowse(t *testing.T) {
 	cancel()
 	<-done
 }
+
+// The connector serves a negotiated browse or branches request only while it
+// advertises the matching capability, re-read for each request; otherwise it
+// answers denied itself. Anything else, including a request whose feature
+// was not negotiated (a protocol error there), goes to the terminal handler.
+func TestMachineRequestsFollowTheAdvertisedCapabilities(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("terminal control is Linux and macOS only")
+	}
+	factory := func(context.Context, *http.Client, http.Header, int64, Sender) (func(context.Context, terminalproto.Message) error, func()) {
+		return nil, func() {}
+	}
+	full := func() AgentConfig {
+		return AgentConfig{
+			TerminalSession: factory, launch: true, worktree: true, browse: true, branches: true,
+			LaunchTools:   func() []string { return []string{"claude"} },
+			GitAvailable:  func() bool { return true },
+			Consent:       func() (bool, terminalproto.Readiness, error) { return true, terminalproto.Ready, nil },
+			BrowseAllowed: func() bool { return true },
+		}
+	}
+	browse := terminalproto.Message{Version: terminalproto.Version, RequestID: "browse-request-00001", Generation: 1, Body: &terminalproto.Browse{}}
+	branches := terminalproto.Message{Version: terminalproto.Version, RequestID: "branches-request-0001", Generation: 1, Body: &terminalproto.Branches{Dir: "/home/someone/site"}}
+	other := terminalproto.Message{Version: terminalproto.Version, RequestID: "reconcile-request-001", Generation: 1, Body: &terminalproto.Reconcile{}}
+	browseDenied := terminalproto.BrowseResult{Reason: terminalproto.BrowseDenied}
+	branchesDenied := terminalproto.BranchesResult{Reason: terminalproto.BranchesDenied}
+	for _, tc := range []struct {
+		name                     string
+		edit                     func(*AgentConfig)
+		browseServed, branchesOK bool
+	}{
+		{"everything on", func(*AgentConfig) {}, true, true},
+		{"browse off locally", func(c *AgentConfig) { c.BrowseAllowed = func() bool { return false } }, false, true},
+		{"no browse switch", func(c *AgentConfig) { c.BrowseAllowed = nil }, false, true},
+		{"git not found", func(c *AgentConfig) { c.GitAvailable = func() bool { return false } }, true, false},
+		{"worktree not negotiated", func(c *AgentConfig) { c.worktree = false }, true, false},
+		{"launch not negotiated", func(c *AgentConfig) { c.launch = false }, true, false},
+		{"terminal access off", func(c *AgentConfig) {
+			c.Consent = func() (bool, terminalproto.Readiness, error) { return false, terminalproto.DisabledLocally, nil }
+		}, false, false},
+		{"consent unreadable", func(c *AgentConfig) {
+			c.Consent = func() (bool, terminalproto.Readiness, error) { return true, terminalproto.Ready, errors.New("gone") }
+		}, false, false},
+	} {
+		cfg := full()
+		tc.edit(&cfg)
+		var forwarded []string
+		var sent []terminalproto.Message
+		gate := gateMachineRequests(cfg, func(_ context.Context, m terminalproto.Message) error {
+			forwarded = append(forwarded, m.RequestID)
+			return nil
+		}, func(_ context.Context, m terminalproto.Message) error { sent = append(sent, m); return nil })
+		for _, m := range []terminalproto.Message{browse, branches, other} {
+			if err := gate(t.Context(), m); err != nil {
+				t.Fatal(tc.name, err)
+			}
+		}
+		want := []string{}
+		var wantSent []terminalproto.Body
+		if tc.browseServed {
+			want = append(want, browse.RequestID)
+		} else {
+			wantSent = append(wantSent, browseDenied)
+		}
+		if tc.branchesOK {
+			want = append(want, branches.RequestID)
+		} else {
+			wantSent = append(wantSent, branchesDenied)
+		}
+		want = append(want, other.RequestID)
+		if strings.Join(forwarded, ",") != strings.Join(want, ",") {
+			t.Fatalf("%s: forwarded %q want %q", tc.name, forwarded, want)
+		}
+		var gotSent []terminalproto.Body
+		for _, m := range sent {
+			if m.Generation != 1 || (m.RequestID != browse.RequestID && m.RequestID != branches.RequestID) {
+				t.Fatalf("%s: envelope %+v", tc.name, m)
+			}
+			gotSent = append(gotSent, m.Body)
+		}
+		if !reflect.DeepEqual(gotSent, wantSent) {
+			t.Fatalf("%s: sent %+v want %+v", tc.name, gotSent, wantSent)
+		}
+	}
+	// A request whose feature was not negotiated is not answered here.
+	cfg := full()
+	cfg.browse, cfg.branches, cfg.BrowseAllowed, cfg.GitAvailable = false, false, nil, nil
+	var forwarded int
+	gate := gateMachineRequests(cfg, func(context.Context, terminalproto.Message) error { forwarded++; return terminalproto.ErrInvalid },
+		func(_ context.Context, m terminalproto.Message) error { t.Fatal("answered", m); return nil })
+	for _, m := range []terminalproto.Message{browse, branches} {
+		if err := gate(t.Context(), m); !errors.Is(err, terminalproto.ErrInvalid) {
+			t.Fatal(err)
+		}
+	}
+	if forwarded != 2 {
+		t.Fatal("unnegotiated requests not passed on", forwarded)
+	}
+}
+
+// The control workers put that gate in front of the terminal handler.
+func TestControlWorkersRefuseBrowseWhenOffLocally(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("terminal control is Linux and macOS only")
+	}
+	client, peer := controlPair(t)
+	var handled atomic.Int32
+	factory := func(context.Context, *http.Client, http.Header, int64, Sender) (func(context.Context, terminalproto.Message) error, func()) {
+		return nil, func() {}
+	}
+	cfg := AgentConfig{
+		InstanceID: testInstance(), CollectTimeout: time.Hour, ReportInterval: time.Hour, ConsentInterval: time.Hour, browse: true,
+		TerminalSession: factory, TerminalEnabled: true, TerminalReadiness: terminalproto.Ready,
+		BrowseAllowed: func() bool { return false },
+		Collector:     collectorFunc(func(ctx context.Context, _ string) Sample { <-ctx.Done(); return Sample{} }),
+		control:       func(context.Context, terminalproto.Message) error { handled.Add(1); return nil },
+	}
+	sequence := int64(0)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runControlWorkers(ctx, cfg, client, 1, &sequence, clientSender(client)) }()
+	if err := peer.Write(t.Context(), websocket.MessageText, controlMessage(t, "request-browse-off01", &terminalproto.Browse{})); err != nil {
+		t.Fatal(err)
+	}
+	readCtx, readCancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer readCancel()
+	_, data, err := peer.Read(readCtx)
+	if err != nil {
+		t.Fatal("no answer", err)
+	}
+	m, err := terminalproto.Decode(data)
+	if r, ok := m.Body.(*terminalproto.BrowseResult); err != nil || !ok || m.RequestID != "request-browse-off01" || r.Reason != terminalproto.BrowseDenied {
+		t.Fatalf("%s %v", data, err)
+	}
+	if handled.Load() != 0 {
+		t.Fatal("the terminal handler saw a browse the connector does not offer")
+	}
+	cancel()
+	<-done
+}

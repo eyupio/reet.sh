@@ -35,8 +35,14 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 	// browse takes its own word: on, off or status.
 	browse := ""
 	if action == "browse" {
+		for _, arg := range args[1:] {
+			if arg == "-h" || arg == "--help" || arg == "-help" {
+				fmt.Fprintln(out, terminalBrowseUsage+"\nAllow or refuse folder browsing from reet on this enrolled machine (on by default).\nBrowsing also needs terminal access on (reet agent terminal enable).")
+				return nil
+			}
+		}
 		if len(args) < 2 || args[1] != "on" && args[1] != "off" && args[1] != "status" {
-			return errors.New("usage: reet terminal browse on|off|status [--config PATH]")
+			return errors.New("usage: " + terminalBrowseUsage)
 		}
 		browse, args = args[1], args[1:]
 	}
@@ -104,7 +110,7 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 		return nil
 	case "status":
 		readiness := terminalhost.Readiness(context.Background(), layout, c.TerminalEnabled)
-		fmt.Fprintf(out, "Machine: %s\nTerminal access: %t\nReadiness: %s\nFolder browse: %s\n", c.Host, c.TerminalEnabled, readiness, onOff(!c.BrowseOff))
+		fmt.Fprintf(out, "Machine: %s\nTerminal access: %t\nReadiness: %s\nFolder browse: %s\n", c.Host, c.TerminalEnabled, readiness, browseState(c))
 		if tmux, err := terminalhost.FindTmux(context.Background()); err == nil {
 			fmt.Fprintf(out, "tmux: %s (%s)\n", tmux.Path, tmux.Version)
 		} else {
@@ -161,18 +167,33 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 			if err := writePrivate(*config, c); err != nil {
 				return err
 			}
-			if c.BrowseOff {
+			switch {
+			case c.BrowseOff:
 				fmt.Fprintf(out, "Folder browse off for %s. reet can no longer list this machine's folders; a folder can still be typed.\n", c.Host)
-			} else {
+			case !c.TerminalEnabled:
+				fmt.Fprintf(out, "Folder browse on for %s, but terminal access is off on this machine, so reet still cannot list its folders. Turn terminal access on with: reet agent terminal enable\n", c.Host)
+			default:
 				fmt.Fprintf(out, "Folder browse on for %s. reet can list the folders in your home folder; file names never leave this machine.\n", c.Host)
 			}
 		default:
-			fmt.Fprintf(out, "Folder browse: %s\n", onOff(!c.BrowseOff))
+			fmt.Fprintf(out, "Folder browse: %s\n", browseState(c))
 		}
 		return nil
 	default:
 		return errors.New("unknown terminal action; use enable, disable, status, sessions, end or browse")
 	}
+}
+
+// terminalBrowseUsage is the usage line of the folder-browse switch.
+const terminalBrowseUsage = "reet terminal browse on|off|status [--config PATH]"
+
+// browseState is the switch as status shows it: on or off, and whether
+// browsing is unavailable anyway because terminal access is off.
+func browseState(c agentConfig) string {
+	if !c.BrowseOff && !c.TerminalEnabled {
+		return "on (unavailable while terminal access is off)"
+	}
+	return onOff(!c.BrowseOff)
 }
 
 func onOff(on bool) string {

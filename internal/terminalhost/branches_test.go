@@ -79,7 +79,7 @@ func TestListBranchesArgv(t *testing.T) {
 		makeRepo(t, repo)
 		record := filepath.Join(shortTempDir(t), "record")
 		script := `printf '%s\0' "$@" >> '` + record + `'
-printf 'GIT_DIR=%s GIT_CONFIG_PARAMETERS=%s REET_PROBE=%s HOME=%s\n' "${GIT_DIR-unset}" "${GIT_CONFIG_PARAMETERS-unset}" "${REET_PROBE-unset}" "${HOME-unset}" >> '` + record + `'
+printf 'GIT_DIR=%s GIT_CEILING_DIRECTORIES=%s GIT_CONFIG_PARAMETERS=%s REET_PROBE=%s HOME=%s\n' "${GIT_DIR-unset}" "${GIT_CEILING_DIRECTORIES-unset}" "${GIT_CONFIG_PARAMETERS-unset}" "${REET_PROBE-unset}" "${HOME-unset}" >> '` + record + `'
 case "$3" in
 for-each-ref) printf 'refs/heads/main\nrefs/heads/feature/x\n' ;;
 symbolic-ref) if [ "$6" = HEAD ]; then echo main; else exit 1; fi ;;
@@ -88,6 +88,7 @@ esac
 		git := fakeGit(t, script)
 		t.Setenv("PATH", filepath.Dir(git))
 		t.Setenv("GIT_DIR", "/nowhere")
+		t.Setenv("GIT_CEILING_DIRECTORIES", "/nowhere")
 		t.Setenv("GIT_CONFIG_PARAMETERS", "'core.pager=evil'")
 		t.Setenv("REET_PROBE", "leak")
 		t.Setenv("HOME", home)
@@ -99,7 +100,9 @@ esac
 		if err != nil {
 			t.Fatal(err)
 		}
-		env := "GIT_DIR=unset GIT_CONFIG_PARAMETERS=unset REET_PROBE=unset HOME=" + home + "\n"
+		// git is pinned to this repository's own .git and may not look
+		// above it, so it can never list another repository's branches.
+		env := "GIT_DIR=" + filepath.Join(repo, ".git") + " GIT_CEILING_DIRECTORIES=" + home + " GIT_CONFIG_PARAMETERS=unset REET_PROBE=unset HOME=" + home + "\n"
 		var want strings.Builder
 		for _, args := range branchesArgv {
 			want.WriteString(strings.Join(append([]string{"-C", repo}, args...), "\x00") + "\x00" + env)
@@ -430,5 +433,43 @@ func TestListBranchesMoreWhenGitWasCut(t *testing.T) {
 	r = ListBranches(context.Background(), home, terminalproto.Branches{Dir: repo, Filter: "b19"}, cannedGit(strings.Join(lines[1:], "\n")+"\n", "b000", ""))
 	if len(r.Branches) != 10 || r.More {
 		t.Fatalf("not cut: got %d names, More %t", len(r.Branches), r.More)
+	}
+}
+
+// A .git folder git does not accept (HEAD alone, or a garbage HEAD) must
+// never make git look further up and list the repository around it, here
+// one above home. git is pinned to <dir>/.git, so it fails instead.
+func TestListBranchesNeverListsAnotherRepository(t *testing.T) {
+	top := worktreeHome(t)
+	outer := newRepo(t, top, "outer")
+	testGit(t, outer, "branch", "secret-outside-home")
+	home := filepath.Join(outer, "home")
+	proj := filepath.Join(home, "proj")
+	mkdirs(t, proj, ".git")
+	for _, head := range []string{"ref: refs/heads/main\n", "garbage"} {
+		putFile(t, filepath.Join(proj, ".git", "HEAD"), head)
+		r := ListBranches(context.Background(), home, terminalproto.Branches{Dir: proj}, ExecGit)
+		if !reflect.DeepEqual(r, terminalproto.BranchesResult{Reason: terminalproto.BranchesGitFailed}) {
+			t.Fatalf("HEAD %q: %+v", head, r)
+		}
+	}
+	// The same inside a real repository nested in home.
+	inner := newRepo(t, home, "inner")
+	testGit(t, inner, "branch", "secret-inner")
+	nested := filepath.Join(inner, "nested")
+	mkdirs(t, nested, ".git")
+	putFile(t, filepath.Join(nested, ".git", "HEAD"), "ref: refs/heads/main\n")
+	if r := ListBranches(context.Background(), home, terminalproto.Branches{Dir: nested}, ExecGit); r.Reason != terminalproto.BranchesGitFailed {
+		t.Fatalf("nested: %+v", r)
+	}
+	// A real repository inside home still lists its own branches only.
+	if r := ListBranches(context.Background(), home, terminalproto.Branches{Dir: inner}, ExecGit); !reflect.DeepEqual(r, terminalproto.BranchesResult{Current: "main", Branches: []string{"main", "secret-inner"}}) && !reflect.DeepEqual(r, terminalproto.BranchesResult{Current: "main", Branches: []string{"secret-inner", "main"}}) {
+		t.Fatalf("real repository: %+v", r)
+	}
+	// A linked worktree checkout (.git file) is still refused, git or not.
+	linked := filepath.Join(home, "linked")
+	testGit(t, inner, "worktree", "add", "-q", "-b", "wt", linked)
+	if r := ListBranches(context.Background(), home, terminalproto.Branches{Dir: linked}, ExecGit); !reflect.DeepEqual(r, terminalproto.BranchesResult{Reason: terminalproto.BranchesNotRepoRoot}) {
+		t.Fatalf("worktree checkout: %+v", r)
 	}
 }

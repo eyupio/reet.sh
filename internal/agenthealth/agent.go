@@ -299,8 +299,12 @@ func runControlWorkers(ctx context.Context, cfg AgentConfig, conn *websocket.Con
 	var workers sync.WaitGroup
 	start := func(fn func()) { workers.Add(1); go func() { defer workers.Done(); fn() }() }
 	defer func() { cancel(); conn.CloseNow(); workers.Wait() }()
+	control := cfg.control
+	if control != nil {
+		control = gateMachineRequests(cfg, control, send)
+	}
 	start(func() {
-		readControlWithTerminal(sessionCtx, conn, generation, send, errorsSeen, terminalFeatures(cfg), cfg.control)
+		readControlWithTerminal(sessionCtx, conn, generation, send, errorsSeen, terminalFeatures(cfg), control)
 	})
 	start(func() { reportHealth(sessionCtx, cfg, generation, sequence, send, errorsSeen) })
 	if cfg.Consent != nil {
@@ -316,6 +320,41 @@ func runControlWorkers(ctx context.Context, cfg AgentConfig, conn *websocket.Con
 		cancel()
 		return err
 	}
+}
+
+// gateMachineRequests serves a browse or branches request whose feature was
+// negotiated only while the connector would advertise the matching
+// capability, worked out afresh (terminal consent and the browse switch are
+// re-read) for each request; otherwise it answers denied itself, so the
+// connector never serves more than it offers. Everything else, including a
+// browse or branches request that was not negotiated (a protocol error
+// there), goes to control.
+func gateMachineRequests(cfg AgentConfig, control func(context.Context, terminalproto.Message) error, send Sender) func(context.Context, terminalproto.Message) error {
+	return func(ctx context.Context, m terminalproto.Message) error {
+		switch m.Body.(type) {
+		case *terminalproto.Browse:
+			if cfg.browse && !currentCapabilities(cfg).Browse {
+				m.Body = terminalproto.BrowseResult{Reason: terminalproto.BrowseDenied}
+				return send(ctx, m)
+			}
+		case *terminalproto.Branches:
+			if cfg.branches && !currentCapabilities(cfg).Branches {
+				m.Body = terminalproto.BranchesResult{Reason: terminalproto.BranchesDenied}
+				return send(ctx, m)
+			}
+		}
+		return control(ctx, m)
+	}
+}
+
+// currentCapabilities is what the connector would advertise now, with
+// terminal consent and the browse switch read again.
+func currentCapabilities(cfg AgentConfig) terminalproto.Capabilities {
+	if cfg.Consent != nil {
+		cfg.TerminalEnabled, cfg.TerminalReadiness = readConsent(cfg.Consent)
+	}
+	cfg.browseAllowed = readBrowseAllowed(cfg)
+	return capabilities(cfg)
 }
 
 // readBrowseAllowed reads the local folder-browse switch; without one,

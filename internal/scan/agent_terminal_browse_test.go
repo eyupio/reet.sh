@@ -161,3 +161,34 @@ func TestRunTerminalBrowse(t *testing.T) {
 		t.Fatal(loaded, err)
 	}
 }
+
+// browse --help prints its usage like the other subcommands, and turning
+// browse on while terminal access is off says plainly that nothing can be
+// listed until terminal access is on.
+func TestTerminalBrowseHelpAndTerminalOff(t *testing.T) {
+	config, _ := browseEnrollment(t)
+	for _, args := range [][]string{{"--help"}, {"-h"}, {"on", "--help"}} {
+		var out bytes.Buffer
+		if err := RunTerminalBrowse(args, &out); err != nil || !strings.Contains(out.String(), "reet terminal browse on|off|status") {
+			t.Fatalf("%q: %q %v", args, out.String(), err)
+		}
+	}
+	var help bytes.Buffer
+	if err := runAgentTerminal([]string{"browse", "--help"}, &help); err != nil || !strings.Contains(help.String(), "on|off|status") {
+		t.Fatalf("agent terminal browse --help: %q %v", help.String(), err)
+	}
+	if err := runAgentTerminal([]string{"disable", "--config", config}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := RunTerminalBrowse([]string{"on", "--config", config}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "can list") || !strings.Contains(out.String(), "terminal access is off") || !strings.Contains(out.String(), "reet agent terminal enable") {
+		t.Fatalf("on with terminal off: %q", out.String())
+	}
+	out.Reset()
+	if err := RunTerminalBrowse([]string{"status", "--config", config}, &out); err != nil || out.String() != "Folder browse: on (unavailable while terminal access is off)\n" {
+		t.Fatalf("status with terminal off: %q %v", out.String(), err)
+	}
+}

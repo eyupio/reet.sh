@@ -216,7 +216,20 @@ func TestCreateNegotiationCannotUpgradeOnLaterHello(t *testing.T) {
 	}
 }
 
-func TestHandshakeWithoutAgentsV2CannotClaimV2Capabilities(t *testing.T) {
+func TestAgreedControlFeaturesTrackAgentsClaim(t *testing.T) {
+	without := agreedControlFeatures(terminalproto.Capabilities{})
+	with := agreedControlFeatures(terminalproto.Capabilities{AgentsV2: true})
+	if terminalproto.SupportsAgents(without) || !terminalproto.SupportsAgents(with) {
+		t.Fatalf("agents-v2 negotiation wrong: without=%q with=%q", without, with)
+	}
+	if with != privateControlFeatures || !strings.HasPrefix(with, without) {
+		t.Fatalf("advertised features drifted: %q vs %q", with, privateControlFeatures)
+	}
+}
+
+// The strict decoder refuses a v2 claim made without agentsV2 before the
+// agreed-feature check runs; this pins that observable behaviour and reason.
+func TestHandshakeWithoutAgentsV2IsRefusedAsInvalidHandshake(t *testing.T) {
 	for name, mutate := range map[string]func(*terminalproto.Capabilities){
 		"tool": func(c *terminalproto.Capabilities) {
 			c.Launch, c.TerminalControl, c.Tools = true, true, []string{"cline"}
@@ -253,8 +266,8 @@ func TestHandshakeWithoutAgentsV2CannotClaimV2Capabilities(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, _, err = conn.Read(ctx)
-			if websocket.CloseStatus(err) != websocket.StatusPolicyViolation || strings.Contains(err.Error(), "health reporting is disabled") {
-				t.Fatalf("handshake not refused as invalid capabilities: %v", err)
+			if websocket.CloseStatus(err) != websocket.StatusPolicyViolation || !strings.Contains(err.Error(), "invalid handshake") {
+				t.Fatalf("handshake not refused as an invalid handshake: %v", err)
 			}
 			uid, _ := st.DefaultOwner()
 			if got, err := st.RemoteCapabilitiesFor(uid, agent.ID); err == nil && (len(got.Capabilities.Tools) > 0 || got.Capabilities.OSVersion != "") {

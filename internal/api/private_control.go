@@ -13,8 +13,6 @@ import (
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
-const privateControlFeatures = terminalproto.CommandHistoryFeature + "," + terminalproto.LaunchFeature + "," + terminalproto.WorktreeFeature + "," + terminalproto.BrowseFeature + "," + terminalproto.BranchesFeature + "," + terminalproto.AgentsFeature
-
 // agreedControlFeatures is the feature list this connection negotiates: every
 // private control feature, with agents-v2 only for a machine that claims it.
 func agreedControlFeatures(c terminalproto.Capabilities) string {
@@ -24,6 +22,9 @@ func agreedControlFeatures(c terminalproto.Capabilities) string {
 	}
 	return strings.Join(features, ",")
 }
+
+// privateControlFeatures is what the route advertises: the most a machine can agree.
+var privateControlFeatures = agreedControlFeatures(terminalproto.Capabilities{AgentsV2: true})
 
 // privateControl upgrades the exact private control route, authenticates the
 // enrollment, assigns a connection generation, and then services typed control

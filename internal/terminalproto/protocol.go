@@ -117,7 +117,9 @@ const (
 // connector. It is sent only on a connection that negotiated browse-v1: an
 // older controller's strict decoder would refuse the field.
 type Capabilities struct {
-	Launch          bool      `json:"launch,omitempty"`
+	Launch bool `json:"launch,omitempty"`
+	// Yolo is reserved: no connector may advertise it until YOLO launches exist,
+	// so ValidateFor rejects it.
 	Yolo            bool      `json:"yolo,omitempty"`
 	AgentsV2        bool      `json:"agentsV2,omitempty"`
 	OSVersion       string    `json:"osVersion,omitempty"`
@@ -148,7 +150,7 @@ func (c Capabilities) ValidateFor(features string) error {
 	if (c.AgentsV2 || c.OSVersion != "") && !SupportsAgents(features) || !plainText(c.OSVersion, 128) {
 		return ErrInvalid
 	}
-	if c.Launch && !c.TerminalControl || len(c.Tools) > 0 && !c.Launch || !validTools(c.Tools, SupportsAgents(features)) || c.Yolo && (!c.Launch || !SupportsAgents(features)) {
+	if c.Launch && !c.TerminalControl || len(c.Tools) > 0 && !c.Launch || !validTools(c.Tools, SupportsAgents(features)) || c.Yolo {
 		return ErrInvalid
 	}
 	if c.CommandHistory && !c.TerminalControl || c.Worktree && !c.Launch {

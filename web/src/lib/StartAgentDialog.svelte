@@ -215,7 +215,7 @@
 <dialog bind:this={dialog} use:shell oncancel={(event) => { event.preventDefault(); close() }} aria-labelledby={`${id}-title`}>
  <header data-shell-head>
   <div>
-   <p class="eyebrow" data-shell-aside>Terminals</p>
+   <p class="eyebrow" data-shell-aside>Sessions</p>
    <h2 id={`${id}-title`}>Start an agent</h2>
    <p class="lede" data-shell-aside>Right then: pick a machine, an agent and a folder. It starts in a new terminal session you can come back to.</p>
   </div>

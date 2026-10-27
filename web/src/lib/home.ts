@@ -17,6 +17,9 @@ export type FleetCard = {
   /** Sessions on that machine whose end was asked for and is not yet confirmed. */
   sessionsEnding: number
   cpu: { label: 'CPU'; percent: number | null; text: string }
+  /** Memory in use and space left on the home filesystem, from the same fresh report as the CPU; "No reading" when stale. */
+  memory: { label: 'Memory'; percent: number | null; text: string }
+  disk: { label: 'Disk'; percent: number | null; availableBytes: number | null }
   /** The distinct worktrees that live sessions on that machine are working in now ("in use"). The listing has no removal
    *  record, so a finished session's worktree is not counted: it may have been removed. */
   worktrees: number
@@ -38,6 +41,24 @@ export const FINISHED_KEPT_MS = DAY
 
 const live = (s: Pick<TerminalSession, 'state'>): boolean => LIVE.has(s.state)
 
+const reading = (percent: number | null, text: string) => percent == null ? { percent: null, text: 'No reading' } : { percent, text }
+
+function memoryOf(m: MachineHealth): FleetCard['memory'] {
+  const memory = freshReport(m)?.memory
+  const total = memory?.totalBytes?.value, available = memory?.availableBytes?.value
+  if (typeof total !== 'number' || typeof available !== 'number' || !(total > 0) || available < 0 || available > total) return { label: 'Memory', ...reading(null, 'No reading') }
+  const used = (total - available) / total * 100
+  return { label: 'Memory', ...reading(used, `${Math.round(used)}%`) }
+}
+
+function diskOf(m: MachineHealth): FleetCard['disk'] {
+  const disk = freshReport(m)?.disk
+  const total = disk?.totalBytes?.value, available = disk?.availableBytes?.value
+  if (typeof available !== 'number') return { label: 'Disk', percent: null, availableBytes: null }
+  const used = typeof total === 'number' && total > 0 && available >= 0 && available <= total ? (total - available) / total * 100 : null
+  return { label: 'Disk', percent: used, availableBytes: available }
+}
+
 /** Whether the machine is reporting now, so its figures are current rather than last known. */
 export const reporting = (card: Pick<FleetCard, 'status'>): boolean => card.status === 'online' || card.status === 'paused'
 
@@ -48,6 +69,9 @@ function statusOf(m: MachineHealth, paused: boolean): FleetCard['status'] {
   if (m.state === 'unknown' && m.connection && !m.connection.connected) return 'reconnecting'
   return 'offline'
 }
+
+// One fresh report feeds all three: a stale one would draw load the machine may no longer have.
+function freshReport(m: MachineHealth) { const c = m.connection; return c?.reportFresh ? c.report : undefined }
 
 function cpuOf(m: MachineHealth): FleetCard['cpu'] {
   const c = m.connection
@@ -114,6 +138,8 @@ export function fleetCards(machines: MachineHealth[], sessions: TerminalSession[
     sessionsRunning: sessions.filter(s => s.agentId === m.agentId && (s.state === 'running' || s.state === 'creating')).length,
     sessionsEnding: sessions.filter(s => s.agentId === m.agentId && s.state === 'end_requested').length,
     cpu: cpuOf(m),
+    memory: memoryOf(m),
+    disk: diskOf(m),
     worktrees: inUse(sessions.filter(s => s.agentId === m.agentId)),
     skills: skillsOf(m.agentId, sync, now),
   }))
@@ -244,6 +270,15 @@ export function railState(running: number | null, reporting: boolean | undefined
   if (reporting === false) return { text: 'machine offline', tone: 'warn' }
   // `running` is null when the sessions were not read: nothing is known, so nothing is said (never a false "idle").
   return running === null ? null : { text: 'idle', tone: 'muted' }
+}
+
+/**
+ * The Sessions tab's title: the session the person is in, then its project (or its machine when the session has no
+ * project), then reet. Two reet tabs are told apart by the work they hold. With no session it is the page's name.
+ */
+export function sessionTabTitle(session: Pick<TerminalSession, 'title' | 'projectId'> | undefined, projectName?: string, machineName?: string): string {
+  if (!session) return 'Sessions · reet.sh'
+  return [session.title, projectName || machineName].filter(Boolean).join(' · ') + ' · reet.sh'
 }
 
 /** Age since the last state change, short: "now", "12m", "3h", "2d". */

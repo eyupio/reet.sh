@@ -1,6 +1,7 @@
 <script lang="ts">
   import EnvironmentSync from './EnvironmentSync.svelte'
   import PageHeader from './PageHeader.svelte'
+  import ProjectsBar from './ProjectsBar.svelte'
   import { createToken } from './api'
   import { describeError } from './contentReview'
   import { onMount, type Component } from 'svelte'
@@ -19,8 +20,9 @@
     finally { busy = false }
   }
 </script>
+{#if !terminals && accounts && canWrite}<ProjectsBar {canWrite} {accounts} {onsignedout} />{/if}
 {#if !terminals}<PageHeader eyebrow="Control" title={compare ? "Sync, on your terms." : focus ? `${focus} details` : "Your machines, connected."} lede={compare ? "Move skills between reet.sh and your machines. Choose a source, select destinations, then review the changes." : focus ? "Inspect this machine's agent scopes, health and saved skill sets, or continue in its terminal." : "Connect a machine, inspect its skills and agents, and open a terminal to put them to work."} />{/if}
-{#if !terminals}<nav aria-label="Machines"><a class="btn quiet" href="/machines" aria-current={!compare&&!terminals ? 'page' : undefined}>Inventory & connection</a><a class="btn quiet" href="/sync" aria-current={compare ? 'page' : undefined}>Sync</a>{#if accounts&&canWrite}<a class="btn quiet" href="/terminals" aria-current={terminals?'page':undefined}>Terminals</a>{/if}<a class="btn quiet" href="/profiles">Setups →</a></nav>{/if}
+{#if !terminals}<nav aria-label="Machines"><a class="btn quiet" href="/machines" aria-current={!compare&&!terminals ? 'page' : undefined}>Inventory & connection</a><a class="btn quiet" href="/sync" aria-current={compare ? 'page' : undefined}>Sync</a>{#if accounts&&canWrite}<a class="btn quiet" href="/terminals" aria-current={terminals?'page':undefined}>Sessions</a>{/if}<a class="btn quiet" href="/profiles">Setups →</a></nav>{/if}
 {#if terminals && accounts && canWrite}{#if TerminalView}<TerminalView {userId} />{:else}<p role="status">{error||'Loading terminal workspace…'}</p>{/if}{:else}
 <EnvironmentSync compact {canWrite} {accounts} monitorAccess={monitoring} terminalAccess={accounts&&canWrite} {token} {onsignedout} view={compare ? 'compare' : 'machines'} startConnect={location.hash === '#connect-machine'}>
   {#snippet tokenSetup()}

@@ -4,7 +4,9 @@
   import StartAgentDialog from '../StartAgentDialog.svelte'
   import SessionSidebar from './SessionSidebar.svelte'
   import CopyButton from '../CopyButton.svelte'
-  import { createTerminal, machineHealth, readiness, terminalMachines, terminalSessions, type HealthResponse, type TerminalMachine, type TerminalSession } from './api'
+  import { createTerminal, folderProjectList, machineHealth, readiness, terminalMachines, terminalSessions, updateFolderProject, type FolderProject, type HealthResponse, type TerminalMachine, type TerminalSession } from './api'
+  import type { ProjectColour } from '../projectColour'
+  import { projectRunning, sessionTabTitle } from '../home'
   import MachineHealthStrip from './MachineHealthStrip.svelte'
   import TerminalPane from './TerminalPane.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
@@ -68,6 +70,8 @@
   function separatorKey(event:KeyboardEvent){const next=keyWidth(event.key,mode,sidebarWidth,panelRoom);if(!next)return;event.preventDefault();setMode(next.mode);sidebarWidth=next.width;saveLayout()}
   function separatorReset(){setMode('full');sidebarWidth=PANEL_DEFAULT;saveLayout()}
   let machines = $state<TerminalMachine[]>([]), sessions = $state<TerminalSession[]>([])
+  // The folder projects, read with the rest of the workspace inventory, for the panel's Projects list and the tab title.
+  let projects = $state<FolderProject[] | undefined>()
   let selectedAgent = $state(new URLSearchParams(location.search).get('agent') || '')
   let selectedSession = $state(new URLSearchParams(location.search).get('session') || '')
   let health = $state<HealthResponse>({ serverNow:Date.now(),machines:[] })
@@ -93,7 +97,7 @@
   let detailsOpen = $state(false)
   let healthIssue=$state(''),showCreate=$state(false)
   // The Start an agent dialog, with the button that opened it, and the folders the machines have reported (read when it opens).
-  let agentStart=$state<{agent:string;opener:HTMLElement|null}|null>(null),agentFolders=$state<Machine[]|undefined>(),folderRead=0
+  let agentStart=$state<{agent:string;opener:HTMLElement|null;dir?:string;projectId?:string}|null>(null),agentFolders=$state<Machine[]|undefined>(),folderRead=0
   let action = $state<'rename'|'end'|'archive'|null>(null), actionSession = $state(''), rename = $state(''), actionTitle = $state(''), actionBusy = $state(false)
   let removeOnClose=$state(false),removeDefault=$state(false),saveRemoveDefault=$state(false),preferenceError=$state('')
   const endKeys = new Map<string,{key:string;remove:boolean}>()
@@ -108,6 +112,13 @@
   const machineStatus = $derived(health.machines.find(item=>item.agentId===selectedAgent))
   const setup = $derived(readiness(machine))
   const serverNow = $derived(health.serverNow+elapsed)
+  const runningByProject = $derived(projectRunning(sessions))
+  const currentProjectId = $derived(session?.projectId ?? '')
+  // The tab names the work: the session, then its project (or its machine when it has none), then reet.
+  const tabTitle = $derived(sessionTabTitle(session, projects?.find(p => p.id === session?.projectId)?.name, machine?.host))
+  // The tab names the work, not just the page: two reet tabs are told apart by the session they hold. Setting it here, rather
+  // than in another <svelte:head>, keeps one <title> in the document.
+  $effect(() => { document.title = tabTitle })
   $effect(()=>{if(machineSearchOpen||machinePrompt)machineSearchInput?.focus()})
 
   function remember() { const url=new URL(location.href);url.searchParams.set('view','terminal');if(selectedAgent)url.searchParams.set('agent',selectedAgent);else url.searchParams.delete('agent');if(selectedSession)url.searchParams.set('session',selectedSession);else url.searchParams.delete('session');history.replaceState(null,'',url) }
@@ -130,13 +141,14 @@
     const timeout=setTimeout(stop,10000)
     const firstLoad=loading
     try {
-      const [nextMachines,nextSessions,nextHealth]=await Promise.all([terminalMachines(request.signal),terminalSessions(request.signal),machineHealth(request.signal).then(data=>({data,error:''})).catch(()=>({data:null,error:'Resource readings are temporarily unavailable. Existing readings are marked by their observation time.'}))])
+      const [nextMachines,nextSessions,nextHealth,nextProjects]=await Promise.all([terminalMachines(request.signal),terminalSessions(request.signal),machineHealth(request.signal).then(data=>({data,error:''})).catch(()=>({data:null,error:'Resource readings are temporarily unavailable. Existing readings are marked by their observation time.'})),folderProjectList(request.signal).then(answer=>({projects:answer.projects})).catch(()=>({projects:null}))])
       if(disposed)return
       // A pre-mutation observation must not overwrite a confirmed local result.
       if(version!==inventoryVersion){refreshAgain=true;return}
       statusError='';accessDenied=false
       const removedAfterClose=sessions.find(item=>item.id===selectedSession)?.removeHistory&&!nextSessions.some(item=>item.id===selectedSession)
       machines=nextMachines;sessions=nextSessions;healthIssue=nextHealth.error
+      if(nextProjects.projects)projects=nextProjects.projects
       if(removedAfterClose){selectedSession='';remember()}
       if(nextHealth.data){health=nextHealth.data;receivedAt=performance.now();elapsed=0}
       if(firstLoad&&!selectedSession)selectedSession=sessions.find(item=>item.agentId===selectedAgent&&item.state==='running')?.id||''
@@ -190,6 +202,27 @@
     void getSyncState().then(state=>{if(!disposed&&read===folderRead)agentFolders=state.machines??[]}).catch(()=>{/* the home folder and a typed path still work */})
   }
   function closeAgentStart(){agentStart=null;folderRead++}
+  // A project's + starts an agent in that project's folder, exactly as Home's New session here does: same machine, folder
+  // and project, so the new session belongs to the project from its first frame.
+  function startInProject(project:FolderProject,opener:HTMLElement){
+    if(accessDenied||agentStart||!machines.length)return
+    openAgentStart(project.host,opener)
+    agentStart={agent:project.host,opener,dir:project.dir,projectId:project.id}
+  }
+  // The colour is saved on the project (it follows the person to every browser); the rail shows the choice at once and
+  // puts the saved project back if the write is refused.
+  async function saveProjectColour(project:FolderProject,colour:ProjectColour){
+    if((project.colour||'')===colour)return
+    const before=projects??[]
+    projects=before.map(p=>p.id===project.id?{...p,colour}:p)
+    try{
+      const saved=await updateFolderProject(project.id,{colour},project.version)
+      projects=(projects??[]).map(p=>p.id===saved.id?saved:p)
+    }catch(e){
+      projects=before
+      error=e instanceof Error?e.message:'That colour could not be saved. Try again in a moment.'
+    }
+  }
   // A started agent lands exactly as a new shell does: it joins the list and the workspace switches to it.
   function agentStarted(item:TerminalSession){inventoryVersion++;if(!terminalClosed(item.state))sessions=[item,...sessions.filter(other=>other.id!==item.id)];showCreate=false;chooseSession(item);void refresh()}
   function openAction(kind:'rename'|'end'|'archive',target=session) { if(!target)return;actionSession=target.id;actionTitle=target.title;rename=target.title;removeOnClose=endKeys.get(target.id)?.remove??(target.state==='end_requested'?(target.removeHistory??false):removeDefault);saveRemoveDefault=false;preferenceError='';action=kind }
@@ -262,7 +295,7 @@
 
 <section class="workspace" class:theatre class:keyboard class:resizing bind:this={workspace} style={`--workspace-height:${workspaceHeight}px;--sidebar-width:${sidebarWidth}px;--panel-width:${shown==='mini'?MINI_WIDTH:panelWidth}px`} aria-label="Remote terminal workspace">
   <header class="workspace-toolbar">
-    <div class="workspace-title"><a href="/#active-sessions" aria-label="Back to active sessions">←</a><h1>Terminals</h1></div>
+    <div class="workspace-title"><a href="/#active-sessions" aria-label="Back to active sessions">←</a><h1>Sessions</h1></div>
     {#if panelView==='closed'}<button class="btn quick-machine" aria-label={selectedAgent ? `New terminal on ${machine?.host || 'selected machine'}` : 'Choose a machine for a new terminal'} title={selectedAgent ? 'Start a terminal on this machine' : 'Choose a machine for a new terminal'} disabled={selectedAgent ? !canCreateFor(selectedAgent) : !machines.length} onclick={()=>selectedAgent?quickCreate(selectedAgent):requestMachinePrompt('quick')}>+</button>{/if}
     <button class="btn find-machine" onclick={()=>{machineSearch='';machineSearchOpen=true}} aria-label="Find machine">Find</button>
     <div class="workspace-actions"><button class="btn" aria-expanded={panelOpen} aria-controls="terminal-sessions" onclick={toggleSidebar}>{panelOpen?'Sessions':'Show sessions'} <span class="count">{accountActive}</span></button><button class="btn primary new-button" disabled={!machines.length} onclick={newSession} aria-label="New session"><span class="wide-label">New session</span><span class="mobile-label">New</span></button><button class="btn" aria-label="Details & help" onclick={() => detailsOpen = true}><span class="wide-label">Details &amp; help</span><span class="mobile-label">Help</span></button></div>
@@ -272,7 +305,7 @@
   {#if pendingCreation && !showCreate && session}<p class="workspace-notice" role="status">A creation on this machine is unconfirmed. <button onclick={()=>{title=pendingCreation?.title||title;showCreate=true}}>Review creation</button></p>{/if}
   {#if error && !showCreate}<p class="workspace-notice bad" role="alert">{error} <button onclick={() => void refresh()}>Retry status</button></p>{/if}
   <div class="workspace-body" class:docked={shown==='docked'||shown==='mini'} bind:clientWidth={bodyWidth}>
-    {#if shown!=='closed'}<SessionSidebar {machines} {sessions} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onmachine={chooseMachine} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
+    {#if shown!=='closed'}<SessionSidebar {machines} {sessions} {projects} projectRunning={runningByProject} currentProject={currentProjectId} onprojectstart={startInProject} onprojectcolour={saveProjectColour} health={health.machines} {serverNow} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onmachine={chooseMachine} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
     {#if shown==='docked'||shown==='mini'}
       <!-- A focusable window splitter: drag (pointer capture), Left/Right 16 px, Home the mini rail, End the widest, double-click 280 px. -->
       <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -301,7 +334,7 @@
   <nav class="machine-results" aria-label="Machines for a new terminal">{#each matchingMachines as item (item.agentId)}<button class="machine-result" aria-current={item.agentId===selectedAgent?'true':undefined} disabled={!canCreateFor(item.agentId)} onclick={()=>pickMachineForNew(item.agentId)}><strong>{item.host}</strong><span>{item.capabilities?.osUser || 'Shell user unavailable'} · {item.ready?'Ready':readiness(item)}</span></button>{:else}<p>No machines match.</p>{/each}</nav>
 </WorkspaceDialog>{/if}
 {#if showCreate}<WorkspaceDialog title="New terminal session" onclose={() => showCreate = false}><p class="dialog-copy">Create a shell on <strong>{machine?.host || 'the selected machine'}</strong>. Changing machines does not stop existing sessions.</p>{#if error}<p class="dialog-copy" role="alert">{error}</p>{/if}{@render createForm()}</WorkspaceDialog>{/if}
-{#if agentStart}<StartAgentDialog {machines} snapshot={agentFolders} initialAgent={agentStart.agent} opener={agentStart.opener} onstarted={agentStarted} onaddmachine={()=>location.assign('/machines#add-machine')} onclose={closeAgentStart} />{/if}
+{#if agentStart}<StartAgentDialog {machines} snapshot={agentFolders} initialAgent={agentStart.agent} initialDir={agentStart.dir ?? ''} projectId={agentStart.projectId ?? ''} opener={agentStart.opener} onstarted={agentStarted} onaddmachine={()=>location.assign('/machines#add-machine')} onclose={closeAgentStart} />{/if}
 {#if detailsOpen}<WorkspaceDialog title="Machine & terminal details" onclose={() => detailsOpen = false}>
   <p class="dialog-copy">{machine?.host || 'No machine selected'}{machine?.capabilities?.osUser ? ` · Shell user ${machine.capabilities.osUser}` : ''}</p>
   {#if setup}<section class="setup-notice"><h3>Terminal setup</h3><p>{setup}</p>{#if machine?.serverEnabled !== false && !machine?.capabilities?.terminalEnabled}<pre>reet agent terminal setup</pre><CopyButton text={'reet agent terminal setup'} label="Copy local terminal setup" />{:else if machine?.capabilities?.readiness === 'supervisor_unavailable'}<pre>reet agent stop

@@ -6,6 +6,7 @@
     folderProjectForLegacy, terminalSessions, updateFolderProject, TerminalError, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { attentionCount, fleetCards, reporting, inFlight, needsYou, projectRunning, projectWorktrees, sessionOwners, type GroupBy, type HomeSession } from '../home'
   import { addedLine } from '../folderBrowser'
+  import type { ProjectColour } from '../projectColour'
   import StartAgentDialog from '../StartAgentDialog.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import AddProjectDialog from './AddProjectDialog.svelte'
@@ -66,6 +67,7 @@
   const emptySync: SyncState = { environments: [], targets: [], agents: [], jobs: [] }
   const cards = $derived(fleetCards(health ?? [], sessions ?? [], sync ?? emptySync, now))
   const owners = $derived(sessionOwners(sessions ?? [], projects ?? []))
+  const projectColours = $derived(new Map((projects ?? []).map(p => [p.id, p.colour])))
   const groups = $derived(inFlight(sessions ?? [], owners, health ?? [], groupBy, now))
   const shownMachines = $derived(new Set(groups.flatMap(g => g.sessions.map(s => s.agentId))))
   const offline = $derived(cards.filter(c => !reporting(c) && shownMachines.has(c.agentId)).map(c => ({ agentId: c.agentId, host: c.name })))
@@ -232,6 +234,24 @@
       void load(true)
     } finally { moving = false }
   }
+  // A rail colour is saved on the project, so it follows the person to every browser. The card shows it at once; a
+  // refusal puts the project back and says why.
+  async function colour(project: FolderProject, choice: ProjectColour) {
+    if (pending.has(project.id) || (project.colour || '') === choice) return
+    pending.add(project.id)
+    notice = null
+    const before = projects ?? []
+    settle(before.map(p => p.id === project.id ? { ...p, colour: choice } : p))
+    try {
+      const saved = await updateFolderProject(project.id, { colour: choice }, project.version, bounded())
+      settle((projects ?? []).map(p => p.id === saved.id ? saved : p))
+    } catch (e) {
+      settle(before)
+      if (refused(e, true)) { life.abort(); onsignedout(new UnauthorizedError()); return }
+      notice = { text: refusalSentence(e), bad: true }
+      void load(true)
+    } finally { pending.delete(project.id) }
+  }
   // The migration's note goes once the person has read it: clearing it is the one change made.
   async function dismiss(project: FolderProject) {
     if (pending.has(project.id)) return
@@ -321,7 +341,7 @@
   {#snippet rail()}
     <ProjectRail {projects} failed={projectsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees} {savedWaiting} {chosen} busy={checking} {importing} {pending} {moving}
       onadd={openAdd} onchoose={openProjectStart} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}
-      onremove={(project, opener) => (removing = { project, opener })} onmove={move} ondismiss={dismiss} onimport={bringIn} />
+      onremove={(project, opener) => (removing = { project, opener })} onmove={move} ondismiss={dismiss} onimport={bringIn} oncolour={colour} />
   {/snippet}
   <!-- On a desktop the rail is the left column; on a tablet or phone it sits under In flight (the Sessions tab takes it later). -->
   {#if writer && !narrow}{@render rail()}{/if}
@@ -332,7 +352,7 @@
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}</div>
       <div class="work">
         <NeedsYou cards={needs} />
-        <InFlight {groups} {owners} machines={health ?? []} {offline} {now} loaded={sessions !== undefined} failed={sessionsFailed} {groupBy} onchoose={choose} />
+        <InFlight {groups} {owners} machines={health ?? []} {offline} {now} loaded={sessions !== undefined} failed={sessionsFailed} {groupBy} onchoose={choose} {projectColours} />
       </div>
       {#if narrow}{@render rail()}{/if}
       <section class="dock" aria-label="Start an agent">

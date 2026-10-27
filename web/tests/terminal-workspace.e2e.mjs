@@ -393,7 +393,7 @@ try{
  await dockedPanel()
  // A new session always names its machine first; arriving without one attaches nothing.
  await page.goto(`${base}/terminals`)
- await expect(page.getByRole('heading',{name:'Terminals'})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'Sessions'})).toBeVisible()
  expect(await page.locator('.workspace-toolbar').innerText()).not.toContain('dev-laptop')
  await page.getByRole('button',{name:'New session',exact:true}).click()
  await expect(page.getByRole('dialog',{name:'Choose a machine'})).toBeVisible()
@@ -412,7 +412,7 @@ try{
  // 1 lost reads "Your sessions 3 · 2 finished", and the badge 3.
  sessions.push({id:'session-notes00000000001',agentId:agentB,title:'Release notes',state:'running',createdAt:now,updatedAt:now,exitCode:null})
  await page.goto(`${base}/terminals`)
- await expect(page.getByRole('heading',{name:'Terminals'})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'Sessions'})).toBeVisible()
  const sessionsToggle=page.locator('.workspace-actions button[aria-controls="terminal-sessions"]')
  if(await sessionsToggle.getAttribute('aria-expanded')!=='true')await sessionsToggle.click()
  const panelHead=page.locator('#terminal-sessions header strong')

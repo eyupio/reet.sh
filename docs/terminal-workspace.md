@@ -18,10 +18,10 @@ the bell are for a writer in accounts mode only.
 
 | Part | What it shows, and from where | Arrives with |
 | --- | --- | --- |
-| Fleet strip | One card per machine from the health report: the status in words (online, paused, reconnecting or offline) with a dot that also differs by shape, the live sessions on it of any kind ("sessions running"), CPU from a fresh report or **No reading**, the worktrees live sessions there are in ("3 worktrees in use"; no record says which other worktrees were removed), and the skills line from the last finished sync check for the current desired skills, or **Not checked**. A machine that is not reporting shows its last known count and says so. **Add a machine** opens the existing dialog on Machines. | OS version: PR C |
+| Fleet strip | One card per machine from the health report: the status in words (online, paused, reconnecting or offline) with a dot that also differs by shape, the live sessions on it of any kind ("sessions running"), CPU, memory in use and disk space free from a fresh report (or **No reading** for each, with a meter), the worktrees live sessions there are in ("3 worktrees in use"; no record says which other worktrees were removed), and the skills line from the last finished sync check for the current desired skills, or **Not checked**. A machine that is not reporting shows its last known count and says so. **Add a machine** opens the existing dialog on Machines. | OS version: PR C |
 | In flight | Live sessions, and finished ones for a day, grouped by project, Machine or State. A session joins the folder project it was started in (its own project id); the subtitle is `project · machine · branch`. Each row shows the state word and where it came from ("from the session's state" or "from the exit code"). There is no step or progress bar. | Attention states: PR G |
 | Needs you | "Nothing needs you." with a count of 0. Nothing signals today that a session needs the person. | Cards: PR G. Decision cards: a later programme |
-| Project rail | Your folder projects ([Projects](projects.md)): each card's machine, base branch, state in words and worktrees in use; choosing one opens Start an agent in its folder; a menu with New session here, Edit, Worktrees, Move up and down, and Remove from reet. **Add** opens the folder browser. Under 1240 px it is a 56 px strip; on a tablet or phone it sits under In flight. | Setting the launch bar's project, Select: PR E. The phone rail on Sessions: PR H |
+| Project rail | Your folder projects ([Projects](projects.md)): each card's colour, machine, base branch, state in words and worktrees in use; choosing one opens Start an agent in its folder; a menu, from the card's button or a right-click, with New session here, Edit, project colour, Worktrees, Move up and down, and Remove from reet. **Add** opens the folder browser. Under 1240 px it is a 56 px strip; on a tablet or phone it sits under In flight. | Setting the launch bar's project, Select: PR E. The phone rail on Sessions: PR H |
 | Start an agent | A docked button that opens the existing Start an agent dialog. | The launch sentence: PR E |
 | Bell | The Needs you count, which is 0 today and shows no badge. | PR G |
 
@@ -49,6 +49,15 @@ band or request terminal data. Viewing the band does not attach to a shell.
 The terminal route uses compact app navigation and the remaining usable viewport
 (see [Phones](#phones) for how that height is chosen while a keyboard is open).
 ### The sessions panel
+
+The panel opens with **Projects** above the session list: the same folder projects as Home's rail,
+one row each with its colour, name and live count. A row's **+** starts an agent in that project's
+folder and opens the new session; the row itself continues the project's live session (or its most
+recent one). Right-click, Shift+F10 or the row's menu opens New session here, Show on Home and the
+project's colour. Colours are saved on the project, so they follow the person to every browser;
+a session's own colour, chosen from its row's menu, still wins over its project's. A session row's
+hover or keyboard focus shows a card with the machine, project, branch, state, runtime and the
+machine's last CPU, memory and disk readings, named last known when the report is stale.
 
 The sessions panel scrolls independently and has three modes: **full**, a 64 px
 **mini rail**, and **closed**. **Sessions** in the workspace header opens or closes
@@ -92,8 +101,8 @@ closes). The rules live in `terminal/panelLayout.ts`, unit tested by
 - **Mini rail.** One 44 px button per session, in the panel's order: a state dot
   (running a filled circle, starting a ring, ending a half circle, lost a diamond,
   finished a hollow square) and the title's initial. Its accessible name is
-  "Title on machine, state". Its tooltip shows the title, machine and state, on hover
-  and also beside the button when it has keyboard focus. The rail also has **Expand
+  "Title on machine, state". Hover or keyboard focus shows the session card (machine,
+  project, branch, state and the machine's last readings). The rail also has **Expand
   sessions**, **New session**, **Find sessions** and a chevron that closes it. The
   rail lists every session, whatever machine filter or search the full panel has.
 - **Saved layout.** Mode, width and Keep open are saved in this browser under the

@@ -42,6 +42,7 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/machines/health')data={serverNow:Date.now(),machines:[]}
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
  else if(path==='/api/v2/terminal/machines')data={machines:[]}
+ else if(path==='/api/v2/folder-projects')data={projects:[],savedWaiting:0}
  else if(path==='/api/v2/terminal/sessions')data={sessions:[]}
  else if(path==='/api/v2/notifications/count')data={unread:0}
  else if(path==='/api/version')data={version:'v1.2.3',commit:'fixture'}

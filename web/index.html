@@ -7,6 +7,22 @@
     <meta name="theme-color" content="#f7f6f2" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#14110f" media="(prefers-color-scheme: dark)" />
 
+    <!--
+      The account holds the theme, but its profile only arrives after the API answers, so a dark preference painted light
+      first. Read the copy applyTheme() leaves in this browser and apply it before the first paint; the profile corrects it
+      if another browser chose differently.
+    -->
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem('reet-theme')
+          if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme
+        } catch (e) {
+          /* storage blocked: the profile applies the theme when it loads */
+        }
+      })()
+    </script>
+
     <title>reet.sh – your AI fleet control room</title>
     <meta
       name="description"
@@ -78,27 +94,24 @@
       (GPTBot, OAI-SearchBot, Claude-SearchBot, PerplexityBot). The SPA removes it
       on mount. Keep it in sync with web/src/lib/Welcome.svelte.
     -->
+    <!--
+      The fallback paints with the app's own tokens so it follows the theme before the app mounts. The literals are the
+      light palette, for a reader that never loads the stylesheet.
+    -->
     <style id="seo-fallback-style">
-      .crawl-fallback { max-width: 760px; margin: 0 auto; padding: 56px 20px 72px; font: 16px/1.7 system-ui, -apple-system, 'Segoe UI', sans-serif; color: #1d1c1a; background: #f7f6f2; }
-      .crawl-fallback a { color: #c2410c; }
-      .crawl-fallback .eyebrow { margin: 0 0 12px; font-size: .7rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: #c2410c; }
+      .crawl-fallback { max-width: 760px; margin: 0 auto; padding: 56px 20px 72px; font: 16px/1.7 system-ui, -apple-system, 'Segoe UI', sans-serif; color: var(--ink, #1d1c1a); background: var(--bg, #f7f6f2); }
+      .crawl-fallback a { color: var(--accent-text, #c2410c); }
+      .crawl-fallback .eyebrow { margin: 0 0 12px; font-size: .7rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--accent-text, #c2410c); }
       .crawl-fallback h1 { margin: 0 0 18px; font: 500 clamp(2rem, 4vw, 3rem)/1.1 Georgia, serif; letter-spacing: -.03em; }
       .crawl-fallback h2 { margin: 40px 0 10px; font: 500 1.5rem/1.25 Georgia, serif; }
       .crawl-fallback h3 { margin: 26px 0 6px; font-size: 1rem; }
       .crawl-fallback p { margin: 0 0 12px; max-width: 66ch; }
       .crawl-fallback .lede { font-size: 1.05rem; }
       .crawl-fallback .cta { display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0 8px; }
-      .crawl-fallback .cta a { display: inline-block; padding: 10px 14px; border: 1px solid #dedbd2; border-radius: 8px; text-decoration: none; }
-      .crawl-fallback .cta a.primary { background: #c2410c; border-color: #c2410c; color: #fff; }
-      .crawl-fallback pre { padding: 16px; overflow-x: auto; border: 1px solid #dedbd2; border-radius: 8px; background: #fffdf9; font: 13px/1.6 ui-monospace, Consolas, monospace; }
+      .crawl-fallback .cta a { display: inline-block; padding: 10px 14px; border: 1px solid var(--line, #dedbd2); border-radius: 8px; text-decoration: none; }
+      .crawl-fallback .cta a.primary { background: var(--accent, #c2410c); border-color: var(--accent, #c2410c); color: var(--accent-ink, #fff); }
+      .crawl-fallback pre { padding: 16px; overflow-x: auto; border: 1px solid var(--line, #dedbd2); border-radius: 8px; background: var(--card, #fffdf9); font: 13px/1.6 ui-monospace, Consolas, monospace; }
       .crawl-fallback ul { padding-left: 20px; }
-      @media (prefers-color-scheme: dark) {
-        .crawl-fallback { color: #f1ebe4; background: #14110f; }
-        .crawl-fallback a, .crawl-fallback .eyebrow { color: #ff8d63; }
-        .crawl-fallback .cta a { border-color: #4a4037; }
-        .crawl-fallback .cta a.primary { background: #c2410c; border-color: #c2410c; color: #fff; }
-        .crawl-fallback pre { border-color: #342d27; background: #1a1613; }
-      }
     </style>
   </head>
   <body>

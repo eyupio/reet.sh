@@ -2,6 +2,7 @@
   import { tick } from 'svelte'
   import type { FolderProject } from '../terminal/api'
   import { railState, worktreesInUse } from '../home'
+  import { PROJECT_COLOURS, projectColour, projectColourHex, type ProjectColour } from '../projectColour'
 
   // The folder projects, in the person's order: one folder on one machine each, with a repository diamond or a folder icon,
   // the machine, the base branch when one is set, the state in words and the worktrees in use. Choosing a card starts an
@@ -9,7 +10,7 @@
   // Worktrees, Move up, Move down and Remove from reet. Under 1240 px on a desktop the rail is a 56 px strip of the same
   // cards; on a tablet or phone it sits under In flight (the Sessions tab takes it in a later release).
   let { projects, failed = false, reporting, running, known = true, worktrees, savedWaiting = 0, chosen = '', busy, importing = false, pending, moving = false,
-    onadd, onchoose, onedit, onworktrees, onremove, onmove, ondismiss, onimport }: {
+    onadd, onchoose, onedit, onworktrees, onremove, onmove, ondismiss, onimport, oncolour }: {
     projects: FolderProject[] | undefined
     /** The projects could not be read and none were read before. */
     failed?: boolean
@@ -37,6 +38,7 @@
     onmove: (project: FolderProject, by: -1 | 1) => void
     ondismiss: (project: FolderProject) => void
     onimport: () => void
+    oncolour: (project: FolderProject, colour: ProjectColour) => void
   } = $props()
 
   const id = $props.id()
@@ -45,7 +47,8 @@
   /** Everything the card shows, in words: name, machine, branch, state and worktrees in use. */
   function label(p: FolderProject): string {
     const wt = worktrees.get(p.id) ?? 0
-    return [p.name, machineTag(p), p.baseBranch, stateOf(p)?.text, wt ? worktreesInUse(wt) : ''].filter(Boolean).join(', ')
+    const colour = PROJECT_COLOURS.find(c => c.id === projectColour(p.colour))?.name
+    return [p.name, colour && colour !== 'No colour' ? colour : '', machineTag(p), p.baseBranch, stateOf(p)?.text, wt ? worktreesInUse(wt) : ''].filter(Boolean).join(', ')
   }
   const initial = (name: string) => Array.from(name.trim())[0]?.toUpperCase() ?? '?'
   const folders = (n: number) => `${n} ${n === 1 ? 'folder' : 'folders'}`
@@ -93,18 +96,25 @@
   // One menu open at a time. Arrow keys move between its items, Escape closes it and gives focus back to its button.
   let menuFor = $state<string | null>(null)
   let menuButton: HTMLElement | null = null
-  async function openMenu(p: FolderProject, button: HTMLElement) {
-    if (menuFor === p.id) { closeMenu(); return }
+  let menuX = $state(0), menuY = $state(0)
+  async function openMenu(p: FolderProject, button: HTMLElement, point?: { x: number; y: number }) {
+    if (menuFor === p.id && !point) { closeMenu(); return }
     menuFor = p.id; menuButton = button
+    const box = button.getBoundingClientRect()
+    const at = point ?? { x: Math.max(8, box.right - 212), y: box.bottom + 4 }
+    menuX = Math.min(Math.max(8, at.x), Math.max(8, innerWidth - 222))
+    menuY = Math.min(Math.max(8, at.y), Math.max(8, innerHeight - 320))
     await tick()
-    document.querySelector<HTMLElement>(`#${CSS.escape(`${id}-menu-${p.id}`)} [role=menuitem]:not(:disabled)`)?.focus()
+    document.querySelector<HTMLElement>(`#${CSS.escape(`${id}-menu-${p.id}`)} [role=menuitem]:not(:disabled), #${CSS.escape(`${id}-menu-${p.id}`)} [role=menuitemradio]:not(:disabled)`)?.focus()
   }
+  // Right-click opens the same menu where the pointer is, so the card itself offers New session, colour and edit.
+  function contextMenu(event: MouseEvent, p: FolderProject) { event.preventDefault(); void openMenu(p, event.currentTarget as HTMLElement, { x: event.clientX, y: event.clientY }) }
   function closeMenu(returnFocus = false) {
     menuFor = null
     if (returnFocus) menuButton?.focus()
   }
   function menuKeys(event: KeyboardEvent) {
-    const items = [...(event.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('[role=menuitem]:not(:disabled)')]
+    const items = [...(event.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('[role=menuitem]:not(:disabled), [role=menuitemradio]:not(:disabled)')]
     const at = items.indexOf(document.activeElement as HTMLElement)
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeMenu(true) }
     else if (event.key === 'ArrowDown') { event.preventDefault(); items[(at + 1) % items.length]?.focus() }
@@ -152,12 +162,13 @@
       <p class="none">Add a project to start an agent in one of your folders.</p>
     {:else}
       <ul>
-        {#each projects as p, i (p.id)}
+        {#each projects as p (p.id)}
           {@const state = stateOf(p)}
           {@const wt = worktrees.get(p.id) ?? 0}
-          <li class="item">
-            <button type="button" class="card" class:chosen={chosen === p.id} aria-current={chosen === p.id ? 'true' : undefined} aria-label={label(p)} onclick={(e) => onchoose(p, e.currentTarget)}>
+          <li class="item" style={`--project-colour:${projectColourHex(p.colour)}`}>
+            <button type="button" class="card" class:chosen={chosen === p.id} aria-current={chosen === p.id ? 'true' : undefined} aria-label={label(p)} onclick={(e) => onchoose(p, e.currentTarget)} oncontextmenu={(e) => contextMenu(e, p)} onkeydown={(e) => { if (e.key === 'ContextMenu' || e.shiftKey && e.key === 'F10') void openMenu(p, e.currentTarget) }}>
               <span class="top">
+                {#if projectColourHex(p.colour) !== 'transparent'}<span class="identity" aria-hidden="true"></span>{/if}
                 {#if p.isRepo}
                   <svg class="icon repo" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2l10 10-10 10L2 12z" /></svg>
                 {:else}
@@ -176,17 +187,6 @@
               aria-controls={menuFor === p.id ? `${id}-menu-${p.id}` : undefined} onclick={(e) => openMenu(p, e.currentTarget)}>
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
             </button>
-            {#if menuFor === p.id}
-              <!-- svelte-ignore a11y_interactive_supports_focus -->
-              <div class="menu" id={`${id}-menu-${p.id}`} role="menu" aria-label={p.name} tabindex="-1" onkeydown={menuKeys}>
-                <button type="button" role="menuitem" onclick={() => pick(o => onchoose(p, o))}>New session here</button>
-                <button type="button" role="menuitem" onclick={() => pick(o => onedit(p, o))}>Edit</button>
-                <button type="button" role="menuitem" onclick={() => pick(o => onworktrees(p, o))}>Worktrees</button>
-                <button type="button" role="menuitem" disabled={moving || pending.size > 0 || i === 0} onclick={() => { closeMenu(true); onmove(p, -1) }}>Move up</button>
-                <button type="button" role="menuitem" disabled={moving || pending.size > 0 || i === projects.length - 1} onclick={() => { closeMenu(true); onmove(p, 1) }}>Move down</button>
-                <button type="button" role="menuitem" class="danger" disabled={pending.has(p.id)} onclick={() => pick(o => onremove(p, o))}>Remove from reet</button>
-              </div>
-            {/if}
             {#if p.note}
               <div class="note" role="note">
                 <p>Moved from your saved Projects. The starter prompts of {p.note} weren't kept here; their old runs are in Activity.</p>
@@ -213,7 +213,7 @@
     </button>
     {#each projects ?? [] as p (p.id)}
       {@const wt = worktrees.get(p.id) ?? 0}
-      <button type="button" class="mini" class:chosen={chosen === p.id} aria-current={chosen === p.id ? 'true' : undefined} aria-label={label(p)} title={label(p)} onclick={(e) => onchoose(p, e.currentTarget)}>
+      <button type="button" class="mini" class:chosen={chosen === p.id} aria-current={chosen === p.id ? 'true' : undefined} aria-label={label(p)} title={label(p)} style={`--project-colour:${projectColourHex(p.colour)}`} onclick={(e) => onchoose(p, e.currentTarget)} oncontextmenu={(e) => contextMenu(e, p)}>
         <span class="mini-initial" aria-hidden="true">{initial(p.name)}</span>
         {#if p.baseBranch}<span class="mini-branch" aria-hidden="true">{p.baseBranch}</span>{/if}
         {#if p.isRepo}<svg class="badge" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2l10 10-10 10L2 12z" /></svg>{/if}
@@ -223,6 +223,25 @@
     {/each}
   </div>
 </aside>
+
+{#if menuFor}
+  {@const project = (projects ?? []).find(item => item.id === menuFor)}
+  {#if project}
+    {@const index = (projects ?? []).findIndex(item => item.id === project.id)}
+    <!-- svelte-ignore a11y_interactive_supports_focus -->
+    <div class="menu" id={`${id}-menu-${project.id}`} style:left={`${menuX}px`} style:top={`${menuY}px`} role="menu" aria-label={project.name} tabindex="-1" onkeydown={menuKeys}>
+      <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => onchoose(target, o)) }}>New session here</button>
+      <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => onedit(target, o)) }}>Edit</button>
+      <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => onworktrees(target, o)) }}>Worktrees</button>
+      <button type="button" role="menuitem" disabled={moving || pending.size > 0 || index === 0} onclick={() => { const target = project; closeMenu(true); onmove(target, -1) }}>Move up</button>
+      <button type="button" role="menuitem" disabled={moving || pending.size > 0 || index === (projects ?? []).length - 1} onclick={() => { const target = project; closeMenu(true); onmove(target, 1) }}>Move down</button>
+      <button type="button" role="menuitem" class="danger" disabled={pending.has(project.id)} onclick={() => { const target = project; pick(o => onremove(target, o)) }}>Remove from reet</button>
+      <span class="colour-label">Project colour</span>
+      <div class="colours">{#each PROJECT_COLOURS as choice}<button type="button" role="menuitemradio" aria-checked={projectColour(project.colour) === choice.id} aria-label={choice.name} title={choice.name} style={`--swatch:${choice.hex}`} onclick={() => oncolour(project, choice.id)}>{choice.id === '' ? '×' : ''}</button>{/each}</div>
+    </div>
+  {/if}
+{/if}
+
 
 <style>
   /* The mock-up's rail: 272 px of content inside 14 px padding and a 1 px rule (301 px in all). */
@@ -255,11 +274,17 @@
   .more { position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--card-raised); color: var(--ink-soft); cursor: pointer; opacity: 0; }
   .more svg { width: 16px; height: 16px; }
   .item:hover .more, .more:focus-visible, .more[aria-expanded='true'] { opacity: 1; }
-  .menu { position: absolute; z-index: 5; top: 36px; right: 6px; min-width: 190px; display: flex; flex-direction: column; padding: 4px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card-raised); box-shadow: 0 12px 30px var(--scrim); }
+  .menu { position: fixed; z-index: 30; min-width: 198px; display: flex; flex-direction: column; padding: 4px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card-raised); box-shadow: 0 12px 30px var(--scrim); }
   .menu button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
   .menu button:hover:not(:disabled), .menu button:focus-visible { background: var(--line-soft); }
   .menu button:disabled { color: var(--faint); cursor: default; }
   .menu .danger { color: var(--bad); }
+  .identity { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--project-colour); }
+  .colour-label { display: block; padding: 5px 12px 1px; color: var(--muted); font-size: 11px; }
+  .colours { display: flex; gap: 7px; padding: 4px 12px 6px; }
+  .menu .colours button { flex: none; width: 20px; height: 20px; min-height: 0; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--swatch); color: var(--ink); font-size: 11px; line-height: 1; }
+  .menu .colours button[aria-checked='true'] { box-shadow: 0 0 0 2px var(--accent); }
+  .menu .colours button:first-child { color: var(--muted); }
   .note, .waiting { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--card); font-size: 13px; }
   .note p, .waiting p { margin: 0; color: var(--ink-soft); overflow-wrap: anywhere; line-height: 1.45; }
   .ghost { align-self: flex-start; min-height: 32px; padding: 4px 12px; border: 1px solid var(--line-mid); border-radius: 8px; background: transparent; color: var(--ink); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; text-align: left; }

@@ -215,3 +215,51 @@ func TestCreateNegotiationCannotUpgradeOnLaterHello(t *testing.T) {
 		t.Fatalf("later Hello upgraded negotiated capabilities: %+v", caps)
 	}
 }
+
+func TestHandshakeWithoutAgentsV2CannotClaimV2Capabilities(t *testing.T) {
+	for name, mutate := range map[string]func(*terminalproto.Capabilities){
+		"tool": func(c *terminalproto.Capabilities) {
+			c.Launch, c.TerminalControl, c.Tools = true, true, []string{"cline"}
+		},
+		"osVersion": func(c *terminalproto.Capabilities) { c.OSVersion = "Ubuntu 24.04" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv, st, agent, secret, _ := privateFixture(t, AuthAccounts, "")
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				srv.s.privateHandler().ServeHTTP(w, r.WithContext(privateconn.WithPrivateTransport(r.Context())))
+			}))
+			defer ts.Close()
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			conn, _, err := websocket.Dial(ctx, strings.Replace(ts.URL, "http://", "ws://", 1)+"/private/v1/control", &websocket.DialOptions{HTTPHeader: http.Header{"X-Reet-Agent": {agent.ID}, "X-Reet-Agent-Key": {secret}, "X-Reet-Version": {"test"}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.CloseNow()
+			caps := healthOnlyCapabilities()
+			caps.AgentsV2 = true
+			mutate(&caps)
+			handshake, err := terminalproto.EncodeHandshake(terminalproto.Handshake{ProtocolVersion: terminalproto.Version, RequestID: terminalbroker.ID(), AgentInstanceID: "instance0123456789abcdef", Capabilities: caps})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The encoder would refuse a v2 claim without agents-v2, so strip the
+			// flag from the wire form: this is what a hostile peer would send.
+			raw := strings.Replace(string(handshake), `"agentsV2":true,`, "", 1)
+			if raw == string(handshake) {
+				t.Fatal("agentsV2 flag not found in handshake")
+			}
+			if err = conn.Write(ctx, websocket.MessageText, []byte(raw)); err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = conn.Read(ctx)
+			if websocket.CloseStatus(err) != websocket.StatusPolicyViolation || strings.Contains(err.Error(), "health reporting is disabled") {
+				t.Fatalf("handshake not refused as invalid capabilities: %v", err)
+			}
+			uid, _ := st.DefaultOwner()
+			if got, err := st.RemoteCapabilitiesFor(uid, agent.ID); err == nil && (len(got.Capabilities.Tools) > 0 || got.Capabilities.OSVersion != "") {
+				t.Fatalf("stored v2 capabilities: %+v", got)
+			}
+		})
+	}
+}

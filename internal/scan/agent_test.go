@@ -111,6 +111,46 @@ func TestEnrolledAgentPreviewApprovalApply(t *testing.T) {
 	}
 }
 
+func TestAgentDropsResultTheControllerRefuses(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("REET_TOKEN", "")
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	uid, _ := st.DefaultOwner()
+	srv := httptest.NewServer(api.New(st, meta.Fetcher{}, "", api.WithAuthMode(api.AuthNone)))
+	defer srv.Close()
+	cfg := filepath.Join(t.TempDir(), "agent.json")
+	if err = RunAgent([]string{"enroll", "--server", srv.URL, "--env", "fixture", "--config", cfg, "--skip-terminal-setup"}, io.Discard, "test"); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ := st.SyncAgentsFor(uid)
+	if len(agents) != 1 {
+		t.Fatalf("enrollment: %+v", agents)
+	}
+	if err = os.WriteFile(cfg+".result", []byte(`{"id":"closed-job","status":"succeeded"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = RunAgent([]string{"run", "--once", "--config", cfg}, io.Discard, "test"); err == nil {
+		t.Fatal("refused result reported success")
+	}
+	if _, err = os.Stat(cfg + ".result"); !os.IsNotExist(err) {
+		t.Fatal("a result the controller will never take kept blocking the agent")
+	}
+	if _, err = st.QueueSyncJob(uid, agents[0].ID, "", "scan"); err != nil {
+		t.Fatal(err)
+	}
+	if err = RunAgent([]string{"run", "--once", "--config", cfg}, io.Discard, "test"); err != nil {
+		t.Fatal(err)
+	}
+	jobs, _ := st.SyncJobsFor(uid)
+	if len(jobs) != 1 || jobs[0].Kind != "scan" || jobs[0].Status != "succeeded" {
+		t.Fatalf("agent did not resume polling: %+v", jobs)
+	}
+}
+
 func TestEnrolledAgentAutoSyncAppliesAdditivePlan(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("REET_TOKEN", "")

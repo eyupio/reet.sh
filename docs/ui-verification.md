@@ -510,6 +510,10 @@ twice.
 
 ## Projects: layout, focus and motion matrix — 26 October 2026
 
+*Historical: the Projects page and its dialogs were retired in PR B (task B6). `projects.e2e.mjs` now checks the
+redirects and the read-only runs in Activity; the rail that replaced the page is recorded under "Folder-project rail"
+below.*
+
 This section was built on main `cfde296` (Projects PR 3) plus the matrix commit `7d95f48`. It
 records what the browser fixture `web/tests/projects.e2e.mjs` checks for [Projects](projects.md)
 beyond the behaviour already in it, what an accessibility scan found, and what was not checked.
@@ -923,3 +927,89 @@ Local times:
   after the `--tint` change.
 - No live machine, agent CLI, production service or deployment was involved, so nothing here shows a machine
   reporting, a session starting or a sync check running.
+
+## Folder-project rail — 27 October 2026
+
+PR B, task B6, on top of `d52c8d1`. Home's rail now lists folder projects, Add opens the folder browser, and the
+Projects page is retired. The mock-up is `docs/design/agents-home/Main.dc.html` (desktop) with
+`ref-home-desktop.png`; `Tablet.dc.html` and `PhoneHome.dc.html` draw no rail on Home (it lives on the Sessions tab,
+PR H), and `PhoneRail.dc.html` is PR H's. Fidelity audit item P-3 (rail) is folded into this task. Rendered in
+Chromium against the production build with synthetic answers shaped like the mock-up: machines Elitebook, Server
+and Desk; projects reet, jiggered, zoomies-platform (`develop`), wireguard.sh and dynamicweb; four sessions, three
+in reet and one in zoomies-platform, each in a worktree. Boxes from `getBoundingClientRect`, type and colour from
+`getComputedStyle`; dark and light. Nothing was checked on a real phone or tablet, Safari or Firefox.
+
+**1440 × 900 (desktop): matches, with the deviations listed.**
+- Column: the rail is 301 px (272 px cards inside 14 px padding and a 1 px rule, as the audit's R1 measured the
+  reference); its rule is at x = 300 in `--line-soft`, and the main column's first card starts at x = 325, as drawn.
+- Heading row at y = 79: "PROJECTS" 600 11 px Plex Sans, .09em, `--muted`; **Add** 66 × 30, radius 8, 13 px / 500,
+  border `--line-mid` (`#3d342d`, the new token, light `#d4cfc4`) with the 14 px plus.
+- Cards: x 14–286 (272 wide), first at y = 121, 12 px apart (R4), 62 px tall against the drawn 61 (the machine tag's
+  1 px padding and border make row one 18.3 px against 18.2; R5's 69 px is gone with line-height 1.3 on the rail).
+  Fill `--card`, border `--line`, radius 11, padding 10 × 12. Row one: the repository diamond (14 px, `--repo`) or a
+  folder icon, the name 600 14 px with an ellipsis, the machine tag on the right (11 px `--muted`, 1 px `--line-mid`,
+  radius 99, padding 1 × 8) (R2). Row two, 12 px with 10 px gaps: the base branch in Plex Mono, the state in its
+  colour ("3 running" in `--good`, "idle" in `--muted`, "machine offline" in `--warn`), and the worktrees in use
+  right-aligned (R3).
+- Foot: the 16 px monitor icon, gap 10, padding 10 × 12, dashed `--line-mid`, radius 11, 13 px `--muted`, "Folders are
+  browsed live on the machine" (R9), at the foot of the column.
+- Side by side with the reference (`cmp-rail.png` in the task's scratchpad): same columns, rows, type and colours.
+
+**1239 × 900 and 1100 × 900 (collapsed): the 56 px strip** runs the full height (R12: `min-height` on the strip), with
+Add, **Open the project rail** and one 44 px wide button per project named in full ("reet, Elitebook, main, 3 running,
+3 worktrees in use"). In place, each shows its initial, its base branch (10 px mono, cut at 40 px), an 8 px repository
+diamond, a 7 px running dot and the worktrees in use as a 15 px count on its corner. Open the project rail carries a
+dot when a migration note or folders are waiting (named in words) and opens the full rail as a 301 px panel over
+the page, where every card menu, note Dismiss and the waiting-folders prompt are. The panel is managed: it starts where
+the strip is on screen (so a scrolled page leaves no gap above it), Tab and Shift+Tab stay inside it, the toggle is
+named "Close the project rail" while it is open, and Escape, its Close button or the toggle gives focus back to the
+toggle. The chosen project's strip button carries `aria-current`. Fix round 1 and the final fix round of B6;
+`home.e2e.mjs` "collapsed strip reaches every rail action by keyboard" at 1239 and 1100 px.
+
+**834 × 1112 (tablet) and 390 × 844 (phone): the rail sits under In flight**, as the plan's B6 tweak says, until the
+Sessions tab takes it (PR H). It keeps the desktop cards at full width (786 and 358 px), 62 px tall, with "Projects"
+as a 21 px Fraunces heading like In flight's, and the card menu button always shown at 44 × 44 px on touch.
+
+**Fleet card.** The worktree figure joins the skills line ("3 worktrees in use", 12 px `--muted`, gap 12, as the drawn
+"N worktrees · skills" row). With four machines at 1360 px the four machine cards still fit (220 px each, x 325–1247)
+with the Add tile scrolling as before; the figure adds no height (the skills line already wraps there).
+
+**Deviations, each with its reason.**
+1. *"3 worktrees in use" where the mock-up says "3 worktrees", and nothing at 0 on a card (the mock-up says "no
+   worktrees").* No record says which worktrees reet made and has not removed: the session listing has no removal
+   record. The figure counts only worktrees live sessions are in, says so, and claims nothing when there are none
+   (R12: no figure without a source). The fleet card does say "no worktrees in use", which is true of live sessions.
+2. *No chosen card colours (`#201813` / `#6a3b22`).* Choosing a card sets the launch bar's project, which PR E brings;
+   a card named by `/?project=<id>` is marked with an `--accent` border and `aria-current` until then.
+3. *No "needs sign-in" or "waiting" state.* Those need the attention signal (PR G, deferred); the states are "N
+   running", "machine offline" and "idle".
+4. *The card menu button (⋯).* The mock-up draws no control, but the spec gives each card a menu. With a mouse it
+   shows on hover or keyboard focus (26 × 26 px, top right, over the tag); on touch it is always shown at 44 × 44 px
+   and the card keeps 56 px on its right for it.
+5. *The base branch shows only when the project has one.* The drawn "main" is the project's own branch; a project
+   that uses the repository's default has none saved, and reet does not invent one.
+6. *Rail under In flight on tablet and phone.* The tablet and phone mock-ups put the rail on the Sessions tab (PR H);
+   until then the plan places it under In flight so projects stay reachable.
+7. *The one-time migration note and the "remaining saved Projects" prompt* are spec copy the mock-up's frame does not
+   show; they sit inside the card and above the list, in the rail's own type.
+8. *Light theme.* The mock-up is dark only; light uses the tokens' light values (`--line-mid` `#d4cfc4`).
+9. *The collapsed strip's panel.* The mock-up draws the strip as initials only and has no way to manage projects at
+   that width. The rail is now the only place to manage them, so the strip gains **Open the project rail**, which shows
+   the full rail as a panel over the page (the least invasive fit for 56 px: one button, the full rail's own controls),
+   and each project button shows its branch and worktree count in place as the plan's B6 tweak asks, at 10 px (the full
+   values are in the button's name and tooltip).
+
+**What the fixtures check.** `home.e2e.mjs`: "rail lists folder projects with their menu" (the card's words and
+icons, 301 px, choosing a card starts in its folder with its project id, the menu's items and keys, Move down with
+the versions read, Edit saving only what changed, Remove from reet after a confirmation, the 56 px strip), "worktrees
+menu lists recorded worktrees with Check and remove", "Add opens the folder browser", "migration note shown once",
+"remaining saved Projects come in when asked", "worktree figure counts only worktrees in use", "a slow refresh does
+not drop a just-added project", and the existing layout and matrix sections with the rail under In flight at 834, 390
+and 320 px (44 px targets, focus rings, no sideways scroll, reduced motion). `projects.e2e.mjs` (now in the
+`phone-zoom` job): the redirects with the one-time note, the old id resolved to its folder project, the read-only
+run in Activity with Check and remove, and no runs for a viewer. `navigation.e2e.mjs`: "Projects no longer under
+More". `add-project-edit.e2e.mjs` (its own step in the `phone-zoom` job): the stale edit reload, branch suggestions
+on retyping, a failed branch read retried, and a filter typed while a folder opens. `phone-zoom.e2e.mjs`: the rail's
+menu, the Edit sheet and Runs from Projects at 320–412 px, and the Add project sheet now opened from Home.
+`phone-dialogs.e2e.mjs`: Add, Edit, Worktrees, Remove from reet and the old run's Remove worktree, at six screens.
+

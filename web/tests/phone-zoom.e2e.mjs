@@ -20,6 +20,14 @@ const only = process.env.REET_E2E_ONLY ? new RegExp(process.env.REET_E2E_ONLY, '
 const widths = (process.env.REET_E2E_WIDTHS || '320,360,390,412').split(',').map(Number)
 const UA = 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36'
 
+// A machine whose home holds one 120-character folder path with no break opportunities, and folders with long names in it.
+const PATH120 = ('/home/dev/' + 'an_unbroken_folder_name_for_the_add_project_sheet'.repeat(3)).slice(0, 120)
+const addProjectExtra = {
+ '/api/v2/terminal/machines': {machines:[{agentId:'connector-long120', host:HOST80, ready:true, serverEnabled:true, capabilities:{protocolVersion:1, os:'linux', osUser:'dev', terminalEnabled:true, terminalControl:true, healthEnabled:true, readiness:'ready', launch:true, browse:true, tools:['claude']}}]},
+ '/api/v2/machines/connector-long120/browse': () => ({path:PATH120, home:'/home/dev', parent:'/home/dev', repo:'root', repoTop:'', more:true, partial:false, scanned:3, omitted:0,
+  entries:[{name:LONGSKILL, dir:true, repoRoot:true, hidden:false}, {name:PROJECT80, dir:true, repoRoot:false, hidden:false}]}),
+}
+
 // Dialogs open from the long-host machine's card, the one whose name is hardest to fit.
 const click = name => async page => { const b = page.getByRole('article', {name:LONGHOST}).getByRole('button', {name, exact:true}).first(); await b.scrollIntoViewIfNeeded(); await b.click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }
 // Home with 80-character machine, session and Project names, the More list opened over it, Jump's results and the Start an
@@ -41,8 +49,13 @@ const SCREENS = [
  {name:'setups', path:'/profiles'},
  {name:'lists (shared)', path:'/shared'},
  {name:'list page', path:'/lists/7'},
- {name:'projects', path:'/projects'},
- {name:'project page', path:'/projects/proj1'},
+ // The project rail sits under In flight on a phone: a card's menu, and the Edit sheet over the long-named project.
+ {name:'home: project menu', ...home, action:async page => { const b = page.getByRole('button', {name:`More for ${PROJECT80}`}); await b.scrollIntoViewIfNeeded(); await b.click(); await page.getByRole('menu').waitFor({timeout:3000}) }},
+ {name:'home: edit project sheet', ...home, extra:{...homeExtra, '/api/v2/folder-projects/fp80':homeExtra['/api/v2/folder-projects'].projects[0]}, action:async page => {
+  const b = page.getByRole('button', {name:`More for ${PROJECT80}`}); await b.scrollIntoViewIfNeeded(); await b.click()
+  await page.getByRole('menuitem', {name:'Edit'}).click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }},
+ // The old Project runs, kept to read in Activity, with one opened.
+ {name:'activity: runs from projects', path:'/activity', action:async page => { const b = page.getByRole('region', {name:'Runs from Projects'}).getByRole('button', {name:/^Site/}); await b.scrollIntoViewIfNeeded(); await b.click(); await page.locator('.run-body').waitFor({timeout:3000}) }},
  {name:'hosting', path:'/hosting'},
  {name:'spaces', path:'/spaces'},
  {name:'support', path:'/support'},
@@ -50,6 +63,17 @@ const SCREENS = [
  {name:'notifications', path:'/notifications'},
  ...['profile','security','sso','sessions','mcp','tokens','backups'].map(p => ({name:`account ${p}`, path:`/account/${p}`})),
  {name:'activity', path:'/activity'}, // /account/activity redirects here with location.replace; measuring the old page mid-reload zoomed it out
+ // The Add project sheet behind the rail's Add on Home, with a 120-character folder chosen and the browser open on it: the
+ // folder field, the breadcrumb, the folder names and the pinned chosen folder.
+ {name:'add project sheet', ...home, extra:{...homeExtra, ...addProjectExtra}, action:async page => {
+  const add = page.getByRole('button', {name:'Add a project', exact:true}).first()
+  await add.scrollIntoViewIfNeeded()
+  await add.click()
+  const d = page.locator('dialog[open]')
+  await d.getByRole('button', {name:'Use this folder'}).click()
+  await d.getByRole('button', {name:'Browse'}).click()
+  await d.getByRole('list', {name:/^Folders in /}).getByRole('button').first().waitFor({timeout:3000})
+ }},
  ...['overview','environments','users','team','support','email','notifications','backups','settings','activity'].map(p => ({name:`admin ${p}`, path:`/admin/${p}`})),
 ]
 
@@ -119,7 +143,7 @@ async function phone(width) {
  for (const ev of ['requestfinished', 'requestfailed']) page.on(ev, r => { if (open.delete(r)) last = Date.now() })
  const busy = () => [...open.values()].some(t => Date.now() - t < 1000)
  const settled = async () => { const until = Date.now() + 5000; while (Date.now() < until && (busy() || Date.now() - last < 120)) await new Promise(r => setTimeout(r, 20)) }
- const visit = async path => { open.clear(); await page.goto(base + path); await page.locator('main').first().waitFor(); await settled() }
+ const visit = async path => { open.clear(); await page.goto(/^https?:/.test(path) ? path : base + path); await page.locator('main').first().waitFor(); await settled() }
  return {context, page, errors, unmocked, settled, visit, extra}
 }
 

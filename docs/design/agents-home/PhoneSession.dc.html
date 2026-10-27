@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Phone session</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600&family=IBM+Plex+Mono&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+body{margin:0;background:#14110f;font-family:"IBM Plex Sans",system-ui,sans-serif}
+a{color:inherit;text-decoration:none}
+a:hover{filter:brightness(1.12)}
+</style>
+</helmet>
+<!-- Layout: with the keyboard up the site chrome steps aside. A slim header, the conversation, a decision card pinned above the composer, then the keyboard. -->
+<div style="width:390px;height:844px;box-sizing:border-box;display:flex;flex-direction:column;background:#14110f;color:#f1ebe4;overflow:hidden;font-size:15px">
+<header style="height:52px;flex:none;display:flex;align-items:center;gap:8px;padding:0 8px;border-bottom:1px solid #2a241f">
+  <a href="PhoneRail.dc.html" aria-label="Back to sessions" style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:#cfc6bc"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></a>
+  <div style="flex-grow:1;min-width:0"><div style="font-weight:600;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">Add browse-v1 protocol</div><div style="font-size:12px;color:#a39a90">reet · Elitebook</div></div>
+  <span style="display:flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:99px;background:#2a210d;border:1px solid #6a5420;color:#e9b44c;font-size:12px;font-weight:500"><span style="width:7px;height:7px;border-radius:50%;background:#e9b44c"></span>Waiting</span>
+  <span style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:#a39a90"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></span>
+</header>
+<div style="flex-grow:1;min-height:0;overflow:hidden;padding:12px 14px 0;display:flex;flex-direction:column;gap:12px;justify-content:flex-end;line-height:1.55">
+  <div style="align-self:flex-end;max-width:300px;background:#241f1b;border:1px solid #342d27;border-radius:14px 14px 4px 14px;padding:10px 14px;font-size:14px">Add the browse-v1 protocol: one directory level at a time, folders only.</div>
+  <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#a39a90"><span style="color:#7fc79a">✓</span>Edited <span style="font-family:'IBM Plex Mono',monospace;color:#cfc6bc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">terminalproto/browse.go</span><span style="margin-left:auto;font-family:'IBM Plex Mono',monospace;color:#7fc79a">+84</span></div>
+  <div style="font-size:14px">The types are in. I'd like to run the protocol tests next.</div>
+</div>
+<div style="flex:none;margin:10px 12px 0;border:1px solid #6a5420;border-radius:14px;background:#1f1a0f;padding:12px 14px;display:flex;flex-direction:column;gap:9px">
+  <div style="display:flex;align-items:center;gap:8px"><span style="font-weight:600;flex-grow:1;font-size:14px">Run a command in your worktree</span><span style="font-size:11px;color:#e9b44c;border:1px solid #6a5420;border-radius:99px;padding:1px 8px">Runs code</span></div>
+  <div style="font:12px 'IBM Plex Mono',monospace;background:#14110f;border:1px solid #342d27;border-radius:8px;padding:8px 10px;word-break:break-all">go test ./internal/terminalproto/...</div>
+  <div style="display:flex;gap:10px"><a href="PhoneSession.dc.html" style="flex:1;height:48px;display:flex;align-items:center;justify-content:center;border-radius:10px;background:#c2410c;color:#fff;font-weight:600">Allow once</a><a href="PhoneSession.dc.html" style="width:96px;height:48px;display:flex;align-items:center;justify-content:center;border:1px solid #4a4037;border-radius:10px">Deny</a></div>
+</div>
+<div style="flex:none;margin:10px 12px 8px;border:1px solid #4a4037;border-radius:16px;background:#1d1815;display:flex;align-items:center;gap:8px;padding:6px 6px 6px 14px;min-height:48px"><div style="flex-grow:1;font-size:16px;color:#e2dad1">Hold on, check the<span style="display:inline-block;width:2px;height:18px;background:#ff8d63;vertical-align:middle;margin-left:1px"></span></div><span style="width:44px;height:44px;border-radius:50%;background:#c2410c;color:#fff;display:flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span></div>
+<div aria-hidden="true" style="flex:none;height:300px;background:#1b1b1f;border-top:1px solid #2c2c32;padding:10px 4px;display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;gap:6px;justify-content:center"><sc-for list="{{row1}}" as="k" hint-placeholder-count="10"><span style="width:34px;height:46px;border-radius:6px;background:#2d2d33;color:#e8e8ec;display:flex;align-items:center;justify-content:center;font-size:19px">{{k}}</span></sc-for></div>
+  <div style="display:flex;gap:6px;justify-content:center"><sc-for list="{{row2}}" as="k" hint-placeholder-count="9"><span style="width:34px;height:46px;border-radius:6px;background:#2d2d33;color:#e8e8ec;display:flex;align-items:center;justify-content:center;font-size:19px">{{k}}</span></sc-for></div>
+  <div style="display:flex;gap:6px;justify-content:center"><span style="width:48px;height:46px;border-radius:6px;background:#3a3a42"></span><sc-for list="{{row3}}" as="k" hint-placeholder-count="7"><span style="width:34px;height:46px;border-radius:6px;background:#2d2d33;color:#e8e8ec;display:flex;align-items:center;justify-content:center;font-size:19px">{{k}}</span></sc-for><span style="width:48px;height:46px;border-radius:6px;background:#3a3a42"></span></div>
+  <div style="display:flex;gap:6px;justify-content:center"><span style="width:56px;height:46px;border-radius:6px;background:#3a3a42"></span><span style="width:200px;height:46px;border-radius:6px;background:#2d2d33"></span><span style="width:56px;height:46px;border-radius:23px;background:#c2410c"></span></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { row1: 'qwertyuiop'.split(''), row2: 'asdfghjkl'.split(''), row3: 'zxcvbnm'.split('') };
+  }
+}
+</script>
+</body>
+</html>

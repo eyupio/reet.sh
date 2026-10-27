@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tablet home</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600&family=IBM+Plex+Mono&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+body{margin:0;background:#14110f;font-family:"IBM Plex Sans",system-ui,sans-serif}
+a{color:inherit;text-decoration:none}
+a:hover{filter:brightness(1.12)}
+</style>
+</helmet>
+<!-- Layout: tabs and bell on top, machines scroll sideways, needs-you cards first, in-flight list, launch bar docked at the bottom. 44 px touch targets. -->
+<div style="width:834px;height:1112px;box-sizing:border-box;display:flex;flex-direction:column;background:#14110f;color:#f1ebe4;overflow:hidden;font-size:15px">
+<header style="height:64px;flex:none;display:flex;align-items:center;gap:20px;padding:0 24px;border-bottom:1px solid #2a241f">
+  <div style="display:flex;align-items:center;gap:10px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 399 100" role="img" aria-label="reet.sh" style="height:30px;width:auto;display:block;--ink:#f1ebe4;--accent:#fb923c"><g id="icon"><mask id="rose-theme"><rect width="100" height="100" fill="#fff"/><g transform="translate(50,41) scale(0.44)"><path d="M-9,-12H9L19,-45L0,-34L-19,-45Z" transform="rotate(0)" fill="#000" stroke="#000" stroke-width="5" stroke-linejoin="round"/><path d="M-9,-12H9L19,-45L0,-34L-19,-45Z" transform="rotate(72)" fill="#000" stroke="#000" stroke-width="5" stroke-linejoin="round"/><path d="M-9,-12H9L19,-45L0,-34L-19,-45Z" transform="rotate(144)" fill="#000" stroke="#000" stroke-width="5" stroke-linejoin="round"/><path d="M-9,-12H9L19,-45L0,-34L-19,-45Z" transform="rotate(216)" fill="#000" stroke="#000" stroke-width="5" stroke-linejoin="round"/><path d="M-9,-12H9L19,-45L0,-34L-19,-45Z" transform="rotate(288)" fill="#000" stroke="#000" stroke-width="5" stroke-linejoin="round"/><circle r="13" fill="#000"/><circle r="7.5" fill="#fff"/></g></mask><path mask="url(#rose-theme)" fill="var(--ink, #1d1c1a)" stroke="var(--ink, #1d1c1a)" stroke-width="6" stroke-linejoin="round" d="M24,10H76V90L50,70L24,90Z"/><circle cx="50" cy="41" r="3.3" fill="var(--accent, #c2410c)"/></g><g transform="translate(118,20.5) scale(0.42)"><g id="wordmark" fill="none" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"><path stroke="var(--ink, #1d1c1a)" d="M12,150V86A36,36 0 0 1 48,50H56 M90,100H174A42,42 0 1 0 161.7,129.7 M214,100H298A42,42 0 1 0 285.7,129.7 M364,22V126A24,24 0 0 0 388,150H398 M338,50H392"/><circle fill="var(--accent, #c2410c)" cx="434" cy="138" r="13"/><path stroke="var(--accent, #c2410c)" d="M514,62C502,49 474,47 474,74C474,101 512,96 512,124C512,151 486,156 472,141 M554,0V150M554,94A44,44 0 0 1 642,94V150"/></g></g></svg></div>
+  <nav style="display:flex;height:100%"><span style="display:flex;align-items:center;padding:0 14px;font-weight:600;border-bottom:2px solid #ff8d63;color:#fff">Home</span><span style="display:flex;align-items:center;padding:0 14px;color:#a39a90">Sessions</span><span style="display:flex;align-items:center;padding:0 14px;color:#a39a90">Machines</span><span style="display:flex;align-items:center;padding:0 14px;color:#a39a90">More</span></nav>
+  <div style="flex-grow:1"></div>
+  <div style="position:relative;width:44px;height:44px;border:1px solid #342d27;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#e9b44c"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 17V11a6 6 0 0112 0v6l1.5 2h-15z"/><path d="M10 21h4"/></svg><span style="position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;border-radius:9px;background:#c2410c;color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">3</span></div>
+</header>
+<div style="flex-grow:1;min-height:0;overflow:hidden;padding:20px 24px 0;display:flex;flex-direction:column;gap:18px">
+  <section aria-label="Your machines" style="display:flex;gap:12px;overflow:hidden">
+    <sc-for list="{{machines}}" as="m" hint-placeholder-count="3">
+      <div style="flex:none;width:236px;border:1px solid #342d27;border-radius:13px;background:#1a1613;padding:14px 16px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;border-radius:50%;background:{{m.dot}}"></span><span style="font-weight:600;flex-grow:1">{{m.name}}</span></div>
+        <div style="display:flex;align-items:baseline;gap:6px"><span style="font-family:'Fraunces',Georgia,serif;font-size:26px;line-height:1">{{m.agents}}</span><span style="color:#a39a90;font-size:13px">agents running</span></div>
+        <div style="font-size:12px;color:{{m.skc}}">{{m.skills}}</div>
+      </div>
+    </sc-for>
+  </section>
+  <section aria-label="Needs you" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:8px"><h2 style="margin:0;font-family:'Fraunces',Georgia,serif;font-size:21px;font-weight:600">Needs you</h2><span style="font-size:12px;font-weight:600;color:#fff;background:#c2410c;border-radius:99px;padding:2px 9px">3</span></div>
+    <div style="border:1px solid #6a5420;border-radius:14px;background:#1f1a0f;padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+      <div style="font-size:12px;color:#e9b44c;font-weight:600">Wants to run a command · 2m</div>
+      <div style="font:13px 'IBM Plex Mono',monospace;background:#14110f;border:1px solid #342d27;border-radius:8px;padding:9px 11px">go test ./internal/terminalproto/...</div>
+      <div style="font-size:13px;color:#a39a90">Add browse-v1 protocol · reet · Elitebook</div>
+      <div style="display:flex;gap:10px"><a href="Session.dc.html" style="height:44px;display:flex;align-items:center;padding:0 22px;border-radius:9px;background:#c2410c;color:#fff;font-weight:600">Allow once</a><a href="Session.dc.html" style="height:44px;display:flex;align-items:center;padding:0 20px;border:1px solid #4a4037;border-radius:9px">Deny</a><a href="Session.dc.html" style="height:44px;display:flex;align-items:center;padding:0 12px;color:#a39a90;margin-left:auto">Open</a></div>
+    </div>
+  </section>
+  <section aria-label="In flight" style="display:flex;flex-direction:column;gap:8px">
+    <h2 style="margin:0;font-family:'Fraunces',Georgia,serif;font-size:21px;font-weight:600">In flight</h2>
+    <div style="border:1px solid #342d27;border-radius:14px;background:#1a1613;overflow:hidden">
+      <sc-for list="{{flight}}" as="s" hint-placeholder-count="4">
+        <a href="Session.dc.html" style="display:flex;align-items:center;gap:14px;min-height:60px;padding:8px 16px;border-bottom:1px solid #2a241f"><span style="width:9px;height:9px;border-radius:50%;flex:none;background:{{s.c}}"></span><div style="flex-grow:1;min-width:0"><div style="font-weight:500;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">{{s.t}}</div><div style="font-size:12px;color:#a39a90">{{s.where}}</div></div><span style="font-size:12px;color:#a39a90">{{s.step}}</span></a>
+      </sc-for>
+    </div>
+  </section>
+</div>
+<section aria-label="Start a session" style="flex:none;margin:0 24px 20px;border:1px solid #4a4037;border-radius:16px;background:#1d1815;box-shadow:0 -8px 30px rgba(0,0,0,.25)">
+  <div style="display:flex;gap:12px;padding:14px 18px 8px"><div style="flex-grow:1;font-size:16px;color:#8c837a;line-height:1.5;min-height:44px">Describe the job. Say what done looks like.</div><a href="Session.dc.html" aria-label="Start the session" style="flex:none;height:44px;display:flex;align-items:center;padding:0 22px;border-radius:10px;background:#c2410c;color:#fff;font-weight:600">Start</a></div>
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 18px 12px;border-top:1px solid #2a241f;color:#a39a90;font-size:14px;min-height:44px">
+    <span>Run</span><b style="font-weight:600;color:#f1ebe4;border-bottom:1px dashed #6b5f54">Claude Code</b><span>on</span><b style="font-weight:600;color:#f1ebe4;border-bottom:1px dashed #6b5f54">reet</b><span>at</span><b style="font-weight:600;color:#f1ebe4;border-bottom:1px dashed #6b5f54">Elitebook</b><span>from</span><b style="font-weight:600;color:#f1ebe4;border-bottom:1px dashed #6b5f54">main</b><span style="flex-grow:1"></span>
+    <span style="display:flex;border:1px solid #4a4037;border-radius:9px;overflow:hidden;font-size:13px"><span style="padding:11px 14px;background:#2e2822;color:#f1ebe4;font-weight:600">Ask me</span><a href="Yolo.dc.html" style="padding:11px 14px;color:#a39a90">YOLO</a></span>
+  </div>
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":834,"height":1112}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const ok = '#7fc79a', warn = '#e9b44c', info = '#7fb3d9', idle = '#a39a90';
+    return {
+      machines: [
+        { name: 'Elitebook', dot: ok, agents: 3, skills: 'skills in sync', skc: ok },
+        { name: 'Server', dot: ok, agents: 1, skills: '1 skill out of date', skc: warn },
+        { name: 'Desk', dot: idle, agents: 0, skills: 'skills in sync', skc: ok }
+      ],
+      flight: [
+        { t: 'Refactor the store layer', where: 'reet · Elitebook', c: ok, step: 'Step 4 of 7' },
+        { t: 'Add browse-v1 protocol', where: 'reet · Elitebook', c: warn, step: 'Waiting for you' },
+        { t: 'Speed up the runner pool', where: 'zoomies-platform · Server', c: ok, step: 'Step 2 of 5' },
+        { t: 'Review code', where: 'jiggered · Server', c: info, step: 'Needs sign-in' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

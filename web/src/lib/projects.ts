@@ -1,19 +1,11 @@
-import { toolName, validateDir, validateModel, refusalText, codeSentence, TOOLS } from './agentLaunch'
-import { readiness } from './terminal/api'
+import { refusalText, codeSentence } from './agentLaunch'
 import type { TerminalMachine, TerminalSession } from './terminal/api'
 
-// Pure logic for the Projects pages: names and members, the confirmation-sheet plan, the run summary and the worktree
-// sentences. No DOM, no fetch. Nothing here says an agent is signed in, understands its prompt or is making progress:
+// Pure logic for the kept runs of saved Projects (read-only in Activity and the rail's Worktrees): the run summary, the
+// member words, path cleaning and the worktree sentences. No DOM, no fetch. Nothing here says an agent is signed in, understands its prompt or is making progress:
 // "started" means the machine started the program in tmux in that folder.
 
-export const MAX_PROJECT_NAME = 80
-export const MAX_MEMBERS = 12
-export const MAX_PROJECTS = 50
-export const MAX_SESSIONS_PER_MACHINE = 8
-export const MAX_SESSIONS_PER_ACCOUNT = 32
-
 export type ProjectMember = { host: string; dir: string; tool: string; model: string; position: number }
-export type MemberInput = Pick<ProjectMember, 'host' | 'dir' | 'tool' | 'model'>
 export type RunSummaryRef = { id: string; state: string; startedAt: number }
 export type Project = {
   id: string; name: string; defaultTool: string; defaultModel: string; useWorktrees: boolean
@@ -26,12 +18,6 @@ export type Project = {
   version: number
   lastRun?: RunSummaryRef
 }
-/** What a create or update sends. On an update an absent field keeps its saved value and "" clears a text field. */
-export type ProjectInput = {
-  name?: string; defaultTool?: string; defaultModel?: string; sharedPrompt?: string; useWorktrees?: boolean
-  members?: MemberInput[]
-}
-
 export type RunMemberState = 'pending' | 'started' | 'failed' | 'removed'
 export type RunState = 'running' | 'complete' | 'partial' | 'failed'
 export type RunMember = {
@@ -54,35 +40,6 @@ export type WorktreeStatus = {
   unreferenced: number; hidden: number; nested: boolean; incomplete: boolean
 }
 
-// Same rule as the server: control and format characters and the two Unicode line separators are not plain text.
-const INVISIBLE = new RegExp('[\\p{Cc}\\p{Cf}\\u2028\\u2029]', 'u')
-const NAME_SENTENCE = `Give the Project a name of 1 to ${MAX_PROJECT_NAME} characters, without line breaks or control characters.`
-
-/** A name is 1 to 80 characters after trimming, plain text. `others` are the account's other Project names; they compare ignoring case. */
-export function validateProjectName(name: string, others: string[] = []): string | null {
-  const s = String(name ?? '').trim()
-  if (s === '' || Array.from(s).length > MAX_PROJECT_NAME || INVISIBLE.test(s)) return NAME_SENTENCE
-  const lower = s.toLowerCase()
-  if (others.some(o => String(o).trim().toLowerCase() === lower)) return 'Another Project on this account already has that name.'
-  return null
-}
-
-/**
- * One repository of a Project: an enrolled machine, an absolute folder (checked as the Start an agent folder is), and
- * optional agent and model overrides. `snapshot` is accepted for symmetry with the folder choices but does not restrict
- * the folder: the machine decides whether a folder it did not report exists.
- */
-export function validateMember(member: MemberInput, machines: TerminalMachine[], _snapshot?: unknown): string | null {
-  const host = String(member?.host ?? '')
-  if (host === '') return 'Choose a machine.'
-  if (!machines.some(m => m.agentId === host)) return "That machine isn't enrolled on this account."
-  if (String(member.dir ?? '') === '') return 'Choose a project folder.'
-  const dirProblem = validateDir(member.dir)
-  if (dirProblem) return dirProblem
-  if (member.tool && !TOOLS.some(t => t.id === member.tool)) return 'Choose one of the agents reet can start.'
-  return validateModel(member.model ?? '')
-}
-
 /** Go's path.Clean: one slash between parts, no `.` parts, and each `..` removes the part before it (never above /). */
 export function cleanPath(dir: string): string {
   const s = String(dir ?? '')
@@ -101,84 +58,7 @@ export function cleanPath(dir: string): string {
   const joined = (rooted ? '/' : '') + out.join('/')
   return joined === '' ? '.' : joined
 }
-// The server compares hosts trimmed and in lower case, and folders cleaned.
-const repositoryKey = (m: Pick<MemberInput, 'host' | 'dir'>): string => `${String(m.host ?? '').trim().toLowerCase()}\u0000${cleanPath(m.dir)}`
-
-/** The list as a whole: at most 12 repositories, each machine and folder once. */
-export function validateMembers(members: MemberInput[]): string | null {
-  if (members.length > MAX_MEMBERS) return `A Project can have at most ${MAX_MEMBERS} repositories.`
-  const seen = new Set<string>()
-  for (const m of members) {
-    const key = repositoryKey(m)
-    if (seen.has(key)) return 'Each machine and folder can be in a Project only once.'
-    seen.add(key)
-  }
-  return null
-}
-
-export type SkipCode = 'not_enrolled' | 'not_ready' | 'no_launch' | 'tool_not_installed' | 'no_worktree' | 'machine_session_limit' | 'account_session_limit'
-export type PlannedMember = {
-  position: number; member: ProjectMember; host: string; machine: string; dir: string
-  tool: string; toolName: string; model: string; worktree: boolean
-}
-export type SkippedMember = { position: number; member: ProjectMember; code: SkipCode; reason: string }
-
 const open = (s: Pick<TerminalSession, 'state'>): boolean => s.state === 'creating' || s.state === 'running' || s.state === 'end_requested'
-
-/**
- * What the confirmation sheet lists. A member starts when its machine is enrolled and ready, takes launch requests (and
- * worktrees when the Project makes them), has the tool installed, and the run would not exceed 8 open sessions on that
- * machine or 32 on the account. `sessions` are the account's sessions now; each member planned to start counts as one
- * more, in order. A skipped member says why in plain words; `not_enrolled` is the one that offers Add a machine.
- */
-export function planRun(project: Project, machines: TerminalMachine[], _snapshot: unknown, sessions: Pick<TerminalSession, 'agentId' | 'state'>[]): { start: PlannedMember[]; skipped: SkippedMember[] } {
-  // Without the account's sessions the 8 and 32 limits could never apply, so the sheet would promise more than can start.
-  if (!Array.isArray(sessions)) throw new Error("planRun needs the account's sessions.")
-  const start: PlannedMember[] = [], skipped: SkippedMember[] = []
-  const perMachine = new Map<string, number>()
-  let account = 0
-  for (const s of sessions) if (open(s)) { account++; perMachine.set(s.agentId, (perMachine.get(s.agentId) ?? 0) + 1) }
-  for (const member of project.members) {
-    const skip = (code: SkipCode, reason: string) => skipped.push({ position: member.position, member, code, reason })
-    const machine = machines.find(m => m.agentId === member.host)
-    const caps = machine?.capabilities
-    const tool = member.tool || project.defaultTool
-    if (!machine) { skip('not_enrolled', "That machine isn't enrolled on this account."); continue }
-    // readiness() also says why when the machine is not connected right now.
-    const notReady = readiness(machine)
-    if (notReady !== '') { skip('not_ready', notReady); continue }
-    if (caps?.launch !== true) { skip('no_launch', 'Update reet on that machine to start agents.'); continue }
-    if (!Array.isArray(caps.tools) || !caps.tools.includes(tool)) { skip('tool_not_installed', "That agent isn't installed on that machine."); continue }
-    if (project.useWorktrees && caps.worktree !== true) { skip('no_worktree', 'Update reet on that machine to start agents with worktrees.'); continue }
-    if ((perMachine.get(member.host) ?? 0) >= MAX_SESSIONS_PER_MACHINE) { skip('machine_session_limit', `That machine already has ${MAX_SESSIONS_PER_MACHINE} sessions, the most it can have. End one, then start again.`); continue }
-    if (account >= MAX_SESSIONS_PER_ACCOUNT) { skip('account_session_limit', `This account already has ${MAX_SESSIONS_PER_ACCOUNT} sessions, the most it can have. End one, then start again.`); continue }
-    perMachine.set(member.host, (perMachine.get(member.host) ?? 0) + 1)
-    account++
-    start.push({ position: member.position, member, host: member.host, machine: machine.host, dir: member.dir, tool, toolName: toolName(tool), model: resolvedModel(project, member), worktree: project.useWorktrees })
-  }
-  return { start, skipped }
-}
-
-/**
- * The model a member starts with, as the server resolves it: its own, else the Project's default model only when it uses the
- * default agent (a default model belongs to the default agent), else the agent's own default (empty).
- */
-export function resolvedModel(project: Pick<Project, 'defaultTool' | 'defaultModel'>, member: Pick<ProjectMember, 'tool' | 'model'>): string {
-  if (member.model) return member.model
-  const tool = member.tool || project.defaultTool
-  return tool === project.defaultTool ? project.defaultModel : ''
-}
-
-/** The confirmation sheet's statement: what starts, how it is isolated, that nothing runs until Start, and where a prompt can be seen. */
-export function confirmSentence(count: number, hasPrompt: boolean, useWorktrees: boolean): string {
-  if (count === 0) return 'No repository can start. Nothing runs until you press Start.'
-  const agents = `${count} ${count === 1 ? 'agent' : 'agents'}`
-  const where = useWorktrees
-    ? `${agents}, each in its own git worktree and branch under ~/.reet/worktrees on its machine. reet never removes a worktree by itself.`
-    : `${agents} in the saved ${count === 1 ? 'folder' : 'folders'} itself, so any other session there shares that checkout.`
-  const start = `Starts ${where} Nothing runs until you press Start.`
-  return hasPrompt ? `${start} The prompt is kept with the session record and is visible to other users of that machine in its process list.` : start
-}
 
 export const STARTED_MEANS = "Started means the machine started the program in tmux in that folder. It doesn't mean the agent is signed in or making progress."
 
@@ -216,6 +96,9 @@ export function worktreeRefusalText(status: number, code?: string, message?: str
   if (code === 'worktree_refused' && /^That machine refused to (check|remove) the worktree\.$/.test(msg)) return msg
   return refusalText(status, code, message)
 }
+
+// Same rule as the server: control and format characters and the two Unicode line separators are not plain text.
+const INVISIBLE = new RegExp('[\\p{Cc}\\p{Cf}\\u2028\\u2029]', 'u')
 
 // Field refusals that name the repository they are about ("Repository 2: …"). The server's own sentence is the useful one.
 const FIELD_CODES = new Set(['invalid_dir', 'unknown_machine', 'invalid_tool', 'invalid_model', 'invalid_prompt'])
@@ -265,22 +148,6 @@ export function removeOffer(m: RunMember, sessions: Pick<TerminalSession, 'id' |
 
 /** True while any member is still waiting to start: the run view keeps reading the run. */
 export const runPending = (run: Pick<ProjectRun, 'members'>): boolean => run.members.some(m => m.state === 'pending')
-
-/** A run's state in words, for the Projects list and the runs list. */
-export function runStateLabel(state: string): string {
-  return ({ running: 'Starting', complete: 'All started', partial: 'Some failed', failed: 'None started' } as Record<string, string>)[state] ?? state
-}
-
-export type ProjectForm = { name: string; defaultTool: string; defaultModel: string; sharedPrompt: string; useWorktrees: boolean; members: MemberInput[] }
-/**
- * What a save sends. A create sends everything. An update sends the shared prompt only when the Project was read with it
- * (the single read) and the text changed: the list and save replies leave the prompt out, and sending "" would clear it.
- */
-export function projectInput(editing: Pick<Project, 'sharedPrompt'> | null, form: ProjectForm): ProjectInput {
-  const input: ProjectInput = { name: form.name.trim(), defaultTool: form.defaultTool, defaultModel: form.defaultModel.trim(), useWorktrees: form.useWorktrees, members: form.members }
-  if (!editing || (editing.sharedPrompt !== undefined && editing.sharedPrompt !== form.sharedPrompt)) input.sharedPrompt = form.sharedPrompt
-  return input
-}
 
 /**
  * A machine's name for the words: its host once the machines have been read, its id until then (the names are only a

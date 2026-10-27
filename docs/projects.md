@@ -1,97 +1,198 @@
 # Projects
 
-A Project is a named set of repository folders on your machines, with the agent and model each one
-starts with. **Start all** starts one agent session per repository, each through the same request a
-single [Start an agent session](start-agent-session.md) sends, and by default each in its own git
-worktree and branch. The pages are `web/src/lib/ProjectsPage.svelte`, `ProjectPage.svelte` and their
-dialogs; the controller code is `internal/api/projects.go`, `internal/api/project_runs.go`,
-`internal/store/store_projects.go` and `internal/projectrun`. What a worktree is on the machine, and
-the exact git commands, are in [Worktrees](terminal-worktrees.md). The design is in
+A **project** is one folder on one machine, kept in the project rail on Home. Choosing a card opens
+Start an agent on its machine with that folder filled in (the launch bar takes this over in a later
+release); a session started there is listed under the project in In flight. A project can carry an optional **starter prompt**,
+a default agent and model, a default base branch and whether each session gets its own worktree.
+There is no separate Projects page: `/projects` and `/projects/<id>` go to Home.
+
+The rail is `web/src/lib/home/ProjectRail.svelte`, the Add and Edit dialog `AddProjectDialog.svelte`
+with `FolderBrowser.svelte` (how a machine lists its folders is in [Folder browse](folder-browse.md)),
+the Worktrees list `ProjectWorktrees.svelte`. The controller code is `internal/api/folder_projects.go`,
+`internal/store/store_folder_projects.go` and, for the move from saved Projects,
+`internal/store/store_projects_migrate.go`. The design is in
+[the agents home spec](superpowers/specs/2026-10-26-agents-home-design.md) ("Project registry",
+"Migration"); the multi-repository Projects it replaces are in
 [the Projects spec](superpowers/specs/2026-10-25-projects-design.md).
 
-A started repository means only that the machine started the program in tmux in that folder. It does
-not show that the agent is signed in, understands the prompt or is making progress, that its branch
-holds anything, or that the repository's hooks, build or tests are safe to run.
+A started session means only that the machine started the program in tmux in that folder. It does
+not show that the agent is signed in, understands the prompt or is making progress.
 
 ## Who sees it
 
-Only an account in accounts mode with a write role. The **Projects** entry sits beside Terminals in
-the main navigation. Viewers, API and MCP tokens, single-token and open modes don't get the entry,
-and the routes refuse them:
+Only an account in accounts mode with a write role sees the rail. Viewers, API and MCP tokens,
+single-token and open modes get Home with the fleet strip alone, and the routes refuse them:
 
 | Who | Status and code | Sentence |
 | --- | --- | --- |
-| An instance without accounts (single-token or open mode), or any request carrying a token | 403 `accounts_required` | "Projects need an account signed in through the browser." |
-| Accounts mode, no signed-in session and no token | 401 `signed_out` | "Sign in to use Projects." |
-| Viewer | 403 `read_only` | "This account is read-only, so it can't use Projects." |
+| An instance without accounts, or any request carrying a token | 403 `accounts_required` | "Using projects needs an account signed in through the browser." |
+| Accounts mode, no signed-in session and no token | 401 `signed_out` | "Sign in to use projects." |
+| Viewer | 403 `read_only` | "This account is read-only, so it can't use projects." |
 | A change from another address | 403 `origin_refused` | "That request didn't come from this reet's own address." |
 
-Opening `/projects` directly as a viewer or without an account shows the matching sentence and sends
-no Projects request. Starting and retrying also need remote terminals switched on: otherwise 403
-`terminals_disabled`, "Remote terminals are switched off on this server, so agents can't be started."
-Every reply is `Cache-Control: no-store`.
-
-`projects` is a reserved hosted username: `/projects/<id>` is the app's Project page, not a hosted
-skill page. Anyone who had claimed `projects` as a publishing name can no longer reach their hosted
-pages through it, and new claims of it are refused. Signing in through single sign-on from
-`/projects` or a Project page returns there.
+Every reply is `Cache-Control: no-store`. `projects` stays a reserved hosted username.
 
 ## Limits
 
 | What | Limit |
 | --- | --- |
-| Projects per account | 50 (409 `project_limit`) |
-| Repositories per Project | 12 (422 `member_limit`) |
-| Name | 1 to 80 characters after trimming, no control, format, line or paragraph separator characters, unique per account ignoring case (409 `name_taken`) |
-| Folder | an absolute path of at most 4,096 bytes, plain text; saved cleaned (`//`, `/./` and `..` collapsed). A machine and folder can be in a Project once (422 `duplicate_member`) |
-| Agent | `claude`, `codex`, `opencode` or `gemini`, for the default and for each repository |
-| Model | letters, digits and `. _ : / @ + -`, up to 100 characters, starting with a letter or digit; optional |
-| Shared prompt | at most 2,000 bytes, valid UTF-8, no control characters except newline, not starting with `-`; when any repository starts Claude Code or Codex (or, for a Project with no repositories, when the default agent is one of them) it must contain a space or a line break, which is what "at least two words" means in the check (422 `prompt_unsupported`) |
-| Runs listed | the newest 20 per Project |
-| Body | 128 KiB (413 `too_large`); exactly one JSON object with no unknown fields (400 `invalid_request`) |
-| Sessions | 8 open per machine and 32 per account, as for any terminal session |
-| In flight | at most 2 repositories of one run, and 1 create per machine across all runs |
+| Projects per account | 100 (409 `project_limit`, "You have 100 projects, the most reet keeps. Remove one first.") |
+| A machine and folder | once per account (409 `project_exists`, "studio already has a project for that folder.") |
+| Name | 1 to 80 characters, plain text, unique per account ignoring case (409 `name_taken`); blank gives the folder's name, with ` (2)`, ` (3)`… on a clash |
+| Folder | an absolute path of at most 4,096 bytes, saved cleaned |
+| Base branch | blank or a valid git branch name of at most 255 bytes |
+| Worktree for each session | `inherit` (the account default), `yes` or `no` |
+| Starter prompt | the opening-prompt rules: at most 2,000 bytes, valid text, no control characters but line breaks, not starting with `-`; for Claude Code and Codex at least two words |
+| Writes | 30 a minute per account (429 `project_rate_limited`) |
+| Body | 64 KiB (413 `too_large`); exactly one JSON object with no unknown fields (400 `invalid_request`) |
 
-A repository's model is its own; otherwise the Project's default model, but only when the repository
-uses the default agent (a default model belongs to the default agent); otherwise the agent's own
-default.
+A saved starter prompt that today's rules refuse (one carried over from a saved Project) does not
+block other edits: its shape is checked again only when it changes. The two-words rule depends on
+the agent too, so it is checked again when the prompt **or** the default agent changes ("Write the
+starter prompt as at least two words.").
+
+## The rail
+
+Desktop: the left column, 301 px (272 px cards inside 14 px padding and a 1 px rule). From 1100 to
+1239 px wide it is a 56 px strip: **Add**, **Open the project rail** (marked with a dot, and named, when a
+migration note or folders are waiting), then one button per project showing its initial, its base
+branch in mono (cut short), the repository diamond, a running dot and the worktrees in use as a small count,
+each named in full (the chosen one is marked current). Open the project rail shows the full rail over the
+page as a 301 px panel starting where the strip is on screen, with every card menu, note and prompt and a
+Close button; while it is open the toggle is named "Close the project rail", Tab stays inside the panel,
+and Escape, Close, the toggle or a press outside closes it and gives focus back to the toggle. On a tablet or phone
+it sits under In flight; the Sessions tab takes it in a later release.
+
+Each card shows, in words: a repository diamond (or a folder icon for a plain folder), the name, the
+machine, the base branch (mono) when one is set, the state and the worktrees in use. The state is
+"N running" (its own running and starting sessions, by each session's project id), "machine offline"
+when its machine is known not to be reporting, else "idle". Worktrees in use are the distinct
+worktrees its live sessions are working in; the session listing has no record of removed worktrees,
+so a finished session's worktree is never counted, and nothing shows at 0. The fleet cards show the
+same figure per machine ("no worktrees in use" included). The foot reads "Folders are browsed live on
+the machine".
+
+Choosing a card opens Start an agent on its machine with its folder filled in; the start carries the
+project's id, so the session is listed under it. Each card's menu (its button shows on hover or
+keyboard focus with a mouse, always on touch; arrow keys move, Escape closes): **New session here**,
+**Edit**, **Worktrees**, **Move up**, **Move down** and **Remove from reet**.
+
+- **Add** opens the folder browser on the first machine that can browse; a machine that cannot (it is
+  offline, runs an older reet, or has browsing switched off) still takes a typed path, checked again
+  at launch. Success: "Sorted. reet added." in Home's status line.
+- **Edit** reads the project again with its starter prompt and sends only what changed, naming the
+  version it read. Success: "Sorted. reet saved." When someone else saved first, the dialog says
+  "Someone changed this project. Reload it, then try again.", locks the fields and offers **Load the
+  latest version**: the latest version fills the fields, the person's own changes are listed under
+  *Your changes*, and **Use my changes again** puts them back on top of it. Nothing is saved until
+  **Save changes**, which names the latest version. The stale version is never sent again.
+- **Worktrees** lists the worktrees reet has a record of for that folder: the ones its live sessions
+  are in (with **Open the session**), and the ones old Project runs made in the same folder on the
+  same machine, each with **Check and remove** (below). Nothing else is listed: reet never guesses.
+- **Move up** and **Move down** send the whole order with the version of each project as read; a
+  stale list is 409 `project_changed`, said as sent, and the list is read again.
+- **Remove from reet** asks first ("Remove reet from reet?" — "It leaves the rail. Its sessions and
+  any worktrees stay on studio, and the folder isn't touched."), then answers "Project removed. Its
+  sessions and any worktrees stay on studio." Only the registry entry goes.
+
+`/?project=<id>` marks that project's card (the launch bar takes it in a later release). Jump finds
+projects by name and opens that address.
 
 ## Routes and shapes
 
-All routes are under `/api/v2`, need the access above and answer refusals as
-`{error, code, field?, message}` with one plain sentence. A field refusal names the field
-(`name`, `defaultModel`, `sharedPrompt`, `members.N.dir`, `members.N.host` and so on), and the dialog
-moves focus to it.
+All under `/api/v2`, with the access above; refusals are `{error, code, field?, message}` with one
+plain sentence, and a field refusal names the field so the dialog can move focus there.
 
-### Projects
+- `GET /folder-projects` → `{projects: [FolderProject], savedWaiting}` in rail order. No starter
+  prompt, only `hasStarterPrompt`.
+- `GET /folder-projects?legacy=<saved Project id>` → `{id}`, the folder project made from that saved
+  Project's first folder still on the account. Unknown ids, another account's and removed ones are the
+  same 404 `project_not_found`.
+- `POST /folder-projects` with `{host, dir, isRepo?, name?, baseBranch?, worktreeDefault?,
+  defaultTool?, defaultModel?, starterPrompt?}` → 201 and an `ETag`. `host` is the machine's
+  enrollment id.
+- `GET /folder-projects/{id}` → the project **with** `starterPrompt`, for the edit form, and its
+  `ETag` (the version, quoted).
+- `PATCH /folder-projects/{id}` with `If-Match` and any of the create fields: absent keeps, `""`
+  clears; `{"note": ""}` clears the migration note (any other note is 422 `invalid_note`). A stale
+  version is 409 `project_changed`.
+- `DELETE /folder-projects/{id}` with `If-Match` → `{ok, message}`.
+- `POST /folder-projects/reorder` with `{ids, versions}` naming every project once → the list.
+- `POST /folder-projects/import-saved` with `{}` → the list plus `{created, skipped, message}`.
 
-- `GET /projects` → `{projects: [Project]}`. Each has `lastRun: {id, state, startedAt}` when it has
-  run. **No shared prompt**, only `hasSharedPrompt`.
-- `POST /projects` with `{name, defaultTool, defaultModel?, sharedPrompt?, useWorktrees?, members?}`
-  → 201 with the Project. `useWorktrees` defaults to true. Each member is `{host, dir, tool, model}`;
-  its position is its place in the list.
-- `GET /projects/{id}` → the Project **with** `sharedPrompt`, for the owner's edit form, and an
-  `ETag` header: the version, quoted (`"4"`).
-- `PATCH /projects/{id}` with any of the create fields. Absent or `null` keeps the saved value, `""`
-  clears `defaultModel` or `sharedPrompt`, and `members`, when present, replaces the whole list
-  (`[]` removes every repository). Answers the Project (no prompt) and its new `ETag`.
-- `DELETE /projects/{id}` → `{ok: true, mayHaveWorktrees, message}`. Runs are kept. When any run of
-  the Project, however old, recorded a worktree, the message is "Project deleted. Its runs are kept.
-  Worktrees those runs made, if still there, stay on their machines." Only worktrees a run *recorded*
-  count: one whose create reply was lost, or answered `worktree_mismatch`, has no recorded folder,
-  and Delete doesn't mention it.
+A FolderProject is `{id, host, machine, dir, name, isRepo, baseBranch, worktreeDefault, defaultTool,
+defaultModel, hasStarterPrompt, starterPrompt?, note, position, createdAt, updatedAt, version}`.
+`machine` is the machine's current name, `""` once it is no longer enrolled (the card says "machine
+not enrolled"). A terminal create may carry `projectId`; the controller checks it belongs to the
+account and to that machine (404 `project_not_found`, 422 `project_machine_mismatch`) and never
+sends it to the machine.
 
-A Project is `{id, name, defaultTool, defaultModel, useWorktrees, hasSharedPrompt, sharedPrompt?,
-members: [{host, dir, tool, model, position}], createdAt, updatedAt, version, lastRun?}`. `host` is
-the machine's enrollment id (its agent id), never its display name.
+## Session and profile fields
 
-**If-Match.** `PATCH`, `DELETE` and starting a run take an optional `If-Match` with the version that
-was read, bare or quoted. With it, the store compares versions inside the same transaction and a
-different version answers 409 `project_changed`, "Someone changed this Project. Reload it and try
-again.", changes nothing and writes no audit row. A malformed value is 400 `invalid_version`.
-Without the header the change goes ahead (the last write wins). The web always sends it.
+The session listing (`GET /api/v2/terminal/sessions`) now carries, for every session, `tool`, `model`,
+`effort` (always `""` for now), `yolo` (always `false` for now) and `projectId` (the folder project it
+was started in, `null` otherwise), and never the prompt. The profile (`GET`/`PATCH /api/v2/profile`)
+gains `defaultBaseBranch` (blank, the repository's own default, or a valid branch name) and
+`worktreesByDefault` (true unless changed): the account default a project's `inherit` means. No page
+sets either yet; until the launch bar they are set only through the profile API.
 
-### Runs
+## Starter prompts
+
+A starter prompt lives in the project record only: never in the audit, logs, browser storage or an
+address. The list never carries it. Nothing uses it yet: a start from the rail does not send it, and
+the Add and Edit dialog says so. The launch bar (a later release) is to offer it as **Use the starter
+prompt**; reet never sends it by itself.
+
+## Moving saved Projects
+
+Saved multi-repository Projects became folder projects when the controller first started with this
+release, once and idempotently: one transaction per controller start, with a savepoint per account so
+one account's failure is rolled back alone and tried again at the next start (the rail's import below
+is its own transaction):
+
+- Every distinct machine and cleaned folder across an account's saved Projects became one folder
+  project, oldest Project first. The name is the folder's (a Project with one repository lends its own
+  name when it is free); the member's own agent and model, else the Project's defaults (a member that
+names its own agent but no model gets that agent's own default, an empty model, not the Project's
+default model); `useWorktrees`
+  became `yes` or `no`; the shared prompt became the starter prompt.
+- A folder the person had already registered was left as it was. Where one folder belonged to several
+  Projects with different prompts, the oldest Project's prompt was kept and the card shows a one-time
+  note: "Moved from your saved Projects. The starter prompts of A, B weren't kept here; their old runs
+  are in Activity." **Dismiss** clears it for good. "Shown once" means exactly this: the note stays on its card until
+  the person dismisses it, and once cleared on the server it never comes back.
+- Each Project wrote one `projects-migrated` event naming the folder projects made, never the prompt.
+- An account with the most projects reet keeps was left with the rest waiting. The rail then says
+  "N folders from your saved Projects aren't in the rail yet." with **Add the waiting folders (N)**;
+  nothing comes in by itself, not even after a remove. (The wording holds whether or not there is room
+  now: see the downgrade limit below.) N counts folders (machine and
+  cleaned folder), not Project members: several Projects naming one folder count once, and a folder
+  that is already a project, or one reet can't use, is not counted. The answer is shown as sent:
+  "Added N saved repositories as projects.", "N saved repositories are waiting for room. Remove a
+  project, then try again." or "Nothing is waiting to be added: every saved folder is already in reet,
+  or can't be used as a project."
+- The old `projects`, `project_members` and run tables are kept, unchanged, for one release. Their
+  create, change and delete routes answer 410 `projects_moved`, "Projects now live in the rail on
+  Home."
+- `/projects` and `/projects/<id>` are client-side redirects to `/`, and `/projects/<id>` to
+  `/?project=<folder project id>` when one was made from it. Home then says "Projects now live in the
+  rail on Home." once, for that page load (put into the status line after the page is drawn, so it is
+  announced); nothing is stored to say it again. Viewers and other sign-ins without a rail are told
+  "Projects are on Home for accounts that can start sessions." instead. On a tablet or phone, where the
+  rail is below In flight, the chosen card is scrolled into view and named ("Showing reet in Projects
+  below.").
+
+## Runs from Projects
+
+The runs of saved Projects are kept to read. Activity lists them for a writer, newest first, under
+*Runs from Projects*; each opens its run (read-only: no Retry). A worktree a run recorded can still be
+checked and removed, there or from the folder project's **Worktrees** menu. Viewers see no runs.
+
+The rest of this section, and the run limits under Known limits, describe how those runs were started
+and what their records mean. The confirmation sheet, Start all, Retry and Delete they mention are no
+longer on any page.
+
+### Run routes
 
 - `GET /projects/{id}/runs` → `{runs: [Run]}`, the newest 20, newest first.
 - `GET /project-runs/{runId}` → the Run. A run stays readable after its Project is deleted.
@@ -123,11 +224,9 @@ Starting a run:
 | 422 `request_id_required` | no request id, or not 16 to 128 letters, digits, hyphens or underscores |
 | 422 `no_members` / `unknown_position` | no positions, or one that isn't in the Project or is named twice. Without `If-Match`, or with the current version, a replay whose positions have since been removed from the Project also gets `unknown_position` |
 
-The page makes the request id once per confirmation (`crypto.randomUUID()`) and resends it unchanged,
-with the same positions and version, after a lost reply: "We didn't hear back, so the run may have
-started. Try the same request again: it can't start a second run." A Project changed since the sheet
-was made closes the sheet, reads the Project again and says "This Project changed since that sheet
-was made, so nothing was started. Look it over, then press Start all again."
+No page of this release sends a start or a retry. The routes stay for one release, so a browser tab
+opened before the upgrade can still start and retry its saved Projects' runs; those sessions carry no
+project id and are not listed under a folder project. The routes go with the old tables.
 
 Retrying a member:
 
@@ -149,38 +248,7 @@ Retrying a member:
 recomputed from the saved folder) and `run` = `worktreeRun`. A successful remove moves the member to
 `removed`.
 
-## How a run starts
-
-1. **Confirm.** *Start all* reads the machines and the account's sessions again, and opens the sheet
-   only when both answered ("Couldn't check your machines and sessions just now, so Start all can't
-   open. Try again in a moment."). The sheet lists every repository: the ones that can start are
-   ticked and say their agent, model and "new worktree and branch" or "in the saved folder"; the
-   others are unticked, disabled and say "Won't start:" and the reason below. Nothing runs until
-   **Start** is pressed.
-2. **Start.** One request creates the run and answers at once. The controller starts the members in
-   order, at most two at a time and one create per machine, each through the create path a single
-   launch uses, with the Project's shared prompt as the opening prompt.
-3. **Watch.** The page reads the run every 2 seconds while a member is pending and the tab is
-   visible, and stops when none is. Each failed member shows its sentence and **Retry**.
-4. **Open.** Each started member has **Open**, which goes to its terminal session. When a run ends
-   with exactly one started member, the page offers to open it.
-
-| Why a repository won't start (sheet) | Sentence |
-| --- | --- |
-| The machine isn't enrolled (offers **Add a machine**) | "That machine isn't enrolled on this account." |
-| The machine isn't ready | its readiness sentence, for example "The machine is reconnecting. Existing shells will be kept." |
-| No launch requests | "Update reet on that machine to start agents." |
-| Agent not installed | "That agent isn't installed on that machine." |
-| No worktrees on that machine (Project uses them) | "Update reet on that machine to start agents with worktrees." |
-| 8 sessions on that machine, counting the ones this run plans | "That machine already has 8 sessions, the most it can have. End one, then start again." |
-| 32 sessions on the account, counting the ones this run plans | "This account already has 32 sessions, the most it can have. End one, then start again." |
-
-The sheet's sentence says what will start and, when the Project has a shared prompt, "The prompt is
-kept with the session record and is visible to other users of that machine in its process list." A
-Project without worktrees adds: "This Project makes no worktrees. Each agent works in the saved
-folder itself, so any other session there shares that checkout and its files."
-
-## Member states and codes
+### Member states and codes
 
 | State | Words |
 | --- | --- |
@@ -215,7 +283,7 @@ folder itself, so any other session there shares that checkout and its files."
 
 Any other code reads "Something changed. Check again."
 
-## Derivations
+### Derivations
 
 - **Request id** of a member's create: the first 48 hex characters of SHA-256 of
   `run|position|attempt`.
@@ -233,7 +301,7 @@ Any other code reads "Something changed. Check again."
 - **Session title**: the Project's name and the folder's last part, "Site · api", at most 80
   characters.
 
-## The `sent` rule: one agent per repository
+### The `sent` rule: one agent per repository
 
 Just before a member's create is handed to the broker, the member is durably marked *sent* in the
 database. The mark is cleared only when that request id is known to have started nothing. **Retry**
@@ -250,13 +318,13 @@ After a controller restart, members still pending are started again with their u
 A member that was in flight and never reached the machine comes back `session_lost`; one **Retry**
 starts it.
 
-## Waits and timeouts
+### Waits and timeouts
 
 | Where | Wait |
 | --- | --- |
 | Every browser request | given up after 15 seconds |
 | Run view | read every 2 seconds while a member is pending and the tab is visible |
-| Machines and sessions on the Project page | read again every 15 seconds while the tab is visible |
+| Machines and sessions (the retired Project page) | read again every 15 seconds while the tab was visible |
 | A machine that isn't ready when its member's turn comes | 30 seconds, or 2 minutes after a controller restart, without holding a slot; then `machine_unavailable` |
 | A worktree create, status or remove through the controller | up to 180 seconds |
 | On the machine | 60 seconds for a worktree create (plus 30 for cleanup) or a status; a remove takes at most 60 seconds in all (30 for its checks, 30 for `git worktree remove`) |
@@ -268,7 +336,7 @@ the account, and waits for a machine that isn't ready come on top. A remove can 
 machine than the browser waits: the dialog then says "We didn't hear back, so the worktree may have
 been removed. Check again.", and **Check again** reports what is there.
 
-## Where the prompt lives
+### Where the prompt lives
 
 The shared prompt is kept in the controller's database with the Project, copied onto each run when
 it starts (so the run keeps the prompt it used after the Project changes or is deleted), and sent to
@@ -280,21 +348,23 @@ It is **never** in the Projects list, a save reply, a run, an audit row, a log l
 storage or an address. Only the single-Project read returns it, for its owner's edit form. An edit
 sends it only when it changed; a save reply leaves it out.
 
-## Shared checkouts
+### Shared checkouts
 
 A Project with worktrees switched off starts each agent in the saved folder itself. Any other run or
-session in that folder shares the same checkout and files. The sheet, the run view (each member's
-`sharesCheckout`) and the Project page say so.
+session in that folder shares the same checkout and files. The run view says so for each member
+(`sharesCheckout`).
 
-## Machines that are merged or revoked
+### Machines that are merged or revoked
 
 A member names its machine by enrollment id. Merging or revoking a machine rewrites no saved Project
 or run. Members of the old enrollment are listed as "A machine no longer on this account", are
 unticked on the sheet with **Add a machine**, and if started fail `unknown_machine` with nothing sent.
-Change the Project to name the remaining machine. A repository already saved on a revoked machine
-can be kept unchanged in an edit; a new folder on it is refused (422 `unknown_machine`).
+A saved Project can no longer be changed (410 `projects_moved`); its folder project is changed instead:
+Edit, then choose the remaining machine (PATCH `host`). A folder project already on a revoked machine
+can be kept unchanged in an edit; moving it to a new folder on that machine is refused (422
+`unknown_machine`).
 
-## Remove worktree
+### Check and remove a run's worktree
 
 reet never removes a worktree by itself, apart from undoing its own failed create: when a create
 fails part-way, the machine removes the worktree and deletes the branch that same call had just made,
@@ -332,14 +402,37 @@ kept." *Remove worktree* never deletes the branch.
 
 ## Audit
 
-`project-create`, `project-update` (with `previousName` after a rename) and `project-delete` record
-the Project's id, name and repository count. `project-run` records the Project, run and repository
-count; `project-run-retry` the Project, run, position and attempt. Each started member writes the
-existing `terminal-launch` row with the worktree token, Project slug, branch and folder, and a remove
-writes `worktree-remove`. None carries the prompt. Activity reads them as, for example, "Created
-project Site with 3 repositories" and "Tried repository 2 of a Project run again (attempt 2)".
+`project-add`, `project-update` and `project-remove` record the project's id, machine (id and name),
+folder and name; `projects-migrated` the saved Project's name and the folder projects made from it;
+`folder-browse` one row per opened browser (machine, starting folder, pages). None carries a starter
+prompt. Activity reads them as, for example, "Added project reet (/home/me/reet on studio)", "Removed
+project reet; its folder on studio is untouched", "Moved saved Project Site into the rail as 2
+projects" and "Browsed folders from ~ (3 pages)". The old runs' `project-run`, `project-run-retry`,
+`terminal-launch` and `worktree-remove` rows are unchanged.
 
 ## Known limits
+
+- **Worktrees in use, not worktrees made.** No record says which worktrees reet made and has not
+  removed, so the rail and fleet cards count only those live sessions are in. A worktree left by an
+  ended session (outside an old run) is not listed anywhere.
+- **No launch bar yet.** Choosing a card opens Start an agent; the project's default agent, model,
+  base branch, worktree choice and starter prompt are not applied until the launch bar (a later
+  release). A session started there with the same folder carries the project id.
+- **Old runs listed: the newest 20 per saved Project** (what the run list answers); older runs and their
+  worktrees are not listed.
+- **Rail menu reorder only.** Moving is one place at a time from the menu; there is no drag.
+- **Waiting needs the person.** Saved folders left waiting come in only from the rail's prompt.
+- **Downgrade, then upgrade again.** `reet upgrade --version` can go back to a release without folder
+  projects. Saved Projects created or changed while downgraded are not migrated at the next upgrade
+  (the migration has already run); their new folders show as waiting in the rail, even when there is
+  room, and come in with **Add the waiting folders**. Changes to folders already moved are not carried
+  over.
+- **A session's project is checked for account and machine, not folder.** A start may name any of the
+  account's projects on that machine, whatever folder it starts in; the rail then counts that session
+  under the project. Choosing a card only sends the id while the folder is still the project's. (The
+  launch bar may check the folder too.)
+- **No running state without sessions.** When the session list could not be read, cards say nothing
+  about running, idle or worktrees in use ("machine offline" still shows from the health report).
 
 - **One controller process.** Member claims and per-machine slots are held in memory. Two
   controllers on one database could start a member twice.
@@ -350,9 +443,9 @@ project Site with 3 repositories" and "Tried repository 2 of a Project run again
   are not caught; they get separate worktrees and branches.
 - **A lost create reply.** If a worktree create's reply never arrives, the session is found by
   reconciling, which doesn't carry the worktree's folder or repository name. The run then can't name
-  that worktree, so *Remove worktree* isn't offered for it; remove it on the machine by hand. Deleting
-  the Project doesn't mention such a worktree either, nor one whose create was answered
-  `worktree_mismatch`: Delete's warning covers only worktrees a run recorded.
+  that worktree, so *Remove worktree* isn't offered for it; remove it on the machine by hand. The same
+  holds for one whose create was answered `worktree_mismatch`: only worktrees a run recorded are
+  listed.
 - **An agent still running in the worktree** is not checked by the machine; the page offers removal
   only after the session has ended, from the sessions it read.
 - **A slow remove** can outlast the browser's 15 seconds; Check again reports the outcome.

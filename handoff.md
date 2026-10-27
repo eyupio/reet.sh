@@ -2,6 +2,44 @@
 
 ## Read this first — 24 October 2026
 
+**Agents home redesign (27 October 2026) — in progress, updated with every pull request in the stack.**
+Home, the shell and the machine-folder projects are being rebuilt to the mock-up in
+[docs/design/agents-home/](docs/design/agents-home/) (reference renders at 1440, 834 and 390 px; each PR
+is checked against them and says so in `docs/ui-verification.md`). The plan, with its rulings and global
+constraints, is [docs/superpowers/plans/2026-10-26-agents-home.md](docs/superpowers/plans/2026-10-26-agents-home.md).
+Work goes out as stacked PRs on `claude/gallant-darwin-n9oqfj`. **Quicker plan, agreed 27 October 2026:** the
+fidelity polish (P) is folded into the PRs that touch the same screens, YOLO (F) and attention (G) are left out of
+the first pass, and the structured-chat spike runs in parallel with the Home work. Order:
+
+| PR | What | State |
+| --- | --- | --- |
+| D | App shell (top and bottom tabs, bell, jump search, More sheet) and Home | merged, [#218](https://github.com/eyupio/reet.sh/pull/218) |
+| A | Machine folder browse and branches (`agents`, `browse-v1`, `branches-v1`), start-agent navigates to the session, dockable and resizable sessions panel | merged, [#219](https://github.com/eyupio/reet.sh/pull/219); contract in [docs/folder-browse.md](docs/folder-browse.md) |
+| B | Folder projects: store and API (`/api/v2/folder-projects`, reorder, `import-saved`, `?legacy=`), saved Projects moved over (old create/edit/delete answer 410 `projects_moved`), the Add project dialog with the folder browser, and the rail on Home (card menu, Worktrees, the one-time migration note, the "waiting folders" prompt; a 1100–1239 px strip with a managed panel); `/projects` and `/projects/<id>` redirect to Home, old runs are read-only in Activity (*Runs from Projects*); read [docs/projects.md](docs/projects.md) | [#221](https://github.com/eyupio/reet.sh/pull/221): B1–B6 done, broad reviews (web, cross-cutting, Go) addressed in a final fix round; ready to merge. No release tag until PR E merges (R22) |
+| P | Home fidelity polish: tokens, spacing, top and tab bars go into C; fleet strip, In flight, Needs you and the dock go into E | folded into C and E, no PR of its own |
+| C | Agent catalogue and launch fields (tool on the session listing, `osVersion`) | not started |
+| E | Launch bar, start in several projects (PR B already retired the old Projects page; the old Start-all routes and tables go at the later release step). Notes for E: take folder-project versions from the reorder reply (every moved project's version changes); check `dir` (or the worktree's source) for a session's `projectId`, which PR B checks for account and machine only; apply the project's defaults and starter prompt (Use the starter prompt) | not started |
+| F | YOLO (off by default, per session, audited, machines can refuse) | **deferred past the first pass**; the design decisions stand |
+| G | Attention and Needs you | **deferred past the first pass**; Needs you stays an honest empty state until then |
+| H | Session screen, tablet and phone | not started |
+| Program 2 | Structured chat over the agent protocol, with command-approval cards | research spike done (27 Oct 2026): go with conditions, the owner chose **OpenCode first** (27 Oct 2026) instead of Claude: it speaks the protocol natively (`opencode acp`, MIT, single binary, no adapter to install), so the first slice needs no install step; its resume after a lost runner and its permission behaviour are less documented than Claude's and must be probed before the plan is fixed; first slice is OpenCode with approval cards, the spike's 7–9 engineer-weeks was sized for Claude and needs re-checking; report in `.superpowers/sdd/2026-10-26-agents-home/program2-spike.md` (git-ignored, to be moved into `docs/design/` with the plan); hands-on probe not yet run, it needs the owner's go-ahead; written plan follows |
+
+Until Program 2, reet starts agents in terminal sessions and wraps them with projects, the launch bar,
+YOLO, attention and the session screen; it is not yet a structured chat front end.
+Things still open: nothing has been checked on a real phone or in Safari (browser emulation only); worktree
+git calls share the lazy-fetch and fsmonitor hazard the folder browser already guards against; the
+`terminal-browser` CI job runs close to its 15 minute limit, so add no new fixtures there (PR B moved
+`projects.e2e.mjs` out of it into `phone-zoom`); since PR B the worktree figure on Home is "worktrees in use"
+(live sessions only: no record says which worktrees were removed), choosing a rail card opens Start an agent
+until the launch bar (E) applies the project's defaults and starter prompt, and the old Projects tables and
+their start/retry routes stay one release before they are dropped (ruling: no page calls them; the web client for them
+and the run Retry are already removed); a downgrade then re-upgrade leaves Projects saved while downgraded as "waiting
+folders" in the rail (not migrated automatically); a session's `projectId` is checked for account and machine, not
+folder (see the E row); the import's answer still says "saved repositories" (a Go sentence) where the rail says
+"folders"; the MCP test
+`mcp/test/oauth.test.mjs` needs the fixture precompiled in CI (done in `image.yml`).
+**Rule for this stack: every PR updates this block (state column and any new limits) before it merges.**
+
 **Single sign-on, pull request 3 of 3 (25 October 2026).** The interface is in: the sign-in button (with the
 password form folded away where password sign-in is off, so the owner can still use it), one plain sentence
 for each `sso_error` code, link and unlink on Account → Single sign-on, and a read-only status panel under

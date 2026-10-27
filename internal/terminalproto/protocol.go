@@ -242,6 +242,10 @@ type Create struct {
 	// refused without it. It names the worktree folder and branch on the
 	// machine: ~/.reet/worktrees/<project>/<repo>/<worktree>, reet/<project>-<worktree>.
 	Project string `json:"project,omitempty"`
+	// ProjectID is the controller's folder project the session belongs to.
+	// It is the controller's own record: never encoded, so never sent to a
+	// machine nor stored with the create's parameters.
+	ProjectID string `json:"-"`
 }
 
 func (Create) kind() string  { return "create" }

@@ -43,13 +43,37 @@ func (f *projectAPI) body(members ...map[string]any) map[string]any {
 	return map[string]any{"name": "Shop", "defaultTool": "claude", "defaultModel": "sonnet", "sharedPrompt": projectSentinel, "useWorktrees": true, "members": members}
 }
 
+// create saves a Project through the store (the API no longer makes them:
+// they moved into folder projects) and answers with its single read.
 func (f *projectAPI) create(t *testing.T, body map[string]any) map[string]any {
 	t.Helper()
-	code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/projects", body)
-	if code != 201 {
-		t.Fatal("create", code, raw)
+	p := storeProject(t, f.st, f.uid, body)
+	code, out, raw := f.do(t, f.cookie, "GET", "/api/v2/projects/"+p.ID, nil)
+	if code != 200 {
+		t.Fatal("read", code, raw)
 	}
 	return out
+}
+
+// storeProject saves the Project a request body describes through the store,
+// as POST /api/v2/projects once did (useWorktrees defaults to true).
+func storeProject(t *testing.T, st *store.Store, uid int64, body map[string]any) store.Project {
+	t.Helper()
+	var in struct {
+		Name, DefaultTool, DefaultModel, SharedPrompt string
+		UseWorktrees                                  *bool
+		Members                                       []store.ProjectMember
+	}
+	data, _ := json.Marshal(body)
+	if err := json.Unmarshal(data, &in); err != nil {
+		t.Fatal(err)
+	}
+	p := store.Project{Name: in.Name, DefaultTool: in.DefaultTool, DefaultModel: in.DefaultModel, SharedPrompt: in.SharedPrompt, UseWorktrees: in.UseWorktrees == nil || *in.UseWorktrees, Members: in.Members}
+	saved, err := st.CreateProjectFor(uid, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return saved
 }
 
 // raw sends a request with full control over origin, cookie and token.
@@ -93,18 +117,15 @@ func keysOf(m map[string]any) []string {
 	return out
 }
 
-func TestProjectCreateReadUpdateDelete(t *testing.T) {
+func TestProjectReadsKeepWorkingAndWritesAreGone(t *testing.T) {
 	f := projectFixture(t)
 	created := f.create(t, f.body())
 	id, _ := created["id"].(string)
 	if len(id) != 32 || created["name"] != "Shop" || created["defaultTool"] != "claude" || created["defaultModel"] != "sonnet" ||
-		created["useWorktrees"] != true || created["hasSharedPrompt"] != true {
-		t.Fatal("created", created)
+		created["useWorktrees"] != true || created["hasSharedPrompt"] != true || created["sharedPrompt"] != projectSentinel {
+		t.Fatal("single read", created)
 	}
-	if _, ok := created["sharedPrompt"]; ok {
-		t.Fatal("create answered with the shared prompt")
-	}
-	want := []string{"createdAt", "defaultModel", "defaultTool", "hasSharedPrompt", "id", "members", "name", "updatedAt", "useWorktrees", "version"}
+	want := []string{"createdAt", "defaultModel", "defaultTool", "hasSharedPrompt", "id", "members", "name", "sharedPrompt", "updatedAt", "useWorktrees", "version"}
 	if got := keysOf(created); !reflect.DeepEqual(got, want) {
 		t.Fatal("project keys", got)
 	}
@@ -113,152 +134,33 @@ func TestProjectCreateReadUpdateDelete(t *testing.T) {
 	if len(members) != 2 || second["host"] != f.agent.ID || second["dir"] != "/home/tester/api" || second["tool"] != "codex" || second["model"] != "gpt-5-codex" || second["position"] != float64(1) {
 		t.Fatal("members", members)
 	}
-
 	code, list, raw := f.do(t, f.cookie, "GET", "/api/v2/projects", nil)
 	if code != 200 || len(list["projects"].([]any)) != 1 || strings.Contains(raw, "sharedPrompt\"") || strings.Contains(raw, "zebra") {
 		t.Fatal("list", code, raw)
 	}
-	code, one, raw := f.do(t, f.cookie, "GET", "/api/v2/projects/"+id, nil)
-	if code != 200 || one["sharedPrompt"] != projectSentinel || one["hasSharedPrompt"] != true {
-		t.Fatal("single read", code, raw)
-	}
-
-	// A rename keeps the prompt and the members.
-	code, renamed, raw := f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, map[string]any{"name": "Shop front"})
-	if code != 200 || renamed["name"] != "Shop front" || renamed["hasSharedPrompt"] != true || len(renamed["members"].([]any)) != 2 {
-		t.Fatal("rename", code, raw)
-	}
-	// Members, when sent, replace the whole list.
-	code, replaced, raw := f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, map[string]any{"members": []map[string]any{{"host": f.agent.ID, "dir": "/home/tester/docs/"}}, "sharedPrompt": "", "useWorktrees": false})
-	if code != 200 || replaced["hasSharedPrompt"] != false || replaced["useWorktrees"] != false {
-		t.Fatal("replace", code, raw)
-	}
-	if ms := replaced["members"].([]any); len(ms) != 1 || ms[0].(map[string]any)["dir"] != "/home/tester/docs" {
-		t.Fatal("replaced members", ms)
-	}
-	saved, err := f.st.ProjectFor(f.uid, id)
-	if err != nil || saved.Name != "Shop front" || saved.SharedPrompt != "" || len(saved.Members) != 1 {
-		t.Fatal("stored after update", saved, err)
-	}
-
-	code, deleted, raw := f.do(t, f.cookie, "DELETE", "/api/v2/projects/"+id, nil)
-	if code != 200 || deleted["ok"] != true || deleted["mayHaveWorktrees"] != false || deleted["message"] != "Project deleted. Its runs are kept." {
-		t.Fatal("delete", code, raw)
-	}
-	if code, out, raw := f.do(t, f.cookie, "GET", "/api/v2/projects/"+id, nil); code != 404 || out["code"] != "not_found" || out["error"] != "That Project isn't on this account." {
-		t.Fatal("deleted project still readable", code, raw)
-	}
-	if code, list, _ := f.do(t, f.cookie, "GET", "/api/v2/projects", nil); code != 200 || len(list["projects"].([]any)) != 0 {
-		t.Fatal("list after delete", list)
-	}
-}
-
-func TestProjectNewProjectMakesWorktreesUnlessToldOtherwise(t *testing.T) {
-	f := projectFixture(t)
-	body := f.body()
-	delete(body, "useWorktrees")
-	if out := f.create(t, body); out["useWorktrees"] != true {
-		t.Fatal("default", out)
-	}
-}
-
-func TestProjectValidationAnswersWithCodesAndSentences(t *testing.T) {
-	f := projectFixture(t)
-	long := "/" + strings.Repeat("a", 4096)
-	cases := []struct {
-		name     string
-		mutate   func(map[string]any)
-		status   int
-		code     string
-		field    string
-		sentence string
+	before, _ := f.st.ProjectFor(f.uid, id)
+	// Making, changing and deleting a Project moved to the rail on Home.
+	for _, c := range []struct {
+		method, path string
+		body         any
 	}{
-		{"empty name", func(b map[string]any) { b["name"] = "  " }, 422, "invalid_name", "name", "Give the Project a name of 1 to 80 characters, without line breaks or control characters."},
-		{"no name", func(b map[string]any) { delete(b, "name") }, 422, "invalid_name", "name", ""},
-		{"long name", func(b map[string]any) { b["name"] = strings.Repeat("é", 81) }, 422, "invalid_name", "name", ""},
-		{"line break in name", func(b map[string]any) { b["name"] = "Shop\nfront" }, 422, "invalid_name", "name", ""},
-		{"no default tool", func(b map[string]any) { delete(b, "defaultTool") }, 422, "invalid_tool", "defaultTool", "Choose one of the agents reet can start."},
-		{"unknown tool", func(b map[string]any) { b["defaultTool"] = "bash" }, 422, "invalid_tool", "defaultTool", ""},
-		{"bad model", func(b map[string]any) { b["defaultModel"] = "-rm" }, 422, "invalid_model", "defaultModel", ""},
-		{"prompt starting with a dash", func(b map[string]any) { b["sharedPrompt"] = "--yolo now" }, 422, "invalid_prompt", "sharedPrompt", "The shared prompt must be valid text of at most 2,000 bytes, without control characters other than line breaks, and must not start with a dash."},
-		{"prompt too long", func(b map[string]any) { b["sharedPrompt"] = strings.Repeat("word ", 401) }, 422, "invalid_prompt", "sharedPrompt", ""},
-		{"prompt with a control character", func(b map[string]any) { b["sharedPrompt"] = "two\twords" }, 422, "invalid_prompt", "sharedPrompt", ""},
-		{"one-word prompt", func(b map[string]any) { b["sharedPrompt"] = "review" }, 422, "prompt_unsupported", "sharedPrompt", "Write the opening prompt as at least two words."},
-		{"one-word prompt without members", func(b map[string]any) { b["sharedPrompt"] = "review"; b["members"] = []any{} }, 422, "prompt_unsupported", "sharedPrompt", ""},
-		{"relative folder", func(b map[string]any) {
-			b["members"] = []map[string]any{{"host": f.agent.ID, "dir": "site"}}
-		}, 422, "invalid_dir", "members.0.dir", "Repository 1: the folder must be an absolute path starting with /, at most 4096 bytes, without control characters or line separators."},
-		{"long folder", func(b map[string]any) { b["members"] = []map[string]any{{"host": f.agent.ID, "dir": long}} }, 422, "invalid_dir", "members.0.dir", ""},
-		{"member tool", func(b map[string]any) {
-			b["members"] = []map[string]any{{"host": f.agent.ID, "dir": "/a"}, {"host": f.agent.ID, "dir": "/b", "tool": "vim"}}
-		}, 422, "invalid_tool", "members.1.tool", "Repository 2: choose one of the agents reet can start."},
-		{"member model", func(b map[string]any) {
-			b["members"] = []map[string]any{{"host": f.agent.ID, "dir": "/a", "model": "has space"}}
-		}, 422, "invalid_model", "members.0.model", ""},
-		{"member without machine", func(b map[string]any) { b["members"] = []map[string]any{{"dir": "/a"}} }, 422, "unknown_machine", "members.0.host", "Repository 1: that machine isn't enrolled on this account."},
-		{"machine by name, not id", func(b map[string]any) { b["members"] = []map[string]any{{"host": f.agent.Host, "dir": "/a"}} }, 422, "unknown_machine", "members.0.host", ""},
-		{"duplicate member", func(b map[string]any) {
-			b["members"] = []map[string]any{{"host": f.agent.ID, "dir": "/home/tester/site"}, {"host": f.agent.ID, "dir": "/home/tester/./site/"}}
-		}, 422, "duplicate_member", "members", "Each machine and folder can be in a Project only once."},
-	}
-	for _, c := range cases {
-		body := f.body()
-		c.mutate(body)
-		code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/projects", body)
-		if code != c.status || out["code"] != c.code || out["field"] != c.field || out["error"] != out["message"] || c.sentence != "" && out["error"] != c.sentence {
-			t.Fatal(c.name, code, raw)
-		}
-		if strings.Contains(raw, "zebra") {
-			t.Fatal(c.name, "echoed the prompt", raw)
+		{"POST", "/api/v2/projects", f.body()},
+		{"PATCH", "/api/v2/projects/" + id, map[string]any{"name": "Shop front"}},
+		{"DELETE", "/api/v2/projects/" + id, nil},
+	} {
+		code, out, raw := f.do(t, f.cookie, c.method, c.path, c.body)
+		if code != 410 || out["code"] != "projects_moved" || out["error"] != "Projects now live in the rail on Home." {
+			t.Fatal(c.method, code, raw)
 		}
 	}
-	if projects, _ := f.st.ListProjectsFor(f.uid); len(projects) != 0 {
-		t.Fatal("a refused Project was saved", projects)
+	if after, err := f.st.ProjectFor(f.uid, id); err != nil || !reflect.DeepEqual(after, before) {
+		t.Fatal("a moved write changed the Project", after, err)
 	}
-	if len(projectEvents(t, f.st, f.uid, "project-create")) != 0 {
-		t.Fatal("a refused Project was audited")
+	if projects, _ := f.st.ListProjectsFor(f.uid); len(projects) != 1 {
+		t.Fatal("a moved write made a Project", projects)
 	}
-	// A tool the machine has not reported is still saved: readiness is judged at Start.
-	body := f.body(map[string]any{"host": f.agent.ID, "dir": "/a", "tool": "gemini"})
-	f.create(t, body)
-}
-
-func TestProjectNameIsUniquePerAccountIgnoringCase(t *testing.T) {
-	f := projectFixture(t)
-	f.create(t, f.body())
-	body := f.body()
-	body["name"] = "  shop "
-	code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/projects", body)
-	if code != 409 || out["code"] != "name_taken" || out["field"] != "name" || out["error"] != "Another Project on this account already has that name." {
-		t.Fatal(code, raw)
-	}
-}
-
-func TestProjectLimits(t *testing.T) {
-	f := projectFixture(t)
-	members := []map[string]any{}
-	for i := 0; i < 13; i++ {
-		members = append(members, map[string]any{"host": f.agent.ID, "dir": fmt.Sprintf("/home/tester/r%d", i)})
-	}
-	code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/projects", f.body(members...))
-	if code != 422 || out["code"] != "member_limit" || out["error"] != "A Project can have at most 12 repositories." {
-		t.Fatal("13 members", code, raw)
-	}
-	created := f.create(t, f.body(members[:12]...))
-	code, out, raw = f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+created["id"].(string), map[string]any{"members": members})
-	if code != 422 || out["code"] != "member_limit" {
-		t.Fatal("13 members by update", code, raw)
-	}
-	for i := 1; i < store.MaxProjectsPerAccount; i++ {
-		if _, err := f.st.CreateProjectFor(f.uid, store.Project{Name: fmt.Sprintf("P%d", i), DefaultTool: "claude"}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	body := f.body()
-	body["name"] = "One too many"
-	code, out, raw = f.do(t, f.cookie, "POST", "/api/v2/projects", body)
-	if code != 409 || out["code"] != "project_limit" || out["error"] != "This account already has 50 Projects, the most it can have. Delete one first." {
-		t.Fatal("51st project", code, raw)
+	if code, out, raw := f.do(t, f.cookie, "GET", "/api/v2/projects/"+strings.Repeat("0", 32), nil); code != 404 || out["code"] != "not_found" || out["error"] != "That Project isn't on this account." {
+		t.Fatal("unknown project", code, raw)
 	}
 }
 
@@ -279,19 +181,23 @@ func TestProjectsAreScopedToTheirOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	b := terminalLogin(t, f.st, other.ID)
-	for _, c := range []struct{ method, path string }{
-		{"GET", "/api/v2/projects/" + aID},
-		{"PATCH", "/api/v2/projects/" + aID},
-		{"DELETE", "/api/v2/projects/" + aID},
-		{"GET", "/api/v2/projects/" + aID + "/runs"},
-		{"GET", "/api/v2/project-runs/" + run.ID},
+	for _, c := range []struct {
+		method, path string
+		code         int
+	}{
+		{"GET", "/api/v2/projects/" + aID, 404},
+		// Changes are gone for every Project: the same answer whoever owns it.
+		{"PATCH", "/api/v2/projects/" + aID, 410},
+		{"DELETE", "/api/v2/projects/" + aID, 410},
+		{"GET", "/api/v2/projects/" + aID + "/runs", 404},
+		{"GET", "/api/v2/project-runs/" + run.ID, 404},
 	} {
 		var body any
 		if c.method == "PATCH" {
 			body = map[string]any{"name": "Taken over", "members": []map[string]any{{"host": otherAgent.ID, "dir": "/x"}}}
 		}
 		code, out, raw := f.do(t, b, c.method, c.path, body)
-		if code != 404 || (out["code"] != "not_found" && out["code"] != "run_not_found") || strings.Contains(raw, "Shop") {
+		if code != c.code || (out["code"] != "not_found" && out["code"] != "run_not_found" && out["code"] != "projects_moved") || strings.Contains(raw, "Shop") {
 			t.Fatal("another account reached", c.method, c.path, code, raw)
 		}
 	}
@@ -304,65 +210,6 @@ func TestProjectsAreScopedToTheirOwner(t *testing.T) {
 	}
 	if _, err := f.st.RunFor(f.uid, run.ID); err != nil {
 		t.Fatal(err)
-	}
-	// A machine of another account is refused, on create and on update.
-	body := f.body(map[string]any{"host": f.agent.ID, "dir": "/x"})
-	code, out, raw := f.do(t, b, "POST", "/api/v2/projects", body)
-	if code != 422 || out["code"] != "unknown_machine" {
-		t.Fatal("another account's machine accepted", code, raw)
-	}
-	bProject, err := f.st.CreateProjectFor(other.ID, store.Project{Name: "Mine", DefaultTool: "claude", Members: []store.ProjectMember{{Host: otherAgent.ID, Dir: "/z"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	code, out, raw = f.do(t, b, "PATCH", "/api/v2/projects/"+bProject.ID, map[string]any{"members": []map[string]any{{"host": otherAgent.ID, "dir": "/z"}, {"host": f.agent.ID, "dir": "/z"}}})
-	if code != 422 || out["code"] != "unknown_machine" || out["field"] != "members.1.host" {
-		t.Fatal("another account's machine accepted on update", code, raw)
-	}
-	if code, _, raw := f.do(t, b, "PATCH", "/api/v2/projects/"+bProject.ID, map[string]any{"members": []map[string]any{{"host": otherAgent.ID, "dir": "/w"}}}); code != 200 {
-		t.Fatal("own machine refused", code, raw)
-	}
-}
-
-func TestProjectKeepsAForgottenMachineButAcceptsNoNewUnknownOne(t *testing.T) {
-	f := projectFixture(t)
-	spare, _, err := f.st.EnrollSyncAgent(f.uid, "spare", "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	created := f.create(t, f.body(map[string]any{"host": spare.ID, "dir": "/a"}))
-	if err := f.st.ControlSyncAgent(f.uid, spare.ID, "revoke"); err != nil {
-		t.Fatal(err)
-	}
-	if agents, _ := f.st.SyncAgentsFor(f.uid); len(agents) != 1 {
-		t.Fatal("machine not forgotten", agents)
-	}
-	id := created["id"].(string)
-	// The edit form sends the saved members back unchanged.
-	members := []map[string]any{{"host": spare.ID, "dir": "/a/"}, {"host": f.agent.ID, "dir": "/b"}}
-	if code, _, raw := f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, map[string]any{"members": members}); code != 200 {
-		t.Fatal("saved repository refused", code, raw)
-	}
-	// The exception is per saved repository, not per machine: a new folder on
-	// the revoked machine, or another spelling of its id, is refused.
-	for name, m := range map[string]map[string]any{
-		"new folder":      {"host": spare.ID, "dir": "/new"},
-		"upper-case id":   {"host": strings.ToUpper(spare.ID), "dir": "/a"},
-		"id with a space": {"host": " " + spare.ID, "dir": "/a"},
-		"trailing space":  {"host": spare.ID + " ", "dir": "/a"},
-	} {
-		code, out, raw := f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, map[string]any{"members": []map[string]any{{"host": f.agent.ID, "dir": "/b"}, m}})
-		if code != 422 || out["code"] != "unknown_machine" || out["field"] != "members.1.host" {
-			t.Fatal(name, code, raw)
-		}
-	}
-	if saved, _ := f.st.ProjectFor(f.uid, id); len(saved.Members) != 2 || saved.Members[0].Host != spare.ID || saved.Members[0].Dir != "/a" {
-		t.Fatal("a refused update changed the Project", saved.Members)
-	}
-	body := f.body(map[string]any{"host": spare.ID, "dir": "/a"})
-	body["name"] = "Elsewhere"
-	if code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/projects", body); code != 422 || out["code"] != "unknown_machine" {
-		t.Fatal("forgotten machine accepted in a new Project", code, raw)
 	}
 }
 
@@ -450,56 +297,10 @@ func TestProjectChangesNeedTheCanonicalOrigin(t *testing.T) {
 	}
 }
 
-func TestProjectRequestsAreStrictJSONWithASizeLimit(t *testing.T) {
-	f := projectFixture(t)
-	id := f.create(t, f.body())["id"].(string)
-	good, _ := json.Marshal(map[string]any{"name": "Strict", "defaultTool": "claude"})
-	for name, body := range map[string]string{
-		"unknown field":         `{"name":"Strict","defaultTool":"claude","prompt":"two words"}`,
-		"member position":       `{"name":"Strict","defaultTool":"claude","members":[{"host":"` + f.agent.ID + `","dir":"/a","position":0}]}`,
-		"member unknown field":  `{"name":"Strict","defaultTool":"claude","members":[{"host":"` + f.agent.ID + `","dir":"/a","branch":"main"}]}`,
-		"two values":            string(good) + string(good),
-		"trailing garbage":      string(good) + "x",
-		"wrong type":            `{"name":1,"defaultTool":"claude"}`,
-		"not an object":         `["Strict"]`,
-		"not JSON":              `name=Strict`,
-		"empty":                 ``,
-		"read-only id":          `{"id":"abc","name":"Strict","defaultTool":"claude"}`,
-		"read-only flag":        `{"hasSharedPrompt":true,"name":"Strict","defaultTool":"claude"}`,
-		"useWorktrees a string": `{"name":"Strict","defaultTool":"claude","useWorktrees":"yes"}`,
-	} {
-		for _, rt := range []struct{ method, path string }{{"POST", "/api/v2/projects"}, {"PATCH", "/api/v2/projects/" + id}} {
-			code, out, raw := f.do(t, f.cookie, rt.method, rt.path, body)
-			if code != 400 || out["code"] != "invalid_request" || out["error"] != "That request isn't a Project reet can read." {
-				t.Fatal(name, rt.method, code, raw)
-			}
-		}
-	}
-	huge := `{"name":"Strict","defaultTool":"claude","sharedPrompt":"` + strings.Repeat("a", 130<<10) + `"}`
-	for _, rt := range []struct{ method, path string }{{"POST", "/api/v2/projects"}, {"PATCH", "/api/v2/projects/" + id}} {
-		code, out, raw := f.do(t, f.cookie, rt.method, rt.path, huge)
-		if code != 413 || out["code"] != "too_large" {
-			t.Fatal("size limit", rt.method, code, raw[:min(len(raw), 200)])
-		}
-	}
-	// The largest real Project fits: twelve longest folders and a full prompt.
-	members := []map[string]any{}
-	for i := 0; i < 12; i++ {
-		members = append(members, map[string]any{"host": f.agent.ID, "dir": fmt.Sprintf("/%02d", i) + strings.Repeat("d", 4093), "model": strings.Repeat("m", 100)})
-	}
-	body := f.body(members...)
-	body["name"] = strings.Repeat("n", 80)
-	body["sharedPrompt"] = strings.Repeat("ab ", 666) + "ab"
-	f.create(t, body)
-	if projects, _ := f.st.ListProjectsFor(f.uid); len(projects) != 2 {
-		t.Fatal("a refused request saved something", len(projects))
-	}
-}
-
 func TestProjectSharedPromptOnlyInTheSingleRead(t *testing.T) {
 	f := projectFixture(t)
 	id := f.create(t, f.body())["id"].(string)
-	if code, _, raw := f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, map[string]any{"name": "Shop two", "sharedPrompt": projectSentinel + " again"}); code != 200 || strings.Contains(raw, "zebra") {
+	if code, _, raw := f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, map[string]any{"name": "Shop two", "sharedPrompt": projectSentinel + " again"}); code != 410 || strings.Contains(raw, "zebra") {
 		t.Fatal("update", code, raw)
 	}
 	run, err := f.st.CreateRunFor(f.uid, id)
@@ -532,71 +333,8 @@ func TestProjectSharedPromptOnlyInTheSingleRead(t *testing.T) {
 			t.Fatal("the shared prompt reached", where, text)
 		}
 	}
-	for _, action := range []string{"project-create", "project-update", "project-delete"} {
-		if !strings.Contains(reads["events after delete"], action) {
-			t.Fatal("Activity does not list", action)
-		}
-	}
-}
-
-func TestProjectAuditRows(t *testing.T) {
-	f := projectFixture(t)
-	created := f.create(t, f.body())
-	id := created["id"].(string)
-	f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, map[string]any{"name": "Shop front", "members": []map[string]any{{"host": f.agent.ID, "dir": "/a"}}})
-	f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, map[string]any{"useWorktrees": false})
-	f.do(t, f.cookie, "DELETE", "/api/v2/projects/"+id, nil)
-	createRows := projectEvents(t, f.st, f.uid, "project-create")
-	updateRows := projectEvents(t, f.st, f.uid, "project-update")
-	deleteRows := projectEvents(t, f.st, f.uid, "project-delete")
-	if len(createRows) != 1 || !reflect.DeepEqual(createRows[0], map[string]any{"project": id, "name": "Shop", "members": float64(2)}) {
-		t.Fatal("create row", createRows)
-	}
-	// Newest first.
-	if len(updateRows) != 2 || !reflect.DeepEqual(updateRows[1], map[string]any{"project": id, "name": "Shop front", "members": float64(1), "previousName": "Shop"}) ||
-		!reflect.DeepEqual(updateRows[0], map[string]any{"project": id, "name": "Shop front", "members": float64(1)}) {
-		t.Fatal("update rows", updateRows)
-	}
-	if len(deleteRows) != 1 || !reflect.DeepEqual(deleteRows[0], map[string]any{"project": id, "name": "Shop front", "members": float64(1)}) {
-		t.Fatal("delete row", deleteRows)
-	}
-	for _, e := range worktreeEvents(t, f.st, f.uid, "project-delete") {
-		if e.Source != "ui" {
-			t.Fatal("source", e.Source)
-		}
-	}
-	// A refused change is not audited.
-	f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, map[string]any{"name": "Gone"})
-	if len(projectEvents(t, f.st, f.uid, "project-update")) != 2 {
-		t.Fatal("a refused update was audited")
-	}
-}
-
-func TestProjectFailedUpdateLeavesTheProjectIntact(t *testing.T) {
-	f := projectFixture(t)
-	first := f.create(t, f.body())
-	second := f.body(map[string]any{"host": f.agent.ID, "dir": "/other"})
-	second["name"] = "Second"
-	id := f.create(t, second)["id"].(string)
-	before, err := f.st.ProjectFor(f.uid, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for name, patch := range map[string]map[string]any{
-		// The store replaces members, then the rename hits the unique name: one transaction.
-		"name taken after member replace": {"name": first["name"], "members": []map[string]any{{"host": f.agent.ID, "dir": "/new1"}, {"host": f.agent.ID, "dir": "/new2"}}},
-		"duplicate members":               {"members": []map[string]any{{"host": f.agent.ID, "dir": "/new1"}, {"host": f.agent.ID, "dir": "/new1/"}}},
-		"one bad member":                  {"members": []map[string]any{{"host": f.agent.ID, "dir": "/new1"}, {"host": "nope", "dir": "/new2"}}},
-		"one-word prompt":                 {"sharedPrompt": "review", "members": []map[string]any{{"host": f.agent.ID, "dir": "/new1"}}},
-	} {
-		code, _, raw := f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, patch)
-		if code < 400 {
-			t.Fatal(name, code, raw)
-		}
-		after, err := f.st.ProjectFor(f.uid, id)
-		if err != nil || !reflect.DeepEqual(after, before) {
-			t.Fatal(name, "changed the Project", after, before, err)
-		}
+	if _, err := f.st.ProjectFor(f.uid, id); err != nil {
+		t.Fatal("the moved delete removed the Project", err)
 	}
 }
 
@@ -620,9 +358,10 @@ func TestProjectDeleteKeepsRunsReadable(t *testing.T) {
 	if err := f.st.SetRunMemberState(f.uid, run.ID, 1, store.RunMemberFailed, "tool_not_installed", "", "", "", "", 1); err != nil {
 		t.Fatal(err)
 	}
-	code, out, raw := f.do(t, f.cookie, "DELETE", "/api/v2/projects/"+id, nil)
-	if code != 200 || out["mayHaveWorktrees"] != true || out["message"] != "Project deleted. Its runs are kept. Worktrees those runs made, if still there, stay on their machines." {
-		t.Fatal("delete", code, raw)
+	// The API no longer deletes Projects; one deleted (as its account's
+	// data can be) keeps its runs readable.
+	if err := f.st.DeleteProjectFor(f.uid, id); err != nil {
+		t.Fatal(err)
 	}
 	code, got, raw := f.do(t, f.cookie, "GET", "/api/v2/project-runs/"+run.ID, nil)
 	if code != 200 || got["projectName"] != "Shop" || got["projectId"] != "" || got["state"] != "partial" || got["id"] != run.ID {
@@ -712,201 +451,5 @@ func TestProjectStoreErrorsHaveStableCodes(t *testing.T) {
 		if r.code != code || r.sentence == "" || strings.Contains(strings.ToLower(r.sentence), "verified") || strings.Contains(strings.ToLower(r.sentence), "healthy") {
 			t.Fatal(err, r)
 		}
-	}
-}
-
-func TestProjectIfMatchRefusesAStaleEdit(t *testing.T) {
-	f := projectFixture(t)
-	created := f.create(t, f.body())
-	id := created["id"].(string)
-	if created["version"] != float64(1) {
-		t.Fatal("new version", created["version"])
-	}
-	patch := func(version string, body map[string]any) (int, map[string]any, string) {
-		data, _ := json.Marshal(body)
-		r := httptest.NewRequest("PATCH", "/api/v2/projects/"+id, strings.NewReader(string(data)))
-		r.Header.Set("Content-Type", "application/json")
-		r.Header.Set("Origin", "https://reet.example")
-		if version != "" {
-			r.Header.Set("If-Match", version)
-		}
-		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: f.cookie})
-		w := httptest.NewRecorder()
-		f.srv.ServeHTTP(w, r)
-		out := map[string]any{}
-		_ = json.Unmarshal(w.Body.Bytes(), &out)
-		if w.Code == 200 && w.Header().Get("ETag") != fmt.Sprintf(`"%v"`, out["version"]) {
-			t.Fatal("etag", w.Header().Get("ETag"), out["version"])
-		}
-		return w.Code, out, w.Body.String()
-	}
-	// Two editors both read version 1.
-	code, first, raw := patch(`"1"`, map[string]any{"name": "First editor"})
-	if code != 200 || first["version"] != float64(2) {
-		t.Fatal("first edit", code, raw)
-	}
-	code, out, raw := patch("1", map[string]any{"name": "Second editor", "members": []map[string]any{{"host": f.agent.ID, "dir": "/x"}}})
-	if code != 409 || out["code"] != "project_changed" || out["error"] != "Someone changed this Project. Reload it and try again." {
-		t.Fatal("stale edit", code, raw)
-	}
-	saved, _ := f.st.ProjectFor(f.uid, id)
-	if saved.Name != "First editor" || len(saved.Members) != 2 || saved.Version != 2 {
-		t.Fatal("the stale edit reverted the first", saved)
-	}
-	if len(projectEvents(t, f.st, f.uid, "project-update")) != 1 {
-		t.Fatal("a stale edit was audited")
-	}
-	// The single read gives the version and an ETag to send back.
-	r := httptest.NewRequest("GET", "/api/v2/projects/"+id, nil)
-	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: f.cookie})
-	w := httptest.NewRecorder()
-	f.srv.ServeHTTP(w, r)
-	if w.Header().Get("ETag") != `"2"` || !strings.Contains(w.Body.String(), `"version":2`) {
-		t.Fatal("read", w.Header(), w.Body.String())
-	}
-	if code, _, raw := patch(`"2"`, map[string]any{"name": "Second, reloaded"}); code != 200 {
-		t.Fatal("fresh edit", code, raw)
-	}
-	for _, bad := range []string{"abc", "0", "-1", `W/"3"`, "1.5"} {
-		if code, out, raw := patch(bad, map[string]any{"name": "Bad"}); code != 400 || out["code"] != "invalid_version" {
-			t.Fatal("bad If-Match", bad, code, raw)
-		}
-	}
-	// Without If-Match the last write wins, as before.
-	if code, out, raw := patch("", map[string]any{"name": "No header"}); code != 200 || out["version"] != float64(4) {
-		t.Fatal("no header", code, raw)
-	}
-	if code, out, raw := patch("", map[string]any{"name": "No header again"}); code != 200 || out["version"] != float64(5) {
-		t.Fatal("no header again", code, raw)
-	}
-	if code, out, _ := patch("4", map[string]any{"name": "Old"}); code != 409 || out["code"] != "project_changed" {
-		t.Fatal("stale after header-less edits", code)
-	}
-	// Another account's id with a matching version is still not found.
-	other, _ := f.st.CreateUser("projects-version@example.test", "Other", "member", "hash")
-	f.cookie = terminalLogin(t, f.st, other.ID)
-	if code, out, _ := patch("5", map[string]any{"name": "Taken"}); code != 404 || out["code"] != "not_found" {
-		t.Fatal("cross-account", code)
-	}
-}
-
-func TestProjectUpdateNullKeepsAndEmptyClears(t *testing.T) {
-	f := projectFixture(t)
-	id := f.create(t, f.body())["id"].(string)
-	reset := func() {
-		t.Helper()
-		if _, err := f.st.UpdateProjectFor(f.uid, store.Project{ID: id, Name: "Shop", DefaultTool: "claude", DefaultModel: "sonnet", SharedPrompt: projectSentinel, UseWorktrees: true,
-			Members: []store.ProjectMember{{Host: f.agent.ID, Dir: "/home/tester/site"}, {Host: f.agent.ID, Dir: "/home/tester/api"}}}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, c := range []struct {
-		name, body    string
-		prompt, model string
-		members       int
-	}{
-		{"omitted", `{"name":"Shop"}`, projectSentinel, "sonnet", 2},
-		{"null", `{"sharedPrompt":null,"defaultModel":null,"members":null}`, projectSentinel, "sonnet", 2},
-		{"empty prompt", `{"sharedPrompt":""}`, "", "sonnet", 2},
-		{"empty model", `{"defaultModel":""}`, projectSentinel, "", 2},
-		{"no members", `{"members":[]}`, projectSentinel, "sonnet", 0},
-	} {
-		reset()
-		code, _, raw := f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, c.body)
-		saved, _ := f.st.ProjectFor(f.uid, id)
-		if code != 200 || saved.SharedPrompt != c.prompt || saved.DefaultModel != c.model || len(saved.Members) != c.members {
-			t.Fatal(c.name, code, raw)
-		}
-	}
-}
-
-func TestProjectStoreFolderRefusalNamesTheRepository(t *testing.T) {
-	f := projectFixture(t)
-	// The connector's folder rule accepts a line separator; the store's refuses it.
-	body := f.body(map[string]any{"host": f.agent.ID, "dir": "/a"}, map[string]any{"host": f.agent.ID, "dir": "/b\u2028c"})
-	code, out, resp := f.do(t, f.cookie, "POST", "/api/v2/projects", body)
-	if code != 422 || out["code"] != "invalid_dir" || out["field"] != "members.1.dir" ||
-		out["error"] != "Repository 2: the folder must be an absolute path starting with /, at most 4096 bytes, without control characters or line separators." {
-		t.Fatal(code, resp)
-	}
-}
-
-func TestProjectDeleteLooksAtEveryRunForWorktrees(t *testing.T) {
-	f := projectFixture(t)
-	id := f.create(t, f.body())["id"].(string)
-	old, err := f.st.CreateRunFor(f.uid, id, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := f.st.SetRunMemberState(f.uid, old.ID, 0, store.RunMemberStarted, "", "s1", "/home/tester/.reet/worktrees/shop/site/"+worktreeTestRun, "site", "reet/shop-"+worktreeTestRun, 1); err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < store.MaxRunsListed; i++ {
-		if _, err := f.st.CreateRunFor(f.uid, id, 1); err != nil {
-			t.Fatal(err)
-		}
-	}
-	code, out, raw := f.do(t, f.cookie, "DELETE", "/api/v2/projects/"+id, nil)
-	if code != 200 || out["mayHaveWorktrees"] != true || out["message"] != "Project deleted. Its runs are kept. Worktrees those runs made, if still there, stay on their machines." {
-		t.Fatal(code, raw)
-	}
-	if _, ok := out["worktrees"]; ok {
-		t.Fatal("old field", raw)
-	}
-}
-
-func TestProjectDeleteHonoursIfMatch(t *testing.T) {
-	f := projectFixture(t)
-	id := f.create(t, f.body())["id"].(string)
-	del := func(version string) (int, map[string]any, string) {
-		r := httptest.NewRequest("DELETE", "/api/v2/projects/"+id, nil)
-		r.Header.Set("Origin", "https://reet.example")
-		if version != "" {
-			r.Header.Set("If-Match", version)
-		}
-		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: f.cookie})
-		w := httptest.NewRecorder()
-		f.srv.ServeHTTP(w, r)
-		out := map[string]any{}
-		_ = json.Unmarshal(w.Body.Bytes(), &out)
-		return w.Code, out, w.Body.String()
-	}
-	if code, _, raw := f.do(t, f.cookie, "PATCH", "/api/v2/projects/"+id, map[string]any{"name": "Changed"}); code != 200 {
-		t.Fatal("edit", code, raw)
-	}
-	// Read at version 1, changed since to 2: the delete is refused and nothing is deleted or audited.
-	code, out, raw := del(`"1"`)
-	if code != 409 || out["code"] != "project_changed" || out["error"] != "Someone changed this Project. Reload it and try again." {
-		t.Fatal("stale delete", code, raw)
-	}
-	if _, err := f.st.ProjectFor(f.uid, id); err != nil {
-		t.Fatal("stale delete removed the Project", err)
-	}
-	if len(projectEvents(t, f.st, f.uid, "project-delete")) != 0 {
-		t.Fatal("a refused delete was audited")
-	}
-	for _, bad := range []string{"abc", "0", "-1", `W/"2"`, "1.5"} {
-		if code, out, raw := del(bad); code != 400 || out["code"] != "invalid_version" {
-			t.Fatal("bad If-Match", bad, code, raw)
-		}
-	}
-	// Another account's id with the right version is not found.
-	owner := f.cookie
-	other, _ := f.st.CreateUser("projects-delete@example.test", "Other", "member", "hash")
-	f.cookie = terminalLogin(t, f.st, other.ID)
-	if code, out, _ := del(`"2"`); code != 404 || out["code"] != "not_found" {
-		t.Fatal("cross-account", code)
-	}
-	f.cookie = owner
-	if code, out, raw := del(`"2"`); code != 200 || out["ok"] != true {
-		t.Fatal("current delete", code, raw)
-	}
-	if len(projectEvents(t, f.st, f.uid, "project-delete")) != 1 {
-		t.Fatal("delete not audited once")
-	}
-	// Without If-Match the delete goes ahead, as an update does.
-	id = f.create(t, f.body())["id"].(string)
-	if code, _, raw := del(""); code != 200 {
-		t.Fatal("no header", code, raw)
 	}
 }

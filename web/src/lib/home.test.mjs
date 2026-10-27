@@ -6,7 +6,7 @@ import ts from 'typescript'
 const source = readFileSync(new URL('./home.ts', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
 const h = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
-const { fleetCards, sessionProjects, inFlight, rowSubtitle, stateWord, needsYou, attentionCount, reporting } = h
+const { fleetCards, sessionOwners, inFlight, rowSubtitle, stateWord, needsYou, attentionCount, reporting } = h
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000, HOUR = 60 * MIN
@@ -22,19 +22,22 @@ const emptySync = () => ({ environments: [], targets: [], agents: [], jobs: [] }
 const target = (id, host) => ({ target: { id, host, agent: 'claude' }, sourceId: 's', sourceName: 'src', desired: [], missing: [], extra: [], revision: 'r', updatedAt: NOW })
 const job = (id, agentId, targetId, kind, status, actions, updatedAt) => ({ id, agentId, targetId, kind, status, revision: 'r', hash: 'h', plan: actions === undefined ? {} : { actions: Array.from({ length: actions }, (_, i) => ({ add: true, skill: { id: `k${i}`, name: `k${i}` } })) }, message: '', createdAt: updatedAt - MIN, updatedAt })
 const syncWith = (jobs, targets = [target('t1', 'studio')]) => ({ ...emptySync(), agents: [{ id: 'a1', host: 'studio', version: '1', lastSeen: NOW, paused: false, autoUpdate: false }], targets, jobs })
-const project = (id, name) => ({ id, name, defaultTool: 'claude', defaultModel: '', useWorktrees: true, hasSharedPrompt: false, members: [], createdAt: 1, updatedAt: 1, version: 1 })
-const run = (id, projectId, sessionIds) => ({ id, projectId, projectName: 'old name', state: 'running', startedAt: NOW - HOUR, useWorktrees: false, worktreeProject: '', members: sessionIds.map((sessionId, position) => ({ position, host: 'a1', dir: '~/x', tool: 'claude', model: '', state: 'started', code: '', sentence: '', sessionId, worktreePath: '', worktreeRepo: '', worktreeBranch: '', worktreeRun: '', worktreeProject: '', sharesCheckout: true, attempt: 1 })) })
+// A folder project as GET /api/v2/folder-projects lists it.
+const project = (id, name, host = 'a1', over = {}) => ({ id, host, machine: 'studio', dir: `/home/me/${name}`, name, isRepo: true, baseBranch: '', worktreeDefault: 'inherit', defaultTool: '', defaultModel: '', hasStarterPrompt: false, note: '', position: 0, createdAt: 1, updatedAt: 1, version: 1, ...over })
+const tree = (name) => ({ worktreePath: `/home/me/.reet/worktrees/site/${name}`, worktreeRepo: name, worktreeBranch: `reet/site-${name}` })
 const FORBIDDEN = /\b(healthy|verified)\b/i
 
-// Step 1 finding: the session listing carries worktreePath but no removal record (a removal moves only the Project
-// run member to "removed"), and it drops archived sessions and stops at 100, so it cannot say "created by reet on that
-// machine and not removed". The card omits the figure rather than show a guess or a zero.
-test('worktree figure omitted without a source', () => {
-  const sessions = [session('s1', 'a1', 'running', { worktreePath: '/home/me/.reet/worktrees/site/web/abc', worktreeRepo: 'web', worktreeBranch: 'reet/site-abc' }), session('s2', 'a1', 'exited', { exitCode: 0, worktreePath: '/home/me/.reet/worktrees/site/api/def' })]
-  for (const card of [...fleetCards([machine('a1', 'studio')], sessions, emptySync(), NOW), ...fleetCards([machine('a2', 'empty')], [], emptySync(), NOW)]) {
-    assert.equal('worktrees' in card, false, 'no worktree key without a record of removal')
-    assert.equal(card.worktrees, undefined)
-  }
+// The session listing carries worktreePath but no removal record (a removal moves only an old Project run member to
+// "removed"), so it cannot say "made by reet and not removed". What it can say is which worktrees live sessions are
+// working in now: the card counts those, labelled "in use", and never a finished session's worktree.
+test('worktree figure counts only the worktrees live sessions are in', () => {
+  const sessions = [
+    session('s1', 'a1', 'running', tree('web')), session('s2', 'a1', 'creating', tree('api')), session('s3', 'a1', 'running', tree('web')),
+    session('s4', 'a1', 'exited', { exitCode: 0, ...tree('old') }), session('s5', 'a1', 'running'), session('s6', 'a2', 'end_requested', tree('desk')),
+  ]
+  const cards = fleetCards([machine('a1', 'studio'), machine('a2', 'desk'), machine('a3', 'empty')], sessions, emptySync(), NOW)
+  assert.deepEqual(cards.map(c => c.worktrees), [2, 1, 0])
+  assert.deepEqual([0, 1, 2].map(h.worktreesInUse), ['no worktrees in use', '1 worktree in use', '2 worktrees in use'])
 })
 
 test('cpu null shows No reading, labelled CPU', () => {
@@ -120,20 +123,25 @@ test('skills line never says in sync without a check', () => {
   assert.deepEqual(line(syncWith([job('j', 'a1', 't1', 'preview', 'awaiting-approval', 0, NOW - 10_000)])), { text: 'skills in sync · checked just now', tone: 'good' })
 })
 
-test('session from a Project\'s run groups under that Project', () => {
-  const owners = sessionProjects([project('p1', 'Site'), project('p2', 'Docs')], [run('r1', 'p1', ['s1', 's2']), run('r2', 'p2', ['s3']), run('r3', 'gone', ['s4'])])
-  assert.deepEqual(owners.get('s1'), { id: 'p1', name: 'Site' })
-  assert.deepEqual(owners.get('s3'), { id: 'p2', name: 'Docs' })
-  assert.equal(owners.has('s4'), false, 'a run of a Project not in the list owns nothing')
-  assert.equal(owners.has(''), false)
+test('group by folder project from projectId', () => {
+  const projects = [project('p1', 'site'), project('p2', 'docs')]
+  const sessions = [session('s1', 'a1', 'running', { projectId: 'p1' }), session('s2', 'a2', 'running', { projectId: 'p1' }), session('s3', 'a1', 'running', { projectId: 'p2' }),
+    session('s4', 'a1', 'running', { projectId: 'gone' }), session('s5', 'a1', 'running', { projectId: null }), session('s6', 'a1')]
+  const owners = sessionOwners(sessions, projects)
+  assert.deepEqual(owners.get('s1'), { id: 'p1', name: 'site' })
+  assert.deepEqual(owners.get('s3'), { id: 'p2', name: 'docs' })
+  assert.equal(owners.has('s4'), false, 'a project no longer on the account owns nothing')
+  assert.equal(owners.has('s5'), false)
+  assert.equal(owners.has('s6'), false)
   const machines = [machine('a1', 'studio'), machine('a2', 'laptop')]
-  const sessions = [session('s1', 'a1'), session('s2', 'a2'), session('s3', 'a1'), session('s5', 'a1')]
   const groups = inFlight(sessions, owners, machines, 'project', NOW)
-  assert.deepEqual(groups.map(g => [g.label, g.sessions.map(s => s.id)]), [['Docs', ['s3']], ['Site', ['s1', 's2']], ['No project · studio', ['s5']]])
+  assert.deepEqual(groups.map(g => [g.label, g.sessions.map(s => s.id).sort()]), [['docs', ['s3']], ['site', ['s1', 's2']], ['No project · studio', ['s4', 's5', 's6']]])
   assert.equal(groups[1].count, 2)
+  // A rename shows at once: the name comes from the project, not from the session.
+  assert.equal(sessionOwners(sessions, [project('p1', 'website')]).get('s1').name, 'website')
 })
 
-test('session outside every Project groups under its machine', () => {
+test('session outside every project groups under its machine', () => {
   const machines = [machine('a2', 'laptop'), machine('a1', 'studio')]
   const sessions = [session('s1', 'a1'), session('s2', 'a2'), session('s3', 'a9')]
   const groups = inFlight(sessions, new Map(), machines, 'project', NOW)
@@ -157,11 +165,13 @@ test('finished leaves In flight after 24 h', () => {
   assert.deepEqual(ids.sort(), ['exited-recent', 'live-old', 'lost-recent'])
 })
 
-test('row subtitle names project and machine, and the branch only when the listing carries it', () => {
+test('branch in the subtitle from worktreeBranch', () => {
   const studio = machine('a1', 'studio')
-  assert.equal(rowSubtitle(session('s1', 'a1'), { id: 'p1', name: 'Site' }, studio), 'Site · studio')
+  const owners = sessionOwners([session('s1', 'a1', 'running', { projectId: 'p1' })], [project('p1', 'site')])
+  assert.equal(rowSubtitle(session('s1', 'a1', 'running', { projectId: 'p1', worktreeBranch: 'reet/site-abc' }), owners.get('s1'), studio), 'site · studio · reet/site-abc')
+  assert.equal(rowSubtitle(session('s1', 'a1', 'running', { projectId: 'p1' }), owners.get('s1'), studio), 'site · studio')
   assert.equal(rowSubtitle(session('s1', 'a1'), undefined, studio), 'studio')
-  assert.equal(rowSubtitle(session('s1', 'a1', 'running', { worktreeBranch: 'reet/site-abc' }), { id: 'p1', name: 'Site' }, studio), 'Site · studio · reet/site-abc')
+  assert.equal(rowSubtitle(session('s1', 'a1', 'running', { worktreeBranch: 'reet/x-1' }), undefined, studio), 'studio · reet/x-1')
   assert.equal(rowSubtitle(session('s1', 'a9'), undefined, undefined), 'a9')
 })
 
@@ -242,28 +252,28 @@ test('a check made for an older desired revision is not counted', () => {
   assert.deepEqual(fleetCards([machine('a1', 'studio')], [], syncWith([current, stale], [t]), NOW)[0].skills, { text: 'skills in sync · checked 2 h ago', tone: 'good' })
 })
 
-test('finished runs are read only for Projects whose last run started in the last 24 h', () => {
-  const p = (id, startedAt) => ({ ...project(id, id), lastRun: startedAt === undefined ? undefined : { id: `r-${id}`, state: 'complete', startedAt } })
-  assert.deepEqual(h.recentRunIds([p('new', NOW - HOUR), p('old', NOW - 25 * HOUR), p('never'), p('edge', NOW - 24 * HOUR)], NOW), ['r-new', 'r-edge'])
-  assert.deepEqual(h.recentRunIds([], NOW), [])
+test('a project counts only its own live sessions as running, and its worktrees in use', () => {
+  const sessions = [session('s1', 'a1', 'running', { projectId: 'p1', ...tree('a') }), session('s2', 'a1', 'exited', { exitCode: 0, projectId: 'p1', ...tree('b') }),
+    session('s3', 'a1', 'creating', { projectId: 'p1' }), session('s4', 'a1', 'running'), session('s5', 'a1', 'end_requested', { projectId: 'p2' })]
+  assert.deepEqual([...h.projectRunning(sessions)], [['p1', 2]])
+  assert.deepEqual([...h.projectWorktrees(sessions)], [['p1', 1]])
 })
 
-test('a Project counts only its live sessions as running', () => {
-  const owners = h.sessionProjects([project('p1', 'Store')], [run('r1', 'p1', ['s1', 's2', 's3'])])
-  const counts = h.projectRunning([session('s1', 'a1', 'running'), session('s2', 'a1', 'exited', { exitCode: 0 }), session('s3', 'a1', 'creating'), session('s4', 'a1', 'running')], owners)
-  assert.deepEqual([...counts], [['p1', 2]])
+test('rail state in words: running, machine offline or idle', () => {
+  assert.deepEqual(h.railState(2, true), { text: '2 running', tone: 'good' })
+  assert.deepEqual(h.railState(1, false), { text: '1 running', tone: 'good' }, 'a last known count is still the count')
+  assert.deepEqual(h.railState(0, false), { text: 'machine offline', tone: 'warn' })
+  assert.deepEqual(h.railState(0, true), { text: 'idle', tone: 'muted' })
+  assert.deepEqual(h.railState(0, undefined), { text: 'idle', tone: 'muted' }, 'an unknown machine is not called offline')
+})
+
+test('rail state says nothing about running or idle when the sessions were not read', () => {
+  assert.equal(h.railState(null, true), null, 'no false "idle" without a sessions read')
+  assert.equal(h.railState(null, undefined), null)
+  assert.deepEqual(h.railState(null, false), { text: 'machine offline', tone: 'warn' }, 'the machine word comes from health, not sessions')
 })
 
 test('short age', () => {
   assert.deepEqual([0, 59_000, 12 * MIN, 3 * HOUR, 49 * HOUR].map(h.shortAge), ['now', 'now', '12m', '3h', '2d'])
 })
 
-test('a Project whose last run is still running is read and never called idle, however old the run', () => {
-  const old = { ...project('p1', 'Store'), lastRun: { id: 'r-old', state: 'running', startedAt: NOW - 3 * 24 * HOUR } }
-  const done = { ...project('p2', 'Notes'), lastRun: { id: 'r-done', state: 'complete', startedAt: NOW - 3 * 24 * HOUR } }
-  assert.deepEqual(h.recentRunIds([old, done], NOW), ['r-old'])
-  assert.equal(h.projectState(old, 2), '2 running')
-  assert.equal(h.projectState(old, 0), 'run in progress')
-  assert.equal(h.projectState(done, 0), 'idle')
-  assert.equal(h.projectState(project('p3', 'New'), 0), 'idle')
-})

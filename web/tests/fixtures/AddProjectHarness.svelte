@@ -3,9 +3,9 @@
   import { addedLine } from '../../src/lib/folderBrowser'
   import { getFolderProject, terminalMachines, type FolderProject, type TerminalMachine } from '../../src/lib/terminal/api'
 
-  // Stands in for Home's rail until PR B6 wires the dialog there: an Add button that opens it the way the rail will (machines
-  // read on each open), an Edit button for ?edit=<id> (the project read with its starter prompt, as the rail's menu will), and
-  // the page's status line for the success sentence.
+  // Stands in for Home's rail, so the dialog can be tested alone: an Add button that opens it the way the rail does (machines
+  // read on each open), an Edit button for ?edit=<id> (the project read with its starter prompt, as the rail's menu does),
+  // and the page's status line for the success sentence, in the rail's words.
   const edit = new URLSearchParams(location.search).get('edit')
   let open = $state<{ opener: HTMLElement; machines: TerminalMachine[]; project?: FolderProject } | null>(null)
   let status = $state('')

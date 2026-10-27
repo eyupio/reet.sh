@@ -80,7 +80,7 @@ try {
   const sessions = Array.from({length:6}, (_, i) => ({id:`s${i}`,agentId:'a1',title:`${i}${title}`.slice(0, 80),state:'running',createdAt:1,updatedAt:1,exitCode:null}))
   for (const width of [320,390]) {
    const {context,page,errors} = await open({width,touch:true,terminalStatus:active,terminalMachines:[terminalMachine('a1',host,true)],
-    routes:{'/api/v2/terminal/sessions':{sessions},'/api/v2/projects':{projects:[{id:'p1',name:project,defaultTool:'claude',defaultModel:'',useWorktrees:false,hasSharedPrompt:false,members:[],createdAt:1,updatedAt:1,version:1}]}}})
+    routes:{'/api/v2/terminal/sessions':{sessions},'/api/v2/folder-projects':{projects:[{id:'fp1',host:'a1',machine:host,dir:'/home/dev/store',name:project,isRepo:true,baseBranch:'',worktreeDefault:'inherit',defaultTool:'',defaultModel:'',hasStarterPrompt:false,note:'',position:0,createdAt:1,updatedAt:1,version:1}],savedWaiting:0}}})
    await page.addInitScript(()=>{
     const events=new EventTarget(),real=window.visualViewport
     let height=null

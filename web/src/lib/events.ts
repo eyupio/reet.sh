@@ -43,6 +43,11 @@ type Detail = {
   position?: number
   attempt?: number
   branch?: string
+  project?: string
+  folder?: string
+  folderProjects?: unknown[]
+  path?: string
+  pages?: number
 }
 
 function detail(e: Event): Detail {
@@ -72,6 +77,14 @@ export function eventLabel(e: Event): string {
     case 'project-delete': return d.name ? `Deleted project ${d.name}` : 'Deleted a project'
     case 'project-run': return typeof d.members === 'number' ? `Started a Project run on ${repositories(d.members)}` : 'Started a Project run'
     case 'project-run-retry': return typeof d.position === 'number' ? `Tried repository ${d.position + 1} of a Project run again${typeof d.attempt === 'number' ? ` (attempt ${d.attempt})` : ''}` : 'Tried a repository of a Project run again'
+    case 'projects-migrated': {
+      if (!d.project) return 'Moved a saved Project into the rail'
+      const n = Array.isArray(d.folderProjects) ? d.folderProjects.length : 0
+      return n > 0 ? `Moved saved Project ${d.project} into the rail as ${n} ${n === 1 ? 'project' : 'projects'}` : `Looked at saved Project ${d.project}: none of its folders could become a project`
+    }
+    case 'project-add': return d.name ? `Added project ${d.name}${d.folder ? ` (${d.folder} on ${d.host || 'a machine'})` : ''}` : 'Added a project'
+    case 'project-remove': return d.name ? `Removed project ${d.name}; its folder on ${d.host || 'its machine'} is untouched` : 'Removed a project'
+    case 'folder-browse': return d.path ? `Browsed folders from ${d.path}${typeof d.pages === 'number' ? ` (${d.pages} ${d.pages === 1 ? 'page' : 'pages'})` : ''}` : 'Browsed folders on a machine'
     case 'worktree-remove': return `Removed a worktree on ${d.host || 'a machine'}${d.branch ? `; the branch ${d.branch} is kept` : ''}`
     case 'sync-agent-update': return `Queued a reet update for ${d.name || 'a machine'}`
     case 'sync-agent-auto-update': return `Queued a reet update for ${d.name || 'a machine'} automatically`

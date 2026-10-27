@@ -220,7 +220,7 @@ func TestFolderProjectImportSaved(t *testing.T) {
 	}
 	// Again: nothing waits, nothing changes.
 	res = f.fpDo(t, f.cookie, "POST", "/api/v2/folder-projects/import-saved", nil, "")
-	if res.code != 200 || res.out["created"] != float64(0) || res.out["message"] != "Nothing is waiting to be added." || len(projectEvents(t, f.st, f.uid, "projects-migrated")) != before+1 {
+	if res.code != 200 || res.out["created"] != float64(0) || res.out["message"] != "Nothing is waiting to be added: every saved folder is already in reet, or can't be used as a project." || len(projectEvents(t, f.st, f.uid, "projects-migrated")) != before+1 {
 		t.Fatal(res.code, res.raw[:min(len(res.raw), 300)])
 	}
 	// Strict body, and the access rules of every folder-project write.
@@ -260,5 +260,67 @@ func TestFolderProjectEditKeepsAnOldOneWordPrompt(t *testing.T) {
 	}
 	if res := f.fpDo(t, f.cookie, "PATCH", path, map[string]any{"starterPrompt": "review the change"}, ""); res.code != 200 {
 		t.Fatal(res.code, res.raw)
+	}
+}
+
+// A one-word starter prompt is fine for an agent that does not read it as a
+// subcommand; switching the default agent to one that would is checked again,
+// even though the prompt itself did not change.
+func TestFolderProjectToolChangeRechecksAOneWordPrompt(t *testing.T) {
+	f := projectFixture(t)
+	saved := f.fpDo(t, f.cookie, "POST", "/api/v2/folder-projects", map[string]any{"host": f.agent.ID, "dir": "/home/tester/site", "defaultTool": "gemini", "starterPrompt": "update"}, "")
+	if saved.code != 201 {
+		t.Fatal(saved.code, saved.raw)
+	}
+	path := "/api/v2/folder-projects/" + saved.out["id"].(string)
+	for _, tool := range []string{"claude", "codex"} {
+		if res := f.fpDo(t, f.cookie, "PATCH", path, map[string]any{"defaultTool": tool}, ""); res.code != 422 || res.out["code"] != "prompt_unsupported" || res.out["field"] != "starterPrompt" {
+			t.Fatal(tool, res.code, res.raw)
+		}
+	}
+	if got, _ := f.st.FolderProjectFor(f.uid, saved.out["id"].(string)); got.DefaultTool != "gemini" {
+		t.Fatal("refused edit saved", got.DefaultTool)
+	}
+	for _, body := range []map[string]any{{"defaultTool": "opencode"}, {"name": "Renamed"}, {"defaultTool": "claude", "starterPrompt": "update the docs"}} {
+		if res := f.fpDo(t, f.cookie, "PATCH", path, body, ""); res.code != 200 {
+			t.Fatal(body, res.code, res.raw)
+		}
+	}
+}
+
+// /projects/<id> resolves through ?legacy=<id> to the folder project made
+// from that saved Project; another account's id, an unknown one and a
+// removed folder project are all not found, as the same answer.
+func TestFolderProjectLegacyLookup(t *testing.T) {
+	f := projectFixture(t)
+	p := storeProject(t, f.st, f.uid, map[string]any{"name": "Shop", "defaultTool": "claude", "members": []map[string]any{
+		{"host": f.agent.ID, "dir": "/home/tester/a"}, {"host": f.agent.ID, "dir": "/home/tester/b"}}})
+	if rep, err := f.st.MigrateProjectsToFolders(); err != nil || rep.Created != 2 {
+		t.Fatal(rep, err)
+	}
+	first, err := f.st.FolderProjectForLegacyFor(f.uid, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := f.fpDo(t, f.cookie, "GET", "/api/v2/folder-projects?legacy="+p.ID, nil, "")
+	if res.code != 200 || res.out["id"] != first.ID || len(res.out) != 1 || res.header.Get("Cache-Control") != "no-store" {
+		t.Fatal(res.code, res.raw, res.header)
+	}
+	other, _ := f.st.CreateUser("legacy-other@example.test", "Other", "admin", "hash")
+	for _, c := range []struct{ cookie, id string }{{f.cookie, "nope"}, {f.cookie, ""}, {terminalLogin(t, f.st, other.ID), p.ID}} {
+		if res := f.fpDo(t, c.cookie, "GET", "/api/v2/folder-projects?legacy="+c.id, nil, ""); res.code != 404 || res.out["code"] != "project_not_found" || strings.Contains(res.raw, "Shop") {
+			t.Fatal(c.id, res.code, res.raw)
+		}
+	}
+	// Removed: the next folder made from it answers; with none left, not found.
+	if err := f.st.DeleteFolderProjectFor(f.uid, first.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if res := f.fpDo(t, f.cookie, "GET", "/api/v2/folder-projects?legacy="+p.ID, nil, ""); res.code != 200 || res.out["id"] == first.ID || res.out["id"] == "" {
+		t.Fatal(res.code, res.raw)
+	}
+	viewer, _ := f.st.CreateUser("legacy-viewer@example.test", "Viewer", "viewer", "hash")
+	if code, raw := f.raw(t, "GET", "/api/v2/folder-projects?legacy="+p.ID, "", terminalLogin(t, f.st, viewer.ID), "https://reet.example", ""); code != 403 || strings.Contains(raw, first.ID) {
+		t.Fatal("viewer", code, raw)
 	}
 }

@@ -250,15 +250,18 @@ func (s *server) checkFolderProject(names map[string]string, p *store.FolderProj
 	if p.DefaultModel != "" && !terminalproto.ValidModel(p.DefaultModel) {
 		return &projectRefusal{422, "invalid_model", "defaultModel", sentenceModel, ""}
 	}
-	// A saved prompt is checked again only when it changes, so one that
-	// today's rules refuse does not block editing anything else.
-	if p.StarterPrompt != "" && (saved == nil || p.StarterPrompt != saved.StarterPrompt) {
+	// A saved prompt's shape is checked again only when it changes, so one
+	// that today's rules refuse does not block editing anything else. The
+	// two-words rule depends on the agent too, so it is checked again when
+	// either changes.
+	promptChanged := saved == nil || p.StarterPrompt != saved.StarterPrompt
+	if p.StarterPrompt != "" && promptChanged {
 		if len(p.StarterPrompt) > terminalproto.MaxPromptBytes || strings.HasPrefix(p.StarterPrompt, "-") || !terminalproto.ValidPrompt(p.StarterPrompt) {
 			return &projectRefusal{422, "invalid_prompt", "starterPrompt", sentenceFolderPrompt, ""}
 		}
-		if terminalproto.PromptNeedsWords(p.DefaultTool, p.StarterPrompt) {
-			return &projectRefusal{422, "prompt_unsupported", "starterPrompt", "Write the starter prompt as at least two words.", ""}
-		}
+	}
+	if (promptChanged || p.DefaultTool != saved.DefaultTool) && terminalproto.PromptNeedsWords(p.DefaultTool, p.StarterPrompt) {
+		return &projectRefusal{422, "prompt_unsupported", "starterPrompt", "Write the starter prompt as at least two words.", ""}
 	}
 	return nil
 }
@@ -384,7 +387,10 @@ func (s *server) folderProjectImportSaved(w http.ResponseWriter, r *http.Request
 	case waiting > 0:
 		message = fmt.Sprintf("%s waiting for room. Remove a project, then try again.", savedRepositoriesAre(waiting))
 	default:
-		message = "Nothing is waiting to be added."
+		// Only what could still become a project waits: a folder already in
+		// reet (now, or brought in before and removed since) or one reet
+		// cannot use is not counted.
+		message = "Nothing is waiting to be added: every saved folder is already in reet, or can't be used as a project."
 	}
 	writeJSON(w, http.StatusOK, s.folderListAnswer(projects, names, waiting, map[string]any{"created": rep.Created, "skipped": rep.Skipped, "message": message}))
 }
@@ -404,7 +410,29 @@ func savedRepositoriesAre(n int) string {
 }
 
 func (s *server) folderProjectList(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Has("legacy") {
+		s.folderProjectLegacy(w, r)
+		return
+	}
 	s.writeFolderProjects(w, s.uid(r))
+}
+
+// folderProjectLegacy answers ?legacy=<saved Project id> with {id}, the
+// folder project made from that Project's first folder still on the account,
+// so an old /projects/<id> address can open it. Unknown ids, another
+// account's and removed ones are the same 404.
+func (s *server) folderProjectLegacy(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("legacy")
+	if id == "" {
+		folderRefusal(store.ErrFolderProjectNotFound, "").write(w)
+		return
+	}
+	p, err := s.st.FolderProjectForLegacyFor(s.uid(r), id)
+	if err != nil {
+		folderRefusal(err, "").write(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": p.ID})
 }
 
 func (s *server) folderProjectGet(w http.ResponseWriter, r *http.Request) {

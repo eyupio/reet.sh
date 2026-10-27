@@ -9,8 +9,10 @@
  // One run: each repository's state, read again every 2 seconds while any is still waiting to start (and only while the
  // tab is visible). Open goes to the existing terminal session; Retry tries a failed repository again; Remove worktree
  // looks at the worktree first. Closing the page does not stop a run: the server carries on without it.
- let { run, machines, sessions, sessionsFailed = false, onchange, onsignedout }: {
+ let { run, machines, sessions, sessionsFailed = false, readonly = false, onchange, onsignedout }: {
   run: ProjectRun
+  /** A run of a saved Project kept to read (in Activity): no Retry. Its worktrees can still be checked and removed. */
+  readonly?: boolean
   /** Undefined until they are read: a machine is then named by its id. */
   machines: TerminalMachine[] | undefined
   /** The account's sessions, or undefined while they are not known: Remove worktree is then never offered. */
@@ -138,7 +140,7 @@
     </div>
     <div class="actions">
      {#if (m.state === 'started' || m.state === 'removed') && m.sessionId}<a class="btn" href={openURL(m)} aria-label={`Open ${toolName(m.tool)} on ${hostOf(m.host)} in ${m.dir}`}>Open</a>{/if}
-     {#if m.state === 'failed'}<button type="button" class="btn" onclick={(e) => retry(m, e.currentTarget)} disabled={retrying !== null} aria-busy={retrying === m.position} aria-label={`Retry ${hostOf(m.host)} ${m.dir}`}>{retrying === m.position ? 'Retrying…' : 'Retry'}</button>{/if}
+     {#if m.state === 'failed' && !readonly}<button type="button" class="btn" onclick={(e) => retry(m, e.currentTarget)} disabled={retrying !== null} aria-busy={retrying === m.position} aria-label={`Retry ${hostOf(m.host)} ${m.dir}`}>{retrying === m.position ? 'Retrying…' : 'Retry'}</button>{/if}
      {#if offer.offer}<button type="button" class="btn danger" onclick={(e) => (removing = { member: m, opener: e.currentTarget })} aria-label={`Remove worktree for ${hostOf(m.host)} ${m.dir}`}>Remove worktree</button>{/if}
     </div>
    </li>

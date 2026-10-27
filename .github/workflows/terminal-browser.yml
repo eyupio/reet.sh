@@ -74,7 +74,6 @@ jobs:
           node web/tests/skill-content.e2e.mjs
           node web/tests/add-machine.e2e.mjs
           node web/tests/start-agent.e2e.mjs
-          node web/tests/projects.e2e.mjs
           node web/tests/terminal-workspace.e2e.mjs
           node web/tests/terminal-lifecycle.e2e.mjs
           node web/tests/terminal-organisation.e2e.mjs
@@ -93,7 +92,8 @@ jobs:
           path: ${{ runner.temp }}/terminal-browser
           if-no-files-found: ignore
 
-  # Its own job, so the phone zoom contract (about 30-40 s) and Home (about 25 s) run alongside the terminal job instead of
+  # Its own job, so the phone zoom contract (about 40-50 s), Home with its project rail (about 60 s), the retired Projects
+  # addresses (about 5 s) and the Add project dialog's later fixes (about 10 s) run alongside the terminal job instead of
   # adding to its time.
   phone-zoom:
     runs-on: ubuntu-latest
@@ -132,6 +132,11 @@ jobs:
           done
           node web/tests/phone-zoom.e2e.mjs
           node web/tests/home.e2e.mjs
+          node web/tests/projects.e2e.mjs
+      # The Add project dialog's later fixes (stale edit, branch suggestions, filter while a folder opens). It serves the
+      # dialog's component fixture with Vite, so it needs no preview server.
+      - name: Add project dialog, later fixes
+        run: node web/tests/add-project-edit.e2e.mjs
 
   # Its own job, so the phone dialog contract (about 50-55 s) and the Add project dialog (about 15-20 s) run alongside the
   # others instead of adding to their time.

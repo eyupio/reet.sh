@@ -1,7 +1,7 @@
 import type { Project, ProjectInput, ProjectRun, WorktreeStatus, WorktreeTarget } from '../projects'
 
 export type SessionState = 'creating' | 'running' | 'end_requested' | 'ended' | 'exited' | 'lost'
-export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; worktreeBranch?: string }
+export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string }
 export type Capabilities = { commandHistory?:boolean; launch?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
@@ -22,7 +22,9 @@ export class TerminalError extends Error {
   constructor(status: number, message: string, code?: string, detail?: string, field?: string) { super(message); this.status = status; if (code) this.code = code; if (detail) this.detail = detail; if (field) this.field = field }
 }
 /** What to start instead of a plain shell. Only the fields that are set are sent; the machine decides the program and flags. */
-export type LaunchRequest = { tool?: string; model?: string; dir?: string; prompt?: string }
+export type LaunchRequest = { tool?: string; model?: string; dir?: string; prompt?: string
+  /** The folder project the session belongs to (checked by the controller, never sent to the machine). */
+  projectId?: string }
 export function validTerminalTitle(title:string):boolean {return !!title.trim()&&Array.from(title).length<=80&&!/[\p{Cc}\p{Cf}\u2028\u2029]/u.test(title)}
 // Interactive terminals intentionally use only the browser cookie, never the
 // generic API helper's localStorage API token or a capability in a URL.
@@ -50,7 +52,7 @@ export async function terminalSessions(signal?: AbortSignal): Promise<TerminalSe
 export async function createTerminal(agentId: string, requestId: string, title: string, cols = 100, rows = 30, signal?: AbortSignal, launch?: LaunchRequest): Promise<TerminalSession> {
   // A plain create stays byte-identical to before: the launch keys are added only when they have a value.
   const body: Record<string, string | number> = { agentId, requestId, title, cols, rows }
-  for (const key of ['tool', 'model', 'dir', 'prompt'] as const) if (launch?.[key]) body[key] = launch[key]
+  for (const key of ['tool', 'model', 'dir', 'prompt', 'projectId'] as const) if (launch?.[key]) body[key] = launch[key]
   return (await terminalRequest('/api/v2/terminal/sessions', { method: 'POST', signal, body: JSON.stringify(body) })).json()
 }
 export async function terminalTicket(session: string, cols: number, rows: number, takeover: boolean, signal?: AbortSignal): Promise<string> { return (await (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(session)}/attachments`, { method: 'POST', body: JSON.stringify({ cols, rows, takeover }), signal })).json()).ticket }
@@ -210,6 +212,16 @@ export async function folderProjectList(signal?: AbortSignal): Promise<FolderPro
 /** Brings in the saved Project repositories that waited for room; with nothing waiting it changes nothing. */
 export async function importSavedProjects(signal?: AbortSignal): Promise<ImportedSavedProjects> {
   return (await terminalRequest('/api/v2/folder-projects/import-saved', { method: 'POST', signal: within(signal), body: '{}' })).json()
+}
+/** The folder project made from a saved Project (for an old /projects/<id> address), or null when none was. */
+export async function folderProjectForLegacy(projectId: string, signal?: AbortSignal): Promise<string | null> {
+  try {
+    const answer = await (await terminalRequest(`/api/v2/folder-projects?${new URLSearchParams({ legacy: projectId })}`, { signal: within(signal) })).json()
+    return typeof answer?.id === 'string' ? answer.id : null
+  } catch (e) {
+    if (e instanceof TerminalError && e.status === 404) return null
+    throw e
+  }
 }
 export async function getFolderProject(id: string, signal?: AbortSignal): Promise<FolderProject> { return withVersion(await terminalRequest(folderProjectPath(id), { signal: within(signal) })) }
 export async function createFolderProject(input: FolderProjectInput, signal?: AbortSignal): Promise<FolderProject> {

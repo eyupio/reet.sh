@@ -28,6 +28,8 @@ export const TOKENS: Record<Palette, Record<string, string>> = {
     '--ink-soft': '#cfc6bc',
     '--repo-line': '#2a5f52',
     '--line-deep': '#5a5047',
+    // The rail's Add, machine tags and dashed foot (the mock-up's #3d342d).
+    '--line-mid': '#3d342d',
     // Behind a modal dialog, and its shadow. Not a text colour.
     '--scrim': 'rgb(0 0 0 / 0.62)',
   },
@@ -55,6 +57,7 @@ export const TOKENS: Record<Palette, Record<string, string>> = {
     '--ink-soft': '#3d3a35',
     '--repo-line': '#8fc7ba',
     '--line-deep': '#8f8679',
+    '--line-mid': '#d4cfc4',
     '--scrim': 'rgb(20 18 15 / 0.45)',
   },
 }

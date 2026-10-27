@@ -32,13 +32,15 @@
   let pending = $state(false)
   // The query the list shown came from; Show more continues that query and no other.
   let listed = { filter: '', hidden: false }
-  let list = $state<HTMLUListElement>(), useButton = $state<HTMLButtonElement>(), retryButton = $state<HTMLButtonElement>()
+  let list = $state<HTMLUListElement>(), useButton = $state<HTMLButtonElement>(), retryButton = $state<HTMLButtonElement>(), filterInput = $state<HTMLInputElement>()
   let seq = 0, timer: ReturnType<typeof setTimeout> | undefined
+  // The folder a request in flight is opening (not a Show more page): a filter typed meanwhile is for that folder.
+  let opening: string | null = null, paging = false
 
   const crumbs = $derived(result ? breadcrumbs(result.path, result.home) : [])
   const note = $derived(result ? repoMessage(result) : null)
   const top = $derived(result ? topFolder(result) : null)
-  const here = () => result?.path ?? start
+  const here = () => opening ?? result?.path ?? start
 
   // The latest request wins: an answer to an earlier one is dropped. A page (after) adds to the list and keeps the query it
   // continues; anything else replaces the list with the current filter and hidden choice. `focus` is set when the person
@@ -51,21 +53,25 @@
     const query: BrowseQuery = { path: path || undefined, after: after || undefined, filter: q.filter || undefined, hidden: q.hidden, session }
     busy = true
     failure = null
+    if (after) paging = true; else { opening = path; paging = false }
     try {
       const r = await serial(() => browseFolder(agentId, query, life.signal))
       if (mine !== seq || life.signal.aborted) return
+      opening = null; paging = false
       const dirs = r.entries.filter(e => e.dir)
       const before = entries.length
       entries = after ? [...entries, ...dirs] : dirs
       result = r
       listed = q
       busy = false
-      if (!focus) return
+      // The person is typing a filter for this folder: focus stays in the filter.
+      if (!focus || document.activeElement === filterInput) return
       await tick()
       const rows = list?.querySelectorAll<HTMLButtonElement>('button.row')
       ;(rows?.[after ? before : 0] ?? useButton)?.focus({ preventScroll: !after })
     } catch (e) {
       if (mine !== seq || life.signal.aborted) return
+      opening = null; paging = false
       failure = { text: refusalSentence(e), retry: () => void load(path, after, true) }
       busy = false
       if (focus) { await tick(); retryButton?.focus() }
@@ -80,11 +86,11 @@
     filter = ''
     void load(path, '', true)
   }
-  // The machine filters; one request once typing pauses. Anything still on its way (a Show more) is dropped.
+  // The machine filters; one request once typing pauses. A Show more still on its way continues the old query, so it is
+  // dropped; a folder still opening is not: the filter is sent for that folder, and its answer is shown meanwhile.
   function filtered() {
     clearTimeout(timer)
-    seq++
-    busy = false
+    if (paging) { seq++; busy = false; paging = false }
     pending = true
     timer = setTimeout(() => { pending = false; void load(here()) }, 300)
   }
@@ -108,7 +114,7 @@
     <span class="count">{result ? countLabel(entries.length, result.more) : busy ? 'Listing…' : ''}</span>
   </div>
   <div class="tools">
-    <input class="filter" type="text" enterkeyhint="search" aria-label="Filter folders" placeholder="Type to filter…" autocomplete="off" spellcheck="false" maxlength="64" bind:value={filter} oninput={filtered} />
+    <input class="filter" bind:this={filterInput} type="text" enterkeyhint="search" aria-label="Filter folders" placeholder="Type to filter…" autocomplete="off" spellcheck="false" maxlength="64" bind:value={filter} oninput={filtered} />
     <label class="hidden"><input type="checkbox" bind:checked={hidden} onchange={() => { clearTimeout(timer); pending = false; void load(here()) }} /><span class="box" aria-hidden="true"></span>Show hidden folders</label>
   </div>
   <div class="scroll">

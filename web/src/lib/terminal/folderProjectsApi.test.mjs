@@ -201,3 +201,14 @@ test('one sentence for a refusal or a request that never arrived', () => {
   assert.equal(api.refusalSentence(new TypeError('Failed to fetch')), "That didn't reach reet. Check your connection, then try again.")
   assert.equal(api.refusalSentence(undefined), "That didn't reach reet. Check your connection, then try again.")
 })
+
+test('an old Project id is looked up by id only, and a project made from none answers null', async () => {
+  let calls = fetchReplying(200, { id: 'fp9' })
+  assert.equal(await api.folderProjectForLegacy('p 1/x'), 'fp9')
+  assert.equal(calls[0].url, '/api/v2/folder-projects?legacy=p+1%2Fx')
+  cookieOnly(calls[0])
+  calls = fetchReplying(404, { error: "That project isn't on this account.", code: 'project_not_found' })
+  assert.equal(await api.folderProjectForLegacy('nope'), null)
+  calls = fetchReplying(500, { error: 'down' })
+  await assert.rejects(api.folderProjectForLegacy('p1'))
+})

@@ -526,6 +526,38 @@ func TestMigrationLimitWaitsUntilThePersonBringsTheRestIn(t *testing.T) {
 	}
 }
 
+// savedWaiting counts folders, not Project members: two saved Projects naming
+// one folder (however it is spelled) wait as one, and a folder the person
+// has since registered is not waiting (bringing it in would only map it).
+func TestSavedWaitingCountsDistinctFolders(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	m := enrolledID(t, s, uid, "studio")
+	for i := 0; i < MaxFolderProjects; i++ {
+		mustFP(t, s, uid, fp(m, fmt.Sprintf("/full/%d", i)))
+	}
+	one := mustProject(t, s, uid, project("One", "", true, ProjectMember{Host: m, Dir: "/w/a"}, ProjectMember{Host: m, Dir: "/w/b"}))
+	mustProject(t, s, uid, project("Two", "", true, ProjectMember{Host: m, Dir: "/w/a"}, ProjectMember{Host: m, Dir: "/w/c"}))
+	if _, err := s.db.Exec(`UPDATE project_members SET dir='/w/b/' WHERE project_id=? AND position=1`, one.ID); err != nil {
+		t.Fatal(err)
+	}
+	if rep := migrate(t, s); rep.Created != 0 || rep.Waiting != 4 {
+		t.Fatalf("%+v", rep)
+	}
+	if n, err := s.SavedWaitingFor(uid); err != nil || n != 3 {
+		t.Fatal("waiting folders", n, err)
+	}
+	// The person makes room and registers /w/c themselves.
+	list, _ := s.ListFolderProjectsFor(uid)
+	if err := s.DeleteFolderProjectFor(uid, list[0].ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	mustFP(t, s, uid, fp(m, "/w/c"))
+	if n, err := s.SavedWaitingFor(uid); err != nil || n != 2 {
+		t.Fatal("waiting after registering one", n, err)
+	}
+}
+
 // A row whose account is gone (only possible by hand) fails that account's
 // part alone: the others migrate, and the next start tries it again.
 func TestMigrationAccountErrorRollsBackOnlyThatAccount(t *testing.T) {

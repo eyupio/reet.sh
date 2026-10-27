@@ -2,9 +2,7 @@
   import AppShell from './lib/shell/AppShell.svelte'
   import type { JumpItem, Tab } from './lib/shell/tabs'
   import ActivityPage from './lib/ActivityPage.svelte'
-  import { listProjects, terminalMachines, terminalSessions } from './lib/terminal/api'
-  import ProjectsPage from './lib/ProjectsPage.svelte'
-  import ProjectPage from './lib/ProjectPage.svelte'
+  import { listFolderProjects, terminalMachines, terminalSessions } from './lib/terminal/api'
   import Machines from './lib/Machines.svelte'
   import ControlCenter from './lib/ControlCenter.svelte'
   import Home from './lib/home/Home.svelte'
@@ -114,6 +112,11 @@
   let bulkRemoving = $state<Skill[]>([])
 
   const origin = location.origin
+  // /projects and /projects/<id> are retired: folder projects live in Home's rail. The address becomes / at once (Home then
+  // looks an old Project id up and shows /?project=<its folder project>), and Home says so once, for this page load only.
+  const retiredProjects = location.pathname.match(/^\/projects(?:\/([^/]+))?\/?$/)
+  const legacyProject = retiredProjects?.[1] ? decodeURIComponent(retiredProjects[1]) : ''
+  if (retiredProjects) window.history.replaceState(window.history.state, '', '/')
   // `/` is Home: the full Home for a writer in accounts mode, the fleet strip alone for everyone else signed in (R16).
   // Control keeps its own address at /control, under More.
   const isHome = location.pathname === '/'
@@ -125,10 +128,6 @@
   const isTerminals = location.pathname === '/terminals' || legacyMachinePage && machineView === 'terminal'
   const isSync = location.pathname === '/sync' || legacyMachinePage && !isTerminals && (machineView === 'compare' || location.pathname === '/account/sync')
   const isHosting = location.pathname === '/hosting'
-  // /projects lists them; /projects/<id> is one Project. Only the id is ever in the address.
-  const projectMatch = location.pathname.match(/^\/projects(?:\/([^/]+))?\/?$/)
-  const isProjects = projectMatch !== null
-  const projectId = projectMatch?.[1] ? decodeURIComponent(projectMatch[1]) : ''
   const isCommunity = location.pathname === '/community'
   const isShared = location.pathname === '/shared'
   const isSpaces = location.pathname === '/spaces'
@@ -180,7 +179,6 @@
   const barTabs = $derived(tabs.filter(tab => ['/', '/terminals', '/machines'].includes(tab.href)))
   const more = $derived<Tab[]>([
     { href: '/control', label: 'Control', current: isControl },
-    ...(sessionsAccess ? [{ href: '/projects', label: 'Projects', current: isProjects }] : []),
     { href: '/profiles', label: 'Setups', current: isProfiles },
     { href: '/sync', label: 'Sync', current: isSync },
     { href: '/shared', label: 'Lists', current: isShared || isList },
@@ -189,19 +187,19 @@
     { href: '/spaces', label: 'Teams & organisations', current: isSpaces },
     ...(canWrite ? [{ href: '/hosting', label: 'Host skills', current: isHosting }] : []),
   ])
-  // Jump searches what the workspace already lists: sessions, existing Projects and machines (a writer's terminal machines,
+  // Jump searches what the workspace already lists: sessions, folder projects and machines (a writer's terminal machines,
   // and the machines on the shelf inventory for everyone). Read when Jump is used; a list that cannot be read is left out.
   async function jumpItems(): Promise<JumpItem[]> {
     const items: JumpItem[] = []
     const hosts = new Map<string, string>()
     if (sessionsAccess) {
-      const [sessions, projects, terminal] = await Promise.allSettled([terminalSessions(), listProjects(), terminalMachines()])
+      const [sessions, projects, terminal] = await Promise.allSettled([terminalSessions(), listFolderProjects(), terminalMachines()])
       if (terminal.status === 'fulfilled') for (const machine of terminal.value) hosts.set(machine.agentId, machine.host)
       if (sessions.status === 'fulfilled') for (const session of sessions.value) {
         const host = hosts.get(session.agentId)
         items.push({ kind: 'session', label: session.title, detail: host ? `Session · ${host}` : 'Session', href: `/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}` })
       }
-      if (projects.status === 'fulfilled') for (const project of projects.value) items.push({ kind: 'project', label: project.name, detail: 'Project', href: `/projects/${encodeURIComponent(project.id)}` })
+      if (projects.status === 'fulfilled') for (const project of projects.value) items.push({ kind: 'project', label: project.name, detail: project.machine ? `Project · ${project.machine}` : 'Project', href: `/?project=${encodeURIComponent(project.id)}` })
       if ([sessions, projects, terminal].every(result => result.status === 'rejected')) throw new Error('Nothing could be read.')
     }
     const names = new Set([...hosts.values(), ...shelfMachines.map(machine => machine.host)])
@@ -801,7 +799,7 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isControl ? 'Control' : isActivity ? 'Activity' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isProjects ? 'Projects' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isControl ? 'Control' : isActivity ? 'Activity' : isSync ? 'Sync' : isTerminals ? 'Terminals' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found'} · reet.sh</title>
   {/if}
 </svelte:head>
 
@@ -869,18 +867,11 @@
   {:else if isShared}
     <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
   {:else if isActivity}
-    <ActivityPage accounts={authMode === 'accounts'} onsignedout={fail} />
+    <ActivityPage accounts={authMode === 'accounts'} writer={sessionsAccess} onsignedout={fail} />
   {:else if isHome}
-    <Home userId={currentUser?.id ?? 0} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} onsignedout={fail} onattention={count => (attention = count)} />
+    <Home userId={currentUser?.id ?? 0} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} onsignedout={fail} onattention={count => (attention = count)} />
   {:else if isControl}
     <ControlCenter {canWrite} terminalAccess={authMode === 'accounts' && canWrite} monitorAccess={authMode === 'accounts' || authMode === 'token'} />
-  {:else if isProjects && !(authMode === 'accounts' && canWrite)}
-    <PageHeader eyebrow="Projects" title="Projects need a writer's account." />
-    <p class="notice bad" role="alert">{authMode === 'accounts' ? "This account is read-only, so it can't use Projects." : 'Projects need an account signed in through the browser.'}</p>
-  {:else if isProjects && projectId}
-    <ProjectPage id={projectId} onsignedout={fail} />
-  {:else if isProjects}
-    <ProjectsPage onsignedout={fail} />
   {:else if isMachines}
     <Machines userId={currentUser?.id??0} onsignedout={fail} {canWrite} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} />
   {:else if isProfiles}

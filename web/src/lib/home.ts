@@ -1,11 +1,11 @@
-import type { MachineHealth, TerminalSession, SessionState } from './terminal/api'
+import type { FolderProject, MachineHealth, TerminalSession, SessionState } from './terminal/api'
 import type { SyncJob, SyncState } from './api'
-import type { Project, ProjectRun } from './projects'
 
 // Pure logic for Home on today's data: the fleet strip's cards, the In flight groups and the Needs you list.
 // No DOM, no fetch. Every figure is labelled with what it measures and comes from a record that exists today:
 // the CPU reading from the health report, the session's own state or exit code, a finished sync check.
-// Nothing here describes a step, a progress bar or a worktree count without a record that says so.
+// Nothing here describes a step or a progress bar. The only worktree figure is the worktrees live sessions are working in
+// now, labelled "in use": the listing has no record of which worktrees were removed, so it cannot count the rest.
 
 export type Tone = 'good' | 'warn' | 'bad' | 'muted'
 export type FleetCard = {
@@ -17,13 +17,15 @@ export type FleetCard = {
   /** Sessions on that machine whose end was asked for and is not yet confirmed. */
   sessionsEnding: number
   cpu: { label: 'CPU'; percent: number | null; text: string }
-  /** Absent in this release: the session listing cannot say "created by reet on that machine and not removed". */
-  worktrees?: number
+  /** The distinct worktrees that live sessions on that machine are working in now ("in use"). The listing has no removal
+   *  record, so a finished session's worktree is not counted: it may have been removed. */
+  worktrees: number
   skills: { text: string; tone: 'good' | 'warn' | 'muted' }
 }
 export type SessionOwner = { id: string; name: string }
-/** What the listing carries today; the worktree branch is in the JSON for a session started in its own worktree. */
-export type HomeSession = TerminalSession & { worktreeBranch?: string }
+/** What the listing carries: the worktree fields only for a session started in its own worktree, and the folder project
+ *  it was started in (`projectId`, null for one started outside a project). */
+export type HomeSession = TerminalSession
 export type GroupBy = 'project' | 'machine' | 'state'
 export type Group = { key: string; label: string; count: number; sessions: HomeSession[] }
 /** The Needs you card. Program 1's kinds arrive when a signal says a session wants the person; none does today. */
@@ -111,18 +113,28 @@ export function fleetCards(machines: MachineHealth[], sessions: TerminalSession[
     sessionsRunning: sessions.filter(s => s.agentId === m.agentId && (s.state === 'running' || s.state === 'creating')).length,
     sessionsEnding: sessions.filter(s => s.agentId === m.agentId && s.state === 'end_requested').length,
     cpu: cpuOf(m),
+    worktrees: inUse(sessions.filter(s => s.agentId === m.agentId)),
     skills: skillsOf(m.agentId, sync, now),
   }))
 }
 
-/** A session belongs to a Project only when a member of one of that Project's runs carries its session id. */
-export function sessionProjects(projects: Project[], runs: ProjectRun[]): Map<string, SessionOwner> {
+/** The distinct worktrees live sessions are working in. */
+function inUse(sessions: TerminalSession[]): number {
+  return new Set(sessions.filter(s => live(s) && s.worktreePath).map(s => `${s.agentId}\u0000${s.worktreePath}`)).size
+}
+
+/** "no worktrees in use", "1 worktree in use", "3 worktrees in use". */
+export function worktreesInUse(n: number): string {
+  return n === 0 ? 'no worktrees in use' : `${n} ${n === 1 ? 'worktree' : 'worktrees'} in use`
+}
+
+/** A session belongs to the folder project it was started in: its own projectId, when that project is still on the account. */
+export function sessionOwners(sessions: TerminalSession[], projects: Pick<FolderProject, 'id' | 'name'>[]): Map<string, SessionOwner> {
   const byId = new Map(projects.map(p => [p.id, p]))
   const owners = new Map<string, SessionOwner>()
-  for (const run of runs) {
-    const project = byId.get(run.projectId)
-    if (!project) continue
-    for (const m of run.members) if (m.sessionId) owners.set(m.sessionId, { id: project.id, name: project.name })
+  for (const s of sessions) {
+    const project = s.projectId ? byId.get(s.projectId) : undefined
+    if (project) owners.set(s.id, { id: project.id, name: project.name })
   }
   return owners
 }
@@ -148,8 +160,9 @@ const STATE_ORDER = ['Running', 'Starting', 'Ending', 'Connection lost', 'Exited
 const stateGroup = (s: HomeSession): string => stateWord({ state: s.state, exitCode: null }).word
 
 /**
- * In flight: live sessions, and finished ones for a day after their last state change. Grouped by Project (Projects
- * first, by name, then the rest under their machine), by machine (the person's machine order) or by state.
+ * In flight: live sessions, and finished ones for a day after their last state change. Grouped by project (the folder
+ * project each session was started in, by name, then the rest under their machine), by machine (the person's machine
+ * order) or by state.
  */
 export function inFlight(sessions: HomeSession[], owners: Map<string, SessionOwner>, machines: MachineHealth[], groupBy: GroupBy, now: number): Group[] {
   const shown = sessions.filter(s => live(s) || now - s.updatedAt <= FINISHED_KEPT_MS)
@@ -185,7 +198,8 @@ export function inFlight(sessions: HomeSession[], owners: Map<string, SessionOwn
   })
 }
 
-/** `project · machine`, with the branch only when the listing carries one. */
+/** `project · machine · branch`: the project only when the session was started in one, the branch (its worktree's)
+ *  only when the listing carries one. */
 export function rowSubtitle(session: HomeSession, owner: SessionOwner | undefined, machine: MachineHealth | undefined): string {
   return [owner?.name, machine?.host || session.agentId, session.worktreeBranch].filter(Boolean).join(' · ')
 }
@@ -202,29 +216,31 @@ export function attentionCount(cards: NeedCard[]): number {
   return cards.length
 }
 
-/**
- * The runs Home reads: each Project's last run when it started in the last 24 hours, or when the Projects list says it is
- * still running however long ago it started. Older finished runs' sessions sit under their machine.
- */
-export function recentRunIds(projects: Project[], now: number): string[] {
-  return projects.filter(p => p.lastRun && (p.lastRun.state === 'running' || now - p.lastRun.startedAt <= DAY)).map(p => p.lastRun!.id)
-}
-
-/** The rail's state words: the live sessions tied to the Project, else what its last run record says, else idle. */
-export function projectState(project: Pick<Project, 'lastRun'>, running: number): string {
-  if (running > 0) return `${running} running`
-  if (project.lastRun?.state === 'running') return 'run in progress'
-  return 'idle'
-}
-
-/** Live sessions per Project, from the same ownership In flight groups by. */
-export function projectRunning(sessions: TerminalSession[], owners: Map<string, SessionOwner>): Map<string, number> {
+/** Running and starting sessions per folder project, from each session's own projectId (an ending one is not running,
+ *  as on the fleet card). */
+export function projectRunning(sessions: TerminalSession[]): Map<string, number> {
   const counts = new Map<string, number>()
-  for (const s of sessions) {
-    const owner = owners.get(s.id)
-    if (owner && live(s)) counts.set(owner.id, (counts.get(owner.id) ?? 0) + 1)
-  }
+  for (const s of sessions) if (s.projectId && (s.state === 'running' || s.state === 'creating')) counts.set(s.projectId, (counts.get(s.projectId) ?? 0) + 1)
   return counts
+}
+
+/** Worktrees in use per folder project: the distinct worktrees its live sessions are working in. */
+export function projectWorktrees(sessions: TerminalSession[]): Map<string, number> {
+  const by = new Map<string, TerminalSession[]>()
+  for (const s of sessions) if (s.projectId) by.set(s.projectId, [...(by.get(s.projectId) ?? []), s])
+  const counts = new Map<string, number>()
+  for (const [id, list] of by) { const n = inUse(list); if (n > 0) counts.set(id, n) }
+  return counts
+}
+
+/**
+ * The rail's state words for a project: its live sessions, else "machine offline" when its machine is known not to be
+ * reporting, else "idle". (The spec's "waiting" needs the attention signal, which a later release brings.)
+ */
+export function railState(running: number, reporting: boolean | undefined): { text: string; tone: Tone } {
+  if (running > 0) return { text: `${running} running`, tone: 'good' }
+  if (reporting === false) return { text: 'machine offline', tone: 'warn' }
+  return { text: 'idle', tone: 'muted' }
 }
 
 /** Age since the last state change, short: "now", "12m", "3h", "2d". */

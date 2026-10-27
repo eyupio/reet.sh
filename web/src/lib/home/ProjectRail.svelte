@@ -1,27 +1,84 @@
 <script lang="ts">
-  import type { MachineHealth } from '../terminal/api'
-  import { hostLabel, type Project } from '../projects'
-  import { projectState } from '../home'
+  import { tick } from 'svelte'
+  import type { FolderProject } from '../terminal/api'
+  import { railState, worktreesInUse } from '../home'
 
-  // The saved Projects, read-only: name, the machines their folders are on and how many of their sessions run now. Choosing
-  // one opens it; Add opens the existing New project dialog. Folder browsing arrives with PR A and PR B. Under 1240 px the
-  // rail is a 56 px strip of the same links.
-  let { projects, failed = false, machines, running, busy, onadd }: {
-    projects: Project[] | undefined
-    /** The Projects could not be read and none were read before. */
+  // The folder projects, in the person's order: one folder on one machine each, with a repository diamond or a folder icon,
+  // the machine, the base branch when one is set, the state in words and the worktrees in use. Choosing a card starts an
+  // agent in that folder (the launch bar takes this over in a later release). Each card's menu: New session here, Edit,
+  // Worktrees, Move up, Move down and Remove from reet. Under 1240 px on a desktop the rail is a 56 px strip of the same
+  // cards; on a tablet or phone it sits under In flight (the Sessions tab takes it in a later release).
+  let { projects, failed = false, reporting, running, worktrees, savedWaiting = 0, chosen = '', busy, importing = false,
+    onadd, onchoose, onedit, onworktrees, onremove, onmove, ondismiss, onimport }: {
+    projects: FolderProject[] | undefined
+    /** The projects could not be read and none were read before. */
     failed?: boolean
-    /** For the machine names only; until they are read a member shows its machine id. */
-    machines: MachineHealth[] | undefined
+    /** Whether each machine (by enrollment id) is reporting now; a machine not in it is not called offline. */
+    reporting: Map<string, boolean>
     running: Map<string, number>
+    worktrees: Map<string, number>
+    /** Saved Project folders still waiting for room (offer to bring them in). */
+    savedWaiting?: number
+    /** The project an address chose (`/?project=<id>`). */
+    chosen?: string
     busy: boolean
+    importing?: boolean
     onadd: (opener: HTMLElement) => void
+    onchoose: (project: FolderProject, opener: HTMLElement) => void
+    onedit: (project: FolderProject, opener: HTMLElement) => void
+    onworktrees: (project: FolderProject, opener: HTMLElement) => void
+    onremove: (project: FolderProject, opener: HTMLElement) => void
+    onmove: (project: FolderProject, by: -1 | 1) => void
+    ondismiss: (project: FolderProject) => void
+    onimport: () => void
   } = $props()
 
   const id = $props.id()
-  const hosts = (p: Project) => [...new Set(p.members.map(m => hostLabel(m.host, machines)))]
-  const href = (p: Project) => `/projects/${encodeURIComponent(p.id)}`
+  const machineTag = (p: FolderProject) => p.machine || 'machine not enrolled'
+  const stateOf = (p: FolderProject) => railState(running.get(p.id) ?? 0, reporting.get(p.host))
+  /** Everything the card shows, in words: name, machine, branch, state and worktrees in use. */
+  function label(p: FolderProject): string {
+    const wt = worktrees.get(p.id) ?? 0
+    return [p.name, machineTag(p), p.baseBranch, stateOf(p).text, wt ? worktreesInUse(wt) : ''].filter(Boolean).join(', ')
+  }
   const initial = (name: string) => Array.from(name.trim())[0]?.toUpperCase() ?? '?'
+  const folders = (n: number) => `${n} saved ${n === 1 ? 'folder' : 'folders'}`
+
+  // One menu open at a time. Arrow keys move between its items, Escape closes it and gives focus back to its button.
+  let menuFor = $state<string | null>(null)
+  let menuButton: HTMLElement | null = null
+  async function openMenu(p: FolderProject, button: HTMLElement) {
+    if (menuFor === p.id) { closeMenu(); return }
+    menuFor = p.id; menuButton = button
+    await tick()
+    document.querySelector<HTMLElement>(`#${CSS.escape(`${id}-menu-${p.id}`)} [role=menuitem]:not(:disabled)`)?.focus()
+  }
+  function closeMenu(returnFocus = false) {
+    menuFor = null
+    if (returnFocus) menuButton?.focus()
+  }
+  function menuKeys(event: KeyboardEvent) {
+    const items = [...(event.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('[role=menuitem]:not(:disabled)')]
+    const at = items.indexOf(document.activeElement as HTMLElement)
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeMenu(true) }
+    else if (event.key === 'ArrowDown') { event.preventDefault(); items[(at + 1) % items.length]?.focus() }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); items[(at - 1 + items.length) % items.length]?.focus() }
+    else if (event.key === 'Home') { event.preventDefault(); items[0]?.focus() }
+    else if (event.key === 'End') { event.preventDefault(); items.at(-1)?.focus() }
+    else if (event.key === 'Tab') closeMenu()
+  }
+  // A choice closes the menu first; the dialog it opens gives focus back to the card's menu button.
+  function pick(action: (opener: HTMLElement) => void) {
+    const opener = menuButton
+    closeMenu()
+    if (opener) action(opener)
+  }
+  function outside(event: PointerEvent) {
+    if (menuFor && !(event.target as HTMLElement).closest('.menu, .more')) closeMenu()
+  }
 </script>
+
+<svelte:document onpointerdown={outside} />
 
 <aside class="rail" aria-labelledby={`${id}-title`}>
   <div class="full">
@@ -31,73 +88,155 @@
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" /></svg>Add
       </button>
     </header>
+    {#if savedWaiting > 0}
+      <div class="waiting">
+        <p>{folders(savedWaiting)} from your old Projects {savedWaiting === 1 ? 'is' : 'are'} waiting for room.</p>
+        <button type="button" class="ghost" disabled={importing} aria-busy={importing} onclick={onimport}>Add your remaining saved Projects ({savedWaiting})</button>
+      </div>
+    {/if}
     {#if !projects && failed}
-      <p class="none">Couldn't read your Projects just now.</p>
+      <p class="none">Couldn't read your projects just now.</p>
     {:else if !projects}
-      <p class="none">Reading your Projects…</p>
+      <p class="none">Reading your projects…</p>
     {:else if projects.length === 0}
-      <p class="none">No Projects yet. Add one to start agents in its folders together.</p>
+      <p class="none">Add a project to start an agent in one of your folders.</p>
     {:else}
       <ul>
-        {#each projects as p (p.id)}
-          {@const n = running.get(p.id) ?? 0}
-          <li>
-            <a class="card" href={href(p)}>
+        {#each projects as p, i (p.id)}
+          {@const state = stateOf(p)}
+          {@const wt = worktrees.get(p.id) ?? 0}
+          <li class="item">
+            <button type="button" class="card" class:chosen={chosen === p.id} aria-current={chosen === p.id ? 'true' : undefined} aria-label={label(p)} onclick={(e) => onchoose(p, e.currentTarget)}>
               <span class="top">
-                <svg class="diamond" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2l10 10-10 10L2 12z" /></svg>
+                {#if p.isRepo}
+                  <svg class="icon repo" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2l10 10-10 10L2 12z" /></svg>
+                {:else}
+                  <svg class="icon folder" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6.5A1.5 1.5 0 014.5 5H9l2 2h8.5A1.5 1.5 0 0121 8.5v9a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 17.5z" /></svg>
+                {/if}
                 <span class="name">{p.name}</span>
+                <span class="tag">{machineTag(p)}</span>
               </span>
               <span class="meta">
-                {#each hosts(p) as h (h)}<span class="tag">{h}</span>{/each}
-                <span class="state" class:on={n > 0}>{projectState(p, n)}</span>
+                {#if p.baseBranch}<span class="branch">{p.baseBranch}</span>{/if}
+                <span class="state {state.tone}">{state.text}</span>
+                {#if wt}<span class="wt">{worktreesInUse(wt)}</span>{/if}
               </span>
-            </a>
+            </button>
+            <button type="button" class="more" aria-label={`More for ${p.name}`} aria-haspopup="menu" aria-expanded={menuFor === p.id}
+              aria-controls={menuFor === p.id ? `${id}-menu-${p.id}` : undefined} onclick={(e) => openMenu(p, e.currentTarget)}>
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
+            </button>
+            {#if menuFor === p.id}
+              <!-- svelte-ignore a11y_interactive_supports_focus -->
+              <div class="menu" id={`${id}-menu-${p.id}`} role="menu" aria-label={p.name} tabindex="-1" onkeydown={menuKeys}>
+                <button type="button" role="menuitem" onclick={() => pick(o => onchoose(p, o))}>New session here</button>
+                <button type="button" role="menuitem" onclick={() => pick(o => onedit(p, o))}>Edit</button>
+                <button type="button" role="menuitem" onclick={() => pick(o => onworktrees(p, o))}>Worktrees</button>
+                <button type="button" role="menuitem" disabled={i === 0} onclick={() => { closeMenu(true); onmove(p, -1) }}>Move up</button>
+                <button type="button" role="menuitem" disabled={i === projects.length - 1} onclick={() => { closeMenu(true); onmove(p, 1) }}>Move down</button>
+                <button type="button" role="menuitem" class="danger" onclick={() => pick(o => onremove(p, o))}>Remove from reet</button>
+              </div>
+            {/if}
+            {#if p.note}
+              <div class="note" role="note">
+                <p>Moved from your saved Projects. The starter prompts of {p.note} weren't kept here; their old runs are in Activity.</p>
+                <button type="button" class="ghost" onclick={() => ondismiss(p)}>Dismiss</button>
+              </div>
+            {/if}
           </li>
         {/each}
       </ul>
     {/if}
-    <p class="foot">These are your saved Projects. Browsing a machine's folders comes in a later release.</p>
+    <p class="foot">
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="12" rx="2" /><path d="M8 21h8M12 17v4" /></svg>
+      Folders are browsed live on the machine
+    </p>
   </div>
   <div class="strip">
     <button type="button" class="add-icon" aria-label="Add a project" disabled={busy} aria-busy={busy} onclick={(e) => onadd(e.currentTarget)}>
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" /></svg>
     </button>
     {#each projects ?? [] as p (p.id)}
-      <a class="mini" href={href(p)} aria-label={`${p.name}, ${projectState(p, running.get(p.id) ?? 0)}`} title={`${p.name}, ${projectState(p, running.get(p.id) ?? 0)}`}><span aria-hidden="true">{initial(p.name)}</span>{#if (running.get(p.id) ?? 0) > 0}<i class="live" aria-hidden="true"></i>{/if}</a>
+      <button type="button" class="mini" class:chosen={chosen === p.id} aria-label={label(p)} title={label(p)} onclick={(e) => onchoose(p, e.currentTarget)}>
+        <span aria-hidden="true">{initial(p.name)}</span>
+        {#if p.isRepo}<svg class="badge" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2l10 10-10 10L2 12z" /></svg>{/if}
+        {#if (running.get(p.id) ?? 0) > 0}<i class="live" aria-hidden="true"></i>{/if}
+      </button>
     {/each}
   </div>
 </aside>
 
 <style>
-  .rail { border-right: 1px solid var(--line-soft); align-self: start; position: sticky; top: 0; max-height: 100dvh; overflow-y: auto; }
-  .full { padding: 18px 14px; display: flex; flex-direction: column; gap: 12px; min-height: calc(100dvh - 61px); }
+  /* The mock-up's rail: 272 px of content inside 14 px padding and a 1 px rule (301 px in all). */
+  .rail { border-right: 1px solid var(--line-soft); align-self: stretch; min-width: 0; line-height: 1.3; }
+  .full { position: sticky; top: 0; max-height: 100dvh; overflow-y: auto; padding: 18px 14px; display: flex; flex-direction: column; gap: 12px; min-height: calc(100dvh - 61px); box-sizing: border-box; }
   header { display: flex; align-items: center; }
-  h2 { flex-grow: 1; margin: 0; font: 600 11px/1.4 var(--sans); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
-  .add { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: transparent; color: var(--ink); font-size: 13px; font-weight: 500; cursor: pointer; }
+  h2 { flex-grow: 1; margin: 0; font: 600 11px/1.3 var(--sans); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+  .add { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 1px solid var(--line-mid); border-radius: 8px; background: transparent; color: var(--ink); font-size: 13px; font-weight: 500; cursor: pointer; }
   .add svg, .add-icon svg { width: 14px; height: 14px; }
   .add:hover:not(:disabled), .add-icon:hover:not(:disabled) { border-color: var(--muted); }
   .add:disabled, .add-icon:disabled { opacity: 0.5; cursor: default; }
-  ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-  .card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--card); color: var(--ink); text-decoration: none; }
+  ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+  .item { position: relative; display: flex; flex-direction: column; gap: 6px; }
+  .card { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
   .card:hover { border-color: var(--line-strong); }
+  .card.chosen { border-color: var(--accent); }
   .top { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .diamond { width: 14px; height: 14px; flex: none; fill: var(--repo); }
-  .name { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
-  .meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: 12px; color: var(--muted); }
-  .tag { border: 1px solid var(--line-strong); border-radius: 99px; padding: 0 8px; font-size: 11px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .state { margin-left: auto; }
-  .state.on { color: var(--good); }
+  .icon { width: 14px; height: 14px; flex: none; }
+  .icon.repo { fill: var(--repo); }
+  .icon.folder { color: var(--muted); }
+  .name { flex-grow: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); border: 1px solid var(--line-mid); border-radius: 99px; padding: 1px 8px; }
+  .meta { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 12px; color: var(--muted); }
+  .branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+  .state { flex: none; }
+  .state.good { color: var(--good); }
+  .state.warn { color: var(--warn); }
+  .wt { margin-left: auto; flex: none; white-space: nowrap; }
+  /* The card's menu button shows on hover or keyboard focus with a mouse, and always on touch. */
+  .more { position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--card-raised); color: var(--ink-soft); cursor: pointer; opacity: 0; }
+  .more svg { width: 16px; height: 16px; }
+  .item:hover .more, .more:focus-visible, .more[aria-expanded='true'] { opacity: 1; }
+  .menu { position: absolute; z-index: 5; top: 36px; right: 6px; min-width: 190px; display: flex; flex-direction: column; padding: 4px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card-raised); box-shadow: 0 12px 30px var(--scrim); }
+  .menu button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+  .menu button:hover:not(:disabled), .menu button:focus-visible { background: var(--line-soft); }
+  .menu button:disabled { color: var(--faint); cursor: default; }
+  .menu .danger { color: var(--bad); }
+  .note, .waiting { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--card); font-size: 13px; }
+  .note p, .waiting p { margin: 0; color: var(--ink-soft); overflow-wrap: anywhere; line-height: 1.45; }
+  .ghost { align-self: flex-start; min-height: 32px; padding: 4px 12px; border: 1px solid var(--line-mid); border-radius: 8px; background: transparent; color: var(--ink); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; text-align: left; }
+  .ghost:hover:not(:disabled) { border-color: var(--muted); }
+  .ghost:disabled { opacity: 0.5; cursor: default; }
   .none { margin: 0; color: var(--muted); font-size: 13px; }
-  .foot { margin: auto 0 0; padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: 11px; color: var(--muted); font-size: 13px; }
+  .foot { margin: auto 0 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px dashed var(--line-mid); border-radius: 11px; color: var(--muted); font-size: 13px; }
+  .foot svg { width: 16px; height: 16px; flex: none; }
   .strip { display: none; }
 
-  @media (max-width: 1239px) {
+  @media (pointer: coarse) {
+    .add { height: 44px; }
+    .card { padding-right: 56px; }
+    .more { opacity: 1; top: 50%; right: 4px; transform: translateY(-50%); width: 44px; height: 44px; border: 0; background: transparent; }
+    .item:has(.note) .more { top: 4px; transform: none; }
+    .menu { top: 52px; }
+    .menu button { min-height: 44px; }
+    .ghost { min-height: 44px; }
+  }
+  /* 1100 to 1239 px: a 56 px strip with the same cards as buttons, each named in full. */
+  @media (min-width: 1100px) and (max-width: 1239px) {
     .full { display: none; }
-    .strip { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px 0; }
-    .add-icon, .mini { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card); color: var(--ink); text-decoration: none; font-weight: 600; cursor: pointer; }
+    .strip { position: sticky; top: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px 0; min-height: calc(100dvh - 61px); box-sizing: border-box; }
+    .add-icon, .mini { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--line-mid); border-radius: 10px; background: var(--card); color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
     .add-icon { background: transparent; }
+    .mini.chosen { border-color: var(--accent); }
+    .badge { position: absolute; bottom: 3px; right: 3px; width: 9px; height: 9px; fill: var(--repo); }
     .live { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
   }
-  @media (pointer: coarse) and (max-width: 1239px) { .add-icon, .mini { width: 44px; height: 44px; } }
-  @media (pointer: coarse) { .add { height: 44px; } }
+  @media (pointer: coarse) and (min-width: 1100px) and (max-width: 1239px) { .add-icon, .mini { width: 44px; height: 44px; } }
+  /* Tablet and phone: the rail is a section under In flight, with the same cards. */
+  @media (max-width: 1099px) {
+    .rail { border-right: 0; }
+    .full { position: static; max-height: none; min-height: 0; overflow: visible; padding: 0; }
+    h2 { font: 600 21px/1.3 var(--serif); letter-spacing: 0; text-transform: none; color: var(--ink); }
+    .foot { margin: 0; }
+  }
 </style>

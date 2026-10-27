@@ -15,7 +15,7 @@ the first pass, and the structured-chat spike runs in parallel with the Home wor
 | --- | --- | --- |
 | D | App shell (top and bottom tabs, bell, jump search, More sheet) and Home | merged, [#218](https://github.com/eyupio/reet.sh/pull/218) |
 | A | Machine folder browse and branches (`agents`, `browse-v1`, `branches-v1`), start-agent navigates to the session, dockable and resizable sessions panel | merged, [#219](https://github.com/eyupio/reet.sh/pull/219); contract in [docs/folder-browse.md](docs/folder-browse.md) |
-| B | Folder projects: store and API (`/api/v2/folder-projects`, reorder, `import-saved`), saved Projects moved over (old create/edit/delete answer 410 `projects_moved`), then the Add project dialog and the rail | [#221](https://github.com/eyupio/reet.sh/pull/221): B1–B4 done and pushed; B5 (folder browser and Add project dialog) and B6 (rail, import prompt, `?legacy=` lookup, `/projects` kept as run history) not done |
+| B | Folder projects: store and API (`/api/v2/folder-projects`, reorder, `import-saved`, `?legacy=`), saved Projects moved over (old create/edit/delete answer 410 `projects_moved`), the Add project dialog with the folder browser, and the rail on Home (card menu, Worktrees, the one-time migration note, the "remaining saved Projects" prompt); `/projects` and `/projects/<id>` redirect to Home, old runs are read-only in Activity (*Runs from Projects*); read [docs/projects.md](docs/projects.md) | [#221](https://github.com/eyupio/reet.sh/pull/221): B1–B6 done; ready for the broad review and merge. No release tag until PR E merges (R22) |
 | P | Home fidelity polish: tokens, spacing, top and tab bars go into C; fleet strip, In flight, Needs you and the dock go into E | folded into C and E, no PR of its own |
 | C | Agent catalogue and launch fields (tool on the session listing, `osVersion`) | not started |
 | E | Launch bar, start in several projects, retire the old Projects page | not started |
@@ -28,7 +28,11 @@ Until Program 2, reet starts agents in terminal sessions and wraps them with pro
 YOLO, attention and the session screen; it is not yet a structured chat front end.
 Things still open: nothing has been checked on a real phone or in Safari (browser emulation only); worktree
 git calls share the lazy-fetch and fsmonitor hazard the folder browser already guards against; the
-`terminal-browser` CI job runs close to its 15 minute limit, so add no new fixtures there; the MCP test
+`terminal-browser` CI job runs close to its 15 minute limit, so add no new fixtures there (PR B moved
+`projects.e2e.mjs` out of it into `phone-zoom`); since PR B the worktree figure on Home is "worktrees in use"
+(live sessions only: no record says which worktrees were removed), choosing a rail card opens Start an agent
+until the launch bar (E) applies the project's defaults and starter prompt, and the old Projects tables and
+their start/retry routes stay one release before they are dropped (still to confirm); the MCP test
 `mcp/test/oauth.test.mjs` needs the fixture precompiled in CI (done in `image.yml`).
 **Rule for this stack: every PR updates this block (state column and any new limits) before it merges.**
 

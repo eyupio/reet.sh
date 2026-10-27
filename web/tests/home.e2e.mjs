@@ -18,23 +18,22 @@ const health = () => ({serverNow:Date.now(),machines:[
  {agentId:'a2',host:'desk',state:'unreachable',capabilities:caps('darwin'),connection:{connected:false,reportFresh:false,missedProbes:4,reconnects:2,path:'direct',report:report(91)}},
 ]})
 const tmachines = [
- {agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:caps('linux')},
+ {agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:{...caps('linux'),browse:true,branches:true,worktree:true}},
  {agentId:'a2',host:'desk',ready:false,serverEnabled:true,capabilities:caps('darwin')},
 ]
 const session = (id, agentId, title, state='running', over={}) => ({id,agentId,title,state,createdAt:now-2*HOUR,updatedAt:now-12*MIN,exitCode:null,...over})
 const baseSessions = () => [
- session('s1','a1','Refactor the store layer','running',{worktreeBranch:'reet/store-split'}),
+ session('s1','a1','Refactor the store layer','running',{projectId:'fp1',worktreePath:'/home/dev/.reet/worktrees/store/store/split',worktreeRepo:'store',worktreeBranch:'reet/store-split'}),
  session('s2','a1','Tidy the release notes'),
  session('s3','a2','Speed up the runner pool'),
  session('s4','a1','Docs pass','exited',{exitCode:1,updatedAt:now-HOUR}),
 ]
-const member = (sessionId, host='a1') => ({position:0,host,dir:'~/store',tool:'claude',model:'',state:'started',code:'',sentence:'',sessionId,worktreePath:'',worktreeRepo:'',worktreeBranch:'',worktreeRun:'',worktreeProject:'',sharesCheckout:true,attempt:1})
-const projects = [
- {id:'p1',name:'Store rewrite',defaultTool:'claude',defaultModel:'',useWorktrees:true,hasSharedPrompt:false,members:[{host:'a1',dir:'~/store',tool:'',model:'',position:0}],createdAt:1,updatedAt:1,version:1,lastRun:{id:'r1',state:'running',startedAt:now-HOUR}},
- {id:'p2',name:'Notes',defaultTool:'claude',defaultModel:'',useWorktrees:false,hasSharedPrompt:false,members:[{host:'a2',dir:'~/notes',tool:'',model:'',position:0}],createdAt:1,updatedAt:1,version:1,lastRun:{id:'r2',state:'complete',startedAt:now-3*24*HOUR}},
-]
-const runs = {r1:{id:'r1',projectId:'p1',projectName:'Store rewrite',state:'running',startedAt:now-HOUR,useWorktrees:true,worktreeProject:'store',members:[member('s1')]},
- r2:{id:'r2',projectId:'p2',projectName:'Notes',state:'complete',startedAt:now-3*24*HOUR,useWorktrees:false,worktreeProject:'',members:[member('s3','a2')]}}
+// Folder projects as GET /api/v2/folder-projects lists them: store is a repository on studio, notes a plain folder on desk.
+const fproject = (id, name, host, dir, over={}) => ({id,host,machine:host === 'a1' ? 'studio' : 'desk',dir,name,isRepo:true,baseBranch:'',worktreeDefault:'inherit',defaultTool:'',defaultModel:'',hasStarterPrompt:false,note:'',position:0,createdAt:1,updatedAt:1,version:1,...over})
+const fprojects = () => [fproject('fp1','Store rewrite','a1','/home/dev/store',{baseBranch:'main'}), fproject('fp2','Notes','a2','/home/dev/notes',{isRepo:false,position:1})]
+// An old saved Project run whose worktree on studio is still recorded, for the Worktrees menu.
+const oldProject = {id:'p1',name:'Store rewrite',defaultTool:'claude',defaultModel:'',useWorktrees:true,hasSharedPrompt:false,members:[{host:'a1',dir:'/home/dev/store',tool:'',model:'',position:0}],createdAt:1,updatedAt:1,version:1}
+const oldRun = {id:'r1',projectId:'p1',projectName:'Store rewrite',state:'complete',startedAt:now-3*24*HOUR,useWorktrees:true,worktreeProject:'store-rewrite',members:[{position:0,host:'a1',dir:'/home/dev/store',tool:'claude',model:'',state:'started',code:'',sentence:'',sessionId:'old1',worktreePath:'/home/dev/.reet/worktrees/store-rewrite/store/r1',worktreeRepo:'store',worktreeBranch:'reet/store-rewrite-r1',worktreeRun:'r1',worktreeProject:'store-rewrite',sharesCheckout:false,attempt:1}]}
 const job = (id, agentId, targetId, actions, ago) => ({id,agentId,targetId,kind:'preview',status:'awaiting-approval',revision:'r',hash:'h',plan:{actions:Array.from({length:actions},(_,i)=>({add:true,skill:{id:`k${i}`,name:`k${i}`}}))},message:'',createdAt:Date.now()-ago-MIN,updatedAt:Date.now()-ago})
 const target = (id, host) => ({target:{id,host,agent:'claude'},sourceId:'s',sourceName:'src',desired:[],missing:[],extra:[],revision:'r',updatedAt:Date.now()})
 // Built per test: the ages it shows are read against the page's clock, so a copy made when the file started would drift a
@@ -48,7 +47,7 @@ const makeSync = () => ({environments:[],machines:[],runs:[],updateJobs:[],
 async function home(options={}) {
  const reads = [], storage = []
  // `hold` delays the next sessions read, answering with the list as it was when the read arrived.
- const box = {sessions:baseSessions(), fail:new Set(), created:null, hold:null}
+ const box = {sessions:baseSessions(), fail:new Set(), created:null, hold:null, projects:options.projects ?? fprojects(), savedWaiting:options.savedWaiting ?? 0, writes:[], holdProjects:null}
  const routes = {
   // As the server answers it: cookie only, so a single-token sign-in gets 401 and an open instance 403.
   '/api/v2/machines/health': (request, state) => {
@@ -61,7 +60,7 @@ async function home(options={}) {
    if (request.method() === 'POST') {
     const body = request.postDataJSON()
     const s = session(`new-${body.requestId.slice(0,8)}`, body.agentId, body.title, 'running', {createdAt:Date.now(),updatedAt:Date.now()})
-    box.sessions = [s, ...box.sessions]; box.created = s
+    box.sessions = [s, ...box.sessions]; box.created = s; box.createdBody = body
     return s
    }
    if (box.fail.has('sessions')) return {status:500,json:{error:'down'}}
@@ -69,9 +68,51 @@ async function home(options={}) {
    if (box.hold) { const wait = box.hold; box.hold = null; return wait.then(() => then) }
    return then
   },
-  '/api/v2/projects': () => box.fail.has('projects') ? {status:500,json:{error:'down'}} : {projects:box.projects ?? projects},
-  '/api/v2/project-runs/r1': runs.r1,
-  '/api/v2/project-runs/r2': runs.r2,
+  '/api/v2/folder-projects': request => {
+   if (request.method() === 'POST') {
+    const body = request.postDataJSON()
+    box.writes.push({method:'POST', path:'/api/v2/folder-projects', body})
+    const made = fproject(`fp${box.projects.length + 10}`, body.name || body.dir.split('/').pop(), body.host, body.dir, {isRepo:!!body.isRepo, position:box.projects.length})
+    box.projects = [...box.projects, made]
+    return {status:201, json:made}
+   }
+   if (box.fail.has('projects')) return {status:500,json:{error:'down'}}
+   const then = {projects:box.projects, savedWaiting:box.savedWaiting}
+   if (box.holdProjects) { const wait = box.holdProjects; box.holdProjects = null; return wait.then(() => then) }
+   return then
+  },
+  '/api/v2/folder-projects/reorder': request => {
+   const body = request.postDataJSON()
+   box.writes.push({method:'POST', path:'/api/v2/folder-projects/reorder', body})
+   box.projects = body.ids.map((id, i) => ({...box.projects.find(p => p.id === id), position:i, version:box.projects.find(p => p.id === id).version + 1}))
+   return {projects:box.projects, savedWaiting:box.savedWaiting}
+  },
+  '/api/v2/folder-projects/import-saved': request => {
+   box.writes.push({method:'POST', path:'/api/v2/folder-projects/import-saved', body:request.postData()})
+   const created = box.savedWaiting
+   for (let i = 0; i < created; i++) box.projects = [...box.projects, fproject(`fp-saved-${i}`, `saved-${i}`, 'a1', `/home/dev/saved-${i}`, {position:box.projects.length})]
+   box.savedWaiting = 0
+   return {projects:box.projects, savedWaiting:0, created, skipped:0, message:created ? `Added ${created} saved repositories as projects.` : "Nothing is waiting to be added: every saved folder is already in reet, or can't be used as a project."}
+  },
+  '/api/v2/folder-projects/fp1': request => {
+   const current = box.projects.find(p => p.id === 'fp1')
+   if (request.method() === 'GET') return {...current, starterPrompt:''}
+   const match = request.headers()['if-match']
+   box.writes.push({method:request.method(), path:'/api/v2/folder-projects/fp1', body:request.postData() ? request.postDataJSON() : null, match})
+   if (match !== `"${current.version}"`) return {status:409, json:{error:'Someone changed this project. Reload it, then try again.', code:'project_changed'}}
+   if (request.method() === 'DELETE') { box.projects = box.projects.filter(p => p.id !== 'fp1'); return {ok:true, message:'Project removed. Its sessions and any worktrees stay on studio.'} }
+   const body = request.postDataJSON()
+   const next = {...current, ...body, version:current.version + 1}
+   box.projects = box.projects.map(p => p.id === 'fp1' ? next : p)
+   return next
+  },
+  '/api/v2/folder-projects/fp2': request => ({...box.projects.find(p => p.id === 'fp2'), starterPrompt:''}),
+  '/api/v2/machines/a1/browse': request => {
+   const path = new URL(request.url()).searchParams.get('path') || '/home/dev'
+   return {path, home:'/home/dev', parent:'', repo:path === '/home/dev/site' ? 'root' : 'none', repoTop:'', entries:path === '/home/dev' ? [{name:'site',dir:true,repoRoot:true,hidden:false}] : [], more:false, partial:false, scanned:1, omitted:0}
+  },
+  '/api/v2/projects': {projects:[oldProject]},
+  '/api/v2/projects/p1/runs': {runs:[oldRun]},
   ...(options.routes ?? {}),
  }
  const opened = await openWorkspace(browser, {width:1440, sync:makeSync(), routes, ...options, routes})
@@ -103,7 +144,7 @@ try {
   const studio = card(page,'studio')
   await expect(studio).toBeVisible()
   await expect(studio).toHaveAttribute('href','/machines?machine=studio')
-  await expect(studio).toHaveAccessibleName(/^studio, online, 2 sessions running, CPU 38%, skills in sync · checked 5 min ago$/)
+  await expect(studio).toHaveAccessibleName(/^studio, online, 2 sessions running, 1 worktree in use, CPU 38%, skills in sync · checked 5 min ago$/)
   await expect(studio.locator('.figure')).toHaveText('2')
   await expect(studio).toContainText('sessions running')
   await expect(studio).toContainText('linux')
@@ -114,7 +155,7 @@ try {
   await expect(desk.locator('.skills')).toHaveText('2 skills out of date')
   await expect(desk.locator('.skills')).toHaveClass(/warn/)
   // An offline machine's count is what was last known: the card says so.
-  await expect(desk).toHaveAccessibleName(/^desk, offline, 1 session running \(last known, not reporting\), CPU No reading, 2 skills out of date$/)
+  await expect(desk).toHaveAccessibleName(/^desk, offline, 1 session running \(last known, not reporting\), no worktrees in use, CPU No reading, 2 skills out of date$/)
   await expect(desk.locator('.caption')).toHaveText('Last known count. desk is not reporting.')
   await expect(studio.locator('.caption')).toHaveCount(0)
   await expect(page.locator('main')).not.toContainText(/agents? running/i)
@@ -133,12 +174,12 @@ try {
    session('s3','a2','Speed up the runner pool','end_requested'), session('s5','a2','Bench the cache','end_requested')]
   await page.goto(base)
   const desk = card(page,'desk')
-  await expect(desk).toHaveAccessibleName(/^desk, offline, 0 sessions running · 2 ending \(last known, not reporting\), CPU No reading, 2 skills out of date$/)
+  await expect(desk).toHaveAccessibleName(/^desk, offline, 0 sessions running · 2 ending \(last known, not reporting\), no worktrees in use, CPU No reading, 2 skills out of date$/)
   await expect(desk.locator('.figure')).toHaveText('0')
   await expect(desk.locator('.sessions')).toHaveText(/^0\s+sessions running\s*· 2 ending$/)
   await expect(desk.locator('.caption')).toHaveText('Last known count. desk is not reporting.')
   const studio = card(page,'studio')
-  await expect(studio).toHaveAccessibleName(/^studio, online, 2 sessions running, CPU 38%/)
+  await expect(studio).toHaveAccessibleName(/^studio, online, 2 sessions running, 1 worktree in use, CPU 38%/)
   await expect(studio.locator('.sessions')).not.toContainText('ending')
   expect(errors).toEqual([])
   await context.close()
@@ -157,13 +198,16 @@ try {
   await context.close()
  }
 
- // The session listing cannot say which worktrees reet made and has not removed, so no card shows a worktree figure.
- if (run('no worktree figure without a source')) {
-  const {context,page,errors} = await home()
+ // The session listing has no record of removed worktrees, so the only figure is the worktrees live sessions are in now,
+ // labelled "in use": a finished session's worktree is never counted.
+ if (run('worktree figure counts only worktrees in use')) {
+  const {context,page,errors,box} = await home()
+  box.sessions = [...baseSessions(), session('s9','a1','Old pass','exited',{exitCode:0,worktreePath:'/home/dev/.reet/worktrees/x/y/z',worktreeBranch:'reet/x-z'})]
   await page.goto(base)
-  await expect(card(page,'studio')).toBeVisible()
-  await expect(strip(page)).not.toContainText(/worktree/i)
-  await expect(rail(page)).not.toContainText(/worktree/i)
+  await expect(card(page,'studio').locator('.worktrees')).toHaveText('1 worktree in use')
+  await expect(card(page,'desk').locator('.worktrees')).toHaveText('no worktrees in use')
+  await expect(rail(page).getByRole('button',{name:/^Store rewrite, /})).toContainText('1 worktree in use')
+  await expect(rail(page).getByRole('button',{name:/^Notes, /})).not.toContainText('worktree')
   expect(errors).toEqual([])
   await context.close()
  }
@@ -207,15 +251,14 @@ try {
   await page.reload()
   await expect(inFlight(page).getByRole('radio',{name:'State'})).toBeChecked()
   await expect.poll(() => groups(page)).toEqual(['Running 3','Exited 1'])
-  // Runs are read only for Projects whose last run started in the last 24 hours.
-  expect(reads).toContain('GET /api/v2/project-runs/r1')
-  expect(reads).not.toContain('GET /api/v2/project-runs/r2')
+  // Grouping comes from each session's own project id: no old Projects or runs are read for it.
+  expect(reads.filter(r => /\/api\/v2\/(projects|project-runs)/.test(r))).toEqual([])
   expect(errors).toEqual([])
   await context.close()
  }
 
- // A session no Project's run started is listed under its machine, not left out and not given a Project.
- if (run('a session outside every Project sits under its machine')) {
+ // A session started outside every project is listed under its machine, not left out and not given a project.
+ if (run('a session outside every project sits under its machine')) {
   const {context,page,errors} = await home()
   await page.goto(base)
   const group = inFlight(page).locator('.group').filter({has:page.getByRole('heading',{name:/^No project · studio/})})
@@ -256,42 +299,163 @@ try {
   await context.close()
  }
 
- // The rail lists the saved Projects read-only: name, the machines its folders are on, how many of its sessions run.
- if (run('rail lists Projects read-only and Add opens New project')) {
-  const {context,page,errors} = await home()
+ // The rail lists the folder projects: repository diamond or folder icon, name, machine tag, base branch, state in words and
+ // worktrees in use. Choosing a card opens Start an agent in that folder (the launch bar takes over in a later release); the
+ // card menu has New session here, Edit, Worktrees, Move up and down, and Remove from reet (confirmed).
+ if (run('rail lists folder projects with their menu')) {
+  const {context,page,errors,box} = await home()
   await page.goto(base)
   const r = rail(page)
   await expect(r.getByRole('heading',{name:'Projects'})).toBeVisible()
-  const store = r.getByRole('link',{name:/^Store rewrite/})
-  await expect(store).toHaveAttribute('href','/projects/p1')
-  await expect(store).toContainText('studio')
-  await expect(store).toContainText('1 running')
-  const notes = r.getByRole('link',{name:/^Notes/})
-  await expect(notes).toContainText('desk')
-  await expect(notes).toContainText('idle')
-  await expect(r.getByText("These are your saved Projects. Browsing a machine's folders comes in a later release.",{exact:true})).toBeVisible()
-  // Read-only: the one button is Add.
-  await expect(r.getByRole('button')).toHaveCount(1)
-  expect(Math.round(await r.evaluate(el => el.getBoundingClientRect().width))).toBe(272)
-  await r.getByRole('button',{name:'Add a project'}).click()
-  const dialog = page.getByRole('dialog',{name:'New project',exact:true})
-  await expect(dialog).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(dialog).toBeHidden()
-  await expect(r.getByRole('button',{name:'Add a project'})).toBeFocused()
+  const store = r.getByRole('button',{name:'Store rewrite, studio, main, 1 running, 1 worktree in use',exact:true})
+  await expect(store).toBeVisible()
+  await expect(store.locator('.icon.repo')).toHaveCount(1)
+  await expect(store.locator('.tag')).toHaveText('studio')
+  await expect(store.locator('.branch')).toHaveText('main')
+  await expect(store.locator('.branch')).toHaveCSS('font-family', /Plex Mono|mono/i)
+  await expect(store.locator('.state')).toHaveText('1 running')
+  const notes = r.getByRole('button',{name:'Notes, desk, machine offline',exact:true})
+  await expect(notes.locator('.icon.folder')).toHaveCount(1)
+  await expect(notes.locator('.branch')).toHaveCount(0)
+  await expect(r.getByText('Folders are browsed live on the machine',{exact:true})).toBeVisible()
+  expect(Math.round(await r.evaluate(el => el.getBoundingClientRect().width))).toBe(301)
+  // Choosing the card starts an agent in that folder on its machine, tied to the project.
   await store.click()
-  await expect(page).toHaveURL(`${base}/projects/p1`)
+  const start = page.getByRole('dialog',{name:'Start an agent',exact:true})
+  await expect(start.getByRole('combobox',{name:'Machine',exact:true})).toHaveValue('a1')
+  await expect(start.getByRole('textbox',{name:'Folder path'})).toHaveValue('/home/dev/store')
+  await page.route(url => new URL(url).pathname === '/terminals', route => route.fulfill({status:200, contentType:'text/html', body:'<title>t</title>'}))
+  await start.getByRole('button',{name:'Start',exact:true}).click()
+  await expect.poll(() => box.created?.id ?? null).not.toBeNull()
+  expect(box.createdBody).toMatchObject({agentId:'a1', dir:'/home/dev/store', projectId:'fp1'})
+  await expect(page).toHaveURL(/\/terminals\?/)
+  await page.goto(base)
+  // The menu: New session here does the same; Move down sends the whole order with the versions read.
+  const menuButton = rail(page).getByRole('button',{name:'More for Store rewrite',exact:true})
+  await menuButton.click()
+  const menu = page.getByRole('menu',{name:'Store rewrite'})
+  await expect(menu.getByRole('menuitem')).toHaveText(['New session here','Edit','Worktrees','Move up','Move down','Remove from reet'])
+  await expect(menu.getByRole('menuitem',{name:'Move up'})).toBeDisabled()
+  await expect(menu.getByRole('menuitem',{name:'New session here'})).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(menuButton).toBeFocused()
+  await menuButton.click()
+  await menu.getByRole('menuitem',{name:'Move down'}).click()
+  await expect.poll(() => box.writes.find(w => w.path === '/api/v2/folder-projects/reorder')?.body ?? null).toEqual({ids:['fp2','fp1'], versions:[1,1]})
+  await expect.poll(() => rail(page).locator('.full .card').evaluateAll(els => els.map(e => e.querySelector('.name').textContent))).toEqual(['Notes','Store rewrite'])
+  // Edit reads the project with its starter prompt and saves only what changed, with the version read.
+  await rail(page).getByRole('button',{name:'More for Store rewrite',exact:true}).click()
+  await page.getByRole('menu',{name:'Store rewrite'}).getByRole('menuitem',{name:'Edit'}).click()
+  const edit = page.getByRole('dialog',{name:'Edit Store rewrite',exact:true})
+  await edit.getByRole('textbox',{name:/^Name/}).fill('Store two')
+  await edit.getByRole('button',{name:'Save changes'}).click()
+  await expect(edit).toBeHidden()
+  await expect(page.getByText('Sorted. Store two saved.',{exact:true})).toBeVisible()
+  const patch = box.writes.find(w => w.method === 'PATCH')
+  expect(patch.body).toEqual({name:'Store two'})
+  expect(patch.match).toBe('"2"')
+  // Remove from reet asks first, sends the version read, and says what stays on the machine.
+  await rail(page).getByRole('button',{name:'More for Store two',exact:true}).click()
+  await page.getByRole('menu',{name:'Store two'}).getByRole('menuitem',{name:'Remove from reet'}).click()
+  const confirm = page.getByRole('dialog',{name:'Remove Store two from reet?',exact:true})
+  await expect(confirm).toContainText('Its sessions and any worktrees stay on studio')
+  await confirm.getByRole('button',{name:'Cancel'}).click()
+  expect(box.writes.filter(w => w.method === 'DELETE')).toEqual([])
+  await rail(page).getByRole('button',{name:'More for Store two',exact:true}).click()
+  await page.getByRole('menu',{name:'Store two'}).getByRole('menuitem',{name:'Remove from reet'}).click()
+  await page.getByRole('dialog',{name:'Remove Store two from reet?',exact:true}).getByRole('button',{name:'Remove from reet'}).click()
+  await expect(page.getByText('Project removed. Its sessions and any worktrees stay on studio.',{exact:true})).toBeVisible()
+  await expect(rail(page).getByRole('button',{name:/^Store two, /})).toHaveCount(0)
+  expect(box.writes.find(w => w.method === 'DELETE').match).toBe('"3"')
+  await expect(page.locator('main')).not.toContainText(/healthy|verified/i)
   expect(errors).toEqual([])
   await context.close()
-  // Under 1240 px the rail is a 56 px strip that still reaches each Project and Add.
+  // Under 1240 px the rail is a 56 px strip that still reaches each project and Add.
   const narrow = await home({width:1200})
   await narrow.page.goto(base)
   const n = rail(narrow.page)
-  await expect(n.getByRole('link',{name:'Store rewrite'})).toBeVisible()
+  await expect(n.getByRole('button',{name:'Store rewrite, studio, main, 1 running, 1 worktree in use',exact:true})).toBeVisible()
   await expect(n.getByRole('button',{name:'Add a project'})).toBeVisible()
   expect(Math.round(await n.evaluate(el => el.getBoundingClientRect().width))).toBe(56)
   expect(await noSideways(narrow.page)).toBe(true)
   await narrow.context.close()
+ }
+
+ // The Worktrees menu lists the worktrees recorded for that folder: the ones live sessions are in, and those old Project
+ // runs made there, with the existing Check and remove sheet.
+ if (run('worktrees menu lists recorded worktrees with Check and remove')) {
+  const {context,page,errors} = await home()
+  await page.goto(base)
+  await rail(page).getByRole('button',{name:'More for Store rewrite',exact:true}).click()
+  await page.getByRole('menu',{name:'Store rewrite'}).getByRole('menuitem',{name:'Worktrees'}).click()
+  const d = page.getByRole('dialog',{name:'Worktrees for Store rewrite',exact:true})
+  await expect(d).toContainText('reet/store-split')
+  await expect(d).toContainText('In use by Refactor the store layer')
+  await expect(d).toContainText('reet/store-rewrite-r1')
+  await d.getByRole('button',{name:'Check and remove reet/store-rewrite-r1'}).click()
+  await expect(page.getByRole('dialog',{name:/worktree/i}).last()).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Add opens the folder browser on a machine that can browse; a typed or chosen folder is added with one press, and the
+ // page says so in its status line.
+ if (run('Add opens the folder browser')) {
+  const {context,page,errors,box} = await home()
+  await page.goto(base)
+  const add = rail(page).getByRole('button',{name:'Add a project'})
+  await add.click()
+  const d = page.getByRole('dialog',{name:'Add a project',exact:true})
+  await expect(d.getByRole('list',{name:/^Folders in /})).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(d).toBeHidden()
+  await expect(add).toBeFocused()
+  await add.click()
+  await d.getByRole('list',{name:/^Folders in /}).getByRole('button',{name:'site, git repository'}).click()
+  await d.getByRole('button',{name:'Use this folder'}).click()
+  await d.getByRole('button',{name:'Add project'}).click()
+  await expect(d).toBeHidden()
+  await expect(page.getByText('Sorted. site added.',{exact:true})).toBeVisible()
+  expect(box.writes.find(w => w.method === 'POST').body).toEqual({host:'a1', dir:'/home/dev/site', isRepo:true, worktreeDefault:'inherit'})
+  await expect(rail(page).getByRole('button',{name:/^site, studio/})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The note from moving saved Projects shows on its card until the person dismisses it; dismissing clears it for good.
+ if (run('migration note shown once')) {
+  const {context,page,errors,box} = await home({projects:[fproject('fp1','Store rewrite','a1','/home/dev/store',{note:'Old shop, Site'}), fproject('fp2','Notes','a2','/home/dev/notes',{isRepo:false,position:1})]})
+  await page.goto(base)
+  const note = rail(page).getByRole('note')
+  await expect(note).toHaveCount(1)
+  await expect(note).toContainText('Moved from your saved Projects.')
+  await expect(note).toContainText('Old shop, Site')
+  await note.getByRole('button',{name:'Dismiss'}).click()
+  await expect(rail(page).getByRole('note')).toHaveCount(0)
+  const patch = box.writes.find(w => w.method === 'PATCH')
+  expect(patch.body).toEqual({note:''})
+  expect(patch.match).toBe('"1"')
+  await page.reload()
+  await expect(rail(page).getByRole('button',{name:/^Store rewrite, /})).toBeVisible()
+  await expect(rail(page).getByRole('note')).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Saved repositories that waited for room are brought in only when the person asks; the answer is shown as sent.
+ if (run('remaining saved Projects come in when asked')) {
+  const {context,page,errors,box} = await home({savedWaiting:2})
+  await page.goto(base)
+  const prompt = rail(page).getByRole('button',{name:'Add your remaining saved Projects (2)',exact:true})
+  await expect(prompt).toBeVisible()
+  await prompt.click()
+  await expect(page.getByText('Added 2 saved repositories as projects.',{exact:true})).toBeVisible()
+  await expect(prompt).toHaveCount(0)
+  await expect(rail(page).getByRole('button',{name:/^saved-1, studio/})).toBeVisible()
+  expect(box.writes.filter(w => w.path === '/api/v2/folder-projects/import-saved')).toHaveLength(1)
+  expect(errors).toEqual([])
+  await context.close()
  }
 
  // Start an agent sits docked at the foot of the page and opens the existing dialog.
@@ -525,7 +689,7 @@ try {
   const written = storage.filter(w => /home|group/i.test(w.key))
   expect(written).toEqual([{op:'localStorage.set',key:'reet.home.groupBy.1',value:'machine'}])
   const dump = await page.evaluate(() => JSON.stringify([Object.entries(localStorage),Object.entries(sessionStorage)]))
-  for (const secret of ['Store rewrite','Notes','Refactor the store layer','Speed up the runner pool','s1','p1','r1','studio','desk','a1']) expect(dump, secret).not.toContain(secret)
+  for (const secret of ['Store rewrite','Notes','Refactor the store layer','Speed up the runner pool','s1','fp1','/home/dev','studio','desk','a1']) expect(dump, secret).not.toContain(secret)
   expect(errors).toEqual([])
   await context.close()
  }
@@ -541,9 +705,11 @@ try {
    if (width >= 1100) {
     expect(await top(needs(page))).toBeCloseTo(await top(inFlight(page)), -1)
    } else {
-    await expect(rail(page)).toBeHidden()
+    // The rail sits under In flight until the Sessions tab takes it.
+    await expect(rail(page)).toBeVisible()
     expect(await top(strip(page))).toBeLessThan(await top(needs(page)))
     expect(await top(needs(page))).toBeLessThan(await top(inFlight(page)))
+    expect(await top(inFlight(page))).toBeLessThan(await top(rail(page)))
     for (const box of await page.locator('main a, main button, main label:has(input[type=radio])').evaluateAll(els => els.filter(e => e.getClientRects().length).map(e => [e.textContent.trim().slice(0,30), e.getBoundingClientRect().height])))
      expect(box[1], `${box[0]} at ${width}px`).toBeGreaterThanOrEqual(44)
    }
@@ -631,37 +797,32 @@ try {
   await expect(strip(page).locator('.figure')).toHaveCount(0)
   await expect(inFlight(page).getByText("Couldn't read your sessions just now.",{exact:true})).toBeVisible()
   await expect(inFlight(page)).not.toContainText('Reading your sessions')
-  await expect(rail(page).getByText("Couldn't read your Projects just now.",{exact:true})).toBeVisible()
-  await expect(rail(page)).not.toContainText('Reading your Projects')
+  await expect(rail(page).getByText("Couldn't read your projects just now.",{exact:true})).toBeVisible()
+  await expect(rail(page)).not.toContainText('Reading your projects')
   expect(errors).toEqual([])
   await context.close()
  }
 
- // A refresh already under way when a Project is saved must not drop it when its older answer lands. (A start from Home no
+ // A refresh already under way when a project is added must not drop it when its older answer lands. (A start from Home no
  // longer refreshes: Home is leaving, so a poll in flight may still replace the list without the new row. That is harmless:
  // the next page shows the session, and a Home restored from the browser cache reads everything again.)
- if (run('a slow refresh does not drop a just-saved Project')) {
+ if (run('a slow refresh does not drop a just-added project')) {
   const {context,page,errors,box} = await home()
   await page.clock.install()
   await page.goto(base)
   await expect(inFlight(page).getByRole('link',{name:/Tidy the release notes/})).toBeVisible()
   let release
-  box.hold = new Promise(r => { release = r })
+  box.holdProjects = new Promise(r => { release = r })
   await page.clock.runFor(15_000)
-  const saved = {id:'p9',name:'Fresh project',defaultTool:'claude',defaultModel:'',useWorktrees:false,hasSharedPrompt:false,members:[{host:'a1',dir:'~/fresh',tool:'',model:'',position:0}],createdAt:1,updatedAt:1,version:1}
-  await page.route('**/api/v2/projects', route => route.request().method() === 'POST' ? (box.projects = [saved, ...projects], route.fulfill({json:saved})) : route.fallback())
   await rail(page).getByRole('button',{name:'Add a project'}).click()
-  const pd = page.getByRole('dialog',{name:'New project',exact:true})
-  await pd.getByRole('textbox',{name:'Name'}).fill('Fresh project')
-  await pd.getByRole('button',{name:'Add a repository'}).click()
-  await pd.getByRole('combobox',{name:'Folder',exact:true}).selectOption({label:'Type a path…'})
-  await pd.getByRole('textbox',{name:'Folder path'}).fill('/home/dev/fresh')
-  await pd.getByRole('button',{name:'Save Project'}).click()
-  await expect(pd).toBeHidden()
-  await expect(rail(page).getByRole('link',{name:/^Fresh project/})).toBeVisible()
+  const d = page.getByRole('dialog',{name:'Add a project',exact:true})
+  await d.getByRole('textbox',{name:'Folder',exact:true}).fill('/home/dev/fresh')
+  await d.getByRole('button',{name:'Add project'}).click()
+  await expect(d).toBeHidden()
+  await expect(rail(page).getByRole('button',{name:/^fresh, studio/})).toBeVisible()
   release()
   await page.waitForTimeout(1000)
-  await expect(rail(page).getByRole('link',{name:/^Fresh project/})).toBeVisible()
+  await expect(rail(page).getByRole('button',{name:/^fresh, studio/})).toBeVisible()
   expect(errors).toEqual([])
   await context.close()
  }
@@ -678,8 +839,8 @@ try {
   await phone.context.close()
   const narrow = await home({width:1200})
   await narrow.page.goto(base)
-  await expect(rail(narrow.page).getByRole('link',{name:'Store rewrite, 1 running',exact:true})).toBeVisible()
-  await expect(rail(narrow.page).getByRole('link',{name:'Notes, idle',exact:true})).toBeVisible()
+  await expect(rail(narrow.page).locator('.strip').getByRole('button',{name:'Store rewrite, studio, main, 1 running, 1 worktree in use',exact:true})).toBeVisible()
+  await expect(rail(narrow.page).locator('.strip').getByRole('button',{name:'Notes, desk, machine offline',exact:true})).toBeVisible()
   await narrow.context.close()
  }
  // The shell and Home across screens, themes and motion: 1360 px with a mouse, 834 px on a touch tablet and 390 and 320 px on a
@@ -765,5 +926,5 @@ try {
   expect(errors).toEqual([])
   await context.close()
  }
- console.log('Home: fleet strip with sessions running, CPU or No reading and the skills line, no worktree figure, Add a machine, In flight grouped by Project, Machine and State with offline sessions kept, Needs you empty with a quiet bell, the read-only rail with Add, Start an agent going straight to the new session (Starting… until Home leaves, refusals kept on Home, Back to the new row), the read-only Home, refresh errors keeping the last lists, storage limited to the Group by key, the desktop, tablet and phone layouts, paused machines in words, and the width, theme, target, focus and motion matrix.')
+ console.log('Home: fleet strip with sessions running, worktrees in use, CPU or No reading and the skills line, Add a machine, In flight grouped by folder project, Machine and State with offline sessions kept, Needs you empty with a quiet bell, the folder-project rail with its menu, Worktrees, Add with the folder browser, the migration note and the saved Projects waiting, Start an agent going straight to the new session (Starting… until Home leaves, refusals kept on Home, Back to the new row), the read-only Home, refresh errors keeping the last lists, storage limited to the Group by key, the desktop, tablet and phone layouts, paused machines in words, and the width, theme, target, focus and motion matrix.')
 } finally { await browser.close() }

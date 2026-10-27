@@ -9,13 +9,18 @@
  // folder and a prompt; the machine decides the program and its flags. Nothing here is kept in browser storage or the URL, and
  // the prompt lives only in this component: it is cleared when the dialog closes.
  // opener is the element the person pressed to open this, which gets focus back on close.
- let { machines, snapshot, initialAgent = '', opener = null, onstarted, onleavefailed, onaddmachine, onsignedout, onclose }: {
+ let { machines, snapshot, initialAgent = '', initialDir = '', projectId = '', opener = null, onstarted, onleavefailed, onaddmachine, onsignedout, onclose }: {
   /** The machines from /api/v2/terminal/machines, with their readiness and launch capabilities. */
   machines: TerminalMachine[]
   /** The machines' reported folders (from the sync state), or undefined while they are unknown: the home folder and a typed path still work. */
   snapshot: Machine[] | undefined
   /** The machine this was opened from, preselected when it is ready. */
   initialAgent?: string
+  /** A folder to start in on that machine (a folder project's), filled in when that machine is the one preselected. */
+  initialDir?: string
+  /** The folder project the folder belongs to: sent with the start while the machine and folder are still that project's,
+   *  so the session is listed under it. */
+  projectId?: string
   opener?: HTMLElement | null
   /** Hands over the started session. A page that answers 'leaving' is opening it at another address: the dialog then stays in
    *  its Starting… state, with nothing left to press, until the page unloads. */
@@ -55,6 +60,9 @@
  const chosenTool = $derived(operation ? operation.launch.tool : choices.find(c => c.id === tool && c.available)?.id ?? choices.find(c => c.available)?.id ?? '')
  // A new machine or agent starts the model and folder afresh: no blank select and no earlier choice coming back.
  let choiceKey = ''
+ // The project's folder, filled in once, when the machine it is on is the one first chosen.
+ // svelte-ignore state_referenced_locally
+ let pendingDir = initialDir && opening.agentId === initialAgent ? initialDir : ''
  $effect.pre(() => {
   const key = agentId + '\u0000' + chosenTool
   untrack(() => {
@@ -63,6 +71,12 @@
    const next = rekey({ key: choiceKey, model: modelChoice, folder: folderChoice }, key)
    if (next.key === choiceKey) return
    choiceKey = next.key; modelChoice = next.model; folderChoice = next.folder; modelOther = ''; typedDir = ''
+   if (pendingDir) {
+    const listed = folderChoices(machines.find(m => m.agentId === agentId), snapshot).some(f => f.path === pendingDir)
+    folderChoice = listed ? pendingDir : TYPED
+    if (!listed) typedDir = pendingDir
+    pendingDir = ''
+   }
   })
  })
  const suggestions = $derived(chosenTool ? modelSuggestions(chosenTool) : [])
@@ -124,6 +138,7 @@
    if (model) launch.model = model
    if (dir) launch.dir = dir
    if (prompt) launch.prompt = prompt
+   if (projectId && machine.agentId === initialAgent && dir === initialDir) launch.projectId = projectId
    operation = { agentId: machine.agentId, host: machine.host, requestId: crypto.randomUUID(), title: titleFor(chosenTool, dir), launch }
   }
   const op = operation

@@ -175,14 +175,48 @@ func (s *Store) MigrateProjectsToFoldersFor(uid int64) (MigrationReport, error) 
 	return rep, nil
 }
 
-// SavedWaitingFor counts uid's saved Project repositories that are not yet
-// a folder project or settled (skipped for good): those waiting for room.
+// SavedWaitingFor counts the folders (machine and cleaned folder) of uid's
+// saved Project repositories that are not yet a folder project or settled
+// (skipped for good): those waiting for room. Several members naming one
+// folder count once; a folder the rules refuse, or one the account has
+// registered since, is not waiting, because bringing it in makes nothing.
 func (s *Store) SavedWaitingFor(uid int64) (int, error) {
-	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM project_members m WHERE m.user_id=?
+	rows, err := s.db.Query(`SELECT m.host,m.dir FROM project_members m WHERE m.user_id=?
 		AND NOT EXISTS(SELECT 1 FROM folder_project_legacy l WHERE l.user_id=m.user_id AND l.legacy_key=m.project_id||':'||m.position)
-		AND NOT EXISTS(SELECT 1 FROM folder_projects f WHERE f.user_id=m.user_id AND f.legacy_project_id=m.project_id||':'||m.position)`, uid).Scan(&n)
-	return n, err
+		AND NOT EXISTS(SELECT 1 FROM folder_projects f WHERE f.user_id=m.user_id AND f.legacy_project_id=m.project_id||':'||m.position)`, uid)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	waiting := map[string]bool{}
+	for rows.Next() {
+		var host, dir string
+		if err := rows.Scan(&host, &dir); err != nil {
+			return 0, err
+		}
+		if clean, err := CleanProjectDir(dir); err == nil {
+			waiting[host+"\x00"+clean] = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	if len(waiting) == 0 {
+		return 0, nil
+	}
+	registered, err := s.db.Query(`SELECT host,dir FROM folder_projects WHERE user_id=?`, uid)
+	if err != nil {
+		return 0, err
+	}
+	defer registered.Close()
+	for registered.Next() {
+		var host, dir string
+		if err := registered.Scan(&host, &dir); err != nil {
+			return 0, err
+		}
+		delete(waiting, host+"\x00"+dir)
+	}
+	return len(waiting), registered.Err()
 }
 
 // projectFingerprints returns the accounts with saved Projects, in order, and

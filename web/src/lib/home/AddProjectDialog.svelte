@@ -5,7 +5,7 @@
   import { canAutoFocus } from '../focus'
   import { MAX_PROMPT_BYTES, TOOLS, cleanModel, validateModel, validatePrompt } from '../agentLaunch'
   import { repoMessage, topFolder, validateFolderInput } from '../folderBrowser'
-  import { browseFolder, createFolderProject, listBranches, readiness, refusalSentence, updateFolderProject, TerminalError,
+  import { browseFolder, createFolderProject, getFolderProject, listBranches, readiness, refusalSentence, updateFolderProject, TerminalError,
     type BrowseRepo, type BrowseResult, type FolderProject, type FolderProjectInput, type TerminalMachine, type WorktreeDefault } from '../terminal/api'
   import FolderBrowser from './FolderBrowser.svelte'
 
@@ -27,8 +27,11 @@
   const id = $props.id()
   // The Machines page opens Add a machine when it arrives with this fragment (as Home builds the link).
   const machinesAt = (fragment: string) => `/machines#${fragment}`
+  // The project as opened (the fields start from it), and the project being changed as last read: replaced by the latest
+  // version when a save meets someone else's change.
   // svelte-ignore state_referenced_locally
-  const editing = project
+  const initial = project
+  let editing = $state(initial)
   const session = crypto.randomUUID()
   const life = new AbortController()
 
@@ -43,31 +46,40 @@
     return ''
   }
   // svelte-ignore state_referenced_locally
-  let host = $state(editing?.host ?? (machines.find(m => !browseBlock(m)) ?? machines[0])?.agentId ?? '')
-  let dir = $state(editing?.dir ?? '')
-  let name = $state(editing?.name ?? '')
-  let worktreeDefault = $state<WorktreeDefault>(editing?.worktreeDefault ?? 'inherit')
-  let starterPrompt = $state(editing?.starterPrompt ?? '')
-  let baseBranch = $state(editing?.baseBranch ?? '')
-  let defaultTool = $state(editing?.defaultTool ?? '')
-  let defaultModel = $state(editing?.defaultModel ?? '')
+  let host = $state(initial?.host ?? (machines.find(m => !browseBlock(m)) ?? machines[0])?.agentId ?? '')
+  let dir = $state(initial?.dir ?? '')
+  let name = $state(initial?.name ?? '')
+  let worktreeDefault = $state<WorktreeDefault>(initial?.worktreeDefault ?? 'inherit')
+  let starterPrompt = $state(initial?.starterPrompt ?? '')
+  let baseBranch = $state(initial?.baseBranch ?? '')
+  let defaultTool = $state(initial?.defaultTool ?? '')
+  let defaultModel = $state(initial?.defaultModel ?? '')
   // A project read without its prompt (only the single read carries it) keeps its saved prompt as it is.
-  const promptKnown = !editing || editing.starterPrompt !== undefined || !editing.hasStarterPrompt
+  const promptKnown = $derived(!editing || editing.starterPrompt !== undefined || !editing.hasStarterPrompt)
   const machine = $derived(machineFor(host))
   const block = $derived(browseBlock(machine))
   // svelte-ignore state_referenced_locally
-  let browsing = $state(!editing && !browseBlock(machineFor(host)))
-  // What the machine said about each folder this dialog has seen: whether it is a repository.
+  let browsing = $state(!initial && !browseBlock(machineFor(host)))
+  // What the machine said about each folder this dialog has seen: whether it is a repository, and the note it gave. Typing
+  // a folder already asked about shows its note again without asking the machine a second time.
+  type FieldNote = { text: string; kind: 'repo' | 'plain' | 'bad'; top?: string }
   const known = new SvelteMap<string, BrowseRepo>()
-  let fieldNote = $state<{ text: string; kind: 'repo' | 'plain' | 'bad'; top?: string } | null>(null)
-  let checked = ''
+  const notes = new Map<string, FieldNote>()
+  let fieldNote = $state<FieldNote | null>(null)
   let checkSeq = 0
-  // svelte-ignore state_referenced_locally
-  if (editing) { checked = editing.dir; if (editing.isRepo) known.set(editing.dir, 'root') }
+  function knowSaved(p: FolderProject | undefined) {
+    if (p?.isRepo) { known.set(p.dir, 'root'); notes.set(p.dir, { text: 'A git repository.', kind: 'repo' }) }
+  }
+  knowSaved(initial)
 
   let dialog = $state<HTMLDialogElement>(), folderInput = $state<HTMLInputElement>(), submitButton = $state<HTMLButtonElement>()
   let promptFold = $state<HTMLDetailsElement>(), moreFold = $state<HTMLDetailsElement>()
   let busy = $state(false), message = $state(''), failed = $state(false)
+  // A save met someone else's change: Save waits until the latest version is loaded, so the stale one is never sent again.
+  let stale = $state(false), reloadButton = $state<HTMLButtonElement>()
+  // What this person had changed when the latest version was loaded, to use again on top of it.
+  type Mine = Partial<{ host: string; dir: string; name: string; worktreeDefault: WorktreeDefault; starterPrompt: string; baseBranch: string; defaultTool: string; defaultModel: string }>
+  let mine = $state<Mine | null>(null)
   let branches = $state<string[]>([]), branchNote = $state('')
   // One save: exactly what is sent, kept while its outcome is unknown so Try again sends the same thing.
   let operation = $state<{ input: FolderProjectInput; lost: boolean } | null>(null)
@@ -85,7 +97,7 @@
     return next
   }
 
-  function noteFor(r: Pick<BrowseResult, 'repo' | 'repoTop' | 'home'>): NonNullable<typeof fieldNote> {
+  function noteFor(r: Pick<BrowseResult, 'repo' | 'repoTop' | 'home'>): FieldNote {
     if (r.repo === 'root') return { text: 'A git repository.', kind: 'repo' }
     return { text: repoMessage(r) ?? '', kind: 'plain', top: topFolder(r) ?? undefined }
   }
@@ -94,36 +106,43 @@
     const v = dir
     if (v === '') { fieldNote = null; return }
     const problem = validateFolderInput(v)
-    if (problem) { fieldNote = { text: problem, kind: 'bad' }; checked = ''; return }
-    if (block || v === checked) return
-    checked = v
-    const mine = ++checkSeq
+    if (problem) { fieldNote = { text: problem, kind: 'bad' }; return }
+    const seen = notes.get(v)
+    if (seen) { fieldNote = seen; void readBranches(); return }
+    if (block) return
+    const ask = ++checkSeq
     try {
       const r = await serial(() => browseFolder(host, { path: v, session }, life.signal))
-      if (mine !== checkSeq || dir !== v || life.signal.aborted) return
+      if (ask !== checkSeq || dir !== v || life.signal.aborted) return
       known.set(v, r.repo)
-      fieldNote = noteFor(r)
+      notes.set(v, fieldNote = noteFor(r))
       void readBranches()
     } catch (e) {
-      if (mine !== checkSeq || dir !== v || life.signal.aborted) return
-      checked = ''
+      if (ask !== checkSeq || dir !== v || life.signal.aborted) return
       fieldNote = { text: refusalSentence(e), kind: 'bad' }
     }
   }
+  // Typing drops what was said about the folder, unless it is one already asked about: then its note and branch
+  // suggestions come back without asking the machine again (no change event fires when the value ends where it began).
+  function typed() {
+    checkSeq++
+    clearBranches()
+    fieldNote = notes.get(dir) ?? null
+    if (fieldNote) void readBranches()
+  }
   function use(picked: Pick<BrowseResult, 'path' | 'home' | 'repo' | 'repoTop'>) {
     dir = picked.path
-    checked = picked.path
     checkSeq++
     known.set(picked.path, picked.repo)
     clearBranches()
     void readBranches()
-    fieldNote = noteFor(picked)
+    notes.set(picked.path, fieldNote = noteFor(picked))
     browsing = false
     edited()
     void tick().then(() => folderInput?.focus())
   }
   function machineChanged() {
-    known.clear(); checked = ''; checkSeq++; fieldNote = null; clearBranches()
+    known.clear(); notes.clear(); checkSeq++; fieldNote = null; clearBranches()
     if (block) browsing = false
     else if (!editing) browsing = true
     edited()
@@ -136,14 +155,20 @@
   async function readBranches() {
     const key = `${host}\u0000${dir}`
     if (!moreFold?.open || branchesFor === key || !machine?.capabilities?.branches || known.get(dir) !== 'root' || block) return
-    const mine = ++branchSeq
+    const ask = ++branchSeq
     branchesFor = key
     try {
       const r = await listBranches(host, dir, undefined, life.signal)
-      if (mine === branchSeq) { branches = r.branches; branchNote = '' }
+      if (ask === branchSeq) { branches = r.branches; branchNote = '' }
     } catch (e) {
-      if (mine === branchSeq && !life.signal.aborted) { branches = []; branchNote = refusalSentence(e) }
+      if (ask === branchSeq && !life.signal.aborted) { branches = []; branchNote = refusalSentence(e) }
     }
+  }
+
+  // Opening More defaults again tries a read that failed once more.
+  function foldToggled() {
+    if (moreFold?.open && branchNote) branchesFor = ''
+    void readBranches()
   }
 
   function shutdown(returnFocus: boolean) {
@@ -207,8 +232,70 @@
     return ''
   }
 
+  // The fields as they read now, by the name a change sends.
+  const fields = (): Required<Mine> => ({ host, dir, name: name.trim(), worktreeDefault, starterPrompt, baseBranch: baseBranch.trim(), defaultTool, defaultModel: cleanModel(defaultModel) })
+  function fill(p: Mine) {
+    if (p.host !== undefined) host = p.host
+    if (p.dir !== undefined) dir = p.dir
+    if (p.name !== undefined) name = p.name
+    if (p.worktreeDefault !== undefined) worktreeDefault = p.worktreeDefault
+    if (p.starterPrompt !== undefined) starterPrompt = p.starterPrompt
+    if (p.baseBranch !== undefined) baseBranch = p.baseBranch
+    if (p.defaultTool !== undefined) defaultTool = p.defaultTool
+    if (p.defaultModel !== undefined) defaultModel = p.defaultModel
+  }
+  // Someone else saved first: read the latest version (with its starter prompt), put it in the fields, and keep what this
+  // person had changed in a list they can use again with one press. Nothing is saved until they press Save.
+  async function reload() {
+    if (!editing || busy || life.signal.aborted) return
+    const changed = Object.keys(inputFor()).filter(k => k !== 'isRepo') as (keyof Mine)[]
+    const now = fields()
+    busy = true; failed = false; message = 'Loading the latest version…'
+    try {
+      const latest = await getFolderProject(editing.id, AbortSignal.any([life.signal, AbortSignal.timeout(15000)]))
+      if (life.signal.aborted) return
+      editing = latest
+      fill({ host: latest.host, dir: latest.dir, name: latest.name, worktreeDefault: latest.worktreeDefault, starterPrompt: latest.starterPrompt ?? '',
+        baseBranch: latest.baseBranch, defaultTool: latest.defaultTool, defaultModel: latest.defaultModel })
+      known.clear(); notes.clear(); knowSaved(latest); checkSeq++; clearBranches()
+      fieldNote = null
+      mine = changed.length ? Object.fromEntries(changed.map(k => [k, now[k]])) as Mine : null
+      stale = false; operation = null
+      message = mine ? 'This is the latest version. Your changes are listed above it.' : 'This is the latest version.'
+    } catch (e) {
+      if (life.signal.aborted) return
+      failed = true
+      message = refusalSentence(e)
+    } finally {
+      if (!life.signal.aborted) busy = false
+    }
+  }
+  function useMine() {
+    if (!mine) return
+    fill(mine)
+    if (mine.dir !== undefined || mine.host !== undefined) { fieldNote = notes.get(dir) ?? null; clearBranches() }
+    mine = null
+    message = ''
+    void tick().then(() => submitButton?.focus())
+  }
+  const toolLabel = (t: string) => TOOLS.find(x => x.id === t)?.name ?? t
+  const WORKTREE_WORDS: Record<WorktreeDefault, string> = { inherit: 'Use the account default', yes: 'Yes', no: 'No' }
+  function mineLines(m: Mine): { label: string; value: string }[] {
+    const out: { label: string; value: string }[] = []
+    const shown = (v: string) => v === '' ? 'cleared' : v
+    if (m.host !== undefined) out.push({ label: 'Machine', value: machineFor(m.host)?.host ?? m.host })
+    if (m.dir !== undefined) out.push({ label: 'Folder', value: m.dir })
+    if (m.name !== undefined) out.push({ label: 'Name', value: m.name })
+    if (m.worktreeDefault !== undefined) out.push({ label: 'Worktree for each session', value: WORKTREE_WORDS[m.worktreeDefault] })
+    if (m.starterPrompt !== undefined) out.push({ label: 'Starter prompt', value: shown(m.starterPrompt) })
+    if (m.baseBranch !== undefined) out.push({ label: 'Default base branch', value: shown(m.baseBranch) })
+    if (m.defaultTool !== undefined) out.push({ label: 'Default agent', value: m.defaultTool ? toolLabel(m.defaultTool) : "The launch bar's choice" })
+    if (m.defaultModel !== undefined) out.push({ label: 'Default model', value: shown(m.defaultModel) })
+    return out
+  }
+
   async function save() {
-    if (busy || life.signal.aborted || !ready) return
+    if (busy || stale || life.signal.aborted || !ready) return
     if (!operation) {
       const invalid: [string, string] | null = nameProblem() ? ['name', nameProblem()]
         : promptKnown && validatePrompt(defaultTool, starterPrompt) ? ['starterPrompt', validatePrompt(defaultTool, starterPrompt)!]
@@ -238,9 +325,10 @@
         const wasLost = op.lost
         operation = null
         if (wasLost && !editing && err.code === 'project_exists') message = `${err.message} Your earlier request may have gone through: close this and look for it in your projects.`
-        else if (wasLost && editing && err.code === 'project_changed') message = 'This project changed since it was read. Your earlier save may have gone through. Close this and open it again to see.'
+        else if (wasLost && editing && err.code === 'project_changed') message = 'This project changed since it was read. Your earlier save may have gone through: load the latest version to see.'
         else message = err.message
-        void focusField(err.field ?? '')
+        if (editing && err.code === 'project_changed') { stale = true; void tick().then(() => reloadButton?.focus()) }
+        else void focusField(err.field ?? '')
       } else {
         op.lost = true
         message = editing
@@ -272,7 +360,14 @@
   </header>
   <form onsubmit={(event) => { event.preventDefault(); void save() }} oninput={edited}>
     <div class="body" data-shell-body>
-      <fieldset disabled={busy || !!operation}>
+      {#if mine}
+        <section class="mine" aria-labelledby={`${id}-mine`}>
+          <h3 id={`${id}-mine`}>Your changes</h3>
+          <ul>{#each mineLines(mine) as l (l.label)}<li><span class="mine-label">{l.label}:</span> <span class="mine-value">{l.value}</span></li>{/each}</ul>
+          <button type="button" class="ghost" onclick={useMine} disabled={busy}>Use my changes again</button>
+        </section>
+      {/if}
+      <fieldset disabled={busy || !!operation || stale}>
         <div class="field">
           <label class="label machine-label" for={`${id}-machine`}>Machine</label>
           <div class="machine-row">
@@ -292,7 +387,7 @@
         <div class="field">
           <label class="label" for={`${id}-folder`}>Folder</label>
           <div class="folder-row">
-            <input id={`${id}-folder`} bind:this={folderInput} bind:value={dir} onchange={checkFolder} oninput={() => { checkSeq++; fieldNote = null; clearBranches() }}
+            <input id={`${id}-folder`} bind:this={folderInput} bind:value={dir} onchange={checkFolder} oninput={typed}
               placeholder="/path/to/repo" autocomplete="off" autocapitalize="off" spellcheck="false"
               aria-invalid={fieldNote?.kind === 'bad' ? 'true' : undefined} aria-describedby={fieldNote ? `${id}-folder-note` : undefined} />
             <button type="button" class="toggle" aria-expanded={browsing} aria-controls={browsing ? `${id}-browser` : undefined} disabled={!!block}
@@ -342,7 +437,7 @@
           </div>
         </details>
 
-        <details class="fold" bind:this={moreFold} ontoggle={readBranches}>
+        <details class="fold" bind:this={moreFold} ontoggle={foldToggled}>
           <summary>More defaults</summary>
           <div class="fold-body three">
             <div class="field">
@@ -373,8 +468,9 @@
       <p class="chosen">{#if dir && !folderProblem}<span class="path">{dir}</span>{#if chosenRepo === 'root'}<span class="kind"><span class="vh">{' · '}</span>git repository</span>{/if}{:else}<span class="none">No folder chosen yet</span>{/if}</p>
       <p class="status" class:bad={failed} class:quiet={!message} role="status" aria-live="polite" aria-atomic="true">{message || 'The machine decides whether it can open each folder.'}</p>
       <div class="actions">
+        {#if stale}<button type="button" class="ghost reload" bind:this={reloadButton} onclick={reload} disabled={busy}>Load the latest version</button>{/if}
         <button type="button" class="cancel" onclick={close} disabled={busy}>Cancel</button>
-        <button type="submit" class="submit" bind:this={submitButton} disabled={busy || !ready} aria-busy={busy}>
+        <button type="submit" class="submit" bind:this={submitButton} disabled={busy || stale || !ready} aria-busy={busy}>
           {#if busy}{editing ? 'Saving…' : 'Adding…'}{:else if operation?.lost}Try again{:else if editing}Save changes{:else}<span class="wide">Add project</span><span class="narrow">Add this project</span>{/if}
         </button>
       </div>
@@ -452,6 +548,13 @@
   .submit:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 90%, var(--ink)); }
   .submit:disabled, .cancel:disabled { opacity: .5; cursor: default; }
   .narrow { display: none; }
+  .mine { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); }
+  .mine h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--ink); }
+  .mine ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+  .mine-label { color: var(--muted); }
+  .mine-value { overflow-wrap: anywhere; white-space: pre-wrap; }
+  .mine .ghost { align-self: flex-start; }
+  .reload { height: 44px; }
   @media (pointer: coarse) { .ghost { height: 44px; } }
 
   /* Phone: a full-screen sheet (the shell's `full`). The machine, folder, browser and fields scroll; the chosen folder and

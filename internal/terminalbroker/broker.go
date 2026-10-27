@@ -477,7 +477,9 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 var (
 	// ErrLaunchUnsupported means the machine did not negotiate launch-v1; the
 	// launch fields were not sent and nothing was reserved.
-	ErrLaunchUnsupported = errors.New("machine does not support starting agents")
+	ErrLaunchOptionUnsupported = errors.New("machine does not support that launch option")
+	ErrYoloRefused             = errors.New("YOLO sessions are not allowed")
+	ErrLaunchUnsupported       = errors.New("machine does not support starting agents")
 	// ErrLaunchFailed means the connector refused to start the agent
 	// (launch_failed): the tool or the folder is unavailable there.
 	ErrLaunchFailed = errors.New("machine could not start that agent")
@@ -487,7 +489,7 @@ var (
 )
 
 func launchRequested(in terminalproto.Create) bool {
-	return in.Tool != "" || in.Model != "" || in.Dir != "" || in.Prompt != "" || worktreeRequested(in)
+	return in.Base != "" || in.Effort != "" || in.Yolo || in.Tool != "" || in.Model != "" || in.Dir != "" || in.Prompt != "" || worktreeRequested(in)
 }
 func worktreeRequested(in terminalproto.Create) bool { return in.Worktree != "" || in.Project != "" }
 
@@ -522,6 +524,12 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		if err != nil || caps.Generation != p.Generation {
 			return store.TerminalSession{}, false, ErrOffline
 		}
+		if (in.Base != "" || in.Effort != "" || in.Yolo || in.Tool != "" && !terminalproto.ValidTool(in.Tool)) && !caps.Capabilities.AgentsV2 {
+			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
+		}
+		if in.Yolo {
+			return store.TerminalSession{}, false, ErrYoloRefused
+		}
 		// A peer without worktree-v1 is never sent the worktree fields, and the
 		// launch is not started without its worktree.
 		if worktreeRequested(in) && !caps.Capabilities.Worktree {
@@ -546,6 +554,10 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		if s.State == terminalproto.Lost {
 			if op, err := b.st.TerminalOperationFor(uid, agent, "create", request); err == nil && op.State == "failed" {
 				switch op.Code {
+				case terminalproto.LaunchOptionUnsupported:
+					return s, false, ErrLaunchOptionUnsupported
+				case terminalproto.YoloRefused:
+					return s, false, ErrYoloRefused
 				case terminalproto.LaunchFailed:
 					return s, false, ErrLaunchFailed
 				case terminalproto.WorktreeRefused:
@@ -580,6 +592,10 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	} else if r, ok := reply.Body.(*terminalproto.Result); ok && r.Code != terminalproto.OK && r.Code != terminalproto.Unavailable {
 		err = b.st.FailTerminalCreateWithResultFor(uid, agent, request, p.Generation, *r)
 		switch r.Code {
+		case terminalproto.LaunchOptionUnsupported:
+			refusal = ErrLaunchOptionUnsupported
+		case terminalproto.YoloRefused:
+			refusal = ErrYoloRefused
 		case terminalproto.LaunchFailed:
 			refusal = ErrLaunchFailed
 		case terminalproto.WorktreeRefused:

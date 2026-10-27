@@ -193,6 +193,9 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		Cols      int    `json:"cols"`
 		Rows      int    `json:"rows"`
 		Tool      string `json:"tool"`
+		Base      string `json:"base"`
+		Effort    string `json:"effort"`
+		Yolo      bool   `json:"yolo"`
 		Model     string `json:"model"`
 		Dir       string `json:"dir"`
 		Prompt    string `json:"prompt"`
@@ -208,7 +211,7 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 	if !terminalJSON(w, r, &in) {
 		return
 	}
-	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project, ProjectID: in.ProjectID}
+	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project, ProjectID: in.ProjectID, Base: in.Base, Effort: in.Effort, Yolo: in.Yolo}
 	uid := s.uid(r)
 	// The project is checked before any machine is asked, so an unknown
 	// project is refused the same way whether the machine is online or not.
@@ -252,11 +255,20 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 		writeErrCode(w, http.StatusNotFound, "project_not_found", "projectId", "That project isn't on this account.", "")
 	case errors.Is(err, store.ErrProjectMachineMismatch):
 		writeErrCode(w, http.StatusUnprocessableEntity, "project_machine_mismatch", "projectId", "That project is on another machine. Start the session on its machine.", "")
+	case errors.Is(err, terminalbroker.ErrLaunchOptionUnsupported):
+		writeErrCode(w, http.StatusConflict, "launch_option_unsupported", "", "Update reet on that machine to use that option.", "")
+	case errors.Is(err, terminalbroker.ErrYoloRefused):
+		writeErrCode(w, http.StatusConflict, "yolo_refused", "", "That machine does not allow YOLO sessions.", "")
 	case errors.Is(err, terminalbroker.ErrPromptUnsupported):
 		writeErrCode(w, http.StatusUnprocessableEntity, "prompt_unsupported", "prompt", "Write the opening prompt as at least two words.", "")
 	case errors.Is(err, terminalbroker.ErrWorktreeUnsupported):
 		writeErrCode(w, http.StatusConflict, "worktree_unsupported", "", "Update reet on that machine to start agents with worktrees.", "")
 	case errors.Is(err, terminalbroker.ErrWorktreeRefused):
+		var refusal *terminalbroker.WorktreeError
+		if errors.As(err, &refusal) && refusal.Reason == terminalproto.WorktreeBaseMissing {
+			writeErrCode(w, http.StatusUnprocessableEntity, "base_missing", "base", "That branch isn't in the repository on "+s.machineHost(uid, agent)+".", "")
+			return
+		}
 		writeWorktreeRefusal(w, err, worktreeCreating)
 	case errors.Is(err, terminalbroker.ErrWorktreeMismatch):
 		writeErrCode(w, http.StatusServiceUnavailable, "worktree_mismatch", "", "That machine's answer did not match the request. Check again.", "")
@@ -282,7 +294,7 @@ func (s *server) terminalToolInstalled(uid int64, agent, tool string) bool {
 // prompt is deliberately absent: it is user text kept only with the session.
 func (s *server) auditTerminalLaunch(uid int64, agent string, in terminalproto.Create, session store.TerminalSession) {
 	host := s.machineHost(uid, agent)
-	detail := map[string]string{"machine": agent, "host": host, "tool": in.Tool, "model": in.Model, "dir": in.Dir}
+	detail := map[string]string{"machine": agent, "host": host, "tool": in.Tool, "model": in.Model, "dir": in.Dir, "effort": in.Effort, "base": in.Base, "yolo": strconv.FormatBool(in.Yolo)}
 	if in.ProjectID != "" {
 		detail["projectId"] = in.ProjectID
 	}

@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import { groupLabel, installationStatus, type InstallationReport } from './machines'
   import { recordInstallCopy, type Environment, type Event, type Flags, type ListRef, type Skill, type Tag } from './api'
   import CopyButton from './CopyButton.svelte'
+  import { copyText } from './clipboard'
   import { eventLabel, eventTitle } from './events'
   import TrendSparkline from './TrendSparkline.svelte'
   import { installCommand, installPrompt, sourceURL, readInstallKind, writeInstallKind, type InstallKind } from './install'
@@ -10,7 +12,7 @@
 
   let {
     skill, stage, tagOptions, selecting, selectedIDs, onselect, canWrite, compact = false, expanded = false, onexpand, installationReports = [],
-    onpatch, onrefresh, onlink, onremove, onfiltertag, onfilterenv, ontags, onhistory, onopenlist,
+    onpatch, onrefresh, onlink, onremove, onfiltertag, onfilterenv, ontags, onhistory, onopenlist, oninstall, installing = '',
   }: {
     skill: Skill
     stage: Stage
@@ -32,6 +34,10 @@
     ontags: (s: Skill, add: string[], remove: number[]) => Promise<boolean>
     onhistory: (s: Skill) => Promise<Event[]>
     onopenlist: (list: ListRef) => void
+    /** Installs the skill on a machine that reported it missing; absent when it cannot be done here. */
+    oninstall?: (s: Skill, host: string) => void
+    /** The install action already running, as `skillId:host`, so its button says Adding… */
+    installing?: string
   } = $props()
 
   let editing = $state(false)
@@ -52,6 +58,11 @@
   let historyOpen = $state(false)
   let historyLoading = $state(false)
   let history = $state<Event[]>([])
+  let menuOpen = $state(false)
+  let menuX = $state(0)
+  let menuY = $state(0)
+  let menuButton = $state<HTMLButtonElement>()
+  let menuEl = $state<HTMLDivElement>()
   const isSelected = $derived(selectedIDs.includes(skill.id))
   const tags = $derived(skill.tags ?? [])
   const tagName = $derived(tagDraft.trim())
@@ -79,6 +90,7 @@
     return rank[a.status] - rank[b.status] || a.host.localeCompare(b.host)
   }))
   const visibleInstallations = $derived(expanded ? installations : installations.slice(0, 3))
+  const missingReports = $derived(installations.filter(report => report.status === 'missing'))
   // Nothing has this skill yet: installing it is the step that does something, so it leads. Once a machine has it, the next shelf step does.
   const installedSomewhere = $derived(installations.some(report => report.status === 'installed'))
   const leadWithInstall = $derived(!!command && !installedSomewhere)
@@ -127,6 +139,51 @@
     await updateTags([], [tag.id], `Removed ${tag.name} from this skill.`)
   }
 
+  function openMenu(x: number, y: number) {
+    menuX = x
+    menuY = y
+    menuOpen = true
+    void tick().then(() => menuEl?.querySelector<HTMLElement>('button:not(:disabled), a')?.focus())
+  }
+  function openMenuAt(event: MouseEvent) {
+    if (!canWrite) return
+    const target = event.target as HTMLElement | null
+    if (target?.closest('input, textarea, select, a, button, summary, .quick-menu, [contenteditable="true"]')) return
+    event.preventDefault()
+    openMenu(event.clientX, event.clientY)
+  }
+  function openMenuFromButton(event: MouseEvent) {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    openMenu(Math.min(rect.right - 4, window.innerWidth - 24), rect.bottom + 6)
+  }
+  function closeMenu(refocus = false) {
+    menuOpen = false
+    if (refocus) menuButton?.focus()
+  }
+  function installFromMenu(host: string) {
+    closeMenu()
+    oninstall?.(skill, host)
+  }
+  async function copyInstall() {
+    closeMenu()
+    if (command) await copyText(command)
+  }
+  $effect(() => {
+    if (!menuOpen) return
+    const dismiss = (event: PointerEvent) => { if (!menuEl?.contains(event.target as Node)) menuOpen = false }
+    const keys = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      closeMenu(true)
+    }
+    document.addEventListener('pointerdown', dismiss)
+    document.addEventListener('keydown', keys)
+    return () => {
+      document.removeEventListener('pointerdown', dismiss)
+      document.removeEventListener('keydown', keys)
+    }
+  })
+
   async function toggleHistory() {
     historyOpen = !historyOpen
     if (!historyOpen) return
@@ -165,7 +222,7 @@
   }
 </script>
 
-<li class="skill {stage}" class:compact class:collapsed={!expanded} data-skill={skill.id}>
+<li class="skill {stage}" class:compact class:collapsed={!expanded} data-skill={skill.id} oncontextmenu={openMenuAt}>
   <div class="row">
     {#if selecting}
       <button
@@ -216,7 +273,12 @@
     <ul class="installation-badges" aria-label={`Reported installation by environment for ${skill.name}`}>
       {#each visibleInstallations as report (report.host)}
         <li class="installation-badge {report.status}" title={report.status === 'installed' ? 'Present in at least one complete agent scan from the last 14 days.' : report.status === 'missing' ? 'Absent from all reported agent groups. All of this machine’s agent scans are complete and less than 14 days old.' : report.groupCount ? 'Rescan this machine: one or more agent inventories are incomplete or out of date.' : 'No agent inventory reported. A server heartbeat cannot confirm installed skills.'}>
-          <span class="status-dot" aria-hidden="true"></span><span class="host">{report.host}</span><strong>{installationLabels[report.status]}</strong>
+          <span class="status-dot" aria-hidden="true"></span><span class="host">{report.host}</span>
+          {#if report.status === 'missing' && canWrite && oninstall}
+            <button type="button" class="install-now" disabled={!!installing} aria-label={`Install ${skill.name} on ${report.host} now`} onclick={(event) => { event.stopPropagation(); oninstall(skill, report.host) }}>{installing === `${skill.id}:${report.host}` ? 'Adding…' : 'Add now'}</button>
+          {:else}
+            <strong>{installationLabels[report.status]}</strong>
+          {/if}
         </li>
       {/each}
       {#if !expanded && installations.length > visibleInstallations.length}
@@ -233,6 +295,9 @@
     {/if}
     {#if command}<CopyButton text={command} label="Copy install" ariaLabel={`Copy install command for ${skill.name}`} compact primary={leadWithInstall} oncopy={() => void recordInstallCopy(skill.id).catch(() => {})} />{/if}
     {#if prompt && expanded}<CopyButton text={prompt} label="Copy prompt" ariaLabel={`Copy prompt for ${skill.name}`} compact oncopy={() => void recordInstallCopy(skill.id).catch(() => {})} />{/if}
+    {#if canWrite}
+      <button type="button" class="chip menu-trigger" bind:this={menuButton} aria-haspopup="menu" aria-expanded={menuOpen} aria-label={`More actions for ${skill.name}`} title="More actions" onclick={openMenuFromButton}><span aria-hidden="true">⋯</span></button>
+    {/if}
   </div>
 
   <div id={`skill-details-${skill.id}`} class="card-details" hidden={!expanded}>
@@ -399,6 +464,27 @@
       {/if}
     {/if}
   </div>
+
+  {#if menuOpen}
+    <div class="quick-menu" role="menu" aria-label={`Quick actions for ${skill.name}`} bind:this={menuEl}
+      style:left={`${Math.min(menuX, Math.max(8, window.innerWidth - 264))}px`}
+      style:top={`${Math.min(menuY, Math.max(8, window.innerHeight - 360))}px`}>
+      <p class="quick-menu-title">Quick actions</p>
+      {#each missingReports as report (report.host)}
+        <button type="button" role="menuitem" disabled={!!installing} onclick={() => installFromMenu(report.host)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+          {installing === `${skill.id}:${report.host}` ? 'Adding…' : `Install on ${report.host}`}
+        </button>
+      {/each}
+      {#if missingReports.length}
+        <a role="menuitem" href={`/sync?machine=${encodeURIComponent(missingReports[0].host)}`}>Review sync for {missingReports[0].host}</a>
+      {/if}
+      {#if command}<button type="button" role="menuitem" onclick={copyInstall}>Copy install command</button>{/if}
+      <button type="button" role="menuitem" onclick={() => { closeMenu(); void onpatch(skill, { liked: !skill.liked }, 'like') }}>{skill.liked ? 'Unlike' : 'Like'}</button>
+      <button type="button" role="menuitem" onclick={() => { closeMenu(); onexpand(!expanded) }}>{expanded ? 'Collapse details' : 'Expand details'}</button>
+      <button type="button" role="menuitem" class="danger" onclick={() => { closeMenu(); onremove(skill) }}>Remove from shelf</button>
+    </div>
+  {/if}
 </li>
 
 <style>
@@ -447,6 +533,17 @@
   .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
   .installation-badge.installed { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--line)); background: color-mix(in srgb, var(--good) 5%, var(--card)); }
   .installation-badge.missing { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); background: color-mix(in srgb, var(--warn) 5%, var(--card)); }
+  .install-now { flex: none; min-height: 28px; padding: 2px 9px; border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line)); border-radius: 5px; background: var(--card); color: var(--ink); font: inherit; font-size: 0.72rem; font-weight: 650; cursor: pointer; }
+  .install-now:hover:not(:disabled) { border-color: var(--ink); }
+  .install-now:disabled { opacity: 0.6; cursor: wait; }
+  .menu-trigger { min-width: 40px; justify-content: center; font-size: 1rem; line-height: 1; color: var(--muted); }
+  .quick-menu { position: fixed; z-index: 80; display: grid; min-width: 240px; max-width: min(300px, calc(100vw - 24px)); padding: 6px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card-raised); box-shadow: var(--shadow); }
+  .quick-menu-title { margin: 4px 8px 6px; color: var(--muted); font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+  .quick-menu a, .quick-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: inherit; font-size: 0.8rem; text-align: left; text-decoration: none; cursor: pointer; }
+  .quick-menu a:hover, .quick-menu button:hover:not(:disabled) { background: var(--tint); }
+  .quick-menu button:disabled { opacity: 0.55; cursor: wait; }
+  .quick-menu button.danger { color: var(--bad); }
+  .quick-menu svg { width: 14px; height: 14px; flex: none; }
   .collapsed { padding-top: 14px; padding-bottom: 14px; }
   .collapsed h3 { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .collapsed .source { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -564,6 +661,7 @@
   }
   @media (pointer: coarse) {
     .source-link { min-height: 44px; }
+    .install-now, .quick-menu a, .quick-menu button { min-height: 44px; }
     .chip, .install-toggle, .seg button, .more, .tag, .envchip, .listchip { min-height: 44px; }
     .pickbox { width: 44px; height: 44px; }
     .box { width: 22px; height: 22px; }

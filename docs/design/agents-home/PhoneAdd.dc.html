@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Phone add project</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600&family=IBM+Plex+Mono&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+body{margin:0;background:#14110f;font-family:"IBM Plex Sans",system-ui,sans-serif}
+a{color:inherit;text-decoration:none}
+a:hover{filter:brightness(1.12)}
+</style>
+</helmet>
+<!-- Layout: a full-screen sheet on a phone. Machine, breadcrumb, filter and the live folder list scroll; the chosen folder and the buttons stay pinned. -->
+<div style="width:390px;height:844px;box-sizing:border-box;display:flex;flex-direction:column;background:#14110f;color:#f1ebe4;overflow:hidden;font-size:15px">
+<header style="height:60px;flex:none;display:flex;align-items:center;gap:10px;padding:0 8px 0 16px;border-bottom:1px solid #2a241f"><div style="flex-grow:1"><div style="font:600 10px 'IBM Plex Sans',sans-serif;letter-spacing:.09em;text-transform:uppercase;color:#ff8d63">Projects</div><h1 style="margin:0;font-family:'Fraunces',Georgia,serif;font-size:21px;font-weight:600">Add a project</h1></div><a href="PhoneRail.dc.html" aria-label="Close" style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:#cfc6bc"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></a></header>
+<div style="flex-grow:1;min-height:0;overflow:hidden;padding:14px 16px 0;display:flex;flex-direction:column;gap:12px">
+  <div style="display:flex;align-items:center;gap:10px;height:48px;padding:0 14px;border:1px solid #342d27;border-radius:10px;background:#1a1613"><span style="width:8px;height:8px;border-radius:50%;background:#7fc79a"></span><span style="flex-grow:1">Elitebook <span style="color:#a39a90">· online</span></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a39a90" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></div>
+  <div style="display:flex;align-items:center;gap:6px;font-size:14px;color:#cfc6bc;min-height:36px"><span style="color:#a39a90">~</span><span style="color:#5a5047">/</span><span>root</span><span style="margin-left:auto;font-size:12px;color:#a39a90">14 folders</span></div>
+  <div style="display:flex;gap:8px"><div style="flex-grow:1;height:48px;display:flex;align-items:center;padding:0 14px;border:1px solid #342d27;border-radius:10px;background:#1a1613;color:#8c837a;font:14px 'IBM Plex Mono',monospace">Type to filter…</div></div>
+  <div style="display:flex;align-items:center;gap:10px;min-height:44px;color:#cfc6bc;font-size:14px"><span style="width:22px;height:22px;border:1px solid #5a5047;border-radius:5px;flex:none"></span>Show hidden folders</div>
+  <div style="border:1px solid #342d27;border-radius:13px;background:#1a1613;overflow:hidden">
+    <sc-for list="{{folders}}" as="f" hint-placeholder-count="6">
+      <div style="display:flex;align-items:center;gap:12px;min-height:52px;padding:0 14px;border-bottom:1px solid #2a241f;background:{{f.bg}}">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="{{f.ic}}" aria-hidden="true"><path d="{{f.path}}"/></svg>
+        <span style="flex-grow:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:{{f.w}}">{{f.name}}</span>
+        <span style="display:{{f.badge}};font:600 10px 'IBM Plex Sans',sans-serif;letter-spacing:.08em;color:#5fc2a8;border:1px solid #2a5f52;border-radius:4px;padding:2px 6px">REPO</span>
+      </div>
+    </sc-for>
+  </div>
+</div>
+<div style="flex:none;border-top:1px solid #2a241f;background:#110e0c;padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;align-items:center;gap:8px;font-size:13px"><span style="font-family:'IBM Plex Mono',monospace;color:#e2dad1;flex-grow:1">/root/reet</span><span style="color:#5fc2a8">git repository</span></div>
+  <div style="display:flex;gap:10px"><a href="PhoneRail.dc.html" style="width:110px;height:48px;display:flex;align-items:center;justify-content:center;border:1px solid #4a4037;border-radius:10px;font-weight:500">Cancel</a><a href="PhoneRail.dc.html" style="flex:1;height:48px;display:flex;align-items:center;justify-content:center;border-radius:10px;background:#c2410c;color:#fff;font-weight:600">Add this project</a></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dir = 'M3 6a2 2 0 012-2h4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z';
+    const git = 'M12 2l10 10-10 10L2 12z';
+    const row = (name, repo, sel) => ({ name, path: repo ? git : dir, ic: repo ? '#5fc2a8' : '#a39a90', badge: repo ? 'inline-block' : 'none', bg: sel ? '#2a241f' : 'transparent', w: repo ? 600 : 400 });
+    return {
+      folders: [
+        row('PROD_zoomies_portal', false, false),
+        row('rea', true, false),
+        row('reet', true, true),
+        row('reet-platform', true, false),
+        row('reet-worktrees', false, false),
+        row('seo-zoomies-tmp', false, false),
+        row('tunlx', true, false)
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

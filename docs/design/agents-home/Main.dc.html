@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mission control</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600&family=IBM+Plex+Mono&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+body{margin:0;background:#14110f;font-family:"IBM Plex Sans",system-ui,sans-serif}
+a{color:inherit;text-decoration:none}
+a:hover{filter:brightness(1.12)}
+</style>
+</helmet>
+<!-- Layout: top tabs, a project rail, a fleet strip over two columns (in flight, needs you), and a docked launch bar that reads as a sentence. Warm ink palette, cinnabar accent. -->
+<div style="width:1440px;height:900px;box-sizing:border-box;display:flex;flex-direction:column;background:#14110f;color:#f1ebe4;overflow:hidden;font-size:14px">
+
+<header style="height:60px;flex:none;display:flex;align-items:center;gap:28px;padding:0 24px;border-bottom:1px solid #2a241f;background:#14110f">
+  <div style="display:flex;align-items:center;gap:10px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 399 100" role="img" aria-label="reet.sh" style="height:30px;width:auto;display:block;--ink:#f1ebe4;--accent:#fb923c"><g id="icon"><mask id="rose-theme"><rect width="100" height="100" fill="#fff"/><g transform="translate(50,41) scale(0.44)"><path d="M-9,-12H9L19,-45L0,-34L-19,-45Z" transform="rotate(0)" fill="#000" stroke="#000" stroke-width="5" stroke-linejoin="round"/><path d="M-9,-12H9L19,-45L0,-34L-19,-45Z" transform="rotate(72)" fill="#000" stroke="#000" stroke-width="5" stroke-linejoin="round"/><path d="M-9,-12H9L19,-45L0,-34L-19,-45Z" transform="rotate(144)" fill="#000" stroke="#000" stroke-width="5" stroke-linejoin="round"/><path d="M-9,-12H9L19,-45L0,-34L-19,-45Z" transform="rotate(216)" fill="#000" stroke="#000" stroke-width="5" stroke-linejoin="round"/><path d="M-9,-12H9L19,-45L0,-34L-19,-45Z" transform="rotate(288)" fill="#000" stroke="#000" stroke-width="5" stroke-linejoin="round"/><circle r="13" fill="#000"/><circle r="7.5" fill="#fff"/></g></mask><path mask="url(#rose-theme)" fill="var(--ink, #1d1c1a)" stroke="var(--ink, #1d1c1a)" stroke-width="6" stroke-linejoin="round" d="M24,10H76V90L50,70L24,90Z"/><circle cx="50" cy="41" r="3.3" fill="var(--accent, #c2410c)"/></g><g transform="translate(118,20.5) scale(0.42)"><g id="wordmark" fill="none" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"><path stroke="var(--ink, #1d1c1a)" d="M12,150V86A36,36 0 0 1 48,50H56 M90,100H174A42,42 0 1 0 161.7,129.7 M214,100H298A42,42 0 1 0 285.7,129.7 M364,22V126A24,24 0 0 0 388,150H398 M338,50H392"/><circle fill="var(--accent, #c2410c)" cx="434" cy="138" r="13"/><path stroke="var(--accent, #c2410c)" d="M514,62C502,49 474,47 474,74C474,101 512,96 512,124C512,151 486,156 472,141 M554,0V150M554,94A44,44 0 0 1 642,94V150"/></g></g></svg></div>
+  <nav style="display:flex;gap:4px;height:100%;align-items:stretch">
+    <span style="display:flex;align-items:center;padding:0 14px;font-weight:600;border-bottom:2px solid #ff8d63;color:#fff">Home</span>
+    <span style="display:flex;align-items:center;padding:0 14px;color:#a39a90">Sessions</span>
+    <span style="display:flex;align-items:center;padding:0 14px;color:#a39a90">Machines</span>
+    <span style="display:flex;align-items:center;padding:0 14px;color:#a39a90">Skills</span>
+    <span style="display:flex;align-items:center;padding:0 14px;color:#a39a90">Activity</span>
+  </nav>
+  <div style="flex-grow:1"></div>
+  <div style="display:flex;align-items:center;gap:8px;height:36px;width:300px;padding:0 12px;border:1px solid #342d27;border-radius:9px;color:#a39a90;background:#1a1613"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><span style="flex-grow:1">Jump to a session, project or machine</span></div>
+  <div style="position:relative;width:38px;height:38px;border:1px solid #342d27;border-radius:9px;display:flex;align-items:center;justify-content:center;color:#e9b44c"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 17V11a6 6 0 0112 0v6l1.5 2h-15z"/><path d="M10 21h4"/></svg><span style="position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;border-radius:9px;background:#c2410c;color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">3</span></div>
+  <div style="width:36px;height:36px;border-radius:50%;background:#2b1a11;color:#ff8d63;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px">PJ</div>
+</header>
+
+<div style="flex-grow:1;min-height:0;display:flex">
+<aside style="width:272px;flex:none;border-right:1px solid #2a241f;padding:18px 14px;display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden">
+  <div style="display:flex;align-items:center"><span style="flex-grow:1;font:600 11px 'IBM Plex Sans',sans-serif;letter-spacing:.09em;text-transform:uppercase;color:#a39a90">Projects</span>
+    <a href="AddProject.dc.html" aria-label="Add a project" style="height:30px;display:flex;align-items:center;gap:6px;padding:0 10px;border:1px solid #3d342d;border-radius:8px;color:#f1ebe4;font-size:13px;font-weight:500"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add</a></div>
+  <sc-for list="{{projects}}" as="p" hint-placeholder-count="5">
+    <div style="display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid {{p.line}};border-radius:11px;background:{{p.bg}}">
+      <div style="display:flex;align-items:center;gap:8px"><svg width="14" height="14" viewBox="0 0 24 24" fill="#5fc2a8" aria-hidden="true"><path d="M12 2l10 10-10 10L2 12z"/></svg><span style="flex-grow:1;font-weight:600">{{p.name}}</span><span style="font-size:11px;color:#a39a90;border:1px solid #3d342d;border-radius:99px;padding:1px 8px">{{p.m}}</span></div>
+      <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:#a39a90"><span style="font-family:'IBM Plex Mono',monospace">{{p.branch}}</span><span style="color:{{p.tc}}">{{p.state}}</span><span style="margin-left:auto">{{p.wt}}</span></div>
+    </div>
+  </sc-for>
+  <div style="margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px dashed #3d342d;border-radius:11px;color:#a39a90;font-size:13px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Folders are browsed live on the machine</div>
+</aside>
+
+<main style="flex-grow:1;min-width:0;display:flex;flex-direction:column;padding:20px 24px 0;gap:18px;min-height:0">
+  <section aria-label="Your machines" style="display:flex;gap:14px;flex:none">
+    <sc-for list="{{machines}}" as="m" hint-placeholder-count="3">
+      <div style="flex:1;min-width:0;border:1px solid #342d27;border-radius:13px;background:#1a1613;padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;border-radius:50%;background:{{m.dot}}"></span><span style="font-weight:600;flex-grow:1">{{m.name}}</span><span style="font-size:12px;color:#a39a90">{{m.os}}</span></div>
+        <div style="display:flex;align-items:baseline;gap:6px"><span style="font-family:'Fraunces',Georgia,serif;font-size:28px;line-height:1">{{m.agents}}</span><span style="color:#a39a90">agents running</span></div>
+        <div style="height:6px;border-radius:3px;background:#2a241f;overflow:hidden"><div style="height:100%;width:{{m.load}};background:{{m.loadc}};border-radius:3px"></div></div>
+        <div style="display:flex;gap:12px;font-size:12px;color:#a39a90"><span>{{m.wt}} worktrees</span><span style="color:{{m.skc}}">{{m.skills}}</span></div>
+      </div>
+    </sc-for>
+    <div style="width:150px;flex:none;border:1px dashed #3d342d;border-radius:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#a39a90"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add a machine</div>
+  </section>
+
+  <div style="flex-grow:1;min-height:0;display:flex;gap:18px">
+    <section aria-label="In flight" style="flex-grow:1;min-width:0;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:center;gap:10px"><h2 style="margin:0;font-family:'Fraunces',Georgia,serif;font-size:20px;font-weight:600;flex-grow:1">In flight</h2><span style="font-size:13px;color:#a39a90">Group by</span><span style="display:flex;border:1px solid #342d27;border-radius:8px;overflow:hidden;font-size:13px"><span style="padding:5px 10px;background:#2a241f">Project</span><span style="padding:5px 10px;color:#a39a90">Machine</span><span style="padding:5px 10px;color:#a39a90">State</span></span></div>
+      <div style="border:1px solid #342d27;border-radius:13px;background:#1a1613;overflow:hidden">
+        <sc-for list="{{flight}}" as="s" hint-placeholder-count="5">
+          <a href="Session.dc.html" style="display:flex;align-items:center;gap:14px;padding:11px 16px;border-bottom:1px solid #2a241f">
+            <span style="width:9px;height:9px;border-radius:50%;flex:none;background:{{s.c}}"></span>
+            <div style="flex-grow:1;min-width:0"><div style="font-weight:500;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">{{s.t}}</div><div style="font-size:12px;color:#a39a90">{{s.where}}</div></div>
+            <span style="display:{{s.yolo}};font:600 10px 'IBM Plex Sans',sans-serif;letter-spacing:.08em;color:#e9b44c;border:1px solid #6a5420;border-radius:4px;padding:2px 6px">YOLO</span>
+            <div style="width:110px"><div style="font-size:11px;color:#a39a90;margin-bottom:3px">{{s.step}}</div><div style="height:4px;border-radius:2px;background:#2a241f"><div style="height:100%;width:{{s.pct}};background:{{s.c}};border-radius:2px"></div></div></div>
+            <span style="width:34px;text-align:right;font-size:12px;color:#a39a90">{{s.age}}</span>
+          </a>
+        </sc-for>
+      </div>
+    </section>
+    <section aria-label="Needs you" style="width:380px;flex:none;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px"><h2 style="margin:0;font-family:'Fraunces',Georgia,serif;font-size:20px;font-weight:600;flex-grow:1">Needs you</h2><span style="font-size:12px;font-weight:600;color:#fff;background:#c2410c;border-radius:99px;padding:2px 9px">3</span></div>
+      <div style="border:1px solid #6a5420;border-radius:13px;background:#1f1a0f;padding:13px 15px;display:flex;flex-direction:column;gap:9px">
+        <div style="font-size:12px;color:#e9b44c;font-weight:600">Wants to run a command · 2m</div>
+        <div style="font:12.5px 'IBM Plex Mono',monospace;background:#14110f;border:1px solid #342d27;border-radius:8px;padding:8px 10px">go test ./internal/terminalproto/...</div>
+        <div style="font-size:12px;color:#a39a90">Add browse-v1 protocol · reet · Elitebook</div>
+        <div style="display:flex;gap:8px"><a href="Session.dc.html" style="height:36px;display:flex;align-items:center;padding:0 16px;border-radius:8px;background:#c2410c;color:#fff;font-weight:600">Allow once</a><a href="Session.dc.html" style="height:36px;display:flex;align-items:center;padding:0 14px;border:1px solid #4a4037;border-radius:8px">Deny</a><a href="Session.dc.html" style="height:36px;display:flex;align-items:center;padding:0 10px;color:#a39a90;margin-left:auto">Open</a></div>
+      </div>
+      <div style="border:1px solid #342d27;border-radius:13px;background:#1a1613;padding:13px 15px;display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:12px;color:#7fb3d9;font-weight:600">Needs you to sign in · 9m</div>
+        <div style="font-weight:500">Review code</div><div style="font-size:12px;color:#a39a90">jiggered · Server</div>
+        <a href="Session.dc.html" style="margin-top:4px;height:36px;display:flex;align-items:center;justify-content:center;border:1px solid #4a4037;border-radius:8px">Open the terminal</a>
+      </div>
+      <div style="border:1px solid #342d27;border-radius:13px;background:#1a1613;padding:13px 15px;display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:12px;color:#7fc79a;font-weight:600">Ready to review · 1h</div>
+        <div style="font-weight:500">Docs pass</div><div style="font-size:12px;color:#a39a90">6 files changed · reet · Elitebook</div>
+      </div>
+    </section>
+  </div>
+
+  <section aria-label="Start a session" style="flex:none;margin:0 0 18px;border:1px solid #4a4037;border-radius:16px;background:#1d1815;box-shadow:0 -8px 30px rgba(0,0,0,.25)">
+    <div style="display:flex;gap:12px;padding:14px 18px 8px"><div style="flex-grow:1;font-size:16px;color:#8c837a;line-height:1.5">Describe the job. Say what done looks like.</div><a href="Session.dc.html" aria-label="Start the session" style="flex:none;height:40px;display:flex;align-items:center;gap:8px;padding:0 18px;border-radius:10px;background:#c2410c;color:#fff;font-weight:600">Start<span style="font:11px 'IBM Plex Mono',monospace;opacity:.8">Ctrl ↵</span></a></div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 18px 14px;color:#a39a90;font-size:14px;border-top:1px solid #2a241f">
+      <span>Run</span><b style="font-weight:600;color:#f1ebe4;border-bottom:1px dashed #6b5f54">Claude Code</b><span>with</span><b style="font-weight:600;color:#f1ebe4;border-bottom:1px dashed #6b5f54">sonnet</b><span>on</span><b style="font-weight:600;color:#f1ebe4;border-bottom:1px dashed #6b5f54">reet</b><span>at</span><b style="font-weight:600;color:#f1ebe4;border-bottom:1px dashed #6b5f54">Elitebook</b><span>from</span><b style="font-weight:600;color:#f1ebe4;border-bottom:1px dashed #6b5f54">main</b><span>in</span><b style="font-weight:600;color:#f1ebe4;border-bottom:1px dashed #6b5f54">a fresh worktree</b>
+      <span style="flex-grow:1"></span>
+      <span style="color:#a39a90">Approvals</span>
+      <span style="display:flex;border:1px solid #4a4037;border-radius:9px;overflow:hidden;font-size:13px"><span style="padding:6px 12px;background:#2e2822;color:#f1ebe4;font-weight:600">Ask me</span><a href="Yolo.dc.html" style="padding:6px 12px;color:#a39a90">YOLO</a></span>
+    </div>
+  </section>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const ok = '#7fc79a', warn = '#e9b44c', info = '#7fb3d9', idle = '#a39a90';
+    return {
+      projects: [
+        { name: 'reet', m: 'Elitebook', branch: 'main', state: '2 running', tc: ok, wt: '3 worktrees', line: '#6a3b22', bg: '#201813' },
+        { name: 'jiggered', m: 'Elitebook', branch: 'main', state: 'needs sign-in', tc: info, wt: '1 worktree', line: '#342d27', bg: '#1a1613' },
+        { name: 'zoomies-platform', m: 'Server', branch: 'develop', state: '1 running', tc: ok, wt: '2 worktrees', line: '#342d27', bg: '#1a1613' },
+        { name: 'wireguard.sh', m: 'Server', branch: 'main', state: 'idle', tc: idle, wt: 'no worktrees', line: '#342d27', bg: '#1a1613' },
+        { name: 'dynamicweb', m: 'Desk', branch: 'main', state: 'idle', tc: idle, wt: 'no worktrees', line: '#342d27', bg: '#1a1613' }
+      ],
+      machines: [
+        { name: 'Elitebook', os: 'Ubuntu 24.04', dot: ok, agents: 3, load: '38%', loadc: ok, wt: 4, skills: 'skills in sync', skc: ok },
+        { name: 'Server', os: 'Debian 12', dot: ok, agents: 1, load: '71%', loadc: warn, wt: 2, skills: '1 skill out of date', skc: warn },
+        { name: 'Desk', os: 'macOS 15', dot: idle, agents: 0, load: '6%', loadc: idle, wt: 0, skills: 'skills in sync', skc: ok }
+      ],
+      flight: [
+        { t: 'Refactor the store layer', where: 'reet · Elitebook · reet/store-split', c: ok, step: 'Step 4 of 7', pct: '57%', age: '12m', yolo: 'none' },
+        { t: 'Add browse-v1 protocol', where: 'reet · Elitebook · reet/browse-v1', c: warn, step: 'Waiting for you', pct: '60%', age: '2m', yolo: 'none' },
+        { t: 'Speed up the runner pool', where: 'zoomies-platform · Server · reet/pool', c: ok, step: 'Step 2 of 5', pct: '40%', age: '34m', yolo: 'inline-block' },
+        { t: 'Review code', where: 'jiggered · Server · main', c: info, step: 'Needs sign-in', pct: '10%', age: '9m', yolo: 'none' },
+        { t: 'Docs pass', where: 'reet · Elitebook · reet/docs-pass', c: idle, step: 'Finished', pct: '100%', age: '1h', yolo: 'none' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

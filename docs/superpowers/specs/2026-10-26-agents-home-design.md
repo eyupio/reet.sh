@@ -672,7 +672,10 @@ exactly: `git -C <dir> for-each-ref --count=201 --sort=-committerdate --format=%
 refs/heads refs/remotes`, then `git -C <dir> symbolic-ref --quiet --short HEAD` and `git -C <dir>
 symbolic-ref --quiet --short refs/remotes/origin/HEAD`. Each call also gets `GIT_DIR=<dir>/.git` and
 `GIT_CEILING_DIRECTORIES=<parent of dir>`, so git reads that folder's own `.git` or fails, never a
-repository around it. The reply `BranchesResult{current, default, branches, more}`: `current` the
+repository around it, and `GIT_NO_LAZY_FETCH=1`. A repository that may be a partial clone (its own
+config or the user's git config mentions `partialclone` or `promisor`, or it has a `.promisor` pack;
+read as files, never by running git) is listed with `--sort=refname` instead, which reads no objects
+and so cannot fetch one: its branches come in name order. The reply `BranchesResult{current, default, branches, more}`: `current` the
 checked-out branch (empty when detached), `default` the remote's default when
 `refs/remotes/origin/HEAD` exists, at most 200 short names (each a valid ref name of at most 255
 bytes), newest first, `Filter` applied as a case-insensitive substring. A refusal is a typed reason

@@ -150,7 +150,11 @@ func pinnedGitEnv(ctx context.Context) []string {
 	if !ok || !filepath.IsAbs(dir) {
 		return nil
 	}
-	return []string{"GIT_DIR=" + filepath.Join(dir, ".git"), "GIT_CEILING_DIRECTORIES=" + filepath.Dir(dir)}
+	// GIT_NO_LAZY_FETCH: in a partial clone, git never fetches a missing
+	// object (which would run the repository's configured ssh command or
+	// remote helper). Older gits ignore it; ListBranches then also avoids
+	// reading objects in such a repository.
+	return []string{"GIT_DIR=" + filepath.Join(dir, ".git"), "GIT_CEILING_DIRECTORIES=" + filepath.Dir(dir), "GIT_NO_LAZY_FETCH=1"}
 }
 
 // gitEnvironment keeps only HOME, PATH and LANG (the first of each). No

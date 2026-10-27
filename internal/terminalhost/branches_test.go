@@ -24,12 +24,17 @@ var branchesArgv = [][]string{
 	{"symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"},
 }
 
+// branchesByNameArgv is the listing of a repository that can fetch objects
+// lazily (a partial clone): by name, which reads no object, instead of by
+// commit date, which would make git fetch a missing commit.
+var branchesByNameArgv = []string{"for-each-ref", "--count=201", "--sort=refname", "--format=%(refname)", "refs/heads", "refs/remotes"}
+
 // cannedGit answers the three listing calls with fixed output; any other
 // call fails.
 func cannedGit(refs, head, originHead string) GitRunner {
 	return func(ctx context.Context, dir string, args ...string) ([]byte, error) {
 		switch {
-		case reflect.DeepEqual(args, branchesArgv[0]):
+		case reflect.DeepEqual(args, branchesArgv[0]), reflect.DeepEqual(args, branchesByNameArgv):
 			return []byte(refs), nil
 		case reflect.DeepEqual(args, branchesArgv[1]):
 			if head == "" {
@@ -70,6 +75,25 @@ func TestListBranchesArgv(t *testing.T) {
 		requireBranchesEncodable(t, r)
 	})
 
+	// A partial clone is listed by name: the same three calls, the first
+	// sorted by refname.
+	t.Run("recording runner, partial clone", func(t *testing.T) {
+		home := browseHome(t)
+		t.Setenv("HOME", home)
+		repo := filepath.Join(home, "code", "site")
+		makeRepo(t, repo)
+		putFile(t, filepath.Join(repo, ".git", "config"), "[extensions]\n\tpartialClone = origin\n")
+		calls, git := recordingGit(cannedGit("refs/heads/main\nrefs/remotes/origin/main\n", "main", ""))
+		r := ListBranches(context.Background(), home, terminalproto.Branches{Dir: repo}, git)
+		want := []gitCall{{repo, branchesByNameArgv}, {repo, branchesArgv[1]}, {repo, branchesArgv[2]}}
+		if got := calls(); !reflect.DeepEqual(got, want) {
+			t.Fatalf("git calls\n got %q\nwant %q", got, want)
+		}
+		if !reflect.DeepEqual(r, terminalproto.BranchesResult{Current: "main", Branches: []string{"main", "origin/main"}}) {
+			t.Fatalf("%+v", r)
+		}
+	})
+
 	// Through ExecGit to a stand-in git on PATH: the argument vector is
 	// exactly -C <dir> and the three calls, and the worktree environment
 	// reaches it (no GIT_* variable, nothing else from this process).
@@ -79,7 +103,7 @@ func TestListBranchesArgv(t *testing.T) {
 		makeRepo(t, repo)
 		record := filepath.Join(shortTempDir(t), "record")
 		script := `printf '%s\0' "$@" >> '` + record + `'
-printf 'GIT_DIR=%s GIT_CEILING_DIRECTORIES=%s GIT_CONFIG_PARAMETERS=%s REET_PROBE=%s HOME=%s\n' "${GIT_DIR-unset}" "${GIT_CEILING_DIRECTORIES-unset}" "${GIT_CONFIG_PARAMETERS-unset}" "${REET_PROBE-unset}" "${HOME-unset}" >> '` + record + `'
+printf 'GIT_DIR=%s GIT_CEILING_DIRECTORIES=%s GIT_NO_LAZY_FETCH=%s GIT_CONFIG_PARAMETERS=%s REET_PROBE=%s HOME=%s\n' "${GIT_DIR-unset}" "${GIT_CEILING_DIRECTORIES-unset}" "${GIT_NO_LAZY_FETCH-unset}" "${GIT_CONFIG_PARAMETERS-unset}" "${REET_PROBE-unset}" "${HOME-unset}" >> '` + record + `'
 case "$3" in
 for-each-ref) printf 'refs/heads/main\nrefs/heads/feature/x\n' ;;
 symbolic-ref) if [ "$6" = HEAD ]; then echo main; else exit 1; fi ;;
@@ -89,6 +113,7 @@ esac
 		t.Setenv("PATH", filepath.Dir(git))
 		t.Setenv("GIT_DIR", "/nowhere")
 		t.Setenv("GIT_CEILING_DIRECTORIES", "/nowhere")
+		t.Setenv("GIT_NO_LAZY_FETCH", "0")
 		t.Setenv("GIT_CONFIG_PARAMETERS", "'core.pager=evil'")
 		t.Setenv("REET_PROBE", "leak")
 		t.Setenv("HOME", home)
@@ -102,7 +127,8 @@ esac
 		}
 		// git is pinned to this repository's own .git and may not look
 		// above it, so it can never list another repository's branches.
-		env := "GIT_DIR=" + filepath.Join(repo, ".git") + " GIT_CEILING_DIRECTORIES=" + home + " GIT_CONFIG_PARAMETERS=unset REET_PROBE=unset HOME=" + home + "\n"
+		// Lazy fetching is off: git never fetches a missing object.
+		env := "GIT_DIR=" + filepath.Join(repo, ".git") + " GIT_CEILING_DIRECTORIES=" + home + " GIT_NO_LAZY_FETCH=1 GIT_CONFIG_PARAMETERS=unset REET_PROBE=unset HOME=" + home + "\n"
 		var want strings.Builder
 		for _, args := range branchesArgv {
 			want.WriteString(strings.Join(append([]string{"-C", repo}, args...), "\x00") + "\x00" + env)
@@ -471,5 +497,106 @@ func TestListBranchesNeverListsAnotherRepository(t *testing.T) {
 	testGit(t, inner, "worktree", "add", "-q", "-b", "wt", linked)
 	if r := ListBranches(context.Background(), home, terminalproto.Branches{Dir: linked}, ExecGit); !reflect.DeepEqual(r, terminalproto.BranchesResult{Reason: terminalproto.BranchesNotRepoRoot}) {
 		t.Fatalf("worktree checkout: %+v", r)
+	}
+}
+
+// A partial clone with a missing commit: sorting by commit date would make
+// git fetch it, running the repository's configured ssh command. The listing
+// must never run it (the marker stays absent) and still list the branches,
+// by name.
+func TestListBranchesNeverFetchesLazily(t *testing.T) {
+	home := worktreeHome(t)
+	repo := newRepo(t, home, "partial")
+	marker := filepath.Join(shortTempDir(t), "marker")
+	ssh := filepath.Join(shortTempDir(t), "ssh")
+	if err := os.WriteFile(ssh, []byte("#!/bin/sh\ntouch '"+marker+"'\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testGit(t, repo, "config", "core.repositoryformatversion", "1")
+	testGit(t, repo, "config", "remote.origin.url", "ssh://example.invalid/repo")
+	testGit(t, repo, "config", "core.sshCommand", ssh)
+	missing := "1111111111111111111111111111111111111111"
+	for _, tc := range []struct {
+		name  string
+		setup func()
+	}{
+		{"partialclone and promisor remote", func() {
+			testGit(t, repo, "config", "extensions.partialclone", "origin")
+			testGit(t, repo, "config", "remote.origin.promisor", "true")
+		}},
+		{"promisor remote only", func() {
+			testGit(t, repo, "config", "--unset", "extensions.partialclone")
+		}},
+	} {
+		name := tc.name
+		tc.setup()
+		putFile(t, filepath.Join(repo, ".git", "refs", "heads", "ghost"), missing+"\n")
+		// The hazard is real on this git: sorting by date runs the command.
+		if _, err := testGitErr(repo, "for-each-ref", "--sort=-committerdate", "refs/heads"); err == nil {
+			t.Log(name, ": git sorted by date without failing")
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Logf("%s: this git did not fetch lazily for a date sort; checking the listing anyway", name)
+		}
+		os.Remove(marker)
+		r := ListBranches(context.Background(), home, terminalproto.Branches{Dir: repo}, ExecGit)
+		if _, err := os.Stat(marker); err == nil {
+			t.Fatal(name, ": the listing ran the repository's ssh command")
+		}
+		if !reflect.DeepEqual(r, terminalproto.BranchesResult{Current: "main", Branches: []string{"ghost", "main"}}) {
+			t.Fatalf("%s: %+v", name, r)
+		}
+		requireBranchesEncodable(t, r)
+	}
+}
+
+// Whether a repository can fetch lazily is read from files, without git:
+// its own config, its promisor packs, and the user's git config files.
+func TestPromisorRepositoryIsSeenWithoutGit(t *testing.T) {
+	for name, tc := range map[string]struct {
+		config, global string
+		files          map[string]string
+		want           bool
+	}{
+		"plain":                    {config: "[core]\n\tbare = false\n[remote \"origin\"]\n\turl = x\n", want: false},
+		"no config":                {want: false},
+		"partial clone":            {config: "[extensions]\n\tpartialClone = origin\n", want: true},
+		"promisor remote":          {config: "[remote \"origin\"]\n\tpromisor = true\n", want: true},
+		"upper case":               {config: "[Remote \"o\"]\n\tPROMISOR = TRUE\n", want: true},
+		"include":                  {config: "[include]\n\tpath = other\n", want: true},
+		"includeIf":                {config: "[includeIf \"gitdir:~/\"]\n\tpath = other\n", want: true},
+		"promisor pack":            {files: map[string]string{"objects/pack/pack-1.promisor": ""}, want: true},
+		"promisor in ~/.gitconfig": {global: "[remote \"o\"]\n\tpromisor = true\n", want: true},
+		"plain ~/.gitconfig":       {global: "[user]\n\tname = x\n", want: false},
+	} {
+		home := browseHome(t)
+		t.Setenv("HOME", home)
+		repo := filepath.Join(home, "site")
+		makeRepo(t, repo)
+		if tc.config != "" {
+			putFile(t, filepath.Join(repo, ".git", "config"), tc.config)
+		}
+		for rel, data := range tc.files {
+			mkdirs(t, filepath.Join(repo, ".git"), filepath.Dir(rel))
+			putFile(t, filepath.Join(repo, ".git", rel), data)
+		}
+		if tc.global != "" {
+			putFile(t, filepath.Join(home, ".gitconfig"), tc.global)
+		}
+		if got := promisorRepo(repo); got != tc.want {
+			t.Errorf("%s: promisor %v, want %v", name, got, tc.want)
+		}
+	}
+	// A config that cannot be read as a plain file inside the repository
+	// (a link leading out of .git) is taken as a possible partial clone.
+	home := browseHome(t)
+	t.Setenv("HOME", home)
+	repo := filepath.Join(home, "site")
+	makeRepo(t, repo)
+	outside := filepath.Join(shortTempDir(t), "config")
+	putFile(t, outside, "[core]\n")
+	symlink(t, outside, filepath.Join(repo, ".git", "config"))
+	if !promisorRepo(repo) {
+		t.Error("a config link leading out of .git was trusted")
 	}
 }

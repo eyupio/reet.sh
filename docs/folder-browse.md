@@ -71,7 +71,19 @@ folder browser protocol").
   Each call also gets `GIT_DIR=<dir>/.git` and `GIT_CEILING_DIRECTORIES=<parent of dir>`, so git
   reads that `.git` or fails: a `.git` folder git does not accept (a `HEAD` alone, a garbage `HEAD`)
   is `git_failed`, never a listing of a repository around it, inside home or above it.
-- **Names.** Short names (`main`, `origin/main`), newest first, at most 200, and the answer fits
+- **Partial clones.** Sorting newest first makes git read each branch's commit; in a partial clone
+  (a promisor repository) a missing commit would be fetched on the spot, running the repository's
+  configured ssh command or remote helper. Every call therefore also gets `GIT_NO_LAZY_FETCH=1`,
+  which turns that fetch off in git 2.44 and later (and in older builds that carry the fix). Older
+  gits ignore it, so before running git the connector also reads, as plain files and without git,
+  the repository's `.git/config` (beneath an `os.Root` at its `.git`), its `.git/objects/pack` and
+  the user's `~/.gitconfig`, `~/.config/git/config` and `/etc/gitconfig`. When any of them mentions
+  `partialclone` or `promisor`, the repository config includes another file, a `.promisor` pack is
+  there, or one of them cannot be read for certain, the first call is instead `for-each-ref
+  --count=201 --sort=refname --format=%(refname) refs/heads refs/remotes`, which reads refs and no
+  objects, and the branches come in name order rather than newest first.
+- **Names.** Short names (`main`, `origin/main`), newest first (by name for a partial clone, see
+  above), at most 200, and the answer fits
   12 KiB; `more` says the list was cut. A remote's `HEAD`, a branch called `HEAD`, a repeated short
   name and any name the protocol cannot carry (for example `@`, a space, or a control or format
   character) are skipped, since one would invalidate the whole answer. `current` is empty on a
@@ -200,8 +212,14 @@ The answer never repeats the path or anything the machine sent.
 - **Repository metadata that points elsewhere.** git follows what a repository's own files say:
   `.git/commondir`, a symlinked `.git/refs` or ref, `objects/info/alternates` and `include.path` in
   its config can make a listing read refs, objects or configuration outside home. Planting them
-  needs write access inside home, and worktree-v1 reads the same repositories the same way. Nothing
-  in a repository's configuration is run by the three listing commands.
+  needs write access inside home, and worktree-v1 reads the same repositories the same way. git reads
+  the repository's configuration for the listing, but the three listing commands execute no
+  command it configures: lazy fetching (the one path from these commands to a configured ssh
+  command or remote helper) is turned off, and a possible partial clone is listed by name, which
+  reads no objects. A gitconfig outside the three files above that marks a remote as a promisor (a
+  system config of a git built with another prefix, a file the user's own config includes) is
+  covered only by `GIT_NO_LAZY_FETCH`, so on a git older than 2.44 without the fix it could still
+  fetch.
 - **Short names can collapse.** A local branch called `origin/main` and the remote branch
   `origin/main` have the same short name; only the newer is listed. `symbolic-ref --short` can name
   the current branch `heads/x` when a tag `x` also exists; that name is sent as it is.

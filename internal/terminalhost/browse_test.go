@@ -892,8 +892,12 @@ func TestBrowseFailsClosedWithoutRoot(t *testing.T) {
 func TestPackageSourceHasNoInvisibleCharacters(t *testing.T) {
 	for _, dir := range []string{".", "../terminalproto"} {
 		files, err := filepath.Glob(filepath.Join(dir, "*.go"))
-		if err != nil || len(files) == 0 {
+		if err != nil {
 			t.Fatal(dir, err)
+		}
+		if len(files) == 0 {
+			// The compiled test binary also runs in a container without the source tree (the tmux minimum job).
+			t.Skipf("no source files at %s: running from a compiled binary", dir)
 		}
 		for _, file := range files {
 			data, err := os.ReadFile(file)

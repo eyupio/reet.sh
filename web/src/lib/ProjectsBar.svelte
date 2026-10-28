@@ -102,7 +102,7 @@
 
 {#if accounts && canWrite}
 <section class="bar" aria-labelledby="projects-bar-title">
-  <div class="head"><h2 id="projects-bar-title">Projects</h2><a href="/">Add or manage on Home</a></div>
+  <div class="head"><p class="title" id="projects-bar-title">Projects</p><a href="/">Add or manage on Home</a></div>
   {#if failed && !projects}
     <p class="empty">Couldn't read your projects just now.</p>
   {:else if !projects}
@@ -147,7 +147,7 @@
 <style>
   .bar { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 13px; background: var(--card); }
   .head { display: flex; align-items: baseline; gap: 12px; }
-  h2 { margin: 0; font: 600 13px/1.3 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  .title { margin: 0; font: 600 13px/1.3 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
   .head a { margin-left: auto; font-size: 13px; color: var(--accent-text); }
   ul { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
   li { display: flex; align-items: stretch; min-width: 0; border: 1px solid var(--line); border-left: 3px solid var(--project-colour, transparent); border-radius: 9px; background: var(--bg); }

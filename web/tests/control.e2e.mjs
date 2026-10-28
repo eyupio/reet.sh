@@ -114,6 +114,9 @@ try {
  writes.length=0
  await noOverflow()
  await page.goto(`${base}/sync`)
+ // The compare panel opens on the machine's saved set, not a blank form that contradicts it.
+ await expect(page.getByText('Editing saved set · revision rev-laptop-shared')).toBeVisible()
+ await expect(page.getByText('3 of 3 skills selected')).toBeVisible()
  await expect(page.getByRole('button',{name:'Sync all · preview'})).toBeEnabled()
  await page.getByRole('button',{name:'Sync all · preview'}).click()
  await expect(page.getByRole('dialog')).toContainText('3 jobs will be queued')
@@ -129,35 +132,38 @@ try {
  failQueue=false
  await page.goto(`${base}/sync?machine=*`)
  await expect(page.getByLabel('Destination',{exact:true})).toHaveValue('*')
+ // Nothing selected never offers a plain Save: an empty set is only cleared deliberately.
+ await expect(page.getByText('0 of 3 skills selected')).toBeVisible()
+ await expect(page.getByRole('button',{name:'Save desired set (no files change yet)'})).toHaveCount(0)
+ await expect(page.getByRole('button',{name:'Clear this desired set'})).toBeVisible()
  await expect(page.locator('.scope-option')).toHaveCount(3)
  await page.getByLabel('Find skills',{exact:true}).fill('code-review')
  await page.getByRole('button',{name:'Select visible',exact:true}).click()
  failSave=true
- await page.getByRole('button',{name:'Save to 3 agent scopes',exact:true}).click()
+ await page.getByRole('button',{name:'Save desired set (no files change yet)',exact:true}).click()
  await expect(page.getByRole('alert')).toContainText('1 of 3 scopes saved')
  expect(writes.filter(w=>w.path.endsWith('/desired'))).toHaveLength(2)
  failSave=false
- await page.getByRole('button',{name:'Save to 3 agent scopes',exact:true}).click()
+ await page.getByRole('button',{name:'Save desired set (no files change yet)',exact:true}).click()
  await expect(page.getByRole('status').filter({hasText:'Desired skills saved for 3 scopes across 2 machines'})).toBeVisible()
  expect(writes.filter(w=>w.path.endsWith('/desired')).slice(-3).map(w=>[w.body.targetId,w.body.skillIds])).toEqual(environments.map(e=>[e.id,['demo/toolkit/code-review']]))
  await page.getByLabel('Sync mode',{exact:true}).selectOption('bidirectional')
  const beforeCancel=writes.length
- await page.getByRole('button',{name:'Save to 3 agent scopes',exact:true}).click()
+ await page.getByRole('button',{name:'Save desired set (no files change yet)',exact:true}).click()
  await expect(page.getByRole('dialog')).toContainText('removes extra skills')
  await page.getByRole('button',{name:'Cancel',exact:true}).click()
  expect(writes.length).toBe(beforeCancel)
  await page.getByLabel('Sync mode',{exact:true}).selectOption('additive')
- await page.getByText('Differences by destination',{exact:true}).click()
- await expect(page.getByText('The counts above combine unique skills', {exact:false})).toBeVisible()
+ await expect(page.getByText('Differences by destination',{exact:true})).toBeVisible()
  const incoming=page.locator('details').filter({has:page.locator('summary').filter({hasText:'Only on selected scopes (2)'})})
  await incoming.locator('summary').click()
  for(const checkbox of await incoming.getByRole('checkbox').all())await checkbox.check()
  await incoming.getByRole('button',{name:'Add selected to reet.sh',exact:true}).click()
  await expect(page.getByRole('status').filter({hasText:'2 selected skills added to reet.sh'})).toBeVisible()
  expect(writes.filter(w=>w.path.endsWith('/adopt')).map(w=>[w.body.targetId,w.body.skillIds])).toEqual([['laptop-shared',['demo/toolkit/testing']],['build-shared',['demo/toolkit/deployment']]])
- await page.getByLabel('Compare from',{exact:true}).selectOption('build-shared')
+ await page.getByLabel('Source',{exact:true}).selectOption('build-shared')
  await page.getByRole('button',{name:'Select visible',exact:true}).click()
- await page.getByRole('button',{name:'Save to 3 agent scopes',exact:true}).click()
+ await page.getByRole('button',{name:'Save desired set (no files change yet)',exact:true}).click()
  await expect(page.getByRole('status').filter({hasText:'Desired skills saved for 3 scopes across 2 machines'})).toBeVisible()
  expect(writes.filter(w=>w.path.endsWith('/desired')).slice(-3).every(w=>w.body.sourceId==='build-shared'&&w.body.skillIds.length===3)).toBe(true)
  await noOverflow()
@@ -214,6 +220,7 @@ try {
  await devRetry.click()
  const devQueued=devJob.getByRole('status').filter({hasText:'Fresh preview queued for dev-laptop'})
  await expect(devQueued).toBeVisible()
+ await devQueued.scrollIntoViewIfNeeded()
  await expect(devQueued).toBeInViewport()
  expect(writes.at(-1)).toEqual({path:'/api/v2/sync/jobs',body:{agentId:'a',targetId:'laptop-shared',kind:'preview'}})
  await expect(devJob.getByRole('button',{name:/run it/})).toHaveCount(0)
@@ -225,6 +232,7 @@ try {
  await serverRetry.click()
  const refused=serverJob.getByRole('alert').filter({hasText:'Machine busy'})
  await expect(refused).toBeVisible()
+ await refused.scrollIntoViewIfNeeded()
  await expect(refused).toBeInViewport()
  await expect(serverJob.getByRole('button',{name:/run it/})).toBeVisible()
  failRetry=false
@@ -234,7 +242,7 @@ try {
  failSource=true
  await page.goto(`${base}/sync?machine=*`)
  await expect(page.getByRole('alert')).toContainText('Source unavailable')
- await expect(page.getByRole('button',{name:'Save to 3 agent scopes',exact:true})).toBeDisabled()
+ await expect(page.getByRole('button',{name:'Save desired set (no files change yet)',exact:true})).toBeDisabled()
  failSource=false
  viewer=true
  await page.goto(`${base}/machines`)

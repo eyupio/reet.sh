@@ -18,6 +18,7 @@ try {
    const {context,page,errors} = await open({width})
    await page.goto(`${base}/machines#connect-machine`)
    await expect(panel(page)).toHaveJSProperty('open',true)
+
    await expect(page.locator('section.readiness')).toHaveCount(0)
    await stepButton(page,'Connect terminal').click()
    await expect(serverBlock(page)).toContainText('Remote access is stopped')

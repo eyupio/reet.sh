@@ -314,4 +314,6 @@
   }
   /* The Alt+Shift+M advice is for a hardware keyboard; the Restore size button stays. */
   @media(hover:none) and (pointer:coarse) {.maximise-hint {display:none}}
+  /* A touch tablet: the pane's header, menu and footer controls are 44 px; the terminal's own keys (toolbar and extra keys) stay 40 px, as the spec allows. */
+  @media(pointer:coarse) and (min-width:651px) and (max-width:1099px) and (min-height:501px) {.controls>button,.session-menu>summary,.session-menu button,footer button {min-height:44px;min-width:44px}.terminal-toolbar button,.mobile-keys button {min-width:40px;min-height:40px}}
 </style>

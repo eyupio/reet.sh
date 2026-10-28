@@ -771,6 +771,32 @@ try {
   await context.close()
  }
 
+ // A touch tablet (834 px): every control in the workspace, the docked sessions panel included, is at least 44 px; the
+ // terminal's own keys (the pane's toolbar and extra keys) are the one exception, at 40 px (spec: Accessibility).
+ if (run('tablet targets are 44 px')) {
+  const {context,page,errors} = await open({width:834, height:1112, touch:true})
+  await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
+  await expect(page.locator('aside#terminal-sessions')).toBeVisible()
+  const sizes = await page.locator('.workspace :is(a[href], button, select, input, summary, [role=button], [tabindex="0"])').evaluateAll(els => els
+   // Shown controls only: not inside a closed <details> (its summary aside), not visually hidden, not the xterm's own.
+   .filter(e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && !e.closest('.vh, .xterm, dialog') && !(e.closest('details:not([open])') && !e.matches('summary')))
+   .map(e => { const r = e.getBoundingClientRect(); return {name:(e.getAttribute('aria-label') || e.textContent || e.tagName).trim().replace(/\s+/g,' ').slice(0,30), w:Math.round(r.width), h:Math.round(r.height), keys:!!e.closest('.terminal-toolbar, .mobile-keys')} }))
+  expect(sizes.filter(t => !t.keys).length).toBeGreaterThan(20)
+  const small = sizes.filter(t => Math.min(t.w, t.h) < (t.keys ? 40 : 44)).map(t => `${t.name} ${t.w}×${t.h}`)
+  expect(small, 'targets under 44 px (40 px for the terminal keys)').toEqual([])
+  // A row's menu in the panel, and a project row's menu: their items and colour swatches too.
+  for (const opener of ['Actions for Docs pass', 'Actions for machine studio', 'Actions for reet']) {
+   await page.locator('aside#terminal-sessions').getByRole('button',{name:opener,exact:true}).click()
+   const items = await page.locator('.session-context[role=menu] :is(button, a[href])').evaluateAll(els => els.filter(e => e.getClientRects().length).map(e => { const r = e.getBoundingClientRect(); return `${(e.getAttribute('aria-label') || e.textContent).trim().slice(0,24)} ${Math.round(r.width)}×${Math.round(r.height)}` }))
+   expect(items.length, opener).toBeGreaterThan(1)
+   expect(items.filter(t => Math.min(...t.split(' ').pop().split('×').map(Number)) < 44), `${opener} menu`).toEqual([])
+   await page.keyboard.press('Escape')
+  }
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  if (run('copy branch is announced')) {
   const {context,page,errors} = await open()
   await context.grantPermissions(['clipboard-read','clipboard-write'])

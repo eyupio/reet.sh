@@ -3,7 +3,7 @@
   import { getProfile, getSyncState, UnauthorizedError, type SyncState } from '../api'
   import { folderProjectList, machineHealth, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
-  import { attentionCount, fleetCards, reporting, inFlight, needsYou, projectRunning, projectWorktrees, sessionOwners, type GroupBy, type HomeSession } from '../home'
+  import { attentionCount, fleetCards, handedProjects, reporting, inFlight, needsYou, projectRunning, projectWorktrees, sessionOwners, type GroupBy, type HomeSession } from '../home'
   import type { LaunchDefaults } from '../launchBar'
   import LaunchBar from '../launch/LaunchBar.svelte'
   import FleetStrip from './FleetStrip.svelte'
@@ -147,7 +147,7 @@
   // this page holds them; nothing goes to browser storage. The Sessions screen (a tablet or phone, where the rail lives)
   // hands its choice over in the address, as project ids only (`/?projects=<id>,<id>`).
   let selecting = $state(false), selected = $state<string[]>([])
-  const handed = (new URLSearchParams(location.search).get('projects') ?? '').split(',').filter(Boolean).slice(0, 12)
+  const handed = new URLSearchParams(location.search).get('projects')
   const inRailOrder = (ids: string[]) => (projects ?? []).filter(p => ids.includes(p.id)).map(p => p.id)
   function setSelecting(on: boolean, first?: FolderProject) {
     selecting = on
@@ -162,13 +162,17 @@
     if (!list || selected.every(id => list.some(p => p.id === id))) return
     selected = inRailOrder(selected)
   })
-  // The projects the Sessions screen chose, once the list that names them has been read.
+  // The projects the Sessions screen chose, once the list that names them has been read (handedProjects: known ids only, once
+  // each, at most 12). The address then drops `projects`, keeping the rest of it, so a reload does not choose them again.
   let handedApplied = false
   $effect(() => {
-    if (handedApplied || !projects || handed.length === 0) return
+    if (handedApplied || !projects || handed === null) return
     handedApplied = true
-    const ids = inRailOrder(handed)
+    const ids = handedProjects(handed, projects)
     if (ids.length) { selecting = true; selected = ids }
+    const url = new URL(location.href)
+    url.searchParams.delete('projects')
+    history.replaceState(history.state, '', `${url.pathname}${url.search}${url.hash}`)
   })
   // A write's answer is the list as it now is (or a project in it): it replaces what was read, superseding a poll in flight.
   function settle(next: FolderProject[]) { generation++; loading = false; projects = next }

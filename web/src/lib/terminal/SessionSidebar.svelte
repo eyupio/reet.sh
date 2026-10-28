@@ -164,4 +164,6 @@
  .project-context>a:hover,.project-context>a:focus-visible{background:var(--tint)}
  .session-card-pop{position:fixed;z-index:60;pointer-events:none}
  @media(pointer:coarse){.project-row{min-height:44px}.project-action{min-width:44px;min-height:44px}.projects-head .link{min-height:44px;display:inline-flex;align-items:center}}
+ /* A touch tablet (651-1099 px, not a phone held sideways): every control in the panel is a 44 px target; desktops keep their density. */
+ @media(pointer:coarse) and (min-width:651px) and (max-width:1099px) and (min-height:501px){.session-sidebar :global(:is(button,a[href],select,input,summary)){min-height:44px}.collapse,.row-actions,.pin,.projects-head .link,:global(.session-sidebar .machine-new),:global(.session-sidebar .machine-more){min-width:44px}.link,footer>a{display:inline-flex;align-items:center}.session-context button,.session-context a{min-height:44px;box-sizing:border-box}.session-context a{display:flex;align-items:center}.colours button{width:44px;height:44px}}
 </style>

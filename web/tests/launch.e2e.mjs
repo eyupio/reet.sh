@@ -294,6 +294,12 @@ try {
   expect(s.x + s.width).toBeLessThanOrEqual(320)
   expect(await phone.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   expect(phone.box.storage.filter(e => /fp\d/.test(e.value) || /fp\d/.test(e.key))).toEqual([])
+  // One chosen project with a very long name: the phone summary names it, wraps, and keeps Start on the screen.
+  await phone.page.goto(`${base}/?project=fp1`)
+  await expect(phone.page.locator('.summary-text')).toContainText('the-store-rewrite-with-a-very-long-project-name-indeed')
+  const one = await startButton(phone.page).boundingBox()
+  expect(one.x + one.width).toBeLessThanOrEqual(320)
+  expect(await phone.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   // Done leaves Select and gives focus back to the heading's menu button.
   await phone.page.goto(`${base}/sessions`)
   await rail.getByRole('button',{name:'Projects menu'}).click()
@@ -320,6 +326,26 @@ try {
 
  // A rail card (or its New session here) puts that project in the sentence with its own defaults: agent, model and worktree
  // choice; its starter prompt is offered with the chip and goes out only once the person uses it.
+ // The Sessions screen's rail hands its chosen projects over in the address: Home keeps only ids it knows (each once, in rail
+ // order), then takes `projects` out of the address (the rest stays), so a reload does not choose them again.
+ if (run('projects handed over in the address')) {
+  const {context,page,errors} = await launch({projects:[...fprojects(), blog()]})
+  await page.goto(`${base}/?projects=fp4,gone,fp1,fp4&from=sessions#top`)
+  await expect.poll(() => sentenceText(page)).toContain('on 2 projects')
+  await expect(page.locator('aside.rail').getByRole('checkbox',{checked:true})).toHaveCount(2)
+  await expect(page.locator('aside.rail').getByRole('checkbox',{name:/^Store rewrite/})).toHaveAttribute('aria-checked','true')
+  await expect(page.locator('aside.rail').getByRole('checkbox',{name:/^Blog/})).toHaveAttribute('aria-checked','true')
+  await expect.poll(() => page.evaluate(() => location.pathname + location.search + location.hash)).toBe('/?from=sessions#top')
+  await page.reload()
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect(page.locator('aside.rail').getByRole('checkbox')).toHaveCount(0)
+  // One id names one project: the bar names it.
+  await page.goto(`${base}/?projects=fp3`)
+  await expect.poll(() => sentenceText(page)).toContain('on Site at studio')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  if (run('a rail card applies the project defaults and offers its starter prompt')) {
   const projects = fprojects().map(p => p.id === 'fp3' ? {...p, defaultTool:'codex', defaultModel:'gpt-5-codex', worktreeDefault:'no', hasStarterPrompt:true} : p)
   const routes = {'/api/v2/folder-projects/fp3': () => ({...projects.find(p => p.id === 'fp3'), starterPrompt:'Tidy the site build and say what changed'})}

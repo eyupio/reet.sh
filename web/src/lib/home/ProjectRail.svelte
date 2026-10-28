@@ -239,7 +239,7 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="full" id={`${id}-full`} bind:this={full} onkeydown={panelKeys} style:top={panelOpen ? `${panelTop}px` : undefined} style:height={panelOpen ? `calc(100dvh - ${panelTop}px)` : undefined}>
     <header>
-      <h2 id={`${id}-title`}>{variant === 'sessions' ? `Projects · ${projects?.length ?? 0}` : 'Projects'}</h2>
+      <h2 id={`${id}-title`}>{variant === 'sessions' && projects ? `Projects · ${projects.length}` : 'Projects'}</h2>
       {#if panelOpen}<button type="button" class="close-panel" aria-label="Close the project rail" onclick={() => closePanel(true)}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18" /></svg></button>{/if}
       {#if projects && projects.length > 1}
         <button type="button" class="head-more" bind:this={headButton} aria-label="Projects menu" aria-haspopup="menu" aria-expanded={headMenu}

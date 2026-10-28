@@ -334,7 +334,7 @@
   {:else}
     <section class="projects" aria-labelledby="sessions-projects">
       <div class="projects-head">
-        <h2 id="sessions-projects">Projects · {projects?.length ?? 0}</h2>
+        <h2 id="sessions-projects">{projects ? `Projects · ${projects.length}` : 'Projects'}</h2>
         <button type="button" class="add" disabled={addBusy} onclick={event => void openAdd(event.currentTarget)}>Add a project</button>
       </div>
       {#if projectsFailed}<p class="none">Couldn't read your projects just now.</p>

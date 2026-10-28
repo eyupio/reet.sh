@@ -296,3 +296,12 @@ export function shortAge(ms: number): string {
   if (ms < DAY) return `${Math.floor(ms / HOUR)}h`
   return `${Math.floor(ms / DAY)}d`
 }
+
+/**
+ * The projects the Sessions screen's rail hands to Home's launch bar in the address (`?projects=<id>,<id>`): only ids that
+ * name a project in the list, each once, in rail order, at most 12 (the most one start takes). Anything else is ignored.
+ */
+export function handedProjects(param: string | null, projects: readonly { id: string }[]): string[] {
+  const wanted = new Set((param ?? '').split(',').filter(Boolean))
+  return projects.filter(p => wanted.has(p.id)).map(p => p.id).slice(0, 12)
+}

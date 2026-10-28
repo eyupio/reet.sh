@@ -118,11 +118,10 @@ After PR H:
   44, so the terminal keeps its rows; documented in [docs/terminal-workspace.md](docs/terminal-workspace.md#phones). H4's
   40 px footer button costs one row with the keyboard down at 390 × 844 (39 → 38); keyboard-open and sideways rows are
   unchanged.
-- `terminal-phone.e2e.mjs` failed five times locally during PR H, always inside long sequential runs (three in a row
-  once), always at its 20 × 8 floor case (13 rows read after a fixed 450 ms wait), and passed every run on its own and
-  under artificial CPU load. Its test and the sizing code are unchanged by PR H's fix wave; the CI-order run of every
-  browser file on the final head passed it. If CI fails it, make its `settledSize` wait for a new frame instead of a fixed
-  450 ms. Watch it in CI's `terminal-browser` job.
+- `terminal-phone.e2e.mjs`'s 20 × 8 floor case used to read 13 rows in about one run in five: the workspace height was
+  measured while the shell held the top bar aside and not measured again when it came back. Fixed and hardened in
+  `5abe001` (the workspace measures again whenever the shell toggles its chrome; the test waits for the layout to
+  settle instead of a fixed 450 ms); 10 runs in a row and one under CPU load pass, with the same figures.
 
 Still true from earlier PRs:
 

@@ -464,6 +464,7 @@
     /* The mock-up's phone row: dot, title, state word and age. The agent line and the worktree badge are left out to keep the
        title readable (YOLO stays); "last known" is still read out, and the group says the machine is offline. */
     .meta, .badge.wt { display: none; }
+    .lk { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     /* The colour's name is still read out; the strip shows it. */
     .colour-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     .commands .wide { display: none; }
@@ -474,6 +475,5 @@
   @media (max-width: 374px) {
     .commands { width: 44px; padding: 0; justify-content: center; }
     .commands .narrow { display: none; }
-    .lk { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   }
 </style>

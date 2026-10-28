@@ -296,7 +296,11 @@ try {
   await expect(row('Refactor the store layer').locator('.colour-name')).toHaveText('Green')
   await expect(row('Review code').locator('.colour-name')).toHaveText('Violet')
   await expect(row('Shell').locator('.colour-name')).toHaveCount(0)
-  expect(await row('Docs pass').evaluate(el => getComputedStyle(el).borderLeftStyle)).toBe('solid')
+  // The strip is the colour itself: red's swatch on a red row, nothing on a row with no colour.
+  const strip = name => row(name).evaluate(el => { const c = getComputedStyle(el); return c.borderLeftWidth !== '0px' && c.borderLeftStyle !== 'none' ? c.borderLeftColor : 'none' })
+  expect(await strip('Docs pass')).toBe('rgb(217, 87, 87)')
+  expect(await strip('Review code')).toBe('rgb(161, 126, 209)')
+  expect(await strip('Shell')).toBe('rgba(0, 0, 0, 0)')
   await page.getByText('Filters',{exact:true}).click()
   await filters(page).getByLabel('Colour',{exact:true}).selectOption('red')
   await expect.poll(() => titles(page)).toEqual(['Docs pass'])
@@ -326,6 +330,23 @@ try {
   await expect(button).toBeFocused()
   expect(errors).toEqual([])
   await context.close()
+ }
+
+ // "· last known" on an offline machine's row: drawn on a tablet and desktop, visually hidden (clipped, still read out) on a
+ // phone, as the mock-up's phone row has the word alone.
+ if (run('last known on a phone')) {
+  for (const [width,height,touch,hidden] of [[390,844,true,true],[600,900,true,true],[834,1112,true,false],[1440,900,false,false]]) {
+   const {context,page,errors} = await open({width,height,touch})
+   await page.goto(`${base}/sessions`)
+   const word = rows(page).filter({hasText:'Review code'}).locator('.word')
+   await expect(word).toHaveText('Running · last known')
+   const box = await word.locator('.lk').evaluate(el => { const c = getComputedStyle(el), r = el.getBoundingClientRect(); return {display:c.display, position:c.position, clip:c.clipPath, w:r.width, h:r.height} })
+   expect(box.display, `display at ${width}px`).not.toBe('none')
+   if (hidden) { expect(box.position, `${width}px`).toBe('absolute'); expect(box.clip, `${width}px`).toBe('inset(50%)'); expect(box.w).toBeLessThanOrEqual(1) }
+   else { expect(box.clip, `${width}px`).toBe('none'); expect(box.w, `${width}px`).toBeGreaterThan(20) }
+   expect(errors).toEqual([])
+   await context.close()
+  }
  }
 
  // The fix round's smaller points.

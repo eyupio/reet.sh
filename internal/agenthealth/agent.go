@@ -44,6 +44,8 @@ type AgentConfig struct {
 	browse            bool
 	branches          bool
 	browseAllowed     bool
+	clipboard         bool
+	clipboardAllowed  bool
 	OnConnection      func(bool)
 	TerminalSession   TerminalFactory
 	control           func(context.Context, terminalproto.Message) error
@@ -68,6 +70,10 @@ type AgentConfig struct {
 	// (reet terminal browse on|off). It is polled with Consent. Nil means
 	// browsing is refused.
 	BrowseAllowed func() bool
+	// ClipboardAllowed re-reads the machine's local clipboard switch
+	// (reet terminal clipboard on|off). It is polled with Consent. Nil means
+	// forwarding is refused.
+	ClipboardAllowed func() bool
 	// TerminalAllowed re-reads the local terminal opt-in alone (the
 	// enrollment is still this one and terminal access is on), without
 	// probing readiness. Browse and branches requests are gated on it; nil
@@ -211,6 +217,7 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 		cfg.TerminalEnabled, cfg.TerminalReadiness = readConsent(cfg.Consent)
 	}
 	cfg.browseAllowed = readBrowseAllowed(cfg)
+	cfg.clipboardAllowed = readClipboardAllowed(cfg)
 	address, err := bootstrap(ctx, cfg)
 	if err != nil {
 		return false, err
@@ -365,12 +372,19 @@ func currentCapabilities(cfg AgentConfig) terminalproto.Capabilities {
 		readiness = terminalproto.Ready
 	}
 	cfg.browseAllowed = readBrowseAllowed(cfg)
+	cfg.clipboardAllowed = readClipboardAllowed(cfg)
 	return capabilitiesFor(cfg, enabled, readiness)
 }
 
 // readBrowseAllowed reads the local folder-browse switch; without one,
 // browsing is refused.
 func readBrowseAllowed(cfg AgentConfig) bool { return cfg.BrowseAllowed != nil && cfg.BrowseAllowed() }
+
+// readClipboardAllowed reads the local clipboard switch; without one,
+// forwarding is refused.
+func readClipboardAllowed(cfg AgentConfig) bool {
+	return cfg.ClipboardAllowed != nil && cfg.ClipboardAllowed()
+}
 
 func readConsent(read func() (bool, terminalproto.Readiness, error)) (bool, terminalproto.Readiness) {
 	enabled, readiness, err := read()
@@ -512,14 +526,15 @@ func consentControl(ctx context.Context, cfg AgentConfig, generation int64, enab
 		}
 		nextEnabled, nextReadiness := readConsent(cfg.Consent)
 		nextBrowse := readBrowseAllowed(cfg)
-		if nextEnabled == enabled && nextReadiness == readiness && nextBrowse == cfg.browseAllowed {
+		nextClipboard := readClipboardAllowed(cfg)
+		if nextEnabled == enabled && nextReadiness == readiness && nextBrowse == cfg.browseAllowed && nextClipboard == cfg.clipboardAllowed {
 			continue
 		}
-		previousBrowse := cfg.browseAllowed
-		cfg.browseAllowed = nextBrowse
+		previousBrowse, previousClipboard := cfg.browseAllowed, cfg.clipboardAllowed
+		cfg.browseAllowed, cfg.clipboardAllowed = nextBrowse, nextClipboard
 		caps := capabilitiesFor(cfg, nextEnabled, nextReadiness)
 		if caps.ValidateFor(terminalFeatures(cfg)) != nil {
-			cfg.browseAllowed = previousBrowse
+			cfg.browseAllowed, cfg.clipboardAllowed = previousBrowse, previousClipboard
 			continue
 		}
 		requestID, err := randomID()
@@ -631,6 +646,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.worktree = terminalproto.SupportsWorktree(advertised)
 	cfg.browse = terminalproto.SupportsBrowse(advertised)
 	cfg.branches = terminalproto.SupportsBranches(advertised)
+	cfg.clipboard = terminalproto.SupportsClipboard(advertised)
 }
 
 // setTerminalFeatures tells the terminal dispatcher which negotiated
@@ -662,6 +678,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.branches {
 		features = append(features, terminalproto.BranchesFeature)
+	}
+	if cfg.clipboard {
+		features = append(features, terminalproto.ClipboardFeature)
 	}
 	return strings.Join(features, ",")
 }
@@ -732,6 +751,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		// Only on a connection that negotiated browse-v1: an older
 		// controller's strict decoder would refuse the field.
 		BrowseOff:       cfg.browse && control && enabled && !cfg.browseAllowed,
+		Clipboard:       cfg.clipboard && control && enabled && cfg.clipboardAllowed,
 		Branches:        cfg.branches && worktree && enabled,
 		TerminalControl: cfg.TerminalSession != nil,
 		CommandHistory:  cfg.commandHistory && cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin"),

@@ -31,6 +31,10 @@ type ManagerOptions struct {
 	// (reet terminal browse on|off) before each browse request. nil or an
 	// error refuses browsing. The connector reads it; the manager does not.
 	BrowseConsent func() error
+	// ClipboardConsent re-reads the machine's local clipboard switch
+	// (reet terminal clipboard on|off). nil means forwarding is allowed, as
+	// it is by default. An error turns the tmux server's set-clipboard off.
+	ClipboardConsent func() error
 }
 
 type Manager struct {
@@ -39,6 +43,12 @@ type Manager struct {
 	home       string
 	tmux       Tmux
 	consent    func() error
+	// clipboardConsent nil means clipboard forwarding is allowed.
+	clipboardConsent func() error
+	// clipboardSet and clipboardOn remember the last set-clipboard value the
+	// manager applied to the running tmux server.
+	clipboardSet bool
+	clipboardOn  bool
 	// lookPath finds agent binaries for launch presets; tests replace it.
 	lookPath func(string) (string, error)
 	// git runs git for worktrees (ExecGit); tests replace it.
@@ -71,7 +81,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 	if git == nil {
 		git = ExecGit
 	}
-	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, lookPath: exec.LookPath, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, changed: make(chan struct{})}
+	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, lookPath: exec.LookPath, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, changed: make(chan struct{})}
 	// Validate a present registry even when tmux is offline. Never silently
 	// repair an unreadable file or adopt sessions from another enrollment.
 	lock, err := m.registryLock(ctx)
@@ -375,6 +385,9 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 	if err != nil {
 		return err
 	}
+	// A clipboard option that cannot be set must not end the manager; a later
+	// reconcile tries again.
+	_ = m.applyClipboard(ctx)
 	changed := false
 	for id, s := range r.Sessions {
 		if !s.State.ReservesQuota() {

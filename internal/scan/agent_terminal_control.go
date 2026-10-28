@@ -26,7 +26,7 @@ func terminalControl(config string, c agentConfig) agenthealth.TerminalFactory {
 			return errors.New("terminal access disabled locally")
 		}
 		return nil
-	}, BrowseConsent: func() error { return browseConsent(config, c) }})
+	}, BrowseConsent: func() error { return browseConsent(config, c) }, ClipboardConsent: func() error { return clipboardConsent(config, c) }})
 }
 
 // launchTools reports the agent CLIs found on this connector's PATH from its
@@ -45,6 +45,13 @@ func gitAvailable() bool {
 // locally (reet terminal browse off).
 func browseAllowed(config string, c agentConfig) func() bool {
 	return func() bool { return browseConsent(config, c) == nil }
+}
+
+// clipboardAllowed re-reads the enrollment: clipboard forwarding is allowed
+// while it is still this enrollment, terminal access is on and clipboard is
+// not off locally (reet terminal clipboard off).
+func clipboardAllowed(config string, c agentConfig) func() bool {
+	return func() bool { return clipboardConsent(config, c) == nil }
 }
 
 // terminalAllowed re-reads the enrollment alone: it is still this one and
@@ -78,6 +85,17 @@ func browseConsent(config string, c agentConfig) error {
 	}
 	if current.BrowseOff {
 		return errors.New("folder browse disabled locally")
+	}
+	return nil
+}
+
+func clipboardConsent(config string, c agentConfig) error {
+	current, err := currentTerminalConfig(config, c)
+	if err != nil {
+		return err
+	}
+	if current.ClipboardOff {
+		return errors.New("clipboard disabled locally")
 	}
 	return nil
 }

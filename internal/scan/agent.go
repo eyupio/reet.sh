@@ -40,6 +40,9 @@ type agentConfig struct {
 	TerminalEnabled bool     `json:"terminalEnabled,omitempty"`
 	// BrowseOff refuses folder browsing locally (reet terminal browse off).
 	BrowseOff bool `json:"browseOff,omitempty"`
+	// ClipboardOff refuses OSC 52 clipboard forwarding locally
+	// (reet terminal clipboard off).
+	ClipboardOff bool `json:"clipboardOff,omitempty"`
 }
 
 func agentConfigPath() string {
@@ -343,13 +346,14 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 		go func() {
 			defer close(monitorDone)
 			if err := agenthealth.RunAgent(ctx, agenthealth.AgentConfig{
-				TerminalSession: terminalControl(*config, c),
-				LaunchTools:     launchTools,
-				GitAvailable:    gitAvailable,
-				BrowseAllowed:   browseAllowed(*config, c),
-				TerminalAllowed: terminalAllowed(*config, c),
-				OnConnection:    state.connected.Store,
-				ServerURL:       c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,
+				TerminalSession:  terminalControl(*config, c),
+				LaunchTools:      launchTools,
+				GitAvailable:     gitAvailable,
+				BrowseAllowed:    browseAllowed(*config, c),
+				ClipboardAllowed: clipboardAllowed(*config, c),
+				TerminalAllowed:  terminalAllowed(*config, c),
+				OnConnection:     state.connected.Store,
+				ServerURL:        c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,
 				Version: version, InstanceID: instance,
 				TerminalEnabled: c.TerminalEnabled, TerminalReadiness: terminalReadiness(*config, c.ID, c.TerminalEnabled),
 				Consent: func() (bool, terminalproto.Readiness, error) {

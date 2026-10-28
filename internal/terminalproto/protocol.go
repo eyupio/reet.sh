@@ -119,7 +119,8 @@ const (
 // of Browse, by a connector that negotiated browse-v1 but has folder browse
 // switched off locally, so a controller can tell that from an older
 // connector. It is sent only on a connection that negotiated browse-v1: an
-// older controller's strict decoder would refuse the field.
+// older controller's strict decoder would refuse the field. Clipboard is sent
+// only on a connection that negotiated clipboard-v1, for the same reason.
 type Capabilities struct {
 	Launch bool `json:"launch,omitempty"`
 	// Yolo is reserved: no connector may advertise it until YOLO launches exist,
@@ -133,6 +134,7 @@ type Capabilities struct {
 	Browse          bool      `json:"browse,omitempty"`
 	Branches        bool      `json:"branches,omitempty"`
 	BrowseOff       bool      `json:"browseOff,omitempty"`
+	Clipboard       bool      `json:"clipboard,omitempty"`
 	TerminalControl bool      `json:"terminalControl,omitempty"`
 	ProtocolVersion int       `json:"protocolVersion"`
 	OS              string    `json:"os"`
@@ -160,7 +162,7 @@ func (c Capabilities) ValidateFor(features string) error {
 	if c.CommandHistory && !c.TerminalControl || c.Worktree && !c.Launch {
 		return ErrInvalid
 	}
-	if c.Browse && !c.TerminalControl || c.Branches && !c.Worktree || c.BrowseOff && (c.Browse || !c.TerminalControl) {
+	if c.Browse && !c.TerminalControl || c.Branches && !c.Worktree || c.BrowseOff && (c.Browse || !c.TerminalControl) || c.Clipboard && !c.TerminalControl {
 		return ErrInvalid
 	}
 	if c.ProtocolVersion < 1 || c.ProtocolVersion > 65535 || !plainText(c.OSUser, 128) || strings.TrimSpace(c.OSUser) == "" {

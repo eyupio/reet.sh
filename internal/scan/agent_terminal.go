@@ -24,27 +24,42 @@ func RunTerminalBrowse(args []string, out io.Writer) error {
 	return runAgentTerminalInput(append([]string{"browse"}, args...), os.Stdin, out, "")
 }
 
+// RunTerminalClipboard runs reet terminal clipboard on|off|status: the
+// machine's local switch for forwarding an agent's OSC 52 writes to the
+// browser, the same as reet agent terminal clipboard.
+func RunTerminalClipboard(args []string, out io.Writer) error {
+	return runAgentTerminalInput(append([]string{"clipboard"}, args...), os.Stdin, out, "")
+}
+
 func runAgentTerminal(args []string, out io.Writer) error {
 	return runAgentTerminalInput(args, os.Stdin, out, "")
 }
 func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet agent terminal setup|enable|disable|status|sessions|end|browse [--config PATH]")
+		return errors.New("usage: reet agent terminal setup|enable|disable|status|sessions|end|browse|clipboard [--config PATH]")
 	}
 	action := args[0]
-	// browse takes its own word: on, off or status.
-	browse := ""
-	if action == "browse" {
+	// browse and clipboard take their own word: on, off or status.
+	sub := ""
+	if action == "browse" || action == "clipboard" {
+		usage := terminalBrowseUsage
+		if action == "clipboard" {
+			usage = terminalClipboardUsage
+		}
 		for _, arg := range args[1:] {
 			if arg == "-h" || arg == "--help" || arg == "-help" {
-				fmt.Fprintln(out, terminalBrowseUsage+"\nAllow or refuse folder browsing from reet on this enrolled machine (on by default).\nBrowsing also needs terminal access on (reet agent terminal enable).")
+				if action == "browse" {
+					fmt.Fprintln(out, usage+"\nAllow or refuse folder browsing from reet on this enrolled machine (on by default).\nBrowsing also needs terminal access on (reet agent terminal enable).")
+				} else {
+					fmt.Fprintln(out, usage+"\nAllow or refuse forwarding an agent's clipboard writes (OSC 52) from this machine to the attached browser (on by default).\nForwarding also needs terminal access on (reet agent terminal enable).")
+				}
 				return nil
 			}
 		}
 		if len(args) < 2 || args[1] != "on" && args[1] != "off" && args[1] != "status" {
-			return errors.New("usage: " + terminalBrowseUsage)
+			return errors.New("usage: " + usage)
 		}
-		browse, args = args[1], args[1:]
+		sub, args = args[1], args[1:]
 	}
 	fs := flag.NewFlagSet("agent terminal "+action, flag.ContinueOnError)
 	fs.SetOutput(out)
@@ -110,7 +125,7 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 		return nil
 	case "status":
 		readiness := terminalhost.Readiness(context.Background(), layout, c.TerminalEnabled)
-		fmt.Fprintf(out, "Machine: %s\nTerminal access: %t\nReadiness: %s\nFolder browse: %s\n", c.Host, c.TerminalEnabled, readiness, browseState(c))
+		fmt.Fprintf(out, "Machine: %s\nTerminal access: %t\nReadiness: %s\nFolder browse: %s\nClipboard: %s\n", c.Host, c.TerminalEnabled, readiness, browseState(c), clipboardState(c))
 		if tmux, err := terminalhost.FindTmux(context.Background()); err == nil {
 			fmt.Fprintf(out, "tmux: %s (%s)\n", tmux.Path, tmux.Version)
 		} else {
@@ -161,9 +176,9 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 		fmt.Fprintf(out, "Ended local terminal session %s.\n", *session)
 		return nil
 	case "browse":
-		switch browse {
+		switch sub {
 		case "on", "off":
-			c.BrowseOff = browse == "off"
+			c.BrowseOff = sub == "off"
 			if err := writePrivate(*config, c); err != nil {
 				return err
 			}
@@ -179,13 +194,35 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 			fmt.Fprintf(out, "Folder browse: %s\n", browseState(c))
 		}
 		return nil
+	case "clipboard":
+		switch sub {
+		case "on", "off":
+			c.ClipboardOff = sub == "off"
+			if err := writePrivate(*config, c); err != nil {
+				return err
+			}
+			switch {
+			case c.ClipboardOff:
+				fmt.Fprintf(out, "Clipboard off for %s. reet can no longer forward an agent's copies from this machine to the browser.\n", c.Host)
+			case !c.TerminalEnabled:
+				fmt.Fprintf(out, "Clipboard on for %s, but terminal access is off on this machine, so reet still cannot forward copies. Turn terminal access on with: reet agent terminal enable\n", c.Host)
+			default:
+				fmt.Fprintf(out, "Clipboard on for %s. reet can forward an agent's copies from this machine to the attached browser; the browser still decides whether to accept them.\n", c.Host)
+			}
+		default:
+			fmt.Fprintf(out, "Clipboard: %s\n", clipboardState(c))
+		}
+		return nil
 	default:
-		return errors.New("unknown terminal action; use enable, disable, status, sessions, end or browse")
+		return errors.New("unknown terminal action; use enable, disable, status, sessions, end, browse or clipboard")
 	}
 }
 
 // terminalBrowseUsage is the usage line of the folder-browse switch.
 const terminalBrowseUsage = "reet terminal browse on|off|status [--config PATH]"
+
+// terminalClipboardUsage is the usage line of the clipboard switch.
+const terminalClipboardUsage = "reet terminal clipboard on|off|status [--config PATH]"
 
 // browseState is the switch as status shows it: on or off, and whether
 // browsing is unavailable anyway because terminal access is off.
@@ -194,6 +231,15 @@ func browseState(c agentConfig) string {
 		return "on (unavailable while terminal access is off)"
 	}
 	return onOff(!c.BrowseOff)
+}
+
+// clipboardState is the switch as status shows it: on or off, and whether
+// forwarding is unavailable anyway because terminal access is off.
+func clipboardState(c agentConfig) string {
+	if !c.ClipboardOff && !c.TerminalEnabled {
+		return "on (unavailable while terminal access is off)"
+	}
+	return onOff(!c.ClipboardOff)
 }
 
 func onOff(on bool) string {

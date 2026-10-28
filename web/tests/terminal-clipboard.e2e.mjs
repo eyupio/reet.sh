@@ -181,6 +181,30 @@ async function pasteFromToolbar(page) {
 }
 
 {
+  // The Select text sheet fills a read-only pre from the buffer, so a phone gets
+  // native long-press selection; Copy all writes exactly that transient text.
+  const { context, page, errors } = await open(true, { rows: 80 })
+  await page.getByRole('button', { name: 'Select text', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  const pre = dialog.locator('pre')
+  await expect(pre).toContainText('row-01')
+  await expect(pre).toContainText('row-80')
+  const shown = (await pre.textContent()) ?? ''
+  await dialog.getByRole('button', { name: 'Copy all', exact: true }).click()
+  await expect(page.getByText('Copied all terminal text.', { exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.__copied || '')).toBe(shown)
+  const copied = await page.evaluate(() => window.__copied || '')
+  expect(copied).toContain('row-01')
+  expect(copied).toContain('row-80')
+  await dialog.getByRole('button', { name: 'Close select text', exact: true }).click()
+  await expect(page.locator('dialog[open]')).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+  console.log('Select text: the sheet showed the buffer, Copy all wrote it, and closing discarded the sheet.')
+}
+
+{
   // The Scrollback snapshot has its own Copy all; the text stays transient.
   const { context, page, errors } = await open(true)
   await page.getByRole('button', { name: 'Earlier output', exact: true }).click()

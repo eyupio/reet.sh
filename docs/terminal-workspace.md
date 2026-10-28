@@ -284,6 +284,12 @@ execution is disabled. See [the archive contract](terminal-history-archive.md).
 - **Copy when I select text** in Appearance is off unless chosen. It is saved in
   this browser as `reet-terminal-copy-on-select` and copies a settled, non-empty
   selection once, saying "Selection copied." Nothing is copied while it is off.
+- **Select text** in the toolbar and the menu opens a read-only bottom sheet filled
+  from the local buffer (the last 2,000 lines, at most 256 KiB), so a phone's
+  native long-press selection works without replacing xterm. **Copy selection**
+  copies what you selected, **Copy all** copies the sheet's text, and closing
+  discards it: the text is transient in the browser and is never saved. It is
+  disabled while Scrollback is open, and closing returns focus to the terminal.
 - Pasted text is stripped of bracketed-paste markers and every ESC byte. With
   bracketed paste enabled by the remote program, ordinary multi-line text (no
   control characters other than tab and newline, at most 64 KiB) goes in as one

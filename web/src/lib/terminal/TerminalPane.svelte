@@ -477,7 +477,7 @@
   .tools button:hover:not(:disabled) {border-color:var(--accent);background:var(--tint)}
   .tools button[aria-pressed=true] {border-color:var(--accent);color:var(--accent-text)}
   .tools.mobile-keys {display:none;border-top:1px solid var(--line);border-bottom:0}
-  .upload-input {position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden}
+  .upload-input {display:none}
   .screen-frame {position:relative;flex:1;height:0;min-height:0;min-width:0;overflow:hidden;padding:12px 10px 8px 14px}
   .screen {height:100%;min-height:0;min-width:0;overflow:hidden;padding:0}
   .drop-overlay {position:absolute;inset:6px;z-index:4;display:grid;place-items:center;border:1px dashed var(--accent);border-radius:8px;background:color-mix(in srgb,var(--bg) 88%,transparent);color:var(--ink);font-size:.8rem;pointer-events:none}

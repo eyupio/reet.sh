@@ -1176,3 +1176,51 @@ Fix round 1 (H3 review):
 Figures (`terminal-phone.e2e.mjs`, before → after): keyboard open 53×24 → 53×24; maximised with the keyboard 55×25 → 55×25; sideways 844×390 13 rows, 8 with the keyboard, 9 maximised → the same; 915×412 15, 8, 10 → the same; the 20×8 floor unchanged.
 
 Validation: the new `sessions-phone.e2e.mjs` (in the `phone-dialogs` CI job) holds "session with keyboard open" (320 and 390 px), "sideways 844 × 390" and "phone rail on Sessions"; `sessions.e2e.mjs` gains "tablet details side sheet"; `terminal-sizing.test.mjs` covers `keyboardChrome('session', …)`. Home, launch, phone-zoom and phone-dialogs follow the rail to the Sessions screen on a phone.
+
+## Agents home: layout, focus and motion matrix — 28 October 2026 (PR H, task H4)
+
+Synthetic API answers, Chromium 1243 headless on Linux, the built app served by `vite preview`. The fixture is shaped like the mock-up: studio and server reporting and desk not; reet (studio, green), site (server, blue) and notes (desk); five sessions (two running Claude Code sessions in reet, one in a worktree; an exited Codex session; one in site; one on desk); one skills check in sync; a live terminal answering its socket.
+
+**The matrix** (`web/tests/matrix/agents-home.matrix.mjs`, run locally; 200 states, about 13 minutes): five screens (Home; the Add project dialog, from the rail at 1100 px and wider and from the Sessions screen below that; the launch bar's Agent list on a desktop and its Change sheet on a tablet or phone; the Sessions page; the session screen) at 1440 × 900, 1360 × 900, 1024 × 768, 834 × 1112 with a mouse and with touch, 412 × 915, 390 × 844, 360 × 800 and 320 × 700 (`isMobile`, `hasTouch`) and 844 × 390 sideways, each in light and dark, each with and without reduced motion. Every state asserts:
+
+- no sideways scroll;
+- on a touch screen, every shown control at least 44 px (48 px tall for a phone's primary action), except the terminal's own keys (the pane's toolbar and extra keys, 40 × 40 px on every touch screen) and, on a phone, the rest of the terminal's chrome (workspace toolbar, pane header and footer: 40 × 40 px, as [Phones](terminal-workspace.md#phones) says), links inside a sentence (WCAG 2.5.8's inline exception), and the site footer (below);
+- the focus visible on each of the first 14 Tab stops (outline, shadow or a frame that changes colour; light theme, no reduced motion);
+- every state dot beside a state word (status never in colour alone);
+- with reduced motion, no running animation;
+- Home on a phone: Needs you above In flight, and no project rail (it is on the Sessions screen);
+- on a phone with the keyboard up (the visual viewport at 55 % of the height, 45 % sideways) for Home's prompt, the Sessions search and the terminal: the field above the keyboard and no sideways scroll.
+
+First run (before the fixes below): 74 of 200 states had findings, all of them target sizes or motion; none for sideways scroll, focus, state words or the keyboard. After the fixes: **200 states, no findings**.
+
+Fixed in H4 (real defects the matrix found):
+
+- **Launch prompt on a phone**: the field was a 24 px target inside its row. The row's padding is now inside the field (44 px tall, 10 px above and below the text), so the row keeps its height (as tall as the 48 px Start with its padding) and the tap target is the field.
+- **Add project dialog on a touch tablet**: fields, the machine row, Browse and the folds' headings (*Starter prompt*, *More defaults*, 17 px) were 42 px or less; with a coarse pointer they are 44 px (48 px on a phone, as before). A mouse keeps the drawing's 42 px fields.
+- **Session screen on a touch phone**: the workspace toolbar's buttons were 28–39 px wide (+, New session, Details & help) and the pane footer's Focus terminal 24 px tall; they are at least 40 × 40 px now, like the terminal's keys. The footer's rows cost one terminal row with the keyboard down at 390 × 844 (39 → 38; 27 → 27 at 320 × 700); keyboard-open, short-screen and sideways rows are unchanged (53 × 24, 53 × 8, 13/8/9, 15/8/10).
+- **Reduced motion**: the terminal's cursor blinked; it does not when the device asks for reduced motion.
+- **Machines page eyebrow** said "Control" (Control is folded into Home and Machines, R4); it says "Machines".
+
+Deviations, each with its reason:
+
+- Add project on a touch tablet: 44 px fields where `AddProject.dc.html` draws 42 px: the touch-target rule (44 px) wins over the drawing on touch; with a mouse the drawing's 42 px stays.
+- Phone session screen: the pane footer is 40 px tall with the keyboard down, not drawn (the drawing has the composer there, Program 2).
+- The site footer (account name, Admin, the developer credit: 18–21 px tall links) is below 44 px on touch. It predates the agents home and is outside it, so it is left as it is and listed here.
+
+**Accessibility:** axe-core 4.10.2 (outside the repository; `REET_AXE=<axe.min.js>`), WCAG 2.0/2.1 A and AA plus 2.2 AA, the five screens at 1440, 834 (touch) and 390 (touch) px in light and dark: 30 states, **no violations**. Incomplete results:
+
+| Screen | 1440 light / dark | 834 light / dark | 390 light / dark |
+| --- | --- | --- | --- |
+| Home | 0 / 0 | 1 / 1 (`color-contrast`, 1 node) | 1 / 1 (`color-contrast`, 1 node) |
+| Add project | 1 / 1 (`color-contrast`, 1 / 3 nodes) | 1 / 1 (`color-contrast`, 2 / 3 nodes) | 1 / 1 (`color-contrast`, 1 / 3 nodes) |
+| Launch list or sheet | 0 / 0 | 0 / 0 | 0 / 0 |
+| Sessions | 0 / 0 | 0 / 0 | 0 / 0 |
+| Session screen | 2 / 2 (`aria-prohibited-attr` 1 node, `color-contrast` 17) | 2 / 2 (1, 15) | 2 / 2 (1, 7) |
+
+The `color-contrast` nodes are ones axe cannot measure (behind a modal backdrop, over the terminal's canvas, or icon-only); `aria-prohibited-attr` is the pane's existing `.terminal-toolbar` (as in H2 and H3).
+
+**Mutation checks** (`cp` before, `cmp` after, each restored byte-identical; the build rebuilt from the restored tree): the launch prompt's padding put back (caught by launch "phone Change sheet"); the phone toolbar under 40 px and the pane footer's 24 px button (both caught by sessions-phone "phone matrix"); the cursor blinking with reduced motion (caught by "phone matrix"); a progress bar in the session header (caught by `sessions.e2e.mjs`); "Step 4 of 7" on an In flight row (caught by `home.e2e.mjs`); a slot list that stays open after a choice (caught by `launch.e2e.mjs`); the phone's sessions drawer staying open after a session is chosen (survived at first: no fixture covered it; the new sessions-phone "drawer closes on selection" catches it); the Machines eyebrow back to "Control" (caught by navigation "names").
+
+**PR D's zoom and keyboard-open cases after `keyboardChrome` gained the `session` focus (H3):** `phone-zoom.e2e.mjs` (long names never zoom a phone out), `phone-layout.e2e.mjs` and `terminal-phone.e2e.mjs` pass, with the figures above unchanged. `terminal-phone` failed once in six runs (its 20 × 8 floor case read 13 rows, in a run straight after other suites) and then passed four runs in a row on its own; the floor case is unchanged by H4.
+
+**CI:** the full matrix is too slow for the plan's budget (at most 120 s added across the plan, `phone-zoom` under 60 s), so CI runs a share of it: sessions-phone "phone matrix" (412, 360, 320 px and 844 × 390, dark, reduced motion: the Sessions screen and the session screen fit, targets, no blinking) and "drawer closes on selection", in the `phone-dialogs` job (sessions-phone about 12 s locally in all; four runs in a row passed). Nothing was added to `terminal-browser`.

@@ -123,7 +123,7 @@
     const phone=matchMedia(PHONE_TOUCH).matches
     try{fontSize=initialFontSize(localStorage.getItem('reet-terminal-font'),phone)}catch{fontSize=initialFontSize(null,phone)/* optional preference */}
     try{const saved=localStorage.getItem('reet-terminal-palette');if(saved==='system'||terminalPalettes.some(item=>item.id===saved))palette=saved!;const shape=localStorage.getItem('reet-terminal-cursor');if(shape==='bar'||shape==='block'||shape==='underline')cursor=shape}catch{/* optional preferences */}
-    const term = new Terminal({ cursorStyle:cursor,cursorBlink:true,fontSize:14,fontFamily:'"DejaVu Sans Mono", "SFMono-Regular", Consolas, monospace',scrollback:5000,screenReaderMode:true,allowProposedApi:false,windowOptions:{},minimumContrastRatio:4.5 })
+    const term = new Terminal({ cursorStyle:cursor,cursorBlink:!matchMedia('(prefers-reduced-motion: reduce)').matches,fontSize:14,fontFamily:'"DejaVu Sans Mono", "SFMono-Regular", Consolas, monospace',scrollback:5000,screenReaderMode:true,allowProposedApi:false,windowOptions:{},minimumContrastRatio:4.5 })
     terminal = term;term.options.fontSize=fontSize;term.loadAddon(fit);search=new SearchAddon();term.loadAddon(search);term.open(element)
     const onPaste=(event:ClipboardEvent)=>{event.preventDefault();event.stopImmediatePropagation();paste(event.clipboardData?.getData('text/plain')||'')}
     element.addEventListener('paste',onPaste,true)
@@ -302,7 +302,7 @@
   }
   @media(pointer:coarse) {.tools button,.controls>button,.session-menu>summary {min-height:40px}}
   /* Touch targets keep a 40 × 40 px hit area; on phones the rows lose their padding instead. */
-  @media(max-width:650px) and (pointer:coarse),(max-height:500px) and (pointer:coarse) and (orientation:landscape) {header,.tools,.terminal-toolbar {padding-top:0;padding-bottom:0}.terminal-toolbar button,.mobile-keys button {min-width:40px}}
+  @media(max-width:650px) and (pointer:coarse),(max-height:500px) and (pointer:coarse) and (orientation:landscape) {header,.tools,.terminal-toolbar {padding-top:0;padding-bottom:0}.terminal-toolbar button,.mobile-keys button {min-width:40px}.controls>button,.session-menu>summary,footer button {min-width:40px;min-height:40px}footer {padding-top:0;padding-bottom:0}}
   /* Sideways: tools and extra keys share one row, and the footer gives its line to the screen (the state stays in the header). */
   @media(max-height:500px) and (pointer:coarse) and (orientation:landscape) {
     .tool-rows {display:flex;flex-shrink:0;min-width:0;border-bottom:1px solid var(--line)}

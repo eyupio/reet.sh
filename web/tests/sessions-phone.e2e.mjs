@@ -206,5 +206,44 @@ try {
   expect(errors).toEqual([])
   await context.close()
  }
- console.log('Sessions on a phone: the session screen with the keyboard open at 320 and 390 px, sideways 844 × 390, and the phone rail on Sessions.')
+ // The CI share of the H4 matrix (the full one is web/tests/matrix/agents-home.matrix.mjs, run locally): on phones, in the
+ // dark theme with reduced motion, the Sessions screen and the session screen fit the width, the terminal's chrome (the
+ // workspace toolbar, the pane's header, toolbar, keys and footer) is at least 40 × 40 px (docs/terminal-workspace.md,
+ // Phones) and everything else on the screen at least 44 px; with reduced motion the terminal's cursor does not blink.
+ if (run('phone matrix')) {
+  for (const [width, height] of [[412,915],[360,800],[320,700],[844,390]]) {
+   const {context,page,errors} = await openSession({width,height,path:'/sessions'})
+   await page.emulateMedia({reducedMotion:'reduce', colorScheme:'dark'})
+   const small = (need, scope) => page.evaluate(([need, scope]) => [...document.querySelectorAll(scope)].flatMap(root => [...root.querySelectorAll('a[href], button, select, summary, [role=button]')])
+    .filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.bottom > 0 && el.checkVisibility({visibilityProperty:true}) && !el.closest('.xterm') && (el.tagName !== 'A' || !el.closest('p')) })
+    .filter(el => { const r = el.getBoundingClientRect(); return Math.round(Math.min(r.width, r.height)) < need })
+    .map(el => `${(el.getAttribute('aria-label') || el.textContent).trim().slice(0, 30)} ${Math.round(el.getBoundingClientRect().width)}×${Math.round(el.getBoundingClientRect().height)}`), [need, scope])
+   await expect(page.locator('main .session-row')).toHaveCount(3)
+   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${width}: Sessions fits`).toBe(true)
+   expect(await small(44, 'main'), `${width}: Sessions targets`).toEqual([])
+   await page.goto(`${base}/sessions?agent=a1&session=s1`)
+   await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
+   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${width}: session screen fits`).toBe(true)
+   expect(await small(40, '.workspace-toolbar, .pane'), `${width}: terminal chrome`).toEqual([])
+   expect(await small(44, '.session-screen .head'), `${width}: slim header`).toEqual([])
+   expect(await page.evaluate(() => document.getAnimations().filter(a => a.playState === 'running').map(a => a.animationName)), `${width}: nothing blinks with reduced motion`).toEqual([])
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+ // On a phone the sessions panel is a drawer over the terminal: choosing a session in it opens that session and closes the
+ // drawer (the spec's "drawer and sheet close on selection").
+ if (run('drawer closes on selection')) {
+  const {context,page,errors} = await openSession({width:390,height:844})
+  const drawer = page.locator('aside#terminal-sessions.session-sidebar')
+  await expect(drawer).toHaveCount(0)
+  await page.locator('.terminal-toolbar').getByRole('button',{name:'Show sessions',exact:true}).click()
+  await expect(drawer).toBeVisible()
+  await drawer.getByRole('button',{name:/^Speed up the runner pool on server/}).click()
+  await expect(drawer).toHaveCount(0)
+  await expect(page.locator('.session-screen h2')).toHaveText('Speed up the runner pool')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+ console.log('Sessions on a phone: the session screen with the keyboard open at 320 and 390 px, sideways 844 × 390, the phone rail on Sessions, the phone matrix, and the drawer closing on selection.')
 } finally {await browser.close()}

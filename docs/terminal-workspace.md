@@ -57,10 +57,10 @@ connector and session ID in the workspace below; `/terminals` redirects to `/ses
 session never creates a shell. Running means a shell lifecycle state, not AI-agent activity. Creating and
 end-requested sessions retain their actual labels.
 
-The account-scoped band polls every 15 seconds while visible, times out requests
+The Sessions page polls every 15 seconds while visible, times out requests
 after 10 seconds, and labels observations older than 45 seconds as last known.
-Transient errors preserve the last list; 401/403 clears it. Viewers do not mount the
-band or request terminal data. Viewing the band does not attach to a shell.
+Transient errors preserve the last list; 401/403 clears it. Viewers get the Machines
+page there and request no terminal data. Viewing the list does not attach to a shell.
 
 ## The session screen
 
@@ -77,7 +77,8 @@ beside it). Its parts:
   arrives with structured sessions.", R21), and the actions menu (⋮, or Shift+F10 on it): Rename, Theatre view, Copy branch,
   End session or Remove from history, Check and remove worktree. A terminal session shows no steps and no progress bar
   (R10).
-- **The terminal pane**, unchanged. Its footer starts with **Approvals: Ask me** (or **Approvals: YOLO**).
+- **The terminal pane**, unchanged. Its footer starts with **Approvals: Ask me** (or **Approvals: YOLO**). When the
+  device asks for reduced motion the terminal's cursor does not blink.
 - **Context panel** (340 px): *Where it's working* (machine and whether it is reporting, project, branch, worktree: "own
   copy" or "the checkout"); *Changed files* for a session in its own worktree (the first 20 paths from the worktree status
   and the total, read when the panel opens on the session and again only from **Refresh**, R19); *Skills on this machine*
@@ -89,7 +90,9 @@ beside it). Its parts:
   terminal.
 - **Tablets** (651–1099 px): the context panel waits behind **Details** and opens as a 340 px side sheet along the
   terminal's right edge, from under the header to the foot of the screen; every target in the header, the toolbar, the
-  tabs and the sheet is at least 44 px on touch (the pane keeps its 40 px terminal controls).
+  tabs, the sheet, the docked sessions panel (its rows, menus and swatches; the separator has a 44 × 88 px grip that
+  covers no control) and the pane's header and footer is at least 44 px on touch; only the pane's terminal toolbar and
+  extra keys are 40 × 40 px.
 - **Phones** get one slim header (back to Sessions, title, project · machine, state, Details, ⋮); the tabs and Chat |
   Terminal are left out. With the keyboard up for the terminal the site's top bar steps aside (`keyboardChrome` with the
   `session` focus, the same usable-height rule as Jump and the launch prompt); the slim header stays, 44 px tall while
@@ -306,7 +309,10 @@ start `npm --prefix web run preview -- --host 127.0.0.1 --port 4173`, then run
 `node web/tests/control.e2e.mjs`, `node web/tests/sessions.e2e.mjs`, `node web/tests/terminal-workspace.e2e.mjs` and
 `node web/tests/terminal-lifecycle.e2e.mjs`,
 `node web/tests/terminal-organisation.e2e.mjs` and
-`node web/tests/terminal-phone.e2e.mjs`.
+`node web/tests/terminal-phone.e2e.mjs`, and `node web/tests/sessions-phone.e2e.mjs` for the session screen on phones.
+The whole Agents home across every width, both themes, reduced motion and the phone keyboard is
+`node web/tests/matrix/agents-home.matrix.mjs` (local only, several minutes; `REET_AXE=<axe.min.js>` adds axe-core;
+results in [UI verification](ui-verification.md#agents-home-layout-focus-and-motion-matrix--28-october-2026-pr-h-task-h4)).
 These fixtures cover synthetic two-machine continuation, permissions/errors,
 viewport bounds, clipboard, intentional disconnect, delayed observations, per-host
 retries, pending end, quota and explicit takeover. They do not prove remote
@@ -441,9 +447,11 @@ attachment's PTY size and tmux resizes the window, so the app gets SIGWINCH.
 columns at 390 px instead of 41. A stored size (10–22) always wins.
 
 **Chrome.** The pane header is one line, with the user/host still shown and truncated.
-The pane header, terminal toolbar and extra-key row lose their vertical padding. On a
-touch screen every toolbar button and extra key is at least 40 × 40 px, and the header
-controls are 40 px tall. The screen frame padding is 4 px. The toolbar and key row
+The pane header, terminal toolbar, extra-key row and footer lose their vertical padding. On a
+touch screen every toolbar button and extra key is at least 40 × 40 px; on a touch phone so
+are the workspace toolbar's buttons (back, +, Sessions, New session, Details & help), the pane
+header's controls and the footer's Focus terminal (a touch tablet makes all but the terminal
+toolbar and extra keys 44 px). The screen frame padding is 4 px. The toolbar and key row
 scroll sideways; the end that hides more controls fades. The key row is focusable, so
 arrow keys scroll it; that tab stop also appears in mouse windows narrower than 650 px,
 where the key row shows too. The Alt+Shift+M advice is hidden on touch screens (no

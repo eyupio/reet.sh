@@ -384,7 +384,9 @@ try {
   await expect(page.getByText('Reusable AI setups')).toHaveCount(0)
   await expect(page.getByText('Skills & fleet sync')).toHaveCount(0)
   await page.goto(`${base}/machines`)
-  await expect(page.locator('main').getByText('Control',{exact:true})).toBeVisible()
+  // Control is folded into Home and Machines (R4), so the Machines page no longer calls itself Control.
+  await expect(page.locator('main .eyebrow').first()).toHaveText('Machines')
+  await expect(page.locator('main').getByText('Control',{exact:true})).toHaveCount(0)
   await expect(page.getByText('Your control centre')).toHaveCount(0)
   const tabs = await page.locator('nav[aria-label="Machines"] a').allInnerTexts()
   expect(tabs.map(t=>t.trim())).toEqual(['Inventory & connection','Sync','Sessions','Setups →'])

@@ -878,8 +878,9 @@
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .launch { margin: auto -4px 8px; bottom: calc(var(--bottom-chrome, 0px) + 8px + var(--lift, 0px)); box-shadow: 0 -6px 24px var(--scrim); }
     .launch.lifted { bottom: calc(var(--lift, 0px) + 4px); }
-    .ask { padding: 12px 0 12px 16px; align-items: center; }
-    textarea { max-height: 96px; }
+    /* The prompt's own box is the 44 px touch target: the row's padding moves inside the field, so the bar keeps its height. */
+    .ask { padding: 2px 0 2px 16px; align-items: center; }
+    textarea { min-height: 44px; max-height: 116px; padding: 10px 0; }
     .go { padding: 6px 6px 6px 8px; align-items: center; }
     .start { width: 48px; height: 48px; padding: 0; justify-content: center; border-radius: 50%; }
     .start .word, .start kbd { display: none; }

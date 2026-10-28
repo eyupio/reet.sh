@@ -310,6 +310,26 @@ try {
   await context.close()
  }
 
+ // A touch tablet (834 px): the dialog's fields, buttons and the folds' headings are 44 px targets, as on a phone (48 px
+ // there); with a mouse the drawing's 42 px fields stay.
+ if (run('touch tablet targets')) {
+  for (const touch of [true, false]) {
+   const {context,page,errors} = await open({width:834, height:1112, touch})
+   await openDialog(page)
+   const d = dialog(page)
+   await row(page, 'reet, git repository').click()
+   await d.getByRole('button', {name:'Use this folder'}).click()
+   const small = await d.evaluate(root => [...root.querySelectorAll('button, select, input:not([type=checkbox]):not([type=radio]), summary')]
+    .filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && el.checkVisibility({visibilityProperty:true}) })
+    .map(el => { const target = el.matches('select') && el.closest('.machine-row') ? el.closest('.machine-row') : el, r = target.getBoundingClientRect(); return [(el.getAttribute('aria-label') || el.textContent || el.name || el.tagName).trim().slice(0, 30), Math.round(r.height)] })
+    .filter(([, h]) => h < 44))
+   if (touch) expect(small, 'touch targets under 44 px').toEqual([])
+   else expect(small.length, 'a mouse keeps the 42 px fields').toBeGreaterThan(0)
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+
  if (run('focus returns to Add on close')) {
   const {context,page,errors} = await open()
   for (const how of ['Escape', 'Cancel', 'Close']) {

@@ -937,6 +937,10 @@ try {
   const start = startButton(page)
   const size = await start.boundingBox()
   expect([Math.round(size.width), Math.round(size.height)]).toEqual([48, 48])
+  // The prompt itself is a 44 px target (the row's padding is inside the field), and the row stays as tall as Start's.
+  const prompt = await bar(page).locator('textarea').boundingBox(), ask = await bar(page).locator('.ask').boundingBox(), go = await bar(page).locator('.go').boundingBox()
+  expect(Math.round(prompt.height), 'prompt target').toBeGreaterThanOrEqual(44)
+  expect(Math.round(ask.height), 'prompt row').toBe(Math.round(go.height))
   await expect(bar(page).locator('.sentence')).toBeHidden()
   const line = bar(page).locator('.summary-text')
   await expect(line).toHaveText('Claude Code on Store rewrite at studio · main · fresh worktree')

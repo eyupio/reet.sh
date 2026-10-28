@@ -97,6 +97,8 @@ try {
   await expect(page.getByRole('heading',{name:'Sessions',level:1})).toBeVisible()
   expect(await page.title()).toBe('Sessions · reet.sh')
   await expect(page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Sessions',exact:true})).toHaveAttribute('aria-current','page')
+  // New goes to Home with the launch prompt focused, as the session screen's +.
+  await expect(page.locator('main').getByRole('link',{name:'New session',exact:true})).toHaveAttribute('href','/#launch')
   const group = page.getByRole('radiogroup',{name:'Group by'})
   await expect(group.getByRole('radio',{name:'Project'})).toBeChecked()
   // Home's grouping: projects by name, then the rest under their machine.
@@ -379,13 +381,18 @@ try {
   // An offline row reads "Running · last known", with its space.
   expect(await rows(page).filter({hasText:'Review code'}).locator('.word').textContent()).toBe('Running · last known')
   // A later read shows "Checking…" over the last known list.
+  // The rows never move while it shows (a tap aimed at a row must land on it): its line is reserved.
+  const rowTop = () => rows(page).first().evaluate(el => el.getBoundingClientRect().top)
+  const before = await rowTop()
   let release
   box.hold = new Promise(r => { release = r })
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
   await expect(page.getByText('Checking…',{exact:true})).toBeVisible()
   await expect(rows(page)).toHaveCount(6)
+  expect(Math.abs(await rowTop() - before), 'rows still while checking').toBeLessThanOrEqual(1)
   box.hold = null; release()
   await expect(page.getByText('Checking…',{exact:true})).toBeHidden()
+  expect(Math.abs(await rowTop() - before), 'rows still after checking').toBeLessThanOrEqual(1)
   // Needs you: nothing raises it yet, and the page says so.
   await page.getByText('Filters',{exact:true}).click()
   await filters(page).getByLabel('State',{exact:true}).selectOption('needs')
@@ -401,6 +408,12 @@ try {
   await expect(opened.page.getByRole('heading',{level:1})).toHaveText('Your machines, connected.')
   expect(await opened.page.title()).toBe('Machines · reet.sh')
   await expect(opened.page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Machines',exact:true})).toHaveAttribute('aria-current','page')
+  // A session's own address too: the Machines page with its heading, never a headerless page called Sessions.
+  await opened.page.goto(`${base}/sessions?agent=a1&session=s1`)
+  await expect(opened.page.getByRole('heading',{level:1})).toHaveText('Your machines, connected.')
+  expect(await opened.page.title()).toBe('Machines · reet.sh')
+  await expect(opened.page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Machines',exact:true})).toHaveAttribute('aria-current','page')
+  await expect(opened.page.getByRole('region',{name:'Remote terminal workspace'})).toHaveCount(0)
   await opened.context.close()
  }
 
@@ -534,6 +547,37 @@ try {
   await expect(panel(page).getByRole('region',{name:'Changed files'})).toContainText('Only sessions in their own worktree list changed files.')
   await page.waitForTimeout(300)
   expect(box.status).toHaveLength(2)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The listing names a session's worktree only later (an older listing, or the connector catching up): the panel follows it,
+ // reading the changed files once when the worktree can first be named, and not again on later listings.
+ if (run('changed files follow a worktree named later')) {
+  const early = sessions().map(x => x.id === 's2' ? {...x, worktreeRepo:'', worktreeBranch:''} : x)
+  const {context,page,errors,box} = await open({sessions:early})
+  await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  const files = panel(page).getByRole('region',{name:'Changed files'})
+  await expect(files).toContainText("reet can't name this worktree")
+  expect(box.status).toHaveLength(0)
+  box.sessions = sessions()
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+  await expect(files.locator('li')).toHaveCount(20)
+  expect(box.status).toEqual([{agentId:'a1',project:'reet',repo:'reet',run:'0f1e2d3c4b5a6978'}])
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+  await page.waitForTimeout(400)
+  expect(box.status).toHaveLength(1)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A tab's close button says what closing it does: a live session keeps running, a finished one stays in its history.
+ if (run('close tooltips follow the state')) {
+  const {context,page,errors} = await open()
+  await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  await sidebarRow(page, 'Docs pass').click()
+  await expect(tabs(page).getByRole('button',{name:'Close Add browse-v1 protocol'})).toHaveAttribute('title','Close the tab (the session keeps running)')
+  await expect(tabs(page).getByRole('button',{name:'Close Docs pass'})).toHaveAttribute('title','Close the tab (the session stays in its history)')
   expect(errors).toEqual([])
   await context.close()
  }
@@ -687,6 +731,54 @@ try {
   await context.close()
  }
 
+ // Tab out of an actions menu goes on from what opened it (the menus are drawn after the page, so the browser's own Tab
+ // would drop focus at the page's end or start); Shift+Tab goes back to the opener.
+ if (run('Tab from a menu keeps its place')) {
+  const {context,page,errors} = await open()
+  const follows = (opener) => opener.evaluate(el => { const a = document.activeElement; return a !== document.body && !!(el.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING) && !a.closest('footer') && !a.closest('[role=menu]') })
+  await page.goto(`${base}/sessions`)
+  const more = page.getByRole('button',{name:'Actions for Docs pass'})
+  await more.click()
+  await expect(page.getByRole('menu',{name:'Actions for Docs pass'})).toBeVisible()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  expect(await follows(more), 'Sessions page: Tab goes on after the ⋮ button').toBe(true)
+  await more.click()
+  await page.keyboard.press('Shift+Tab')
+  await expect(more).toBeFocused()
+  await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
+  const actions = screen(page).getByRole('button',{name:'Session actions'})
+  await actions.click()
+  await expect(page.getByRole('menu',{name:/^Actions for /})).toBeVisible()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('menu',{name:/^Actions for /})).toHaveCount(0)
+  expect(await follows(actions), 'session screen: Tab goes on after ⋮').toBe(true)
+  await actions.click()
+  await page.keyboard.press('Shift+Tab')
+  await expect(actions).toBeFocused()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A reconnect while the session's ⋮ menu is open leaves focus in the menu.
+ if (run('a reconnect keeps focus in the menu')) {
+  const {context,page,errors,box} = await open()
+  await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  const pane = page.locator('.pane')
+  await expect(pane).toHaveAttribute('data-connection-state','live')
+  await screen(page).getByRole('button',{name:'Session actions'}).click()
+  const first = page.getByRole('menu',{name:/^Actions for /}).getByRole('menuitem').first()
+  await expect(first).toBeFocused()
+  await box.sockets.at(-1).close()
+  await expect(pane).not.toHaveAttribute('data-connection-state','live')
+  await expect(pane).toHaveAttribute('data-connection-state','live',{timeout:10000})
+  await page.waitForTimeout(300)
+  await expect(first).toBeFocused()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  if (run('an empty listing for a moment keeps the tabs')) {
   const {context,page,errors,box} = await open()
   await page.goto(`${base}/sessions?agent=a1&session=s1`)
@@ -792,6 +884,9 @@ try {
    const items = await page.locator('.session-context[role=menu] :is(button, a[href])').evaluateAll(els => els.filter(e => e.getClientRects().length).map(e => { const r = e.getBoundingClientRect(); return `${(e.getAttribute('aria-label') || e.textContent).trim().slice(0,24)} ${Math.round(r.width)}×${Math.round(r.height)}` }))
    expect(items.length, opener).toBeGreaterThan(1)
    expect(items.filter(t => Math.min(...t.split(' ').pop().split('×').map(Number)) < 44), `${opener} menu`).toEqual([])
+   // Every colour swatch lies wholly inside its menu (they wrap rather than run past its edge).
+   const outside = await page.locator('.session-context[role=menu]').evaluate(menu => { const m = menu.getBoundingClientRect(); return [...menu.querySelectorAll('.colours button')].map(b => [b.getAttribute('aria-label'), b.getBoundingClientRect()]).filter(([, r]) => r.left < m.left || r.right > m.right || r.top < m.top || r.bottom > m.bottom || Math.min(r.width, r.height) < 44).map(([n, r]) => `${n} ${Math.round(r.left)}–${Math.round(r.right)} in ${Math.round(m.left)}–${Math.round(m.right)}`) })
+   expect(outside, `${opener} swatches`).toEqual([])
    await page.keyboard.press('Escape')
   }
   expect(errors).toEqual([])
@@ -807,9 +902,14 @@ try {
   await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
   const sep = page.getByRole('separator',{name:'Resize session navigation'})
   const track = await sep.boundingBox()
-  // The grip: a 44 px wide area at the middle of the track answers as the separator, from 21 px left of its centre to 21 px right.
+  // The grip: a 44 px wide area at the middle of the track that reaches into the panel's padding, from 34 px left of the
+  // track's centre to 3 px right of it, and no further than the track itself over the terminal: a press 10 px inside the
+  // terminal's left edge at mid-height reaches the terminal, not the separator.
   const mid = [track.x + track.width / 2, track.y + track.height / 2]
-  for (const dx of [-21, -11, 0, 11, 21]) expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.getAttribute('role'), [mid[0] + dx, mid[1]]), `grip at ${dx} px`).toBe('separator')
+  const role = (x, y) => page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.getAttribute('role'), [x, y])
+  for (const dx of [-34, -21, -11, 0, 3]) expect(await role(mid[0] + dx, mid[1]), `grip at ${dx} px`).toBe('separator')
+  const paneLeft = await page.locator('.terminal-stage').evaluate(el => el.getBoundingClientRect().left)
+  for (const dy of [-40, 0, 40]) expect(await role(paneLeft + 10, mid[1] + dy), `10 px into the terminal at ${dy} px`).not.toBe('separator')
   const covered = await page.evaluate(() => {
    const sep = document.querySelector('.panel-separator'), g = sep.getBoundingClientRect(), out = []
    const near = r => r.right >= g.left - 24 - 22 && r.left <= g.right + 24 + 22

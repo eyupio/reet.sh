@@ -5,7 +5,7 @@
   import WorktreeDialog from '../WorktreeDialog.svelte'
   import { fleetCards, stateWord, type FleetCard } from '../home'
   import type { RunMember } from '../projects'
-  import { headerMeta, offlineSentence, worktreeTargetOf } from '../sessions'
+  import { headerMeta, offlineSentence, tabFromMenu, worktreeTargetOf } from '../sessions'
   import { terminalClosed, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import ContextPanel from './ContextPanel.svelte'
 
@@ -44,7 +44,20 @@
   const skills = $derived(sync === undefined ? undefined : sync === null ? null : card?.skills ?? null)
   const away = $derived(status === 'offline')
   const project = $derived(projects?.find(p => p.id === session.projectId)?.name ?? '')
-  const word = $derived(stateWord(session))
+  // The pane's connection, read from its data-connection-state: while it is down the pill says so instead of the session's
+  // state ("Running" would claim a live terminal the person cannot reach).
+  let stage = $state<HTMLElement>(), connection = $state('')
+  $effect(() => {
+    if (!stage) return
+    const read = () => { connection = stage?.querySelector('.pane')?.getAttribute('data-connection-state') ?? '' }
+    read()
+    const watch = new MutationObserver(read)
+    watch.observe(stage, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-connection-state'] })
+    return () => watch.disconnect()
+  })
+  const DOWN: Record<string, string> = { reconnecting: 'Reconnecting', detached: 'Disconnected', taken_over: 'Open elsewhere', lost: 'Shell unavailable', access_denied: 'Access denied' }
+  const sessionWord = $derived(stateWord(session))
+  const word = $derived(!terminalClosed(session.state) && DOWN[connection] ? { word: DOWN[connection], tone: 'warn' as const, source: "from this browser's connection" } : sessionWord)
   const source = $derived(word.source.charAt(0).toUpperCase() + word.source.slice(1))
   const target = $derived(worktreeTargetOf(session))
   const serverOff = $derived(machines.find(m => m.agentId === session.agentId)?.serverEnabled === false)
@@ -92,7 +105,7 @@
   function closeMenu(focus = true) { menuAt = null; if (focus) menuButton?.focus() }
   function menuKey(event: KeyboardEvent) {
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeMenu(); return }
-    if (event.key === 'Tab') { closeMenu(false); return }
+    if (event.key === 'Tab') { event.preventDefault(); closeMenu(false); tabFromMenu(menuButton, event.shiftKey); return }
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
     const items = [...menu!.querySelectorAll<HTMLElement>('[role=menuitem]:not(:disabled)')], at = items.indexOf(document.activeElement as HTMLElement)
@@ -154,12 +167,13 @@
     {#key session.id}
       <ContextPanel {session} {host} {status} {project} {skills} id={`${id}-context`} onkeydown={panelKey} onclose={hideDetails} />
     {/key}
-    <div class="stage">{@render children()}</div>
+    <div class="stage" bind:this={stage}>{@render children()}</div>
   </div>
 </div>
 
 {#if menuAt}
-  <div class="menu" role="menu" aria-label={`Actions for ${session.title}`} tabindex="-1" bind:this={menu} style={`left:${menuAt.x}px;top:${menuAt.y}px`} onkeydown={menuKey}>
+  <!-- data-keeps-focus: a reconnecting terminal never takes focus out of the open menu. -->
+  <div class="menu" role="menu" aria-label={`Actions for ${session.title}`} tabindex="-1" data-keeps-focus bind:this={menu} style={`left:${menuAt.x}px;top:${menuAt.y}px`} onkeydown={menuKey}>
     <button role="menuitem" disabled={busy || serverOff} onclick={() => act('rename')}>Rename…</button>
     <button role="menuitem" onclick={theatreView}>{theatre ? 'Exit theatre view' : 'Theatre view'}</button>
     {#if session.worktreeBranch}<button role="menuitem" onclick={() => void copyBranch()}>Copy branch</button>{/if}
@@ -254,7 +268,8 @@
   .keyboard .live { display: none; }
   /* The slim header names the session and its state, so the pane's own header gives its row to the terminal while typing. */
   @media (max-width: 650px) {
-    .keyboard .stage :global(.pane:not(.maximised) > header) { display: none; }
+    /* Not while the connection is down: the header holds Retry now, Reconnect and Continue here. */
+    .keyboard .stage :global(.pane:not(.maximised)[data-connection-state=live] > header) { display: none; }
     /* The header keeps its 44 px targets but drops its spare 8 px while typing, so the terminal keeps its keyboard-open rows. */
     .keyboard .head { min-height: 44px; }
   }

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import { stateWord } from '../home'
-  import { sessionHref, type TerminalSession } from '../terminal/api'
+  import { sessionHref, terminalClosed, type TerminalSession } from '../terminal/api'
   import { overflowEdges } from '../terminal/sizing'
 
   // The strip of open sessions (R20): the sessions opened in this browser tab since it loaded, at most eight, in the order
@@ -53,7 +53,7 @@
           onauxclick={event => { if (event.button === 1) { event.preventDefault(); void close(s) } }}>
           <span class="dot {word.tone}" aria-hidden="true"></span><span class="name">{s.title}</span><span class="vh">, {word.word}</span>
         </a>
-        <button type="button" class="close" aria-label={`Close ${s.title}`} title="Close the tab (the session keeps running)" onclick={() => void close(s)}>
+        <button type="button" class="close" aria-label={`Close ${s.title}`} title={terminalClosed(s.state) ? 'Close the tab (the session stays in its history)' : 'Close the tab (the session keeps running)'} onclick={() => void close(s)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17" /></svg>
         </button>
       </li>

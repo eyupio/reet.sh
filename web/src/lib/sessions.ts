@@ -168,3 +168,14 @@ export function changedList(status: { changed: number; paths: string[] }): { sho
   const shown = (status.paths ?? []).slice(0, 20)
   return { shown, total: status.changed, more: Math.max(0, status.changed - shown.length) }
 }
+
+/** Tab from a closed menu: focus goes on from the control that opened it (the next tab stop after it, or the opener itself
+ *  for Shift+Tab), never to the page's start. The menu is drawn after the page, so the browser's own Tab would leave it there. */
+export function tabFromMenu(opener: HTMLElement | null | undefined, backwards: boolean): void {
+  if (!opener?.isConnected) return
+  if (backwards) { opener.focus(); return }
+  const stops = [...document.querySelectorAll<HTMLElement>('a[href], button:not(:disabled), input:not(:disabled):not([type=hidden]), select:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])')]
+    .filter(el => el.getClientRects().length && !el.closest('[inert], [role=menu]') && el.tabIndex >= 0)
+  const after = stops.find(el => opener.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING && !opener.contains(el))
+  ;(after ?? opener).focus()
+}

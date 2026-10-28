@@ -11,7 +11,7 @@
   import { projectWorktrees, railState, shortAge, stateWord, type GroupBy } from '../home'
   import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
   import type { RunMember } from '../projects'
-  import { agentChoicesOf, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, worktreeTargetOf, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
+  import { agentChoicesOf, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, tabFromMenu, worktreeTargetOf, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
   import { archiveTerminal, endTerminal, folderProjectList, machineHealth, renameTerminal, sessionHref, terminalClosed, terminalMachines, terminalSessions, TerminalError, validTerminalTitle,
     type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
 
@@ -143,7 +143,7 @@
   function closeMenu(focus = true) { context = null; if (focus) returnFocus?.focus() }
   function menuKey(event: KeyboardEvent) {
     if (event.key === 'Escape') { event.preventDefault(); closeMenu(); return }
-    if (event.key === 'Tab') { closeMenu(false); return }
+    if (event.key === 'Tab') { event.preventDefault(); closeMenu(false); tabFromMenu(returnFocus, event.shiftKey); return }
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
     const items = [...menu!.querySelectorAll<HTMLElement>('[role=menuitem]:not(:disabled):not([aria-disabled=true])')], at = items.indexOf(document.activeElement as HTMLElement)
@@ -238,7 +238,7 @@
     <a class="back" href="/" aria-label="Back to Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></a>
     <h1>Sessions</h1>
     <button type="button" class="commands" aria-label="Saved commands" bind:this={commandsButton} onclick={() => (commandsOpen = true)}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 7l4 5-4 5M12 17h7" /></svg><span class="wide">Saved commands</span><span class="narrow">Commands</span></button>
-    <a class="new" href="/" aria-label="New session">New</a>
+    <a class="new" href="/#launch" aria-label="New session">New</a>
   </header>
 
   <div class="tools">
@@ -266,11 +266,15 @@
     </details>
   </div>
 
-  <div class="live" role="status" aria-live="polite">
-    {#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}</p>{/if}
+  <!-- One reserved line for the notice and "Checking…", so the rows below never move when a read starts or ends (a tap
+       aimed at a row lands on it). -->
+  <div class="status-line">
+    <div class="live" role="status" aria-live="polite">
+      {#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}</p>{/if}
+    </div>
+    <!-- Not a live region: a read every 15 seconds would be announced each time. -->
+    {#if checking}<p class="checking">Checking…</p>{/if}
   </div>
-  <!-- Not a live region: a read every 15 seconds would be announced each time. -->
-  {#if checking}<p class="quiet">Checking…</p>{/if}
   {#if failed}<p class="problem" role="alert"><span>{sessions === undefined ? "Couldn't read your sessions just now." : "Couldn't refresh. Showing what we last saw."}</span> <button type="button" class="again" onclick={() => void load(true)}>Try again</button></p>{/if}
 
   {#if denied}
@@ -418,7 +422,9 @@
   .clear { min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: none; color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; }
   .clear:disabled { opacity: .45; cursor: default; }
   .live p, .problem { margin: 0; font-size: 13px; color: var(--muted); }
-  .live:empty { display: none; }
+  .status-line { display: flex; align-items: baseline; gap: 12px; min-height: 18px; margin: -6px 0; }
+  .status-line .live { flex: 1; min-width: 0; }
+  .checking { margin: 0 0 0 auto; flex: none; font-size: 13px; line-height: 18px; color: var(--muted); }
   .notice.bad, .problem { color: var(--bad); }
   .again { min-height: 44px; padding: 0 6px; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
   .none { margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: var(--card); color: var(--muted); }

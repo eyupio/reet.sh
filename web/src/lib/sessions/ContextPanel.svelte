@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import type { FleetCard } from '../home'
   import type { WorktreeStatus } from '../projects'
   import { changedList, decisionsLine, worktreeTargetOf } from '../sessions'
@@ -17,8 +17,11 @@
     onkeydown?: (event: KeyboardEvent) => void; onclose?: () => void; id: string
   } = $props()
 
-  // svelte-ignore state_referenced_locally
-  const target = worktreeTargetOf(session)
+  // The worktree as the listing names it. A listing that names it only later (an older connector catching up) is followed:
+  // the changed files are read once when it can first be named (or names another), never again for the same worktree.
+  const target = $derived(worktreeTargetOf(session))
+  const targetKey = $derived(target ? `${target.agentId}\u0000${target.project}\u0000${target.repo}\u0000${target.run}` : '')
+  let readFor = ''
   let changes = $state<WorktreeStatus | null>(null), reading = $state(false), readFailed = $state(false)
   let generation = 0
   const life = new AbortController()
@@ -35,7 +38,8 @@
       if (mine === generation) reading = false
     }
   }
-  onMount(() => { void readChanges(); return () => life.abort() })
+  $effect(() => { const key = targetKey; if (key && key !== readFor) { readFor = key; untrack(() => void readChanges()) } })
+  onMount(() => () => life.abort())
 
   const list = $derived(changes ? changedList(changes) : null)
   const statusWord = (s: FleetCard['status'] | undefined) => s === 'online' ? 'online' : s === 'paused' ? 'paused' : s === 'reconnecting' ? 'reconnecting' : s === 'offline' ? 'offline' : 'no report yet'

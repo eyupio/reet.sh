@@ -38,12 +38,31 @@ const (
 	fallbackEnd   = "<!--seo-fallback:end-->"
 )
 
+// Option configures Handler.
+type Option func(*config)
+
+type config struct {
+	signedIn func(*http.Request) bool
+}
+
+// WithSignedIn tells Handler how to recognise a request that already carries a
+// signed-in session. Such a visitor is shown the app shell, not the static
+// landing page, so serving them the crawler fallback would flash the logged-out
+// page before the SPA mounts.
+func WithSignedIn(fn func(*http.Request) bool) Option {
+	return func(c *config) { c.signedIn = fn }
+}
+
 // Handler serves the SPA, falling back to index.html for client-side routes.
 // The crawler files are answered here so the SPA fallback cannot shadow them
 // with an HTML page, and index.html is served with the request origin applied.
 // baseURL is the configured public origin (REET_PUBLIC_URL); when empty the
 // origin is derived from the request.
-func Handler(baseURL string) http.Handler {
+func Handler(baseURL string, opts ...Option) http.Handler {
+	var cfg config
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	sub, err := fs.Sub(dist, "dist")
 	if err != nil {
 		panic("web: embedded dist is missing: " + err.Error())
@@ -61,7 +80,7 @@ func Handler(baseURL string) http.Handler {
 		}
 		p := strings.TrimPrefix(r.URL.Path, "/")
 		if p == "" || p == "index.html" {
-			serveIndex(w, index, r.URL.Path, origin(r, baseURL))
+			serveIndex(w, index, r.URL.Path, origin(r, baseURL), cfg.signedIn != nil && cfg.signedIn(r))
 			return
 		}
 		if _, err := fs.Stat(sub, p); err == nil {
@@ -72,20 +91,22 @@ func Handler(baseURL string) http.Handler {
 			http.Error(w, "reet.sh UI is not built; run `npm run build` in web/", http.StatusNotFound)
 			return
 		}
-		serveIndex(w, index, r.URL.Path, origin(r, baseURL))
+		serveIndex(w, index, r.URL.Path, origin(r, baseURL), cfg.signedIn != nil && cfg.signedIn(r))
 	})
 }
 
 // serveIndex serves the built index.html with the origin substituted. The
-// static crawler fallback is only kept on landing routes; every other route is
-// an app screen and does not need the marketing copy.
-func serveIndex(w http.ResponseWriter, index []byte, path, origin string) {
+// static crawler fallback is only kept on landing routes for visitors who are
+// not already signed in; every other route is an app screen, and a signed-in
+// visitor is going straight to the app, so both would otherwise paint the
+// logged-out landing page before the SPA mounts.
+func serveIndex(w http.ResponseWriter, index []byte, path, origin string, signedIn bool) {
 	if index == nil {
 		http.Error(w, "reet.sh UI is not built; run `npm run build` in web/", http.StatusNotFound)
 		return
 	}
 	body := bytes.ReplaceAll(index, []byte(originToken), []byte(html.EscapeString(origin)))
-	if path == "/" || path == "/welcome" {
+	if !signedIn && (path == "/" || path == "/welcome") {
 		body = bytes.ReplaceAll(body, []byte(fallbackStart), nil)
 		body = bytes.ReplaceAll(body, []byte(fallbackEnd), nil)
 	} else {

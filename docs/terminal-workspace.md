@@ -78,7 +78,9 @@ beside it). Its parts:
   (the fleet card's skills line; **Manage** opens that machine's skills against your list); *Decisions in this session*
   ("Asked in the terminal.", or the YOLO line with a link to Activity). With less than 1100 px of room for the screen (a
   narrower window or the sessions panel docked beside it) and in theatre view, the panel waits behind **Details** and
-  opens over the terminal's edge; Escape closes it.
+  opens over the terminal's edge, below the header. Focus moves into it (Close details first), Tab stays inside it, and
+  Escape or Close details gives focus back to Details. Docked, the keyboard reaches it after the header and before the
+  terminal.
 - **Phones** get one slim header (title, project · machine, state, Details, ⋮); the tabs and Chat | Terminal are left out,
   and the header steps aside with the keyboard up and when the phone is held sideways. H3 lays out tablets and phones.
 

@@ -60,7 +60,7 @@ async function open(options={}) {
   '/api/v2/terminal/status': {configured:true,available:true,reason:''},
   '/api/v2/terminal/worktrees/status': request => { box.status.push(request.postDataJSON()); return {path:'/home/dev/.reet/worktrees/reet/reet/0f1e2d3c4b5a6978',branch:'reet/reet-0f1e2d3c4b5a6978',changed:options.changed ?? changedPaths.length,unpushed:0,paths:changedPaths.slice(0, options.changed ?? changedPaths.length),unreferenced:0,hidden:0,nested:false,incomplete:false} },
  }
- const opened = await openWorkspace(browser, {width:options.width ?? 1440, height:options.height ?? 900, touch:options.touch, theme:options.theme ?? 'light', routes, sync:sync()})
+ const opened = await openWorkspace(browser, {width:options.width ?? 1440, height:options.height ?? 900, touch:options.touch, theme:options.theme ?? 'light', routes, sync:options.sync ?? sync()})
  // An open session's terminal: a ticket, then a socket that says it is ready.
  await opened.context.routeWebSocket('**/api/v2/terminal/socket', socket => socket.onMessage(message => { if (typeof message === 'string' && JSON.parse(message).ticket) { socket.send('{"type":"ready"}'); socket.send(Buffer.from('ready> ')) } }))
  // The sessions panel's saved colours, as the workspace keeps them in this browser.
@@ -588,6 +588,142 @@ try {
   await sidebarRow(page, 'Add browse-v1 protocol').click()
   await expect(screen(page).locator('.head .badge.yolo')).toHaveCount(0)
   await expect(panel(page).locator('.decisions')).toHaveText('Asked in the terminal.')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Fix round 1: the context panel by keyboard alone, docked and as a sheet; the focused control is never covered.
+ const focusedUncovered = page => page.evaluate(() => {
+  const el = document.activeElement, r = el.getBoundingClientRect()
+  const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+  return !!hit && (hit === el || el.contains(hit))
+ })
+ const focusedName = page => page.evaluate(() => { const el = document.activeElement; return (el.getAttribute('aria-label') || el.textContent || '').trim() })
+ // Tab until the focused control is named `name` (at most `limit` presses), checking it is never covered.
+ async function tabTo(page, name, limit = 12) {
+  for (let i = 0; i < limit; i++) {
+   await page.keyboard.press('Tab')
+   expect(await focusedUncovered(page), `focus on ${await focusedName(page)} is covered`).toBe(true)
+   if (process.env.REET_TRACE) console.log("tab:", await focusedName(page))
+   if (await focusedName(page) === name) return
+  }
+  throw new Error(`Tab never reached ${name}; ended on ${await focusedName(page)}`)
+ }
+
+ if (run('context panel by keyboard')) {
+  // Docked at 1440: header, then the panel, then the terminal.
+  let {context,page,errors} = await open()
+  await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
+  await screen(page).getByRole('button',{name:'Session actions'}).focus()
+  await tabTo(page, 'Refresh changed files')
+  await tabTo(page, 'Manage skills on studio')
+  await sidebarRow(page, 'Speed up the runner pool').click()
+  // The new terminal takes focus once it is live; start from the header after that.
+  await expect(page.locator('.pane')).toHaveAttribute('aria-label',/^Speed up the runner pool/)
+  await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
+  await screen(page).getByRole('button',{name:'Session actions'}).focus()
+  await tabTo(page, 'Activity')
+  expect(errors).toEqual([])
+  await context.close()
+  // As a sheet at 834 and 390: Details moves focus into it, Tab stays inside, Escape and Close details give it back.
+  for (const [width,height] of [[834,1112],[390,844]]) {
+   ;({context,page,errors} = await open({width,height,touch:true}))
+   await page.goto(`${base}/sessions?agent=a1&session=s2`)
+   await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
+   const details = screen(page).getByRole('button',{name:'Details',exact:true})
+   await details.focus()
+   await page.keyboard.press('Enter')
+   await expect(panel(page)).toBeVisible()
+   await expect(panel(page).getByRole('button',{name:'Close details'})).toBeFocused()
+   expect(await focusedUncovered(page), `${width}px`).toBe(true)
+   // The sheet never lies over the header's Details and ⋮.
+   for (const name of ['Details','Session actions']) {
+    const b = await screen(page).getByRole('button',{name,exact:true}).boundingBox()
+    expect(await page.evaluate(([x,y]) => !document.elementFromPoint(x,y)?.closest('.context-panel'), [b.x+b.width/2, b.y+b.height/2]), `${name} covered at ${width}px`).toBe(true)
+   }
+   await tabTo(page, 'Refresh changed files')
+   await tabTo(page, 'Manage skills on studio')
+   // Tab keeps going round the sheet: it never reaches the terminal behind it.
+   for (let i = 0; i < 12; i++) { await page.keyboard.press('Tab'); expect(await page.evaluate(() => !!document.activeElement.closest('.context-panel')), `Tab left the sheet at ${width}px`).toBe(true) }
+   await page.keyboard.press('Shift+Tab')
+   expect(await page.evaluate(() => !!document.activeElement.closest('.context-panel'))).toBe(true)
+   await page.keyboard.press('Escape')
+   await expect(panel(page)).toBeHidden()
+   await expect(details).toBeFocused()
+   await page.keyboard.press('Enter')
+   await expect(panel(page).getByRole('button',{name:'Close details'})).toBeFocused()
+   await page.keyboard.press('Enter')
+   await expect(panel(page)).toBeHidden()
+   await expect(details).toBeFocused()
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+
+ if (run('a tab whose session left the listing')) {
+  const {context,page,errors,box} = await open()
+  await page.goto(`${base}/sessions?agent=a1&session=s1`)
+  await sidebarRow(page, 'Add browse-v1 protocol').click()
+  await sidebarRow(page, 'Speed up the runner pool').click()
+  expect(await tabTitles(page)).toEqual(['Refactor the store layer','Add browse-v1 protocol','Speed up the runner pool'])
+  // s2 is removed elsewhere; the next read drops its tab, and it no longer counts.
+  box.sessions = box.sessions.filter(s => s.id !== 's2')
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+  await expect.poll(() => tabTitles(page)).toEqual(['Refactor the store layer','Speed up the runner pool'])
+  await tabs(page).getByRole('button',{name:'Close Speed up the runner pool'}).click()
+  await expect(screen(page).getByRole('heading',{name:'Refactor the store layer',level:2})).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('session')).toBe('s1')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ if (run('tab strip on touch')) {
+  const many = Array.from({length:8}, (_, i) => session(`n${i+1}`,'a1',`Long task number ${i+1}`,(i+1)*MIN))
+  const {context,page,errors} = await open({sessions:many, width:834, height:1112, touch:true})
+  await page.goto(`${base}/sessions?agent=a1&session=n1`)
+  await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
+  for (let i = 2; i <= 8; i++) await page.evaluate(t => [...document.querySelectorAll('nav[aria-label="Terminal sessions"] button')].find(b => b.textContent.trim().startsWith(t))?.click(), `Long task number ${i}`)
+  await expect(tabs(page).locator('a.tab')).toHaveCount(8)
+  // Every tab link and close button is a 44 px target.
+  for (const h of await tabs(page).locator('a.tab, button.close, a.new').evaluateAll(els => els.map(e => e.getBoundingClientRect().height))) expect(h).toBeGreaterThanOrEqual(44)
+  // Tabs that do not fit fade at the edge that hides them, and the current tab is scrolled into view.
+  const strip = tabs(page).locator('ul')
+  await expect(strip).toHaveClass(/more-start|more-end/)
+  const current = await tabs(page).locator('a.tab[aria-current=page]').boundingBox(), area = await strip.boundingBox()
+  expect(current.x).toBeGreaterThanOrEqual(area.x - 1); expect(current.x + current.width).toBeLessThanOrEqual(area.x + area.width + 1)
+  // A tab out of view comes into view when it takes focus.
+  await tabs(page).locator('a.tab').first().focus()
+  const first = await tabs(page).locator('a.tab').first().boundingBox()
+  expect(first.x).toBeGreaterThanOrEqual(area.x - 1)
+  expect(await noSideScroll(page)).toBe(true)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ if (run('copy branch is announced')) {
+  const {context,page,errors} = await open()
+  await context.grantPermissions(['clipboard-read','clipboard-write'])
+  await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  // The live region is there before anything is said, so the first message is announced.
+  const live = screen(page).getByRole('status').first()
+  await expect(live).toBeAttached()
+  expect(await live.evaluate(el => getComputedStyle(el).display)).not.toBe('none')
+  await screen(page).getByRole('button',{name:'Session actions'}).click()
+  await page.getByRole('menuitem',{name:'Copy branch'}).click()
+  await expect(live).toHaveText('Copied reet/reet-0f1e2d3c4b5a6978.')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ if (run('a paused machine is not shown as online')) {
+  const paused = {...sync(), agents:[{id:'a1',host:'studio',version:'test',lastSeen:Date.now(),paused:true,autoUpdate:false}]}
+  const {context,page,errors} = await open({sync:paused})
+  await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  await expect(fact(page,'Machine')).toHaveText(/^studio\s*●\s*paused$/)
+  const state = fact(page,'Machine').locator('.state')
+  await expect(state).toHaveClass(/warn/)
+  await expect(state).not.toHaveClass(/good/)
   expect(errors).toEqual([])
   await context.close()
  }

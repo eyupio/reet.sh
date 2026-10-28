@@ -52,10 +52,31 @@
 
   // Details: the context panel over the terminal under 1100 px (and in theatre view). Escape closes it and focus returns.
   let detailsOpen = $state(false), detailsButton = $state<HTMLButtonElement>()
+  // The panel lies over the terminal (a sheet) while Details is shown, i.e. with under 1100 px of room or in theatre view.
+  const sheet = () => !!detailsButton && detailsButton.getClientRects().length > 0
+  async function toggleDetails() {
+    detailsOpen = !detailsOpen
+    if (!detailsOpen) return
+    // Focus moves into the sheet (its Close details first), so it never stays on a control the sheet could cover.
+    await tick()
+    document.getElementById(`${id}-context`)?.querySelector<HTMLElement>('.close-details')?.focus()
+  }
+  function hideDetails() { detailsOpen = false; detailsButton?.focus() }
   function closeDetails(event: KeyboardEvent) {
     if (event.key !== 'Escape' || !detailsOpen) return
     event.preventDefault(); event.stopPropagation()
-    detailsOpen = false; detailsButton?.focus()
+    hideDetails()
+  }
+  // While it is a sheet, Tab and Shift+Tab go round its own controls; Escape and Close details give focus back to Details.
+  function panelKey(event: KeyboardEvent) {
+    if (event.key === 'Escape') return closeDetails(event)
+    if (event.key !== 'Tab' || !detailsOpen || !sheet()) return
+    const panel = event.currentTarget as HTMLElement
+    const items = [...panel.querySelectorAll<HTMLElement>('a[href],button:not(:disabled),[tabindex="0"]')].filter(el => el.getClientRects().length)
+    if (!items.length) return
+    const at = items.indexOf(document.activeElement as HTMLElement)
+    event.preventDefault()
+    items[at < 0 ? 0 : (at + (event.shiftKey ? -1 : 1) + items.length) % items.length].focus()
   }
 
   // The actions menu: its ⋮ button, or Shift+F10 / the menu key on it. Arrow keys move, Escape closes and gives focus back.
@@ -104,34 +125,35 @@
 
 <svelte:window onpointerdown={event => { if (menuAt && !menu?.contains(event.target as Node) && !menuButton?.contains(event.target as Node)) closeMenu(false) }} />
 
+<!-- One grid: the header and status line, then the context panel, then the terminal, so the tab order is header → panel →
+     terminal while the panel shows beside the terminal (right column) or over its edge (as a sheet below the header). -->
 <div class="session-screen" class:theatre class:keyboard class:details-open={detailsOpen}>
   <div class="body">
-    <div class="main">
-      <header class="head">
-        <div class="heading">
-          <h2 class="title" title={session.title}>{session.title}</h2>
-          <p class="sub">{headerMeta(session, session.createdAt, now)}</p>
-          <p class="where-phone">{[project, host].filter(Boolean).join(' · ')}</p>
-        </div>
-        <span class="pill {word.tone}" title={source}><span class="dot" aria-hidden="true"></span>{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
-        {#if session.yolo}<span class="badge yolo">YOLO</span>{/if}
-        <div class="view" role="group" aria-label="View">
-          <button type="button" class="chat" aria-pressed="false" aria-disabled="true" aria-describedby={`${id}-chat-why`} title={CHAT_WHY}>Chat</button>
-          <button type="button" aria-pressed="true">Terminal</button>
-        </div>
-        <span class="vh" id={`${id}-chat-why`}>{CHAT_WHY}</span>
-        <button type="button" class="details" bind:this={detailsButton} aria-expanded={detailsOpen} aria-controls={`${id}-context`} onclick={() => (detailsOpen = !detailsOpen)} onkeydown={closeDetails}>Details</button>
-        <button type="button" class="more" bind:this={menuButton} aria-label="Session actions" aria-haspopup="menu" aria-expanded={menuAt !== null}
-          onclick={event => { if (menuAt) closeMenu(); else void openMenu(event) }} onkeydown={event => { if (menuKeyOpens(event)) void openMenu(event) }}>
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
-        </button>
-      </header>
-      <div class="live" role="status">{#if notice}<p class:bad={notice.bad}>{notice.text}</p>{/if}</div>
-      <div class="stage">{@render children()}</div>
-    </div>
+    <header class="head">
+      <div class="heading">
+        <h2 class="title" title={session.title}>{session.title}</h2>
+        <p class="sub">{headerMeta(session, session.createdAt, now)}</p>
+        <p class="where-phone">{[project, host].filter(Boolean).join(' · ')}</p>
+      </div>
+      <span class="pill {word.tone}" title={source}><span class="dot" aria-hidden="true"></span>{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
+      {#if session.yolo}<span class="badge yolo">YOLO</span>{/if}
+      <div class="view" role="group" aria-label="View">
+        <button type="button" class="chat" aria-pressed="false" aria-disabled="true" aria-describedby={`${id}-chat-why`} title={CHAT_WHY}>Chat</button>
+        <button type="button" aria-pressed="true">Terminal</button>
+      </div>
+      <span class="vh" id={`${id}-chat-why`}>{CHAT_WHY}</span>
+      <button type="button" class="details" bind:this={detailsButton} aria-expanded={detailsOpen} aria-controls={`${id}-context`} onclick={() => void toggleDetails()} onkeydown={closeDetails}>Details</button>
+      <button type="button" class="more" bind:this={menuButton} aria-label="Session actions" aria-haspopup="menu" aria-expanded={menuAt !== null}
+        onclick={event => { if (menuAt) closeMenu(); else void openMenu(event) }} onkeydown={event => { if (menuKeyOpens(event)) void openMenu(event) }}>
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
+      </button>
+    </header>
+    <!-- Always rendered (empty takes no room), so the first message in it is announced. -->
+    <div class="live" role="status">{#if notice}<p class:bad={notice.bad}>{notice.text}</p>{/if}</div>
     {#key session.id}
-      <ContextPanel {session} {host} {status} {project} {skills} id={`${id}-context`} onkeydown={closeDetails} onclose={() => { detailsOpen = false; detailsButton?.focus() }} />
+      <ContextPanel {session} {host} {status} {project} {skills} id={`${id}-context`} onkeydown={panelKey} onclose={hideDetails} />
     {/key}
+    <div class="stage">{@render children()}</div>
   </div>
 </div>
 
@@ -151,8 +173,11 @@
 
 <style>
   .session-screen { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg); container: session-screen / inline-size; }
-  .body { flex: 1; min-height: 0; display: flex; position: relative; }
-  .main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  .body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto minmax(0, 1fr); }
+  .head { grid-column: 1; grid-row: 1; }
+  .live { grid-column: 1; grid-row: 2; }
+  .stage { grid-column: 1; grid-row: 3; }
+  .body > :global(.context-panel) { grid-column: 2; grid-row: 1 / -1; }
   /* The mock-up's header: 62 px, 28 px in from the sides, the title in Fraunces 21 px over a 13 px line. */
   .head { flex: none; display: flex; align-items: center; gap: 14px; min-height: 62px; padding: 0 28px; box-sizing: border-box; }
   .heading { flex-grow: 1; min-width: 0; }
@@ -177,10 +202,9 @@
   .more { flex: none; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 9px; background: none; color: var(--muted); cursor: pointer; }
   .more:hover { background: var(--tint); color: var(--ink); }
   .more svg { width: 20px; height: 20px; }
-  .live:empty { display: none; }
   .live p { margin: 0 28px 8px; font-size: 13px; color: var(--muted); }
   .live p.bad { color: var(--bad); }
-  .stage { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--line-soft); }
+  .stage { min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--line-soft); }
   .menu { position: fixed; z-index: 110; width: 240px; max-height: calc(100dvh - 16px); overflow: auto; display: grid; gap: 2px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-raised); box-shadow: var(--shadow); }
   .menu [role=menuitem] { display: block; min-height: 36px; padding: 8px 9px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: 400 14px var(--sans); text-align: left; cursor: pointer; }
   .menu [role=menuitem]:hover:not(:disabled), .menu [role=menuitem]:focus-visible { background: var(--tint); outline: none; }
@@ -193,7 +217,8 @@
   @container session-screen (max-width: 1099px) {
     .details { display: inline-flex; align-items: center; }
     .body > :global(.context-panel) { display: none; }
-    .details-open .body > :global(.context-panel) { display: flex; position: absolute; top: 0; right: 0; bottom: 0; z-index: 20; width: min(340px, 100%); box-shadow: var(--shadow); }
+    /* The sheet shares the terminal's cell, below the header, so it never covers Details or ⋮. */
+    .details-open .body > :global(.context-panel) { display: flex; grid-column: 1; grid-row: 3; justify-self: end; position: relative; z-index: 20; width: min(340px, 100%); box-shadow: var(--shadow); }
     .details-open .body > :global(.context-panel .close-details) { display: inline-flex; align-items: center; }
     /* The controls move under the title when the column is too narrow for both on one line. */
     .head { flex-wrap: wrap; row-gap: 6px; padding: 8px 16px; gap: 10px; }
@@ -201,7 +226,7 @@
   }
   .theatre .details { display: inline-flex; align-items: center; }
   .theatre .body > :global(.context-panel) { display: none; }
-  .theatre.details-open .body > :global(.context-panel) { display: flex; position: absolute; top: 0; right: 0; bottom: 0; z-index: 20; width: min(340px, 100%); box-shadow: var(--shadow); }
+  .theatre.details-open .body > :global(.context-panel) { display: flex; grid-column: 1; grid-row: 3; justify-self: end; position: relative; z-index: 20; width: min(340px, 100%); box-shadow: var(--shadow); }
   .theatre.details-open .body > :global(.context-panel .close-details) { display: inline-flex; align-items: center; }
   /* Phones: one slim header (title, project · machine, the state), as the mock-up's phone session draws it; the tabs,
      the Chat | Terminal switch and the Approvals line give their rows to the terminal. H3 lays out the rest. */

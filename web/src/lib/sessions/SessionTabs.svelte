@@ -2,6 +2,7 @@
   import { tick } from 'svelte'
   import { stateWord } from '../home'
   import { sessionHref, type TerminalSession } from '../terminal/api'
+  import { overflowEdges } from '../terminal/sizing'
 
   // The strip of open sessions (R20): the sessions opened in this browser tab since it loaded, at most eight, in the order
   // they were opened. Each tab is a link to its session with its own close button; middle-click closes it too. Closing a tab
@@ -18,6 +19,19 @@
     event.preventDefault()
     onselect(s)
   }
+  // Tabs that do not fit scroll sideways: the row fades at the edge that hides some (the terminal toolbar's hint), the
+  // current tab is kept in view, and a tab scrolls into view when it takes focus.
+  function edges(row: HTMLElement) {
+    const update = () => { const { start, end } = overflowEdges(row.scrollLeft, row.scrollWidth, row.clientWidth); row.classList.toggle('more-start', start); row.classList.toggle('more-end', end) }
+    const sizes = new ResizeObserver(update); sizes.observe(row)
+    const content = new MutationObserver(update); content.observe(row, { childList: true, subtree: true })
+    row.addEventListener('scroll', update, { passive: true }); update()
+    return { destroy() { sizes.disconnect(); content.disconnect(); row.removeEventListener('scroll', update) } }
+  }
+  $effect(() => {
+    const id = current, count = tabs.length
+    void tick().then(() => { if (id && count) strip?.querySelector<HTMLElement>('a.tab[aria-current=page]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) })
+  })
   async function close(s: TerminalSession) {
     const at = tabs.findIndex(t => t.id === s.id)
     onclose(s)
@@ -29,7 +43,7 @@
 </script>
 
 <nav class="session-tabs" aria-label="Open sessions" bind:this={strip}>
-  <ul>
+  <ul use:edges>
     {#each tabs as s (s.id)}
       {@const word = stateWord(s)}
       <li class:current={s.id === current}>
@@ -75,5 +89,9 @@
   .new svg { width: 16px; height: 16px; }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   /* Touch: the close button is always shown and the targets are 44 px wide. */
-  @media (pointer: coarse) { li, li.current { height: 44px; min-width: 160px; } .close { opacity: 1; width: 44px; height: 44px; margin-right: 0; } .new { width: 44px; height: 44px; } }
+  ul:global(.more-end) { -webkit-mask-image: linear-gradient(to right, var(--ink) calc(100% - 36px), transparent); mask-image: linear-gradient(to right, var(--ink) calc(100% - 36px), transparent); }
+  ul:global(.more-start) { -webkit-mask-image: linear-gradient(to left, var(--ink) calc(100% - 36px), transparent); mask-image: linear-gradient(to left, var(--ink) calc(100% - 36px), transparent); }
+  ul:global(.more-start.more-end) { -webkit-mask-image: linear-gradient(to right, transparent, var(--ink) 36px, var(--ink) calc(100% - 36px), transparent); mask-image: linear-gradient(to right, transparent, var(--ink) 36px, var(--ink) calc(100% - 36px), transparent); }
+  /* Touch: 44 px targets below the tab's 1 px top edge. */
+  @media (pointer: coarse) { li { height: 45px; min-width: 160px; } li.current { height: 46px; } .close { opacity: 1; width: 44px; height: 44px; margin-right: 0; } .new { width: 44px; height: 44px; } }
 </style>

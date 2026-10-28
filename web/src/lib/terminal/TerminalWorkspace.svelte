@@ -131,6 +131,8 @@
   // A session that leaves the listing (removed from history) leaves the strip.
   let openTabs=$state<string[]>([])
   $effect(()=>{const id=session?.id;if(id)untrack(()=>{openTabs=openTab(openTabs,id)})})
+  // A session that left the listing leaves the tabs too, so it never counts towards the eight nor comes back on a close.
+  $effect(()=>{const listed=new Set(sessions.map(item=>item.id));untrack(()=>{const kept=openTabs.filter(id=>listed.has(id));if(kept.length!==openTabs.length)openTabs=kept})})
   const tabSessions=$derived(openTabs.map(id=>sessions.find(item=>item.id===id)).filter((item):item is TerminalSession=>!!item))
   // Closing a tab closes the view, never the session: the current one gives way to its neighbour, the last one to the list.
   function closeSessionTab(item:TerminalSession){

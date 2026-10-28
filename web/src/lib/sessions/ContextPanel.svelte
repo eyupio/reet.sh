@@ -39,7 +39,8 @@
 
   const list = $derived(changes ? changedList(changes) : null)
   const statusWord = (s: FleetCard['status'] | undefined) => s === 'online' ? 'online' : s === 'paused' ? 'paused' : s === 'reconnecting' ? 'reconnecting' : s === 'offline' ? 'offline' : 'no report yet'
-  const statusTone = (s: FleetCard['status'] | undefined) => s === 'online' || s === 'paused' ? 'good' : s === 'offline' ? 'warn' : 'muted'
+  // Only a machine reporting with its sync running reads as good; a paused one says so in the warn tone.
+  const statusTone = (s: FleetCard['status'] | undefined) => s === 'online' ? 'good' : s === 'offline' || s === 'paused' ? 'warn' : 'muted'
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Escape closes the panel when it is shown over the terminal) -->

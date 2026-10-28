@@ -46,7 +46,9 @@ panel's custom order; each row shows its colour, the panel's choice or its proje
 Rename, Open in theatre, Copy branch (worktree sessions), End session or Remove from history (each confirmed), and Check
 and remove worktree (a finished session's own worktree; offered only when its path and branch name the run). A machine
 that is not reporting says "studio is offline" on its group and its sessions stay listed with what needs it disabled.
-A refresh that fails keeps the list with "Couldn't refresh. Showing what we last saw." and **Try again**. Below the
+Each read shows "Checking…" over the last known list, on a line kept for it so the rows never move under a tap. A
+refresh that fails keeps the list with "Couldn't refresh. Showing what we last saw." and **Try again**. **New** opens Home
+with the launch prompt focused (`/#launch`); `/sessions/` is the same address as `/sessions`. Below the
 groups, *Projects · N* lists the folder projects with **Add a project**: on a desktop as simple cards (each opens on
 Home), and on a tablet or phone as the full project rail moved here from Home (each card's menu, its state in words and
 **Select projects** or a long press). There a card, or New session here, opens Home's launch bar on that project
@@ -73,10 +75,13 @@ beside it). Its parts:
   neighbour; closing the last goes back to the list). **+** goes to Home with the launch prompt focused (`/#launch`). Tabs
   are held in memory: nothing is stored, and the address carries only the session's ids.
 - **Header**: the title, `agent · model · started …`, the state pill (Home's state words, with where the word came from in
-  its tooltip and read out), a **YOLO** badge when on, **Chat | Terminal** with Terminal chosen and Chat disabled ("Chat
+  its tooltip and read out; while this browser's connection to a live session is down it says that instead, such as
+  "Reconnecting" or "Disconnected", from the connection), a **YOLO** badge when on, **Chat | Terminal** with Terminal chosen and Chat disabled ("Chat
   arrives with structured sessions.", R21), and the actions menu (⋮, or Shift+F10 on it): Rename, Theatre view, Copy branch,
-  End session or Remove from history, Check and remove worktree. A terminal session shows no steps and no progress bar
-  (R10).
+  End session or Remove from history, Check and remove worktree. Tab from the open menu goes on to the control after ⋮
+  (Shift+Tab back to ⋮), and a reconnecting terminal never takes focus out of it. A terminal session shows no steps and no
+  progress bar (R10). A tab's close button says the session keeps running, or for a finished one that it stays in its
+  history.
 - **The terminal pane**, unchanged. Its footer starts with **Approvals: Ask me** (or **Approvals: YOLO**). When the
   device asks for reduced motion the terminal's cursor does not blink.
 - **Context panel** (340 px): *Where it's working* (machine and whether it is reporting, project, branch, worktree: "own
@@ -91,13 +96,15 @@ beside it). Its parts:
 - **Tablets** (651–1099 px): the context panel waits behind **Details** and opens as a 340 px side sheet along the
   terminal's right edge, from under the header to the foot of the screen; every target in the header, the toolbar, the
   tabs, the sheet, the docked sessions panel (its rows, menus and swatches; the separator has a 44 × 88 px grip that
-  covers no control) and the pane's header and footer is at least 44 px on touch; only the pane's terminal toolbar and
+  reaches into the panel's widened padding, covers no control and reaches no further over the terminal than its 24 px
+  track) and the pane's header and footer is at least 44 px on touch; only the pane's terminal toolbar and
   extra keys are 40 × 40 px.
 - **Phones** get one slim header (back to Sessions, title, project · machine, state, Details, ⋮); the tabs and Chat |
   Terminal are left out. With the keyboard up for the terminal the site's top bar steps aside (`keyboardChrome` with the
   `session` focus, the same usable-height rule as Jump and the launch prompt); the slim header stays, 44 px tall while
   typing, and the pane's own header gives its row to the terminal, so the keyboard-open rows are unchanged (24 at
-  390 × 844). Held sideways, the slim header gives its rows to the terminal and the toolbar keeps its back arrow.
+  390 × 844). While the connection is down the pane's header stays, so **Retry now**, **Reconnect** or **Continue here**
+  is reachable above the keyboard. Held sideways, the slim header gives its rows to the terminal and the toolbar keeps its back arrow.
 
 The terminal route uses compact app navigation and the remaining usable viewport
 (see [Phones](#phones) for how that height is chosen while a keyboard is open).

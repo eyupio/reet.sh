@@ -1224,3 +1224,63 @@ The `color-contrast` nodes are ones axe cannot measure (behind a modal backdrop,
 **PR D's zoom and keyboard-open cases after `keyboardChrome` gained the `session` focus (H3):** `phone-zoom.e2e.mjs` (long names never zoom a phone out), `phone-layout.e2e.mjs` and `terminal-phone.e2e.mjs` pass, with the figures above unchanged. `terminal-phone` failed once in six runs (its 20 × 8 floor case read 13 rows, in a run straight after other suites) and then passed four runs in a row on its own; the floor case is unchanged by H4.
 
 **CI:** the full matrix is too slow for the plan's budget (at most 120 s added across the plan, `phone-zoom` under 60 s), so CI runs a share of it: sessions-phone "phone matrix" (412, 360, 320 px and 844 × 390, dark, reduced motion: the Sessions screen and the session screen fit, targets, no blinking) and "drawer closes on selection", in the `phone-dialogs` job (sessions-phone about 12 s locally in all; four runs in a row passed). Nothing was added to `terminal-browser`.
+
+### PR H final fix wave (after the broad review), 28 October 2026
+
+Synthetic API answers, Chromium 1243 headless, the built app in `vite preview`; each fix written test-first (the new or
+changed case seen failing before the fix) and mutation-checked (below).
+
+- **Sessions page "Checking…"**: it took a new line above the list on every 15-second read, moving the rows 64 px under a
+  finger. It now sits in a line kept for it (with the action notices), so the first row's top stays within 1 px before,
+  during and after a read. **New** goes to `/#launch` (the launch prompt focused), like the session screen's +.
+- **Tablet sessions panel**: the colour swatches (44 × 44 px on touch) ran past the 232 px menu; they wrap now, and every
+  swatch lies inside its menu. The separator's 44 × 88 px grip now reaches into the panel (whose right padding on a touch
+  tablet is 36 px, from 22) and over the terminal no further than its 24 px track, so a press 10 px inside the terminal's
+  edge reaches the terminal.
+- **Menus and focus**: Tab from the Sessions page's or the session screen's actions menu goes on to the control after the
+  one that opened it (Shift+Tab back to it), instead of the page's end or start; a reconnecting terminal no longer takes
+  focus from the open ⋮ menu (`data-keeps-focus`).
+- **Phone, keyboard up, connection down**: the pane's header (Retry now, Reconnect, Continue here) stays while the
+  connection is not live, and the slim header's pill says the connection's state ("Reconnecting", "Disconnected", "Open
+  elsewhere", "Shell unavailable", "Access denied") instead of "Running".
+- **Context panel**: a worktree the listing names only later is followed (its changed files read once then, never again
+  for the same worktree). A tab's close tooltip says "the session stays in its history" for a finished session.
+- **Addresses**: `/sessions/` is `/sessions` (with its query and fragment). A viewer, single-token or open sign-in at a
+  session address gets the Machines page with its heading, the title "Machines · reet.sh" and Machines current.
+- **Machines page with nothing connected**: two filled buttons showed (the checklist's "Connect your first machine" and
+  the add-a-machine steps' "Continue to authentication →"); the checklist's link is a plain button now, so the page has one
+  filled button, and Sync keeps its one with no checklist (restored from Control's "first" check, now scoped to `main`).
+- **Machine cards on touch** (Control's card check, moved to the Machines page's cards): Set up sync, the sync options
+  button and its items, Update reet… and the agents disclosure were 34–38 px; they are 44 px on a coarse pointer. Unlike
+  Control's cards, a mouse keeps 42 px actions (the old "at most 40 px with a mouse" check is not carried over).
+
+Coverage that went with Control, and where it is now: the machine-card touch sizes → `sessions-phone.e2e.mjs` "machine
+cards on touch"; New terminal disabled for a machine that is not ready and starting from a card → the Machines card's
+**Start an agent** (disabled with its reason, and starting from it) in `start-agent.e2e.mjs`; Control's one-click **New
+terminal** on a card was removed with Control and has no successor (Open terminal and Start an agent remain); Saved
+commands from a session's menu on Control → the Sessions page's **Saved commands** button (`sessions.e2e.mjs` "saved
+commands without a session") and, in the real-browser test, a second browser opening the same library from that button
+(`terminal.e2e.mjs`); readiness "first" → one filled button in `main` on `/machines` and `/sync`, and no Open terminal or
+Open sessions link while nothing is connected.
+
+Tests made steadier: `sessions-phone.e2e.mjs` waits for the layout by polling instead of fixed sleeps before its
+geometry checks, and the sideways case no longer asserts an absolute row count (CI's fallback font has taller rows): the
+terminal fills its screen and has more rows than the same layout with the slim header shown, measured in the same browser
+(13 against 9 locally; 12 against 9 with DejaVu hidden from fontconfig, as on the CI runner).
+
+Mutation checks (`cp` before, `cmp` after, every file restored byte-identical, the build rebuilt from the restored tree):
+16 mutants, one per fix (the reserved line removed, swatches not wrapping, each Tab handler put back, the menu without
+`data-keeps-focus`, the pane header hidden while down, the pill ignoring the connection, the grip centred again, no
+trailing-slash redirect, the viewer's deep link headerless, the worktree read once, one tooltip, New to `/`, the slim
+header kept sideways, the checklist link filled again, the card's sync button small on touch): all caught.
+
+Checks after the wave: `npm test` and `svelte-check` (0 errors, 0 warnings); sessions, sessions-phone, navigation and
+readiness four runs each, all passed; phone-layout, phone-dialogs, home, launch, control, empty-states, terminal-workspace,
+-organisation and -lifecycle, projects, shell-fidelity, phone-zoom, first-machine, start-agent (its viewer step now expects
+the Machines title, the intended change above) and add-project passed; the full matrix again: 200 states, no findings, and
+axe as in the table above (no violations, the same incomplete counts). `terminal-phone` (keyboard open 53 × 24, sideways
+13/8/9, unchanged) failed once in the long sequential run at its 20 × 8 floor case (13 rows read), as once in H4, and passed
+ten runs since (eight alone, two straight after terminal-lifecycle); neither its test nor the terminal's sizing changed in
+this wave, so it is recorded as an intermittent timing failure to watch in CI. The real-browser Go harness
+(`TestTerminalPrivateLifecyclePreservesActualShell`, `LANG=C.UTF-8`) passed, with the second browser opening the library
+from Saved commands.

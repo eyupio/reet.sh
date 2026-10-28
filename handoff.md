@@ -31,15 +31,20 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 
 **The owner asked to pause after PR H.** Nothing of the queued work below has been started.
 
-- **Branch and PR:** `ccr-7a7f5a9b-to5imh` is [PR #231](https://github.com/eyupio/reet.sh/pull/231) (PR H). H1–H4 are
-  committed on it (list in the state table). Merged into main already: D, A, B, C and E.
-- **Do first:** check #231's state (`gh pr view 231 --repo eyupio/reet.sh`, `gh pr checks 231 --repo eyupio/reet.sh`).
+- **Branch and PR:** `ccr-7a7f5a9b-to5imh` is [PR #231](https://github.com/eyupio/reet.sh/pull/231) (PR H). It holds
+  H1–H4 and the final fix wave after the broad review (list in the state table), and is awaiting the owner's merge
+  decision; no Codex review is possible (quota exhausted). Merged into main already: D, A, B, C and E.
+- **Do first:** check #231's state. The usual route is the GitHub MCP tools (`mcp__github__pull_request_read` with
+  `get`, then `get_check_runs`); from a shell use the REST forms `gh api repos/eyupio/reet.sh/pulls/231` and
+  `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs` (`gh pr view` and `gh pr checks` use GraphQL, which this
+  environment refuses with 403).
   - If it is **merged**, start the next piece from current main on a new branch (execution rules below; never reuse the
     old branch).
   - If it is **open**, `git fetch origin main` and merge main into the branch before any push (the owner merges other PRs
     meanwhile; a PR that conflicts with main gets no CI runs), then wait for green checks and the owner's decision.
 - **Open decisions:** none, except the owner's merge exception for #231 (Codex cannot review it: the account's code-review
-  quota is exhausted; #221, #226 and #227 merged the same way, each with the exception recorded on the PR).
+  quota is exhausted). Precedent: #227's exception is recorded on the PR (a comment); #221 and #226 merged on green CI
+  without a Codex review and without an exception comment.
 - **Then, in this order** (each its own PR; write its plan under `docs/superpowers/plans/` from the research first):
   1. Terminal copy and paste, images included ([details](#queued-work-decided-not-started)).
   2. Agent models: backend (M1–M6).
@@ -65,21 +70,21 @@ left out of the first pass, and the Program 2 spike ran in parallel.
 | --- | --- | --- |
 | D | App shell (top and bottom tabs, bell, Jump, More sheet) and Home | merged, [#218](https://github.com/eyupio/reet.sh/pull/218) as `8c33c99` |
 | A | Machine folder browse and branches (`agents`, `browse-v1`, `branches-v1`), start-agent opens the session, dockable sessions panel | merged, [#219](https://github.com/eyupio/reet.sh/pull/219) as `41066c5`; contract in [docs/folder-browse.md](docs/folder-browse.md) |
-| B | Folder projects: store and API (`/api/v2/folder-projects`, reorder, `import-saved`), saved Projects moved over (old writes answer 410 `projects_moved`), the Add project dialog with the folder browser, the rail; `/projects` redirects to Home; read [docs/projects.md](docs/projects.md) | merged, [#221](https://github.com/eyupio/reet.sh/pull/221) as `cb89a26` (no Codex review of its final head; owner exception) |
+| B | Folder projects: store and API (`/api/v2/folder-projects`, reorder, `import-saved`), saved Projects moved over (old writes answer 410 `projects_moved`), the Add project dialog with the folder browser, the rail; `/projects` redirects to Home; read [docs/projects.md](docs/projects.md) | merged, [#221](https://github.com/eyupio/reet.sh/pull/221) as `cb89a26` (no Codex review of its final head; merged on green CI, no exception comment) |
 | P | Fidelity polish | folded into C and E |
-| C | Agent catalogue and launch fields (`agents-v2`, named worktree base, effort, tool on the listing, `osVersion`), Cline with safe arguments, chrome polish | merged, [#226](https://github.com/eyupio/reet.sh/pull/226) as `540d247` (no Codex review: quota exhausted) |
+| C | Agent catalogue and launch fields (`agents-v2`, named worktree base, effort, tool on the listing, `osVersion`), Cline with safe arguments, chrome polish | merged, [#226](https://github.com/eyupio/reet.sh/pull/226) as `540d247` (no Codex review: quota exhausted; merged on green CI, no exception comment) |
 | E | Launch bar on Home, Start in several projects, fixes from the #226 review; read [docs/start-agent-session.md](docs/start-agent-session.md#on-home-the-launch-bar) | merged, [#227](https://github.com/eyupio/reet.sh/pull/227) as `fe3e9b7` (owner exception, recorded on the PR) |
 | F | YOLO (off by default, per session, audited, machines can refuse) | **deferred past the first pass**; the design decisions stand; the launch bar shows it disabled and the API refuses it (409 `yolo_refused`) |
 | G | Attention and Needs you | **deferred past the first pass**; Needs you stays an honest empty state |
-| H | `/sessions` (the Sessions page), the session screen, tablet and phone layouts, the last redirects, the phone rail on Sessions | **[#231](https://github.com/eyupio/reet.sh/pull/231), in review, awaiting the owner's merge decision** (no Codex review possible: quota exhausted). H1 `f0bffe5` Sessions page and Control's address retired (`/control` → `/`, `/terminals` → `/sessions`), fixes `048e431` (session colours, **Saved commands** button: owner ruling), `b85338a`; H2 `f74001f` session screen (tabs, header with the state pill, Chat \| Terminal with Chat disabled, context panel), fixes `f026cfb`, `c02fec6`; H3 `7581ad0` tablet and phone layouts (no rail on narrow Home, the rail on Sessions, slim phone header, `keyboardChrome('session')`), fixes `a984b5e` (44 px tablet targets, cases moved to `sessions-phone.e2e.mjs`), `3f1e89b` (separator grip); `521c406` CI fix (first-terminal checklist off `/sync`); merges of main `9c88a46` (#232, #233) and `ae763c8` (#234); H4 `a1981e4` (research copied into `docs/research/`) and "Verify the Agents home across screens and themes" (the matrix, phone target fixes, docs, this handoff) |
+| H | `/sessions` (the Sessions page), the session screen, tablet and phone layouts, the last redirects, the phone rail on Sessions | **[#231](https://github.com/eyupio/reet.sh/pull/231), in review, awaiting the owner's merge decision** (no Codex review possible: quota exhausted). H1 `f0bffe5` Sessions page and Control's address retired (`/control` → `/`, `/terminals` → `/sessions`), fixes `048e431` (session colours, **Saved commands** button: owner ruling), `b85338a`; H2 `f74001f` session screen (tabs, header with the state pill, Chat \| Terminal with Chat disabled, context panel), fixes `f026cfb`, `c02fec6`; H3 `7581ad0` tablet and phone layouts (no rail on narrow Home, the rail on Sessions, slim phone header, `keyboardChrome('session')`), fixes `a984b5e` (44 px tablet targets, cases moved to `sessions-phone.e2e.mjs`), `3f1e89b` (separator grip); `521c406` CI fix (first-terminal checklist off `/sync`); merges of main `9c88a46` (#232, #233), `ae763c8` (#234) and `57d8f53` (#235, #236); H4 `1a5018d` (research copied into `docs/research/`), `c349a2b` (the matrix, phone target fixes, docs, this handoff), `1ff4230` (the research notes name the reference tool by role); final fix wave after the broad review `b53c7dd` (`/sessions/`, viewers at a session address), `adec499` (steady Sessions rows, menu focus, the connection in the phone header, tablet swatches and grip, context panel, tab tooltip, New → `/#launch`), `dd31068` (dead code), `8e6ce3e` (checks that went with Control, steadier phone tests), `6778211` (start-agent expects the Machines title) and the docs commit after them |
 | Program 2 | Structured chat over the agent protocol, with approval cards | spike done; OpenCode chosen (27 Oct); hands-on probe of `opencode acp` 1.19.5 done (28 Oct): conditional go for trusted workspaces only; queued as slice 1 below |
 
-Merged into main by the owner while this work was open: #222, #224, #225, #228, #229, #230, #232, #233 and #234 (each
-merged into the open branch before its next push).
+Merged into main by the owner while this work was open: #222, #224, #225, #228, #229, #230, #232, #233, #234, #235 and
+#236 (each merged into the open branch before its next push; #235 and #236 in `57d8f53`).
 
 **Merge rule:** a PR in this work merges only when all checks are green on its final head **and** Codex has reviewed it
-cleanly, or the owner gives an explicit exception. The pattern so far: #221, #226 and #227 merged on green CI without a
-Codex review, each with the owner's exception recorded on the PR; #231 is waiting for the same decision.
+cleanly, or the owner gives an explicit exception. So far: #227's exception is recorded on the PR (a comment); #221 and
+#226 merged on green CI without a Codex review and without an exception comment; #231 is waiting for the owner's decision.
 
 **Rulings beyond R1–R22** (all recorded in the session notes and kept here so they survive):
 
@@ -97,6 +102,8 @@ After PR H:
 
 - The session screen keeps the sessions panel and the workspace toolbar (the mock-up has neither); the tabs share the
   toolbar row, and the pane keeps its own header (some information is shown twice). A later PR may drop the panel there.
+- Old `/sessions` links and sign-in resumes that reach an older server (a rollback) land on `/` or on an unknown page:
+  PR H changed no Go protocol and nothing redirects `/sessions` there.
 - `/sessions` with `session`, `agent` or `view=terminal` in the address is the workspace; bare `/sessions` is the list.
   The app has no client-side router: links are full page loads.
 - Sessions outside a project are grouped "Other on <machine>" only (the listing has no folder to match a project by).
@@ -111,8 +118,9 @@ After PR H:
   44, so the terminal keeps its rows; documented in [docs/terminal-workspace.md](docs/terminal-workspace.md#phones). H4's
   40 px footer button costs one row with the keyboard down at 390 × 844 (39 → 38); keyboard-open and sideways rows are
   unchanged.
-- `terminal-phone.e2e.mjs` failed once in six local runs during H4 (its 20 × 8 floor case read 13 rows, run straight
-  after other suites); it passed four runs in a row alone. Watch it in CI's `terminal-browser` job.
+- `terminal-phone.e2e.mjs` failed twice locally during PR H, each time in a long sequential run (its 20 × 8 floor case
+  read 13 rows), and passed every run on its own (more than ten). Its test and the sizing code are unchanged by PR H's
+  fix wave. Watch it in CI's `terminal-browser` job.
 
 Still true from earlier PRs:
 
@@ -137,15 +145,17 @@ Still true from earlier PRs:
 **1. Terminal copy and paste, images included** (its own PR, next). Input:
 [docs/research/paste-research.md](docs/research/paste-research.md) (tasks T1–T14). Decisions:
 
-- Owner: its own PR after H; pasted images go to a private folder per session on the machine (directory 0700, files
-  0600, random names).
-- D2 skip the paste review dialog for agents that use bracketed paste when the text has no control characters and is at
-  most 64 KiB; D3 always strip ESC and the bracketed-paste markers; D4 an agent's own copy (OSC 52) reaches the clipboard
-  only right after a user gesture, write-only, at most 1 MiB; D5 copy-on-select is an option, off by default; D6 uploads
-  are audited as metadata only; D7 a new `upload-v1` feature token, which a machine accepts unless a local setting turns
-  it off; D8 limits: 5 MiB per image, 20 images or 50 MiB per session, 24 h lifetime, PNG/JPEG/GIF/WebP checked by magic
-  bytes, no SVG.
-- Phones: a file picker and a **Select text** sheet first; drag and drop after.
+Numbering as in the report's section 3.6 (D1–D8):
+
+- **Owner decisions (28 Oct):** its own PR after H; **D1** pasted images go to a private folder per session on the machine,
+  outside the project (directory 0700, files 0600, random names).
+- **Controller defaults (owner may revisit):** **D2** skip the paste review for agents that use bracketed paste when the
+  text has no control characters and is at most 64 KiB (and always strip ESC and the bracketed-paste markers); **D3** an
+  agent's own copy (OSC 52) reaches the clipboard only right after a user gesture, write-only, at most 1 MiB; **D4**
+  copy-on-select is an option, off by default; **D5** uploads are audited as metadata only; **D6** uploads are on by
+  default behind a new `upload-v1` feature token, which a machine accepts unless a local setting turns it off; **D7**
+  limits: 5 MiB per image, 20 images or 50 MiB per session, 24 h lifetime, PNG/JPEG/GIF/WebP checked by magic bytes, no
+  SVG; **D8** phones get a file picker and a **Select text** sheet first, drag and drop after.
 
 **2. Agent models** (backend M1–M6, then the UI after #231 merges). Input:
 [docs/research/models-design.md](docs/research/models-design.md) (tasks M0–M11).
@@ -156,7 +166,8 @@ Still true from earlier PRs:
 - Favourites per account (at most 50); an account default for sessions outside a project; a project default for agent,
   model and effort. Precedence: explicit choice, then project, then account, then the agent's own default.
 - Owner: the bar opens with the defaults first and the last used as a Recent group; loading is automatic because the
-  capture is clean with the setting above. Controller rulings D2–D4 above.
+  capture is clean with the setting above. Controller rulings D2–D4 above. D6 (capturing `opencode models` from the
+  approved npm package) was approved and is partly done by the probe.
 - Known gap to fix in it: a project's default agent is checked against the original four agents only, so Cline cannot be
   one.
 
@@ -167,7 +178,7 @@ Still true from earlier PRs:
 once / Deny only, and only with all seven conditions:
 
 1. A reet-owned ask-everywhere config in `OPENCODE_CONFIG_CONTENT` (edit, bash and external_directory ask, for every
-   built-in agent; `default_agent: "build"`; `task: deny`), `OPENCODE_DISABLE_PROJECT_CONFIG=1`, and the environment
+   built-in agent; `default_agent: "build"`; `task: deny`; `webfetch: deny`), `OPENCODE_DISABLE_PROJECT_CONFIG=1`, and the environment
    scrubbed of `OPENCODE_PERMISSION`, `OPENCODE_CONFIG`, `OPENCODE_CONFIG_DIR` (and any `OPENCODE_*` reet does not set);
    check the mode is `build` after `session/new`.
 2. A random `OPENCODE_SERVER_PASSWORD` per process: every `opencode acp` starts an unauthenticated local HTTP API on
@@ -211,11 +222,12 @@ once / Deny only, and only with all seven conditions:
   - The real-browser Go harness needs `LANG=C.UTF-8 LC_ALL=C.UTF-8` locally, or terminal.e2e's UTF-8 split check fails.
   - CI does not run workflows while a PR conflicts with main.
   - `mcp/test/oauth.test.mjs` needs its fixture built first in CI (the warm-up step in `image.yml`).
-- **Merges:** the owner merges other PRs while one is open (#228–#234 during this work). Always `git fetch origin main`
+- **Merges:** the owner merges other PRs while one is open (#228–#236 during this work). Always `git fetch origin main`
   and merge it before pushing.
 - **Git and processes:** never `git checkout -p`; commit with pathspecs; never `pkill -f` (it can match the session's own
   processes); never a shared tmux `kill-server`. The stop hook nags while subagents are still working; that is expected.
-- **Commit trailers:** as the session's system reminder gives them (`Co-Authored-By` and `Claude-Session`).
+- **Commit trailers:** new commits follow the session's attribution reminder (`Co-Authored-By` and `Claude-Session`);
+  this PR's commits use Claude Sonnet 5.5 (a few early ones say Opus 5.5).
 - **Process used** (subagent-driven development): an implementer per task with a brief, a task review, fix rounds
   (at most five) with a scoped re-review, then a final broad review split by area and a single fix wave; mutation checks
   restore files byte-identical (`cp` before, `cmp` after); fidelity checks at 1440, 834 and 390 px recorded in
@@ -242,7 +254,10 @@ once / Deny only, and only with all seven conditions:
 
 | Area | Existing entry points |
 | --- | --- |
-| App/routes and Control | `web/src/App.svelte`, `web/src/lib/ControlCenter.svelte` |
+| App/routes and the shell | `web/src/App.svelte`, `web/src/lib/shell/*` (AppShell, TopTabs, BottomTabs, MoreSheet, JumpSearch, Bell) |
+| Home and projects | `web/src/lib/home/*` (Home, FleetStrip, InFlight, NeedsYou, ProjectRail, ProjectRailHost, AddProjectDialog, FolderBrowser), `web/src/lib/home.ts` |
+| Launch bar | `web/src/lib/launch/LaunchBar.svelte`, `SlotPicker.svelte`, `web/src/lib/launchBar.ts`, `web/src/lib/catalogue.ts` |
+| Sessions page and session screen | `web/src/lib/sessions/*` (SessionsPage, SessionScreen, SessionTabs, ContextPanel), `web/src/lib/sessions.ts` |
 | Machines/onboarding | `Machines.svelte`, `MachineFleet.svelte`, `MachineSetup.svelte`, `machineSetup.ts`, `machines.ts` under `web/src/lib/` |
 | Sync/fleet UI | `EnvironmentSync.svelte`, `SyncControl.svelte`, `FleetActions.svelte`, `fleet.ts`, `api.ts` under `web/src/lib/` |
 | Live sync domain/execution | `internal/scan/sync.go`, `agent.go`, `restore.go`; adjacent tests |
@@ -260,6 +275,7 @@ once / Deny only, and only with all seven conditions:
 | Controller enablement | `cmd/reet/terminal.go`, `internal/terminalcontrol`, `docs/terminal-controller-commands.md` |
 | Machine health | `internal/agenthealth`, `internal/store/store_remote_health.go`, `internal/api/health.go` |
 | Notifications | `internal/notify`, `internal/store/store_notify.go`, `internal/api/notifications.go`, `web/src/lib/Notifications.svelte` |
+| Agents home fixtures | `web/tests/home.e2e.mjs`, `launch.e2e.mjs`, `add-project.e2e.mjs`, `sessions.e2e.mjs`, `sessions-phone.e2e.mjs`; the local matrix `web/tests/matrix/agents-home.matrix.mjs` |
 | Existing regression fixtures | `internal/store/store_sync_control_test.go`, `web/src/lib/fleet.test.mjs`, `web/tests/control.e2e.mjs`, `web/tests/terminal.test.mjs`, `web/tests/terminal.e2e.mjs`, `internal/api/terminal_integration_test.go` |
 
 Names such as `Skill`, `SyncSkill`, `SyncTarget`, `SyncPlan`, `SetupSkill`,

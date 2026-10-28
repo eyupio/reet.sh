@@ -161,8 +161,8 @@ jobs:
   # project dialog (about 15-20 s) run alongside the others instead of adding to their time. The launch bar is here, not in
   # terminal-browser (about 20 of its 30 minutes on #227's runs) or phone-zoom (which gained the launch sheets): this job
   # took about 4 minutes of its 10 on the run for e9ab450, most of it setting up Chromium. PR H's Sessions page and session
-  # screen (sessions.e2e, about 20 s locally) and its phone cases (sessions-phone.e2e, about 12 s with H4's phone matrix
-  # share) stay here. The full Agents home matrix (200 states, several minutes) is web/tests/matrix/agents-home.matrix.mjs,
+  # screen (sessions.e2e) and its phone cases (sessions-phone.e2e) stay here: together about 47 s locally after the final
+  # fix wave. The full Agents home matrix (200 states, several minutes) is web/tests/matrix/agents-home.matrix.mjs,
   # run locally only; nothing is added to terminal-browser, which is close to its limit.
   phone-dialogs:
     runs-on: zoomies-linux-x64

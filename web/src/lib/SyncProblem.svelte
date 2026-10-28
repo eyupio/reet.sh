@@ -10,6 +10,7 @@
     retrying = false,
     compact = false,
     online = true,
+    attempts = 1,
     onretry,
   }: {
     message: string
@@ -20,6 +21,8 @@
     compact?: boolean
     /** False while the machine is not reporting: commands and retry need it reachable. */
     online?: boolean
+    /** How many jobs share this exact failure. */
+    attempts?: number
     onretry?: () => void
   } = $props()
 
@@ -32,10 +35,11 @@
     <div class="copy">
       <p class="title">{fix.title}</p>
       <p class="detail">{fix.detail}</p>
+      {#if attempts > 1}<p class="repeat">The same failure on {attempts} jobs.</p>{/if}
     </div>
   </header>
   {#if !online && (fix.commands.length || (onretry && fix.retry))}
-    <p class="hint offline">{host || 'This machine'} isn't connected right now. Reconnect it, then try again.</p>
+    <p class="hint offline">{host || 'The machine'} is offline. The fix runs there, so reconnect it first.</p>
   {/if}
   {#if online && fix.commands.length}
     <div class="commands" aria-label="Commands to fix this">
@@ -78,6 +82,7 @@
   .copy { display: grid; gap: 3px; min-width: 0; }
   .title { margin: 0; color: var(--ink); font-size: 0.88rem; font-weight: 650; line-height: 1.35; }
   .detail { margin: 0; color: var(--muted); font-size: 0.8rem; line-height: 1.55; overflow-wrap: anywhere; }
+  .repeat { margin: 0; color: var(--bad); font-size: 0.72rem; font-weight: 600; line-height: 1.45; }
   .commands { display: grid; gap: 6px; }
   .label { margin: 0; color: var(--muted); font-size: 0.7rem; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; }
   .command {

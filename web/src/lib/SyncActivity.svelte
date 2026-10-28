@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { getSyncState, queueSyncJob, updateSyncAgent, type SyncJob, type SyncState } from './api'
-  import { groupLabel } from './machines'
+  import { agentOnline, groupLabel } from './machines'
   import { activeJobKindLabel, agoLabel, jobPlanCounts, syncJobStages } from './syncOverview'
   import SyncProblem from './SyncProblem.svelte'
 
@@ -54,6 +54,9 @@
 
   function hostFor(agentId: string): string {
     return (sync?.agents ?? []).find(agent => agent.id === agentId)?.host ?? ''
+  }
+  function onlineFor(agentId: string): boolean {
+    return agentOnline((sync?.agents ?? []).find(agent => agent.id === agentId))
   }
   function hostForRunOrJob(): string {
     const id = run?.agentId ?? activeJobs[0]?.agentId ?? latest?.agentId
@@ -210,7 +213,7 @@
           {/if}
           {#if job.message}
             {#if job.status === 'failed' || job.status === 'rolled_back'}
-              <SyncProblem message={job.message} host={hostFor(job.agentId)} site={location.origin} compact
+              <SyncProblem message={job.message} host={hostFor(job.agentId)} site={location.origin} compact online={onlineFor(job.agentId)}
                 retrying={retrying === job.id} onretry={canWrite ? () => void retry(job) : undefined} />
             {:else}
               <p class="job-message">{job.message}</p>

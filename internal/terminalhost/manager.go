@@ -58,13 +58,16 @@ type Manager struct {
 	// lookPath finds agent binaries for launch presets; tests replace it.
 	lookPath func(string) (string, error)
 	// git runs git for worktrees (ExecGit); tests replace it.
-	git         GitRunner
-	mu          sync.Mutex
-	uploadMu    sync.Mutex
-	closed      bool
-	attachments map[string]*Attachment
-	deadSeen    map[string]time.Time
-	changed     chan struct{}
+	git      GitRunner
+	mu       sync.Mutex
+	uploadMu sync.Mutex
+	// uploadReserved counts quota already promised to uploads that are
+	// streaming but have not published a file yet.
+	uploadReserved map[string]uploadReservation
+	closed         bool
+	attachments    map[string]*Attachment
+	deadSeen       map[string]time.Time
+	changed        chan struct{}
 }
 
 func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
@@ -88,7 +91,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 	if git == nil {
 		git = ExecGit
 	}
-	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, lookPath: exec.LookPath, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, changed: make(chan struct{})}
+	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, lookPath: exec.LookPath, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, changed: make(chan struct{})}
 	// Validate a present registry even when tmux is offline. Never silently
 	// repair an unreadable file or adopt sessions from another enrollment.
 	lock, err := m.registryLock(ctx)
@@ -400,6 +403,9 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 	names, err := m.sessionNames(ctx)
 	if err != nil {
+		// A stopped server forgets the option; a later server start must
+		// apply the current switch again.
+		m.clipboardSet = false
 		return err
 	}
 	// A clipboard option that cannot be set must not end the manager; a later
@@ -522,6 +528,7 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 func (m *Manager) Run(ctx context.Context) error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	lastSweep := time.Now()
 	for {
 		if ctx.Err() != nil {
 			return m.Close()
@@ -540,6 +547,18 @@ func (m *Manager) Run(ctx context.Context) error {
 		if err != nil && !errors.Is(err, ErrNotRunning) && ctx.Err() == nil {
 			_ = m.Close()
 			return err
+		}
+		if time.Since(lastSweep) >= uploadSweepInterval {
+			if sessions, err := m.List(ctx); err == nil {
+				active := make(map[string]bool, len(sessions))
+				for _, s := range sessions {
+					if s.State.ReservesQuota() {
+						active[s.ID] = true
+					}
+				}
+				_ = m.sweepUploads(active, time.Now())
+			}
+			lastSweep = time.Now()
 		}
 		select {
 		case <-ctx.Done():

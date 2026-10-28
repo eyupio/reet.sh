@@ -87,7 +87,7 @@ func (b *Broker) Upload(ctx context.Context, uid int64, sessionID string, data [
 		}
 		return "", ErrUploadUnsupported
 	}
-	h, e, err := p.expect(sessionID, ID(), "upload")
+	h, e, err := p.expect(sessionID, ID(), terminalproto.UploadOperation)
 	if err != nil {
 		return "", ErrUploadBusy
 	}
@@ -97,7 +97,8 @@ func (b *Broker) Upload(ctx context.Context, uid int64, sessionID string, data [
 	req := terminalproto.Upload{StreamToken: h.Token, Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:]), MIME: mime}
 	reply, err := p.call(ctx, message(h, req))
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		var lost errReplyLost
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.As(err, &lost) {
 			return "", ErrUploadTimeout
 		}
 		if errors.Is(err, ErrOffline) {

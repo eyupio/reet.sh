@@ -183,8 +183,8 @@ SVG, HTML, short and mismatched input.
   not match the declared MIME. Verify before publishing the final name.
 - Quotas: 20 files / 50 MiB per session; 200 MiB for the machine. One upload mutex serialises quota checks and writes.
 - Cleanup: delete a session's folder when it becomes `Ended`, `Exited` or `Lost` (End and reconcile paths), on
-  connector start for any session that is not running, and sweep files older than 24 h. Never touch anything outside
-  `uploads/`.
+  connector start for any session that is not running, and sweep files older than 24 h at start and about hourly
+  while the connector runs. Never touch anything outside `uploads/`.
 - Errors are typed (`ErrUploadDisabled`, `ErrUploadTooLarge`, `ErrUploadType`, `ErrUploadQuota`,
   `ErrUploadMismatch`, `ErrUploadBusy`) and contain no path, name or hash.
 
@@ -205,7 +205,7 @@ Lost, start and 24 h sweep; path stays under the uploads root; random name and f
   and the switch is on; `UploadsOff` when the switch is off. Both disappear while terminal access is off.
 - The agent handles `Upload` only on a connection that negotiated `upload-v1`: it opens the `upload` reverse stream,
   streams frames into `Manager.WriteUpload`, then sends one `UploadResult` text frame and closes normally. At most two
-  uploads per connection; a third is `conflict`. A switch turned off mid-connection refuses with `disabled`.
+  uploads per connection; a third is refused with `upload_busy`. A switch turned off mid-connection refuses with `disabled`.
 
 **Tests (failing first)**: switch on/off/status and capability; unnegotiated `Upload` refused; happy path writes
 the file and returns the path; oversized/mismatched/typed failures map to result codes; two concurrent uploads and a
@@ -301,6 +301,9 @@ claim), `docs/remote-machine-operations.md` (switches), `docs/ui-verification.md
   send/receive points, as browses does.
 - `terminalproto.Message.Validate` binds `upload` to the session; `StreamHello.Validate` accepts `upload`; the broker
   receive switch must not treat an unexpected body as an observation.
+- The upload reverse stream is size-bounded, not close-bounded: the machine reads exactly the declared bytes and
+  then returns its one `UploadResult` text frame; the controller reads that frame before closing. This avoids relying
+  on a peer writing after a close handshake.
 - tmux.conf already disables clipboard and passthrough; the manager's server option is what flips forwarding, so an
   existing install does not need a config migration.
 - Upload files are derived state outside the registry; the registry's metadata-only guarantee stays intact.

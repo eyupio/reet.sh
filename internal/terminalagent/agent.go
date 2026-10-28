@@ -295,7 +295,7 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 						uploads.release()
 					}
 				}()
-				c, err := stream(callCtx, client, headers, msg, op.StreamToken, "upload")
+				c, err := dialUploadStream(callCtx, client, headers, msg, op.StreamToken, terminalproto.UploadOperation)
 				if err != nil {
 					return respond(terminalhost.ErrNotRunning)
 				}
@@ -453,6 +453,10 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 	}
 }
 
+// dialUploadStream is the production reverse-stream dialer; tests replace it
+// to check the operation and lifecycle without a live controller.
+var dialUploadStream = stream
+
 // maxUploadsInFlight is the most image transfers one connection serves at
 // once. A further request is refused before any stream opens.
 const maxUploadsInFlight = 2
@@ -545,6 +549,9 @@ func readUploadFrames(ctx context.Context, c uploadConn, w io.Writer, size int64
 	for total < size {
 		kind, data, err := c.Read(ctx)
 		if err != nil {
+			if websocket.CloseStatus(err) == websocket.StatusMessageTooBig {
+				return errUploadFrameTooLarge
+			}
 			return errUploadShort
 		}
 		if kind != websocket.MessageBinary {

@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -237,6 +238,30 @@ func TestUploadRejectsBadDeclarationsAndStreams(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+type countingReader struct {
+	r io.Reader
+	n int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += n
+	return n, err
+}
+
+func TestUploadReadsNoMoreThanTheDeclaredSize(t *testing.T) {
+	m, id, _ := uploadTestManager(t, terminalproto.Running)
+	payload := []byte("x")
+	req := uploadRequest(payload, "image/png")
+	source := &countingReader{r: bytes.NewReader(bytes.Repeat([]byte("y"), terminalproto.MaxUploadBytes))}
+	if _, err := m.WriteUpload(context.Background(), id, req, source); !errors.Is(err, ErrUploadMismatch) {
+		t.Fatalf("got %v, want ErrUploadMismatch", err)
+	}
+	if source.n > int(req.Size)+1 {
+		t.Fatalf("read %d bytes for a %d-byte declaration", source.n, req.Size)
 	}
 }
 

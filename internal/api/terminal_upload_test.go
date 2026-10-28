@@ -222,6 +222,22 @@ func TestUploadRouteIsBlockedForViewersLegacyAuthAndOtherOrigins(t *testing.T) {
 	}
 }
 
+func TestUploadRouteIsScopedToTheOwner(t *testing.T) {
+	f := newUploadAPIFixture(t, uploadAPICaps(true, false))
+	other, err := f.st.CreateUser("other@example.test", "Other", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie := terminalLogin(t, f.st, other.ID)
+	code, out, raw := f.post(t, cookie, f.uploadTarget(), uploadAPIData(64), "image/png", "https://reet.example")
+	if code != 403 {
+		t.Fatalf("another account reached the upload: %d %v %s", code, out, raw)
+	}
+	if got := f.sent(); len(got) != 0 {
+		t.Fatal("a non-owner upload reached the machine", got)
+	}
+}
+
 func TestUploadRejectsQueryAndBadBodies(t *testing.T) {
 	f := newUploadAPIFixture(t, uploadAPICaps(true, false))
 	target := f.uploadTarget()
@@ -361,7 +377,7 @@ func TestUploadHappyPathAuditsMetadataOnly(t *testing.T) {
 	if err := json.Unmarshal([]byte(events[0].Detail), &detail); err != nil {
 		t.Fatal(err)
 	}
-	if detail["machine"] != f.agent.ID || detail["tool"] != "claude" || detail["mime"] != "image/png" || detail["size"] != "<256 KiB" {
+	if detail["machine"] != f.agent.ID || detail["host"] != "laptop" || detail["tool"] != "claude" || detail["mime"] != "image/png" || detail["size"] != "<256 KiB" {
 		t.Fatalf("audit detail: %v", detail)
 	}
 	sum := sha256.Sum256(payload)

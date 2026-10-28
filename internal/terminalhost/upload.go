@@ -30,6 +30,19 @@ var (
 
 const maxUploadAge = 24 * time.Hour
 
+// uploadDeadline bounds one upload on the machine, including a peer that
+// stops sending. It is longer than the controller's own request deadline.
+var uploadDeadline = 60 * time.Second
+
+// uploadSweepInterval is how often the running connector applies the 24-hour
+// lifetime to uploads for sessions that stay open.
+var uploadSweepInterval = time.Hour
+
+type uploadReservation struct {
+	files int
+	bytes int64
+}
+
 // WriteUpload stores an image sent by the controller in a private folder for
 // the session. The controller supplies no name; the folder and file name are
 // generated here. It never holds the manager lock while reading the bytes.
@@ -49,29 +62,37 @@ func (m *Manager) WriteUpload(ctx context.Context, sessionID string, req termina
 		m.mu.Unlock()
 		return "", ErrUploadDisabled
 	}
+	m.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, uploadDeadline)
+	defer cancel()
+	if err := m.uploadSessionRunning(ctx, sessionID); err != nil {
+		return "", err
+	}
+	return m.storeUpload(ctx, sessionID, req, src)
+}
+
+// uploadSessionRunning checks the durable registry without holding m.mu while
+// the bytes are read.
+func (m *Manager) uploadSessionRunning(ctx context.Context, sessionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	lock, err := m.registryLock(ctx)
 	if err != nil {
-		m.mu.Unlock()
 		if ctx.Err() != nil {
-			return "", ctx.Err()
+			return ctx.Err()
 		}
-		return "", ErrUploadFailed
+		return ErrUploadFailed
 	}
+	defer lock.Close()
 	registry, err := m.loadRegistry()
 	if err != nil {
-		lock.Close()
-		m.mu.Unlock()
-		return "", ErrRegistry
+		return ErrRegistry
 	}
 	s, ok := registry.Sessions[sessionID]
 	if !ok || s.State != terminalproto.Running {
-		lock.Close()
-		m.mu.Unlock()
-		return "", ErrSessionMissing
+		return ErrSessionMissing
 	}
-	lock.Close()
-	m.mu.Unlock()
-	return m.storeUpload(ctx, sessionID, req, src)
+	return nil
 }
 
 func validateUploadRequest(req terminalproto.Upload) error {
@@ -99,16 +120,23 @@ func validateUploadRequest(req terminalproto.Upload) error {
 func (m *Manager) storeUpload(ctx context.Context, sessionID string, req terminalproto.Upload, src io.Reader) (string, error) {
 	root := filepath.Join(m.layout.Dir, "uploads")
 	m.uploadMu.Lock()
-	defer m.uploadMu.Unlock()
+	if err := m.checkUploadQuotaLocked(root, sessionID, req.Size); err != nil {
+		m.uploadMu.Unlock()
+		return "", err
+	}
+	m.uploadMu.Unlock()
+	defer m.releaseUpload(sessionID, req.Size)
+	// Recheck after reserving: a session can end between the first check and
+	// the quota decision, and cleanup may already have removed its folder.
+	if err := m.uploadSessionRunning(ctx, sessionID); err != nil {
+		return "", err
+	}
 	if err := ensurePrivateDir(root); err != nil {
 		return "", ErrUploadFailed
 	}
 	dir := filepath.Join(root, sessionID)
 	if err := ensurePrivateDir(dir); err != nil {
 		return "", ErrUploadFailed
-	}
-	if err := checkUploadQuota(root, sessionID, req.Size); err != nil {
-		return "", err
 	}
 	tempPath, file, err := createUploadTemp(dir)
 	if err != nil {
@@ -126,13 +154,13 @@ func (m *Manager) storeUpload(ctx context.Context, sessionID string, req termina
 
 	hasher := sha256.New()
 	header := &uploadHeader{}
-	reader := &uploadReader{ctx: ctx, reader: io.LimitReader(src, terminalproto.MaxUploadBytes+1)}
+	reader := &uploadReader{ctx: ctx, reader: io.LimitReader(src, req.Size+1)}
 	written, err := io.CopyBuffer(io.MultiWriter(file, hasher, header), reader, make([]byte, 32<<10))
 	if err != nil {
 		return "", ErrUploadFailed
 	}
-	if written > terminalproto.MaxUploadBytes {
-		return "", ErrUploadTooLarge
+	if written > req.Size {
+		return "", ErrUploadMismatch
 	}
 	if written != req.Size || hex.EncodeToString(hasher.Sum(nil)) != req.SHA256 {
 		return "", ErrUploadMismatch
@@ -242,19 +270,25 @@ func randomUploadHex() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-func checkUploadQuota(root, sessionID string, size int64) error {
+// checkUploadQuotaLocked reserves one file and size bytes for an upload.
+// Callers hold uploadMu; the reservation is released when the transfer ends.
+func (m *Manager) checkUploadQuotaLocked(root, sessionID string, size int64) error {
 	files, used, err := uploadFolderUsage(filepath.Join(root, sessionID))
 	if err != nil {
 		return ErrUploadFailed
 	}
-	if files+1 > terminalproto.MaxUploadsPerSession || used+size > terminalproto.MaxUploadSessionBytes {
+	held := m.uploadReserved[sessionID]
+	if files+held.files+1 > terminalproto.MaxUploadsPerSession || used+held.bytes+size > terminalproto.MaxUploadSessionBytes {
 		return ErrUploadQuota
 	}
+	if m.uploadReserved == nil {
+		m.uploadReserved = map[string]uploadReservation{}
+	}
+	total := int64(0)
 	entries, err := os.ReadDir(root)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return ErrUploadFailed
 	}
-	machine := int64(0)
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.Type()&os.ModeSymlink != 0 || !entry.IsDir() || !terminalproto.ValidID(name) {
@@ -264,12 +298,31 @@ func checkUploadQuota(root, sessionID string, size int64) error {
 		if err != nil {
 			return ErrUploadFailed
 		}
-		machine += bytes
+		total += bytes
 	}
-	if machine+size > terminalproto.MaxUploadMachineBytes {
+	for _, reservation := range m.uploadReserved {
+		total += reservation.bytes
+	}
+	if total+size > terminalproto.MaxUploadMachineBytes {
 		return ErrUploadQuota
 	}
+	held.files++
+	held.bytes += size
+	m.uploadReserved[sessionID] = held
 	return nil
+}
+
+func (m *Manager) releaseUpload(sessionID string, size int64) {
+	m.uploadMu.Lock()
+	defer m.uploadMu.Unlock()
+	held := m.uploadReserved[sessionID]
+	held.files--
+	held.bytes -= size
+	if held.files <= 0 || held.bytes <= 0 {
+		delete(m.uploadReserved, sessionID)
+		return
+	}
+	m.uploadReserved[sessionID] = held
 }
 
 func uploadFolderUsage(dir string) (int, int64, error) {
@@ -382,13 +435,12 @@ func removeUploadFolder(root, sessionID string) error {
 }
 
 func (m *Manager) sweepUploads(active map[string]bool, now time.Time) error {
-	m.uploadMu.Lock()
-	defer m.uploadMu.Unlock()
+	// Cleanup deliberately does not wait on uploadMu: a folder removed under
+	// an in-flight upload makes its publish fail, which is the right result
+	// for a session that has ended.
 	return sweepUploadRoot(filepath.Join(m.layout.Dir, "uploads"), active, now)
 }
 
 func (m *Manager) removeUploads(sessionID string) error {
-	m.uploadMu.Lock()
-	defer m.uploadMu.Unlock()
 	return removeUploadFolder(filepath.Join(m.layout.Dir, "uploads"), sessionID)
 }

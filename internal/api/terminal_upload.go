@@ -124,6 +124,7 @@ func (s *server) terminalUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(uploadRequestTimeout))
 	r.Body = http.MaxBytesReader(w, r.Body, terminalproto.MaxUploadBytes+1)
 	data, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -181,6 +182,7 @@ func uploadSizeBucket(size int) string {
 func (s *server) auditTerminalUpload(uid int64, session store.TerminalSession, mime string, size int) {
 	s.event(uid, "ui", "terminal-upload", "", map[string]string{
 		"machine": session.AgentID,
+		"host":    s.machineHost(uid, session.AgentID),
 		"tool":    session.Tool,
 		"mime":    mime,
 		"size":    uploadSizeBucket(size),

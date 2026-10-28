@@ -10,6 +10,9 @@ import (
 // per-session upload folder.
 const UploadFeature = "upload-v1"
 
+// UploadOperation is the reverse-stream operation an Upload uses.
+const UploadOperation = "upload"
+
 const (
 	// MaxUploadBytes is the largest image one upload may carry.
 	MaxUploadBytes = 5 << 20

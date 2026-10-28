@@ -46,7 +46,7 @@ await page.route('**/api/**',async route=>{
 const layout=async()=>expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
 try{
  await page.goto(`${base}/machines`)
- await page.getByRole('button',{name:'Private skill imports',exact:true}).click()
+ await page.getByRole('button',{name:'Import a machine skill…',exact:true}).click()
  const dialog=page.getByRole('dialog')
  await expect(dialog.getByRole('heading',{name:'Bring a machine skill into reet'})).toBeVisible()
  expect(writes).toEqual([])
@@ -101,7 +101,7 @@ try{
  expect(bundles).toHaveLength(2)
  await page.getByRole('button',{name:'Close skill imports'}).click()
  viewer=true;await page.reload()
- await expect(page.getByRole('button',{name:'Private skill imports',exact:true})).toHaveCount(0)
+ await expect(page.getByRole('button',{name:'Import a machine skill…',exact:true})).toHaveCount(0)
  expect(errors).toEqual([])
  console.log('Machine import UI passed: metadata-only preview, old connectors, explicit exclusions/approval, uncertain-response reconciliation, private receipts/history, responsive layouts and viewer isolation.')
 }finally{await browser.close()}

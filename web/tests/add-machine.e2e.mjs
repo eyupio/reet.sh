@@ -160,8 +160,8 @@ const parts=dialog=>({
  name:dialog.getByLabel('Machine name',{exact:true}),
  commands:dialog.locator('pre.commands'),
  status:dialog.locator('.join-status'),
- use:name=>dialog.getByRole('button',{name:`Use ${name}`,exact:true}),
- anyUse:dialog.getByRole('button',{name:/^Use /}),
+ use:name=>dialog.getByRole('button',{name:`Done — show ${name}`,exact:true}),
+ anyUse:dialog.getByRole('button',{name:/^Done — show /}),
 })
 const words=async dialog=>{const text=await dialog.innerText();expect(text).not.toMatch(/verified|healthy/i);return text}
 // Setting the value the way a paste would, which can carry what typing cannot.
@@ -199,10 +199,9 @@ try{
  await page.reload()   // the name just typed is remembered for the page's lifetime; start clean
  await expect(card('workstation')).toBeVisible()
  const storageBefore=await storage(),callsBefore=await storageCalls()
- // With machines listed, the entry sits beside the existing add action and the header one is gone.
+ // With machines listed, there is still one connect action and no second, differently-worded one.
  await expect(addButton()).toHaveCount(1)
- await expect(page.locator('.fleet-controls').getByRole('button',{name:'Add a machine',exact:true})).toBeVisible()
- await expect(page.locator('.fleet-controls').getByRole('button',{name:'Connect a machine',exact:true})).toBeVisible()
+ await expect(page.getByRole('button',{name:'Connect a machine',exact:true})).toHaveCount(0)
 
  // Opening writes nothing. The name is empty: no reason yet, no commands, nothing watched.
  const opener=addButton()

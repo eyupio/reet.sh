@@ -1,7 +1,8 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import { tick, untrack } from 'svelte'
-  import { terminalMachines, readiness, type TerminalMachine } from './terminal/api'
+  import { terminalControllerStatus, terminalMachines, readiness, type TerminalControllerStatus, type TerminalMachine } from './terminal/api'
+  import { controllerDetail } from './terminal/controllerStatus'
   import {
     updateSyncAgent,
     type Machine, type SetupProfileSummary, type SyncJob, type SyncState,
@@ -62,6 +63,9 @@
   let updateNotice = $state('')
   let updateError = $state('')
   let terminalRequest: AbortController | null = null
+  // The server's own terminal switch, read the first time step 3 is opened. Undefined while it is being read;
+  // null when the read failed.
+  let serverTerminal = $state<TerminalControllerStatus | null | undefined>(undefined)
 
   const wantedHost = $derived(host.trim().toLowerCase())
   const terminalHost = $derived.by(() => {
@@ -143,6 +147,15 @@
     now = Date.now()
     const timer = setInterval(() => (now = Date.now()), 5000)
     return () => clearInterval(timer)
+  })
+
+  $effect(() => {
+    if (!open || step !== 3 || !terminalAccess || serverTerminal !== undefined) return
+    const abort = new AbortController()
+    void terminalControllerStatus(AbortSignal.any([abort.signal, AbortSignal.timeout(10000)]))
+      .then((status) => { if (!abort.signal.aborted) serverTerminal = status })
+      .catch(() => { if (!abort.signal.aborted) serverTerminal = null })
+    return () => abort.abort()
   })
 
   // Ask the controller while the operator is over on the other machine. The
@@ -306,21 +319,21 @@
   <summary>
     <span>
       <span class="eyebrow">Machine setup</span>
-      <strong>Set up a machine</strong>
-      <small>Connect your machine and terminal, then bring its AI toolkit into the fleet.</small>
+      <strong>Advanced: step-by-step setup</strong>
+      <small>Install the CLI, authenticate and enroll by hand. Most people can use Add a machine instead.</small>
     </span>
-    <span class="summary-state">{machines.length ? `${machines.length} ${machines.length === 1 ? 'machine' : 'machines'} connected` : 'Start here'}</span>
-    <span class="chevron" aria-hidden="true">›</span>
+    <span class="summary-state">Optional</span>
+    <span class="chevron" aria-hidden="true"></span>
   </summary>
 
   <div class="setup-body">
     <div class="modes" role="group" aria-label="Setup type">
       <button type="button" class:active={mode === 'connect'} aria-pressed={mode === 'connect'} onclick={() => chooseMode('connect')}>
-        <span class="mode-icon" aria-hidden="true">↻</span>
+        <span class="mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M7 4 4 7l3 3M20 17H4m13-3 3 3-3 3"/></svg></span>
         <span><strong>Connect an existing machine</strong><small>It already has agents or skills. Connect its terminal, then choose what to sync.</small></span>
       </button>
       <button type="button" class:active={mode === 'scratch'} aria-pressed={mode === 'scratch'} onclick={() => chooseMode('scratch')}>
-        <span class="mode-icon" aria-hidden="true">＋</span>
+        <span class="mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
         <span><strong>Start from scratch</strong><small>A new machine. Restore a saved setup, then scan and sync.</small></span>
       </button>
     </div>
@@ -409,6 +422,17 @@
           <p>Enroll once. The CLI offers a terminal wizard for local shell consent, tmux 3.2+, independent services and connection checks.</p>
         </header>
         {#if mode === 'scratch' && tokenSetup}{@render tokenSetup()}{/if}
+        {#if terminalAccess}
+          <div class="server-terminal" class:ready={serverTerminal?.available}>
+            <div>
+              <strong>Terminal access on this server</strong>
+              <p>{serverTerminal === undefined ? 'Reading the server’s terminal status…' : controllerDetail(serverTerminal)}</p>
+            </div>
+            {#if serverTerminal && !serverTerminal.available}
+              <div class="command"><div class="command-copy"><span>Allow terminals on this server</span><CopyButton text="reet terminal start" label="Copy terminal start" compact /></div><pre>reet terminal start</pre></div>
+            {/if}
+          </div>
+        {/if}
         <label class="check"><input type="checkbox" bind:checked={allowApply} /> Allow this machine to apply sync plans I approve here</label>
         <div class="command">
           <div class="command-copy"><span>Enroll and connect</span><CopyButton text={enroll} label="Copy enrollment command" compact /></div>
@@ -526,8 +550,8 @@
   .setup > summary strong { font: 500 1.35rem/1.2 var(--serif); }
   .setup > summary small { color: var(--muted); font-size: 0.82rem; }
   .summary-state { flex: none; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.74rem; }
-  .chevron { flex: none; color: var(--muted); font-size: 1.35rem; line-height: 1; transition: transform 160ms ease; }
-  .setup[open] .chevron { transform: rotate(90deg); }
+  .chevron { flex: none; width: 9px; height: 9px; margin-right: 4px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform 160ms ease; }
+  .setup[open] .chevron { transform: rotate(45deg); }
   .setup[open] > summary { border-bottom: 1px solid var(--line); }
   .setup-body { padding: 20px 22px 24px; }
   .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
@@ -538,7 +562,8 @@
   .modes button > span:last-child { display: grid; gap: 3px; }
   .modes strong { font-size: 0.88rem; }
   .modes small { color: var(--muted); font-size: 0.78rem; line-height: 1.45; }
-  .mode-icon { display: grid; place-items: center; width: 30px; height: 30px; flex: none; border-radius: 50%; background: var(--card); color: var(--accent-text); font-size: 1rem; }
+  .mode-icon { display: grid; place-items: center; width: 30px; height: 30px; flex: none; border-radius: 50%; background: var(--card); color: var(--accent-text); }
+  .mode-icon svg { width: 16px; height: 16px; }
   .steps { display: flex; flex-wrap: wrap; gap: 4px; margin: 18px 0; padding: 5px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); }
   .steps button { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 6px 12px; border: 1px solid transparent; border-radius: 10px; background: none; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
   .steps .marker { display: grid; place-items: center; width: 21px; height: 21px; border: 1px solid var(--line); border-radius: 50%; font: 0.66rem var(--mono); }
@@ -570,6 +595,10 @@
   .advanced > summary { cursor: pointer; font-size: 0.84rem; font-weight: 600; }
   .advanced > * + * { margin-top: 10px; }
   .check { display: flex; align-items: center; gap: 9px; font-weight: 500; }
+  .server-terminal { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+  .server-terminal strong { font-size: 0.84rem; }
+  .server-terminal p { margin: 3px 0 0; color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
+  .server-terminal.ready { border-color: color-mix(in srgb, var(--good) 40%, var(--line)); }
   .check input { flex: none; }
 
   .watch, .joined { display: grid; gap: 12px; padding: 15px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }

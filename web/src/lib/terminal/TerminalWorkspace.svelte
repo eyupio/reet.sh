@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte'
   import {getProfile,getSyncState,saveProfile,type Machine} from '../api'
   import StartAgentDialog from '../StartAgentDialog.svelte'
+  import AddProjectDialog from '../home/AddProjectDialog.svelte'
   import SessionSidebar from './SessionSidebar.svelte'
   import CopyButton from '../CopyButton.svelte'
   import { createTerminal, folderProjectList, machineHealth, readiness, terminalMachines, terminalSessions, updateFolderProject, type FolderProject, type HealthResponse, type TerminalMachine, type TerminalSession } from './api'
@@ -98,6 +99,8 @@
   let healthIssue=$state(''),showCreate=$state(false)
   // The Start an agent dialog, with the button that opened it, and the folders the machines have reported (read when it opens).
   let agentStart=$state<{agent:string;opener:HTMLElement|null;dir?:string;projectId?:string}|null>(null),agentFolders=$state<Machine[]|undefined>(),folderRead=0
+  // Add a project from the session panel: the same dialog as Home, without leaving the terminal.
+  let addingProject=$state<{opener:HTMLElement|null}|null>(null)
   let action = $state<'rename'|'end'|'archive'|null>(null), actionSession = $state(''), rename = $state(''), actionTitle = $state(''), actionBusy = $state(false)
   let removeOnClose=$state(false),removeDefault=$state(false),saveRemoveDefault=$state(false),preferenceError=$state('')
   const endKeys = new Map<string,{key:string;remove:boolean}>()
@@ -209,6 +212,15 @@
     openAgentStart(project.host,opener)
     agentStart={agent:project.host,opener,dir:project.dir,projectId:project.id}
   }
+  function openAddProject(opener:HTMLElement){
+    if(accessDenied||addingProject)return
+    addingProject={opener}
+  }
+  function projectAdded(project:FolderProject){
+    inventoryVersion++
+    projects=[...(projects??[]).filter(item=>item.id!==project.id),project].sort((a,b)=>a.position-b.position)
+    void refresh()
+  }
   // The colour is saved on the project (it follows the person to every browser); the rail shows the choice at once and
   // puts the saved project back if the write is refused.
   async function saveProjectColour(project:FolderProject,colour:ProjectColour){
@@ -305,7 +317,7 @@
   {#if pendingCreation && !showCreate && session}<p class="workspace-notice" role="status">A creation on this machine is unconfirmed. <button onclick={()=>{title=pendingCreation?.title||title;showCreate=true}}>Review creation</button></p>{/if}
   {#if error && !showCreate}<p class="workspace-notice bad" role="alert">{error} <button onclick={() => void refresh()}>Retry status</button></p>{/if}
   <div class="workspace-body" class:docked={shown==='docked'||shown==='mini'} bind:clientWidth={bodyWidth}>
-    {#if shown!=='closed'}<SessionSidebar {machines} {sessions} {projects} projectRunning={runningByProject} currentProject={currentProjectId} onprojectstart={startInProject} onprojectcolour={saveProjectColour} health={health.machines} {serverNow} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onmachine={chooseMachine} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
+    {#if shown!=='closed'}<SessionSidebar {machines} {sessions} {projects} projectRunning={runningByProject} currentProject={currentProjectId} onprojectstart={startInProject} onprojectadd={openAddProject} onprojectcolour={saveProjectColour} health={health.machines} {serverNow} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
     {#if shown==='docked'||shown==='mini'}
       <!-- A focusable window splitter: drag (pointer capture), Left/Right 16 px, Home the mini rail, End the widest, double-click 280 px. -->
       <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -335,6 +347,7 @@
 </WorkspaceDialog>{/if}
 {#if showCreate}<WorkspaceDialog title="New terminal session" onclose={() => showCreate = false}><p class="dialog-copy">Create a shell on <strong>{machine?.host || 'the selected machine'}</strong>. Changing machines does not stop existing sessions.</p>{#if error}<p class="dialog-copy" role="alert">{error}</p>{/if}{@render createForm()}</WorkspaceDialog>{/if}
 {#if agentStart}<StartAgentDialog {machines} snapshot={agentFolders} initialAgent={agentStart.agent} initialDir={agentStart.dir ?? ''} projectId={agentStart.projectId ?? ''} opener={agentStart.opener} onstarted={agentStarted} onaddmachine={()=>location.assign('/machines#add-machine')} onclose={closeAgentStart} />{/if}
+{#if addingProject}<AddProjectDialog {machines} opener={addingProject.opener} onadded={projectAdded} onsignedout={()=>{accessDenied=true;addingProject=null}} onclose={()=>addingProject=null} />{/if}
 {#if detailsOpen}<WorkspaceDialog title="Machine & terminal details" onclose={() => detailsOpen = false}>
   <p class="dialog-copy">{machine?.host || 'No machine selected'}{machine?.capabilities?.osUser ? ` · Shell user ${machine.capabilities.osUser}` : ''}</p>
   {#if setup}<section class="setup-notice"><h3>Terminal setup</h3><p>{setup}</p>{#if machine?.serverEnabled !== false && !machine?.capabilities?.terminalEnabled}<pre>reet agent terminal setup</pre><CopyButton text={'reet agent terminal setup'} label="Copy local terminal setup" />{:else if machine?.capabilities?.readiness === 'supervisor_unavailable'}<pre>reet agent stop

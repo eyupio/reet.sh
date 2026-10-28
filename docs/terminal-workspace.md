@@ -55,10 +55,12 @@ The panel opens with **Projects** above the session list: the same folder projec
 one row each with its colour, name and live count. A row's **+** starts an agent in that project's
 folder and opens the new session; the row itself continues the project's live session (or its most
 recent one). Right-click, Shift+F10 or the row's menu opens New session here, Show on Home and the
-project's colour. Colours are saved on the project, so they follow the person to every browser;
-a session's own colour, chosen from its row's menu, still wins over its project's. A session row's
-hover or keyboard focus shows a card with the machine, project, branch, state, runtime and the
-machine's last CPU, memory and disk readings, named last known when the report is stale.
+project's colour. The heading's **+** opens Add a project in place, so a project can be added
+without leaving the terminal; the empty list says so too. Colours are saved on the project, so they
+follow the person to every browser; a session's own colour, chosen from its row's menu, still wins
+over its project's. A session row's hover or keyboard focus shows a card with the machine, project,
+branch, state, runtime and the machine's last CPU, memory and disk readings, named last known when
+the report is stale.
 
 The sessions panel scrolls independently and has three modes: **full**, a 64 px
 **mini rail**, and **closed**. **Sessions** in the workspace header opens or closes
@@ -105,7 +107,7 @@ closes). The rules live in `terminal/panelLayout.ts`, unit tested by
   "Title on machine, state". Hover or keyboard focus shows the session card (machine,
   project, branch, state and the machine's last readings). The rail also has **Expand
   sessions**, **New session**, **Find sessions** and a chevron that closes it. The
-  rail lists every session, whatever machine filter or search the full panel has.
+  rail lists every session, whatever search the full panel has.
 - **Saved layout.** Mode, width and Keep open are saved in this browser under the
   existing per-account key (`reet-terminal-layout:<user>`), as
   `{open, mode, width, pinned}`; `open` keeps older pages reading it. A layout saved
@@ -125,8 +127,8 @@ closes). The rules live in `terminal/panelLayout.ts`, unit tested by
   slides in briefly unless the system asks for reduced motion. The phone keyboard
   focus layout is unchanged.
 
-**Your sessions → Machines** defaults to all machines, with individual selection
-and multi-machine checkboxes. Filtering or organising never creates or stops a
+**Your sessions** lists every session and its machine; machines also appear as group headings
+when grouped by Machine, each with its own **+** and menu. Organising never creates or stops a
 shell. Select a row to continue that exact session across machines. Sort by custom
 order, name, recent metadata activity, creation or state; group by machine, state,
 colour or none. Drag the row's action handle within its group in Custom order;

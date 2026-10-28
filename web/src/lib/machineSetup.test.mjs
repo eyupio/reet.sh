@@ -10,7 +10,7 @@ const machinesURL = `data:text/javascript;base64,${Buffer.from(transpile('./mach
 const setupSource = transpile('./machineSetup.ts').replace("from './machines'", `from '${machinesURL}'`)
 const {
   connectionStage, enrollCommands, machineStatus, profileFetchCommand, profilePullCommand,
-  machineLink, retryDelay, scanCommand, shellQuote, supportedAgents, syncLink,
+  retryDelay, scanCommand, shellQuote, supportedAgents, syncLink,
 } = await import(`data:text/javascript;base64,${Buffer.from(setupSource).toString('base64')}`)
 
 const now = Date.now()
@@ -40,10 +40,6 @@ test('commands are shell-quoted and machine-specific', () => {
   assert.match(profileFetchCommand('work', 4), /--profile 'work' --revision 4/)
 })
 
-test('machine links open the focused machine view', () => {
-  assert.equal(machineLink('PROD_Snicket'), '/machines?machine=PROD_Snicket')
-  assert.match(machineLink('studio / west'), /machine=studio%20%2F%20west/)
-})
 
 test('machine sync links preselect the machine without inventing an agent target', () => {
   assert.equal(syncLink('PROD_Snicket'), '/machines?view=compare&machine=PROD_Snicket')

@@ -78,10 +78,6 @@ export function syncLink(host: string): string {
   return `/machines?view=compare&machine=${encodeURIComponent(host)}`
 }
 
-export function machineLink(host: string): string {
-  return `/machines?machine=${encodeURIComponent(host)}`
-}
-
 export function supportedAgents(machine?: Machine): SyncEnvironment[] {
   return agentGroups(machine).filter((group) => ['agents', 'claude', 'cursor', 'opencode'].includes(group.agent))
 }

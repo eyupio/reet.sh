@@ -16,7 +16,7 @@ environments[0].content={state:'observed',schemaVersion:1,receivedAt:now,skills:
 environments[1].content={state:'stale',schemaVersion:1,receivedAt:now-600000,skills:[{name:'code-review',complete:false,files:0,bytes:0,issues:['symlink']}]}
 let snapshot={environments,machines:['dev-laptop','build-server'].map(host=>({host,groups:environments.filter(e=>e.host===host),skillCount:host==='dev-laptop'?2:3})),agents:[{id:'a',host:'dev-laptop',version:'test',lastSeen:now,paused:false,autoUpdate:true},{id:'b',host:'build-server',version:'test',lastSeen:now,paused:false,autoUpdate:false}],releases:{latest:{version:'v1.4.2'}},updateJobs:[{id:'u1',agentId:'a',targetId:'',kind:'update',status:'succeeded',revision:'latest',hash:'',plan:{},message:'Updated to test. The agent is reporting again.',createdAt:now-120000,updatedAt:now-60000,stages:[{key:'queued',label:'Queued for the machine',status:'done'},{key:'install',label:'Installing the new binary',status:'done'}]},{id:'u2',agentId:'b',targetId:'',kind:'update',status:'failed',revision:'latest',hash:'',plan:{},message:'The checksum did not match.',createdAt:now-120000,updatedAt:now-60000,stages:[{key:'queued',label:'Queued for the machine',status:'done'},{key:'verify',label:'Verifying the checksum and build',status:'failed',detail:'Checksum mismatch'}]}],targets:environments.map(target=>({target,sourceId:'shelf',sourceName:'Central library',mode:'additive',desired:skills,missing:skills.filter(s=>!target.skills.some(a=>a.id===s.id)),extra:[],revision:`rev-${target.id}`,updatedAt:now})),jobs:[]}
 let terminalReady=true
-let viewer=false, failQueue=false, failSave=false, failState=false, failSource=false
+let viewer=false, failQueue=false, failRetry=false, failSave=false, failState=false, failSource=false
 await page.route('**/api/**',async route=>{
  const request=route.request(), path=new URL(request.url()).pathname
  const body=request.method()==='GET'?null:request.postDataJSON()
@@ -43,6 +43,7 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/sync/jobs'){
   writes.push({path,body})
   if(failQueue&&body.agentId==='b')return route.fulfill({status:409,json:{error:'Machine busy'}})
+  if(failRetry&&body.agentId==='b')return route.fulfill({status:409,json:{error:'Machine busy'}})
   data=snapshot
  }
  else if(path==='/api/v2/machines/health')data={serverNow:now,machines:[]}
@@ -206,6 +207,35 @@ try {
   await expect(page.locator('.scope-option')).toHaveCount(3)
   await noOverflow()
  }
+ // A failed job's retry answers on the card that was pressed, not only in the banner at the top.
+ // The panel's message is the real agent refusal: opting into apply is a local command.
+ const failedJob=(id,agentId,targetId)=>({id,agentId,targetId,kind:'apply',status:'failed',revision:'rev',hash:'h',plan:{},message:'remote apply disabled locally; run reet agent allow-apply on in a terminal on this machine to opt in',stage:'',stages:[],createdAt:now-120000,updatedAt:now-60000})
+ writes.length=0
+ snapshot={...snapshot,agents:snapshot.agents.map(agent=>({...agent,lastSeen:Date.now()})),jobs:[failedJob('r1','a','laptop-shared'),failedJob('r2','b','build-shared')]}
+ await page.setViewportSize({width:390,height:844})
+ await page.goto(`${base}/sync`)
+ const devJob=page.locator('article.control').filter({hasText:'dev-laptop · apply'})
+ const devRetry=devJob.getByRole('button',{name:/run it/})
+ await devRetry.scrollIntoViewIfNeeded()
+ await devRetry.click()
+ const devQueued=devJob.getByRole('status').filter({hasText:'Fresh preview queued for dev-laptop'})
+ await expect(devQueued).toBeVisible()
+ await expect(devQueued).toBeInViewport()
+ expect(writes.at(-1)).toEqual({path:'/api/v2/sync/jobs',body:{agentId:'a',targetId:'laptop-shared',kind:'preview'}})
+ await expect(devJob.getByRole('button',{name:/run it/})).toHaveCount(0)
+ failRetry=true
+ const serverJob=page.locator('article.control').filter({hasText:'build-server · apply'})
+ const serverRetry=serverJob.getByRole('button',{name:/run it/})
+ await serverRetry.scrollIntoViewIfNeeded()
+ await serverRetry.click()
+ const refused=serverJob.getByRole('alert').filter({hasText:'Machine busy'})
+ await expect(refused).toBeVisible()
+ await expect(refused).toBeInViewport()
+ await expect(serverJob.getByRole('button',{name:/run it/})).toBeVisible()
+ failRetry=false
+ snapshot={...snapshot,jobs:[]}
+ writes.length=0
+ await page.setViewportSize({width:1440,height:900})
  failSource=true
  await page.goto(`${base}/sync?machine=*`)
  await expect(page.getByRole('alert')).toContainText('Source unavailable')

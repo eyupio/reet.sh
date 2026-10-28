@@ -1,8 +1,8 @@
 # Projects
 
-A **project** is one folder on one machine, kept in the project rail on Home. Choosing a card opens
-Start an agent on its machine with that folder filled in (the launch bar takes this over in a later
-release); a session started there is listed under the project in In flight. A project can carry an optional **starter prompt**,
+A **project** is one folder on one machine, kept in the project rail on Home. Choosing a card puts it
+in Home's launch bar with its own defaults ([Start an agent session](start-agent-session.md#on-home-the-launch-bar));
+a session started there is listed under the project in In flight. A project can carry an optional **starter prompt**,
 a default agent and model, a default base branch, whether each session gets its own worktree, and a
 rail **colour** (blank, red, amber, green, blue or violet) that marks it in the rail and, by default,
 the sessions started in it.
@@ -15,7 +15,7 @@ the Worktrees list `ProjectWorktrees.svelte`. The controller code is `internal/a
 `internal/store/store_projects_migrate.go`. The design is in
 [the agents home spec](superpowers/specs/2026-10-26-agents-home-design.md) ("Project registry",
 "Migration"); the multi-repository Projects it replaces are in
-[the Projects spec](superpowers/specs/2026-10-25-projects-design.md).
+the Projects spec (removed in the docs tidy-up; see git history before bd9e56c).
 
 A started session means only that the machine started the program in tmux in that folder. It does
 not show that the agent is signed in, understands the prompt or is making progress.
@@ -76,8 +76,10 @@ so a finished session's worktree is never counted, and nothing shows at 0. The f
 same figure per machine ("no worktrees in use" included). The foot reads "Folders are browsed live on
 the machine".
 
-Choosing a card opens Start an agent on its machine with its folder filled in; the start carries the
-project's id, so the session is listed under it. Each card's menu (its button shows on hover or
+Choosing a card, or **New session here** in its menu, sets the launch bar's project: its default agent
+and model, its base branch and its worktree choice go into the sentence, and focus moves to the prompt.
+The start carries the project's id, so the session is listed under it. While the bar has a start out
+or kept for a retry, a card changes nothing and the bar's status line says why. Each card's menu (its button shows on hover or
 keyboard focus with a mouse, always on touch; arrow keys move, Escape closes): **New session here**,
 **Edit**, **Worktrees**, **Move up**, **Move down** and **Remove from reet**.
 
@@ -99,7 +101,13 @@ keyboard focus with a mouse, always on touch; arrow keys move, Escape closes): *
   any worktrees stay on studio, and the folder isn't touched."), then answers "Project removed. Its
   sessions and any worktrees stay on studio." Only the registry entry goes.
 
-`/?project=<id>` marks that project's card (the launch bar takes it in a later release). Jump finds
+**Select projects** in the rail heading's menu, or a long press on a card on touch, turns the cards
+into checkboxes for **Start in several projects** (2 to 12 projects; the 56 px strip shows how many
+are chosen). The launch bar then starts them as one run, each project from its own base branch (else
+the account's default), with a status sheet that counts what started and offers Retry per member.
+How it works is in [Start an agent session](start-agent-session.md#start-in-several-projects).
+
+`/?project=<id>` marks that project's card and puts it in the launch bar. Jump finds
 projects by name and opens that address.
 
 ## Routes and shapes
@@ -138,14 +146,13 @@ The session listing (`GET /api/v2/terminal/sessions`) now carries, for every ses
 was started in, `null` otherwise), and never the prompt. The profile (`GET`/`PATCH /api/v2/profile`)
 gains `defaultBaseBranch` (blank, the repository's own default, or a valid branch name) and
 `worktreesByDefault` (true unless changed): the account default a project's `inherit` means. No page
-sets either yet; until the launch bar they are set only through the profile API.
+sets either yet: they are set through the profile API, and the launch bar reads them.
 
 ## Starter prompts
 
 A starter prompt lives in the project record only: never in the audit, logs, browser storage or an
-address. The list never carries it. Nothing uses it yet: a start from the rail does not send it, and
-the Add and Edit dialog says so. The launch bar (a later release) is to offer it as **Use the starter
-prompt**; reet never sends it by itself.
+address. The list never carries it. The launch bar offers it as **Use the starter prompt** while
+the prompt box is empty; reet never puts it in the box, or sends it, by itself.
 
 ## Moving saved Projects
 
@@ -419,9 +426,8 @@ projects" and "Browsed folders from ~ (3 pages)". The old runs' `project-run`, `
 - **Worktrees in use, not worktrees made.** No record says which worktrees reet made and has not
   removed, so the rail and fleet cards count only those live sessions are in. A worktree left by an
   ended session (outside an old run) is not listed anywhere.
-- **No launch bar yet.** Choosing a card opens Start an agent; the project's default agent, model,
-  base branch, worktree choice and starter prompt are not applied until the launch bar (a later
-  release). A session started there with the same folder carries the project id.
+- **YOLO not yet.** The launch bar shows YOLO disabled and the controller refuses it (409
+  `yolo_refused`), for one project and for several, until a later release.
 - **Old runs listed: the newest 20 per saved Project** (what the run list answers); older runs and their
   worktrees are not listed.
 - **Rail menu reorder only.** Moving is one place at a time from the menu; there is no drag.
@@ -433,8 +439,7 @@ projects" and "Browsed folders from ~ (3 pages)". The old runs' `project-run`, `
   over.
 - **A session's project is checked for account and machine, not folder.** A start may name any of the
   account's projects on that machine, whatever folder it starts in; the rail then counts that session
-  under the project. Choosing a card only sends the id while the folder is still the project's. (The
-  launch bar may check the folder too.)
+  under the project. The launch bar sends a project's id only with that project's own folder.
 - **No running state without sessions.** When the session list could not be read, cards say nothing
   about running, idle or worktrees in use ("machine offline" still shows from the health report).
 

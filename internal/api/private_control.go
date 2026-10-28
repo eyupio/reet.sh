@@ -13,7 +13,18 @@ import (
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
-const privateControlFeatures = terminalproto.CommandHistoryFeature + "," + terminalproto.LaunchFeature + "," + terminalproto.WorktreeFeature + "," + terminalproto.BrowseFeature + "," + terminalproto.BranchesFeature + "," + terminalproto.AgentsFeature
+// agreedControlFeatures is the feature list this connection negotiates: every
+// private control feature, with agents-v2 only for a machine that claims it.
+func agreedControlFeatures(c terminalproto.Capabilities) string {
+	features := []string{terminalproto.CommandHistoryFeature, terminalproto.LaunchFeature, terminalproto.WorktreeFeature, terminalproto.BrowseFeature, terminalproto.BranchesFeature}
+	if c.AgentsV2 {
+		features = append(features, terminalproto.AgentsFeature)
+	}
+	return strings.Join(features, ",")
+}
+
+// privateControlFeatures is what the route advertises: the most a machine can agree.
+var privateControlFeatures = agreedControlFeatures(terminalproto.Capabilities{AgentsV2: true})
 
 // privateControl upgrades the exact private control route, authenticates the
 // enrollment, assigns a connection generation, and then services typed control
@@ -48,13 +59,17 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusPolicyViolation, "invalid handshake")
 		return
 	}
-	if handshake.Capabilities.ValidateFor(privateControlFeatures) != nil || !handshake.Capabilities.HealthEnabled {
-		_ = conn.Close(websocket.StatusPolicyViolation, "health reporting is disabled")
+	// Agree the connection's features first and validate the hello against
+	// them: a machine that does not claim agents-v2 cannot store v2 tools or an
+	// OS version.
+	connectionFeatures := agreedControlFeatures(handshake.Capabilities)
+	if handshake.Capabilities.ValidateFor(connectionFeatures) != nil {
+		_ = conn.Close(websocket.StatusPolicyViolation, "invalid capabilities")
 		return
 	}
-	connectionFeatures := privateControlFeatures
-	if !handshake.Capabilities.AgentsV2 {
-		connectionFeatures = strings.TrimSuffix(connectionFeatures, ","+terminalproto.AgentsFeature)
+	if !handshake.Capabilities.HealthEnabled {
+		_ = conn.Close(websocket.StatusPolicyViolation, "health reporting is disabled")
+		return
 	}
 	caps, err := s.st.BeginRemoteConnectionFor(uid, agent.ID, handshake.AgentInstanceID, handshake.Capabilities)
 	if err != nil {

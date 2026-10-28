@@ -60,6 +60,8 @@ export async function terminalTicket(session: string, cols: number, rows: number
 export async function machineHealth(signal?: AbortSignal): Promise<HealthResponse> { return (await terminalRequest('/api/v2/machines/health', { signal })).json() }
 export async function renameTerminal(id: string, title: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}`, { method:'PATCH', body:JSON.stringify({title}) }) }
 export async function endTerminal(id: string, requestId: string, removeHistory=false): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/end`, { method:'POST', body:JSON.stringify({requestId,removeHistory}) }) }
+/** The address that opens one session on the Terminals page (PR H moves it to /sessions). Only ids go in the address. */
+export const sessionHref = (session: Pick<TerminalSession, 'agentId' | 'id'>): string => `/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`
 export function terminalClosed(state: SessionState): boolean { return ['ended','exited','lost'].includes(state) }
 export async function archiveTerminal(id:string):Promise<void>{await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/archive`,{method:'POST',body:'{}'})}
 export async function terminalHistory(id: string, signal?: AbortSignal): Promise<string> { return (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/history?lines=2000`, {signal})).text() }
@@ -107,6 +109,18 @@ const ifMatch = (version: number): Record<string, string> => ({ 'If-Match': `"${
 export async function listProjects(signal?: AbortSignal): Promise<Project[]> { return (await (await terminalRequest('/api/v2/projects', { signal: within(signal) })).json()).projects }
 export async function projectRuns(projectId: string, signal?: AbortSignal): Promise<ProjectRun[]> { return (await (await terminalRequest(`${projectPath(projectId)}/runs`, { signal: within(signal) })).json()).runs }
 export async function getRun(runId: string, signal?: AbortSignal): Promise<ProjectRun> { return (await terminalRequest(`/api/v2/project-runs/${encodeURIComponent(runId)}`, { signal: within(signal) })).json() }
+// Start in several projects: one run of the folder projects chosen in the rail (POST /api/v2/folder-projects/runs), read and
+// retried under the folder projects' routes. The start is idempotent by its request id; a member's retry asks the controller,
+// which keeps the same request id while the earlier create may have started an agent.
+export type SelectionRunBody = { requestId: string; projectIds: string[]; tool: string; model: string; effort: string; prompt: string; worktree: boolean }
+const selectionRunPath = (runId: string): string => `/api/v2/folder-projects/runs/${encodeURIComponent(runId)}`
+export async function startSelectionRun(body: SelectionRunBody, signal?: AbortSignal): Promise<ProjectRun> {
+  return (await terminalRequest('/api/v2/folder-projects/runs', { method: 'POST', signal: within(signal), body: JSON.stringify(body) })).json()
+}
+export async function getSelectionRun(runId: string, signal?: AbortSignal): Promise<ProjectRun> { return (await terminalRequest(selectionRunPath(runId), { signal: within(signal) })).json() }
+export async function retrySelectionMember(runId: string, position: number, signal?: AbortSignal): Promise<ProjectRun> {
+  return (await terminalRequest(`${selectionRunPath(runId)}/members/${position}/retry`, { method: 'POST', signal: within(signal), body: '{}' })).json()
+}
 export async function worktreeStatus(target: WorktreeTarget, signal?: AbortSignal): Promise<WorktreeStatus> {
   return (await terminalRequest('/api/v2/terminal/worktrees/status', { method: 'POST', signal: within(signal), body: JSON.stringify(target) })).json()
 }

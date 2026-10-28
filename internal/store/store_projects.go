@@ -72,7 +72,33 @@ var (
 	ErrRunMemberNotFailed  = errors.New("only a failed run member can be retried")
 	ErrRunRequestChanged   = errors.New("that start request id was used with other repositories")
 	ErrRunInProgress       = errors.New("an earlier run of this Project is still starting")
+	// ErrSelectionSize refuses a start in several projects that does not name
+	// MinSelectionProjects to MaxSelectionProjects different projects.
+	ErrSelectionSize = fmt.Errorf("a start in several projects names %d to %d different projects", MinSelectionProjects, MaxSelectionProjects)
 )
+
+// Where a run came from: a saved Project (a set of repositories, kept to read
+// for one more release) or a selection of folder projects in the rail.
+const (
+	RunOriginSet       = "set"
+	RunOriginSelection = "selection"
+)
+
+// How many folder projects one start in several projects names.
+const (
+	MinSelectionProjects = 2
+	MaxSelectionProjects = 12
+)
+
+// RunLaunch is what a start in several projects sends to every member: the
+// agent, its model and effort, the opening prompt, whether each repository
+// gets a fresh worktree, and YOLO. The prompt is user text: it never reaches
+// audit, logs, errors or JSON.
+type RunLaunch struct {
+	Tool, Model, Effort string
+	Prompt              string `json:"-"`
+	Worktree, Yolo      bool
+}
 
 type ProjectMember struct {
 	Host     string
@@ -136,20 +162,43 @@ type RunMember struct {
 	// be running, and a new request id with the same worktree token would
 	// start a second one in the same worktree.
 	Sent bool
+	// For a selection run only: the folder project the member was made from,
+	// its name and base branch then, and NoWorktree for a folder that is not a
+	// repository (it works in its folder although the run makes worktrees).
+	ProjectID  string
+	Name       string
+	Base       string
+	NoWorktree bool
+	// BaseInherited is true while Base came from the account's default base
+	// branch (the project names none) and the orchestrator has not yet decided
+	// whether to send it: it is not sent to a machine without agents-v2. The
+	// decision is made once, before the first send, and kept (SettleRunMemberBase).
+	BaseInherited bool
 }
+
+// InWorktree reports whether the member of r starts in a fresh worktree.
+func (m RunMember) InWorktree(r Run) bool { return r.UseWorktrees && !m.NoWorktree }
 
 // Run is a historical record. Prompt is the shared prompt as it was when the
 // run started; it is kept for the orchestrator and must never reach audit,
 // logs, errors or JSON.
 type Run struct {
-	ID           string
-	ProjectID    string // empty once the Project is deleted
+	ID string
+	// Origin is RunOriginSet or RunOriginSelection.
+	Origin string
+	// ProjectID is the saved Project of a set run (empty once the Project is
+	// deleted); a selection run has none, and each member names its own.
+	ProjectID string
+	// ProjectName is the Project's name, or a selection's names joined.
 	ProjectName  string
 	State        string
 	Prompt       string `json:"-"`
 	UseWorktrees bool
-	Members      []RunMember
-	CreatedAt    int64
+	// Effort and Yolo are a selection run's launch options for every member.
+	Effort    string
+	Yolo      bool
+	Members   []RunMember
+	CreatedAt int64
 }
 
 // HasPrompt reports whether the run carries a shared prompt, without exposing it.
@@ -248,6 +297,31 @@ func (s *Store) migrateProjects() error {
 			if _, err := tx.Exec(stmt); err != nil {
 				return err
 			}
+		}
+		// Runs made before selection runs gain their columns.
+		for _, c := range [][3]string{
+			{"project_runs", "origin", `TEXT NOT NULL DEFAULT 'set'`},
+			{"project_runs", "effort", `TEXT NOT NULL DEFAULT ''`},
+			{"project_runs", "yolo", `INTEGER NOT NULL DEFAULT 0`},
+			{"project_run_members", "folder_project_id", `TEXT NOT NULL DEFAULT ''`},
+			{"project_run_members", "name", `TEXT NOT NULL DEFAULT ''`},
+			{"project_run_members", "base", `TEXT NOT NULL DEFAULT ''`},
+			{"project_run_members", "no_worktree", `INTEGER NOT NULL DEFAULT 0`},
+			{"project_run_members", "base_inherited", `INTEGER NOT NULL DEFAULT 0`},
+		} {
+			var n int
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name=?`, c[0], c[1]).Scan(&n); err != nil {
+				return err
+			}
+			if n == 0 {
+				if _, err := tx.Exec(`ALTER TABLE ` + c[0] + ` ADD COLUMN ` + c[1] + ` ` + c[2]); err != nil {
+					return err
+				}
+			}
+		}
+		// A start request id names one selection run per account.
+		if _, err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS project_runs_selection_request ON project_runs(user_id,request_id) WHERE origin='selection' AND request_id<>''`); err != nil {
+			return err
 		}
 		// Tables made before versions existed gain the column.
 		var have int
@@ -761,7 +835,7 @@ func (s *Store) startRun(uid int64, projectID, requestID string, expect int64, p
 			id, uid, p.ID, p.Name, p.SharedPrompt, p.UseWorktrees, t, requestID); err != nil {
 			return err
 		}
-		run = Run{ID: id, ProjectID: p.ID, ProjectName: p.Name, Prompt: p.SharedPrompt, UseWorktrees: p.UseWorktrees, CreatedAt: t}
+		run = Run{ID: id, Origin: RunOriginSet, ProjectID: p.ID, ProjectName: p.Name, Prompt: p.SharedPrompt, UseWorktrees: p.UseWorktrees, CreatedAt: t}
 		for _, m := range chosen {
 			key := [2]string{hostKey(m.Host), m.Dir}
 			if seen[key] {
@@ -774,6 +848,168 @@ func (s *Store) startRun(uid int64, projectID, requestID string, expect int64, p
 				return err
 			}
 			run.Members = append(run.Members, RunMember{Position: m.Position, Host: m.Host, Dir: m.Dir, Tool: tool, Model: model, State: RunMemberPending, Attempt: 1})
+		}
+		run.State = DeriveRunState(run.Members)
+		return nil
+	})
+	if err != nil {
+		return Run{}, false, err
+	}
+	return run, created, nil
+}
+
+// validate checks a selection's launch with the connector's own rules, so a
+// run never holds a create every member would refuse. The messages never
+// repeat the prompt.
+func (l RunLaunch) validate() error {
+	if !terminalproto.ValidToolV2(l.Tool) {
+		return invalid("agent must be one that reet starts")
+	}
+	if l.Model != "" && (!terminalproto.ValidModel(l.Model) || !terminalproto.ToolTakesModel(l.Tool)) {
+		return invalid("model has characters or a length the connector would refuse, or the agent takes none")
+	}
+	switch l.Effort {
+	case "":
+	case "low", "medium", "high":
+		if !terminalproto.ToolTakesEffort(l.Tool) {
+			return invalid("that agent takes no thinking effort")
+		}
+	default:
+		return invalid("thinking effort must be low, medium or high")
+	}
+	if l.Prompt != "" && !terminalproto.ValidPrompt(l.Prompt) {
+		return invalid("opening prompt must be valid text of at most %d bytes with no control characters except newline, and must not start with -", terminalproto.MaxPromptBytes)
+	}
+	if terminalproto.PromptNeedsWords(l.Tool, l.Prompt) {
+		return invalid("opening prompt must be more than one word for %s", l.Tool)
+	}
+	return nil
+}
+
+// sameSelection reports whether an existing selection run was made from
+// exactly these projects, in this order, with this launch.
+func sameSelection(r Run, projectIDs []string, l RunLaunch) bool {
+	if r.Origin != RunOriginSelection || len(r.Members) != len(projectIDs) || r.Prompt != l.Prompt || r.UseWorktrees != l.Worktree || r.Effort != l.Effort || r.Yolo != l.Yolo {
+		return false
+	}
+	for i, m := range r.Members {
+		if m.Position != i || m.ProjectID != projectIDs[i] || m.Tool != l.Tool || m.Model != l.Model {
+			return false
+		}
+	}
+	return true
+}
+
+// SelectionRunForRequest reports whether uid already has a selection run made
+// by requestID, so a resend of a lost reply can be told from a new start.
+func (s *Store) SelectionRunForRequest(uid int64, requestID string) (bool, error) {
+	var one int
+	err := s.db.QueryRow(`SELECT 1 FROM project_runs WHERE user_id=? AND origin='selection' AND request_id=? AND request_id<>''`, uid, requestID).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// StartSelectionRunFor is how a person starts agents in several folder
+// projects at once (2 to 12, each once, in the order given). The run snapshots
+// one member per project: its machine, folder and name and, with a worktree,
+// its base branch (the project's own, else the account's default, else none).
+// A folder that is not a repository works in its folder. requestID makes it
+// idempotent as for StartRunFor: the same id with the same projects and launch
+// answers with its run (created false), with anything else
+// ErrRunRequestChanged. A new run is refused with ErrRunInProgress while a
+// member of any run in one of these folders is still pending. The
+// orchestrator drives it with the same rules as a set run.
+func (s *Store) StartSelectionRunFor(uid int64, requestID string, projectIDs []string, launch RunLaunch) (Run, bool, error) {
+	if !terminalproto.ValidID(requestID) {
+		return Run{}, false, invalid("a start needs a request id of 16 to 128 letters, digits, - or _")
+	}
+	if len(projectIDs) < MinSelectionProjects || len(projectIDs) > MaxSelectionProjects {
+		return Run{}, false, ErrSelectionSize
+	}
+	named := map[string]bool{}
+	for _, id := range projectIDs {
+		if named[id] {
+			return Run{}, false, ErrSelectionSize
+		}
+		named[id] = true
+	}
+	if err := launch.validate(); err != nil {
+		return Run{}, false, err
+	}
+	id, err := projectRandomID()
+	if err != nil {
+		return Run{}, false, err
+	}
+	var run Run
+	created := false
+	err = s.withTx(func(tx *sql.Tx) error {
+		var existing string
+		err := tx.QueryRow(`SELECT id FROM project_runs WHERE user_id=? AND origin='selection' AND request_id=?`, uid, requestID).Scan(&existing)
+		if err == nil {
+			if run, err = loadRun(tx, uid, existing); err != nil {
+				return err
+			}
+			if !sameSelection(run, projectIDs, launch) {
+				return ErrRunRequestChanged
+			}
+			return nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		projects := make([]FolderProject, 0, len(projectIDs))
+		for _, pid := range projectIDs {
+			p, err := scanFolderProject(tx.QueryRow(`SELECT `+folderColumns+` FROM folder_projects WHERE id=? AND user_id=?`, pid, uid))
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrFolderProjectNotFound
+			}
+			if err != nil {
+				return err
+			}
+			var busy int
+			err = tx.QueryRow(`SELECT 1 FROM project_run_members WHERE user_id=? AND state='pending' AND host=? AND dir=? LIMIT 1`, uid, p.Host, p.Dir).Scan(&busy)
+			if err == nil {
+				return ErrRunInProgress
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			projects = append(projects, p)
+		}
+		var profileBase string
+		if err := tx.QueryRow(`SELECT default_base_branch FROM user_profiles WHERE user_id=?`, uid).Scan(&profileBase); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		names := make([]string, len(projects))
+		for i, p := range projects {
+			names[i] = p.Name
+		}
+		created = true
+		t := now()
+		run = Run{ID: id, Origin: RunOriginSelection, ProjectName: strings.Join(names, ", "), Prompt: launch.Prompt, UseWorktrees: launch.Worktree,
+			Effort: launch.Effort, Yolo: launch.Yolo, CreatedAt: t}
+		if _, err := tx.Exec(`INSERT INTO project_runs(id,user_id,project_id,project_name,prompt,use_worktrees,created_at,request_id,origin,effort,yolo) VALUES(?,?,NULL,?,?,?,?,?,'selection',?,?)`,
+			id, uid, run.ProjectName, run.Prompt, run.UseWorktrees, t, requestID, run.Effort, run.Yolo); err != nil {
+			return err
+		}
+		for i, p := range projects {
+			m := RunMember{Position: i, Host: p.Host, Dir: p.Dir, Tool: launch.Tool, Model: launch.Model, State: RunMemberPending, Attempt: 1, ProjectID: p.ID, Name: p.Name}
+			switch {
+			case launch.Worktree && !p.IsRepo:
+				m.NoWorktree = true
+			case launch.Worktree:
+				m.Base = p.BaseBranch
+				if m.Base == "" && profileBase != "" {
+					m.Base, m.BaseInherited = profileBase, true
+				}
+			}
+			if _, err := tx.Exec(`INSERT INTO project_run_members(run_id,user_id,position,host,dir,tool,model,folder_project_id,name,base,no_worktree,base_inherited) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+				id, uid, m.Position, m.Host, m.Dir, m.Tool, m.Model, m.ProjectID, m.Name, m.Base, m.NoWorktree, m.BaseInherited); err != nil {
+				return err
+			}
+			run.Members = append(run.Members, m)
 		}
 		run.State = DeriveRunState(run.Members)
 		return nil
@@ -816,10 +1052,11 @@ func DeriveRunState(members []RunMember) string {
 	return RunPartial
 }
 
-const runMemberCols = `position,host,dir,tool,model,state,code,session_id,worktree_token,worktree_path,worktree_repo,worktree_branch,attempt,sent`
+const runMemberCols = `position,host,dir,tool,model,state,code,session_id,worktree_token,worktree_path,worktree_repo,worktree_branch,attempt,sent,folder_project_id,name,base,no_worktree,base_inherited`
 
 func scanRunMember(row interface{ Scan(...any) error }) (m RunMember, err error) {
-	err = row.Scan(&m.Position, &m.Host, &m.Dir, &m.Tool, &m.Model, &m.State, &m.Code, &m.SessionID, &m.WorktreeToken, &m.WorktreePath, &m.WorktreeRepo, &m.WorktreeBranch, &m.Attempt, &m.Sent)
+	err = row.Scan(&m.Position, &m.Host, &m.Dir, &m.Tool, &m.Model, &m.State, &m.Code, &m.SessionID, &m.WorktreeToken, &m.WorktreePath, &m.WorktreeRepo, &m.WorktreeBranch, &m.Attempt, &m.Sent,
+		&m.ProjectID, &m.Name, &m.Base, &m.NoWorktree, &m.BaseInherited)
 	return
 }
 
@@ -842,12 +1079,12 @@ func loadRunMembers(q dbQuerier, uid int64, runID string) ([]RunMember, error) {
 
 func scanRun(row interface{ Scan(...any) error }) (r Run, err error) {
 	var pid sql.NullString
-	err = row.Scan(&r.ID, &pid, &r.ProjectName, &r.Prompt, &r.UseWorktrees, &r.CreatedAt)
+	err = row.Scan(&r.ID, &pid, &r.ProjectName, &r.Prompt, &r.UseWorktrees, &r.CreatedAt, &r.Origin, &r.Effort, &r.Yolo)
 	r.ProjectID = pid.String
 	return
 }
 
-const runCols = `id,project_id,project_name,prompt,use_worktrees,created_at`
+const runCols = `id,project_id,project_name,prompt,use_worktrees,created_at,origin,effort,yolo`
 
 func loadRun(q dbQuerier, uid int64, id string) (Run, error) {
 	r, err := scanRun(q.QueryRow(`SELECT `+runCols+` FROM project_runs WHERE id=? AND user_id=?`, id, uid))
@@ -1133,6 +1370,28 @@ func (s *Store) SetRunMemberRemovedFor(uid int64, agent, token string) error {
 	_, err := s.db.Exec(`UPDATE project_run_members SET state='removed' WHERE user_id=? AND host=? AND worktree_token=? AND state IN ('started','failed') AND worktree_path<>''`,
 		uid, agent, token)
 	return err
+}
+
+// SettleRunMemberBase decides, once, whether a member's inherited base is
+// sent: keep leaves it, otherwise it is cleared. Either way the member no
+// longer has an undecided inherited base, so every later send (a replay of the
+// same request id included) carries the same base. A member already settled,
+// or one whose base is its project's own, is left as it is.
+func (s *Store) SettleRunMemberBase(uid int64, runID string, position int, keep bool) error {
+	res, err := s.db.Exec(`UPDATE project_run_members SET base=CASE WHEN ? THEN base ELSE '' END, base_inherited=0 WHERE run_id=? AND user_id=? AND position=? AND base_inherited=1`,
+		keep, runID, uid, position)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		var one int
+		if err := s.db.QueryRow(`SELECT 1 FROM project_run_members WHERE run_id=? AND user_id=? AND position=?`, runID, uid, position).Scan(&one); errors.Is(err, sql.ErrNoRows) {
+			return ErrRunNotFound
+		} else if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SetRunMemberWorktreeToken records the per-member worktree token the

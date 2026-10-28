@@ -33,10 +33,11 @@ try {
    if(width===1440) await expect(page.locator('.fleet .os').first()).toHaveText('Linux 6.1')
    const values = await page.evaluate(()=>{
     const box = selector => {const e=document.querySelector(selector),r=e.getBoundingClientRect(),s=getComputedStyle(e);return {x:r.x,y:r.y,width:r.width,height:r.height,gap:s.gap,fontSize:s.fontSize,fontWeight:s.fontWeight,lineHeight:s.lineHeight,background:s.backgroundColor,border:s.borderWidth,padding:s.padding}}
-    return {shell:box('.shell-bar'),logo:box('.shell-bar .logo'),avatar:box('.account .avatar'),jump:box('.jump'),home:box('div.home'),bell:box('.bell-button'),bottom:box('.bottom-tabs'),scrollWidth:document.documentElement.scrollWidth,viewport:innerWidth,footer:!!document.querySelector('footer'),headerTargets:[...document.querySelectorAll('.shell-bar > .home, .shell-bar > .top-tabs, .shell-bar > .jump, .shell-bar > .search-button, .shell-bar > .bell, .shell-bar > .account')].filter(e=>getComputedStyle(e).display!=='none').map(e=>({name:e.className,left:e.getBoundingClientRect().left,right:e.getBoundingClientRect().right}))}
+    return {shell:box('.shell-bar'),logo:box('.shell-bar .logo'),avatar:box('.account .avatar'),jump:box('.jump'),home:box('div.home'),bell:box('.bell-button'),bottom:box('.bottom-tabs'),scrollWidth:document.documentElement.scrollWidth,navOverflow:(n=>n?n.scrollWidth-n.clientWidth:0)(document.querySelector('.shell-bar > .top-tabs')),viewport:innerWidth,footer:!!document.querySelector('footer'),headerTargets:[...document.querySelectorAll('.shell-bar > .home, .shell-bar > .top-tabs, .shell-bar > .jump, .shell-bar > .search-button, .shell-bar > .bell, .shell-bar > .account')].filter(e=>getComputedStyle(e).display!=='none').map(e=>({name:e.className,left:e.getBoundingClientRect().left,right:e.getBoundingClientRect().right}))}
    })
    readings.push({theme,width,height,...values})
    expect(values.scrollWidth,`${theme} ${width}: horizontal scroll`).toBeLessThanOrEqual(width)
+   expect(values.navOverflow,`${width}: the tabs fit inside their own box, so none runs under Jump or the bell`).toBeLessThanOrEqual(0)
    for(let i=0;i<values.headerTargets.length;i++) {
     const target=values.headerTargets[i]
     expect(target.left,`${width}: ${target.name} starts in viewport`).toBeGreaterThanOrEqual(0)

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { CATALOGUE } from '../catalogue'
-  import type { MachineHealth } from '../terminal/api'
+  import { toolName } from '../agentLaunch'
+  import { sessionHref, type MachineHealth } from '../terminal/api'
   import { shortAge, stateWord, type GroupBy, type Group, type HomeSession, type SessionOwner } from '../home'
   import SessionHoverCard from '../terminal/SessionHoverCard.svelte'
 
@@ -25,9 +25,7 @@
   const id = $props.id()
   const choices: { value: GroupBy; label: string }[] = [{ value: 'project', label: 'Project' }, { value: 'machine', label: 'Machine' }, { value: 'state', label: 'State' }]
   const hostOf = (agentId: string) => machines.find(m => m.agentId === agentId)?.host || agentId
-  const toolName = (tool: string) => CATALOGUE.find(agent => agent.id === tool)?.name ?? tool
   const lastKnown = (s: HomeSession) => offline.some(m => m.agentId === s.agentId)
-  const href = (s: HomeSession) => `/terminals?agent=${encodeURIComponent(s.agentId)}&session=${encodeURIComponent(s.id)}`
   // The row's card on hover or keyboard focus, with the machine's last readings and the way in. The row stays the link.
   let card = $state<{ item: HomeSession; x: number; y: number } | null>(null)
   function showCard(el: HTMLElement, item: HomeSession) { const box = el.getBoundingClientRect(), width = 336, height = 270; card = { item, x: Math.min(Math.max(8, box.right + 10), Math.max(8, innerWidth - width - 8)), y: Math.min(Math.max(8, box.top - 8), Math.max(8, innerHeight - height - 8)) } }
@@ -63,7 +61,7 @@
               {@const word = stateWord(s)}
               {@const owner = owners.get(s.id)}
               <li>
-                <a class="row" href={href(s)} onmouseenter={(event) => showCard(event.currentTarget, s)} onmouseleave={hideCard} onfocus={(event) => showCard(event.currentTarget, s)} onblur={hideCard}>
+                <a class="row" href={sessionHref(s)} onmouseenter={(event) => showCard(event.currentTarget, s)} onmouseleave={hideCard} onfocus={(event) => showCard(event.currentTarget, s)} onblur={hideCard}>
                   <span class="dot {word.tone}" aria-hidden="true"></span>
                   <span class="main">
                     <span class="title">{s.title}</span>
@@ -85,7 +83,7 @@
 </section>
 {#if card}
   {@const tip = card}
-  <div class="session-card-pop" style={`left:${tip.x}px;top:${tip.y}px`}><SessionHoverCard session={tip.item} host={hostOf(tip.item.agentId)} project={owners.get(tip.item.id)?.name} colour={tip.item.projectId ? projectColours.get(tip.item.projectId) : ''} health={machines.find(m => m.agentId === tip.item.agentId)} serverNow={now} href={href(tip.item)} /></div>
+  <div class="session-card-pop" style={`left:${tip.x}px;top:${tip.y}px`}><SessionHoverCard session={tip.item} host={hostOf(tip.item.agentId)} project={owners.get(tip.item.id)?.name} colour={tip.item.projectId ? projectColours.get(tip.item.projectId) : ''} health={machines.find(m => m.agentId === tip.item.agentId)} serverNow={now} href={sessionHref(tip.item)} /></div>
 {/if}
 
 <style>

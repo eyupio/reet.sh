@@ -220,7 +220,7 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 	// store compares its project with the recorded one and answers the
 	// session that started, even if the project was removed since.
 	if in.ProjectID != "" && !s.terminalCreateRecorded(uid, in.AgentID, in.RequestID) {
-		if err := s.st.TerminalProjectCheckFor(uid, in.AgentID, in.ProjectID); err != nil {
+		if err := s.st.TerminalProjectCheckFor(uid, in.AgentID, in.ProjectID, in.Dir); err != nil {
 			s.terminalCreateError(w, err, uid, in.AgentID, in.Tool)
 			return
 		}
@@ -255,8 +255,17 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 		writeErrCode(w, http.StatusNotFound, "project_not_found", "projectId", "That project isn't on this account.", "")
 	case errors.Is(err, store.ErrProjectMachineMismatch):
 		writeErrCode(w, http.StatusUnprocessableEntity, "project_machine_mismatch", "projectId", "That project is on another machine. Start the session on its machine.", "")
+	case errors.Is(err, store.ErrProjectFolderMismatch):
+		writeErrCode(w, http.StatusUnprocessableEntity, "project_folder_mismatch", "dir", "That isn't the project's folder. Start the session in the project's folder.", "")
+	case errors.Is(err, terminalbroker.ErrLaunchOptionUnsupported) && s.terminalAgentsV2(uid, agent):
+		// Updating a machine that already has agents-v2 would not help.
+		writeErrCode(w, http.StatusConflict, "launch_option_unsupported", "", "That agent doesn't take that option.", "")
 	case errors.Is(err, terminalbroker.ErrLaunchOptionUnsupported):
 		writeErrCode(w, http.StatusConflict, "launch_option_unsupported", "", "Update reet on that machine to use that option.", "")
+	case errors.Is(err, terminalbroker.ErrToolUnavailable):
+		writeErrCode(w, http.StatusUnprocessableEntity, "tool_unavailable", "tool", "reet doesn't start this agent yet.", "")
+	case errors.Is(err, terminalbroker.ErrToolNotInstalled):
+		writeErrCode(w, http.StatusUnprocessableEntity, "tool_not_installed", "tool", "That agent isn't installed on that machine.", "")
 	case errors.Is(err, terminalbroker.ErrYoloRefused):
 		writeErrCode(w, http.StatusConflict, "yolo_refused", "", "That machine does not allow YOLO sessions.", "")
 	case errors.Is(err, terminalbroker.ErrPromptUnsupported):
@@ -281,6 +290,13 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 	default:
 		terminalError(w, err)
 	}
+}
+
+// terminalAgentsV2 reports whether the machine's stored capabilities
+// negotiated agents-v2, so a refused option is not blamed on its version.
+func (s *server) terminalAgentsV2(uid int64, agent string) bool {
+	caps, err := s.st.RemoteCapabilitiesFor(uid, agent)
+	return err == nil && caps.Capabilities.AgentsV2
 }
 
 // terminalToolInstalled reads the machine's reported tools: the connector's

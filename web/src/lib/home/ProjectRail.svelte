@@ -5,11 +5,15 @@
   import { PROJECT_COLOURS, projectColour, projectColourHex, type ProjectColour } from '../projectColour'
 
   // The folder projects, in the person's order: one folder on one machine each, with a repository diamond or a folder icon,
-  // the machine, the base branch when one is set, the state in words and the worktrees in use. Choosing a card starts an
-  // agent in that folder (the launch bar takes this over in a later release). Each card's menu: New session here, Edit,
-  // Worktrees, Move up, Move down and Remove from reet. Under 1240 px on a desktop the rail is a 56 px strip of the same
+  // the machine, the base branch when one is set, the state in words and the worktrees in use. Choosing a card puts that
+  // project in the launch bar's sentence (and the card is marked while it is there). Each card's menu (its ⋮ button, a right-click or the
+  // menu key): New session here (which also sets the bar's project), Edit, Worktrees, Move up, Move down, Remove from reet
+  // and the project's colour. Under 1240 px on a desktop the rail is a 56 px strip of the same
   // cards; on a tablet or phone it sits under In flight (the Sessions tab takes it in a later release).
+  // Select (the heading's menu, or a long press on a card on touch) turns the cards into checkboxes for Start in several
+  // projects: 2 to 12 of them; the strip shows how many are chosen.
   let { projects, failed = false, reporting, running, known = true, worktrees, savedWaiting = 0, chosen = '', busy, importing = false, pending, moving = false,
+    selecting = false, selected = [], onselecting, ontoggle,
     onadd, onchoose, onedit, onworktrees, onremove, onmove, ondismiss, onimport, oncolour }: {
     projects: FolderProject[] | undefined
     /** The projects could not be read and none were read before. */
@@ -22,7 +26,7 @@
     worktrees: Map<string, number>
     /** Saved Project folders still waiting for room (offer to bring them in). */
     savedWaiting?: number
-    /** The project an address chose (`/?project=<id>`). */
+    /** The project in the launch bar's sentence (or the one an address chose, `/?project=<id>`), marked. */
     chosen?: string
     busy: boolean
     importing?: boolean
@@ -30,7 +34,15 @@
     pending: ReadonlySet<string>
     /** A move is on its way: no other move is offered until it lands. */
     moving?: boolean
+    /** Select is on: the cards are checkboxes. */
+    selecting?: boolean
+    /** The projects chosen in Select (ids). */
+    selected?: readonly string[]
+    /** Select on (with the card a long press started it from) or off. */
+    onselecting?: (on: boolean, first?: FolderProject) => void
+    ontoggle?: (project: FolderProject) => void
     onadd: (opener: HTMLElement) => void
+    /** Sets the launch bar's project (a card, or New session here). */
     onchoose: (project: FolderProject, opener: HTMLElement) => void
     onedit: (project: FolderProject, opener: HTMLElement) => void
     onworktrees: (project: FolderProject, opener: HTMLElement) => void
@@ -51,6 +63,80 @@
     return [p.name, colour && colour !== 'No colour' ? colour : '', machineTag(p), p.baseBranch, stateOf(p)?.text, wt ? worktreesInUse(wt) : ''].filter(Boolean).join(', ')
   }
   const initial = (name: string) => Array.from(name.trim())[0]?.toUpperCase() ?? '?'
+  /** The most projects one start takes (the controller's limit). */
+  const MAX_SELECTED = 12
+  const isPicked = (p: FolderProject) => selected.includes(p.id)
+  const full_ = $derived(selected.length >= MAX_SELECTED)
+  const pickedLine = $derived(selected.length === 0 ? 'Choose two or more projects.' : selected.length === 1 ? '1 chosen. Choose at least one more.'
+    : selected.length >= MAX_SELECTED ? `${selected.length} chosen, the most for one start.` : `${selected.length} chosen.`)
+  function toggle(p: FolderProject) {
+    if (!isPicked(p) && full_) return
+    ontoggle?.(p)
+  }
+  // A long press on a card (touch) starts Select with that card chosen; the click that may follow the press is not a toggle.
+  const LONG_PRESS_MS = 500
+  let press: { id: string; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null
+  let swallow = '', swallowUntil = 0, lastPointer = ''
+  function pressStart(event: PointerEvent, p: FolderProject) {
+    lastPointer = event.pointerType
+    if (event.pointerType !== 'touch' || selecting) return
+    pressEnd()
+    press = { id: p.id, x: event.clientX, y: event.clientY, timer: setTimeout(() => longPress(p), LONG_PRESS_MS) }
+  }
+  function pressMove(event: PointerEvent) {
+    if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10) pressEnd()
+  }
+  function pressEnd() { if (press) clearTimeout(press.timer); press = null }
+  function longPress(p: FolderProject) {
+    pressEnd()
+    if (selecting) return
+    swallow = p.id; swallowUntil = Date.now() + 1000
+    closeMenu(); headMenu = false
+    onselecting?.(true, p)
+  }
+  function cardClick(p: FolderProject, el: HTMLElement) {
+    if (swallow === p.id && Date.now() < swallowUntil) { swallow = ''; return }
+    if (selecting) toggle(p)
+    else chooseCard(p, el)
+  }
+  // On touch the browser's own long-press menu is the long press: it starts Select instead of opening the card menu.
+  function cardContextMenu(event: MouseEvent, p: FolderProject) {
+    if (lastPointer === 'touch') { event.preventDefault(); if (!selecting && swallow !== p.id) longPress(p); return }
+    if (selecting) { event.preventDefault(); return }
+    contextMenu(event, p)
+  }
+
+  // The heading's menu: Select projects (or Stop selecting).
+  let headMenu = $state(false), headButton = $state<HTMLButtonElement>()
+  async function openHeadMenu() {
+    if (headMenu) { headMenu = false; return }
+    closeMenu()
+    headMenu = true
+    const box = headButton!.getBoundingClientRect()
+    menuX = Math.min(Math.max(8, box.right - 212), Math.max(8, innerWidth - 222))
+    menuY = Math.min(box.bottom + 4, Math.max(8, innerHeight - 120))
+    await tick()
+    document.querySelector<HTMLElement>(`#${CSS.escape(`${id}-head-menu`)} [role=menuitem]`)?.focus()
+  }
+  function headKeys(event: KeyboardEvent) {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); headMenu = false; headButton?.focus() }
+    else if (event.key === 'Tab') headMenu = false
+  }
+  // Done leaves Select; the focus goes to the heading's menu button, where Select was turned on.
+  function doneSelecting() {
+    onselecting?.(false)
+    void tick().then(() => headButton?.focus())
+  }
+  // The strip's Stop selecting: focus goes to the strip's panel button, which stays where the stop button was.
+  function stopFromStrip() {
+    onselecting?.(false)
+    void tick().then(() => opener?.focus())
+  }
+  function selectFromMenu() {
+    headMenu = false
+    onselecting?.(!selecting)
+    void tick().then(() => (full?.querySelector<HTMLElement>('[role=checkbox]') ?? headButton)?.focus())
+  }
   const folders = (n: number) => `${n} ${n === 1 ? 'folder' : 'folders'}`
 
   // From 1100 to 1239 px the rail is a 56 px strip. Open the project rail shows the full rail over the page as a panel, so
@@ -83,7 +169,7 @@
   }
   function panelKeys(event: KeyboardEvent) {
     if (!panelOpen) return
-    if (event.key === 'Escape' && !menuFor) { event.preventDefault(); closePanel(true); return }
+    if (event.key === 'Escape' && !menuFor && !headMenu) { event.preventDefault(); closePanel(true); return }
     if (event.key !== 'Tab' || !full) return
     // Focus stays in the panel: the page drawn under it can't take it.
     const stops = [...full.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input, select, textarea, [tabindex="0"]')].filter(el => el.getClientRects().length > 0)
@@ -123,16 +209,23 @@
     else if (event.key === 'End') { event.preventDefault(); items.at(-1)?.focus() }
     else if (event.key === 'Tab') closeMenu()
   }
-  // A choice closes the menu first; the dialog it opens gives focus back to the card's menu button.
+  // A choice closes the menu first; a dialog it opens gives focus back to the card's menu button.
   function pick(action: (opener: HTMLElement) => void) {
     const opener = menuButton
     closeMenu()
     if (opener) action(opener)
   }
+  // Choosing a project from the panel opened over the page closes it: the launch bar under it takes the focus.
+  function chooseCard(p: FolderProject, el: HTMLElement) {
+    if (panelOpen) closePanel(false)
+    onchoose(p, el)
+  }
   function outside(event: PointerEvent) {
     const target = event.target as HTMLElement
     if (menuFor && !target.closest('.menu, .more')) closeMenu()
-    if (panelOpen && !target.closest('aside.rail') && !target.closest('dialog')) closePanel(false)
+    if (headMenu && !target.closest('.menu, .head-more')) headMenu = false
+    // The card and heading menus are drawn outside the rail's box, but a press on one is a press inside the panel.
+    if (panelOpen && !target.closest('aside.rail') && !target.closest(`[id^="${CSS.escape(`${id}-menu-`)}"], #${CSS.escape(`${id}-head-menu`)}`) && !target.closest('dialog')) closePanel(false)
   }
 </script>
 
@@ -144,10 +237,22 @@
     <header>
       <h2 id={`${id}-title`}>Projects</h2>
       {#if panelOpen}<button type="button" class="close-panel" aria-label="Close the project rail" onclick={() => closePanel(true)}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18" /></svg></button>{/if}
+      {#if projects && projects.length > 1}
+        <button type="button" class="head-more" bind:this={headButton} aria-label="Projects menu" aria-haspopup="menu" aria-expanded={headMenu}
+          aria-controls={headMenu ? `${id}-head-menu` : undefined} onclick={openHeadMenu}>
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
+        </button>
+      {/if}
       <button type="button" class="add" aria-label="Add a project" disabled={busy} aria-busy={busy} onclick={(e) => onadd(e.currentTarget)}>
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" /></svg>Add
       </button>
     </header>
+    {#if selecting}
+      <div class="picking">
+        <p role="status" aria-live="polite">{pickedLine}</p>
+        <button type="button" class="ghost" aria-label="Done selecting" onclick={doneSelecting}>Done</button>
+      </div>
+    {/if}
     {#if savedWaiting > 0}
       <div class="waiting">
         <p>{folders(savedWaiting)} from your saved Projects {savedWaiting === 1 ? "isn't" : "aren't"} in the rail yet.</p>
@@ -165,9 +270,16 @@
         {#each projects as p (p.id)}
           {@const state = stateOf(p)}
           {@const wt = worktrees.get(p.id) ?? 0}
-          <li class="item" style={`--project-colour:${projectColourHex(p.colour)}`}>
-            <button type="button" class="card" class:chosen={chosen === p.id} aria-current={chosen === p.id ? 'true' : undefined} aria-label={label(p)} onclick={(e) => onchoose(p, e.currentTarget)} oncontextmenu={(e) => contextMenu(e, p)} onkeydown={(e) => { if (e.key === 'ContextMenu' || e.shiftKey && e.key === 'F10') void openMenu(p, e.currentTarget) }}>
+          {@const picked = selecting && isPicked(p)}
+          <li class="item" class:selecting style={`--project-colour:${projectColourHex(p.colour)}`}>
+            <button type="button" class="card" class:chosen={!selecting && chosen === p.id} class:picked
+              role={selecting ? 'checkbox' : undefined} aria-checked={selecting ? picked : undefined} aria-disabled={selecting && !picked && full_ ? 'true' : undefined}
+              aria-current={!selecting && chosen === p.id ? 'true' : undefined} aria-label={label(p)}
+              onclick={(e) => cardClick(p, e.currentTarget)} oncontextmenu={(e) => cardContextMenu(e, p)}
+              onpointerdown={(e) => pressStart(e, p)} onpointermove={pressMove} onpointerup={pressEnd} onpointercancel={pressEnd} onpointerleave={pressEnd}
+              onkeydown={(e) => { if (!selecting && (e.key === 'ContextMenu' || e.shiftKey && e.key === 'F10')) void openMenu(p, e.currentTarget) }}>
               <span class="top">
+                {#if selecting}<span class="tick" aria-hidden="true">{#if picked}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>{/if}</span>{/if}
                 {#if projectColourHex(p.colour) !== 'transparent'}<span class="identity" aria-hidden="true"></span>{/if}
                 {#if p.isRepo}
                   <svg class="icon repo" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2l10 10-10 10L2 12z" /></svg>
@@ -183,10 +295,10 @@
                 {#if wt}<span class="wt">{worktreesInUse(wt)}</span>{/if}
               </span>
             </button>
-            <button type="button" class="more" aria-label={`More for ${p.name}`} aria-haspopup="menu" aria-expanded={menuFor === p.id}
+            {#if !selecting}<button type="button" class="more" aria-label={`More for ${p.name}`} aria-haspopup="menu" aria-expanded={menuFor === p.id}
               aria-controls={menuFor === p.id ? `${id}-menu-${p.id}` : undefined} onclick={(e) => openMenu(p, e.currentTarget)}>
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
-            </button>
+            </button>{/if}
             {#if p.note}
               <div class="note" role="note">
                 <p>Moved from your saved Projects. The starter prompts of {p.note} weren't kept here; their old runs are in Activity.</p>
@@ -211,9 +323,21 @@
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
       {#if waiting}<i class="marker" aria-hidden="true"></i>{/if}
     </button>
+    {#if selecting}
+      <p class="picked-count" title={pickedLine}><span class="vh">{'Chosen: '}</span>{selected.length}</p>
+      <!-- Select can start here (a long press on touch), so it can end here too. -->
+      <button type="button" class="add-icon stop" aria-label="Stop selecting" title="Stop selecting" onclick={stopFromStrip}>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18" /></svg>
+      </button>
+    {/if}
     {#each projects ?? [] as p (p.id)}
       {@const wt = worktrees.get(p.id) ?? 0}
-      <button type="button" class="mini" class:chosen={chosen === p.id} aria-current={chosen === p.id ? 'true' : undefined} aria-label={label(p)} title={label(p)} style={`--project-colour:${projectColourHex(p.colour)}`} onclick={(e) => onchoose(p, e.currentTarget)} oncontextmenu={(e) => contextMenu(e, p)}>
+      {@const picked = selecting && isPicked(p)}
+      <button type="button" class="mini" class:chosen={!selecting && chosen === p.id} class:picked aria-current={!selecting && chosen === p.id ? 'true' : undefined}
+        role={selecting ? 'checkbox' : undefined} aria-checked={selecting ? picked : undefined} aria-disabled={selecting && !picked && full_ ? 'true' : undefined}
+        aria-label={label(p)} title={label(p)} style={`--project-colour:${projectColourHex(p.colour)}`}
+        onclick={(e) => { if (swallow === p.id && Date.now() < swallowUntil) { swallow = ''; return } if (selecting) toggle(p); else onchoose(p, e.currentTarget) }}
+        oncontextmenu={(e) => cardContextMenu(e, p)} onpointerdown={(e) => pressStart(e, p)} onpointermove={pressMove} onpointerup={pressEnd} onpointercancel={pressEnd} onpointerleave={pressEnd}>
         <span class="mini-initial" aria-hidden="true">{initial(p.name)}</span>
         {#if p.baseBranch}<span class="mini-branch" aria-hidden="true">{p.baseBranch}</span>{/if}
         {#if p.isRepo}<svg class="badge" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2l10 10-10 10L2 12z" /></svg>{/if}
@@ -224,13 +348,20 @@
   </div>
 </aside>
 
+{#if headMenu}
+  <!-- svelte-ignore a11y_interactive_supports_focus -->
+  <div class="menu" id={`${id}-head-menu`} style:left={`${menuX}px`} style:top={`${menuY}px`} role="menu" aria-label="Projects" tabindex="-1" onkeydown={headKeys}>
+    <button type="button" role="menuitem" onclick={selectFromMenu}>{selecting ? 'Stop selecting' : 'Select projects'}</button>
+  </div>
+{/if}
+
 {#if menuFor}
   {@const project = (projects ?? []).find(item => item.id === menuFor)}
   {#if project}
     {@const index = (projects ?? []).findIndex(item => item.id === project.id)}
     <!-- svelte-ignore a11y_interactive_supports_focus -->
     <div class="menu" id={`${id}-menu-${project.id}`} style:left={`${menuX}px`} style:top={`${menuY}px`} role="menu" aria-label={project.name} tabindex="-1" onkeydown={menuKeys}>
-      <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => onchoose(target, o)) }}>New session here</button>
+      <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => chooseCard(target, o)) }}>New session here</button>
       <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => onedit(target, o)) }}>Edit</button>
       <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => onworktrees(target, o)) }}>Worktrees</button>
       <button type="button" role="menuitem" disabled={moving || pending.size > 0 || index === 0} onclick={() => { const target = project; closeMenu(true); onmove(target, -1) }}>Move up</button>
@@ -294,11 +425,26 @@
   .foot { margin: auto 0 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px dashed var(--line-mid); border-radius: 11px; color: var(--muted); font-size: 13px; }
   .foot svg { width: 16px; height: 16px; flex: none; }
   .strip { display: none; }
+  /* Select: the cards are checkboxes, with a tick box where the menu button was. */
+  .head-more { display: grid; place-items: center; width: 30px; height: 30px; margin-right: 8px; padding: 0; border: 1px solid var(--line-mid); border-radius: 8px; background: transparent; color: var(--ink-soft); cursor: pointer; }
+  .head-more svg { width: 16px; height: 16px; }
+  .head-more[aria-expanded='true'] { border-color: var(--muted); }
+  .picking { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .picking p { margin: 0; font-size: 13px; color: var(--ink-soft); }
+  .tick { flex: none; display: grid; place-items: center; width: 16px; height: 16px; border: 1.5px solid var(--line-deep); border-radius: 4px; color: var(--accent-ink); }
+  .tick svg { width: 12px; height: 12px; }
+  .card.picked { border-color: var(--accent); }
+  .card.picked .tick { border-color: var(--accent); background: var(--accent); }
+  .card[aria-disabled='true'] { opacity: 0.55; cursor: default; }
+  .item.selecting .card { min-height: 44px; }
+  /* A long press on a card starts Select: the browser's own text selection and link callout stay out of its way. */
+  @media (pointer: coarse) { .card, .mini { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; } }
+  .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .close-panel { display: grid; place-items: center; width: 30px; height: 30px; margin-right: 8px; padding: 0; border: 1px solid var(--line-mid); border-radius: 8px; background: transparent; color: var(--ink-soft); cursor: pointer; }
   .close-panel svg { width: 14px; height: 14px; }
 
   @media (pointer: coarse) {
-    .close-panel { width: 44px; height: 44px; }
+    .close-panel, .head-more { width: 44px; height: 44px; }
     .add { height: 44px; }
     .card { padding-right: 56px; }
     .more { opacity: 1; top: 50%; right: 4px; transform: translateY(-50%); width: 44px; height: 44px; border: 0; background: transparent; }
@@ -321,7 +467,11 @@
     .mini { width: 44px; padding: 5px 0 4px; gap: 1px; align-content: center; }
     .mini-initial { font-size: 14px; line-height: 1.2; }
     .mini-branch { max-width: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 10px/1.2 var(--mono); color: var(--muted); }
-    .mini.chosen { border-color: var(--accent); }
+    .mini.chosen, .mini.picked { border-color: var(--accent); }
+    .mini.picked { box-shadow: inset 0 0 0 1px var(--accent); }
+    .mini[aria-disabled='true'] { opacity: 0.55; }
+    /* Select's count under the toggle: how many are chosen. */
+    .picked-count { margin: 0; min-width: 28px; padding: 1px 6px; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font: 600 12px/18px var(--sans); text-align: center; }
     .badge { position: absolute; top: 3px; left: 3px; width: 8px; height: 8px; fill: var(--repo); }
     .live { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
     .mini-wt { position: absolute; bottom: -5px; right: -5px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card-raised); color: var(--ink-soft); font: 500 10px/13px var(--sans); text-align: center; }

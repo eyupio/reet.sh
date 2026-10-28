@@ -19,7 +19,7 @@ Validation on the updated source:
 
 Browser tests used isolated SQLite fixtures and local Chromium with reduced motion. No production instance, native service installation or deployment was changed. Physical touch, screen readers, Safari/Firefox and native macOS lifecycle behaviour remain outside these checks. Consolidating Sharing & access, team administration, and the mobile navigation are subsequent review work.
 
-This records the initial concepts and shared foundation. See [Library implementation and binary validation](library-implementation.md) for the selected production design and its follow-up checks.
+This records the initial concepts and shared foundation. The selected production design and its follow-up checks are described below and in the feature docs.
 
 ## Collapsible skill cards
 
@@ -95,7 +95,7 @@ Automated axe results are not a WCAG certification. Screen-reader behaviour, phy
 
 The explorer has no external asset dependencies. The production build emits roughly 62.4 kB of CSS and 177.1 kB of JavaScript (10.5 kB and 54.5 kB gzip). These are build sizes, not measured load times. The explorer is outside the production entry graph.
 
-No deployment was performed. The three directions remain concepts; the app contains the shared Library foundation and improvements described in `ui-redesign.md`.
+No deployment was performed. The three directions remain concepts; the app contains the shared Library foundation and improvements (the design notes were removed in the docs tidy-up; see git history).
 
 ## Screenshot follow-up: navigation, density and reports
 
@@ -1025,3 +1025,71 @@ Cursor Agent and Cline labels use catalogue names in the In flight subtitle, inc
 Residual differences are explicit: tablet and phone keep the existing Jump and account access, group controls and the current-tab marker pending the owner-call items recorded in `docs/design/agents-home/fidelity-audit-1.md`. Fleet card CPU/status layout, the grouped rows, Needs you layout and the single-button launch dock remain the existing shell until PR E's agreed polish and launch bar; attention stays an honest empty state. This check is not a claim that the whole Home matches the finished drawing. No real phone or Safari run was performed, and this slice adds no new axe result.
 
 Validation: the screenshot-and-metrics matrix passed in both themes at 1440, 1239, 1100, 834, 651, 390 and 320 pixels (14 cases). It checks page width, the chrome geometry, reported OS version, the two longer agent names and phone target sizes. Extra desktop/tablet boundaries guard the spaces between breakpoints. The final assertion run also checks that visible header controls remain within the viewport and never overlap. Local artifacts are `work/c-polish/home-{dark,light}-{width}.png` and `work/c-polish/metrics.json`; they are scratch evidence, not product data. Theme tests: 10 passed; Home pure tests: 22 passed; Svelte diagnostics: zero errors and warnings. A missing avatar-surface test, missing OS-version propagation test and absent tool-label browser test were each observed failing before implementation. A white avatar-surface mutation fails contrast checks; the source was then restored byte-identically.
+
+## Agents Home — launch bar, 27 October 2026 (PR E, task E2)
+
+Synthetic API answers, Chromium on Linux. The fidelity fixture is shaped like the mock-up: machines studio, server and desk (all ready, with launch, worktree, branches and agents-v2), projects reet (studio, `main`, with a starter prompt), site (server, `develop`) and notes (desk, `main`), and five sessions, the newest Claude Code with sonnet in a worktree of reet. The bar therefore opens on "Run Claude Code with sonnet on reet at studio from main in a fresh worktree", the mock-up's sentence. No agent program is started.
+
+The shipped Home was rendered at 1440×900, 1360×800, 834×1112 and 390×844 in dark and light and compared with `Main.dc.html`, `ref-home-desktop.png`, `Tablet.dc.html` and `PhoneHome.dc.html`. Measured: on a desktop the bar is 1091 px wide at x=325, 18 px above the foot, 118 px tall (the drawing's is about 116), with the 16 px prompt row (padding 14/18/8) over the sentence row, a 40 px Start with a 10 px radius and the `Ctrl ↵` hint, and Approvals *Ask me | YOLO* at the right of the sentence. On a tablet the bar is 135 px tall with a 44 px Start without the hint and the segments without the "Approvals" word, as drawn. On a phone it is a one-line prompt, a round 48 × 48 Start and one summary line with **Change** above the tab bar. At 1360×800 and 834×1112 the bar is sticky, so In flight, Needs you and the rail scroll under it.
+
+Deviations from the drawings, each with its reason:
+
+- The key hint is drawn at full strength, not 80%: at 80% it fails AA on the accent (axe `color-contrast`).
+- The machine word is bold without the dashed underline and is not a button while a project is chosen: the machine follows the project (R18). It is a slot only for *Home folder on…*.
+- The dashed underline uses `--line-deep` and the selected segment `--line-soft`. The drawing's `#6b5f54` and `#2e2822` are not theme tokens, and the components use tokens only.
+- Rows the drawing does not show appear only when their state does: the **Use the starter prompt** chip and the secrets note (R2 and the prompt rules), the read-only "Works in the checkout on main." line, and the status line ("Starting Claude Code on studio…", refusals, why Start waits).
+- The *YOLO* half is disabled with "reet doesn't start YOLO sessions yet." as its description until PR F.
+- On a tablet the sentence is the drawing's, "Run Claude Code on reet at studio from main", with no model or worktree slot inline (owner ruling, 27 October). A **Change** button after the sentence opens the phone's Change sheet, where model and worktree are chosen; the drawing has no such button, and without it neither could be chosen.
+- On touch each slot is a 44 × 44 px target. The extra width hangs into the gaps beside the word (negative side margins), so the words keep the drawing's spacing.
+- On a phone, Start is 48 px (the spec and plan) rather than the drawing's 44. The summary line wraps rather than ending in an ellipsis (PR E tweak: it wraps without pushing Start off the screen at 320 px). The Change sheet ("Change the launch": slot rows, Approvals, Done) is not drawn, so it follows the spec's text.
+- The spec's "Titled “…”" preview shows under the prompt while it has text, in the row with the secrets note. It is not in any drawing.
+- On a phone with the prompt's keyboard up, both the top bar and the tab bar step aside (the spec's keyboard-open rule); Jump keeps the top bar.
+- Unchanged by this task: the rail's chosen-card style (accent border), the fleet cards and the In flight rows. The rail now marks the project the sentence names, as the drawing does.
+
+Accessibility: axe-core 4.10.2 (installed outside the repository), WCAG 2.0/2.1 A and AA plus 2.2 AA. It ran in 26 states: each width and theme, with a slot list open on desktop and tablet, and with the Change sheet and the Agent sheet open on a phone. The results:
+
+- In the first pass every state was clean except the tablet default view, where `target-size` flagged a rail card's menu button partly under the docked bar before the page was scrolled.
+- Fix round 1: Home's page keeps `scroll-padding-bottom` equal to the bar's height and offset, so a control that takes keyboard focus is scrolled clear of the bar (WCAG 2.4.11; checked by Tabbing to the last rail card menu at 834×1112 and the last In flight row at 1360×800). The tablet bar is also one row shorter. A re-run at 1440, 834 and 390 in both themes, with the Change sheet open at 834 and 390, is clean. A pointer target can still sit partly under the bar at some scroll positions, as under any docked bar.
+- The key-hint contrast finding was fixed, as described above.
+
+Validation:
+
+- `web/tests/launch.e2e.mjs` covers 18 cases. It passed four runs in a row, and every case was seen failing against the previous build first. Fix round 1 added: the Change sheet with a mouse at 390, 600 and 834 px; the tablet sentence; Start waiting for the machines; focus never hidden under the bar; the title preview; the profile read failing or never answering; the top bar stepping aside.
+- `home.e2e.mjs` has been reworked for the bar, including "no Start an agent button on Home".
+- `projects.e2e.mjs`, `phone-zoom.e2e.mjs` (the Change sheet replaces the Home dialog), `shell-fidelity`, `navigation`, `start-agent` and the rest of the browser suite pass.
+- `npm test` passes all 340 tests, and Svelte diagnostics report zero errors or warnings.
+
+Nine mutations of `LaunchBar.svelte` were each caught by their fixture, and the file was then restored byte-identically:
+
+- Retry with a new request.
+- Plain Enter sends.
+- The starter prompt fills itself.
+- The bar is not locked.
+- The prompt is stored.
+- The chrome is never told about the keyboard.
+- The last launch is ignored.
+- An unready project is offered.
+- The Change sheet loses its rows.
+
+Fix round 1 added ten more, each caught by its new case and restored byte-identically: lists open as popovers behind the Change sheet; Done ignored while a list is set; Start allowed before the machines are read; the tablet sentence shows model and worktree; touch slots spread the words; no scroll padding; no title preview; the top bar stays; the profile read never gives up; list fields at 15 px with a mouse at 600 px.
+
+No real phone or Safari run was done.
+
+## Agents Home — Start in several projects, 27 October 2026 (PR E, task E3)
+
+Synthetic API answers, Chromium on Linux. The fixture is shaped like the mock-up: machines studio, server and desk (ready, with launch, worktree, branches and agents-v2), projects reet (studio, `main`, blue), site (server) and notes (desk, not a repository), one Claude Code session running in reet. Select was turned on from the rail heading's menu and all three were chosen; then a start was made whose run answers reet and notes started and site failed with the session limit. Rendered at 1440×900, 834×1112 and 390×844 in dark and light and compared with `Main.dc.html`, `Tablet.dc.html`, `PhoneHome.dc.html` and `ref-home-desktop.png`. No drawing has Select or the status sheet, so both are built from the drawings' rail cards, tokens, type and spacing and the Change sheet's card.
+
+Measured and seen: the cards keep their size (at least 44 px tall, the drawing's padding and 11 px radius); a chosen card has the accent border and a filled tick box where its menu button was; the heading row gains a ⋮ button (30 × 30 with a mouse, 44 × 44 on touch) before **Add**; under the heading a line says how many are chosen ("3 chosen.") with **Done**. The sentence reads "Run Claude Code with sonnet on 3 projects at each project's machine from each project's default in a fresh worktree" (E1's words), with the project and branch words bold but not buttons. On the 56 px strip (1100 to 1239 px) the minis are checkboxes and an accent pill under the toggle shows the count. At 320 px with a long project name the summary wraps and Start and every card stay on screen, with no sideways scroll (tested).
+
+Deviations, each with its reason:
+
+- Select, its ⋮ heading button and its menu (**Select projects** / **Stop selecting**), the count line and **Done**, the tick boxes and the strip's count pill are not drawn: the spec names Select (heading menu, long press on touch) without a drawing. Built from the rail's own tokens and sizes.
+- The status sheet ("Start in several projects": "2 of 3 started", the started-means note, one row per project with **Open** or **Retry**, **Done**) is not drawn. It uses the Change sheet's card, a bottom sheet on the shared dialog shell. "2 of 3 started" counts only members the controller says started (a removed worktree's member did start); there is no progress bar or percentage (R10).
+- In Select mode the cards' ⋮ menus are hidden, so a press on a card only ticks it.
+- The project and branch words are fixed while several projects are chosen: the projects come from the rail and each keeps its own base, so neither is a choice in the bar.
+
+Accessibility: axe-core 4.10.2 (outside the repository), WCAG 2.0/2.1 A and AA plus 2.2 AA, in Select mode with three chosen and with the status sheet open, at 1440×900, 834×1112 (touch) and 390×844 (touch), dark and light: 12 states, all clean.
+
+Validation: `launch.e2e.mjs` gains "select three projects and start; one fails and retries" (a lost reply sent again identically, one run request and no session create, the sheet's count, Open and Retry), "select on touch, at 320 px and on the strip" and "a rail card applies the project defaults and offers its starter prompt"; the first two were seen failing before the change, the third passed on E2's code. The file passed four runs in a row; home, projects, phone-zoom, shell-fidelity, navigation, phone-layout, start-agent, phone-dialogs, empty-states, add-project, add-project-edit, terminal-workspace, readiness, first-run, public-workspace and control pass. No real phone or Safari run was done.
+
+Fix round 1 (review of fb4d16f): the bar now follows the rail's selection whenever it is free, so a selection changed while a kept request locks the bar, or made before the bar's first choice, is applied as soon as it can be. A run whose sheet is closed while a member waits or failed leaves a **Show run status** chip under the prompt (not drawn; the Change sheet's chip style). **Done** in the rail gives focus to the heading's ⋮ button. A start refused for speed (429) keeps its request, and the bar words every refusal of a start in several projects in that start's own sentences. axe (same tool and rules) is clean at 1440, 834 and 390, dark and light, in Select mode, with the sheet open and with the chip shown: 18 states.

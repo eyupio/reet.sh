@@ -18,6 +18,14 @@ import (
 func (s *server) registerProjectRunRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/projects/{id}/runs", s.projectAccess(s.projectRunStart))
 	mux.HandleFunc("POST /api/v2/project-runs/{runId}/members/{position}/retry", s.projectAccess(s.projectRunRetry))
+	// Start in several projects: a run of folder projects chosen in the rail,
+	// read and retried under the folder projects' own routes (the routes
+	// above go with the saved Projects).
+	// A new start counts as a folder-project write; a resend of one already
+	// made (a lost reply) does not, so it always gets its run back.
+	mux.HandleFunc("POST /api/v2/folder-projects/runs", s.folderAccess(s.selectionRunStart))
+	mux.HandleFunc("GET /api/v2/folder-projects/runs/{runId}", s.folderAccess(s.projectRun))
+	mux.HandleFunc("POST /api/v2/folder-projects/runs/{runId}/members/{position}/retry", s.folderAccess(s.projectRunRetry))
 }
 
 const sentenceTerminalsOff = "Remote terminals are switched off on this server, so agents can't be started."
@@ -138,6 +146,106 @@ func (s *server) projectRunStart(w http.ResponseWriter, r *http.Request) {
 	}
 	s.event(uid, "ui", "project-run", "", map[string]any{"project": p.ID, "run": run.ID, "members": len(run.Members)})
 	writeJSON(w, http.StatusCreated, viewRun(run))
+}
+
+const (
+	sentenceSelection     = "Choose 2 to 12 different projects."
+	sentenceRunPrompt     = "The prompt must be valid text of at most 2,000 bytes, without control characters other than line breaks, and must not start with a dash."
+	sentenceNoOption      = "That agent doesn't take that option."
+	sentenceYoloNotYet    = "reet doesn't start YOLO sessions yet."
+	sentenceSelectionBusy = "One of those projects is still starting. Wait for it to finish, then start again."
+)
+
+// selectionRunStart starts agents in several folder projects at once: one run
+// with a member per project, started in the background by the orchestrator
+// (201, every member pending). Body: {"requestId", "projectIds" (2 to 12),
+// "tool", "model", "effort", "prompt", "worktree", "yolo"}. The request id
+// makes it idempotent: the same request again answers 200 with its run and
+// starts nothing new. Each field is checked here with its own sentence, which
+// never repeats the prompt; YOLO is refused until reet starts YOLO sessions.
+func (s *server) selectionRunStart(w http.ResponseWriter, r *http.Request) {
+	if !s.terminalEnabled() {
+		terminalsOff(w)
+		return
+	}
+	var in struct {
+		RequestID  string   `json:"requestId"`
+		ProjectIDs []string `json:"projectIds"`
+		Tool       string   `json:"tool"`
+		Model      string   `json:"model"`
+		Effort     string   `json:"effort"`
+		Prompt     string   `json:"prompt"`
+		Worktree   bool     `json:"worktree"`
+		Yolo       bool     `json:"yolo"`
+	}
+	if !folderProjectBody(w, r, &in) {
+		return
+	}
+	uid := s.uid(r)
+	replay := false
+	if terminalproto.ValidID(in.RequestID) {
+		var err error
+		if replay, err = s.st.SelectionRunForRequest(uid, in.RequestID); err != nil {
+			storeRefusal(err).write(w)
+			return
+		}
+	}
+	if !replay && !s.chargeFolderWrite(w, uid) {
+		return
+	}
+	refuse := func(status int, code, field, sentence string) { writeErrCode(w, status, code, field, sentence, "") }
+	distinct := map[string]bool{}
+	for _, id := range in.ProjectIDs {
+		distinct[id] = true
+	}
+	switch {
+	case !terminalproto.ValidID(in.RequestID):
+		refuse(http.StatusUnprocessableEntity, "request_id_required", "requestId", "Starting needs a request id: 16 to 128 letters, digits, hyphens or underscores.")
+	case len(in.ProjectIDs) < store.MinSelectionProjects || len(in.ProjectIDs) > store.MaxSelectionProjects || len(distinct) != len(in.ProjectIDs):
+		refuse(http.StatusUnprocessableEntity, "invalid_selection", "projectIds", sentenceSelection)
+	case !terminalproto.ValidToolV2(in.Tool):
+		refuse(http.StatusUnprocessableEntity, "tool_unavailable", "tool", "reet doesn't start this agent yet.")
+	case in.Model != "" && !terminalproto.ValidModel(in.Model):
+		refuse(http.StatusUnprocessableEntity, "invalid_model", "model", sentenceModel)
+	case in.Effort != "" && in.Effort != "low" && in.Effort != "medium" && in.Effort != "high":
+		refuse(http.StatusUnprocessableEntity, "invalid_effort", "effort", "Choose low, medium or high thinking, or the agent's default.")
+	case in.Effort != "" && !terminalproto.ToolTakesEffort(in.Tool), in.Model != "" && !terminalproto.ToolTakesModel(in.Tool):
+		refuse(http.StatusConflict, "launch_option_unsupported", "", sentenceNoOption)
+	case in.Prompt != "" && !terminalproto.ValidPrompt(in.Prompt):
+		refuse(http.StatusUnprocessableEntity, "invalid_prompt", "prompt", sentenceRunPrompt)
+	case terminalproto.PromptNeedsWords(in.Tool, in.Prompt):
+		refuse(http.StatusUnprocessableEntity, "prompt_unsupported", "prompt", sentenceTwoWords)
+	case in.Yolo:
+		refuse(http.StatusConflict, "yolo_refused", "", sentenceYoloNotYet)
+	default:
+		run, created, err := s.st.StartSelectionRunFor(uid, in.RequestID, in.ProjectIDs, store.RunLaunch{Tool: in.Tool, Model: in.Model, Effort: in.Effort, Prompt: in.Prompt, Worktree: in.Worktree, Yolo: in.Yolo})
+		switch {
+		case errors.Is(err, store.ErrRunRequestChanged):
+			refuse(http.StatusConflict, "request_changed", "", "That request changed. Start it again.")
+			return
+		case errors.Is(err, store.ErrRunInProgress):
+			refuse(http.StatusConflict, "run_in_progress", "", sentenceSelectionBusy)
+			return
+		case errors.Is(err, store.ErrSelectionSize):
+			refuse(http.StatusUnprocessableEntity, "invalid_selection", "projectIds", sentenceSelection)
+			return
+		case errors.Is(err, store.ErrFolderProjectNotFound):
+			folderRefusal(err, "").write(w)
+			return
+		case err != nil:
+			storeRefusal(err).write(w)
+			return
+		}
+		// A replay answers with the run as it is now; the driver only picks
+		// up members still pending.
+		s.runs.Start(uid, run.ID)
+		if !created {
+			writeJSON(w, http.StatusOK, viewRun(run))
+			return
+		}
+		s.event(uid, "ui", "project-run", "", map[string]any{"origin": store.RunOriginSelection, "run": run.ID, "members": len(run.Members), "projects": in.ProjectIDs})
+		writeJSON(w, http.StatusCreated, viewRun(run))
+	}
 }
 
 func unknownPosition(w http.ResponseWriter) {

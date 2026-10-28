@@ -114,9 +114,11 @@ try {
    await expect(bar.getByRole('button',{name:'More'})).toBeFocused()
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
    // The last thing on the page (the footer, or the main area on Home, which has none) can be scrolled clear of the bar.
-   await page.evaluate(()=>scrollTo(0,document.documentElement.scrollHeight))
-   const footer = await page.locator('footer, main').last().evaluate(el=>el.getBoundingClientRect().bottom)
-   expect(footer).toBeLessThanOrEqual(812-64+1)
+   // Home's lists arrive after first paint and grow <main>, so scroll and measure together until it settles.
+   await expect.poll(async()=>{
+    await page.evaluate(()=>scrollTo(0,document.documentElement.scrollHeight))
+    return page.locator('footer, main').last().evaluate(el=>el.getBoundingClientRect().bottom)
+   }).toBeLessThanOrEqual(812-64+1)
    expect(errors).toEqual([])
    await context.close()
   }

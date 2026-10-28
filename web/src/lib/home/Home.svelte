@@ -1,13 +1,14 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import { getSyncState, UnauthorizedError, type Machine, type SyncState } from '../api'
+  import { getProfile, getSyncState, UnauthorizedError, type SyncState } from '../api'
   import { deleteFolderProject, folderProjectList, getFolderProject, importSavedProjects, machineHealth, refusalSentence, reorderFolderProjects, terminalMachines,
-    folderProjectForLegacy, terminalSessions, updateFolderProject, TerminalError, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
+    folderProjectForLegacy, sessionHref, terminalSessions, updateFolderProject, TerminalError, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { attentionCount, fleetCards, reporting, inFlight, needsYou, projectRunning, projectWorktrees, sessionOwners, type GroupBy, type HomeSession } from '../home'
   import { addedLine } from '../folderBrowser'
+  import type { LaunchDefaults } from '../launchBar'
+  import LaunchBar from '../launch/LaunchBar.svelte'
   import type { ProjectColour } from '../projectColour'
-  import StartAgentDialog from '../StartAgentDialog.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import AddProjectDialog from './AddProjectDialog.svelte'
   import ProjectWorktrees from './ProjectWorktrees.svelte'
@@ -16,8 +17,8 @@
   import NeedsYou from './NeedsYou.svelte'
   import ProjectRail from './ProjectRail.svelte'
 
-  // Home on today's data. A writer in accounts mode gets the project rail, the fleet strip, In flight, Needs you and a docked
-  // Start an agent; everyone else signed in gets the fleet strip alone (R16). Everything comes from the existing loaders and
+  // Home on today's data. A writer in accounts mode gets the project rail, the fleet strip, In flight, Needs you and the docked
+  // launch bar; everyone else signed in gets the fleet strip alone (R16). Everything comes from the existing loaders and
   // is read again every 15 seconds while the page is in view. A read that fails keeps what was last read and says so. Nothing
   // about Projects, sessions or machines goes into browser storage; the one stored value is the Group by choice.
   let { userId, writer, canAdd, accounts, moved = false, legacyProject = '', onsignedout, onattention }: {
@@ -56,8 +57,11 @@
   let sync = $state<SyncState | undefined>()
   let projects = $state<FolderProject[] | undefined>()
   let savedWaiting = $state(0)
-  // The project an address chose (/?project=<id>): its card is marked. The launch bar takes it in a later release.
+  // The project an address chose (/?project=<id>): its card is marked and the launch bar opens on it.
   let chosen = $state(new URLSearchParams(location.search).get('project') ?? '')
+  // The account's launch defaults (base branch, worktrees by default), read once; the bar waits for the answer or its failure.
+  let profile = $state<LaunchDefaults>({}), profileRead = $state(false)
+  let bar = $state<LaunchBar>()
   let now = $state(Date.now())
   let problem = $state('')
   let readOnce = false
@@ -98,14 +102,16 @@
     loading = true
     const signOut = () => { life.abort(); onsignedout(new UnauthorizedError()) }
     try {
-      const [h, y, s, p] = await Promise.allSettled([
+      const [h, y, s, p, t] = await Promise.allSettled([
         healthReadable ? machineHealth(bounded()) : Promise.resolve(undefined),
         getSyncState(bounded()),
         writer ? terminalSessions(bounded()) : Promise.resolve(undefined),
         writer ? folderProjectList(bounded()) : Promise.resolve(undefined),
+        // The launch bar's machines: readiness and launch capabilities change while Home stays open, so they are read with the rest.
+        writer ? terminalMachines(bounded()) : Promise.resolve(undefined),
       ])
       if (stale()) return
-      if ([h, y, s, p].some(r => r.status === 'rejected' && refused(r.reason, r !== y))) return signOut()
+      if ([h, y, s, p, t].some(r => r.status === 'rejected' && refused(r.reason, r !== y))) return signOut()
       const at = Date.now()
       let failed = false
       if (y.status === 'fulfilled') sync = y.value; else failed = true
@@ -117,6 +123,7 @@
       if (writer) {
         if (s.status === 'fulfilled' && s.value) { sessions = s.value; sessionsFailed = false } else { failed = true; sessionsFailed = sessions === undefined }
         if (p.status === 'fulfilled' && p.value) { projects = p.value.projects; savedWaiting = p.value.savedWaiting ?? 0; projectsFailed = false; void revealChosen() } else { failed = true; projectsFailed = projects === undefined }
+        if (t.status === 'fulfilled' && t.value) terminals = t.value; else failed = true
       }
       now = at
       problem = !failed ? '' : readOnce ? "Couldn't refresh just now. Showing what was last read." : "Couldn't read everything just now. Home tries again every 15 seconds."
@@ -130,11 +137,10 @@
   const NARROW = '(max-width: 1099px)'
   let narrow = $state(typeof matchMedia === 'function' && matchMedia(NARROW).matches)
 
-  // The dialogs need the terminal machines (with their launch capabilities) and the reported folders.
+  // The launch bar and the Add project dialog need the terminal machines (with their readiness and launch capabilities).
   let terminals = $state<TerminalMachine[] | undefined>()
   let checking = $state(false)
   let notice = $state<{ text: string; href?: string; bad?: boolean } | null>(null)
-  let starting = $state<{ opener: HTMLElement | null; project?: FolderProject } | null>(null)
   // The Add project dialog: a new project, or the one being changed (read with its starter prompt).
   let adding = $state<{ opener: HTMLElement | null; project?: FolderProject } | null>(null)
   let removing = $state<{ opener: HTMLElement | null; project: FolderProject } | null>(null)
@@ -144,9 +150,8 @@
   // the second never meets the first one's new version as "someone changed this project".
   const pending = new SvelteSet<string>()
   let moving = $state(false)
-  const folders = $derived<Machine[] | undefined>(sync?.machines)
-  // Read on every open, never from an earlier one: a machine's readiness and launch capabilities change while Home stays
-  // open, and the polls refresh health, not these. `checking` stops a second open racing the first read.
+  // Read again on every open of Add project, never from an earlier one: a machine's browse capability can change while Home
+  // stays open. `checking` stops a second open racing the first read.
   async function machinesForDialog(): Promise<boolean> {
     checking = true
     try { terminals = await terminalMachines(bounded()); return true }
@@ -156,22 +161,33 @@
       return false
     } finally { checking = false }
   }
-  async function openStart(opener: HTMLElement) {
-    if (checking) return
-    notice = null
-    if (await machinesForDialog()) starting = { opener }
-  }
   async function openAdd(opener: HTMLElement) {
     if (checking) return
     notice = null
     if (await machinesForDialog()) adding = { opener }
   }
-  // Choosing a card (or New session here) starts an agent in that folder on its machine, tied to the project.
-  async function openProjectStart(project: FolderProject, opener: HTMLElement) {
-    if (checking) return
-    notice = null
-    if (await machinesForDialog()) starting = { opener, project }
+  // Choosing a card (or New session here) puts that project in the launch bar's sentence and moves to the prompt; the rail
+  // marks the project the sentence names.
+  // The project the launch bar names ('' for none: the home folder or several projects); null until the bar has a choice.
+  let launchProject = $state<string | null>(null)
+  function chooseProject(project: FolderProject) { bar?.choose(project) }
+  // Select in the rail: the chosen projects, in rail order, are the launch bar's projects (Start in several projects). Only
+  // this page holds them; nothing goes to browser storage.
+  let selecting = $state(false), selected = $state<string[]>([])
+  const inRailOrder = (ids: string[]) => (projects ?? []).filter(p => ids.includes(p.id)).map(p => p.id)
+  function setSelecting(on: boolean, first?: FolderProject) {
+    selecting = on
+    selected = on && first ? [first.id] : []
   }
+  function toggleSelected(project: FolderProject) {
+    selected = inRailOrder(selected.includes(project.id) ? selected.filter(id => id !== project.id) : [...selected, project.id])
+  }
+  // A project removed while chosen leaves the selection.
+  $effect(() => {
+    const list = projects
+    if (!list || selected.every(id => list.some(p => p.id === id))) return
+    selected = inRailOrder(selected)
+  })
   // Edit reads the project again with its starter prompt (only the single read carries it), then opens the dialog.
   async function openEdit(project: FolderProject, opener: HTMLElement) {
     if (checking) return
@@ -303,14 +319,13 @@
   }
 
   // A start goes straight to the new session, at the address the Machines and Terminals pages use. The row is added first, so
-  // Home has it if the browser brings this page back from its cache on Back; the dialog stays Starting… until the page goes.
-  const sessionHref = (session: TerminalSession) => `/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`
+  // Home has it if the browser brings this page back from its cache on Back; the bar stays locked until the page goes.
   function started(session: TerminalSession): 'leaving' {
     sessions = [session, ...(sessions ?? []).filter(s => s.id !== session.id)]
     location.assign(sessionHref(session))
     return 'leaving'
   }
-  // The next page never arrived (the dialog let go after a few seconds): say what started, with the way to it.
+  // The next page never arrived (the bar let go after a few seconds): say what started, with the way to it.
   function leaveFailed(session: TerminalSession) {
     const host = health?.find(m => m.agentId === session.agentId)?.host ?? terminals?.find(m => m.agentId === session.agentId)?.host ?? session.agentId
     notice = { text: `Started ${session.title} on ${host}.`, href: sessionHref(session) }
@@ -322,6 +337,12 @@
   onMount(() => {
     if (moved) void tick().then(() => { movedShown = true })
     void load()
+    // The profile read gives up after 10 seconds, so the bar never waits on it for good (it then uses each project's own base).
+    // Once Home has gone, a late answer changes nothing and the timer is cleared.
+    let giveUpTimer: ReturnType<typeof setTimeout> | undefined
+    if (writer) Promise.race([getProfile(), new Promise<never>((_, no) => { giveUpTimer = setTimeout(() => no(new Error('timeout')), 10_000) })])
+      .then(p => { if (!life.signal.aborted) profile = { defaultBaseBranch: p.profile.defaultBaseBranch, worktreesByDefault: p.profile.worktreesByDefault } }, () => {})
+      .finally(() => { clearTimeout(giveUpTimer); if (!life.signal.aborted) profileRead = true })
     if (writer && legacyProject) void findLegacy(legacyProject)
     const query = matchMedia(NARROW), resized = () => { narrow = query.matches }
     query.addEventListener('change', resized)
@@ -329,18 +350,19 @@
     const shown = () => { if (document.visibilityState === 'visible') void load() }
     document.addEventListener('visibilitychange', shown)
     // Back from the session the person just started: a page restored from the browser's cache shows lists as they were, so
-    // it reads everything again. (The Start dialog closes itself and gives focus back to its button.)
+    // it reads everything again. (The launch bar unlocks itself.)
     const restored = (e: PageTransitionEvent) => { if (e.persisted) void load(true) }
     window.addEventListener('pageshow', restored)
-    return () => { query.removeEventListener('change', resized); clearInterval(timer); document.removeEventListener('visibilitychange', shown); window.removeEventListener('pageshow', restored); life.abort() }
+    return () => { clearTimeout(giveUpTimer); query.removeEventListener('change', resized); clearInterval(timer); document.removeEventListener('visibilitychange', shown); window.removeEventListener('pageshow', restored); life.abort() }
   })
 </script>
 
 <div class="home" class:writer>
   <h1 class="vh">Home</h1>
   {#snippet rail()}
-    <ProjectRail {projects} failed={projectsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees} {savedWaiting} {chosen} busy={checking} {importing} {pending} {moving}
-      onadd={openAdd} onchoose={openProjectStart} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}
+    <ProjectRail {projects} failed={projectsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees} {savedWaiting} chosen={launchProject ?? chosen} busy={checking} {importing} {pending} {moving}
+      {selecting} {selected} onselecting={setSelecting} ontoggle={toggleSelected}
+      onadd={openAdd} onchoose={(project) => chooseProject(project)} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}
       onremove={(project, opener) => (removing = { project, opener })} onmove={move} ondismiss={dismiss} onimport={bringIn} oncolour={colour} />
   {/snippet}
   <!-- On a desktop the rail is the left column; on a tablet or phone it sits under In flight (the Sessions tab takes it later). -->
@@ -355,18 +377,13 @@
         <InFlight {groups} {owners} machines={health ?? []} {offline} {now} loaded={sessions !== undefined} failed={sessionsFailed} {groupBy} onchoose={choose} {projectColours} />
       </div>
       {#if narrow}{@render rail()}{/if}
-      <section class="dock" aria-label="Start an agent">
-        <p>Start an agent in a new terminal session on one of your machines.</p>
-        <button type="button" class="btn primary start" disabled={checking} aria-busy={checking} onclick={(e) => openStart(e.currentTarget)}>Start an agent</button>
-      </section>
+      <LaunchBar bind:this={bar} {projects} {projectsFailed} machines={terminals} sessions={sessions} {profile} initialProject={chosen} selection={selecting ? selected : []}
+        ready={projects !== undefined && (sessions !== undefined || sessionsFailed) && profileRead}
+        onproject={(id) => (launchProject = id)} onstarted={started} onrun={() => void load(true)} onrundone={() => { if (selecting) setSelecting(false) }} onleavefailed={leaveFailed} onaddproject={openAdd} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
     {/if}
   </div>
 </div>
 
-{#if starting && terminals}
-  <StartAgentDialog machines={terminals} snapshot={folders} opener={starting.opener} initialAgent={starting.project?.host ?? ''} initialDir={starting.project?.dir ?? ''} projectId={starting.project?.id ?? ''}
-    onstarted={started} onleavefailed={leaveFailed} onaddmachine={() => location.assign(machinesAt('add-machine'))} {onsignedout} onclose={() => (starting = null)} />
-{/if}
 {#if adding && terminals}
   {@const wasEdit = !!adding.project}
   <AddProjectDialog machines={terminals} project={adding.project} opener={adding.opener} onadded={(p) => added(p, wasEdit)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} onclose={() => (adding = null)} />
@@ -382,7 +399,7 @@
 
 <style>
   /* The header is 61 px on a desktop, 65 px on a tablet and 57 px on a phone (measured at each breakpoint). These only set the
-     column's minimum height, so the docked Start an agent starts at the foot of the first screen; if the header changes,
+     column's minimum height, so the docked launch bar starts at the foot of the first screen; if the header changes,
      the cost is a small gap or a little extra scroll, never an overlap. */
   .home { line-height: 1.3; --top: 61px; display: grid; grid-template-columns: minmax(0, 1fr); }
   .home :global(p) { line-height: 1.55; }
@@ -399,13 +416,6 @@
   .work { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
   .work > :global(.needs) { grid-column: 2; grid-row: 1; }
   .work > :global(.flight) { grid-column: 1; grid-row: 1; }
-  .dock {
-    position: sticky; bottom: calc(var(--bottom-chrome, 0px) + 18px); z-index: 2; margin: auto 0 18px; display: flex; align-items: center; gap: 12px;
-    padding: 12px 12px 12px 18px; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--card-raised);
-    box-shadow: 0 -8px 30px -12px color-mix(in srgb, var(--bg) 80%, transparent);
-  }
-  .dock p { flex-grow: 1; margin: 0; color: var(--muted); }
-  .start { flex: none; min-height: 40px; padding: 0 18px; }
 
   @media (max-width: 1239px) { .home.writer { grid-template-columns: 56px minmax(0, 1fr); } }
   /* Tablet: machines, Needs you, In flight, then the project rail, one column (the Sessions tab takes the rail later). */
@@ -414,15 +424,10 @@
     .home.writer { grid-template-columns: minmax(0, 1fr); }
     .work { grid-template-columns: minmax(0, 1fr); }
     .work > :global(.needs), .work > :global(.flight) { grid-column: 1; grid-row: auto; }
-    .start { min-height: 44px; padding: 0 22px; }
   }
-  @media (pointer: coarse) { .start { min-height: 44px; } }
-  /* Phone: one column with 16 px gutters; the docked button is a full-width 48 px primary action above the tab bar. */
+  /* Phone: one column with 16 px gutters; the launch bar sits above the tab bar. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .home { --top: 57px; }
     .column { padding: 14px 16px 0; gap: 14px; }
-    .dock { margin: auto -4px 8px; padding: 8px; bottom: calc(var(--bottom-chrome, 0px) + 8px); }
-    .dock p { display: none; }
-    .start { flex: 1; min-height: 48px; border-radius: 10px; }
   }
 </style>

@@ -11,7 +11,7 @@ func TestAgentsV2NegotiationFiltersNewTools(t *testing.T) {
 	for _, v2 := range []bool{false, true} {
 		cfg := AgentConfig{TerminalSession: func(context.Context, *http.Client, http.Header, int64, Sender) (func(context.Context, terminalproto.Message) error, func()) {
 			return nil, nil
-		}, LaunchTools: func() []string { return []string{"pi", "claude", "pi", "unknown"} }}
+		}, LaunchTools: func() []string { return []string{"cline", "claude", "cline", "unknown"} }}
 		features := terminalproto.LaunchFeature
 		if v2 {
 			features += "," + terminalproto.AgentsFeature

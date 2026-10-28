@@ -24,10 +24,12 @@
       parts.push(reporting(c) ? count : `${count} (last known, not reporting)`, worktreesInUse(c.worktrees))
     }
     parts.push(`CPU ${c.cpu.text}`, `memory ${c.memory.text}`, `disk ${diskText(c)}`, c.skills.text)
+    if (c.os) parts.push(osLabel(c))
     return parts.join(', ')
   }
   const osNames: Record<string, string> = { linux: 'Linux', darwin: 'macOS', windows: 'Windows' }
   const osName = (os: string) => osNames[os] ?? os
+  const osLabel = (c: FleetCard) => osName(c.os) + (c.osVersion ? ` ${c.osVersion}` : '')
   const load = (r: { percent: number | null }) => r.percent === null ? 'muted' : r.percent >= 80 ? 'warn' : 'good'
   const diskText = (c: FleetCard) => c.disk.availableBytes === null ? 'No reading' : `${bytes(c.disk.availableBytes)} free`
   const readings = (c: FleetCard) => [c.cpu, c.memory, { label: 'Disk', percent: c.disk.percent, text: diskText(c) }]
@@ -41,7 +43,7 @@
           <span class="dot {c.status}" aria-hidden="true"></span>
           <span class="name">{c.name}</span>
           <span class="status {c.status}">{c.status}</span>
-          {#if c.os}<span class="os">{osName(c.os)}{#if c.osVersion}{' '}{c.osVersion}{/if}</span>{/if}
+          {#if c.os}<span class="os" title={osLabel(c)}>{osLabel(c)}</span>{/if}
         </span>
         {#if sessions}
           <span class="sessions"><span class="figure">{c.sessionsRunning}</span> <span class="unit">{c.sessionsRunning === 1 ? 'session running' : 'sessions running'}</span>{#if c.sessionsEnding}{' '}<span class="ending">· {c.sessionsEnding} ending</span>{/if}</span>
@@ -87,11 +89,12 @@
   .dot.offline { background: transparent; border: 2px solid var(--muted); }
   .dot.paused { border-radius: 2px; }
   .dot.reconnecting { background: linear-gradient(90deg, var(--warn) 50%, transparent 50%); border: 2px solid var(--warn); }
-  .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The name is the card's label: a long OS string gives way first and never cuts it. */
+  .name { flex-shrink: 0; max-width: 100%; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .status { font-size: 12px; color: var(--muted); }
   .status.online { color: var(--good); }
   .status.reconnecting { color: var(--warn); }
-  .os { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .os { margin-left: auto; flex-shrink: 4; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .sessions { display: flex; align-items: baseline; gap: 6px; }
   .figure { font: 600 28px/1 var(--serif); }
   .unit { color: var(--muted); }

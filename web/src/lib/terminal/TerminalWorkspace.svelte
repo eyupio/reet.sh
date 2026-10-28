@@ -202,8 +202,8 @@
     void getSyncState().then(state=>{if(!disposed&&read===folderRead)agentFolders=state.machines??[]}).catch(()=>{/* the home folder and a typed path still work */})
   }
   function closeAgentStart(){agentStart=null;folderRead++}
-  // A project's + starts an agent in that project's folder, exactly as Home's New session here does: same machine, folder
-  // and project, so the new session belongs to the project from its first frame.
+  // A project's + opens Start an agent in that project's folder: same machine, folder and project, so the new session
+  // belongs to the project from its first frame. (Home's New session here sets the launch bar's project instead.)
   function startInProject(project:FolderProject,opener:HTMLElement){
     if(accessDenied||agentStart||!machines.length)return
     openAgentStart(project.host,opener)

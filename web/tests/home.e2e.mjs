@@ -18,7 +18,7 @@ const health = () => ({serverNow:Date.now(),machines:[
  {agentId:'a2',host:'desk',state:'unreachable',capabilities:caps('darwin'),connection:{connected:false,reportFresh:false,missedProbes:4,reconnects:2,path:'direct',report:report(91)}},
 ]})
 const tmachines = [
- {agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:{...caps('linux'),browse:true,branches:true,worktree:true}},
+ {agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:{...caps('linux'),browse:true,branches:true,worktree:true,agentsV2:true}},
  {agentId:'a2',host:'desk',ready:false,serverEnabled:true,capabilities:caps('darwin')},
 ]
 const session = (id, agentId, title, state='running', over={}) => ({id,agentId,title,state,createdAt:now-2*HOUR,updatedAt:now-12*MIN,exitCode:null,...over})
@@ -134,6 +134,9 @@ const needs = page => page.getByRole('region',{name:'Needs you'})
 const rail = page => page.getByRole('complementary',{name:'Projects'})
 const groups = page => inFlight(page).locator('.group > h3').evaluateAll(els => els.map(e => e.textContent.replace(/\s+/g,' ').trim()))
 const noSideways = page => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)
+const launchBar = page => page.getByRole('form',{name:'Start a session'})
+const startButton = page => launchBar(page).getByRole('button',{name:/^(Start the session|Try the same request again)$/})
+const launchStatus = page => launchBar(page).locator('.status')
 
 try {
  // Each card names the machine, its connection word, the live sessions on it (never "agents"), CPU labelled CPU and the
@@ -145,7 +148,7 @@ try {
   const studio = card(page,'studio')
   await expect(studio).toBeVisible()
   await expect(studio).toHaveAttribute('href','/machines?machine=studio')
-  await expect(studio).toHaveAccessibleName(/^studio, online, 2 sessions running, 1 worktree in use, CPU 38%, memory 0%, disk 1 B free, skills in sync · checked 5 min ago$/)
+  await expect(studio).toHaveAccessibleName(/^studio, online, 2 sessions running, 1 worktree in use, CPU 38%, memory 0%, disk 1 B free, skills in sync · checked 5 min ago, Linux$/)
   await expect(studio.locator('.figure')).toHaveText('2')
   await expect(studio).toContainText('sessions running')
   await expect(studio.locator('.os')).toHaveText('Linux')
@@ -157,7 +160,7 @@ try {
   await expect(desk.locator('.skills')).toHaveText('2 skills out of date')
   await expect(desk.locator('.skills')).toHaveClass(/warn/)
   // An offline machine's count is what was last known: the card says so.
-  await expect(desk).toHaveAccessibleName(/^desk, offline, 1 session running \(last known, not reporting\), no worktrees in use, CPU No reading, memory No reading, disk No reading, 2 skills out of date$/)
+  await expect(desk).toHaveAccessibleName(/^desk, offline, 1 session running \(last known, not reporting\), no worktrees in use, CPU No reading, memory No reading, disk No reading, 2 skills out of date, macOS$/)
   await expect(desk.locator('.caption')).toHaveText('Last known count. desk is not reporting.')
   await expect(studio.locator('.caption')).toHaveCount(0)
   await expect(page.locator('main')).not.toContainText(/agents? running/i)
@@ -176,7 +179,7 @@ try {
    session('s3','a2','Speed up the runner pool','end_requested'), session('s5','a2','Bench the cache','end_requested')]
   await page.goto(base)
   const desk = card(page,'desk')
-  await expect(desk).toHaveAccessibleName(/^desk, offline, 0 sessions running · 2 ending \(last known, not reporting\), no worktrees in use, CPU No reading, memory No reading, disk No reading, 2 skills out of date$/)
+  await expect(desk).toHaveAccessibleName(/^desk, offline, 0 sessions running · 2 ending \(last known, not reporting\), no worktrees in use, CPU No reading, memory No reading, disk No reading, 2 skills out of date, macOS$/)
   await expect(desk.locator('.figure')).toHaveText('0')
   await expect(desk.locator('.sessions')).toHaveText(/^0\s+sessions running\s*· 2 ending$/)
   await expect(desk.locator('.caption')).toHaveText('Last known count. desk is not reporting.')
@@ -303,8 +306,8 @@ try {
  }
 
  // The rail lists the folder projects: repository diamond or folder icon, name, machine tag, base branch, state in words and
- // worktrees in use. Choosing a card opens Start an agent in that folder (the launch bar takes over in a later release); the
- // card menu has New session here, Edit, Worktrees, Move up and down, and Remove from reet (confirmed).
+ // worktrees in use. Choosing a card puts that project in the launch bar's sentence and moves to the prompt; the card menu
+ // has New session here, Edit, Worktrees, Move up and down, and Remove from reet (confirmed).
  if (run('rail lists folder projects with their menu')) {
   const {context,page,errors,box} = await home()
   await page.goto(base)
@@ -322,13 +325,17 @@ try {
   await expect(notes.locator('.branch')).toHaveCount(0)
   await expect(r.getByText('Folders are browsed live on the machine',{exact:true})).toBeVisible()
   expect(Math.round(await r.evaluate(el => el.getBoundingClientRect().width))).toBe(301)
-  // Choosing the card starts an agent in that folder on its machine, tied to the project.
+  // Choosing a card puts it in the launch sentence (and marks it); Start then starts in that folder on its machine, tied to the project.
+  await notes.click()
+  await expect(launchBar(page).getByRole('button',{name:'Project: Notes'})).toBeVisible()
+  await expect(notes).toHaveAttribute('aria-current','true')
+  await expect(launchBar(page).getByRole('textbox',{name:'Describe the job'})).toBeFocused()
   await store.click()
-  const start = page.getByRole('dialog',{name:'Start an agent',exact:true})
-  await expect(start.getByRole('combobox',{name:'Machine',exact:true})).toHaveValue('a1')
-  await expect(start.getByRole('textbox',{name:'Folder path'})).toHaveValue('/home/dev/store')
+  await expect(launchBar(page).getByRole('button',{name:'Project: Store rewrite'})).toBeVisible()
+  await expect(store).toHaveAttribute('aria-current','true')
+  await expect(notes).not.toHaveAttribute('aria-current','true')
   await page.route(url => new URL(url).pathname === '/terminals', route => route.fulfill({status:200, contentType:'text/html', body:'<title>t</title>'}))
-  await start.getByRole('button',{name:'Start',exact:true}).click()
+  await startButton(page).click()
   await expect.poll(() => box.created?.id ?? null).not.toBeNull()
   expect(box.createdBody).toMatchObject({agentId:'a1', dir:'/home/dev/store', projectId:'fp1'})
   await expect(page).toHaveURL(/\/terminals\?/)
@@ -382,6 +389,55 @@ try {
   await expect(n.getByRole('button',{name:'Add a project'})).toBeVisible()
   expect(Math.round(await n.evaluate(el => el.getBoundingClientRect().width))).toBe(56)
   expect(await noSideways(narrow.page)).toBe(true)
+  await narrow.context.close()
+ }
+
+ // #228's card menu (right-click or its button) on Home: New session here sets the launch bar's project like choosing the
+ // card, never the Start an agent dialog (that dialog stays on Machines and the Sessions panel); the colour is saved on
+ // the project with the version read, and the card names it.
+ if (run('rail menu sets the launch bar and saves the colour')) {
+  const {context,page,errors,box} = await home()
+  await page.goto(base)
+  const r = rail(page)
+  const notes = r.getByRole('button',{name:'Notes, desk, machine offline',exact:true})
+  await notes.click({button:'right'})
+  const menu = page.getByRole('menu',{name:'Notes'})
+  await expect(menu.getByRole('menuitem',{name:'New session here'})).toBeFocused()
+  await menu.getByRole('menuitem',{name:'New session here'}).click()
+  await expect(menu).toBeHidden()
+  await expect(launchBar(page).getByRole('button',{name:'Project: Notes'})).toBeVisible()
+  await expect(notes).toHaveAttribute('aria-current','true')
+  await expect(page.getByRole('dialog',{name:'Start an agent'})).toHaveCount(0)
+  await r.getByRole('button',{name:'More for Store rewrite',exact:true}).click()
+  const storeMenu = page.getByRole('menu',{name:'Store rewrite'})
+  await expect(storeMenu.getByRole('menuitemradio')).toHaveCount(6)
+  await storeMenu.getByRole('menuitemradio',{name:'Blue'}).click()
+  await expect.poll(() => box.writes.find(w => w.method === 'PATCH')?.body ?? null).toEqual({colour:'blue'})
+  expect(box.writes.find(w => w.method === 'PATCH').match).toBe('"1"')
+  await expect(r.getByRole('button',{name:/^Store rewrite, Blue, studio, main/})).toBeVisible()
+  // Choosing the project in the bar is unchanged by the colour.
+  await expect(launchBar(page).getByRole('button',{name:'Project: Notes'})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+  // From the panel over the 56 px strip, New session here closes the panel and sets the bar the same way.
+  const narrow = await home({width:1200})
+  await narrow.page.goto(base)
+  await rail(narrow.page).getByRole('button',{name:'Open the project rail'}).click()
+  await rail(narrow.page).locator('.full').getByRole('button',{name:'More for Notes',exact:true}).click()
+  // By keyboard, so no press outside the panel closes it first: the choice itself must.
+  await expect(narrow.page.getByRole('menu',{name:'Notes'}).getByRole('menuitem',{name:'New session here'})).toBeFocused()
+  await narrow.page.keyboard.press('Enter')
+  await expect(rail(narrow.page).getByRole('button',{name:'Close the project rail'})).toHaveCount(0)
+  await expect(launchBar(narrow.page).getByRole('button',{name:'Project: Notes'})).toBeVisible()
+  await expect(narrow.page.getByRole('dialog',{name:'Start an agent'})).toHaveCount(0)
+  // The menu sits outside the panel's box (#228 moved it out of the cards): pressing one of its other items does not count
+  // as a press outside the panel, so Move down keeps the panel open with its new order.
+  await rail(narrow.page).getByRole('button',{name:'Open the project rail'}).click()
+  await rail(narrow.page).locator('.full').getByRole('button',{name:'More for Store rewrite',exact:true}).click()
+  await narrow.page.getByRole('menu',{name:'Store rewrite'}).getByRole('menuitem',{name:'Move down'}).click()
+  await expect.poll(() => narrow.box.writes.find(w => w.path === '/api/v2/folder-projects/reorder')?.body ?? null).toEqual({ids:['fp2','fp1'], versions:[1,1]})
+  await expect(rail(narrow.page).locator('.manage')).toHaveAttribute('aria-expanded','true')
+  expect(narrow.errors).toEqual([])
   await narrow.context.close()
  }
 
@@ -623,27 +679,24 @@ try {
   await context.close()
  }
 
- // Start an agent sits docked at the foot of the page and opens the existing dialog.
- if (run('Start an agent opens the existing dialog')) {
+ // Home has no Start an agent button: the launch bar is docked at the foot of the page instead.
+ if (run('no Start an agent button on Home')) {
   const {context,page,errors} = await home()
   await page.goto(base)
-  const start = page.getByRole('button',{name:'Start an agent',exact:true})
-  await expect(start).toBeVisible()
-  const docked = await start.evaluate(el => el.getBoundingClientRect().bottom)
+  await expect(launchBar(page)).toBeVisible()
+  await expect(page.getByRole('button',{name:'Start an agent'})).toHaveCount(0)
+  await expect(page.getByRole('dialog',{name:'Start an agent'})).toHaveCount(0)
+  const docked = await launchBar(page).evaluate(el => el.getBoundingClientRect().bottom)
   expect(docked).toBeLessThanOrEqual(812)
-  expect(docked).toBeGreaterThan(812 - 120)
-  await start.click()
-  const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
-  await expect(dialog).toBeVisible()
-  await expect(dialog.getByRole('combobox',{name:'Machine',exact:true})).toHaveValue('a1')
+  expect(docked).toBeGreaterThan(812 - 40)
   expect(errors).toEqual([])
   await context.close()
  }
 
- // Starting from Home goes straight to the new session, at the address the other pages use: the terminal page shows its
- // connecting state with the session's title, keyboard focus lands on the terminal once it is live, and Back returns to Home
- // with the new row in In flight.
- if (run('Start an agent from Home opens the session')) {
+ // Starting from the launch bar goes straight to the new session, at the address the other pages use: the terminal page shows
+ // its connecting state with the session's title, keyboard focus lands on the terminal once it is live, and Back returns to
+ // Home with the new row in In flight and the bar ready again.
+ if (run('Start from Home opens the session')) {
   let ready
   const attached = new Promise(r => { ready = r })
   const {context,page,errors,box} = await home({terminalStatus:{configured:true,available:true,reason:''}, routes:{}})
@@ -652,9 +705,7 @@ try {
    socket.onMessage(message => { if (typeof message === 'string' && JSON.parse(message).ticket) void attached.then(() => { socket.send('{"type":"ready"}'); socket.send(Buffer.from('ready> ')) }) })
   })
   await page.goto(base)
-  await page.getByRole('button',{name:'Start an agent',exact:true}).click()
-  const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
-  await dialog.getByRole('button',{name:'Start',exact:true}).click()
+  await startButton(page).click()
   await expect(page).toHaveURL(/\/terminals\?/)
   const s = box.created
   expect(s).not.toBeNull()
@@ -671,70 +722,52 @@ try {
   await expect(page.locator('.xterm-helper-textarea')).toBeFocused()
   await page.goBack()
   await expect(page).toHaveURL(`${base}/`)
-  await expect(page.getByRole('dialog',{name:'Start an agent',exact:true})).toHaveCount(0)
   await expect(inFlight(page).getByRole('link',{name:new RegExp(s.title.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'))})).toBeVisible()
-  await expect(page.getByRole('button',{name:'Start an agent',exact:true})).toBeEnabled()
+  await expect(startButton(page)).toBeEnabled()
   expect(errors).toEqual([])
   await context.close()
  }
 
- // A start whose next page never arrives (a 204, the browser's Stop, a page that will not load) must not leave a modal with
- // no way out: after a few seconds the dialog lets go and Home says what started, with a link to it.
- if (run('a start whose page never arrives releases the dialog')) {
+ // A start whose next page never arrives (a 204, the browser's Stop, a page that will not load) must not leave the bar locked:
+ // after a few seconds it lets go and Home says what started, with a link to it.
+ if (run('a start whose page never arrives releases the bar')) {
   const {context,page,errors,box} = await home()
   await page.route(url => new URL(url).pathname === '/terminals', route => route.fulfill({status:204, body:''}))
   await page.goto(base)
-  const start = page.getByRole('button',{name:'Start an agent',exact:true})
-  await start.click()
-  const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
-  await expect(dialog.getByRole('button',{name:'Start',exact:true})).toBeEnabled()
+  await expect(startButton(page)).toBeEnabled()
   // Pressed from inside: Playwright's own click waits for the navigation it starts, which a 204 never finishes.
-  await page.evaluate(() => document.querySelector('dialog[open] footer button[type=submit]').click())
+  await page.evaluate(() => document.querySelector('form[aria-label="Start a session"] button[type=submit]').click())
   // Playwright's locators wait for a navigation that a 204 never finishes, so Home is read from inside.
   const look = () => page.evaluate(() => {
-   const d = document.querySelector('dialog[open]'), n = document.querySelector('.notice')
-   return {url: location.pathname, open: !!d, text: d?.querySelector('footer button[type=submit]')?.textContent, status: d?.querySelector('[role=status]')?.textContent,
-    notice: n?.textContent ?? null, href: n?.querySelector('a')?.getAttribute('href') ?? null, focus: document.activeElement?.textContent?.trim() ?? null}
+   const f = document.querySelector('form[aria-label="Start a session"]'), b = f?.querySelector('button[type=submit]'), n = document.querySelector('.notice')
+   return {url: location.pathname, disabled: b?.disabled, busy: b?.getAttribute('aria-busy'), status: f?.querySelector('.status')?.textContent,
+    notice: n?.textContent ?? null, href: n?.querySelector('a')?.getAttribute('href') ?? null}
   })
   await expect.poll(() => box.created?.title, {message:'the create request reached the mock'}).toBeTruthy()
-  await expect.poll(look).toMatchObject({open:true, text:'Starting…', status:`Opening ${box.created.title}…`})
-  await expect.poll(look, {timeout:9000}).toMatchObject({open:false})
-  expect(await look()).toEqual({url:'/', open:false, text:undefined, status:undefined, notice:`Started ${box.created.title} on studio. Open it`,
-   href:`/terminals?agent=a1&session=${encodeURIComponent(box.created.id)}`, focus:'Start an agent'})
-  // The dialog works as before: it opens again, and Escape and Close shut it.
-  const press = label => page.evaluate(label => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === label || b.getAttribute('aria-label') === label).click(), label)
-  await press('Start an agent')
-  await expect.poll(look).toMatchObject({open:true, text:'Start'})
-  await page.keyboard.press('Escape')
-  await expect.poll(look).toMatchObject({open:false})
-  await press('Start an agent')
-  await expect.poll(look).toMatchObject({open:true, text:'Start'})
-  await press('Close')
-  await expect.poll(look).toMatchObject({open:false})
+  await expect.poll(look).toMatchObject({disabled:true, busy:'true', status:`Opening ${box.created.title}…`})
+  await expect.poll(look, {timeout:9000}).toMatchObject({disabled:false})
+  expect(await look()).toEqual({url:'/', disabled:false, busy:'false', status:'', notice:`Started ${box.created.title} on studio. Open it`,
+   href:`/terminals?agent=a1&session=${encodeURIComponent(box.created.id)}`})
   expect(errors).toEqual([])
   await context.close()
  }
 
- // A browser may bring Home back from its cache on Back, with the dialog as it was when Home left (Starting…). The dialog
- // then closes at once and Home reads everything again. (Headless Chromium reloads instead, so the restore is simulated on
- // a start whose page is held back.)
- if (run('Home restored from the browser cache closes the dialog and reads again')) {
+ // A browser may bring Home back from its cache on Back, with the bar as it was when Home left (locked). The bar then
+ // unlocks at once and Home reads everything again. (Headless Chromium reloads instead, so the restore is simulated on a start
+ // whose page is held back.)
+ if (run('Home restored from the browser cache unlocks the bar and reads again')) {
   const {context,page,errors,reads} = await home()
   await page.route(url => new URL(url).pathname === '/terminals', route => route.fulfill({status:204, body:''}))
   await page.goto(base)
-  const start = page.getByRole('button',{name:'Start an agent',exact:true})
-  await start.click()
-  const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
-  await expect(dialog.getByRole('button',{name:'Start',exact:true})).toBeEnabled()
-  // Pressed from inside: Playwright's own click waits for the navigation it starts, which a 204 never finishes.
-  await page.evaluate(() => document.querySelector('dialog[open] footer button[type=submit]').click())
-  const look = () => page.evaluate(() => ({open: !!document.querySelector('dialog[open]'), text: document.querySelector('dialog[open] footer button[type=submit]')?.textContent,
-   status: document.querySelector('dialog[open] [role=status]')?.textContent, notice: document.querySelector('.notice')?.textContent ?? null, focus: document.activeElement?.textContent?.trim() ?? null}))
+  await expect(startButton(page)).toBeEnabled()
+  await page.evaluate(() => document.querySelector('form[aria-label="Start a session"] button[type=submit]').click())
+  const look = () => page.evaluate(() => { const f = document.querySelector('form[aria-label="Start a session"]'), b = f?.querySelector('button[type=submit]')
+   return {disabled: b?.disabled, status: f?.querySelector('.status')?.textContent, notice: document.querySelector('.notice')?.textContent ?? null} })
   // Answered and leaving, not still waiting for the answer.
-  await expect.poll(look).toMatchObject({open:true, text:'Starting…', status:'Opening Claude Code…'})
+  await expect.poll(look).toMatchObject({disabled:true, status:'Opening Claude Code · store…'})
   const before = reads.filter(r => r === 'GET /api/v2/terminal/sessions').length
   await page.evaluate(() => dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true})))
-  await expect.poll(look, {timeout:1000}).toMatchObject({open:false, focus:'Start an agent'})
+  await expect.poll(look, {timeout:1000}).toMatchObject({disabled:false, status:''})
   await expect.poll(() => reads.filter(r => r === 'GET /api/v2/terminal/sessions').length).toBeGreaterThan(before)
   // Restored, it is not a failed start: no notice.
   await page.waitForTimeout(5500)
@@ -743,24 +776,23 @@ try {
   await context.close()
  }
 
- // A refusal or a lost reply leaves the dialog open on Home with its own sentence, as before; nothing navigates.
+ // A refusal or a lost reply stays on Home with its own sentence in the bar's status line; nothing navigates.
  if (run('a refused start stays on Home with the sentence')) {
   let answer = {status:422,json:{error:'not installed',code:'tool_not_installed'}}
   const {context,page,errors,box} = await home({routes:{'/api/v2/terminal/sessions': request => request.method() === 'POST' ? answer : {sessions:box.sessions}}})
   const navigations = []
   page.on('framenavigated', f => { if (f === page.mainFrame()) navigations.push(f.url()) })
   await page.goto(base)
-  await page.getByRole('button',{name:'Start an agent',exact:true}).click()
-  const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
-  await dialog.getByRole('button',{name:'Start',exact:true}).click()
-  await expect(dialog.getByRole('status')).toHaveText("That agent isn't installed on that machine.")
-  await expect(dialog).toBeVisible()
-  await expect(dialog.getByRole('button',{name:'Start',exact:true})).toBeEnabled()
-  // A lost reply: the dialog says so and keeps the same request for Retry.
+  await startButton(page).click()
+  await expect(launchStatus(page)).toHaveText("That agent isn't installed on that machine.")
+  await expect(startButton(page)).toBeEnabled()
+  await expect(startButton(page)).toHaveAccessibleName('Start the session')
+  // A lost reply: the bar says so and keeps the same request for Retry.
   answer = {status:502,json:{error:'bad gateway'}}
-  await dialog.getByRole('button',{name:'Start',exact:true}).click()
-  await expect(dialog.getByRole('status')).toContainText("We didn't hear back, so the agent may have started.")
-  await expect(dialog.getByRole('button',{name:'Try the same request again',exact:true})).toBeEnabled()
+  await startButton(page).click()
+  await expect(launchStatus(page)).toContainText("We didn't hear back, so the agent may have started.")
+  await expect(startButton(page)).toHaveAccessibleName('Try the same request again')
+  await expect(startButton(page)).toBeEnabled()
   await page.waitForTimeout(500)
   expect(page.url()).toBe(`${base}/`)
   expect(navigations).toEqual([`${base}/`])
@@ -768,37 +800,34 @@ try {
   await context.close()
  }
 
- // Between the answer and the terminal page arriving, the dialog keeps its Starting… state: a second press (or Escape) does
+ // Between the answer and the terminal page arriving, the bar stays locked: a second press, a submit or Ctrl+Enter does
  // nothing and sends nothing.
  if (run('second press while starting sends nothing')) {
   const {context,page,errors,reads,box} = await home()
-  // As Home goes (the moment the next page replaces it), the page notes what the dialog shows, then presses Start again, submits, presses Enter and
-  // Escape, and counts the creates it tried to send.
+  // As Home goes (the moment the next page replaces it), the page notes what the bar shows, then presses Start again, submits
+  // and presses Ctrl+Enter in the prompt, and counts the creates it tried to send.
   await page.addInitScript(() => {
    if (location.pathname !== '/') return
    let creates = 0
    const send = window.fetch.bind(window)
    window.fetch = (input, init) => { if ((init?.method ?? 'GET') === 'POST' && String(input instanceof Request ? input.url : input).includes('/terminal/sessions')) creates++; return send(input, init) }
    addEventListener('pagehide', () => {
-    const d = document.querySelector('dialog[open]'), b = d?.querySelector('footer button[type=submit]'), x = d?.querySelector('[data-shell-close]')
-    const seen = {open: !!d, text: b?.textContent, disabled: b?.disabled, busy: b?.getAttribute('aria-busy'), close: x?.disabled, status: d?.querySelector('[role=status]')?.textContent}
+    const f = document.querySelector('form[aria-label="Start a session"]'), b = f?.querySelector('button[type=submit]'), t = f?.querySelector('textarea')
+    const seen = {text: b?.textContent.trim(), disabled: b?.disabled, busy: b?.getAttribute('aria-busy'), locked: t?.matches(':disabled'), status: f?.querySelector('.status')?.textContent}
     const before = creates
-    if (d) {
-     b.click(); d.querySelector('form').requestSubmit()
-     for (const key of ['Enter','Escape']) d.dispatchEvent(new KeyboardEvent('keydown', {key, bubbles:true, cancelable:true}))
-     d.dispatchEvent(new Event('cancel', {cancelable:true}))
+    if (f) {
+     b.click(); f.requestSubmit()
+     t.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', ctrlKey:true, bubbles:true, cancelable:true}))
     }
     // Kept where the next page (same tab, same origin) can read it; the test's only use of browser storage.
-    sessionStorage.setItem('__e2e_leaving', JSON.stringify({...seen, stillOpen: !!document.querySelector('dialog[open]'), extra: creates - before}))
+    sessionStorage.setItem('__e2e_leaving', JSON.stringify({...seen, extra: creates - before}))
    })
   })
   await page.goto(base)
-  await page.getByRole('button',{name:'Start an agent',exact:true}).click()
-  const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
-  await dialog.getByRole('button',{name:'Start',exact:true}).click()
+  await startButton(page).click()
   await expect(page).toHaveURL(/\/terminals\?agent=a1&session=new-/)
   const leaving = JSON.parse(await page.evaluate(() => sessionStorage.getItem('__e2e_leaving')))
-  expect(leaving).toEqual({open:true, text:'Starting…', disabled:true, busy:'true', close:true, status:`Opening ${box.created.title}…`, stillOpen:true, extra:0})
+  expect(leaving).toEqual({text:'StartCtrl ↵', disabled:true, busy:'true', locked:true, status:`Opening ${box.created.title}…`, extra:0})
   expect(reads.filter(r => r === 'POST /api/v2/terminal/sessions')).toHaveLength(1)
   expect(errors).toEqual([])
   await context.close()
@@ -816,6 +845,7 @@ try {
    await expect(needs(page)).toHaveCount(0)
    await expect(rail(page)).toHaveCount(0)
    await expect(page.getByRole('button',{name:'Start an agent'})).toHaveCount(0)
+   await expect(launchBar(page)).toHaveCount(0)
    await expect(page.getByRole('button',{name:/^Needs you/})).toHaveCount(0)
    if (what === 'viewer') await expect(strip(page).getByRole('link',{name:'Add a machine'})).toHaveCount(0)
    expect(errors, what).toEqual([])
@@ -879,11 +909,12 @@ try {
      expect(box[1], `${box[0]} at ${width}px`).toBeGreaterThanOrEqual(44)
    }
    if (width < 651) {
-    const start = page.getByRole('button',{name:'Start an agent',exact:true})
+    const start = startButton(page)
     expect((await start.boundingBox()).height).toBeGreaterThanOrEqual(48)
-    // The docked button sits above the bottom tab bar.
+    // The docked launch bar sits above the bottom tab bar.
     const bar = await page.getByRole('navigation',{name:'Main navigation'}).boundingBox()
-    expect((await start.boundingBox()).y + (await start.boundingBox()).height).toBeLessThanOrEqual(bar.y + 1)
+    const dock = await launchBar(page).boundingBox()
+    expect(dock.y + dock.height).toBeLessThanOrEqual(bar.y + 1)
    }
    expect(await noSideways(page), `no sideways scroll at ${width}px`).toBe(true)
    expect(errors).toEqual([])
@@ -915,9 +946,10 @@ try {
  // A machine whose sync agent is paused but still reporting says "paused", the word Control uses (fleet.ts), never "online":
  // from the sync agents (a single-token sign-in) and beside a health report alike, on a phone chip too.
  if (run('a paused agent that still reports reads paused')) {
-  const synced = makeSync()
-   const paused = {...synced, agents:[{...synced.agents[0], paused:true}, synced.agents[1], {id:'a3',host:'quiet-box',version:'1',lastSeen:Date.now(),paused:true,autoUpdate:false}]}
   for (const [what, options] of [['token',{status:{mode:'token',user:null}}],['writer',{}],['phone',{width:390,touch:true}]]) {
+   const synced = makeSync()
+   // Stamped on every pass: the client calls an agent offline after 90 s, and a slow runner can take that long over three contexts.
+   const paused = {...synced, agents:[{...synced.agents[0], paused:true}, synced.agents[1], {id:'a3',host:'quiet-box',version:'1',lastSeen:Date.now(),paused:true,autoUpdate:false}]}
    const {context,page,errors} = await home({...options, sync:paused})
    if (what === 'token') await page.addInitScript(() => localStorage.setItem('reet-token','fixture-token'))
    await page.goto(base)
@@ -1039,7 +1071,7 @@ try {
      .map(e => { const r = e.getBoundingClientRect(); return [(e.getAttribute('aria-label') || e.textContent).trim().replace(/\s+/g,' ').slice(0,30), Math.round(r.width), Math.round(r.height)] }))
     expect(sizes.length, at).toBeGreaterThan(8)
     for (const [name,w,h] of sizes) expect(Math.min(w,h), `${at}: "${name}" is ${w}×${h}`).toBeGreaterThanOrEqual(touch ? 44 : 24)
-    if (width < 651) expect((await page.getByRole('button',{name:'Start an agent',exact:true}).boundingBox()).height, at).toBeGreaterThanOrEqual(48)
+    if (width < 651) expect((await startButton(page).boundingBox()).height, at).toBeGreaterThanOrEqual(48)
     // State in words (or shape): each card names its status; one not online shows the word; the dots differ by shape too.
     for (const host of ['studio','desk']) await expect(card(page,host), at).toHaveAccessibleName(new RegExp(`^${host}, (online|offline), `))
     await expect(card(page,'desk').locator('.status'), at).toBeVisible()
@@ -1078,27 +1110,23 @@ try {
   }
  }
 
- // Each open of Start an agent reads the machines again: one that was not ready the first time is offered once it is,
- // without a reload.
- if (run('Start an agent reads the machines on every open')) {
+ // The launch bar reads the machines with every refresh: one that was not ready at first can be started on once it is, without
+ // a reload.
+ if (run('the launch bar reads the machines on every refresh')) {
   let reads = 0
   const notReady = tmachines.map(m => m.agentId === 'a1' ? {...m, ready:false, capabilities:{...m.capabilities, readiness:'terminal_disabled'}} : m)
   const {context,page,errors} = await home({routes:{'/api/v2/terminal/machines': () => ({machines: reads++ === 0 ? notReady : tmachines})}})
+  await page.clock.install()
   await page.goto(base)
-  const start = page.getByRole('button',{name:'Start an agent',exact:true})
-  const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
-  const option = dialog.getByRole('combobox',{name:'Machine',exact:true}).locator('option[value="a1"]')
-  await start.click()
-  await expect(option).toBeDisabled()
-  await expect(option).toHaveText('studio · not ready')
-  await page.keyboard.press('Escape')
-  await expect(dialog).toBeHidden()
-  await start.click()
-  await expect(option).toBeEnabled()
-  await expect(option).toHaveText('studio')
-  expect(reads).toBe(2)
+  await expect(startButton(page)).toBeDisabled()
+  await expect(launchStatus(page)).toHaveText('The machine is reconnecting. Existing shells will be kept.')
+  await page.clock.runFor(15_000)
+  await expect(startButton(page)).toBeEnabled()
+  await expect(launchStatus(page)).toHaveText('')
+  expect(reads).toBeGreaterThanOrEqual(2)
   expect(errors).toEqual([])
   await context.close()
  }
- console.log('Home: fleet strip with sessions running, worktrees in use, CPU or No reading and the skills line, Add a machine, In flight grouped by folder project, Machine and State with offline sessions kept, Needs you empty with a quiet bell, the folder-project rail with its menu, Worktrees, Add with the folder browser, the migration note and the saved Projects waiting, Start an agent going straight to the new session (Starting… until Home leaves, refusals kept on Home, Back to the new row), the read-only Home, refresh errors keeping the last lists, storage limited to the Group by key, the desktop, tablet and phone layouts, paused machines in words, and the width, theme, target, focus and motion matrix.')
+
+ console.log('Home: fleet strip with sessions running, worktrees in use, CPU or No reading and the skills line, Add a machine, In flight grouped by folder project, Machine and State with offline sessions kept, Needs you empty with a quiet bell, the folder-project rail with its menu, Worktrees, Add with the folder browser, the migration note and the saved Projects waiting, the launch bar going straight to the new session (locked until Home leaves, refusals kept on Home, Back to the new row), the read-only Home, refresh errors keeping the last lists, storage limited to the Group by key, the desktop, tablet and phone layouts, paused machines in words, and the width, theme, target, focus and motion matrix.')
 } finally { await browser.close() }

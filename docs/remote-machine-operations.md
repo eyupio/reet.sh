@@ -49,8 +49,7 @@ silently re-enable access on the next restart.
 HTTP is accepted only for localhost/loopback development. Health and sync
 work independently of this flag. Configure and retain the existing private-
 connection sealing key (`REET_BACKUP_KEY`, or the instance's protected
-`backup.key`); see [stage 2](remote-machine-stage2.md) and
-[backup keys](backups.md). Generate a key with `reet backup keygen` only when
+`backup.key`); see [backup keys](backups.md). Generate a key with `reet backup keygen` only when
 initialising an instance; preserve the existing key during upgrades/recovery.
 
 Folder browse and branch listing (`docs/folder-browse.md`) send the folder path,
@@ -238,7 +237,7 @@ Check vim/top, phone keyboard/IME and real logout/reboot behavior on the actual
 OS/service configuration before wider activation. Stop rollout for unexpected
 shell replacement, persistent input, ownership failures or misleading health.
 
-CI evidence and remaining boundaries are recorded in
-[stage 9](remote-machine-stage9.md). Automated local-relay tests, component restart
+CI evidence and remaining boundaries were recorded in the stage 9
+notes (removed in the docs tidy-up; see git history before bd9e56c). Automated local-relay tests, component restart
 tests and native manager tests complement each other; they are not a claim that
 a production fleet has been deployed or piloted.

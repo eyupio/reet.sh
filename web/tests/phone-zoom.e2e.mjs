@@ -28,16 +28,45 @@ const addProjectExtra = {
   entries:[{name:LONGSKILL, dir:true, repoRoot:true, hidden:false}, {name:PROJECT80, dir:true, repoRoot:false, hidden:false}]}),
 }
 
+// Two long-named projects on the long-named machine, and a start in both: one started, one refused with its sentence.
+const PROJECT80B = ('Docs_site_rebuild_with_another_long_unbroken_project_name' + '_abcdefghij'.repeat(8)).slice(0, 80)
+const launchRunMember = (position, project, name, state, over = {}) => ({position, host:project.host, dir:project.dir, tool:'claude', model:'', state, code:'', sentence:'', sessionId:'',
+ worktreePath:'', worktreeRepo:'', worktreeBranch:'', worktreeRun:'', worktreeProject:'', sharesCheckout:false, attempt:1, projectId:project.id, name, base:'', ...over})
+const launchRunExtra = (() => {
+ const [first] = homeExtra['/api/v2/folder-projects'].projects
+ const second = {...first, id:'fp81', name:PROJECT80B, dir:`${first.dir}_docs`, baseBranch:'', position:1}
+ const run = {id:'run-long', origin:'selection', projectId:'', projectName:`${PROJECT80}, ${PROJECT80B}`, state:'partial', startedAt:Date.now(), useWorktrees:true, worktreeProject:'', members:[
+  launchRunMember(0, first, PROJECT80, 'started', {sessionId:'session-long80'}),
+  launchRunMember(1, second, PROJECT80B, 'failed', {code:'session_limit', sentence:'The terminal session limit has been reached. End a session and try again.'})]}
+ // A machine that takes each project's own base (agentsV2), so Start is offered.
+ const machines = homeExtra['/api/v2/terminal/machines'].machines.map(m => ({...m, capabilities:{...m.capabilities, agentsV2:true}}))
+ return {...homeExtra, '/api/v2/terminal/machines':{machines}, '/api/v2/folder-projects':{projects:[first, second], savedWaiting:0}, '/api/v2/folder-projects/runs':run, '/api/v2/folder-projects/runs/run-long':run}
+})()
+
 // Dialogs open from the long-host machine's card, the one whose name is hardest to fit.
 const click = name => async page => { const b = page.getByRole('article', {name:LONGHOST}).getByRole('button', {name, exact:true}).first(); await b.scrollIntoViewIfNeeded(); await b.click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }
-// Home with 80-character machine, session and Project names, the More list opened over it, Jump's results and the Start an
-// agent dialog opened from Home (its fields must be 16 px).
+// Home with 80-character machine, session and Project names, the More list opened over it, Jump's results and the launch
+// bar's Change sheet opened from Home.
 const home = {path:'/', extra:homeExtra, ready:async page => { for (const name of [HOST80, SESSION80, PROJECT80]) await page.getByText(name).first().waitFor({state:'attached', timeout:5000}) }}
 const SCREENS = [
  {name:'home', ...home},
  {name:'home: more list', ...home, action:async page => { await page.getByRole('navigation', {name:'Main navigation'}).getByRole('button', {name:'More'}).click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }},
  {name:'home: jump results', ...home, action:async page => { await page.getByRole('button', {name:'Jump to a session, project or machine'}).click(); await page.getByRole('combobox', {name:'Jump to a session, project or machine'}).fill('abcdefghij'); await page.getByRole('listbox', {name:'Jump results'}).getByRole('option').first().waitFor({timeout:3000}) }},
- {name:'home: start agent dialog', ...home, action:async page => { await page.getByRole('button', {name:'Start an agent', exact:true}).click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }},
+ {name:'home: launch Change sheet', ...home, action:async page => { await page.getByRole('form', {name:'Start a session'}).getByRole('button', {name:'Change', exact:true}).click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }},
+ // The launch sheets: a slot's list opened from the Change sheet (the project list, with its Find field), and the status sheet
+ // of a start in several projects with two long-named projects, one started and one refused with its sentence.
+ {name:'home: launch project list', ...home, action:async page => {
+  await page.getByRole('form', {name:'Start a session'}).getByRole('button', {name:'Change', exact:true}).click()
+  const sheet = page.getByRole('dialog', {name:'Change the launch'})
+  await sheet.getByRole('button', {name:/^Project: /}).click()
+  await page.getByRole('listbox', {name:'Project'}).waitFor({timeout:3000}) }},
+ {name:'home: launch run status sheet', ...home, extra:launchRunExtra, action:async page => {
+  const rail = page.locator('aside.rail')
+  const menu = rail.getByRole('button', {name:'Projects menu'}); await menu.scrollIntoViewIfNeeded(); await menu.click()
+  await page.getByRole('menuitem', {name:'Select projects'}).click()
+  for (const name of [PROJECT80, PROJECT80B]) await rail.getByRole('checkbox', {name:new RegExp(`^${name}`)}).click()
+  await page.getByRole('form', {name:'Start a session'}).getByRole('button', {name:'Start the session'}).click()
+  await page.getByRole('dialog', {name:'Start in several projects'}).getByRole('button', {name:/^Retry /}).waitFor({timeout:3000}) }},
  {name:'control', path:'/control'},
  {name:'machines', path:'/machines'},
  {name:'machines: start agent dialog', path:'/machines', action:click('Start an agent')},

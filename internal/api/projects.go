@@ -235,11 +235,20 @@ type runMemberView struct {
 	// in the saved folder itself, which any other run or session there shares.
 	SharesCheckout bool `json:"sharesCheckout"`
 	Attempt        int  `json:"attempt"`
+	// ProjectID and Name are a selection member's folder project and its name
+	// when the run started; Base the branch its worktree starts from ("" for
+	// the checkout's current commit). Empty for a saved Project's run.
+	ProjectID string `json:"projectId"`
+	Name      string `json:"name"`
+	Base      string `json:"base"`
 }
 
 // runView is a run as the API shows it. It has no prompt field of any kind.
 type runView struct {
-	ID           string `json:"id"`
+	ID string `json:"id"`
+	// Origin is "set" (a saved Project's run) or "selection" (a start in
+	// several folder projects, whose members each name their project).
+	Origin       string `json:"origin"`
 	ProjectID    string `json:"projectId"`
 	ProjectName  string `json:"projectName"`
 	State        string `json:"state"`
@@ -273,6 +282,13 @@ var runMemberSentences = func() map[string]string {
 		"worktree_refused":   "That machine refused to make a worktree for this request. Start it again to see why.",
 		"invalid_launch":     "reet couldn't send that start request. Check the Project's settings and try again.",
 		"internal_error":     "Something went wrong on our side. Check your sessions, then retry.",
+		// A selection run's own codes.
+		"yolo_refused":              sentenceYoloNotYet,
+		"launch_option_unsupported": sentenceNoOption,
+		"option_needs_update":       "Update reet on that machine to use that option.",
+		"tool_unavailable":          "reet doesn't start this agent yet.",
+		"project_moved":             "That project was removed, or moved to another machine or folder, since this start. Start it again from the rail.",
+		"base_missing":              "That branch isn't in the repository on that machine.",
 	}
 	for _, r := range worktreeRefusals {
 		out[r.code] = r.sentence
@@ -291,16 +307,24 @@ func runMemberSentence(state, code string) string {
 }
 
 func viewRun(r store.Run) runView {
-	v := runView{ID: r.ID, ProjectID: r.ProjectID, ProjectName: r.ProjectName, State: r.State, StartedAt: r.CreatedAt, UseWorktrees: r.UseWorktrees,
+	v := runView{ID: r.ID, Origin: r.Origin, ProjectID: r.ProjectID, ProjectName: r.ProjectName, State: r.State, StartedAt: r.CreatedAt, UseWorktrees: r.UseWorktrees,
 		Members: make([]runMemberView, 0, len(r.Members))}
 	if r.UseWorktrees {
 		v.WorktreeProject = terminalproto.Slug(r.ProjectName, "project")
 	}
 	for _, m := range r.Members {
+		// A selection member's worktree is made under its own project's slug.
+		project := v.WorktreeProject
+		if r.Origin == store.RunOriginSelection {
+			project = ""
+			if m.InWorktree(r) {
+				project = terminalproto.Slug(m.Name, "project")
+			}
+		}
 		v.Members = append(v.Members, runMemberView{Position: m.Position, Host: m.Host, Dir: m.Dir, Tool: m.Tool, Model: m.Model, State: m.State,
 			Code: m.Code, Sentence: runMemberSentence(m.State, m.Code), SessionID: m.SessionID, WorktreePath: m.WorktreePath,
-			WorktreeRepo: m.WorktreeRepo, WorktreeBranch: m.WorktreeBranch, WorktreeRun: m.WorktreeToken, WorktreeProject: v.WorktreeProject,
-			SharesCheckout: !r.UseWorktrees, Attempt: m.Attempt})
+			WorktreeRepo: m.WorktreeRepo, WorktreeBranch: m.WorktreeBranch, WorktreeRun: m.WorktreeToken, WorktreeProject: project,
+			SharesCheckout: !m.InWorktree(r), Attempt: m.Attempt, ProjectID: m.ProjectID, Name: m.Name, Base: m.Base})
 	}
 	return v
 }

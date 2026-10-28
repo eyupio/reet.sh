@@ -22,6 +22,13 @@
 // members still pending are started, with their unchanged request ids, and a
 // started member is never started again.
 //
+// A selection run (Start in several projects, store.StartSelectionRunFor)
+// follows the same rules. Each member is its own folder project: its create
+// names the project (the store checks its machine and folder again), its
+// worktree is made under the project's slug from its own base branch, and the
+// run's effort and YOLO go to every member. A folder that is not a repository
+// starts in its folder.
+//
 // The shared prompt is sent to the machine and nowhere else: it is never
 // logged, audited or put in an error.
 package projectrun
@@ -35,8 +42,10 @@ import (
 	"log"
 	"path"
 	"slices"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
@@ -71,6 +80,19 @@ const (
 	// CodeInternalError: the controller could not record a step (a database
 	// error). The member's sent mark is left as it was, so a retry is safe.
 	CodeInternalError = "internal_error"
+	// Refusals of a selection run's launch options, all before anything is
+	// reserved: YOLO, an option the agent's preset lacks, an agent reet does
+	// not start, and an agent the machine does not have.
+	CodeYoloRefused             = "yolo_refused"
+	CodeLaunchOptionUnsupported = "launch_option_unsupported"
+	CodeToolUnavailable         = "tool_unavailable"
+	// CodeOptionNeedsUpdate: an option (base, effort, YOLO) refused because
+	// the machine has not negotiated agents-v2; updating reet there helps.
+	CodeOptionNeedsUpdate = "option_needs_update"
+	// CodeProjectMoved: the member's folder project was removed, or moved to
+	// another machine or folder, since the run started; the session is not
+	// put in it.
+	CodeProjectMoved = "project_moved"
 )
 
 // worktreeCodes are the create refusal reasons and the code stored for each.
@@ -80,6 +102,7 @@ var worktreeCodes = map[terminalproto.WorktreeReason]string{
 	terminalproto.WorktreeExists:      "worktree_exists",
 	terminalproto.WorktreeGitFailed:   "git_failed",
 	terminalproto.WorktreeOutsideHome: "outside_home",
+	terminalproto.WorktreeBaseMissing: "base_missing",
 }
 
 // RetryAttempt is the attempt a retry of the failed member m uses: the same
@@ -125,6 +148,35 @@ func Title(project, dir string) string {
 	return title
 }
 
+// SelectionTitle is the session title for a member of a start in several
+// projects, as a single launch titles one: the prompt's first line with text
+// (tabs as spaces, without invisible characters, at most
+// terminalproto.MaxTitleRunes characters), else the project's name.
+func SelectionTitle(prompt, name string) string {
+	for _, line := range strings.Split(prompt, "\n") {
+		line = strings.TrimSpace(strings.Map(func(r rune) rune {
+			switch {
+			case r == '\t':
+				return ' '
+			case unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029':
+				return -1
+			}
+			return r
+		}, line))
+		if line == "" {
+			continue
+		}
+		if r := []rune(line); len(r) > terminalproto.MaxTitleRunes {
+			line = strings.TrimSpace(string(r[:terminalproto.MaxTitleRunes]))
+		}
+		if terminalproto.ValidTitle(line) {
+			return line
+		}
+		break
+	}
+	return Title(name, "/")
+}
+
 // Broker is the create path: terminalbroker.Broker satisfies it.
 type Broker interface {
 	CreateSession(ctx context.Context, uid int64, agent, requestID string, in terminalproto.Create) (store.TerminalSession, bool, error)
@@ -139,6 +191,7 @@ type Store interface {
 	ReleaseRunMember(uid int64, runID string, position int)
 	SetRunMemberState(uid int64, runID string, position int, state, code, sessionID, worktreePath, worktreeRepo, worktreeBranch string, attempt int) error
 	SetRunMemberWorktreeToken(uid int64, runID string, position int, token string) error
+	SettleRunMemberBase(uid int64, runID string, position int, keep bool) error
 	MarkRunMemberSent(uid int64, runID string, position, attempt int) error
 	ClearRunMemberSent(uid int64, runID string, position, attempt int) error
 	RetryRunMember(uid int64, runID string, position int) (store.RunMember, error)
@@ -239,6 +292,16 @@ func (o *Orchestrator) Resume() error {
 		o.start(p.UID, p.RunID, o.cfg.ResumeWait)
 	}
 	return nil
+}
+
+// Driving reports whether the run has a driver: started and not yet through
+// its last pass. Start registers the driver before it returns, so once Driving
+// is false every create that Start led to has returned.
+func (o *Orchestrator) Driving(uid int64, runID string) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	_, ok := o.runs[runKey{uid, runID}]
+	return ok
 }
 
 // Done is closed when the orchestrator is closed.
@@ -467,7 +530,16 @@ func (o *Orchestrator) startMember(uid int64, run store.Run, position int, code 
 		return
 	}
 	in := terminalproto.Create{Title: Title(run.ProjectName, m.Dir), Cols: 100, Rows: 30, Tool: m.Tool, Model: m.Model, Dir: m.Dir, Prompt: run.Prompt}
-	if run.UseWorktrees {
+	project := run.ProjectName
+	if run.Origin == store.RunOriginSelection {
+		// Each member is its own folder project: the session belongs to it
+		// (the store checks its machine and folder again) and is titled as a
+		// single launch is, from the prompt.
+		project = m.Name
+		in.Title = SelectionTitle(run.Prompt, m.Name)
+		in.ProjectID, in.Effort, in.Yolo = m.ProjectID, run.Effort, run.Yolo
+	}
+	if m.InWorktree(run) {
 		token := WorktreeToken(run.ID, position)
 		if err := o.cfg.Store.SetRunMemberWorktreeToken(uid, run.ID, position, token); err != nil {
 			o.cfg.Logf("project run %s member %d: worktree token: %v", run.ID, position, err)
@@ -475,7 +547,27 @@ func (o *Orchestrator) startMember(uid int64, run store.Run, position int, code 
 			return
 		}
 		in.Worktree = token
-		in.Project = terminalproto.Slug(run.ProjectName, "project")
+		in.Project = terminalproto.Slug(project, "project")
+		if m.BaseInherited {
+			// Only the account's default: a machine without agents-v2 would
+			// refuse the start for it, so it starts from the checkout's HEAD
+			// there instead. Decided once and stored before anything is sent,
+			// so a replay of this request id carries the same base.
+			keep := true
+			if caps, err := o.cfg.Store.RemoteCapabilitiesFor(uid, m.Host); err == nil && !caps.Capabilities.AgentsV2 {
+				keep = false
+			}
+			if err := o.cfg.Store.SettleRunMemberBase(uid, run.ID, position, keep); err != nil {
+				o.cfg.Logf("project run %s member %d: settle base: %v", run.ID, position, err)
+				o.fail(uid, run.ID, m, CodeInternalError) // nothing was sent now
+				return
+			}
+			if !keep {
+				m.Base = ""
+			}
+			m.BaseInherited = false
+		}
+		in.Base = m.Base
 	}
 	request := RequestID(run.ID, position, m.Attempt)
 	// Durable before the call: from here on the create may reach the machine.
@@ -565,6 +657,23 @@ func (o *Orchestrator) classify(uid int64, m store.RunMember, request string, se
 		return CodeUnknownMachine, false // checked before the reservation lookup
 	case errors.Is(err, terminalproto.ErrInvalid):
 		return CodeInvalidLaunch, true
+	// A selection run's options and its project, all checked before anything
+	// is reserved.
+	case errors.Is(err, terminalbroker.ErrYoloRefused):
+		return CodeYoloRefused, true
+	case errors.Is(err, terminalbroker.ErrLaunchOptionUnsupported):
+		// As a single launch words it: the agent's own limit on a machine
+		// with agents-v2, else the machine's version.
+		if caps, e := o.cfg.Store.RemoteCapabilitiesFor(uid, m.Host); e == nil && caps.Capabilities.AgentsV2 {
+			return CodeLaunchOptionUnsupported, true
+		}
+		return CodeOptionNeedsUpdate, true
+	case errors.Is(err, terminalbroker.ErrToolUnavailable):
+		return CodeToolUnavailable, true
+	case errors.Is(err, terminalbroker.ErrToolNotInstalled):
+		return CodeToolNotInstalled, true
+	case errors.Is(err, store.ErrFolderProjectNotFound), errors.Is(err, store.ErrProjectMachineMismatch), errors.Is(err, store.ErrProjectFolderMismatch):
+		return CodeProjectMoved, true
 	}
 	return CodeUnknownOutcome, false
 }

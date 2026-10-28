@@ -171,10 +171,10 @@ func TestReserveWithProjectIDChecksAccountAndMachine(t *testing.T) {
 	if err := s.MergeMachinesFor(uid, a.Host, "work-laptop"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.TerminalProjectCheckFor(uid, a.ID, here.ID); err != nil {
+	if err := s.TerminalProjectCheckFor(uid, a.ID, here.ID, "/home/tester/site"); err != nil {
 		t.Fatal("after a rename", err)
 	}
-	in := terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, ProjectID: here.ID}
+	in := terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, Tool: "claude", Dir: "/home/tester/site", ProjectID: here.ID}
 	if _, created, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, in); err != nil || !created {
 		t.Fatal("launch after a rename", created, err)
 	}

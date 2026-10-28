@@ -3,9 +3,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import ts from 'typescript'
 
-const source = ts.transpileModule(readFileSync(new URL('./agentLaunch.ts', import.meta.url), 'utf8'), {
+const compile = name => ts.transpileModule(readFileSync(new URL(name, import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText
+const asURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
+const source = compile('./agentLaunch.ts').replace("from './catalogue'", `from '${asURL(compile('./catalogue.ts'))}'`)
 const m = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
 const { cleanModel, validateDir, TOOLS, MAX_PROMPT_BYTES, modelSuggestions, validateModel, validatePrompt, folderChoices, launchSentence, refusalText, titleFor, notStartedText } = m
 
@@ -166,7 +168,7 @@ test('no banned words in any sentence', () => {
 test('toolName gives the display name, and the id itself for anything unknown', () => {
   assert.equal(m.toolName('claude'), 'Claude Code')
   assert.equal(m.toolName('gemini'), 'Gemini CLI')
-  assert.equal(m.toolName('pi'), 'pi')
+  assert.equal(m.toolName('some-future-agent'), 'some-future-agent')
   assert.equal(m.toolName(''), 'an agent')
   assert.equal(m.toolName(undefined), 'an agent')
 })
@@ -189,6 +191,12 @@ test('toolChoices offers nothing on a machine that cannot take launch requests',
   }
   assert.ok(m.toolChoices({ launch: true }).every(t => !t.available && t.reason === 'Not installed on this machine.'))
   assert.ok(m.toolChoices({ launch: true, tools: 'claude' }).every(t => !t.available))
+})
+
+test('every surface names a tool from the one catalogue, so Cline reads Cline', () => {
+  assert.equal(m.toolName('cline'), 'Cline')
+  assert.equal(m.toolName('pi'), 'Pi')
+  assert.equal(m.launchActivity({ tool: 'cline', host: 'studio', dir: '/w' }), 'Started Cline in /w on studio')
 })
 
 test('launchActivity reads an audit detail as one plain line and never needs the prompt', () => {

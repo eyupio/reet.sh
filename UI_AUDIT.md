@@ -1,126 +1,171 @@
-# UI audit — `/sync`
+# UI Audit — Machines page
 
-**Scope:** `https://reet.sh/sync` (the Sync route in this worktree, `goths@9c91987`).
-**Method:** Read `Machines.svelte`, `EnvironmentSync.svelte`, `SyncControl.svelte`, `SyncActivity.svelte`, `SyncProblem.svelte`, `FleetActions.svelte`, `ProjectsBar.svelte`, `PageHeader.svelte`, the shell navigation and `app.css`; then built the current web app and rendered `/sync` against fixture API responses in Chromium at **1440×1000**, **375×812** and **320×700**, light and dark. Interaction states were exercised with Playwright (selection, approval dialogs, failures, empty state). Production `/sync` is auth-gated and redirects to the signed-out landing page, so the rendered state used a writer account and fixture machines/jobs; no production data was read or changed.
-**Passes:** Designer teardown and first-time-user walkthrough.
-**Paywall/upgrade checks:** Not applicable. This is a self-hosted product with no trial, upgrade modal or paid tier in the codebase. “Conversion” here means reaching the first successful preview → approval → apply and trusting the result.
-
-What already holds up: no horizontal overflow at 320/375/1440, failure cards name an exact fix and command, status is never colour-only, light/dark are consistent, and destructive “Stop tracking” has confirmation.
+**Scope:** `/machines` (Inventory & connection), plus the routes reached from it (`?machine=`, `#add-machine`, `#connect-machine`). The Sync view (`/machines?view=compare`, `/sync`) was inspected only where the Machines page links into it.
+**Method:** Source review (`web/src/lib/Machines.svelte`, `MachineFleet.svelte`, `EnvironmentSync.svelte`, `MachineSetup.svelte`, `TerminalReadiness.svelte`, `AddMachineDialog.svelte`, `MachineSettings.svelte`, `syncOverview.ts`) plus a local build of the app rendered at **1440×812, 800×812, 375×812 and 320×812**, in dark and light themes, with the repo's fixture API (3 machines: one needing sync, one up to date with a failed update, one paused/offline).
+**Conversion goal:** this is a self-hosted product with no pricing, trial or paywall in the code. The conversion event is **the first connected machine that produces inventory**. There is no paywall to audit; the failure modes below are activation friction, not payment friction.
 
 ---
 
-## Critical
+## 1. Critical
 
-### 1. “Save” writes an empty desired set
+### C1. Two onboarding systems are stacked on top of each other
 - **Pass:** First-time user
-- **Where:** `web/src/lib/SyncControl.svelte:486` (button), `:123-149` (`save` / `reviewSave`); `/sync`, 1440×1000 and 375×812.
-- **Problem:** The primary button is enabled with **0 skills selected**. A Playwright click sent `PUT /api/v2/sync/desired` with `{"skillIds":[],"mode":"additive"}`. Because the page also opens at 0 selected (finding 2), a distracted click silently replaces an existing saved set with nothing. In **Exact set** or **Bidirectional** this is the removal path, and the only guard is a confirmation about extras — not about saving zero skills.
-- **Fix:** Add `selected.length === 0` to the button’s `disabled` expression and guard inside `save()`. Treat “save an empty set” as a deliberate action with its own label (“Clear this desired set”), and name the number of removals it will lead to. Put “0 of N skills selected” directly beside the button, not only above the list.
+- **Where:** `web/src/lib/Machines.svelte:48` renders `TerminalReadiness` (a 4-step "Get your first terminal running" checklist); `web/src/lib/EnvironmentSync.svelte:254` renders `MachineSetup` directly beneath it, auto-expanded when there are zero machines (`EnvironmentSync.svelte:129`). Empty state at `/machines`, both 1440px and 375px.
+- **Problem:** A new user is given two competing tutorials at once: "Before your first terminal" (server terminal → connect machine → machine consent → session) and "Machine setup" (install → authenticate → connect terminal → inventory & sync). Both are numbered 1–4, both contain the same connect and terminal instructions, and both auto-open on first run. The page is asking the user to choose a curriculum before they have seen the product. On mobile the empty state is ~3,000px tall and contains no actual machine. This is the single biggest activation blocker.
+- **Fix:** Ship one onboarding flow. Keep the `MachineSetup` wizard as the only numbered flow; delete the standalone `TerminalReadiness` card from the page and move its terminal/consent steps into `MachineSetup` step 3 (where terminal connection already lives). If the readiness checklist must survive, show it only after a machine exists and only for users who have opened Sessions, with an explicit "Dismiss" that persists.
 
-### 2. The compare panel ignores the selected destination’s saved set
-- **Pass:** First-time user
-- **Where:** `web/src/lib/SyncControl.svelte:307-327` (auto-select on mount), `:97-109` (`loadSource` clears selection), `:110-116` (`selectMachine`), `:491-515` (saved sets).
-- **Problem:** With Elitebook/OpenCode saved as **4 desired / 2 to install**, the top panel auto-selects Elitebook/OpenCode but shows **0 selected**, **0 only on reet.sh**, **3 only on selected scopes**. It defaults the source to **My shelf** even when the saved set came from a list, and defaults mode to **Additive** even when the saved set is **mirror** or **bidirectional**. The same page then contradicts itself lower down (“4 desired”). Users conclude their set was lost, or save a new set that overwrites it.
-- **Fix:** When auto-selecting a destination with an existing target, hydrate `source`, `listId`, `mode`, `selected` and `revision` from `snapshot.targets` (reuse the `edit()` path). If that is not wanted, do not auto-select a machine; show a per-scope “Edit saved set” empty state instead. Never present a blank form as the saved state. Add an “Editing saved set · revision r7” banner.
-
-### 3. “Review & approve” hides the thing being approved
-- **Pass:** First-time user
-- **Where:** `web/src/lib/SyncControl.svelte:305` (confirm dialog), `:333-345` (job row), `:372-387` (plan disclosure); `/sync#sync-jobs`, 1440×1000.
-- **Problem:** The primary action sits above a collapsed **“Plan · 3 changes”** disclosure. The confirmation says only “2 installs and 1 removals in /home/dev/.config/opencode/skills” and never names a skill. It also says “1 removals”. The user is asked to approve file-system changes they cannot see at the moment of approval. This is the trust centre of the product.
-- **Fix:** When `entry.review`, render the plan actions inline above the button: install/remove + skill name + source. Pass that list into `ConfirmDialog` and fix the plural (`1 removal`). Label the confirm action **Apply changes**, not **Confirm**. Keep the disclosure for history, not for approval.
-
-### 4. “Sync now” changes files while the page says nothing changes without approval
-- **Pass:** First-time user
-- **Where:** `web/src/lib/SyncControl.svelte:77` (“Nothing changes until you approve a plan.”), `:193` and `:508` (“Automatic sync started… additive plans apply on their own”), `docs/controller-sync.md:60`; saved machines at `/sync`, 1440×1000.
-- **Problem:** Automatic runs auto-approve additive installs. On the same screen the activity panel promises no changes without approval, and **Sync all now** / **Sync now** are the strongest primaries. A user expecting a preview gets installs. This is the largest trust break on the page and directly contradicts the safety story used elsewhere (“review every change before it is applied”).
-- **Fix:** Pick one model per surface. Either make “Sync now” a preview-and-approve flow, or relabel it **“Sync now (installs automatically)”** and change the activity copy to “Automatic runs install additive changes; removals wait for your approval.” Add a confirmation naming the count before an automatic run. Do not show both promises on the same page.
-
-### 5. The empty-state primary CTA is hidden behind the phone tab bar
+### C2. Three differently-labelled CTAs for connecting a machine, doing two different things
 - **Pass:** First-time user / Designer
-- **Where:** `web/src/lib/EnvironmentSync.svelte:247-251`; `web/src/lib/shell/BottomTabs.svelte:16-28`; `/sync` empty state at 375×812.
-- **Problem:** Measured CTA: top **778px**, bottom **822px**. Bottom tab bar: top **748px**, bottom **812px**. `elementFromPoint` at the CTA centre hits the tab bar. The only next step on the empty page is invisible at first paint, and the page is 1092px tall for one empty card. A new user sees “Connect a machine to start syncing” with no visible action.
-- **Fix:** Fit the empty state inside `100dvh - top bar - bottom chrome` (shorten the paragraph, reduce padding), move the CTA immediately under the H3, and/or place it above the bottom chrome. Add a hit-test regression at 320/375/390 to prove the CTA is not covered. Do not rely on the user scrolling past a fixed bar to discover the only button.
+- **Where:** `web/src/lib/MachineFleet.svelte:320` ("Add a machine" → `AddMachineDialog`; "Connect a machine" → `onadd` = step-by-step panel), `web/src/lib/EnvironmentSync.svelte:231` ("Add a machine"), `web/src/lib/Machines.svelte:47` ("Setups →"), `MachineSetup.svelte:309` ("Set up a machine"), `TerminalReadiness.svelte:47` ("Connect your first machine"). Desktop and mobile.
+- **Problem:** "Add a machine" opens the good one-block guided dialog. "Connect a machine" — the more natural label — instead scrolls to a four-step technical wizard. "Set up a machine" is that wizard's collapsed title. Users cannot predict which control starts the two-minute path and which starts the ten-minute path, so they pick the wrong one and bounce. On mobile the three controls wrap into three rows, with the primary Connect action orphaned on its own row beneath an unstyled button (C3).
+- **Fix:** One primary action: **Connect a machine** → `AddMachineDialog`. Move the wizard behind the dialog's existing "Prefer the step-by-step setup?" link (`AddMachineDialog.svelte:268`) and delete the duplicate fleet-level button. Rename the accordion to "Advanced: step-by-step machine setup" or make it a link inside the dialog. Remove "Setups →" from this page nav (Setups is already in the global nav).
+
+### C3. The first control in the primary toolbar is an unstyled browser-default button
+- **Pass:** Designer
+- **Where:** `web/src/lib/MachineFleet.svelte:320` — `<button type="button" onclick={() => importSource = …}>Private skill imports</button>` has no `.btn` class. Rendered in the "Connected workspace" toolbar, 1440px and 375px.
+- **Problem:** Computed style at 1440px is `background: rgb(107,107,107)`, `border: 2px solid white`, `padding: 1px 6px` — the Chromium default button — next to two `1px solid var(--line-strong)`, `9px 14px` `.btn`s. In dark mode it reads as a disabled/grey slab; in light mode as a white box. It is the first thing in the toolbar and it looks broken. Worse, its label collides with the per-scope "Private skills" button (`MachineFleet.svelte:307`), which opens a different dialog ("Private skills on {host}" vs "Bring a machine skill into reet").
+- **Fix:** Add `class="btn"` and make it visually secondary to Connect (or move it into an overflow "More" menu). Rename it to **Import a machine skill into reet** so it is unambiguous against per-scope "Private skills". Never place it before the Connect action.
+
+### C4. The machines themselves are below the fold at every target width
+- **Pass:** Designer / First-time user
+- **Where:** `Machines.svelte:45` (`ProjectsBar`), `:46` (`PageHeader` h1), `:47` (page nav), `EnvironmentSync.svelte:224–235` (second "Machines & sync / Inventory" header), `MachineFleet.svelte:313–321` (third "Connected workspace / N machines, one clear view" header), `EnvironmentSync.svelte:254` (`MachineSetup`). Measured: first `article.machine` top = **814px at 1440×812** and **1023px at 375×812**.
+- **Problem:** The page has an H1, a second H2, an H3 inside the setup card, and a third H2 before the first machine. Add the unrelated Projects rail, the "Refresh status" line and the setup card, and the product's entire value — the machine cards — sits below the viewport on desktop and more than a screen down on mobile. The header copy repeats the same idea three times ("Your machines, connected.", "Inventory", "3 machines, one clear view."), which is marketing chrome, not hierarchy.
+- **Fix:** Reduce to one heading. Remove `ProjectsBar` from `/machines` (it is a Home/Sessions concept; it appears even when the user has no machines). Merge the `EnvironmentSync` header and `MachineFleet` header into the `PageHeader` actions (`Connect a machine`, `Refresh status`), delete the "N machines, one clear view" block, and put the machine grid above `MachineSetup` whenever `machines.length > 0`. Target: first card within the first 500px at 1440px and 650px at 375px.
+
+### C5. Status colour contradicts status text
+- **Pass:** Designer / First-time user
+- **Where:** `web/src/lib/MachineFleet.svelte:377` — `<span class="live"><span aria-hidden="true">●</span> {agentState(enrolled)}</span>`, with `.live { color: var(--good) }` at `:523`. The paused/offline `pi` card, 1440px and 375px.
+- **Problem:** `agentState` returns "Sync paused" or "Sync agent offline", but the dot and label are always green (`--good`). The card simultaneously shows a red "Sync paused" band and a green "● Sync paused" meta line. A user scanning colour rather than reading will believe a paused/offline machine is healthy. In a fleet view, colour is the primary scanning channel; this actively undermines it.
+- **Fix:** Derive the class from state: green only for online, `--warn` for paused, `--muted`/`--bad` for offline. Render the dot as a shared `<StatusDot state>` component so the card header, meta row, agent list and sync band cannot disagree.
 
 ---
 
-## High impact
+## 2. High impact
 
-### 6. Activity comes first; the task starts below the fold
+### H1. Mobile page nav wraps into three ragged rows
+- **Pass:** Designer
+- **Where:** `Machines.svelte:47` (`nav[aria-label="Machines"]`), 375px and 320px.
+- **Problem:** At 375px the nav renders "Inventory & connection" on row 1, "Sync  Sessions" on row 2, and "Setups →" alone on row 3. It consumes ~110px and looks like a broken toolbar rather than navigation.
+- **Fix:** At `max-width: 560px`, use `display:grid; grid-template-columns:repeat(2,minmax(0,1fr));` for the four items (or a horizontal scroller with a fade mask). Remove "Setups →" from this nav entirely.
+
+### H2. Long machine names break mid-word at display size
+- **Pass:** Designer
+- **Where:** `MachineFleet.svelte:515` `h3 { font: 500 1.35rem/1.15 var(--serif); overflow-wrap: anywhere; }`, rendered at 375px.
+- **Problem:** A realistic FQDN (`build.server.eu.west.2a.very.long.hostname.without.breaks`) wraps into five 21.6px serif lines and squeezes the "Inventory current" badge into the top-right corner. The card identity looks broken; the machine name is hard to scan across a grid. Desktops hit the same wrap at two lines.
+- **Fix:** Clamp the card title to two lines (`-webkit-line-clamp:2; display:-webkit-box; overflow:hidden`) and put the full name in `title`/an expandable heading; drop to 1.1rem on cards below 560px. Move the status badge to its own row under the name on mobile instead of competing for width.
+
+### H3. Destructive actions are 11.8px underlined links with 18px tap targets, styled like benign actions
 - **Pass:** Designer / First-time user
-- **Where:** `web/src/lib/SyncControl.svelte:401-439` (activity), `:442-443` (fleet controls + selection); `/sync` 1440×1000 with four jobs.
-- **Problem:** The activity card is **906px tall and starts at y=549**; the selection card starts at **y=1657**. At 1440×1000 the entire first viewport is page chrome and sync activity; none of the compare controls are visible. On 375×812 the page is **6073px** tall and the selection task begins around y=1900.
-- **Fix:** Put only unresolved failures/reviews in a slim “Needs you” strip at the top (max two rows). Move resolved activity below the selection/saved sets or into a side rail, and keep “Earlier activity” collapsed. The full activity panel should be a tab, not the default first block.
+- **Where:** `MachineFleet.svelte:432–438` ("Copy rescan command", "Revoke live access", "Forget {scope}") and `.link` at `:579–580` (`font-size: .74rem`), inside the expanded agent list, 1440px and 375px.
+- **Problem:** "Revoke live access" and "Forget…" are irreversible-ish operations presented in the same tiny underlined style as "Copy rescan command", with a measured 18px row height and 11.84px text — well under a 44px touch target and below normal mobile reading size. They are also buried at the bottom of a disclosure, so they are hard to find when wanted and easy to hit by accident on a phone.
+- **Fix:** Keep only "Copy rescan command" in the agent list. Move Revoke and Forget into the existing Settings dialog's Access section (`MachineSettings.svelte:104–122`), where they already live, and style them as `.btn.danger` with 44px targets. Do not place a destructive action adjacent to a clipboard action.
 
-### 7. The primary action is three to five screens away from the selection
-- **Pass:** Designer / First-time user
-- **Where:** `web/src/lib/SyncControl.svelte:474-486`; measured Save top **2850px** at 1440 and **3998px** at 375 (page 6073px).
-- **Problem:** After choosing skills inside a 320px inner scroller, the user must pass seven count chips and two disclosures to reach Save. There is no sticky action. On a phone the button is roughly two-thirds down the document.
-- **Fix:** Add a sticky action bar at the bottom of the selection card (above the phone’s bottom chrome): “N skills · 3 scopes · Additive” plus **Save desired set**. Keep a second Save at the top when editing an existing set. The label should say “Save desired set (no files change yet)”, not “Save to 3 agent scopes”, which sounds like apply.
-
-### 8. “Compare” shows aggregates, not differences
-- **Pass:** Designer / First-time user
-- **Where:** `web/src/lib/SyncControl.svelte:480-484` (counts, diff disclosure), `:35-38` (derivations), `:474-476` (skill rows).
-- **Problem:** Seven chips (“0 only on reet.sh (selected)”, “3 only on selected scopes”, “0 found in at least one selected scope”) are hard to parse, the per-destination diff is collapsed, and skill rows show only name/source. There is no per-skill installed/missing/extra state. The page promises review before change but hides the review.
-- **Fix:** Put a status badge on every skill row (On all selected scopes / Missing on 2 / Extra on 1). Make **Differences by destination** a visible table or per-scope tabs above Save. Reduce the chips to three plain-language totals: to install, to remove, conflicts. Drop “found in at least one selected scope” entirely.
-
-### 9. Offline machines look syncable
-- **Pass:** First-time user
-- **Where:** `web/src/lib/SyncControl.svelte:496-499`, `:508`; `web/src/lib/machines.ts:11`; saved sets at `/sync`, Studio last seen four days ago.
-- **Problem:** “Sync all now” and “Sync now” are enabled with no offline badge or last-seen line. Clicking shows “Automatic sync started”, but the run cannot execute until the machine returns. The user concludes sync is broken rather than the machine being offline.
-- **Fix:** Derive online with `agentOnline`; show “Offline · last seen 4 days ago” in the machine/scope header; disable or relabel actions with the reason and a **Reconnect** link/command. Only claim “started” after acknowledgement, or say “Queued — waiting for Studio”.
-
-### 10. Two primaries and five equal actions per saved machine
+### H4. Every card action has the same visual weight; there is no primary next step
 - **Pass:** Designer
-- **Where:** `web/src/lib/SyncControl.svelte:496-509`.
-- **Problem:** The machine header has primary **Sync all now** plus **Preview all on machine**; every scope row has **Edit selection**, **Review local & web changes**, primary **Sync now**, **Preview** and **Stop tracking**. At 1440 there is no single next action; on mobile all five stack full-width and read as equally important. “Sync all now” and “Sync now” are ambiguous siblings.
-- **Fix:** One primary per scope (**Sync now**), one secondary (**Preview**), and an overflow for **Stop tracking**. Move machine-level actions into the header overflow; use the documented **Sync saved skills** wording for the machine-level action and explain machine-vs-scope once.
+- **Where:** `MachineFleet.svelte:396–401` — "Open terminal", "Start an agent", "Commands", "Settings" all `class="btn"`; the 2×2 grid at `max-width:560px` (`:581–586`).
+- **Problem:** The page's own lede says "Choose a machine to sync its skills or continue working in its terminal", but on a mobile card four identical outlined buttons form a button wall, with Commands/Settings (administrative) as prominent as Open terminal (the product). The only filled button is "Sync now" in the band above, which is often the wrong action (see H5).
+- **Fix:** Make "Open terminal" the card's primary filled button when terminal access is ready; keep "Start an agent" secondary. Move Commands and Settings into the existing "…" overflow menu. On mobile cap the card at two action rows.
 
-### 11. Fleet controls look ready but are dead
+### H5. "Everything in sync" still presents a primary "Sync now"
 - **Pass:** First-time user
-- **Where:** `web/src/lib/FleetActions.svelte:20-23`; `/sync` with no runnable scopes.
-- **Problem:** With 0 machines ready and 0 scopes ready, **Sync all · preview** is still the solid orange primary (at 50% opacity). The reason is buried in the collapsed **Skipped operations**. The user clicks the loudest button and nothing happens.
-- **Fix:** Inline the reasons: “Elitebook: job pending · Studio: offline (last seen 4d)”. Use a neutral disabled style for primaries. Move the fleet controls into a toolbar near the activity headline instead of a full-width card that pushes the selection down.
+- **Where:** `web/src/lib/syncOverview.ts:165–172` returns `tone:'synced', canSync:true`; `MachineFleet.svelte:349–356` renders the primary `Sync now` for every `canSync` state. The up-to-date `build.*` card, 1440px and 375px.
+- **Problem:** The band says "Everything in sync / No changes found" and directly beneath it the strongest button on the card says "Sync now". The user cannot tell whether the product knows the state or is just offering a no-op. It also wastes the one primary slot that should be reserved for machines with real pending work. On the fixture it makes two of three cards shout the same orange CTA for opposite reasons.
+- **Fix:** In the `synced` branch return `canSync:false`. Render a quiet "Check again" (or "Run sync again") as a secondary action, and reserve the filled `Sync now` for `action`/`review` tones only. Keep a real primary only where `missing > 0` or approval is required.
 
-### 12. Touch targets below WCAG minimum
-- **Pass:** Designer
-- **Where:** `web/src/lib/SyncControl.svelte:454` (All/None), `:378`, `:390`, `:485` (summaries), `:467` (“Choose destinations”); 375×812 touch.
-- **Problem:** Measured **All 15×19**, **None 30×19**, disclosure summaries **19–22px high**, “Choose destinations” **15px high**. WCAG 2.2 AA 2.5.8 requires 24×24; the project already uses 44px for coarse pointers elsewhere. On a phone, All/None is the only bulk-select for scopes and is nearly impossible to hit.
-- **Fix:** Give `.link` and summary a minimum 24×24 hit area (44×44 on `pointer: coarse`) with padding; replace All/None text links with 44px buttons. Enlarge inline links such as “Choose destinations”. Re-run the existing target-size audit.
-
-### 13. Four names and an invalid heading order
-- **Pass:** Designer
-- **Where:** `web/src/lib/Machines.svelte:46` (eyebrow “Machines”, H1 “Sync, on your terms.”), `web/src/lib/EnvironmentSync.svelte:227-235` (H2 “Compare & sync”, eyebrow “Machines & sync”), `web/src/lib/SyncControl.svelte:444-450` (“Compare from”, “Skill collection”), `web/src/lib/ProjectsBar.svelte:105` (H2 before H1).
-- **Problem:** The page is called Sync in navigation, Machines in the eyebrow, “Sync, on your terms.” in the H1 and “Compare & sync” in the H2. The source picker is called “Compare from”; the list picker is “Skill collection”. “Projects” is an H2 that precedes the page H1 on every signed-in page, so heading order is invalid and screen readers announce a Projects section before the page title.
-- **Fix:** H1 **Sync**, eyebrow **Machines**, delete the duplicate H2 (or make it the task heading “Choose what to sync”). Rename **Compare from → Source** and **Skill collection → List**. Render Projects after the H1, or use a non-heading label / `aria-labelledby` so it does not break the outline.
-
-### 14. Policy copy and repeated status noise sit between the user and the task
-- **Pass:** Designer
-- **Where:** `web/src/lib/SyncControl.svelte:445`, `:466-471`, `:462`; `web/src/lib/ContentObservation.svelte:7`.
-- **Problem:** Two long 12.8px paragraphs (“Every selected scope receives the same desired set…”, “Bookmarks and ‘In use’ are personal shelf choices…”) sit between the pickers and the skill list. Every scope repeats **“Content not reported”**. The user must read policy before choosing skills; the control is pushed down and the page feels like documentation.
-- **Fix:** Put one line under the mode select (“Additive keeps local extras; Exact set removes them after approval”) and move the rest into a “How sync decides” dialog. Collapse content observation to a single badge per scope and only when a report exists; hide “Content not reported” unless it changes a decision.
-
-### 15. Unknown-source skills are selectable but cannot be fixed inline
+### H6. The terminal-readiness card is permanent, undismissable, and shown to users who never asked for terminals
 - **Pass:** First-time user
-- **Where:** `web/src/lib/SyncControl.svelte:475`, `:38`, `:486`.
-- **Problem:** `scratch-notes` has a checkbox. Selecting it silently disables Save via `unknown.length > 0`; the only clues are a small “Unknown source — link before syncing” row and a count chip “1 unknown” after the list. There is no link action.
-- **Fix:** Disable the row’s checkbox and replace it with **Link source**, or open the existing link flow from the row. Put an inline banner beside Save naming the blocked rows instead of only a count.
+- **Where:** `Machines.svelte:29` `showSetup` is true whenever `controller` is unavailable or `setUpCount === 0`, regardless of whether the user cares about the terminal; `:48` renders it above everything. 1440px and 375px, empty and populated states.
+- **Problem:** A user who connected a machine only to sync skills will keep seeing "Get your first terminal running" above their inventory forever, including a server-admin command (`reet terminal start`) they may not be able to run. It reads as an unskippable setup nag and pushes the actual machines down. This is the "multiple simultaneous upsell touchpoints" failure in a self-hosted form.
+- **Fix:** Only show the readiness card when the user has no sessions and has not dismissed it; add a dismiss control persisted per user. Move terminal setup guidance into the Sessions empty state and the setup wizard's step 3.
 
-### 16. A failed projects read becomes a page-level error on Sync
+### H7. Failed update action says "Try again…" with no object
 - **Pass:** First-time user
-- **Where:** `web/src/lib/Machines.svelte:45`; `web/src/lib/ProjectsBar.svelte:104-107`; `/sync`.
-- **Problem:** When the folder-projects read fails, Sync shows a card above the H1: “PROJECTS — Couldn’t read your projects just now. Add or manage on Home.” It is unrelated to sync, competes with sync errors, and makes the page look broken before the user reaches the task.
-- **Fix:** On `/sync`, omit the projects strip or reduce a failure to a quiet one-line aside below the task. Never render it above the H1. Label it as non-blocking and keep the retry with the thing that failed.
+- **Where:** `web/src/lib/machines.ts:206` returns `label:'Try again…'` for failed/rolled-back updates; rendered at `AgentUpdate.svelte:178`. The `build.*` card at both widths.
+- **Problem:** "Try again…" is ambiguous out of context: try the sync, the update, the connection? The surrounding block says "Update failed", but the button itself should stand alone and say what will happen. The trailing ellipsis also implies a dialog rather than a direct retry.
+- **Fix:** Label it with the target: `Retry update to v1.4.2`. For a channel switch use `Retry switch to dev`. Add the version from `shownTarget` so the action is self-describing.
+
+### H8. Focused-machine mode mixes global and filtered counts
+- **Pass:** First-time user
+- **Where:** `?machine=…` (`Machines.svelte:46` H1 "pi details"; `EnvironmentSync.svelte:62` filters `visibleMachines`; `MachineSetup` still receives the full `machines` list at `:254`). 1440px.
+- **Problem:** The H1 says "pi details", the fleet header says "1 machine, one clear view", and the setup card directly above says "3 machines connected". Three different scopes on one screen, and "pi details" is machine-generated rather than human. A user arriving from Jump search cannot tell whether they are looking at one machine or a filtered list.
+- **Fix:** Use a human H1 ("Machine details" or the host with "Machine" eyebrow), add a visible breadcrumb above the H1 (not below the section heading), and pass the same filtered set (or an explicit "of 3") to every count. Hide the setup card's global count in focus mode.
+
+### H9. No loading state for the machine list
+- **Pass:** First-time user
+- **Where:** `EnvironmentSync.svelte:255–257` renders the fleet only when `visibleMachines.length`; `loading` only changes the "Refresh status" label (`:232`). On a slow `/api/v2/sync`, the inventory section is blank.
+- **Problem:** On first load the page shows a fully formed header and setup card with no indication that machines are still being read. A user can reasonably conclude their machines disappeared, or that the page is broken. The same blank state appears after a failed read (`error` banner is elsewhere and easy to miss).
+- **Fix:** Render an explicit `<p role="status">Reading your machines…</p>` and 1–3 skeleton cards in the grid while `loading && !loaded`. On failure, show the error inline in the grid with a Retry that reloads only this section.
+
+### H10. Inconsistent icon language
+- **Pass:** Designer
+- **Where:** `MachineSetup.svelte:319` (`↻`), `:323` (`＋` fullwidth), `:313` (`›`), `MachineFleet.svelte:565` (`⌄`), `Machines.svelte:47` (`→`), dialog close buttons (`×`), plus SVG dots in the sync menu (`MachineFleet.svelte:358`).
+- **Problem:** Six glyph families for four concepts (expand, add, navigate, close). `↻` for "connect an existing machine" reads as refresh; the fullwidth `＋` has different metrics from the rest; the chevron rotates from `›` to a non-chevron at 90°. It makes an otherwise distinctive design feel assembled rather than crafted.
+- **Fix:** Introduce one 16px SVG icon set (`chevron`, `plus`, `refresh`, `arrow-right`, `x`, `more`) and use it everywhere, including the machine card overflow menu.
+
+### H11. Add-a-machine dialog's footer has no action until the machine is ready
+- **Pass:** First-time user
+- **Where:** `AddMachineDialog.svelte:302–307`; `canUse` requires `status.canUse` (`:75`).
+- **Problem:** Before the connector reports in, the footer contains only "Nothing here changes a machine." and an empty action area. The user who has just run the command has no "I've done it — check again" affordance, and the only exit is the close cross. The eventual primary is also vague: `Use dev-laptop`.
+- **Fix:** Add a persistent secondary **"I've run it — check again"** next to the primary (or in the status block), and rename the primary to **"Done — show dev-laptop"**. Keep the footer layout stable so the dialog does not jump when `Use` appears.
 
 ---
 
-## Nice to have
+## 3. Nice to have
 
-- **Disabled primaries still look active.** `.btn:disabled { opacity: .5 }` leaves the orange primary dominant. Use a neutral fill for disabled and keep **Preview** secondary. `web/src/app.css`.
-- **Timestamp is machine-speak.** “10/28/2026, 8:31:11 PM” should be “Updated just now” with the exact time in a `title`. `web/src/lib/EnvironmentSync.svelte:80`, `:232`, `:237`.
-- **Queued job card wastes a screen.** “Waiting for machine” is followed by a large blank area and a lone centred Cancel. Collapse it to one line with an inline Cancel. `web/src/lib/SyncControl.svelte:347-376`.
-- **Activity is not announced.** The inline activity has no live region; review/failure/completion changes are visual only. Add a polite `aria-live` on the headline, not the whole panel. `web/src/lib/SyncControl.svelte:401-439`.
-- **“All machines” dumps every scope.** It renders a flat checkbox grid with no per-machine grouping or search. Group by machine with All/None per group, and add search above ~10 scopes. `web/src/lib/SyncControl.svelte:449-465`.
-- **Accent overload.** Eyebrows, links, badges and primaries all use the same orange, so the CTA does not stand out. Reserve solid accent for primary actions and use `--accent-text` for labels/badges. `web/src/app.css`, `web/src/lib/theme.ts`.
-- **“Sync is up to date” is job-derived.** It comes from `activity.done`, not from the current per-target diff. A partial or ignored state can still read “up to date”. Derive it from all saved targets’ `missing`/`extra` and scan freshness. `web/src/lib/SyncControl.svelte:59-66`.
-- **Empty state repeats headings and offers a dead refresh.** Three headings stack before the CTA, and **Refresh status** is present with nothing to refresh. Use one heading and one action. `web/src/lib/Machines.svelte:46`, `web/src/lib/EnvironmentSync.svelte:225-233`, `:247-251`.
-- **Mobile activity badge wraps.** The “4 jobs” chip drops under the subtext at 375px, visually disconnecting it from the headline. Keep it on the eyebrow row or hide it. `web/src/lib/SyncControl.svelte:403-410`, `:554-559`.
+### N1. Three date/time formats on one screen
+- **Pass:** Designer
+- **Where:** `EnvironmentSync.svelte:80–84,237` (`toLocaleString`), `MachineFleet.svelte:169–172,415` (`toLocaleString`), `syncOverview.ts:49–59` (relative "just now"/"2 days ago").
+- **Problem:** "Last report 10/28/2026, 8:33:08 PM", "Status refreshed 10/28/2026, 8:33:09 PM" and "last checked just now" coexist; the profile's `dateFormat`/`timezone` (`api.ts` profile) are ignored.
+- **Fix:** Use relative time for per-card recency, and the user's profile format for the absolute tooltip/title. One helper, used everywhere.
+
+### N2. "Private skills" and "Private skill imports" are near-homonyms
+- **Pass:** First-time user
+- **Where:** `MachineFleet.svelte:307` vs `:320`; dialogs titled "Private skills on {host}" (`MachineSkillContent.svelte:446`) and "Bring a machine skill into reet" (`MachineSkillImports.svelte`).
+- **Problem:** Two controls with almost the same name open opposite-direction flows (manage private skills on a machine vs import a machine skill into reet). Even after C3 is fixed, the labels will still be confused.
+- **Fix:** Name the import flow by its outcome ("Import a machine skill into reet") and keep "Private skills" for the per-scope management. Consider moving the import entry into the scope row next to "Private skills" where the source machine is obvious.
+
+### N3. Duplicate "Sessions" entry
+- **Pass:** Designer
+- **Where:** `Machines.svelte:47` sub-nav and the global top/bottom nav (`App.svelte:195`).
+- **Problem:** Sessions appears twice in the same viewport, once as a page sub-nav item and once as a global destination.
+- **Fix:** Keep it in the global nav only; use the sub-nav for Machines-specific views.
+
+### N4. Machine card "…" menu is not keyboard-complete and does not close on outside click
+- **Pass:** Designer
+- **Where:** `MachineFleet.svelte:357–365` (native `<details>`), `:220–222` (`closeMenu` only on item activation).
+- **Problem:** `role="menu"`/`menuitem` implies arrow-key navigation and Escape-to-close; the implementation has neither, and clicking anywhere else leaves the menu open.
+- **Fix:** Use a small menu component with roving tabindex, Escape handling, focus return to the summary, and a document click listener.
+
+### N5. "Advanced machine maintenance" duplicates destructive paths
+- **Pass:** First-time user
+- **Where:** `EnvironmentSync.svelte:260–295`; `MachineSettings.svelte:104–122`.
+- **Problem:** Forget/merge/report cleanup exists both under Advanced and in per-machine Settings, with different copy and confirmation flows.
+- **Fix:** Keep identity cleanup (merge/rename) in Advanced and per-machine Forget in Settings, and cross-link them instead of duplicating.
+
+### N6. No way to sort or filter the fleet
+- **Pass:** Designer
+- **Where:** `MachineFleet.svelte:323–443` renders machines in API order.
+- **Problem:** With three machines the grid is fine; with ten it is a wall of equal cards with mixed states. "One clear view" stops being true.
+- **Fix:** Sort by attention (action > review > working > paused/offline > synced), then host; add a compact status filter once the count exceeds ~6.
+
+### N7. Commands dialog has two competing exits and an unrelated CTA
+- **Pass:** First-time user
+- **Where:** `MachineCommands.svelte:92–96` ("Open compare & sync", "Set up from scratch", "Done").
+- **Problem:** "Set up from scratch" in a command-reference dialog is a context switch; "Done" and the header close cross duplicate each other.
+- **Fix:** Keep the primary "Open compare & sync", make "Done" the only close affordance (or rely on the header close), and drop "Set up from scratch".
+
+### N8. `aria-current` misuse on the machine article
+- **Pass:** Designer
+- **Where:** `MachineFleet.svelte:331` — `aria-current={highlight === machine.host ? 'true' : undefined}` on `<article>`.
+- **Problem:** `aria-current` is meant for navigation/selection items; using it to mean "just added" can be announced oddly and duplicates the visible "Just added" note.
+- **Fix:** Remove `aria-current`; the visible "Just added" text and the temporary border/animation already communicate it. If announcement is needed, use a visually hidden live region.
+
+---
+
+## Top 5 critical fixes, in order
+
+1. **C1 — Delete the duplicated onboarding.** One flow (`MachineSetup`), with terminal readiness folded into step 3. The empty page currently gives a new user two competing 4-step tutorials.
+2. **C2 — One connect CTA.** "Add a machine" (guided dialog) and "Connect a machine" (technical wizard) are adjacent and inverted; make the guided dialog the only primary and demote the wizard to a link inside it.
+3. **C3 — Style and rename the toolbar button.** "Private skill imports" is a raw Chromium-default button (`rgb(107,107,107)`, 2px white border) sitting first in the primary toolbar, and its name collides with per-scope "Private skills".
+4. **C4 — Put the machines above the fold.** Drop the Projects rail from `/machines`, collapse the three stacked headings into one, and move the grid above the setup card. Measured first card: 814px at 1440×812, 1023px at 375×812.
+5. **C5 — Stop showing paused/offline in green.** `MachineFleet.svelte:377` colours every agent state with `--good`, so the paused card shows a green "● Sync paused" beside a red "Sync paused" band.

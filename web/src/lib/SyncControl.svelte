@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { syncCandidates, listLists, getList, saveDesired, reconcileDesired, adoptSyncSkills, queueSyncJob, controlSyncJob, deleteSyncTarget, updateSyncAgent, type SyncState, type SyncSkill, type SharedList, type SyncTarget, type SyncJob } from './api'
-  import { agentGroups, groupLabel, inventory, inventoryMachines } from './machines'
+  import { agentGroups, agentOnline, groupLabel, inventory, inventoryMachines } from './machines'
   import { elapsed } from './time'
   import ContentObservation from './ContentObservation.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -163,19 +163,46 @@
   function hostOf(job: SyncJob): string {
     return snapshot.agents?.find(a => a.id === job.agentId)?.host ?? ''
   }
+  function online(job: SyncJob): boolean {
+    return agentOnline(snapshot.agents?.find(a => a.id === job.agentId))
+  }
+  // A retry's outcome belongs on the card the person pressed, not only in the
+  // banner at the top of a long page. Kept per job so two retries can both say
+  // what happened. A success hides that card's button: the fresh job now holds
+  // the machine, so pressing it again would only be refused.
+  let retryResults = $state<Record<string, { text: string; bad: boolean }>>({})
+  function retryResult(id: string, text: string, bad = false) {
+    retryResults = { ...retryResults, [id]: { text, bad } }
+  }
+  function retried(id: string): boolean {
+    const result = retryResults[id]
+    return !!result && !result.bad
+  }
   // Failed jobs get the same fresh scan or preview the old per-kind button
   // offered; an update retries the same release. Nothing replays an old plan.
   function retryJob(job: SyncJob) {
-    return run(async () => {
-      if (job.kind === 'update') {
-        onupdate(await updateSyncAgent(job.agentId, job.revision || 'latest'))
-        notice = `Update queued again for ${hostOf(job) || 'the machine'}.`
-      } else {
-        const kind = job.kind === 'scan' ? 'scan' : 'preview'
-        onupdate(await queueSyncJob(job.agentId, job.targetId, kind))
-        notice = `Fresh ${kind} queued for ${hostOf(job) || 'the machine'}.`
+    if (busy) return
+    busy = true
+    const id = job.id
+    const pending = { ...retryResults }
+    delete pending[id]
+    retryResults = pending
+    void (async () => {
+      try {
+        if (job.kind === 'update') {
+          onupdate(await updateSyncAgent(job.agentId, job.revision || 'latest'))
+          retryResult(id, `Update queued again for ${hostOf(job) || 'the machine'}.`)
+        } else {
+          const kind = job.kind === 'scan' ? 'scan' : 'preview'
+          onupdate(await queueSyncJob(job.agentId, job.targetId, kind))
+          retryResult(id, `Fresh ${kind} queued for ${hostOf(job) || 'the machine'}. It appears at the top of Sync activity; approve the new plan to apply.`)
+        }
+      } catch (e) {
+        retryResult(id, e instanceof Error ? e.message : String(e), true)
+      } finally {
+        busy = false
       }
-    })
+    })()
   }
   async function previewGroup(group: { host: string; items: SyncTarget[] }) {
     const agent = snapshot.agents?.find(a => a.host.toLowerCase() === group.host.toLowerCase())
@@ -294,7 +321,8 @@
 <section id="sync-jobs" aria-labelledby="sync-jobs-title"><details class="history" open={location.hash === '#sync-jobs' || ['failed','rolled_back'].includes(snapshot.jobs?.[0]?.status ?? '') || (snapshot.jobs ?? []).some(j => ['queued','running','awaiting-approval'].includes(j.status))}><summary id="sync-jobs-title">Sync activity ({snapshot.jobs?.length ?? 0}){snapshot.jobs?.[0] ? ` · latest: ${snapshot.jobs[0].status.replaceAll('-', ' ')}` : ''}</summary>
 {#each snapshot.jobs ?? [] as job (job.id)}
  <article class="control"><h4>{snapshot.agents?.find(a => a.id === job.agentId)?.host || 'Machine'} · {job.kind === 'update' ? 'reet update' : job.kind}</h4><p role="status">{job.status.replaceAll('-', ' ')} · {ago(job.updatedAt)}</p>
- {#if job.message}{#if job.status === 'failed' || job.status === 'rolled_back'}<SyncProblem message={job.message} host={hostOf(job)} site={location.origin} retrying={busy} onretry={canWrite ? () => void retryJob(job) : undefined} />{:else}<p>{job.message}</p>{/if}{/if}
+ {#if job.message}{#if job.status === 'failed' || job.status === 'rolled_back'} <SyncProblem message={job.message} host={hostOf(job)} site={location.origin} online={online(job)} retrying={busy} onretry={canWrite && !retried(job.id) ? () => void retryJob(job) : undefined} />{:else}<p>{job.message}</p>{/if}{/if}
+ {#if retryResults[job.id]}<p class="retry-result" class:bad={retryResults[job.id].bad} role={retryResults[job.id].bad ? 'alert' : 'status'}>{retryResults[job.id].text}</p>{/if}
  {#if job.plan.backups?.length}<details><summary>Restore removed skills</summary><p>Run on the enrolled machine. Restore asks for confirmation and never overwrites an existing skill.</p>{#each job.plan.backups as backup}<div class="command"><code>{`reet agent restore --target ${quote(job.targetId)} --backup ${quote(backup)}`}</code><CopyButton text={`reet agent restore --target ${quote(job.targetId)} --backup ${quote(backup)}`} label="Copy restore command" /></div>{/each}</details>{/if}
  {#if job.plan.actions}<details open={job.status === 'awaiting-approval'}><summary>Plan: {job.plan.actions.length} {job.plan.actions.length === 1 ? 'change' : 'changes'}</summary><p><code>{job.plan.directory}</code></p><ul>{#each job.plan.actions as action}<li>{action.add ? 'Install' : 'Remove'} {action.skill.name} <small>{action.skill.source}</small></li>{:else}<li>Already matches the desired set.</li>{/each}</ul></details>{/if}
  {#if canWrite}<div class="actions">{#if job.status === 'awaiting-approval'}<button class="btn primary" disabled={busy} onclick={() => approve(job)}>Review &amp; approve</button>{/if}{#if ['queued','awaiting-approval'].includes(job.status)}<button class="btn quiet" disabled={busy} onclick={() => run(async () => onupdate(await controlSyncJob(job.id, 'cancel')))}>Cancel</button>{/if}{#if job.status === 'cancelled' || (['failed','rolled_back'].includes(job.status) && !job.message)}<button class="btn" disabled={busy} onclick={() => void retryJob(job)}>{job.kind === 'update' ? 'Try update again' : `Retry with fresh ${job.kind === 'scan' ? 'scan' : 'preview'}`}</button>{/if}</div>{/if}
@@ -311,6 +339,8 @@
  .skill{display:flex;align-items:center;gap:10px;padding:10px;font-weight:400;border-bottom:1px solid var(--line)} .skill input{flex-shrink:0} small{display:block;font-size:.75rem;color:var(--muted);overflow-wrap:anywhere}
  .actions,.counts,.command{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0}.counts span{border:1px solid var(--line);border-radius:16px;padding:5px 10px;font-size:.8rem}
  .feedback{padding:12px;border:1px solid var(--good);border-radius:8px}.bad{color:var(--bad);border-color:var(--bad)}details{margin:16px 0}summary{cursor:pointer;font-weight:600}code,li,h4{overflow-wrap:anywhere}section{margin:20px 0} .command code{font-size:.78rem}
+ .retry-result{margin:8px 0 0;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:.8rem;line-height:1.5;overflow-wrap:anywhere}
+ .retry-result.bad{border-color:var(--bad);color:var(--bad)}
  .agent-scopes{margin:16px 0;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
  .scope-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:.85rem}
  .scope-head > div{display:flex;gap:10px}

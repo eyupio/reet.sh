@@ -29,7 +29,7 @@ local consent, and the session limits (8 per machine, 32 per account).
   button is disabled and the reason is written underneath; a machine the terminal list doesn't know
   yet says "This machine hasn't connected for terminals yet." If its readiness couldn't be read, it says
   "Couldn't check this machine just now. Try again in a moment." On success you are taken to
-  `/terminals?agent=…&session=…`.
+  `/sessions?agent=…&session=…`.
 
 **Close** and Escape both close the dialog without sending anything and return focus to the button
 you pressed, except while a request is in flight (see below).

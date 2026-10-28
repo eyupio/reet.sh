@@ -8,7 +8,7 @@
   if(busy||disabled||!ready)return
   if(operation&&operation.agent!==agent){error='Machine changed. Refresh before starting a terminal.';return}
   operation??={agent,key:crypto.randomUUID()};busy=true;error=''
-  try{const item=await createTerminal(operation.agent,operation.key,'Shell',100,30,AbortSignal.any([abort.signal,AbortSignal.timeout(15000)]));if(!alive)return;if(oncreated)oncreated(item);else location.assign(`/terminals?agent=${encodeURIComponent(item.agentId)}&session=${encodeURIComponent(item.id)}`)}catch(e){if(alive&&!abort.signal.aborted)error=e instanceof Error?e.message:'Creation is unconfirmed. Retry checks the same operation.'}finally{if(alive)busy=false}
+  try{const item=await createTerminal(operation.agent,operation.key,'Shell',100,30,AbortSignal.any([abort.signal,AbortSignal.timeout(15000)]));if(!alive)return;if(oncreated)oncreated(item);else location.assign(`/sessions?agent=${encodeURIComponent(item.agentId)}&session=${encodeURIComponent(item.id)}`)}catch(e){if(alive&&!abort.signal.aborted)error=e instanceof Error?e.message:'Creation is unconfirmed. Retry checks the same operation.'}finally{if(alive)busy=false}
  }
  onMount(()=>()=>{alive=false;abort.abort()})
 </script>

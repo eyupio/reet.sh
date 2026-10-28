@@ -66,7 +66,7 @@
         <strong>Open your first session</strong>
         {#if serverOn && allowed}
           <p>Everything is ready.</p>
-          <a class="btn" href="/terminals">Open terminals →</a>
+          <a class="btn" href="/sessions">Open sessions →</a>
         {:else}
           <p>Available once the steps above are done.</p>
         {/if}

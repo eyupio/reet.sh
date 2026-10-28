@@ -80,7 +80,7 @@ async function create(name){await page.getByRole('button',{name:'New session',ex
 async function refresh(){const toggle=page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/});if(await toggle.getAttribute('aria-expanded')!=='true')await toggle.click();await page.getByRole('button',{name:'Refresh status',exact:true}).click()}
 async function manage(name){await page.locator('.session-menu summary').click();await page.getByRole('button',{name,exact:true}).click()}
 try{
- await page.goto(`${base}/terminals?agent=${agentA}&session=${sessionA}`);await live()
+ await page.goto(`${base}/sessions?agent=${agentA}&session=${sessionA}`);await live()
  // An accepted creation with an ambiguous response stays bound to A after working on B.
  await create('Uncertain A')
  await expect(page.getByRole('dialog')).toContainText('Creation response interrupted')

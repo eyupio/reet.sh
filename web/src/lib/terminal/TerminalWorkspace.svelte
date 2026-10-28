@@ -22,7 +22,8 @@
   // svelte-ignore state_referenced_locally
   const preferenceKey=`reet-terminal-layout:${userId}`
   let layoutLoaded=false
-  let theatre=$state(false)
+  // A session's menu on the Sessions page opens it in theatre view (?theatre=1); the address then forgets it.
+  let theatre=$state(new URLSearchParams(location.search).get('theatre')==='1')
   let terminalPane=$state<{disconnect:()=>void}>()
   // The sessions panel (see panelLayout.ts): full, the 64 px mini rail, or closed. Full is a docked column beside the
   // terminal from 600 px (below 960 px while Keep open is on, by default from 768 px); on a phone, or a tablet whose person turned
@@ -121,7 +122,7 @@
   $effect(() => { document.title = tabTitle })
   $effect(()=>{if(machineSearchOpen||machinePrompt)machineSearchInput?.focus()})
 
-  function remember() { const url=new URL(location.href);url.searchParams.set('view','terminal');if(selectedAgent)url.searchParams.set('agent',selectedAgent);else url.searchParams.delete('agent');if(selectedSession)url.searchParams.set('session',selectedSession);else url.searchParams.delete('session');history.replaceState(null,'',url) }
+  function remember() { const url=new URL(location.href);url.searchParams.set('view','terminal');url.searchParams.delete('theatre');if(selectedAgent)url.searchParams.set('agent',selectedAgent);else url.searchParams.delete('agent');if(selectedSession)url.searchParams.set('session',selectedSession);else url.searchParams.delete('session');history.replaceState(null,'',url) }
   function chooseMachine(id: string) {
     if(selectedAgent && selectedSession)rememberedSessions.set(selectedAgent,selectedSession)
     selectedAgent=id
@@ -295,7 +296,7 @@
 
 <section class="workspace" class:theatre class:keyboard class:resizing bind:this={workspace} style={`--workspace-height:${workspaceHeight}px;--sidebar-width:${sidebarWidth}px;--panel-width:${shown==='mini'?MINI_WIDTH:panelWidth}px`} aria-label="Remote terminal workspace">
   <header class="workspace-toolbar">
-    <div class="workspace-title"><a href="/#active-sessions" aria-label="Back to active sessions">←</a><h1>Sessions</h1></div>
+    <div class="workspace-title"><a href="/sessions" aria-label="Back to sessions">←</a><h1>Sessions</h1></div>
     {#if panelView==='closed'}<button class="btn quick-machine" aria-label={selectedAgent ? `New terminal on ${machine?.host || 'selected machine'}` : 'Choose a machine for a new terminal'} title={selectedAgent ? 'Start a terminal on this machine' : 'Choose a machine for a new terminal'} disabled={selectedAgent ? !canCreateFor(selectedAgent) : !machines.length} onclick={()=>selectedAgent?quickCreate(selectedAgent):requestMachinePrompt('quick')}>+</button>{/if}
     <button class="btn find-machine" onclick={()=>{machineSearch='';machineSearchOpen=true}} aria-label="Find machine">Find</button>
     <div class="workspace-actions"><button class="btn" aria-expanded={panelOpen} aria-controls="terminal-sessions" onclick={toggleSidebar}>{panelOpen?'Sessions':'Show sessions'} <span class="count">{accountActive}</span></button><button class="btn primary new-button" disabled={!machines.length} onclick={newSession} aria-label="New session"><span class="wide-label">New session</span><span class="mobile-label">New</span></button><button class="btn" aria-label="Details & help" onclick={() => detailsOpen = true}><span class="wide-label">Details &amp; help</span><span class="mobile-label">Help</span></button></div>

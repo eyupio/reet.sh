@@ -6,7 +6,7 @@
   let { tabs, moreCurrent, moreOpen, hidden, onmore }: { tabs: Tab[]; moreCurrent: boolean; moreOpen: boolean; hidden: boolean; onmore: (opener: HTMLElement) => void } = $props()
   const icons: Record<string, string> = {
     '/': 'M3 11l9-8 9 8v10H3z',
-    '/terminals': 'M4 6h16M4 12h16M4 18h10',
+    '/sessions': 'M4 6h16M4 12h16M4 18h10',
     '/machines': 'M5 5h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2zM8 21h8M12 17v4',
   }
 </script>

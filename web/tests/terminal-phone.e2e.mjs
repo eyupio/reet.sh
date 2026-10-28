@@ -65,7 +65,7 @@ async function open({width,height,touch,query='',layout=null,motion='no-preferen
    else if(data.type==='resize'){frames.push({cols:data.cols,rows:data.rows});socket.send(app(data.cols,data.rows))}
   })
  })
- await page.goto(`${base}/terminals?agent=${agentA}&session=${sessionA}${query}`)
+ await page.goto(`${base}/sessions?agent=${agentA}&session=${sessionA}${query}`)
  const pane=page.locator('.pane')
  await expect(pane).toHaveAttribute('data-connection-state','live')
  return {context,page,errors,tickets,frames,pane,sockets:()=>sockets}

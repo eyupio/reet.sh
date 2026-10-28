@@ -35,7 +35,7 @@
  const hostOf = (agentId: string) => hostLabel(agentId, machines)
  const started = $derived(current.members.filter(m => m.state === 'started' && m.sessionId))
  const pending = $derived(runPending(current))
- const openURL = (m: RunMember) => `/terminals?agent=${encodeURIComponent(m.host)}&session=${encodeURIComponent(m.sessionId)}`
+ const openURL = (m: RunMember) => `/sessions?agent=${encodeURIComponent(m.host)}&session=${encodeURIComponent(m.sessionId)}`
 
  const life = new AbortController()
  let timer: ReturnType<typeof setTimeout> | undefined

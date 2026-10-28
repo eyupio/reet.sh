@@ -103,7 +103,7 @@
     return cardReadiness(terminals.find((item) => item.agentId === agentId))
   }
   // The dialog stays Starting… until the Terminals page arrives, and lets go by itself if it never does.
-  const sessionHref = (session: TerminalSession) => `/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`
+  const sessionHref = (session: TerminalSession) => `/sessions?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`
   function agentStarted(session: TerminalSession): 'leaving' {
     location.assign(sessionHref(session))
     return 'leaving'

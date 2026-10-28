@@ -126,7 +126,7 @@ const openFromSidebar=async()=>{await sidebarEntry().click();const d=dialog();aw
 
 try{
  // ── From the Terminals workspace: the machine you came from is preselected and focused. ──
- await page.goto(`${base}/terminals?agent=${A}`)
+ await page.goto(`${base}/sessions?agent=${A}`)
  await expect(sidebarEntry()).toBeEnabled()
  let d=await openFromSidebar(),p=parts(d)
  await expect(p.machine).toHaveValue(A)
@@ -409,14 +409,14 @@ try{
  await expect(d).toHaveCount(0)
  await expect(sidebarEntry()).toBeFocused()
  // The machine you came from is not ready: said plainly, another is chosen.
- await page.goto(`${base}/terminals?agent=${C}`)
+ await page.goto(`${base}/sessions?agent=${C}`)
  d=await openFromSidebar();p=parts(d)
  await expect(p.machine).toHaveValue(A)
  await expect(p.machine).toHaveAccessibleDescription("spare-box isn't ready, so dev-laptop is selected.")
  await page.keyboard.press('Escape')
  // Nothing ready: the existing readiness sentence and no Start.
  for(const m of tmachines)m.ready=false
- await page.goto(`${base}/terminals?agent=${A}`)
+ await page.goto(`${base}/sessions?agent=${A}`)
  d=await openFromSidebar();p=parts(d)
  await expect(p.machine).toHaveValue(A)
  await expect(p.machine).toHaveAccessibleDescription('The machine is reconnecting. Existing shells will be kept.')
@@ -453,10 +453,10 @@ try{
  await expect(p.machine).toHaveValue(A)
  await p.tool('Gemini CLI').check()
  await p.start.click()
- await expect(page).toHaveURL(/\/terminals\?/)
+ await expect(page).toHaveURL(/\/sessions\?/)
  const simple=body(-1)
  expect(posts.at(-1)).toBe(JSON.stringify({agentId:A,requestId:simple.requestId,title:'Gemini CLI',cols:100,rows:30,tool:'gemini'}))
- await expect(page).toHaveURL(`${base}/terminals?agent=${A}&session=session-${simple.requestId.replaceAll('-','').slice(0,20)}`)
+ await expect(page).toHaveURL(`${base}/sessions?agent=${A}&session=session-${simple.requestId.replaceAll('-','').slice(0,20)}`)
  // From Terminals, Not listed? goes to the Machines page with Add a machine open, and leaves no marker in the address.
  d=await openFromSidebar()
  await parts(d).notListed.click()
@@ -467,7 +467,7 @@ try{
  // From Machines, too, the dialog stays Starting… until the page has gone; if the next page never arrives (here a 204), it
  // lets go after a few seconds instead of leaving a modal with no way out.
  await page.goto(`${base}/machines`)
- const onlyTerminals=url=>new URL(url).pathname==='/terminals'
+ const onlyTerminals=url=>new URL(url).pathname==='/sessions'
  await page.route(onlyTerminals,route=>route.fulfill({status:204,body:''}))
  await cardEntry('dev-laptop').click()
  d=dialog();p=parts(d)
@@ -486,7 +486,7 @@ try{
  // When it lets go it says what started, with the way to it, as Home does.
  const stalled=body(-1),stalledSession=`session-${stalled.requestId.replaceAll('-','').slice(0,20)}`
  const said=await page.evaluate(()=>{const n=[...document.querySelectorAll('.notice')].find(x=>x.textContent.startsWith('Started '));return{text:n?.textContent??null,href:n?.querySelector('a')?.getAttribute('href')??null}})
- expect(said).toEqual({text:`Started ${stalled.title} on dev-laptop. Open it`,href:`/terminals?agent=${A}&session=${stalledSession}`})
+ expect(said).toEqual({text:`Started ${stalled.title} on dev-laptop. Open it`,href:`/sessions?agent=${A}&session=${stalledSession}`})
  await page.unroute(onlyTerminals)
 
  // A 401 from the card's dialog hands over to the sign-in card, as the page's other dialogs do.
@@ -559,10 +559,10 @@ try{
  // On a narrow screen the sessions list is behind Show sessions; the entry is then reached the way a person would reach it.
  // The workspace restores its saved layout as it loads, so the check is repeated until the list stays open.
  const showSidebar=async()=>{const toggle=page.locator('.workspace-actions [aria-controls="terminal-sessions"]');await expect(async()=>{if(await toggle.getAttribute('aria-expanded')!=='true')await toggle.click();await expect(sidebarEntry()).toBeVisible({timeout:1000})}).toPass()}
- const openAt=async agentId=>{await page.goto(`${base}/terminals?agent=${agentId}`);await showSidebar();return openFromSidebar()}
+ const openAt=async agentId=>{await page.goto(`${base}/sessions?agent=${agentId}`);await showSidebar();return openFromSidebar()}
 
  // Closed: both entry points.
- await page.goto(`${base}/terminals?agent=${A}`)
+ await page.goto(`${base}/sessions?agent=${A}`)
  await expect(sidebarEntry()).toBeVisible()
  await sweep('closed, Terminals entry',[sidebarEntry()],{before:showSidebar})
  await page.goto(`${base}/machines`)
@@ -679,7 +679,7 @@ try{
  expect(sweeps).toBe(24)
 
  // Escape closes without a request and focus goes back to what opened the dialog, at every size and in both schemes.
- await page.goto(`${base}/terminals?agent=${A}`)
+ await page.goto(`${base}/sessions?agent=${A}`)
  for(const c of COMBOS){
   await setCombo(c)
   await showSidebar()
@@ -760,7 +760,7 @@ try{
  await page.goto(`${base}/machines`)
  await expect(page.getByRole('heading',{name:'dev-laptop',exact:true})).toBeVisible()
  await expect(page.getByRole('button',{name:'Start an agent'})).toHaveCount(0)
- await page.goto(`${base}/terminals?agent=${A}`)
+ await page.goto(`${base}/sessions?agent=${A}`)
  // The Terminals address shows the machines inventory instead of the workspace: its own heading is there, the workspace's is not.
  await expect(page).toHaveTitle('Sessions · reet.sh')
  await expect(page.getByRole('heading',{name:'3 machines, one clear view.',exact:true})).toBeVisible()
@@ -770,7 +770,7 @@ try{
  await page.goto(`${base}/machines`)
  await expect(page.getByRole('heading',{name:'dev-laptop',exact:true})).toBeVisible()
  await expect(page.getByRole('button',{name:'Start an agent'})).toHaveCount(0)
- await page.goto(`${base}/terminals?agent=${A}`)
+ await page.goto(`${base}/sessions?agent=${A}`)
  // The Terminals address shows the machines inventory instead of the workspace: its own heading is there, the workspace's is not.
  await expect(page).toHaveTitle('Sessions · reet.sh')
  await expect(page.getByRole('heading',{name:'3 machines, one clear view.',exact:true})).toBeVisible()

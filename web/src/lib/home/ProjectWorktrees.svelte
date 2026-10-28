@@ -92,7 +92,7 @@
             <p class="mono">{s.worktreeBranch || 'branch not reported'}</p>
             <p class="meta mono">{s.worktreePath}</p>
             <p class="meta">In use by {s.title}</p>
-            <a class="btn" href={`/terminals?agent=${encodeURIComponent(s.agentId)}&session=${encodeURIComponent(s.id)}`}>Open the session</a>
+            <a class="btn" href={`/sessions?agent=${encodeURIComponent(s.agentId)}&session=${encodeURIComponent(s.id)}`}>Open the session</a>
           </li>
         {/each}
         {#each recorded ?? [] as r (`${r.member.worktreeRun}:${r.member.position}`)}

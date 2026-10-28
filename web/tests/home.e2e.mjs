@@ -240,7 +240,7 @@ try {
   await expect(choice.getByRole('radio',{name:'Project'})).toBeChecked()
   await expect.poll(() => groups(page)).toEqual(['Store rewrite 1','No project · studio 2','No project · desk 1'])
   const row = inFlight(page).getByRole('link',{name:/Refactor the store layer/})
-  await expect(row).toHaveAttribute('href','/terminals?agent=a1&session=s1')
+  await expect(row).toHaveAttribute('href','/sessions?agent=a1&session=s1')
   await expect(row).toContainText('Store rewrite')
   await expect(row).toContainText('studio')
   await expect(row.locator('.branch')).toHaveText('reet/store-split')
@@ -334,11 +334,11 @@ try {
   await expect(launchBar(page).getByRole('button',{name:'Project: Store rewrite'})).toBeVisible()
   await expect(store).toHaveAttribute('aria-current','true')
   await expect(notes).not.toHaveAttribute('aria-current','true')
-  await page.route(url => new URL(url).pathname === '/terminals', route => route.fulfill({status:200, contentType:'text/html', body:'<title>t</title>'}))
+  await page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:200, contentType:'text/html', body:'<title>t</title>'}))
   await startButton(page).click()
   await expect.poll(() => box.created?.id ?? null).not.toBeNull()
   expect(box.createdBody).toMatchObject({agentId:'a1', dir:'/home/dev/store', projectId:'fp1'})
-  await expect(page).toHaveURL(/\/terminals\?/)
+  await expect(page).toHaveURL(/\/sessions\?/)
   await page.goto(base)
   // The menu: New session here does the same; Move down sends the whole order with the versions read.
   const menuButton = rail(page).getByRole('button',{name:'More for Store rewrite',exact:true})
@@ -706,10 +706,10 @@ try {
   })
   await page.goto(base)
   await startButton(page).click()
-  await expect(page).toHaveURL(/\/terminals\?/)
+  await expect(page).toHaveURL(/\/sessions\?/)
   const s = box.created
   expect(s).not.toBeNull()
-  await expect(page).toHaveURL(`${base}/terminals?agent=${encodeURIComponent(s.agentId)}&session=${encodeURIComponent(s.id)}`)
+  await expect(page).toHaveURL(`${base}/sessions?agent=${encodeURIComponent(s.agentId)}&session=${encodeURIComponent(s.id)}`)
   // No blank screen: the pane is there at once with the title and its existing connecting state, and the region a screen
   // reader enters is named with the title.
   const pane = page.locator('.pane')
@@ -732,7 +732,7 @@ try {
  // after a few seconds it lets go and Home says what started, with a link to it.
  if (run('a start whose page never arrives releases the bar')) {
   const {context,page,errors,box} = await home()
-  await page.route(url => new URL(url).pathname === '/terminals', route => route.fulfill({status:204, body:''}))
+  await page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:204, body:''}))
   await page.goto(base)
   await expect(startButton(page)).toBeEnabled()
   // Pressed from inside: Playwright's own click waits for the navigation it starts, which a 204 never finishes.
@@ -747,7 +747,7 @@ try {
   await expect.poll(look).toMatchObject({disabled:true, busy:'true', status:`Opening ${box.created.title}…`})
   await expect.poll(look, {timeout:9000}).toMatchObject({disabled:false})
   expect(await look()).toEqual({url:'/', disabled:false, busy:'false', status:'', notice:`Started ${box.created.title} on studio. Open it`,
-   href:`/terminals?agent=a1&session=${encodeURIComponent(box.created.id)}`})
+   href:`/sessions?agent=a1&session=${encodeURIComponent(box.created.id)}`})
   expect(errors).toEqual([])
   await context.close()
  }
@@ -757,7 +757,7 @@ try {
  // whose page is held back.)
  if (run('Home restored from the browser cache unlocks the bar and reads again')) {
   const {context,page,errors,reads} = await home()
-  await page.route(url => new URL(url).pathname === '/terminals', route => route.fulfill({status:204, body:''}))
+  await page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:204, body:''}))
   await page.goto(base)
   await expect(startButton(page)).toBeEnabled()
   await page.evaluate(() => document.querySelector('form[aria-label="Start a session"] button[type=submit]').click())
@@ -825,7 +825,7 @@ try {
   })
   await page.goto(base)
   await startButton(page).click()
-  await expect(page).toHaveURL(/\/terminals\?agent=a1&session=new-/)
+  await expect(page).toHaveURL(/\/sessions\?agent=a1&session=new-/)
   const leaving = JSON.parse(await page.evaluate(() => sessionStorage.getItem('__e2e_leaving')))
   expect(leaving).toEqual({text:'StartCtrl ↵', disabled:true, busy:'true', locked:true, status:`Opening ${box.created.title}…`, extra:0})
   expect(reads.filter(r => r === 'POST /api/v2/terminal/sessions')).toHaveLength(1)

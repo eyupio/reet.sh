@@ -3,25 +3,35 @@
 The main user task is to reach machines, open remote terminals and return to
 ongoing work. **Home** sits at `/`: the fleet strip, In flight, Needs you and the
 Project rail (see [Home and the tabs](terminal-workspace.md#home-and-the-tabs)).
-Control stays at `/control`, under More, with its active-session band and machine
-connection cards, until PR H folds it into Home and Machines and `/control`
-redirects to `/` (R4 in the agents home design). Home, Sessions and Machines are
-the primary tabs; Skills and Activity join them on a desktop. Control,
-Sync, lists and portable setups are under More with their existing routes. Legacy
-machine comparison, terminal and account links continue to work.
 
-## Terminal workspace
+**Control is folded into Home and Machines** (R4 in the agents home design). Its
+active-session band is replaced by In flight on Home and the Sessions page; its
+machine connection cards by Home's fleet strip and the Machines page. The
+first-terminal checklist ("Get your first terminal running") now opens the
+Machines page for a writer until a machine has done its part on a server that
+allows terminals. `/control` redirects to `/`, and Control is no longer under
+More. Home, Sessions and Machines are the primary tabs; Skills and Activity join
+them on a desktop. Sync, lists and portable setups are under More with their
+existing routes. Legacy machine comparison and account links continue to work.
 
-Continue exact active sessions from Control's session band, or open a machine's terminals
-from its connection card. Ready, setup-needed, reconnecting and last-known states
-remain distinct. Resource readings preserve their freshness labels. Viewers see
-machine information without requesting private terminal data. The command library
-and connection help are secondary shortcuts. See [terminal workspace](terminal-workspace.md)
-for sidebar actions, appearance, account commands and close defaults.
+## Sessions
+
+The Sessions tab is `/sessions` (R17). Without a session in the address it lists
+every session across machines: search, Group by Project, Machine or State (the
+same choice as Home's), filters (state, agent, machine, YOLO only, worktree only)
+and each row's actions menu (right-click, Shift+F10 or the ⋮ button), with the
+folder projects and **Add a project** below. `/sessions?agent=…&session=…` opens
+that session. `/terminals` redirects to `/sessions` keeping its query, so every
+old link to a session still opens it. Ready, setup-needed, reconnecting and
+last-known states remain distinct; a machine that is not reporting says so on
+its group. Viewers see machine information without requesting private terminal
+data. The command library is reached from a session's toolbar. See
+[terminal workspace](terminal-workspace.md) for the session page, sidebar
+actions, appearance, account commands and close defaults.
 
 ## Skill distribution workflow
 
-1. Connect a machine from Control or Machines. Install/authenticate the CLI,
+1. Connect a machine from Home or Machines. Install/authenticate the CLI,
    scan its agent scopes, and enroll its background agent for remote jobs.
 2. Maintain skills in the Skills library, or create owned skills in Host skills.
    Bring selected machine skills into reet from Sync. Existing notes survive.
@@ -62,7 +72,7 @@ not silently replace it with the latest library.
 
 ## Agent maintenance next
 
-Agent software management remains planned; Control does not show functioning lifecycle buttons.
+Agent software management remains planned; Machines does not show functioning lifecycle buttons.
 Implementation should add reported installed versions, supported platform/package
 adapters, per-machine capability evidence, reviewed install/update/remove plans,
 and verified results to the existing machine model. Agent software lifecycle,
@@ -80,7 +90,7 @@ results from verified fleet deployment.
 Run `cd web && npm run check && npm run build`, then the Go vet/race checks
 and MCP suite in CONTRIBUTING.md. For the browser workflow test, start the web
 dev server at 127.0.0.1:4173 and run `node web/tests/control.e2e.mjs` from the
-repository root. It uses synthetic API data to exercise navigation, one-to-many
+repository root. It uses synthetic API data to exercise `/control` going to Home, navigation, one-to-many
 saves, incoming skill adoption from different machines, partial failures,
 read-only controls and responsive light/dark layouts. It does not enroll real
 machines or prove cross-machine transport. Real queue serialisation and exact

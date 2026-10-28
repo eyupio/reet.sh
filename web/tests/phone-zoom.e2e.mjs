@@ -67,7 +67,7 @@ const SCREENS = [
   for (const name of [PROJECT80, PROJECT80B]) await rail.getByRole('checkbox', {name:new RegExp(`^${name}`)}).click()
   await page.getByRole('form', {name:'Start a session'}).getByRole('button', {name:'Start the session'}).click()
   await page.getByRole('dialog', {name:'Start in several projects'}).getByRole('button', {name:/^Retry /}).waitFor({timeout:3000}) }},
- {name:'control', path:'/control'},
+ {name:'sessions', path:'/sessions'},
  {name:'machines', path:'/machines'},
  {name:'machines: start agent dialog', path:'/machines', action:click('Start an agent')},
  {name:'machines: settings dialog', path:'/machines', action:click('Settings')},

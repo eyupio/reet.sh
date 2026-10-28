@@ -239,21 +239,21 @@ async function dockedPanel(){
  console.log('Docked panel: beside the terminal at 1360 and 834 px, one refit per drag, keyboard resize, mini rail, saved layout, phone drawer.')
 }
 try{
- await page.goto(`${base}/control`)
- const hero=page.getByRole('region',{name:'2 active sessions'})
- await expect(hero).toBeVisible()
- expect((await hero.boundingBox()).y).toBeLessThan(400)
- const links=hero.getByRole('link',{name:/^Continue /})
+ // The Sessions page lists both sessions near the top; a failed refresh keeps them, and a row continues its session.
+ await page.goto(`${base}/sessions`)
+ const links=page.locator('main .session-row a.open')
  await expect(links).toHaveCount(2)
+ expect((await links.first().boundingBox()).y).toBeLessThan(400)
+ const stale=page.getByText("Couldn't refresh. Showing what we last saw.",{exact:true})
  failSessions=true
- await hero.getByRole('button',{name:'Refresh active sessions'}).click()
- await expect(hero).toContainText('Showing the last received session list')
+ await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')))
+ await expect(stale).toBeVisible()
  await expect(links).toHaveCount(2)
  failSessions=false
- await hero.getByRole('button',{name:'Refresh active sessions'}).click()
- await expect(hero.getByText('Last known',{exact:true})).toHaveCount(0)
+ await page.getByRole('button',{name:'Try again',exact:true}).click()
+ await expect(stale).toHaveCount(0)
  const started=Date.now(),ticketsBefore=tickets.length,socketsBefore=websockets
- await hero.getByRole('link',{name:'Continue Build workspace on dev-laptop'}).click()
+ await links.filter({hasText:'Build workspace'}).click()
  await expect(pane).toHaveAttribute('data-connection-state','resynchronising')
  // Let the restoration status change the layout before the host redraw arrives.
  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))
@@ -385,14 +385,14 @@ try{
  await page.setViewportSize({width:1360,height:900})
  await page.evaluate(()=>document.documentElement.dataset.theme='light')
  if(process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/workspace-desktop.png`})
- await page.goto(`${base}/control`)
- await page.getByRole('link',{name:'Continue Deployment checks on build-server'}).click()
+ await page.goto(`${base}/sessions`)
+ await page.locator('main .session-row a.open').filter({hasText:'Deployment checks'}).click()
  await live();expect(tickets.at(-1)).toBe(sessionB);expect(writes).toHaveLength(0)
  await page.goto(`${base}/machines?view=terminal&agent=${agentA}&session=${sessionA}`)
  await live();await bounds(1360,900)
  await dockedPanel()
  // A new session always names its machine first; arriving without one attaches nothing.
- await page.goto(`${base}/terminals`)
+ await page.goto(`${base}/sessions?view=terminal`)
  await expect(page.getByRole('heading',{name:'Sessions'})).toBeVisible()
  expect(await page.locator('.workspace-toolbar').innerText()).not.toContain('dev-laptop')
  await page.getByRole('button',{name:'New session',exact:true}).click()
@@ -411,7 +411,7 @@ try{
  // sessions, not only the selected machine's. Finished sessions the panel also lists are named apart: 3 live + 1 exited +
  // 1 lost reads "Your sessions 3 · 2 finished", and the badge 3.
  sessions.push({id:'session-notes00000000001',agentId:agentB,title:'Release notes',state:'running',createdAt:now,updatedAt:now,exitCode:null})
- await page.goto(`${base}/terminals`)
+ await page.goto(`${base}/sessions?view=terminal`)
  await expect(page.getByRole('heading',{name:'Sessions'})).toBeVisible()
  const sessionsToggle=page.locator('.workspace-actions button[aria-controls="terminal-sessions"]')
  if(await sessionsToggle.getAttribute('aria-expanded')!=='true')await sessionsToggle.click()
@@ -419,21 +419,26 @@ try{
  await expect(panelHead).toHaveText(/^Your sessions\s*3$/)
  await expect(sessionsToggle.locator('.count')).toHaveText('3')
  sessions.push({id:'session-exited0000000001',agentId:agentA,title:'Old build',state:'exited',createdAt:now,updatedAt:now,exitCode:0},{id:'session-lost000000000001',agentId:agentB,title:'Lost shell',state:'lost',createdAt:now,updatedAt:now,exitCode:null})
- await page.goto(`${base}/terminals`)
+ await page.goto(`${base}/sessions?view=terminal`)
  if(await sessionsToggle.getAttribute('aria-expanded')!=='true')await sessionsToggle.click()
  await expect(panelHead).toHaveText(/^Your sessions\s*3\s*· 2 finished$/)
  await expect(sessionsToggle.locator('.count')).toHaveText('3')
  sessions.splice(2)
- // Denied refresh clears the private hero inventory; viewers never fetch terminal APIs.
- await page.goto(`${base}/control`);denied=true
- await page.getByRole('button',{name:'Refresh active sessions'}).click()
- await expect(page.getByRole('link',{name:/^Continue /})).toHaveCount(0)
+ // A denied refresh clears the private session list; viewers never fetch terminal APIs.
+ await page.goto(`${base}/sessions`)
+ await expect(page.locator('main .session-row')).not.toHaveCount(0)
+ denied=true
+ await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')))
+ await expect(page.locator('main .session-row')).toHaveCount(0)
+ await expect(page.getByText(/no longer has terminal access/)).toBeVisible()
  denied=false;viewer=true
  const terminalRequests=[]
  page.on('request',request=>{if(new URL(request.url()).pathname.startsWith('/api/v2/terminal/'))terminalRequests.push(request.url())})
- await page.goto(`${base}/control`)
- await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
- await expect(page.locator('#active-sessions')).toHaveCount(0)
+ await page.goto(`${base}/sessions`)
+ await expect(page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Sessions'})).toHaveCount(0)
+ await expect(page.locator('main .session-row')).toHaveCount(0)
+ await page.goto(base)
+ await expect(page.getByRole('region',{name:'Your machines',exact:true})).toBeVisible()
  expect(terminalRequests).toEqual([])
  expect(errors).toEqual([])
  console.log('Terminal workspace passed: viewport bounds, quick continuation, per-session targeting, no creation, drawers, native control keys, guarded context paste, intentional disconnect, responsive layouts and role isolation.')

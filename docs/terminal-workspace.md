@@ -6,7 +6,7 @@ Signing in lands on **Home** (`/`). Every figure on it comes from a record that 
 left out or says so in words.
 
 **The tabs.** A desktop (1100 px and wider) shows Home, Sessions, Machines, Skills and Activity in the top bar, with
-**Jump to a session, project or machine**, the bell and the account menu. The account menu holds **More**: Control,
+**Jump to a session, project or machine**, the bell and the account menu. The account menu holds **More**:
 Setups, Sync, Lists, Community, Support, Teams & organisations and Host skills. An open instance has no
 account menu, so it keeps More in the top bar. A tablet (651–1099 px) keeps
 Home, Sessions and Machines in the top bar, with **More** beside them for the rest and a search button for Jump. A phone
@@ -35,11 +35,20 @@ least 44 px. The phone's launch bar has a one-line prompt, a round 48 px Start a
 **Change**; the tablet's has the shorter sentence with its own Change. Checks:
 [Agents home shell and Home](ui-verification.md#agents-home-shell-and-home--26-october-2026).
 
-## Control and sessions
+## The Sessions page
 
-The **Control** page (`/control`, under More) shows active shells and machine connection cards. Skill sync and bulk inventory actions remain on **More → Sync**. Continue
-links select the exact connector and session ID on `/terminals`; they never create
-a shell. Running means a shell lifecycle state, not AI-agent activity. Creating and
+Control is folded into Home and Machines (R4): `/control` goes to `/`. The **Sessions** tab is `/sessions` (R17): every
+session across machines, grouped by Project, Machine or State (Home's choice), with search (title, agent, model, branch,
+project and machine), filters (state, agent, machine, YOLO only, worktree only, and a sort that includes the sessions
+panel's custom order), and each row's actions menu: right-click, Shift+F10 (or the menu key) or the ⋮ button. It holds
+Rename, Open in theatre, Copy branch (worktree sessions), End session or Remove from history (each confirmed), and Check
+and remove worktree (a finished session's own worktree; offered only when its path and branch name the run). A machine
+that is not reporting says "studio is offline" on its group and its sessions stay listed with what needs it disabled.
+A refresh that fails keeps the list with "Couldn't refresh. Showing what we last saw." and **Try again**. Below the
+groups, *Projects · N* lists the folder projects (each opens on Home) with **Add a project**. Skill sync and bulk
+inventory actions remain on **More → Sync**. A row links to `/sessions?agent=…&session=…`, which opens that exact
+connector and session ID in the workspace below; `/terminals` redirects to `/sessions` keeping its query. Opening a
+session never creates a shell. Running means a shell lifecycle state, not AI-agent activity. Creating and
 end-requested sessions retain their actual labels.
 
 The account-scoped band polls every 15 seconds while visible, times out requests
@@ -167,7 +176,7 @@ mode, font size and cursor shape. These browser preferences leave the shell and
 attachment identity intact. The compact toolbar keeps clipboard, interrupt,
 search, history and maximise controls within reach.
 
-**Commands** opens a private account library, also reachable from Control. Search,
+**Commands** opens a private account library. Search,
 create, edit, remove, copy or explicitly insert command text. The controller stores
 up to 200 commands, with 1–80-character names, 16 KiB of exact UTF-8 command text
 and optional notes. Optimistic revisions reject stale edits/deletes. Another
@@ -225,8 +234,8 @@ new direct SSH adapter. Phone viewport emulation is not a physical keyboard test
 
 - `App.svelte` scopes compact chrome to authorized terminal routes;
   `Machines.svelte` suppresses secondary inventory navigation there.
-- `ControlCenter.svelte` mounts `terminal/ActiveSessions.svelte` only for terminal
-  account/write access. `ActiveSessions` owns polling and stale/error presentation.
+- `sessions/SessionsPage.svelte` is the Sessions list for a writer in accounts mode; `sessions.ts` holds its search,
+  filters and groups (Home's `groupSessions`). It owns polling and stale/error presentation.
 - `terminal/TerminalWorkspace.svelte` owns selection, sidebar, visual-viewport
   sizing, dialogs and existing create/rename/end APIs. Confirmations capture IDs
   and display names at open time. `WorkspaceDialog.svelte` provides native modals.
@@ -251,7 +260,7 @@ new direct SSH adapter. Phone viewport emulation is not a physical keyboard test
 Run `npm --prefix web run check` and `npm --prefix web run build`. Finish the build
 before Go checks because Go embeds its output. For production-bundle UI fixtures,
 start `npm --prefix web run preview -- --host 127.0.0.1 --port 4173`, then run
-`node web/tests/control.e2e.mjs`, `node web/tests/terminal-workspace.e2e.mjs` and
+`node web/tests/control.e2e.mjs`, `node web/tests/sessions.e2e.mjs`, `node web/tests/terminal-workspace.e2e.mjs` and
 `node web/tests/terminal-lifecycle.e2e.mjs`,
 `node web/tests/terminal-organisation.e2e.mjs` and
 `node web/tests/terminal-phone.e2e.mjs`.
@@ -344,9 +353,9 @@ session. Menus themselves never start or attach a shell.
 
 Right-click a machine or use its ellipsis for terminal actions. Right-click the
 terminal screen for saved commands, command history, earlier output, appearance
-and clipboard controls; Shift+right-click keeps the browser menu. Control-page
-active-session menus also rename or request a stop, with explicit confirmation
-and the same remove-after-closure/account preference as the workspace.
+and clipboard controls; Shift+right-click keeps the browser menu. The Sessions
+page's menus also rename or request a stop, with explicit confirmation and the
+same remove-after-closure/account preference as the workspace.
 
 When the panel is closed, **Show sessions** is visible in both the workspace
 header and the terminal toolbar (the mini rail has its own Expand instead). In theatre

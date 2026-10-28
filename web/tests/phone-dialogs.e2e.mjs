@@ -31,7 +31,7 @@ const UA = 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, 
 const card = (page, name) => page.getByRole('article', {name:LONGHOST}).getByRole('button', {name, exact:true}).first()
 const press = (name, options = {}) => async page => { const b = page.getByRole('button', {name, ...options}).first(); await b.scrollIntoViewIfNeeded(); await b.click() }
 // A terminal page with a live pane, and a button in its toolbar (which may scroll sideways on a phone).
-const live = `/terminals?agent=${sessions[0].agentId}&session=${sessions[0].id}`
+const live = `/sessions?agent=${sessions[0].agentId}&session=${sessions[0].id}`
 const tool = name => async page => { await page.locator('.pane[data-connection-state=live]').first().waitFor({timeout:5000}); const b = page.locator('.pane').first().getByRole('button', {name, exact:true}).first(); await b.scrollIntoViewIfNeeded(); await b.click() }
 // A choice in a rail card's menu.
 const menu = (project, item) => async page => { await press(`More for ${project}`, {exact:true})(page); await page.getByRole('menuitem', {name:item, exact:true}).click() }
@@ -59,7 +59,7 @@ const DIALOGS = [
  // (sticky) footer.
  {name:'new list (people)', path:'/shared', open:async p => { await press('Create a list')(p); await p.locator('dialog[open] input[name=audience][value=private]').check() }, field:'textarea', sheet:'full'},
  {name:'manage tags', path:'/skills', open:async p => { await p.locator('button[aria-controls="tools-panel"]:visible').first().click(); await press('Manage tags')(p); await p.locator('dialog[open]').getByRole('button', {name:'Rename'}).last().click() }, field:TEXT, sheet:'full'},
- {name:'terminal workspace', path:'/terminals', open:press('New session', {exact:true}), field:'input[type=search]', sheet:'full'},
+ {name:'terminal workspace', path:'/sessions?view=terminal', open:press('New session', {exact:true}), field:'input[type=search]', sheet:'full'},
  // The terminal's drawers (placement="drawer"), opened from a live pane's toolbar. last: the dialog's last control must be
  // reachable, so nothing below the screen's edge is lost.
  {name:'appearance drawer', path:live, open:tool('Appearance'), last:true, sheet:'full'},

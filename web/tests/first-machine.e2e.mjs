@@ -13,17 +13,12 @@ try {
  // Every "connect a machine" button leads to the dialog, not to a different flow.
  if (run('entries')) {
   let {context,page} = await open({width:1440})
-  await page.goto(`${base}/control`)
+  await page.goto(`${base}/machines`)
   await expect(page.getByRole('link',{name:'Connect your first machine'})).toHaveAttribute('href','/machines#add-machine')
   await context.close()
 
-  ;({context,page} = await open({width:1440,terminalStatus:active,terminalMachines:[terminalMachine('a','dev-laptop',true)]}))
-  await page.goto(`${base}/control`)
-  await expect(page.getByRole('link',{name:'Connect a machine'})).toHaveAttribute('href','/machines#add-machine')
-  await context.close()
-
   ;({context,page} = await open({width:1440}))
-  await page.goto(`${base}/terminals`)
+  await page.goto(`${base}/sessions`)
   await expect(page.getByRole('link',{name:/Connect a machine/})).toHaveAttribute('href','/machines#add-machine')
   await context.close()
  }

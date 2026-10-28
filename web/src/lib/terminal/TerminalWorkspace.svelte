@@ -302,11 +302,15 @@
     })}
     const observer=new ResizeObserver(measure),header=document.querySelector('.site-header')
     if(header)observer.observe(header)
+    // The shell hides and shows the site's chrome (keyboardChrome) after this measure has set the session focus: measure again
+    // whenever it does, so the height is never one taken while the top bar was aside.
+    const chrome=new MutationObserver(measure)
+    chrome.observe(document.documentElement,{attributes:true,attributeFilter:['data-chrome-aside','data-bottom-tabs']})
     // A docked panel that would become a drawer (a narrower window, a phone) closes rather than cover the terminal.
     const viewportChanged=()=>{const wasDocked=panelView==='docked';viewportWidth=innerWidth;screenSide=readScreen();if(wasDocked&&!panelDocks(viewportWidth,pinned,phone))mode='closed'}
     window.addEventListener('resize',viewportChanged)
     measure();window.addEventListener('resize',measure);window.visualViewport?.addEventListener('resize',measure);window.visualViewport?.addEventListener('scroll',measure);document.addEventListener('focusin',measure);document.addEventListener('focusout',measure)
-    return()=>{if(viewportMeta&&viewportContent!==null)viewportMeta.setAttribute('content',viewportContent);cancelAnimationFrame(frame);observer.disconnect();window.removeEventListener('resize',viewportChanged);window.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('scroll',measure);document.removeEventListener('focusin',measure);document.removeEventListener('focusout',measure)}
+    return()=>{if(viewportMeta&&viewportContent!==null)viewportMeta.setAttribute('content',viewportContent);cancelAnimationFrame(frame);observer.disconnect();chrome.disconnect();window.removeEventListener('resize',viewportChanged);window.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('scroll',measure);document.removeEventListener('focusin',measure);document.removeEventListener('focusout',measure)}
   })
   onMount(()=>{
     const abort=new AbortController();void refresh(abort.signal)

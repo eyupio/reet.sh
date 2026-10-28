@@ -297,8 +297,11 @@ execution is disabled. See [the archive contract](terminal-history-archive.md).
   characters and large pastes still require confirmation. A paste that is empty
   after sanitising sends nothing. A reconnect invalidates pending paste approval;
   disconnected input is not replayed.
-- OSC 52 clipboard writes and OSC 8 active hyperlinks remain disabled. Terminal
-  text is not persisted to browser storage. Font size is a local preference.
+- OSC 8 active hyperlinks remain disabled. An agent's OSC 52 clipboard write is
+  accepted write-only, at most 1 MiB, and only after a recent pointer or key
+  gesture in the pane or an explicit **Copy it** press; a read-back query is never
+  answered and an empty write is ignored. Terminal text is not persisted to
+  browser storage. Font size is a local preference.
 
 These interactions use the existing private terminal transport; they do not add a
 new direct SSH adapter. Phone viewport emulation is not a physical keyboard test.

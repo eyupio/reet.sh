@@ -11,6 +11,7 @@ const machines = [{ agentId: agentA, host: 'dev-laptop', ready: true, serverEnab
 async function open(bracketed, { rows = 0 } = {}) {
   const context = await browser.newContext({ viewport: { width: 1360, height: 900 } })
   const page = await context.newPage(), errors = [], inputs = []
+  let send = () => {}
   page.on('pageerror', error => errors.push(error.message))
   await page.addInitScript(() => {
     let clipboard = ''
@@ -41,6 +42,7 @@ async function open(bracketed, { rows = 0 } = {}) {
     await route.fulfill({ json: data })
   })
   await page.routeWebSocket('**/api/v2/terminal/socket', socket => {
+    send = data => socket.send(Buffer.from(data))
     socket.onMessage(message => {
       if (typeof message === 'string') {
         const data = JSON.parse(message)
@@ -59,11 +61,30 @@ async function open(bracketed, { rows = 0 } = {}) {
   await expect(pane).toHaveAttribute('data-connection-state', 'live')
   const marker = rows ? `row-${String(rows).padStart(2, '0')}` : 'clipboard fixture'
   await page.waitForFunction(text => document.querySelector('.xterm-rows')?.textContent.includes(text), marker)
-  return { context, page, errors, inputs, pane }
+  return { context, page, errors, inputs, pane, send }
 }
 
 async function pasteFromToolbar(page) {
   await page.getByRole('button', { name: 'Paste', exact: true }).click()
+}
+
+// The marker after the OSC sequence proves xterm parsed it before the assertion.
+async function sendOsc52(send, page, payload, marker) {
+  await send(`\x1b]52;${payload}\x07`)
+  await send(`${marker}\r\n`)
+  await expect.poll(() => page.locator('.xterm-rows').textContent()).toContain(marker)
+}
+
+// A payload over the pane's 32 KiB frame limit has to arrive in paced frames,
+// exactly as the controller splits a large stream, or the connection resynchronises.
+async function sendLargeOsc52(send, page, payload, marker) {
+  const sequence = `\x1b]52;${payload}\x07`
+  for (let offset = 0; offset < sequence.length; offset += 16 * 1024) {
+    await send(sequence.slice(offset, offset + 16 * 1024))
+    await page.waitForTimeout(5)
+  }
+  await send(`${marker}\r\n`)
+  await expect.poll(() => page.locator('.xterm-rows').textContent()).toContain(marker)
 }
 
 {
@@ -248,6 +269,64 @@ async function pasteFromToolbar(page) {
   expect(errors).toEqual([])
   await context.close()
   console.log('Copy on select: off by default, copied a drag, and the saved flag survived a reload.')
+}
+
+{
+  // Without a gesture the agent's OSC 52 write waits in memory behind a banner;
+  // only the explicit Copy it press reaches the clipboard.
+  const { context, page, errors, send } = await open(true)
+  const text = 'agent clipboard text', payload = Buffer.from(text).toString('base64')
+  await sendOsc52(send, page, `c;${payload}`, 'osc52-no-gesture')
+  await expect(page.locator('.agent-copy')).toContainText('The agent copied')
+  expect(await page.evaluate(() => window.__copied || '')).toBe('')
+  await page.getByRole('button', { name: 'Copy it', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => window.__copied || '')).toBe(text)
+  await expect(page.getByText('Agent copied to your clipboard.', { exact: true })).toBeVisible()
+  await expect(page.locator('.agent-copy')).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+  console.log('OSC 52 without a gesture: banner held the text, Copy it wrote it, and the banner cleared.')
+}
+
+{
+  // A read query and an empty write are consumed but never touch the clipboard
+  // or show the banner.
+  const { context, page, errors, send } = await open(true)
+  await sendOsc52(send, page, 'c;?', 'osc52-query')
+  await sendOsc52(send, page, 'c;', 'osc52-empty')
+  expect(await page.evaluate(() => window.__copied || '')).toBe('')
+  await expect(page.locator('.agent-copy')).toHaveCount(0)
+  await expect(page.getByText('The agent tried to copy more than 1 MiB.', { exact: true })).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+  console.log('OSC 52 query and empty write: neither the clipboard nor the banner changed.')
+}
+
+{
+  // A pointer gesture inside the pane in the last 2 s lets the write through.
+  const { context, page, errors, send } = await open(true)
+  const text = 'copied after a click', payload = Buffer.from(text).toString('base64')
+  await page.locator('.xterm-screen').click()
+  await sendOsc52(send, page, `c;${payload}`, 'osc52-gesture')
+  await expect.poll(() => page.evaluate(() => window.__copied || '')).toBe(text)
+  await expect(page.getByText('Agent copied to your clipboard.', { exact: true })).toBeVisible()
+  await expect(page.locator('.agent-copy')).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+  console.log('OSC 52 after a click: the text reached the clipboard and the success line showed.')
+}
+
+{
+  // Over the 1 MiB cap the write is dropped before it reaches any clipboard path.
+  const { context, page, errors, send } = await open(true)
+  const payload = Buffer.from('x'.repeat((1 << 20) + 1)).toString('base64')
+  await sendLargeOsc52(send, page, `c;${payload}`, 'osc52-large')
+  await expect(page.getByText('The agent tried to copy more than 1 MiB.', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => window.__copied || '')).toBe('')
+  await expect(page.locator('.agent-copy')).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+  console.log('OSC 52 over 1 MiB: nothing was written and the limit sentence showed.')
 }
 
 await browser.close()

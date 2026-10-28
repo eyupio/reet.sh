@@ -10,9 +10,12 @@ machine connection cards by Home's fleet strip and the Machines page. The
 first-terminal checklist ("Get your first terminal running") now opens the
 Machines page for a writer until a machine has done its part on a server that
 allows terminals. `/control` redirects to `/`, and Control is no longer under
-More. Home, Sessions and Machines are the primary tabs; Skills and Activity join
-them on a desktop. Sync, lists and portable setups are under More with their
-existing routes. Legacy machine comparison and account links continue to work.
+More. Home, Sessions and Machines are the primary tabs; Skills joins them on a
+desktop. Activity lives in the account page at `/account/activity`, and the old
+`/activity` address opens that section (an open instance without accounts keeps
+its own Activity page and tab). Sync, lists and portable setups are under More
+with their existing routes. Legacy machine comparison and account links continue
+to work.
 
 ## Sessions
 

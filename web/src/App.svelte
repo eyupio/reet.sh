@@ -179,7 +179,8 @@
   const canWrite = $derived(authMode !== 'accounts' || role !== 'viewer')
   const terminalLayout = $derived(isTerminals && authMode === 'accounts' && authenticated && canWrite && !needsAuth)
   const isAdminUser = $derived(authMode !== 'accounts' || role === 'owner' || role === 'admin')
-  // Navigation (R13): five tabs on a desktop; Home, Sessions and Machines stay in view on a tablet or phone and the rest
+  // Navigation (R13): four tabs on a desktop (Activity lives in the account; without accounts it is a fifth tab); Home,
+  // Sessions and Machines stay in view on a tablet or phone and the rest
   // move into More. Sessions and the bell are for a writer in accounts mode only (R16), as Terminals and Projects were.
   const sessionsAccess = $derived(authMode === 'accounts' && canWrite)
   // The bell's Needs you count, as Home reads it. Nothing signals that a session needs the person today, so it stays 0.
@@ -191,7 +192,7 @@
     ...(sessionsAccess ? [{ href: '/sessions', label: 'Sessions', current: isTerminals || isSessions }] : []),
     { href: '/machines', label: 'Machines', current: isMachines && !isSync && !isTerminals && !(isSessions && sessionsAccess) },
     { href: '/skills', label: 'Skills', current: isSkills },
-    { href: '/activity', label: 'Activity', current: isActivity },
+    ...(authMode === 'accounts' ? [] : [{ href: '/activity', label: 'Activity' as const, current: isActivity }]),
   ])
   const barTabs = $derived(tabs.filter(tab => ['/', '/sessions', '/machines'].includes(tab.href)))
   const more = $derived<Tab[]>([
@@ -850,7 +851,7 @@
             email={currentUser?.email ?? ''}
             admin={isAdminUser}
             accounts={authMode === 'accounts'}
-            active={isAccount || isAdmin || isNotifications || more.some(item => item.current)}
+            active={isAccount || isActivity || isAdmin || isNotifications || more.some(item => item.current)}
             unread={unreadNotifications}
             {more}
             onsignout={signOut}
@@ -902,8 +903,8 @@
     <Hosting {canWrite} />
   {:else if isShared}
     <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
-  {:else if isActivity}
-    <ActivityPage accounts={authMode === 'accounts'} writer={sessionsAccess} onsignedout={fail} />
+  {:else if isActivity && authMode !== 'accounts'}
+    <ActivityPage accounts={false} writer={sessionsAccess} onsignedout={fail} />
   {:else if isHome}
     <Home userId={currentUser?.id ?? 0} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} onsignedout={fail} onattention={count => (attention = count)} />
   {:else if isSessions && sessionsAccess}
@@ -922,8 +923,8 @@
     <Spaces {canWrite} />
   {:else if isMCPConsent && authMode === 'accounts'}
     <MCPConsent />
-  {:else if isAccount && authMode === 'accounts'}
-    <Account user={currentUser!} onsignout={signOut} onerror={fail} onuserchange={(u) => (currentUser = u)} />
+  {:else if (isAccount || isActivity) && authMode === 'accounts'}
+    <Account user={currentUser!} onsignout={signOut} onerror={fail} onuserchange={(u) => (currentUser = u)} writer={canWrite} />
   {:else if isList}
     <ListView id={listId} {canWrite} userRole={role} onerror={fail} />
   {:else if isAccount}

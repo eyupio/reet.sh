@@ -97,7 +97,7 @@ const SCREENS = [
  {name:'support ticket', path:'/support/41'},
  {name:'notifications', path:'/notifications'},
  ...['profile','security','sso','sessions','mcp','tokens','backups'].map(p => ({name:`account ${p}`, path:`/account/${p}`})),
- {name:'activity', path:'/activity'}, // /account/activity redirects here with location.replace; measuring the old page mid-reload zoomed it out
+ {name:'activity', path:'/activity'}, // /activity is rewritten to /account/activity in place (no reload) and opens the account's Activity section
  // The Add project sheet behind the rail's Add (on the Sessions screen on a phone), with a 120-character folder chosen and the
  // browser open on it: the folder field, the breadcrumb, the folder names and the pinned chosen folder.
  {name:'add project sheet', ...sessionsRail, extra:{...homeExtra, ...addProjectExtra}, action:async page => {

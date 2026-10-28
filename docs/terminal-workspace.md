@@ -5,8 +5,9 @@
 Signing in lands on **Home** (`/`). Every figure on it comes from a record that exists today; anything without one is
 left out or says so in words.
 
-**The tabs.** A desktop (1100 px and wider) shows Home, Sessions, Machines, Skills and Activity in the top bar, with
-**Jump to a session, project or machine**, the bell and the account menu. The account menu holds **More**:
+**The tabs.** A desktop (1100 px and wider) shows Home, Sessions, Machines and Skills in the top bar, with
+**Jump to a session, project or machine**, the bell and the account menu. Activity is a section of the account page at
+`/account/activity`; the old `/activity` address opens it. The account menu holds **More**:
 Setups, Sync, Lists, Community, Support, Teams & organisations and Host skills. An open instance has no
 account menu, so it keeps More in the top bar. A tablet (651–1099 px) keeps
 Home, Sessions and Machines in the top bar, with **More** beside them for the rest and a search button for Jump. A phone

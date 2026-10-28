@@ -187,7 +187,7 @@ attempt did start, it appears in your sessions list on the next refresh.
   see it in the process list. Secrets don't belong in a prompt.
 - **Browser storage.** Nothing about the session, folder, model or prompt is written there. The
   prompt lives only in the open dialog and is cleared when it closes.
-- **Activity.** A start writes one audit event, which Activity shows as, for example, "Started
+- **Activity.** A start writes one audit event, which Activity (in your account) shows as, for example, "Started
   Claude Code with opus in /home/you/work/site on studio". It never includes the prompt.
 
 ## Limits

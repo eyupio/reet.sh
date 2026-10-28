@@ -6,7 +6,7 @@ import ts from 'typescript'
 const compile = name => ts.transpileModule(readFileSync(new URL(name, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
 const asURL = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
 const launchURL = asURL(compile('./agentLaunch.ts').replace("from './catalogue'", `from '${asURL(compile('./catalogue.ts'))}'`))
-const { eventLabel } = await import(asURL(compile('./events.ts').replace("from './agentLaunch'", `from '${launchURL}'`)))
+const { eventLabel, eventCategory, eventRemedy } = await import(asURL(compile('./events.ts').replace("from './agentLaunch'", `from '${launchURL}'`)))
 const event = (action, detail) => ({ id: 1, at: 0, source: 'ui', action, ...(detail ? { detail: JSON.stringify(detail) } : {}) })
 test('ownership receipt events read as plain sentences from their metadata', () => {
   assert.equal(eventLabel(event('skill-content-adopt', { name: 'demo', files: 3, receiptId: 'a'.repeat(48) })), 'Recorded ownership of 3 files of demo')
@@ -53,4 +53,28 @@ test('folder project activity reads as plain sentences and never names a prompt'
   assert.equal(eventLabel(event('folder-browse', { machine: 'a1', path: '~', pages: 3 })), 'Browsed folders from ~ (3 pages)')
   assert.equal(eventLabel(event('folder-browse', { machine: 'a1', path: '/srv/site', pages: 1 })), 'Browsed folders from /srv/site (1 page)')
   assert.equal(eventLabel(event('folder-browse')), 'Browsed folders on a machine')
+})
+test('activity events fall into the areas the filters offer', () => {
+  assert.equal(eventCategory(event('terminal-launch')), 'agents')
+  assert.equal(eventCategory(event('worktree-remove')), 'agents')
+  assert.equal(eventCategory(event('sync-agent-update')), 'agents')
+  assert.equal(eventCategory(event('project-create')), 'projects')
+  assert.equal(eventCategory(event('folder-browse')), 'projects')
+  assert.equal(eventCategory(event('add')), 'skills')
+  assert.equal(eventCategory(event('bulk-tag')), 'skills')
+  assert.equal(eventCategory(event('hosted-save')), 'skills')
+  assert.equal(eventCategory(event('list-update')), 'lists')
+  assert.equal(eventCategory(event('sign-in')), 'account')
+  assert.equal(eventCategory(event('mcp-rotate')), 'account')
+  assert.equal(eventCategory(event('user-role')), 'account')
+  assert.equal(eventCategory(event('settings')), 'admin')
+  assert.equal(eventCategory(event('mail-check')), 'admin')
+  assert.equal(eventCategory(event('ticket-reply')), 'admin')
+  assert.equal(eventCategory(event('frobnicate')), 'account')
+})
+test('a failed mail check or test points at the settings that fix it, and nothing else grows a link', () => {
+  assert.deepEqual(eventRemedy(event('mail-check', { ok: false, host: 'smtp.example' })), { label: 'Check the mail server settings', href: '/admin/email' })
+  assert.deepEqual(eventRemedy(event('mail-test', { ok: false, to: 'a@example.com' })), { label: 'Check the mail server settings', href: '/admin/email' })
+  assert.equal(eventRemedy(event('mail-check', { ok: true })), null)
+  assert.equal(eventRemedy(event('project-create', { name: 'Site' })), null)
 })

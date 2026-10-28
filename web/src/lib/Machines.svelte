@@ -11,8 +11,10 @@
   import { onMount, type Component } from 'svelte'
   let { canWrite, accounts, monitoring=false, compare = false, userId=0, onsignedout }: { canWrite: boolean; accounts: boolean; monitoring?:boolean; compare?: boolean;userId?:number; onsignedout?: (e: unknown) => void } = $props()
   let token = $state(''), name = $state('machine token'), busy = $state(false), error = $state('')
-  // Only reached for a session address (App sends a bare /sessions to the Sessions list).
-  const terminals = location.pathname === '/sessions' || new URLSearchParams(location.search).get('view') === 'terminal'
+  // A session address (?session=, ?agent= or view=terminal) opens the workspace. A bare /sessions reaches this page only for
+  // someone without Sessions (a viewer, a token or an open instance), who gets the Machines page itself.
+  const query = new URLSearchParams(location.search)
+  const terminals = location.pathname === '/sessions' && (query.has('session') || query.has('agent')) || query.get('view') === 'terminal'
   // svelte-ignore state_referenced_locally
   const focus = compare ? '' : (new URLSearchParams(location.search).get('machine') ?? '')
   let TerminalView = $state<Component<{userId?:number}>>()

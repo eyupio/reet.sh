@@ -38,15 +38,23 @@ const sessions = () => [
 ]
 
 async function open(options={}) {
- const box = {sessions:options.sessions ?? sessions(), projects:options.projects ?? projects(), fail:false, writes:[]}
+ const box = {sessions:options.sessions ?? sessions(), projects:options.projects ?? projects(), fail:false, writes:[], commands:[], hold:null}
  const routes = {
   '/api/v2/machines/health': () => box.fail ? {status:500,json:{error:'down'}} : health(),
   '/api/v2/terminal/machines': () => box.fail ? {status:500,json:{error:'down'}} : {machines:options.machines ?? tmachines},
-  '/api/v2/terminal/sessions': () => box.fail ? {status:500,json:{error:'down'}} : {sessions:box.sessions},
+  '/api/v2/terminal/sessions': async () => { if (box.hold) await box.hold; return box.fail ? {status:500,json:{error:'down'}} : {sessions:box.sessions} },
+  '/api/v2/terminal/commands': request => {
+   if (request.method() === 'GET') return {commands:box.commands}
+   const item = {...request.postDataJSON(), id:`c${box.commands.length + 1}`, revision:1}
+   box.commands.push(item)
+   return item
+  },
   '/api/v2/folder-projects': () => box.fail ? {status:500,json:{error:'down'}} : {projects:box.projects,savedWaiting:0},
   '/api/v2/terminal/status': {configured:true,available:true,reason:''},
  }
  const opened = await openWorkspace(browser, {width:options.width ?? 1440, height:options.height ?? 900, touch:options.touch, theme:options.theme ?? 'light', routes})
+ // The sessions panel's saved colours, as the workspace keeps them in this browser.
+ if (options.colours) await opened.page.addInitScript(colors => localStorage.setItem('reet-terminal-layout:1:sessions', JSON.stringify({colors})), options.colours)
  // A session's own writes: rename (PATCH), end and remove from history (POST).
  await opened.page.route('**/api/v2/terminal/sessions/*', async route => {
   const request = route.request(), id = decodeURIComponent(new URL(request.url()).pathname.split('/').pop())
@@ -88,9 +96,9 @@ try {
   const first = rows(page).nth(1)
   await expect(first.locator('.word')).toHaveText('Running')
   await expect(first.locator('.meta')).toHaveText('Claude Code · sonnet · reet/reet-0f1e2d3c4b5a6978')
-  await expect(first.locator('.badge')).toHaveText(['worktree'])
+  await expect(first.locator('.badge:not(.colour-name)')).toHaveText(['worktree'])
   await expect(first.locator('a.open')).toHaveAttribute('href','/sessions?agent=a1&session=s2')
-  await expect(rows(page).filter({hasText:'Speed up the runner pool'}).locator('.badge')).toHaveText(['YOLO'])
+  await expect(rows(page).filter({hasText:'Speed up the runner pool'}).locator('.badge:not(.colour-name)')).toHaveText(['YOLO'])
   // Group by Machine, then State; the choice is Home's.
   await group.getByText('Machine',{exact:true}).click()
   await expect(page.locator('main .group h2 .name')).toHaveText(['studio','server','desk'])
@@ -278,6 +286,92 @@ try {
   await context.close()
  }
 
+ // The sessions panel's colours show on the rows (with the colour's name, not colour alone) and can be filtered on.
+ if (run('session colours')) {
+  const {context,page,errors} = await open({colours:{s3:'red',s5:'violet'}})
+  await page.goto(`${base}/sessions`)
+  const row = name => rows(page).filter({hasText:name})
+  // The panel's own choice, else the project's colour (reet is green); none draws nothing.
+  await expect(row('Docs pass').locator('.colour-name')).toHaveText('Red')
+  await expect(row('Refactor the store layer').locator('.colour-name')).toHaveText('Green')
+  await expect(row('Review code').locator('.colour-name')).toHaveText('Violet')
+  await expect(row('Shell').locator('.colour-name')).toHaveCount(0)
+  expect(await row('Docs pass').evaluate(el => getComputedStyle(el).borderLeftStyle)).toBe('solid')
+  await page.getByText('Filters',{exact:true}).click()
+  await filters(page).getByLabel('Colour',{exact:true}).selectOption('red')
+  await expect.poll(() => titles(page)).toEqual(['Docs pass'])
+  await filters(page).getByLabel('Colour',{exact:true}).selectOption('none')
+  await expect.poll(() => titles(page)).toEqual(['Shell'])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Saved commands from the header, with no session needed (owner ruling): open, add one, close; focus goes back.
+ if (run('saved commands without a session')) {
+  const {context,page,errors,box} = await open({sessions:[]})
+  await page.goto(`${base}/sessions`)
+  await expect(page.getByText('No sessions yet. Start one from Home.',{exact:true})).toBeVisible()
+  const button = page.getByRole('button',{name:'Saved commands',exact:true})
+  await button.click()
+  const library = page.getByRole('dialog',{name:'Saved commands'})
+  await expect(library).toBeVisible()
+  await library.getByRole('button',{name:'Save your first command'}).click()
+  await page.getByLabel('Command name').fill('Disk check')
+  await page.getByLabel('Saved command text').fill('df -h')
+  await page.getByRole('button',{name:'Save command',exact:true}).click()
+  await expect(page.getByRole('dialog')).toContainText('Saved to your account.')
+  expect(box.commands.map(c => c.command)).toEqual(['df -h'])
+  await page.getByRole('button',{name:/^Close /}).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(button).toBeFocused()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The fix round's smaller points.
+ if (run('menu focus, checking and words')) {
+  const {context,page,errors,box} = await open()
+  await page.goto(`${base}/sessions`)
+  // Escape after the ⋮ button gives focus back to that button; Shift+F10 on it opens reet's menu.
+  const more = page.getByRole('button',{name:'Actions for Docs pass'})
+  await more.click()
+  await expect(page.getByRole('menu',{name:'Actions for Docs pass'})).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(more).toBeFocused()
+  await more.dispatchEvent('keydown',{key:'F10',shiftKey:true})
+  await expect(page.getByRole('menu',{name:'Actions for Docs pass'})).toBeVisible()
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Shift+F10')
+  await expect(page.getByRole('menu',{name:'Actions for Docs pass'})).toBeVisible()
+  await page.keyboard.press('Escape')
+  // An offline row reads "Running · last known", with its space.
+  expect(await rows(page).filter({hasText:'Review code'}).locator('.word').textContent()).toBe('Running · last known')
+  // A later read shows "Checking…" over the last known list.
+  let release
+  box.hold = new Promise(r => { release = r })
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+  await expect(page.getByText('Checking…',{exact:true})).toBeVisible()
+  await expect(rows(page)).toHaveCount(6)
+  box.hold = null; release()
+  await expect(page.getByText('Checking…',{exact:true})).toBeHidden()
+  // Needs you: nothing raises it yet, and the page says so.
+  await page.getByText('Filters',{exact:true}).click()
+  await filters(page).getByLabel('State',{exact:true}).selectOption('needs')
+  await expect(page.getByText('Nothing marks a session as needing you yet, so none is listed here.',{exact:true})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A viewer at /sessions gets the Machines page under its own name.
+ if (run('viewer at /sessions')) {
+  const opened = await openWorkspace(browser, {width:1440, status:{user:{id:2,name:'Pat',email:'pat@example.test',role:'viewer'}}})
+  await opened.page.goto(`${base}/sessions`)
+  await expect(opened.page.getByRole('heading',{level:1})).toHaveText('Your machines, connected.')
+  expect(await opened.page.title()).toBe('Machines · reet.sh')
+  await expect(opened.page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Machines',exact:true})).toHaveAttribute('aria-current','page')
+  await opened.context.close()
+ }
+
  // The mock-up's sizes, light and dark, for the fidelity check (REET_UI_SCREENSHOTS=<folder>).
  if (shots && run('screens')) {
   await mkdir(shots, {recursive:true})
@@ -289,5 +383,5 @@ try {
    await context.close()
   }
  }
- console.log('Sessions: groups shared with Home, search by branch and machine, filters together, the actions menu by right-click, Shift+F10 and its button, the offline sentence, 44 px rows on touch, a failed refresh keeping the list, and the empty states.')
+ console.log('Sessions: groups shared with Home, search by branch and machine, filters together, the actions menu by right-click, Shift+F10 and its button, the offline sentence, 44 px rows on touch, a failed refresh keeping the list, the empty states, session colours, saved commands without a session, menu focus, Checking… on later reads, the Needs you sentence and a viewer at /sessions.')
 } finally { await browser.close() }

@@ -39,8 +39,8 @@ least 44 px. The phone's launch bar has a one-line prompt, a round 48 px Start a
 
 Control is folded into Home and Machines (R4): `/control` goes to `/`. The **Sessions** tab is `/sessions` (R17): every
 session across machines, grouped by Project, Machine or State (Home's choice), with search (title, agent, model, branch,
-project and machine), filters (state, agent, machine, YOLO only, worktree only, and a sort that includes the sessions
-panel's custom order), and each row's actions menu: right-click, Shift+F10 (or the menu key) or the ⋮ button. It holds
+project and machine), filters (state, agent, machine, colour, YOLO only, worktree only, and a sort that includes the sessions
+panel's custom order; each row shows its colour, the panel's choice or its project's, as an edge strip and its name), and each row's actions menu: right-click, Shift+F10 (or the menu key) or the ⋮ button. It holds
 Rename, Open in theatre, Copy branch (worktree sessions), End session or Remove from history (each confirmed), and Check
 and remove worktree (a finished session's own worktree; offered only when its path and branch name the run). A machine
 that is not reporting says "studio is offline" on its group and its sessions stay listed with what needs it disabled.
@@ -176,7 +176,8 @@ mode, font size and cursor shape. These browser preferences leave the shell and
 attachment identity intact. The compact toolbar keeps clipboard, interrupt,
 search, history and maximise controls within reach.
 
-**Commands** opens a private account library. Search,
+**Commands** opens a private account library, also reachable from **Saved commands** in the Sessions page header (no
+session needed; Insert is offered only from a pane). Search,
 create, edit, remove, copy or explicitly insert command text. The controller stores
 up to 200 commands, with 1–80-character names, 16 KiB of exact UTF-8 command text
 and optional notes. Optimistic revisions reject stale edits/deletes. Another

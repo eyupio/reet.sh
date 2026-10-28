@@ -4,12 +4,13 @@
   import { copyText } from '../clipboard'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import WorktreeDialog from '../WorktreeDialog.svelte'
+  import CommandLibrary from '../terminal/CommandLibrary.svelte'
   import AddProjectDialog from '../home/AddProjectDialog.svelte'
   import { addedLine } from '../folderBrowser'
   import { railState, shortAge, stateWord, type GroupBy } from '../home'
-  import { projectColourHex } from '../projectColour'
+  import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
   import type { RunMember } from '../projects'
-  import { agentChoicesOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, worktreeTargetOf, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
+  import { agentChoicesOf, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, worktreeTargetOf, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
   import { archiveTerminal, endTerminal, folderProjectList, machineHealth, renameTerminal, sessionHref, terminalClosed, terminalMachines, terminalSessions, TerminalError, validTerminalTitle,
     type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
 
@@ -33,13 +34,18 @@
     groupBy = next
     try { localStorage.setItem(groupKey, next) } catch { /* the choice lasts for this page only */ }
   }
-  // The custom order the sessions panel saved in this browser, offered as a sort.
+  // The custom order and the session colours the sessions panel saved in this browser, offered as a sort and a filter.
   // svelte-ignore state_referenced_locally
   const panelKey = `reet-terminal-layout:${userId}:sessions`
-  function savedOrder(): string[] {
-    try { const saved = JSON.parse(localStorage.getItem(panelKey) || '{}'); return Array.isArray(saved.order) ? saved.order.filter((v: unknown) => typeof v === 'string').slice(0, 2000) : [] } catch { return [] }
+  function savedPanel(): { order: string[]; colors: Record<string, string> } {
+    try {
+      const saved = JSON.parse(localStorage.getItem(panelKey) || '{}')
+      const order = Array.isArray(saved.order) ? saved.order.filter((v: unknown) => typeof v === 'string').slice(0, 2000) : []
+      const colors = saved.colors && typeof saved.colors === 'object' && !Array.isArray(saved.colors) ? Object.fromEntries(Object.entries(saved.colors).filter((e): e is [string, string] => typeof e[1] === 'string')) : {}
+      return { order, colors }
+    } catch { return { order: [], colors: {} } }
   }
-  const order = savedOrder()
+  const { order, colors } = savedPanel()
 
   let sessions = $state<TerminalSession[] | undefined>()
   let projects = $state<FolderProject[] | undefined>()
@@ -48,7 +54,7 @@
   let now = $state(Date.now())
   let checking = $state(false), failed = $state(false), projectsFailed = $state(false), denied = $state(false)
   let query = $state(''), sort = $state<SessionSort>('recent')
-  let filter = $state<SessionFilter>({ state: '', agent: '', machine: '', yoloOnly: false, worktreeOnly: false })
+  let filter = $state<SessionFilter>({ state: '', agent: '', machine: '', yoloOnly: false, worktreeOnly: false, colour: '' })
   let notice = $state<{ text: string; bad?: boolean } | null>(null)
 
   const life = new AbortController()
@@ -65,7 +71,9 @@
   // A machine the health report says is not connected is offline; with no report nothing is called offline.
   const offline = $derived(new Set((health ?? []).filter(m => m.state !== 'connected').map(m => m.agentId)))
   const hostOf = (agentId: string) => machines.find(m => m.agentId === agentId)?.host || agentId
-  const shown = $derived(filterSessions(searchSessions(sessions ?? [], projects ?? [], machines, query), filter))
+  const colourOf = (s: TerminalSession) => sessionColourOf(s, colors, projects ?? [])
+  const colourName = (id: string) => PROJECT_COLOURS.find(c => c.id === id)?.name ?? ''
+  const shown = $derived(filterSessions(searchSessions(sessions ?? [], projects ?? [], machines, query), filter, new Set(), colourOf))
   const groups = $derived(sessionGroups(shown, projects ?? [], machines, groupBy, offline, sort, order))
   const agents = $derived(agentChoicesOf(sessions ?? []))
   const on = $derived(filtersOn(filter))
@@ -107,8 +115,8 @@
     if (event.type === 'contextmenu' && event.shiftKey) return
     event.preventDefault()
     const opener = event.currentTarget as HTMLElement
-    // The ⋮ button gives focus back to the row's link, which is what a keyboard person was on.
-    returnFocus = opener.closest('li')?.querySelector<HTMLElement>('a.open') ?? opener
+    // Focus goes back to what opened the menu: the row's link or its ⋮ button.
+    returnFocus = opener
     const box = opener.getBoundingClientRect()
     const x = 'clientX' in event && event.clientX ? event.clientX : box.left, y = 'clientY' in event && event.clientY ? event.clientY : box.bottom
     context = { item, x: Math.min(Math.max(8, x), Math.max(8, innerWidth - 248)), y: Math.max(8, Math.min(y, innerHeight - 290)) }
@@ -178,6 +186,10 @@
 
   // Add a project: the machines are read again first, as on Home.
   let adding = $state<{ opener: HTMLElement } | null>(null), addBusy = $state(false)
+  // Saved commands (owner ruling): the account's command library, without opening a session. Insert needs a live pane,
+  // so it is not offered here; the pane's own entry stays.
+  let commandsOpen = $state(false), commandsButton = $state<HTMLButtonElement>()
+  async function closeCommands() { commandsOpen = false; await tick(); commandsButton?.focus() }
   async function openAdd(opener: HTMLElement) {
     if (addBusy) return
     addBusy = true; notice = null
@@ -188,7 +200,7 @@
   function added(p: FolderProject) { notice = { text: addedLine(p.name) }; void load(true) }
 
   const projectLabel = (p: FolderProject) => [p.name, p.machine || 'machine not enrolled', railState(sessions ? running.get(p.id) ?? 0 : null, health?.some(m => m.agentId === p.host) ? !offline.has(p.host) : undefined)?.text].filter(Boolean).join(', ')
-  const clearFilters = () => { filter = { state: '', agent: '', machine: '', yoloOnly: false, worktreeOnly: false } }
+  const clearFilters = () => { filter = { state: '', agent: '', machine: '', yoloOnly: false, worktreeOnly: false, colour: '' } }
 
   onMount(() => {
     void load()
@@ -206,6 +218,7 @@
   <header class="page-head">
     <a class="back" href="/" aria-label="Back to Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></a>
     <h1>Sessions</h1>
+    <button type="button" class="commands" aria-label="Saved commands" bind:this={commandsButton} onclick={() => (commandsOpen = true)}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 7l4 5-4 5M12 17h7" /></svg><span class="wide">Saved commands</span><span class="narrow">Commands</span></button>
     <a class="new" href="/" aria-label="New session">New</a>
   </header>
 
@@ -225,6 +238,7 @@
         <label>State<select aria-label="State" bind:value={filter.state}><option value="">Any state</option><option value="needs">Needs you</option><option value="running">Running</option><option value="finished">Finished</option><option value="ended">Ended</option></select></label>
         <label>Agent<select aria-label="Agent" bind:value={filter.agent}><option value="">Any agent</option>{#each agents as a (a.value)}<option value={a.value}>{a.label}</option>{/each}</select></label>
         <label>Machine<select aria-label="Machine" bind:value={filter.machine}><option value="">Any machine</option>{#each machines as m (m.agentId)}<option value={m.agentId}>{m.host}</option>{/each}</select></label>
+        <label>Colour<select aria-label="Colour" bind:value={filter.colour}><option value="">Any colour</option>{#each PROJECT_COLOURS.filter(c => c.id) as c (c.id)}<option value={c.id}>{c.name}</option>{/each}<option value="none">No colour</option></select></label>
         <label>Sort<select aria-label="Sort" bind:value={sort}><option value="recent">Recently changed</option><option value="name">Name</option><option value="custom">Custom order</option></select></label>
         <label class="check"><input type="checkbox" bind:checked={filter.yoloOnly} />YOLO only</label>
         <label class="check"><input type="checkbox" bind:checked={filter.worktreeOnly} />Worktree only</label>
@@ -234,9 +248,10 @@
   </div>
 
   <div class="live" role="status" aria-live="polite">
-    {#if checking && sessions === undefined}<p class="quiet">Checking…</p>{/if}
     {#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}</p>{/if}
   </div>
+  <!-- Not a live region: a read every 15 seconds would be announced each time. -->
+  {#if checking}<p class="quiet">Checking…</p>{/if}
   {#if failed}<p class="problem" role="alert"><span>{sessions === undefined ? "Couldn't read your sessions just now." : "Couldn't refresh. Showing what we last saw."}</span> <button type="button" class="again" onclick={() => void load(true)}>Try again</button></p>{/if}
 
   {#if denied}
@@ -247,7 +262,7 @@
     {#if sessions.length === 0}
       <p class="none">No sessions yet. Start one from Home.</p>
     {:else if groups.length === 0}
-      <p class="none">{on > 0 && !query.trim() ? 'No sessions match these filters.' : 'No sessions match.'}</p>
+      <p class="none">{filter.state === 'needs' ? 'Nothing marks a session as needing you yet, so none is listed here.' : on > 0 && !query.trim() ? 'No sessions match these filters.' : 'No sessions match.'}</p>
     {:else}
       <div class="groups">
         {#each groups as g (g.key)}
@@ -261,17 +276,18 @@
             <ul class="card">
               {#each g.sessions as s (s.id)}
                 {@const word = stateWord(s)}
-                <li class="session-row">
+                {@const colour = colourOf(s)}
+                <li class="session-row" class:coloured={!!colour} style={colour ? `--session-colour:${projectColourHex(colour)}` : undefined}>
                   <a class="open" href={sessionHref(s)} oncontextmenu={event => void openMenu(event, s)} onkeydown={event => { if (menuKeyOpens(event)) void openMenu(event, s) }}>
                     <span class="dot {word.tone}" aria-hidden="true"></span>
                     <span class="main">
-                      <span class="line"><span class="title" title={s.title}>{s.title}</span>{#if s.yolo}<span class="badge yolo">YOLO</span>{/if}{#if s.worktreePath}<span class="badge wt">worktree</span>{/if}</span>
+                      <span class="line"><span class="title" title={s.title}>{s.title}</span>{#if s.yolo}<span class="badge yolo">YOLO</span>{/if}{#if s.worktreePath}<span class="badge wt">worktree</span>{/if}{#if colour}<span class="badge colour-name"><span class="swatch" aria-hidden="true"></span>{colourName(colour)}</span>{/if}</span>
                       <span class="meta" title={rowMeta(s)}>{rowMeta(s)}</span>
                     </span>
-                    <span class="word {word.tone}" title={word.source}>{word.word}{#if offline.has(s.agentId)}<span class="lk"> · last known</span>{/if}</span>
+                    <span class="word {word.tone}" title={word.source}>{word.word}{#if offline.has(s.agentId)}{' '}<span class="lk">· last known</span>{/if}</span>
                     <span class="age"><span class="vh">changed </span>{shortAge(Math.max(0, now - s.updatedAt))}<span class="vh"> ago</span></span>
                   </a>
-                  <button type="button" class="more" aria-label={`Actions for ${s.title}`} aria-haspopup="menu" aria-expanded={context?.item.id === s.id} onclick={event => void openMenu(event, s)}>
+                  <button type="button" class="more" aria-label={`Actions for ${s.title}`} aria-haspopup="menu" aria-expanded={context?.item.id === s.id} onclick={event => void openMenu(event, s)} oncontextmenu={event => void openMenu(event, s)} onkeydown={event => { if (menuKeyOpens(event)) void openMenu(event, s) }}>
                     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
                   </button>
                 </li>
@@ -330,6 +346,7 @@
 {#if removing}
   <WorktreeDialog member={removing.member} host={removing.host} opener={returnFocus ?? null} onremoved={() => void load(true)} onsignedout={signOut} onclose={() => (removing = null)} />
 {/if}
+{#if commandsOpen}<CommandLibrary onclose={() => void closeCommands()} />{/if}
 {#if adding && terminals}
   <AddProjectDialog machines={terminals} opener={adding.opener} onadded={added} onsignedout={signOut} onclose={() => (adding = null)} />
 {/if}
@@ -339,9 +356,13 @@
   .page-head { display: flex; align-items: center; gap: 12px; min-height: 56px; }
   .back { display: none; width: 44px; height: 44px; margin-left: -10px; align-items: center; justify-content: center; color: var(--ink-soft); }
   .back svg { width: 22px; height: 22px; }
-  h1 { margin: 0; flex-grow: 1; font: 600 28px/1.2 var(--serif); }
+  h1 { margin: 0; flex-grow: 1; min-width: 0; font: 600 28px/1.2 var(--serif); }
   .new { display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-weight: 600; text-decoration: none; }
   .new:hover { filter: brightness(1.08); }
+  .commands { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: none; color: var(--ink); font: 500 14px var(--sans); cursor: pointer; }
+  .commands:hover { background: var(--tint); }
+  .commands svg { width: 16px; height: 16px; }
+  .commands .narrow { display: none; }
   .tools { display: flex; flex-direction: column; gap: 10px; }
   .search { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--muted); }
   .search:focus-within { border-color: var(--accent); }
@@ -381,6 +402,11 @@
   .card { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 13px; background: var(--card); overflow: hidden; }
   .session-row { display: flex; align-items: stretch; border-top: 1px solid var(--line-soft); }
   .session-row:first-child { border-top: 0; }
+  /* A colour from the sessions panel (or the project's) is identity, never state: a strip on the row's edge, and its name. */
+  .session-row { border-left: 3px solid transparent; }
+  .session-row.coloured { border-left-color: var(--session-colour); }
+  .colour-name { display: inline-flex; align-items: center; gap: 4px; }
+  .swatch { width: 7px; height: 7px; border-radius: 2px; background: var(--session-colour); }
   .session-row:hover { background: var(--card-raised); }
   .open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 4px 6px 14px; color: var(--ink); text-decoration: none; }
   .open:focus-visible, .more:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
@@ -438,6 +464,16 @@
     /* The mock-up's phone row: dot, title, state word and age. The agent line and the worktree badge are left out to keep the
        title readable (YOLO stays); "last known" is still read out, and the group says the machine is offline. */
     .meta, .badge.wt { display: none; }
+    /* The colour's name is still read out; the strip shows it. */
+    .colour-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .commands .wide { display: none; }
+    .commands .narrow { display: inline; }
+    .commands { padding: 0 10px; }
+  }
+  /* The narrowest phones: Saved commands keeps its icon (and its name for assistive tech) so the header fits. */
+  @media (max-width: 374px) {
+    .commands { width: 44px; padding: 0; justify-content: center; }
+    .commands .narrow { display: none; }
     .lk { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   }
 </style>

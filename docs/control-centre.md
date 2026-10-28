@@ -25,7 +25,8 @@ that session. `/terminals` redirects to `/sessions` keeping its query, so every
 old link to a session still opens it. Ready, setup-needed, reconnecting and
 last-known states remain distinct; a machine that is not reporting says so on
 its group. Viewers see machine information without requesting private terminal
-data. The command library is reached from a session's toolbar. See
+data. The command library opens from **Saved commands** in the Sessions header, or
+from a session's toolbar. See
 [terminal workspace](terminal-workspace.md) for the session page, sidebar
 actions, appearance, account commands and close defaults.
 

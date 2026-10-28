@@ -10,8 +10,9 @@ const asURL = text => `data:text/javascript;base64,${Buffer.from(text).toString(
 const catalogue = asURL(compile('./catalogue.ts'))
 const agentLaunch = asURL(compile('./agentLaunch.ts').replace("from './catalogue'", `from '${catalogue}'`))
 const home = asURL(compile('./home.ts'))
-const source = compile('./sessions.ts').replace("from './home'", `from '${home}'`).replace("from './agentLaunch'", `from '${agentLaunch}'`)
-const { searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf } = await import(asURL(source))
+const colour = asURL(compile('./projectColour.ts'))
+const source = compile('./sessions.ts').replace("from './home'", `from '${home}'`).replace("from './agentLaunch'", `from '${agentLaunch}'`).replace("from './projectColour'", `from '${colour}'`)
+const { sessionColourOf, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf } = await import(asURL(source))
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000
@@ -104,4 +105,19 @@ test('a session worktree is named only when its path and branch agree', () => {
   assert.equal(worktreeTargetOf({ ...sessions[0], worktreeBranch: 'main' }), null)
   assert.equal(worktreeTargetOf({ ...sessions[0], worktreePath: '/home/u/reet' }), null)
   assert.equal(worktreeTargetOf({ ...sessions[0], worktreePath: '/home/u/elsewhere/reet/reet/a1b2c3d4e5f60718' }), null)
+})
+
+test('session colours: the panel choice, else the project colour, and a colour filter', () => {
+  const colours = { s3: 'red', s4: 'nope' }
+  const withColour = [{ ...projects[0], colour: 'blue' }, projects[1]]
+  assert.equal(sessionColourOf(sessions[0], colours, withColour), 'blue')
+  assert.equal(sessionColourOf(sessions[2], colours, withColour), 'red')
+  // An unknown stored value is no colour.
+  assert.equal(sessionColourOf(sessions[3], colours, withColour), '')
+  const colourOf = s => sessionColourOf(s, colours, withColour)
+  assert.deepEqual(ids(filterSessions(sessions, { colour: 'blue' }, new Set(), colourOf)), ['s1', 's2'])
+  assert.deepEqual(ids(filterSessions(sessions, { colour: 'red' }, new Set(), colourOf)), ['s3'])
+  assert.deepEqual(ids(filterSessions(sessions, { colour: 'none' }, new Set(), colourOf)), ['s4', 's5'])
+  assert.deepEqual(ids(filterSessions(sessions, { colour: 'red', state: 'running' }, new Set(), colourOf)), [])
+  assert.equal(filtersOn({ colour: 'red' }), 1)
 })

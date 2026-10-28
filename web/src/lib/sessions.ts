@@ -1,6 +1,7 @@
 import type { FolderProject, TerminalSession } from './terminal/api'
 import { groupSessions, sessionOwners, type Group, type GroupBy } from './home'
 import { toolName } from './agentLaunch'
+import { projectColour, type ProjectColour } from './projectColour'
 
 // Pure logic for the Sessions page (/sessions): search, filters, groups and the worktree a session's menu can check and
 // remove. No DOM, no fetch. Every session comes from the account-wide listing; nothing here is stored.
@@ -11,7 +12,8 @@ export type MachineName = { agentId: string; host: string }
 export type StateFilter = 'needs' | 'running' | 'finished' | 'ended'
 /** A session with no agent (a plain shell) is filtered as this. */
 export const SHELL = 'shell'
-export type SessionFilter = { state?: StateFilter | ''; agent?: string; machine?: string; yoloOnly?: boolean; worktreeOnly?: boolean }
+/** `colour` is a palette id, or 'none' for sessions with no colour. */
+export type SessionFilter = { state?: StateFilter | ''; agent?: string; machine?: string; yoloOnly?: boolean; worktreeOnly?: boolean; colour?: string }
 export type SessionSort = 'recent' | 'name' | 'custom'
 export type SessionGroup = Group & {
   /** The project's machine, shown beside a project group's name. */
@@ -45,9 +47,16 @@ export function searchSessions(sessions: TerminalSession[], projects: Pick<Folde
   return sessions.filter(s => { const text = haystack(s, projects, machines); return terms.every(t => text.includes(t)) })
 }
 
-/** Every filter that is set must hold. `needing` is the ids the attention signal names (none today). */
-export function filterSessions(sessions: TerminalSession[], f: SessionFilter, needing: ReadonlySet<string> = new Set()): TerminalSession[] {
+/** A session's colour: the one chosen for it in the sessions panel (kept in this browser), else its project's, else none. */
+export function sessionColourOf(s: Pick<TerminalSession, 'id' | 'projectId'>, saved: Record<string, string>, projects: Pick<FolderProject, 'id' | 'colour'>[]): ProjectColour {
+  return projectColour(saved[s.id]) || projectColour(s.projectId ? projects.find(p => p.id === s.projectId)?.colour : '')
+}
+
+/** Every filter that is set must hold. `needing` is the ids the attention signal names (none today); `colourOf` gives a
+ *  session's colour id ('' for none). */
+export function filterSessions(sessions: TerminalSession[], f: SessionFilter, needing: ReadonlySet<string> = new Set(), colourOf: (s: TerminalSession) => string = () => ''): TerminalSession[] {
   return sessions.filter(s =>
+    (!f.colour || (colourOf(s) || 'none') === f.colour) &&
     (!f.state || (f.state === 'needs' ? needing.has(s.id) : stateBucket(s) === f.state)) &&
     (!f.agent || (s.tool || SHELL) === f.agent) &&
     (!f.machine || s.agentId === f.machine) &&
@@ -56,7 +65,7 @@ export function filterSessions(sessions: TerminalSession[], f: SessionFilter, ne
 }
 
 /** How many filters are on, for the Filters summary. */
-export const filtersOn = (f: SessionFilter): number => [f.state, f.agent, f.machine, f.yoloOnly, f.worktreeOnly].filter(Boolean).length
+export const filtersOn = (f: SessionFilter): number => [f.state, f.agent, f.machine, f.yoloOnly, f.worktreeOnly, f.colour].filter(Boolean).length
 
 /** The agents the listing has, for the Agent filter: each tool id once with its name, plain shells last. */
 export function agentChoicesOf(sessions: TerminalSession[]): { value: string; label: string }[] {

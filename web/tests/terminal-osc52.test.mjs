@@ -17,7 +17,7 @@ test('a read query is ignored and never decoded', () => {
 
 test('an empty payload is ignored instead of clearing the clipboard', () => {
   assert.deepEqual(o.parseOsc52('c;'), { kind: 'ignore', reason: 'empty' })
-  assert.deepEqual(o.parseOsc52(''), { kind: 'ignore', reason: 'empty' })
+  assert.deepEqual(o.parseOsc52(''), { kind: 'ignore', reason: 'invalid' })
 })
 
 test('the c selector decodes a multi-line text payload', () => {
@@ -25,9 +25,9 @@ test('the c selector decodes a multi-line text payload', () => {
   assert.deepEqual(o.parseOsc52(`c;${b64(text)}`), { kind: 'write', text, bytes: Buffer.byteLength(text) })
 })
 
-test('a bare base64 payload is accepted for compatibility', () => {
+test('a payload with no clipboard selector is ignored', () => {
   const text = 'copied by the agent'
-  assert.deepEqual(o.parseOsc52(b64(text)), { kind: 'write', text, bytes: Buffer.byteLength(text) })
+  assert.deepEqual(o.parseOsc52(b64(text)), { kind: 'ignore', reason: 'invalid' })
 })
 
 test('decoded bytes are read as UTF-8 and counted by byte length', () => {

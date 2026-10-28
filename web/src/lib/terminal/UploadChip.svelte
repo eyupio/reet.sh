@@ -5,7 +5,7 @@
 
 <div class="upload-chip" role="status">
   <div class="upload-chip-copy">
-    <span class="upload-chip-name" title={name}>{name}</span>
+    <span class="upload-chip-name" title={name}>Uploading {name}</span>
     <span class="upload-chip-size">{formatImageSize(size)}</span>
   </div>
   <progress aria-label={`Uploading ${name}`}></progress>

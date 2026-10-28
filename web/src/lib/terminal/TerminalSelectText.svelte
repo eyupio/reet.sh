@@ -13,7 +13,10 @@
   }
 
   async function copySelection() {
-    const selected = window.getSelection()?.toString() ?? ''
+    const selection = window.getSelection()
+    const anchor = selection?.anchorNode, focus = selection?.focusNode
+    const inside = anchor && focus && pre?.contains(anchor) && pre?.contains(focus)
+    const selected = inside ? selection?.toString() ?? '' : ''
     if (!selected) {
       status = 'Select text first.'
       return

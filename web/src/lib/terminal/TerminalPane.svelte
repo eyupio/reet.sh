@@ -70,12 +70,12 @@
   async function insertSaved(item:TerminalCommand){
     const intended=generation;scrollbackOpen=false;commandsOpen=false;await tick()
     if(!alive||intended!==generation||!live){feedback='Connection changed. Open Commands again after reconnecting; nothing was inserted.';return}
-    paste(item.command,/\t/.test(item.command));restoreFocus()
+    paste(item.command,/[\t\r\n]/.test(item.command));restoreFocus()
   }
   async function insertHistory(text:string,run:boolean){
     const intended=generation;scrollbackOpen=false;if(!run){historyOpen=false;await tick()}
     if(!alive||intended!==generation||!live){feedback='Connection changed. Open History again after reconnecting; nothing was sent.';return}
-    if(run)pendingPaste={text,generation,execute:true};else paste(text,/\t/.test(text));restoreFocus()
+    if(run)pendingPaste={text,generation,execute:true};else paste(text,/[\t\r\n]/.test(text));restoreFocus()
   }
   function find(next=true) { found=!query||!!(next?search?.findNext(query,{caseSensitive:false,regex:false}):search?.findPrevious(query,{caseSensitive:false,regex:false})) }
   function changeFont(delta:number) { fontSize=Math.min(FONT_MAX,Math.max(FONT_MIN,fontSize+delta));if(terminal)terminal.options.fontSize=fontSize;try{localStorage.setItem('reet-terminal-font',String(fontSize))}catch{/* preferences are optional */}fitTerminal?.() }
@@ -174,7 +174,7 @@
     const cancelled=outcomes.filter(item=>!item.ok&&item.cancelled).length
     const messages:string[]=[]
     if(references.length){
-      if(uploadInsertionAllowed(started,generation,live,alive)){
+      if(uploadInsertionAllowed(started,generation,live,alive)&&!scrollbackOpen){
         terminal?.paste(joinReferences(references))
         messages.push(references.length===1?'Uploaded and inserted the path.':`Uploaded ${references.length} images and inserted their paths.`)
       } else staleUploads=references
@@ -259,22 +259,22 @@
       if(!alive)return
       if(started!==generation){feedback='Connection changed. Paste again; nothing was sent.';return}
       if(items){
-        let text=''
+        for(const item of items){
+          if(!item.types.includes('text/plain'))continue
+          paste(await (await item.getType('text/plain')).text());return
+        }
         const images:File[]=[]
         for(const item of items){
           for(const type of item.types){
-            if(!text&&type==='text/plain')text=await (await item.getType(type)).text()
-            else if(type.startsWith('image/')){
+            if(!type.startsWith('image/'))continue
+            try{
               const blob=await item.getType(type)
               const extension=type.slice('image/'.length).replace(/[^a-z0-9.+-]/gi,'')||'img'
               images.push(new File([blob],`clipboard.${extension}`,{type}))
-            }
+            }catch{/* try the next clipboard item */}
           }
         }
-        if(text){paste(text);return}
         if(images.length){await startUploads(images);return}
-        feedback='Nothing to paste.'
-        return
       }
       const text=await navigator.clipboard.readText()
       if(!alive)return
@@ -418,7 +418,7 @@
       <button onclick={()=>void copyBuffer('screen')} disabled={scrollbackOpen} aria-label="Copy screen" title="Copy the visible screen"><TerminalIcon name="screen"/><span class="tool-label">Screen</span></button>
       <button onclick={openSelect} disabled={scrollbackOpen} aria-label="Select text" title="Select terminal text"><TerminalIcon name="select"/><span class="tool-label">Select text</span></button>
       <button onclick={()=>void readClipboard()} disabled={!live||scrollbackOpen} aria-label="Paste" title="Paste clipboard"><TerminalIcon name="paste"/><span class="tool-label">Paste</span></button>
-      {#if uploadsSupported||uploadsOff}<button onclick={chooseImages} disabled={uploadsOff} aria-label="Attach image" title={uploadsOff?uploadsOffSentence:'Attach a PNG, JPEG, GIF or WebP image'}><TerminalIcon name="image"/><span class="tool-label">Attach</span></button>{/if}
+      {#if uploadsSupported||uploadsOff}<button onclick={chooseImages} disabled={uploadsOff} aria-label="Attach image" title={uploadsOff?uploadsOffSentence:'Attach a PNG, JPEG, GIF or WebP image'}><TerminalIcon name="image"/><span class="tool-label">Attach</span></button>{#if uploadsOff}<span class="upload-off" role="status">Image uploads are off on this machine.</span>{/if}{/if}
       <span class="tool-divider" aria-hidden="true"></span>
       <button onclick={()=>key("\x03")} disabled={!live||scrollbackOpen} aria-label="Interrupt shell" title="Interrupt · Ctrl+C"><TerminalIcon name="interrupt"/><span class="tool-label">Interrupt</span></button>
       <button onclick={()=>commandsOpen=true} aria-label="Saved commands" title="Your saved commands"><TerminalIcon name="commands"/><span>Commands</span></button>
@@ -438,7 +438,7 @@
   {#if landscape}<div class="tool-rows">{@render toolbar()}{@render keys()}</div>{:else}{@render toolbar()}{/if}
   {#if searching}<form class="tools" onsubmit={e=>{e.preventDefault();find()}}><label>Find in terminal <input bind:this={searchInput} bind:value={query} maxlength="200" autocomplete="off" spellcheck="false" oninput={e=>{query=e.currentTarget.value;find()}} /></label><button>Next match</button><button type="button" onclick={()=>find(false)}>Previous match</button><button type="button" onclick={()=>{searching=false;search?.clearDecorations();terminal?.focus()}}>Close search</button><span role="status">{found?'':'No matches'}</span></form>{/if}
   {#if feedback}<p class="connection-message" role="status">{feedback}</p>{/if}
-  {#if staleUploads}<div class="agent-copy" role="status"><span>Uploaded, but the connection changed; nothing was inserted.</span><button type="button" onclick={()=>void copyStaleUpload()}>Copy path</button><button type="button" onclick={()=>staleUploads=null}>Dismiss</button></div>{/if}
+  {#if staleUploads}<div class="agent-copy" role="status"><span>Uploaded, but the connection changed; nothing was inserted. Paste the path: <code>{staleUploads.join(' ')}</code></span><button type="button" onclick={()=>void copyStaleUpload()}>Copy path</button><button type="button" onclick={()=>staleUploads=null}>Dismiss</button></div>{/if}
   {#if pendingCopy}<div class="agent-copy" role="status"><span>The agent copied {formatCopySize(pendingCopy.bytes)}.</span><button type="button" onclick={()=>void copyPending()}>Copy it</button><button type="button" onclick={()=>pendingCopy=null}>Dismiss</button></div>{/if}
   <input class="upload-input" bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple tabindex="-1" aria-hidden="true" onchange={pickedImages} />
   <div class="screen-frame" bind:this={screenFrame} role="group" aria-label="Terminal screen drop area" ondragenter={dragFiles} ondragover={dragFiles} ondragleave={leaveFiles} ondrop={dropFiles}><div class="screen" class:reading={scrollbackOpen} inert={scrollbackOpen} bind:this={element} role="region" aria-label="Remote terminal screen" oncontextmenu={openContext}></div>{#if scrollbackOpen}<OutputScrollback session={session.id} onclose={()=>void closeScrollback()}/>{/if}{#if draggingFiles}<div class="drop-overlay" aria-hidden="true">Drop an image to upload.</div>{/if}{#if uploads.length}<div class="upload-chips">{#each uploads as chip (chip.id)}<UploadChip name={chip.name} size={chip.size} oncancel={()=>cancelUpload(chip.id)}/>{/each}</div>{/if}</div>
@@ -470,6 +470,7 @@
   button.continue {background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
   .tools {display:flex;gap:6px;align-items:center;flex-wrap:nowrap;overflow-x:auto;min-width:0;scrollbar-width:thin;padding:6px 10px;border-bottom:1px solid var(--line);font-size:.72rem}
   .tools>button,.tools label {flex-shrink:0}
+  .upload-off {font-size:.66rem;color:var(--muted);white-space:nowrap;align-self:center}
   .terminal-toolbar{background:var(--bg);padding:5px 8px;gap:2px}.terminal-toolbar button{display:flex;align-items:center;gap:6px;border-color:transparent;background:transparent;font-size:.72rem;padding:6px 8px;min-height:32px}.terminal-toolbar button:hover:not(:disabled){background:var(--card);border-color:var(--line)}.tool-space{flex:1}.tool-divider{height:16px;width:1px;background:var(--line);margin:0 5px;flex-shrink:0}
   .tools label {display:flex;gap:8px;align-items:center;min-width:0}
   .tools input {min-width:0;max-width:180px;font-size:.8rem}
@@ -486,7 +487,8 @@
   .screen :global(.xterm-viewport) {overscroll-behavior:contain}
   .connection-message {max-height:72px;overflow:auto;padding:6px 12px;margin:0;font-size:.73rem;background:var(--tint);border-bottom:1px solid var(--line)}
   .agent-copy {display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 12px;font-size:.73rem;background:var(--tint);border-bottom:1px solid var(--line)}
-  .agent-copy span {flex:1;min-width:0}
+  .agent-copy span {flex:1;min-width:0;overflow-wrap:anywhere}
+  .agent-copy code {font-size:.68rem}
   .agent-copy button {font-size:.7rem;min-height:28px;padding:3px 8px}
   @media(pointer:coarse) {.agent-copy button {min-width:40px;min-height:40px}}
   footer {padding:5px 10px;border-top:1px solid var(--line);display:flex;gap:12px;justify-content:space-between;align-items:center;font-size:.65rem;color:var(--muted)}
@@ -533,7 +535,7 @@
     .pane.maximised {inset:0;top:var(--terminal-top,0px);height:var(--terminal-viewport,100dvh);border-radius:0}
     .pane.maximised footer {padding-bottom:max(2px,env(safe-area-inset-bottom))}
   }
-  @media(pointer:coarse) {.tools button,.controls>button,.session-menu>summary {min-height:40px}}
+  @media(pointer:coarse) {.tools button,.controls>button,.session-menu>summary,.clipboard-menu button {min-width:40px;min-height:40px}}
   /* Touch targets keep a 40 × 40 px hit area; on phones the rows lose their padding instead. */
   @media(max-width:650px) and (pointer:coarse),(max-height:500px) and (pointer:coarse) and (orientation:landscape) {header,.tools,.terminal-toolbar {padding-top:0;padding-bottom:0}.terminal-toolbar button,.mobile-keys button {min-width:40px}.controls>button,.session-menu>summary,footer button {min-width:40px;min-height:40px}footer {padding-top:0;padding-bottom:0}}
   /* Sideways: tools and extra keys share one row, and the footer gives its line to the screen (the state stays in the header). */

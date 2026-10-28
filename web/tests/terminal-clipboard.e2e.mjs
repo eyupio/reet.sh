@@ -165,6 +165,9 @@ async function sendLargeOsc52(send, page, payload, marker) {
   await expect(page.getByText('Copied the screen.', { exact: true })).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.__copied || '')).toContain('row-80')
   const copied = await page.evaluate(() => window.__copied || '')
+  const visible = await page.evaluate(() => [...document.querySelectorAll('.xterm-rows > div')].map(row => row.textContent.trim()).filter(Boolean))
+  expect(visible.length).toBeGreaterThan(1)
+  for (const row of [visible[0], visible[visible.length - 1]]) expect(copied).toContain(row)
   expect(copied).not.toContain('row-01')
   await expect(page.locator('dialog[open]')).toHaveCount(0)
   expect(errors).toEqual([])
@@ -292,14 +295,27 @@ async function sendLargeOsc52(send, page, payload, marker) {
   // A read query and an empty write are consumed but never touch the clipboard
   // or show the banner.
   const { context, page, errors, send } = await open(true)
+  await page.evaluate(() => { window.__copied = 'sentinel' })
   await sendOsc52(send, page, 'c;?', 'osc52-query')
   await sendOsc52(send, page, 'c;', 'osc52-empty')
-  expect(await page.evaluate(() => window.__copied || '')).toBe('')
+  expect(await page.evaluate(() => window.__copied || '')).toBe('sentinel')
   await expect(page.locator('.agent-copy')).toHaveCount(0)
   await expect(page.getByText('The agent tried to copy more than 1 MiB.', { exact: true })).toHaveCount(0)
   expect(errors).toEqual([])
   await context.close()
   console.log('OSC 52 query and empty write: neither the clipboard nor the banner changed.')
+}
+
+{
+  // A payload without the c; selector is malformed and is ignored.
+  const { context, page, errors, send } = await open(true)
+  await page.evaluate(() => { window.__copied = 'sentinel' })
+  await sendOsc52(send, page, Buffer.from('no selector').toString('base64'), 'osc52-bare')
+  expect(await page.evaluate(() => window.__copied || '')).toBe('sentinel')
+  await expect(page.locator('.agent-copy')).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+  console.log('OSC 52 without a selector: ignored.')
 }
 
 {

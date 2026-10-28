@@ -37,14 +37,10 @@ function decodeBase64(payload: string): Uint8Array | null {
 
 export function parseOsc52(data: string, limit = MAX_OSC52_BYTES): Osc52Result {
   if (typeof data !== 'string') return { kind: 'ignore', reason: 'invalid' }
+  if (data === '?') return { kind: 'ignore', reason: 'query' }
   const separator = data.indexOf(';')
-  let payload: string
-  if (separator === -1) {
-    payload = data
-  } else {
-    if (data.slice(0, separator) !== 'c') return { kind: 'ignore', reason: 'invalid' }
-    payload = data.slice(separator + 1)
-  }
+  if (separator === -1 || data.slice(0, separator) !== 'c') return { kind: 'ignore', reason: 'invalid' }
+  const payload = data.slice(separator + 1)
   if (payload.includes('?')) return { kind: 'ignore', reason: 'query' }
   if (!payload) return { kind: 'ignore', reason: 'empty' }
   const bytes = decodeBase64(payload)

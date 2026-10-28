@@ -195,7 +195,7 @@ default model); `useWorktrees`
 
 ## Runs from Projects
 
-The runs of saved Projects are kept to read. Activity lists them for a writer, newest first, under
+The runs of saved Projects are kept to read. Activity (in your account at `/account/activity`) lists them for a writer, newest first, under
 *Runs from Projects*; each opens its run (read-only: no Retry). A worktree a run recorded can still be
 checked and removed, there or from the folder project's **Worktrees** menu. Viewers see no runs.
 

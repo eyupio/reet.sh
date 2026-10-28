@@ -11,18 +11,20 @@ const open = options => openWorkspace(browser, options)
 const tabs = page => page.getByRole('navigation',{name:'Main navigation'})
 
 try {
- // The desktop tabs are Home, Sessions, Machines, Skills and Activity for a writer, with Home current at /, the Jump search and
- // the bell beside them; the rest of the old navigation sits under More in the account menu.
+ // The desktop tabs are Home, Sessions, Machines and Skills for a writer, with Home current at /, the Jump search and
+ // the bell beside them; the rest of the old navigation sits under More in the account menu, and Activity is in Account.
  if (run('writer desktop shows five tabs with Home current')) {
   const {context,page,errors} = await open({width:1440})
   await page.goto(base)
   await expect(page.getByRole('region',{name:'Your machines',exact:true})).toBeVisible()
   expect(await page.title()).toBe('Home · reet.sh')
   const top = await tabs(page).getByRole('link').allInnerTexts()
-  expect(top.map(t=>t.trim())).toEqual(['Home','Sessions','Machines','Skills','Activity'])
+  expect(top.map(t=>t.trim())).toEqual(['Home','Sessions','Machines','Skills'])
   await expect(tabs(page).getByRole('link',{name:'Home',exact:true})).toHaveAttribute('aria-current','page')
-  for (const [name,href] of [['Home','/'],['Sessions','/terminals'],['Machines','/machines'],['Skills','/skills'],['Activity','/activity']])
+  for (const [name,href] of [['Home','/'],['Sessions','/terminals'],['Machines','/machines'],['Skills','/skills']])
    await expect(tabs(page).getByRole('link',{name,exact:true})).toHaveAttribute('href',href)
+  // Activity is no longer a top-level tab: it lives inside the account.
+  await expect(tabs(page).getByRole('link',{name:'Activity',exact:true})).toHaveCount(0)
   // The bell is a button named for the Needs you count; with nothing waiting it carries no badge.
   const bell = page.getByRole('button',{name:'Needs you: 0',exact:true})
   await expect(bell).toBeVisible()
@@ -107,7 +109,7 @@ try {
    const more = page.getByRole('dialog',{name:'More'})
    await expect(more).toBeVisible()
    const links = await more.getByRole('link').allInnerTexts()
-   expect(links.map(t=>t.trim())).toEqual(['Skills','Activity','Control','Setups','Sync','Lists','Community','Support','Teams & organisations','Host skills'])
+   expect(links.map(t=>t.trim())).toEqual(['Skills','Control','Setups','Sync','Lists','Community','Support','Teams & organisations','Host skills'])
    await expect(more.getByRole('link',{name:'Control'})).toHaveAttribute('href','/control')
    await page.keyboard.press('Escape')
    await expect(more).toBeHidden()
@@ -203,30 +205,42 @@ try {
   await context.close()
  }
 
- // /activity is the account's activity list, newest first; the account page's Activity entry goes there.
+ // Activity is the account's list, newest first, grouped by day and filterable; the old /activity address goes to the
+ // account section without a reload, and an instance without accounts keeps its own Activity page.
  if (run('/activity lists the account activity')) {
-  const events = [{id:2,at:Date.now()-60000,source:'ui',action:'project-delete',detail:JSON.stringify({name:'Site'})},{id:1,at:Date.now()-120000,source:'ui',action:'project-create',detail:JSON.stringify({name:'Site',members:2})}]
+  const events = [{id:3,at:Date.now()-30000,source:'ui',action:'project-delete',detail:JSON.stringify({name:'Site'})},{id:2,at:Date.now()-120000,source:'ui',action:'project-create',detail:JSON.stringify({name:'Site',members:2})},{id:1,at:Date.now()-180000,source:'ui',action:'add',detail:JSON.stringify({name:'Toolkit'})}]
   const {context,page,errors} = await open({width:1440,routes:{'/api/events':{events}}})
-  await page.goto(`${base}/activity`)
-  expect(await page.title()).toBe('Activity · reet.sh')
-  await expect(page.getByRole('heading',{name:'Activity',level:1})).toBeVisible()
-  const lines = await page.locator('main ul.events li span').allInnerTexts()
-  expect(lines).toEqual(['Deleted project Site','Created project Site with 2 repositories'])
-  await expect(tabs(page).getByRole('link',{name:'Activity',exact:true})).toHaveAttribute('aria-current','page')
   await page.goto(`${base}/account/profile`)
-  await expect(page.getByRole('navigation',{name:'Account'}).getByRole('link',{name:'Activity'}).first()).toHaveAttribute('href','/activity')
+  await expect(page.getByRole('navigation',{name:'Account'}).getByRole('link',{name:'Activity'}).first()).toHaveAttribute('href','/account/activity')
+  // The old top-level address opens the account's Activity section and is rewritten to the account address.
+  await page.goto(`${base}/activity`)
+  await expect(page).toHaveURL(`${base}/account/activity`)
+  expect(await page.title()).toBe('Activity · Account · reet.sh')
+  await expect(page.getByRole('heading',{name:'Activity',level:2})).toBeVisible()
+  const lines = await page.locator('main ul.events .label').allInnerTexts()
+  expect(lines).toEqual(['Deleted project Site','Created project Site with 2 repositories','Added Toolkit'])
+  await expect(page.getByRole('navigation',{name:'Account'}).getByRole('link',{name:'Activity'}).first()).toHaveAttribute('aria-current','page')
+  // Grouped by day, with a filter for each area present and counts that add up.
+  await expect(page.getByRole('heading',{name:'Today',level:3})).toBeVisible()
+  const filters = page.getByRole('group',{name:'Filter activity'}).getByRole('button')
+  await expect(filters.getByText('All')).toBeVisible()
+  await expect(page.getByRole('group',{name:'Filter activity'}).getByRole('button',{name:/^Projects/})).toHaveAttribute('aria-pressed','false')
+  await page.getByRole('group',{name:'Filter activity'}).getByRole('button',{name:/^Skills/}).click()
+  await expect(page.getByRole('group',{name:'Filter activity'}).getByRole('button',{name:/^Skills/})).toHaveAttribute('aria-pressed','true')
+  await expect(page.locator('main ul.events .label')).toHaveText(['Added Toolkit'])
   await page.goto(`${base}/account#activity`)
-  await expect(page).toHaveURL(`${base}/activity`)
-  await expect(page.locator('main ul.events li')).toHaveCount(2)
+  await expect(page).toHaveURL(`${base}/account/activity`)
+  await expect(page.locator('main ul.events li')).toHaveCount(3)
   await page.goto(`${base}/account/activity`)
-  await expect(page).toHaveURL(`${base}/activity`)
+  await expect(page).toHaveURL(`${base}/account/activity`)
   expect(errors).toEqual([])
   await context.close()
-  // An open instance has no accounts: the page does not call it "Your account".
+  // An open instance has no accounts: Activity keeps its own page and does not call it "Your account".
   const openMode = await open({width:1440,status:{mode:'none',user:null},routes:{'/api/events':{events}}})
   await openMode.page.goto(`${base}/activity`)
-  await expect(openMode.page.locator('main ul.events li')).toHaveCount(2)
+  await expect(openMode.page.locator('main ul.events li')).toHaveCount(3)
   await expect(openMode.page.getByText('Your account',{exact:true})).toHaveCount(0)
+  await expect(openMode.page.getByRole('heading',{name:'Activity',level:1})).toBeVisible()
   await openMode.context.close()
  }
 
@@ -239,7 +253,8 @@ try {
    await page.goto(base)
    await expect(page.getByRole('region',{name:'Your machines',exact:true})).toBeVisible()
    const top = await tabs(page).getByRole('link').allInnerTexts()
-   expect(top.map(t=>t.trim()), what).toEqual(['Home','Machines','Skills','Activity'])
+   // An account viewer has no Activity tab (it lives in their account); a token or open sign-in has nowhere else to put it.
+   expect(top.map(t=>t.trim()), what).toEqual(options.status?.mode === 'none' || options.status?.mode === 'token' ? ['Home','Machines','Skills','Activity'] : ['Home','Machines','Skills'])
    await expect(page.getByRole('button',{name:/^Needs you/})).toHaveCount(0)
    await expect(page.getByRole('link',{name:'Sessions'})).toHaveCount(0)
    expect(errors, what).toEqual([])
@@ -257,7 +272,7 @@ try {
 
  // The tab for the page in view, and only that tab, carries aria-current="page"; a page under More marks More.
  if (run('tab links use aria-current=page')) {
-  for (const [path,link] of [['/','Home'],['/terminals','Sessions'],['/machines','Machines'],['/skills','Skills'],['/activity','Activity']]) {
+  for (const [path,link] of [['/','Home'],['/terminals','Sessions'],['/machines','Machines'],['/skills','Skills']]) {
    const {context,page} = await open({width:1440})
    await page.goto(`${base}${path}`)
    await expect(tabs(page).getByRole('link',{name:link,exact:true})).toHaveAttribute('aria-current','page')

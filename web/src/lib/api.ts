@@ -372,9 +372,19 @@ export async function renameTag(id: number, name: string): Promise<void> {
 export async function mergeTags(from: number, into: number): Promise<void> {
   await req('/api/tags/merge', { method: 'POST', body: json({ from, into }) })
 }
-export async function listEvents(limit = 20, skill?: string): Promise<{ events: Event[] }> {
+export type EventPage = {
+  events: Event[]
+  has_more?: boolean
+  next_before?: number | null
+  next_after?: number | null
+}
+export async function listEvents(limit = 20, skill?: string, options: { before?: number; after?: number; action?: string; source?: string } = {}): Promise<EventPage> {
   const p = new URLSearchParams({ limit: String(limit) })
   if (skill) p.set('skill', skill)
+  if (options.before) p.set('before', String(options.before))
+  if (options.after) p.set('after', String(options.after))
+  if (options.action) p.set('action', options.action)
+  if (options.source) p.set('source', options.source)
   return (await req(`/api/events?${p}`)).json()
 }
 export async function recordInstallCopy(id: string): Promise<void> {

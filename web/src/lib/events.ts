@@ -264,3 +264,84 @@ export function eventLabel(e: Event): string {
 export function eventTitle(e: Event): string {
   return `${new Date(e.at).toLocaleString()} · ${e.source}`
 }
+
+/** The areas activity is grouped into, in the order the filters are offered. */
+export type EventCategory = 'agents' | 'projects' | 'skills' | 'lists' | 'account' | 'admin'
+
+export const EVENT_CATEGORIES: { id: EventCategory; label: string }[] = [
+  { id: 'agents', label: 'Agents' },
+  { id: 'projects', label: 'Projects' },
+  { id: 'skills', label: 'Skills' },
+  { id: 'lists', label: 'Lists' },
+  { id: 'account', label: 'Account' },
+  { id: 'admin', label: 'Admin' },
+]
+
+const CATEGORY_ACTIONS: Record<string, EventCategory> = {
+  'terminal-launch': 'agents',
+  'worktree-remove': 'agents',
+  'merge-machines': 'agents',
+  'forget-machine': 'agents',
+  'projects-migrated': 'projects',
+  'folder-browse': 'projects',
+  add: 'skills',
+  like: 'skills',
+  unlike: 'skills',
+  stage: 'skills',
+  notes: 'skills',
+  tag: 'skills',
+  remove: 'skills',
+  ignore: 'skills',
+  unignore: 'skills',
+  link: 'skills',
+  refresh: 'skills',
+  'install-copy': 'skills',
+  scan: 'skills',
+  import: 'skills',
+  restore: 'skills',
+  export: 'skills',
+  patch: 'skills',
+  'tag-rename': 'skills',
+  'tag-merge': 'skills',
+  'sign-in': 'account',
+  'sign-out': 'account',
+  profile: 'account',
+  'password-change': 'account',
+  'password-reset-request': 'account',
+  'password-reset': 'account',
+  'session-end': 'account',
+  'session-end-others': 'account',
+  'token-create': 'account',
+  'token-revoke': 'account',
+  setup: 'account',
+  join: 'account',
+  invite: 'account',
+  'publishing-username': 'account',
+  settings: 'admin',
+  'notification-prefs': 'admin',
+  'notification-defaults': 'admin',
+}
+
+/** Which area one audit event belongs to; an unknown action is treated as account activity. */
+export function eventCategory(e: Event): EventCategory {
+  const known = CATEGORY_ACTIONS[e.action]
+  if (known) return known
+  if (e.action.startsWith('project-')) return 'projects'
+  if (e.action.startsWith('sync-agent-')) return 'agents'
+  if (e.action.startsWith('bulk-') || e.action.startsWith('hosted-') || e.action.startsWith('skill-content-')) return 'skills'
+  if (e.action.startsWith('list-')) return 'lists'
+  if (e.action.startsWith('backup-') || e.action.startsWith('mail-') || e.action.startsWith('group-') || e.action.startsWith('ticket-')) return 'admin'
+  if (e.action.startsWith('user-') || e.action.startsWith('mcp-')) return 'account'
+  return 'account'
+}
+
+/**
+ * A failure that the Activity list can point somewhere: a mail check or test that failed is fixed in Admin → Email.
+ * Returns null for everything else, so only events with a real remedy grow a link.
+ */
+export function eventRemedy(e: Event): { label: string; href: string } | null {
+  if (e.action !== 'mail-check' && e.action !== 'mail-test') return null
+  const d = detail(e)
+  if (d.ok !== false) return null
+  return { label: 'Check the mail server settings', href: '/admin/email' }
+}

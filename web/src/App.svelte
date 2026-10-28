@@ -183,7 +183,7 @@
     ...(sessionsAccess ? [{ href: '/terminals', label: 'Sessions', current: isTerminals }] : []),
     { href: '/machines', label: 'Machines', current: isMachines && !isSync && !isTerminals },
     { href: '/skills', label: 'Skills', current: isSkills },
-    { href: '/activity', label: 'Activity', current: isActivity },
+    ...(authMode === 'accounts' ? [] : [{ href: '/activity', label: 'Activity' as const, current: isActivity }]),
   ])
   const barTabs = $derived(tabs.filter(tab => ['/', '/terminals', '/machines'].includes(tab.href)))
   const more = $derived<Tab[]>([
@@ -843,7 +843,7 @@
             email={currentUser?.email ?? ''}
             admin={isAdminUser}
             accounts={authMode === 'accounts'}
-            active={isAccount || isAdmin || isNotifications || more.some(item => item.current)}
+            active={isAccount || isActivity || isAdmin || isNotifications || more.some(item => item.current)}
             unread={unreadNotifications}
             {more}
             onsignout={signOut}
@@ -895,8 +895,8 @@
     <Hosting {canWrite} />
   {:else if isShared}
     <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
-  {:else if isActivity}
-    <ActivityPage accounts={authMode === 'accounts'} writer={sessionsAccess} onsignedout={fail} />
+  {:else if isActivity && authMode !== 'accounts'}
+    <ActivityPage accounts={false} writer={sessionsAccess} onsignedout={fail} />
   {:else if isHome}
     <Home userId={currentUser?.id ?? 0} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} onsignedout={fail} onattention={count => (attention = count)} />
   {:else if isControl}
@@ -915,8 +915,8 @@
     <Spaces {canWrite} />
   {:else if isMCPConsent && authMode === 'accounts'}
     <MCPConsent />
-  {:else if isAccount && authMode === 'accounts'}
-    <Account user={currentUser!} onsignout={signOut} onerror={fail} onuserchange={(u) => (currentUser = u)} />
+  {:else if (isAccount || isActivity) && authMode === 'accounts'}
+    <Account user={currentUser!} onsignout={signOut} onerror={fail} onuserchange={(u) => (currentUser = u)} writer={canWrite} />
   {:else if isList}
     <ListView id={listId} {canWrite} userRole={role} onerror={fail} />
   {:else if isAccount}

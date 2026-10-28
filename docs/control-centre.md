@@ -5,8 +5,9 @@ ongoing work. **Home** sits at `/`: the fleet strip, In flight, Needs you and th
 Project rail (see [Home and the tabs](terminal-workspace.md#home-and-the-tabs)).
 Control stays at `/control`, under More, with its active-session band and machine
 connection cards, until PR H folds it into Home and Machines and `/control`
-redirects to `/` (R4 in the agents home design). Home, Sessions and Machines are
-the primary tabs; Skills and Activity join them on a desktop. Control,
+redirects to `/` (R4 in the agents home design). Home, Sessions, Machines and
+Skills are the primary tabs on a desktop; Activity lives in the account page at
+`/account/activity`, and the old `/activity` address opens that section. Control,
 Sync, lists and portable setups are under More with their existing routes. Legacy
 machine comparison, terminal and account links continue to work.
 

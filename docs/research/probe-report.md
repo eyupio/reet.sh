@@ -17,7 +17,7 @@ Slice 1 is **GO only with the adapter conditions in section 6**, and only for wo
 
 | Item | Value |
 |---|---|
-| Spike pin | None anywhere in the repo. `program2-spike.md` is missing. The aoe notes give a compatibility floor of 1.16.0. |
+| Spike pin | None anywhere in the repo. `program2-spike.md` is missing. The reference-tool notes give a compatibility floor of 1.16.0. |
 | Installed | `opencode-ai@1.19.5` from registry.npmjs.org, with the version chosen by the owner. `opencode --version` prints `1.19.5`, and `initialize` reports `agentInfo {"name":"OpenCode","version":"1.19.5"}`. |
 | Command | `npm install --ignore-scripts --no-audit --no-fund --prefix <probe>/install opencode-ai@1.19.5`. Run under `env -i` with HOME and the npm cache inside the probe directory. npm needed the session CA bundle (`npm_config_cafile`, `NODE_EXTRA_CA_CERTS`) and the proxy variables. TLS verification stayed on. |
 | `opencode-ai-1.19.5.tgz` | integrity `sha512-tEqMvQahfhdDj8vceYpXtoIrvjPXm5XRfetWnPN5YISueU7adNx9JcUA3zZ+2GKuDVgDpGdQe1ZLtCZDjqodvA==` (**matches** the owner's value; I recomputed it from a separately downloaded tarball). sha256 `1f97e49381f8a42a629482eff8be98aa96d62e2e94410a8ec98e738f9c787680` |

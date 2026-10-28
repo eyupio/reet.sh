@@ -162,8 +162,8 @@ Still true from earlier PRs:
 
 **3. Program 2, slice 1: structured OpenCode sessions** (after models). Input:
 [docs/research/probe-report.md](docs/research/probe-report.md),
-[aoe-frontend-research.md](docs/research/aoe-frontend-research.md) and
-[aoe-agents-research.md](docs/research/aoe-agents-research.md). Owner decision: trusted workspaces only, OpenCode, Allow
+[reference-tool-frontend-research.md](docs/research/reference-tool-frontend-research.md) and
+[reference-tool-agents-research.md](docs/research/reference-tool-agents-research.md). Owner decision: trusted workspaces only, OpenCode, Allow
 once / Deny only, and only with all seven conditions:
 
 1. A reet-owned ask-everywhere config in `OPENCODE_CONFIG_CONTENT` (edit, bash and external_directory ask, for every
@@ -190,7 +190,7 @@ once / Deny only, and only with all seven conditions:
 - "Always allow" stores a wildcard broader than the command shown; writes land in the user's `.git`.
 - It contacts npmjs for `@opencode-ai/plugin` even with the opt-outs set.
 
-**What not to copy from the other front end studied** (full lists: section 5 of each `aoe-*` report):
+**What not to copy from the other front end studied** (full lists: section 5 of each `reference-tool-*` report):
 
 - Answering terminal prompts by sending keystrokes; regex status rules; writing hooks or trust into users' agent configs.
 - Reading or writing agents' private stores (session databases, transcripts); use the protocol's load and list or nothing.

@@ -1,5 +1,7 @@
 # Agent models: loaded from the machine, defaults and favourites — design
 
+RT = the reference tool (the third-party tool this note studies; named by role only).
+
 Date: 28 Oct 2026. Read-only investigation of the tree at `f0bffe5` (PR H / #231 branch, H1 committed).
 Owner request: "Agent models need to dynamically load those available, plus allow the user to set a
 default per project, for non-project new sessions, and favourites. All locations on reet.sh."
@@ -125,7 +127,7 @@ matrix rows.
 | Agent | Candidate source | Evidence | Verdict for v1 |
 |---|---|---|---|
 | **OpenCode** | `opencode models [provider]` subcommand, one `provider/model` per line; `--refresh` refetches the models.dev catalogue; `--verbose` adds metadata | [docs] opencode.ai/docs/cli (the page reet already cites for `--model`/`--prompt`); not captured in `testdata/help` | **Use**, after capture. Run without `--refresh` and without `--verbose`. Lists only providers OpenCode can see (its own auth file, read by OpenCode itself, and env keys — which the minimal env drops, so env-only providers will be missing; say so). Network: may fetch models.dev; `OPENCODE_DISABLE_MODELS_FETCH=1` and `OPENCODE_DISABLE_AUTOUPDATE=1` exist per [memory] and the probe report marks them **unverified** — must be confirmed in the capture. |
-| OpenCode | ACP `opencode acp` → `session/new` result `models.availableModels` / config options of category `model` | [memory]; aoe research cites aoe using `category:model` config options and `unstable_session_model` (`aoe-agents-research.md:88`); probe row 2 UNTESTED (blocked) | Not v1: creates a real session in OpenCode's store and starts the agent; revisit in Program 2 where an ACP session exists anyway (read its model list for free). |
+| OpenCode | ACP `opencode acp` → `session/new` result `models.availableModels` / config options of category `model` | [memory]; RT research cites RT using `category:model` config options and `unstable_session_model` (`reference-tool-agents-research.md:88`); probe row 2 UNTESTED (blocked) | Not v1: creates a real session in OpenCode's store and starts the agent; revisit in Program 2 where an ACP session exists anyway (read its model list for free). |
 | **Codex** | `codex app-server` JSON-RPC `model/list` | [memory]; 0.163.0 help shows `app-server` as "[experimental]" and the shared daemon caveat (`codex.txt:17-18`) [reet] | Not v1 (experimental, long-running, shared daemon). Capture `codex app-server --help` / protocol schema later. |
 | Codex | a `debug` listing subcommand | `debug  Debugging tools` exists [reet]; contents unknown | Capture `codex debug --help` once; use only if it is a plain read-only list. |
 | Codex | `~/.codex/config.toml` `model` (its configured default) | setup discovery parses Codex settings already [reet `setup/summaries.go`] | Later, as "agent's own default", not as the list. |

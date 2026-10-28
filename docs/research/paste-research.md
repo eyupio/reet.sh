@@ -1,12 +1,14 @@
-# Copy, paste and image paste: agent-of-empires vs reet.sh, and a design for reet
+# Copy, paste and image paste: the reference tool vs reet.sh, and a design for reet
 
-Research only. Nothing in either repository was changed or run. aoe checkout: `/home/user/agent-of-empires/agent-of-empires` at `a02ef83` (shallow). reet checkout: `/home/user/reet.sh` at `b45fceb`. Paths below are relative to each repository root.
+RT = the reference tool (the third-party tool this note studies; named by role only).
+
+Research only. Nothing in either repository was changed or run. RT checkout: `<reference-tool checkout>` at `a02ef83` (shallow). reet checkout: `/home/user/reet.sh` at `b45fceb`. Paths below are relative to each repository root.
 
 Confidence labels: **[read]** means I read the code. **[doc]** means only the docs say so. **[belief]** means outside knowledge (agent CLI behaviour) that has to be checked against the pinned CLI versions before anything is built on it.
 
 ---
 
-## 1. agent-of-empires (aoe)
+## 1. The reference tool (RT)
 
 ### 1.0 Architecture that matters here
 
@@ -26,13 +28,13 @@ Confidence labels: **[read]** means I read the code. **[doc]** means only the do
 | Mobile | `docs/guides/web/terminal.md:59-66` | **[doc+read]** Long-press native selection. The toolbar has no Copy key. |
 | Secure context | `docs/guides/web/terminal.md:26` | The Clipboard API needs HTTPS or localhost. Firefox is best-effort. |
 
-tmux copy-mode: aoe does not drive tmux copy-mode from the web UI. Its scrollback is the server's widened capture window (`docs/guides/web/terminal.md:13`).
+tmux copy-mode: RT does not drive tmux copy-mode from the web UI. Its scrollback is the server's widened capture window (`docs/guides/web/terminal.md:13`).
 
 ### 1.2 (b) Pasting text
 
 - Browser: the `paste` event on the hidden textarea or keyboard proxy reads `clipboardData.getData("text/plain")` synchronously and calls `sendPaste(text, false)` (`useTerminalInput.ts:147-165`). Mobile Paste key: `MobileTerminalToolbar.tsx:125-146` reads the clipboard with `readClipboardText()` (`clipboard.ts:35-52`: `navigator.clipboard.read()`, preferring `text/plain`, then `text/uri-list`, then `text/html` converted to text). If reading is refused, or the origin is plain HTTP, it opens the **compose sheet** (`TerminalComposeSheet.tsx`), a native textarea for dictation, autocorrect and long-press paste, whose text is sent as one paste (`docs/guides/web/terminal.md:65`).
 - Wire: `{"type":"paste","text","submit"}` (`web/src/hooks/useLiveTerminal.ts:394-396`). Server (`live_ws.rs:1711-1724`): dropped for read-only or non-owner clients. `paste_payload` (`live_ws.rs:242-249`) calls `strip_paste_escapes` (`live_ws.rs:220-240`), which removes `ESC[200~`/`ESC[201~` **and every other ESC byte**, so pasted text cannot break out of bracketed paste or inject escape sequences. With `submit`, trailing CR/LF are trimmed and Enter is sent after an agent-specific delay (`send_keys_enter_delay_ms` = 150 for some agents, `src/agents.rs`).
-- Delivery: `deliver_paste` (`live_ws.rs:254-296`) uses the VT input channel's `try_send_paste` on tmux 3.8+. Otherwise it uses `Session::paste_text` → `send_via_paste_buffer` (`src/tmux/session.rs:2313-2344`): `tmux load-buffer -b aoe-send-<pid>-<n> -` then `paste-buffer -d -p`. With `-p`, tmux adds bracketed-paste markers **only if the pane enabled mode 2004**. So newline safety relies on the agent or shell using bracketed paste. In a raw shell without it, newlines execute.
+- Delivery: `deliver_paste` (`live_ws.rs:254-296`) uses the VT input channel's `try_send_paste` on tmux 3.8+. Otherwise it uses `Session::paste_text` → `send_via_paste_buffer` (`src/tmux/session.rs:2313-2344`): `tmux load-buffer -b rt-send-<pid>-<n> -` then `paste-buffer -d -p`. With `-p`, tmux adds bracketed-paste markers **only if the pane enabled mode 2004**. So newline safety relies on the agent or shell using bracketed paste. In a raw shell without it, newlines execute.
 - **No confirmation dialog and no large-paste guard** in the live terminal (grep found no paste size cap or confirm). The live WebSocket has no explicit `max_message_size` (only `runtime.rs`/`runtime_ws.rs` set one, for other sockets).
 
 ### 1.3 (c) Pasting images
@@ -44,14 +46,14 @@ This exists for the live terminal (PR/issue #2678 per comments) and separately f
 2. `web/src/lib/api.ts:352-365` `pasteImage`: POSTs `/api/sessions/{id}/paste-image` with JSON `{mime_type, data: base64}`.
 3. Route: `src/server/router.rs:118-122`, with the body limit raised to **8 MiB** for this route (global 1 MiB). Access table: `src/server/access.rs:406`.
 4. Handler `src/server/api/sessions/send.rs:407-511`:
-   - read-only server → refused. A CityHall-locked client may only target structured sessions (`cityhall_block_non_structured`).
+   - read-only server → refused. A the reference tool's hosted edition-locked client may only target structured sessions (`the reference tool's hosted edition_block_non_structured`).
    - base64 decode. Empty → 400. **> 5 MiB decoded** (`MAX_PASTE_IMAGE_BYTES`, `send.rs:328`, justified as "Claude Code caps image attachments around this size") → 413.
    - **Magic-byte sniff decides the type**: PNG, JPEG, GIF or WebP only (`src/server/api/acp/attachments.rs:35-47`). The client MIME is advisory. Anything else → 400 `not_an_image`. SVG is excluded as scriptable.
-   - `write_paste_image` (`send.rs:357-382`): directory `<session worktree>/.aoe-pasted-images/`, created with `create_dir_all`. Writes a self-ignoring `.gitignore` containing `*`. File name `aoe-paste-<uuid v4>.<ext>`, ext taken from the sniffed type. `OpenOptions::create_new(true)`. **No explicit chmod**: the file gets the process umask (typically 0644), and the directory is not checked for symlinks.
-   - Why it is in the worktree (`send.rs:330-335`): a Docker-sandboxed pane mounts only the worktree. `pane_visible_paste_path` (`send.rs:384-405`) maps the file to the container path (`/workspace/<dir>/.aoe-pasted-images/...`) for sandboxed sessions, or to the host absolute path otherwise.
+   - `write_paste_image` (`send.rs:357-382`): directory `<session worktree>/.rt-pasted-images/`, created with `create_dir_all`. Writes a self-ignoring `.gitignore` containing `*`. File name `rt-paste-<uuid v4>.<ext>`, ext taken from the sniffed type. `OpenOptions::create_new(true)`. **No explicit chmod**: the file gets the process umask (typically 0644), and the directory is not checked for symlinks.
+   - Why it is in the worktree (`send.rs:330-335`): a Docker-sandboxed pane mounts only the worktree. `pane_visible_paste_path` (`send.rs:384-405`) maps the file to the container path (`/workspace/<dir>/.rt-pasted-images/...`) for sandboxed sessions, or to the host absolute path otherwise.
    - **Cleanup**: an in-process timer deletes the file after **1 hour** (`send.rs:493-503`). The timer is cancelled on shutdown, so files written before a restart are never removed. The directory itself is never removed.
    - Logging: on write failure only the error is logged (`send.rs:474, 482`), never the bytes.
-5. Delivery to the agent: **one generic mechanism for every agent**: the path is pasted as text into the pane. aoe has no per-agent logic (Claude, Codex, Gemini and so on all get the same thing). It relies on the CLI recognising a pasted image path. Claude Code turns a pasted image file path into an image attachment **[belief]**. For others the path is just text in the prompt, which the agent may then read with its file tool.
+5. Delivery to the agent: **one generic mechanism for every agent**: the path is pasted as text into the pane. RT has no per-agent logic (Claude, Codex, Gemini and so on all get the same thing). It relies on the CLI recognising a pasted image path. Claude Code turns a pasted image file path into an image attachment **[belief]**. For others the path is just text in the prompt, which the agent may then read with its file tool.
 6. Mobile: images arrive only through the native paste event, on the hidden input or keyboard proxy. The toolbar Paste key reads only text (`readClipboardText`). The compose sheet has no image path. **No file picker and no drag-drop in the live terminal** (I found none).
 7. Tests: `send.rs:740-793` (file lands in the worktree, `.gitignore` written, host versus container path), and `web/src/components/__tests__/MobileLiveTerminal.paste.test.tsx` / `.clipboard.test.tsx`.
 
@@ -86,7 +88,7 @@ Attachments and images: **none**. An image paste reaches `paste('')` and does no
 
 1. **Image paste silently does nothing.** No feedback, and no way to give an agent a screenshot from the browser.
 2. **Every multi-line paste opens a modal**, even into Claude Code or Codex, which use bracketed paste so newlines cannot execute anything. The review is justified for a raw shell. For a bracketed-paste agent prompt it is friction on the most common action (pasting a stack trace or a code block).
-3. **Confirmed pastes are not sanitised.** xterm 6 does not strip an embedded `ESC[201~`, so after the user clicks "Paste text" a payload can end the bracket early and have the rest typed as keystrokes. The review dialog shows the text, but a user will not spot an escape sequence in a 2,000-character preview. aoe strips all ESC bytes server-side. Fix this whatever else is decided.
+3. **Confirmed pastes are not sanitised.** xterm 6 does not strip an embedded `ESC[201~`, so after the user clicks "Paste text" a payload can end the bracket early and have the rest typed as keystrokes. The review dialog shows the text, but a user will not spot an escape sequence in a 2,000-character preview. RT strips all ESC bytes server-side. Fix this whatever else is decided.
 4. **Agent "copy" actions do nothing.** Claude Code `/copy` and Codex's copy shortcut emit OSC 52 **[belief]**, and reet blocks OSC 52 in both tmux and xterm.
 5. **Paste button permission prompts.** `navigator.clipboard.readText()` makes Chrome show a site permission prompt the first time and Safari/Firefox show a "Paste" callout every time. That is unavoidable for a button, but keyboard paste avoids it, and the button does not say so up front.
 6. **Phone copy is weak.** xterm.js's canvas/DOM renderer does not support native long-press selection well on iOS or Android. The only good phone copy path is Scrollback, which is buried in the toolbar, is a snapshot needing a round trip to the machine, and has no "Copy all" button.
@@ -115,9 +117,9 @@ Attachments and images: **none**. An image paste reaches `paste('')` and does no
 
 1. **Sanitised selection copy stays as is**, plus an optional **copy-on-select** preference (Appearance drawer, a local preference like font size). Default **off**, to match today's docs; owner decision D4.
 2. **"Copy screen" and "Copy last N lines"** (N = 50/200/all of xterm's 5,000-line scrollback) from the xterm buffer, client-side only (`term.buffer.active.getLine(i).translateToString(true)`), joined with `\n` and trailing spaces trimmed. Nothing crosses the network. Add it to the toolbar overflow and the context menu.
-3. **Phone copy sheet ("Select text")**: a bottom sheet with a read-only `<pre>` filled from the xterm buffer (visible screen plus recent lines), giving native long-press selection, plus **Copy selection** and **Copy all** buttons. It is local, never saved, and discarded on close. This copies aoe's native-text advantage without replacing xterm.js. Also add a **Copy all** button to `OutputScrollback`.
+3. **Phone copy sheet ("Select text")**: a bottom sheet with a read-only `<pre>` filled from the xterm buffer (visible screen plus recent lines), giving native long-press selection, plus **Copy selection** and **Copy all** buttons. It is local, never saved, and discarded on close. This copies RT's native-text advantage without replacing xterm.js. Also add a **Copy all** button to `OutputScrollback`.
 4. **Gated OSC 52 (agent copy)**, owner decision D3:
-   - Client: replace the blanket `registerOscHandler(52, () => true)` with a handler that accepts **write only** (refuses the `?` query, so the clipboard is never read back), decodes base64, caps at 1 MiB, and writes **only if the user gave a keyboard or pointer gesture to this pane in the last ~2 s**. It arms a promise-valued `ClipboardItem` on keydown/pointerup, the way aoe does in `clipboard.ts:72-134`. Otherwise it shows a toast: "The agent copied 2.1 KB. Copy it?" with a button, which gives a fresh gesture. Never clear the clipboard on an empty write.
+   - Client: replace the blanket `registerOscHandler(52, () => true)` with a handler that accepts **write only** (refuses the `?` query, so the clipboard is never read back), decodes base64, caps at 1 MiB, and writes **only if the user gave a keyboard or pointer gesture to this pane in the last ~2 s**. It arms a promise-valued `ClipboardItem` on keydown/pointerup, the way RT does in `clipboard.ts:72-134`. Otherwise it shows a toast: "The agent copied 2.1 KB. Copy it?" with a button, which gives a fresh gesture. Never clear the clipboard on an empty write.
    - Machine: tmux must pass OSC 52 to its client, which needs `set -g set-clipboard on` and new connector code to update the existing `tmux.conf` (it is written only if missing). Alternatively, apply `set-option -s set-clipboard on` at server start the way `manager_tmux.go:71` does. Gate this on a new connector feature and a local switch, so a connector that keeps it off simply never forwards. Keep `allow-passthrough off`; passthrough is not needed for OSC 52 when `set-clipboard on`.
    - Risk: any program in the shell (for example, `cat` of a malicious file) can emit OSC 52. The gesture gate plus the toast fallback stops silent clipboard poisoning. The docs and help text must change ("OSC 52 clipboard writes remain disabled").
 5. "Copy last command" is already covered by Command history → Copy. "Copy last output" in the semantic sense needs shell integration (OSC 133 marks), which reet does not have. Do not promise it; offer "last N lines".
@@ -145,10 +147,10 @@ Attachments and images: **none**. An image paste reaches `paste('')` and does no
    - The connector checks: the session is Running in its registry; a local switch is on (`reet agent terminal uploads on|off`, default on? owner decision D6); size equals the declared size and is ≤ 5 MiB; the SHA-256 matches; the magic bytes are png/jpeg/gif/webp and match the declared MIME.
    - Storage, recommended (D1): `<layout.Dir>/uploads/<session-id>/` made with `ensurePrivateDir` (0700, owner-checked, no symlinks). File name `img-<random 128-bit hex>.<ext>`, created with `O_CREAT|O_EXCL|O_NOFOLLOW` at 0600 and written through `writePrivateFile`'s temp-and-rename pattern. **The client file name is never used.**
    - Quotas: ≤ 20 files and 50 MiB per session; ≤ 200 MiB per machine; refuse past them.
-   - Cleanup: delete `uploads/<session>` when a session goes to Ended/Exited/Lost (reconcile path) and at connector start for any session that is not Running. Also apply a **24 h max age** sweep: images are read by the agent when attached, but a user may queue a prompt and come back, so 1 h as in aoe is too short. Never touch anything outside `uploads/`.
+   - Cleanup: delete `uploads/<session>` when a session goes to Ended/Exited/Lost (reconcile path) and at connector start for any session that is not Running. Also apply a **24 h max age** sweep: images are read by the agent when attached, but a user may queue a prompt and come back, so 1 h as in RT is too short. Never touch anything outside `uploads/`.
    - Nothing goes in the registry: upload files are derived state, so registry.go's "no bytes or paths persisted" stays true.
 4. **Reference per agent** (the controller knows `terminal_sessions.tool`). The reply's `reference` is what gets inserted:
-   - `claude`: the absolute path, shell-escaped like aoe's `escapePastePath`. Claude Code turns a pasted image path into `[Image #n]` **[belief]**.
+   - `claude`: the absolute path, shell-escaped like RT's `escapePastePath`. Claude Code turns a pasted image path into `[Image #n]` **[belief]**.
    - `codex`: the absolute path; the Codex TUI attaches pasted image paths **[belief]**. (`codex -i` exists only at launch.)
    - `gemini`: `@<path>`. **But** Gemini CLI restricts file reads to its workspace directories **[belief]**, so a file in `~/.local/state/reet/...` would be refused. It needs either the workspace placement (D1 option B) or launching with `--include-directories <uploads dir>`, which changes launch arguments (`docs/terminal-launch.md` table).
    - `opencode`, `cline`, plain shell: insert the bare path; the user tells the agent what to do with it. Mark these "path only" in the UI ("The agent receives the file path").
@@ -197,18 +199,18 @@ T1–T5 are client-only and can ship first. T8–T12 are one vertical slice but 
 
 ### 3.6 Decisions only the owner can make
 
-- **D1. Where images live on the machine.** (A) Private `<terminal dir>/uploads/<session>/`, 0700/0600, outside the project: nothing lands in the repo and the privacy story is clean, but Gemini (and possibly others) cannot read outside the workspace. (B) aoe-style `<session dir>/.reet-pasted-images/` with a self-ignoring `.gitignore`: works for every agent and sandbox, but writes into the user's working tree, can be committed if someone deletes the `.gitignore`, and interacts with worktree remove/busy checks. **Recommendation: A**, with Gemini shown as "path only" until either `--include-directories` is added to its launch or B is approved for Gemini alone.
+- **D1. Where images live on the machine.** (A) Private `<terminal dir>/uploads/<session>/`, 0700/0600, outside the project: nothing lands in the repo and the privacy story is clean, but Gemini (and possibly others) cannot read outside the workspace. (B) RT-style `<session dir>/.reet-pasted-images/` with a self-ignoring `.gitignore`: works for every agent and sandbox, but writes into the user's working tree, can be committed if someone deletes the `.gitignore`, and interacts with worktree remove/busy checks. **Recommendation: A**, with Gemini shown as "path only" until either `--include-directories` is added to its launch or B is approved for Gemini alone.
 - **D2. Skip the paste review for bracketed-paste agent prompts** (≤ 64 KiB, no control characters). **Recommendation: yes.** This is the biggest "clunky" fix. Keep the review for shells without bracketed paste and for anything with control characters.
 - **D3. Allow agent OSC 52 copy** (gesture-gated, write-only) and turn tmux `set-clipboard on` on machines. **Recommendation: yes, client gate first (T6), machine part behind a connector feature and switch (T7).** Re-read the deferred terminal security preferences note before deciding.
 - **D4. Copy-on-select default.** **Recommendation: an option, default off** (Ctrl+C-with-selection already works; auto-copy surprises people who select only to read).
 - **D5. Audit an upload?** **Recommendation: yes, metadata only** (machine, tool, type, size bucket). Or no event, if Activity should not show it.
 - **D6. Uploads on by default on connectors**, with a local `reet agent terminal uploads off`. **Recommendation: on**, since it only writes to a private per-session directory and only for the session owner.
-- **D7. Limits**: 5 MiB per image (matches aoe and the commonly cited Claude limit), 20 images/50 MiB per session, 24 h max age. **Recommendation: as stated**; raise per file only if an agent supports more.
+- **D7. Limits**: 5 MiB per image (matches RT and the commonly cited Claude limit), 20 images/50 MiB per session, 24 h max age. **Recommendation: as stated**; raise per file only if an agent supports more.
 - **D8. Phone priority**: ship the file-picker Attach image and the Select text sheet before drag-drop. **Recommendation: yes.**
 
 ### 3.7 Honest gaps
 
-- I did not run aoe. Copy-on-release (`docs/guides/web/terminal.md:20`) is unverified in code.
+- I did not run RT. Copy-on-release (`docs/guides/web/terminal.md:20`) is unverified in code.
 - Agent CLI image behaviour (Claude, Codex, Gemini, opencode, Cline) is from memory, not from reading those CLIs. It must be verified before docs claim support.
 - I did not check whether `git worktree remove` in reet refuses a worktree containing an ignored `.reet-pasted-images` folder (only matters for D1-B).
 - I did not test xterm.js touch selection on a real phone. The claim that it is weak comes from xterm's known limitations and the handoff's note that no real-device phone test has been done.

@@ -1,45 +1,47 @@
-# Per-agent management in agent-of-empires, and what reet's catalogue should learn from it
+# Per-agent management in the reference tool, and what reet's catalogue should learn from it
 
-Research only. Nothing was edited, built, installed or run in either tree. The aoe checkout
-(`/home/user/agent-of-empires/agent-of-empires` at `a02ef83`, shallow, 27 Oct 2026) was read as
+RT = the reference tool (the third-party tool this note studies; named by role only).
+
+Research only. Nothing was edited, built, installed or run in either tree. The RT checkout
+(`<reference-tool checkout>` at `a02ef83`, shallow, 27 Oct 2026) was read as
 untrusted data. The reet checkout is `/home/user/reet.sh` at `f0bffe5`. Paths are relative to each
-repository root. This report goes past `aoe-frontend-research.md` and does not repeat it: that report
+repository root. This report goes past `reference-tool-frontend-research.md` and does not repeat it: that report
 covered the two front ends, the approval nonce, YOLO via `bypassPermissions`, sandboxing in outline,
 image paste and the comparison of the front ends.
 
-Labels: **[read]** I read the code. **[doc]** only aoe's docs or CHANGELOG say so. **[belief]**
+Labels: **[read]** I read the code. **[doc]** only RT's docs or CHANGELOG say so. **[belief]**
 from my own memory of the upstream CLIs, not checked here, so verify it before you build on it.
 
 ---
 
 ## 0. Headline findings
 
-1. **aoe's per-agent model is two data tables plus a long tail of per-agent code.** The terminal table
+1. **RT's per-agent model is two data tables plus a long tail of per-agent code.** The terminal table
    `AgentDef` (`src/agents.rs:359-388`, rows `:606-982`) and the ACP registry, profile and compat tables
    (`src/acp/agent_registry.rs:44-129`, `agent_profiles.rs:92-217`, `agent_compat.rs:8-115`,
    `install_hints.rs:8-139`) are clean. Around them sit thousands of lines of agent-specific code:
    OpenCode alone has a version-to-schema allowlist, a short-lived `opencode serve` for session
    pre-assignment and fork, a read-only SQLite reader, a post-login YOLO helper and a frozen-environment
    launcher. **The data shape is worth copying. The per-agent store-surgery is not.**
-2. **OpenCode changed its interface at 2.x.** By aoe's account [read `agents.rs:645-665`, `:1254`;
+2. **OpenCode changed its interface at 2.x.** By RT's account [read `agents.rs:645-665`, `:1254`;
    doc `session-resume.md:54`], 2.x replaced `OPENCODE_PERMISSION` with `--auto`, dropped root `--fork`,
    moved the HTTP API under `/api`, requires auth on `serve`, and runs a **shared background service**
    that can redirect a launch to another database unless `--standalone` is passed
    (`agents.rs:1474-1487`, `session/instance/session_id.rs:993`). reet's OpenCode row is backed only by
    web docs (`docs/terminal-launch.md:77`), not by a captured `--help`. **It needs a 2.x help capture.**
-3. **aoe does not trust OpenCode's default permission mode.** Its plugin policy treats an unreviewed
+3. **RT does not trust OpenCode's default permission mode.** Its plugin policy treats an unreviewed
    agent's default mode as `Unattended` (`src/plugin/automation_policy.rs:49-58`), and OpenCode is not
    in `is_reviewed` (`agent_profiles.rs:219-224`). Its ACP YOLO for OpenCode is deliberately a no-op
    because the bypass mode id is unverified (`agent_profiles.rs:135-142`). From memory [belief],
    OpenCode's default config allows most tools without asking. reet's docs say the agent's "own
    permission prompts" protect a session (`docs/start-agent-session.md:14`). **That is unproven for
    OpenCode, and probably false.** This is the most important item for the probe.
-4. **Environment.** aoe forwards `SSH_AUTH_SOCK` even in its *base* key list
+4. **Environment.** RT forwards `SSH_AUTH_SOCK` even in its *base* key list
    (`src/session/environment.rs:11-20`), plus desktop variables (`:107-114`). For ACP adapters it adds a
    per-binary provider-key allowlist (`install_hints.rs:45-139`). reet passes a fixed 10-key allowlist
    with no provider keys (`internal/terminalhost/service.go:230-266`). reet is safer, but API-key users
    get agents that cannot authenticate. That is an open decision (section 5).
-5. **Version handling.** aoe pins **no** terminal CLI version ("AoE pins no CLI version",
+5. **Version handling.** RT pins **no** terminal CLI version ("RT pins no CLI version",
    `agents.rs:1037`). Instead it probes `--help` at launch time (5 s timeout, 15 s on retry, 30 s
    cooldown, cached by path, mtime and size: `agents.rs:1137-1189`, `:1446-1503`). It enforces ACP
    floors only for `claude-agent-acp` ≥0.82.0 and OpenCode ≥1.16.0 (`agent_compat.rs:9-12`), checked
@@ -51,7 +53,7 @@ from my own memory of the upstream CLIs, not checked here, so verify it before y
 
 ---
 
-## 1. Every agent aoe supports
+## 1. Every agent RT supports
 
 **Terminal (tmux), 17 built-ins** [read `agents.rs:606-982`]: claude, opencode, vibe, codex, gemini,
 cursor (binary `agent`), copilot, pi, droid, settl (a Catan game agent, `:812-833`), hermes, kiro
@@ -61,24 +63,24 @@ added through `agent_detect_as` and `agent_acp_cmd`.
 **Structured (ACP), 11 registry keys** [read `agent_registry.rs:49-113`]: claude (`claude-agent-acp`),
 claude-code (legacy alias), opencode (`opencode acp`), gemini (`gemini --acp`), codex (`codex-acp`),
 vibe (`vibe-acp`), pi (`pi-acp`), omp (`omp acp`), kimi (`kimi acp`), prime-agent
-(`prime-agent --mode acp`), aoe-agent (bundled). Terminal-only: cursor, copilot, droid, settl, hermes,
+(`prime-agent --mode acp`), rt-agent (bundled). Terminal-only: cursor, copilot, droid, settl, hermes,
 kiro, qwen, antigravity (`docs/structured-view.md:36`).
 
-aoe has **no Cline support**. reet enables Cline, so reet's Cline evidence is its own.
+RT has **no Cline support**. reet enables Cline, so reet's Cline evidence is its own.
 
 ### 1.1 Common mechanics (all agents)
 
-| Concern | How aoe does it | Evidence |
+| Concern | How RT does it | Evidence |
 |---|---|---|
 | Detection | `which(binary)` by default; vibe runs `vibe --version` | [read] `agents.rs:34-37, 585, 688` |
-| Install | Hint string only for terminal CLIs. For ACP, `aoe acp doctor --fix` npm-installs pinned bundles into the data dir; the web "Update & restart" runs `npm install -g` as the daemon user for claude-agent-acp, codex-acp and gemini | [read] `install_hints.rs:8-41`, `adapters.rs:20-62`; [doc] `troubleshooting.md:17` |
+| Install | Hint string only for terminal CLIs. For ACP, `rt acp doctor --fix` npm-installs pinned bundles into the data dir; the web "Update & restart" runs `npm install -g` as the daemon user for claude-agent-acp, codex-acp and gemini | [read] `install_hints.rs:8-41`, `adapters.rs:20-62`; [doc] `troubleshooting.md:17` |
 | Version | Terminal: none pinned, generation from `--help`. ACP: floors at handshake; a PATH copy below the floor is replaced by the bundled pinned copy | [read] `agents.rs:1037,1114-1134`; `agent_compat.rs:186-266`; `resolve_command.rs:28-60` |
 | Launch shell | Login shell reads the script from fd 3 (here-doc); `cd`, `stty susp undef`, `exec env <cmd>` | [read] `launch_command.rs:446-480` |
-| Env (terminal) | tmux `new-session -e` with the inherited host env: desktop vars plus `XDG_*`, `SSH_AUTH_SOCK`, `COLORFGBG`; whole env if `inherit_host_environment`; `AOE_*` refused | [read] `environment.rs:107-238` |
-| Env (ACP) | `env_clear`, then inherited host env (none when sandboxed), base keys (`PATH HOME XDG_CONFIG_HOME LANG LC_ALL TERM USER SSH_AUTH_SOCK`), per-binary provider allowlist, request env (denies `PATH/HOME/...`, `LD_*`, `DYLD_*`, `AOE_TOKEN`), operator env, Claude store pin last | [read] `acp_client/spawn.rs:88-125,142-233,280-307` |
+| Env (terminal) | tmux `new-session -e` with the inherited host env: desktop vars plus `XDG_*`, `SSH_AUTH_SOCK`, `COLORFGBG`; whole env if `inherit_host_environment`; `RT_*` refused | [read] `environment.rs:107-238` |
+| Env (ACP) | `env_clear`, then inherited host env (none when sandboxed), base keys (`PATH HOME XDG_CONFIG_HOME LANG LC_ALL TERM USER SSH_AUTH_SOCK`), per-binary provider allowlist, request env (denies `PATH/HOME/...`, `LD_*`, `DYLD_*`, `RT_TOKEN`), operator env, Claude store pin last | [read] `acp_client/spawn.rs:88-125,142-233,280-307` |
 | Secrets in logs | stderr scrubbed for `sk-`, `ghp_`, `AKIA`, Bearer shapes; env values never logged | [read] `spawn.rs:127-138,184-191` |
-| Config writes into the user's agent config | Status/identity hooks (Claude `.claude/settings.json`, Codex `.codex/hooks.json`, Gemini `.gemini/settings.json`, Qwen `.qwen/settings.json`, Cursor `.cursor/hooks.json`, Hermes `.hermes/config.yaml` plus an allowlist file, Kiro agent file and sets the *default agent*, Kimi `.kimi-code/config.toml`), each tagged `exit 0 # aoe-hooks`; gated by a one-time approval. Optional `pre_trust_agent_folders` writes trust into Claude, Codex and Gemini config | [read] `agents.rs:430-540, 612-618, 702-706, 729-733, 752-763, 838-852, 870-884, 917-928`; `hooks/command.rs:1-40`; [doc] `configuration.md:113-114,187-193` |
-| MCP | ACP only: servers merged from agent-native config (read, never written), aoe `mcp.json`, profile and trusted project `.mcp.json`, sent in `session/new`/`load`; http/sse dropped unless the agent advertises them. Terminal agents load MCP their own way | [read] `mcp_config.rs:15-47,133-160`; [doc] `mcp-servers.md:1-40` |
+| Config writes into the user's agent config | Status/identity hooks (Claude `.claude/settings.json`, Codex `.codex/hooks.json`, Gemini `.gemini/settings.json`, Qwen `.qwen/settings.json`, Cursor `.cursor/hooks.json`, Hermes `.hermes/config.yaml` plus an allowlist file, Kiro agent file and sets the *default agent*, Kimi `.kimi-code/config.toml`), each tagged `exit 0 # rt-hooks`; gated by a one-time approval. Optional `pre_trust_agent_folders` writes trust into Claude, Codex and Gemini config | [read] `agents.rs:430-540, 612-618, 702-706, 729-733, 752-763, 838-852, 870-884, 917-928`; `hooks/command.rs:1-40`; [doc] `configuration.md:113-114,187-193` |
+| MCP | ACP only: servers merged from agent-native config (read, never written), RT `mcp.json`, profile and trusted project `.mcp.json`, sent in `session/new`/`load`; http/sse dropped unless the agent advertises them. Terminal agents load MCP their own way | [read] `mcp_config.rs:15-47,133-160`; [doc] `mcp-servers.md:1-40` |
 | Images | Terminal: paste-to-path for any agent (previous report). ACP: gated on `promptCapabilities` from the handshake (409 until known), MIME allowlist (no SVG), magic-byte sniff, 10 MiB each, 20 MiB total, 8 max | [read] `server/api/acp/attachments.rs:10-140` |
 | Status (terminal) | User regex rules, then a per-agent TOML manifest on the ANSI-stripped pane, then hooks | [read] `tmux/status_detection.rs:11-20`; manifests `tmux/detect/manifests/*.toml` |
 | Status (ACP) | Protocol events plus three watchdogs: cancel escalation ~10 s; client "Force end turn" after 30 s with no chunk; silent-orphan 120 s (20 s once a cost-bearing usage update arrives; 30 min floor for compaction or background work) | [read] `acp_client/watchdog.rs:15-25,53-160`; [doc] `internals/structured-view.md:126-134` |
@@ -100,7 +102,7 @@ aoe has **no Cline support**. reet enables Cline, so reet's Cline evidence is it
   (`:1122-1134`, `:1254-1255`). "Late 1.x builds also advertise --auto; only --fork distinguishes them"
   (`:1123`). An unanswered help gives `Unknown`, and anything that depends on the generation is refused
   rather than guessed (`:51-60`, `process/mod.rs:208-245`).
-- **YOLO is applied after login.** For an unbound launch, aoe re-probes the executable *after* the
+- **YOLO is applied after login.** For an unbound launch, RT re-probes the executable *after* the
   login shell has run, using the same cwd and env, so a version-manager shim gets the matching
   mechanism (`launch_command.rs:526-579`, `process/mod.rs:208-245`; [doc] `session-resume.md:54`).
 - **`--standalone` (2.x)** keeps the launch on a private server instead of the shared background
@@ -121,7 +123,7 @@ aoe has **no Cline support**. reet enables Cline, so reet's Cline evidence is it
 - **Schema allowlist by exact version.** `--version` must be one of 1.16.0, 1.16.2, 1.17.0-20,
   1.18.0-35 (table `session`) or 2.0.0-26 plus build `2.0.24+31bdd8e` (table `session_v2`). Anything
   else refuses explicit resume and fork (`execution.rs:1554-1591`; [doc] `session-resume.md:52`).
-  Before a managed resume, aoe opens the DB **read-only, no-follow**, and checks that the target row
+  Before a managed resume, RT opens the DB **read-only, no-follow**, and checks that the target row
   exists, has no workspace, and has a `directory` equal to the launch cwd (`execution.rs:463-498`,
   `:1594-1610`).
 - **Status.** Pane manifest only, no hooks: `esc to interrupt` or a spinner means Running; `continue?`,
@@ -233,7 +235,7 @@ Terminal flags are from `agents.rs` rows [read]. ACP data is from `agent_registr
     (`tool_output.rs:227`). Managed resume is refused on a macOS host and for ChatGPT login ([doc]
     `session-resume.md:77-78`).
 - **Gemini CLI** (`:725-746`)
-  - **Deprecated** in aoe since 2026-06-18: "consumer accounts cut off by Google; enterprise/API-key
+  - **Deprecated** in RT since 2026-06-18: "consumer accounts cut off by Google; enterprise/API-key
     remain valid", replacement antigravity (`:740-744`).
   - Terminal: YOLO `--approval-mode yolo`, resume `--resume`, hooks in `.gemini/settings.json`.
   - ACP: `gemini --acp`. It sends **no `tool_call` start frame** and argless calls with null
@@ -250,7 +252,7 @@ Terminal flags are from `agents.rs` rows [read]. ACP data is from `agent_registr
   - **`AlwaysYolo`**: no permission system. This matches reet's disabled reason.
   - Install `@earendil-works/pi-coding-agent` (`:803`). reet captured `@mariozechner/pi-coding-agent`
     0.73.1, so check whether the package was renamed.
-  - Resume `--session` or `--session-id`; identity published by an aoe **extension** loaded into Pi
+  - Resume `--session` or `--session-id`; identity published by an RT **extension** loaded into Pi
     (`:109-116`). Fork and session-id support are gated on help flags (`:1489-1499`).
   - ACP via `pi-acp` 0.0.34 (bundle), with no env allowlist ("unverified", `agent_registry.rs:391`).
 - **Droid** (Factory, `:806-811`): YOLO `--skip-permissions-unsafe`; no resume; terminal only.
@@ -258,7 +260,7 @@ Terminal flags are from `agents.rs` rows [read]. ACP data is from `agent_registr
 - **Hermes** (Nous, `:834-864`): YOLO `--yolo`; YAML hooks plus a shell-hook consent allowlist file;
   only foreground `pre_llm_call` session ids are adopted, because subagents fire the same hooks
   (`:263-266, 513-525`); identity payloads up to 64 MiB ([doc] `session-resume.md:27`).
-- **Kiro CLI** (`:865-890`): `kiro-cli chat`; YOLO `--trust-all-tools`; installs an aoe hooks agent and
+- **Kiro CLI** (`:865-890`): `kiro-cli chat`; YOLO `--trust-all-tools`; installs an RT hooks agent and
   **changes Kiro's default agent** post-install (`post_install_host`, disclosed via
   `post_install_note`).
 - **Qwen Code** (`:891-901`): YOLO `--yolo`; hooks in `.qwen/settings.json`; no resume.
@@ -279,17 +281,17 @@ Terminal flags are from `agents.rs` rows [read]. ACP data is from `agent_registr
 
 ## 2. Per-agent table
 
-"Approvals/YOLO" is aoe's mechanism. reet refuses YOLO for every agent today
+"Approvals/YOLO" is RT's mechanism. reet refuses YOLO for every agent today
 (`internal/terminalhost/launch.go:77-80`; every `YoloArgs` is empty in `catalogue.go:31-39`).
 
-| Agent | aoe terminal | aoe ACP | Approvals / YOLO | Resume | Images | Notable quirks | reet today | What reet should do better |
+| Agent | RT terminal | RT ACP | Approvals / YOLO | Resume | Images | Notable quirks | reet today | What reet should do better |
 |---|---|---|---|---|---|---|---|---|
 | OpenCode | yes; pane manifest; 1.x and 2.x generations | `opencode acp`, ≥1.16.0, no YOLO id | 1.x `OPENCODE_PERMISSION` env, 2.x `--auto`; default mode treated as unattended | `--session <id>`; preassign through `serve` (opt-in); `session/load` | ACP if advertised; terminal paste-path | shared 2.x service (needs `--standalone`), lossy ACP errors, reused tool ids, `task` streams no children, version-specific DB schema | enabled; `--model`, `--prompt`; ACP `native`; evidence from docs only | capture 2.x `--help`; verify the default permission behaviour before claiming "agent prompts"; consider `--standalone`; record the tested version range; probe ACP error reporting instead of reading SQLite |
 | Claude Code | yes; hooks plus manifest | `claude-agent-acp` ≥0.82.0 (bundle 0.94.0) | `--dangerously-skip-permissions`; ACP `bypassPermissions` (+`ALLOW_BYPASS`) | `--resume`/`--session-id`; fork | ACP; paste-path | 100 ms paste window; `--name` gated on help; provider env truthiness | enabled; `--model`, `-- prompt`; one-word rule; ACP `adapter` | pin and audit the adapter version; ACP YOLO = reet answers `allow_once` (keep that design) |
-| Codex | yes; hooks plus manifest; `--no-daemon` | `codex-acp` (bundle 1.13.1, name-checked) | `--dangerously-bypass-approvals-and-sandbox`; ACP `agent-full-access` | `codex resume`; `codex fork` | `-i`; ACP | shared app-server breaks per-pane hooks; NO_COLOR; paste-burst | enabled; captured 0.163.0 help | if YOLO ever ships, keep the Codex sandbox (`--ask-for-approval never` [belief]) rather than aoe's bypass-and-sandbox; check the package name at handshake |
+| Codex | yes; hooks plus manifest; `--no-daemon` | `codex-acp` (bundle 1.13.1, name-checked) | `--dangerously-bypass-approvals-and-sandbox`; ACP `agent-full-access` | `codex resume`; `codex fork` | `-i`; ACP | shared app-server breaks per-pane hooks; NO_COLOR; paste-burst | enabled; captured 0.163.0 help | if YOLO ever ships, keep the Codex sandbox (`--ask-for-approval never` [belief]) rather than RT's bypass-and-sandbox; check the package name at handshake |
 | Gemini CLI | yes, deprecated | `gemini --acp` | `--approval-mode yolo`; ACP `yolo` | `--resume` | ACP | no tool start frame; null raw_input; consumer cutoff | enabled; `--prompt-interactive`; no ACP value | add a lifecycle/deprecation note; decide whether to keep it enabled; ACP = native `--acp` if wanted |
-| Cline | not supported | — | — | — | — | — | enabled; `--auto-approve false --tui`; ACP `native` (unverified) | no aoe evidence; keep reet's own capture; mark ACP unverified |
-| Pi | yes | `pi-acp` 0.0.34 | AlwaysYolo (none) | `--session`/`--session-id`; extension | ACP | aoe injects its own extension | disabled (no approval policy) | keep disabled; check the package rename |
+| Cline | not supported | — | — | — | — | — | enabled; `--auto-approve false --tui`; ACP `native` (unverified) | no RT evidence; keep reet's own capture; mark ACP unverified |
+| Pi | yes | `pi-acp` 0.0.34 | AlwaysYolo (none) | `--session`/`--session-id`; extension | ACP | RT injects its own extension | disabled (no approval policy) | keep disabled; check the package rename |
 | Cursor | yes, binary `agent` | no | `--yolo` | `--resume` | paste-path | `generation_id` not stable | disabled (`cursor-agent`, no capture) | fix the binary name once captured |
 | Copilot | yes | no | `--yolo` | `--session-id` | paste-path | one-shot extra flags | absent | candidate row only after capture |
 | Kimi | yes | `kimi acp` | `--yolo`; ACP `yolo` | `--session` (sandbox) | ACP | config file holds OAuth | absent | later |
@@ -367,7 +369,7 @@ Rules to go with it:
 - **Generate `terminalproto.agentOptions` from the catalogue**, or test the two for equality. A test
   already keeps them equal (comment at `agents.go:17-19`), but the ACP column is not tested at all.
 - **Check the version at launch** on the connector: run `VersionArgs` with the clean env, a 2 s
-  timeout and capped output; cache by (path, mtime, size) as aoe does (`agents.rs:1446-1451`); report
+  timeout and capped output; cache by (path, mtime, size) as RT does (`agents.rs:1446-1451`); report
   `version_unsupported` with the hint. Use the same probe in "Installed tools" so the UI can say
   "OpenCode 2.0.30 installed; tested up to 2.0.26".
 - **Make the ACP check at handshake data-driven:** name, version floor, protocol V1, as in
@@ -377,14 +379,14 @@ Rules to go with it:
 
 ---
 
-## 4. Pitfalls aoe hit that reet should design around
+## 4. Pitfalls RT hit that reet should design around
 
 1. **Interface generations inside one product name** (OpenCode 1.x→2.x: YOLO, fork, HTTP routes,
    shared service). Key evidence and argv on the version, not on the binary name.
 2. **Shared background services redirect sessions.** Codex's app-server misroutes per-pane hooks
    (`agents.rs:1069-1073`), and OpenCode 2.x's service can switch DBs (`--standalone`). A reet session
    should be self-contained. Test whether reet's opencode argv attaches to an existing service.
-3. **Login shells and version-manager shims change the binary.** aoe re-probes after login
+3. **Login shells and version-manager shims change the binary.** RT re-probes after login
    (`process/mod.rs:208-245`). reet launches an absolute path resolved with the connector's PATH
    (`launch.go:48-57`), which is better. Report the resolved path in diagnostics.
 4. **Paste and Enter timing.** Claude and Codex swallow an Enter sent within ~100-120 ms of a paste
@@ -392,14 +394,14 @@ Rules to go with it:
 5. **`NO_COLOR` inherited from tmux** kills palettes (`launch_command.rs:428-444`). reet's clean env
    probably avoids it; confirm.
 6. **Adapters that never close a turn, ignore cancel, or end a failed turn with no content.** Plan the
-   three watchdogs from slice 1 (120 s / 20 s / 10 s are aoe's numbers, `watchdog.rs:15-25`).
+   three watchdogs from slice 1 (120 s / 20 s / 10 s are RT's numbers, `watchdog.rs:15-25`).
 7. **Tool-call id reuse and missing start frames** (OpenCode, Gemini). The reducer must upsert by id
    and create a card from a permission request alone (`permission_handlers.rs:169-201`).
 8. **Choice-list approvals.** Never answer by option *kind* when all options share a kind (`#3741`,
    `permission_handlers.rs:203-206`).
 9. **Package impostors.** A binary named `codex-acp` from the deprecated package; reet already refused
    an unrelated `cursor-agent` package. Check the `agent_info.name` at handshake.
-10. **Install hint vs pin drift.** aoe's hints say `@latest` (`install_hints.rs:10-11`) while the
+10. **Install hint vs pin drift.** RT's hints say `@latest` (`install_hints.rs:10-11`) while the
     bundles pin 0.94.0 and 1.13.1, and its own test only ties the Dockerfile pin to the floor
     (`agent_compat.rs:545-560`). Keep one source of truth for pins.
 11. **`"0"` is truthy in JS** for adapter env flags (`environment.rs:59-61`). Use `""` for off.
@@ -442,18 +444,18 @@ Rules to go with it:
 | A2 | Add a runtime `--version` check with a tested range? | **Yes.** Refuse below the minimum. Above the maximum tested, launch with a visible "newer than tested" note rather than refusing (refusing would break users on every upstream release). |
 | A3 | Pass provider API keys to agents? | **Per-row allowlist, off by default, owner-enabled per machine.** Today reet passes none (`service.go:230-266`), so key-only users cannot authenticate. Never forward `SSH_AUTH_SOCK` or display variables. |
 | A4 | Use `opencode --standalone` on 2.x? | **Yes, once the 2.x help capture confirms it.** It keeps a session from attaching to a shared service. |
-| A5 | Keep Gemini CLI enabled? | Keep it, with a "consumer accounts deprecated upstream" note (from aoe, unverified). Revisit after a capture. |
+| A5 | Keep Gemini CLI enabled? | Keep it, with a "consumer accounts deprecated upstream" note (from RT, unverified). Revisit after a capture. |
 | A6 | Terminal resume (`--resume`/`--session`)? | **Only where reet mints the id** (Claude `--session-id`, Pi after capture) or the agent prints it. Never scan stores. Otherwise defer to ACP `session/load`. |
 | A7 | When YOLO ships, which flags? | Prefer modes that keep the agent's own sandbox (Codex `--ask-for-approval never` [belief], Claude `--permission-mode acceptEdits` [belief] as a middle step); never env-var YOLO; record the argv in audit. In ACP, keep reet's `allow_once` answering design. |
 | A8 | Adapter installs (claude-agent-acp, codex-acp) | Pinned exact versions with integrity, audited, owner-confirmed; never `@latest`; check the handshake name. |
-| A9 | Fix the Cursor binary name and Pi package name? | Recapture before enabling either; aoe uses `agent` and `@earendil-works/pi-coding-agent`. |
+| A9 | Fix the Cursor binary name and Pi package name? | Recapture before enabling either; RT uses `agent` and `@earendil-works/pi-coding-agent`. |
 | A10 | OpenCode ACP error visibility | Probe it. If errors are dropped, show "ended with no output; see the agent's log" rather than reading SQLite. |
 
 ## 7. Limits of this report
 
-- Nothing was run. The behaviour of OpenCode 2.x, Codex, Gemini and Cursor is aoe's account [read
+- Nothing was run. The behaviour of OpenCode 2.x, Codex, Gemini and Cursor is RT's account [read
   code / doc], plus [belief] where marked.
-- aoe's docs are very detailed and sometimes broader than the code paths I read; [doc] marks those.
+- RT's docs are very detailed and sometimes broader than the code paths I read; [doc] marks those.
 - I did not read reet's Program 2 spec for its planned ACP fields again; section 3 is a proposal, to be
   reconciled with it.
 - The concurrent `opencode acp` probe was not looked at; its results should override anything here

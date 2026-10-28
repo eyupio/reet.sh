@@ -1,13 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { getSyncState, type SyncJob, type SyncState } from './api'
+  import { getSyncState, queueSyncJob, updateSyncAgent, type SyncJob, type SyncState } from './api'
   import { groupLabel } from './machines'
   import { activeJobKindLabel, agoLabel, jobPlanCounts, syncJobStages } from './syncOverview'
+  import SyncProblem from './SyncProblem.svelte'
 
   let {
     snapshot = null,
     open = false,
     context = null,
+    canWrite = false,
     onupdate,
     onclose,
     onerror,
@@ -15,6 +17,7 @@
     snapshot?: SyncState | null
     open?: boolean
     context?: { host?: string; title?: string; note?: string } | null
+    canWrite?: boolean
     onupdate?: (state: SyncState) => void
     onclose?: () => void
     onerror?: (error: unknown) => void
@@ -27,6 +30,7 @@
   let refreshing = false
   let wasLive = $state(false)
   let finishedAt = $state(0)
+  let retrying = $state('')
 
   const sync = $derived(local ?? snapshot)
   const host = $derived((context?.host ?? '').toLowerCase())
@@ -97,6 +101,26 @@
   function close() {
     dismissed = true
     onclose?.()
+  }
+
+  // A fresh scan or preview is the only retry offered: an old approved plan is
+  // never replayed from the dock.
+  async function retry(job: SyncJob) {
+    if (retrying || !canWrite) return
+    retrying = job.id
+    try {
+      const next = job.kind === 'update'
+        ? await updateSyncAgent(job.agentId, job.revision || 'latest')
+        : await queueSyncJob(job.agentId, job.targetId, job.kind === 'scan' ? 'scan' : 'preview')
+      local = next
+      error = ''
+      onupdate?.(next)
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      retrying = ''
+    }
   }
 
   $effect(() => {
@@ -184,7 +208,14 @@
           {:else if job.status === 'succeeded'}
             <p class="plan-count">{doneCounts.total ? '' : 'Everything already matches. No files needed changing.'}</p>
           {/if}
-          {#if job.message}<p class="job-message">{job.message}</p>{/if}
+          {#if job.message}
+            {#if job.status === 'failed' || job.status === 'rolled_back'}
+              <SyncProblem message={job.message} host={hostFor(job.agentId)} site={location.origin} compact
+                retrying={retrying === job.id} onretry={canWrite ? () => void retry(job) : undefined} />
+            {:else}
+              <p class="job-message">{job.message}</p>
+            {/if}
+          {/if}
           {#if job.status === 'awaiting-approval'}<a class="btn primary review" href="/sync#sync-jobs">Review changes</a>{/if}
         </article>
       {/each}

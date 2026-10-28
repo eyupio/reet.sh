@@ -15,7 +15,7 @@ reet agent run
 
 Enrollment stores the controller, personal token, random installation credential, actual hostname, home directory and tracked project directories in a mode-0600 configuration file (`~/.config/reet/agent.json` on Linux; the platform user config directory on macOS). The controller stores a hash of the installation credential. A personal token remains necessary: revoking it also stops access. Configuration is local to the installation; do not copy it to another machine.
 
-`--allow-apply` is optional and off by default. It opts this installation into executing plans approved through the web UI. Without it, scans and previews work, but remote apply reports a failure without changing skills. The connection wizard has an explicit checkbox to include this option.
+`--allow-apply` is optional and off by default. It opts this installation into executing plans approved through the web UI. Without it, scans and previews work, but remote apply reports a failure without changing skills. The connection wizard has an explicit checkbox to include this option. To change the switch later, run `reet agent allow-apply on` (or `off`) on the machine; a running agent reads the change on its next job, so no re-enrollment is needed. Only the machine itself can flip it: the web UI never turns remote apply on.
 
 Enroll projects with repeatable absolute paths:
 
@@ -23,7 +23,7 @@ Enroll projects with repeatable absolute paths:
 reet agent enroll --env work-laptop --project /work/app --project /work/docs --allow-apply
 ```
 
-An agent operates only in its enrolled home/project scopes. Create an empty supported skills directory first when connecting a machine with no installed skills; the Machines page supplies the commands. The agent does not install the agent application itself.
+An agent operates only in its enrolled home/project scopes. A missing skills directory is treated as an empty scope: preview shows what would be installed, and apply creates the directory before writing the first skill. On an older agent that refuses a missing directory, create it with the command the Machines or Sync page shows. The agent does not install the agent application itself.
 
 Use `--config /absolute/path/agent.json` for a different configuration location, consistently for enroll/run/status/restore. The process reports inventories once per minute and polls every five seconds. `reet agent run --once` performs one poll/job, or an inventory refresh when there is no job, for use with a scheduler. Keep `reet agent run` under your usual process supervisor if it should survive logout. It is a scanner/controller client and does not start another web server.
 
@@ -73,7 +73,7 @@ Each machine card shows the running build (`v1.2.3`, or `dev` plus the source co
 
 An update may wait behind another queued job or a plan awaiting approval; those jobs do not block it. It is refused only while an operation is still running on the machine, or while another update is already queued. A running job that has sent no result for ten minutes is treated as failed before this check, so an interrupted attempt does not keep blocking later updates.
 
-Queued or awaiting-approval jobs can be cancelled. Running operations are not presented as cancellable filesystem transactions. Failed or cancelled jobs offer **Retry with fresh preview/scan**, so an old approved plan is never blindly replayed. Distinct agent scopes may queue read-only previews together. Duplicate previews for a scope are blocked, scans wait for active work, and an active scan or apply blocks new previews. Execution remains serial on each installation. Each preview requires its own approval. Execution has an eight-minute command context; work with no result after ten minutes becomes failed and requires inspection and a new preview. A local result is persisted before acknowledgment; reconnecting resends the result rather than reinstalling skills.
+Queued or awaiting-approval jobs can be cancelled. Running operations are not presented as cancellable filesystem transactions. A failed job shows what went wrong, the exact command to run on that machine with a copy button, and **Fix and try again** or **Try again**. A retry always asks for a fresh preview/scan (or repeats the release download for an update), so an old approved plan is never blindly replayed. Commands that must run locally — creating a skills folder on an older agent, or `reet agent allow-apply on` — are shown rather than run from the web. Distinct agent scopes may queue read-only previews together. Duplicate previews for a scope are blocked, scans wait for active work, and an active scan or apply blocks new previews. Execution remains serial on each installation. Each preview requires its own approval. Execution has an eight-minute command context; work with no result after ten minutes becomes failed and requires inspection and a new preview. A local result is persisted before acknowledgment; reconnecting resends the result rather than reinstalling skills.
 
 Removed entries are moved to `.reet-sync-backups/removed-*/SKILL` beside the selected skills directory. Sync activity includes **Copy restore command** for each successfully backed-up removal, including partial failures. Run it on the enrolled machine:
 

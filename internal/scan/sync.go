@@ -368,7 +368,11 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 			return nil, errors.New("unsupported target directory")
 		}
 		targetPath = path
-		if _, err := os.ReadDir(path); err != nil {
+		// A missing skills folder is an empty scope, not a reason to stop. The
+		// install command creates it, and apply makes it first so the lock has a
+		// home. Any other read error still blocks: a folder we cannot read must
+		// never look like an empty one.
+		if _, err := os.ReadDir(path); err != nil && !os.IsNotExist(err) {
 			return nil, fmt.Errorf("cannot read target skills directory: %w", err)
 		}
 		desired := target.Desired
@@ -488,6 +492,9 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		if strings.TrimSpace(line) != target.Target.Name {
 			return errors.New("cancelled; no skills changed")
 		}
+	}
+	if err := os.MkdirAll(targetPath, 0755); err != nil {
+		return fmt.Errorf("cannot create target skills directory: %w", err)
 	}
 	lockPath := filepath.Join(targetPath, ".reet-sync.lock")
 	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)

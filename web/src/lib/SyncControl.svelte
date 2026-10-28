@@ -6,6 +6,7 @@
   import ContentObservation from './ContentObservation.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import CopyButton from './CopyButton.svelte'
+  import SyncProblem from './SyncProblem.svelte'
   import FleetActions from './FleetActions.svelte'
   import { destinationScopes } from './fleet'
   import { dedupeSkills, linked as isLinked, localDuplicates as findLocalDuplicates, sourceConflicts as findSourceConflicts } from './syncSelection'
@@ -159,6 +160,23 @@
       notice = `Automatic sync started for ${group.host}. Additive plans apply on their own; removals wait for review.`
     })
   }
+  function hostOf(job: SyncJob): string {
+    return snapshot.agents?.find(a => a.id === job.agentId)?.host ?? ''
+  }
+  // Failed jobs get the same fresh scan or preview the old per-kind button
+  // offered; an update retries the same release. Nothing replays an old plan.
+  function retryJob(job: SyncJob) {
+    return run(async () => {
+      if (job.kind === 'update') {
+        onupdate(await updateSyncAgent(job.agentId, job.revision || 'latest'))
+        notice = `Update queued again for ${hostOf(job) || 'the machine'}.`
+      } else {
+        const kind = job.kind === 'scan' ? 'scan' : 'preview'
+        onupdate(await queueSyncJob(job.agentId, job.targetId, kind))
+        notice = `Fresh ${kind} queued for ${hostOf(job) || 'the machine'}.`
+      }
+    })
+  }
   async function previewGroup(group: { host: string; items: SyncTarget[] }) {
     const agent = snapshot.agents?.find(a => a.host.toLowerCase() === group.host.toLowerCase())
     if (!agent) return
@@ -273,13 +291,13 @@
 {/if}
 
 
-<section id="sync-jobs" aria-labelledby="sync-jobs-title"><details class="history" open={location.hash === '#sync-jobs' || (snapshot.jobs ?? []).some(j => ['queued','running','awaiting-approval'].includes(j.status))}><summary id="sync-jobs-title">Sync activity ({snapshot.jobs?.length ?? 0}){snapshot.jobs?.[0] ? ` · latest: ${snapshot.jobs[0].status.replaceAll('-', ' ')}` : ''}</summary>
+<section id="sync-jobs" aria-labelledby="sync-jobs-title"><details class="history" open={location.hash === '#sync-jobs' || ['failed','rolled_back'].includes(snapshot.jobs?.[0]?.status ?? '') || (snapshot.jobs ?? []).some(j => ['queued','running','awaiting-approval'].includes(j.status))}><summary id="sync-jobs-title">Sync activity ({snapshot.jobs?.length ?? 0}){snapshot.jobs?.[0] ? ` · latest: ${snapshot.jobs[0].status.replaceAll('-', ' ')}` : ''}</summary>
 {#each snapshot.jobs ?? [] as job (job.id)}
  <article class="control"><h4>{snapshot.agents?.find(a => a.id === job.agentId)?.host || 'Machine'} · {job.kind === 'update' ? 'reet update' : job.kind}</h4><p role="status">{job.status.replaceAll('-', ' ')} · {ago(job.updatedAt)}</p>
- {#if job.message}<p class={job.status === 'failed' || job.status === 'rolled_back' ? 'bad' : ''}>{job.message}</p>{/if}
+ {#if job.message}{#if job.status === 'failed' || job.status === 'rolled_back'}<SyncProblem message={job.message} host={hostOf(job)} site={location.origin} retrying={busy} onretry={canWrite ? () => void retryJob(job) : undefined} />{:else}<p>{job.message}</p>{/if}{/if}
  {#if job.plan.backups?.length}<details><summary>Restore removed skills</summary><p>Run on the enrolled machine. Restore asks for confirmation and never overwrites an existing skill.</p>{#each job.plan.backups as backup}<div class="command"><code>{`reet agent restore --target ${quote(job.targetId)} --backup ${quote(backup)}`}</code><CopyButton text={`reet agent restore --target ${quote(job.targetId)} --backup ${quote(backup)}`} label="Copy restore command" /></div>{/each}</details>{/if}
  {#if job.plan.actions}<details open={job.status === 'awaiting-approval'}><summary>Plan: {job.plan.actions.length} {job.plan.actions.length === 1 ? 'change' : 'changes'}</summary><p><code>{job.plan.directory}</code></p><ul>{#each job.plan.actions as action}<li>{action.add ? 'Install' : 'Remove'} {action.skill.name} <small>{action.skill.source}</small></li>{:else}<li>Already matches the desired set.</li>{/each}</ul></details>{/if}
- {#if canWrite}<div class="actions">{#if job.status === 'awaiting-approval'}<button class="btn primary" disabled={busy} onclick={() => approve(job)}>Review & approve</button>{/if}{#if ['queued','awaiting-approval'].includes(job.status)}<button class="btn quiet" disabled={busy} onclick={() => run(async () => onupdate(await controlSyncJob(job.id, 'cancel')))}>Cancel</button>{/if}{#if job.kind === 'update' && ['failed','cancelled','rolled_back'].includes(job.status)}<button class="btn" disabled={busy} onclick={() => run(async () => onupdate(await updateSyncAgent(job.agentId, job.revision || 'latest')))}>Try update again</button>{:else if job.kind !== 'update' && ['failed','cancelled'].includes(job.status)}<button class="btn" disabled={busy} onclick={() => run(async () => onupdate(await queueSyncJob(job.agentId, job.targetId, job.kind === 'scan' ? 'scan' : 'preview')))}>Retry with fresh {job.kind === 'scan' ? 'scan' : 'preview'}</button>{/if}</div>{/if}
+ {#if canWrite}<div class="actions">{#if job.status === 'awaiting-approval'}<button class="btn primary" disabled={busy} onclick={() => approve(job)}>Review &amp; approve</button>{/if}{#if ['queued','awaiting-approval'].includes(job.status)}<button class="btn quiet" disabled={busy} onclick={() => run(async () => onupdate(await controlSyncJob(job.id, 'cancel')))}>Cancel</button>{/if}{#if job.status === 'cancelled' || (['failed','rolled_back'].includes(job.status) && !job.message)}<button class="btn" disabled={busy} onclick={() => void retryJob(job)}>{job.kind === 'update' ? 'Try update again' : `Retry with fresh ${job.kind === 'scan' ? 'scan' : 'preview'}`}</button>{/if}</div>{/if}
  </article>
 {:else}<p class="hint">No jobs yet. Preview a desired set or request a scan from Machines.</p>{/each}
 </details></section>

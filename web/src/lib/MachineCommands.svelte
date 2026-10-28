@@ -84,7 +84,7 @@
           <CopyButton text={active.commands} label={`Copy ${active.label.toLowerCase()} commands`} />
         </div>
         {#if active.id === 'live' && !enrolled}
-          <p class="hint">Add <code>--allow-apply</code> only on a machine you trust. Removed skills are backed up beside the skill folder.</p>
+          <p class="hint">Add <code>--allow-apply</code> only on a machine you trust, or turn it on later with <code>reet agent allow-apply on</code>. Removed skills are backed up beside the skill folder.</p>
         {/if}
       </div>
     </div>

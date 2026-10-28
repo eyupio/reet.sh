@@ -40,7 +40,7 @@ reet scan --server https://your-reet-instance.example --token "$REET_TOKEN" --en
 
 ## Connect an enrolled scanner
 
-Use `reet agent enroll --server https://reet.sh --env NAME` with your personal `REET_TOKEN`, then `reet agent run`. Add `--allow-apply` during enrollment to enable plans approved in the web UI, and `--project /absolute/path` for tracked project scopes. See [controller sync](controller-sync.md) for private configuration, controls and recovery.
+Use `reet agent enroll --server https://reet.sh --env NAME` with your personal `REET_TOKEN`, then `reet agent run`. Add `--allow-apply` during enrollment to enable plans approved in the web UI (changed later with `reet agent allow-apply on` on that machine), and `--project /absolute/path` for tracked project scopes. See [controller sync](controller-sync.md) for private configuration, controls and recovery.
 
 ## Run the web UI
 

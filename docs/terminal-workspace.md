@@ -310,7 +310,12 @@ execution is disabled. See [the archive contract](terminal-history-archive.md).
   text becomes an attachment. Uploads are held in memory only and are never saved
   in browser storage. A machine that reports uploads off says "Image uploads are
   off on this machine."; an older machine says "Update reet on that machine to
-  attach images."
+  attach images." The machine keeps at most 20 images and 50 MiB per session,
+  removes the folder when the session ends, and sweeps anything older than 24
+  hours. The controller records one audit row with the machine, host, tool, image
+  type and a size bucket only. Uploads can be turned off on the machine with
+  `reet terminal uploads off`; an OSC 52 write can be turned off with
+  `reet terminal clipboard off` (see [remote machine operations](remote-machine-operations.md)).
 
 These interactions use the existing private terminal transport; they do not add a
 new direct SSH adapter. Phone viewport emulation is not a physical keyboard test.

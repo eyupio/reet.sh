@@ -78,8 +78,8 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
     const directory = folder[1].trim()
     return {
       kind: 'skills-folder',
-      title: 'The skills folder is not there yet',
-      detail: `${host} has no folder at ${directory}, so there is nothing to compare. Create it, then try again. A current agent also makes it on its next sync.`,
+      title: 'Skills folder missing',
+      detail: `${host} has no skills folder at ${directory}. Create it there, then retry. A current agent also creates it on its next sync.`,
       commands: [`mkdir -p ${shellQuote(directory)}`],
       hint: 'If this machine uses a custom --config, add it to the command.',
       retry: true,
@@ -89,8 +89,8 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
   if (remoteApply.test(text)) {
     return {
       kind: 'remote-apply',
-      title: 'This machine has not opted in to applying changes',
-      detail: 'Applying is off by default on every machine. Turn it on where the machine is, then try again. Reet will not flip this from the web: that is what stops an approved plan gaining write access on its own.',
+      title: 'Applying changes is off on this machine',
+      detail: `Turn it on at ${host}, then retry. Reet cannot flip it from the web — that is what stops an approved plan writing on its own.`,
       commands: ['reet agent allow-apply on'],
       hint: 'Scans and previews work without it. If the command is unknown, update the CLI with reet upgrade first.',
       retry: true,
@@ -100,8 +100,8 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
   if (backgroundAgent.test(text)) {
     return {
       kind: 'background-agent',
-      title: 'This needs the background agent',
-      detail: 'The update runs in the long-running agent so it can restart into the new build. Start it on the machine, then try again.',
+      title: 'The background agent is not running',
+      detail: `Start it on ${host}, then retry. The update needs the long-running agent so it can restart into the new build.`,
       commands: ['reet agent start', 'reet agent status'],
       retry: true,
       local: true,
@@ -111,7 +111,7 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
     return {
       kind: 'enrollment',
       title: 'This enrollment belongs to another machine or user',
-      detail: `The private configuration on ${host} was made on a different machine or account. Enroll this installation separately. Revoke the old enrollment in Machines first if it is the same machine.`,
+      detail: `The private configuration on ${host} was made elsewhere. Enroll this installation separately. If it is the same machine, revoke the old enrollment in Machines first.`,
       commands: [agentCommand(context), 'reet agent run'],
       retry: true,
       local: true,
@@ -121,7 +121,7 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
     return {
       kind: 'enrollment',
       title: 'This machine is already enrolled',
-      detail: 'A private configuration is already here, so re-enrolling is refused to keep it safe. Check the existing connection instead.',
+      detail: 'A private configuration is already here, so re-enrolling is refused. Check the existing connection instead.',
       commands: ['reet agent status'],
       retry: true,
       local: true,
@@ -132,7 +132,7 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
     return {
       kind: 'project',
       title: 'That project is not part of this enrollment',
-      detail: `The agent only works in the folders it was enrolled with. Add ${project || 'the project'} to this installation's scopes on the machine, then try again.`,
+      detail: `The agent only works in the folders it was enrolled with. Add ${project || 'the project'} to this installation's scopes on the machine, then retry.`,
       commands: [`${agentCommand(context)}${project ? ` --project ${shellQuote(project)}` : ' --project /absolute/path'}`],
       retry: true,
       local: true,
@@ -142,7 +142,7 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
     return {
       kind: 'scan',
       title: 'The scan could not read every folder',
-      detail: 'Reet keeps the last good inventory when part of a scan cannot be read, so a permission problem never looks like a removal. Fix the folder on the machine, then ask for a fresh scan.',
+      detail: 'Reet keeps the last good inventory when part of a scan cannot be read, so a permission problem never looks like a removal. Fix the folder, then ask for a fresh scan.',
       commands: [scanCommand(site(context), host)],
       retry: true,
       local: true,
@@ -152,7 +152,7 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
     return {
       kind: 'skills-folder-unreadable',
       title: 'Reet could not read the skills folder',
-      detail: `The folder exists on ${host} but could not be read. Check its permissions and owner, then try again. Reet will not treat an unreadable folder as empty.`,
+      detail: `The folder exists on ${host} but could not be read. Check its permissions and owner, then retry. Reet will not treat an unreadable folder as empty.`,
       commands: [],
       retry: true,
       local: true,
@@ -162,7 +162,7 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
     return {
       kind: 'paused',
       title: 'Sync is paused for this machine',
-      detail: 'Resume sync jobs in the machine settings, then try again. Pausing stops new jobs and periodic scans; a running operation may finish.',
+      detail: 'Resume sync in the machine settings, then retry. Pausing stops new jobs and periodic scans; a running operation may finish.',
       commands: [],
       retry: false,
       local: false,
@@ -195,7 +195,7 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
     return {
       kind: 'stale-plan',
       title: 'The plan changed before it ran',
-      detail: 'Reet refuses to apply a plan that no longer matches the files or revision it checked. Nothing was changed. A fresh preview is safe.',
+      detail: 'Reet refuses to apply a plan that no longer matches the files or revision it checked. Nothing changed. A fresh preview is safe.',
       commands: [],
       retry: true,
       local: false,
@@ -205,7 +205,7 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
     return {
       kind: 'busy',
       title: 'Another sync is using this machine',
-      detail: 'Wait for the other run to finish, then try again. A stale lock is safe to remove only after checking that no sync is still running.',
+      detail: 'Wait for the other run to finish, then retry. A stale lock is safe to remove only after checking that no sync is still running.',
       commands: [],
       retry: true,
       local: false,
@@ -215,7 +215,7 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
     return {
       kind: 'source',
       title: 'This skill needs a source decision',
-      detail: `${text} Link the skill to a source, or move the other copy aside, then try again.`,
+      detail: `${text} Link the skill to a source, or move the other copy aside, then retry.`,
       commands: [],
       retry: false,
       local: false,

@@ -19,7 +19,7 @@
 <section class="fleet-actions" aria-label="Fleet controls" aria-busy={busy}>
   <div><strong>Fleet controls</strong><p>Refresh inventories or prepare every saved sync set for review.</p></div>
   {#if canWrite}<div class="buttons"><button class="btn" disabled={busy || !scan.operations.length} onclick={() => pending = { kind: 'scan', plan: scan }}>{busy ? 'Queueing…' : 'Scan all'}</button><button class="btn primary" disabled={busy || !sync.operations.length} onclick={() => pending = { kind: 'preview', plan: sync }}>Sync all · preview</button></div>{/if}
-  <p class="hint">{scan.operations.length} machines ready to scan · {sync.operations.length} saved scopes ready to preview. Offline, paused and pending scopes are skipped. Configure destinations in <a href="/sync">Sync</a>.</p>
+  <p class="hint">{scan.operations.length} {scan.operations.length === 1 ? 'machine' : 'machines'} ready to scan · {sync.operations.length} saved {sync.operations.length === 1 ? 'scope' : 'scopes'} ready to preview. Offline, paused and pending scopes are skipped. <a href="#sync-selection">Choose destinations</a>.</p>
   {#if scan.skipped.length || sync.skipped.length}<details><summary>Skipped operations</summary><ul>{#each [...new Set([...scan.skipped, ...sync.skipped])] as reason}<li>{reason}</li>{/each}</ul></details>{/if}
   {#if notice}<p class="feedback" role="status">{notice}</p>{/if}
   {#if failures.length}<div class="failure" role="alert"><strong>Some jobs could not be queued</strong><ul>{#each failures as failure}<li>{failure}</li>{/each}</ul><p>Refresh status before retrying failed destinations.</p></div>{/if}

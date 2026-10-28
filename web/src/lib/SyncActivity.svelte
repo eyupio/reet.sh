@@ -26,6 +26,7 @@
   let local = $state<SyncState | null>(null)
   let error = $state('')
   let dismissed = $state(false)
+  let expanded = $state(false)
   let now = $state(Date.now())
   let refreshing = false
   let wasLive = $state(false)
@@ -45,11 +46,26 @@
   const waiting = $derived(live && activeJobs.every(job => job.status === 'queued') && !activeRuns.length)
   const recentlyFinished = $derived(finishedAt > 0 && now - finishedAt < 15000)
   const show = $derived((open || live || recentlyFinished) && !dismissed)
-  const displayJobs = $derived(activeJobs.length ? activeJobs : latest ? [latest] : [])
+  const displayJobs = $derived(activeJobs.length ? activeJobs.slice(0, 2) : latest ? [latest] : [])
+  const moreJobs = $derived(Math.max(0, activeJobs.length - displayJobs.length))
   const currentTarget = $derived(run && run.cursor < run.targets.length ? (sync?.targets ?? []).find(target => target.target.id === run.targets[run.cursor]) : undefined)
   const progress = $derived(run ? Math.round((run.cursor / Math.max(1, run.targets.length)) * 100) : 0)
-  const title = $derived(waiting ? 'Waiting for machine' : context?.title ?? (live ? run ? (run.status === 'review' ? 'Review sync changes' : 'Syncing your machines') : activeJobs[0] ? activeJobs[0].status === 'awaiting-approval' ? 'Review sync changes' : activeJobs[0].status === 'queued' ? 'Waiting for machine' : activeJobKindLabel(activeJobs[0]) : 'Syncing your machines' : latest ? (latest.status === 'succeeded' ? 'Sync complete' : latest.status === 'failed' ? 'Sync needs attention' : 'Sync stopped') : 'Sync activity'))
-  const subtitle = $derived(context?.note || hostForRunOrJob() || 'All connected machines')
+  const hostName = $derived(context?.host || hostForRunOrJob() || '')
+  const title = $derived.by(() => {
+    if (context?.title) return context.title
+    const suffix = hostName ? ` on ${hostName}` : ''
+    if (waiting) return `Queued${suffix}`
+    if (run) return `${run.status === 'review' ? 'Review needed' : 'Syncing'}${suffix}`
+    if (activeJobs.length) {
+      const job = activeJobs[0]
+      if (job.status === 'awaiting-approval') return `Review needed${suffix}`
+      return `${activeJobKindLabel(job)}${suffix}`
+    }
+    if (latest?.status === 'failed' || latest?.status === 'rolled_back') return `${kindLabel(latest.kind)} failed${suffix}`
+    if (latest?.status === 'succeeded') return `Sync complete${suffix}`
+    return 'Sync activity'
+  })
+  const subtitle = $derived(context?.note && live ? context.note : summaryLine())
   const doneCounts = $derived(latest ? jobPlanCounts(latest) : { installs: 0, removals: 0, total: 0 })
 
   function hostFor(agentId: string): string {
@@ -61,6 +77,23 @@
   function hostForRunOrJob(): string {
     const id = run?.agentId ?? activeJobs[0]?.agentId ?? latest?.agentId
     return id ? hostFor(id) : ''
+  }
+  function kindLabel(kind: string): string {
+    return kind === 'apply' ? 'Apply' : kind === 'scan' ? 'Scan' : kind === 'preview' ? 'Preview' : kind === 'update' ? 'Update' : 'Sync'
+  }
+  function summaryLine(): string {
+    if (waiting) return `${activeJobs.length} ${activeJobs.length === 1 ? 'job' : 'jobs'} waiting for the machine`
+    if (run) return `${run.cursor} of ${run.targets.length} scopes complete${hostName ? ` · ${hostName}` : ''}`
+    if (activeJobs.length > 1) return `${activeJobs.length} jobs in progress`
+    if (activeJobs[0]) return `${scopeOnly(activeJobs[0])} · ${statusText(activeJobs[0])}`
+    if (latest) return `${scopeOnly(latest)} · ${agoLabel(latest.updatedAt, now)}`
+    return context?.host ?? 'All connected machines'
+  }
+  function scopeOnly(job: SyncJob): string {
+    const target = (sync?.targets ?? []).find(item => item.target.id === job.targetId)
+    if (target) return groupLabel(target.target)
+    const env = (sync?.environments ?? []).find(item => item.id === job.targetId)
+    return env ? groupLabel(env) : 'Agent scope'
   }
   function targetLabel(job: SyncJob): string {
     const target = (sync?.targets ?? []).find(item => item.target.id === job.targetId)
@@ -80,7 +113,7 @@
   }
   function tone(job: SyncJob): string {
     if (job.status === 'succeeded') return 'ok'
-    if (job.status === 'failed') return 'bad'
+    if (job.status === 'failed' || job.status === 'rolled_back') return 'bad'
     if (job.status === 'awaiting-approval') return 'warn'
     return 'work'
   }
@@ -101,8 +134,13 @@
     }
   }
 
+  function toggle() {
+    expanded = !expanded
+  }
+
   function close() {
     dismissed = true
+    expanded = false
     onclose?.()
   }
 
@@ -139,6 +177,7 @@
     } else if (wasLive) {
       wasLive = false
       finishedAt = Date.now()
+      expanded = false
     }
   })
 
@@ -152,101 +191,130 @@
   })
 </script>
 
-{#if show}
-  <aside class="sync-dock" class:working={live} aria-label="Sync activity" aria-live="polite">
-    <div class="accent" aria-hidden="true"></div>
-    <header class="dock-head">
-      <div class="dock-id">
-        <span class="orb" class:live={live && !waiting} class:bad={!live && latest?.status === 'failed'} aria-hidden="true">
-          {#if waiting}
-            <span aria-hidden="true">Ⅱ</span>
-          {:else if live}
-            <span class="spin"></span>
-          {:else if latest?.status === 'failed'}
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg>
-          {:else}
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"></path></svg>
-          {/if}
-        </span>
-        <div class="dock-copy">
-          <p>Live sync</p>
-          <h2>{title}</h2>
-          <small>{subtitle}</small>
-        </div>
-      </div>
-      <button type="button" class="dock-close" aria-label="Hide sync activity" onclick={close}>×</button>
-    </header>
+{#snippet orbMark()}
+  <span class="orb" class:live={live && !waiting} class:bad={!live && (latest?.status === 'failed' || latest?.status === 'rolled_back')} aria-hidden="true">
+    {#if waiting}
+      <span aria-hidden="true">Ⅱ</span>
+    {:else if live}
+      <span class="spin"></span>
+    {:else if latest?.status === 'failed' || latest?.status === 'rolled_back'}
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+    {:else}
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"></path></svg>
+    {/if}
+  </span>
+{/snippet}
 
-    {#if run}
-      <div class="run" role="group" aria-label={`Sync run, ${run.cursor} of ${run.targets.length} scopes complete`}>
-        <div class="run-meta"><span>{run.status === 'review' ? 'Review needed' : 'Applying changes'}</span><strong>{run.cursor} / {run.targets.length}</strong></div>
-        <div class="track"><span style:width={`${progress}%`}></span></div>
-        {#if currentTarget}<small>Next: {currentTarget.target.host} · {groupLabel(currentTarget.target)}</small>{/if}
+{#if show}
+  <aside class="sync-dock" class:working={live} class:expanded aria-label="Sync activity" aria-live="polite">
+    <div class="accent" aria-hidden="true"></div>
+    {#if expanded}
+      <header class="dock-head">
+        <div class="dock-id">
+          {@render orbMark()}
+          <div class="dock-copy">
+            <p>{live ? 'Live sync' : 'Sync activity'}</p>
+            <h2>{title}</h2>
+            <small>{subtitle}</small>
+          </div>
+        </div>
+        <div class="dock-actions">
+          <button type="button" class="dock-control" aria-label="Minimise sync activity" aria-expanded="true" onclick={toggle}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 15 6-6 6 6"></path></svg>
+          </button>
+          <button type="button" class="dock-control" aria-label="Hide sync activity" onclick={close}>×</button>
+        </div>
+      </header>
+
+      {#if run}
+        <div class="run" role="group" aria-label={`Sync run, ${run.cursor} of ${run.targets.length} scopes complete`}>
+          <div class="run-meta"><span>{run.status === 'review' ? 'Review needed' : 'Applying changes'}</span><strong>{run.cursor} / {run.targets.length}</strong></div>
+          <div class="track"><span style:width={`${progress}%`}></span></div>
+          {#if currentTarget}<small>Next: {currentTarget.target.host} · {groupLabel(currentTarget.target)}</small>{/if}
+        </div>
+      {/if}
+
+      <div class="dock-body">
+        {#if error}<p class="dock-error" role="alert">{error}</p>{/if}
+        {#each displayJobs as job (job.id)}
+          {@const stages = syncJobStages(job)}
+          {@const counts = jobPlanCounts(job)}
+          <article class="job" class:done={job.status === 'succeeded'} class:failed={job.status === 'failed' || job.status === 'rolled_back'} aria-busy={['queued', 'running'].includes(job.status)}>
+            <div class="job-head">
+              <div><strong>{targetLabel(job)}</strong><small>{job.status === 'queued' ? 'Queued · waiting for the machine to pick up this job' : kindTitle(job)}</small></div>
+              <span class="job-state {tone(job)}">{statusText(job)}</span>
+            </div>
+            <ol class="steps">
+              {#each stages as stage (stage.key)}
+                <li class={stage.state}><span class="step-dot" aria-hidden="true"></span><span>{stage.label}</span></li>
+              {/each}
+            </ol>
+            {#if counts.total}
+              <p class="plan-count">{counts.installs} install{counts.installs === 1 ? '' : 's'}{counts.removals ? ` · ${counts.removals} removal${counts.removals === 1 ? '' : 's'}` : ''}</p>
+              <ul class="plan-list">
+                {#each (job.plan.actions ?? []).slice(0, 5) as action (action.skill.id)}
+                  <li class:remove={!action.add}><span aria-hidden="true">{action.add ? '+' : '−'}</span>{action.skill.name}</li>
+                {/each}
+                {#if (job.plan.actions?.length ?? 0) > 5}<li class="more">+{(job.plan.actions?.length ?? 0) - 5} more</li>{/if}
+              </ul>
+            {:else if job.status === 'succeeded'}
+              <p class="plan-count">{doneCounts.total ? '' : 'Everything already matches. No files needed changing.'}</p>
+            {/if}
+            {#if job.message}
+              {#if job.status === 'failed' || job.status === 'rolled_back'}
+                <SyncProblem message={job.message} host={hostFor(job.agentId)} site={location.origin} compact online={onlineFor(job.agentId)}
+                  retrying={retrying === job.id} onretry={canWrite ? () => void retry(job) : undefined} />
+              {:else}
+                <p class="job-message">{job.message}</p>
+              {/if}
+            {/if}
+            {#if job.status === 'awaiting-approval'}<a class="btn primary review" href="/sync#sync-jobs">Review changes</a>{/if}
+          </article>
+        {/each}
+        {#if !displayJobs.length && !error}<p class="dock-empty">Waiting for the machine to report…</p>{/if}
+        {#if moreJobs}<a class="more-jobs" href="/sync#sync-jobs">+{moreJobs} more {moreJobs === 1 ? 'job' : 'jobs'}</a>{/if}
+      </div>
+
+      <footer class="dock-foot">
+        <span>{live ? 'Updating live' : !latest && open ? 'Starting sync…' : 'Finished'} · {agoLabel(latest?.updatedAt ?? now, now)}</span>
+        <a href="/sync#sync-jobs">View all activity</a>
+      </footer>
+    {:else}
+      <div class="collapsed">
+        <button type="button" class="dock-main" aria-expanded="false" aria-label={`${title}. ${subtitle}. Open sync activity.`} onclick={toggle}>
+          {@render orbMark()}
+          <span class="compact-copy"><strong>{title}</strong><small>{subtitle}</small></span>
+          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+        </button>
+        <button type="button" class="dock-control close" aria-label="Hide sync activity" onclick={close}>×</button>
       </div>
     {/if}
-
-    <div class="dock-body">
-      {#if error}<p class="dock-error" role="alert">{error}</p>{/if}
-      {#each displayJobs as job (job.id)}
-        {@const stages = syncJobStages(job)}
-        {@const counts = jobPlanCounts(job)}
-        <article class="job" class:done={job.status === 'succeeded'} class:failed={job.status === 'failed'} aria-busy={['queued', 'running'].includes(job.status)}>
-          <div class="job-head">
-            <div><strong>{targetLabel(job)}</strong><small>{job.status === 'queued' ? 'Queued · waiting for the machine to pick up this job' : kindTitle(job)}</small></div>
-            <span class="job-state {tone(job)}">{statusText(job)}</span>
-          </div>
-          <ol class="steps">
-            {#each stages as stage (stage.key)}
-              <li class={stage.state}><span class="step-dot" aria-hidden="true"></span><span>{stage.label}</span></li>
-            {/each}
-          </ol>
-          {#if counts.total}
-            <p class="plan-count">{counts.installs} install{counts.installs === 1 ? '' : 's'}{counts.removals ? ` · ${counts.removals} removal${counts.removals === 1 ? '' : 's'}` : ''}</p>
-            <ul class="plan-list">
-              {#each (job.plan.actions ?? []).slice(0, 5) as action (action.skill.id)}
-                <li class:remove={!action.add}><span aria-hidden="true">{action.add ? '+' : '−'}</span>{action.skill.name}</li>
-              {/each}
-              {#if (job.plan.actions?.length ?? 0) > 5}<li class="more">+{(job.plan.actions?.length ?? 0) - 5} more</li>{/if}
-            </ul>
-          {:else if job.status === 'succeeded'}
-            <p class="plan-count">{doneCounts.total ? '' : 'Everything already matches. No files needed changing.'}</p>
-          {/if}
-          {#if job.message}
-            {#if job.status === 'failed' || job.status === 'rolled_back'}
-              <SyncProblem message={job.message} host={hostFor(job.agentId)} site={location.origin} compact online={onlineFor(job.agentId)}
-                retrying={retrying === job.id} onretry={canWrite ? () => void retry(job) : undefined} />
-            {:else}
-              <p class="job-message">{job.message}</p>
-            {/if}
-          {/if}
-          {#if job.status === 'awaiting-approval'}<a class="btn primary review" href="/sync#sync-jobs">Review changes</a>{/if}
-        </article>
-      {/each}
-      {#if !displayJobs.length && !error}<p class="dock-empty">Waiting for the machine to report…</p>{/if}
-    </div>
-
-    <footer class="dock-foot">
-      <span>{live ? 'Updating live' : !latest && open ? 'Starting sync…' : 'Finished'} · {agoLabel(latest?.updatedAt ?? now, now)}</span>
-      <a href="/sync#sync-jobs">Open sync</a>
-    </footer>
   </aside>
 {/if}
 
 <style>
   .sync-dock {
-    position: fixed; z-index: 60; right: 20px; bottom: 20px;
-    width: min(420px, calc(100vw - 32px)); max-height: min(72vh, 660px);
-    display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto;
+    position: fixed; z-index: 60; right: 20px; bottom: calc(20px + var(--bottom-chrome, 0px));
+    width: min(420px, calc(100vw - 32px));
     overflow: hidden; border: 1px solid var(--line-strong); border-radius: 16px;
     background: color-mix(in srgb, var(--card-raised) 94%, transparent);
     box-shadow: var(--shadow);
     backdrop-filter: blur(14px); color: var(--ink);
   }
+  .sync-dock.expanded { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; max-height: min(72vh, 660px); }
   .accent { height: 3px; background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--info) 70%, var(--accent)), var(--accent)); background-size: 200% 100%; }
   .working .accent { animation: glide 2.8s linear infinite; }
   @keyframes glide { to { background-position: -200% 0; } }
-  .dock-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 16px 12px; }
+  .collapsed { display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px 8px; }
+  .dock-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; min-height: 52px; padding: 6px; border: 1px solid transparent; border-radius: 12px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+  .dock-main:hover { border-color: var(--line); background: color-mix(in srgb, var(--bg) 40%, transparent); }
+  .compact-copy { display: grid; gap: 1px; min-width: 0; flex: 1; }
+  .compact-copy strong { font-size: 0.82rem; line-height: 1.3; overflow-wrap: anywhere; }
+  .compact-copy small { color: var(--muted); font-size: 0.71rem; line-height: 1.35; overflow-wrap: anywhere; }
+  .chevron { width: 18px; height: 18px; flex: none; color: var(--muted); }
+  .dock-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 16px 12px 12px 16px; }
   .dock-id { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+  .dock-actions { display: flex; gap: 2px; flex: none; }
   .orb { display: grid; place-items: center; width: 34px; height: 34px; flex: none; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--good) 45%, var(--line)); background: color-mix(in srgb, var(--good) 12%, var(--card)); color: var(--good); }
   .orb.live { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: color-mix(in srgb, var(--accent) 14%, var(--card)); color: var(--accent-text); }
   .orb.bad { border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); background: color-mix(in srgb, var(--bad) 12%, var(--card)); color: var(--bad); }
@@ -258,8 +326,10 @@
   .dock-copy p { margin: 0; color: var(--accent-text); font-size: 0.65rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
   .dock-copy h2 { margin: 0; font: 500 1.12rem/1.25 var(--serif); letter-spacing: -0.02em; overflow-wrap: anywhere; }
   .dock-copy small { color: var(--muted); font-size: 0.74rem; overflow-wrap: anywhere; }
-  .dock-close { flex: none; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); font-size: 1.15rem; line-height: 1; cursor: pointer; }
-  .dock-close:hover { color: var(--ink); border-color: var(--line); }
+  .dock-control { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); font-size: 1.15rem; line-height: 1; cursor: pointer; }
+  .dock-control svg { width: 18px; height: 18px; }
+  .dock-control:hover { color: var(--ink); border-color: var(--line); }
+  .dock-control.close { width: 44px; height: 44px; }
   .run { padding: 0 16px 12px; display: grid; gap: 6px; }
   .run-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 0.72rem; }
   .run-meta strong { color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -299,13 +369,16 @@
   .plan-list li.more { color: var(--muted); }
   .job-message { margin: 0; color: var(--muted); font-size: 0.72rem; line-height: 1.5; overflow-wrap: anywhere; }
   .review { justify-self: start; min-height: 36px; padding: 6px 12px; font-size: 0.76rem; }
+  .more-jobs { color: var(--accent-text); font-size: 0.75rem; font-weight: 600; text-decoration: none; }
+  .more-jobs:hover { text-decoration: underline; }
   .dock-empty { margin: 0; padding: 8px 0; color: var(--muted); font-size: 0.76rem; }
   .dock-error { margin: 0; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line)); border-radius: 8px; color: var(--bad); font-size: 0.75rem; }
   .dock-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 35%, var(--card)); color: var(--muted); font-size: 0.69rem; }
   .dock-foot a { color: var(--accent-text); font-weight: 600; text-decoration: none; }
   .dock-foot a:hover { text-decoration: underline; }
   @media (max-width: 650px) {
-    .sync-dock { right: 12px; left: 12px; bottom: calc(12px + var(--bottom-chrome, 0px)); width: auto; max-height: min(68vh, 560px); }
+    .sync-dock { right: 12px; left: 12px; bottom: calc(12px + var(--bottom-chrome, 0px)); width: auto; }
+    .sync-dock.expanded { max-height: min(58dvh, 520px); }
   }
   @media (prefers-reduced-motion: reduce) {
     .working .accent, .working .spin, .steps li.active .step-dot { animation: none; }

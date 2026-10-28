@@ -207,7 +207,7 @@ try {
  snapshot={...snapshot,agents:snapshot.agents.map(agent=>({...agent,lastSeen:Date.now()})),jobs:[failedJob('r1','a','laptop-shared'),failedJob('r2','b','build-shared')]}
  await page.setViewportSize({width:390,height:844})
  await page.goto(`${base}/sync`)
- const devJob=page.locator('article.control').filter({hasText:'dev-laptop · apply'})
+ const devJob=page.locator('.activity-host').filter({hasText:'dev-laptop'}).locator('.activity-job').filter({hasText:'Apply failed'})
  const devRetry=devJob.getByRole('button',{name:/run it/})
  await devRetry.scrollIntoViewIfNeeded()
  await devRetry.click()
@@ -217,7 +217,8 @@ try {
  expect(writes.at(-1)).toEqual({path:'/api/v2/sync/jobs',body:{agentId:'a',targetId:'laptop-shared',kind:'preview'}})
  await expect(devJob.getByRole('button',{name:/run it/})).toHaveCount(0)
  failRetry=true
- const serverJob=page.locator('article.control').filter({hasText:'build-server · apply'})
+ const serverJob=page.locator('.activity-host').filter({hasText:'build-server'}).locator('.activity-job').filter({hasText:'Apply failed'})
+ await serverJob.locator('summary').click()
  const serverRetry=serverJob.getByRole('button',{name:/run it/})
  await serverRetry.scrollIntoViewIfNeeded()
  await serverRetry.click()

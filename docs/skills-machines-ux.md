@@ -48,17 +48,27 @@ unconnected machines.
 
 ### Live sync activity
 
-`SyncActivity.svelte` is a non-modal dock mounted on Machines and Sync, and on Skills while an
-install is running. It:
+`SyncActivity.svelte` is a non-modal dock mounted on Machines and on Skills while an install is
+running. The Sync page owns its own activity section, so the dock never covers the page that
+already lists the same jobs. The dock:
 
-- appears automatically when a sync job or run is active, and stays for 15 seconds after a
-  run finishes so the outcome is visible from the page that started it;
+- appears as a compact one-line bar when a job starts, rather than opening a panel over the page;
+- expands on demand to the run position (`1 / 3 scopes`), the current scope, a live progress bar
+  and the stage timeline (`Read machine → Plan changes → Apply changes`);
+- stays for 15 seconds after a run finishes so the outcome is visible from the page that started
+  it, and can be minimised or dismissed without losing the work;
 - polls every two seconds while visible, while both pages continue their normal refresh;
-- shows the run position (`1 / 3 scopes`), the current scope, a live progress bar and the
-  stage timeline for the current job (`Read machine → Plan changes → Apply changes`);
-- lists the concrete installs and removals from the plan, the agent's message, and a
-  **Review changes** action when removals or conflicts need a person;
 - keeps motion behind `prefers-reduced-motion` and stacks above the phone bottom navigation.
+
+The Sync page's activity section is the detailed view. It groups by machine, keeps running work
+first, collapses identical failures into one card with their scopes and job count, and folds
+finished jobs into **Earlier activity**. A repeated failure is retried once per scope, so a
+repeated preview cannot queue the same work twice. Only the first job that needs a person opens
+by default; every other card is one press away.
+
+Failure cards say the exact fix once, name the machine, and replace “try again” with “retry”.
+When a machine is offline the commands and retry are hidden and the card says the fix runs on the
+machine, rather than leaving a command that cannot work yet.
 
 ### Add now from a missing badge
 
@@ -111,6 +121,5 @@ running Go server and an enrolled agent for a real end-to-end apply.
 
 - A guided first-run “put this skill on this machine” dialog for people with several agent
   scopes, so the default scope is explained rather than assumed.
-- A machine-level activity history that outlives the 15-second completion window.
 - One vocabulary across the product: choose between “sync set”, “desired set” and
   “saved skills” and use it everywhere.

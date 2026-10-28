@@ -295,7 +295,7 @@
   {/if}
 </section>
 
-<SyncActivity snapshot={syncState} {canWrite} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e) }} />
+{#if view !== 'compare'}<SyncActivity snapshot={syncState} {canWrite} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e) }} />{/if}
 
 {#if joining && canAdd}
   <AddMachineDialog {site} {machines} snapshot={loaded ? syncState : undefined} {accounts} {canWrite} {token} {tokenSetup} context={joining.context} opener={joining.opener}

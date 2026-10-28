@@ -68,8 +68,8 @@ async function launch(options={}) {
    store.setItem = (k, v) => { window.__recordStorage(`${area}.set`, k, String(v)); return set(k, v) }
   }
  })
- // The session page is not under test: it answers with an empty page.
- await opened.page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:200, contentType:'text/html', body:'<title>session</title>'}))
+ // The session page is not under test: it answers with an empty page (unless a test opens the Sessions screen's rail).
+ if (!options.sessionsPage) await opened.page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:200, contentType:'text/html', body:'<title>session</title>'}))
  return {...opened, box}
 }
 // Deterministic in place of a fixed wait: the page's pending work runs (a macrotask after Svelte's effects), then a request
@@ -259,9 +259,11 @@ try {
  // the 56 px strip shows how many are chosen.
  if (run('select on touch, at 320 px and on the strip')) {
   const long = [...fprojects(), blog()].map(p => p.id === 'fp1' ? {...p, name:'the-store-rewrite-with-a-very-long-project-name-indeed'} : p)
-  const phone = await launch({width:320, height:700, touch:true, projects:long})
+  // On a phone the rail is on the Sessions screen (PR H): a long press starts Select there, and the chosen projects go to Home's
+  // launch bar in the address (ids only).
+  const phone = await launch({width:320, height:700, touch:true, projects:long, sessionsPage:true})
   await phone.page.clock.install()
-  await phone.page.goto(base)
+  await phone.page.goto(`${base}/sessions`)
   const card = phone.page.locator('aside.rail .card').filter({hasText:'the-store-rewrite'})
   await card.scrollIntoViewIfNeeded()
   const at = await card.boundingBox()
@@ -272,24 +274,30 @@ try {
   await card.dispatchEvent('pointerup', point)
   const rail = phone.page.locator('aside.rail')
   await expect(rail.getByRole('checkbox',{name:/^the-store-rewrite/})).toHaveAttribute('aria-checked','true')
-  // One chosen: the summary names it, wraps, and keeps Start on the screen.
-  await expect(phone.page.locator('.summary-text')).toContainText('the-store-rewrite-with-a-very-long-project-name-indeed')
-  const one = await startButton(phone.page).boundingBox()
-  expect(one.x + one.width).toBeLessThanOrEqual(320)
-  expect(await phone.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await expect(rail.getByText('1 chosen. Choose at least one more.',{exact:true})).toBeVisible()
   await rail.getByRole('checkbox',{name:/^Site/}).click()
   await rail.getByRole('checkbox',{name:/^Blog/}).click()
   await expect(rail.getByText('3 chosen.',{exact:true})).toBeVisible()
-  await expect(phone.page.locator('.summary-text')).toContainText('3 projects')
-  const s = await startButton(phone.page).boundingBox()
-  expect(s.x + s.width).toBeLessThanOrEqual(320)
   expect(await phone.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   for (const c of await rail.getByRole('checkbox').all()) {
    const b = await c.boundingBox()
    expect(b.height).toBeGreaterThanOrEqual(44)
    expect(b.x + b.width).toBeLessThanOrEqual(320)
   }
+  const go = rail.getByRole('link',{name:'Start in these on Home'})
+  expect((await go.boundingBox()).height).toBeGreaterThanOrEqual(48)
+  await expect(go).toHaveAttribute('href','/?projects=fp1,fp3,fp4')
+  await go.click()
+  // Home names the three in the summary and keeps Start on the screen; nothing about them is stored.
+  await expect(phone.page.locator('.summary-text')).toContainText('3 projects')
+  const s = await startButton(phone.page).boundingBox()
+  expect(s.x + s.width).toBeLessThanOrEqual(320)
+  expect(await phone.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  expect(phone.box.storage.filter(e => /fp\d/.test(e.value) || /fp\d/.test(e.key))).toEqual([])
   // Done leaves Select and gives focus back to the heading's menu button.
+  await phone.page.goto(`${base}/sessions`)
+  await rail.getByRole('button',{name:'Projects menu'}).click()
+  await phone.page.getByRole('menuitem',{name:'Select projects'}).click()
   await rail.getByRole('button',{name:'Done selecting'}).click()
   await expect(rail.getByRole('button',{name:'Projects menu'})).toBeFocused()
   expect(phone.errors).toEqual([])
@@ -1109,7 +1117,7 @@ try {
  if (run('focus is never hidden under the bar')) {
   const many = [...fprojects(), ...['wiki','api','docs','blog'].map((n, i) => fproject(`fq${i}`, n, 'a1', `/home/dev/${n}`, {position:3 + i}))]
   const sessions = Array.from({length:12}, (_, i) => session(`r${i}`, 'a1', `Session number ${i}`, {tool:'claude', projectId:'fp1'}))
-  for (const [width, height, touch, target] of [[834, 1112, true, 'aside.rail .item .more'], [1360, 800, false, '.flight a.row']]) {
+  for (const [width, height, touch, target] of [[834, 1112, true, '.flight a.row'], [1360, 800, false, '.flight a.row']]) {
    const {context,page,errors} = await launch({width, height, touch, projects:many, sessions})
    await page.goto(base)
    await expect(bar(page)).toBeVisible()

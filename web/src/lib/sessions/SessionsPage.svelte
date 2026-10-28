@@ -6,8 +6,9 @@
   import WorktreeDialog from '../WorktreeDialog.svelte'
   import CommandLibrary from '../terminal/CommandLibrary.svelte'
   import AddProjectDialog from '../home/AddProjectDialog.svelte'
+  import ProjectRailHost from '../home/ProjectRailHost.svelte'
   import { addedLine } from '../folderBrowser'
-  import { railState, shortAge, stateWord, type GroupBy } from '../home'
+  import { projectWorktrees, railState, shortAge, stateWord, type GroupBy } from '../home'
   import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
   import type { RunMember } from '../projects'
   import { agentChoicesOf, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, worktreeTargetOf, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
@@ -17,7 +18,8 @@
   // The Sessions page (/sessions): every session across machines from the account-wide listing, grouped as Home groups them
   // (the Group by choice is Home's), with search, filters and each session's actions menu; the projects come below with
   // Add a project. Read again every 15 seconds while in view. A read that fails keeps the last list and says so. Only the
-  // Group by choice is stored (Home's key); the search and filters live on this page only.
+  // Group by choice is stored (Home's key); the search and filters live on this page only. On a tablet or phone the projects
+  // are the full project rail (the phone rail, moved here from Home): its menus, Select and the state words.
   let { userId, onsignedout }: { userId: number; onsignedout: (e: unknown) => void } = $props()
 
   const POLL_MS = 15_000
@@ -56,6 +58,16 @@
   let query = $state(''), sort = $state<SessionSort>('recent')
   let filter = $state<SessionFilter>({ state: '', agent: '', machine: '', yoloOnly: false, worktreeOnly: false, colour: '' })
   let notice = $state<{ text: string; bad?: boolean } | null>(null)
+  let savedWaiting = $state(0)
+  // Tablet and phone widths (the spec's breakpoints): the full rail; a desktop keeps the simple cards (Home has the rail).
+  const NARROW = '(max-width: 1099px)'
+  let narrow = $state(typeof matchMedia === 'function' && matchMedia(NARROW).matches)
+  // Select in the rail: there is no launch bar here, so the chosen projects go to Home's in the address (ids only).
+  let selecting = $state(false), selected = $state<string[]>([])
+  const inRailOrder = (ids: string[]) => (projects ?? []).filter(p => ids.includes(p.id)).map(p => p.id)
+  function setSelecting(on: boolean, first?: FolderProject) { selecting = on; selected = on && first ? [first.id] : [] }
+  function toggleSelected(p: FolderProject) { selected = inRailOrder(selected.includes(p.id) ? selected.filter(x => x !== p.id) : [...selected, p.id]) }
+  $effect(() => { const list = projects; if (list && !selected.every(x => list.some(p => p.id === x))) selected = inRailOrder(selected) })
 
   const life = new AbortController()
   const bounded = () => AbortSignal.any([life.signal, AbortSignal.timeout(POLL_MS)])
@@ -78,6 +90,11 @@
   const agents = $derived(agentChoicesOf(sessions ?? []))
   const on = $derived(filtersOn(filter))
   const running = $derived.by(() => { const m = new Map<string, number>(); for (const s of sessions ?? []) if (s.projectId && (s.state === 'running' || s.state === 'creating')) m.set(s.projectId, (m.get(s.projectId) ?? 0) + 1); return m })
+  const worktrees = $derived(projectWorktrees(sessions ?? []))
+  // Whether each machine reports now (the rail's state words); a machine without a report is not called offline.
+  const reportingNow = $derived(new Map((health ?? []).map(m => [m.agentId, m.state === 'connected'])))
+  // A write's answer from the rail is the list as it now is: it supersedes a read on its way.
+  function settle(next: FolderProject[]) { generation++; loading = false; checking = false; projects = next }
 
   let loading = false, generation = 0
   async function load(explicit = false) {
@@ -95,7 +112,7 @@
       if (s.status === 'fulfilled') sessions = s.value; else bad = true
       if (t.status === 'fulfilled') terminals = t.value; else bad = true
       // The projects keep what was last read; only a first read that fails says so, in their own section.
-      if (p.status === 'fulfilled') { projects = p.value.projects; projectsFailed = false } else projectsFailed = projects === undefined
+      if (p.status === 'fulfilled') { projects = p.value.projects; savedWaiting = p.value.savedWaiting ?? 0; projectsFailed = false } else projectsFailed = projects === undefined
       // A health read that fails keeps the last one: the offline sentences stay as last known.
       if (h.status === 'fulfilled') health = h.value.machines ?? []
       failed = bad
@@ -208,7 +225,9 @@
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void load() }, POLL_MS)
     const wake = () => { if (document.visibilityState === 'visible') void load() }
     document.addEventListener('visibilitychange', wake)
-    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', wake); life.abort() }
+    const query = matchMedia(NARROW), resized = () => { narrow = query.matches }
+    query.addEventListener('change', resized)
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', wake); query.removeEventListener('change', resized); life.abort() }
   })
 </script>
 
@@ -299,23 +318,38 @@
     {/if}
   {/if}
 
-  <section class="projects" aria-labelledby="sessions-projects">
-    <div class="projects-head">
-      <h2 id="sessions-projects">Projects · {projects?.length ?? 0}</h2>
-      <button type="button" class="add" disabled={addBusy} onclick={event => void openAdd(event.currentTarget)}>Add a project</button>
+  {#if narrow}
+    <!-- The phone rail: the projects with their menus, Select and state words. A card (or New session here) opens Home's launch
+         bar on that project; Select hands the chosen projects to it. -->
+    <div class="projects rail-host">
+      <ProjectRailHost variant="sessions" {projects} failed={projectsFailed} {savedWaiting} {sessions} sessionsFailed={failed && sessions === undefined} reporting={reportingNow}
+        {running} known={sessions !== undefined} {worktrees} {selecting} {selected} onselecting={setSelecting} ontoggle={toggleSelected}
+        onchoose={(p) => location.assign(`/?project=${encodeURIComponent(p.id)}`)} signal={bounded} onsettle={settle} onwaiting={(n) => (savedWaiting = n)}
+        onmachines={(m) => (terminals = m)} onnotice={(n) => (notice = n)} onreload={() => void load(true)} onsignedout={signOut}>
+        {#snippet selectAction()}
+          {#if selected.length >= 2}<a class="start-chosen" href={`/?projects=${selected.map(encodeURIComponent).join(',')}`}>Start in these on Home</a>{/if}
+        {/snippet}
+      </ProjectRailHost>
     </div>
-    {#if projectsFailed}<p class="none">Couldn't read your projects just now.</p>
-    {:else if projects !== undefined && projects.length === 0}<p class="none">Add a project to start an agent in one of your folders.</p>
-    {:else if projects}
-      <ul class="project-list">
-        {#each projects as p (p.id)}
-          <li><a class="project-card" href={`/?project=${encodeURIComponent(p.id)}`} aria-label={projectLabel(p)} style={`--project-colour:${projectColourHex(p.colour)}`}>
-            <span class="stripe" aria-hidden="true"></span><span class="pname" title={p.name}>{p.name}</span><span class="pmachine" title={p.machine || 'machine not enrolled'}>{p.machine || 'machine not enrolled'}</span>
-          </a></li>
-        {/each}
-      </ul>
-    {/if}
-  </section>
+  {:else}
+    <section class="projects" aria-labelledby="sessions-projects">
+      <div class="projects-head">
+        <h2 id="sessions-projects">Projects · {projects?.length ?? 0}</h2>
+        <button type="button" class="add" disabled={addBusy} onclick={event => void openAdd(event.currentTarget)}>Add a project</button>
+      </div>
+      {#if projectsFailed}<p class="none">Couldn't read your projects just now.</p>
+      {:else if projects !== undefined && projects.length === 0}<p class="none">Add a project to start an agent in one of your folders.</p>
+      {:else if projects}
+        <ul class="project-list">
+          {#each projects as p (p.id)}
+            <li><a class="project-card" href={`/?project=${encodeURIComponent(p.id)}`} aria-label={projectLabel(p)} style={`--project-colour:${projectColourHex(p.colour)}`}>
+              <span class="stripe" aria-hidden="true"></span><span class="pname" title={p.name}>{p.name}</span><span class="pmachine" title={p.machine || 'machine not enrolled'}>{p.machine || 'machine not enrolled'}</span>
+            </a></li>
+          {/each}
+        </ul>
+      {/if}
+    </section>
+  {/if}
 </div>
 
 {#if context}
@@ -430,6 +464,7 @@
   .more svg { width: 18px; height: 18px; }
   .projects { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
   .projects-head { display: flex; align-items: center; gap: 10px; }
+  .start-chosen { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 16px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-weight: 600; text-decoration: none; }
   .projects-head h2 { flex-grow: 1; margin: 0; font: 600 11px var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
   .add { min-height: 44px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: none; color: var(--ink); font: 500 15px var(--sans); cursor: pointer; }
   .add:hover { background: var(--tint); }

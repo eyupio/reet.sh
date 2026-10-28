@@ -650,14 +650,13 @@ try {
   }
  }
 
- // On a tablet or phone the rail is below In flight: a project chosen by the address is scrolled into view and named.
+ // On a tablet or phone the rail is on the Sessions screen (PR H): a project chosen by the address is the one the launch
+ // bar names, and Home draws no rail.
  if (run('a chosen project is shown on a phone')) {
   const {context,page,errors} = await home({width:390, touch:true})
   await page.goto(`${base}/?project=fp2`)
-  const card = rail(page).getByRole('button',{name:/^Notes, /})
-  await expect(card).toHaveAttribute('aria-current','true')
-  await expect(page.getByText('Showing Notes in Projects below.',{exact:true})).toBeVisible()
-  await expect(card).toBeInViewport()
+  await expect(page.locator('.summary-text b')).toHaveText('Notes')
+  await expect(page.locator('main aside.rail')).toHaveCount(0)
   expect(errors).toEqual([])
   await context.close()
  }
@@ -900,11 +899,11 @@ try {
    if (width >= 1100) {
     expect(await top(needs(page))).toBeCloseTo(await top(inFlight(page)), -1)
    } else {
-    // The rail sits under In flight until the Sessions tab takes it.
-    await expect(rail(page)).toBeVisible()
+    // The rail is on the Sessions screen (PR H); Home is machines, Needs you, then In flight, whose rows open the session screen.
+    await expect(page.locator('main aside.rail')).toHaveCount(0)
     expect(await top(strip(page))).toBeLessThan(await top(needs(page)))
     expect(await top(needs(page))).toBeLessThan(await top(inFlight(page)))
-    expect(await top(inFlight(page))).toBeLessThan(await top(rail(page)))
+    for (const href of await inFlight(page).locator('a.row').evaluateAll(els => els.map(e => e.getAttribute('href')))) expect(href).toMatch(/^\/sessions\?agent=[^&]+&session=/)
     for (const box of await page.locator('main a, main button, main label:has(input[type=radio])').evaluateAll(els => els.filter(e => e.getClientRects().length).map(e => [e.textContent.trim().slice(0,30), e.getBoundingClientRect().height])))
      expect(box[1], `${box[0]} at ${width}px`).toBeGreaterThanOrEqual(44)
    }

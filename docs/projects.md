@@ -65,7 +65,7 @@ card) sets the project's colour; the colour is saved on the project and follows 
 browser. Open the project rail shows the full rail over the page as a 301 px panel starting where the strip is on screen, with every card menu, note and prompt and a
 Close button; while it is open the toggle is named "Close the project rail", Tab stays inside the panel,
 and Escape, Close, the toggle or a press outside closes it and gives focus back to the toggle. On a tablet or phone
-it sits under In flight; the Sessions tab takes it in a later release.
+it is on the Sessions screen, under the session groups (PR H).
 
 Each card shows, in words: a repository diamond (or a folder icon for a plain folder), the name, the
 machine, the base branch (mono) when one is set, the state and the worktrees in use. The state is

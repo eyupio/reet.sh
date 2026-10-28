@@ -744,6 +744,33 @@ try {
   await context.close()
  }
 
+ // A tablet (834 px, touch): Details opens the context panel as a side sheet along the terminal's right edge, from under the
+ // header to the foot of the screen, and every target on the screen and in the sheet is at least 44 px.
+ if (run('tablet details side sheet')) {
+  const {context,page,errors} = await open({width:834, height:1112, touch:true, changed:3})
+  await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
+  const screen = page.locator('.session-screen')
+  const targets = async scope => (await scope.evaluateAll(els => els.filter(e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && !e.closest('.vh, .xterm'))
+   .map(e => { const r = e.getBoundingClientRect(); return [(e.getAttribute('aria-label') || e.textContent).trim().replace(/\s+/g,' ').slice(0,30), Math.round(r.width), Math.round(r.height)] })))
+  // The workspace toolbar, the tab strip and the session's header (the pane keeps its own 40 px terminal controls, as the spec allows).
+  for (const [name,w,h] of await targets(page.locator('.workspace-toolbar a, .workspace-toolbar button, .session-screen .head a, .session-screen .head button')))
+   expect(Math.min(w,h), `"${name}" is ${w}×${h}`).toBeGreaterThanOrEqual(44)
+  await screen.getByRole('button',{name:'Details',exact:true}).click()
+  const sheet = screen.locator('.context-panel')
+  await expect(sheet).toBeVisible()
+  const s = await sheet.boundingBox(), head = await screen.locator('.head').boundingBox(), stage = await screen.locator('.stage').boundingBox(), whole = await screen.boundingBox()
+  expect(Math.round(s.width)).toBe(340)
+  expect(Math.abs(s.x + s.width - (whole.x + whole.width)), 'along the right edge').toBeLessThanOrEqual(1)
+  expect(s.y, 'below the header').toBeGreaterThanOrEqual(head.y + head.height - 1)
+  expect(Math.abs(s.y + s.height - (stage.y + stage.height)), 'down to the foot of the screen').toBeLessThanOrEqual(1)
+  for (const [name,w,h] of await targets(sheet.locator('a, button')))
+   expect(Math.min(w,h), `sheet "${name}" is ${w}×${h}`).toBeGreaterThanOrEqual(44)
+  expect(await noSideScroll(page)).toBe(true)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  if (run('copy branch is announced')) {
   const {context,page,errors} = await open()
   await context.grantPermissions(['clipboard-read','clipboard-write'])
@@ -774,12 +801,14 @@ try {
  // The mock-up's sizes, light and dark, for the fidelity check (REET_UI_SCREENSHOTS=<folder>).
  if (shots && run('screens')) {
   await mkdir(shots, {recursive:true})
-  for (const [width,height,touch] of [[1440,900,false],[834,1112,true],[390,844,true]]) for (const theme of ['light','dark']) {
+  for (const [width,height,touch] of [[1440,900,false],[834,1112,true],[390,844,true],[320,700,true]]) for (const theme of ['light','dark']) {
    // Three changed files, as the mock-up lists.
    const {context,page} = await open({width,height,touch,theme,changed:3})
    await page.goto(`${base}/sessions`)
    await expect(rows(page)).toHaveCount(6)
    await page.screenshot({path:`${shots}/sessions-${width}-${theme}.png`})
+   // The phone rail, scrolled into view under the groups.
+   if (width < 1100) { await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight)); await page.waitForTimeout(150); await page.screenshot({path:`${shots}/sessions-${width}-${theme}-rail.png`}); await page.evaluate(() => scrollTo(0, 0)) }
    // The session screen, shaped like the mock-up: four open tabs, the second raised.
    // A phone has no strip (H3 lays it out), so it opens the one session.
    await page.goto(`${base}/sessions?agent=a1&session=${width > 650 ? 's1' : 's2'}`)

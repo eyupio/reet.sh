@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { tick, type Snippet } from 'svelte'
   import type { FolderProject } from '../terminal/api'
   import { railState, worktreesInUse } from '../home'
   import { PROJECT_COLOURS, projectColour, projectColourHex, type ProjectColour } from '../projectColour'
@@ -9,11 +9,11 @@
   // project in the launch bar's sentence (and the card is marked while it is there). Each card's menu (its ⋮ button, a right-click or the
   // menu key): New session here (which also sets the bar's project), Edit, Worktrees, Move up, Move down, Remove from reet
   // and the project's colour. Under 1240 px on a desktop the rail is a 56 px strip of the same
-  // cards; on a tablet or phone it sits under In flight (the Sessions tab takes it in a later release).
+  // cards; on a tablet or phone it is on the Sessions screen (ProjectRailHost, variant 'sessions').
   // Select (the heading's menu, or a long press on a card on touch) turns the cards into checkboxes for Start in several
   // projects: 2 to 12 of them; the strip shows how many are chosen.
   let { projects, failed = false, reporting, running, known = true, worktrees, savedWaiting = 0, chosen = '', busy, importing = false, pending, moving = false,
-    selecting = false, selected = [], onselecting, ontoggle,
+    selecting = false, selected = [], onselecting, ontoggle, variant = 'home', selectAction,
     onadd, onchoose, onedit, onworktrees, onremove, onmove, ondismiss, onimport, oncolour }: {
     projects: FolderProject[] | undefined
     /** The projects could not be read and none were read before. */
@@ -41,6 +41,10 @@
     /** Select on (with the card a long press started it from) or off. */
     onselecting?: (on: boolean, first?: FolderProject) => void
     ontoggle?: (project: FolderProject) => void
+    /** 'sessions': the phone Sessions screen's heading, "Projects · N" with Add a project, as the mock-up draws it. */
+    variant?: 'home' | 'sessions'
+    /** What Select leads to where there is no launch bar to take the chosen projects (the Sessions screen). */
+    selectAction?: Snippet
     onadd: (opener: HTMLElement) => void
     /** Sets the launch bar's project (a card, or New session here). */
     onchoose: (project: FolderProject, opener: HTMLElement) => void
@@ -231,11 +235,11 @@
 
 <svelte:document onpointerdown={outside} />
 
-<aside class="rail" class:open={panelOpen} bind:this={aside} aria-labelledby={`${id}-title`}>
+<aside class="rail" class:open={panelOpen} class:sessions={variant === 'sessions'} bind:this={aside} aria-labelledby={`${id}-title`}>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="full" id={`${id}-full`} bind:this={full} onkeydown={panelKeys} style:top={panelOpen ? `${panelTop}px` : undefined} style:height={panelOpen ? `calc(100dvh - ${panelTop}px)` : undefined}>
     <header>
-      <h2 id={`${id}-title`}>Projects</h2>
+      <h2 id={`${id}-title`}>{variant === 'sessions' ? `Projects · ${projects?.length ?? 0}` : 'Projects'}</h2>
       {#if panelOpen}<button type="button" class="close-panel" aria-label="Close the project rail" onclick={() => closePanel(true)}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18" /></svg></button>{/if}
       {#if projects && projects.length > 1}
         <button type="button" class="head-more" bind:this={headButton} aria-label="Projects menu" aria-haspopup="menu" aria-expanded={headMenu}
@@ -244,7 +248,7 @@
         </button>
       {/if}
       <button type="button" class="add" aria-label="Add a project" disabled={busy} aria-busy={busy} onclick={(e) => onadd(e.currentTarget)}>
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" /></svg>Add
+        {#if variant === 'sessions'}Add a project{:else}<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" /></svg>Add{/if}
       </button>
     </header>
     {#if selecting}
@@ -252,6 +256,7 @@
         <p role="status" aria-live="polite">{pickedLine}</p>
         <button type="button" class="ghost" aria-label="Done selecting" onclick={doneSelecting}>Done</button>
       </div>
+      {@render selectAction?.()}
     {/if}
     {#if savedWaiting > 0}
       <div class="waiting">
@@ -309,10 +314,10 @@
         {/each}
       </ul>
     {/if}
-    <p class="foot">
+    {#if variant !== 'sessions'}<p class="foot">
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="12" rx="2" /><path d="M8 21h8M12 17v4" /></svg>
       Folders are browsed live on the machine
-    </p>
+    </p>{/if}
   </div>
   <div class="strip">
     <button type="button" class="add-icon" aria-label="Add a project" disabled={busy} aria-busy={busy} onclick={(e) => onadd(e.currentTarget)}>
@@ -479,11 +484,14 @@
     .rail.open .full { display: flex; position: fixed; z-index: 20; top: 0; left: 0; width: 301px; height: 100dvh; max-height: none; min-height: 0; background: var(--bg); border-right: 1px solid var(--line-soft); box-shadow: 12px 0 40px var(--scrim); }
   }
   @media (pointer: coarse) and (min-width: 1100px) and (max-width: 1239px) { .add-icon, .manage { width: 44px; min-height: 44px; } .mini { min-height: 44px; } }
-  /* Tablet and phone: the rail is a section under In flight, with the same cards. */
+  /* Tablet and phone: the rail is a section on the Sessions screen, with the same cards. */
   @media (max-width: 1099px) {
     .rail { border-right: 0; }
     .full { position: static; max-height: none; min-height: 0; overflow: visible; padding: 0; }
     h2 { font: 600 21px/1.3 var(--serif); letter-spacing: 0; text-transform: none; color: var(--ink); }
     .foot { margin: 0; }
+    /* The phone Sessions screen draws the heading as "Projects · N" over the cards, with a 44 px Add a project. */
+    .rail.sessions h2 { font: 600 11px/1.3 var(--sans); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+    .rail.sessions .add { height: 44px; padding: 0 14px; border-color: var(--line-strong); border-radius: 10px; font-size: 15px; }
   }
 </style>

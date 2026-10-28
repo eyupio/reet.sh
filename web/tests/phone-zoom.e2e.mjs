@@ -48,6 +48,8 @@ const click = name => async page => { const b = page.getByRole('article', {name:
 // Home with 80-character machine, session and Project names, the More list opened over it, Jump's results and the launch
 // bar's Change sheet opened from Home.
 const home = {path:'/', extra:homeExtra, ready:async page => { for (const name of [HOST80, SESSION80, PROJECT80]) await page.getByText(name).first().waitFor({state:'attached', timeout:5000}) }}
+// The Sessions screen with the same names: on a phone it holds the project rail (PR H).
+const sessionsRail = {path:'/sessions', extra:homeExtra, ready:async page => { for (const name of [SESSION80, PROJECT80]) await page.getByText(name).first().waitFor({state:'attached', timeout:5000}) }}
 const SCREENS = [
  {name:'home', ...home},
  {name:'home: more list', ...home, action:async page => { await page.getByRole('navigation', {name:'Main navigation'}).getByRole('button', {name:'More'}).click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }},
@@ -60,11 +62,9 @@ const SCREENS = [
   const sheet = page.getByRole('dialog', {name:'Change the launch'})
   await sheet.getByRole('button', {name:/^Project: /}).click()
   await page.getByRole('listbox', {name:'Project'}).waitFor({timeout:3000}) }},
- {name:'home: launch run status sheet', ...home, extra:launchRunExtra, action:async page => {
-  const rail = page.locator('aside.rail')
-  const menu = rail.getByRole('button', {name:'Projects menu'}); await menu.scrollIntoViewIfNeeded(); await menu.click()
-  await page.getByRole('menuitem', {name:'Select projects'}).click()
-  for (const name of [PROJECT80, PROJECT80B]) await rail.getByRole('checkbox', {name:new RegExp(`^${name}`)}).click()
+ {name:'home: launch run status sheet', ...home, path:'/?projects=fp80,fp81', extra:launchRunExtra, action:async page => {
+  // The two projects chosen on the Sessions screen's rail arrive in the address (ids only).
+  await page.getByRole('form', {name:'Start a session'}).locator('.summary-text').filter({hasText:'2 projects'}).waitFor({timeout:5000})
   await page.getByRole('form', {name:'Start a session'}).getByRole('button', {name:'Start the session'}).click()
   await page.getByRole('dialog', {name:'Start in several projects'}).getByRole('button', {name:/^Retry /}).waitFor({timeout:3000}) }},
  {name:'sessions', path:'/sessions'},
@@ -78,9 +78,15 @@ const SCREENS = [
  {name:'setups', path:'/profiles'},
  {name:'lists (shared)', path:'/shared'},
  {name:'list page', path:'/lists/7'},
- // The project rail sits under In flight on a phone: a card's menu, and the Edit sheet over the long-named project.
- {name:'home: project menu', ...home, action:async page => { const b = page.getByRole('button', {name:`More for ${PROJECT80}`}); await b.scrollIntoViewIfNeeded(); await b.click(); await page.getByRole('menu').waitFor({timeout:3000}) }},
- {name:'home: edit project sheet', ...home, extra:{...homeExtra, '/api/v2/folder-projects/fp80':homeExtra['/api/v2/folder-projects'].projects[0]}, action:async page => {
+ // The project rail is on the Sessions screen on a phone: a card's menu, and the Edit sheet over the long-named project.
+ {name:'sessions: rail select', ...sessionsRail, action:async page => {
+  const rail = page.locator('aside.rail')
+  const menu = rail.getByRole('button', {name:'Projects menu'}); await menu.scrollIntoViewIfNeeded(); await menu.click()
+  await page.getByRole('menuitem', {name:'Select projects'}).click()
+  for (const name of [PROJECT80, PROJECT80B]) await rail.getByRole('checkbox', {name:new RegExp(`^${name}`)}).click()
+  await rail.getByRole('link', {name:'Start in these on Home'}).waitFor({timeout:3000}) }, extra:launchRunExtra},
+ {name:'sessions: project menu', ...sessionsRail, action:async page => { const b = page.getByRole('button', {name:`More for ${PROJECT80}`}); await b.scrollIntoViewIfNeeded(); await b.click(); await page.getByRole('menu').waitFor({timeout:3000}) }},
+ {name:'sessions: edit project sheet', ...sessionsRail, extra:{...homeExtra, '/api/v2/folder-projects/fp80':homeExtra['/api/v2/folder-projects'].projects[0]}, action:async page => {
   const b = page.getByRole('button', {name:`More for ${PROJECT80}`}); await b.scrollIntoViewIfNeeded(); await b.click()
   await page.getByRole('menuitem', {name:'Edit'}).click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }},
  // The old Project runs, kept to read in Activity, with one opened.
@@ -92,9 +98,9 @@ const SCREENS = [
  {name:'notifications', path:'/notifications'},
  ...['profile','security','sso','sessions','mcp','tokens','backups'].map(p => ({name:`account ${p}`, path:`/account/${p}`})),
  {name:'activity', path:'/activity'}, // /account/activity redirects here with location.replace; measuring the old page mid-reload zoomed it out
- // The Add project sheet behind the rail's Add on Home, with a 120-character folder chosen and the browser open on it: the
- // folder field, the breadcrumb, the folder names and the pinned chosen folder.
- {name:'add project sheet', ...home, extra:{...homeExtra, ...addProjectExtra}, action:async page => {
+ // The Add project sheet behind the rail's Add (on the Sessions screen on a phone), with a 120-character folder chosen and the
+ // browser open on it: the folder field, the breadcrumb, the folder names and the pinned chosen folder.
+ {name:'add project sheet', ...sessionsRail, extra:{...homeExtra, ...addProjectExtra}, action:async page => {
   const add = page.getByRole('button', {name:'Add a project', exact:true}).first()
   await add.scrollIntoViewIfNeeded()
   await add.click()

@@ -130,6 +130,7 @@
 <div class="session-screen" class:theatre class:keyboard class:details-open={detailsOpen}>
   <div class="body">
     <header class="head">
+      <a class="back" href="/sessions" aria-label="Back to sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></a>
       <div class="heading">
         <h2 class="title" title={session.title}>{session.title}</h2>
         <p class="sub">{headerMeta(session, session.createdAt, now)}</p>
@@ -181,6 +182,10 @@
   /* The mock-up's header: 62 px, 28 px in from the sides, the title in Fraunces 21 px over a 13 px line. */
   .head { flex: none; display: flex; align-items: center; gap: 14px; min-height: 62px; padding: 0 28px; box-sizing: border-box; }
   .heading { flex-grow: 1; min-width: 0; }
+  /* Back to the Sessions screen: the phone's slim header has it (the workspace toolbar's arrow gives way there). */
+  .back { display: none; flex: none; width: 44px; height: 44px; align-items: center; justify-content: center; color: var(--ink-soft); border-radius: 10px; }
+  .back svg { width: 22px; height: 22px; }
+  .back:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
   .title { margin: 0; font: 600 21px/1.3 var(--serif); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .sub, .where-phone { margin: 0; font-size: 13px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .where-phone { display: none; }
@@ -233,7 +238,8 @@
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .view, .sub { display: none; }
     .where-phone { display: block; font-size: 12px; }
-    .head { flex-wrap: nowrap; min-height: 52px; padding: 0 4px 0 12px; gap: 6px; }
+    .back { display: flex; }
+    .head { flex-wrap: nowrap; min-height: 52px; padding: 0 4px 0 4px; gap: 6px; }
     .heading { flex: 1 1 0; }
     .title { font: 600 15px/1.3 var(--sans); }
     .pill { height: 28px; padding: 0 10px; gap: 6px; font-size: 12px; }
@@ -243,6 +249,13 @@
   }
   /* A phone held sideways keeps its few rows for the terminal: the pane's own header names the session. H3 lays it out. */
   @media (max-height: 500px) and (pointer: coarse) and (orientation: landscape) { .head { display: none; } }
-  /* With the phone keyboard up the terminal takes the screen: the header steps aside with the site's chrome. */
-  .keyboard .head, .keyboard .live { display: none; }
+  /* With the phone keyboard up the site's chrome steps aside (keyboardChrome) and the slim header stays, as the mock-up's phone
+     session draws it; the status line gives its row to the terminal. */
+  .keyboard .live { display: none; }
+  /* The slim header names the session and its state, so the pane's own header gives its row to the terminal while typing. */
+  @media (max-width: 650px) {
+    .keyboard .stage :global(.pane:not(.maximised) > header) { display: none; }
+    /* The header keeps its 44 px targets but drops its spare 8 px while typing, so the terminal keeps its keyboard-open rows. */
+    .keyboard .head { min-height: 44px; }
+  }
 </style>

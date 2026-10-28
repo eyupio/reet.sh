@@ -47,9 +47,9 @@
   let input = $state<HTMLInputElement>()
   let searchFocused = $state(false)
   let keyboardOpen = $state(false)
-  // Jump in the top bar, or the launch bar's prompt on Home.
-  const editing = $derived(searchFocused || chromeFocus.launch)
-  const barHidden = $derived(keyboardChrome(searchFocused ? 'search' : chromeFocus.launch ? 'launch' : null, keyboardOpen))
+  // Jump in the top bar, the launch bar's prompt on Home, or the session screen's terminal.
+  const editing = $derived(searchFocused || chromeFocus.launch || chromeFocus.session)
+  const barHidden = $derived(keyboardChrome(searchFocused ? 'search' : chromeFocus.launch ? 'launch' : chromeFocus.session ? 'session' : null, keyboardOpen))
 
   function openMore(opener: HTMLElement, all = false) { moreOpener = opener; moreAll = all; moreOpen = true }
   async function openSearch() {
@@ -73,8 +73,9 @@
     else input?.focus()
   }
 
-  // The phone keyboard: the same usable-height rule as the phone terminal (sizing.ts). While Jump or the launch prompt has the
-  // keyboard up the bottom tab bar steps aside (keyboardChrome).
+  // The phone keyboard: the same usable-height rule as the phone terminal (sizing.ts). While Jump, the launch prompt or the
+  // session screen's terminal has the keyboard up the bottom tab bar steps aside, and the top bar too for the last two
+  // (keyboardChrome).
   let measureKeyboard = () => {}
   onMount(() => {
     const tracker = new ViewportTracker()
@@ -100,17 +101,18 @@
     }
   })
 
-  // A field outside the top bar (the launch prompt) taking or losing focus is measured again, as Jump's focus change is.
-  $effect(() => { void chromeFocus.launch; measureKeyboard() })
+  // A field outside the top bar (the launch prompt, the session's terminal) taking or losing focus is measured again, as
+  // Jump's focus change is.
+  $effect(() => { void chromeFocus.launch; void chromeFocus.session; measureKeyboard() })
 
   // The page keeps room at its foot for the phone's tab bar (app.css reads this attribute under the phone rule).
   $effect(() => {
     const root = document.documentElement
     // Off while the bar steps aside for the keyboard, so the page does not keep an empty band above it.
     root.toggleAttribute('data-bottom-tabs', !compact && !barHidden)
-    // The launch prompt with the keyboard up takes the top bar's room too (the spec's keyboard-open rule); Jump lives in it, so
-    // it stays for Jump.
-    root.toggleAttribute('data-chrome-aside', barHidden && !searchFocused && chromeFocus.launch)
+    // The launch prompt or the session's terminal with the keyboard up takes the top bar's room too (the spec's keyboard-open
+    // rule); Jump lives in it, so it stays for Jump.
+    root.toggleAttribute('data-chrome-aside', barHidden && !searchFocused && (chromeFocus.launch || chromeFocus.session))
     return () => { root.removeAttribute('data-bottom-tabs'); root.removeAttribute('data-chrome-aside') }
   })
 </script>

@@ -21,7 +21,7 @@ the bell are for a writer in accounts mode only.
 | Fleet strip | One card per machine from the health report: the status in words (online, paused, reconnecting or offline) with a dot that also differs by shape, the live sessions on it of any kind ("sessions running"), CPU, memory in use and disk space free from a fresh report (or **No reading** for each, with a meter), the worktrees live sessions there are in ("3 worktrees in use"; no record says which other worktrees were removed), and the skills line from the last finished sync check for the current desired skills, or **Not checked**. A machine that is not reporting shows its last known count and says so. **Add a machine** opens the existing dialog on Machines. | OS version: PR C |
 | In flight | Live sessions, and finished ones for a day, grouped by project, Machine or State. A session joins the folder project it was started in (its own project id); the subtitle is `project · machine · branch`. Each row shows the state word and where it came from ("from the session's state" or "from the exit code"). There is no step or progress bar. | Attention states: PR G |
 | Needs you | "Nothing needs you." with a count of 0. Nothing signals today that a session needs the person. | Cards: PR G. Decision cards: a later programme |
-| Project rail | Your folder projects ([Projects](projects.md)): each card's colour, machine, base branch, state in words and worktrees in use; choosing one (or New session here in its menu) sets the launch bar's project; a menu, from the card's button or a right-click, with New session here, Edit, project colour, Worktrees, Move up and down, and Remove from reet. **Select projects** in the heading's menu (or a long press on touch) turns the cards into checkboxes for a start in 2 to 12 projects. **Add** opens the folder browser. Under 1240 px it is a 56 px strip that shows how many are chosen; on a tablet or phone it sits under In flight. | The phone rail on Sessions: PR H |
+| Project rail | Your folder projects ([Projects](projects.md)): each card's colour, machine, base branch, state in words and worktrees in use; choosing one (or New session here in its menu) sets the launch bar's project; a menu, from the card's button or a right-click, with New session here, Edit, project colour, Worktrees, Move up and down, and Remove from reet. **Select projects** in the heading's menu (or a long press on touch) turns the cards into checkboxes for a start in 2 to 12 projects. **Add** opens the folder browser. Under 1240 px it is a 56 px strip that shows how many are chosen. On a tablet or phone it is on the **Sessions** screen instead (see [The Sessions page](#the-sessions-page)); Home there keeps the launch sentence's project slot and its Add a project. | |
 | Launch bar | Docked at the foot: **Describe the job**, **Start** and the launch sentence ("Run Claude Code with default on Store rewrite at studio from main in a fresh worktree"), whose words are the choices. Home has no Start an agent button; the dialog stays for Machines and the Sessions panel. Details: [Start an agent session](start-agent-session.md#on-home-the-launch-bar). | YOLO: a later release |
 | Bell | The Needs you count, which is 0 today and shows no badge. | PR G |
 
@@ -30,8 +30,9 @@ show no session count rather than a false 0. Home refreshes every 15 seconds whi
 fails, it keeps what it last read and says so. The only value it stores in the browser is the Group by choice, under
 `reet.home.groupBy.<account>`.
 
-On a tablet and a phone the page is one column: machines, then Needs you, then In flight. Every target there is at
-least 44 px. The phone's launch bar has a one-line prompt, a round 48 px Start and one summary line with
+On a tablet and a phone the page is one column: machines, then Needs you, then In flight; the project rail is on the
+Sessions screen. Every target there is at least 44 px. In flight's rows open the session screen and say the state with
+the words its header pill uses. The phone's launch bar has a one-line prompt, a round 48 px Start and one summary line with
 **Change**; the tablet's has the shorter sentence with its own Change. Checks:
 [Agents home shell and Home](ui-verification.md#agents-home-shell-and-home--26-october-2026).
 
@@ -45,7 +46,11 @@ Rename, Open in theatre, Copy branch (worktree sessions), End session or Remove 
 and remove worktree (a finished session's own worktree; offered only when its path and branch name the run). A machine
 that is not reporting says "studio is offline" on its group and its sessions stay listed with what needs it disabled.
 A refresh that fails keeps the list with "Couldn't refresh. Showing what we last saw." and **Try again**. Below the
-groups, *Projects · N* lists the folder projects (each opens on Home) with **Add a project**. Skill sync and bulk
+groups, *Projects · N* lists the folder projects with **Add a project**: on a desktop as simple cards (each opens on
+Home), and on a tablet or phone as the full project rail moved here from Home (each card's menu, its state in words and
+**Select projects** or a long press). There a card, or New session here, opens Home's launch bar on that project
+(`/?project=<id>`), and with two or more chosen in Select, **Start in these on Home** hands them to it in the address as
+ids only (`/?projects=<id>,<id>`); nothing is stored. Skill sync and bulk
 inventory actions remain on **More → Sync**. A row links to `/sessions?agent=…&session=…`, which opens that exact
 connector and session ID in the workspace below; `/terminals` redirects to `/sessions` keeping its query. Opening a
 session never creates a shell. Running means a shell lifecycle state, not AI-agent activity. Creating and
@@ -81,8 +86,14 @@ beside it). Its parts:
   opens over the terminal's edge, below the header. Focus moves into it (Close details first), Tab stays inside it, and
   Escape or Close details gives focus back to Details. Docked, the keyboard reaches it after the header and before the
   terminal.
-- **Phones** get one slim header (title, project · machine, state, Details, ⋮); the tabs and Chat | Terminal are left out,
-  and the header steps aside with the keyboard up and when the phone is held sideways. H3 lays out tablets and phones.
+- **Tablets** (651–1099 px): the context panel waits behind **Details** and opens as a 340 px side sheet along the
+  terminal's right edge, from under the header to the foot of the screen; every target in the header, the toolbar, the
+  tabs and the sheet is at least 44 px on touch (the pane keeps its 40 px terminal controls).
+- **Phones** get one slim header (back to Sessions, title, project · machine, state, Details, ⋮); the tabs and Chat |
+  Terminal are left out. With the keyboard up for the terminal the site's top bar steps aside (`keyboardChrome` with the
+  `session` focus, the same usable-height rule as Jump and the launch prompt); the slim header stays, 44 px tall while
+  typing, and the pane's own header gives its row to the terminal, so the keyboard-open rows are unchanged (24 at
+  390 × 844). Held sideways, the slim header gives its rows to the terminal and the toolbar keeps its back arrow.
 
 The terminal route uses compact app navigation and the remaining usable viewport
 (see [Phones](#phones) for how that height is chosen while a keyboard is open).
@@ -442,8 +453,10 @@ its own fade, and the pane footer is hidden (the state stays in the header). At 
 390 the screen shows 13 rows with the keyboard closed.
 
 **Keyboard focus layout.** While the on-screen keyboard is open and the focus is in the
-terminal, the site header, the workspace toolbar and the pane footer are hidden; held
-sideways, the pane header is hidden too (8 rows at 844 × 390 instead of none).
+terminal, the site header (through the shell's `keyboardChrome`, focus `session`), the
+workspace toolbar and the pane footer are hidden; held sideways, the pane header is hidden
+too (8 rows at 844 × 390 instead of none). Upright, the session screen's slim header stays
+and the pane header steps aside instead.
 **Show sessions** stays in the terminal toolbar. Everything returns when the keyboard
 closes or the focus leaves the terminal. Detection needs a coarse pointer, a phone
 screen, an unzoomed page, focus in the terminal and a height at least 25% below the

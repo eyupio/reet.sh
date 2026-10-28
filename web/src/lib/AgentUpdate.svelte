@@ -56,6 +56,8 @@
   // deliberate one.
   const canReview = $derived(canWrite && !busy && !agent.paused)
   const action = $derived(updateAction(phase, { autoUpdate: agent.autoUpdate, updateWaiting }))
+  // A retry says what it will retry: "Try again…" alone does not name the build or the channel.
+  const actionLabel = $derived(action ? (phase === 'failed' || phase === 'rolled_back' ? `Retry update to ${shownTarget}` : action.label) : '')
 
   const tone = $derived(
     phase === 'failed'
@@ -173,9 +175,9 @@
   {#if canWrite && action}
     <footer class="actions">
       {#if action.intent === 'cancel'}
-        <button class="btn" type="button" disabled={busy} onclick={oncancel}>{action.label}</button>
+        <button class="btn" type="button" disabled={busy} onclick={oncancel}>{actionLabel}</button>
       {:else}
-        <button class="btn" class:primary={action.emphasis === 'primary'} type="button" disabled={!canReview} onclick={onreview}>{action.label}</button>
+        <button class="btn" class:primary={action.emphasis === 'primary'} type="button" disabled={!canReview} onclick={onreview}>{actionLabel}</button>
       {/if}
     </footer>
   {/if}

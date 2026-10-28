@@ -1,5 +1,5 @@
-// Connecting the first machine: every entry point opens the same "Add a machine" dialog, the step-by-step panel waits
-// behind it, and the panel's main button says what it needs instead of sitting disabled.
+// Connecting the first machine: one entry point on Machines opens the "Add a machine" dialog, the step-by-step panel
+// waits behind it, and the panel's main button says what it needs instead of sitting disabled.
 import { chromium, expect } from '@playwright/test'
 import { openWorkspace, terminalMachine, active } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
@@ -10,11 +10,13 @@ const run = name => !only || only === name
 const open = options => openWorkspace(browser, options)
 
 try {
- // Every "connect a machine" button leads to the dialog, not to a different flow.
+ // Machines has one connect action; the other pages still deep-link into it.
  if (run('entries')) {
   let {context,page} = await open({width:1440})
   await page.goto(`${base}/machines`)
-  await expect(page.getByRole('link',{name:'Connect your first machine'})).toHaveAttribute('href','/machines#add-machine')
+  await expect(page.getByRole('button',{name:'Add a machine',exact:true})).toBeVisible()
+  await expect(page.getByRole('link',{name:'Connect your first machine'})).toHaveCount(0)
+  await expect(page.getByRole('button',{name:'Connect a machine',exact:true})).toHaveCount(0)
   await context.close()
 
   ;({context,page} = await open({width:1440}))
@@ -31,8 +33,6 @@ try {
   const dialog = page.getByRole('dialog',{name:'Add a machine'})
   await expect(dialog).toBeVisible()
   await expect(dialog.getByLabel('Machine name')).toBeFocused()
-  // Let the page finish loading its inventory: that is when the panel used to open itself.
-  await expect(page.getByRole('heading',{name:'Inventory'})).toBeVisible()
   await page.waitForLoadState('networkidle')
   expect(await panelOpen(), 'step-by-step panel while the dialog is open').toBe(false)
   await dialog.getByRole('button',{name:/Close/}).click()

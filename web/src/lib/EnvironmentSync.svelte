@@ -12,8 +12,10 @@
   import { agentGroups, inventoryMachines } from './machines'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import SyncActivity from './SyncActivity.svelte'
+  import MachineSkillImports from './MachineSkillImports.svelte'
+  import { agoLabel } from './syncOverview'
 
-  let { canWrite, accounts=false, terminalAccess=false, monitorAccess=false, token = '', tokenSetup, view = 'machines', startConnect = false, compact = false, onsignedout }: { canWrite: boolean; accounts?: boolean; terminalAccess?:boolean;monitorAccess?:boolean;token?: string; tokenSetup?: Snippet; view?: 'machines' | 'compare'; startConnect?: boolean; compact?: boolean; onsignedout?: (e: unknown) => void } = $props()
+  let { canWrite, accounts=false, terminalAccess=false, monitorAccess=false, token = '', tokenSetup, view = 'machines', startConnect = false, onsignedout }: { canWrite: boolean; accounts?: boolean; terminalAccess?:boolean;monitorAccess?:boolean;token?: string; tokenSetup?: Snippet; view?: 'machines' | 'compare'; startConnect?: boolean; onsignedout?: (e: unknown) => void } = $props()
 
   let syncState = $state<SyncState>({ environments: [], targets: [] })
   let machines = $derived(inventoryMachines(syncState.machines ?? []))
@@ -52,6 +54,7 @@
   // Set when the dialog was opened from the Private skills dialog and a folder was chosen for the new machine: the fleet opens
   // the Private skills dialog on it once and clears this.
   let landing = $state<{ environmentId: string; name?: string; note: string } | null>(null)
+  let importSource = $state<{ environmentId: string; name: string } | null>(null)
   let justAdded = $state('')
   let justAddedTimer: ReturnType<typeof setTimeout> | undefined
   const initialSetupMode = new URLSearchParams(location.search).get('setup') === 'scratch' ? 'scratch' : 'connect'
@@ -74,7 +77,6 @@
     ++loadGeneration
     syncState = next
     loaded = true
-    if (!arrivedForDialog && inventoryMachines(next.machines ?? []).length === 0) setupOpen = true
   }
   function fresh(env: SyncEnvironment): boolean { return env.scannedAt > now - (env.agent === 'reet-server' ? 5 * 60000 : 14 * 86400000) }
   function when(at: number): string { return at ? new Date(at).toLocaleString() : 'Not reported yet' }
@@ -126,7 +128,6 @@
       loaded = true
       loadFailure = undefined
       lastRefresh = Date.now()
-      if (!loadedOnce && !arrivedForDialog && inventoryMachines(next.machines ?? []).length === 0) setupOpen = true
       loadedOnce = true
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
@@ -222,19 +223,15 @@
 </script>
 
 <section class="sync" aria-labelledby="sync-title">
-  <header class="section-head">
-    <div>
-      <p class="eyebrow">Machines &amp; sync</p>
-      <h2 id="sync-title">{view === 'machines' ? 'Inventory' : 'Compare & sync'}</h2>
-    </div>
-    <div class="head-actions">
-      {#if canAdd && !visibleMachines.length}<button class="btn" type="button" data-add-machine onclick={(event) => openJoin(event.currentTarget)}>Add a machine</button>{/if}
-      <button class="btn quiet" type="button" onclick={() => load()} disabled={loading || busy}>{loading ? 'Refreshing…' : 'Refresh status'}</button>
-    </div>
-  </header>
-  {#if !compact}<p class="lede">{reportedMachines.length ? 'Your machines are one unit here: agent scopes live inside each machine, and every command is ready to run on that machine.' : 'Bring a machine in, scan what its agents have installed, and sync the skills and setups you want.'}</p>{/if}
+  <h2 class="vh" id="sync-title">{view === 'machines' ? 'Machines' : 'Compare & sync'}</h2>
+  <div class="page-tools">
+    {#if view === 'machines' && canAdd}<button class="btn primary" type="button" data-add-machine onclick={(event) => openJoin(event.currentTarget)}>Add a machine</button>{/if}
+    {#if view === 'machines' && canWrite && !canAdd}<button class="btn" type="button" onclick={() => openSetup()}>Connect a machine</button>{/if}
+    {#if view === 'machines' && canWrite && visibleMachines.length}<button class="btn quiet" type="button" onclick={() => (importSource = { environmentId: '', name: '' })}>Import a machine skill…</button>{/if}
+    <button class="btn quiet" type="button" onclick={() => load()} disabled={loading || busy}>{loading ? 'Refreshing…' : 'Refresh status'}</button>
+    <p class="hint tools-status">{#if loading && !loaded}Reading your machines…{:else if lastRefresh}Status refreshed {agoLabel(lastRefresh)} · updates automatically while this page is open{/if}</p>
+  </div>
   {#if focusedMachine}<p class="hint machine-focus"><a href="/machines">All machines</a> / <strong>{focusedMachine.host}</strong></p>{:else if focusHost && !loading}<p class="hint">No machine named {focusHost} is connected. <a href="/machines">Show all machines</a>.</p>{/if}
-  {#if lastRefresh && reportedMachines.length}<p class="hint">Status refreshed {when(lastRefresh)} · updates automatically while this page is open.</p>{/if}
   <div class="banners" bind:this={banner}>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     {#if notice}<p class="notice" role="status">{notice}{#if noticeHref}{' '}<a href={noticeHref}>Open it</a>{/if}</p>{/if}
@@ -251,10 +248,18 @@
       </section>
     {/if}
   {:else}
-    <MachineSetup {terminalAccess} {site} {machines} {profiles} {token} {tokenSetup} {serverBuild} snapshot={syncState} bind:open={setupOpen} bind:host={setupHost} initialMode={initialSetupMode} onrefresh={() => load()} />
-    {#if visibleMachines.length}
-      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {accounts} {terminalAccess} {monitorAccess} onadd={openSetup} onjoin={canAdd ? openJoin : undefined} {landing} onlanded={() => { landing = null }} highlight={justAdded} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e); void showOutcome() }} {onsignedout} onnotice={(message, href) => { notice = message; noticeHref = href ?? ''; void showOutcome() }} />
+    {#if loading && !loaded}
+      <div class="skeleton-grid" role="status" aria-live="polite"><span class="vh">Reading your machines…</span>{#each [0, 1] as i (i)}<div class="skeleton-card" aria-hidden="true"><span></span><span></span><span></span></div>{/each}</div>
+    {:else if visibleMachines.length}
+      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {accounts} {terminalAccess} {monitorAccess} onjoin={canAdd ? openJoin : undefined} {landing} onlanded={() => { landing = null }} highlight={justAdded} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e); void showOutcome() }} {onsignedout} onnotice={(message, href) => { notice = message; noticeHref = href ?? ''; void showOutcome() }} onimport={(source) => (importSource = source)} />
+    {:else if loaded}
+      <section class="sync-empty" aria-labelledby="machines-empty-title">
+        <h3 id="machines-empty-title">No machines connected yet</h3>
+        <p>Connect a machine with the reet CLI. It takes about two minutes: install reet once, save this server's address, then scan. Its skills and agent scopes appear here.</p>
+        {#if !canWrite}<p class="hint">Ask an owner or editor to connect the first machine.</p>{/if}
+      </section>
     {/if}
+    <MachineSetup {terminalAccess} {site} machines={visibleMachines} {profiles} {token} {tokenSetup} {serverBuild} snapshot={syncState} bind:open={setupOpen} bind:host={setupHost} initialMode={initialSetupMode} onrefresh={() => load()} />
   {/if}
 
   {#if view === 'machines' && canWrite && machines.length}
@@ -295,7 +300,10 @@
   {/if}
 </section>
 
+
 {#if view !== 'compare'}<SyncActivity snapshot={syncState} {canWrite} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e) }} />{/if}
+
+{#if importSource}<MachineSkillImports snapshot={syncState} source={importSource} onclose={() => (importSource = null)} />{/if}
 
 {#if joining && canAdd}
   <AddMachineDialog {site} {machines} snapshot={loaded ? syncState : undefined} {accounts} {canWrite} {token} {tokenSetup} context={joining.context} opener={joining.opener}
@@ -312,12 +320,15 @@
   .sync-empty { border: 1px dashed var(--line); border-radius: 12px; padding: 24px; background: var(--card); }
   .sync-empty h3 { margin: 0 0 8px; font: 500 1.4rem/1.2 var(--serif); letter-spacing: -0.02em; }
   .sync-empty p { margin: 0 0 16px; max-width: 60ch; color: var(--muted); font-size: 0.86rem; line-height: 1.7; }
-  .sync { margin-top: 24px; padding: clamp(18px, 3vw, 28px); border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
-  .head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-  .eyebrow { margin: 0 0 4px; color: var(--accent-text); text-transform: uppercase; letter-spacing: .1em; font-size: .7rem; font-weight: 650; }
-  h2 { margin: 0; font: 500 1.7rem/1.15 var(--serif); }
-  .lede { color: var(--muted); max-width: 72ch; margin: 8px 0 0; line-height: 1.6; }
+  .sync { margin-top: 24px; padding: clamp(14px, 2.4vw, 22px); border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+  .page-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .tools-status { flex: 1 1 240px; margin: 0; text-align: right; font-size: .75rem; }
+  .skeleton-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr)); gap: 14px; margin-top: 14px; }
+  .skeleton-card { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+  .skeleton-card span { display: block; height: 12px; border-radius: 6px; background: color-mix(in srgb, var(--line) 70%, var(--card)); }
+  .skeleton-card span:first-child { width: 45%; height: 20px; }
+  .skeleton-card span:last-child { width: 70%; }
+  @media (prefers-reduced-motion: no-preference) { .skeleton-card span { animation: skeleton 1.4s ease-in-out infinite; } @keyframes skeleton { 50% { opacity: .45; } } }
   .hint { color: var(--muted); font-size: .83rem; margin: 6px 0; overflow-wrap: anywhere; }
   .machine-focus a { color: var(--accent-text); }
   .machine-focus strong { color: var(--ink); }
@@ -337,5 +348,7 @@
   @media (max-width: 560px) {
     .command { align-items: stretch; }
     .command :global(button) { width: 100%; }
+    .page-tools .btn { flex: 1 1 auto; }
+    .tools-status { text-align: left; }
   }
 </style>

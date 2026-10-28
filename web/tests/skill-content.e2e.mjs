@@ -1721,11 +1721,11 @@ try{
  await scopeRow('workstation',SHARED).getByText('Content observed',{exact:false}).click()
  await expect(page.getByRole('button',{name:/^Private skills/})).toHaveCount(0)
  await expect(page.getByRole('button',{name:/^Pin a library revision/})).toHaveCount(0)
- await expect(page.getByRole('button',{name:'Private skill imports',exact:true})).toHaveCount(0)
+ await expect(page.getByRole('button',{name:'Import a machine skill…',exact:true})).toHaveCount(0)
  viewer=false;authMode='none';await page.reload()
  await expect(card('workstation')).toBeVisible();await expand('workstation')
  await scopeRow('workstation',SHARED).getByText('Content observed',{exact:false}).click()
- await expect(page.getByRole('button',{name:'Private skill imports',exact:true})).toBeVisible()
+ await expect(page.getByRole('button',{name:'Import a machine skill…',exact:true})).toBeVisible()
  await expect(page.getByRole('button',{name:/^Private skills/})).toHaveCount(0)
  await expect(page.getByRole('button',{name:/^Pin a library revision/})).toHaveCount(0)
  // Neither reads anything of terminals (R16): no terminal endpoint is called for a viewer or a legacy sign-in.

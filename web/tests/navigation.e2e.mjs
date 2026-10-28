@@ -210,6 +210,13 @@ try {
   await expect(tabs(page).getByRole('link',{name:'Sessions',exact:true})).toHaveAttribute('aria-current','page')
   // The session address opens the session, not the list.
   await expect(page.getByRole('region',{name:'Remote terminal workspace'})).toBeVisible()
+  // A trailing slash is the same address: /sessions/ is the list, and /sessions/ with a session opens it.
+  await page.goto(`${base}/sessions/`)
+  await expect(page).toHaveURL(`${base}/sessions`)
+  await expect(page.getByRole('heading',{name:'Sessions',level:1})).toBeVisible()
+  await page.goto(`${base}/sessions/?agent=a&session=s1#x`)
+  await expect(page).toHaveURL(`${base}/sessions?agent=a&session=s1#x`)
+  await expect(page.getByRole('region',{name:'Remote terminal workspace'})).toBeVisible()
   await page.goto(`${base}/projects`)
   await expect(page).toHaveURL(`${base}/`)
   expect(await page.title()).toBe('Home · reet.sh')

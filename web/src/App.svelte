@@ -129,6 +129,8 @@
   // Control is folded into Home and Machines (R4): /control goes to Home. The Sessions tab is /sessions (R17): /terminals goes
   // there keeping its query and fragment, so an old link to a session (?agent=…&session=…) still opens it.
   if (/^\/control\/?$/.test(location.pathname)) window.history.replaceState(window.history.state, '', '/')
+  // /sessions/ (a trailing slash) is /sessions.
+  if (location.pathname === '/sessions/') window.history.replaceState(window.history.state, '', `/sessions${location.search}${location.hash}`)
   if (/^\/terminals\/?$/.test(location.pathname)) window.history.replaceState(window.history.state, '', `/sessions${location.search}${location.hash}`)
   // `/` is Home: the full Home for a writer in accounts mode, the fleet strip alone for everyone else signed in (R16).
   const isHome = location.pathname === '/'
@@ -136,8 +138,8 @@
   const isSkills = location.pathname === '/skills'
   const machineView = new URLSearchParams(location.search).get('view')
   const legacyMachinePage = ['/machines', '/account/machines', '/account/sync'].includes(location.pathname)
-  // /sessions lists the sessions; with a session (or a machine, or the workspace's own view=terminal) in the query it opens the
-  // terminal workspace on it, as /terminals did, until the session screen replaces the workspace.
+  // /sessions lists the sessions; with `session` or `agent` (a session, or a machine's sessions) or the workspace's own
+  // view=terminal in the query it opens the terminal workspace there, with the session screen around the chosen session.
   const sessionsQuery = new URLSearchParams(location.search)
   const isSessionsPage = location.pathname === '/sessions'
   const isTerminals = isSessionsPage && (sessionsQuery.has('session') || sessionsQuery.has('agent') || machineView === 'terminal') || legacyMachinePage && machineView === 'terminal'
@@ -163,7 +165,7 @@
   const isWelcome = location.pathname === '/' || location.pathname === '/welcome'
   const isSignIn = location.pathname === '/signin'
   const isSignUp = location.pathname === '/signup'
-  // Addresses that only make sense before sign-in. Finishing sign-in or setup on one of them continues at Control.
+  // Addresses that only make sense before sign-in. Finishing sign-in or setup on one of them continues at Home (`/`).
   const entryPaths = ['/welcome', '/signin', '/signup', '/setup']
   const listMatch = location.pathname.match(/^\/lists\/(\d+)\/?$/)
   const isList = listMatch !== null
@@ -190,7 +192,7 @@
   const tabs = $derived<Tab[]>([
     { href: '/', label: 'Home', current: isHome },
     ...(sessionsAccess ? [{ href: '/sessions', label: 'Sessions', current: isTerminals || isSessions }] : []),
-    { href: '/machines', label: 'Machines', current: isMachines && !isSync && !isTerminals && !(isSessions && sessionsAccess) },
+    { href: '/machines', label: 'Machines', current: isMachines && !isSync && !((isTerminals || isSessions) && sessionsAccess) },
     { href: '/skills', label: 'Skills', current: isSkills },
     ...(authMode === 'accounts' ? [] : [{ href: '/activity', label: 'Activity' as const, current: isActivity }]),
   ])
@@ -836,7 +838,7 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isActivity ? 'Activity' : isSync ? 'Sync' : isTerminals || isSessions && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found'} · reet.sh</title>
+    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found'} · reet.sh</title>
   {/if}
 </svelte:head>
 

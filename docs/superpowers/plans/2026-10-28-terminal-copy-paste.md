@@ -50,8 +50,8 @@ PNG/JPEG/GIF/WebP by magic bytes, no SVG; **D8** phones get a file picker and a 
   any C0 other than `\n`/`\t` reviews; more than 64 KiB reviews; without bracketed paste, any `\r`/`\n` or more than
   2,000 characters reviews; `force` (saved commands with tabs) always reviews.
 - `paste()` sanitises before review, caps at 240 KiB of the sanitised UTF-8 (refusal sentence unchanged), stores only
-  sanitised text in `pendingPaste`, and skips the modal exactly when the rule says so. A skipped paste shows
-  `Pasted N lines as one block.` (1 line: `Pasted as one block.`).
+  sanitised text in `pendingPaste`, and skips the modal exactly when the rule says so. A skipped multi-line paste
+  shows `Pasted N lines as one block.`; a single-line paste keeps the old silence.
 - `confirmPaste()` sanitises again before `terminal.paste`; the dialog preview shows sanitised text.
 - Nothing is sent when sanitising leaves nothing; feedback says `Nothing to paste.`
 

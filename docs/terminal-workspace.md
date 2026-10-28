@@ -275,8 +275,13 @@ execution is disabled. See [the archive contract](terminal-history-archive.md).
   in editable app fields. Terminal output cannot be cut.
 - Right-click opens the terminal Copy/Paste menu. Shift+right-click preserves the
   browser menu. Arrow keys, Home/End and Escape work in the local clipboard menu.
-- Multiple lines, control characters and large pastes require confirmation. A
-  reconnect invalidates pending paste approval; disconnected input is not replayed.
+- Pasted text is stripped of bracketed-paste markers and every ESC byte. With
+  bracketed paste enabled by the remote program, ordinary multi-line text (no
+  control characters other than tab and newline, at most 64 KiB) goes in as one
+  block without confirmation. Without bracketed paste, multiple lines, control
+  characters and large pastes still require confirmation. A paste that is empty
+  after sanitising sends nothing. A reconnect invalidates pending paste approval;
+  disconnected input is not replayed.
 - OSC 52 clipboard writes and OSC 8 active hyperlinks remain disabled. Terminal
   text is not persisted to browser storage. Font size is a local preference.
 

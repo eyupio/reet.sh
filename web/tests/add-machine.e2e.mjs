@@ -42,6 +42,10 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/machines/health')data={serverNow:Date.now(),machines:[]}
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
  else if(path==='/api/v2/terminal/machines')data={machines:[]}
+ // Machines reads the server's terminal status for a writer in accounts mode: the first-terminal checklist moved here from
+ // Control when Control was folded into Home and Machines (R4, PR H). A viewer and the legacy modes never read it (checked
+ // at the end of this file).
+ else if(path==='/api/v2/terminal/status')data={configured:false,available:false,reason:'disabled'}
  else if(path==='/api/v2/folder-projects')data={projects:[],savedWaiting:0}
  else if(path==='/api/v2/terminal/sessions')data={sessions:[]}
  else if(path==='/api/v2/notifications/count')data={unread:0}
@@ -982,6 +986,7 @@ try{
  expect(await storage()).toBe(storageBefore)
 
  // A viewer and a legacy sign-in mode see no entry at all.
+ const beforeReaders=requests.length
  viewer=true;await page.reload()
  await expect(card('workstation')).toBeVisible()
  await expect(addButton()).toHaveCount(0)
@@ -993,6 +998,8 @@ try{
  await expect(page.getByRole('button',{name:/^Private skills/})).toHaveCount(0)
  await expect(page.getByRole('button',{name:NOT_LISTED,exact:true})).toHaveCount(0)
  await noRequestToAMachine()
+ // Neither reads anything of terminals (R16): no terminal endpoint is called for a viewer or a legacy sign-in.
+ expect(requests.slice(beforeReaders).filter(r=>r.path.startsWith('/api/v2/terminal/')).map(r=>`${r.method} ${r.path}`)).toEqual([])
  expect(unmocked).toEqual([])
  expect(errors).toEqual([])
  console.log('Add a machine UI passed: entry beside the existing action and absent for viewers and legacy sign-in, the header entry before machines load with no state claimed for an unloaded list, no writes on open, name rules shown after touch, the block equal to the builders and free of the token, token refusal and dropped reply, copy of the block alone, Waiting/Connected/First scan/Ready in words, an aged scan judged by the clock now, back-off and recovery, already-here sticky until a new connector, step-by-step hand-over, close and Escape stopping the watch with focus returned, hidden pause and resume, the watch cap and Check again, Use landing with highlight, scroll and focus, sign-out hand-over, the Not listed? entry in the Private skills dialog (writers only) closing it and opening the add dialog with focus returned, no landing for a paused connector, a stale scan or a scan-only agent (Wait here and Close, reason shown), the three-second continue cancelled, fired and stopped by Close, the landing on the preferred agent or the first eligible folder with a note naming it and counting the rest, never on a stale folder, once only across a redraw, no request to a machine, the landing re-checked at the moment it opens (a folder that stopped qualifying opens nothing and says so), focus falling back to Add a machine when the folder button is not drawn, the landing note placed in a status region that already exists, a matrix of ten dialog states (loading, name message, waiting, paused connector, first scan, ready, still waiting, already here with an alias note, ready with the continue notice, landing note) plus the sign-in card at 1360, 768, 390 and 320 in light and dark with no sideways scroll, the command block wrapping, the primary action reachable and uncovered, Escape closing without a write and returning focus, a reduced-motion run, and no browser storage.')

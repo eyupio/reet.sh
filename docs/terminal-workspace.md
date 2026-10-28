@@ -275,6 +275,15 @@ execution is disabled. See [the archive contract](terminal-history-archive.md).
   in editable app fields. Terminal output cannot be cut.
 - Right-click opens the terminal Copy/Paste menu. Shift+right-click preserves the
   browser menu. Arrow keys, Home/End and Escape work in the local clipboard menu.
+- Copy without dragging: **Copy screen** (the visible rows) is in the toolbar and
+  the menu, beside **Copy last 50 lines**, **Copy last 200 lines** and **Copy all**.
+  These read xterm's local buffer, never the network; trailing spaces are trimmed
+  and blank lines kept. They are disabled while the Scrollback snapshot is open,
+  because that view shows different text. An empty range says
+  "There is nothing to copy yet."
+- **Copy when I select text** in Appearance is off unless chosen. It is saved in
+  this browser as `reet-terminal-copy-on-select` and copies a settled, non-empty
+  selection once, saying "Selection copied." Nothing is copied while it is off.
 - Pasted text is stripped of bracketed-paste markers and every ESC byte. With
   bracketed paste enabled by the remote program, ordinary multi-line text (no
   control characters other than tab and newline, at most 64 KiB) goes in as one
@@ -391,7 +400,8 @@ inside the terminal panel. It reads the machine's most recent 2,000 lines / 256 
 using the existing bounded output-history API. Scroll vertically/horizontally,
 select text, use Page Up/Down, or search and move between literal matches. It is a
 read-only snapshot; Refresh obtains newer output, and Back to live returns input
-focus to the same running shell. Nothing is saved in browser storage. The live
+focus to the same running shell. Its header's **Copy all** copies the snapshot it
+is showing without saving it. Nothing is saved in browser storage. The live
 xterm stays mounted and receives redraws behind the reader; no keystrokes from
 reading/search are forwarded. Scrolling an interactive app such as `top` remains
 under that app's control. Tmux's alternate-screen rendering means a browser-only

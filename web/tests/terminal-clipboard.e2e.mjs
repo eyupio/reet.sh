@@ -8,7 +8,7 @@ const now = Date.now(), agentA = 'connector-laptop000000001', sessionA = 'sessio
 const sessions = [{ id: sessionA, agentId: agentA, title: 'Build workspace', state: 'running', createdAt: now, updatedAt: now, exitCode: null }]
 const machines = [{ agentId: agentA, host: 'dev-laptop', ready: true, serverEnabled: true, capabilities: { osUser: 'developer', terminalEnabled: true, terminalControl: true, readiness: 'ready' } }]
 
-async function open(bracketed) {
+async function open(bracketed, { rows = 0 } = {}) {
   const context = await browser.newContext({ viewport: { width: 1360, height: 900 } })
   const page = await context.newPage(), errors = [], inputs = []
   page.on('pageerror', error => errors.push(error.message))
@@ -19,6 +19,7 @@ async function open(bracketed) {
   })
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname
+    if (path === `/api/v2/terminal/sessions/${sessionA}/history`) return route.fulfill({ status: 200, contentType: 'text/plain', body: 'earlier row one\nearder row two\n' })
     let data = {}
     if (path === '/api/v2/auth/status') data = { mode: 'accounts', user: { id: 1, name: 'Clipboard tester', email: 'clipboard@example.test', role: 'owner' } }
     else if (path === '/api/v2/profile') data = { profile: { theme: 'light', shelfView: 'list', cardsExpanded: false } }
@@ -47,7 +48,8 @@ async function open(bracketed) {
           socket.send('{"type":"ready"}')
           // The mode line mirrors what tmux forwards from the active pane.
           const mode = bracketed ? '\x1b[?2004h' : '\x1b[?2004l'
-          socket.send(Buffer.from(`\x1b[?2026h\x1b[2J\x1b[H${mode}clipboard fixture\x1b[?2026l`))
+          const body = rows ? Array.from({ length: rows }, (_, i) => `row-${String(i + 1).padStart(2, '0')}`).join('\r\n') : 'clipboard fixture'
+          socket.send(Buffer.from(`\x1b[?2026h\x1b[2J\x1b[H${mode}${body}\x1b[?2026l`))
         }
       } else inputs.push(message.toString())
     })
@@ -55,7 +57,8 @@ async function open(bracketed) {
   await page.goto(`${base}/sessions?agent=${agentA}&session=${sessionA}`)
   const pane = page.locator('.pane')
   await expect(pane).toHaveAttribute('data-connection-state', 'live')
-  await page.waitForFunction(() => document.querySelector('.xterm-rows')?.textContent.includes('clipboard fixture'))
+  const marker = rows ? `row-${String(rows).padStart(2, '0')}` : 'clipboard fixture'
+  await page.waitForFunction(text => document.querySelector('.xterm-rows')?.textContent.includes(text), marker)
   return { context, page, errors, inputs, pane }
 }
 
@@ -131,6 +134,96 @@ async function pasteFromToolbar(page) {
   expect(errors).toEqual([])
   await context.close()
   console.log('Dialog preview: ESC bytes and bracket markers were absent from the shown text.')
+}
+
+{
+  // Copy screen reads the visible viewport, not the whole scrollback.
+  const { context, page, errors } = await open(true, { rows: 80 })
+  await page.locator('.xterm-screen').click({ button: 'right', position: { x: 30, y: 30 } })
+  await page.getByRole('menuitem', { name: 'Copy screen', exact: true }).click()
+  await expect(page.getByText('Copied the screen.', { exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.__copied || '')).toContain('row-80')
+  const copied = await page.evaluate(() => window.__copied || '')
+  expect(copied).not.toContain('row-01')
+  await expect(page.locator('dialog[open]')).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+  console.log('Copy screen: the visible rows reached the clipboard and the first scrollback row did not.')
+}
+
+{
+  // Last 50 reads exactly 50 buffer lines, clamped to the scrollback base.
+  const { context, page, errors } = await open(true, { rows: 80 })
+  await page.locator('.xterm-screen').click({ button: 'right', position: { x: 30, y: 30 } })
+  await page.getByRole('menuitem', { name: 'Copy last 50 lines', exact: true }).click()
+  await expect(page.getByText('Copied the last 50 lines.', { exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.__copied || '')).toMatch(/(?:^|\n)row-31(?:\n|$)/)
+  const copied = await page.evaluate(() => window.__copied || '')
+  expect(copied).not.toMatch(/(?:^|\n)row-30(?:\n|$)/)
+  expect(copied).toMatch(/(?:^|\n)row-80(?:\n|$)/)
+  expect(errors).toEqual([])
+  await context.close()
+  console.log('Copy last 50 lines: line 31 was the first copied line and line 30 was absent.')
+}
+
+{
+  // Copy all keeps the whole scrollback, including the rows the screen no longer shows.
+  const { context, page, errors } = await open(true, { rows: 80 })
+  await page.locator('.xterm-screen').click({ button: 'right', position: { x: 30, y: 30 } })
+  await page.getByRole('menuitem', { name: 'Copy all', exact: true }).click()
+  await expect(page.getByText('Copied all terminal output.', { exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.__copied || '')).toMatch(/(?:^|\n)row-01(?:\n|$)/)
+  const copied = await page.evaluate(() => window.__copied || '')
+  expect(copied).toMatch(/(?:^|\n)row-80(?:\n|$)/)
+  expect(errors).toEqual([])
+  await context.close()
+  console.log('Copy all: both the first and last rows of the terminal buffer were copied.')
+}
+
+{
+  // The Scrollback snapshot has its own Copy all; the text stays transient.
+  const { context, page, errors } = await open(true)
+  await page.getByRole('button', { name: 'Earlier output', exact: true }).click()
+  const scrollback = page.locator('.scrollback')
+  await expect(scrollback).toBeVisible()
+  await expect(scrollback.locator('pre')).toContainText('earlier row one')
+  await scrollback.getByRole('button', { name: 'Copy all', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => window.__copied || '')).toContain('earlier row one')
+  expect(await page.evaluate(() => window.__copied || '')).toBe('earlier row one\nearder row two\n')
+  await expect(scrollback.getByText('Copied all earlier output.', { exact: true })).toBeVisible()
+  await scrollback.getByRole('button', { name: 'Back to live ↓', exact: true }).click()
+  await expect(scrollback).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+  console.log('Scrollback Copy all: the snapshot reached the clipboard, the status appeared, and the view closed.')
+}
+
+{
+  // Copy-on-select is off by default, survives a reload, and copies a settled selection.
+  const { context, page, errors } = await open(true)
+  await page.getByRole('button', { name: 'Appearance', exact: true }).click()
+  const drawer = page.getByRole('dialog')
+  const toggle = drawer.getByRole('checkbox', { name: 'Copy when I select text' })
+  await expect(toggle).not.toBeChecked()
+  await toggle.check()
+  await page.getByRole('button', { name: 'Close Terminal appearance' }).click()
+  await expect(page.locator('dialog[open]')).toHaveCount(0)
+  expect(await page.evaluate(() => localStorage.getItem('reet-terminal-copy-on-select'))).toBe('1')
+  await page.evaluate(() => { window.__copied = '' })
+  const screen = page.locator('.xterm-screen'), box = await screen.boundingBox()
+  if (!box) throw new Error('The xterm screen has no box to drag across.')
+  await page.mouse.move(box.x + 16, box.y + 16)
+  await page.mouse.down()
+  await page.mouse.move(box.x + Math.min(320, box.width - 16), box.y + 16, { steps: 10 })
+  await page.mouse.up()
+  await expect.poll(() => page.evaluate(() => window.__copied || '')).not.toBe('')
+  await expect(page.getByText('Selection copied.', { exact: true })).toBeVisible()
+  await page.reload()
+  await expect(page.locator('.pane')).toHaveAttribute('data-connection-state', 'live')
+  expect(await page.evaluate(() => localStorage.getItem('reet-terminal-copy-on-select'))).toBe('1')
+  expect(errors).toEqual([])
+  await context.close()
+  console.log('Copy on select: off by default, copied a drag, and the saved flag survived a reload.')
 }
 
 await browser.close()

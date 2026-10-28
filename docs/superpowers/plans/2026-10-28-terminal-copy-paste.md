@@ -70,7 +70,7 @@ PNG/JPEG/GIF/WebP by magic bytes, no SVG; **D8** phones get a file picker and a 
 
 **Behaviour**
 - `screenText(buffer, rows)` reads the visible viewport (`viewportY` … `viewportY + rows - 1`).
-- `lastLines(buffer, n)` reads from `max(baseY, length - n)` to `length`; `n = 0` is empty. Lines use
+- `lastLines(buffer, n)` reads from `max(0, length - n)` to `length`; `n = 0` is empty. Lines use
   `translateToString(true)`; trailing spaces trimmed; blank lines kept; joins with `\n`; clamped to the buffer.
 - Context menu adds `Copy screen`, `Copy last 50 lines`, `Copy last 200 lines`, `Copy all`; the toolbar adds
   `Copy screen` with its own icon. Every new copy path uses `copyText()` from `web/src/lib/clipboard.ts` and reports

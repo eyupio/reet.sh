@@ -16,6 +16,8 @@
   import TerminalIcon from './TerminalIcon.svelte'
   import {initialFontSize,hostSize,ResizeSender,pageViewport,browserViewport,overflowEdges,repaintOnReturn,FONT_MIN,FONT_MAX,LANDSCAPE_PHONE,PHONE_TOUCH,type Size} from './sizing'
   import {pasteNeedsReview,pasteTooLarge,sanitizePaste} from './paste'
+  import {screenText,lastLines,allText} from './copy'
+  import {copyText} from '../clipboard'
   import {paletteFor,terminalPalettes,type CursorShape} from './themes'
   import type {TerminalCommand} from './api'
 
@@ -37,6 +39,8 @@
   let pendingPaste = $state<{text:string;generation:number;execute?:boolean}|null>(null), generation=0, alive=true
   let historyOpen=$state(false),appearanceOpen=$state(false),commandsOpen=$state(false),palette=$state('system'),cursor=$state<CursorShape>('bar')
   let scrollbackOpen=$state(false)
+  let copyOnSelect=$state(false)
+  let selectionTimer: ReturnType<typeof setTimeout> | undefined
   let landscape=$state(false)
   function toggleSessions(){if(maximised){maximised=false;if(!sessionsVisible)onsessions?.()}else onsessions?.()}
   function openScrollback(){historyOpen=false;scrollbackOpen=true}
@@ -46,6 +50,7 @@
   export function disconnect(){connection?.detach()}
   function choosePalette(id:string){palette=id;try{localStorage.setItem('reet-terminal-palette',id)}catch{/* optional preference */}applyTheme?.()}
   function chooseCursor(shape:CursorShape){cursor=shape;if(terminal)terminal.options.cursorStyle=shape;try{localStorage.setItem('reet-terminal-cursor',shape)}catch{/* optional preference */}}
+  function chooseCopyOnSelect(on:boolean){copyOnSelect=on;if(!on){clearTimeout(selectionTimer);selectionTimer=undefined}try{localStorage.setItem('reet-terminal-copy-on-select',on?'1':'0')}catch{/* optional preference */}}
   async function insertSaved(item:TerminalCommand){
     const intended=generation;scrollbackOpen=false;commandsOpen=false;await tick()
     if(!alive||intended!==generation||!live){feedback='Connection changed. Open Commands again after reconnecting; nothing was inserted.';return}
@@ -63,6 +68,16 @@
   const focusHeldElsewhere=()=>!!document.activeElement?.closest('[data-keeps-focus]')
   function restoreFocus() { if(alive&&!scrollbackOpen&&!pendingPaste&&!document.querySelector('dialog[open]')&&!focusHeldElsewhere())terminal?.focus() }
   async function copy() { const text=scrollbackOpen?window.getSelection()?.toString():terminal?.getSelection();if(!text){feedback='Select terminal text first.';return}try{await navigator.clipboard.writeText(text);feedback='Selection copied.'}catch{feedback='Clipboard access was denied. Use your browser’s copy command.'}finally{restoreFocus()} }
+  async function copyBuffer(kind:'screen'|'50'|'200'|'all') {
+    if(scrollbackOpen){feedback='Return to live output before copying.';return}
+    const buffer=terminal?.buffer.active
+    if(!buffer){feedback='There is nothing to copy yet.';return}
+    const text=kind==='screen'?screenText(buffer,terminal?.rows??0):kind==='50'?lastLines(buffer,50):kind==='200'?lastLines(buffer,200):allText(buffer)
+    if(!text){feedback='There is nothing to copy yet.';return}
+    const copied=await copyText(text)
+    feedback=copied?kind==='screen'?'Copied the screen.':kind==='50'?'Copied the last 50 lines.':kind==='200'?'Copied the last 200 lines.':'Copied all terminal output.':'Clipboard access was denied. Use your browser’s copy command.'
+    restoreFocus()
+  }
   function paste(text:string,review=false) {
     feedback=''
     const clean=sanitizePaste(text)
@@ -131,7 +146,7 @@
     // Phones (portrait or landscape) start at 11 px so agent layouts get about 54 columns at 390 px; a stored size always wins.
     const phone=matchMedia(PHONE_TOUCH).matches
     try{fontSize=initialFontSize(localStorage.getItem('reet-terminal-font'),phone)}catch{fontSize=initialFontSize(null,phone)/* optional preference */}
-    try{const saved=localStorage.getItem('reet-terminal-palette');if(saved==='system'||terminalPalettes.some(item=>item.id===saved))palette=saved!;const shape=localStorage.getItem('reet-terminal-cursor');if(shape==='bar'||shape==='block'||shape==='underline')cursor=shape}catch{/* optional preferences */}
+    try{const saved=localStorage.getItem('reet-terminal-palette');if(saved==='system'||terminalPalettes.some(item=>item.id===saved))palette=saved!;const shape=localStorage.getItem('reet-terminal-cursor');if(shape==='bar'||shape==='block'||shape==='underline')cursor=shape;copyOnSelect=localStorage.getItem('reet-terminal-copy-on-select')==='1'}catch{/* optional preferences */}
     const term = new Terminal({ cursorStyle:cursor,cursorBlink:!matchMedia('(prefers-reduced-motion: reduce)').matches,fontSize:14,fontFamily:'"DejaVu Sans Mono", "SFMono-Regular", Consolas, monospace',scrollback:5000,screenReaderMode:true,allowProposedApi:false,windowOptions:{},minimumContrastRatio:4.5 })
     terminal = term;term.options.fontSize=fontSize;term.loadAddon(fit);search=new SearchAddon();term.loadAddon(search);term.open(element)
     const onPaste=(event:ClipboardEvent)=>{event.preventDefault();event.stopImmediatePropagation();paste(event.clipboardData?.getData('text/plain')||'')}
@@ -144,7 +159,19 @@
       if(shortcut==='search'){event.preventDefault();searching=!searching;return false}
       return true
     })
-    const selection=term.onSelectionChange(()=>hasSelection=term.hasSelection())
+    const selection=term.onSelectionChange(()=>{
+      hasSelection=term.hasSelection()
+      clearTimeout(selectionTimer);selectionTimer=undefined
+      if(!copyOnSelect||!hasSelection)return
+      // A drag fires selection changes on every row; copy once the selection settles.
+      selectionTimer=setTimeout(()=>{
+        selectionTimer=undefined
+        if(!alive||!copyOnSelect)return
+        const text=term.getSelection()
+        if(!text)return
+        void copyText(text).then(copied=>{if(!alive)return;feedback=copied?'Selection copied.':'Clipboard access was denied. Use your browser’s copy command.';restoreFocus()})
+      },150)
+    })
     // No terminal-controlled clipboard writes or active OSC hyperlinks.
     const clipboard = term.parser.registerOscHandler(52, () => true)
     const links = term.parser.registerOscHandler(8, () => true)
@@ -191,7 +218,7 @@
     const online=()=>connection?.recover(),visible=()=>{if(document.visibilityState!=='visible'){hiddenAt=performance.now();return}const now=performance.now(),hiddenFor=hiddenAt===null?0:now-hiddenAt;hiddenAt=null;resize();if(repaintOnReturn({hiddenFor,coarse:coarse.matches,sinceRepaint:now-repaintedAt}))redraw();connection?.recover()}
     window.addEventListener('online',online);document.addEventListener('visibilitychange',visible)
     void connection.connect()
-    return ()=>{alive=false;element?.removeEventListener('paste',onPaste,true);search?.dispose();search=undefined;fitTerminal=undefined;sizeSender=undefined;sender.dispose();connection?.dispose();connection=undefined;cancelAnimationFrame(frame);cancelAnimationFrame(clipFrame);sizes.disconnect();observer.disconnect();media.removeEventListener('change',theme);window.removeEventListener('online',online);document.removeEventListener('visibilitychange',visible);selection.dispose();input.dispose();binary.dispose();clipboard.dispose();links.dispose();applyTheme=undefined;term.dispose();terminal=undefined}
+    return ()=>{alive=false;clearTimeout(selectionTimer);selectionTimer=undefined;element?.removeEventListener('paste',onPaste,true);search?.dispose();search=undefined;fitTerminal=undefined;sizeSender=undefined;sender.dispose();connection?.dispose();connection=undefined;cancelAnimationFrame(frame);cancelAnimationFrame(clipFrame);sizes.disconnect();observer.disconnect();media.removeEventListener('change',theme);window.removeEventListener('online',online);document.removeEventListener('visibilitychange',visible);selection.dispose();input.dispose();binary.dispose();clipboard.dispose();links.dispose();applyTheme=undefined;term.dispose();terminal=undefined}
   })
 </script>
 
@@ -205,6 +232,7 @@
       {#if onsessions&&(!sessionsVisible||maximised)}<button class="show-sessions" onclick={toggleSessions} aria-label="Show sessions" title="Show session sidebar"><span aria-hidden="true">›</span><span>Show sessions</span></button>{/if}
       <button onclick={()=>{if(scrollbackOpen)pane?.querySelector<HTMLInputElement>('[aria-label="Find in earlier output"]')?.focus();else searching=!searching}} aria-expanded={searching} aria-label="Search" title="Search terminal output"><TerminalIcon name="search"/><span class="tool-label">Search</span></button>
       <button onclick={()=>void copy()} aria-label="Copy selection" title="Copy selected output"><TerminalIcon name="copy"/><span class="tool-label">Copy</span></button>
+      <button onclick={()=>void copyBuffer('screen')} disabled={scrollbackOpen} aria-label="Copy screen" title="Copy the visible screen"><TerminalIcon name="screen"/><span class="tool-label">Screen</span></button>
       <button onclick={()=>void readClipboard()} disabled={!live||scrollbackOpen} aria-label="Paste" title="Paste clipboard"><TerminalIcon name="paste"/><span class="tool-label">Paste</span></button>
       <span class="tool-divider" aria-hidden="true"></span>
       <button onclick={()=>key("\x03")} disabled={!live||scrollbackOpen} aria-label="Interrupt shell" title="Interrupt · Ctrl+C"><TerminalIcon name="interrupt"/><span class="tool-label">Interrupt</span></button>
@@ -228,10 +256,10 @@
   <div class="screen-frame" bind:this={screenFrame}><div class="screen" class:reading={scrollbackOpen} inert={scrollbackOpen} bind:this={element} role="region" aria-label="Remote terminal screen" oncontextmenu={openContext}></div>{#if scrollbackOpen}<OutputScrollback session={session.id} onclose={()=>void closeScrollback()}/>{/if}</div>
   {#if !landscape}{@render keys()}{/if}
   <footer>{#if footnote}<span class="approvals">{footnote}</span>{/if}<span class="link-state">{scrollbackOpen?'Reading earlier output · your live shell keeps running':live?'Connected privately · input goes directly to this shell':'Input paused · disconnected keystrokes are never replayed'}</span><button type="button" disabled={!live} onclick={()=>void closeScrollback()}>Focus terminal</button></footer>
-{#if contextMenu}<div class="clipboard-menu" role="menu" aria-label="Terminal actions" tabindex="-1" bind:this={menu} style={`left:${contextMenu.x}px;top:${contextMenu.y}px`} onkeydown={contextKey}><button role="menuitem" disabled={!hasSelection} onclick={()=>{contextMenu=null;void copy()}}>Copy selection</button><button role="menuitem" disabled={!live} onclick={()=>{contextMenu=null;void readClipboard()}}>Paste</button><button role="menuitem" onclick={()=>{contextMenu=null;commandsOpen=true}}>Saved commands…</button><button role="menuitem" onclick={()=>{contextMenu=null;historyOpen=true}}>Command history…</button><button role="menuitem" onclick={()=>{contextMenu=null;openScrollback()}}>Earlier output…</button><button role="menuitem" onclick={()=>{contextMenu=null;appearanceOpen=true}}>Appearance…</button>{#if onsessions}<button role="menuitem" onclick={()=>{contextMenu=null;toggleSessions()}}>{sessionsVisible&&!maximised?'Hide sessions':'Show sessions'}</button>{/if}<button role="menuitem" onclick={closeContext}>Close menu</button></div>{/if}
+{#if contextMenu}<div class="clipboard-menu" role="menu" aria-label="Terminal actions" tabindex="-1" bind:this={menu} style={`left:${contextMenu.x}px;top:${contextMenu.y}px`} onkeydown={contextKey}><button role="menuitem" disabled={!hasSelection} onclick={()=>{contextMenu=null;void copy()}}>Copy selection</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('screen')}}>Copy screen</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('50')}}>Copy last 50 lines</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('200')}}>Copy last 200 lines</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('all')}}>Copy all</button><button role="menuitem" disabled={!live} onclick={()=>{contextMenu=null;void readClipboard()}}>Paste</button><button role="menuitem" onclick={()=>{contextMenu=null;commandsOpen=true}}>Saved commands…</button><button role="menuitem" onclick={()=>{contextMenu=null;historyOpen=true}}>Command history…</button><button role="menuitem" onclick={()=>{contextMenu=null;openScrollback()}}>Earlier output…</button><button role="menuitem" onclick={()=>{contextMenu=null;appearanceOpen=true}}>Appearance…</button>{#if onsessions}<button role="menuitem" onclick={()=>{contextMenu=null;toggleSessions()}}>{sessionsVisible&&!maximised?'Hide sessions':'Show sessions'}</button>{/if}<button role="menuitem" onclick={closeContext}>Close menu</button></div>{/if}
 </section>
 
-{#if appearanceOpen}<WorkspaceDialog title="Terminal appearance" placement="drawer" onclose={()=>appearanceOpen=false}><TerminalAppearance {palette} {fontSize} {cursor} onpalette={choosePalette} onfont={changeFont} oncursor={chooseCursor}/></WorkspaceDialog>{/if}
+{#if appearanceOpen}<WorkspaceDialog title="Terminal appearance" placement="drawer" onclose={()=>appearanceOpen=false}><TerminalAppearance {palette} {fontSize} {cursor} {copyOnSelect} onpalette={choosePalette} onfont={changeFont} oncursor={chooseCursor} oncopyselect={chooseCopyOnSelect}/></WorkspaceDialog>{/if}
 {#if commandsOpen}<CommandLibrary onclose={()=>commandsOpen=false} oninsert={item=>void insertSaved(item)} canInsert={live} context={`${user?user+'@':''}${host} · ${session.title}`}/>{/if}
 {#if historyOpen}<CommandHistory session={session.id} context={`${user?user+'@':''}${host} · ${session.title}`} supported={historySupported} canInsert={live} onclose={()=>historyOpen=false} oninsert={(text,run)=>void insertHistory(text,run)} onoutput={openScrollback}/>{/if}
 {#if pendingPaste}<ConfirmDialog title={pendingPaste.execute?'Run this command in the active terminal?':'Paste into the remote shell?'} body={pendingPaste.execute?`Send this command to ${host} · ${session.title} and press Enter. Be at a shell prompt; an open program receives terminal input instead.`:'This text contains multiple lines, control characters, or a large block. It may execute commands immediately.'} details={confirmDetails(pendingPaste.text,pendingPaste.execute)} confirmLabel={pendingPaste.execute?'Run command':'Paste text'} onconfirm={confirmPaste} oncancel={()=>{const running=pendingPaste?.execute;pendingPaste=null;if(!running)terminal?.focus()}} />{/if}

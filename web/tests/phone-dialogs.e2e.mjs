@@ -35,6 +35,7 @@ const live = `/sessions?agent=${sessions[0].agentId}&session=${sessions[0].id}`
 const tool = name => async page => { await page.locator('.pane[data-connection-state=live]').first().waitFor({timeout:5000}); const b = page.locator('.pane').first().getByRole('button', {name, exact:true}).first(); await b.scrollIntoViewIfNeeded(); await b.click() }
 // A choice in a rail card's menu.
 const menu = (project, item) => async page => { await press(`More for ${project}`, {exact:true})(page); await page.getByRole('menuitem', {name:item, exact:true}).click() }
+const cardMenu = item => async page => { await page.getByRole('article',{name:LONGHOST}).locator('summary[aria-label^="More options"]').click(); await page.getByRole('menuitem',{name:item,exact:true}).click() }
 const TEXT = 'input:not([type=checkbox]):not([type=radio]):not([type=hidden])'
 const ended = {'/api/v2/terminal/sessions': {sessions:sessions.map(s => ({...s, state:'ended'}))}}
 // field: the text field typed into with the keyboard open. primary: the main action, when it is not the dialog's
@@ -43,10 +44,10 @@ const DIALOGS = [
  {name:'start agent', path:'/machines', open:p => card(p, 'Start an agent').click(), field:'textarea', sheet:'full'},
  {name:'add machine', path:'/machines#add-machine', field:TEXT, sheet:'full'},
  {name:'private skills', path:'/machines', open:p => p.locator('[data-private-skills]:not([disabled])').first().evaluate(el => el.click()), sheet:'full'},
- {name:'skill imports', path:'/machines', open:press('Private skill imports'), sheet:'full'},
- {name:'machine commands', path:'/machines', open:p => card(p, 'Commands').click(), primary:'Done', sheet:'full'},
- {name:'machine settings', path:'/machines', open:p => card(p, 'Settings').click(), primary:'Forget machine…', sheet:'full'},
- {name:'confirmation', path:'/machines', open:async p => { await card(p, 'Settings').click(); await p.getByRole('button', {name:'Forget machine…'}).click() }, sheet:'bottom'},
+ {name:'skill imports', path:'/machines', open:press('Import a machine skill…'), sheet:'full'},
+ {name:'machine commands', path:'/machines', open:cardMenu('Commands…'), primary:'Done', sheet:'full'},
+ {name:'machine settings', path:'/machines', open:cardMenu('Settings…'), primary:'Forget machine…', sheet:'full'},
+ {name:'confirmation', path:'/machines', open:async p => { await cardMenu('Settings…')(p); await p.getByRole('button', {name:'Forget machine…'}).click() }, sheet:'bottom'},
  // Folder projects in the project rail, on the Sessions screen on a phone (PR H): Add, a card's Edit, Worktrees and Remove from reet.
  {name:'add project', path:'/sessions', open:press('Add a project', {exact:true}), field:TEXT, sheet:'full'},
  {name:'edit project', path:'/sessions', open:menu('site', 'Edit'), field:TEXT, sheet:'full'},

@@ -61,6 +61,8 @@ textarea { width: 100%; resize: vertical; }
 
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line-strong); background: var(--card); border-radius: 8px; padding: 9px 14px; cursor: pointer; min-height: 42px; text-decoration: none; color: var(--ink); }
 .btn:disabled { opacity: 0.5; cursor: default; }
+/* A disabled primary must stop shouting: a neutral fill, not a faded orange. */
+.btn.primary:disabled { opacity: 1; background: var(--line-soft); border-color: var(--line); color: var(--muted); }
 .btn:hover:not(:disabled) { border-color: var(--muted); }
 .btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 90%, var(--ink)); border-color: var(--accent); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }

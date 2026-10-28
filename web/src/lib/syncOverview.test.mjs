@@ -25,6 +25,13 @@ test('machine band names the next useful action instead of a pile of controls', 
   assert.equal(ready.canSync, true)
 })
 
+test('a synced machine has no filled primary action', () => {
+  const synced = machineSyncOverview(machine([group('a', [skill('one')])]), state({ targets: [target('a')], environments: [group('a')] }), now)
+  assert.equal(synced.tone, 'synced')
+  assert.equal(synced.label, 'Everything in sync')
+  assert.equal(synced.canSync, false)
+})
+
 test('an active run wins over counts and exposes live progress', () => {
   const run = { id: 'run-1', agentId: 'agent-1', targets: ['a', 'b'], cursor: 1, status: 'running' }
   const overview = machineSyncOverview(machine([group('a')]), state({ runs: [run], targets: [target('a', [skill('two')])], environments: [group('a')] }), now)

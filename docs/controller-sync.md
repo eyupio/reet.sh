@@ -38,8 +38,8 @@ reet doctor
 2. Review selected-only, machine-only, matching, unknown-source and source-conflict counts. A complete recent scan is required to save the target.
 3. Choose a mode and **Save desired skills**. Exact and bidirectional modes warn when extras may be removed.
 4. Choose **Preview on machine**. The agent reads current files, validates sources/shared folders, and returns a concrete plan.
-5. **Review & approve** that plan. The agent checks enrollment, target, desired revision, local plan hash and filesystem state again before applying. Changed plans fail and require a fresh preview.
-6. Read Sync activity for queued/running/awaiting approval/succeeded/failed/cancelled status. A successful apply rescans and acknowledges the desired revision.
+5. **Apply changes** to approve that plan. The agent checks enrollment, target, desired revision, local plan hash and filesystem state again before applying. Changed plans fail and require a fresh preview.
+6. Read Sync activity for queued/running/awaiting approval/succeeded/failed/cancelled status. The page opens with a **Needs you** strip when anything failed or is waiting for review; full activity sits below the saved sets. A successful apply rescans and acknowledges the desired revision.
 
 The UI refreshes while visible, preserves existing data on refresh failures, and shows when data was last refreshed. Onboarding only confirms a complete scan received after the connection attempt began, rather than accepting an old matching hostname report.
 
@@ -57,7 +57,7 @@ Matching is based on skill identity and source, not file contents or upstream co
 
 ### Sync a machine automatically
 
-Machines with saved desired sets show **Sync saved skills** (or **Sync this machine** for one set). It starts a controller-driven run across that machine's saved scopes without a CLI command. The enrolled agent previews each scope, the controller automatically approves plans that only install or replace entries, and the agent applies them and rescans. Plans that would remove skills stay **awaiting approval** and remain visible in Sync activity; later scopes in the run still continue. **Sync now** beside an individual saved set starts the same automatic flow for that scope. The agent must be enrolled, online and running, and remote apply must already be enabled locally. Use **Pause sync jobs** to stop the run claiming further work.
+Machines with saved desired sets show **Sync saved skills (installs automatically)** (or **Sync now (installs automatically)** for one set). It starts a controller-driven run across that machine's saved scopes without a CLI command. The enrolled agent previews each scope, the controller automatically approves plans that only install or replace entries, and the agent applies them and rescans. Plans that would remove skills stay **awaiting approval** and remain visible in Sync activity; later scopes in the run still continue. **Sync now** beside an individual saved set starts the same automatic flow for that scope. The agent must be enrolled, online and running, and remote apply must already be enabled locally. Use **Pause sync jobs** to stop the run claiming further work.
 
 ## Controls and recovery
 

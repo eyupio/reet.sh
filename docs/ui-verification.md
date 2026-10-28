@@ -1317,3 +1317,17 @@ Checked with `sync-activity.e2e.mjs` in Chromium mobile emulation at 390 × 844,
 - The document keeps the device width and the test records no page errors.
 
 `control.e2e.mjs` also passed with its retry flow moved to the new grouped card, as did `phone-layout`, `phone-zoom` (45 screens at 320, 360, 390 and 412 px) and `empty-states`. Not checked: a physical phone, Safari or Firefox, a screen reader, or a live agent reporting a job.
+
+## Sync page audit — 28 October 2026
+
+Built on the Sync audit in `8bfbda5` and the Machines audit on `989d545`. The compare page now opens on the destination's saved set rather than a blank form, never offers a plain Save with nothing selected, shows the plan actions beside **Apply changes**, names the automatic behaviour before an automatic run, and marks offline machines instead of offering actions that cannot run. Activity moved below the task behind a slim **Needs you** strip; the selection card keeps a sticky save summary; differences are a visible table with a status badge per skill; source and list pickers are named **Source** and **List**; unknown-source rows are disabled with **Link source**; and the policy prose moved into **How sync decides**. The empty state's only action now sits above the bottom tab bar, and the projects strip is left off `/sync`.
+
+Checked in Chromium against fixture data at 1440, 390, 375 and 320 px, light and dark:
+
+- `empty-states.e2e.mjs`: at 320/375/390 the only CTA is in the viewport, its hit-test lands on the link rather than the fixed tab bar, and a connected machine still shows the working form.
+- `control.e2e.mjs`: `/sync` opens on the saved revision (`Editing saved set · revision rev-laptop-shared`, 3 of 3 selected); `?machine=*` with nothing selected offers **Clear this desired set**, never a plain Save; partial save and queue failures, mode confirmation, adoption, source failure and the retry flow still pass.
+- `sync-activity.e2e.mjs`: `#sync-jobs` still lands on the activity heading, duplicate failures stay grouped, and the phone layout does not overflow.
+- `navigation.e2e.mjs`, `phone-layout.e2e.mjs`, `phone-zoom.e2e.mjs` (45 screens at 320–412 px), `machine-import.e2e.mjs`, `skill-content.e2e.mjs`, `add-machine.e2e.mjs`, `first-run.e2e.mjs`, `first-machine.e2e.mjs`, `start-agent.e2e.mjs` and `readiness.e2e.mjs` pass; main's Machines-page rebuild (#244) was merged first, so the Sync heading and labels were checked against that structure.
+- A local check confirmed the sticky save dock stays above the phone tab bar at 375 × 812, and that an awaiting-approval plan lists its installs and removals above **Apply changes** with the same list in the confirmation.
+
+Not checked: a physical phone, Safari or Firefox, a screen reader, or a live agent receiving an automatic run.

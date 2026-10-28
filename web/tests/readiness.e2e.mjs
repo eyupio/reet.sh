@@ -30,7 +30,7 @@ try {
    await expect(page.getByRole('link',{name:/Open sessions|Open terminal/})).toHaveCount(0)
    // Sync (the same page component) keeps its own single way forward and no checklist.
    await page.goto(`${base}/sync`)
-   await expect(page.getByRole('heading',{name:'Sync, on your terms.'})).toBeVisible()
+   await expect(page.getByRole('heading',{name:'Sync',exact:true})).toBeVisible()
    await expect(page.locator('main .btn.primary'), `Sync filled buttons at ${width}px`).toHaveCount(1)
    await expect(page.locator('section.readiness')).toHaveCount(0)
    expect(errors).toEqual([])

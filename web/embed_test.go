@@ -121,6 +121,18 @@ func TestWelcomeKeepsFallbackAndAppRoutesDoNot(t *testing.T) {
 	}
 }
 
+func TestSignedInLandingRequestHidesFallback(t *testing.T) {
+	requireBuilt(t)
+	signedIn := Handler("https://reet.sh", WithSignedIn(func(*http.Request) bool { return true }))
+	if body := get(t, signedIn, "/").Body.String(); strings.Contains(body, "self-hosted workspace") {
+		t.Error("a signed-in landing request should not serve the marketing fallback")
+	}
+	anonymous := Handler("https://reet.sh", WithSignedIn(func(*http.Request) bool { return false }))
+	if body := get(t, anonymous, "/").Body.String(); !strings.Contains(body, "self-hosted workspace") {
+		t.Error("an anonymous landing request should keep the crawlable landing copy")
+	}
+}
+
 func TestStaticAssetsStillServed(t *testing.T) {
 	requireBuilt(t)
 	rec := get(t, Handler(""), "/favicon.svg")

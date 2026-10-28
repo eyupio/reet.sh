@@ -200,6 +200,10 @@ type Server struct {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.h.ServeHTTP(w, r) }
 
+// SignedIn reports whether the request carries a valid account session, so the
+// SPA's static landing fallback can be left out of the served HTML.
+func (s *Server) SignedIn(r *http.Request) bool { return s.s.SignedIn(r) }
+
 // SetRemoteTerminals changes controller availability, never host shell lifetime.
 // Closing control generations fences existing tickets/streams; agents reconnect
 // and reconcile their surviving tmux sessions with fresh authorization.
@@ -501,6 +505,18 @@ func (s *server) sessionUser(r *http.Request) (store.User, bool) {
 		return store.User{}, false
 	}
 	return u, ok
+}
+
+// SignedIn reports whether the request already carries a valid account
+// session. The SPA's static landing fallback is only for visitors who might
+// still sign in, so a signed-in request must not be served it (that is the
+// logged-out page a refresh would otherwise flash before the app mounts).
+func (s *server) SignedIn(r *http.Request) bool {
+	if s.authMode != AuthAccounts {
+		return false
+	}
+	_, ok := s.sessionUser(r)
+	return ok
 }
 
 func userFrom(r *http.Request) (store.User, bool) {

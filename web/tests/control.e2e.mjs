@@ -56,6 +56,7 @@ await page.route('**/api/**',async route=>{
  await route.fulfill({json:data})
 })
 const noOverflow=async()=>expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+const openSettings=async card=>{await card.locator('summary[aria-label^="More options"]').click();await page.getByRole('menuitem',{name:'Settings…',exact:true}).click()}
 try {
  // Control is folded into Home and Machines (R4): its old address goes to Home.
  await page.goto(`${base}/control`)
@@ -85,11 +86,11 @@ try {
  await expect(serverUpdates.getByText('Verifying the checksum and build')).toBeHidden()
  await serverUpdates.getByText('Show the steps').click()
  await expect(serverUpdates.getByText('Verifying the checksum and build')).toBeVisible()
- await expect(serverUpdates.getByRole('button',{name:'Try again…'})).toBeVisible()
+ await expect(serverUpdates.getByRole('button',{name:/^Retry update to/})).toBeVisible()
  // Policies live in the machine's settings, not beside the update button.
  await expect(laptop.getByRole('button',{name:'Manage'})).toHaveCount(0)
  if(process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/machines-desktop.png`,fullPage:true})
- await laptop.getByRole('button',{name:'Settings'}).click()
+ await openSettings(laptop)
  const settings=page.getByRole('dialog',{name:'dev-laptop'})
  await expect(settings.getByRole('switch',{name:'Automatic updates'})).toBeChecked()
  if(process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/machine-settings.png`})
@@ -102,7 +103,7 @@ try {
  await expect(page.getByRole('dialog',{name:'Forget dev-laptop?'})).toBeVisible()
  await page.getByRole('button',{name:'Cancel',exact:true}).click()
  await expect(page.getByRole('dialog')).toHaveCount(0)
- await laptop.getByRole('button',{name:'Settings'}).click()
+ await openSettings(laptop)
  await settings.getByRole('button',{name:'Switch channel…'}).click()
  const review=page.getByRole('dialog',{name:'Update reet on dev-laptop'})
  await expect(review.getByRole('radio',{name:/Development|development/})).toBeChecked()
@@ -196,7 +197,7 @@ try {
   await page.setViewportSize({width,height:900})
   await page.goto(`${base}/machines`)
   await page.evaluate(()=>document.documentElement.dataset.theme='dark')
-  await page.getByRole('article',{name:'dev-laptop'}).getByRole('button',{name:'Settings'}).click()
+  await openSettings(page.getByRole('article',{name:'dev-laptop'}))
   await expect(page.getByRole('dialog',{name:'dev-laptop'})).toBeVisible()
   await noOverflow()
   if(width===390&&process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/machine-settings-phone-dark.png`})

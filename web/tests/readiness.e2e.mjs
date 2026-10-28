@@ -1,111 +1,63 @@
-// First run on Machines (Control is folded into Home and Machines, R4): say what stands between a new owner and a working terminal, with one clear next step,
-// and show nothing that cannot work yet.
+// Terminal setup guidance lives inside the one machine-setup flow: the server switch, then the machine's own consent.
+// There is no separate readiness checklist competing with it on Machines.
 import { chromium, expect } from '@playwright/test'
 import { openWorkspace, terminalMachine, active } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
-// REET_E2E_ONLY=<section> runs one section, so each can be watched failing before its fix.
 const only = process.env.REET_E2E_ONLY
 const run = name => !only || only === name
 const open = options => openWorkspace(browser, options)
-const step = (page, name) => page.locator(`[data-step="${name}"]`)
-const heading = page => page.getByRole('heading',{name:'Get your first terminal running'})
+const panel = page => page.locator('details#connect-machine')
+const stepButton = (page,name) => panel(page).locator('nav.steps').getByRole('button',{name:new RegExp(name)})
+const serverBlock = page => panel(page).locator('.server-terminal')
 
 try {
- // Nothing connected and terminals stopped: one filled button, the command to start terminals, nothing that cannot work.
+ // Nothing connected and terminals stopped: the flow still says how to start them, and nothing claims it is ready.
  if (run('first')) {
   for (const width of [1440,375]) {
    const {context,page,errors} = await open({width})
-   await page.goto(`${base}/machines`)
-   await expect(heading(page)).toBeVisible()
-   await expect(step(page,'controller')).toHaveAttribute('data-state','todo')
-   await expect(step(page,'controller')).toContainText('Remote access is stopped')
-   await expect(step(page,'controller')).toContainText('reet terminal start')
-   await expect(step(page,'machine')).toHaveAttribute('data-state','todo')
-   // One clear next step: a single filled button on the whole page (as on Control before it was folded in). On Machines the
-   // add-a-machine steps are on the same page, so they hold it, and the checklist's link to them is a plain button.
-   await expect(page.locator('main .btn.primary'), `filled buttons at ${width}px`).toHaveCount(1)
-   await expect(page.locator('section.readiness').getByRole('link',{name:'Connect your first machine'})).toHaveAttribute('href','/machines#add-machine')
-   await expect(page.locator('section.readiness .btn.primary')).toHaveCount(0)
-   await expect(page.getByRole('link',{name:/Open sessions|Open terminal/})).toHaveCount(0)
-   // Sync (the same page component) keeps its own single way forward and no checklist.
-   await page.goto(`${base}/sync`)
-   await expect(page.getByRole('heading',{name:'Sync',exact:true})).toBeVisible()
-   await expect(page.locator('main .btn.primary'), `Sync filled buttons at ${width}px`).toHaveCount(1)
+   await page.goto(`${base}/machines#connect-machine`)
+   await expect(panel(page)).toHaveJSProperty('open',true)
+
    await expect(page.locator('section.readiness')).toHaveCount(0)
+   await stepButton(page,'Connect terminal').click()
+   await expect(serverBlock(page)).toContainText('Remote access is stopped')
+   await expect(serverBlock(page)).toContainText('reet terminal start')
    expect(errors).toEqual([])
    await context.close()
   }
  }
 
- // The reason terminals are blocked is shown in words.
+ // The server's own reason is shown in words, not a bare "not ready".
  if (run('reasons')) {
   for (const [reason,text] of [['https_required','no usable HTTPS public URL'],['accounts_required','not using accounts authentication']]) {
    const {context,page} = await open({width:1440,terminalStatus:{configured:true,available:false,reason}})
-   await page.goto(`${base}/machines`)
-   await expect(step(page,'controller')).toContainText(text)
-   await expect(step(page,'controller')).toHaveAttribute('data-state','todo')
+   await page.goto(`${base}/machines#connect-machine`)
+   await stepButton(page,'Connect terminal').click()
+   await expect(serverBlock(page)).toContainText(text)
    await context.close()
   }
  }
 
- // Steps complete as things happen: server on, machine connected but not yet allowed, then ready.
- if (run('progress')) {
-  let {context,page} = await open({width:1440,terminalStatus:active})
-  await page.goto(`${base}/machines`)
-  await expect(heading(page)).toBeVisible()
-  await expect(step(page,'controller')).toHaveAttribute('data-state','done')
-  await expect(step(page,'machine')).toHaveAttribute('data-state','todo')
-  await context.close()
-
-  ;({context,page} = await open({width:1440,terminalStatus:active,terminalMachines:[terminalMachine('a','dev-laptop',false)]}))
-  await page.goto(`${base}/machines`)
-  await expect(heading(page)).toBeVisible()
-  await expect(step(page,'machine')).toHaveAttribute('data-state','done')
-  await expect(step(page,'consent')).toHaveAttribute('data-state','todo')
-  await expect(step(page,'consent')).toContainText('reet agent terminal setup')
-  await context.close()
- }
-
- // Terminals stopped on the server make every machine report "not ready", including one that already consented and is set up:
- // that machine's step stays done, and only the server step asks for something.
- if (run('consented')) {
-  const {context,page} = await open({width:1440,terminalMachines:[terminalMachine('a','dev-laptop',false,true)]})
-  await page.goto(`${base}/machines`)
-  await expect(heading(page)).toBeVisible()
-  await expect(step(page,'controller')).toHaveAttribute('data-state','todo')
-  await expect(step(page,'machine')).toHaveAttribute('data-state','done')
-  await expect(step(page,'consent')).toHaveAttribute('data-state','done')
-  await expect(step(page,'consent')).not.toContainText('reet agent terminal setup')
-  await expect(step(page,'session')).toContainText('Available once the steps above are done')
-  await context.close()
- }
-
- // A set-up machine that is only reconnecting on a running server needs no instructions: its card says it is connecting.
- if (run('reconnecting')) {
-  const {context,page} = await open({width:1440,terminalStatus:active,terminalMachines:[terminalMachine('a','dev-laptop',false,true)]})
-  await page.goto(`${base}/machines`)
-  await expect(page.getByRole('heading',{name:'Your machines, connected.'})).toBeVisible()
-  await expect(heading(page)).toHaveCount(0)
-  await context.close()
- }
-
- // A ready machine on a running server: no checklist, the working view.
+ // A running server plus a ready machine: the step says so and offers the way in.
  if (run('ready')) {
   const {context,page} = await open({width:1440,terminalStatus:active,terminalMachines:[terminalMachine('a','dev-laptop',true)]})
-  await page.goto(`${base}/machines`)
-  await expect(page.getByRole('heading',{name:'Your machines, connected.'})).toBeVisible()
-  await expect(heading(page)).toHaveCount(0)
+  await page.goto(`${base}/machines#connect-machine`)
+  await panel(page).getByLabel('Machine name',{exact:true}).fill('dev-laptop')
+  await stepButton(page,'Connect terminal').click()
+  await expect(serverBlock(page)).toContainText('Controller access is enabled')
+  await expect(panel(page)).toContainText('dev-laptop is ready for terminals.')
+  await expect(panel(page).getByRole('link',{name:/Open terminals for dev-laptop/})).toBeVisible()
   await context.close()
  }
 
- // A viewer cannot run terminals, so is not walked through setting them up.
+ // A viewer cannot run terminals, so gets no terminal setup block at all.
  if (run('viewer')) {
   const {context,page} = await open({width:1440,status:{user:{id:2,name:'Pat',email:'pat@example.test',role:'viewer'}}})
-  await page.goto(`${base}/machines`)
-  await expect(page.getByRole('heading',{name:'Your machines, connected.'})).toBeVisible()
-  await expect(heading(page)).toHaveCount(0)
+  await page.goto(`${base}/machines#connect-machine`)
+  await stepButton(page,'Connect terminal').click()
+  await expect(serverBlock(page)).toHaveCount(0)
   await context.close()
  }
- console.log('Readiness: checklist on first run, reasons in words, steps complete in order, hidden once ready and for viewers.')
+ console.log('Readiness: terminal guidance inside the setup flow, server reasons in words, ready state and viewer.')
 } finally {await browser.close()}

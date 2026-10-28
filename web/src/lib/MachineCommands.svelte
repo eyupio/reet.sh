@@ -90,8 +90,7 @@
     </div>
 
     <footer>
-      <a class="btn" href={syncLink(machine)}>Open compare &amp; sync →</a>
-      <a class="btn quiet" href="/machines?setup=scratch#connect-machine">Set up from scratch →</a>
+      <a class="btn primary" href={syncLink(machine)}>Open compare &amp; sync →</a>
       <button class="btn quiet" type="button" onclick={() => dialog?.close()}>Done</button>
     </footer>
   </div>

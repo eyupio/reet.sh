@@ -168,7 +168,7 @@ export function machineSyncOverview(machine: Machine, snapshot: SyncState, now =
     tone: 'synced',
     label: 'Everything in sync',
     detail: `${lastSync ? `Last checked ${agoLabel(lastSync, now)}` : 'No changes found'}${offline ? ' · machine offline' : ''}`,
-    canSync: true,
+    canSync: false,
   }
 }
 

@@ -13,12 +13,11 @@
   import MachineSettings from './MachineSettings.svelte'
   import UpdateReview from './UpdateReview.svelte'
   import ContentObservation from './ContentObservation.svelte'
-  import MachineSkillImports from './MachineSkillImports.svelte'
   import MachineSkillContent from './MachineSkillContent.svelte'
   import { scopeEligibility } from './contentReview'
   import type { JoinContext } from './machineJoin'
   import ConfirmDialog from './ConfirmDialog.svelte'
-  import { machineSyncOverview } from './syncOverview'
+  import { agoLabel, machineSyncOverview } from './syncOverview'
 
   let {
     machines,
@@ -28,8 +27,8 @@
     accounts=false,
     terminalAccess=false,
     monitorAccess=false,
-    onadd,
     onjoin,
+    onimport,
     landing = null,
     onlanded,
     highlight = '',
@@ -45,9 +44,9 @@
     accounts?: boolean
     terminalAccess?:boolean
     monitorAccess?:boolean
-    onadd: () => void
     /** Opens the Add a machine dialog; absent when the person cannot use it. Given the button, which gets focus back. */
     onjoin?: (opener: HTMLElement | null, context?: JoinContext) => void
+    onimport: (source: { environmentId: string; name: string }) => void
     /** A folder the Add a machine dialog chose for the Private skills dialog to open on, with the note saying which. Used once. */
     landing?: { environmentId: string; name?: string; note: string } | null
     /** Called as soon as `landing` has been turned into the dialog, so it cannot open again when this is drawn again. */
@@ -65,7 +64,6 @@
   let commandsFor = $state<Machine | null>(null)
   let confirm = $state<Pending | null>(null)
   let busy = $state('')
-  let importSource = $state<{ environmentId: string; name: string } | null>(null)
   let contentSource = $state<{ environmentId: string; name?: string; opener: HTMLElement | null; note?: string } | null>(null)
   // The settings dialog and the review read the live snapshot by host and id,
   // so a change made inside them shows there at once instead of in a stale copy.
@@ -168,7 +166,11 @@
   }
   function lastSeen(machine: Machine): string {
     const at = lastReport(machine)
-    return at ? new Date(at).toLocaleString() : 'No report yet'
+    return at ? agoLabel(at) : 'No report yet'
+  }
+  function agentTone(agent: SyncAgent): 'online' | 'paused' | 'offline' {
+    if (agent.paused) return 'paused'
+    return agent.lastSeen > Date.now() - 90000 ? 'online' : 'offline'
   }
   function stateLabel(machine: Machine): string {
     return ({ current: 'Inventory current', stale: 'Scan is out of date', partial: 'Scan needs attention', empty: 'No agent inventory' })[machineStatus(machine)]
@@ -219,6 +221,16 @@
   }
   function closeMenu(event: MouseEvent) {
     (event.currentTarget as HTMLElement | null)?.closest('details')?.removeAttribute('open')
+  }
+  function closeMenus() {
+    document.querySelectorAll<HTMLDetailsElement>('details.sync-menu[open]').forEach((menu) => menu.removeAttribute('open'))
+  }
+  function menusKey(event: KeyboardEvent) {
+    if (event.key !== 'Escape') return
+    const opener = document.querySelector<HTMLElement>('details.sync-menu[open] > summary')
+    if (!opener) return
+    closeMenus()
+    opener.focus()
   }
   async function previewNow(machine: Machine, agent: SyncAgent) {
     const targets = savedTargets(machine)
@@ -310,16 +322,9 @@
   {/if}
 {/snippet}
 
-<section class="fleet" aria-labelledby="fleet-title">
-  <header class="fleet-head">
-    <div>
-      <p class="eyebrow">Connected workspace</p>
-      <h2 id="fleet-title">{machines.length} {machines.length === 1 ? 'machine' : 'machines'}, one clear view.</h2>
-      <p>Choose a machine to sync its skills or continue working in its terminal. Expand a card to inspect its agent scopes.</p>
-    </div>
-    <div class="fleet-controls">{#if canWrite}<button type="button" onclick={() => importSource = {environmentId: '', name: ''}}>Private skill imports</button>{/if}{#if onjoin}<button class="btn" type="button" data-add-machine onclick={(event) => onjoin(event.currentTarget)}>Add a machine</button>{/if}<button class="btn" type="button" onclick={onadd}>Connect a machine</button></div>
-  </header>
+<svelte:window onclick={(event) => { if (!(event.target as Element | null)?.closest('.sync-menu')) closeMenus() }} onkeydown={menusKey} />
 
+<section class="fleet" aria-label="Machines">
   <div class="machine-grid">
     {#each machines as machine, m (machine.host)}
       {@const enrolled = agentFor(machine)}
@@ -328,12 +333,12 @@
       {@const scanOnly = scanOnlyAgents(machine)}
       {@const state = machineStatus(machine)}
       {@const sync = machineSyncOverview(machine, snapshot)}
-      <article class="machine" class:just-added={highlight === machine.host} aria-current={highlight === machine.host ? 'true' : undefined} aria-labelledby={`machine-${machine.host}`}>
+      <article class="machine" class:just-added={highlight === machine.host} aria-labelledby={`machine-${machine.host}`}>
         <header class="machine-head">
           <div class="identity">
             <span class="dot" class:current={!!enrolled && enrolled.lastSeen > Date.now() - 90000} class:offline={!!enrolled && enrolled.lastSeen <= Date.now() - 90000} aria-hidden="true"></span>
             <div>
-              <h3 id={`machine-${machine.host}`}>{machine.host}</h3>
+              <h3 id={`machine-${machine.host}`} title={machine.host}>{machine.host}</h3>
               {#if highlight === machine.host}<p class="added-note">Just added</p>{/if}
               {#if machine.aliases?.length}<p class="alias">Also known as {machine.aliases.join(', ')}</p>{:else}<p class="alias">Machine inventory and agent scopes</p>{/if}
             </div>
@@ -355,11 +360,13 @@
               <a class="btn sync-now" href={sync.href}>{sync.tone === 'setup' ? 'Set up sync' : 'Open sync'}</a>
             {/if}
             <details class="sync-menu">
-              <summary aria-label={`More sync options for ${machine.host}`} title="More sync options"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg></summary>
+              <summary aria-label={`More options for ${machine.host}`} title="More options"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg></summary>
               <div class="sync-menu-panel" role="menu">
                 <a role="menuitem" href={`/sync?machine=${encodeURIComponent(machine.host)}`}>Choose skills &amp; scopes</a>
                 {#if enrolled && savedTargets(machine).length}<button type="button" role="menuitem" disabled={!!busy || enrolled.paused || sync.tone === 'working'} onclick={(event) => { closeMenu(event); void previewNow(machine, enrolled) }}>Preview changes only</button>{/if}
                 {#if enrolled}<button type="button" role="menuitem" disabled={!!busy} onclick={(event) => { closeMenu(event); void scan(enrolled) }}>Rescan machine</button>{/if}
+                <button type="button" role="menuitem" onclick={(event) => { closeMenu(event); commandsFor = machine }}>Commands…</button>
+                {#if canWrite}<button type="button" role="menuitem" onclick={(event) => { closeMenu(event); settingsHost = machine.host }}>Settings…</button>{/if}
                 <a role="menuitem" href="/sync#sync-jobs">Review sync activity</a>
               </div>
             </details>
@@ -373,8 +380,8 @@
         <div class="meta">
           <span><strong>{machine.skillCount}</strong> unique {machine.skillCount === 1 ? 'skill' : 'skills'}</span>
           <span><strong>{groups.length}</strong> agent {groups.length === 1 ? 'scope' : 'scopes'}</span>
-          <span>Last report <strong>{lastSeen(machine)}</strong></span>
-          {#if enrolled}<span class="live"><span aria-hidden="true">●</span> {agentState(enrolled)}</span><span class="build" title={enrolled.commit ? `commit ${enrolled.commit}` : undefined}>reet {agentBuild(enrolled)}</span>{/if}
+          <span>Last report <strong title={lastReport(machine) ? new Date(lastReport(machine)).toLocaleString() : undefined}>{lastSeen(machine)}</strong></span>
+          {#if enrolled}<span class="live {agentTone(enrolled)}"><span aria-hidden="true">●</span> {agentState(enrolled)}</span><span class="build" title={enrolled.commit ? `commit ${enrolled.commit}` : undefined}>reet {agentBuild(enrolled)}</span>{/if}
         </div>
         <div class="agent-chips" aria-label="Agent scopes">
           {#each supported as group (group.id)}<span class="agent-chip">{groupLabel(group)} <strong>{group.skillCount ?? 0}</strong></span>{/each}
@@ -393,12 +400,12 @@
           />
         {/if}
 
-        <div class="actions">
-          {#if terminalAccess&&enrolled}<a class="btn" href={`/machines?view=terminal&agent=${encodeURIComponent(enrolled.id)}`}>Open terminal</a>{/if}
-          {#if terminalAccess&&enrolled}{@const why = agentReadiness(enrolled.id)}<button class="btn" type="button" disabled={!!why} aria-describedby={why ? `start-agent-${m}` : undefined} onclick={(event) => (startAgent = { agent: enrolled.id, opener: event.currentTarget })}>Start an agent</button>{/if}
-          <button class="btn" type="button" onclick={() => (commandsFor = machine)}>Commands</button>
-          {#if canWrite}<button class="btn" type="button" onclick={() => (settingsHost = machine.host)}>Settings</button>{/if}
-        </div>
+        {#if terminalAccess && enrolled}
+          <div class="actions">
+            <a class="btn" class:primary={sync.tone === 'synced' || sync.tone === 'setup'} href={`/machines?view=terminal&agent=${encodeURIComponent(enrolled.id)}`}>Open terminal</a>
+            <button class="btn" type="button" disabled={!!agentReadiness(enrolled.id)} aria-describedby={agentReadiness(enrolled.id) ? `start-agent-${m}` : undefined} onclick={(event) => (startAgent = { agent: enrolled.id, opener: event.currentTarget })}>Start an agent</button>
+          </div>
+        {/if}
         {#if terminalAccess&&enrolled&&agentReadiness(enrolled.id)}<p class="start-reason" id={`start-agent-${m}`}>{agentReadiness(enrolled.id)}</p>{/if}
 
         <details class="agent-list">
@@ -414,7 +421,7 @@
                   <strong>{groupLabel(group)}</strong>
                   <small>{group.skillCount ?? 0} {group.skillCount === 1 ? 'skill' : 'skills'} · {group.complete ? 'Last full report' : 'Incomplete report'} {new Date(group.scannedAt || group.lastSeen).toLocaleString()}</small>
                   {@render privateSkillsAction(group, `private-skills-${m}-${i}`)}
-                  <ContentObservation content={group.content} onimport={canWrite && enrolled ? (name) => importSource = { environmentId: group.id, name } : undefined} onpin={pinOpener(group)} />
+                  <ContentObservation content={group.content} onimport={canWrite && enrolled ? (name) => onimport({ environmentId: group.id, name }) : undefined} onpin={pinOpener(group)} />
                 </div>
                 <span class="scope-state">{groupState(group)}</span>
               </li>
@@ -422,7 +429,7 @@
             {#each scanOnly as group, i (group.id)}
               <li class="scan-only">
                 <span class="dot empty" aria-hidden="true"></span>
-                <div class="agent-copy"><strong>{groupLabel(group)}</strong><small>Scan only. Sync to the shared agents folder or this agent's supported location.</small>{@render privateSkillsAction(group, `private-skills-${m}-scan-${i}`)}<ContentObservation content={group.content} onimport={canWrite && enrolled ? (name) => importSource = { environmentId: group.id, name } : undefined} onpin={pinOpener(group)} /></div>
+                <div class="agent-copy"><strong>{groupLabel(group)}</strong><small>Scan only. Sync to the shared agents folder or this agent's supported location.</small>{@render privateSkillsAction(group, `private-skills-${m}-scan-${i}`)}<ContentObservation content={group.content} onimport={canWrite && enrolled ? (name) => onimport({ environmentId: group.id, name }) : undefined} onpin={pinOpener(group)} /></div>
                 <span class="scope-state">Scan only</span>
               </li>
             {/each}
@@ -430,12 +437,17 @@
           </ul>
           {#if canWrite && groups.length}
             <div class="agent-links">
-              <button type="button" class="link" onclick={() => (commandsFor = machine)}>Copy rescan command</button>
-              {#if enrolled}<button type="button" class="link" onclick={() => askRevoke(enrolled)}>Revoke live access</button>{/if}
-              {#each supported as group (group.id)}
-                <button type="button" class="link quiet" onclick={() => askForgetGroup(group, machine)}>Forget {groupLabel(group)}</button>
-              {/each}
+              <button type="button" class="btn quiet" onclick={() => (commandsFor = machine)}>Copy rescan command</button>
             </div>
+            <details class="danger-zone">
+              <summary>Forget a report…</summary>
+              <div class="danger-actions">
+                {#each supported as group (group.id)}
+                  <button type="button" class="btn danger" onclick={() => askForgetGroup(group, machine)}>Forget {groupLabel(group)}…</button>
+                {/each}
+              </div>
+              <p>Revoke live access and forget the whole machine in Settings.</p>
+            </details>
           {/if}
         </details>
       </article>
@@ -444,8 +456,6 @@
 </section>
 
 {#if startAgent && terminalAccess && terminals}<StartAgentDialog machines={terminals} snapshot={snapshot.machines ?? []} initialAgent={startAgent.agent} opener={startAgent.opener} onstarted={agentStarted} onleavefailed={agentLeaveFailed} onaddmachine={addFromStart(startAgent)} {onsignedout} onclose={() => (startAgent = null)} />{/if}
-
-{#if importSource}<MachineSkillImports {snapshot} source={importSource} onclose={() => importSource = null} />{/if}
 
 {#if contentSource}<MachineSkillContent {snapshot} source={contentSource} opener={contentSource.opener} note={contentSource.note ?? ''} onaddmachine={addFromPrivate(contentSource)} {canWrite} {accounts} {onsignedout} onclose={() => contentSource = null} />{/if}
 
@@ -492,12 +502,7 @@
 {/if}
 
 <style>
-  .fleet { margin: 26px 0; }
-  .fleet-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; flex-wrap: wrap; margin-bottom: 16px; }
-  .eyebrow { margin: 0 0 4px; color: var(--accent-text); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
-  h2 { margin: 0; font: 500 clamp(1.5rem, 2.8vw, 1.85rem)/1.15 var(--serif); letter-spacing: -0.025em; }
-  .fleet-controls { display: flex; flex-wrap: wrap; gap: 8px; }
-  .fleet-head p:last-child { margin: 6px 0 0; max-width: 62ch; color: var(--muted); font-size: 0.83rem; line-height: 1.55; }
+  .fleet { margin: 14px 0 0; }
   .machine-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr)); gap: 14px; }
   .added-note { margin: 2px 0 0; color: var(--good); font-size: .78rem; font-weight: 650; }
   .machine.just-added { border-color: var(--good); animation: just-added 6s ease-out; }
@@ -512,7 +517,7 @@
   .dot.stale { background: var(--warn, #b45309); }
   .dot.partial { background: var(--bad); }
   .dot.empty { background: var(--line); }
-  h3 { margin: 0; font: 500 1.35rem/1.15 var(--serif); letter-spacing: -0.02em; overflow-wrap: anywhere; }
+  h3 { margin: 0; font: 500 1.35rem/1.15 var(--serif); letter-spacing: -0.02em; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .alias { margin: 3px 0 0; color: var(--muted); font-size: 0.72rem; overflow-wrap: anywhere; }
   .badge { flex: none; padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.68rem; }
   .badge.current { color: var(--good); border-color: color-mix(in srgb, var(--good) 35%, var(--line)); }
@@ -520,7 +525,9 @@
   .badge.partial { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); }
   .meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 0.75rem; }
   .meta strong { color: var(--ink); font-weight: 600; }
-  .live { color: var(--good); }
+  .live.online { color: var(--good); }
+  .live.paused { color: var(--warn); }
+  .live.offline { color: var(--muted); }
   .build { color: var(--ink); }
   .sync-band { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--bg) 52%, var(--card)); }
   .sync-copy { display: flex; align-items: flex-start; gap: 9px; min-width: 0; flex: 1 1 220px; }
@@ -562,8 +569,8 @@
   .agent-list { border-top: 1px solid var(--line); padding-top: 12px; }
   .agent-list > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px; cursor: pointer; font-size: 0.8rem; font-weight: 650; }
   .agent-list > summary span:last-child { color: var(--muted); font-weight: 400; }
-  .agent-list > summary::after { content: '⌄'; color: var(--muted); font-size: 0.95rem; line-height: 1; transition: transform 160ms ease; }
-  .agent-list[open] > summary::after { transform: rotate(180deg); }
+  .agent-list > summary::after { content: ''; width: 7px; height: 7px; flex: none; margin-right: 4px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); transition: transform 160ms ease; }
+  .agent-list[open] > summary::after { transform: rotate(-135deg); }
   .agent-list ul { list-style: none; display: grid; gap: 0; padding: 0; margin: 8px 0 0; }
   .agent-list li { display: flex; align-items: flex-start; gap: 9px; padding: 10px 0; border-top: 1px solid var(--line); }
   .agent-copy { display: grid; gap: 2px; min-width: 0; flex: 1; }
@@ -576,10 +583,13 @@
   .scan-only { opacity: 0.82; }
   .empty-row { color: var(--muted); font-size: 0.8rem; }
   .agent-links { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; }
-  .link { padding: 0; border: 0; background: none; color: var(--accent-text); font: inherit; font-size: 0.74rem; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-  .link.quiet { color: var(--muted); }
+  .danger-zone { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .danger-zone > summary { cursor: pointer; color: var(--muted); font-size: 0.76rem; min-height: 32px; }
+  .danger-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
+  .danger-zone p { margin: 0; color: var(--muted); font-size: 0.74rem; }
     @media (max-width: 560px) {
     .machine { padding: 14px; }
+    .machine-head { flex-direction: column; align-items: flex-start; }
     .actions .btn { flex: 1 1 auto; }
     .sync-cta { width: 100%; }
     .sync-cta .btn { flex: 1 1 auto; }

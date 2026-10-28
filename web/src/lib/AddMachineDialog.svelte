@@ -302,7 +302,8 @@
  <footer data-shell-foot>
   <small data-shell-aside>Nothing here changes a machine.</small>
   <div class="actions">
-   {#if canUse}<button type="button" class="btn primary" onclick={use}>Use {canonical}</button>{/if}
+   {#if host && !canUse}<button type="button" class="btn" onclick={checkAgain}>I've run it — check again</button>{/if}
+   {#if canUse}<button type="button" class="btn primary" onclick={use}>Done — show {canonical}</button>{/if}
   </div>
  </footer>
 </dialog>

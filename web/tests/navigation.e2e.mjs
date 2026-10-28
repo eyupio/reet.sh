@@ -396,7 +396,7 @@ try {
   await expect(page.locator('main').getByText('Control',{exact:true})).toHaveCount(0)
   await expect(page.getByText('Your control centre')).toHaveCount(0)
   const tabs = await page.locator('nav[aria-label="Machines"] a').allInnerTexts()
-  expect(tabs.map(t=>t.trim())).toEqual(['Inventory & connection','Sync','Sessions','Setups →'])
+  expect(tabs.map(t=>t.trim())).toEqual(['Inventory & connection','Sync'])
   await context.close()
  }
  // Light, dark or system can be chosen from the account menu, takes effect at once, and is saved to the profile.

@@ -1327,7 +1327,7 @@ Checked in Chromium against fixture data at 1440, 390, 375 and 320 px, light and
 - `empty-states.e2e.mjs`: at 320/375/390 the only CTA is in the viewport, its hit-test lands on the link rather than the fixed tab bar, and a connected machine still shows the working form.
 - `control.e2e.mjs`: `/sync` opens on the saved revision (`Editing saved set · revision rev-laptop-shared`, 3 of 3 selected); `?machine=*` with nothing selected offers **Clear this desired set**, never a plain Save; partial save and queue failures, mode confirmation, adoption, source failure and the retry flow still pass.
 - `sync-activity.e2e.mjs`: `#sync-jobs` still lands on the activity heading, duplicate failures stay grouped, and the phone layout does not overflow.
-- `readiness.e2e.mjs`, `navigation.e2e.mjs`, `phone-layout.e2e.mjs`, `phone-zoom.e2e.mjs` (45 screens at 320–412 px), `machine-import.e2e.mjs`, `skill-content.e2e.mjs` and `add-machine.e2e.mjs` pass unchanged or with the renamed heading/labels.
+- `navigation.e2e.mjs`, `phone-layout.e2e.mjs`, `phone-zoom.e2e.mjs` (45 screens at 320–412 px), `machine-import.e2e.mjs`, `skill-content.e2e.mjs`, `add-machine.e2e.mjs`, `first-run.e2e.mjs`, `first-machine.e2e.mjs`, `start-agent.e2e.mjs` and `readiness.e2e.mjs` pass; main's Machines-page rebuild (#244) was merged first, so the Sync heading and labels were checked against that structure.
 - A local check confirmed the sticky save dock stays above the phone tab bar at 375 × 812, and that an awaiting-approval plan lists its installs and removals above **Apply changes** with the same list in the confirmation.
 
 Not checked: a physical phone, Safari or Firefox, a screen reader, or a live agent receiving an automatic run.

@@ -21,11 +21,12 @@
   onMount(()=>{let disposed=false;if(terminals&&accounts&&canWrite)void import('./terminal/TerminalWorkspace.svelte').then(module=>{if(!disposed)TerminalView=module.default}).catch(()=>{if(!disposed)error='Could not load the terminal workspace. Refresh this page to retry.'});return()=>{disposed=true}})
   // The first-terminal checklist (from Control, which is folded into Home and Machines, R4): what stands between a writer and a
   // working terminal, read once when the page opens. Hidden once a machine has done its part on a server that allows terminals.
+  // Machines only: Sync keeps its own single way forward (empty-states.e2e), so the checklist is not read there.
   let readinessState = $state<{ controller: TerminalControllerStatus | null; machines: TerminalMachine[] } | null>(null), helpOpen = $state(false)
   const setUpCount = $derived(readinessState ? readinessState.machines.filter(machineSetUp).length : 0)
   const showSetup = $derived(!!readinessState && (readinessState.machines.length === 0 || (readinessState.controller !== null && !readinessState.controller.available) || setUpCount === 0))
   onMount(() => {
-    if (terminals || !accounts || !canWrite) return
+    if (terminals || compare || !accounts || !canWrite) return
     let gone = false
     const signal = AbortSignal.timeout(10000)
     void Promise.all([terminalMachines(signal), terminalControllerStatus(signal).catch(() => null)]).then(([machines, controller]) => { if (!gone) readinessState = { controller, machines } }).catch(() => { /* the checklist is left out when it cannot be read */ })

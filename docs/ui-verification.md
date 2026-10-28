@@ -1296,3 +1296,11 @@ Re-review round of the fix wave:
 - `sessions-phone.e2e.mjs` sideways: "the terminal fills its screen" now compares the rows xterm draws with the room for
   them (the screen's height over one drawn row's measured height), within a row, instead of a figure computed the same way
   as the row count; a terminal fitted three rows short (10 for room for 13) fails it.
+
+- CI's `terminal-browser` run on `71d0d52` failed at `skill-content.e2e.mjs`'s unmocked-request check (three
+  `GET /api/v2/terminal/status`); `add-machine.e2e.mjs` fails the same way. All of them come from the owner's `/machines`
+  visits: the first-terminal checklist moved from Control to Machines in `f0bffe5` (R4) and reads the server's terminal
+  status for a writer in accounts mode, as Control did. Both fixtures now answer it, with that reason, and check that the
+  viewer and legacy-mode visits call no terminal endpoint at all (R16); a Machines page reading the checklist for them
+  fails both. Every browser file in the workflow's three jobs then ran once in the workflow's order on this branch and on
+  `origin/main` (`7dce59d`): all passed on main; on this branch only `add-machine` failed (fixed as above).

@@ -35,6 +35,10 @@ type ManagerOptions struct {
 	// (reet terminal clipboard on|off). nil means forwarding is allowed, as
 	// it is by default. An error turns the tmux server's set-clipboard off.
 	ClipboardConsent func() error
+	// UploadConsent re-reads the machine's local upload switch
+	// (reet terminal uploads on|off). nil means uploads are allowed, as they
+	// are by default. An error refuses every upload.
+	UploadConsent func() error
 }
 
 type Manager struct {
@@ -45,6 +49,8 @@ type Manager struct {
 	consent    func() error
 	// clipboardConsent nil means clipboard forwarding is allowed.
 	clipboardConsent func() error
+	// uploadConsent nil means image uploads are allowed.
+	uploadConsent func() error
 	// clipboardSet and clipboardOn remember the last set-clipboard value the
 	// manager applied to the running tmux server.
 	clipboardSet bool
@@ -54,6 +60,7 @@ type Manager struct {
 	// git runs git for worktrees (ExecGit); tests replace it.
 	git         GitRunner
 	mu          sync.Mutex
+	uploadMu    sync.Mutex
 	closed      bool
 	attachments map[string]*Attachment
 	deadSeen    map[string]time.Time
@@ -81,7 +88,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 	if git == nil {
 		git = ExecGit
 	}
-	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, lookPath: exec.LookPath, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, changed: make(chan struct{})}
+	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, lookPath: exec.LookPath, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, changed: make(chan struct{})}
 	// Validate a present registry even when tmux is offline. Never silently
 	// repair an unreadable file or adopt sessions from another enrollment.
 	lock, err := m.registryLock(ctx)
@@ -89,9 +96,19 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 		return nil, err
 	}
 	defer lock.Close()
-	if _, err := m.loadRegistry(); err != nil {
+	registry, err := m.loadRegistry()
+	if err != nil {
 		return nil, err
 	}
+	// Uploads are derived state: an unsweepable upload root must not stop the
+	// connector. Only folders for sessions that still reserve quota survive.
+	active := make(map[string]bool, len(registry.Sessions))
+	for id, s := range registry.Sessions {
+		if s.State.ReservesQuota() {
+			active[id] = true
+		}
+	}
+	_ = m.sweepUploads(active, time.Now())
 	return m, nil
 }
 
@@ -450,6 +467,7 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 				_ = a.Close()
 				delete(m.attachments, id)
 			}
+			_ = m.removeUploads(id)
 		}
 	}
 	// Persist the exit observation before removing dead panes. A later pass can

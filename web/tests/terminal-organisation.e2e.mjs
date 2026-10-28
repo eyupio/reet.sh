@@ -12,6 +12,8 @@ const creations=new Map();let failCreateOnce=true
 const machines=[{agentId:a,host:'Laptop',ready:true,serverEnabled:true,capabilities:{osUser:'developer',terminalEnabled:true,terminalControl:true,commandHistory:true,readiness:'ready'}},{agentId:b,host:'Builder',ready:false,serverEnabled:true,capabilities:{osUser:'builder',terminalEnabled:true,terminalControl:true,commandHistory:true,readiness:'ready'}}]
 machines.push({agentId:c,host:'New machine',ready:true,serverEnabled:true,capabilities:{osUser:'developer',terminalEnabled:true,terminalControl:true,commandHistory:true,readiness:'ready'}})
 const sessions=[{id:'organisation-session0001',agentId:a,title:'Alpha shell',state:'running',createdAt:now-4,updatedAt:now,exitCode:null},{id:'organisation-session0002',agentId:b,title:'Build shell',state:'running',createdAt:now-3,updatedAt:now,exitCode:null},{id:'organisation-session0003',agentId:a,title:'Closed shell',state:'ended',createdAt:now-2,updatedAt:now,exitCode:null},{id:'organisation-session0004',agentId:a,title:'Zulu shell',state:'running',createdAt:now-1,updatedAt:now,exitCode:null}]
+const project=(id,name,dir,over={})=>({id,host:a,machine:'Laptop',dir,name,isRepo:true,baseBranch:'',worktreeDefault:'inherit',defaultTool:'',defaultModel:'',hasStarterPrompt:false,note:'',position:0,createdAt:1,updatedAt:1,version:1,...over})
+const projects=[project('organisation-project01','reet','/home/developer/reet')]
 page.on('pageerror',e=>errors.push(e.message))
 await context.route('**/api/**',async route=>{
  const r=route.request(),path=new URL(r.url()).pathname,method=r.method();let data={}
@@ -27,6 +29,10 @@ await context.route('**/api/**',async route=>{
  else if(path==='/api/v2/machines/health')data={serverNow:Date.now(),machines:[],history:[]}
  else if(path==='/api/v2/terminal/sessions'){
   if(method==='GET')data={sessions};else{const body=r.postDataJSON();mutations.push({kind:'create',...body});let item=creations.get(body.requestId);if(!item){item={id:`organisation-quick-session${creations.size}`,agentId:body.agentId,title:body.title,state:'running',createdAt:Date.now(),updatedAt:Date.now(),exitCode:null};creations.set(body.requestId,item);sessions.push(item)}if(failCreateOnce){failCreateOnce=false;return route.fulfill({status:503,json:{error:'Creation unconfirmed'}})}data=item}
+ }
+ else if(path==='/api/v2/folder-projects'){
+  if(method==='POST'){const body=r.postDataJSON();const item=project(`organisation-project0${projects.length+1}`,body.name||body.dir.split('/').pop(),body.dir,{host:body.host,position:projects.length});projects.push(item);mutations.push({kind:'project',...body});data=item}
+  else data={projects,savedWaiting:0}
  }
  else if(path.endsWith('/command-history')){historyReads++;data=savedHistory}
  else if(path.endsWith('/history'))return route.fulfill({body:'Read-only output snapshot'})
@@ -51,19 +57,21 @@ async function showSidebar(){if(await sidebar.count()===0)await page.locator('.w
 async function live(){await expect(pane).toHaveAttribute('data-connection-state','live')}
 try{
  await page.goto(`${base}/sessions?agent=${a}&session=${sessions[0].id}`);await live()
- await expect(sidebar.getByLabel('Machine',{exact:true})).toHaveValue('*')
+ await expect(sidebar.getByLabel('Machine',{exact:true})).toHaveCount(0)
+ await expect(sidebar.getByText('Choose multiple machines',{exact:true})).toHaveCount(0)
+ await expect(sidebar.getByRole('heading',{name:'Projects',exact:true})).toBeVisible()
+ await expect(sidebar.getByRole('button',{name:/^reet, no live sessions/})).toBeVisible()
  await expect(sidebar.locator('.session-row')).toHaveCount(4)
  const originalTicket=tickets.at(-1)
- await sidebar.getByText('Choose multiple machines',{exact:true}).click()
- await sidebar.getByRole('checkbox',{name:'Builder',exact:true}).uncheck()
- await expect(sidebar.locator('.session-row')).toHaveCount(3)
- await sidebar.getByRole('checkbox',{name:'Laptop',exact:true}).uncheck()
- await expect(sidebar.locator('.session-row')).toHaveCount(0)
- await sidebar.getByRole('checkbox',{name:'Builder',exact:true}).check()
- await expect(sidebar.locator('.session-row')).toHaveCount(1)
- await sidebar.getByRole('button',{name:'Show all machines'}).click()
- await sidebar.getByText('Choose multiple machines',{exact:true}).click()
- await expect(sidebar.locator('.session-row')).toHaveCount(4)
+ const addProject=sidebar.getByRole('button',{name:'Add a project',exact:true})
+ await addProject.click()
+ const projectDialog=page.getByRole('dialog',{name:'Add a project',exact:true})
+ await expect(projectDialog).toBeVisible()
+ await projectDialog.getByLabel('Folder',{exact:true}).fill('/home/developer/new-project')
+ await projectDialog.getByRole('button',{name:'Add project',exact:true}).click()
+ await expect(sidebar.getByRole('button',{name:/^new-project, no live sessions/})).toBeVisible()
+ await expect(projectDialog).toHaveCount(0)
+ expect(mutations.find(m=>m.kind==='project')).toMatchObject({host:a,dir:'/home/developer/new-project'})
  expect(tickets.at(-1)).toBe(originalTicket)
  await row('Build shell').click({button:'right'})
  await expect(menu.getByRole('menuitem',{name:'Disconnect this browser'})).toBeDisabled()
@@ -107,9 +115,9 @@ try{
  await row('Closed shell').click({button:'right'});await menu.getByRole('menuitem',{name:'Remove from history…'}).click()
  await page.getByRole('dialog').getByRole('button',{name:'Remove from history',exact:true}).click()
  await expect(row('Closed shell')).toHaveCount(0)
- await sidebar.getByLabel('Machine',{exact:true}).selectOption(b)
+ await sidebar.getByLabel('Find sessions').fill('Builder')
  await expect(sidebar.locator('.session-row')).toHaveCount(1)
- await sidebar.getByLabel('Machine',{exact:true}).selectOption('*')
+ await sidebar.getByLabel('Find sessions').fill('')
  await expect(sidebar.locator('.session-row')).toHaveCount(3)
  await row('Alpha shell').click();await live()
  await page.getByRole('button',{name:'Recent history',exact:true}).click()
@@ -177,7 +185,7 @@ try{
  await expect(emptyGroup).toContainText('No sessions yet')
  await expect(builderGroup.getByRole('button',{name:'New terminal on Builder',exact:true})).toBeDisabled()
  const beforeQuickTickets=tickets.length
- await laptopGroup.getByRole('button',{name:'Laptop',exact:true}).click({button:'right'})
+ await laptopGroup.getByRole('button',{name:'Actions for machine Laptop',exact:true}).click()
  await expect(menu).toHaveAccessibleName('Actions for machine Laptop')
  await menu.press('Escape');expect(tickets.length).toBe(beforeQuickTickets)
  await emptyGroup.getByRole('button',{name:'New terminal on New machine',exact:true}).click()

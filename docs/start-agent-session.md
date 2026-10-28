@@ -22,7 +22,7 @@ local consent, and the session limits (8 per machine, 32 per account).
 
 ## Where to start it
 
-- **Terminals → New agent session.** It appears under the machine picker in the sessions sidebar,
+- **Sessions → New agent session.** It appears under **Your sessions** in the sessions sidebar,
   in a machine's menu next to **New terminal**, and in the empty workspace next to **New terminal**.
   The machine you were on is preselected. On success the new session opens in the workspace.
 - **Machines → Start an agent** on every enrolled machine's card. While the machine isn't ready the

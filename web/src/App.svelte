@@ -47,6 +47,7 @@
   import Welcome from './lib/Welcome.svelte'
   import SkillCard from './lib/SkillCard.svelte'
   import SyncActivity from './lib/SyncActivity.svelte'
+  import SyncProblem from './lib/SyncProblem.svelte'
   import { installSkillOnMachine } from './lib/syncActions'
   import Bookmarklets from './lib/Bookmarklets.svelte'
   import Toast from './lib/Toast.svelte'
@@ -101,6 +102,9 @@
   let machines = $state<import('./lib/api').Machine[]>([])
   let inventoryNow = $state(Date.now())
   let installing = $state('')
+  // The install that just failed, so the Skills page can offer the exact fix
+  // and a retry instead of a bare error banner.
+  let installFailure = $state<{ message: string; host: string; skill: Skill } | null>(null)
   let syncWatch = $state<{ host: string; title: string; note: string } | null>(null)
   const shelfMachines = $derived(inventoryMachines(machines))
   const machineReports = $derived(installationReports(shelfMachines, inventoryNow))
@@ -264,6 +268,7 @@
       message = ''
       toast = null
       removePending = null
+      installFailure = null
       return
     }
     error = e instanceof Error ? e.message : String(e)
@@ -272,6 +277,7 @@
   function ok(m: string) {
     message = m
     error = ''
+    installFailure = null
     clearTimeout(clearTimer)
     clearTimer = setTimeout(() => (message = ''), 6000)
   }
@@ -727,10 +733,12 @@
     installing = key
     try {
       const result = await installSkillOnMachine(skill, host)
+      installFailure = null
       syncWatch = { host: result.host, title: `Installing ${skill.name}`, note: `on ${result.host} · live progress` }
       ok(`Installing ${skill.name} on ${result.host}. Follow the live progress in the corner.`)
       void loadMeta()
     } catch (e) {
+      installFailure = { message: e instanceof Error ? e.message : String(e), host, skill }
       fail(e)
     } finally {
       installing = ''
@@ -943,7 +951,15 @@
     {/if}
 
     <div class="notices">
-      {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
+      {#if error}
+        {#if installFailure && installFailure.message === error}
+          {@const failed = installFailure}
+          <SyncProblem message={error} host={failed.host} site={origin} retrying={!!installing}
+            onretry={() => void installNow(failed.skill, failed.host)} />
+        {:else}
+          <p class="notice bad" role="alert">{error}</p>
+        {/if}
+      {/if}
       <p class="notice good" role="status" hidden={!message}>{message}</p>
     </div>
 
@@ -1143,7 +1159,7 @@
 </main>
 
 {#if authMode === 'accounts' && currentUser && !needsAuth && !isMCPConsent}<WebMCP />{/if}
-{#if isSkills && authenticated && !needsAuth}<SyncActivity open={syncWatch !== null} context={syncWatch} onclose={() => (syncWatch = null)} />{/if}
+{#if isSkills && authenticated && !needsAuth}<SyncActivity open={syncWatch !== null} context={syncWatch} {canWrite} onclose={() => (syncWatch = null)} />{/if}
 {#if !terminalLayout && !homeLayout}<Footer
   signedIn={!isPublicList && authMode !== 'none' && authenticated && !needsAuth}
   showAdmin={!isPublicList && authenticated && !needsAuth && isAdminUser}

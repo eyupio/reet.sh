@@ -20,7 +20,7 @@ const screen = page.locator('.xterm-accessibility-tree')
 async function live() { await expect(pane).toHaveAttribute('data-connection-state', 'live', { timeout: 20000 }) }
 async function command(text) { await page.getByRole('button', { name: 'Focus terminal' }).click(); await page.keyboard.type(text); await page.keyboard.press('Enter') }
 async function state() { return page.evaluate(async () => (await fetch('/_test/state')).json()) }
-async function chooseMachine(id){const toggle=page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/});if(await toggle.getAttribute('aria-expanded')!=='true')await toggle.click();await page.getByLabel('Machine',{exact:true}).selectOption(id)}
+async function chooseMachine(id){const host=await page.evaluate(async agent=>{const answer=await (await fetch('/api/v2/terminal/machines')).json();return answer.machines.find(item=>item.agentId===agent)?.host||''},id);await page.getByRole('button',{name:'Find machine',exact:true}).click();await page.getByLabel('Machine or shell user').fill(host);await page.getByRole('navigation',{name:'Matching machines'}).getByRole('button',{name:new RegExp(`^${host.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}`)}).click()}
 async function renderedScreenFits(){await expect.poll(async()=>{const host=await page.getByRole('region',{name:'Remote terminal screen',exact:true}).boundingBox(),rendered=await page.locator('.xterm-screen').boundingBox();return Math.ceil(rendered.y+rendered.height-host.y-host.height)}).toBeLessThanOrEqual(0)}
 
 

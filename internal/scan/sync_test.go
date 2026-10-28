@@ -218,6 +218,57 @@ func TestHelpNeverPrintsEnvironmentToken(t *testing.T) {
 	}
 }
 
+// A machine with no skills folder yet is an empty scope. Preview works, and
+// apply makes the folder so the lock and the install have somewhere to go.
+func TestSyncCreatesMissingTargetDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".config", "opencode", "skills")
+	target := store.SyncTarget{Target: store.Environment{ID: "1/laptop/opencode", Name: "Laptop OpenCode", Host: "laptop", Agent: "opencode"}, SourceName: "Reference", Revision: "one", Desired: []store.SyncSkill{{ID: "owner/skills/improve", Name: "improve", Slug: "improve", Source: "owner/skills", SourceType: "github"}}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			json.NewEncoder(w).Encode(map[string]any{"targets": []store.SyncTarget{target}, "canWrite": true})
+			return
+		}
+		w.Write([]byte(`{"imported":1,"errors":[]}`))
+	}))
+	defer srv.Close()
+	for _, apply := range []bool{false, true} {
+		args := []string{"--server", srv.URL, "--token", "secret", "--env", "laptop", "--target", target.Target.ID}
+		input := ""
+		if apply {
+			args = append(args, "--apply")
+			input = "Laptop OpenCode\n"
+		}
+		var out bytes.Buffer
+		err := runSync(args, strings.NewReader(input), &out, func([]string, string) error {
+			if !apply {
+				t.Fatal("preview ran an install command")
+			}
+			mkSkill(t, dir, "improve", true)
+			if err := os.MkdirAll(filepath.Join(home, ".agents"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(home, ".agents", ".skill-lock.json"), []byte(`{"skills":{"improve":{"source":"owner/skills"}}}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			return nil
+		}, "dev")
+		if err != nil {
+			t.Fatalf("apply=%t: %v: %s", apply, err, out.String())
+		}
+		if !apply {
+			if _, err := os.Stat(dir); !os.IsNotExist(err) {
+				t.Fatal("preview created the skills folder")
+			}
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, "improve", "SKILL.md")); err != nil {
+			t.Fatalf("apply did not create the folder: %v", err)
+		}
+	}
+}
+
 func TestSyncReplacesLocalDuplicateAndBacksItUp(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

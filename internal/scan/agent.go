@@ -134,9 +134,20 @@ func RunAgent(args []string, out io.Writer, version string) error {
 }
 func runAgentInput(args []string, in io.Reader, out io.Writer, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet agent enroll|start|stop|restart|status|run|restore|terminal|service|skill [--config PATH]; run backgrounds by default; --foreground for debugging")
+		return errors.New("usage: reet agent enroll|start|stop|restart|status|run|restore|allow-apply|terminal|service|skill [--config PATH]; run backgrounds by default; --foreground for debugging")
 	}
 	action := args[0]
+	applyMode := ""
+	if action == "allow-apply" {
+		mode, rest, err := parseAgentApply(args[1:], out)
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		applyMode, args = mode, rest
+	}
 	if action == "skill" {
 		return runAgentSkillImport(args[1:], in, out, version)
 	}
@@ -245,6 +256,12 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			OfferTerminalHostSetup(TerminalSetupOptions{Config: *config, Version: version}, in, out)
 		}
 		return nil
+	case "allow-apply":
+		c, err := loadAgentConfig(*config)
+		if err != nil {
+			return err
+		}
+		return runAgentAllowApply(c, *config, applyMode, out)
 	case "restore":
 		c, err := loadAgentConfig(*config)
 		if err != nil {
@@ -510,8 +527,15 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 					operationErr = errors.New("project is not enrolled; add it to this installation's project scopes locally")
 				}
 			}
-			if j.Kind == "apply" && !c.AllowApply {
-				operationErr = errors.New("remote apply disabled locally; enroll with --allow-apply to opt in")
+			if j.Kind == "apply" && operationErr == nil {
+				// Read the local opt-in fresh so `reet agent allow-apply on`
+				// takes effect on the next job without restarting the agent.
+				local, err := loadAgentConfig(config)
+				if err != nil {
+					operationErr = err
+				} else if !local.AllowApply {
+					operationErr = errors.New("remote apply disabled locally; run reet agent allow-apply on in a terminal on this machine to opt in")
+				}
 			}
 			if operationErr == nil {
 				args := []string{"--server", c.Server, "--token", c.Token, "--env", c.Host, "--target", j.TargetID, "--config", config}

@@ -90,6 +90,10 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
  else if(path==='/api/v2/terminal/machines')data={machines:[]}
  else if(path==='/api/v2/terminal/sessions')data={sessions:[]}
+ // Machines reads the server's terminal status for a writer in accounts mode: the first-terminal checklist moved here from
+ // Control when Control was folded into Home and Machines (R4, PR H). A viewer and the legacy modes never read it (checked
+ // at the end of this file).
+ else if(path==='/api/v2/terminal/status')data={configured:false,available:false,reason:'disabled'}
  else if(path==='/api/v2/notifications/count')data={unread:0}
  else if(path==='/api/version')data={version:'dev',commit:'fixture'}
  else if(path==='/api/v2/skill-bundles')data={bundles}
@@ -1711,6 +1715,7 @@ try{
  }
 
  // A viewer and a legacy sign-in mode see no Private skills actions at all (and a legacy mode keeps the existing imports button).
+ const beforeReaders=requests.length
  viewer=true;await page.reload()
  await expect(card('workstation')).toBeVisible();await expand('workstation')
  await scopeRow('workstation',SHARED).getByText('Content observed',{exact:false}).click()
@@ -1723,6 +1728,8 @@ try{
  await expect(page.getByRole('button',{name:'Private skill imports',exact:true})).toBeVisible()
  await expect(page.getByRole('button',{name:/^Private skills/})).toHaveCount(0)
  await expect(page.getByRole('button',{name:/^Pin a library revision/})).toHaveCount(0)
+ // Neither reads anything of terminals (R16): no terminal endpoint is called for a viewer or a legacy sign-in.
+ expect(requests.slice(beforeReaders).filter(r=>r.path.startsWith('/api/v2/terminal/')).map(r=>`${r.method} ${r.path}`)).toEqual([])
  expect(unmocked).toEqual([])
  expect(errors).toEqual([])
  console.log('Skill content UI passed: entry points and reasons, read-only open and retry, create/change/remove with versions, conflicts, lost replies and 404s, busy guard, connector lapse, newest revision, labels not ids, stale-response fencing, focus return, storage writes, responsive layouts and viewer/legacy isolation; checks: readiness, request body and key reuse, queued to captured polling, every presence and ownership result, stale/superseded/expired/failed/cancelled/unknown states, pin re-read, lost replies and busy resume, hidden pause, close stops polling, summary rows read in full, aged reads, stop and dismiss; adopt and release: candidates with none chosen, one preselected, breakdown table with grouped differences at 256 files and 320px, stale-race fenced confirmation, exact request body and hash, double click, reply reconciled through the records, key reuse and renewal, plain refusals, release with versions, damaged records.')

@@ -46,6 +46,8 @@ type AgentConfig struct {
 	browseAllowed     bool
 	clipboard         bool
 	clipboardAllowed  bool
+	uploads           bool
+	uploadsAllowed    bool
 	OnConnection      func(bool)
 	TerminalSession   TerminalFactory
 	control           func(context.Context, terminalproto.Message) error
@@ -74,6 +76,10 @@ type AgentConfig struct {
 	// (reet terminal clipboard on|off). It is polled with Consent. Nil means
 	// forwarding is refused.
 	ClipboardAllowed func() bool
+	// UploadsAllowed re-reads the machine's local image-upload switch
+	// (reet terminal uploads on|off). It is polled with Consent. Nil means
+	// uploads are refused.
+	UploadsAllowed func() bool
 	// TerminalAllowed re-reads the local terminal opt-in alone (the
 	// enrollment is still this one and terminal access is on), without
 	// probing readiness. Browse and branches requests are gated on it; nil
@@ -218,6 +224,7 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 	}
 	cfg.browseAllowed = readBrowseAllowed(cfg)
 	cfg.clipboardAllowed = readClipboardAllowed(cfg)
+	cfg.uploadsAllowed = readUploadsAllowed(cfg)
 	address, err := bootstrap(ctx, cfg)
 	if err != nil {
 		return false, err
@@ -373,6 +380,7 @@ func currentCapabilities(cfg AgentConfig) terminalproto.Capabilities {
 	}
 	cfg.browseAllowed = readBrowseAllowed(cfg)
 	cfg.clipboardAllowed = readClipboardAllowed(cfg)
+	cfg.uploadsAllowed = readUploadsAllowed(cfg)
 	return capabilitiesFor(cfg, enabled, readiness)
 }
 
@@ -384,6 +392,12 @@ func readBrowseAllowed(cfg AgentConfig) bool { return cfg.BrowseAllowed != nil &
 // forwarding is refused.
 func readClipboardAllowed(cfg AgentConfig) bool {
 	return cfg.ClipboardAllowed != nil && cfg.ClipboardAllowed()
+}
+
+// readUploadsAllowed reads the local image-upload switch; without one,
+// uploads are refused.
+func readUploadsAllowed(cfg AgentConfig) bool {
+	return cfg.UploadsAllowed != nil && cfg.UploadsAllowed()
 }
 
 func readConsent(read func() (bool, terminalproto.Readiness, error)) (bool, terminalproto.Readiness) {
@@ -527,14 +541,15 @@ func consentControl(ctx context.Context, cfg AgentConfig, generation int64, enab
 		nextEnabled, nextReadiness := readConsent(cfg.Consent)
 		nextBrowse := readBrowseAllowed(cfg)
 		nextClipboard := readClipboardAllowed(cfg)
-		if nextEnabled == enabled && nextReadiness == readiness && nextBrowse == cfg.browseAllowed && nextClipboard == cfg.clipboardAllowed {
+		nextUploads := readUploadsAllowed(cfg)
+		if nextEnabled == enabled && nextReadiness == readiness && nextBrowse == cfg.browseAllowed && nextClipboard == cfg.clipboardAllowed && nextUploads == cfg.uploadsAllowed {
 			continue
 		}
-		previousBrowse, previousClipboard := cfg.browseAllowed, cfg.clipboardAllowed
-		cfg.browseAllowed, cfg.clipboardAllowed = nextBrowse, nextClipboard
+		previousBrowse, previousClipboard, previousUploads := cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed
+		cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed = nextBrowse, nextClipboard, nextUploads
 		caps := capabilitiesFor(cfg, nextEnabled, nextReadiness)
 		if caps.ValidateFor(terminalFeatures(cfg)) != nil {
-			cfg.browseAllowed, cfg.clipboardAllowed = previousBrowse, previousClipboard
+			cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed = previousBrowse, previousClipboard, previousUploads
 			continue
 		}
 		requestID, err := randomID()
@@ -647,6 +662,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.browse = terminalproto.SupportsBrowse(advertised)
 	cfg.branches = terminalproto.SupportsBranches(advertised)
 	cfg.clipboard = terminalproto.SupportsClipboard(advertised)
+	cfg.uploads = terminalproto.SupportsUpload(advertised)
 }
 
 // setTerminalFeatures tells the terminal dispatcher which negotiated
@@ -681,6 +697,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.clipboard {
 		features = append(features, terminalproto.ClipboardFeature)
+	}
+	if cfg.uploads {
+		features = append(features, terminalproto.UploadFeature)
 	}
 	return strings.Join(features, ",")
 }
@@ -752,6 +771,8 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		// controller's strict decoder would refuse the field.
 		BrowseOff:       cfg.browse && control && enabled && !cfg.browseAllowed,
 		Clipboard:       cfg.clipboard && control && enabled && cfg.clipboardAllowed,
+		Uploads:         cfg.uploads && control && enabled && cfg.uploadsAllowed,
+		UploadsOff:      cfg.uploads && control && enabled && !cfg.uploadsAllowed,
 		Branches:        cfg.branches && worktree && enabled,
 		TerminalControl: cfg.TerminalSession != nil,
 		CommandHistory:  cfg.commandHistory && cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin"),

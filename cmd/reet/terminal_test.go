@@ -53,6 +53,28 @@ func TestTerminalClipboardIsTheMachineSwitch(t *testing.T) {
 	}
 }
 
+// reet terminal uploads is the machine's local image-upload switch, not a
+// controller command.
+func TestTerminalUploadsIsTheMachineSwitch(t *testing.T) {
+	err := runTerminal([]string{"uploads"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "reet terminal uploads on|off|status") {
+		t.Fatal(err)
+	}
+	dir, err := os.MkdirTemp("/tmp", "reet-cli-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	err = runTerminal([]string{"uploads", "status", "--config", dir + "/missing.json"}, &bytes.Buffer{})
+	if err == nil || strings.Contains(err.Error(), "unexpected terminal command arguments") {
+		t.Fatal("uploads reached the controller command", err)
+	}
+	var out bytes.Buffer
+	if err := runTerminal([]string{"--help"}, &out); err != nil || !strings.Contains(out.String(), "reet terminal uploads on|off|status") {
+		t.Fatal(out.String(), err)
+	}
+}
+
 // reet terminal browse is the machine's local folder-browse switch, not a
 // controller command.
 func TestTerminalBrowseIsTheMachineSwitch(t *testing.T) {

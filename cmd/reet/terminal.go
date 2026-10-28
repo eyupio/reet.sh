@@ -18,7 +18,7 @@ func runTerminal(args []string, out io.Writer) error {
 }
 func runTerminalInput(args []string, in io.Reader, out io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fmt.Fprintln(out, "Usage: reet terminal start|stop|restart|status [--data-dir PATH]\nManage controller web terminal availability locally. Running host shells are preserved.\nUse the controller's data directory and OS user; for containers run this command inside the controller container.\n\nUsage: reet terminal browse on|off|status [--config PATH]\nOn an enrolled machine, allow or refuse folder browsing from reet (on by default).\n\nUsage: reet terminal clipboard on|off|status [--config PATH]\nOn an enrolled machine, allow or refuse forwarding an agent's clipboard writes (OSC 52) to the browser (on by default).")
+		fmt.Fprintln(out, "Usage: reet terminal start|stop|restart|status [--data-dir PATH]\nManage controller web terminal availability locally. Running host shells are preserved.\nUse the controller's data directory and OS user; for containers run this command inside the controller container.\n\nUsage: reet terminal browse on|off|status [--config PATH]\nOn an enrolled machine, allow or refuse folder browsing from reet (on by default).\n\nUsage: reet terminal clipboard on|off|status [--config PATH]\nOn an enrolled machine, allow or refuse forwarding an agent's clipboard writes (OSC 52) to the browser (on by default).\n\nUsage: reet terminal uploads on|off|status [--config PATH]\nOn an enrolled machine, allow or refuse storing images a controller uploads (on by default).")
 		return nil
 	}
 	if args[0] == "browse" {
@@ -26,6 +26,9 @@ func runTerminalInput(args []string, in io.Reader, out io.Writer) error {
 	}
 	if args[0] == "clipboard" {
 		return scan.RunTerminalClipboard(args[1:], out)
+	}
+	if args[0] == "uploads" {
+		return scan.RunTerminalUploads(args[1:], out)
 	}
 	action := args[0]
 	fs := flag.NewFlagSet("terminal "+action, flag.ContinueOnError)

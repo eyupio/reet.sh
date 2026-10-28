@@ -43,6 +43,8 @@ type agentConfig struct {
 	// ClipboardOff refuses OSC 52 clipboard forwarding locally
 	// (reet terminal clipboard off).
 	ClipboardOff bool `json:"clipboardOff,omitempty"`
+	// UploadsOff refuses image uploads locally (reet terminal uploads off).
+	UploadsOff bool `json:"uploadsOff,omitempty"`
 }
 
 func agentConfigPath() string {
@@ -351,6 +353,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 				GitAvailable:     gitAvailable,
 				BrowseAllowed:    browseAllowed(*config, c),
 				ClipboardAllowed: clipboardAllowed(*config, c),
+				UploadsAllowed:   uploadsAllowed(*config, c),
 				TerminalAllowed:  terminalAllowed(*config, c),
 				OnConnection:     state.connected.Store,
 				ServerURL:        c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,

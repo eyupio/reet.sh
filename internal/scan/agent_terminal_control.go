@@ -26,7 +26,7 @@ func terminalControl(config string, c agentConfig) agenthealth.TerminalFactory {
 			return errors.New("terminal access disabled locally")
 		}
 		return nil
-	}, BrowseConsent: func() error { return browseConsent(config, c) }, ClipboardConsent: func() error { return clipboardConsent(config, c) }})
+	}, BrowseConsent: func() error { return browseConsent(config, c) }, ClipboardConsent: func() error { return clipboardConsent(config, c) }, UploadConsent: func() error { return uploadConsent(config, c) }})
 }
 
 // launchTools reports the agent CLIs found on this connector's PATH from its
@@ -52,6 +52,13 @@ func browseAllowed(config string, c agentConfig) func() bool {
 // not off locally (reet terminal clipboard off).
 func clipboardAllowed(config string, c agentConfig) func() bool {
 	return func() bool { return clipboardConsent(config, c) == nil }
+}
+
+// uploadsAllowed re-reads the enrollment: image uploads are allowed while it
+// is still this enrollment, terminal access is on and uploads are not off
+// locally (reet terminal uploads off).
+func uploadsAllowed(config string, c agentConfig) func() bool {
+	return func() bool { return uploadConsent(config, c) == nil }
 }
 
 // terminalAllowed re-reads the enrollment alone: it is still this one and
@@ -96,6 +103,17 @@ func clipboardConsent(config string, c agentConfig) error {
 	}
 	if current.ClipboardOff {
 		return errors.New("clipboard disabled locally")
+	}
+	return nil
+}
+
+func uploadConsent(config string, c agentConfig) error {
+	current, err := currentTerminalConfig(config, c)
+	if err != nil {
+		return err
+	}
+	if current.UploadsOff {
+		return errors.New("image uploads disabled locally")
 	}
 	return nil
 }

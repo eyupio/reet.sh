@@ -780,7 +780,8 @@ try {
   await expect(page.locator('aside#terminal-sessions')).toBeVisible()
   const sizes = await page.locator('.workspace :is(a[href], button, select, input, summary, [role=button], [tabindex="0"])').evaluateAll(els => els
    // Shown controls only: not inside a closed <details> (its summary aside), not visually hidden, not the xterm's own.
-   .filter(e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && !e.closest('.vh, .xterm, dialog') && !(e.closest('details:not([open])') && !e.matches('summary')))
+   // The separator's track is 24 px; its 44 × 88 px grip is checked by hit-testing in "tablet separator never covers a control".
+   .filter(e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && !e.closest('.vh, .xterm, dialog') && !(e.closest('details:not([open])') && !e.matches('summary')) && !e.matches('.panel-separator'))
    .map(e => { const r = e.getBoundingClientRect(); return {name:(e.getAttribute('aria-label') || e.textContent || e.tagName).trim().replace(/\s+/g,' ').slice(0,30), w:Math.round(r.width), h:Math.round(r.height), keys:!!e.closest('.terminal-toolbar, .mobile-keys')} }))
   expect(sizes.filter(t => !t.keys).length).toBeGreaterThan(20)
   const small = sizes.filter(t => Math.min(t.w, t.h) < (t.keys ? 40 : 44)).map(t => `${t.name} ${t.w}×${t.h}`)
@@ -793,6 +794,35 @@ try {
    expect(items.filter(t => Math.min(...t.split(' ').pop().split('×').map(Number)) < 44), `${opener} menu`).toEqual([])
    await page.keyboard.press('Escape')
   }
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The panel's separator on a touch tablet: a 44 px grab area that never covers a control beside it. Every control within
+ // 24 px of it (the panel's right-hand controls, the pane's left edge, the panel's scroll bar) answers a press at its centre
+ // and at each edge, not the separator.
+ if (run('tablet separator never covers a control')) {
+  const {context,page,errors} = await open({width:834, height:1112, touch:true})
+  await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
+  const sep = page.getByRole('separator',{name:'Resize session navigation'})
+  const track = await sep.boundingBox()
+  // The grip: a 44 px wide area at the middle of the track answers as the separator, from 21 px left of its centre to 21 px right.
+  const mid = [track.x + track.width / 2, track.y + track.height / 2]
+  for (const dx of [-21, -11, 0, 11, 21]) expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.getAttribute('role'), [mid[0] + dx, mid[1]]), `grip at ${dx} px`).toBe('separator')
+  const covered = await page.evaluate(() => {
+   const sep = document.querySelector('.panel-separator'), g = sep.getBoundingClientRect(), out = []
+   const near = r => r.right >= g.left - 24 - 22 && r.left <= g.right + 24 + 22
+   for (const el of document.querySelectorAll('.workspace :is(a[href], button, select, input, summary, [role=button], [tabindex="0"]):not(.panel-separator)')) {
+    if (!el.getClientRects().length || el.closest('.xterm, .vh') || (el.closest('details:not([open])') && !el.matches('summary'))) continue
+    const r = el.getBoundingClientRect()
+    if (!near(r) || r.width === 0 || r.bottom < 0 || r.top > innerHeight) continue
+    const pts = [[(r.left + r.right) / 2, (r.top + r.bottom) / 2], [r.left + 1, (r.top + r.bottom) / 2], [r.right - 1, (r.top + r.bottom) / 2], [(r.left + r.right) / 2, r.top + 1], [(r.left + r.right) / 2, r.bottom - 1]]
+    for (const [x, y] of pts) { const hit = document.elementFromPoint(x, y); if (hit && hit !== el && !el.contains(hit)) out.push(`${(el.getAttribute('aria-label') || el.textContent).trim().slice(0, 30)} at ${Math.round(x)},${Math.round(y)} → ${hit.className || hit.tagName}`) }
+   }
+   return out
+  })
+  expect(covered, 'controls the separator covers').toEqual([])
   expect(errors).toEqual([])
   await context.close()
  }

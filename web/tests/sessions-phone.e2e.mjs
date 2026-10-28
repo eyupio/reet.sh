@@ -94,15 +94,21 @@ try {
    // monospace font has taller rows, so a fixed count does not hold there.)
    const rows = await settledRows(page)
    const head44 = (await header.boundingBox()).height
-   await page.addStyleTag({content:'.session-screen.keyboard .head{display:none!important}.session-screen.keyboard .stage .pane>header{display:flex!important}', }).then(el => el.evaluate(e => e.id = 'pre-h'))
+   await page.evaluate(() => { const style = document.createElement('style'); style.id = 'pre-h'; style.textContent = '.session-screen.keyboard .head{display:none!important}.session-screen.keyboard .stage .pane>header{display:flex!important}'; document.head.append(style) })
    const before = await settledRows(page)
    const paneHead = await page.locator('.pane>header').evaluate(e => e.getBoundingClientRect().height)
+   // The injected layout really is the one before PR H: the slim header gone and the pane's header shown (a renamed class
+   // would leave both as they are and make the comparison empty).
+   await expect(header).toBeHidden()
+   expect(paneHead, `${width}px: the pane header shows in the layout before PR H`).toBeGreaterThan(0)
    const rowHeight = await page.evaluate(() => { const g = document.querySelector('.xterm-screen').getBoundingClientRect().height; return g / document.querySelectorAll('.xterm-rows>div').length })
    await page.evaluate(() => document.getElementById('pre-h').remove())
    expect(await settledRows(page), `${width}px: the layout comes back`).toBe(rows)
    const allowed = Math.max(0, Math.ceil((head44 - paneHead) / rowHeight))
    console.log(`${width}px keyboard-open rows: ${rows} (before PR H ${before}; header ${Math.round(head44)} vs pane header ${Math.round(paneHead)} px, ${rowHeight.toFixed(1)} px rows)`)
    expect(rows, `${width}px: keyboard-open rows against the layout before PR H`).toBeGreaterThanOrEqual(before - allowed)
+   // And it is no better than the layout before PR H by more than the same delta: the two layouts differ only by the headers.
+   expect(before, `${width}px: rows before PR H against now`).toBeLessThanOrEqual(rows + allowed)
    expect(caret.y, `${width}px: the field is inside the visual viewport`).toBeGreaterThanOrEqual(0)
    expect(caret.y + caret.height, `${width}px: the field is above the keyboard`).toBeLessThanOrEqual(keyboard)
    expect(await page.evaluate(() => [document.documentElement.scrollWidth <= innerWidth, innerWidth]), `${width}px: no sideways scroll or zoom`).toEqual([true, width])

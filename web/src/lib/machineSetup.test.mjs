@@ -40,7 +40,6 @@ test('commands are shell-quoted and machine-specific', () => {
   assert.match(profileFetchCommand('work', 4), /--profile 'work' --revision 4/)
 })
 
-
 test('machine sync links preselect the machine without inventing an agent target', () => {
   assert.equal(syncLink('PROD_Snicket'), '/machines?view=compare&machine=PROD_Snicket')
   assert.match(syncLink('studio / west'), /machine=studio%20%2F%20west/)

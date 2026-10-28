@@ -97,7 +97,7 @@ beside it). Its parts:
   terminal's right edge, from under the header to the foot of the screen; every target in the header, the toolbar, the
   tabs, the sheet, the docked sessions panel (its rows, menus and swatches; the separator has a 44 × 88 px grip that
   reaches into the panel's widened padding, covers no control and reaches no further over the terminal than its 24 px
-  track) and the pane's header and footer is at least 44 px on touch; only the pane's terminal toolbar and
+  track; beside the mini rail there is no grip, only the 24 px track, which covers no rail button) and the pane's header and footer is at least 44 px on touch; only the pane's terminal toolbar and
   extra keys are 40 × 40 px.
 - **Phones** get one slim header (back to Sessions, title, project · machine, state, Details, ⋮); the tabs and Chat |
   Terminal are left out. With the keyboard up for the terminal the site's top bar steps aside (`keyboardChrome` with the

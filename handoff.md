@@ -79,8 +79,8 @@ left out of the first pass, and the Program 2 spike ran in parallel.
 | H | `/sessions` (the Sessions page), the session screen, tablet and phone layouts, the last redirects, the phone rail on Sessions | **[#231](https://github.com/eyupio/reet.sh/pull/231), in review, awaiting the owner's merge decision** (no Codex review possible: quota exhausted). H1 `f0bffe5` Sessions page and Control's address retired (`/control` → `/`, `/terminals` → `/sessions`), fixes `048e431` (session colours, **Saved commands** button: owner ruling), `b85338a`; H2 `f74001f` session screen (tabs, header with the state pill, Chat \| Terminal with Chat disabled, context panel), fixes `f026cfb`, `c02fec6`; H3 `7581ad0` tablet and phone layouts (no rail on narrow Home, the rail on Sessions, slim phone header, `keyboardChrome('session')`), fixes `a984b5e` (44 px tablet targets, cases moved to `sessions-phone.e2e.mjs`), `3f1e89b` (separator grip); `521c406` CI fix (first-terminal checklist off `/sync`); merges of main `9c88a46` (#232, #233), `ae763c8` (#234) and `57d8f53` (#235, #236); H4 `1a5018d` (research copied into `docs/research/`), `c349a2b` (the matrix, phone target fixes, docs, this handoff), `1ff4230` (the research notes name the reference tool by role); final fix wave after the broad review `b53c7dd` (`/sessions/`, viewers at a session address), `adec499` (steady Sessions rows, menu focus, the connection in the phone header, tablet swatches and grip, context panel, tab tooltip, New → `/#launch`), `dd31068` (dead code), `8e6ce3e` (checks that went with Control, steadier phone tests), `6778211` (start-agent expects the Machines title) and the docs commit after them |
 | Program 2 | Structured chat over the agent protocol, with approval cards | spike done; OpenCode chosen (27 Oct); hands-on probe of `opencode acp` 1.19.5 done (28 Oct): conditional go for trusted workspaces only; queued as slice 1 below |
 
-Merged into main by the owner while this work was open: #222, #224, #225, #228, #229, #230, #232, #233, #234, #235 and
-#236 (each merged into the open branch before its next push; #235 and #236 in `57d8f53`).
+Merged into main by the owner while this work was open: #222, #223 (`4791d89`), #224, #225, #228, #229, #230, #232, #233,
+#234, #235 and #236 (each merged into the open branch before its next push; #235 and #236 in `57d8f53`).
 
 **Merge rule:** a PR in this work merges only when all checks are green on its final head **and** Codex has reviewed it
 cleanly, or the owner gives an explicit exception. So far: #227's exception is recorded on the PR (a comment); #221 and
@@ -165,9 +165,11 @@ Numbering as in the report's section 3.6 (D1–D8):
   and that `--refresh` ignores the setting). Other agents keep suggestions, favourites and Other….
 - Favourites per account (at most 50); an account default for sessions outside a project; a project default for agent,
   model and effort. Precedence: explicit choice, then project, then account, then the agent's own default.
-- Owner: the bar opens with the defaults first and the last used as a Recent group; loading is automatic because the
-  capture is clean with the setting above. Controller rulings D2–D4 above. D6 (capturing `opencode models` from the
-  approved npm package) was approved and is partly done by the probe.
+- Decisions, numbered as in the models design (D1–D6): **D1** (owner) the bar opens with the defaults first and the last
+  used as a Recent group; **D5** (owner) the list loads automatically, because the capture is clean with the setting
+  above; **D2** a per-machine default is deferred, **D3** a favourite can carry a "default for this agent" flag (yes), **D4**
+  the model-name rule stays as it is (D2–D4 are controller defaults the owner may revisit); **D6** capturing
+  `opencode models` from the approved npm package was approved and is partly done by the probe.
 - Known gap to fix in it: a project's default agent is checked against the original four agents only, so Cline cannot be
   one.
 
@@ -227,7 +229,7 @@ once / Deny only, and only with all seven conditions:
 - **Git and processes:** never `git checkout -p`; commit with pathspecs; never `pkill -f` (it can match the session's own
   processes); never a shared tmux `kill-server`. The stop hook nags while subagents are still working; that is expected.
 - **Commit trailers:** new commits follow the session's attribution reminder (`Co-Authored-By` and `Claude-Session`);
-  this PR's commits use Claude Sonnet 5.5 (a few early ones say Opus 5.5).
+  every commit in this PR carries Claude Sonnet 5.5.
 - **Process used** (subagent-driven development): an implementer per task with a brief, a task review, fix rounds
   (at most five) with a scoped re-review, then a final broad review split by area and a single fix wave; mutation checks
   restore files byte-identical (`cp` before, `cmp` after); fidelity checks at 1440, 834 and 390 px recorded in

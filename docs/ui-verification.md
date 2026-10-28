@@ -1284,3 +1284,15 @@ ten runs since (eight alone, two straight after terminal-lifecycle); neither its
 this wave, so it is recorded as an intermittent timing failure to watch in CI. The real-browser Go harness
 (`TestTerminalPrivateLifecyclePreservesActualShell`, `LANG=C.UTF-8`) passed, with the second browser opening the library
 from Saved commands.
+
+Re-review round of the fix wave:
+
+- **Mini rail on a touch tablet**: the offset 44 × 88 px grip also showed beside the 64 px mini rail, which has no spare
+  padding, and covered most of the rail button at mid-height (a tap there started a resize). The grip now shows only beside
+  the full docked panel; beside the mini rail the separator is its 24 px track, which covers no rail button.
+  `sessions.e2e.mjs` "tablet separator by the mini rail" (834 × 1112, touch, panel shrunk to the rail) checks the track still
+  answers across its width and every rail button answers a press at its centre and edges; it failed first (one rail button
+  covered) and catches the grip put back.
+- `sessions-phone.e2e.mjs` sideways: "the terminal fills its screen" now compares the rows xterm draws with the room for
+  them (the screen's height over one drawn row's measured height), within a row, instead of a figure computed the same way
+  as the row count; a terminal fitted three rows short (10 for room for 13) fails it.

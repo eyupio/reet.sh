@@ -1,6 +1,7 @@
 <script lang="ts">
   import NavigationMenu from './NavigationMenu.svelte'
   import { onMount } from 'svelte'
+  import ActivitySection from './ActivitySection.svelte'
   import Backups from './Backups.svelte'
   import CopyButton from './CopyButton.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -15,8 +16,8 @@
   import { linkedLine, ssoLinkHref, type SsoIdentity } from './sso'
 
   let {
-    user, onsignout, onerror, onuserchange,
-  }: { user: User; onsignout: () => void; onerror?: (e: unknown) => void; onuserchange?: (u: User) => void } = $props()
+    user, onsignout, onerror, onuserchange, writer,
+  }: { user: User; onsignout: () => void; onerror?: (e: unknown) => void; onuserchange?: (u: User) => void; writer?: boolean } = $props()
 
   type Section = 'machines' | 'sync' | 'profile' | 'security' | 'sso' | 'sessions' | 'tokens' | 'mcp' | 'backups' | 'activity'
   // svelte-ignore state_referenced_locally
@@ -57,14 +58,14 @@
   let passwordForm = $state({ current: '', password: '', confirm: '' })
 
   function sectionFromHash(): Section {
-    const h = location.hash.slice(1) || location.pathname.split('/')[2] || 'profile'
+    // /activity is the old address for the account's activity section; it keeps working and is rewritten below.
+    const fromPath = location.pathname === '/activity' ? 'activity' : location.pathname.split('/')[2] || ''
+    const h = location.hash.slice(1) || fromPath || 'profile'
     if (h === 'connect-machine') return 'machines'
     return ['profile', 'security', 'sso', 'sessions', 'machines', 'sync', 'tokens', 'mcp', 'backups', 'activity'].includes(h) ? h as Section : 'profile'
   }
 
   onMount(() => {
-    // The activity list lives at /activity now; an old link to it here goes there.
-    if (section === 'activity') { location.replace('/activity'); return }
     history.replaceState(null, '', `/account/${section}`)
     document.title = `${sections.find(s => s.key === section)?.label ?? 'Account'} · Account · reet.sh`
     void loadProfile()
@@ -304,7 +305,7 @@
     <PageHeader eyebrow="Your account" title={who.name || who.email} titleId="account-title" lede={`${who.email} · ${who.role}`} />
   </div>
 
-  <NavigationMenu label="Account" items={sections.map(s => ({ label: s.label, href: s.key === 'machines' ? '/machines' : s.key === 'sync' ? '/machines?view=compare' : s.key === 'activity' ? '/activity' : `/account/${s.key}`, current: section === s.key }))} />
+  <NavigationMenu label="Account" items={sections.map(s => ({ label: s.label, href: s.key === 'machines' ? '/machines' : s.key === 'sync' ? '/machines?view=compare' : `/account/${s.key}`, current: section === s.key }))} />
 
   {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
   {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
@@ -434,6 +435,8 @@
         </ul>
       {/if}
     </section>
+  {:else if section === 'activity'}
+    <ActivitySection writer={writer ?? canWrite} onsignedout={onerror} timeZone={profile.timezone} dateFormat={profile.dateFormat} />
   {:else if section === 'machines'}
     <EnvironmentSync {canWrite} accounts token={freshToken} {startConnect} onsignedout={onerror} view="machines">
       {#snippet tokenSetup()}{@render tokenForm()}{/snippet}

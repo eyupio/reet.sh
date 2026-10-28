@@ -123,7 +123,7 @@ try {
   const runs = page.getByRole('region',{name:'Runs from Projects'})
   // One saved Project's runs could not be read: the others are still listed, and it says which.
   await expect(runs).toContainText("Couldn't read the runs of Broken just now.")
-  await expect(runs).toContainText('the newest 20 runs of each saved Project')
+  await expect(runs).toContainText('newest 20 runs of each saved Project')
   const head = runs.getByRole('button',{name:/^Site/})
   await expect(head).toHaveAttribute('aria-expanded','false')
   await head.click()

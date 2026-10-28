@@ -45,7 +45,7 @@ const sync = () => ({environments:[],machines:[],agents:[{id:'a1',host:'studio',
 const changedPaths = Array.from({length:23}, (_, i) => i < 3 ? ['internal/terminalproto/browse.go','internal/terminalhost/browse.go','docs/terminal-launch.md'][i] : `web/src/file${i}.ts`)
 
 async function open(options={}) {
- const box = {sessions:options.sessions ?? sessions(), projects:options.projects ?? projects(), fail:false, writes:[], commands:[], hold:null, status:[]}
+ const box = {sessions:options.sessions ?? sessions(), projects:options.projects ?? projects(), fail:false, writes:[], commands:[], hold:null, status:[], sockets:[]}
  const routes = {
   '/api/v2/machines/health': () => box.fail ? {status:500,json:{error:'down'}} : health(),
   '/api/v2/terminal/machines': () => box.fail ? {status:500,json:{error:'down'}} : {machines:options.machines ?? tmachines},
@@ -62,7 +62,7 @@ async function open(options={}) {
  }
  const opened = await openWorkspace(browser, {width:options.width ?? 1440, height:options.height ?? 900, touch:options.touch, theme:options.theme ?? 'light', routes, sync:options.sync ?? sync()})
  // An open session's terminal: a ticket, then a socket that says it is ready.
- await opened.context.routeWebSocket('**/api/v2/terminal/socket', socket => socket.onMessage(message => { if (typeof message === 'string' && JSON.parse(message).ticket) { socket.send('{"type":"ready"}'); socket.send(Buffer.from('ready> ')) } }))
+ await opened.context.routeWebSocket('**/api/v2/terminal/socket', socket => { box.sockets.push(socket); socket.onMessage(message => { if (typeof message === 'string' && JSON.parse(message).ticket) { socket.send('{"type":"ready"}'); socket.send(Buffer.from('ready> ')) } }) })
  // The sessions panel's saved colours, as the workspace keeps them in this browser.
  if (options.colours) await opened.page.addInitScript(colors => localStorage.setItem('reet-terminal-layout:1:sessions', JSON.stringify({colors})), options.colours)
  // A session's own writes: rename (PATCH), end and remove from history (POST).
@@ -659,6 +659,49 @@ try {
    expect(errors).toEqual([])
    await context.close()
   }
+ }
+
+ // Fix round 2: a reconnect while the sheet is open does not pull focus into the terminal behind it.
+ if (run('a reconnect keeps focus in the sheet')) {
+  const {context,page,errors,box} = await open({width:834,height:1112,touch:true})
+  await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  const pane = page.locator('.pane')
+  await expect(pane).toHaveAttribute('data-connection-state','live')
+  const details = screen(page).getByRole('button',{name:'Details',exact:true})
+  await details.focus()
+  await page.keyboard.press('Enter')
+  const close = panel(page).getByRole('button',{name:'Close details'})
+  await expect(close).toBeFocused()
+  // The machine drops the connection; the pane reconnects and is live again.
+  const before = box.sockets.length
+  await box.sockets.at(-1).close()
+  await expect(pane).not.toHaveAttribute('data-connection-state','live')
+  await expect(pane).toHaveAttribute('data-connection-state','live',{timeout:10000})
+  expect(box.sockets.length).toBeGreaterThan(before)
+  await page.waitForTimeout(300)
+  await expect(close).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(panel(page)).toBeHidden()
+  await expect(details).toBeFocused()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ if (run('an empty listing for a moment keeps the tabs')) {
+  const {context,page,errors,box} = await open()
+  await page.goto(`${base}/sessions?agent=a1&session=s1`)
+  await sidebarRow(page, 'Add browse-v1 protocol').click()
+  await sidebarRow(page, 'Refactor the store layer').click()
+  expect(await tabTitles(page)).toEqual(['Refactor the store layer','Add browse-v1 protocol'])
+  const all = box.sessions
+  box.sessions = []
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+  await expect(screen(page)).toHaveCount(0)
+  box.sessions = all
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+  await expect.poll(() => tabTitles(page)).toEqual(['Refactor the store layer','Add browse-v1 protocol'])
+  expect(errors).toEqual([])
+  await context.close()
  }
 
  if (run('a tab whose session left the listing')) {

@@ -132,7 +132,9 @@
   let openTabs=$state<string[]>([])
   $effect(()=>{const id=session?.id;if(id)untrack(()=>{openTabs=openTab(openTabs,id)})})
   // A session that left the listing leaves the tabs too, so it never counts towards the eight nor comes back on a close.
-  $effect(()=>{const listed=new Set(sessions.map(item=>item.id));untrack(()=>{const kept=openTabs.filter(id=>listed.has(id));if(kept.length!==openTabs.length)openTabs=kept})})
+  // Only a listing that was read successfully and lists something prunes: an empty or failed read never drops open tabs.
+  let listingLoaded=$state(false)
+  $effect(()=>{if(!listingLoaded||!sessions.length)return;const listed=new Set(sessions.map(item=>item.id));untrack(()=>{const kept=openTabs.filter(id=>listed.has(id));if(kept.length!==openTabs.length)openTabs=kept})})
   const tabSessions=$derived(openTabs.map(id=>sessions.find(item=>item.id===id)).filter((item):item is TerminalSession=>!!item))
   // Closing a tab closes the view, never the session: the current one gives way to its neighbour, the last one to the list.
   function closeSessionTab(item:TerminalSession){
@@ -169,7 +171,7 @@
       if(version!==inventoryVersion){refreshAgain=true;return}
       statusError='';accessDenied=false
       const removedAfterClose=sessions.find(item=>item.id===selectedSession)?.removeHistory&&!nextSessions.some(item=>item.id===selectedSession)
-      machines=nextMachines;sessions=nextSessions;healthIssue=nextHealth.error
+      machines=nextMachines;sessions=nextSessions;listingLoaded=true;healthIssue=nextHealth.error
       if(nextProjects.projects)projects=nextProjects.projects
       if(removedAfterClose){selectedSession='';remember()}
       if(nextHealth.data){health=nextHealth.data;receivedAt=performance.now();elapsed=0}

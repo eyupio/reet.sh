@@ -44,7 +44,8 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Escape closes the panel when it is shown over the terminal) -->
-<aside class="context-panel" aria-label="Session context" {id} {onkeydown}>
+<!-- data-keeps-focus: a reconnecting terminal behind the panel never takes focus out of it. -->
+<aside class="context-panel" aria-label="Session context" data-keeps-focus {id} {onkeydown}>
   <!-- Shown only while the panel lies over the terminal (behind Details). -->
   {#if onclose}<button type="button" class="close-details" onclick={onclose}>Close details</button>{/if}
   <section aria-labelledby={`${id}-where`}>

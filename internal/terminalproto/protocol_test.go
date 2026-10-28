@@ -20,7 +20,7 @@ func testHealth() HealthReport {
 func testMessage(body Body) Message {
 	m := Message{Version: Version, RequestID: testID, Generation: 1, Body: body}
 	switch body.kind() {
-	case "create", "end", "session_changed":
+	case "create", "end", "session_changed", "upload":
 		m.SessionID = testID
 	case "attach", "resize", "renew_attachment", "detach", "history":
 		m.SessionID = testID
@@ -34,6 +34,7 @@ func TestRoundTripEveryOperation(t *testing.T) {
 		Hello{testID, testCapabilities()}, Reconcile{Complete: true, Sessions: []SessionSnapshot{{ID: testID, Title: "Shell", State: Running}}},
 		Create{Title: "Shell", Cols: 80, Rows: 24}, Attach{Cols: 80, Rows: 24, LeaseSeconds: 60}, Resize{100, 30}, RenewAttachment{60}, Detach{}, End{}, History{Lines: 2000},
 		Probe{1, testID}, ProbeResult{1, testID}, testHealth(), Result{Code: OK}, SessionChanged{State: Running},
+		Upload{StreamToken: testID, Size: MaxUploadBytes, SHA256: strings.Repeat("a", 64), MIME: "image/png"},
 	} {
 		t.Run(body.kind(), func(t *testing.T) {
 			m := testMessage(body)
@@ -52,6 +53,24 @@ func TestRoundTripEveryOperation(t *testing.T) {
 		})
 	}
 }
+func TestPreStreamUploadResultCodes(t *testing.T) {
+	for _, c := range []ResultCode{UploadsOff, UploadBusy} {
+		if !c.Valid() || (Result{Code: c}).valid() == false {
+			t.Fatalf("%q is not a valid result code", c)
+		}
+	}
+	for _, c := range []ResultCode{OK, Unavailable, Denied, Capacity, NotFound, Failed, Conflict, LaunchFailed, LaunchOptionUnsupported, YoloRefused, WorktreeChanged, WorktreeRefused} {
+		if !c.Valid() {
+			t.Fatalf("existing code %q stopped being valid", c)
+		}
+	}
+	for _, c := range []ResultCode{"", "uploads_on", "upload_off", "upload_busy "} {
+		if c.Valid() {
+			t.Fatalf("unknown code %q is valid", c)
+		}
+	}
+}
+
 func TestRejectMalformedAndAmbiguousControl(t *testing.T) {
 	valid, _ := Encode(testMessage(Create{Title: "Shell", Cols: 80, Rows: 24}))
 	cases := map[string][]byte{

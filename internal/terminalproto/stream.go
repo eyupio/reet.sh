@@ -14,7 +14,7 @@ type StreamHello struct {
 }
 
 func (h StreamHello) Validate() error {
-	if h.Version != Version || !ValidID(h.RequestID) || !ValidID(h.SessionID) || !ValidID(h.AttachmentID) || !ValidCounter(h.Generation) || !ValidCounter(h.AttachmentGeneration) || !ValidID(h.Token) || h.Operation != "attach" && h.Operation != "history" {
+	if h.Version != Version || !ValidID(h.RequestID) || !ValidID(h.SessionID) || !ValidID(h.AttachmentID) || !ValidCounter(h.Generation) || !ValidCounter(h.AttachmentGeneration) || !ValidID(h.Token) || h.Operation != "attach" && h.Operation != "history" && h.Operation != "upload" {
 		return ErrInvalid
 	}
 	return nil

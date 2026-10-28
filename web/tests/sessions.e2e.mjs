@@ -926,6 +926,37 @@ try {
   expect(errors).toEqual([])
   await context.close()
  }
+ // The same beside the mini rail (the panel shrunk to its 64 px rail of 44 px buttons): the grip does not reach into the
+ // rail, so every rail button answers a press across its width, and the 24 px track is still there to drag.
+ if (run('tablet separator by the mini rail')) {
+  const {context,page,errors} = await open({width:834, height:1112, touch:true})
+  await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
+  await page.locator('aside#terminal-sessions').getByRole('button',{name:'Shrink sessions to a mini rail',exact:true}).click()
+  const rail = page.getByRole('complementary',{name:'Session rail',exact:true})
+  await expect(rail).toBeVisible()
+  const sep = page.getByRole('separator',{name:'Resize session navigation'})
+  await expect(sep).toHaveAttribute('aria-valuetext','Mini rail')
+  const track = await sep.boundingBox(), mid = [track.x + track.width / 2, track.y + track.height / 2]
+  const role = (x, y) => page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.getAttribute('role'), [x, y])
+  for (const dx of [-11, 0, 11]) expect(await role(mid[0] + dx, mid[1]), `track at ${dx} px`).toBe('separator')
+  const covered = await rail.evaluate(r => {
+   const out = []
+   for (const el of r.querySelectorAll('button, a[href]')) {
+    if (!el.getClientRects().length) continue
+    const b = el.getBoundingClientRect()
+    if (b.bottom < 0 || b.top > innerHeight) continue
+    for (const [x, y] of [[(b.left + b.right) / 2, (b.top + b.bottom) / 2], [b.left + 1, (b.top + b.bottom) / 2], [b.right - 1, (b.top + b.bottom) / 2], [(b.left + b.right) / 2, b.top + 1], [(b.left + b.right) / 2, b.bottom - 1]]) {
+     const hit = document.elementFromPoint(x, y)
+     if (hit && hit !== el && !el.contains(hit)) out.push(`${(el.getAttribute('aria-label') || el.textContent).trim().slice(0, 30)} at ${Math.round(x)},${Math.round(y)} → ${hit.className || hit.tagName}`)
+    }
+   }
+   return out
+  })
+  expect(covered, 'rail buttons the separator covers').toEqual([])
+  expect(errors).toEqual([])
+  await context.close()
+ }
 
  if (run('copy branch is announced')) {
   const {context,page,errors} = await open()

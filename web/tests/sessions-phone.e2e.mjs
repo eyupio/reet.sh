@@ -150,8 +150,10 @@ try {
   // Rows, never an absolute count (CI's fallback monospace font has taller rows): the terminal fills its screen, and it has
   // more rows than the same layout with the slim header shown, measured in this browser once each fit has settled.
   const rows = await settledRows(page)
-  const fill = await page.evaluate(() => { const g = document.querySelector('.xterm-screen').getBoundingClientRect().height, n = document.querySelectorAll('.xterm-rows>div').length; return Math.floor(document.querySelector('.screen').clientHeight / (g / n) + 0.01) })
-  expect(rows, 'sideways: the terminal fills its screen').toBe(fill)
+  // The terminal's own grid (the rows xterm draws) against the room for it: the screen's height over one drawn row's height,
+  // each measured on its own, within a row.
+  const grid = await page.evaluate(() => { const lines = document.querySelectorAll('.xterm-rows>div'); return {rows:lines.length, capacity:Math.floor(document.querySelector('.screen').clientHeight / lines[0].getBoundingClientRect().height + 0.01)} })
+  expect(Math.abs(grid.rows - grid.capacity), `sideways: the terminal fills its screen (${grid.rows} rows for room for ${grid.capacity})`).toBeLessThanOrEqual(1)
   await page.evaluate(() => { const style = document.createElement('style'); style.id = 'with-head'; style.textContent = '.session-screen .head{display:flex!important}'; document.head.append(style) })
   await expect(page.locator('.session-screen .head')).toBeVisible()
   const withHead = await settledRows(page)

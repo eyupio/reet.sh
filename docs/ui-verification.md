@@ -1304,3 +1304,16 @@ Re-review round of the fix wave:
   viewer and legacy-mode visits call no terminal endpoint at all (R16); a Machines page reading the checklist for them
   fails both. Every browser file in the workflow's three jobs then ran once in the workflow's order on this branch and on
   `origin/main` (`7dce59d`): all passed on main; on this branch only `add-machine` failed (fixed as above).
+
+## Sync activity on phones — 28 October 2026
+
+Built on `7886511`. The `/sync#sync-jobs` address used to land on a page that the live-sync panel then covered, and each repeated failure was drawn as another full error card. The activity section now leads the page, groups identical failures on one machine, and opens only the first job that needs a person. The live dock is no longer mounted on `/sync`; elsewhere it starts as a compact bar and expands on demand.
+
+Checked with `sync-activity.e2e.mjs` in Chromium mobile emulation at 390 × 844, touch and `isMobile`:
+
+- `/sync#sync-jobs` has no `.sync-dock`; the activity heading and the first failed job are visible without scrolling past the comparison form.
+- Two previews with the same folder error on two scopes render as one card reading `OpenCode, Shared agents / Codex · 2 jobs`; expanding it shows “The same failure on 2 jobs.” and one fix command.
+- `/machines` with a queued job shows the collapsed dock under 96 px, expands to the run detail, and dismisses from its own close button.
+- The document keeps the device width and the test records no page errors.
+
+`control.e2e.mjs` also passed with its retry flow moved to the new grouped card, as did `phone-layout`, `phone-zoom` (45 screens at 320, 360, 390 and 412 px) and `empty-states`. Not checked: a physical phone, Safari or Firefox, a screen reader, or a live agent reporting a job.

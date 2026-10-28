@@ -10,6 +10,8 @@
   import FleetActions from './FleetActions.svelte'
   import { destinationScopes } from './fleet'
   import { dedupeSkills, linked as isLinked, localDuplicates as findLocalDuplicates, sourceConflicts as findSourceConflicts } from './syncSelection'
+  import { syncActivityOverview, type SyncActivityEntry, type SyncHostActivity } from './syncActivity'
+  import { jobPlanCounts, syncJobStages } from './syncOverview'
   import { startSyncRun } from './api'
   let { snapshot, canWrite, onupdate, view = 'compare' }: { snapshot: SyncState; canWrite: boolean; onupdate: (s: SyncState) => void; view?: 'machines' | 'compare' } = $props()
   let source = $state('shelf'), selectedMachine = $state(''), selectedAgents = $state<string[]>([]), listId = $state(0), mode = $state('additive')
@@ -46,6 +48,37 @@
     return [...byHost.values()]
   })
   const filtered = $derived(candidates.filter(s => `${s.name} ${s.source}`.toLowerCase().includes(query.toLowerCase())))
+  const activity = $derived(syncActivityOverview(snapshot.jobs ?? [], snapshot))
+  const activeHosts = $derived(activity.hosts.filter(host => host.entries.some(entry => !entry.resolved)))
+  const finished = $derived(activity.hosts.flatMap(host => host.entries.filter(entry => entry.resolved)).sort((a, b) => b.job.updatedAt - a.job.updatedAt))
+  const latestFinished = $derived(finished[0])
+  const olderFinished = $derived(finished.slice(1))
+  const firstActionKey = $derived(activity.hosts.flatMap(host => host.entries).find(entry => entry.failed || entry.review)?.key ?? '')
+  const history = $derived(activeHosts.length ? finished : olderFinished)
+  const failedHosts = $derived(activity.hosts.filter(host => host.failed))
+  const activityHeadline = $derived.by(() => {
+    if (activity.active) return `${activity.active} sync ${activity.active === 1 ? 'job' : 'jobs'} in progress`
+    if (activity.failed) return failedHosts.length === 1 ? `Sync needs attention on ${failedHosts[0].host}` : `Sync needs attention on ${failedHosts.length} machines`
+    if (activity.review) return `${activity.review} ${activity.review === 1 ? 'plan needs' : 'plans need'} review`
+    if (activity.cancelled) return `${activity.cancelled} ${activity.cancelled === 1 ? 'job was' : 'jobs were'} cancelled`
+    if (activity.done) return 'Sync is up to date'
+    return 'No sync activity yet'
+  })
+  const activityDetail = $derived.by(() => {
+    if (activity.active) {
+      const waiting = []
+      if (activity.failed) waiting.push(`${activity.failed} failed`)
+      if (activity.review) waiting.push(`${activity.review} to review`)
+      return waiting.length ? `${waiting.join(' · ')}. Open a job below to see the detail.` : 'Machines report each step here as it completes.'
+    }
+    if (activity.failed) return failedHosts.length === 1
+      ? `${activity.failed} ${activity.failed === 1 ? 'job' : 'jobs'} failed on ${failedHosts[0].host}. Open one to see the exact fix.`
+      : `${activity.failed} jobs failed across ${failedHosts.length} machines. Open one to see the exact fix.`
+    if (activity.review) return 'Nothing changes until you approve a plan.'
+    if (activity.cancelled) return 'A cancelled job changed no files.'
+    if (latestFinished) return `Last job finished ${ago(latestFinished.job.updatedAt)}.`
+    return 'Preview a saved set or request a scan to start.'
+  })
   function ago(at: number) { const value = elapsed(at); return value === 'just now' ? value : `${value} ago` }
   function quote(v: string) { return "'" + v.replaceAll("'", "'\\''") + "'" }
   function cli(item: SyncTarget) { return `reet sync --server ${quote(location.origin)} --env ${quote(item.target.host)} --target ${quote(item.target.id)}` }
@@ -160,49 +193,104 @@
       notice = `Automatic sync started for ${group.host}. Additive plans apply on their own; removals wait for review.`
     })
   }
-  function hostOf(job: SyncJob): string {
-    return snapshot.agents?.find(a => a.id === job.agentId)?.host ?? ''
-  }
   function online(job: SyncJob): boolean {
     return agentOnline(snapshot.agents?.find(a => a.id === job.agentId))
   }
-  // A retry's outcome belongs on the card the person pressed, not only in the
-  // banner at the top of a long page. Kept per job so two retries can both say
-  // what happened. A success hides that card's button: the fresh job now holds
-  // the machine, so pressing it again would only be refused.
   let retryResults = $state<Record<string, { text: string; bad: boolean }>>({})
-  function retryResult(id: string, text: string, bad = false) {
-    retryResults = { ...retryResults, [id]: { text, bad } }
+  let retryingEntry = $state('')
+  function retryResult(key: string, text: string, bad = false) {
+    retryResults = { ...retryResults, [key]: { text, bad } }
   }
-  function retried(id: string): boolean {
-    const result = retryResults[id]
+  function retried(key: string): boolean {
+    const result = retryResults[key]
     return !!result && !result.bad
   }
-  // Failed jobs get the same fresh scan or preview the old per-kind button
-  // offered; an update retries the same release. Nothing replays an old plan.
-  function retryJob(job: SyncJob) {
-    if (busy) return
+  function kindName(kind: string): string {
+    return kind === 'apply' ? 'Apply' : kind === 'scan' ? 'Scan' : kind === 'preview' ? 'Preview' : kind === 'update' ? 'Update' : 'Sync'
+  }
+  function entryTitle(entry: SyncActivityEntry): string {
+    const kind = kindName(entry.job.kind)
+    if (entry.active) return entry.job.status === 'queued' ? 'Waiting for machine' : `${kind} in progress`
+    if (entry.failed) return `${kind} failed`
+    if (entry.review) return 'Plan ready to review'
+    if (entry.cancelled) return `${kind} cancelled`
+    return entry.job.kind === 'apply' ? 'Changes applied' : `${kind} complete`
+  }
+  function statusWord(entry: SyncActivityEntry): string {
+    if (entry.active) return entry.job.status === 'queued' ? 'Queued' : 'Running'
+    if (entry.review) return 'Review'
+    if (entry.failed) return 'Failed'
+    if (entry.cancelled) return 'Cancelled'
+    return 'Done'
+  }
+  function entryTone(entry: SyncActivityEntry): string {
+    if (entry.active) return 'work'
+    if (entry.review) return 'warn'
+    if (entry.failed) return 'bad'
+    if (entry.cancelled) return 'quiet'
+    return 'ok'
+  }
+  function scopeText(entry: SyncActivityEntry): string {
+    if (!entry.scopes.length) return entry.job.kind === 'update' ? '' : 'Machine'
+    if (entry.scopes.length <= 2) return entry.scopes.join(', ')
+    return `${entry.scopes[0]} +${entry.scopes.length - 1} more`
+  }
+  function entryMeta(entry: SyncActivityEntry): string {
+    const parts = []
+    const scopes = scopeText(entry)
+    if (scopes) parts.push(scopes)
+    if (entry.jobs.length > 1) parts.push(entry.scopes.length === 1 ? `${entry.jobs.length} attempts` : `${entry.jobs.length} jobs`)
+    parts.push(ago(entry.job.updatedAt))
+    return parts.join(' · ')
+  }
+  function hostSummary(host: SyncHostActivity): string {
+    const parts = []
+    if (host.active) parts.push(`${host.active} running`)
+    if (host.failed) parts.push(`${host.failed} failed`)
+    if (host.review) parts.push(`${host.review} to review`)
+    return parts.join(' · ')
+  }
+  function retryJobs(entry: SyncActivityEntry): SyncJob[] {
+    const seen = new Set<string>()
+    return entry.jobs.filter(job => {
+      const key = job.kind === 'update' ? `agent:${job.agentId}` : `target:${job.targetId}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }
+  // A grouped failure retries each scope once. Two attempts against the same
+  // scope are one retry, so a repeated preview cannot pile up duplicates.
+  async function retryEntry(entry: SyncActivityEntry) {
+    if (busy || retryingEntry || !canWrite) return
     busy = true
-    const id = job.id
+    retryingEntry = entry.key
     const pending = { ...retryResults }
-    delete pending[id]
+    delete pending[entry.key]
     retryResults = pending
-    void (async () => {
-      try {
+    try {
+      const jobs = retryJobs(entry)
+      let next = snapshot
+      let kind = 'preview'
+      for (const job of jobs) {
         if (job.kind === 'update') {
-          onupdate(await updateSyncAgent(job.agentId, job.revision || 'latest'))
-          retryResult(id, `Update queued again for ${hostOf(job) || 'the machine'}.`)
+          kind = 'update'
+          next = await updateSyncAgent(job.agentId, job.revision || 'latest')
         } else {
-          const kind = job.kind === 'scan' ? 'scan' : 'preview'
-          onupdate(await queueSyncJob(job.agentId, job.targetId, kind))
-          retryResult(id, `Fresh ${kind} queued for ${hostOf(job) || 'the machine'}. It appears at the top of Sync activity; approve the new plan to apply.`)
+          kind = job.kind === 'scan' ? 'scan' : 'preview'
+          next = await queueSyncJob(job.agentId, job.targetId, kind)
         }
-      } catch (e) {
-        retryResult(id, e instanceof Error ? e.message : String(e), true)
-      } finally {
-        busy = false
+        onupdate(next)
       }
-    })()
+      retryResult(entry.key, jobs.length > 1
+        ? `Fresh ${kind} queued for ${jobs.length} jobs on ${entry.host}. They appear at the top of Sync activity.`
+        : `Fresh ${kind} queued for ${entry.host}. It appears at the top of Sync activity.`)
+    } catch (e) {
+      retryResult(entry.key, e instanceof Error ? e.message : String(e), true)
+    } finally {
+      retryingEntry = ''
+      busy = false
+    }
   }
   async function previewGroup(group: { host: string; items: SyncTarget[] }) {
     const agent = snapshot.agents?.find(a => a.host.toLowerCase() === group.host.toLowerCase())
@@ -215,6 +303,7 @@
     })
   }
   function approve(job: SyncJob) { confirm = { title: 'Apply this plan on the machine?', body: `${job.plan.actions?.filter(a => a.add).length ?? 0} installs and ${job.plan.actions?.filter(a => !a.add).length ?? 0} removals in ${job.plan.directory || 'the selected scope'}. Removed entries are backed up locally. The agent rechecks this exact plan before applying.`, action: () => run(async () => { onupdate(await controlSyncJob(job.id, 'approve', job.hash)); notice = 'Approved plan queued for the enrolled machine.' }) } }
+  function cancelJob(job: SyncJob) { void run(async () => onupdate(await controlSyncJob(job.id, 'cancel'))) }
   onMount(() => {
     if (view !== 'compare') return
     void (async () => {
@@ -240,6 +329,115 @@
 
 {#if error}<p class="feedback bad" role="alert">{error}</p>{/if}
 {#if notice}<p class="feedback" role="status">{notice}</p>{/if}
+
+{#snippet jobRow(entry: SyncActivityEntry, startOpen: boolean)}
+  {@const counts = jobPlanCounts(entry.job)}
+  <details class="activity-job" class:is-active={entry.active} open={startOpen}>
+    <summary>
+      <span class="job-mark {entryTone(entry)}" aria-hidden="true">
+        {#if entry.failed}!{:else if entry.review}?{:else if entry.active}<span class="pulse"></span>{:else if entry.cancelled}–{:else}✓{/if}
+      </span>
+      <span class="job-copy"><strong>{entryTitle(entry)}</strong><small>{entryMeta(entry)}</small></span>
+      <span class="job-end">
+        <span class="job-state {entryTone(entry)}">{statusWord(entry)}</span>
+        <svg class="job-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+      </span>
+    </summary>
+    <div class="job-body">
+      {#if entry.active || entry.review || entry.failed}
+        <ol class="stages" aria-label="Job steps">
+          {#each syncJobStages(entry.job) as stage (stage.key)}
+            <li class={stage.state}>{stage.label}</li>
+          {/each}
+        </ol>
+      {/if}
+      {#if counts.total && entry.jobs.length === 1}
+        <p class="job-facts">{counts.installs} install{counts.installs === 1 ? '' : 's'}{counts.removals ? ` · ${counts.removals} removal${counts.removals === 1 ? '' : 's'}` : ''}</p>
+      {/if}
+      {#if entry.failed && entry.job.message}
+        <SyncProblem message={entry.job.message} host={entry.host} site={location.origin} attempts={entry.jobs.length} online={online(entry.job)}
+          retrying={retryingEntry === entry.key} onretry={canWrite && !retried(entry.key) ? () => void retryEntry(entry) : undefined} />
+      {:else if entry.job.message}
+        <p class="job-message">{entry.job.message}</p>
+      {/if}
+      {#if retryResults[entry.key]}
+        <p class="retry-result" class:bad={retryResults[entry.key].bad} role={retryResults[entry.key].bad ? 'alert' : 'status'}>{retryResults[entry.key].text}</p>
+      {/if}
+      {#if entry.failed && !entry.job.message && canWrite}
+        <div class="actions"><button class="btn" disabled={busy} onclick={() => void retryEntry(entry)}>{entry.job.kind === 'update' ? 'Try update again' : `Retry with fresh ${entry.job.kind === 'scan' ? 'scan' : 'preview'}`}</button></div>
+      {/if}
+      {#if entry.cancelled && canWrite}
+        <div class="actions"><button class="btn" disabled={busy} onclick={() => void retryEntry(entry)}>{entry.job.kind === 'update' ? 'Try update again' : `Retry with fresh ${entry.job.kind === 'scan' ? 'scan' : 'preview'}`}</button></div>
+      {/if}
+      {#if entry.review && canWrite}
+        <div class="actions"><button class="btn primary" disabled={busy} onclick={() => approve(entry.job)}>Review &amp; approve</button><button class="btn quiet" disabled={busy} onclick={() => cancelJob(entry.job)}>Cancel</button></div>
+      {:else if entry.active && entry.job.status === 'queued' && canWrite}
+        <div class="actions"><button class="btn quiet" disabled={busy} onclick={() => cancelJob(entry.job)}>Cancel</button></div>
+      {/if}
+      {#if entry.jobs.length === 1 && entry.job.plan?.actions}
+        <details class="plan">
+          <summary>Plan · {entry.job.plan.actions.length} {entry.job.plan.actions.length === 1 ? 'change' : 'changes'}</summary>
+          {#if entry.job.plan.directory}<p class="plan-dir"><code>{entry.job.plan.directory}</code></p>{/if}
+          <ul>
+            {#each entry.job.plan.actions as action}
+              <li>{action.add ? 'Install' : 'Remove'} <strong>{action.skill.name}</strong> <small>{action.skill.source}</small></li>
+            {:else}<li>Already matches the desired set.</li>{/each}
+          </ul>
+        </details>
+      {/if}
+      {#if entry.jobs.length === 1 && entry.job.plan?.backups?.length}
+        <details class="plan">
+          <summary>Restore removed skills</summary>
+          <p class="hint">Run on the enrolled machine. Restore asks for confirmation and never overwrites an existing skill.</p>
+          {#each entry.job.plan.backups as backup}
+            <div class="command"><code>{`reet agent restore --target ${quote(entry.job.targetId)} --backup ${quote(backup)}`}</code><CopyButton text={`reet agent restore --target ${quote(entry.job.targetId)} --backup ${quote(backup)}`} label="Copy restore command" /></div>
+          {/each}
+        </details>
+      {/if}
+    </div>
+  </details>
+{/snippet}
+
+{#if activity.total || location.hash === '#sync-jobs'}
+<section id="sync-jobs" class="activity" aria-labelledby="sync-jobs-title">
+  <header class="activity-head">
+    <div>
+      <p class="eyebrow">Sync activity</p>
+      <h3 id="sync-jobs-title">{activityHeadline}</h3>
+      <p>{activityDetail}</p>
+    </div>
+    {#if activity.total}<span class="badge">{activity.total} {activity.total === 1 ? 'job' : 'jobs'}</span>{/if}
+  </header>
+  {#if activeHosts.length}
+    <div class="activity-hosts">
+      {#each activeHosts as host (host.host)}
+        <section class="activity-host" aria-label={`Sync activity on ${host.host}`}>
+          <header class="host-head"><h4>{host.host}</h4><p>{hostSummary(host)}</p></header>
+          {#each host.entries.filter(entry => !entry.resolved) as entry (entry.key)}
+            {@render jobRow(entry, entry.active || entry.key === firstActionKey || !!retryResults[entry.key])}
+          {/each}
+        </section>
+      {/each}
+    </div>
+  {:else if latestFinished}
+    <section class="activity-host calm" aria-label={`Latest sync activity on ${latestFinished.host}`}>
+      <header class="host-head"><h4>{latestFinished.host}</h4><p>Nothing needs you.</p></header>
+      {@render jobRow(latestFinished, false)}
+    </section>
+  {/if}
+  {#if history.length}
+    <details class="activity-history">
+      <summary>Earlier activity ({history.length})</summary>
+      <div class="history-list">
+        {#each history as entry (entry.key)}
+          {@render jobRow(entry, false)}
+        {/each}
+      </div>
+    </details>
+  {/if}
+</section>
+{/if}
+
 {#if view === 'compare'}
 <FleetActions {snapshot} {canWrite} {onupdate} />
 <section id="sync-selection" class="control" aria-labelledby="selection-title">
@@ -315,22 +513,7 @@
     </article>
   {:else}<p class="hint">No desired skill sets yet. Choose a machine and at least one agent scope above to get started.</p>{/each}
 </section>
-{/if}
-
-
-<section id="sync-jobs" aria-labelledby="sync-jobs-title"><details class="history" open={location.hash === '#sync-jobs' || ['failed','rolled_back'].includes(snapshot.jobs?.[0]?.status ?? '') || (snapshot.jobs ?? []).some(j => ['queued','running','awaiting-approval'].includes(j.status))}><summary id="sync-jobs-title">Sync activity ({snapshot.jobs?.length ?? 0}){snapshot.jobs?.[0] ? ` · latest: ${snapshot.jobs[0].status.replaceAll('-', ' ')}` : ''}</summary>
-{#each snapshot.jobs ?? [] as job (job.id)}
- <article class="control"><h4>{snapshot.agents?.find(a => a.id === job.agentId)?.host || 'Machine'} · {job.kind === 'update' ? 'reet update' : job.kind}</h4><p role="status">{job.status.replaceAll('-', ' ')} · {ago(job.updatedAt)}</p>
- {#if job.message}{#if job.status === 'failed' || job.status === 'rolled_back'} <SyncProblem message={job.message} host={hostOf(job)} site={location.origin} online={online(job)} retrying={busy} onretry={canWrite && !retried(job.id) ? () => void retryJob(job) : undefined} />{:else}<p>{job.message}</p>{/if}{/if}
- {#if retryResults[job.id]}<p class="retry-result" class:bad={retryResults[job.id].bad} role={retryResults[job.id].bad ? 'alert' : 'status'}>{retryResults[job.id].text}</p>{/if}
- {#if job.plan.backups?.length}<details><summary>Restore removed skills</summary><p>Run on the enrolled machine. Restore asks for confirmation and never overwrites an existing skill.</p>{#each job.plan.backups as backup}<div class="command"><code>{`reet agent restore --target ${quote(job.targetId)} --backup ${quote(backup)}`}</code><CopyButton text={`reet agent restore --target ${quote(job.targetId)} --backup ${quote(backup)}`} label="Copy restore command" /></div>{/each}</details>{/if}
- {#if job.plan.actions}<details open={job.status === 'awaiting-approval'}><summary>Plan: {job.plan.actions.length} {job.plan.actions.length === 1 ? 'change' : 'changes'}</summary><p><code>{job.plan.directory}</code></p><ul>{#each job.plan.actions as action}<li>{action.add ? 'Install' : 'Remove'} {action.skill.name} <small>{action.skill.source}</small></li>{:else}<li>Already matches the desired set.</li>{/each}</ul></details>{/if}
- {#if canWrite}<div class="actions">{#if job.status === 'awaiting-approval'}<button class="btn primary" disabled={busy} onclick={() => approve(job)}>Review &amp; approve</button>{/if}{#if ['queued','awaiting-approval'].includes(job.status)}<button class="btn quiet" disabled={busy} onclick={() => run(async () => onupdate(await controlSyncJob(job.id, 'cancel')))}>Cancel</button>{/if}{#if job.status === 'cancelled' || (['failed','rolled_back'].includes(job.status) && !job.message)}<button class="btn" disabled={busy} onclick={() => void retryJob(job)}>{job.kind === 'update' ? 'Try update again' : `Retry with fresh ${job.kind === 'scan' ? 'scan' : 'preview'}`}</button>{/if}</div>{/if}
- </article>
-{:else}<p class="hint">No jobs yet. Preview a desired set or request a scan from Machines.</p>{/each}
-</details></section>
-
-{#if confirm}<ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel="Confirm" oncancel={() => confirm = null} onconfirm={() => { const action = confirm?.action; confirm = null; void action?.() }} />{/if}
+{/if}{#if confirm}<ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel="Confirm" oncancel={() => confirm = null} onconfirm={() => { const action = confirm?.action; confirm = null; void action?.() }} />{/if}
 <style>
  .control { border:1px solid var(--line); border-radius:10px; padding:18px; margin:16px 0; min-width:0; }
  h3,h4 { margin:0 0 10px; } p,.hint { color:var(--muted); line-height:1.6; font-size:.85rem; } .hint {font-size:.8rem}
@@ -367,5 +550,73 @@
  .scope-set > p{margin:5px 0;overflow-wrap:anywhere}
  .local-preview{margin:8px 0 0}
  .local-preview summary{font-size:.78rem}
- @media(max-width:600px){.pickers{grid-template-columns:1fr}.control{padding:12px}.actions .btn{flex:1 1 auto}.scope-grid{grid-template-columns:1fr}.set-head{align-items:flex-start}.set-head .btn{width:100%}}
+ .activity{margin:24px 0;padding:18px;border:1px solid var(--line);border-radius:14px;background:var(--card);scroll-margin-top:16px}
+ .activity-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+ .activity-head > div{min-width:0;max-width:70ch}
+ .eyebrow{margin:0 0 4px;color:var(--accent-text);text-transform:uppercase;letter-spacing:.1em;font-size:.68rem;font-weight:650}
+ .activity-head h3{margin:0;font:500 1.25rem/1.25 var(--serif);letter-spacing:-.02em}
+ .activity-head p{margin:5px 0 0;font-size:.8rem;line-height:1.55}
+ .activity-head .badge{flex:none}
+ .activity-hosts{display:grid;gap:12px}
+ .activity-host{border:1px solid var(--line);border-radius:12px;background:var(--bg);min-width:0}
+ .activity-host.calm{border-style:dashed}
+ .host-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;border-bottom:1px solid var(--line);background:var(--card);border-radius:11px 11px 0 0;flex-wrap:wrap}
+ .activity-host.calm .host-head{border-bottom:0;border-radius:11px}
+ .host-head h4{margin:0;font-size:.86rem;overflow-wrap:anywhere}
+ .host-head p{margin:0;color:var(--muted);font-size:.72rem}
+ .activity-job{margin:0;border-top:1px solid var(--line);min-width:0}
+ .activity-job:first-of-type{border-top:0}
+ .activity-job > summary{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:48px;padding:10px 14px;list-style:none;font-weight:400}
+ .activity-job > summary::-webkit-details-marker{display:none}
+ .activity-job > summary::marker{content:''}
+ .activity-job[open] > summary{background:color-mix(in srgb,var(--bg) 55%,transparent)}
+ .job-mark{display:grid;place-items:center;width:24px;height:24px;flex:none;border:1px solid var(--line);border-radius:50%;font-size:.72rem;font-weight:700}
+ .job-mark.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
+ .job-mark.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
+ .job-mark.work{color:var(--accent-text);border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+ .job-mark.ok{color:var(--good);border-color:color-mix(in srgb,var(--good) 45%,var(--line))}
+ .job-mark.quiet{color:var(--muted)}
+ .pulse{width:8px;height:8px;border-radius:50%;background:currentColor;display:block}
+ .is-active .pulse{animation:pulse 1.4s ease-in-out infinite}
+ @keyframes pulse{50%{opacity:.35}}
+ .job-copy{display:grid;gap:1px;min-width:0}
+ .job-copy strong{font-size:.84rem;line-height:1.35;overflow-wrap:anywhere}
+ .job-copy small{font-size:.71rem;color:var(--muted);line-height:1.4;overflow-wrap:anywhere}
+ .job-end{display:flex;align-items:center;gap:6px;justify-self:end;flex:none}
+ .job-chevron{width:16px;height:16px;flex:none;color:var(--muted);transition:transform .2s var(--ease-out)}
+ .activity-job[open] .job-chevron{transform:rotate(180deg)}
+ .job-state{flex:none;padding:3px 9px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:.66rem;font-weight:650;white-space:nowrap}
+ .job-state.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--line))}
+ .job-state.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
+ .job-state.work{color:var(--accent-text);border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}
+ .job-state.ok{color:var(--good);border-color:color-mix(in srgb,var(--good) 40%,var(--line))}
+ .job-body{display:grid;gap:10px;padding:0 14px 14px;min-width:0}
+ .stages{list-style:none;display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0}
+ .stages li{padding:3px 8px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:.67rem}
+ .stages li.active{color:var(--accent-text);border-color:color-mix(in srgb,var(--accent) 40%,var(--line));font-weight:600}
+ .stages li.done{color:var(--good);border-color:color-mix(in srgb,var(--good) 35%,var(--line))}
+ .stages li.failed{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--line))}
+ .stages li.review{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
+ .job-facts,.job-message{margin:0;color:var(--muted);font-size:.76rem;line-height:1.55;overflow-wrap:anywhere}
+ .job-facts{color:var(--ink-soft)}
+ .plan{margin:0;border-top:1px solid var(--line);padding-top:8px}
+ .plan > summary{font-size:.75rem}
+ .plan p,.plan ul{font-size:.76rem}
+ .plan ul{padding-left:18px}
+ .plan li{overflow-wrap:anywhere}
+ .plan-dir code{font-size:.72rem}
+ .activity-history{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+ .activity-history > summary{font-size:.78rem}
+ .history-list{display:grid;gap:0;margin-top:10px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
+ .history-list .activity-job{border-top:1px solid var(--line)}
+ .history-list .activity-job:first-child{border-top:0}
+ @media (prefers-reduced-motion: reduce){.is-active .pulse{animation:none}.job-chevron{transition:none}}
+ @media(max-width:600px){
+  .pickers{grid-template-columns:1fr}.control{padding:12px}.actions .btn{flex:1 1 auto}.scope-grid{grid-template-columns:1fr}.set-head{align-items:flex-start}.set-head .btn{width:100%}
+  .activity{padding:12px;border-radius:12px}.activity-head h3{font-size:1.12rem}
+  .activity-job > summary{grid-template-columns:24px minmax(0,1fr);padding:10px 12px}
+  .job-end{grid-column:2;justify-self:start;margin-top:3px}
+  .host-head{padding:10px 12px}
+  .job-body{padding:0 12px 12px}
+ }
 </style>

@@ -9,6 +9,7 @@
     project = '',
     retrying = false,
     compact = false,
+    online = true,
     onretry,
   }: {
     message: string
@@ -17,6 +18,8 @@
     project?: string
     retrying?: boolean
     compact?: boolean
+    /** False while the machine is not reporting: commands and retry need it reachable. */
+    online?: boolean
     onretry?: () => void
   } = $props()
 
@@ -31,7 +34,10 @@
       <p class="detail">{fix.detail}</p>
     </div>
   </header>
-  {#if fix.commands.length}
+  {#if !online && (fix.commands.length || (onretry && fix.retry))}
+    <p class="hint offline">{host || 'This machine'} isn't connected right now. Reconnect it, then try again.</p>
+  {/if}
+  {#if online && fix.commands.length}
     <div class="commands" aria-label="Commands to fix this">
       <p class="label">Run on {host || 'the machine'}</p>
       {#each fix.commands as command (command)}
@@ -43,9 +49,9 @@
       {#if fix.hint}<p class="hint">{fix.hint}</p>{/if}
     </div>
   {/if}
-  {#if (onretry && fix.retry) || fix.href}
+  {#if (online && onretry && fix.retry) || fix.href}
     <div class="actions">
-      {#if onretry && fix.retry}
+      {#if online && onretry && fix.retry}
         <button class="btn primary" type="button" disabled={retrying} onclick={onretry}>
           {retrying ? 'Trying…' : fix.local ? 'I’ve run it — try again' : 'Fix and try again'}
         </button>

@@ -5,6 +5,12 @@ export function groupLabel(env: Environment & { project?: string }): string {
   return `${names[env.agent] ?? env.agent}${env.project ? ` · ${env.project}` : ''}`
 }
 export function agentGroups(machine?: Machine): SyncEnvironment[] { return machine?.groups.filter(g => !g.agent.startsWith('reet')) ?? [] }
+// The same window the fleet uses to call an agent online. A job's fix cannot
+// run here while the machine is away, so the UI hides the command and retry.
+export const AGENT_ONLINE_WINDOW = 90_000
+export function agentOnline(agent: Pick<SyncAgent, 'lastSeen'> | undefined, now = Date.now()): boolean {
+  return !!agent && agent.lastSeen > now - AGENT_ONLINE_WINDOW
+}
 // Heartbeats identify running servers; only agent inventories belong in shelf filters.
 export function inventoryMachines(machines: Machine[]): Machine[] {
   return machines.filter(machine => agentGroups(machine).length > 0)

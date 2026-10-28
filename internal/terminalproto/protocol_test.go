@@ -20,9 +20,9 @@ func testHealth() HealthReport {
 func testMessage(body Body) Message {
 	m := Message{Version: Version, RequestID: testID, Generation: 1, Body: body}
 	switch body.kind() {
-	case "create", "end", "session_changed", "upload":
+	case "create", "end", "session_changed":
 		m.SessionID = testID
-	case "attach", "resize", "renew_attachment", "detach", "history":
+	case "attach", "resize", "renew_attachment", "detach", "history", "upload":
 		m.SessionID = testID
 		m.AttachmentID = testID
 		m.AttachmentGeneration = 1

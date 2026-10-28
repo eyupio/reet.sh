@@ -122,14 +122,14 @@ func TestUploadStrictnessAndBinding(t *testing.T) {
 	if err := withoutSession.Validate(); err == nil {
 		t.Fatal("upload without a session accepted")
 	}
-	withAttachment := testMessage(u)
-	withAttachment.AttachmentID = testID
-	withAttachment.AttachmentGeneration = 1
-	if err := withAttachment.Validate(); err == nil {
-		t.Fatal("attachment-bound upload accepted")
+	withoutAttachment := testMessage(u)
+	withoutAttachment.AttachmentID = ""
+	withoutAttachment.AttachmentGeneration = 0
+	if err := withoutAttachment.Validate(); err == nil {
+		t.Fatal("upload without an attachment fence accepted")
 	}
-	if _, err := Encode(withAttachment); err == nil {
-		t.Fatal("encoded attachment-bound upload")
+	if _, err := Encode(withoutAttachment); err == nil {
+		t.Fatal("encoded upload without an attachment fence")
 	}
 }
 

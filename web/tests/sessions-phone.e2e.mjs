@@ -1,7 +1,7 @@
 // Sessions on a phone and held sideways (PR H): the session screen's slim header and keyboard-open layout, the sideways
 // layout, and the project rail on the Sessions screen. Synthetic API answers and a fixture terminal socket.
 import { chromium, expect } from '@playwright/test'
-import { active, openWorkspace } from './helpers/workspace.mjs'
+import { active, machineWith, openWorkspace, terminalMachine } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 // REET_E2E_ONLY=<section> runs one section, so each can be watched failing before its fix.
@@ -40,7 +40,9 @@ async function openSession({width, height, path='/sessions?agent=a1&session=s1',
  }})
  await opened.page.addInitScript(keyboardHook)
  await opened.page.route('**/api/v2/terminal/sessions/*/attachments', route => route.fulfill({json:{ticket:'phone-layout-ticket0001'}}))
- await opened.context.routeWebSocket('**/api/v2/terminal/socket', socket => socket.onMessage(message => { if (typeof message === 'string' && JSON.parse(message).ticket) { socket.send('{"type":"ready"}'); socket.send(Buffer.from('ready> ')) } }))
+ // `sockets.refuse` makes the machine unreachable: a new socket closes at once, so the pane stays reconnecting.
+ const sockets = opened.sockets = []
+ await opened.context.routeWebSocket('**/api/v2/terminal/socket', socket => { if (sockets.refuse) return socket.close(); sockets.push(socket); socket.onMessage(message => { if (typeof message === 'string' && JSON.parse(message).ticket) { socket.send('{"type":"ready"}'); socket.send(Buffer.from('ready> ')) } }) })
  await opened.page.goto(`${base}${path}`)
  if (path.includes('session=')) await expect(opened.page.locator('.pane')).toHaveAttribute('data-connection-state','live')
  return opened
@@ -83,7 +85,10 @@ try {
    await expect(page.getByRole('navigation',{name:'Main navigation'})).toBeHidden()
    await expect(page.locator('html')).toHaveAttribute('data-chrome-aside','')
    await expect(header).toBeVisible()
-   await page.waitForTimeout(450)
+   // The layout settles (the keyboard animates in): the pane's foot comes to rest at the keyboard.
+   const paneFoot = async () => { const b = await page.locator('.pane').boundingBox(); return Math.round(b.y + b.height) }
+   await expect.poll(paneFoot, `${width}px: the pane ends at the keyboard`).toBeLessThanOrEqual(keyboard + 1)
+   await expect.poll(paneFoot, `${width}px: and uses the room down to it`).toBeGreaterThanOrEqual(keyboard - 10)
    const pane = await page.locator('.pane').boundingBox(), caret = await field.boundingBox(), head = await header.boundingBox()
    expect(head.y, `${width}px: the slim header starts at the top`).toBeLessThanOrEqual(12)
    expect(pane.y + pane.height, `${width}px: the pane ends above the keyboard`).toBeLessThanOrEqual(keyboard + 1)
@@ -142,17 +147,25 @@ try {
   await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
   await expect(page.locator('.session-screen .head')).toBeHidden()
   await expect(page.getByRole('navigation',{name:'Main navigation'})).toHaveCount(0)
-  await page.waitForTimeout(450)
-  expect(await visibleRows(page), 'sideways rows with the keyboard closed').toBeGreaterThanOrEqual(12)
+  // Rows, never an absolute count (CI's fallback monospace font has taller rows): the terminal fills its screen, and it has
+  // more rows than the same layout with the slim header shown, measured in this browser once each fit has settled.
+  const rows = await settledRows(page)
+  const fill = await page.evaluate(() => { const g = document.querySelector('.xterm-screen').getBoundingClientRect().height, n = document.querySelectorAll('.xterm-rows>div').length; return Math.floor(document.querySelector('.screen').clientHeight / (g / n) + 0.01) })
+  expect(rows, 'sideways: the terminal fills its screen').toBe(fill)
+  await page.evaluate(() => { const style = document.createElement('style'); style.id = 'with-head'; style.textContent = '.session-screen .head{display:flex!important}'; document.head.append(style) })
+  await expect(page.locator('.session-screen .head')).toBeVisible()
+  const withHead = await settledRows(page)
+  await page.evaluate(() => document.getElementById('with-head').remove())
+  expect(await settledRows(page), 'sideways: the rows come back').toBe(rows)
+  console.log(`sideways rows: ${rows} (${withHead} with the slim header shown)`)
+  expect(rows, 'sideways: the slim header gives its rows to the terminal').toBeGreaterThan(withHead)
   expect(await page.evaluate(() => [document.documentElement.scrollWidth <= innerWidth, innerWidth]), 'session sideways').toEqual([true, width])
   const top = Math.round(height * .44)
   await page.locator('.xterm-helper-textarea').focus()
   await page.evaluate(k => window.__keyboard(k), top)
   await expect(page.locator('.site-header')).toBeHidden()
   await expect(page.locator('html')).toHaveAttribute('data-chrome-aside','')
-  await page.waitForTimeout(450)
-  const pane = await page.locator('.pane').boundingBox()
-  expect(pane.y + pane.height).toBeLessThanOrEqual(top + 1)
+  await expect.poll(async () => { const b = await page.locator('.pane').boundingBox(); return Math.round(b.y + b.height) }, 'sideways: the pane ends above the keyboard').toBeLessThanOrEqual(top + 1)
   if (process.env.REET_UI_SCREENSHOTS) await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/session-sideways-keyboard.png`})
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   expect(errors).toEqual([])
@@ -206,6 +219,51 @@ try {
   expect(errors).toEqual([])
   await context.close()
  }
+ // With the keyboard up the pane's header steps aside, but not while the connection is down: its Retry now (or Reconnect,
+ // Continue here) stays reachable above the keyboard, and the slim header's pill says the connection's state, not Running.
+ if (run('connection lost with the keyboard up')) {
+  const height = 844, keyboard = Math.round(height * .55)
+  const {context,page,errors,sockets} = await openSession({width:390,height})
+  const header = page.locator('.session-screen .head')
+  await page.getByRole('button',{name:'Focus terminal',exact:true}).click()
+  await page.evaluate(k => window.__keyboard(k), keyboard)
+  await expect(page.locator('.pane>header')).toBeHidden()
+  await expect(header.locator('.pill')).toContainText('Running')
+  sockets.refuse = true
+  await sockets.at(-1).close()
+  await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','reconnecting')
+  await expect(header.locator('.pill')).not.toContainText('Running')
+  await expect(header.locator('.pill')).toContainText('Reconnecting')
+  const retry = page.getByRole('button',{name:'Retry now',exact:true})
+  await expect(retry).toBeVisible()
+  await expect.poll(async () => { const b = await retry.boundingBox(); return b && b.y >= 0 && b.y + b.height <= keyboard }, 'Retry now above the keyboard').toBe(true)
+  // The machine answers again: Retry now reconnects, and the header steps aside once more.
+  sockets.refuse = false
+  await retry.click()
+  await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live',{timeout:10000})
+  await expect(header.locator('.pill')).toContainText('Running')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A machine's card on the Machines page (where Control's machine cards went, R4): every control on it is a finger-sized
+ // target on a touch screen (Control's cards were checked the same way before it was folded in).
+ if (run('machine cards on touch')) {
+  for (const width of [390, 834]) {
+   const {context,page,errors} = await open({width, height:width === 390 ? 844 : 1112, touch:true, terminalStatus:active,
+    terminalMachines:[terminalMachine('a1','dev-box',true)], inventory:machineWith('dev-box',[]),
+    sync:{...machineWith('dev-box',[]), agents:[{id:'a1',host:'dev-box',version:'1',lastSeen:Date.now(),paused:false,autoUpdate:false}], targets:[], jobs:[], runs:[], updateJobs:[]}})
+   await page.goto(`${base}/machines`)
+   const card = page.locator('article.machine').filter({has:page.getByRole('heading',{name:'dev-box',exact:true})})
+   await expect(card.getByRole('button',{name:'Start an agent'})).toBeVisible()
+   const small = await card.evaluate(a => [...a.querySelectorAll('a.btn, button, summary, select')].filter(e => e.getClientRects().length && e.checkVisibility({visibilityProperty:true}))
+    .map(e => [(e.getAttribute('aria-label') || e.textContent).trim().slice(0, 30), e.getBoundingClientRect()]).filter(([, r]) => Math.round(Math.min(r.width, r.height)) < 44).map(([n, r]) => `${n} ${Math.round(r.width)}×${Math.round(r.height)}`))
+   expect(small, `${width}px: card controls under 44 px`).toEqual([])
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+
  // The CI share of the H4 matrix (the full one is web/tests/matrix/agents-home.matrix.mjs, run locally): on phones, in the
  // dark theme with reduced motion, the Sessions screen and the session screen fit the width, the terminal's chrome (the
  // workspace toolbar, the pane's header, toolbar, keys and footer) is at least 40 × 40 px (docs/terminal-workspace.md,

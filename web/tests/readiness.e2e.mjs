@@ -22,9 +22,17 @@ try {
    await expect(step(page,'controller')).toContainText('Remote access is stopped')
    await expect(step(page,'controller')).toContainText('reet terminal start')
    await expect(step(page,'machine')).toHaveAttribute('data-state','todo')
-   await expect(page.locator('section.readiness .btn.primary'), `filled buttons at ${width}px`).toHaveCount(1)
-   await expect(page.locator('section.readiness .btn.primary')).toHaveText('Connect your first machine')
-   await expect(page.getByRole('link',{name:/Open sessions/})).toHaveCount(0)
+   // One clear next step: a single filled button on the whole page (as on Control before it was folded in). On Machines the
+   // add-a-machine steps are on the same page, so they hold it, and the checklist's link to them is a plain button.
+   await expect(page.locator('main .btn.primary'), `filled buttons at ${width}px`).toHaveCount(1)
+   await expect(page.locator('section.readiness').getByRole('link',{name:'Connect your first machine'})).toHaveAttribute('href','/machines#add-machine')
+   await expect(page.locator('section.readiness .btn.primary')).toHaveCount(0)
+   await expect(page.getByRole('link',{name:/Open sessions|Open terminal/})).toHaveCount(0)
+   // Sync (the same page component) keeps its own single way forward and no checklist.
+   await page.goto(`${base}/sync`)
+   await expect(page.getByRole('heading',{name:'Sync, on your terms.'})).toBeVisible()
+   await expect(page.locator('main .btn.primary'), `Sync filled buttons at ${width}px`).toHaveCount(1)
+   await expect(page.locator('section.readiness')).toHaveCount(0)
    expect(errors).toEqual([])
    await context.close()
   }

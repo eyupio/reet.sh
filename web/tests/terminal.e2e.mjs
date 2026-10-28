@@ -216,6 +216,10 @@ try {
   const library=await secondPage.request.get(`${base}/api/v2/terminal/commands`)
   expect(library.ok()).toBe(true)
   expect((await library.json()).commands.map(item=>item.command)).toEqual([savedText])
+  // And shows it in its own library, opened from the Sessions page's Saved commands (Control's shortcut before it was folded in).
+  await secondPage.goto(`${base}/sessions`)
+  await secondPage.getByRole('button',{name:'Saved commands',exact:true}).click()
+  await expect(secondPage.getByRole('dialog').locator('code')).toHaveText(savedText)
   await secondContext.close()
   await page.getByRole('button',{name:'Insert Account shell check',exact:true}).click()
   await expect(screen).toContainText(savedText)

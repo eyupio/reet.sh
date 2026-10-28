@@ -584,6 +584,14 @@
     .sync-cta { width: 100%; }
     .sync-cta .btn { flex: 1 1 auto; }
   }
+  /* Touch: every control on a card is a finger-sized (44 px) target. */
+  @media (pointer: coarse) {
+    .sync-now { min-height: 44px; }
+    .sync-menu > summary { width: 44px; height: 44px; }
+    .sync-menu-panel a, .sync-menu-panel button { min-height: 44px; }
+    .agent-list > summary { min-height: 44px; }
+    .machine :global(.updater .btn) { min-height: 44px; }
+  }
   @media (prefers-reduced-motion: reduce) {
     .sync-pulse.live { animation: none; }
     .sync-track span { transition: none; }

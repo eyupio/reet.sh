@@ -62,8 +62,11 @@ async function bounds(width,height){
  // The renderer itself must fit, including its final row; outer bounds alone miss clipped content.
  await expect.poll(async()=>{const host=await screen.boundingBox(),rendered=await page.locator('.xterm-screen').boundingBox(),padding=await screen.evaluate(e=>parseFloat(getComputedStyle(e).paddingBottom)||0);return Math.ceil(rendered.y+rendered.height-(host.y+host.height-padding))}).toBeLessThanOrEqual(0)
  console.log(`Screen ${width}x${height}: top=${Math.round(b.y)}, height=${Math.round(b.height)} (${Math.round(b.height/height*100)}%)`)
- expect((await pane.boundingBox()).y).toBeLessThan(160)
- expect(b.y).toBeLessThan(240)
+ // The session screen's header (title, state, Chat | Terminal) sits above the pane by design; the pane starts right under it.
+ const head=await page.evaluate(()=>{const h=document.querySelector('.session-screen .head');return h&&h.getClientRects().length?h.getBoundingClientRect().height:0})
+ expect(head).toBeLessThanOrEqual(104)
+ expect((await pane.boundingBox()).y).toBeLessThan(160+head)
+ expect(b.y).toBeLessThan(240+head)
  expect(b.y+b.height).toBeLessThanOrEqual(height+1)
  expect(await page.evaluate(()=>scrollY)).toBe(0)
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)

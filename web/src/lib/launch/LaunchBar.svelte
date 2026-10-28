@@ -63,6 +63,13 @@
   let operation = $state<({ kind: 'one' } & LaunchCreate & { host: string }) | { kind: 'run'; body: SelectionRunRequest } | null>(null)
   const life = new AbortController()
   let form = $state<HTMLFormElement>(), field = $state<HTMLTextAreaElement>(), startButton = $state<HTMLButtonElement>()
+  // The session screen's + arrives at /#launch: the prompt takes focus once the bar is ready, and the address forgets it.
+  let launchFocus = location.hash === '#launch'
+  $effect(() => {
+    if (!launchFocus || !choice || !field) return
+    launchFocus = false
+    void tick().then(() => { field?.focus(); history.replaceState(history.state, '', location.pathname + location.search) })
+  })
 
   // The first choice: the last launch, then the project an address named.
   let named = ''

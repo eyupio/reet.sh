@@ -122,3 +122,49 @@ export function worktreeTargetOf(s: Pick<TerminalSession, 'agentId' | 'worktreeP
   if (s.worktreeBranch && s.worktreeBranch !== `reet/${project}-${run}`) return null
   return { agentId: s.agentId, project, repo, run }
 }
+
+// The session screen (/sessions?agent=…&session=…). Its tabs are the sessions opened in this browser tab since it loaded
+// (R20): held in memory only, never stored, at most eight in the order they were opened. Closing a tab closes the view,
+// never the session.
+export const MAX_TABS = 8
+
+/** The tabs after opening `id`: added at the end (the oldest dropped past eight), or left in place when already open. */
+export function openTab(tabs: readonly string[], id: string): string[] {
+  if (!id || tabs.includes(id)) return [...tabs]
+  return [...tabs, id].slice(-MAX_TABS)
+}
+
+/** The tabs after closing `id`, and the session to show next: the current one, or (when the current tab closed) the tab now
+ *  in its place, else the one before; '' when none is left. */
+export function closeTab(tabs: readonly string[], id: string, current: string): { tabs: string[]; next: string } {
+  const at = tabs.indexOf(id), rest = tabs.filter(t => t !== id)
+  if (id !== current) return { tabs: rest, next: current }
+  return { tabs: rest, next: rest[Math.min(Math.max(at, 0), rest.length - 1)] ?? '' }
+}
+
+const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR
+const count = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
+
+/** "started 41 minutes ago", from the time since the session was created. */
+export function startedAgo(ms: number): string {
+  if (ms < MINUTE) return 'started just now'
+  if (ms < HOUR) return `started ${count(Math.floor(ms / MINUTE), 'minute')} ago`
+  if (ms < DAY) return `started ${count(Math.floor(ms / HOUR), 'hour')} ago`
+  return `started ${count(Math.floor(ms / DAY), 'day')} ago`
+}
+
+/** The header's line under the title: `agent · model · started …` (a plain shell says Shell). */
+export function headerMeta(s: Pick<TerminalSession, 'tool' | 'model'>, createdAt: number, now: number): string {
+  return [s.tool ? toolName(s.tool) : 'Shell', s.model, startedAgo(Math.max(0, now - createdAt))].filter(Boolean).join(' · ')
+}
+
+/** Decisions in this session. A terminal agent asks in its own terminal; reet sees none of it, so it lists none. */
+export function decisionsLine(s: Pick<TerminalSession, 'yolo'>): string {
+  return s.yolo ? 'YOLO: reet answers yes, this once, to each request.' : 'Asked in the terminal.'
+}
+
+/** The context panel's changed files (R19): the first twenty paths the worktree status lists, the total, and how many more. */
+export function changedList(status: { changed: number; paths: string[] }): { shown: string[]; total: number; more: number } {
+  const shown = (status.paths ?? []).slice(0, 20)
+  return { shown, total: status.changed, more: Math.max(0, status.changed - shown.length) }
+}

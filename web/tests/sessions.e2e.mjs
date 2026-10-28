@@ -37,8 +37,15 @@ const sessions = () => [
  session('s6','a1','Shell',3*HOUR,{state:'ended',worktreePath:'/home/dev/.reet/worktrees/reet/reet/1122334455667788',worktreeRepo:'reet',worktreeBranch:'reet/reet-1122334455667788'}),
 ]
 
+// The skills line's record: studio's one target was last checked three minutes ago and found nothing to change.
+const sync = () => ({environments:[],machines:[],agents:[{id:'a1',host:'studio',version:'test',lastSeen:Date.now(),paused:false,autoUpdate:false}],
+ targets:[{target:{id:'t1',host:'studio'},revision:'r1',sourceId:'',sourceName:'',desired:[],missing:[],extra:[],updatedAt:1}],
+ jobs:[{id:'j1',agentId:'a1',targetId:'t1',kind:'apply',status:'succeeded',revision:'r1',hash:'',plan:{actions:[]},message:'',createdAt:1,updatedAt:Date.now()-3*MIN}],runs:[],updateJobs:[]})
+// What the worktree status read answers: 23 uncommitted changes, the paths the machine listed.
+const changedPaths = Array.from({length:23}, (_, i) => i < 3 ? ['internal/terminalproto/browse.go','internal/terminalhost/browse.go','docs/terminal-launch.md'][i] : `web/src/file${i}.ts`)
+
 async function open(options={}) {
- const box = {sessions:options.sessions ?? sessions(), projects:options.projects ?? projects(), fail:false, writes:[], commands:[], hold:null}
+ const box = {sessions:options.sessions ?? sessions(), projects:options.projects ?? projects(), fail:false, writes:[], commands:[], hold:null, status:[]}
  const routes = {
   '/api/v2/machines/health': () => box.fail ? {status:500,json:{error:'down'}} : health(),
   '/api/v2/terminal/machines': () => box.fail ? {status:500,json:{error:'down'}} : {machines:options.machines ?? tmachines},
@@ -51,8 +58,11 @@ async function open(options={}) {
   },
   '/api/v2/folder-projects': () => box.fail ? {status:500,json:{error:'down'}} : {projects:box.projects,savedWaiting:0},
   '/api/v2/terminal/status': {configured:true,available:true,reason:''},
+  '/api/v2/terminal/worktrees/status': request => { box.status.push(request.postDataJSON()); return {path:'/home/dev/.reet/worktrees/reet/reet/0f1e2d3c4b5a6978',branch:'reet/reet-0f1e2d3c4b5a6978',changed:options.changed ?? changedPaths.length,unpushed:0,paths:changedPaths.slice(0, options.changed ?? changedPaths.length),unreferenced:0,hidden:0,nested:false,incomplete:false} },
  }
- const opened = await openWorkspace(browser, {width:options.width ?? 1440, height:options.height ?? 900, touch:options.touch, theme:options.theme ?? 'light', routes})
+ const opened = await openWorkspace(browser, {width:options.width ?? 1440, height:options.height ?? 900, touch:options.touch, theme:options.theme ?? 'light', routes, sync:sync()})
+ // An open session's terminal: a ticket, then a socket that says it is ready.
+ await opened.context.routeWebSocket('**/api/v2/terminal/socket', socket => socket.onMessage(message => { if (typeof message === 'string' && JSON.parse(message).ticket) { socket.send('{"type":"ready"}'); socket.send(Buffer.from('ready> ')) } }))
  // The sessions panel's saved colours, as the workspace keeps them in this browser.
  if (options.colours) await opened.page.addInitScript(colors => localStorage.setItem('reet-terminal-layout:1:sessions', JSON.stringify({colors})), options.colours)
  // A session's own writes: rename (PATCH), end and remove from history (POST).
@@ -65,6 +75,7 @@ async function open(options={}) {
  })
  await opened.page.route('**/api/v2/terminal/sessions/*/*', async route => {
   const request = route.request(), parts = new URL(request.url()).pathname.split('/'), id = decodeURIComponent(parts.at(-2)), kind = parts.at(-1)
+  if (kind === 'attachments') return route.fulfill({json:{ticket:'sessions-fixture-ticket01'}})
   box.writes.push({kind,id,body:request.postDataJSON()})
   const s = box.sessions.find(x => x.id === id)
   if (kind === 'end' && s) s.state = 'end_requested'
@@ -393,16 +404,231 @@ try {
   await opened.context.close()
  }
 
+ // ---- The session screen (/sessions?agent=…&session=…): tabs, header, the terminal, and the context panel. ----
+ const screen = page => page.locator('.session-screen')
+ const tabs = page => page.getByRole('navigation',{name:'Open sessions'})
+ const tabTitles = async page => (await tabs(page).locator('a.tab .name').allInnerTexts()).map(t => t.trim())
+ const sidebarRow = (page, title) => page.getByRole('navigation',{name:'Terminal sessions'}).getByRole('button',{name:new RegExp(`^${title}`)}).first()
+ const panel = page => page.getByRole('complementary',{name:'Session context'})
+ const fact = (page, name) => panel(page).locator('.where div').filter({has:page.locator('dt',{hasText:new RegExp(`^${name}$`)})}).locator('dd')
+
+ if (run('opening a row adds a tab; closing a tab never ends the session')) {
+  const {context,page,errors,box} = await open()
+  await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  await expect(screen(page).getByRole('heading',{name:'Add browse-v1 protocol',level:2})).toBeVisible()
+  expect(await tabTitles(page)).toEqual(['Add browse-v1 protocol'])
+  await expect(tabs(page).getByRole('link',{name:/Add browse-v1 protocol/})).toHaveAttribute('aria-current','page')
+  // Opening another session from the panel adds its tab and raises it; the page is not reloaded.
+  await page.evaluate(() => { window.__same = true })
+  await sidebarRow(page, 'Refactor the store layer').click()
+  await expect(screen(page).getByRole('heading',{name:'Refactor the store layer',level:2})).toBeVisible()
+  expect(await tabTitles(page)).toEqual(['Add browse-v1 protocol','Refactor the store layer'])
+  await expect(tabs(page).getByRole('link',{name:/Refactor the store layer/})).toHaveAttribute('aria-current','page')
+  // A tab is a link to its session; choosing it switches in place.
+  await expect(tabs(page).getByRole('link',{name:/Add browse-v1 protocol/})).toHaveAttribute('href','/sessions?agent=a1&session=s2')
+  await tabs(page).getByRole('link',{name:/Add browse-v1 protocol/}).click()
+  await expect(screen(page).getByRole('heading',{name:'Add browse-v1 protocol',level:2})).toBeVisible()
+  expect(await page.evaluate(() => window.__same)).toBe(true)
+  // Closing a tab closes the view only: the session keeps running and nothing is sent to the machine.
+  await tabs(page).getByRole('button',{name:'Close Refactor the store layer'}).click()
+  expect(await tabTitles(page)).toEqual(['Add browse-v1 protocol'])
+  await expect(sidebarRow(page, 'Refactor the store layer')).toBeVisible()
+  // Middle-click closes the current tab too; the next tab is shown in its place.
+  await sidebarRow(page, 'Speed up the runner pool').click()
+  await expect(screen(page).getByRole('heading',{name:'Speed up the runner pool',level:2})).toBeVisible()
+  await tabs(page).getByRole('link',{name:/Speed up the runner pool/}).click({button:'middle'})
+  expect(await tabTitles(page)).toEqual(['Add browse-v1 protocol'])
+  await expect(screen(page).getByRole('heading',{name:'Add browse-v1 protocol',level:2})).toBeVisible()
+  expect(box.writes.filter(w => w.kind === 'end' || w.kind === 'archive')).toEqual([])
+  expect(box.sessions.every(s => s.state !== 'end_requested')).toBe(true)
+  // + goes to Home's launch bar.
+  await expect(tabs(page).getByRole('link',{name:'New session'})).toHaveAttribute('href','/#launch')
+  // Tabs are a view held in memory: nothing in browser storage, only ids in the address.
+  expect(await page.evaluate(() => sessionStorage.length)).toBe(0)
+  const stored = await page.evaluate(() => Object.entries(localStorage).map(([k,v]) => k + '=' + v).join('\n'))
+  for (const word of ['s1','s2','s4','Refactor','browse','tabs']) expect(stored).not.toContain(word)
+  expect(new URL(page.url()).searchParams.get('session')).toBe('s2')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ if (run('ninth tab drops the oldest')) {
+  const nine = Array.from({length:9}, (_, i) => session(`n${i+1}`,'a1',`Task ${i+1}`,(i+1)*MIN))
+  const {context,page,errors} = await open({sessions:nine})
+  await page.goto(`${base}/sessions?agent=a1&session=n1`)
+  await expect(screen(page).getByRole('heading',{name:'Task 1',level:2})).toBeVisible()
+  for (let i = 2; i <= 9; i++) {
+   await sidebarRow(page, `Task ${i}`).click()
+   await expect(screen(page).getByRole('heading',{name:`Task ${i}`,level:2})).toBeVisible()
+  }
+  expect(await tabTitles(page)).toEqual(['Task 2','Task 3','Task 4','Task 5','Task 6','Task 7','Task 8','Task 9'])
+  // Opening one that already has a tab raises it; it is not added twice.
+  await sidebarRow(page, 'Task 4').click()
+  expect(await tabTitles(page)).toHaveLength(8)
+  await expect(tabs(page).getByRole('link',{name:/Task 4/})).toHaveAttribute('aria-current','page')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ if (run('context panel shows machine, project, branch, worktree')) {
+  const {context,page,errors} = await open()
+  await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  await expect(panel(page)).toBeVisible()
+  await expect(panel(page).getByRole('heading',{name:"Where it's working"})).toBeVisible()
+  await expect(fact(page,'Machine')).toHaveText(/^studio\s*●\s*online$/)
+  await expect(fact(page,'Project')).toHaveText('reet')
+  await expect(fact(page,'Branch')).toHaveText('reet/reet-0f1e2d3c4b5a6978')
+  await expect(fact(page,'Worktree')).toHaveText('own copy')
+  // Skills on this machine: the fleet card's line, and Manage opens that machine's skills.
+  await expect(panel(page).locator('.skills-line')).toHaveText(/skills in sync · checked 3 min ago/)
+  await expect(panel(page).getByRole('link',{name:'Manage skills on studio'})).toHaveAttribute('href','/machines?view=compare&machine=studio')
+  // A session in the project's own checkout, on another machine, with no branch recorded.
+  await sidebarRow(page, 'Speed up the runner pool').click()
+  await expect(fact(page,'Machine')).toHaveText(/^server\s*●\s*online$/)
+  await expect(fact(page,'Project')).toHaveText('site')
+  await expect(fact(page,'Branch')).toHaveText('Not recorded')
+  await expect(fact(page,'Worktree')).toHaveText('the checkout')
+  await expect(panel(page).locator('.skills-line')).toHaveText('Not checked')
+  // An offline machine is named so, never as reporting.
+  await sidebarRow(page, 'Review code').click()
+  await expect(fact(page,'Machine')).toHaveText(/^desk\s*●\s*offline$/)
+  await expect(panel(page)).not.toContainText(/verified|healthy/i)
+  // Under 1100 px the panel waits behind Details (a 44 px target).
+  await page.setViewportSize({width:834,height:1112})
+  await expect(panel(page)).toBeHidden()
+  const details = screen(page).getByRole('button',{name:'Details',exact:true})
+  await expect(details).toHaveAttribute('aria-expanded','false')
+  expect((await details.boundingBox()).height).toBeGreaterThanOrEqual(44)
+  await details.click()
+  await expect(panel(page)).toBeVisible()
+  await expect(details).toHaveAttribute('aria-expanded','true')
+  await page.keyboard.press('Escape')
+  await expect(panel(page)).toBeHidden()
+  await expect(details).toBeFocused()
+  // Over the terminal the panel has its own Close details (it covers the header's Details).
+  await details.click()
+  await panel(page).getByRole('button',{name:'Close details'}).click()
+  await expect(panel(page)).toBeHidden()
+  await expect(details).toBeFocused()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ if (run('changed files fetched once and on refresh')) {
+  const {context,page,errors,box} = await open()
+  await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  const files = panel(page).getByRole('region',{name:'Changed files'})
+  await expect(files.locator('li')).toHaveCount(20)
+  await expect(files.locator('li').first()).toHaveText('internal/terminalproto/browse.go')
+  await expect(files.locator('.total')).toHaveText('23')
+  await expect(files).toContainText('and 3 more not listed.')
+  expect(box.status).toEqual([{agentId:'a1',project:'reet',repo:'reet',run:'0f1e2d3c4b5a6978'}])
+  // The workspace reads the sessions again (as it does every 15 seconds); the changed files are not read again.
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+  await page.waitForTimeout(400)
+  expect(box.status).toHaveLength(1)
+  await files.getByRole('button',{name:'Refresh changed files'}).click()
+  await expect.poll(() => box.status.length).toBe(2)
+  // A session outside a worktree lists nothing and reads nothing.
+  await sidebarRow(page, 'Speed up the runner pool').click()
+  await expect(panel(page).getByRole('region',{name:'Changed files'})).toContainText('Only sessions in their own worktree list changed files.')
+  await page.waitForTimeout(300)
+  expect(box.status).toHaveLength(2)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ if (run('Chat is disabled with its reason')) {
+  const {context,page,errors} = await open()
+  await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  const view = screen(page).getByRole('group',{name:'View'})
+  const chat = view.getByRole('button',{name:'Chat'})
+  await expect(chat).toHaveAttribute('aria-disabled','true')
+  await expect(chat).toHaveAccessibleDescription('Chat arrives with structured sessions.')
+  await expect(view.getByRole('button',{name:'Terminal'})).toHaveAttribute('aria-pressed','true')
+  // Choosing it changes nothing (it is aria-disabled, so it stays in the tab order with its reason).
+  await chat.click({force:true})
+  await expect(view.getByRole('button',{name:'Terminal'})).toHaveAttribute('aria-pressed','true')
+  await expect(page.locator('.pane')).toBeVisible()
+  // The header: agent · model · started, the state in words with its source, and no step count or progress bar (R10).
+  await expect(screen(page).locator('.sub')).toHaveText('Claude Code · sonnet · started 2 hours ago')
+  const pill = screen(page).locator('.pill')
+  await expect(pill).toContainText('Running')
+  await expect(pill).toHaveAttribute('title',"From the session's state")
+  await expect(screen(page).locator('progress, [role=progressbar]')).toHaveCount(0)
+  await expect(screen(page)).not.toContainText(/Step \d/)
+  await expect(screen(page).locator('.approvals')).toHaveText('Approvals: Ask me')
+  await expect(panel(page).locator('.decisions')).toHaveText('Asked in the terminal.')
+  // The actions menu: Rename, Theatre view, Copy branch, End session, Check and remove worktree (waits for the end).
+  await screen(page).getByRole('button',{name:'Session actions'}).click()
+  const menu = page.getByRole('menu',{name:'Actions for Add browse-v1 protocol'})
+  await expect(menu.getByRole('menuitem')).toHaveText(['Rename…','Theatre view','Copy branch','End session…','Check and remove worktree…'])
+  await expect(menu.getByRole('menuitem',{name:'Rename…'})).toBeFocused()
+  await expect(menu.getByRole('menuitem',{name:'Check and remove worktree…'})).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(screen(page).getByRole('button',{name:'Session actions'})).toBeFocused()
+  await screen(page).getByRole('button',{name:'Session actions'}).click()
+  await menu.getByRole('menuitem',{name:'Rename…'}).click()
+  await expect(page.getByRole('dialog',{name:'Rename session'})).toBeVisible()
+  await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ if (run('YOLO session shows its decisions line')) {
+  const {context,page,errors} = await open()
+  await page.goto(`${base}/sessions?agent=a2&session=s4`)
+  await expect(screen(page).getByRole('heading',{name:'Speed up the runner pool',level:2})).toBeVisible()
+  await expect(screen(page).locator('.head .badge.yolo')).toHaveText('YOLO')
+  await expect(panel(page).locator('.decisions')).toContainText('YOLO: reet answers yes, this once, to each request.')
+  await expect(panel(page).locator('.decisions').getByRole('link')).toHaveAttribute('href','/activity')
+  await expect(screen(page).locator('.approvals')).toHaveText('Approvals: YOLO')
+  // A session that is not YOLO says the terminal asks.
+  await sidebarRow(page, 'Add browse-v1 protocol').click()
+  await expect(screen(page).locator('.head .badge.yolo')).toHaveCount(0)
+  await expect(panel(page).locator('.decisions')).toHaveText('Asked in the terminal.')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // The mock-up's sizes, light and dark, for the fidelity check (REET_UI_SCREENSHOTS=<folder>).
  if (shots && run('screens')) {
   await mkdir(shots, {recursive:true})
   for (const [width,height,touch] of [[1440,900,false],[834,1112,true],[390,844,true]]) for (const theme of ['light','dark']) {
-   const {context,page} = await open({width,height,touch,theme})
+   // Three changed files, as the mock-up lists.
+   const {context,page} = await open({width,height,touch,theme,changed:3})
    await page.goto(`${base}/sessions`)
    await expect(rows(page)).toHaveCount(6)
    await page.screenshot({path:`${shots}/sessions-${width}-${theme}.png`})
+   // The session screen, shaped like the mock-up: four open tabs, the second raised.
+   // A phone has no strip (H3 lays it out), so it opens the one session.
+   await page.goto(`${base}/sessions?agent=a1&session=${width > 650 ? 's1' : 's2'}`)
+   await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
+   if (width > 650) {
+    for (const title of ['Add browse-v1 protocol','Review code','Speed up the runner pool']) await page.evaluate(t => [...document.querySelectorAll('nav[aria-label="Terminal sessions"] button')].find(b => b.textContent.trim().startsWith(t))?.click(), title)
+    await page.locator('nav[aria-label="Open sessions"] a.tab').nth(1).click()
+   }
+   await expect(page.locator('.session-screen h2')).toHaveText('Add browse-v1 protocol')
+   await page.waitForTimeout(300)
+   await page.screenshot({path:`${shots}/session-${width}-${theme}.png`})
+   // REET_AXE=<path to axe.min.js> (kept outside the repository) checks the screen, with Details open where it is collapsed
+   // and with the actions menu open, and prints the counts for docs/ui-verification.md.
+   if (process.env.REET_AXE) {
+    const audit = async state => {
+     await page.addScriptTag({path:process.env.REET_AXE})
+     const r = await page.evaluate(() => window.axe.run(document, {runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21a','wcag21aa','wcag22aa']}}))
+     console.log(`axe ${width} ${theme} ${state}: ${r.violations.length} violations ${JSON.stringify(r.violations.map(v => [v.id, v.nodes.map(n => n.target.join(' '))]))}, ${r.incomplete.length} incomplete ${JSON.stringify(r.incomplete.map(v => [v.id, v.nodes.length, process.env.REET_AXE_NODES ? v.nodes.map(n => n.target.join(' ') + ' ' + (n.any[0]?.message ?? '')) : []]))}`)
+    }
+    await audit('screen')
+    const details = page.locator('.session-screen').getByRole('button',{name:'Details',exact:true})
+    if (await details.isVisible()) { await details.click(); await page.screenshot({path:`${shots}/session-${width}-${theme}-details.png`}); await audit('details open'); await page.keyboard.press('Escape') }
+    await page.locator('.session-screen').getByRole('button',{name:'Session actions'}).click()
+    await audit('menu open')
+    await page.keyboard.press('Escape')
+   }
    await context.close()
   }
  }
- console.log('Sessions: groups shared with Home, search by branch and machine, filters together, the actions menu by right-click, Shift+F10 and its button, the offline sentence, 44 px rows on touch, a failed refresh keeping the list, the empty states, session colours, saved commands without a session, menu focus, Checking… on later reads, the Needs you sentence and a viewer at /sessions.')
+ console.log('Sessions: groups shared with Home, search by branch and machine, filters together, the actions menu by right-click, Shift+F10 and its button, the offline sentence, 44 px rows on touch, a failed refresh keeping the list, the empty states, session colours, saved commands without a session, menu focus, Checking… on later reads, the Needs you sentence, a viewer at /sessions, and the session screen: tabs held in memory (eight at most, closing one never ends its session), the context panel, changed files read once and on refresh, Chat disabled with its reason and the YOLO decisions line.')
 } finally { await browser.close() }

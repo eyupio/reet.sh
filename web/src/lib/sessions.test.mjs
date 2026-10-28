@@ -12,7 +12,7 @@ const agentLaunch = asURL(compile('./agentLaunch.ts').replace("from './catalogue
 const home = asURL(compile('./home.ts'))
 const colour = asURL(compile('./projectColour.ts'))
 const source = compile('./sessions.ts').replace("from './home'", `from '${home}'`).replace("from './agentLaunch'", `from '${agentLaunch}'`).replace("from './projectColour'", `from '${colour}'`)
-const { sessionColourOf, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf } = await import(asURL(source))
+const { sessionColourOf, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList } = await import(asURL(source))
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000
@@ -120,4 +120,41 @@ test('session colours: the panel choice, else the project colour, and a colour f
   assert.deepEqual(ids(filterSessions(sessions, { colour: 'none' }, new Set(), colourOf)), ['s4', 's5'])
   assert.deepEqual(ids(filterSessions(sessions, { colour: 'red', state: 'running' }, new Set(), colourOf)), [])
   assert.equal(filtersOn({ colour: 'red' }), 1)
+})
+
+test('session tabs: at most eight in the order opened, the ninth drops the oldest, closing picks a neighbour', () => {
+  assert.equal(MAX_TABS, 8)
+  let tabs = []
+  for (const id of ['a', 'b', 'c']) tabs = openTab(tabs, id)
+  assert.deepEqual(tabs, ['a', 'b', 'c'])
+  // Opening one already open keeps its place.
+  assert.deepEqual(openTab(tabs, 'a'), ['a', 'b', 'c'])
+  for (const id of ['d', 'e', 'f', 'g', 'h', 'i']) tabs = openTab(tabs, id)
+  assert.deepEqual(tabs, ['b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'])
+  // Closing a tab that is not shown keeps the current one; closing the current one shows the tab now in its place, else the one before.
+  assert.deepEqual(closeTab(['a', 'b', 'c'], 'a', 'b'), { tabs: ['b', 'c'], next: 'b' })
+  assert.deepEqual(closeTab(['a', 'b', 'c'], 'b', 'b'), { tabs: ['a', 'c'], next: 'c' })
+  assert.deepEqual(closeTab(['a', 'b', 'c'], 'c', 'c'), { tabs: ['a', 'b'], next: 'b' })
+  assert.deepEqual(closeTab(['a'], 'a', 'a'), { tabs: [], next: '' })
+})
+
+test('session header: agent · model · started, and the decisions line', () => {
+  assert.equal(startedAgo(30_000), 'started just now')
+  assert.equal(startedAgo(MIN), 'started 1 minute ago')
+  assert.equal(startedAgo(41 * MIN), 'started 41 minutes ago')
+  assert.equal(startedAgo(2 * 60 * MIN), 'started 2 hours ago')
+  assert.equal(startedAgo(60 * MIN), 'started 1 hour ago')
+  assert.equal(startedAgo(3 * 24 * 60 * MIN), 'started 3 days ago')
+  assert.equal(headerMeta(sessions[0], NOW - 41 * MIN, NOW), 'Claude Code · sonnet · started 41 minutes ago')
+  assert.equal(headerMeta(sessions[3], NOW - 2 * MIN, NOW), 'Shell · started 2 minutes ago')
+  assert.equal(decisionsLine({ yolo: false }), 'Asked in the terminal.')
+  assert.equal(decisionsLine({}), 'Asked in the terminal.')
+  assert.equal(decisionsLine({ yolo: true }), 'YOLO: reet answers yes, this once, to each request.')
+})
+
+test('changed files: at most twenty paths and the total', () => {
+  const paths = Array.from({ length: 25 }, (_, i) => `f${i}`)
+  assert.deepEqual(changedList({ changed: 30, paths }), { shown: paths.slice(0, 20), total: 30, more: 10 })
+  assert.deepEqual(changedList({ changed: 2, paths: ['a', 'b'] }), { shown: ['a', 'b'], total: 2, more: 0 })
+  assert.deepEqual(changedList({ changed: 0, paths: [] }), { shown: [], total: 0, more: 0 })
 })

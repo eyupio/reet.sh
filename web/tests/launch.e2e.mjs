@@ -505,6 +505,16 @@ try {
   await context.close()
  }
 
+ // The session screen's + arrives at /#launch: the prompt takes focus and the address forgets the fragment.
+ if (run('arriving from a session tab focuses the prompt')) {
+  const {context,page,errors} = await launch()
+  await page.goto(`${base}/#launch`)
+  await expect(bar(page).getByLabel('Describe the job')).toBeFocused()
+  expect(new URL(page.url()).hash).toBe('')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // Select started on the 56 px strip (1100 to 1239 px) can be stopped there too.
  if (run('Stop selecting on the strip')) {
   const {context,page,errors} = await launch({width:1180, height:800, projects:[...fprojects(), blog()]})

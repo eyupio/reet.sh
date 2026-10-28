@@ -56,6 +56,32 @@ after 10 seconds, and labels observations older than 45 seconds as last known.
 Transient errors preserve the last list; 401/403 clears it. Viewers do not mount the
 band or request terminal data. Viewing the band does not attach to a shell.
 
+## The session screen
+
+`/sessions?agent=…&session=…` opens one session on the session screen, inside the workspace (the sessions panel stays
+beside it). Its parts:
+
+- **Tabs** in the workspace's toolbar row: the sessions opened in this browser tab since it loaded (R20), at most eight in
+  the order opened (the ninth drops the oldest), each a link with its state dot and a close button. Choosing a tab switches
+  in place; middle-click or the close button closes the tab only, never the session (closing the current tab shows its
+  neighbour; closing the last goes back to the list). **+** goes to Home with the launch prompt focused (`/#launch`). Tabs
+  are held in memory: nothing is stored, and the address carries only the session's ids.
+- **Header**: the title, `agent · model · started …`, the state pill (Home's state words, with where the word came from in
+  its tooltip and read out), a **YOLO** badge when on, **Chat | Terminal** with Terminal chosen and Chat disabled ("Chat
+  arrives with structured sessions.", R21), and the actions menu (⋮, or Shift+F10 on it): Rename, Theatre view, Copy branch,
+  End session or Remove from history, Check and remove worktree. A terminal session shows no steps and no progress bar
+  (R10).
+- **The terminal pane**, unchanged. Its footer starts with **Approvals: Ask me** (or **Approvals: YOLO**).
+- **Context panel** (340 px): *Where it's working* (machine and whether it is reporting, project, branch, worktree: "own
+  copy" or "the checkout"); *Changed files* for a session in its own worktree (the first 20 paths from the worktree status
+  and the total, read when the panel opens on the session and again only from **Refresh**, R19); *Skills on this machine*
+  (the fleet card's skills line; **Manage** opens that machine's skills against your list); *Decisions in this session*
+  ("Asked in the terminal.", or the YOLO line with a link to Activity). With less than 1100 px of room for the screen (a
+  narrower window or the sessions panel docked beside it) and in theatre view, the panel waits behind **Details** and
+  opens over the terminal's edge; Escape closes it.
+- **Phones** get one slim header (title, project · machine, state, Details, ⋮); the tabs and Chat | Terminal are left out,
+  and the header steps aside with the keyboard up and when the phone is held sideways. H3 lays out tablets and phones.
+
 The terminal route uses compact app navigation and the remaining usable viewport
 (see [Phones](#phones) for how that height is chosen while a keyboard is open).
 ### The sessions panel

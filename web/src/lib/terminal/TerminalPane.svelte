@@ -6,7 +6,7 @@
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import '@xterm/xterm/css/xterm.css'
   import { TerminalConnection, type ConnectionState } from './connection'
-  import { terminalClosed, type TerminalSession } from './api'
+  import { terminalClosed, terminalUpload, refusalSentence, type TerminalSession } from './api'
   import { terminalShortcut } from './keyboard'
   import WorkspaceDialog from './WorkspaceDialog.svelte'
   import TerminalAppearance from './TerminalAppearance.svelte'
@@ -15,15 +15,17 @@
   import CommandLibrary from './CommandLibrary.svelte'
   import TerminalIcon from './TerminalIcon.svelte'
   import TerminalSelectText from './TerminalSelectText.svelte'
+  import UploadChip from './UploadChip.svelte'
   import {initialFontSize,hostSize,ResizeSender,pageViewport,browserViewport,overflowEdges,repaintOnReturn,FONT_MIN,FONT_MAX,LANDSCAPE_PHONE,PHONE_TOUCH,type Size} from './sizing'
   import {pasteNeedsReview,pasteTooLarge,sanitizePaste} from './paste'
   import {screenText,lastLines,allText,selectionText} from './copy'
+  import {imageFiles,joinReferences,uploadInsertionAllowed,validateImage} from './upload'
   import {parseOsc52,formatCopySize} from './osc52'
   import {copyText} from '../clipboard'
   import {paletteFor,terminalPalettes,type CursorShape} from './themes'
   import type {TerminalCommand} from './api'
 
-  let { session, host, user = '', onrename, onend, onarchive, archiveDisabled=false, historySupported=false, actionDisabled = false, theatre=$bindable(false),sessionsVisible=false,onsessions,keyboard=false,holdSize=false,footnote='' }: { session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; onarchive?:()=>void; archiveDisabled?:boolean;historySupported?:boolean; actionDisabled?: boolean; theatre?:boolean;sessionsVisible?:boolean;onsessions?:()=>void;keyboard?:boolean;holdSize?:boolean;footnote?:string } = $props()
+  let { session, host, user = '', onrename, onend, onarchive, archiveDisabled=false, historySupported=false, actionDisabled = false, theatre=$bindable(false),sessionsVisible=false,onsessions,keyboard=false,holdSize=false,footnote='',uploadsSupported=false,uploadsOff=false }: { session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; onarchive?:()=>void; archiveDisabled?:boolean;historySupported?:boolean; actionDisabled?: boolean; theatre?:boolean;sessionsVisible?:boolean;onsessions?:()=>void;keyboard?:boolean;holdSize?:boolean;footnote?:string;uploadsSupported?:boolean;uploadsOff?:boolean } = $props()
   let element = $state<HTMLDivElement>(),screenFrame=$state<HTMLDivElement>()
   let pane=$state<HTMLElement>(),searchInput=$state<HTMLInputElement>(),viewportHeight=$state(innerHeight),viewportTop=$state(0)
   let connectionState = $state<ConnectionState>('connecting'), message = $state('')
@@ -39,6 +41,8 @@
   const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
   let feedback = $state(''), terminalBackground=$state('#101820'),terminalForeground=$state('#dce5ef')
   let pendingPaste = $state<{text:string;generation:number;execute?:boolean}|null>(null), generation=0, alive=true
+  let fileInput=$state<HTMLInputElement>(), uploads=$state<{id:number;name:string;size:number;controller:AbortController}[]>([])
+  let draggingFiles=$state(false), staleUploads=$state<string[]|null>(null), uploadSeq=0
   let historyOpen=$state(false),appearanceOpen=$state(false),commandsOpen=$state(false),palette=$state('system'),cursor=$state<CursorShape>('bar')
   let scrollbackOpen=$state(false)
   let selectOpen=$state(false), selectModel=$state('')
@@ -115,6 +119,113 @@
     feedback=''
     pendingCopy={text:result.text,bytes:result.bytes}
   }
+  const uploadsOffSentence='Image uploads are off on this machine.'
+  const uploadUnsupportedSentence='Update reet on that machine to attach images.'
+  type UploadOutcome={ok:true;reference:string}|{ok:false;cancelled:boolean;message?:string}
+  function imageRefusal(reason:'type'|'size'|'empty'):string {
+    if(reason==='empty')return 'That image is empty.'
+    if(reason==='size')return 'That image is larger than 5 MiB.'
+    return 'Attach a PNG, JPEG, GIF or WebP image.'
+  }
+  function refusals(reasons:string[]):string {
+    return reasons.length===1?reasons[0]:`${reasons.length} images were refused. ${reasons[0]}`
+  }
+  function cancelUpload(id:number) {
+    const chip=uploads.find(item=>item.id===id)
+    if(!chip)return
+    uploads=uploads.filter(item=>item.id!==id)
+    chip.controller.abort()
+  }
+  async function uploadOne(image:File):Promise<UploadOutcome> {
+    const controller=new AbortController()
+    const chip={id:++uploadSeq,name:image.name||'image',size:image.size,controller}
+    uploads=[...uploads,chip]
+    try {
+      const result=await terminalUpload(session.id,image,controller.signal)
+      return {ok:true,reference:result.reference}
+    } catch(error) {
+      if(controller.signal.aborted)return {ok:false,cancelled:true}
+      return {ok:false,cancelled:false,message:refusalSentence(error)}
+    } finally {
+      uploads=uploads.filter(item=>item.id!==chip.id)
+    }
+  }
+  async function startUploads(images:File[]) {
+    if(!images.length)return
+    feedback=''
+    if(uploadsOff){feedback=uploadsOffSentence;return}
+    if(!uploadsSupported){feedback=uploadUnsupportedSentence;return}
+    if(!alive)return
+    if(!live){feedback='Reconnect before attaching an image. Nothing was uploaded.';return}
+    if(scrollbackOpen){feedback='Return to live output before attaching an image.';return}
+    staleUploads=null
+    const accepted:File[]=[], reasons:string[]=[]
+    for(const image of images){
+      const check=validateImage({type:image.type,size:image.size})
+      if(check.ok)accepted.push(image)
+      else reasons.push(imageRefusal(check.reason))
+    }
+    if(!accepted.length){feedback=refusals(reasons);return}
+    const started=generation
+    const outcomes=await Promise.all(accepted.map(image=>uploadOne(image)))
+    if(!alive)return
+    const references=outcomes.flatMap(item=>item.ok?[item.reference]:[])
+    const failed=outcomes.filter((item):item is {ok:false;cancelled:boolean;message?:string}=>!item.ok&&!item.cancelled)
+    const cancelled=outcomes.filter(item=>!item.ok&&item.cancelled).length
+    const messages:string[]=[]
+    if(references.length){
+      if(uploadInsertionAllowed(started,generation,live,alive)){
+        terminal?.paste(joinReferences(references))
+        messages.push(references.length===1?'Uploaded and inserted the path.':`Uploaded ${references.length} images and inserted their paths.`)
+      } else staleUploads=references
+    }
+    if(failed.length){
+      const first=failed.find(item=>item.message)?.message
+      messages.push(`${failed.length} ${failed.length===1?'image':'images'} failed.${first?` ${first}`:''}`)
+    }
+    if(cancelled&&!references.length&&!failed.length&&!staleUploads)messages.push('Upload cancelled.')
+    if(reasons.length)messages.push(`Skipped ${reasons.length} ${reasons.length===1?'image':'images'}: ${reasons[0]}`)
+    if(messages.length)feedback=messages.join(' ')
+    restoreFocus()
+  }
+  function chooseImages() {
+    if(uploadsOff||!uploadsSupported)return
+    fileInput?.click()
+  }
+  function pickedImages(event:Event) {
+    const input=event.currentTarget as HTMLInputElement
+    const files=Array.from(input.files??[])
+    input.value=''
+    void startUploads(files)
+  }
+  function isFileDrag(event:DragEvent):boolean {
+    return Array.from(event.dataTransfer?.types??[]).includes('Files')
+  }
+  function dragFiles(event:DragEvent) {
+    if(!isFileDrag(event))return
+    event.preventDefault()
+    if(event.dataTransfer)event.dataTransfer.dropEffect='copy'
+    draggingFiles=true
+  }
+  function leaveFiles(event:DragEvent) {
+    if(!isFileDrag(event))return
+    const related=event.relatedTarget
+    if(related instanceof Node&&(event.currentTarget as HTMLElement).contains(related))return
+    draggingFiles=false
+  }
+  function dropFiles(event:DragEvent) {
+    if(!isFileDrag(event))return
+    event.preventDefault()
+    draggingFiles=false
+    const images=Array.from(event.dataTransfer?.files??[]).filter(file=>file.type.startsWith('image/'))
+    if(!images.length){feedback=uploadsOff?uploadsOffSentence:!uploadsSupported?uploadUnsupportedSentence:'Attach a PNG, JPEG, GIF or WebP image.';return}
+    void startUploads(images)
+  }
+  async function copyStaleUpload() {
+    if(!staleUploads)return
+    const copied=await copyText(staleUploads.join(' '))
+    feedback=copied?'Path copied.':'Clipboard access was denied. Use your browser’s copy command.'
+  }
   function paste(text:string,review=false) {
     feedback=''
     const clean=sanitizePaste(text)
@@ -139,7 +250,40 @@
     if(pending.execute)feedback=connection?.text('\r')?'Command sent to the active terminal.':'Connection changed while sending. Check the terminal before retrying.'
     terminal?.focus()
   }
-  async function readClipboard() {feedback='';const started=generation;try{const text=await navigator.clipboard.readText();if(!alive)return;if(started!==generation){feedback='Connection changed. Paste again; nothing was sent.';return}paste(text)}catch{if(alive)feedback='Clipboard access was denied. Paste with your keyboard inside the terminal.'}finally{restoreFocus()} }
+  async function readClipboard() {
+    feedback=''
+    const started=generation
+    try {
+      let items:ClipboardItems|null=null
+      try{items=navigator.clipboard?.read?await navigator.clipboard.read():null}catch{/* fall back to text below */}
+      if(!alive)return
+      if(started!==generation){feedback='Connection changed. Paste again; nothing was sent.';return}
+      if(items){
+        let text=''
+        const images:File[]=[]
+        for(const item of items){
+          for(const type of item.types){
+            if(!text&&type==='text/plain')text=await (await item.getType(type)).text()
+            else if(type.startsWith('image/')){
+              const blob=await item.getType(type)
+              const extension=type.slice('image/'.length).replace(/[^a-z0-9.+-]/gi,'')||'img'
+              images.push(new File([blob],`clipboard.${extension}`,{type}))
+            }
+          }
+        }
+        if(text){paste(text);return}
+        if(images.length){await startUploads(images);return}
+        feedback='Nothing to paste.'
+        return
+      }
+      const text=await navigator.clipboard.readText()
+      if(!alive)return
+      if(started!==generation){feedback='Connection changed. Paste again; nothing was sent.';return}
+      paste(text)
+    } catch {
+      if(alive)feedback='Clipboard access was denied. Paste with your keyboard inside the terminal.'
+    } finally {restoreFocus()}
+  }
   function key(value:string) {modifier=null;if(live&&!scrollbackOpen){connection?.text(value);terminal?.focus()} }
   $effect(()=>{const query=matchMedia(LANDSCAPE_PHONE),update=()=>landscape=query.matches;update();query.addEventListener('change',update);return()=>query.removeEventListener('change',update)})
   $effect(()=>{if(searching)searchInput?.focus()})
@@ -186,7 +330,7 @@
     try{const saved=localStorage.getItem('reet-terminal-palette');if(saved==='system'||terminalPalettes.some(item=>item.id===saved))palette=saved!;const shape=localStorage.getItem('reet-terminal-cursor');if(shape==='bar'||shape==='block'||shape==='underline')cursor=shape;copyOnSelect=localStorage.getItem('reet-terminal-copy-on-select')==='1'}catch{/* optional preferences */}
     const term = new Terminal({ cursorStyle:cursor,cursorBlink:!matchMedia('(prefers-reduced-motion: reduce)').matches,fontSize:14,fontFamily:'"DejaVu Sans Mono", "SFMono-Regular", Consolas, monospace',scrollback:5000,screenReaderMode:true,allowProposedApi:false,windowOptions:{},minimumContrastRatio:4.5 })
     terminal = term;term.options.fontSize=fontSize;term.loadAddon(fit);search=new SearchAddon();term.loadAddon(search);term.open(element)
-    const onPaste=(event:ClipboardEvent)=>{event.preventDefault();event.stopImmediatePropagation();paste(event.clipboardData?.getData('text/plain')||'')}
+    const onPaste=(event:ClipboardEvent)=>{event.preventDefault();event.stopImmediatePropagation();const images=imageFiles(event.clipboardData?.items);if(images.length){void startUploads(images);return}paste(event.clipboardData?.getData('text/plain')||'')}
     element.addEventListener('paste',onPaste,true)
     term.attachCustomKeyEventHandler(event=>{
       if(event.type==='keydown')noteGesture()
@@ -257,7 +401,7 @@
     const online=()=>connection?.recover(),visible=()=>{if(document.visibilityState!=='visible'){hiddenAt=performance.now();return}const now=performance.now(),hiddenFor=hiddenAt===null?0:now-hiddenAt;hiddenAt=null;resize();if(repaintOnReturn({hiddenFor,coarse:coarse.matches,sinceRepaint:now-repaintedAt}))redraw();connection?.recover()}
     window.addEventListener('online',online);document.addEventListener('visibilitychange',visible)
     void connection.connect()
-    return ()=>{alive=false;pendingCopy=null;clearTimeout(selectionTimer);selectionTimer=undefined;element?.removeEventListener('paste',onPaste,true);search?.dispose();search=undefined;fitTerminal=undefined;sizeSender=undefined;sender.dispose();connection?.dispose();connection=undefined;cancelAnimationFrame(frame);cancelAnimationFrame(clipFrame);sizes.disconnect();observer.disconnect();media.removeEventListener('change',theme);window.removeEventListener('online',online);document.removeEventListener('visibilitychange',visible);selection.dispose();input.dispose();binary.dispose();clipboard.dispose();links.dispose();applyTheme=undefined;term.dispose();terminal=undefined}
+    return ()=>{alive=false;pendingCopy=null;staleUploads=null;for(const chip of uploads)chip.controller.abort();uploads=[];clearTimeout(selectionTimer);selectionTimer=undefined;element?.removeEventListener('paste',onPaste,true);search?.dispose();search=undefined;fitTerminal=undefined;sizeSender=undefined;sender.dispose();connection?.dispose();connection=undefined;cancelAnimationFrame(frame);cancelAnimationFrame(clipFrame);sizes.disconnect();observer.disconnect();media.removeEventListener('change',theme);window.removeEventListener('online',online);document.removeEventListener('visibilitychange',visible);selection.dispose();input.dispose();binary.dispose();clipboard.dispose();links.dispose();applyTheme=undefined;term.dispose();terminal=undefined}
   })
 </script>
 
@@ -274,6 +418,7 @@
       <button onclick={()=>void copyBuffer('screen')} disabled={scrollbackOpen} aria-label="Copy screen" title="Copy the visible screen"><TerminalIcon name="screen"/><span class="tool-label">Screen</span></button>
       <button onclick={openSelect} disabled={scrollbackOpen} aria-label="Select text" title="Select terminal text"><TerminalIcon name="select"/><span class="tool-label">Select text</span></button>
       <button onclick={()=>void readClipboard()} disabled={!live||scrollbackOpen} aria-label="Paste" title="Paste clipboard"><TerminalIcon name="paste"/><span class="tool-label">Paste</span></button>
+      {#if uploadsSupported||uploadsOff}<button onclick={chooseImages} disabled={uploadsOff} aria-label="Attach image" title={uploadsOff?uploadsOffSentence:'Attach a PNG, JPEG, GIF or WebP image'}><TerminalIcon name="image"/><span class="tool-label">Attach</span></button>{/if}
       <span class="tool-divider" aria-hidden="true"></span>
       <button onclick={()=>key("\x03")} disabled={!live||scrollbackOpen} aria-label="Interrupt shell" title="Interrupt · Ctrl+C"><TerminalIcon name="interrupt"/><span class="tool-label">Interrupt</span></button>
       <button onclick={()=>commandsOpen=true} aria-label="Saved commands" title="Your saved commands"><TerminalIcon name="commands"/><span>Commands</span></button>
@@ -293,8 +438,10 @@
   {#if landscape}<div class="tool-rows">{@render toolbar()}{@render keys()}</div>{:else}{@render toolbar()}{/if}
   {#if searching}<form class="tools" onsubmit={e=>{e.preventDefault();find()}}><label>Find in terminal <input bind:this={searchInput} bind:value={query} maxlength="200" autocomplete="off" spellcheck="false" oninput={e=>{query=e.currentTarget.value;find()}} /></label><button>Next match</button><button type="button" onclick={()=>find(false)}>Previous match</button><button type="button" onclick={()=>{searching=false;search?.clearDecorations();terminal?.focus()}}>Close search</button><span role="status">{found?'':'No matches'}</span></form>{/if}
   {#if feedback}<p class="connection-message" role="status">{feedback}</p>{/if}
+  {#if staleUploads}<div class="agent-copy" role="status"><span>Uploaded, but the connection changed; nothing was inserted.</span><button type="button" onclick={()=>void copyStaleUpload()}>Copy path</button><button type="button" onclick={()=>staleUploads=null}>Dismiss</button></div>{/if}
   {#if pendingCopy}<div class="agent-copy" role="status"><span>The agent copied {formatCopySize(pendingCopy.bytes)}.</span><button type="button" onclick={()=>void copyPending()}>Copy it</button><button type="button" onclick={()=>pendingCopy=null}>Dismiss</button></div>{/if}
-  <div class="screen-frame" bind:this={screenFrame}><div class="screen" class:reading={scrollbackOpen} inert={scrollbackOpen} bind:this={element} role="region" aria-label="Remote terminal screen" oncontextmenu={openContext}></div>{#if scrollbackOpen}<OutputScrollback session={session.id} onclose={()=>void closeScrollback()}/>{/if}</div>
+  <input class="upload-input" bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple tabindex="-1" aria-hidden="true" onchange={pickedImages} />
+  <div class="screen-frame" bind:this={screenFrame} role="group" aria-label="Terminal screen drop area" ondragenter={dragFiles} ondragover={dragFiles} ondragleave={leaveFiles} ondrop={dropFiles}><div class="screen" class:reading={scrollbackOpen} inert={scrollbackOpen} bind:this={element} role="region" aria-label="Remote terminal screen" oncontextmenu={openContext}></div>{#if scrollbackOpen}<OutputScrollback session={session.id} onclose={()=>void closeScrollback()}/>{/if}{#if draggingFiles}<div class="drop-overlay" aria-hidden="true">Drop an image to upload.</div>{/if}{#if uploads.length}<div class="upload-chips">{#each uploads as chip (chip.id)}<UploadChip name={chip.name} size={chip.size} oncancel={()=>cancelUpload(chip.id)}/>{/each}</div>{/if}</div>
   {#if !landscape}{@render keys()}{/if}
   <footer>{#if footnote}<span class="approvals">{footnote}</span>{/if}<span class="link-state">{scrollbackOpen?'Reading earlier output · your live shell keeps running':live?'Connected privately · input goes directly to this shell':'Input paused · disconnected keystrokes are never replayed'}</span><button type="button" disabled={!live} onclick={()=>void closeScrollback()}>Focus terminal</button></footer>
 {#if contextMenu}<div class="clipboard-menu" role="menu" aria-label="Terminal actions" tabindex="-1" bind:this={menu} style={`left:${contextMenu.x}px;top:${contextMenu.y}px`} onkeydown={contextKey}><button role="menuitem" disabled={!hasSelection} onclick={()=>{contextMenu=null;void copy()}}>Copy selection</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('screen')}}>Copy screen</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('50')}}>Copy last 50 lines</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('200')}}>Copy last 200 lines</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('all')}}>Copy all</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;openSelect()}}>Select text…</button><button role="menuitem" disabled={!live} onclick={()=>{contextMenu=null;void readClipboard()}}>Paste</button><button role="menuitem" onclick={()=>{contextMenu=null;commandsOpen=true}}>Saved commands…</button><button role="menuitem" onclick={()=>{contextMenu=null;historyOpen=true}}>Command history…</button><button role="menuitem" onclick={()=>{contextMenu=null;openScrollback()}}>Earlier output…</button><button role="menuitem" onclick={()=>{contextMenu=null;appearanceOpen=true}}>Appearance…</button>{#if onsessions}<button role="menuitem" onclick={()=>{contextMenu=null;toggleSessions()}}>{sessionsVisible&&!maximised?'Hide sessions':'Show sessions'}</button>{/if}<button role="menuitem" onclick={closeContext}>Close menu</button></div>{/if}
@@ -329,8 +476,11 @@
   .tools button:hover:not(:disabled) {border-color:var(--accent);background:var(--tint)}
   .tools button[aria-pressed=true] {border-color:var(--accent);color:var(--accent-text)}
   .tools.mobile-keys {display:none;border-top:1px solid var(--line);border-bottom:0}
+  .upload-input {position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden}
   .screen-frame {position:relative;flex:1;height:0;min-height:0;min-width:0;overflow:hidden;padding:12px 10px 8px 14px}
   .screen {height:100%;min-height:0;min-width:0;overflow:hidden;padding:0}
+  .drop-overlay {position:absolute;inset:6px;z-index:4;display:grid;place-items:center;border:1px dashed var(--accent);border-radius:8px;background:color-mix(in srgb,var(--bg) 88%,transparent);color:var(--ink);font-size:.8rem;pointer-events:none}
+  .upload-chips {position:absolute;top:8px;right:8px;z-index:3;display:grid;gap:6px;max-width:min(260px,calc(100% - 16px));max-height:calc(100% - 48px);overflow:auto;pointer-events:none}
   .screen.reading {visibility:hidden}
   .screen :global(.xterm) {height:100%;padding:0}
   .screen :global(.xterm-viewport) {overscroll-behavior:contain}

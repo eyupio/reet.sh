@@ -302,6 +302,15 @@ execution is disabled. See [the archive contract](terminal-history-archive.md).
   gesture in the pane or an explicit **Copy it** press; a read-back query is never
   answered and an empty write is ignored. Terminal text is not persisted to
   browser storage. Font size is a local preference.
+- **Attach image** (or an image paste, the Paste button when the clipboard holds
+  only an image, or a file dropped on the screen) uploads a PNG, JPEG, GIF or WebP
+  image up to 5 MiB to a private per-session folder on the machine, outside the
+  project. The browser inserts the returned path with a space either side and never
+  presses Enter; the path is text, and the session and its tool decide whether that
+  text becomes an attachment. Uploads are held in memory only and are never saved
+  in browser storage. A machine that reports uploads off says "Image uploads are
+  off on this machine."; an older machine says "Update reet on that machine to
+  attach images."
 
 These interactions use the existing private terminal transport; they do not add a
 new direct SSH adapter. Phone viewport emulation is not a physical keyboard test.

@@ -584,7 +584,13 @@
   .mine-value { overflow-wrap: anywhere; white-space: pre-wrap; }
   .mine .ghost { align-self: flex-start; }
   .reload { height: 44px; }
-  @media (pointer: coarse) { .ghost { height: 44px; } }
+  /* Touch: every control is at least 44 px (a tablet's fields are 42 px with a mouse); the folds' headings too. */
+  @media (pointer: coarse) {
+    .ghost, .toggle, .machine-row { height: 44px; }
+    input:not([type=checkbox]), select { height: 44px; min-height: 44px; }
+    .select-wrap .chev { top: 15px; }
+    summary { padding: 12px 0; line-height: 20px; }
+  }
 
   /* Phone: a full-screen sheet (the shell's `full`). The machine, folder, browser and fields scroll; the chosen folder and
      the buttons stay pinned at the foot. Every field is 16 px so focusing it never zooms the page. */

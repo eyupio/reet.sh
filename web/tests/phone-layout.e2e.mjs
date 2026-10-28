@@ -57,20 +57,6 @@ try {
   await expect(page.getByRole('button',{name:'Start using'})).toHaveCount(0)
   await context.close()
  }
- // The buttons on a machine card are finger-sized on a touch screen, and stay compact with a mouse.
- if (run('cardtouch')) {
-  for (const [touch,check] of [[true,h=>expect(h,'card button height on touch').toBeGreaterThanOrEqual(44)],[false,h=>expect(h,'card button height with a mouse').toBeLessThanOrEqual(40)]]) {
-   const {context,page,errors} = await open({width:touch?390:1440,touch,terminalStatus:active,terminalMachines:[terminalMachine('a1','dev-box',true)]})
-   await page.goto(`${base}/control`)
-   const card = page.getByRole('article',{name:'Machine dev-box'})
-   await expect(card).toBeVisible()
-   const heights = await card.locator('a.btn, button').evaluateAll(els=>els.map(el=>el.getBoundingClientRect().height))
-   expect(heights.length, 'the card has buttons to measure').toBeGreaterThan(0)
-   for (const h of heights) check(h)
-   expect(errors).toEqual([])
-   await context.close()
-  }
- }
  // Jump search on a phone with the keyboard up, at 320 and 390 px: the field is 16 px (focusing never zooms), the bar steps
  // aside, and the results for 80-character unbroken session, Project and machine names sit between the field and the
  // keyboard, every one reachable by scrolling the list, each at least 44 px tall, with nothing wider than the screen.
@@ -119,5 +105,5 @@ try {
    await context.close()
   }
  }
- console.log('Phone layout: shelf filters reachable, prefix field usable, Show button touch-sized, card label honest, machine card buttons finger-sized on touch, Jump results above the keyboard at 320 and 390 px.')
+ console.log('Phone layout: shelf filters reachable, prefix field usable, Show button touch-sized, card label honest, Jump results above the keyboard at 320 and 390 px.')
 } finally {await browser.close()}

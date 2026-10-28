@@ -103,7 +103,7 @@
     return cardReadiness(terminals.find((item) => item.agentId === agentId))
   }
   // The dialog stays Starting… until the Terminals page arrives, and lets go by itself if it never does.
-  const sessionHref = (session: TerminalSession) => `/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`
+  const sessionHref = (session: TerminalSession) => `/sessions?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`
   function agentStarted(session: TerminalSession): 'leaving' {
     location.assign(sessionHref(session))
     return 'leaving'
@@ -583,6 +583,14 @@
     .actions .btn { flex: 1 1 auto; }
     .sync-cta { width: 100%; }
     .sync-cta .btn { flex: 1 1 auto; }
+  }
+  /* Touch: every control on a card is a finger-sized (44 px) target. */
+  @media (pointer: coarse) {
+    .sync-now { min-height: 44px; }
+    .sync-menu > summary { width: 44px; height: 44px; }
+    .sync-menu-panel a, .sync-menu-panel button { min-height: 44px; }
+    .agent-list > summary { min-height: 44px; }
+    .machine :global(.updater .btn) { min-height: 44px; }
   }
   @media (prefers-reduced-motion: reduce) {
     .sync-pulse.live { animation: none; }

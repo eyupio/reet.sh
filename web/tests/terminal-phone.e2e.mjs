@@ -65,15 +65,27 @@ async function open({width,height,touch,query='',layout=null,motion='no-preferen
    else if(data.type==='resize'){frames.push({cols:data.cols,rows:data.rows});socket.send(app(data.cols,data.rows))}
   })
  })
- await page.goto(`${base}/terminals?agent=${agentA}&session=${sessionA}${query}`)
+ await page.goto(`${base}/sessions?agent=${agentA}&session=${sessionA}${query}`)
  const pane=page.locator('.pane')
  await expect(pane).toHaveAttribute('data-connection-state','live')
  return {context,page,errors,tickets,frames,pane,sockets:()=>sockets}
 }
 const box=async(page,selector)=>page.evaluate(selector=>{const element=document.querySelector(selector);if(!element||!element.getClientRects().length)return null;const r=element.getBoundingClientRect();return {top:r.top,bottom:r.bottom,height:r.height}},selector)
-// Rows the host was last told, once the debounce has settled.
-async function settledSize(page,frames,tickets){await page.waitForTimeout(450);return frames.at(-1)||tickets.at(-1)}
-const settle=page=>page.waitForTimeout(450)
+// The layout has settled: at least the 150 ms send debounce plus a margin has passed, the terminal's drawn grid (rows and
+// width) has stayed the same over 3 animation frames spanning at least 200 ms, and no size has been sent for 300 ms. A loaded
+// machine only makes it take longer (bounded at 8 s), never read a size mid-change.
+async function settle(page,frames){
+ await page.waitForTimeout(450)
+ const deadline=Date.now()+8000
+ for(;;){
+  const sent=frames?frames.length:0
+  const steady=await page.evaluate(()=>new Promise(done=>{const read=()=>{const s=document.querySelector('.xterm-screen');return `${document.querySelectorAll('.xterm-rows>div').length}x${s?Math.round(s.getBoundingClientRect().width):0}`};let last=read(),same=0;const start=performance.now();const tick=()=>{const now=read();same=now===last?same+1:0;last=now;if(same>=3&&performance.now()-start>=200)return done(true);if(performance.now()-start>2000)return done(false);requestAnimationFrame(tick)};requestAnimationFrame(tick)}))
+  await page.waitForTimeout(300)
+  if((steady&&(!frames||frames.length===sent))||Date.now()>deadline)return
+ }
+}
+// Rows the host was last told, once the layout has settled.
+async function settledSize(page,frames,tickets){await settle(page,frames);return frames.at(-1)||tickets.at(-1)}
 // Whole rows the screen shows: its height over the rendered row height.
 const visibleRows=page=>page.evaluate(()=>{const screen=document.querySelector('.screen'),rows=document.querySelectorAll('.xterm-rows>div').length,grid=document.querySelector('.xterm-screen').getBoundingClientRect().height;return Math.floor(screen.clientHeight/(grid/rows)+0.01)})
 const viewportMeta=page=>page.locator('meta[name="viewport"]').getAttribute('content')
@@ -87,7 +99,7 @@ try{
  await expect(page.locator('.xterm-rows')).toHaveCSS('font-size','11px')
  expect(tickets[0].cols).toBeGreaterThanOrEqual(50)
  // The first attach is not nudged: tmux repaints its grid on attach.
- await settle(page);expect(frames.filter(frame=>frame.rows<tickets[0].rows)).toEqual([])
+ await settle(page,frames);expect(frames.filter(frame=>frame.rows<tickets[0].rows)).toEqual([])
  // Compact one-line chrome; the toolbar and extra keys are 40 × 40 px or larger, the header controls 40 px tall.
  for(const selector of ['.pane>header','.terminal-toolbar','.mobile-keys'])expect((await box(page,selector)).height).toBeLessThanOrEqual(42)
  for(const control of await page.locator('.terminal-toolbar button,.mobile-keys button').all()){const size=await control.boundingBox();expect(size.height).toBeGreaterThanOrEqual(40);expect(size.width).toBeGreaterThanOrEqual(40)}
@@ -118,17 +130,17 @@ try{
  await expect(page.locator('.maximise-hint')).toBeHidden()
  await expect(page.locator('.terminal-toolbar').getByRole('button',{name:'Show sessions',exact:true})).toBeVisible()
  await page.getByRole('button',{name:'Restore size',exact:true}).click()
- await settle(page)
+ await settle(page,frames)
 
  // A shrinking viewport without focus in the terminal (another field, split screen) keeps the layout.
  const keyboardTop=Math.round(844*.55)
  await page.evaluate(()=>document.activeElement instanceof HTMLElement&&document.activeElement.blur())
  await page.evaluate(height=>window.__keyboard(height),keyboardTop)
- await settle(page)
+ await settle(page,frames)
  await expect(page.locator('.site-header')).toBeVisible()
  await expect(page.locator('.workspace-toolbar')).toBeVisible()
  await page.evaluate(()=>window.__keyboard(null))
- await settle(page)
+ await settle(page,frames)
  // Keyboard open while typing in the terminal: header and workspace toolbar step aside.
  await page.getByRole('button',{name:'Focus terminal',exact:true}).click()
  await expect(page.locator('.xterm-helper-textarea')).toBeFocused()
@@ -148,7 +160,7 @@ try{
  expect(paneBox.bottom).toBeGreaterThanOrEqual(keyboardTop-10)
  // The same viewport again sends nothing.
  for(let i=0;i<3;i++)await page.evaluate(height=>window.__keyboard(height),keyboardTop)
- await settle(page);expect(frames.length-beforeKeyboard).toBe(1)
+ await settle(page,frames);expect(frames.length-beforeKeyboard).toBe(1)
  // Keyboard closed: the layout comes back.
  await page.evaluate(()=>window.__keyboard(null))
  await expect(page.locator('.site-header')).toBeVisible()
@@ -172,7 +184,7 @@ try{
  await page.evaluate(()=>window.__keyboard(null))
  await page.setViewportSize({width:390,height:keyboardTop})
  await page.evaluate(height=>window.__keyboard(height),keyboardTop-91)
- await settle(page)
+ await settle(page,frames)
  paneBox=await box(page,'.pane')
  console.log(`Under-reported visual viewport: pane bottom ${Math.round(paneBox.bottom)} of ${keyboardTop}`)
  expect(Math.abs(paneBox.bottom-keyboardTop)).toBeLessThanOrEqual(2)
@@ -195,7 +207,7 @@ try{
  // A repaint nudge at the floor goes one row taller, never below 8.
  const beforeFloorReturn=frames.length
  await page.evaluate(()=>window.__visibility(true));await page.evaluate(()=>window.__visibility(false))
- await settle(page)
+ await settle(page,frames)
  expect(frames.slice(beforeFloorReturn)).toEqual([{cols:floored.cols,rows:9},{cols:floored.cols,rows:8}])
  await page.setViewportSize({width:390,height:844})
  const settled=await settledSize(page,frames,tickets)
@@ -205,19 +217,19 @@ try{
  const beforeReturn=frames.length,socketsBefore=phone.sockets()
  await page.evaluate(()=>window.__visibility(true))
  await page.evaluate(()=>window.__visibility(false))
- await settle(page)
+ await settle(page,frames)
  expect(frames.slice(beforeReturn)).toEqual([{cols:settled.cols,rows:settled.rows-1},{cols:settled.cols,rows:settled.rows}])
  expect(phone.sockets()).toBe(socketsBefore)
  // Not again within 5 s.
  const beforeCooldown=frames.length
  await page.evaluate(()=>window.__visibility(true));await page.evaluate(()=>window.__visibility(false))
- await settle(page);expect(frames.length).toBe(beforeCooldown)
+ await settle(page,frames);expect(frames.length).toBe(beforeCooldown)
  // A reattach repaints once too.
  await page.getByRole('button',{name:'Disconnect',exact:true}).click()
  await page.getByRole('button',{name:'Reconnect',exact:true}).click()
  await expect(pane).toHaveAttribute('data-connection-state','live')
  const beforeReattach=tickets.length
- await settle(page)
+ await settle(page,frames)
  expect(tickets.length).toBe(beforeReattach)
  const reattached=tickets.at(-1)
  // The ticket carries the size at Reconnect (the disconnected notice took a few rows); the nudge ends on the fitted size.

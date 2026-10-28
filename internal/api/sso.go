@@ -94,6 +94,8 @@ func landing(path string) string {
 		return "/skills" + tail
 	case "terminals":
 		return "/terminals" + tail
+	case "sessions":
+		return "/sessions" + tail
 	case "projects":
 		return "/projects" + tail
 	case "sync":

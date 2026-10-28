@@ -22,14 +22,14 @@ local consent, and the session limits (8 per machine, 32 per account).
 
 ## Where to start it
 
-- **Terminals → New agent session.** It appears under **Your sessions** in the sessions sidebar,
+- **Sessions → New agent session.** It appears under **Your sessions** in the sessions sidebar,
   in a machine's menu next to **New terminal**, and in the empty workspace next to **New terminal**.
   The machine you were on is preselected. On success the new session opens in the workspace.
 - **Machines → Start an agent** on every enrolled machine's card. While the machine isn't ready the
   button is disabled and the reason is written underneath; a machine the terminal list doesn't know
   yet says "This machine hasn't connected for terminals yet." If its readiness couldn't be read, it says
   "Couldn't check this machine just now. Try again in a moment." On success you are taken to
-  `/terminals?agent=…&session=…`.
+  `/sessions?agent=…&session=…`.
 
 **Close** and Escape both close the dialog without sending anything and return focus to the button
 you pressed, except while a request is in flight (see below).

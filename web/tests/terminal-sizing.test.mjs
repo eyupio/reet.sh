@@ -230,6 +230,9 @@ test('the phone chrome steps aside only while a listed field has the keyboard up
   assert.equal(s.keyboardChrome('search', false), false)
   assert.equal(s.keyboardChrome('launch', true), true)
   assert.equal(s.keyboardChrome('launch', false), false)
+  // The session screen's terminal (PR H): the top bar and the tab bar step aside with its keyboard too.
+  assert.equal(s.keyboardChrome('session', true), true)
+  assert.equal(s.keyboardChrome('session', false), false)
   assert.equal(s.keyboardChrome(null, true), false)
   assert.equal(s.keyboardChrome(null, false), false)
 })

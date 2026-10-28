@@ -12,7 +12,8 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/design/agents-home/](docs/design/agents-home/), its
 [plan](docs/superpowers/plans/2026-10-26-agents-home.md) and
 [spec](docs/superpowers/specs/2026-10-26-agents-home-design.md); what each UI change was checked
-against in [docs/ui-verification.md](docs/ui-verification.md); and older narrative in
+against in [docs/ui-verification.md](docs/ui-verification.md); the research behind the queued work in
+[docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
 **Docs tidy-up (27 October 2026).** Finished plans, specs, stage documents and audits were removed
@@ -24,80 +25,218 @@ implemented baseline, S/A/W/L task lists, start-agent-session protocol notes, Pr
 delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief) are in
 [handoff-history.md](handoff-history.md), under "Moved from handoff.md on 27 October 2026".
 
-## Agents home redesign (27 October 2026)
+## Agents home redesign (27–28 October 2026)
 
-**In progress, updated with every pull request.**
-Home, the shell and the machine-folder projects are being rebuilt to the mock-up in
-[docs/design/agents-home/](docs/design/agents-home/) (reference renders at 1440, 834 and 390 px; each PR
-is checked against them and says so in `docs/ui-verification.md`). The plan, with its rulings and global
-constraints, is [docs/superpowers/plans/2026-10-26-agents-home.md](docs/superpowers/plans/2026-10-26-agents-home.md).
-Current work is on [PR #227](https://github.com/eyupio/reet.sh/pull/227) (branch `ccr-7a7f5a9b-to5imh`,
-based on main after #226 merged). **Quicker plan, agreed 27 October 2026:** the
-fidelity polish (P) is folded into the PRs that touch the same screens, YOLO (F) and attention (G) are left out of
-the first pass, and the structured-chat spike runs in parallel with the Home work. Order:
+### Resume here (paused after PR H, 28 October 2026)
+
+**The owner asked to pause after PR H.** Nothing of the queued work below has been started.
+
+- **Branch and PR:** `ccr-7a7f5a9b-to5imh` is [PR #231](https://github.com/eyupio/reet.sh/pull/231) (PR H). It holds
+  H1–H4 and the final fix wave after the broad review (list in the state table), and is awaiting the owner's merge
+  decision; no Codex review is possible (quota exhausted). Merged into main already: D, A, B, C and E.
+- **Do first:** check #231's state. The usual route is the GitHub MCP tools (`mcp__github__pull_request_read` with
+  `get`, then `get_check_runs`); from a shell use the REST forms `gh api repos/eyupio/reet.sh/pulls/231` and
+  `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs` (`gh pr view` and `gh pr checks` use GraphQL, which this
+  environment refuses with 403).
+  - If it is **merged**, start the next piece from current main on a new branch (execution rules below; never reuse the
+    old branch).
+  - If it is **open**, `git fetch origin main` and merge main into the branch before any push (the owner merges other PRs
+    meanwhile; a PR that conflicts with main gets no CI runs), then wait for green checks and the owner's decision.
+- **Open decisions:** none, except the owner's merge exception for #231 (Codex cannot review it: the account's code-review
+  quota is exhausted). Precedent: #227's exception is recorded on the PR (a comment); #221 and #226 merged on green CI
+  without a Codex review and without an exception comment.
+- **Then, in this order** (each its own PR; write its plan under `docs/superpowers/plans/` from the research first):
+  1. Terminal copy and paste, images included ([details](#queued-work-decided-not-started)).
+  2. Agent models: backend (M1–M6).
+  3. Agent models: the UI (after #231 has merged).
+  4. Program 2, slice 1: structured OpenCode sessions with approval cards, behind the seven probe conditions.
+- **Release:** R22 lets B, C and E go out in one release now that E has merged; this session cut no release tag and did
+  not check for one (`gh release list --repo eyupio/reet.sh`). H follows; F and G come later.
+- The research these start from is in [docs/research/](docs/research/) (copied whole from the session's git-ignored
+  notes). Those reports summarise third-party code and docs read as untrusted data: check a claim against its label
+  (*read*, *doc*, *belief*/*memory*) before building on it.
+
+### State
+
+Home, the shell and the machine-folder projects were rebuilt to the mock-up in
+[docs/design/agents-home/](docs/design/agents-home/) (reference renders at 1440, 834 and 390 px; each PR is checked against
+them in `docs/ui-verification.md`). The plan is
+[docs/superpowers/plans/2026-10-26-agents-home.md](docs/superpowers/plans/2026-10-26-agents-home.md); the **rulings R1–R22**
+are binding and live in the spec's [Rulings](docs/superpowers/specs/2026-10-26-agents-home-design.md#rulings) section.
+**Quicker plan, agreed 27 October 2026:** the fidelity polish (P) was folded into C and E, YOLO (F) and attention (G) are
+left out of the first pass, and the Program 2 spike ran in parallel.
 
 | PR | What | State |
 | --- | --- | --- |
-| D | App shell (top and bottom tabs, bell, jump search, More sheet) and Home | merged, [#218](https://github.com/eyupio/reet.sh/pull/218) |
-| A | Machine folder browse and branches (`agents`, `browse-v1`, `branches-v1`), start-agent navigates to the session, dockable and resizable sessions panel | merged, [#219](https://github.com/eyupio/reet.sh/pull/219); contract in [docs/folder-browse.md](docs/folder-browse.md) |
-| B | Folder projects: store and API (`/api/v2/folder-projects`, reorder, `import-saved`, `?legacy=`), saved Projects moved over (old create/edit/delete answer 410 `projects_moved`), the Add project dialog with the folder browser, and the rail on Home (card menu, Worktrees, the one-time migration note, the "waiting folders" prompt; a 1100–1239 px strip with a managed panel); `/projects` and `/projects/<id>` redirect to Home, old runs are read-only in Activity (*Runs from Projects*); read [docs/projects.md](docs/projects.md) | merged, [#221](https://github.com/eyupio/reet.sh/pull/221) as `cb89a26`; B1–B6 complete; Codex did not review its final head. No release tag until PR E merges (R22) |
-| P | Home fidelity polish: tokens, spacing, top and tab bars go into C; fleet strip, In flight, Needs you and the dock go into E | folded into C and E, no PR of its own |
-| C | Agent catalogue and launch fields (`agents-v2`, named worktree base, effort where confirmed, tool on the session listing, `osVersion`) and the folded chrome polish | merged, [#226](https://github.com/eyupio/reet.sh/pull/226) as `540d247` on 27 Oct 2026 17:17 UTC; C1, C2, C3 and C4 and the scoped polish shipped; Cline enabled with confirmed safe arguments. The owner approved keeping Pi disabled; Cursor remains blocked on environment access (limits below). No release tag yet |
-| E | Launch bar, start in several projects (PR B already retired the old Projects page; the old Start-all routes and tables go at the later release step); read [docs/start-agent-session.md](docs/start-agent-session.md#on-home-the-launch-bar) | **done in [#227](https://github.com/eyupio/reet.sh/pull/227), pending merge** (Codex review not possible: quota exhausted). In it: fixes from a post-merge review of #226 (`1ce678f`…`e954dc4`: unsupported tools and options refused before a session is reserved, `pi`/`cursor` out of `ValidToolV2`, the private hello checked against the agreed features, the distro from os-release under the plain-text rule, `Capabilities.Yolo` rejected, the phone tab bar's `--dock-bg`, one source for tool names, catalogue tests, a 30-minute `image.yml` test job); E1 the launch logic (`53e81f2`, `31a8e87`: each project's own base, suggested branches never sent); E2 the launch bar on Home (`2747154`, `ee57944`: the sentence and its slots, the phone and tablet Change sheet, Start waits for the machines, focus kept clear of the bar); merges of main: #228 and #229 in `e6454c6` (with the strip menu fix `e9ab450` after it), #230 in `6fdd39d`; E3 Select and Start in several projects (`fb4d16f`, `11b54f4`: one run request, the status sheet with per-member Retry, a 429 keeps the request, a replay is not counted against the write limit); E4 (`c075717`: `launch.e2e.mjs` in CI, the launch sheets in `phone-zoom`, a refusal kept across the same selection, Show run status cleared once all started or after a later start, a card pressed while the bar is busy says why, the docs); fixes from the review of `6fdd39d` (`2c15845` Tab and Escape from a slot list keep focus in the bar; `2afc7ab` no rail card marked for the home folder, branch reads, YOLO's reason visible, Stop selecting on the strip, unread projects named, a kept request's sentence kept, a gone run no longer read; `e55db03` image tests 45 minutes; `fa7f1e7` an inherited base not sent to a machine without agents-v2; `e439c90` the selection run test made deterministic) |
-| F | YOLO (off by default, per session, audited, machines can refuse) | **deferred past the first pass**; the design decisions stand |
-| G | Attention and Needs you | **deferred past the first pass**; Needs you stays an honest empty state until then |
-| H | Session screen, tablet and phone | not started |
-| Program 2 | Structured chat over the agent protocol, with command-approval cards | research spike done (27 Oct 2026): go with conditions, the owner chose **OpenCode first** (27 Oct 2026) instead of Claude: it speaks the protocol natively (`opencode acp`, MIT, single binary, no adapter to install), so the first slice needs no install step; its resume after a lost runner and its permission behaviour are less documented than Claude's and must be probed before the plan is fixed; first slice is OpenCode with approval cards, the spike's 7–9 engineer-weeks was sized for Claude and needs re-checking; report in `.superpowers/sdd/2026-10-26-agents-home/program2-spike.md` (git-ignored, to be moved into `docs/design/` with the plan); hands-on probe not yet run, it needs the owner's go-ahead; written plan follows |
+| D | App shell (top and bottom tabs, bell, Jump, More sheet) and Home | merged, [#218](https://github.com/eyupio/reet.sh/pull/218) as `8c33c99` |
+| A | Machine folder browse and branches (`agents`, `browse-v1`, `branches-v1`), start-agent opens the session, dockable sessions panel | merged, [#219](https://github.com/eyupio/reet.sh/pull/219) as `41066c5`; contract in [docs/folder-browse.md](docs/folder-browse.md) |
+| B | Folder projects: store and API (`/api/v2/folder-projects`, reorder, `import-saved`), saved Projects moved over (old writes answer 410 `projects_moved`), the Add project dialog with the folder browser, the rail; `/projects` redirects to Home; read [docs/projects.md](docs/projects.md) | merged, [#221](https://github.com/eyupio/reet.sh/pull/221) as `cb89a26` (no Codex review of its final head; merged on green CI, no exception comment) |
+| P | Fidelity polish | folded into C and E |
+| C | Agent catalogue and launch fields (`agents-v2`, named worktree base, effort, tool on the listing, `osVersion`), Cline with safe arguments, chrome polish | merged, [#226](https://github.com/eyupio/reet.sh/pull/226) as `540d247` (no Codex review: quota exhausted; merged on green CI, no exception comment) |
+| E | Launch bar on Home, Start in several projects, fixes from the #226 review; read [docs/start-agent-session.md](docs/start-agent-session.md#on-home-the-launch-bar) | merged, [#227](https://github.com/eyupio/reet.sh/pull/227) as `fe3e9b7` (owner exception, recorded on the PR) |
+| F | YOLO (off by default, per session, audited, machines can refuse) | **deferred past the first pass**; the design decisions stand; the launch bar shows it disabled and the API refuses it (409 `yolo_refused`) |
+| G | Attention and Needs you | **deferred past the first pass**; Needs you stays an honest empty state |
+| H | `/sessions` (the Sessions page), the session screen, tablet and phone layouts, the last redirects, the phone rail on Sessions | **[#231](https://github.com/eyupio/reet.sh/pull/231), in review, awaiting the owner's merge decision** (no Codex review possible: quota exhausted). H1 `f0bffe5` Sessions page and Control's address retired (`/control` → `/`, `/terminals` → `/sessions`), fixes `048e431` (session colours, **Saved commands** button: owner ruling), `b85338a`; H2 `f74001f` session screen (tabs, header with the state pill, Chat \| Terminal with Chat disabled, context panel), fixes `f026cfb`, `c02fec6`; H3 `7581ad0` tablet and phone layouts (no rail on narrow Home, the rail on Sessions, slim phone header, `keyboardChrome('session')`), fixes `a984b5e` (44 px tablet targets, cases moved to `sessions-phone.e2e.mjs`), `3f1e89b` (separator grip); `521c406` CI fix (first-terminal checklist off `/sync`); merges of main `9c88a46` (#232, #233), `ae763c8` (#234) and `57d8f53` (#235, #236); H4 `1a5018d` (research copied into `docs/research/`), `c349a2b` (the matrix, phone target fixes, docs, this handoff), `1ff4230` (the research notes name the reference tool by role); final fix wave after the broad review `b53c7dd` (`/sessions/`, viewers at a session address), `adec499` (steady Sessions rows, menu focus, the connection in the phone header, tablet swatches and grip, context panel, tab tooltip, New → `/#launch`), `dd31068` (dead code), `8e6ce3e` (checks that went with Control, steadier phone tests), `6778211` (start-agent expects the Machines title) and the docs commit after them |
+| Program 2 | Structured chat over the agent protocol, with approval cards | spike done; OpenCode chosen (27 Oct); hands-on probe of `opencode acp` 1.19.5 done (28 Oct): conditional go for trusted workspaces only; queued as slice 1 below |
 
-Merged into main by the owner while #227 was open:
+Merged into main by the owner while this work was open: #222, #223 (`4791d89`), #224, #225, #228, #229, #230, #232, #233,
+#234, #235 and #236 (each merged into the open branch before its next push; #235 and #236 in `57d8f53`).
 
-- [#229](https://github.com/eyupio/reet.sh/pull/229) "Add live sync feedback and one-click installs from skills", as `4850c5d`.
-- [#228](https://github.com/eyupio/reet.sh/pull/228) "Start sessions from project lists, and paint the chosen theme before first paint", as `4c16e69`.
-- [#222](https://github.com/eyupio/reet.sh/pull/222) "Let updates wait behind reviewed sync work", as `203969f`.
-- [#224](https://github.com/eyupio/reet.sh/pull/224) "Retry the breadcrumb assertions in the add-project fixture", as `bca5dd1`.
-- [#230](https://github.com/eyupio/reet.sh/pull/230) "Clarify disconnected machine stats and queued sync activity", as `5b1d0b2`; #227 merged it in at `6fdd39d`.
-- #227 merged main (`4c16e69`) in at `e6454c6`: on Home, a rail card and its menu's New session here set the launch bar's project; the Start an agent dialog stays for Machines and the Sessions panel as #228 built it.
+**Merge rule:** a PR in this work merges only when all checks are green on its final head **and** Codex has reviewed it
+cleanly, or the owner gives an explicit exception. So far: #227's exception is recorded on the PR (a comment); #221 and
+#226 merged on green CI without a Codex review and without an exception comment; #231 is waiting for the owner's decision.
 
-**Merge rule:** a PR in this work merges only when all checks are green on its final head **and** Codex
-has reviewed it cleanly, or the owner gives an explicit exception. #221 and #226 merged without a
-Codex review.
+**Rulings beyond R1–R22** (all recorded in the session notes and kept here so they survive):
 
-Until Program 2, reet starts agents in terminal sessions and wraps them with projects, the launch bar,
-YOLO, attention and the session screen; it is not yet a structured chat front end.
-Things still open: nothing has been checked on a real phone or in Safari (browser emulation only), and the
-touch long press that starts Select (coarse pointer, iOS) has not been tried on a real device; worktree
-git calls share the lazy-fetch and fsmonitor hazard the folder browser already guards against; the
-`terminal-browser` CI job takes about 20 to 25 of its 30 minutes, so add no new fixtures there (PR B moved
-`projects.e2e.mjs` out of it into `phone-zoom`; E4 put `launch.e2e.mjs` in `phone-dialogs`); since PR B the worktree figure on Home is "worktrees in use"
-(live sessions only: no record says which worktrees were removed), and the old Projects tables and
-their start/retry routes stay one release before they are dropped (ruling: no page calls them; the web client for them
-and the run Retry are already removed); a downgrade then re-upgrade leaves Projects saved while downgraded as "waiting
-folders" in the rail (not migrated automatically); a session's `projectId` is checked for account and machine, not
-folder, by the server (the launch bar sends it only with the project's own folder); the import's answer still says "saved repositories" (a Go sentence) where the rail says
-"folders"; the MCP test
-`mcp/test/oauth.test.mjs` needs the fixture built in CI (the warm-up in `image.yml`).
+- Owner, 27 Oct: the quicker plan above; Pi stays disabled; Cursor stays blocked until its installer host is allowed.
+- Owner, 28 Oct: a **Saved commands** button on the Sessions page; copy and paste is its own PR after H, with pasted
+  images in a private per-session folder (0700/0600, random names); Program 2 slice 1 is trusted workspaces only (OpenCode,
+  Allow once / Deny only) behind the seven probe conditions; the order after H is copy/paste, models, Program 2; pause after
+  PR H.
+- Controller defaults, 28 Oct (owner may revisit): models D2 a per-machine default is deferred, D3 a favourite can be the
+  "default for this agent", D4 the model-name rule stays as it is.
 
-**CI runners.** CI runs on the Zoomies runners: tmux and Chromium are installed inline per job, and the MCP fixture build is a cache warm-up (`go build -o /dev/null`), not a prebuilt artifact. `terminal-browser` has a 30 minute limit and takes about 20 to 25 minutes (19½ on #227's run for `e9ab450`); `phone-zoom` and `phone-dialogs` each took about 4 of their 10 on that run, before E4 added the launch sheets to the first and `launch.e2e.mjs` (about 60 s locally) to the second. The terminal continuation test now times painted rows and asserts one attach and one socket. Codex reviewed `5cd134a` and its P2 was fixed in `0aca903`; Codex did not review the final head of #221 after reaching its usage limit. The owner authorised merging on green CI without that final review. GitHub records final head `68624bc` (the terminal-browser timeout follow-up); all five workflow runs on that head succeeded.
+### Limits and known gaps
 
-C continuation (27 October): pinned help-only installs were authorised for the three new CLIs; no agent task or ACP probe was run. Cline 3.0.74 requires explicit `--auto-approve false --tui` and supports `--thinking low|medium|high`; the connector supplies those safety arguments and still refuses YOLO. Pi 0.73.1 has no built-in permission prompts, expands `@` operands as files and does not honour the usual `--` prompt boundary, so the owner approved keeping it disabled in C and deferring a safe integration design. Cursor remains disabled because the official installer at `cursor.com` was denied by this workspace network policy; the owner approved adding the host, but the available environment tools are read-only and the setting has not changed. C was published on `codex/agents-home-c-20261027` and merged to main as #226. Existing four-agent launch arguments are preserved, and unsupported effort choices fail explicitly. The chrome and metadata check passed both themes at 1440/1239/1100/834/651/390/320; its recorded scope and remaining Home differences are in `docs/ui-verification.md`. The full Home browser suite also passed after aligning OS labels and refreshing the paused-machine fixture timestamp. The tmux 3.2 CI job runs only a standalone test binary: captured CLI help is embedded in that test binary so its checks do not depend on a repository checkout. The full local Go race run found a stale exact feature-header assertion (now includes `agents-v2`); all other API cases passed and the corrected case passed separately. The final full host/protocol race suites passed under a child-reaping supervisor, which this workspace needs because PID 1 leaves killed children as zombies. Other packages passed in the broad run. #226 was merged by the owner as `540d247` (27 Oct 2026 17:17 UTC). CI was green on the final head `bf3af10`. Codex review was requested but could not run because the account code-review quota was exhausted; #226 has no Codex review and no review exception is recorded.
+After PR H:
 
-Limits after #226: the Start an agent dialog (Machines and the Sessions panel) still uses the old four-agent list, so Cline starts only from Home's launch bar, which uses the catalogue. Pi and Cursor stay disabled.
+- The session screen keeps the sessions panel and the workspace toolbar (the mock-up has neither); the tabs share the
+  toolbar row, and the pane keeps its own header (some information is shown twice). A later PR may drop the panel there.
+- Old `/sessions` links and sign-in resumes that reach an older server (a rollback) land on `/` or on an unknown page:
+  PR H changed no Go protocol and nothing redirects `/sessions` there.
+- `/sessions` with `session`, `agent` or `view=terminal` in the address is the workspace; bare `/sessions` is the list.
+  The app has no client-side router: links are full page loads.
+- Sessions outside a project are grouped "Other on <machine>" only (the listing has no folder to match a project by).
+  The **Needs you** filter matches nothing until G. Check and remove worktree is offered only when the worktree path and
+  branch name the run.
+- `railState` puts "N running" ahead of "machine offline", so a project on a machine that is not reporting shows its
+  last known count without saying so.
+- Two sentences the spec does not word: **Start in these on Home** and "Projects now live on the Sessions screen."
+- The site footer (account name, Admin, the developer credit) has targets under 44 px on touch; it predates the agents
+  home and was left as it is.
+- On a touch phone the terminal's chrome (workspace toolbar, pane header and footer, terminal keys) is 40 × 40 px, not
+  44, so the terminal keeps its rows; documented in [docs/terminal-workspace.md](docs/terminal-workspace.md#phones). H4's
+  40 px footer button costs one row with the keyboard down at 390 × 844 (39 → 38); keyboard-open and sideways rows are
+  unchanged.
+- `terminal-phone.e2e.mjs`'s 20 × 8 floor case used to read 13 rows in about one run in five: the workspace height was
+  measured while the shell held the top bar aside and not measured again when it came back. Fixed and hardened in
+  `5abe001` (the workspace measures again whenever the shell toggles its chrome; the test waits for the layout to
+  settle instead of a fixed 450 ms); 10 runs in a row and one under CPU load pass, with the same figures.
 
-Limits after PR E (#227):
+Still true from earlier PRs:
 
-- YOLO is shown disabled and refused (409 `yolo_refused`, one project or several) until F.
-- The first line of a prompt becomes the stored session title.
-- Rolling back to an older server while a start in several projects has members pending: that server drives them as a saved Project run, so members pending at the moment of the downgrade may fail, or start without their base or effort, or in a worktree they should not have.
-- A base a member only inherits from the account's default is not sent to a machine without agents-v2 (its worktree starts from HEAD there); a project's own base is sent, and such a machine refuses it with "Update reet on that machine…".
-- Go details left as they are: a replayed start is checked again against today's rules (a request that was valid when first sent can be refused on replay); a start in several projects checks "one start per folder" by machine and folder (host and dir); the host format stored for saved-Project runs was not confirmed against the selection runs' agent ids.
-- The tablet shows its own **Change** button for the model and worktree, a deviation from `Tablet.dc.html` the owner approved.
-- The Start an agent dialog still serves Machines and the Sessions panel; Home starts only from the bar.
-- The coarse-pointer and iOS long press has not been tried on a real device.
-- Per-project spacing differences from the drawings are recorded in [docs/ui-verification.md](docs/ui-verification.md).
+- YOLO is shown disabled and refused (409 `yolo_refused`) until F. The first line of a prompt becomes the stored session
+  title. The Start an agent dialog (Machines and the Sessions panel) still uses the old four-agent list, so Cline starts
+  only from Home's launch bar. Pi and Cursor stay disabled.
+- A base a member only inherits from the account's default is not sent to a machine without `agents-v2`; a project's
+  own base is sent, and such a machine refuses it with "Update reet on that machine…". Rolling back to an older server
+  while a start in several projects has members pending may fail those members or start them without base or effort.
+- A replayed start is checked again against today's rules; a start in several projects checks "one start per folder" by
+  machine and folder.
+- The old Projects tables and their start/retry routes stay one release before they are dropped; a downgrade then
+  re-upgrade leaves Projects saved while downgraded as "waiting folders"; a session's `projectId` is checked for account
+  and machine, not folder; the import's answer still says "saved repositories".
+- Worktree git calls share the lazy-fetch and fsmonitor hazard the folder browser already guards against.
+- Nothing has been checked on a real phone or in Safari (browser emulation only), including the touch long press.
+- The tablet shows its own **Change** button for model and worktree (approved deviation). Per-screen differences from
+  the drawings are listed per PR in [docs/ui-verification.md](docs/ui-verification.md).
 
-Checks run for E4 (local, Chromium 1243 headless): `cd web && npm test` (22 files, 0 failures), `npx svelte-check` (0 errors, 0 warnings), `npm run build`; `launch.e2e.mjs` 4 runs (about 60 s each) and `phone-zoom.e2e.mjs` 4 runs (about 40 s each) all passed; `home`, `projects`, `phone-dialogs` and `start-agent` passed once. Mutations in `launch.e2e.mjs`: Enter sending on touch and a fresh request id on retry each failed a fixture; Approvals not reset to Ask me after a launch is caught by `launchBar.test.mjs` ("approvals reset to ask") but not by the browser fixtures, because YOLO cannot be chosen in the page. No Go was changed.
+### Queued work (decided, not started)
 
-**Rule for this work: every PR updates this block (state column and any new limits) before it merges.** PR B, C and E may be released together once #227 merges (R22); F, G and H follow.
+**1. Terminal copy and paste, images included** (its own PR, next). Input:
+[docs/research/paste-research.md](docs/research/paste-research.md) (tasks T1–T14). Decisions:
+
+Numbering as in the report's section 3.6 (D1–D8):
+
+- **Owner decisions (28 Oct):** its own PR after H; **D1** pasted images go to a private folder per session on the machine,
+  outside the project (directory 0700, files 0600, random names).
+- **Controller defaults (owner may revisit):** **D2** skip the paste review for agents that use bracketed paste when the
+  text has no control characters and is at most 64 KiB (and always strip ESC and the bracketed-paste markers); **D3** an
+  agent's own copy (OSC 52) reaches the clipboard only right after a user gesture, write-only, at most 1 MiB; **D4**
+  copy-on-select is an option, off by default; **D5** uploads are audited as metadata only; **D6** uploads are on by
+  default behind a new `upload-v1` feature token, which a machine accepts unless a local setting turns it off; **D7**
+  limits: 5 MiB per image, 20 images or 50 MiB per session, 24 h lifetime, PNG/JPEG/GIF/WebP checked by magic bytes, no
+  SVG; **D8** phones get a file picker and a **Select text** sheet first, drag and drop after.
+
+**2. Agent models** (backend M1–M6, then the UI after #231 merges). Input:
+[docs/research/models-design.md](docs/research/models-design.md) (tasks M0–M11).
+
+- New feature token `models-v1`. In v1 only OpenCode lists models from the machine: `opencode models` run with
+  `OPENCODE_DISABLE_MODELS_FETCH=1`, so it makes no network call (the probe showed it calls models.opencode.ai otherwise,
+  and that `--refresh` ignores the setting). Other agents keep suggestions, favourites and Other….
+- Favourites per account (at most 50); an account default for sessions outside a project; a project default for agent,
+  model and effort. Precedence: explicit choice, then project, then account, then the agent's own default.
+- Decisions, numbered as in the models design (D1–D6): **D1** (owner) the bar opens with the defaults first and the last
+  used as a Recent group; **D5** (owner) the list loads automatically, because the capture is clean with the setting
+  above; **D2** a per-machine default is deferred, **D3** a favourite can carry a "default for this agent" flag (yes), **D4**
+  the model-name rule stays as it is (D2–D4 are controller defaults the owner may revisit); **D6** capturing
+  `opencode models` from the approved npm package was approved and is partly done by the probe.
+- Known gap to fix in it: a project's default agent is checked against the original four agents only, so Cline cannot be
+  one.
+
+**3. Program 2, slice 1: structured OpenCode sessions** (after models). Input:
+[docs/research/probe-report.md](docs/research/probe-report.md),
+[reference-tool-frontend-research.md](docs/research/reference-tool-frontend-research.md) and
+[reference-tool-agents-research.md](docs/research/reference-tool-agents-research.md). Owner decision: trusted workspaces only, OpenCode, Allow
+once / Deny only, and only with all seven conditions:
+
+1. A reet-owned ask-everywhere config in `OPENCODE_CONFIG_CONTENT` (edit, bash and external_directory ask, for every
+   built-in agent; `default_agent: "build"`; `task: deny`; `webfetch: deny`), `OPENCODE_DISABLE_PROJECT_CONFIG=1`, and the environment
+   scrubbed of `OPENCODE_PERMISSION`, `OPENCODE_CONFIG`, `OPENCODE_CONFIG_DIR` (and any `OPENCODE_*` reet does not set);
+   check the mode is `build` after `session/new`.
+2. A random `OPENCODE_SERVER_PASSWORD` per process: every `opencode acp` starts an unauthenticated local HTTP API on
+   127.0.0.1:4096 that can answer permissions behind the client's back.
+3. `task: deny` (subagent permissions never reach the protocol).
+4. A permission timeout and a turn watchdog, with reet closing its own pending cards on cancel.
+5. An environment allowlist and the opt-outs (models fetch, autoupdate, default plugins, LSP download and the rest).
+6. A warning when the repository has `.opencode` plugins (repository plugins run at session start).
+7. OpenCode pinned at exactly `opencode-ai@1.19.5` (integrity in the probe report). There is no `--standalone` or
+   `--auto` on `acp` in 1.19.5.
+
+**The probe's blocking findings** (full text: [probe-report.md](docs/research/probe-report.md), sections 4, 6 and 7):
+
+- By default OpenCode asks nothing: writes, edits and shell commands ran without a permission request.
+- A repository's config, the user's config or `OPENCODE_PERMISSION` can switch asking off.
+- Every ACP process serves an unauthenticated control API on a predictable local port; an approval over it leaves the
+  ACP card pending.
+- Repository plugin code runs when a session opens, whatever the flags: no-go for untrusted repositories.
+- No permission timeout; subagent permissions never reach the client, so a turn can hang; provider errors take ~74 s.
+- "Always allow" stores a wildcard broader than the command shown; writes land in the user's `.git`.
+- It contacts npmjs for `@opencode-ai/plugin` even with the opt-outs set.
+
+**What not to copy from the other front end studied** (full lists: section 5 of each `reference-tool-*` report):
+
+- Answering terminal prompts by sending keystrokes; regex status rules; writing hooks or trust into users' agent configs.
+- Reading or writing agents' private stores (session databases, transcripts); use the protocol's load and list or nothing.
+- YOLO that disables the agent's own sandbox, or set through an environment variable that `ps` cannot show.
+- Forwarding `SSH_AUTH_SOCK`, `DISPLAY` or DBus to agents; `npm install -g` from a web button; `@latest` hints.
+- Pasted images written into the worktree and cleaned by an in-memory timer.
+- A `--help` probe on every launch as the main evidence (keep reet's captured help with integrity; add a `--version`
+  check only).
+- Breadth before depth (seventeen agents); unauthenticated modes and tokens in URLs.
+
+### Pitfalls for the next session
+
+- **CI** runs on the Zoomies runners (`zoomies-linux-x64`); tmux and Chromium are installed per job.
+  - `terminal-browser` takes 17–25 of its 30 minutes: **add no fixtures or cases to that job**.
+  - `phone-zoom` and `phone-dialogs` (10 minutes each) have headroom; new browser cases go there.
+  - CI's Chromium (1248) has no DejaVu Sans Mono, so terminal rows differ from a local run: never assert an absolute row
+    count; compare with a layout measured in the same browser.
+  - The real-browser Go harness needs `LANG=C.UTF-8 LC_ALL=C.UTF-8` locally, or terminal.e2e's UTF-8 split check fails.
+  - CI does not run workflows while a PR conflicts with main.
+  - `mcp/test/oauth.test.mjs` needs its fixture built first in CI (the warm-up step in `image.yml`).
+- **Merges:** the owner merges other PRs while one is open (#228–#236 during this work). Always `git fetch origin main`
+  and merge it before pushing.
+- **Git and processes:** never `git checkout -p`; commit with pathspecs; never `pkill -f` (it can match the session's own
+  processes); never a shared tmux `kill-server`. The stop hook nags while subagents are still working; that is expected.
+- **Commit trailers:** new commits follow the session's attribution reminder (`Co-Authored-By` and `Claude-Session`);
+  every commit in this PR carries Claude Sonnet 5.5.
+- **Process used** (subagent-driven development): an implementer per task with a brief, a task review, fix rounds
+  (at most five) with a scoped re-review, then a final broad review split by area and a single fix wave; mutation checks
+  restore files byte-identical (`cp` before, `cmp` after); fidelity checks at 1440, 834 and 390 px recorded in
+  `docs/ui-verification.md`. The full local matrix is `web/tests/matrix/agents-home.matrix.mjs` (not in CI).
+
+**Rule for this work: every PR updates this block (state table, limits, queued work) before it merges.**
 
 ### Standing notes carried over from the moved sections
 
@@ -118,7 +257,10 @@ Checks run for E4 (local, Chromium 1243 headless): `cd web && npm test` (22 file
 
 | Area | Existing entry points |
 | --- | --- |
-| App/routes and Control | `web/src/App.svelte`, `web/src/lib/ControlCenter.svelte` |
+| App/routes and the shell | `web/src/App.svelte`, `web/src/lib/shell/*` (AppShell, TopTabs, BottomTabs, MoreSheet, JumpSearch, Bell) |
+| Home and projects | `web/src/lib/home/*` (Home, FleetStrip, InFlight, NeedsYou, ProjectRail, ProjectRailHost, AddProjectDialog, FolderBrowser), `web/src/lib/home.ts` |
+| Launch bar | `web/src/lib/launch/LaunchBar.svelte`, `SlotPicker.svelte`, `web/src/lib/launchBar.ts`, `web/src/lib/catalogue.ts` |
+| Sessions page and session screen | `web/src/lib/sessions/*` (SessionsPage, SessionScreen, SessionTabs, ContextPanel), `web/src/lib/sessions.ts` |
 | Machines/onboarding | `Machines.svelte`, `MachineFleet.svelte`, `MachineSetup.svelte`, `machineSetup.ts`, `machines.ts` under `web/src/lib/` |
 | Sync/fleet UI | `EnvironmentSync.svelte`, `SyncControl.svelte`, `FleetActions.svelte`, `fleet.ts`, `api.ts` under `web/src/lib/` |
 | Live sync domain/execution | `internal/scan/sync.go`, `agent.go`, `restore.go`; adjacent tests |
@@ -136,6 +278,7 @@ Checks run for E4 (local, Chromium 1243 headless): `cd web && npm test` (22 file
 | Controller enablement | `cmd/reet/terminal.go`, `internal/terminalcontrol`, `docs/terminal-controller-commands.md` |
 | Machine health | `internal/agenthealth`, `internal/store/store_remote_health.go`, `internal/api/health.go` |
 | Notifications | `internal/notify`, `internal/store/store_notify.go`, `internal/api/notifications.go`, `web/src/lib/Notifications.svelte` |
+| Agents home fixtures | `web/tests/home.e2e.mjs`, `launch.e2e.mjs`, `add-project.e2e.mjs`, `sessions.e2e.mjs`, `sessions-phone.e2e.mjs`; the local matrix `web/tests/matrix/agents-home.matrix.mjs` |
 | Existing regression fixtures | `internal/store/store_sync_control_test.go`, `web/src/lib/fleet.test.mjs`, `web/tests/control.e2e.mjs`, `web/tests/terminal.test.mjs`, `web/tests/terminal.e2e.mjs`, `internal/api/terminal_integration_test.go` |
 
 Names such as `Skill`, `SyncSkill`, `SyncTarget`, `SyncPlan`, `SetupSkill`,

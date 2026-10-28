@@ -13,8 +13,7 @@ try {
  // More opens inside the screen at every width where the tabs fold into Home, Sessions, Machines and More.
  for (const width of run('menu') ? [320,375,414,768,999] : []) {
   const {context,page,errors} = await open({width})
-  await page.goto(`${base}/control`)
-  await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
+  await page.goto(`${base}/machines`)
   await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'More'}).click()
   const sheet = page.getByRole('dialog',{name:'More'})
   const panel = await sheet.evaluate(el=>{const r=el.getBoundingClientRect();return{left:r.left,right:r.right,width:innerWidth}})
@@ -119,8 +118,8 @@ try {
  // An explicit dark theme keeps a readable warning colour, same as the system dark theme.
  if (run('dark')) {
   const {context,page} = await open({width:1440,theme:'dark'})
-  await page.goto(`${base}/control`)
-  await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
+  await page.goto(`${base}/machines`)
+  await expect(page.getByRole('heading',{name:'Your machines, connected.'})).toBeVisible()
   expect(await page.evaluate(()=>document.documentElement.dataset.theme)).toBe('dark')
   expect(await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--warn').trim())).toBe('#e9b44c')
   await context.close()

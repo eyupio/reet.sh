@@ -1093,3 +1093,214 @@ Accessibility: axe-core 4.10.2 (outside the repository), WCAG 2.0/2.1 A and AA p
 Validation: `launch.e2e.mjs` gains "select three projects and start; one fails and retries" (a lost reply sent again identically, one run request and no session create, the sheet's count, Open and Retry), "select on touch, at 320 px and on the strip" and "a rail card applies the project defaults and offers its starter prompt"; the first two were seen failing before the change, the third passed on E2's code. The file passed four runs in a row; home, projects, phone-zoom, shell-fidelity, navigation, phone-layout, start-agent, phone-dialogs, empty-states, add-project, add-project-edit, terminal-workspace, readiness, first-run, public-workspace and control pass. No real phone or Safari run was done.
 
 Fix round 1 (review of fb4d16f): the bar now follows the rail's selection whenever it is free, so a selection changed while a kept request locks the bar, or made before the bar's first choice, is applied as soon as it can be. A run whose sheet is closed while a member waits or failed leaves a **Show run status** chip under the prompt (not drawn; the Change sheet's chip style). **Done** in the rail gives focus to the heading's ⋮ button. A start refused for speed (429) keeps its request, and the bar words every refusal of a start in several projects in that start's own sentences. axe (same tool and rules) is clean at 1440, 834 and 390, dark and light, in Select mode, with the sheet open and with the chip shown: 18 states.
+
+## Agents Home — Sessions page, 28 October 2026 (PR H, task H1)
+
+Synthetic API answers, Chromium on Linux. The fixture is shaped like the mock-up's phone Sessions screen (`PhoneRail.dc.html`): machines studio and server reporting and desk not reporting; projects reet (studio), site (server) and notes (desk); six sessions: three in reet (two running Claude Code sessions with sonnet in worktrees, one exited Codex session), a YOLO session in site, a Codex session in notes, and an ended plain shell on studio with no project. `/sessions` was rendered at 1440×900, 834×1112 (touch) and 390×844 (touch) in light and dark and compared with `PhoneRail.dc.html` (the phone screen, which the spec also uses at tablet width) and, for the shell around it, `Main.dc.html` and `Tablet.dc.html`. No drawing shows the list at desktop width, so it is the phone screen's parts in a 960 px column.
+
+Matches the drawing: 56 px header row with the 44 px back chevron (tablet and phone) and the 44 px **New** primary button (radius 10); the 44 px search field (radius 10, card fill, 16 px glass, "Search sessions", 16 px text); the Project | Machine | State switcher (radius 10, 14 px, about 44 px segments, the chosen one filled and 600); group headers with the 14 px diamond in `--repo`, the name at 600 and the machine pill (12 px); group cards (radius 13, card fill) with rows at least 52 px tall (padding 6px 14px, gap 12, 9 px dot, 15 px title with ellipsis, 12 px muted age); the *PROJECTS · 3* label (11 px, 600, .09em, uppercase) and **Add a project** (44 px, bordered, radius 10, 500).
+
+Deviations, each with its reason:
+
+- The site's slim top bar (logo, search, bell, account) stays above the screen's own header on a phone and tablet, and the bottom tab bar on a phone: they are the shell (PR D). The drawing's screen has its own header only.
+- **Filters** (a 44 px bordered disclosure under the switcher, "Filters · N on" when set) and its State, Agent, Machine and Sort selects, YOLO only and Worktree only, and **Clear filters**: the spec's Sessions page requires them; no drawing has them. Sort offers the sessions panel's saved custom order (spec: "the existing custom order … stay as options under filters"); the per-session colours are not drawn on this page (they remain in the workspace panel).
+- Each row also has a ⋮ actions button (44 px) and the state word in its tone (status in text as well as colour, the accessibility rules). At 1440 and 834 px a row also shows the spec's `agent · model · branch` line and the YOLO and worktree badges; on a phone the agent line and the worktree badge are left out so the title stays readable as drawn (YOLO stays).
+- Groups follow Home's grouping (R-H check in the fidelity audit): project groups by name, then "Other on \<machine\>", so notes comes before reet; the drawing lists reet first.
+- The project cards below *Projects · N* are simple 48 px cards (colour stripe, name, machine) that open the project on Home. The full rail card (state words, worktrees, menu, Select) moves here in H3; until then the Sessions page shows the list in this smaller form.
+- An offline machine's group says "desk is offline" in the warn tone under its header; its rows say "Running · last known" (read out, not drawn, on a phone). Not drawn; the spec's States list.
+- No hover card on the rows (the workspace panel and In flight keep theirs).
+- Fix round 1: each row carries its colour (the sessions panel's choice, else the project's) as a 3 px edge strip and a small named badge ("Green"; on a phone the name is read out, not drawn), and Filters gains Colour. The header gains **Saved commands** (owner ruling; "Commands" on a phone, icon only under 375 px), which opens the account's command library without a session. "Checking…" shows on every read over the last known list (not a live region, so a 15-second read is not announced). None of these are drawn.
+
+Accessibility: axe-core 4.10.2 (outside the repository), WCAG 2.0/2.1 A and AA plus 2.2 AA, at 1440×900, 834×1112 and 390×844, light and dark, with the list, with Filters open and with a row's actions menu open: 18 states, no violations and no incomplete results. Fix round 1 re-ran them with colours set, plus the Saved commands library open: 24 states, no violations; the 6 library states each have 1 incomplete (`color-contrast` on 3 nodes behind the modal backdrop, which axe cannot measure).
+
+Validation: `web/tests/sessions.e2e.mjs` (page, search matches branch and machine, filters combine, actions menu by right-click and Shift+F10, offline machine group sentence, rows at least 44 px on touch at 390 and 834 px, a failed refresh keeping the list, empty states) passed four runs in a row and was seen failing before the page existed; `navigation.e2e.mjs` gains "/control and /terminals redirect keeping the query" and "Control no longer under More". It runs in the `phone-dialogs` CI job.
+
+## Agents Home — session screen, 28 October 2026 (PR H, task H2)
+
+Synthetic API answers, Chromium on Linux, the Sessions page fixture (studio and server reporting, desk not; reet, site and notes; six sessions) with a sync record that makes studio's skills line "skills in sync · checked 3 min ago" and a worktree status of three changed files, as the mock-up lists. `/sessions?agent=a1&session=…` was rendered at 1440×900, 834×1112 (touch) and 390×844 (touch) in light and dark, with four tabs open and the second raised (desktop and tablet), and compared with `Session.dc.html` / `ref-session-desktop.png`, `Tablet.dc.html` and `PhoneSession.dc.html`.
+
+Matches the drawing: tabs 36 px with 9 px top corners, an 8 px state dot and 14 px title, the current one raised on the page background with the + (40 px) after them; the header row 62 px, 28 px in, the title in Fraunces 21 px 600 over a 13 px muted `agent · model · started …` line; the state pill (30 px, radius 99, 8 px dot, 13 px 500, tinted from its tone token); **Chat | Terminal** (radius 9, 7×16 px segments, the chosen one on `--line-soft` at 500); the context panel 340 px on `--bg-sunk` with a `--line-soft` edge, 20 px padding and 18 px between sections, each a 11 px 600 uppercase .09em label over a card (radius 11, 12×14 px padding, 13 px): *Where it's working* (label left, value right, branch and worktree in mono, worktree muted), *Changed files* with the count right of its label and 12.5 px mono rows 9×14 px with a `--line-soft` rule, *Skills on this machine* (✓ in `--good`, line, muted Manage), *Decisions in this session*.
+
+Deviations, each with its reason:
+
+- The sessions panel (left) and the workspace toolbar stay: the panel is how another session is opened in this browser tab (R20's tabs gather there) and its tests and behaviour are #233's. The tabs sit in the toolbar's row instead of a 46 px strip of their own, so the terminal keeps the height `terminal-workspace` holds it to (the usable-height rule must not regress).
+- The context panel docks beside the terminal only with 1100 px of room for the screen (at 1440 with the panel docked at 280 px it does; at 1360 it is behind **Details**), not by the window's width alone: with the sessions panel docked, a 340 px panel at 1360 would leave the terminal under 60 % of the workspace. Theatre view also puts it behind Details. Over the terminal it has its own **Close details** (it covers the header's Details); Escape closes it too.
+- The conversation column is the live terminal pane, unchanged, with its own header (title, host, Live, Disconnect, Manage) and toolbar: the spec's Program 1 conversation. The chat view, plan checklist, edit card, decision card and composer are Program 2 (R21); **Chat** is disabled with "Chat arrives with structured sessions." (tooltip and accessible description).
+- **Approvals: Ask me** (or YOLO) is the first item of the pane's footer, not a composer's footer: there is no composer until Program 2.
+- The state pill uses Home's state words ("Running", "Exited 0", …) with their source ("From the session's state") in its tooltip and read out; the drawing's "Waiting for you" needs the attention signal (PR G, deferred). No step count or progress bar (R10).
+- Machine line: "studio ● online" from the health report (offline, reconnecting or "no report yet" otherwise); the drawing's machine name is the example's. A session outside a worktree says Branch "Not recorded" and Worktree "the checkout": the listing records a branch only for a worktree session.
+- Changed files: paths without +/− counts (R19, no data source until Program 2), at most 20 with the total, "and N more not listed.", a **Refresh** button (spec); a session outside a worktree says "Only sessions in their own worktree list changed files."
+- Skills: the fleet card's line ("skills in sync · checked 3 min ago", "N skills out of date" or "Not checked"); the drawing's "12 skills in sync with your list" needs a skill count the sync record does not give. **Manage** opens that machine's comparison (`/machines?view=compare&machine=<host>`): Skills has no machine filter.
+- Decisions: "Asked in the terminal." (or the YOLO line with a link to Activity, which has no audit filter yet); the drawing's Allowed/Waiting rows are Program 2's decision events.
+- The header adds a ⋮ actions menu (spec: Rename, Theatre view, Copy branch, End session or Remove from history, Check and remove worktree) and, under 1100 px of room, **Details** (44 px). A copied branch says so in a status line under the header.
+- Tablet (834): the sessions panel stays docked beside the screen (Keep open is on by default from 768 px), so the tabs are narrow and the header wraps its controls under the title; the Details side sheet's final form is H3.
+- Phone (390): one slim header (title, project · machine, state pill, Details, ⋮) as `PhoneSession.dc.html` draws it; no tabs, no Chat | Terminal, no Approvals line; the header steps aside with the keyboard up and when the phone is held sideways. The phone layout proper is H3.
+
+Accessibility: axe-core 4.10.2 (outside the repository; `REET_AXE=<axe.min.js>` in the `screens` section), WCAG 2.0/2.1 A and AA plus 2.2 AA, 1440, 834 and 390 px, light and dark, with the screen, with Details open (834 and 390) and with the actions menu open: 16 states, no violations. Every state has 2 incomplete results: `aria-prohibited-attr` on the pane's existing `.terminal-toolbar` (an `aria-label` on a plain `div`, unchanged since #233) and `color-contrast` on 7–34 nodes axe cannot measure (icon-only buttons and dots, the xterm rows, and with Details open the nodes behind the panel).
+
+Validation: `web/tests/sessions.e2e.mjs` gains "opening a row adds a tab; closing a tab never ends the session", "ninth tab drops the oldest", "context panel shows machine, project, branch, worktree", "changed files fetched once and on refresh", "Chat is disabled with its reason" and "YOLO session shows its decisions line", each seen failing before the screen existed, and passed four runs in a row; `launch.e2e.mjs` gains "arriving from a session tab focuses the prompt". `terminal-workspace.e2e.mjs`'s position checks allow the session header (at most 104 px) above the pane; its 60 % screen-height check is unchanged and passes.
+
+Fix round 1 (H2 review): the context panel is reached by keyboard alone. In the DOM it now comes after the header and before the terminal (one grid: beside the terminal in the right column, or as a sheet in the terminal's own cell below the header, so it never covers Details or ⋮). Details moves focus into the sheet (Close details first), Tab and Shift+Tab go round the sheet's controls, and Escape or Close details return focus to Details. Tabs that left the listing leave the strip; tab links are 44 px on touch; a strip that overflows fades at the hidden edge and keeps the current tab in view; the status line under the header is always rendered so its first message is announced; a paused machine reads "paused" in the warn tone. New `sessions.e2e.mjs` cases: "context panel by keyboard" (1440, 834 and 390), "a tab whose session left the listing", "tab strip on touch", "copy branch is announced", "a paused machine is not shown as online". axe 4.10.2, the same 16 states: no violations; incompletes as before (`aria-prohibited-attr` on the pane's toolbar, `color-contrast` on 7–32 unmeasurable nodes).
+
+## Agents Home — tablet and phone layouts for sessions, 28 October 2026 (PR H, task H3)
+
+Synthetic API answers, Chromium on Linux. Fixtures shaped like the mock-up: studio and server reporting, desk not; reet, site and notes; the session screen with three changed files. Rendered at 1440×900, 834×1112 (touch), 390×844 (touch) and 320×700 (touch), light and dark, with the phone keyboard simulated (the visual viewport at 55 % of the height) at 320 and 390 px and with the phone held sideways (844×390). Compared with `Tablet.dc.html`, `PhoneHome.dc.html`, `PhoneRail.dc.html` and `PhoneSession.dc.html`.
+
+What changed and matches the drawings:
+
+- **Phone and tablet Home** have no project rail any more (as `Tablet.dc.html` and `PhoneHome.dc.html` draw them): machines, Needs you, then In flight, whose rows open the session screen and keep their height (60 px tablet, 56 px phone) with the words the session header's pill uses. The launch sentence's project slot and its Add a project stay.
+- **Sessions screen on a tablet or phone** (`PhoneRail.dc.html`): under the groups, the full project rail: `PROJECTS · N` (11 px 600 uppercase .09em, muted) with a 44 px **Add a project** (15 px 500, `--line-strong` edge, radius 10), then the rail's cards (state in words, ⋮ menu, Select or a long press). A card or New session here opens Home's launch bar on that project; **Start in these on Home** (48 px, accent) hands two or more chosen projects to it in the address (`/?projects=<id>,<id>`, ids only). A desktop keeps the simple cards (Home has the rail there).
+- **Phone session screen** (`PhoneSession.dc.html`): the slim header is back (44 px), title (15 px 600, cut short with its full text in the title), `project · machine` (12 px muted), the state pill (28 px), Details and ⋮, 52 px tall; the toolbar's own arrow gives way. With the keyboard up for the terminal the top bar steps aside (`keyboardChrome`, focus `session`), the slim header stays at the top, and the pane ends at the keyboard; the field is inside the visual viewport; no sideways scroll at 320 or 390 px.
+- **Tablet session screen**: Details opens the context panel as a 340 px side sheet along the right edge, from under the header to the foot of the screen; the header, tabs, toolbar and sheet targets are 44 px on touch.
+
+Deviations, each with its reason:
+
+- Phone session, keyboard up: the slim header is 44 px tall while typing, not 52 px: the 8 px keep the keyboard-open rows at 24 (390×844, before and after; the usable-height rule must not regress). The pane's own header steps aside instead, since the slim header names the session.
+- Phone session: the terminal pane (its toolbar row with Show sessions, and the extra keys) stands where the drawing has the conversation, the decision card and the composer: Program 2 (R21). The pill says "Running", not "Waiting": the attention signal is PR G.
+- Phone session, keyboard down (not drawn): the slim top bar (logo, search, bell, More, account) and the workspace toolbar (+, Show sessions, New, Help) stay above the header; the bottom tab bar is not shown on the session screen, so the terminal keeps its rows (13 sideways, 24 with the keyboard up). Held sideways the slim header gives its rows to the terminal and the toolbar keeps its back arrow.
+- Sessions screen rail: the heading has the rail's 44 px Projects menu (Select projects), which the drawing does not show; the spec's multi-select needs it. The cards are the rail's own (machine pill, base branch, state words, worktrees in use, ⋮).
+- Tablet session: the sessions panel stays docked beside the screen (H2 decision 1), which the drawing does not have. Since fix round 1 every control in it, its menus and the pane's header and footer are 44 px on touch; only the pane's terminal keys (toolbar and extra keys) are 40 px, the spec's exception. The separator's grip is 44 × 88 px and never covers a control (fix round 2).
+- The handoff from the Sessions rail to Home's launch bar goes through the address because the Sessions screen has no launch bar.
+- Two sentences the spec does not word: **Start in these on Home** (the link under Select on the Sessions rail; the spec names the feature "Start in several projects", but this link does not start anything, it hands the projects to Home's launch bar) and "Projects now live on the Sessions screen." (the one-time note after an old `/projects` address on a tablet or phone; the spec's "Projects now live in the rail on Home." is kept on a desktop, where it is true). Both are plain, as the voice guide asks for controls and states; the owner may reword them.
+
+Accessibility: axe-core 4.10.2 (outside the repository; `REET_AXE=`), WCAG 2.0/2.1 A and AA plus 2.2 AA: the session screen at 1440, 834, 390 and 320 px in light and dark (screen, Details open below 1100 px, actions menu open; 22 states) and the keyboard-up layout at 320 and 390 px: no violations. Incomplete results as in H2: `aria-prohibited-attr` on the pane's toolbar and `color-contrast` on 6–32 nodes axe cannot measure. Focus is not obscured with the keyboard up: the terminal's field and the pane end above the keyboard (checked in `sessions-phone.e2e.mjs`).
+
+Fix round 1 (H3 review):
+
+- A touch tablet (651–1099 px, not a phone held sideways) gives every control in the docked sessions panel, its row, project and machine menus (colour swatches included), the panel's separator grip (44 × 88 px at the middle of its track, with the panel's padding wide enough beside it that the grip covers no control, checked by hit-testing in "tablet separator never covers a control") and the pane's header, Manage menu and footer a 44 px target; the pane's toolbar and extra keys are at least 40 × 40 px (the terminal's own keys). Desktops keep their density. `sessions.e2e.mjs` "tablet targets are 44 px" measures every shown control in the workspace at 834 px.
+- The Sessions-on-a-phone cases moved to `web/tests/sessions-phone.e2e.mjs`, run in the `phone-dialogs` CI job; `phone-layout.e2e.mjs` is as it was before PR H.
+- `?projects=` is read once (known ids only, each once, in rail order, at most 12: `handedProjects` in `home.ts`) and then taken out of the address, keeping the rest of it and the fragment, so a reload does not choose them again.
+- The rail's heading says "Projects" until the list has been read (no false "Projects · 0").
+- Keyboard-open rows: CI's runner has no DejaVu Sans Mono, so the terminal falls back to a monospace font with 14 px rows instead of 13 px: 22 rows at 320 and 390 px instead of 24, for the layout before PR H and after alike (reproduced locally with DejaVu hidden from fontconfig, Chromium 1248: 22 and 22; terminal-phone then reports 64×22 with the keyboard open and 12/7/8 rows sideways). The test now compares, in the same browser, the rows with the layout before PR H (slim header hidden, pane header shown) and allows only the header delta (44 px against the pane header's 41 px, at most one row), each read after the fit settles.
+
+Figures (`terminal-phone.e2e.mjs`, before → after): keyboard open 53×24 → 53×24; maximised with the keyboard 55×25 → 55×25; sideways 844×390 13 rows, 8 with the keyboard, 9 maximised → the same; 915×412 15, 8, 10 → the same; the 20×8 floor unchanged.
+
+Validation: the new `sessions-phone.e2e.mjs` (in the `phone-dialogs` CI job) holds "session with keyboard open" (320 and 390 px), "sideways 844 × 390" and "phone rail on Sessions"; `sessions.e2e.mjs` gains "tablet details side sheet"; `terminal-sizing.test.mjs` covers `keyboardChrome('session', …)`. Home, launch, phone-zoom and phone-dialogs follow the rail to the Sessions screen on a phone.
+
+## Agents home: layout, focus and motion matrix — 28 October 2026 (PR H, task H4)
+
+Synthetic API answers, Chromium 1243 headless on Linux, the built app served by `vite preview`. The fixture is shaped like the mock-up: studio and server reporting and desk not; reet (studio, green), site (server, blue) and notes (desk); five sessions (two running Claude Code sessions in reet, one in a worktree; an exited Codex session; one in site; one on desk); one skills check in sync; a live terminal answering its socket.
+
+**The matrix** (`web/tests/matrix/agents-home.matrix.mjs`, run locally; 200 states, about 13 minutes): five screens (Home; the Add project dialog, from the rail at 1100 px and wider and from the Sessions screen below that; the launch bar's Agent list on a desktop and its Change sheet on a tablet or phone; the Sessions page; the session screen) at 1440 × 900, 1360 × 900, 1024 × 768, 834 × 1112 with a mouse and with touch, 412 × 915, 390 × 844, 360 × 800 and 320 × 700 (`isMobile`, `hasTouch`) and 844 × 390 sideways, each in light and dark, each with and without reduced motion. Every state asserts:
+
+- no sideways scroll;
+- on a touch screen, every shown control at least 44 px (48 px tall for a phone's primary action), except the terminal's own keys (the pane's toolbar and extra keys, 40 × 40 px on every touch screen) and, on a phone, the rest of the terminal's chrome (workspace toolbar, pane header and footer: 40 × 40 px, as [Phones](terminal-workspace.md#phones) says), links inside a sentence (WCAG 2.5.8's inline exception), and the site footer (below);
+- the focus visible on each of the first 14 Tab stops (outline, shadow or a frame that changes colour; light theme, no reduced motion);
+- every state dot beside a state word (status never in colour alone);
+- with reduced motion, no running animation;
+- Home on a phone: Needs you above In flight, and no project rail (it is on the Sessions screen);
+- on a phone with the keyboard up (the visual viewport at 55 % of the height, 45 % sideways) for Home's prompt, the Sessions search and the terminal: the field above the keyboard and no sideways scroll.
+
+First run (before the fixes below): 74 of 200 states had findings, all of them target sizes or motion; none for sideways scroll, focus, state words or the keyboard. After the fixes: **200 states, no findings**.
+
+Fixed in H4 (real defects the matrix found):
+
+- **Launch prompt on a phone**: the field was a 24 px target inside its row. The row's padding is now inside the field (44 px tall, 10 px above and below the text), so the row keeps its height (as tall as the 48 px Start with its padding) and the tap target is the field.
+- **Add project dialog on a touch tablet**: fields, the machine row, Browse and the folds' headings (*Starter prompt*, *More defaults*, 17 px) were 42 px or less; with a coarse pointer they are 44 px (48 px on a phone, as before). A mouse keeps the drawing's 42 px fields.
+- **Session screen on a touch phone**: the workspace toolbar's buttons were 28–39 px wide (+, New session, Details & help) and the pane footer's Focus terminal 24 px tall; they are at least 40 × 40 px now, like the terminal's keys. The footer's rows cost one terminal row with the keyboard down at 390 × 844 (39 → 38; 27 → 27 at 320 × 700); keyboard-open, short-screen and sideways rows are unchanged (53 × 24, 53 × 8, 13/8/9, 15/8/10).
+- **Reduced motion**: the terminal's cursor blinked; it does not when the device asks for reduced motion.
+- **Machines page eyebrow** said "Control" (Control is folded into Home and Machines, R4); it says "Machines".
+
+Deviations, each with its reason:
+
+- Add project on a touch tablet: 44 px fields where `AddProject.dc.html` draws 42 px: the touch-target rule (44 px) wins over the drawing on touch; with a mouse the drawing's 42 px stays.
+- Phone session screen: the pane footer is 40 px tall with the keyboard down, not drawn (the drawing has the composer there, Program 2).
+- The site footer (account name, Admin, the developer credit: 18–21 px tall links) is below 44 px on touch. It predates the agents home and is outside it, so it is left as it is and listed here.
+
+**Accessibility:** axe-core 4.10.2 (outside the repository; `REET_AXE=<axe.min.js>`), WCAG 2.0/2.1 A and AA plus 2.2 AA, the five screens at 1440, 834 (touch) and 390 (touch) px in light and dark: 30 states, **no violations**. Incomplete results:
+
+| Screen | 1440 light / dark | 834 light / dark | 390 light / dark |
+| --- | --- | --- | --- |
+| Home | 0 / 0 | 1 / 1 (`color-contrast`, 1 node) | 1 / 1 (`color-contrast`, 1 node) |
+| Add project | 1 / 1 (`color-contrast`, 1 / 3 nodes) | 1 / 1 (`color-contrast`, 2 / 3 nodes) | 1 / 1 (`color-contrast`, 1 / 3 nodes) |
+| Launch list or sheet | 0 / 0 | 0 / 0 | 0 / 0 |
+| Sessions | 0 / 0 | 0 / 0 | 0 / 0 |
+| Session screen | 2 / 2 (`aria-prohibited-attr` 1 node, `color-contrast` 17) | 2 / 2 (1, 15) | 2 / 2 (1, 7) |
+
+The `color-contrast` nodes are ones axe cannot measure (behind a modal backdrop, over the terminal's canvas, or icon-only); `aria-prohibited-attr` is the pane's existing `.terminal-toolbar` (as in H2 and H3).
+
+**Mutation checks** (`cp` before, `cmp` after, each restored byte-identical; the build rebuilt from the restored tree): the launch prompt's padding put back (caught by launch "phone Change sheet"); the phone toolbar under 40 px and the pane footer's 24 px button (both caught by sessions-phone "phone matrix"); the cursor blinking with reduced motion (caught by "phone matrix"); a progress bar in the session header (caught by `sessions.e2e.mjs`); "Step 4 of 7" on an In flight row (caught by `home.e2e.mjs`); a slot list that stays open after a choice (caught by `launch.e2e.mjs`); the phone's sessions drawer staying open after a session is chosen (survived at first: no fixture covered it; the new sessions-phone "drawer closes on selection" catches it); the Machines eyebrow back to "Control" (caught by navigation "names").
+
+**PR D's zoom and keyboard-open cases after `keyboardChrome` gained the `session` focus (H3):** `phone-zoom.e2e.mjs` (long names never zoom a phone out), `phone-layout.e2e.mjs` and `terminal-phone.e2e.mjs` pass, with the figures above unchanged. `terminal-phone` failed once in six runs (its 20 × 8 floor case read 13 rows, in a run straight after other suites) and then passed four runs in a row on its own; the floor case is unchanged by H4.
+
+**CI:** the full matrix is too slow for the plan's budget (at most 120 s added across the plan, `phone-zoom` under 60 s), so CI runs a share of it: sessions-phone "phone matrix" (412, 360, 320 px and 844 × 390, dark, reduced motion: the Sessions screen and the session screen fit, targets, no blinking) and "drawer closes on selection", in the `phone-dialogs` job (sessions-phone about 12 s locally in all; four runs in a row passed). Nothing was added to `terminal-browser`.
+
+### PR H final fix wave (after the broad review), 28 October 2026
+
+Synthetic API answers, Chromium 1243 headless, the built app in `vite preview`; each fix written test-first (the new or
+changed case seen failing before the fix) and mutation-checked (below).
+
+- **Sessions page "Checking…"**: it took a new line above the list on every 15-second read, moving the rows 64 px under a
+  finger. It now sits in a line kept for it (with the action notices), so the first row's top stays within 1 px before,
+  during and after a read. **New** goes to `/#launch` (the launch prompt focused), like the session screen's +.
+- **Tablet sessions panel**: the colour swatches (44 × 44 px on touch) ran past the 232 px menu; they wrap now, and every
+  swatch lies inside its menu. The separator's 44 × 88 px grip now reaches into the panel (whose right padding on a touch
+  tablet is 36 px, from 22) and over the terminal no further than its 24 px track, so a press 10 px inside the terminal's
+  edge reaches the terminal.
+- **Menus and focus**: Tab from the Sessions page's or the session screen's actions menu goes on to the control after the
+  one that opened it (Shift+Tab back to it), instead of the page's end or start; a reconnecting terminal no longer takes
+  focus from the open ⋮ menu (`data-keeps-focus`).
+- **Phone, keyboard up, connection down**: the pane's header (Retry now, Reconnect, Continue here) stays while the
+  connection is not live, and the slim header's pill says the connection's state ("Reconnecting", "Disconnected", "Open
+  elsewhere", "Shell unavailable", "Access denied") instead of "Running".
+- **Context panel**: a worktree the listing names only later is followed (its changed files read once then, never again
+  for the same worktree). A tab's close tooltip says "the session stays in its history" for a finished session.
+- **Addresses**: `/sessions/` is `/sessions` (with its query and fragment). A viewer, single-token or open sign-in at a
+  session address gets the Machines page with its heading, the title "Machines · reet.sh" and Machines current.
+- **Machines page with nothing connected**: two filled buttons showed (the checklist's "Connect your first machine" and
+  the add-a-machine steps' "Continue to authentication →"); the checklist's link is a plain button now, so the page has one
+  filled button, and Sync keeps its one with no checklist (restored from Control's "first" check, now scoped to `main`).
+- **Machine cards on touch** (Control's card check, moved to the Machines page's cards): Set up sync, the sync options
+  button and its items, Update reet… and the agents disclosure were 34–38 px; they are 44 px on a coarse pointer. Unlike
+  Control's cards, a mouse keeps 42 px actions (the old "at most 40 px with a mouse" check is not carried over).
+
+Coverage that went with Control, and where it is now: the machine-card touch sizes → `sessions-phone.e2e.mjs` "machine
+cards on touch"; New terminal disabled for a machine that is not ready and starting from a card → the Machines card's
+**Start an agent** (disabled with its reason, and starting from it) in `start-agent.e2e.mjs`; Control's one-click **New
+terminal** on a card was removed with Control and has no successor (Open terminal and Start an agent remain); Saved
+commands from a session's menu on Control → the Sessions page's **Saved commands** button (`sessions.e2e.mjs` "saved
+commands without a session") and, in the real-browser test, a second browser opening the same library from that button
+(`terminal.e2e.mjs`); readiness "first" → one filled button in `main` on `/machines` and `/sync`, and no Open terminal or
+Open sessions link while nothing is connected.
+
+Tests made steadier: `sessions-phone.e2e.mjs` waits for the layout by polling instead of fixed sleeps before its
+geometry checks, and the sideways case no longer asserts an absolute row count (CI's fallback font has taller rows): the
+terminal fills its screen and has more rows than the same layout with the slim header shown, measured in the same browser
+(13 against 9 locally; 12 against 9 with DejaVu hidden from fontconfig, as on the CI runner).
+
+Mutation checks (`cp` before, `cmp` after, every file restored byte-identical, the build rebuilt from the restored tree):
+16 mutants, one per fix (the reserved line removed, swatches not wrapping, each Tab handler put back, the menu without
+`data-keeps-focus`, the pane header hidden while down, the pill ignoring the connection, the grip centred again, no
+trailing-slash redirect, the viewer's deep link headerless, the worktree read once, one tooltip, New to `/`, the slim
+header kept sideways, the checklist link filled again, the card's sync button small on touch): all caught.
+
+Checks after the wave: `npm test` and `svelte-check` (0 errors, 0 warnings); sessions, sessions-phone, navigation and
+readiness four runs each, all passed; phone-layout, phone-dialogs, home, launch, control, empty-states, terminal-workspace,
+-organisation and -lifecycle, projects, shell-fidelity, phone-zoom, first-machine, start-agent (its viewer step now expects
+the Machines title, the intended change above) and add-project passed; the full matrix again: 200 states, no findings, and
+axe as in the table above (no violations, the same incomplete counts). `terminal-phone` (keyboard open 53 × 24, sideways
+13/8/9, unchanged) failed once in the long sequential run at its 20 × 8 floor case (13 rows read), as once in H4, and passed
+ten runs since (eight alone, two straight after terminal-lifecycle); neither its test nor the terminal's sizing changed in
+this wave, so it is recorded as an intermittent timing failure to watch in CI. The real-browser Go harness
+(`TestTerminalPrivateLifecyclePreservesActualShell`, `LANG=C.UTF-8`) passed, with the second browser opening the library
+from Saved commands.
+
+Re-review round of the fix wave:
+
+- **Mini rail on a touch tablet**: the offset 44 × 88 px grip also showed beside the 64 px mini rail, which has no spare
+  padding, and covered most of the rail button at mid-height (a tap there started a resize). The grip now shows only beside
+  the full docked panel; beside the mini rail the separator is its 24 px track, which covers no rail button.
+  `sessions.e2e.mjs` "tablet separator by the mini rail" (834 × 1112, touch, panel shrunk to the rail) checks the track still
+  answers across its width and every rail button answers a press at its centre and edges; it failed first (one rail button
+  covered) and catches the grip put back.
+- `sessions-phone.e2e.mjs` sideways: "the terminal fills its screen" now compares the rows xterm draws with the room for
+  them (the screen's height over one drawn row's measured height), within a row, instead of a figure computed the same way
+  as the row count; a terminal fitted three rows short (10 for room for 13) fails it.
+
+- CI's `terminal-browser` run on `71d0d52` failed at `skill-content.e2e.mjs`'s unmocked-request check (three
+  `GET /api/v2/terminal/status`); `add-machine.e2e.mjs` fails the same way. All of them come from the owner's `/machines`
+  visits: the first-terminal checklist moved from Control to Machines in `f0bffe5` (R4) and reads the server's terminal
+  status for a writer in accounts mode, as Control did. Both fixtures now answer it, with that reason, and check that the
+  viewer and legacy-mode visits call no terminal endpoint at all (R16); a Machines page reading the checklist for them
+  fails both. Every browser file in the workflow's three jobs then ran once in the workflow's order on this branch and on
+  `origin/main` (`7dce59d`): all passed on main; on this branch only `add-machine` failed (fixed as above).

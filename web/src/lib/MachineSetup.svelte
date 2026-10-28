@@ -435,7 +435,7 @@
           {#if terminalError}<p class="watch-error" role="alert">{terminalError} {checkFailures > 1 ? 'Still trying automatically.' : 'Trying again shortly.'}</p>{/if}
           <div class="watch-actions">
             <button class="btn" onclick={check} disabled={checking || !host.trim()}>{checking ? 'Checking…' : 'Check terminal connection'}</button>
-            {#if terminalReady && terminalHost}<a class="btn primary" href={`/terminals?agent=${encodeURIComponent(terminalHost.agentId)}`}>Open terminals for {terminalHost.host} →</a>{/if}
+            {#if terminalReady && terminalHost}<a class="btn primary" href={`/sessions?agent=${encodeURIComponent(terminalHost.agentId)}`}>Open terminals for {terminalHost.host} →</a>{/if}
           </div>
         </div>
 
@@ -482,7 +482,7 @@
             </dl>
             <div class="joined-actions">
               <a class="btn primary" href={syncLink(connected.host)}>Open compare &amp; sync for {connected.host} →</a>
-              {#if terminalReady && terminalHost}<a class="btn" href={`/terminals?agent=${encodeURIComponent(terminalHost.agentId)}`}>Open terminals →</a>{/if}
+              {#if terminalReady && terminalHost}<a class="btn" href={`/sessions?agent=${encodeURIComponent(terminalHost.agentId)}`}>Open terminals →</a>{/if}
             </div>
           </div>
         {:else}

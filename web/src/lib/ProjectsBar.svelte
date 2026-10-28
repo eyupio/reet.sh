@@ -60,7 +60,7 @@
       notice = { text: "Couldn't read your machines just now. Try again in a moment." }
     } finally { opening = false }
   }
-  const sessionHref = (session: TerminalSession) => `/terminals?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`
+  const sessionHref = (session: TerminalSession) => `/sessions?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`
   function started(session: TerminalSession): 'leaving' { location.assign(sessionHref(session)); return 'leaving' }
   function leaveFailed(session: TerminalSession) { notice = { text: `Started ${session.title}, but the page did not open.`, href: sessionHref(session) } }
   async function saveColour(project: FolderProject, colour: ProjectColour) {

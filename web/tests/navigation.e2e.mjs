@@ -21,7 +21,7 @@ try {
   const top = await tabs(page).getByRole('link').allInnerTexts()
   expect(top.map(t=>t.trim())).toEqual(['Home','Sessions','Machines','Skills'])
   await expect(tabs(page).getByRole('link',{name:'Home',exact:true})).toHaveAttribute('aria-current','page')
-  for (const [name,href] of [['Home','/'],['Sessions','/terminals'],['Machines','/machines'],['Skills','/skills']])
+  for (const [name,href] of [['Home','/'],['Sessions','/sessions'],['Machines','/machines'],['Skills','/skills']])
    await expect(tabs(page).getByRole('link',{name,exact:true})).toHaveAttribute('href',href)
   // Activity is no longer a top-level tab: it lives inside the account.
   await expect(tabs(page).getByRole('link',{name:'Activity',exact:true})).toHaveCount(0)
@@ -64,7 +64,7 @@ try {
   await jump.fill('store')
   const results = page.getByRole('listbox',{name:'Jump results'})
   await expect(results.getByRole('option')).toHaveCount(2)
-  await expect(results.getByRole('option',{name:/Refactor the store layer/})).toHaveAttribute('href','/terminals?agent=a&session=s1')
+  await expect(results.getByRole('option',{name:/Refactor the store layer/})).toHaveAttribute('href','/sessions?agent=a&session=s1')
   await expect(results.getByRole('option',{name:/Store rewrite/})).toHaveAttribute('href','/?project=fp1')
   await jump.fill('stud')
   await expect(results.getByRole('option',{name:/studio/})).toHaveAttribute('href','/machines?machine=studio')
@@ -109,8 +109,8 @@ try {
    const more = page.getByRole('dialog',{name:'More'})
    await expect(more).toBeVisible()
    const links = await more.getByRole('link').allInnerTexts()
-   expect(links.map(t=>t.trim())).toEqual(['Skills','Control','Setups','Sync','Lists','Community','Support','Teams & organisations','Host skills'])
-   await expect(more.getByRole('link',{name:'Control'})).toHaveAttribute('href','/control')
+   // Neither Control (folded into Home and Machines) nor Activity (in the account) is under More any more.
+   expect(links.map(t=>t.trim())).toEqual(['Skills','Setups','Sync','Lists','Community','Support','Teams & organisations','Host skills'])
    await page.keyboard.press('Escape')
    await expect(more).toBeHidden()
    await expect(bar.getByRole('button',{name:'More'})).toBeFocused()
@@ -148,18 +148,20 @@ try {
  }
 
  // Nothing the old navigation reached is lost: every former destination is a tab or sits under More in the account menu.
- // Projects left More: folder projects live in Home's rail, and /projects goes there.
- if (run('every former nav destination reachable, Control under More')) {
+ // Projects left More: folder projects live in Home's rail, and /projects goes there. Control left too (R4): it is folded
+ // into Home and Machines, and /control goes to Home; the Sessions tab is /sessions.
+ if (run('Control no longer under More')) {
   const {context,page,errors} = await open({width:1440})
   await page.goto(base)
   await page.locator('summary[aria-label^="Account menu"]').click()
   const more = page.locator('.panel').getByRole('group',{name:'More'})
   const names = await more.getByRole('link').allInnerTexts()
-  expect(names.map(t=>t.trim())).toEqual(['Control','Setups','Sync','Lists','Community','Support','Teams & organisations','Host skills'])
+  expect(names.map(t=>t.trim())).toEqual(['Setups','Sync','Lists','Community','Support','Teams & organisations','Host skills'])
   const hrefs = [...await tabs(page).getByRole('link').evaluateAll(els=>els.map(e=>e.getAttribute('href'))), ...await more.getByRole('link').evaluateAll(els=>els.map(e=>e.getAttribute('href')))]
-  for (const former of ['/control','/machines','/terminals','/skills','/profiles','/sync','/shared','/community','/support','/spaces','/hosting'])
+  for (const former of ['/machines','/sessions','/skills','/profiles','/sync','/shared','/community','/support','/spaces','/hosting'])
    expect(hrefs, `${former} is reachable`).toContain(former)
-  await expect(more.getByRole('link',{name:'Control'})).toHaveAttribute('href','/control')
+  await expect(page.locator('a[href="/control"], a[href="/terminals"]')).toHaveCount(0)
+  await expect(more.getByRole('link',{name:'Control'})).toHaveCount(0)
   // Notifications, the account and the theme are still in the same menu.
   await expect(page.locator('.panel').getByRole('link',{name:/^Notifications/})).toHaveAttribute('href','/notifications')
   await expect(page.locator('.panel').getByRole('group',{name:'Theme'})).toBeVisible()
@@ -174,11 +176,12 @@ try {
    await page.goto(base)
    if (touch) {
     await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'More'}).click()
-    await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Control'})).toBeVisible()
+    await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Setups'})).toBeVisible()
+    await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Control'})).toHaveCount(0)
     await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Projects'})).toHaveCount(0)
    } else {
     await page.locator('summary[aria-label^="Account menu"]').click()
-    await expect(page.locator('.panel').getByRole('group',{name:'More'}).getByRole('link',{name:'Control'})).toBeVisible()
+    await expect(page.locator('.panel').getByRole('group',{name:'More'}).getByRole('link',{name:'Setups'})).toBeVisible()
     await expect(page.locator('.panel').getByRole('link',{name:'Projects'})).toHaveCount(0)
    }
    await expect(page.locator('a[href="/projects"], a[href^="/projects/"]')).toHaveCount(0)
@@ -187,17 +190,33 @@ try {
   }
  }
 
- // The existing pages keep their addresses: /terminals is the Sessions tab and /control opens as before; /projects goes to
- // Home, where folder projects live.
- if (run('/terminals and /control still open their pages')) {
+ // Old addresses keep working (R4, R17): /control goes to Home, /terminals to /sessions keeping its query (so an old link to
+ // a session still opens it), and /projects to Home, where folder projects live.
+ if (run('/control and /terminals redirect keeping the query')) {
   const {context,page,errors} = await open({width:1440})
   await page.goto(`${base}/control`)
-  await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
-  expect(await page.title()).toBe('Control · reet.sh')
-  await expect(tabs(page).locator('[aria-current="page"]')).toHaveCount(0)
+  await expect(page).toHaveURL(`${base}/`)
+  expect(await page.title()).toBe('Home · reet.sh')
+  await expect(tabs(page).getByRole('link',{name:'Home',exact:true})).toHaveAttribute('aria-current','page')
+  await page.goto(`${base}/control?view=x#machines`)
+  await expect(page).toHaveURL(`${base}/`)
   await page.goto(`${base}/terminals`)
+  await expect(page).toHaveURL(`${base}/sessions`)
   expect(await page.title()).toBe('Sessions · reet.sh')
+  await expect(page.getByRole('heading',{name:'Sessions',level:1})).toBeVisible()
   await expect(tabs(page).getByRole('link',{name:'Sessions',exact:true})).toHaveAttribute('aria-current','page')
+  await page.goto(`${base}/terminals?agent=a&session=s1`)
+  await expect(page).toHaveURL(/\/sessions\?agent=a&session=s1/)
+  await expect(tabs(page).getByRole('link',{name:'Sessions',exact:true})).toHaveAttribute('aria-current','page')
+  // The session address opens the session, not the list.
+  await expect(page.getByRole('region',{name:'Remote terminal workspace'})).toBeVisible()
+  // A trailing slash is the same address: /sessions/ is the list, and /sessions/ with a session opens it.
+  await page.goto(`${base}/sessions/`)
+  await expect(page).toHaveURL(`${base}/sessions`)
+  await expect(page.getByRole('heading',{name:'Sessions',level:1})).toBeVisible()
+  await page.goto(`${base}/sessions/?agent=a&session=s1#x`)
+  await expect(page).toHaveURL(`${base}/sessions?agent=a&session=s1#x`)
+  await expect(page.getByRole('region',{name:'Remote terminal workspace'})).toBeVisible()
   await page.goto(`${base}/projects`)
   await expect(page).toHaveURL(`${base}/`)
   expect(await page.title()).toBe('Home · reet.sh')
@@ -272,14 +291,14 @@ try {
 
  // The tab for the page in view, and only that tab, carries aria-current="page"; a page under More marks More.
  if (run('tab links use aria-current=page')) {
-  for (const [path,link] of [['/','Home'],['/terminals','Sessions'],['/machines','Machines'],['/skills','Skills']]) {
+  for (const [path,link] of [['/','Home'],['/sessions','Sessions'],['/machines','Machines'],['/skills','Skills']]) {
    const {context,page} = await open({width:1440})
    await page.goto(`${base}${path}`)
    await expect(tabs(page).getByRole('link',{name:link,exact:true})).toHaveAttribute('aria-current','page')
    await expect(tabs(page).locator('[aria-current]')).toHaveCount(1)
    await context.close()
   }
-  for (const [path,link] of [['/sync','Sync'],['/profiles','Setups'],['/control','Control']]) {
+  for (const [path,link] of [['/sync','Sync'],['/profiles','Setups']]) {
    const {context,page} = await open({width:1440})
    await page.goto(`${base}${path}`)
    await expect(tabs(page).locator('[aria-current]')).toHaveCount(0)
@@ -361,23 +380,20 @@ try {
   await quiet.context.close()
  }
 
- // One name per area: Control, Skills, Setups, Sync.
+ // One name per area: Skills, Setups, Sync.
  if (run('names')) {
-  // A machine is connected, so Control shows its shortcut cards (a first-run Control shows only the setup steps).
   const {context,page} = await open({width:1440,skills:[skill('code-review')],terminalStatus:active,terminalMachines:[terminalMachine('a','dev-laptop',true)]})
   await page.goto(`${base}/skills`)
   await expect(page.getByRole('heading',{name:'Skills.',exact:true})).toBeVisible()
   expect(await page.title()).toMatch(/^Skills ·/)
   await expect(page.getByRole('link',{name:'Sync skills',exact:true})).toHaveAttribute('href','/sync')
   await expect(page.getByRole('link',{name:'Distribute skills'})).toHaveCount(0)
-  await page.goto(`${base}/control`)
-  const shortcuts = page.locator('section[aria-label="Workspace shortcuts"]')
-  await expect(shortcuts.getByRole('link',{name:/^Setups/})).toHaveAttribute('href','/profiles')
-  await expect(shortcuts.getByRole('link',{name:/^Sync/})).toHaveAttribute('href','/sync')
   await expect(page.getByText('Reusable AI setups')).toHaveCount(0)
   await expect(page.getByText('Skills & fleet sync')).toHaveCount(0)
   await page.goto(`${base}/machines`)
-  await expect(page.locator('main').getByText('Control',{exact:true})).toBeVisible()
+  // Control is folded into Home and Machines (R4), so the Machines page no longer calls itself Control.
+  await expect(page.locator('main .eyebrow').first()).toHaveText('Machines')
+  await expect(page.locator('main').getByText('Control',{exact:true})).toHaveCount(0)
   await expect(page.getByText('Your control centre')).toHaveCount(0)
   const tabs = await page.locator('nav[aria-label="Machines"] a').allInnerTexts()
   expect(tabs.map(t=>t.trim())).toEqual(['Inventory & connection','Sync','Sessions','Setups →'])
@@ -447,5 +463,5 @@ try {
   expect(errors).toEqual([])
   await context.close()
  }
- console.log('Navigation: five desktop tabs with Home current, the bell and Jump, four phone tabs with More, every former page reachable, /terminals and /control kept, /projects to Home and Projects no longer under More, /activity, no Sessions or bell for viewers, token and open sign-ins, aria-current, phone search with the keyboard up, notifications in the account menu, one name per area, same-origin fonts.')
+ console.log('Navigation: four desktop tabs with Home current, the bell and Jump, four phone tabs with More, every former page reachable, Control gone from More, /control to Home and /terminals to /sessions with its query, /projects to Home and Projects no longer under More, /activity to the account Activity section (its own page on an open instance), no Sessions or bell for viewers, token and open sign-ins, aria-current, phone search with the keyboard up, notifications in the account menu, one name per area, same-origin fonts.')
 } finally {await browser.close()}

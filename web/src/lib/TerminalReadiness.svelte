@@ -43,7 +43,8 @@
           <p>{machines === 1 ? 'One machine is connected.' : `${machines} machines are connected.`}</p>
         {:else}
           <p>Connect a laptop or server with the reet CLI. It takes about two minutes.</p>
-          {#if canWrite}<a class="btn primary" href="/machines#add-machine">Connect your first machine</a>{/if}
+          <!-- A plain button: the add-a-machine steps on the same page hold its one filled button. -->
+          {#if canWrite}<a class="btn" href="/machines#add-machine">Connect your first machine</a>{/if}
         {/if}
       </div>
     </li>
@@ -66,7 +67,7 @@
         <strong>Open your first session</strong>
         {#if serverOn && allowed}
           <p>Everything is ready.</p>
-          <a class="btn" href="/terminals">Open terminals →</a>
+          <a class="btn" href="/sessions">Open sessions →</a>
         {:else}
           <p>Available once the steps above are done.</p>
         {/if}

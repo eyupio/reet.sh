@@ -85,11 +85,12 @@ try {
   await expect(page.getByRole('complementary',{name:'Session navigation'})).toBeVisible()
   expect(sockets).toBe(actionSockets);expect(await state()).toEqual(original)
 
-  await page.goto(`${base}/control`)
-  const activeBand=page.locator('#active-sessions')
-  await expect(activeBand).toContainText('1 active session')
+  // The Sessions page lists the session; its row continues it.
+  await page.goto(`${base}/sessions`)
+  const listed=page.locator('main .session-row').filter({hasText:'Browser durability'})
+  await expect(listed).toHaveCount(1)
   const continuedAt=Date.now()
-  await activeBand.getByRole('link',{name:'Continue Browser durability on laptop',exact:true}).click()
+  await listed.locator('a.open').click()
   await live()
   expect(Date.now()-continuedAt).toBeLessThan(2000)
   expect(await state()).toEqual(original)
@@ -211,8 +212,13 @@ try {
   const secondContext=await browser.newContext({viewport:{width:1360,height:1000}})
   await secondContext.addCookies([{name:'reet_session',value:process.env.REET_BROWSER_COOKIE,url:base,httpOnly:true,sameSite:'Lax'}])
   const secondPage=await secondContext.newPage()
-  await secondPage.goto(`${base}/control`)
-  await secondPage.getByRole('button',{name:/Your command library/}).click()
+  // The library belongs to the account: another browser reads the same command.
+  const library=await secondPage.request.get(`${base}/api/v2/terminal/commands`)
+  expect(library.ok()).toBe(true)
+  expect((await library.json()).commands.map(item=>item.command)).toEqual([savedText])
+  // And shows it in its own library, opened from the Sessions page's Saved commands (Control's shortcut before it was folded in).
+  await secondPage.goto(`${base}/sessions`)
+  await secondPage.getByRole('button',{name:'Saved commands',exact:true}).click()
   await expect(secondPage.getByRole('dialog').locator('code')).toHaveText(savedText)
   await secondContext.close()
   await page.getByRole('button',{name:'Insert Account shell check',exact:true}).click()
@@ -360,7 +366,7 @@ try {
   await expect(screen).toContainText('__builder_ready__')
   // A second browser must explicitly transfer the existing attachment lease.
   const other=await context.newPage();other.on('pageerror',error=>errors.push(error.message))
-  await other.goto(`${base}/terminals?agent=${builder}&session=${builderSession}`)
+  await other.goto(`${base}/sessions?agent=${builder}&session=${builderSession}`)
   await expect(other.locator('.pane')).toHaveAttribute('data-connection-state','taken_over')
   await other.getByRole('button',{name:'Continue here',exact:true}).click()
   await expect(other.locator('.pane')).toHaveAttribute('data-connection-state','live')
@@ -398,7 +404,7 @@ try {
   // The store/API tests cover old end receipts; the actual browser gate replays
   // the successful creation receipt and verifies that no tmux shell reappears.
   await fixture('disable-terminals')
-  await page.goto(`${base}/terminals?agent=${builder}&session=${builderSession}`)
+  await page.goto(`${base}/sessions?agent=${builder}&session=${builderSession}`)
   await expect(pane).toHaveAttribute('data-connection-state','ended')
   await page.locator('.session-menu summary').click()
   await expect(page.getByRole('button',{name:'Remove from history',exact:true})).toBeEnabled()
@@ -418,7 +424,7 @@ try {
   expect((await fixture('state-builder')).pid).toBe('')
   expect((await state()).sessions).toBe(1)
   expect(builderOperations).toHaveLength(3)
-  await page.goto(`${base}/terminals?agent=${process.env.REET_BROWSER_AGENT}&session=${primarySession}`);await live()
+  await page.goto(`${base}/sessions?agent=${process.env.REET_BROWSER_AGENT}&session=${primarySession}`);await live()
   await command("kill -0 \"$LONG_PID\" && printf '__archive_%s__\\n' 'other-safe'")
   await expect(screen).toContainText('__archive_other-safe__')
   expect((await state()).pid).toBe(original.pid)

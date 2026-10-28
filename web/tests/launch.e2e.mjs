@@ -68,8 +68,8 @@ async function launch(options={}) {
    store.setItem = (k, v) => { window.__recordStorage(`${area}.set`, k, String(v)); return set(k, v) }
   }
  })
- // The session page is not under test: it answers with an empty page.
- await opened.page.route(url => new URL(url).pathname === '/terminals', route => route.fulfill({status:200, contentType:'text/html', body:'<title>session</title>'}))
+ // The session page is not under test: it answers with an empty page (unless a test opens the Sessions screen's rail).
+ if (!options.sessionsPage) await opened.page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:200, contentType:'text/html', body:'<title>session</title>'}))
  return {...opened, box}
 }
 // Deterministic in place of a fixed wait: the page's pending work runs (a macrotask after Svelte's effects), then a request
@@ -162,7 +162,7 @@ try {
   await bar(page).getByRole('button',{name:'Show run status'}).click()
   await expect(sheet).toBeVisible()
   await expect(sheet.getByRole('status')).toHaveText('2 of 3 started')
-  await expect(sheet.getByRole('link',{name:'Open Store rewrite'})).toHaveAttribute('href','/terminals?agent=a1&session=s-store')
+  await expect(sheet.getByRole('link',{name:'Open Store rewrite'})).toHaveAttribute('href','/sessions?agent=a1&session=s-store')
   await expect(sheet).not.toContainText(/verified|healthy|\d+%/i)
   await expect(sheet.locator('progress, [role=progressbar]')).toHaveCount(0)
   await siteRow.getByRole('button',{name:'Retry Site'}).click()
@@ -203,7 +203,7 @@ try {
   await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
   await expect(slot(page,'Project')).toHaveAccessibleName('Project: Store rewrite')
   await startButton(page).click()
-  await expect(page).toHaveURL(/\/terminals\?/)
+  await expect(page).toHaveURL(/\/sessions\?/)
   expect(runs).toHaveLength(1)
   expect(box.posts).toHaveLength(1)
   expect(box.posts[0]).toMatchObject({projectId:'fp1'})
@@ -259,9 +259,11 @@ try {
  // the 56 px strip shows how many are chosen.
  if (run('select on touch, at 320 px and on the strip')) {
   const long = [...fprojects(), blog()].map(p => p.id === 'fp1' ? {...p, name:'the-store-rewrite-with-a-very-long-project-name-indeed'} : p)
-  const phone = await launch({width:320, height:700, touch:true, projects:long})
+  // On a phone the rail is on the Sessions screen (PR H): a long press starts Select there, and the chosen projects go to Home's
+  // launch bar in the address (ids only).
+  const phone = await launch({width:320, height:700, touch:true, projects:long, sessionsPage:true})
   await phone.page.clock.install()
-  await phone.page.goto(base)
+  await phone.page.goto(`${base}/sessions`)
   const card = phone.page.locator('aside.rail .card').filter({hasText:'the-store-rewrite'})
   await card.scrollIntoViewIfNeeded()
   const at = await card.boundingBox()
@@ -272,24 +274,36 @@ try {
   await card.dispatchEvent('pointerup', point)
   const rail = phone.page.locator('aside.rail')
   await expect(rail.getByRole('checkbox',{name:/^the-store-rewrite/})).toHaveAttribute('aria-checked','true')
-  // One chosen: the summary names it, wraps, and keeps Start on the screen.
-  await expect(phone.page.locator('.summary-text')).toContainText('the-store-rewrite-with-a-very-long-project-name-indeed')
-  const one = await startButton(phone.page).boundingBox()
-  expect(one.x + one.width).toBeLessThanOrEqual(320)
-  expect(await phone.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await expect(rail.getByText('1 chosen. Choose at least one more.',{exact:true})).toBeVisible()
   await rail.getByRole('checkbox',{name:/^Site/}).click()
   await rail.getByRole('checkbox',{name:/^Blog/}).click()
   await expect(rail.getByText('3 chosen.',{exact:true})).toBeVisible()
-  await expect(phone.page.locator('.summary-text')).toContainText('3 projects')
-  const s = await startButton(phone.page).boundingBox()
-  expect(s.x + s.width).toBeLessThanOrEqual(320)
   expect(await phone.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   for (const c of await rail.getByRole('checkbox').all()) {
    const b = await c.boundingBox()
    expect(b.height).toBeGreaterThanOrEqual(44)
    expect(b.x + b.width).toBeLessThanOrEqual(320)
   }
+  const go = rail.getByRole('link',{name:'Start in these on Home'})
+  expect((await go.boundingBox()).height).toBeGreaterThanOrEqual(48)
+  await expect(go).toHaveAttribute('href','/?projects=fp1,fp3,fp4')
+  await go.click()
+  // Home names the three in the summary and keeps Start on the screen; nothing about them is stored.
+  await expect(phone.page.locator('.summary-text')).toContainText('3 projects')
+  const s = await startButton(phone.page).boundingBox()
+  expect(s.x + s.width).toBeLessThanOrEqual(320)
+  expect(await phone.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  expect(phone.box.storage.filter(e => /fp\d/.test(e.value) || /fp\d/.test(e.key))).toEqual([])
+  // One chosen project with a very long name: the phone summary names it, wraps, and keeps Start on the screen.
+  await phone.page.goto(`${base}/?project=fp1`)
+  await expect(phone.page.locator('.summary-text')).toContainText('the-store-rewrite-with-a-very-long-project-name-indeed')
+  const one = await startButton(phone.page).boundingBox()
+  expect(one.x + one.width).toBeLessThanOrEqual(320)
+  expect(await phone.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   // Done leaves Select and gives focus back to the heading's menu button.
+  await phone.page.goto(`${base}/sessions`)
+  await rail.getByRole('button',{name:'Projects menu'}).click()
+  await phone.page.getByRole('menuitem',{name:'Select projects'}).click()
   await rail.getByRole('button',{name:'Done selecting'}).click()
   await expect(rail.getByRole('button',{name:'Projects menu'})).toBeFocused()
   expect(phone.errors).toEqual([])
@@ -312,6 +326,26 @@ try {
 
  // A rail card (or its New session here) puts that project in the sentence with its own defaults: agent, model and worktree
  // choice; its starter prompt is offered with the chip and goes out only once the person uses it.
+ // The Sessions screen's rail hands its chosen projects over in the address: Home keeps only ids it knows (each once, in rail
+ // order), then takes `projects` out of the address (the rest stays), so a reload does not choose them again.
+ if (run('projects handed over in the address')) {
+  const {context,page,errors} = await launch({projects:[...fprojects(), blog()]})
+  await page.goto(`${base}/?projects=fp4,gone,fp1,fp4&from=sessions#top`)
+  await expect.poll(() => sentenceText(page)).toContain('on 2 projects')
+  await expect(page.locator('aside.rail').getByRole('checkbox',{checked:true})).toHaveCount(2)
+  await expect(page.locator('aside.rail').getByRole('checkbox',{name:/^Store rewrite/})).toHaveAttribute('aria-checked','true')
+  await expect(page.locator('aside.rail').getByRole('checkbox',{name:/^Blog/})).toHaveAttribute('aria-checked','true')
+  await expect.poll(() => page.evaluate(() => location.pathname + location.search + location.hash)).toBe('/?from=sessions#top')
+  await page.reload()
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect(page.locator('aside.rail').getByRole('checkbox')).toHaveCount(0)
+  // One id names one project: the bar names it.
+  await page.goto(`${base}/?projects=fp3`)
+  await expect.poll(() => sentenceText(page)).toContain('on Site at studio')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  if (run('a rail card applies the project defaults and offers its starter prompt')) {
   const projects = fprojects().map(p => p.id === 'fp3' ? {...p, defaultTool:'codex', defaultModel:'gpt-5-codex', worktreeDefault:'no', hasStarterPrompt:true} : p)
   const routes = {'/api/v2/folder-projects/fp3': () => ({...projects.find(p => p.id === 'fp3'), starterPrompt:'Tidy the site build and say what changed'})}
@@ -334,7 +368,7 @@ try {
   await bar(page).getByRole('button',{name:'Use the starter prompt'}).click()
   await expect(prompt(page)).toHaveValue('Tidy the site build and say what changed')
   await startButton(page).click()
-  await expect(page).toHaveURL(/\/terminals\?/)
+  await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.posts[0]).toMatchObject({agentId:'a1', tool:'codex', model:'gpt-5-codex', dir:'/home/dev/site', projectId:'fp3', prompt:'Tidy the site build and say what changed'})
   for (const key of ['worktree','project','base']) expect(box.posts[0], key).not.toHaveProperty(key)
   expect(errors).toEqual([])
@@ -397,7 +431,7 @@ try {
    '/api/v2/folder-projects/runs': () => ({status:201, json:selectionRun([runMember(0,'fp1','Store rewrite','started',{sessionId:'s-store'}), runMember(1,'fp3','Site','failed',{code:'session_limit',sentence:LIMIT})])}),
   }
   const later = await launch({routes:failedRuns})
-  await later.page.route(url => new URL(url).pathname === '/terminals', route => route.fulfill({status:204, body:''}))
+  await later.page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:204, body:''}))
   await later.page.goto(base)
   const lrail = later.page.locator('aside.rail')
   await lrail.getByRole('button',{name:'Projects menu'}).click()
@@ -505,6 +539,16 @@ try {
   await context.close()
  }
 
+ // The session screen's + arrives at /#launch: the prompt takes focus and the address forgets the fragment.
+ if (run('arriving from a session tab focuses the prompt')) {
+  const {context,page,errors} = await launch()
+  await page.goto(`${base}/#launch`)
+  await expect(bar(page).getByLabel('Describe the job')).toBeFocused()
+  expect(new URL(page.url()).hash).toBe('')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // Select started on the 56 px strip (1100 to 1239 px) can be stopped there too.
  if (run('Stop selecting on the strip')) {
   const {context,page,errors} = await launch({width:1180, height:800, projects:[...fprojects(), blog()]})
@@ -606,14 +650,14 @@ try {
   await expect(prompt(page)).toHaveAttribute('placeholder','Describe the job. Say what done looks like.')
   await expect(bar(page).getByRole('radiogroup',{name:'Approvals'}).getByRole('radio',{name:'Ask me'})).toBeChecked()
   await startButton(page).click()
-  await expect(page).toHaveURL(/\/terminals\?agent=a1&session=new-/)
+  await expect(page).toHaveURL(/\/sessions\?agent=a1&session=new-/)
   expect(box.posts).toHaveLength(1)
   const body = box.posts[0]
   expect(body).toMatchObject({agentId:'a1', tool:'codex', model:'gpt-5-codex', dir:'/home/dev/store', projectId:'fp1', project:'store-rewrite', base:'main', title:'Codex · store'})
   expect(body.worktree).toMatch(/^[0-9a-f]{32}$/)
   expect(body.requestId).toMatch(/^[0-9a-f-]{36}$/)
   for (const key of ['prompt','effort','yolo']) expect(body, key).not.toHaveProperty(key)
-  await expect(page).toHaveURL(`${base}/terminals?agent=a1&session=${encodeURIComponent(`new-${body.requestId.slice(0,8)}`)}`)
+  await expect(page).toHaveURL(`${base}/sessions?agent=a1&session=${encodeURIComponent(`new-${body.requestId.slice(0,8)}`)}`)
   expect(errors).toEqual([])
   await context.close()
  }
@@ -674,7 +718,7 @@ try {
   await expect(bar(page).getByRole('button',{name:/^Machine: /})).toHaveCount(0)
   await expect.poll(() => sentenceText(page)).toBe('Run Gemini CLI with gemini-2.5-flash on Site at studio from develop in a fresh worktree')
   await startButton(page).click()
-  await expect(page).toHaveURL(/\/terminals\?/)
+  await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.posts[0]).toMatchObject({agentId:'a1', tool:'gemini', model:'gemini-2.5-flash', dir:'/home/dev/site', projectId:'fp3', project:'site', base:'develop'})
   // Cline takes effort; the checkout has no branch slot and says where it works.
   await page.goto(base)
@@ -695,7 +739,7 @@ try {
   await expect(yolo).toBeDisabled()
   await expect(yolo).toHaveAccessibleDescription("reet doesn't start YOLO sessions yet.")
   await startButton(page).click()
-  await expect(page).toHaveURL(/\/terminals\?/)
+  await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.posts[1]).toMatchObject({agentId:'a1', tool:'cline', effort:'high', dir:'/home/dev/store', projectId:'fp1'})
   for (const key of ['worktree','project','base','model','yolo']) expect(box.posts[1], key).not.toHaveProperty(key)
   expect(errors).toEqual([])
@@ -738,7 +782,7 @@ try {
   await expect(prompt(page)).toHaveValue('')
   await expect(bar(page).getByText("Secrets don't belong here.",{exact:false})).toHaveCount(0)
   await startButton(page).click()
-  await expect(page).toHaveURL(/\/terminals\?/)
+  await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.posts[0]).not.toHaveProperty('prompt')
   await page.goto(base)
   await chip.click()
@@ -754,7 +798,7 @@ try {
   await expect(chip).toBeVisible()
   await chip.click()
   await startButton(page).click()
-  await expect(page).toHaveURL(/\/terminals\?/)
+  await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.posts[1]).toMatchObject({prompt:'Fix the failing tests in the store package', title:'Fix the failing tests in the store package'})
   expect(errors).toEqual([])
   await context.close()
@@ -773,7 +817,7 @@ try {
   await expect(slot(page,'Agent')).toBeDisabled()
   expect(page.url()).toBe(`${base}/`)
   await startButton(page).click()
-  await expect(page).toHaveURL(/\/terminals\?agent=a1&session=new-1/)
+  await expect(page).toHaveURL(/\/sessions\?agent=a1&session=new-1/)
   expect(box.posts).toHaveLength(2)
   expect(box.posts[1]).toEqual(box.posts[0])
   expect(box.posts[0]).toMatchObject({prompt:'Fix the failing tests', tool:'claude'})
@@ -795,7 +839,7 @@ try {
   await expect(startButton(page)).toHaveAccessibleName('Start the session')
   await expect(prompt(page)).toBeEnabled()
   await startButton(page).click()
-  await expect(page).toHaveURL(/\/terminals\?/)
+  await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.posts[2].requestId).not.toBe(box.posts[1].requestId)
   expect(box.posts[1].requestId).not.toBe(box.posts[0].requestId)
   expect(errors).toEqual([])
@@ -809,7 +853,7 @@ try {
   await page.goto(base)
   await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on -x at studio in a fresh worktree'.replace('in a fresh', 'from main in a fresh'))
   await startButton(page).click()
-  await expect(page).toHaveURL(/\/terminals\?/)
+  await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.posts[0]).toMatchObject({dir:'/home/dev/-x', projectId:'fpx', project:'x', title:'Claude Code · -x'})
   expect(errors).toEqual([])
   await context.close()
@@ -832,7 +876,7 @@ try {
   await settled(page)
   expect(box.posts).toHaveLength(1)
   release()
-  await expect(page).toHaveURL(/\/terminals\?agent=a1&session=new-held/)
+  await expect(page).toHaveURL(/\/sessions\?agent=a1&session=new-held/)
   expect(box.posts).toHaveLength(1)
   expect(errors).toEqual([])
   await context.close()
@@ -847,7 +891,7 @@ try {
   await expect(prompt(page)).toHaveValue('Fix the failing tests\n')
   expect(box.posts).toEqual([])
   await prompt(page).press('Control+Enter')
-  await expect(page).toHaveURL(/\/terminals\?/)
+  await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.posts).toHaveLength(1)
   expect(errors).toEqual([])
   await context.close()
@@ -866,7 +910,7 @@ try {
   await expect(prompt(page)).toHaveValue('Fix the failing tests\n')
   expect(page.url()).toBe(`${base}/`)
   await startButton(page).click()
-  await expect(page).toHaveURL(/\/terminals\?/)
+  await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.posts).toHaveLength(1)
   expect(errors).toEqual([])
   await context.close()
@@ -893,6 +937,10 @@ try {
   const start = startButton(page)
   const size = await start.boundingBox()
   expect([Math.round(size.width), Math.round(size.height)]).toEqual([48, 48])
+  // The prompt itself is a 44 px target (the row's padding is inside the field), and the row stays as tall as Start's.
+  const prompt = await bar(page).locator('textarea').boundingBox(), ask = await bar(page).locator('.ask').boundingBox(), go = await bar(page).locator('.go').boundingBox()
+  expect(Math.round(prompt.height), 'prompt target').toBeGreaterThanOrEqual(44)
+  expect(Math.round(ask.height), 'prompt row').toBe(Math.round(go.height))
   await expect(bar(page).locator('.sentence')).toBeHidden()
   const line = bar(page).locator('.summary-text')
   await expect(line).toHaveText('Claude Code on Store rewrite at studio · main · fresh worktree')
@@ -919,7 +967,7 @@ try {
   await expect(line).toHaveText('Codex on Store rewrite at studio · main · fresh worktree')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await start.click()
-  await expect(page).toHaveURL(/\/terminals\?/)
+  await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.posts[0]).toMatchObject({tool:'codex', dir:'/home/dev/store'})
   expect(errors).toEqual([])
   await context.close()
@@ -991,7 +1039,7 @@ try {
   const dump = () => page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]))
   for (const secret of SECRETS) expect(await dump(), secret).not.toContain(secret)
   await startButton(page).click()
-  await expect(page).toHaveURL(/\/terminals\?/)
+  await expect(page).toHaveURL(/\/sessions\?/)
   // The theme cache (#228) holds only light, dark or system, for the first paint; nothing else may be written.
   expect(box.storage.filter(w => w.key === 'reet-theme').every(w => ['light','dark','system'].includes(w.value))).toBe(true)
   expect(box.storage.filter(w => !/^reet\.home\.groupBy\./.test(w.key) && w.key !== 'reet-theme')).toEqual([])
@@ -1045,7 +1093,7 @@ try {
    await expect(sheet, `${width} Done over a list`).toBeHidden()
    await expect(page.getByRole('listbox',{name:'Agent'})).toBeHidden()
    await startButton(page).click()
-   await expect(page).toHaveURL(/\/terminals\?/)
+   await expect(page).toHaveURL(/\/sessions\?/)
    expect(box.posts[0]).toMatchObject({tool:'codex', model:'gpt-5-codex', dir:'/home/dev/store'})
    expect(box.posts[0]).not.toHaveProperty('worktree')
    expect(errors).toEqual([])
@@ -1099,7 +1147,7 @@ try {
  if (run('focus is never hidden under the bar')) {
   const many = [...fprojects(), ...['wiki','api','docs','blog'].map((n, i) => fproject(`fq${i}`, n, 'a1', `/home/dev/${n}`, {position:3 + i}))]
   const sessions = Array.from({length:12}, (_, i) => session(`r${i}`, 'a1', `Session number ${i}`, {tool:'claude', projectId:'fp1'}))
-  for (const [width, height, touch, target] of [[834, 1112, true, 'aside.rail .item .more'], [1360, 800, false, '.flight a.row']]) {
+  for (const [width, height, touch, target] of [[834, 1112, true, '.flight a.row'], [1360, 800, false, '.flight a.row']]) {
    const {context,page,errors} = await launch({width, height, touch, projects:many, sessions})
    await page.goto(base)
    await expect(bar(page)).toBeVisible()
@@ -1133,7 +1181,7 @@ try {
   await prompt(page).fill('Fix the failing tests\nThen tidy up')
   await expect(bar(page).getByText('Titled “Fix the failing tests”',{exact:true})).toBeVisible()
   await startButton(page).click()
-  await expect(page).toHaveURL(/\/terminals\?/)
+  await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.posts[0].title).toBe('Fix the failing tests')
   expect(errors).toEqual([])
   await context.close()

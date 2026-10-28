@@ -160,7 +160,10 @@ jobs:
   # Its own job, so the phone dialog contract (about 50-55 s), the launch bar on Home (about 60 s locally) and the Add
   # project dialog (about 15-20 s) run alongside the others instead of adding to their time. The launch bar is here, not in
   # terminal-browser (about 20 of its 30 minutes on #227's runs) or phone-zoom (which gained the launch sheets): this job
-  # took about 4 minutes of its 10 on the run for e9ab450, most of it setting up Chromium.
+  # took about 4 minutes of its 10 on the run for e9ab450, most of it setting up Chromium. PR H's Sessions page and session
+  # screen (sessions.e2e) and its phone cases (sessions-phone.e2e) stay here: together about 47 s locally after the final
+  # fix wave. The full Agents home matrix (200 states, several minutes) is web/tests/matrix/agents-home.matrix.mjs,
+  # run locally only; nothing is added to terminal-browser, which is close to its limit.
   phone-dialogs:
     runs-on: zoomies-linux-x64
     timeout-minutes: 10
@@ -190,7 +193,7 @@ jobs:
             fi
             echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$chromium_path" >> "$GITHUB_ENV"
           fi
-      - name: Dialogs hold the page still and keep the field in view on phones, and the launch bar on Home
+      - name: Dialogs hold the page still and keep the field in view on phones, the launch bar on Home, and the Sessions page
         env:
           REET_UI_URL: http://127.0.0.1:4173
         run: |
@@ -203,6 +206,8 @@ jobs:
           done
           node web/tests/phone-dialogs.e2e.mjs
           node web/tests/launch.e2e.mjs
+          node web/tests/sessions.e2e.mjs
+          node web/tests/sessions-phone.e2e.mjs
       # The Add project dialog and its folder browser (about 15-20 s). It serves its own component fixture with Vite, so it
       # needs no preview server, and it runs here rather than in the terminal job, which is close to its time limit.
       - name: Add a project by browsing a machine's folders

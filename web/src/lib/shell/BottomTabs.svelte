@@ -2,11 +2,13 @@
   import type { Tab } from './tabs'
   // The phone's tab bar: Home, Sessions, Machines and More, 64 px tall plus the safe area, each target at least 44 px. It
   // shows only on a phone (PHONE_SCREEN in terminal/sizing.ts) and steps aside while the keyboard is up for a field that
-  // asks it to (keyboardChrome).
+  // asks it to (keyboardChrome: Jump, the launch prompt, the session's terminal). More's list is final: Skills (and Activity, only
+  // on an instance without accounts: with accounts it is a section of the account page), then Setups, Sync, Lists, Community,
+  // Support, Teams & organisations and Host skills (Control and the old Projects page are retired). The session screen uses the slim top bar instead, so its terminal keeps the rows.
   let { tabs, moreCurrent, moreOpen, hidden, onmore }: { tabs: Tab[]; moreCurrent: boolean; moreOpen: boolean; hidden: boolean; onmore: (opener: HTMLElement) => void } = $props()
   const icons: Record<string, string> = {
     '/': 'M3 11l9-8 9 8v10H3z',
-    '/terminals': 'M4 6h16M4 12h16M4 18h10',
+    '/sessions': 'M4 6h16M4 12h16M4 18h10',
     '/machines': 'M5 5h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2zM8 21h8M12 17v4',
   }
 </script>

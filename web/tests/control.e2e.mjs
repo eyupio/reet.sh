@@ -57,12 +57,10 @@ await page.route('**/api/**',async route=>{
 })
 const noOverflow=async()=>expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
 try {
+ // Control is folded into Home and Machines (R4): its old address goes to Home.
  await page.goto(`${base}/control`)
- await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
- await expect(page.getByRole('article',{name:/^Machine /})).toHaveCount(2)
- await expect(page.getByRole('button',{name:'Sync all · preview'})).toHaveCount(0)
- await noOverflow()
- if(process.env.REET_UI_SCREENSHOTS){await mkdir(process.env.REET_UI_SCREENSHOTS,{recursive:true});await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/control-desktop.png`,fullPage:true})}
+ await expect(page).toHaveURL(`${base}/`)
+ if(process.env.REET_UI_SCREENSHOTS)await mkdir(process.env.REET_UI_SCREENSHOTS,{recursive:true})
  await page.goto(`${base}/machines`)
  await page.getByText('Agents on this machine',{exact:true}).first().click()
  await page.getByText('Agents on this machine',{exact:true}).last().click()
@@ -180,7 +178,7 @@ try {
  await expect(page.getByRole('link',{name:'Open terminals for dev-laptop →',exact:true})).toHaveCount(0)
  terminalReady=true
  await page.getByRole('button',{name:'Check terminal connection',exact:true}).click()
- await expect(page.getByRole('link',{name:'Open terminals for dev-laptop →',exact:true})).toHaveAttribute('href','/terminals?agent=a')
+ await expect(page.getByRole('link',{name:'Open terminals for dev-laptop →',exact:true})).toHaveAttribute('href','/sessions?agent=a')
  // The watch keeps its own beat: a machine that becomes ready after the
  // operator stops pressing buttons appears without another click.
  terminalReady=false
@@ -190,11 +188,6 @@ try {
  await expect(page.getByRole('link',{name:'Open terminals for dev-laptop →',exact:true})).toBeVisible({timeout:10000})
  for(const width of [390,768,1440]){
   await page.setViewportSize({width,height:900})
-  await page.goto(`${base}/control`)
-  await expect(page.getByRole('article',{name:/^Machine /})).toHaveCount(2)
-  await page.evaluate(()=>document.documentElement.dataset.theme='dark')
-  await noOverflow()
-  if(width===390&&process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/control-phone-dark.png`,fullPage:true})
   await page.goto(`${base}/machines`)
   await page.evaluate(()=>document.documentElement.dataset.theme='dark')
   await page.getByRole('article',{name:'dev-laptop'}).getByRole('button',{name:'Settings'}).click()
@@ -242,14 +235,10 @@ try {
  await expect(page.getByRole('button',{name:'Save to 3 agent scopes',exact:true})).toBeDisabled()
  failSource=false
  viewer=true
- await page.goto(`${base}/control`)
- await expect(page.getByRole('heading',{name:'Your fleet. Ready for work.'})).toBeVisible()
- await expect(page.getByRole('button',{name:'Scan all',exact:true})).toHaveCount(0)
+ await page.goto(`${base}/machines`)
+ await expect(page.getByRole('heading',{name:'Your machines, connected.'})).toBeVisible()
  await expect(page.getByRole('link',{name:'Sessions',exact:true})).toHaveCount(0)
- viewer=false;failState=true
- await page.goto(`${base}/control`)
- await expect(page.getByRole('alert')).toContainText('Inventory unavailable')
- await expect(page.getByLabel('Fleet overview')).toHaveCount(0)
+ viewer=false
  expect(errors).toEqual([])
- console.log('Control UI passed: navigation, all-machine selection, partial save/queue failures, no automatic apply, light/dark responsive layouts, viewer controls and unavailable inventory.')
+ console.log('Control UI passed: /control to Home, navigation, all-machine selection, partial save/queue failures, no automatic apply, light/dark responsive layouts, viewer controls.')
 } finally { await browser.close() }

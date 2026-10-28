@@ -38,7 +38,7 @@ reet.sh is a self-hosted workspace for the machines where you use AI agents. Ope
 
 The signed-out landing page introduces machines and persistent terminals, with routes to sign in, request an invite, create an account when enabled, or set up a new instance. Account signup, owner setup and token sign-in share the same workspace language. Public pages do not load private inventories.
 
-The signed-in home is **Control**, with active sessions and machine connection cards. **Machines** handles connections and inventory; **Terminals** provides persistent remote shells. **Skills** maintains the central library and **Setups** lists portable AI setups. **More** holds **Sync** (reviewed distribution and reconciliation), Lists, Community, Support, Teams & organisations and Host skills. Skill shelf stages are personal organisation; they do not install or remove files.
+The signed-in home is **Home**: your machines, the sessions in flight, Needs you, your folder projects and a launch bar that starts an agent in one sentence. **Sessions** lists every session across machines and opens each on its own screen beside its terminal, with what it is working on; **Machines** handles connections and inventory. **Skills** maintains the central library. **More** holds **Setups** (portable AI setups), **Sync** (reviewed distribution and reconciliation), Lists, Community, Support, Teams & organisations and Host skills. Skill shelf stages are personal organisation; they do not install or remove files.
 
 **Scan all** requests inventory from available enrolled machines. **Sync all · preview** queues previews for available saved targets. Review and approve each exact plan in Sync activity. Distinct scopes on one machine can queue previews together; execution stays serial. Offline, paused, stale/incomplete and already-pending targets are skipped with reasons. Individual queue failures are reported, with successful requests preserved. Agent software installation, update and removal are future work; current controls manage skills and terminal sessions.
 
@@ -46,7 +46,7 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 
 ## Features
 
-- **Terminal-first control.** Home shows active shells and machine connections. Continue exact sessions, or connect and open a machine's terminals.
+- **Terminal-first control.** Home shows your machines and the sessions in flight, and starts an agent in a folder project from one sentence. Continue exact sessions from Sessions, or connect and open a machine's terminals.
 - **An organised session workspace.** Filter across machines, sort and group, colour-code sessions, drag to reorder, resize or collapse the sidebar. Right-click or use keyboard-accessible row actions to rename, disconnect, stop and remove closed history. Layout stays in this browser, separately per account.
 - **Comfortable remote terminals.** Four colour palettes, font/cursor controls, search, clipboard and guarded paste. Search a machine’s saved Bash/Zsh history to paste/edit or explicitly review and rerun a command. Keep a separate account command library for reusable snippets, inserted without an extra Enter. Stopping can remove history after the machine confirms closure; set its default in Account → Profile.
 - **One or all machines.** In Sync, choose a library, list, published collection or reported machine scope as the source; select one destination or All machines, then adjust individual scopes. Differences are shown per destination. Saving desired state is separate from previewing and approving changes.

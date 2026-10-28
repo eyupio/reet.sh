@@ -31,7 +31,7 @@ const UA = 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, 
 const card = (page, name) => page.getByRole('article', {name:LONGHOST}).getByRole('button', {name, exact:true}).first()
 const press = (name, options = {}) => async page => { const b = page.getByRole('button', {name, ...options}).first(); await b.scrollIntoViewIfNeeded(); await b.click() }
 // A terminal page with a live pane, and a button in its toolbar (which may scroll sideways on a phone).
-const live = `/terminals?agent=${sessions[0].agentId}&session=${sessions[0].id}`
+const live = `/sessions?agent=${sessions[0].agentId}&session=${sessions[0].id}`
 const tool = name => async page => { await page.locator('.pane[data-connection-state=live]').first().waitFor({timeout:5000}); const b = page.locator('.pane').first().getByRole('button', {name, exact:true}).first(); await b.scrollIntoViewIfNeeded(); await b.click() }
 // A choice in a rail card's menu.
 const menu = (project, item) => async page => { await press(`More for ${project}`, {exact:true})(page); await page.getByRole('menuitem', {name:item, exact:true}).click() }
@@ -47,11 +47,11 @@ const DIALOGS = [
  {name:'machine commands', path:'/machines', open:p => card(p, 'Commands').click(), primary:'Done', sheet:'full'},
  {name:'machine settings', path:'/machines', open:p => card(p, 'Settings').click(), primary:'Forget machine…', sheet:'full'},
  {name:'confirmation', path:'/machines', open:async p => { await card(p, 'Settings').click(); await p.getByRole('button', {name:'Forget machine…'}).click() }, sheet:'bottom'},
- // Folder projects in Home's rail (under In flight on a phone): Add, a card's Edit, Worktrees and Remove from reet.
- {name:'add project', path:'/', open:press('Add a project', {exact:true}), field:TEXT, sheet:'full'},
- {name:'edit project', path:'/', open:menu('site', 'Edit'), field:TEXT, sheet:'full'},
- {name:'project worktrees', path:'/', open:menu('site', 'Worktrees'), sheet:'full'},
- {name:'remove project', path:'/', open:menu('site', 'Remove from reet'), sheet:'bottom'},
+ // Folder projects in the project rail, on the Sessions screen on a phone (PR H): Add, a card's Edit, Worktrees and Remove from reet.
+ {name:'add project', path:'/sessions', open:press('Add a project', {exact:true}), field:TEXT, sheet:'full'},
+ {name:'edit project', path:'/sessions', open:menu('site', 'Edit'), field:TEXT, sheet:'full'},
+ {name:'project worktrees', path:'/sessions', open:menu('site', 'Worktrees'), sheet:'full'},
+ {name:'remove project', path:'/sessions', open:menu('site', 'Remove from reet'), sheet:'bottom'},
  // An old Project run's worktree, from Runs from Projects in Activity.
  {name:'remove worktree', path:'/activity', extra:ended, open:async p => { await press(/^Site/)(p); await press(/^Remove worktree/)(p) }, sheet:'full'},
  {name:'new list', path:'/shared', open:press('Create a list'), field:TEXT, sheet:'full'},
@@ -59,7 +59,7 @@ const DIALOGS = [
  // (sticky) footer.
  {name:'new list (people)', path:'/shared', open:async p => { await press('Create a list')(p); await p.locator('dialog[open] input[name=audience][value=private]').check() }, field:'textarea', sheet:'full'},
  {name:'manage tags', path:'/skills', open:async p => { await p.locator('button[aria-controls="tools-panel"]:visible').first().click(); await press('Manage tags')(p); await p.locator('dialog[open]').getByRole('button', {name:'Rename'}).last().click() }, field:TEXT, sheet:'full'},
- {name:'terminal workspace', path:'/terminals', open:press('New session', {exact:true}), field:'input[type=search]', sheet:'full'},
+ {name:'terminal workspace', path:'/sessions?view=terminal', open:press('New session', {exact:true}), field:'input[type=search]', sheet:'full'},
  // The terminal's drawers (placement="drawer"), opened from a live pane's toolbar. last: the dialog's last control must be
  // reachable, so nothing below the screen's edge is lost.
  {name:'appearance drawer', path:live, open:tool('Appearance'), last:true, sheet:'full'},

@@ -166,7 +166,7 @@ export function sessionOwners(sessions: TerminalSession[], projects: Pick<Folder
   return owners
 }
 
-const machineName = (agentId: string, machines: MachineHealth[]): string => machines.find(m => m.agentId === agentId)?.host || agentId
+const machineName = (agentId: string, machines: Pick<MachineHealth, 'agentId' | 'host'>[]): string => machines.find(m => m.agentId === agentId)?.host || agentId
 
 export function stateWord(session: Pick<TerminalSession, 'state' | 'exitCode'>): { word: string; source: string; tone: Tone } {
   const fromState = "from the session's state"
@@ -192,7 +192,15 @@ const stateGroup = (s: HomeSession): string => stateWord({ state: s.state, exitC
  * order) or by state.
  */
 export function inFlight(sessions: HomeSession[], owners: Map<string, SessionOwner>, machines: MachineHealth[], groupBy: GroupBy, now: number): Group[] {
-  const shown = sessions.filter(s => live(s) || now - s.updatedAt <= FINISHED_KEPT_MS)
+  return groupSessions(sessions.filter(s => live(s) || now - s.updatedAt <= FINISHED_KEPT_MS), owners, machines, groupBy)
+}
+
+/**
+ * The grouping In flight and the Sessions page share: by project (the folder project each session was started in, by
+ * name, then the rest under their machine with the key `machine:<agentId>`), by machine (the person's machine order) or by
+ * state. Newest change first within a group.
+ */
+export function groupSessions(shown: HomeSession[], owners: Map<string, SessionOwner>, machines: Pick<MachineHealth, 'agentId' | 'host'>[], groupBy: GroupBy): Group[] {
   const groups = new Map<string, Group>()
   const add = (key: string, label: string, s: HomeSession) => {
     let g = groups.get(key)
@@ -287,4 +295,13 @@ export function shortAge(ms: number): string {
   if (ms < HOUR) return `${Math.floor(ms / MINUTE)}m`
   if (ms < DAY) return `${Math.floor(ms / HOUR)}h`
   return `${Math.floor(ms / DAY)}d`
+}
+
+/**
+ * The projects the Sessions screen's rail hands to Home's launch bar in the address (`?projects=<id>,<id>`): only ids that
+ * name a project in the list, each once, in rail order, at most 12 (the most one start takes). Anything else is ignored.
+ */
+export function handedProjects(param: string | null, projects: readonly { id: string }[]): string[] {
+  const wanted = new Set((param ?? '').split(',').filter(Boolean))
+  return projects.filter(p => wanted.has(p.id)).map(p => p.id).slice(0, 12)
 }

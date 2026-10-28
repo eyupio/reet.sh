@@ -1,21 +1,15 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
-  import { SvelteSet } from 'svelte/reactivity'
   import { getProfile, getSyncState, UnauthorizedError, type SyncState } from '../api'
-  import { deleteFolderProject, folderProjectList, getFolderProject, importSavedProjects, machineHealth, refusalSentence, reorderFolderProjects, terminalMachines,
-    folderProjectForLegacy, sessionHref, terminalSessions, updateFolderProject, TerminalError, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
-  import { attentionCount, fleetCards, reporting, inFlight, needsYou, projectRunning, projectWorktrees, sessionOwners, type GroupBy, type HomeSession } from '../home'
-  import { addedLine } from '../folderBrowser'
+  import { folderProjectList, machineHealth, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
+    type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { attentionCount, fleetCards, handedProjects, reporting, inFlight, needsYou, projectRunning, projectWorktrees, sessionOwners, type GroupBy, type HomeSession } from '../home'
   import type { LaunchDefaults } from '../launchBar'
   import LaunchBar from '../launch/LaunchBar.svelte'
-  import type { ProjectColour } from '../projectColour'
-  import ConfirmDialog from '../ConfirmDialog.svelte'
-  import AddProjectDialog from './AddProjectDialog.svelte'
-  import ProjectWorktrees from './ProjectWorktrees.svelte'
   import FleetStrip from './FleetStrip.svelte'
   import InFlight from './InFlight.svelte'
   import NeedsYou from './NeedsYou.svelte'
-  import ProjectRail from './ProjectRail.svelte'
+  import ProjectRailHost from './ProjectRailHost.svelte'
 
   // Home on today's data. A writer in accounts mode gets the project rail, the fleet strip, In flight, Needs you and the docked
   // launch bar; everyone else signed in gets the fleet strip alone (R16). Everything comes from the existing loaders and
@@ -122,7 +116,7 @@
       else failed = true
       if (writer) {
         if (s.status === 'fulfilled' && s.value) { sessions = s.value; sessionsFailed = false } else { failed = true; sessionsFailed = sessions === undefined }
-        if (p.status === 'fulfilled' && p.value) { projects = p.value.projects; savedWaiting = p.value.savedWaiting ?? 0; projectsFailed = false; void revealChosen() } else { failed = true; projectsFailed = projects === undefined }
+        if (p.status === 'fulfilled' && p.value) { projects = p.value.projects; savedWaiting = p.value.savedWaiting ?? 0; projectsFailed = false } else { failed = true; projectsFailed = projects === undefined }
         if (t.status === 'fulfilled' && t.value) terminals = t.value; else failed = true
       }
       now = at
@@ -133,47 +127,27 @@
     }
   }
 
-  // Tablet and phone widths put the rail under In flight instead of beside it.
+  // Tablet and phone widths leave the rail to the Sessions screen (the phone rail, PR H): Home keeps machines, Needs you,
+  // In flight and the launch bar there, and the launch sentence's project slot still chooses a project.
   const NARROW = '(max-width: 1099px)'
   let narrow = $state(typeof matchMedia === 'function' && matchMedia(NARROW).matches)
 
   // The launch bar and the Add project dialog need the terminal machines (with their readiness and launch capabilities).
   let terminals = $state<TerminalMachine[] | undefined>()
-  let checking = $state(false)
   let notice = $state<{ text: string; href?: string; bad?: boolean } | null>(null)
-  // The Add project dialog: a new project, or the one being changed (read with its starter prompt).
-  let adding = $state<{ opener: HTMLElement | null; project?: FolderProject } | null>(null)
-  let removing = $state<{ opener: HTMLElement | null; project: FolderProject } | null>(null)
-  let listing = $state<{ opener: HTMLElement | null; project: FolderProject } | null>(null)
-  let importing = $state(false)
-  // One change at a time: a project with a dismiss or remove on its way, and a move on its way, ignore a second press, so
-  // the second never meets the first one's new version as "someone changed this project".
-  const pending = new SvelteSet<string>()
-  let moving = $state(false)
-  // Read again on every open of Add project, never from an earlier one: a machine's browse capability can change while Home
-  // stays open. `checking` stops a second open racing the first read.
-  async function machinesForDialog(): Promise<boolean> {
-    checking = true
-    try { terminals = await terminalMachines(bounded()); return true }
-    catch (e) {
-      if (refused(e, true)) { life.abort(); onsignedout(new UnauthorizedError()); return false }
-      notice = { text: "Couldn't read your machines just now. Try again in a moment.", bad: true }
-      return false
-    } finally { checking = false }
-  }
-  async function openAdd(opener: HTMLElement) {
-    if (checking) return
-    notice = null
-    if (await machinesForDialog()) adding = { opener }
-  }
+  // The rail and what its cards do (ProjectRailHost); the launch bar's project slot opens its Add project too.
+  let host = $state<ProjectRailHost>()
+  function openAdd(opener: HTMLElement) { void host?.openAdd(opener) }
   // Choosing a card (or New session here) puts that project in the launch bar's sentence and moves to the prompt; the rail
   // marks the project the sentence names.
   // The project the launch bar names ('' for none: the home folder or several projects); null until the bar has a choice.
   let launchProject = $state<string | null>(null)
   function chooseProject(project: FolderProject) { bar?.choose(project) }
   // Select in the rail: the chosen projects, in rail order, are the launch bar's projects (Start in several projects). Only
-  // this page holds them; nothing goes to browser storage.
+  // this page holds them; nothing goes to browser storage. The Sessions screen (a tablet or phone, where the rail lives)
+  // hands its choice over in the address, as project ids only (`/?projects=<id>,<id>`).
   let selecting = $state(false), selected = $state<string[]>([])
+  const handed = new URLSearchParams(location.search).get('projects')
   const inRailOrder = (ids: string[]) => (projects ?? []).filter(p => ids.includes(p.id)).map(p => p.id)
   function setSelecting(on: boolean, first?: FolderProject) {
     selecting = on
@@ -188,125 +162,20 @@
     if (!list || selected.every(id => list.some(p => p.id === id))) return
     selected = inRailOrder(selected)
   })
-  // Edit reads the project again with its starter prompt (only the single read carries it), then opens the dialog.
-  async function openEdit(project: FolderProject, opener: HTMLElement) {
-    if (checking) return
-    notice = null
-    checking = true
-    try {
-      const [machines, full] = await Promise.all([terminalMachines(bounded()), getFolderProject(project.id, bounded())])
-      terminals = machines
-      adding = { opener, project: full }
-    } catch (e) {
-      if (refused(e, true)) { life.abort(); onsignedout(new UnauthorizedError()); return }
-      notice = { text: refusalSentence(e), bad: true }
-      if (e instanceof TerminalError && e.status === 404) void load(true)
-    } finally { checking = false }
-  }
+  // The projects the Sessions screen chose, once the list that names them has been read (handedProjects: known ids only, once
+  // each, at most 12). The address then drops `projects`, keeping the rest of it, so a reload does not choose them again.
+  let handedApplied = false
+  $effect(() => {
+    if (handedApplied || !projects || handed === null) return
+    handedApplied = true
+    const ids = handedProjects(handed, projects)
+    if (ids.length) { selecting = true; selected = ids }
+    const url = new URL(location.href)
+    url.searchParams.delete('projects')
+    history.replaceState(history.state, '', `${url.pathname}${url.search}${url.hash}`)
+  })
   // A write's answer is the list as it now is (or a project in it): it replaces what was read, superseding a poll in flight.
   function settle(next: FolderProject[]) { generation++; loading = false; projects = next }
-  function added(p: FolderProject, wasEdit: boolean) {
-    settle([...(projects ?? []).filter(x => x.id !== p.id), p].sort((a, b) => a.position - b.position))
-    notice = { text: wasEdit ? `Sorted. ${p.name} saved.` : addedLine(p.name) }
-  }
-  // After a remove the focus goes to the card now in its place (or the one before, or Add); a refused remove gives it back
-  // to the control that opened the confirmation.
-  async function remove(project: FolderProject, opener: HTMLElement | null) {
-    if (pending.has(project.id)) return
-    pending.add(project.id)
-    notice = null
-    const at = (projects ?? []).findIndex(p => p.id === project.id)
-    try {
-      const answer = await deleteFolderProject(project.id, project.version, bounded())
-      settle((projects ?? []).filter(p => p.id !== project.id))
-      notice = { text: answer.message }
-      await tick()
-      const shown = (el: HTMLElement) => el.getClientRects().length > 0
-      const cards = [...document.querySelectorAll<HTMLElement>('aside.rail .card, aside.rail .mini')].filter(shown)
-      const add = [...document.querySelectorAll<HTMLElement>('aside.rail button[aria-label="Add a project"]')].find(shown)
-      ;(cards[Math.min(Math.max(at, 0), cards.length - 1)] ?? add)?.focus()
-    } catch (e) {
-      if (refused(e, true)) { life.abort(); onsignedout(new UnauthorizedError()); return }
-      notice = { text: refusalSentence(e), bad: true }
-      if (opener?.isConnected) opener.focus()
-      void load(true)
-    } finally { pending.delete(project.id) }
-  }
-  // Moving a card sends the whole order with the version of each project as read; a changed list is read again.
-  async function move(project: FolderProject, by: -1 | 1) {
-    // The order names every project's version as read: a dismiss or remove on its way would make it stale.
-    if (moving || pending.size > 0) return
-    const list = [...(projects ?? [])]
-    const at = list.findIndex(p => p.id === project.id), to = at + by
-    if (at < 0 || to < 0 || to >= list.length) return
-    ;[list[at], list[to]] = [list[to], list[at]]
-    notice = null
-    moving = true
-    try {
-      settle(await reorderFolderProjects(list.map(p => p.id), list.map(p => p.version), bounded()))
-    } catch (e) {
-      if (refused(e, true)) { life.abort(); onsignedout(new UnauthorizedError()); return }
-      notice = { text: refusalSentence(e), bad: true }
-      void load(true)
-    } finally { moving = false }
-  }
-  // A rail colour is saved on the project, so it follows the person to every browser. The card shows it at once; a
-  // refusal puts the project back and says why.
-  async function colour(project: FolderProject, choice: ProjectColour) {
-    if (pending.has(project.id) || (project.colour || '') === choice) return
-    pending.add(project.id)
-    notice = null
-    const before = projects ?? []
-    settle(before.map(p => p.id === project.id ? { ...p, colour: choice } : p))
-    try {
-      const saved = await updateFolderProject(project.id, { colour: choice }, project.version, bounded())
-      settle((projects ?? []).map(p => p.id === saved.id ? saved : p))
-    } catch (e) {
-      settle(before)
-      if (refused(e, true)) { life.abort(); onsignedout(new UnauthorizedError()); return }
-      notice = { text: refusalSentence(e), bad: true }
-      void load(true)
-    } finally { pending.delete(project.id) }
-  }
-  // The migration's note goes once the person has read it: clearing it is the one change made.
-  async function dismiss(project: FolderProject) {
-    if (pending.has(project.id)) return
-    pending.add(project.id)
-    try {
-      const saved = await updateFolderProject(project.id, { note: '' }, project.version, bounded())
-      settle((projects ?? []).map(p => p.id === saved.id ? saved : p))
-    } catch (e) {
-      if (refused(e, true)) { life.abort(); onsignedout(new UnauthorizedError()); return }
-      notice = { text: refusalSentence(e), bad: true }
-      void load(true)
-    } finally { pending.delete(project.id) }
-  }
-  // The saved Project folders that waited for room come in only when the person asks; the answer is said as it came.
-  async function bringIn() {
-    if (importing) return
-    importing = true; notice = null
-    try {
-      const answer = await importSavedProjects(bounded())
-      settle(answer.projects)
-      savedWaiting = answer.savedWaiting
-      notice = { text: answer.message }
-    } catch (e) {
-      if (refused(e, true)) { life.abort(); onsignedout(new UnauthorizedError()); return }
-      notice = { text: refusalSentence(e), bad: true }
-    } finally { importing = false }
-  }
-  // On a tablet or phone the rail sits below In flight: a project chosen by the address (Jump, an old link) is scrolled into
-  // view once and named in the status line, so the person sees where it went.
-  let revealed = false
-  async function revealChosen() {
-    if (revealed || !chosen || !narrow) return
-    const p = projects?.find(x => x.id === chosen)
-    if (!p) return
-    revealed = true
-    await tick()
-    document.querySelector<HTMLElement>('aside.rail .card[aria-current="true"]')?.scrollIntoView({ block: 'center' })
-    notice = { text: `Showing ${p.name} in Projects below.` }
-  }
   // An old /projects/<id> address: its folder project, if one was made from it, is chosen and named in the address.
   async function findLegacy(id: string) {
     try {
@@ -314,7 +183,6 @@
       if (!found || life.signal.aborted) return
       chosen = found
       history.replaceState(history.state, '', `/?project=${encodeURIComponent(found)}`)
-      void revealChosen()
     } catch { /* no folder project was made from it: Home stays at / */ }
   }
 
@@ -359,16 +227,16 @@
 
 <div class="home" class:writer>
   <h1 class="vh">Home</h1>
-  {#snippet rail()}
-    <ProjectRail {projects} failed={projectsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees} {savedWaiting} chosen={launchProject ?? chosen} busy={checking} {importing} {pending} {moving}
-      {selecting} {selected} onselecting={setSelecting} ontoggle={toggleSelected}
-      onadd={openAdd} onchoose={(project) => chooseProject(project)} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}
-      onremove={(project, opener) => (removing = { project, opener })} onmove={move} ondismiss={dismiss} onimport={bringIn} oncolour={colour} />
-  {/snippet}
-  <!-- On a desktop the rail is the left column; on a tablet or phone it sits under In flight (the Sessions tab takes it later). -->
-  {#if writer && !narrow}{@render rail()}{/if}
+  <!-- On a desktop the rail is the left column; on a tablet or phone it lives on the Sessions screen, and Home keeps only what
+       adds a project from the launch sentence. -->
+  {#if writer}
+    <ProjectRailHost bind:this={host} rail={!narrow} {projects} failed={projectsFailed} {savedWaiting} {sessions} {sessionsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees}
+      chosen={launchProject ?? chosen} {selecting} {selected} onselecting={setSelecting} ontoggle={toggleSelected} onchoose={(project) => chooseProject(project)}
+      signal={bounded} onsettle={settle} onwaiting={(n) => (savedWaiting = n)} onmachines={(m) => (terminals = m)} onnotice={(n) => (notice = n)} onreload={() => void load(true)}
+      onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
+  {/if}
   <div class="column">
-    <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? 'Projects now live in the rail on Home.' : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
+    <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? (narrow ? 'Projects now live on the Sessions screen.' : 'Projects now live in the rail on Home.') : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
     <FleetStrip {cards} sessions={writer && sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined} />
     {#if writer}
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}</div>
@@ -376,26 +244,12 @@
         <NeedsYou cards={needs} />
         <InFlight {groups} {owners} machines={health ?? []} {offline} {now} loaded={sessions !== undefined} failed={sessionsFailed} {groupBy} onchoose={choose} {projectColours} />
       </div>
-      {#if narrow}{@render rail()}{/if}
       <LaunchBar bind:this={bar} {projects} {projectsFailed} machines={terminals} sessions={sessions} {profile} initialProject={chosen} selection={selecting ? selected : []}
         ready={projects !== undefined && (sessions !== undefined || sessionsFailed) && profileRead}
         onproject={(id) => (launchProject = id)} onstarted={started} onrun={() => void load(true)} onrundone={() => { if (selecting) setSelecting(false) }} onleavefailed={leaveFailed} onaddproject={openAdd} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
     {/if}
   </div>
 </div>
-
-{#if adding && terminals}
-  {@const wasEdit = !!adding.project}
-  <AddProjectDialog machines={terminals} project={adding.project} opener={adding.opener} onadded={(p) => added(p, wasEdit)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} onclose={() => (adding = null)} />
-{/if}
-{#if removing}
-  {@const p = removing.project}
-  <ConfirmDialog title={`Remove ${p.name} from reet?`} body={`It leaves the rail. Its sessions and any worktrees stay on ${p.machine || 'its machine'}, and the folder isn't touched.`}
-    confirmLabel="Remove from reet" danger onconfirm={() => { const target = p, opener = removing?.opener ?? null; removing = null; void remove(target, opener) }} oncancel={() => { const o = removing?.opener; removing = null; o?.focus() }} />
-{/if}
-{#if listing}
-  <ProjectWorktrees project={listing.project} {sessions} {sessionsFailed} opener={listing.opener} {onsignedout} onclose={() => (listing = null)} />
-{/if}
 
 <style>
   /* The header is 61 px on a desktop, 65 px on a tablet and 57 px on a phone (measured at each breakpoint). These only set the
@@ -418,7 +272,7 @@
   .work > :global(.flight) { grid-column: 1; grid-row: 1; }
 
   @media (max-width: 1239px) { .home.writer { grid-template-columns: 56px minmax(0, 1fr); } }
-  /* Tablet: machines, Needs you, In flight, then the project rail, one column (the Sessions tab takes the rail later). */
+  /* Tablet: machines, Needs you, then In flight, one column; the project rail is on the Sessions screen. */
   @media (max-width: 1099px) {
     .home { font-size: 15px; --top: 65px; }
     .home.writer { grid-template-columns: minmax(0, 1fr); }

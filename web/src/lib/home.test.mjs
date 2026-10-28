@@ -304,3 +304,17 @@ test('short age', () => {
   delete m.capabilities.osVersion
   assert.equal(fleetCards([m], [], emptySync(), NOW)[0].osVersion,'')
  })
+
+// The projects the Sessions screen's rail hands to Home's launch bar in the address (`?projects=<id>,<id>`): only ids that
+// name a project in the list, each once, in rail order, at most 12 (a start's limit).
+test('handed projects: known ids only, once each, in rail order, at most 12', () => {
+  const list = Array.from({ length: 15 }, (_, i) => ({ id: `p${i}` }))
+  assert.deepEqual(h.handedProjects('p3,p1', list), ['p1', 'p3'])
+  assert.deepEqual(h.handedProjects('p2', list), ['p2'])
+  assert.deepEqual(h.handedProjects('nope,p4,,gone', list), ['p4'])
+  assert.deepEqual(h.handedProjects('p5,p5,p0,p5', list), ['p0', 'p5'])
+  assert.deepEqual(h.handedProjects('x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,p14,p13', list), ['p13', 'p14'])
+  assert.deepEqual(h.handedProjects(list.map(p => p.id).reverse().join(','), list), list.slice(0, 12).map(p => p.id))
+  assert.deepEqual(h.handedProjects(null, list), [])
+  assert.deepEqual(h.handedProjects('', list), [])
+})

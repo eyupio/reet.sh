@@ -7,7 +7,7 @@ left out or says so in words.
 
 **The tabs.** A desktop (1100 px and wider) shows Home, Sessions, Machines and Skills in the top bar, with
 **Jump to a session, project or machine**, the bell and the account menu. Activity is a section of the account page at
-`/account/activity`; the old `/activity` address opens it. The account menu holds **More**: Control,
+`/account/activity`; the old `/activity` address opens it. The account menu holds **More**:
 Setups, Sync, Lists, Community, Support, Teams & organisations and Host skills. An open instance has no
 account menu, so it keeps More in the top bar. A tablet (651–1099 px) keeps
 Home, Sessions and Machines in the top bar, with **More** beside them for the rest and a search button for Jump. A phone
@@ -22,7 +22,7 @@ the bell are for a writer in accounts mode only.
 | Fleet strip | One card per machine from the health report: the status in words (online, paused, reconnecting or offline) with a dot that also differs by shape, the live sessions on it of any kind ("sessions running"), CPU, memory in use and disk space free from a fresh report (or **No reading** for each, with a meter), the worktrees live sessions there are in ("3 worktrees in use"; no record says which other worktrees were removed), and the skills line from the last finished sync check for the current desired skills, or **Not checked**. A machine that is not reporting shows its last known count and says so. **Add a machine** opens the existing dialog on Machines. | OS version: PR C |
 | In flight | Live sessions, and finished ones for a day, grouped by project, Machine or State. A session joins the folder project it was started in (its own project id); the subtitle is `project · machine · branch`. Each row shows the state word and where it came from ("from the session's state" or "from the exit code"). There is no step or progress bar. | Attention states: PR G |
 | Needs you | "Nothing needs you." with a count of 0. Nothing signals today that a session needs the person. | Cards: PR G. Decision cards: a later programme |
-| Project rail | Your folder projects ([Projects](projects.md)): each card's colour, machine, base branch, state in words and worktrees in use; choosing one (or New session here in its menu) sets the launch bar's project; a menu, from the card's button or a right-click, with New session here, Edit, project colour, Worktrees, Move up and down, and Remove from reet. **Select projects** in the heading's menu (or a long press on touch) turns the cards into checkboxes for a start in 2 to 12 projects. **Add** opens the folder browser. Under 1240 px it is a 56 px strip that shows how many are chosen; on a tablet or phone it sits under In flight. | The phone rail on Sessions: PR H |
+| Project rail | Your folder projects ([Projects](projects.md)): each card's colour, machine, base branch, state in words and worktrees in use; choosing one (or New session here in its menu) sets the launch bar's project; a menu, from the card's button or a right-click, with New session here, Edit, project colour, Worktrees, Move up and down, and Remove from reet. **Select projects** in the heading's menu (or a long press on touch) turns the cards into checkboxes for a start in 2 to 12 projects. **Add** opens the folder browser. Under 1240 px it is a 56 px strip that shows how many are chosen. On a tablet or phone it is on the **Sessions** screen instead (see [The Sessions page](#the-sessions-page)); Home there keeps the launch sentence's project slot and its Add a project. | |
 | Launch bar | Docked at the foot: **Describe the job**, **Start** and the launch sentence ("Run Claude Code with default on Store rewrite at studio from main in a fresh worktree"), whose words are the choices. Home has no Start an agent button; the dialog stays for Machines and the Sessions panel. Details: [Start an agent session](start-agent-session.md#on-home-the-launch-bar). | YOLO: a later release |
 | Bell | The Needs you count, which is 0 today and shows no badge. | PR G |
 
@@ -31,22 +31,80 @@ show no session count rather than a false 0. Home refreshes every 15 seconds whi
 fails, it keeps what it last read and says so. The only value it stores in the browser is the Group by choice, under
 `reet.home.groupBy.<account>`.
 
-On a tablet and a phone the page is one column: machines, then Needs you, then In flight. Every target there is at
-least 44 px. The phone's launch bar has a one-line prompt, a round 48 px Start and one summary line with
+On a tablet and a phone the page is one column: machines, then Needs you, then In flight; the project rail is on the
+Sessions screen. Every target there is at least 44 px. In flight's rows open the session screen and say the state with
+the words its header pill uses. The phone's launch bar has a one-line prompt, a round 48 px Start and one summary line with
 **Change**; the tablet's has the shorter sentence with its own Change. Checks:
 [Agents home shell and Home](ui-verification.md#agents-home-shell-and-home--26-october-2026).
 
-## Control and sessions
+## The Sessions page
 
-The **Control** page (`/control`, under More) shows active shells and machine connection cards. Skill sync and bulk inventory actions remain on **More → Sync**. Continue
-links select the exact connector and session ID on `/terminals`; they never create
-a shell. Running means a shell lifecycle state, not AI-agent activity. Creating and
+Control is folded into Home and Machines (R4): `/control` goes to `/`. The **Sessions** tab is `/sessions` (R17): every
+session across machines, grouped by Project, Machine or State (Home's choice), with search (title, agent, model, branch,
+project and machine), filters (state, agent, machine, colour, YOLO only, worktree only, and a sort that includes the sessions
+panel's custom order; each row shows its colour, the panel's choice or its project's, as an edge strip and its name), and each row's actions menu: right-click, Shift+F10 (or the menu key) or the ⋮ button. It holds
+Rename, Open in theatre, Copy branch (worktree sessions), End session or Remove from history (each confirmed), and Check
+and remove worktree (a finished session's own worktree; offered only when its path and branch name the run). A machine
+that is not reporting says "studio is offline" on its group and its sessions stay listed with what needs it disabled.
+Each read shows "Checking…" over the last known list, on a line kept for it so the rows never move under a tap. A
+refresh that fails keeps the list with "Couldn't refresh. Showing what we last saw." and **Try again**. **New** opens Home
+with the launch prompt focused (`/#launch`); `/sessions/` is the same address as `/sessions`. Below the
+groups, *Projects · N* lists the folder projects with **Add a project**: on a desktop as simple cards (each opens on
+Home), and on a tablet or phone as the full project rail moved here from Home (each card's menu, its state in words and
+**Select projects** or a long press). There a card, or New session here, opens Home's launch bar on that project
+(`/?project=<id>`), and with two or more chosen in Select, **Start in these on Home** hands them to it in the address as
+ids only (`/?projects=<id>,<id>`); nothing is stored. Skill sync and bulk
+inventory actions remain on **More → Sync**. A row links to `/sessions?agent=…&session=…`, which opens that exact
+connector and session ID in the workspace below; `/terminals` redirects to `/sessions` keeping its query. Opening a
+session never creates a shell. Running means a shell lifecycle state, not AI-agent activity. Creating and
 end-requested sessions retain their actual labels.
 
-The account-scoped band polls every 15 seconds while visible, times out requests
+The Sessions page polls every 15 seconds while visible, times out requests
 after 10 seconds, and labels observations older than 45 seconds as last known.
-Transient errors preserve the last list; 401/403 clears it. Viewers do not mount the
-band or request terminal data. Viewing the band does not attach to a shell.
+Transient errors preserve the last list; 401/403 clears it. Viewers get the Machines
+page there and request no terminal data. Viewing the list does not attach to a shell.
+
+## The session screen
+
+`/sessions?agent=…&session=…` opens one session on the session screen, inside the workspace (the sessions panel stays
+beside it). Its parts:
+
+- **Tabs** in the workspace's toolbar row: the sessions opened in this browser tab since it loaded (R20), at most eight in
+  the order opened (the ninth drops the oldest), each a link with its state dot and a close button. Choosing a tab switches
+  in place; middle-click or the close button closes the tab only, never the session (closing the current tab shows its
+  neighbour; closing the last goes back to the list). **+** goes to Home with the launch prompt focused (`/#launch`). Tabs
+  are held in memory: nothing is stored, and the address carries only the session's ids.
+- **Header**: the title, `agent · model · started …`, the state pill (Home's state words, with where the word came from in
+  its tooltip and read out; while this browser's connection to a live session is down it says that instead, such as
+  "Reconnecting" or "Disconnected", from the connection), a **YOLO** badge when on, **Chat | Terminal** with Terminal chosen and Chat disabled ("Chat
+  arrives with structured sessions.", R21), and the actions menu (⋮, or Shift+F10 on it): Rename, Theatre view, Copy branch,
+  End session or Remove from history, Check and remove worktree. Tab from the open menu goes on to the control after ⋮
+  (Shift+Tab back to ⋮), and a reconnecting terminal never takes focus out of it. A terminal session shows no steps and no
+  progress bar (R10). A tab's close button says the session keeps running, or for a finished one that it stays in its
+  history.
+- **The terminal pane**, unchanged. Its footer starts with **Approvals: Ask me** (or **Approvals: YOLO**). When the
+  device asks for reduced motion the terminal's cursor does not blink.
+- **Context panel** (340 px): *Where it's working* (machine and whether it is reporting, project, branch, worktree: "own
+  copy" or "the checkout"); *Changed files* for a session in its own worktree (the first 20 paths from the worktree status
+  and the total, read when the panel opens on the session and again only from **Refresh**, R19); *Skills on this machine*
+  (the fleet card's skills line; **Manage** opens that machine's skills against your list); *Decisions in this session*
+  ("Asked in the terminal.", or the YOLO line with a link to Activity). With less than 1100 px of room for the screen (a
+  narrower window or the sessions panel docked beside it) and in theatre view, the panel waits behind **Details** and
+  opens over the terminal's edge, below the header. Focus moves into it (Close details first), Tab stays inside it, and
+  Escape or Close details gives focus back to Details. Docked, the keyboard reaches it after the header and before the
+  terminal.
+- **Tablets** (651–1099 px): the context panel waits behind **Details** and opens as a 340 px side sheet along the
+  terminal's right edge, from under the header to the foot of the screen; every target in the header, the toolbar, the
+  tabs, the sheet, the docked sessions panel (its rows, menus and swatches; the separator has a 44 × 88 px grip that
+  reaches into the panel's widened padding, covers no control and reaches no further over the terminal than its 24 px
+  track; beside the mini rail there is no grip, only the 24 px track, which covers no rail button) and the pane's header and footer is at least 44 px on touch; only the pane's terminal toolbar and
+  extra keys are 40 × 40 px.
+- **Phones** get one slim header (back to Sessions, title, project · machine, state, Details, ⋮); the tabs and Chat |
+  Terminal are left out. With the keyboard up for the terminal the site's top bar steps aside (`keyboardChrome` with the
+  `session` focus, the same usable-height rule as Jump and the launch prompt); the slim header stays, 44 px tall while
+  typing, and the pane's own header gives its row to the terminal, so the keyboard-open rows are unchanged (24 at
+  390 × 844). While the connection is down the pane's header stays, so **Retry now**, **Reconnect** or **Continue here**
+  is reachable above the keyboard. Held sideways, the slim header gives its rows to the terminal and the toolbar keeps its back arrow.
 
 The terminal route uses compact app navigation and the remaining usable viewport
 (see [Phones](#phones) for how that height is chosen while a keyboard is open).
@@ -170,7 +228,8 @@ mode, font size and cursor shape. These browser preferences leave the shell and
 attachment identity intact. The compact toolbar keeps clipboard, interrupt,
 search, history and maximise controls within reach.
 
-**Commands** opens a private account library, also reachable from Control. Search,
+**Commands** opens a private account library, also reachable from **Saved commands** in the Sessions page header (no
+session needed; Insert is offered only from a pane). Search,
 create, edit, remove, copy or explicitly insert command text. The controller stores
 up to 200 commands, with 1–80-character names, 16 KiB of exact UTF-8 command text
 and optional notes. Optimistic revisions reject stale edits/deletes. Another
@@ -228,8 +287,8 @@ new direct SSH adapter. Phone viewport emulation is not a physical keyboard test
 
 - `App.svelte` scopes compact chrome to authorized terminal routes;
   `Machines.svelte` suppresses secondary inventory navigation there.
-- `ControlCenter.svelte` mounts `terminal/ActiveSessions.svelte` only for terminal
-  account/write access. `ActiveSessions` owns polling and stale/error presentation.
+- `sessions/SessionsPage.svelte` is the Sessions list for a writer in accounts mode; `sessions.ts` holds its search,
+  filters and groups (Home's `groupSessions`). It owns polling and stale/error presentation.
 - `terminal/TerminalWorkspace.svelte` owns selection, sidebar, visual-viewport
   sizing, dialogs and existing create/rename/end APIs. Confirmations capture IDs
   and display names at open time. `WorkspaceDialog.svelte` provides native modals.
@@ -254,10 +313,13 @@ new direct SSH adapter. Phone viewport emulation is not a physical keyboard test
 Run `npm --prefix web run check` and `npm --prefix web run build`. Finish the build
 before Go checks because Go embeds its output. For production-bundle UI fixtures,
 start `npm --prefix web run preview -- --host 127.0.0.1 --port 4173`, then run
-`node web/tests/control.e2e.mjs`, `node web/tests/terminal-workspace.e2e.mjs` and
+`node web/tests/control.e2e.mjs`, `node web/tests/sessions.e2e.mjs`, `node web/tests/terminal-workspace.e2e.mjs` and
 `node web/tests/terminal-lifecycle.e2e.mjs`,
 `node web/tests/terminal-organisation.e2e.mjs` and
-`node web/tests/terminal-phone.e2e.mjs`.
+`node web/tests/terminal-phone.e2e.mjs`, and `node web/tests/sessions-phone.e2e.mjs` for the session screen on phones.
+The whole Agents home across every width, both themes, reduced motion and the phone keyboard is
+`node web/tests/matrix/agents-home.matrix.mjs` (local only, several minutes; `REET_AXE=<axe.min.js>` adds axe-core;
+results in [UI verification](ui-verification.md#agents-home-layout-focus-and-motion-matrix--28-october-2026-pr-h-task-h4)).
 These fixtures cover synthetic two-machine continuation, permissions/errors,
 viewport bounds, clipboard, intentional disconnect, delayed observations, per-host
 retries, pending end, quota and explicit takeover. They do not prove remote
@@ -347,9 +409,9 @@ session. Menus themselves never start or attach a shell.
 
 Right-click a machine or use its ellipsis for terminal actions. Right-click the
 terminal screen for saved commands, command history, earlier output, appearance
-and clipboard controls; Shift+right-click keeps the browser menu. Control-page
-active-session menus also rename or request a stop, with explicit confirmation
-and the same remove-after-closure/account preference as the workspace.
+and clipboard controls; Shift+right-click keeps the browser menu. The Sessions
+page's menus also rename or request a stop, with explicit confirmation and the
+same remove-after-closure/account preference as the workspace.
 
 When the panel is closed, **Show sessions** is visible in both the workspace
 header and the terminal toolbar (the mini rail has its own Expand instead). In theatre
@@ -392,9 +454,11 @@ attachment's PTY size and tmux resizes the window, so the app gets SIGWINCH.
 columns at 390 px instead of 41. A stored size (10–22) always wins.
 
 **Chrome.** The pane header is one line, with the user/host still shown and truncated.
-The pane header, terminal toolbar and extra-key row lose their vertical padding. On a
-touch screen every toolbar button and extra key is at least 40 × 40 px, and the header
-controls are 40 px tall. The screen frame padding is 4 px. The toolbar and key row
+The pane header, terminal toolbar, extra-key row and footer lose their vertical padding. On a
+touch screen every toolbar button and extra key is at least 40 × 40 px; on a touch phone so
+are the workspace toolbar's buttons (back, +, Sessions, New session, Details & help), the pane
+header's controls and the footer's Focus terminal (a touch tablet makes all but the terminal
+toolbar and extra keys 44 px). The screen frame padding is 4 px. The toolbar and key row
 scroll sideways; the end that hides more controls fades. The key row is focusable, so
 arrow keys scroll it; that tab stop also appears in mouse windows narrower than 650 px,
 where the key row shows too. The Alt+Shift+M advice is hidden on touch screens (no
@@ -405,8 +469,10 @@ its own fade, and the pane footer is hidden (the state stays in the header). At 
 390 the screen shows 13 rows with the keyboard closed.
 
 **Keyboard focus layout.** While the on-screen keyboard is open and the focus is in the
-terminal, the site header, the workspace toolbar and the pane footer are hidden; held
-sideways, the pane header is hidden too (8 rows at 844 × 390 instead of none).
+terminal, the site header (through the shell's `keyboardChrome`, focus `session`), the
+workspace toolbar and the pane footer are hidden; held sideways, the pane header is hidden
+too (8 rows at 844 × 390 instead of none). Upright, the session screen's slim header stays
+and the pane header steps aside instead.
 **Show sessions** stays in the terminal toolbar. Everything returns when the keyboard
 closes or the focus leaves the terminal. Detection needs a coarse pointer, a phone
 screen, an unzoomed page, focus in the terminal and a height at least 25% below the

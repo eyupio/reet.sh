@@ -40,7 +40,7 @@ func uploadRequest(payload []byte) terminalproto.Upload {
 
 func uploadMessage(t *testing.T, req *terminalproto.Upload) terminalproto.Message {
 	t.Helper()
-	m := terminalproto.Message{Version: terminalproto.Version, Generation: 1, RequestID: "upload-request-00001", SessionID: uploadTestSession, Body: req}
+	m := terminalproto.Message{Version: terminalproto.Version, Generation: 1, RequestID: "upload-request-00001", SessionID: uploadTestSession, AttachmentID: "attachment0123456789ab", AttachmentGeneration: 1, Body: req}
 	if err := m.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -324,5 +324,41 @@ func TestUploadFailureResultFrameShape(t *testing.T) {
 	}
 	if bytes.Contains(frame.data, []byte(req.SHA256)) || bytes.Contains(frame.data, []byte(uploadTestSession)) {
 		t.Fatalf("failure frame leaked metadata: %s", frame.data)
+	}
+}
+
+func TestReadUploadFramesStopsAtDeclaredSize(t *testing.T) {
+	payload := uploadPayload()
+	conn := &fakeUploadConn{frames: []uploadFrame{
+		{kind: websocket.MessageBinary, data: payload},
+		{kind: websocket.MessageBinary, data: []byte("after the declared size")},
+	}}
+	var got bytes.Buffer
+	if err := readUploadFrames(t.Context(), conn, &got, int64(len(payload))); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got.Bytes(), payload) {
+		t.Fatal("the declared bytes did not arrive")
+	}
+	if len(conn.frames) != 1 {
+		t.Fatal("the reader waited for a close after the declared size")
+	}
+}
+
+func TestReadUploadFramesRejectsAFrameOverTheDeclaredSize(t *testing.T) {
+	payload := uploadPayload()
+	conn := &fakeUploadConn{frames: []uploadFrame{{kind: websocket.MessageBinary, data: append(append([]byte(nil), payload...), 0)}}}
+	err := readUploadFrames(t.Context(), conn, &bytes.Buffer{}, int64(len(payload)))
+	if !errors.Is(err, errUploadFrameOverDeclared) {
+		t.Fatalf("want a declared-size mismatch, got %v", err)
+	}
+}
+
+func TestReadUploadFramesShortStreamFails(t *testing.T) {
+	payload := uploadPayload()
+	conn := &fakeUploadConn{frames: binaryFrames(payload[:len(payload)-1])}
+	err := readUploadFrames(t.Context(), conn, &bytes.Buffer{}, int64(len(payload)))
+	if !errors.Is(err, errUploadShort) {
+		t.Fatalf("want a short stream error, got %v", err)
 	}
 }

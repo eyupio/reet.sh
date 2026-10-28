@@ -494,10 +494,11 @@ type uploadSink interface {
 }
 
 var (
-	errUploadShort          = errors.New("upload stream ended before its declared size")
-	errUploadInvalidFrame   = errors.New("upload stream carried an invalid binary frame")
-	errUploadFrameTooLarge  = errors.New("upload stream carried an oversize frame")
-	errUploadNonBinaryFrame = errors.New("upload stream carried a non-binary frame")
+	errUploadShort             = errors.New("upload stream ended before its declared size")
+	errUploadInvalidFrame      = errors.New("upload stream carried an invalid binary frame")
+	errUploadFrameTooLarge     = errors.New("upload stream carried an oversize frame")
+	errUploadNonBinaryFrame    = errors.New("upload stream carried a non-binary frame")
+	errUploadFrameOverDeclared = errors.New("upload stream carried more bytes than declared")
 )
 
 // serveUpload reads the reverse stream's binary frames into the sink and sends
@@ -531,19 +532,20 @@ func serveUpload(ctx context.Context, c uploadConn, sink uploadSink, sessionID s
 	return result
 }
 
-// readUploadFrames copies binary frames into w until the controller closes the
-// stream. A close before the declared size, a non-binary or empty frame and a
-// frame over the binary limit are errors so the result can name them.
+// readUploadFrames copies exactly the declared number of bytes from binary
+// frames into w, then returns without waiting for a close: the controller
+// reads the result and closes after it. A short stream, a non-binary or empty
+// frame, a frame over the binary limit and a frame that would exceed the
+// declared size are errors so the result can name them.
 func readUploadFrames(ctx context.Context, c uploadConn, w io.Writer, size int64) error {
+	if size < 1 || size > terminalproto.MaxUploadBytes {
+		return errUploadFrameTooLarge
+	}
 	var total int64
-	for {
+	for total < size {
 		kind, data, err := c.Read(ctx)
 		if err != nil {
-			if total < size {
-				return errUploadShort
-			}
-			// The declared bytes arrived; the sink checks the size and hash.
-			return nil
+			return errUploadShort
 		}
 		if kind != websocket.MessageBinary {
 			return errUploadNonBinaryFrame
@@ -554,14 +556,15 @@ func readUploadFrames(ctx context.Context, c uploadConn, w io.Writer, size int64
 		if len(data) > terminalproto.MaxBinaryBytes {
 			return errUploadFrameTooLarge
 		}
-		total += int64(len(data))
-		if total > terminalproto.MaxUploadBytes {
-			return errUploadFrameTooLarge
+		if total+int64(len(data)) > size {
+			return errUploadFrameOverDeclared
 		}
+		total += int64(len(data))
 		if _, err := w.Write(data); err != nil {
 			return err
 		}
 	}
+	return nil
 }
 
 func uploadResultCode(writeErr, frameErr error) terminalproto.UploadCode {
@@ -582,7 +585,7 @@ func uploadResultCode(writeErr, frameErr error) terminalproto.UploadCode {
 		return terminalproto.UploadTooLarge
 	case errors.Is(frameErr, errUploadNonBinaryFrame), errors.Is(frameErr, errUploadInvalidFrame):
 		return terminalproto.UploadType
-	case errors.Is(frameErr, errUploadShort):
+	case errors.Is(frameErr, errUploadShort), errors.Is(frameErr, errUploadFrameOverDeclared):
 		return terminalproto.UploadMismatch
 	}
 	if writeErr == nil && frameErr == nil {

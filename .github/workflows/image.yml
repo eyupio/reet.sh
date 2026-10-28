@@ -33,7 +33,7 @@ concurrency:
 jobs:
   test:
     runs-on: zoomies-linux-x64
-    # The tests take 20 to 26 minutes on the Zoomies runners; 30 left too little room.
+    # The tests take 20 to 29 minutes on the Zoomies runners; 30 left too little room.
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -65,7 +65,9 @@ jobs:
       - run: npm test
         working-directory: mcp
       - run: go vet ./...
-      - run: go test -race -timeout=20m ./...
+      # internal/store alone runs close to 20 minutes under -race, which made the old
+      # per-package timeout race the clock. Keep a margin over it.
+      - run: go test -race -timeout=30m ./...
 
   publish:
     needs: test

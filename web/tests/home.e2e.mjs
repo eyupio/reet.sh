@@ -218,6 +218,35 @@ try {
   await context.close()
  }
 
+ // A lost terminal reply keeps the request id: asking again recovers the same create instead of starting a second shell.
+ if (run('a lost terminal reply is retried with the same request id')) {
+  const posts = []
+  const {context,page,errors,box} = await home({routes:{
+   '/api/v2/terminal/sessions': request => {
+    if (request.method() !== 'POST') return {sessions:box.sessions}
+    const body = request.postDataJSON()
+    posts.push(body)
+    if (posts.length === 1) return {status:502, json:{error:'bad gateway'}}
+    const s = session(`new-${body.requestId.slice(0,8)}`, body.agentId, body.title, 'running', {createdAt:Date.now(),updatedAt:Date.now()})
+    box.sessions = [s, ...box.sessions]; box.created = s; box.createdBody = body
+    return s
+   },
+  }})
+  await page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:200, contentType:'text/html', body:'<title>t</title>'}))
+  await page.goto(base)
+  await strip(page).getByRole('button',{name:'New session on studio'}).click()
+  await page.getByRole('dialog',{name:'Start on studio',exact:true}).getByRole('button',{name:/^Terminal session/}).click()
+  await expect.poll(() => posts.length).toBe(1)
+  await expect(page.getByText(/may have started/)).toBeVisible()
+  await strip(page).getByRole('button',{name:'New session on studio'}).click()
+  await page.getByRole('dialog',{name:'Start on studio',exact:true}).getByRole('button',{name:/^Terminal session/}).click()
+  await expect.poll(() => posts.length).toBe(2)
+  expect(posts[1].requestId).toBe(posts[0].requestId)
+  await expect(page).toHaveURL(/\/sessions\?/)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // A machine without a fresh CPU report reads No reading, with an empty grey bar, never 0%.
  // A session whose end was asked for is not running: the card says how many are ending, in words, beside the running count.
  if (run('ending sessions are not counted as running')) {

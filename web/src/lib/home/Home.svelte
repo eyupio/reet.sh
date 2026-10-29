@@ -3,7 +3,7 @@
   import { getProfile, getSyncState, UnauthorizedError, type SyncState } from '../api'
   import { createTerminal, folderProjectList, machineHealth, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
-  import { notStartedText } from '../agentLaunch'
+  import { notStartedText, refusalText } from '../agentLaunch'
   import { attentionCount, fleetCards, handedProjects, reporting, inFlight, needsYou, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type GroupBy, type HomeSession } from '../home'
   import type { LaunchDefaults } from '../launchBar'
   import LaunchBar from '../launch/LaunchBar.svelte'
@@ -212,25 +212,38 @@
     void bar.startProject(project)
   }
   // A terminal session is a shell on the machine: no agent, no prompt, no project. It goes straight to the new session.
+  // A request whose reply was lost is kept per machine and sent again with the same request id, exactly as the launch
+  // bar's Start does, so choosing New terminal twice can never make a second shell.
+  type ShellRequest = { requestId: string; title: string }
+  let shellRequests = $state<Record<string, ShellRequest>>({})
   let shellStarting = ''
+  function forgetShell(agentId: string) { const next = { ...shellRequests }; delete next[agentId]; shellRequests = next }
   async function startTerminalOn(card: FleetCard, opener?: HTMLElement | null) {
     chooser = null
     if (shellStarting) return
     const why = readiness(terminals?.find(m => m.agentId === card.agentId))
     if (why) { notice = { text: why, bad: true }; opener?.focus(); return }
+    const request = shellRequests[card.agentId] ?? { requestId: crypto.randomUUID(), title: 'Shell' }
+    if (!shellRequests[card.agentId]) shellRequests = { ...shellRequests, [card.agentId]: request }
     shellStarting = card.agentId
     notice = null
     try {
-      const session = await createTerminal(card.agentId, crypto.randomUUID(), 'Shell', 100, 30, bounded())
+      const session = await createTerminal(card.agentId, request.requestId, request.title, 100, 30, bounded())
       if (life.signal.aborted) return
       const notStarted = notStartedText(session.state)
-      if (notStarted) { notice = { text: notStarted, bad: true }; return }
+      if (notStarted) { forgetShell(card.agentId); notice = { text: notStarted, bad: true }; return }
+      forgetShell(card.agentId)
       sessions = [session, ...(sessions ?? []).filter(s => s.id !== session.id)]
       location.assign(sessionHref(session))
     } catch (e) {
       if (life.signal.aborted) return
       if (e instanceof UnauthorizedError || (e instanceof TerminalError && e.status === 401)) { life.abort(); onsignedout(new UnauthorizedError()); return }
-      notice = { text: e instanceof TerminalError ? e.message : "We didn't hear back, so the terminal may have started. Check your sessions before starting another.", bad: true }
+      if (e instanceof TerminalError && [400, 403, 404, 409, 422].includes(e.status)) {
+        forgetShell(card.agentId)
+        notice = { text: refusalText(e.status, e.code, e.message), bad: true }
+      } else {
+        notice = { text: "We didn't hear back, so the terminal may have started. Choosing New terminal again asks about the same request.", bad: true }
+      }
     } finally { shellStarting = '' }
   }
 

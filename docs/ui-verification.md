@@ -1354,3 +1354,49 @@ Checks:
 - Go: the upload protocol, private storage, connector switch, broker transfer and API route have targeted tests (including strict decoding, old peers, symlink/perm/quota/cleanup, frame sizes, result mapping, viewer/token/origin, body limits, rate/concurrency and metadata-only audit) and the full `go test -race -timeout 40m ./...` is run before the final push.
 
 Not checked: a physical phone, Safari or Firefox, a real agent CLI receiving an uploaded path (the UI and docs say path only), a live machine forwarding OSC 52 through a real tmux client (the manager option and the browser gate are unit-tested; `clipboard-v1` negotiation is covered), or a slow network (the 30 s controller and 60 s machine deadlines are code limits, not measured).
+
+## Agent models: launch bar and picker — 29 October 2026
+
+Built on the models backend (#247). This PR adds the pure model options and
+launch-default resolution, the model/favourites clients, the shared slot
+picker's star/status/Refresh, and the launch bar/Home integration (M5–M7). The
+Start an agent dialog, Add project, Settings › Agents and the Machines section
+are the next PR.
+
+Fidelity: Home was rendered with the launch fixture at 1440×900, 834×1112 and
+390×844 and compared with `Main.dc.html`, `Tablet.dc.html` and
+`PhoneHome.dc.html` for the launch bar. The bar keeps its sentence, Change and
+phone summary layout; the model value is still in the sentence on a desktop and
+in the Change sheet on a tablet/phone. The drawings have no favourite star,
+`Use ‘x’` row, group headings or model status/Refresh, so these are additions
+built from the existing listbox:
+
+- The model slot opens the existing listbox/sheet. Its rows gain a separate
+  star button at the end (never inside the option), 34 px on a mouse and 44 px
+  on touch; the star is also reachable with `S` on a focused option, and a
+  screen-reader live line says “Starred/Unstarred …”. The row keeps focus when
+  the favourite moves to the Favourites group.
+- The filter is pinned at the top; group headings stick beneath it; the sheet
+  body scrolls rather than the whole dialog, so a 500-model list stays usable.
+  The model slot's filter says “Filter models”; typing a value that matches
+  nothing offers `Use ‘x’`, which opens Other… prefilled.
+- The status line (live) shows the backend sentence and age, with Refresh only
+  for a capable online machine. An offline machine with a cached list is shown
+  as offline, not freshly read; failed/off/old states keep the suggestions and
+  never block Start.
+- Favourites, Recent and provider groups appear only from the account and the
+  chosen machine; several machines say “Models differ per machine.” and show
+  favourites/suggestions only.
+
+Checks: `models.test.mjs` (9) and `launchBar.test.mjs` (27) pass in
+`npm run check`; `svelte-check` clean; `launch.e2e.mjs` passed three times and
+again after the review fixes; `home.e2e.mjs`, `phone-zoom.e2e.mjs`,
+`phone-dialogs.e2e.mjs` (21 dialogs at six viewports) and
+`shell-fidelity.e2e.mjs` pass. Mutation checks: defaults-first removed,
+mismatched project model applied, failed read made Start fail, and group order
+changed; each failed its test and was restored byte-identically.
+
+Not checked: a physical phone or Safari, a 500-model list under a slow reader,
+a real provider-backed OpenCode list, or the M8–M11 screens. Home does not load
+favourites itself (the bar does), a plan deviation recorded here; the account
+defaults and favourite manager still need the Settings UI.

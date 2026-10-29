@@ -1,7 +1,7 @@
 // The launch bar on Home: the sentence, its slots, the prompt and Start, against synthetic API answers. Every create the page
 // sends is recorded, so what was sent (and that nothing was sent) is checked against what the bar says. No agent is started.
 import { chromium, expect } from '@playwright/test'
-import { openWorkspace } from './helpers/workspace.mjs'
+import { openWorkspace, modelList, modelFavourites } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 // REET_E2E_ONLY=<section> runs one section, so each can be watched failing before its fix.
@@ -11,7 +11,7 @@ const run = name => !only || only === name
 const now = Date.now()
 const MIN = 60_000
 const caps = (extra = {}) => ({protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,
- worktree:true,agentsV2:true,branches:true,browse:true,tools:['claude','codex','gemini','cline'],...extra})
+ worktree:true,agentsV2:true,branches:true,browse:true,models:true,tools:['claude','codex','gemini','cline'],...extra})
 // studio is ready; desk is reconnecting (not ready), so its projects and its home folder are offered disabled with the sentence.
 const tmachines = () => [
  {agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:caps()},
@@ -28,6 +28,8 @@ const fprojects = () => [
  fproject('fp2','Notes','a2','/home/dev/notes',{isRepo:false,position:1}),
  fproject('fp3','Site','a1','/home/dev/site',{position:2}),
 ]
+const accountProfile = (extra={}) => ({user:{id:1,name:'Sam',email:'sam@example.test',role:'owner'},sessionCount:1,accounts:true,
+ profile:{theme:'light',timezone:'Europe/London',dateFormat:'',shelfView:'list',cardsExpanded:false,hostedPrefix:'reet-',updatedAt:1,...extra}})
 const session = (id, agentId, title, over={}) => ({id,agentId,title,state:'running',createdAt:now-2*60*MIN,updatedAt:now-12*MIN,exitCode:null,...over})
 const sync = () => ({environments:[],machines:[],runs:[],updateJobs:[],targets:[],jobs:[],
  agents:[{id:'a1',host:'studio',version:'1',lastSeen:Date.now(),paused:false,autoUpdate:false},{id:'a2',host:'desk',version:'1',lastSeen:Date.now()-2*60*MIN,paused:false,autoUpdate:false}]})
@@ -51,6 +53,16 @@ async function launch(options={}) {
   },
   '/api/v2/folder-projects': () => ({projects:box.projects, savedWaiting:0}),
   '/api/v2/folder-projects/fp1': () => ({...box.projects.find(p => p.id === 'fp1'), starterPrompt:'Fix the failing tests in the store package'}),
+  // Favourites and the machine's model list: the bar reads both without blocking a launch.
+  '/api/v2/profile/model-favourites': request => {
+   const method = request.method()
+   if (method === 'DELETE') return {status:200, json:{}}
+   if (method === 'POST') return modelFavourites([...(options.favourites ?? []), request.postDataJSON()])
+   return modelFavourites(options.favourites ?? [])
+  },
+  '/api/v2/machines/a1/models': request => modelList({tool:new URL(request.url()).searchParams.get('tool') ?? 'opencode'}),
+  '/api/v2/machines/a1/models/refresh': request => modelList({tool:request.postDataJSON()?.tool ?? 'opencode'}),
+  '/api/v2/machines/a2/models': () => modelList({state:'offline', models:[], fetchedAt:null, sentence:'desk is offline.'}),
   '/api/v2/machines/a1/branches': request => {
    const u = new URL(request.url())
    box.reads.push(`branches ${u.searchParams.get('dir')}`)
@@ -632,11 +644,11 @@ try {
   await context.close()
  }
 
- // Home has no Start an agent button: the bar is the way to start.
- if (run('one press starts with the last choices')) {
-  // The newest session that names an agent is the last launch: Codex with gpt-5-codex in Store rewrite, in a worktree.
+ // Home has no Start an agent button: the bar is the way to start. It opens with the resolved defaults, not the last launch;
+ // the last models are a Recent group in the picker.
+ if (run('one press starts with the resolved defaults; the last launch is Recent')) {
   const sessions = [
-   session('s1','a1','Tidy',{tool:'claude',projectId:'fp3',createdAt:now-50*MIN}),
+   session('s1','a1','Tidy',{tool:'claude',model:'opus',projectId:'fp3',createdAt:now-50*MIN}),
    session('s2','a1','Refactor',{tool:'codex',model:'gpt-5-codex',projectId:'fp1',worktreePath:'/home/dev/.reet/worktrees/store-rewrite/store/x',worktreeRepo:'store',createdAt:now-5*MIN}),
    session('s3','a1','Plain shell',{createdAt:now-MIN}),
   ]
@@ -644,22 +656,279 @@ try {
   await page.goto(base)
   await expect(bar(page)).toBeVisible()
   await expect(page.getByRole('button',{name:'Start an agent',exact:true})).toHaveCount(0)
-  await expect.poll(() => sentenceText(page)).toBe('Run Codex with gpt-5-codex on Store rewrite at studio from main in a fresh worktree')
-  await expect(slot(page,'Agent')).toHaveAccessibleName('Agent: Codex')
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect(slot(page,'Agent')).toHaveAccessibleName('Agent: Claude Code')
+  await expect(slot(page,'Model')).toHaveAccessibleName('Model: default')
   await expect(prompt(page)).toHaveValue('')
   await expect(prompt(page)).toHaveAttribute('placeholder','Describe the job. Say what done looks like.')
   await expect(bar(page).getByRole('radiogroup',{name:'Approvals'}).getByRole('radio',{name:'Ask me'})).toBeChecked()
+  // The last launch is a Recent group, not the opening choice.
+  await slot(page,'Model').click()
+  const models = page.getByRole('listbox',{name:'Model'})
+  await expect(models.getByRole('group',{name:'Recent'}).getByRole('option',{name:'opus'})).toBeVisible()
+  await expect(models.getByRole('group',{name:'Recent'}).getByRole('option',{name:'gpt-5-codex'})).toHaveCount(0)
+  await page.keyboard.press('Escape')
   await startButton(page).click()
   await expect(page).toHaveURL(/\/sessions\?agent=a1&session=new-/)
   expect(box.posts).toHaveLength(1)
   const body = box.posts[0]
-  expect(body).toMatchObject({agentId:'a1', tool:'codex', model:'gpt-5-codex', dir:'/home/dev/store', projectId:'fp1', project:'store-rewrite', base:'main', title:'Codex · store'})
+  expect(body).toMatchObject({agentId:'a1', tool:'claude', dir:'/home/dev/store', projectId:'fp1', project:'store-rewrite', base:'main', title:'Claude Code · store'})
   expect(body.worktree).toMatch(/^[0-9a-f]{32}$/)
   expect(body.requestId).toMatch(/^[0-9a-f-]{36}$/)
-  for (const key of ['prompt','effort','yolo']) expect(body, key).not.toHaveProperty(key)
-  await expect(page).toHaveURL(`${base}/sessions?agent=a1&session=${encodeURIComponent(`new-${body.requestId.slice(0,8)}`)}`)
+  for (const key of ['prompt','effort','yolo','model']) expect(body, key).not.toHaveProperty(key)
   expect(errors).toEqual([])
   await context.close()
+ }
+
+ // The account's launch defaults open the bar: the agent, its model and its thinking, not the first project's own (none).
+ if (run('profile defaults open the bar')) {
+  const routes = {'/api/v2/profile': () => accountProfile({defaultTool:'cline', defaultModel:'anthropic/claude-sonnet-4-5', defaultEffort:'medium'})}
+  const {context,page,errors,box} = await launch({routes})
+  await page.goto(base)
+  await expect.poll(() => sentenceText(page)).toBe('Run Cline with anthropic/claude-sonnet-4-5 on Store rewrite at studio from main in a fresh worktree · thinking medium')
+  await expect(slot(page,'Agent')).toHaveAccessibleName('Agent: Cline')
+  await expect(slot(page,'Model')).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
+  await expect(slot(page,'Thinking')).toHaveAccessibleName('Thinking: medium')
+  await startButton(page).click()
+  await expect(page).toHaveURL(/\/sessions\?/)
+  expect(box.posts[0]).toMatchObject({tool:'cline', model:'anthropic/claude-sonnet-4-5', effort:'medium'})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The chosen machine's list is read automatically, grouped by provider, and Refresh replaces it.
+ if (run('the machine list groups by provider and refreshes')) {
+  const reads = [], refreshes = []
+  const projects = fprojects().map(p => p.id === 'fp1' ? {...p, defaultTool:'opencode'} : p)
+  const routes = {
+   '/api/v2/machines/a1/models': request => {
+    reads.push(new URL(request.url()).searchParams.get('tool'))
+    return modelList({tool:'opencode'})
+   },
+   '/api/v2/machines/a1/models/refresh': request => {
+    refreshes.push(request.postDataJSON())
+    return modelList({tool:'opencode', models:[...modelList().models, {id:'google/gemini-2.5-pro',provider:'google'}]})
+   },
+  }
+  const {context,page,errors} = await launch({projects, routes})
+  await page.goto(base)
+  await expect.poll(() => sentenceText(page)).toContain('Run OpenCode')
+  await slot(page,'Model').click()
+  const models = page.getByRole('listbox',{name:'Model'})
+  await expect(models.getByRole('group',{name:'On studio · anthropic'}).getByRole('option',{name:'anthropic/claude-sonnet-4-5'})).toBeVisible()
+  await expect(models.getByRole('group',{name:'On studio · openai'}).getByRole('option',{name:'openai/gpt-5'})).toBeVisible()
+  await expect(models.locator('..').getByRole('status')).toContainText('Models read from studio.')
+  expect(reads).toContain('opencode')
+  const refresh = models.locator('..').getByRole('button',{name:'Refresh'})
+  await expect(refresh).toBeVisible()
+  await refresh.click()
+  await expect(models.getByRole('option',{name:'google/gemini-2.5-pro'})).toBeVisible()
+  expect(refreshes).toEqual([{tool:'opencode'}])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Several projects on different machines have no single list: favourites and suggestions, with the honest note.
+ if (run('several machines say models differ')) {
+  const {context,page,errors} = await launch()
+  await page.goto(`${base}/?projects=fp1,fp2`)
+  await expect.poll(() => sentenceText(page)).toContain('on 2 projects')
+  await slot(page,'Model').click()
+  const models = page.getByRole('listbox',{name:'Model'})
+  await expect(models.locator('..').getByText('Models differ per machine.',{exact:true})).toBeVisible()
+  await expect(models.getByRole('group',{name:/^On /})).toHaveCount(0)
+  await expect(models.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:'sonnet'})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A favourite is first, and the star is a separate button: it calls the API, stays in the picker and can be undone.
+ if (run('a favourite is first and can be starred and unstarred')) {
+  let favourites = [{tool:'claude', model:'opus', agentDefault:false}]
+  const calls = []
+  const routes = {'/api/v2/profile/model-favourites': request => {
+   const method = request.method()
+   if (method === 'GET') return modelFavourites(favourites)
+   if (method === 'POST') {
+    const body = request.postDataJSON()
+    calls.push(['POST', body])
+    favourites = [...favourites.filter(f => !(f.tool === body.tool && f.model === body.model)), body]
+    return modelFavourites(favourites)
+   }
+   const url = new URL(request.url())
+   const tool = url.searchParams.get('tool'), model = url.searchParams.get('model')
+   calls.push(['DELETE', tool, model])
+   favourites = favourites.filter(f => !(f.tool === tool && f.model === model))
+   return {status:200, json:{}}
+  }}
+  const {context,page,errors} = await launch({routes})
+  await page.goto(base)
+  await slot(page,'Model').click()
+  const models = page.getByRole('listbox',{name:'Model'})
+  await expect(models.getByRole('option').nth(1)).toHaveAccessibleName(/^opus/)
+  const star = models.getByRole('button',{name:'Star anthropic/claude-sonnet-4-5 for Claude Code'})
+  await star.click()
+  await expect(models).toBeVisible()
+  await expect(models.getByRole('button',{name:'Unstar anthropic/claude-sonnet-4-5 for Claude Code'})).toHaveAttribute('aria-pressed','true')
+  await expect(models.getByRole('group',{name:'Favourites'}).getByRole('option',{name:'anthropic/claude-sonnet-4-5'})).toBeVisible()
+  const unstar = models.getByRole('button',{name:'Unstar anthropic/claude-sonnet-4-5 for Claude Code'})
+  await unstar.click()
+  await expect(models).toBeVisible()
+  await expect(models.getByRole('button',{name:'Star anthropic/claude-sonnet-4-5 for Claude Code'})).toHaveAttribute('aria-pressed','false')
+  expect(calls).toEqual([['POST',{tool:'claude', model:'anthropic/claude-sonnet-4-5'}], ['DELETE','claude','anthropic/claude-sonnet-4-5']])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Other… still lets a person name any model the validator accepts.
+ if (run('Other still names a model')) {
+  const {context,page,errors,box} = await launch()
+  await page.goto(base)
+  await slot(page,'Model').click()
+  const models = page.getByRole('listbox',{name:'Model'})
+  await models.getByRole('option',{name:'Other…'}).click()
+  await page.getByRole('textbox',{name:'Model name'}).fill('acme/custom-model')
+  await page.getByRole('button',{name:'Use'}).click()
+  await expect(slot(page,'Model')).toHaveAccessibleName('Model: acme/custom-model')
+  await startButton(page).click()
+  await expect(page).toHaveURL(/\/sessions\?/)
+  expect(box.posts[0]).toMatchObject({tool:'claude', model:'acme/custom-model'})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A failed model read is a status line only: suggestions stay and Start still works.
+ if (run('a failed model read never blocks a start')) {
+  const routes = {'/api/v2/machines/a1/models': () => ({status:500, json:{error:'down'}})}
+  const {context,page,errors,box} = await launch({routes})
+  await page.goto(base)
+  await slot(page,'Model').click()
+  const models = page.getByRole('listbox',{name:'Model'})
+  await expect(models.locator('..').getByRole('status')).toContainText('Couldn’t read studio’s models just now. Favourites and suggestions still work.')
+  await expect(models.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:'sonnet'})).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(startButton(page)).toBeEnabled()
+  await startButton(page).click()
+  await expect(page).toHaveURL(/\/sessions\?/)
+  expect(box.posts).toHaveLength(1)
+  expect(box.posts[0]).not.toHaveProperty('model')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Offline, old and switched-off machines say so, keep any cached list, and offer no Refresh. The offline case uses
+ // the real cached shape: a listed GET with a not-ready machine, which the bar must overlay with the offline state.
+ if (run('offline, old and off model states are honest')) {
+  {
+   const cached = modelList({state:'listed', models:[{id:'anthropic/claude-sonnet-4-5',provider:'anthropic'}], fetchedAt:now-2*24*60*MIN, sentence:'Models read from studio.'})
+   const routes = {
+    '/api/v2/terminal/machines': () => ({machines:[{...tmachines()[0], ready:false}, tmachines()[1]]}),
+    '/api/v2/machines/a1/models': () => cached,
+   }
+   const {context,page,errors} = await launch({routes})
+   await page.goto(base)
+   await slot(page,'Model').click()
+   const list = page.getByRole('listbox',{name:'Model'})
+   await expect(list.locator('..').getByRole('status')).toContainText('studio is offline')
+   await expect(list.locator('..').getByRole('status')).not.toContainText('Models read from studio.')
+   await expect(list.locator('..').getByRole('button',{name:'Refresh'})).toHaveCount(0)
+   await expect(list.getByRole('option',{name:'anthropic/claude-sonnet-4-5'})).toBeVisible()
+   await page.keyboard.press('Escape')
+   expect(errors).toEqual([])
+   await context.close()
+  }
+  for (const [state, words] of [['update','Update reet'], ['off','switched off']]) {
+   const {context,page,errors} = await launch({routes:{'/api/v2/machines/a1/models': () => modelList({state, models:[]})}})
+   await page.goto(base)
+   await slot(page,'Model').click()
+   const list = page.getByRole('listbox',{name:'Model'})
+   await expect(list.locator('..').getByRole('status'), state).toContainText(words)
+   await expect(list.locator('..').getByRole('button',{name:'Refresh'}), state).toHaveCount(0)
+   await page.keyboard.press('Escape')
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+
+ // Typing a model that is not in the list offers Use ‘x’, which opens Other prefilled.
+ if (run('a typed model offers Use and prefills Other')) {
+  const {context,page,errors} = await launch()
+  await page.goto(base)
+  await slot(page,'Model').click()
+  const list = page.getByRole('listbox',{name:'Model'})
+  await page.getByLabel('Filter models').fill('acme/custom-model')
+  const use = list.getByRole('option',{name:/^Use ‘acme\/custom-model’$/})
+  await expect(use).toBeVisible()
+  await use.click()
+  await expect(page.getByRole('textbox',{name:'Model name'})).toHaveValue('acme/custom-model')
+  await page.getByRole('button',{name:'Use'}).click()
+  await expect(slot(page,'Model')).toHaveAccessibleName('Model: acme/custom-model')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // S on a focused model stars it, the row keeps focus when it moves to Favourites, and the change is announced.
+ if (run('starring by keyboard keeps focus and announces')) {
+  const {context,page,errors} = await launch()
+  await page.goto(base)
+  await slot(page,'Model').click()
+  const list = page.getByRole('listbox',{name:'Model'})
+  await list.getByRole('option',{name:'anthropic/claude-sonnet-4-5'}).focus()
+  await page.keyboard.press('s')
+  await expect(list.getByRole('button',{name:'Unstar anthropic/claude-sonnet-4-5 for Claude Code'})).toHaveAttribute('aria-pressed','true')
+  expect(await page.evaluate(() => document.activeElement?.getAttribute('data-value'))).toBe('anthropic/claude-sonnet-4-5')
+  await expect(list.locator('..').locator('.sr-only')).toHaveText('Starred anthropic/claude-sonnet-4-5')
+  await page.keyboard.press('s')
+  await expect(list.getByRole('button',{name:'Star anthropic/claude-sonnet-4-5 for Claude Code'})).toHaveAttribute('aria-pressed','false')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A failed favourites read leaves suggestions and Start working.
+ if (run('a failed favourites read never blocks the bar')) {
+  const {context,page,errors,box} = await launch({routes:{'/api/v2/profile/model-favourites': () => ({status:500, json:{error:'down'}})}})
+  await page.goto(base)
+  await slot(page,'Model').click()
+  const list = page.getByRole('listbox',{name:'Model'})
+  await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^sonnet/})).toBeVisible()
+  await page.keyboard.press('Escape')
+  await startButton(page).click()
+  await expect(page).toHaveURL(/\/sessions\?/)
+  expect(box.posts).toHaveLength(1)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The model slot stays in the Change sheet on a tablet and in the phone's picker sheet, with the status and the star.
+ if (run('tablet and phone model picker')) {
+  for (const [width, height, touch, touchSize] of [[834,1112,true,true], [390,844,true,false]]) {
+   const {context,page,errors} = await launch({width, height, touch})
+   await page.goto(base)
+   await bar(page).getByRole('button',{name:'Change',exact:true}).click()
+   const sheet = page.getByRole('dialog',{name:'Change the launch'})
+   await expect(sheet).toBeVisible()
+   const row = sheet.getByRole('button',{name:/^Model: /})
+   await expect(row).toBeVisible()
+   await row.click()
+   const picker = touchSize ? page.getByRole('dialog',{name:'Model'}) : page.getByRole('dialog',{name:'Model'})
+   const list = picker.getByRole('listbox',{name:'Model'})
+   await expect(list).toBeVisible()
+   await expect(list.locator('..').getByRole('status')).toContainText('Models read from studio.')
+   await expect(picker.getByRole('button',{name:/^Star /}).first()).toBeVisible()
+   const starBox = await picker.getByRole('button',{name:/^Star /}).first().boundingBox()
+   expect(starBox?.width ?? 0, 'star width').toBeGreaterThanOrEqual(44)
+   expect(starBox?.height ?? 0, 'star height').toBeGreaterThanOrEqual(44)
+   const refreshBox = await picker.getByRole('button',{name:'Refresh'}).boundingBox()
+   expect(refreshBox?.width ?? 0, 'refresh width').toBeGreaterThanOrEqual(44)
+   expect(refreshBox?.height ?? 0, 'refresh height').toBeGreaterThanOrEqual(44)
+   if (width === 390) expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+   await page.keyboard.press('Escape')
+   await expect(sheet).toBeVisible()
+   await sheet.getByRole('button',{name:'Done',exact:true}).click()
+   await expect(sheet).toBeHidden()
+   expect(errors).toEqual([])
+   await context.close()
+  }
  }
 
  // Each slot is a button named for its slot and value; it opens a listbox, and the choice shows in the sentence and goes out.
@@ -748,11 +1017,12 @@ try {
 
  // A project on a machine that is not ready is listed, disabled, with that machine's own sentence; so is its home folder.
  if (run('unready machine disabled with its sentence')) {
-  const sessions = [session('s1','a2','Notes work',{tool:'claude',projectId:'fp2'})]
-  const {context,page,errors,box} = await launch({sessions})
+  // The first project is the one on the unready machine: the opening choice names it, not the last launch.
+  const projects = [fprojects()[1], fprojects()[0], fprojects()[2]]
+  const {context,page,errors,box} = await launch({projects})
   await page.goto(base)
   const reason = 'The machine is reconnecting. Existing shells will be kept.'
-  // The last launch was on desk: Start waits, and says why.
+  // The first project is on desk: Start waits, and says why.
   await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Notes at desk')
   await expect(startButton(page)).toBeDisabled()
   await expect(bar(page).locator('.status')).toHaveText(reason)
@@ -1208,7 +1478,7 @@ try {
   }
  }
 
- console.log('Launch bar: Select and start in several projects (lost reply, status sheet, retry, touch, 320 px, strip count), one press with the last choices, each slot, unready machines, the starter prompt chip, lost replies and refusals, a -x folder, the locked bar and a card chosen while it is locked, a refusal kept across the same selection, Show run status going once all started or after a later start, Enter and Ctrl+Enter (and no key on touch), the phone Change sheet and the landscape phone with one Change, the keyboard-open prompt, Tab and Escape from a list, no card marked for the home folder, branch reads, the YOLO reason, Stop selecting on the strip, unread projects, a removed project under a kept request, a run that is gone and nothing in storage checked.')
+ console.log('Launch bar: Select and start in several projects (lost reply, status sheet, retry, touch, 320 px, strip count), one press with the resolved defaults and Recent, profile defaults, machine lists and Refresh, several machines, favourites and stars, Other, a failed list, offline/old/off states, tablet and phone model pickers, each slot, unready machines, the starter prompt chip, lost replies and refusals, a -x folder, the locked bar and a card chosen while it is locked, a refusal kept across the same selection, Show run status going once all started or after a later start, Enter and Ctrl+Enter (and no key on touch), the phone Change sheet and the landscape phone with one Change, the keyboard-open prompt, Tab and Escape from a list, no card marked for the home folder, branch reads, the YOLO reason, Stop selecting on the strip, unread projects, a removed project under a kept request, a run that is gone and nothing in storage checked.')
 } finally {
  await browser.close()
 }

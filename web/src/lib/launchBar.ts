@@ -2,6 +2,7 @@ import type { Profile } from './api'
 import type { BranchesResult, FolderProject, LaunchRequest, TerminalMachine, TerminalSession } from './terminal/api'
 import { readiness } from './terminal/api'
 import { CATALOGUE, agentChoices } from './catalogue'
+import { resolveLaunchDefaults, type ModelFavourite } from './models'
 import { cleanModel, codeSentence, refusalText, titleFor, toolName, validateModel, validatePrompt } from './agentLaunch'
 
 // The launch bar's logic: what the sentence says, what it starts from, whether Start may be pressed, and the one create
@@ -26,13 +27,15 @@ export type LaunchChoice = {
   approvals: 'ask' | 'yolo'
 }
 /** The person's launch defaults from the profile (`defaultBaseBranch`, `worktreesByDefault`, which is true when absent). */
-export type LaunchDefaults = Partial<Pick<Profile, 'defaultBaseBranch' | 'worktreesByDefault'>>
-export type LaunchProject = Pick<FolderProject, 'id' | 'name' | 'host' | 'machine' | 'dir' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'defaultTool' | 'defaultModel'>
+export type LaunchDefaults = Partial<Pick<Profile, 'defaultBaseBranch' | 'worktreesByDefault' | 'defaultTool' | 'defaultModel' | 'defaultEffort'>>
+export type LaunchProject = Pick<FolderProject, 'id' | 'name' | 'host' | 'machine' | 'dir' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'defaultTool' | 'defaultModel' | 'defaultEffort'>
 export type LaunchMachine = Pick<TerminalMachine, 'agentId' | 'host' | 'ready' | 'capabilities'>
 /** One piece of the sentence: a named slot is a button; slot '' is a plain word between them. */
 export type SentencePart = { slot: '' | 'agent' | 'model' | 'project' | 'machine' | 'branch' | 'worktree' | 'checkout' | 'effort'; text: string }
 /** What `createTerminal(agentId, requestId, title, cols, rows, signal, launch)` takes for one session. */
 export type LaunchCreate = { agentId: string; requestId: string; title: string; launch: LaunchRequest }
+/** How a launch choice is resolved from the project, account and favourite defaults. */
+export type LaunchResolveOptions = { machines?: LaunchMachine[]; favourites?: ModelFavourite[]; availableAgents?: string[]; explicitModel?: boolean; explicitEffort?: boolean }
 
 const UPDATE_FOR_OPTION = 'Update reet on that machine to use that option.'
 const NO_OPTION = "That agent doesn't take that option."
@@ -65,30 +68,37 @@ export function baseFor(choice: LaunchChoice, project: Pick<LaunchProject, 'isRe
   return choice.projectIds.length > 1 ? project.baseBranch || profile.defaultBaseBranch || '' : choice.branch
 }
 
+/** The agents the first project's machine offers; every enabled agent when that machine is not known yet. */
+function agentsAvailable(project: LaunchProject | null | undefined, machines: LaunchMachine[] = []): string[] {
+  const machine = project ? machines.find(m => m.agentId === project.host) : undefined
+  if (machine) return agentChoices(machine as TerminalMachine).filter(o => o.available).map(o => o.agent.id)
+  return CATALOGUE.filter(agent => agent.enabled).map(agent => agent.id)
+}
+
+const favouriteFor = (agent: string, favourites: ModelFavourite[] = []): ModelFavourite | null =>
+  favourites.find(f => f.agentDefault && f.tool === agent) ?? null
+
+function resolved(agent: string, project: LaunchProject | null, profile: LaunchDefaults, options: LaunchResolveOptions) {
+  const availableAgents = options.availableAgents ?? agentsAvailable(project, options.machines)
+  const base = resolveLaunchDefaults({ explicitAgent: agent, project, account: profile, availableAgents })
+  const favourite = favouriteFor(base.agent, options.favourites)
+  return favourite ? resolveLaunchDefaults({ explicitAgent: agent, project, account: profile, favouriteDefault: favourite, availableAgents }) : base
+}
+
 /**
- * The choice the bar opens with: the last launch's when there was one (its projects that still exist, else the first
- * project), else the first project's defaults and the account's. The prompt starts empty and Approvals on *Ask me*.
+ * The choice the bar opens with: the resolved defaults for the first project and the account (D1), never the last launch.
+ * The prompt starts empty and Approvals on *Ask me*.
  */
-export function initialChoice(last: LaunchChoice | null, projects: LaunchProject[], profile: LaunchDefaults): LaunchChoice {
-  const first = projects[0]
-  if (last) {
-    const kept = last.projectIds.filter(id => projects.some(p => p.id === id))
-    const home = kept.length === 0 && last.projectIds.length === 0 && last.homeMachine ? last.homeMachine : undefined
-    const ids = kept.length > 0 || home ? kept : first ? [first.id] : []
-    const same = ids.length === last.projectIds.length && ids.every((id, i) => id === last.projectIds[i])
-    const project = projects.find(p => p.id === ids[0])
-    const out: LaunchChoice = {
-      agent: last.agent, model: last.model, projectIds: ids,
-      branch: same ? last.branch : (project?.baseBranch || profile.defaultBaseBranch || ''),
-      worktree: same ? last.worktree : worktreeFor(project, profile),
-      effort: takesEffort(last.agent) ? last.effort : '', prompt: '', approvals: 'ask',
-    }
-    if (home) out.homeMachine = home
-    return out
-  }
+export function initialChoice(projects: LaunchProject[], profile: LaunchDefaults, options: LaunchResolveOptions = {}): LaunchChoice {
+  const first = projects[0] ?? null
+  const availableAgents = agentsAvailable(first, options.machines)
+  const base = resolveLaunchDefaults({ project: first, account: profile, availableAgents })
+  const favourite = favouriteFor(base.agent, options.favourites)
+  const next = favourite ? resolveLaunchDefaults({ project: first, account: profile, favouriteDefault: favourite, availableAgents }) : base
   return {
-    agent: first?.defaultTool || CATALOGUE[0].id, model: first?.defaultModel ?? '', projectIds: first ? [first.id] : [],
-    branch: first?.baseBranch || profile.defaultBaseBranch || '', worktree: worktreeFor(first, profile), effort: '', prompt: '', approvals: 'ask',
+    agent: next.agent, model: next.model, projectIds: first ? [first.id] : [],
+    branch: first?.baseBranch || profile.defaultBaseBranch || '', worktree: worktreeFor(first ?? undefined, profile),
+    effort: next.effort as Effort, prompt: '', approvals: 'ask',
   }
 }
 
@@ -114,15 +124,25 @@ export function lastChoice(sessions: Pick<TerminalSession, 'agentId' | 'createdA
   return out
 }
 
-/** The choice with one project in it (the rail's card or the project slot): its base and worktree default, and its own default
- * agent and model when it names one. The prompt and Approvals stay as they are. */
-export function withProject(choice: LaunchChoice, project: LaunchProject, profile: LaunchDefaults): LaunchChoice {
+/** The choice with one project in it: its agent/model/effort defaults are resolved again from the project, the account and
+ * the favourite marked for the agent. An explicit model choice in the bar survives a project change for the same agent. */
+export function withProject(choice: LaunchChoice, project: LaunchProject, profile: LaunchDefaults, options: LaunchResolveOptions = {}): LaunchChoice {
   const agent = project.defaultTool || choice.agent
+  const next = resolved(agent, project, profile, options)
+  const sameAgent = next.agent === choice.agent
+  const keepModel = !!options.explicitModel && sameAgent
+  const keepEffort = !!options.explicitEffort && sameAgent
   const { homeMachine: _, ...rest } = choice
   return {
-    ...rest, agent, model: project.defaultTool ? project.defaultModel : choice.model, projectIds: [project.id],
-    branch: project.baseBranch || profile.defaultBaseBranch || '', worktree: worktreeFor(project, profile), effort: takesEffort(agent) ? choice.effort : '',
+    ...rest, agent: next.agent, model: keepModel ? choice.model : next.model, projectIds: [project.id],
+    branch: project.baseBranch || profile.defaultBaseBranch || '', worktree: worktreeFor(project, profile), effort: (keepEffort ? choice.effort : next.effort) as Effort,
   }
+}
+
+/** The choice for an agent the person picked: the model and effort are resolved for that agent, never kept from the old one. */
+export function withAgent(choice: LaunchChoice, agent: string, project: LaunchProject | null, profile: LaunchDefaults, options: LaunchResolveOptions = {}): LaunchChoice {
+  const next = resolved(agent, project, profile, options)
+  return { ...choice, agent: next.agent, model: next.model, effort: next.effort as Effort }
 }
 
 /**
@@ -130,7 +150,7 @@ export function withProject(choice: LaunchChoice, project: LaunchProject, profil
  * name them all; one project is that project as its card would choose it; none goes back to the first project the
  * sentence named.
  */
-export function withSelection(choice: LaunchChoice, ids: string[], projects: LaunchProject[], profile: LaunchDefaults): LaunchChoice {
+export function withSelection(choice: LaunchChoice, ids: string[], projects: LaunchProject[], profile: LaunchDefaults, options: LaunchResolveOptions = {}): LaunchChoice {
   const known = ids.filter(id => projects.some(p => p.id === id))
   if (known.length > 1) {
     const { homeMachine: _, ...rest } = choice
@@ -139,12 +159,15 @@ export function withSelection(choice: LaunchChoice, ids: string[], projects: Lau
   const one = projects.find(p => p.id === (known[0] ?? choice.projectIds[0]))
   if (!one) return choice
   if (known.length === 0 && choice.projectIds.length <= 1) return choice
-  return withProject(choice, one, profile)
+  return withProject(choice, one, profile, options)
 }
 
-/** The choice for *Home folder on* a machine: no project, so no branch. */
-export function withHome(choice: LaunchChoice, agentId: string): LaunchChoice {
-  return { ...choice, projectIds: [], homeMachine: agentId, branch: '' }
+/** The choice for *Home folder on* a machine: no project, so no branch; its model is resolved from the account and favourites. */
+export function withHome(choice: LaunchChoice, agentId: string, profile: LaunchDefaults = {}, options: LaunchResolveOptions = {}): LaunchChoice {
+  const next = resolved(choice.agent, null, profile, options)
+  const keepModel = !!options.explicitModel
+  const keepEffort = !!options.explicitEffort
+  return { ...choice, projectIds: [], homeMachine: agentId, branch: '', model: keepModel ? choice.model : next.model, effort: (keepEffort ? choice.effort : next.effort) as Effort }
 }
 
 /** The phone's one summary line: "Claude Code on reet at studio · main · fresh worktree" (the model is in the Change sheet). */

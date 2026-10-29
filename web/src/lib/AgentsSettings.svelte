@@ -18,7 +18,7 @@
 
   const agents = CATALOGUE.filter(agent => agent.enabled)
   const life = new AbortController()
-  let loading = $state(true), busy = $state('')
+  let loading = $state(true), busy = $state(''), profileLoaded = $state(false)
   let defaultTool = $state(''), defaultModel = $state(''), defaultEffort = $state('')
   let defaultBaseBranch = $state(''), worktreesByDefault = $state(false)
   let formMessage = $state(''), notice = $state('')
@@ -83,15 +83,19 @@
     else if (e instanceof ApiError && e.status === 401) onerror?.(new UnauthorizedError())
   }
 
+  let loaded = { tool: '', model: '', effort: '', base: '', worktrees: false }
   function fillProfile(profile: Awaited<ReturnType<typeof getProfile>>['profile']) {
     defaultTool = profile.defaultTool ?? ''
     defaultModel = profile.defaultModel ?? ''
     defaultEffort = profile.defaultEffort ?? ''
     defaultBaseBranch = profile.defaultBaseBranch ?? ''
     worktreesByDefault = profile.worktreesByDefault ?? false
+    loaded = { tool: defaultTool, model: defaultModel, effort: defaultEffort, base: defaultBaseBranch, worktrees: worktreesByDefault }
+    profileLoaded = true
   }
 
   async function loadProfile() {
+    loading = true; profileLoaded = false; formMessage = ''
     try {
       const answer = await getProfile()
       if (life.signal.aborted) return
@@ -99,7 +103,7 @@
     } catch (e) {
       if (life.signal.aborted) return
       fail(e)
-      formMessage = "Couldn't read your defaults just now. Reload the page to try again."
+      formMessage = "Couldn't read your defaults just now. Nothing has been changed."
     } finally {
       if (!life.signal.aborted) loading = false
     }
@@ -347,14 +351,16 @@
       return
     }
     busy = 'profile'; formMessage = ''; notice = ''
+    const model = cleanModel(defaultModel), base = defaultBaseBranch.trim()
+    const patch: Parameters<typeof saveProfile>[0] = {}
+    if (defaultTool !== loaded.tool) patch.defaultTool = defaultTool
+    if (model !== loaded.model) patch.defaultModel = model
+    if (defaultEffort !== loaded.effort) patch.defaultEffort = defaultEffort
+    if (base !== loaded.base) patch.defaultBaseBranch = base
+    if (worktreesByDefault !== loaded.worktrees) patch.worktreesByDefault = worktreesByDefault
+    if (!Object.keys(patch).length) { busy = ''; notice = 'Nothing changed.'; return }
     try {
-      const answer = await saveProfile({
-        defaultTool,
-        defaultModel: cleanModel(defaultModel),
-        defaultEffort,
-        defaultBaseBranch: defaultBaseBranch.trim(),
-        worktreesByDefault,
-      })
+      const answer = await saveProfile(patch)
       if (life.signal.aborted) return
       fillProfile(answer.profile)
       notice = 'Reet, defaults saved. New sessions without a project use them unless a project says otherwise.'
@@ -429,7 +435,8 @@
       </label>
     </div>
     <div class="formacts">
-      <button type="submit" class="btn primary" disabled={!canWrite || loading || busy === 'profile'}>{busy === 'profile' ? 'Saving…' : 'Save defaults'}</button>
+      <button type="submit" class="btn primary" disabled={!canWrite || !profileLoaded || loading || busy === 'profile'}>{busy === 'profile' ? 'Saving…' : 'Save defaults'}</button>
+      {#if !profileLoaded && !loading}<button type="button" class="btn" onclick={() => void loadProfile()}>Retry</button>{/if}
     </div>
   </form>
 

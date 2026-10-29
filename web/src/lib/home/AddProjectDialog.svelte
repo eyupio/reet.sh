@@ -4,8 +4,8 @@
   import { shell } from '../dialogShell'
   import { canAutoFocus } from '../focus'
   import { MAX_PROMPT_BYTES, cleanModel, modelSuggestions, toolChoices, toolName, validateModel, validatePrompt } from '../agentLaunch'
-  import { UnauthorizedError, listModelFavourites } from '../api'
-  import { effortChoices, modelOptions, modelStatus, type MachineModels, type ModelFavourite } from '../models'
+  import { UnauthorizedError, addModelFavourite, listModelFavourites, removeModelFavourite } from '../api'
+  import { effortChoices, favouriteKey, modelOptions, modelStatus, starLabel, type MachineModels, type ModelFavourite } from '../models'
   import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
   import { repoMessage, topFolder, validateFolderInput } from '../folderBrowser'
   import { browseFolder, createFolderProject, getFolderProject, listBranches, machineModels, readiness, refusalSentence, updateFolderProject, TerminalError,
@@ -255,7 +255,7 @@
   }
   $effect(() => {
     const key = modelKey, agentId = machine?.agentId ?? '', tool = defaultTool
-    if (!key || !agentId || !tool || !modelCapable) return
+    if (!key || !agentId || !tool) return
     if (untrack(() => modelList.key === key && (modelList.loading || modelList.machine))) return
     untrack(() => { void readModels(agentId, tool, key) })
   })
@@ -276,7 +276,38 @@
       tool: defaultTool, current: defaultModel, machine: modelMachine, favourites, recent: [],
       suggestions: modelSuggestions(defaultTool), selectedModel: defaultModel,
       host: machine?.host ?? '', agentName: toolName(defaultTool),
+    }).map(o => o.value === '' ? o : {
+      ...o, starLabel: starLabel(defaultTool, o.value, !!o.starred),
+      onstar: () => { void toggleStar(o.value, !!o.starred) },
     })
+  }
+  let favouriteQueue: Promise<void> = Promise.resolve()
+  let favouriteMutationSeq = 0
+  async function toggleStar(value: string, starred: boolean) {
+    const tool = defaultTool
+    if (!tool || !value || busy) return
+    const key = favouriteKey(tool, value)
+    const before = favourites.find(f => favouriteKey(f.tool, f.model) === key) ?? null
+    const mutation = ++favouriteMutationSeq
+    favouritesLoadSeq++
+    favouriteNote = ''
+    favourites = starred ? favourites.filter(f => favouriteKey(f.tool, f.model) !== key) : before ? favourites : [...favourites, { tool, model: value, agentDefault: false }]
+    favouriteQueue = favouriteQueue.then(async () => {
+      try {
+        if (starred) await removeModelFavourite(tool, value)
+        else {
+          const answer = await addModelFavourite(tool, value)
+          if (!life.signal.aborted && mutation === favouriteMutationSeq && answer?.favourites) favourites = answer.favourites
+        }
+      } catch (e) {
+        if (life.signal.aborted) return
+        if (e instanceof UnauthorizedError || e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+        favourites = favourites.filter(f => favouriteKey(f.tool, f.model) !== key)
+        if (before) favourites = [...favourites, before]
+        favouriteNote = (e as { message?: string })?.message ? (e as Error).message : 'Couldn’t update your favourites just now. Try again.'
+      }
+    })
+    await favouriteQueue
   }
   function openPicker() { if (busy || !defaultTool) return; pickerOpen = true }
   function pickModel(value: string) { defaultModel = value; edited() }

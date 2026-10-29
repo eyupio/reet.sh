@@ -1397,17 +1397,16 @@ mismatched project model applied, failed read made Start fail, and group order
 changed; each failed its test and was restored byte-identically.
 
 Not checked: a physical phone or Safari, a 500-model list under a slow reader,
-a real provider-backed OpenCode list, or the M8–M11 screens. Home does not load
-favourites itself (the bar does), a plan deviation recorded here; the account
-defaults and favourite manager still need the Settings UI.
+or a real provider-backed OpenCode list. Home does not load favourites itself
+(the bar does), a plan deviation recorded here; the rest of the model screens
+are in the second UI section below.
 
 ## Agent models: second UI half — 29 October 2026 (M8–M11)
 
 Built on the models backend (#247) and the first UI half (#252). This PR finishes the places a
 model or a default is chosen: the Start an agent picker with project/account defaults and Cline
 thinking, Add project/Project settings, Settings › Agents, the Machines “Agents” section, Activity
-and the session hover card, with the docs and phone evidence. The PR number is filled in when it is
-opened; it is not a merged claim.
+and the session hover card, with the docs and phone evidence. This is PR #255, not a merged claim.
 
 Fidelity: the affected screens were rendered with the long-name fixture at 1440×900, 834×1112
 (touch) and 390×844 (touch), in Chromium with reduced motion, and compared with `Main.dc.html`,

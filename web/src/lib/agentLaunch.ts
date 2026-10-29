@@ -13,8 +13,8 @@ export const TOOLS: { id: string; name: string }[] = [
   { id: 'opencode', name: 'OpenCode' },
   { id: 'gemini', name: 'Gemini CLI' },
 ]
-// These two take the prompt as an operand and could read a one-word prompt as a subcommand.
-const NEEDS_TWO_WORDS = new Set(['claude', 'codex'])
+// These take the prompt as an operand and could read a one-word prompt as a subcommand.
+const NEEDS_TWO_WORDS = new Set(['claude', 'codex', 'cline'])
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,99}$/
 const SOMETHING_CHANGED = 'Something changed. Check again.'
 

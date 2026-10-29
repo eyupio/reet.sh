@@ -30,8 +30,8 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 ### Resume here (models UI complete, 29 October 2026)
 
 **#247 (models backend) merged as `16da0bb`; #245 as `1371cb5`; #242 as `961d530`; #231 as `7886511`.**
-The first models UI half is [PR #252](https://github.com/eyupio/reet.sh/pull/252) (M5–M7); the second half is this
-branch is **#255** (M8–M11).
+The first models UI half is [PR #252](https://github.com/eyupio/reet.sh/pull/252) (M5–M7); the second half is
+**#255** on this branch (M8–M11).
 
 - **Branch and PR:** `ccr-7a7f5a9b-to5imh` holds M8–M11: the Start an agent picker with project/account defaults and
   Cline thinking, Add project/Project settings defaults, Settings › Agents (account defaults and favourites), the
@@ -159,8 +159,8 @@ After the models picker/launch bar:
 - The launch bar now opens on the resolved defaults, not the last launch; the last models are a Recent group. The
   model slot has a star, filter, Use ‘x’ and a status/Refresh line; tablet/phone keep the model in the Change sheet.
 - Only OpenCode has a machine list; other agents use favourites/suggestions/Other. The account defaults and
-  favourite manager still have no page (UI-2), the Start dialog still uses its old select (UI-2), and Add
-  project/Project settings do not yet offer the model picker, thinking or Cline (UI-2).
+  favourite manager are under Account → Agents; the Start dialog, Add project/Project settings, Machines → Settings
+  → Agents, Activity and the hover card are in this PR (#255). A per-machine default remains deferred.
 - Home does not load favourites itself; the bar does (a recorded plan deviation). A model read failure never
   blocks Start. The real cached-offline shape is overlaid in the bar, not by the API.
 - No physical phone/Safari; a 500-model list under a slow reader is not load-tested. The picker/star additions are
@@ -194,8 +194,7 @@ Before this PR:
 Still true from earlier PRs:
 
 - YOLO is shown disabled and refused (409 `yolo_refused`) until F. The first line of a prompt becomes the stored session
-  title. The Start an agent dialog (Machines and the Sessions panel) still uses the old four-agent list, so Cline starts
-  only from Home's launch bar. Pi and Cursor stay disabled.
+  title. The Start an agent dialog now offers Cline on an agents-v2 machine; Pi and Cursor stay disabled.
 - A base a member only inherits from the account's default is not sent to a machine without `agents-v2`; a project's
   own base is sent, and such a machine refuses it with "Update reet on that machine…". Rolling back to an older server
   while a start in several projects has members pending may fail those members or start them without base or effort.
@@ -211,24 +210,7 @@ Still true from earlier PRs:
 
 ### Queued work (decided, not started)
 
-**1. Agent models: the UI, second half** (M8–M11). Input: [docs/research/models-design.md](docs/research/models-design.md),
-the backend in #247 and UI-1 (#252). It adds the Start agent dialog, Add project/Project settings, Settings › Agents,
-the Machines "Agents" section, Activity/hover-card and the remaining docs. Then Program 2.
-
-- New feature token `models-v1`. In v1 only OpenCode lists models from the machine: `opencode models` run with
-  `OPENCODE_DISABLE_MODELS_FETCH=1`, so it makes no network call (the probe showed it calls models.opencode.ai otherwise,
-  and that `--refresh` ignores the setting). Other agents keep suggestions, favourites and Other….
-- Favourites per account (at most 50); an account default for sessions outside a project; a project default for agent,
-  model and effort. Precedence: explicit choice, then project, then account, then the agent's own default.
-- Decisions, numbered as in the models design (D1–D6): **D1** (owner) the bar opens with the defaults first and the last
-  used as a Recent group; **D5** (owner) the list loads automatically, because the capture is clean with the setting
-  above; **D2** a per-machine default is deferred, **D3** a favourite can carry a "default for this agent" flag (yes), **D4**
-  the model-name rule stays as it is (D2–D4 are controller defaults the owner may revisit); **D6** capturing
-  `opencode models` from the approved npm package was approved and is partly done by the probe.
-- Known gap to fix in it: a project's default agent is checked against the original four agents only, so Cline cannot be
-  one.
-
-**2. Program 2, slice 1: structured OpenCode sessions** (after the models UI-2). Input:
+**1. Program 2, slice 1: structured OpenCode sessions** (after the models UI). Input:
 [docs/research/probe-report.md](docs/research/probe-report.md),
 [reference-tool-frontend-research.md](docs/research/reference-tool-frontend-research.md) and
 [reference-tool-agents-research.md](docs/research/reference-tool-agents-research.md). Owner decision: trusted workspaces only, OpenCode, Allow

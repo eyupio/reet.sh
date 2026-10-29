@@ -83,6 +83,7 @@ test('prompts: separators and the two-word rule', () => {
   assert.equal(validatePrompt('claude', 'a b'), null)
   assert.equal(validatePrompt('codex', 'a\nb'), null)
   assert.equal(validatePrompt('claude', 'word'), two)
+  assert.equal(validatePrompt('cline', 'word'), two)
   assert.equal(validatePrompt('codex', 'word'), two)
   assert.equal(validatePrompt('opencode', 'word'), null)
   assert.equal(validatePrompt('gemini', 'word'), null)

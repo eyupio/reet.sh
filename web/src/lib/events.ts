@@ -237,13 +237,15 @@ export function eventLabel(e: Event): string {
     case 'hosted-delete':
       return `Deleted hosted skill ${name}`
     case 'profile': {
-      const defaults: string[] = []
-      if (Object.hasOwn(d, 'defaultTool')) defaults.push(d.defaultTool ? `agent to ${toolName(d.defaultTool)}` : 'agent cleared')
-      if (Object.hasOwn(d, 'defaultModel')) defaults.push(d.defaultModel ? `model to ${d.defaultModel}` : 'model cleared')
-      if (Object.hasOwn(d, 'defaultEffort')) defaults.push(d.defaultEffort ? `thinking to ${d.defaultEffort}` : 'thinking cleared')
-      if (!defaults.length) return 'Updated your profile'
-      const last = defaults.pop() as string
-      return `Changed the default ${defaults.length ? `${defaults.join(', ')} and ${last}` : last}`
+      const changed: string[] = [], cleared: string[] = []
+      const word = (xs: string[]): string => xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : xs[0] ?? ''
+      if (Object.hasOwn(d, 'defaultTool')) (d.defaultTool ? changed : cleared).push(d.defaultTool ? `agent to ${toolName(d.defaultTool)}` : 'the default agent')
+      if (Object.hasOwn(d, 'defaultModel')) (d.defaultModel ? changed : cleared).push(d.defaultModel ? `model to ${d.defaultModel}` : 'the default model')
+      if (Object.hasOwn(d, 'defaultEffort')) (d.defaultEffort ? changed : cleared).push(d.defaultEffort ? `thinking to ${d.defaultEffort}` : 'the default thinking')
+      if (changed.length && cleared.length) return `Changed the default ${word(changed)}, and cleared ${word(cleared)}`
+      if (changed.length) return `Changed the default ${word(changed)}`
+      if (cleared.length) return `Cleared ${word(cleared)}`
+      return 'Updated your profile'
     }
     case 'password-change':
       return 'Changed your password'

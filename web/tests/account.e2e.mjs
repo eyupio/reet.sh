@@ -11,7 +11,7 @@ const run = name => !only || only.test(name)
 const now = Date.now()
 const owner = {id:1, name:'Sam Example', email:'sam@example.test', role:'owner'}
 const viewer = {id:3, name:'Viewer', email:'v@example.test', role:'viewer'}
-let currentUser = owner
+let currentUser = owner, profileFailure = false
 let profile, favourites, patches, addCalls, deleteCalls, orderCalls, defaultCalls, staleOrder, defaultGate
 
 function reset(user = owner) {
@@ -19,7 +19,7 @@ function reset(user = owner) {
   profile = {theme:'system', timezone:'Europe/London', dateFormat:'', shelfView:'list', cardsExpanded:false, hostedPrefix:'reet-', updatedAt:now,
     defaultBaseBranch:'', worktreesByDefault:false, defaultTool:'', defaultModel:'', defaultEffort:''}
   favourites = {version:1, favourites:[{tool:'claude', model:'sonnet', agentDefault:false}, {tool:'opencode', model:'anthropic/claude-sonnet-4-5', agentDefault:false}]}
-  patches = []; addCalls = []; deleteCalls = []; orderCalls = []; defaultCalls = []; staleOrder = false; defaultGate = null
+  patches = []; addCalls = []; deleteCalls = []; orderCalls = []; defaultCalls = []; staleOrder = false; defaultGate = null; profileFailure = false
 }
 
 const extra = {
@@ -70,14 +70,20 @@ const extra = {
   },
 }
 
-async function open({viewport = {width:1280, height:900}, touch = false, user = owner} = {}) {
+async function open({viewport = {width:1280, height:900}, touch = false, user = owner, failProfile = false} = {}) {
   reset(user)
+  profileFailure = failProfile
   const status = {mode:'accounts', setupRequired:false, bootstrapRequired:false, signupEnabled:false, user}
   const context = await browser.newContext({viewport, hasTouch:touch, isMobile:touch})
   const page = await context.newPage()
   const errors = []
   page.on('pageerror', e => errors.push(e.message))
   const unmocked = await installApi(page, {status, extra})
+  // A failed profile read is a status the shared fixture's JSON answers cannot send.
+  await page.route('**/api/v2/profile', async route => {
+    if (profileFailure) return route.fulfill({status:500, json:{error:'down'}})
+    return route.fallback()
+  })
   // The stale-order case needs a 409 status, which the shared fixture's own answers cannot send.
   await page.route('**/api/v2/profile/model-favourites/order', async route => {
     if (staleOrder) { staleOrder = false; return route.fulfill({status:409, json:{error:'Your favourites changed. Reload them, then try again.'}}) }
@@ -120,6 +126,16 @@ try {
   }
 
   // A model needs its agent: the page refuses before the server, and nothing is PATCHed.
+  if (run('a failed profile read keeps Save locked')) {
+    const {context, page, errors} = await open({failProfile:true})
+    const save = page.getByRole('button', {name:'Save defaults'})
+    await expect(save).toBeDisabled()
+    await expect(page.getByRole('button', {name:'Retry'})).toBeVisible()
+    expect(patches).toEqual([])
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
   if (run('model needs agent')) {
     const {context, page, errors} = await open()
     await page.getByLabel('Default agent', {exact:true}).selectOption('claude')

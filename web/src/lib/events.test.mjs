@@ -71,6 +71,8 @@ test('a profile edit that names a default reads as a default change line', () =>
   assert.equal(eventLabel(event('profile', { defaultModel: 'opus' })), 'Changed the default model to opus')
   assert.equal(eventLabel(event('profile', { defaultEffort: 'high' })), 'Changed the default thinking to high')
   assert.equal(eventLabel(event('profile', { defaultTool: 'cline', defaultModel: 'opus', defaultEffort: 'high' })), 'Changed the default agent to Cline, model to opus and thinking to high')
+  assert.equal(eventLabel(event('profile', { defaultTool: '' })), 'Cleared the default agent')
+  assert.equal(eventLabel(event('profile', { defaultTool: 'cline', defaultModel: '' })), 'Changed the default agent to Cline, and cleared the default model')
   assert.equal(eventLabel(event('profile', { theme: 'dark' })), 'Updated your profile')
 })
 test('activity events fall into the areas the filters offer', () => {

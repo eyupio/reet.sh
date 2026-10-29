@@ -67,6 +67,7 @@
  // Favourites and the chosen machine's list are helpers only: a failed read changes the status line and nothing else.
  let favourites = $state<ModelFavourite[]>([])
  let favouritesLoadSeq = 0
+ let favouriteMutationSeq = 0
  let favouriteQueue: Promise<void> = Promise.resolve()
  let favouriteNote = $state('')
  type ModelRead = { key: string; loading: boolean; machine: MachineModels | null; error: string }
@@ -193,7 +194,7 @@
    modelList = { key, loading: false, machine: next, error: '' }
   } catch (e) {
    if (life.signal.aborted || modelList.key !== key) return
-   if (e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+   if (e instanceof UnauthorizedError || e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
    const sentence = `Couldn’t read ${machine?.host || 'the machine'}’s models just now. Favourites and suggestions still work.`
    modelList = { key, loading: false, machine: failedModels(tool, sentence, modelList.machine), error: sentence }
   }
@@ -217,7 +218,7 @@
    else modelList = { key, loading: false, machine: next, error: '' }
   } catch (e) {
    if (life.signal.aborted || modelList.key !== key) return
-   if (e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+   if (e instanceof UnauthorizedError || e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
    const sentence = e instanceof TerminalError && e.status === 429 ? 'Slow down a moment, then try again. The last list is still here.'
     : e instanceof TerminalError && e.status === 409 ? 'Another read is already running. Try again in a moment. The last list is still here.'
     : `Couldn’t refresh ${machine?.host || 'the machine'}’s models. The last list is still here.`
@@ -235,7 +236,7 @@
    ])
    if (!life.signal.aborted && seq === favouritesLoadSeq) { favourites = answer.favourites ?? []; favouriteNote = '' }
   } catch (e) {
-   if (!life.signal.aborted && e instanceof TerminalError && e.status === 401) onsignedout?.(new UnauthorizedError())
+   if (!life.signal.aborted && (e instanceof UnauthorizedError || e instanceof TerminalError && e.status === 401)) onsignedout?.(new UnauthorizedError())
    else if (!life.signal.aborted && seq === favouritesLoadSeq) favouriteNote = 'Couldn’t read your favourite models just now.'
   } finally { clearTimeout(timer) }
  }
@@ -244,19 +245,23 @@
   if (!agent || !value) return
   const key = favouriteKey(agent, value)
   const beforeEntry = favourites.find(f => favouriteKey(f.tool, f.model) === key) ?? null
+  const mutation = ++favouriteMutationSeq
   favouritesLoadSeq++
   favouriteNote = ''
   favourites = starred ? favourites.filter(f => favouriteKey(f.tool, f.model) !== key) : beforeEntry ? favourites : [...favourites, { tool: agent, model: value, agentDefault: false }]
   favouriteQueue = favouriteQueue.then(async () => {
    try {
     if (starred) await removeModelFavourite(agent, value)
-    else await addModelFavourite(agent, value)
+    else {
+      const answer = await addModelFavourite(agent, value)
+      if (!life.signal.aborted && mutation === favouriteMutationSeq && answer?.favourites) favourites = answer.favourites
+    }
    } catch (e) {
     if (life.signal.aborted) return
-    if (e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+    if (e instanceof UnauthorizedError || e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
     favourites = favourites.filter(f => favouriteKey(f.tool, f.model) !== key)
     if (beforeEntry) favourites = [...favourites, beforeEntry]
-    favouriteNote = e instanceof TerminalError && e.message ? e.message : 'Couldn’t update your favourites just now. Try again.'
+    favouriteNote = (e as { message?: string })?.message ? (e as Error).message : 'Couldn’t update your favourites just now. Try again.'
    }
   })
   await favouriteQueue
@@ -279,7 +284,7 @@
   if (!projectId) return
   try { projectData = await getFolderProject(projectId, life.signal) }
   catch (e) {
-   if (!life.signal.aborted && e instanceof TerminalError && e.status === 401) onsignedout?.(new UnauthorizedError())
+   if (!life.signal.aborted && (e instanceof UnauthorizedError || e instanceof TerminalError && e.status === 401)) onsignedout?.(new UnauthorizedError())
    else if (!life.signal.aborted) projectData = null
   }
  }

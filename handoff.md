@@ -31,12 +31,12 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 
 **#247 (models backend) merged as `16da0bb`; #245 as `1371cb5`; #242 as `961d530`; #231 as `7886511`.**
 The first models UI half is [PR #252](https://github.com/eyupio/reet.sh/pull/252) (M5–M7); the second half is this
-branch's **#TBD** (M8–M11).
+branch is **#255** (M8–M11).
 
 - **Branch and PR:** `ccr-7a7f5a9b-to5imh` holds M8–M11: the Start an agent picker with project/account defaults and
   Cline thinking, Add project/Project settings defaults, Settings › Agents (account defaults and favourites), the
   Machines “Agents” section with cache state and guarded Refresh, Activity and hover-card model lines, docs and the
-  phone/matrix evidence. The PR number is **#TBD** until it is opened; it is **not merged**.
+  phone/matrix evidence. The PR is **#255, open**; it is not merged yet.
 - **Next stage:** Program 2, slice 1 — structured OpenCode sessions with approval cards (Allow once / Deny), behind
   the seven probe conditions. It is the next PR. Model work is done; no more model UI is queued.
 - **Do first:** check the PR's final head with the REST forms
@@ -75,7 +75,7 @@ left out of the first pass, and the Program 2 spike ran in parallel.
 | Copy/paste follow-up | `Exited` cleanup, running 24 h sweep, two concurrent uploads and third refusal at the connector, lost-reply timeout, Scrollback-mid-upload wording, this handoff | merged, [#245](https://github.com/eyupio/reet.sh/pull/245) as `1371cb5` (owner approval; Codex re-review clean) |
 | Models backend | `models-v1`, OpenCode listing, local switch, per-machine cache, read/refresh/list API, favourites, account defaults, project effort, Cline project default | merged, [#247](https://github.com/eyupio/reet.sh/pull/247) as `16da0bb` (owner exception; Codex quota). M0 `c1152ff`, M1 `f4bf81c`, M2 `11afb42`, M3 `9d7f234`, M4 `5490a6c`, docs `3cd34f0` (plan `2a54133`); review fixes `56f5f5b`, `39a61a8`, `a8c9310` |
 | Models UI (M5–M7) | `models.ts`, model/favourite clients, picker star/status/Refresh/Use, launch bar defaults-first, Home account defaults, automatic machine read | **[#252](https://github.com/eyupio/reet.sh/pull/252), open**. Plan `d802ff0`, M5 `a7e0d7d`, picker `9202695`, bar `ca0f972`, review fixes `67feb99`, evidence `24df6cc` |
-| Models UI (M8–M11) | Start an agent picker with project/account defaults and Cline thinking; Add project/Project settings defaults; Settings › Agents; Machines “Agents” cache state and guarded Refresh; Activity/hover-card model lines; docs and phone evidence | **#TBD, open (this branch)**. Plan `docs/superpowers/plans/2026-10-29-agent-models-ui-2.md`; M8–M10 committed before M11 |
+| Models UI (M8–M11) | Start an agent picker with project/account defaults and Cline thinking; Add project/Project settings defaults; Settings › Agents; Machines “Agents” cache state and guarded Refresh; Activity/hover-card model lines; docs and phone evidence | **#255, open (this branch)**. Plan `docs/superpowers/plans/2026-10-29-agent-models-ui-2.md`; M8–M10 committed before M11 |
 | Program 2 | Structured chat over the agent protocol, with approval cards | spike done; OpenCode chosen (27 Oct); hands-on probe of `opencode acp` 1.19.5 done (28 Oct): conditional go for trusted workspaces only; queued as slice 1 below |
 
 Merged into main by the owner while this work was open: #222, #223 (`4791d89`), #224, #225, #228, #229, #230, #232, #233,

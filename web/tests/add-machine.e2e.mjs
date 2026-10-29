@@ -39,6 +39,7 @@ await page.route('**/api/**',async route=>{
   if(syncStatus)return route.fulfill({status:syncStatus,json:{error:'The machines could not be read right now.'}})
   data=emptied?{environments:[],machines:[],agents:[],targets:[],jobs:[]}:{environments:scopes,machines:machinesOf(),agents,targets:[],jobs:[]}
  }
+ else if(path==='/api/v2/models')data={machines:[{agentId:'agent-ws',host:'workstation',state:'listed',models:[{id:'anthropic/claude-sonnet-4-5',provider:'anthropic'},{id:'openai/gpt-5',provider:'openai'}],more:false,source:'opencode models',version:'',fetchedAt:Date.now()-3*3600000,checkedAt:Date.now()-3*3600000,reason:'',sentence:''}]}
  else if(path==='/api/v2/machines/health')data={serverNow:Date.now(),machines:[]}
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
  else if(path==='/api/v2/terminal/machines')data={machines:[]}
@@ -202,6 +203,23 @@ try{
  // With machines listed, there is still one connect action and no second, differently-worded one.
  await expect(addButton()).toHaveCount(1)
  await expect(page.getByRole('button',{name:'Connect a machine',exact:true})).toHaveCount(0)
+
+ // Machine settings now lists the installed agents and the model state. This machine has not connected for
+ // terminals, so it falls back to the sync inventory, shows the saved list's age and disables Refresh.
+ {
+  await card('workstation').locator('summary[aria-label^="More options"]').click()
+  await page.getByRole('menuitem',{name:'Settings…',exact:true}).click()
+  const settings=page.locator('dialog[open]').last()
+  await expect(settings).toBeVisible()
+  await expect(settings.getByRole('heading',{name:'Agents',exact:true})).toBeVisible()
+  const codex=settings.locator('[data-agent="codex"]')
+  await expect(codex).toContainText('Codex')
+  await expect(codex.locator('.model-state')).toHaveText(/^2 read .+ ago$/)
+  await expect(codex.getByRole('button',{name:'Refresh Codex models'})).toBeDisabled()
+  await expect(settings).toContainText('workstation is not connected for terminals')
+  await settings.getByRole('button',{name:'Close settings',exact:true}).click()
+  await expect(settings).toHaveCount(0)
+ }
 
  // Opening writes nothing. The name is empty: no reason yet, no commands, nothing watched.
  const opener=addButton()

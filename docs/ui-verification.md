@@ -1397,6 +1397,61 @@ mismatched project model applied, failed read made Start fail, and group order
 changed; each failed its test and was restored byte-identically.
 
 Not checked: a physical phone or Safari, a 500-model list under a slow reader,
-a real provider-backed OpenCode list, or the M8–M11 screens. Home does not load
-favourites itself (the bar does), a plan deviation recorded here; the account
-defaults and favourite manager still need the Settings UI.
+or a real provider-backed OpenCode list. Home does not load favourites itself
+(the bar does), a plan deviation recorded here; the rest of the model screens
+are in the second UI section below.
+
+## Agent models: second UI half — 29 October 2026 (M8–M11)
+
+Built on the models backend (#247) and the first UI half (#252). This PR finishes the places a
+model or a default is chosen: the Start an agent picker with project/account defaults and Cline
+thinking, Add project/Project settings, Settings › Agents, the Machines “Agents” section, Activity
+and the session hover card, with the docs and phone evidence. This is PR #255, not a merged claim.
+
+Fidelity: the affected screens were rendered with the long-name fixture at 1440×900, 834×1112
+(touch) and 390×844 (touch), in Chromium with reduced motion, and compared with `Main.dc.html`,
+`Tablet.dc.html`, `PhoneHome.dc.html`, `AddProject.dc.html` and the phone session drawing where they
+overlap. The Machines settings dialog keeps the drawing's centred 640 px card at 1440 and 834 and
+becomes the full-screen sheet at 390. Its Agents rows measure 62–64 px, the Refresh button 36 px with
+a mouse and 44 px on touch, and the model-state text 12.16 px; the page had zero horizontal overflow
+at all three widths. Settings › Agents and Start an agent had zero horizontal overflow at the same
+widths. The long host breaks inside the dialog heading and the agent rows wrap rather than widening
+the page.
+
+Additions not in the drawings, each built from the existing dialog/sheet, tokens and type:
+
+- **Settings › Agents** (the account default agent/model/thinking, base branch/worktree defaults,
+  favourites with Move up/Move down/Remove/Add and a default for an agent). The drawings have no
+  account settings page.
+- **The dialog's model picker and Thinking control** (shared listbox/sheet, star, status/Refresh,
+  Other…; Thinking only for Cline). The Start dialog drawing shows the older select.
+- **Add project/Project settings** with the default model picker and Thinking; the drawing shows a
+  free-text model field.
+- **Machines → Settings → Agents** (installed agents, cache state and guarded Refresh). The machine
+  settings drawing has Updates, Sync and Access only.
+- **Activity lines for model reads/favourites/profile defaults**, and the **agent · model line in the
+  session hover card**. Neither is drawn.
+
+Tests and checks:
+
+- `npm --prefix web run check` passed (all unit tests; `svelte-check` found 0 errors and 0 warnings);
+  `npm --prefix web run build` passed.
+- `add-machine.e2e.mjs` passed three runs in a row. It opens a machine's Settings, sees the Agents
+  section read from the sync inventory, the saved list's age, and Refresh disabled with the
+  not-connected sentence. Seen failing before the change.
+- `phone-dialogs.e2e.mjs` passed: 21 dialogs at 320×568, 360×640, 390×844, 412×915, 844×390 and
+  915×412. The machine settings dialog also shows the Agents section, a listed state and an enabled
+  Refresh. Seen failing before the change.
+- `phone-zoom.e2e.mjs` passed: 46 screens at 320, 360, 390 and 412 px, including the machine settings
+  dialog with the Agents section. `sessions-phone.e2e.mjs` passed, including the new hover-card case
+  (`Claude Code · sonnet` on a session row's keyboard focus).
+- `events.test.mjs` covers the new labels and the Agents category; it failed before the labels were
+  added.
+- Mutations, each caught by its test and restored byte-identically (`cp` before, `cmp` after): the
+  offline Refresh disable removed (add-machine failed on `toBeDisabled`); the
+  `machine-models-read` category removed (events test read `account`, expected `agents`); the hover
+  card's model removed (sessions-phone failed on the expected model line).
+
+Not checked: a physical phone, Safari or Firefox, a real provider-backed OpenCode list, a 500-model
+list under a slow reader, a live agent CLI with a project/account default, or a real machine's model
+Refresh. The Add project picker is exercised by its own fixtures, not in this PR's new browser runs.

@@ -1,11 +1,14 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { shell } from '../dialogShell'
   import { canAutoFocus } from '../focus'
-  import { MAX_PROMPT_BYTES, TOOLS, cleanModel, toolName, validateModel, validatePrompt } from '../agentLaunch'
+  import { MAX_PROMPT_BYTES, cleanModel, modelSuggestions, toolChoices, toolName, validateModel, validatePrompt } from '../agentLaunch'
+  import { UnauthorizedError, addModelFavourite, listModelFavourites, removeModelFavourite } from '../api'
+  import { effortChoices, favouriteKey, modelOptions, modelStatus, starLabel, type MachineModels, type ModelFavourite } from '../models'
+  import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
   import { repoMessage, topFolder, validateFolderInput } from '../folderBrowser'
-  import { browseFolder, createFolderProject, getFolderProject, listBranches, readiness, refusalSentence, updateFolderProject, TerminalError,
+  import { browseFolder, createFolderProject, getFolderProject, listBranches, machineModels, readiness, refusalSentence, updateFolderProject, TerminalError,
     type BrowseRepo, type BrowseResult, type FolderProject, type FolderProjectInput, type TerminalMachine, type WorktreeDefault } from '../terminal/api'
   import { cleanPath } from '../projects'
   import FolderBrowser from './FolderBrowser.svelte'
@@ -57,6 +60,18 @@
   let baseBranch = $state(initial?.baseBranch ?? '')
   let defaultTool = $state(initial?.defaultTool ?? '')
   let defaultModel = $state(initial?.defaultModel ?? '')
+  let defaultEffort = $state(initial?.defaultEffort ?? '')
+  // The machine's own agents: Cline only where the connector takes agents-v2 and reports it installed. A saved agent
+  // that the machine no longer offers stays visible, so an edit elsewhere never drops it by itself.
+  const agentOptions = $derived.by(() => {
+    const available = toolChoices(machine).filter(c => c.available).map(c => ({ id: c.id, name: c.name, current: false }))
+    if (defaultTool && !available.some(c => c.id === defaultTool)) {
+      return [{ id: defaultTool, name: toolName(defaultTool), current: true }, ...available]
+    }
+    return available
+  })
+  const effortOptions = $derived(effortChoices(defaultTool))
+  const takesEffort = $derived(effortOptions.length > 1)
   // A project read without its prompt (only the single read carries it) keeps its saved prompt as it is.
   const promptKnown = $derived(!editing || editing.starterPrompt !== undefined || !editing.hasStarterPrompt)
   const machine = $derived(machineFor(host))
@@ -75,15 +90,22 @@
   }
   knowSaved(initial)
 
-  let dialog = $state<HTMLDialogElement>(), folderInput = $state<HTMLInputElement>(), submitButton = $state<HTMLButtonElement>()
+  let dialog = $state<HTMLDialogElement>(), folderInput = $state<HTMLInputElement>(), submitButton = $state<HTMLButtonElement>(), modelButton = $state<HTMLButtonElement>()
   let promptFold = $state<HTMLDetailsElement>(), moreFold = $state<HTMLDetailsElement>()
   let busy = $state(false), message = $state(''), failed = $state(false)
   // A save met someone else's change: Save waits until the latest version is loaded, so the stale one is never sent again.
   let stale = $state(false), reloadButton = $state<HTMLButtonElement>()
   // What this person had changed when the latest version was loaded, to use again on top of it.
-  type Mine = Partial<{ host: string; dir: string; name: string; worktreeDefault: WorktreeDefault; starterPrompt: string; baseBranch: string; defaultTool: string; defaultModel: string }>
+  type Mine = Partial<{ host: string; dir: string; name: string; worktreeDefault: WorktreeDefault; starterPrompt: string; baseBranch: string; defaultTool: string; defaultModel: string; defaultEffort: string }>
   let mine = $state<Mine | null>(null)
   let branches = $state<string[]>([]), branchNote = $state('')
+  // The project's model list and this account's favourites are suggestions only: a failed read changes the status line,
+  // never Save, and Other… still takes any name the agent accepts.
+  let favourites = $state<ModelFavourite[]>([]), favouriteNote = $state('')
+  let favouritesLoadSeq = 0
+  type ModelRead = { key: string; loading: boolean; machine: MachineModels | null; error: string }
+  let modelList = $state<ModelRead>({ key: '', loading: false, machine: null, error: '' })
+  let pickerOpen = $state(false), touch = $state(false)
   // One save: exactly what is sent, kept while its outcome is unknown so Try again sends the same thing.
   let operation = $state<{ input: FolderProjectInput; lost: boolean } | null>(null)
 
@@ -91,6 +113,30 @@
   const ready = $derived(host !== '' && folderProblem === null)
   const promptBytes = $derived(new TextEncoder().encode(starterPrompt).length)
   const chosenRepo = $derived(known.get(dir))
+  // The machine's model list follows the machine and the default agent; a read is only tried where that machine says it
+  // can read models. A failure is a status line: the picker's suggestions, Other and Save stay.
+  const modelKey = $derived(host && defaultTool ? `${host}\u0000${defaultTool}` : '')
+  const modelMachine = $derived(modelList.key === modelKey ? modelList.machine : null)
+  const modelLoading = $derived(!!modelKey && modelList.key === modelKey && modelList.loading)
+  const modelReadError = $derived(modelList.key === modelKey ? modelList.error : '')
+  const modelCapable = $derived(!!machine?.ready && !!machine.capabilities?.models && !machine.capabilities?.modelsOff)
+  const modelLabel = $derived(defaultModel || 'Agent default')
+  const modelStatusLine = $derived.by(() => {
+    if (!defaultTool) return ''
+    const parts: string[] = []
+    if (modelLoading) parts.push(`Reading ${machine?.host || 'the machine'}’s models…`)
+    else if (modelReadError) parts.push(modelReadError)
+    else if (!machine) parts.push('That machine is no longer on this account.')
+    else if (!machine.ready) parts.push(`${machine.host} is offline.`)
+    else if (machine.capabilities?.modelsOff) parts.push('Models are switched off on that machine.')
+    else if (machine.capabilities && !machine.capabilities.models) parts.push('Update reet on that machine to read its models.')
+    else if (modelMachine) {
+      const status = modelStatus(modelMachine, machine.host)
+      parts.push(status.sentence, status.age ? `Read ${status.age}.` : '')
+    }
+    if (favouriteNote) parts.push(favouriteNote)
+    return parts.filter(Boolean).join(' ')
+  })
 
   // Browse requests one at a time for this dialog: the machine answers a second at once with "already listing".
   let queue: Promise<unknown> = Promise.resolve()
@@ -188,9 +234,88 @@
     void readBranches()
   }
 
+  // A new agent that does not take thinking drops a level chosen for the one before; an empty choice has no agent to
+  // carry it either. The saved value loaded with an edit is left for the save check to refuse, rather than changed unseen.
+  function toolChanged() {
+    if (!takesEffort && defaultEffort) defaultEffort = ''
+  }
+
+  async function readModels(agentId: string, tool: string, key: string) {
+    modelList = { key, loading: true, machine: modelList.key === key ? modelList.machine : null, error: '' }
+    try {
+      const next = await machineModels(agentId, tool, life.signal)
+      if (life.signal.aborted || modelList.key !== key) return
+      modelList = { key, loading: false, machine: next, error: '' }
+    } catch (e) {
+      if (life.signal.aborted || modelList.key !== key) return
+      if (e instanceof TerminalError && e.status === 401) { onsignedout?.(e); return }
+      const sentence = `Couldn’t read ${machine?.host || 'the machine'}’s models just now. Favourites, suggestions and Other still work.`
+      modelList = { key, loading: false, machine: null, error: sentence }
+    }
+  }
+  $effect(() => {
+    const key = modelKey, agentId = machine?.agentId ?? '', tool = defaultTool
+    if (!key || !agentId || !tool) return
+    if (untrack(() => modelList.key === key && (modelList.loading || modelList.machine))) return
+    untrack(() => { void readModels(agentId, tool, key) })
+  })
+  async function loadFavourites() {
+    const seq = ++favouritesLoadSeq
+    try {
+      const answer = await listModelFavourites(life.signal)
+      if (!life.signal.aborted && seq === favouritesLoadSeq) { favourites = answer.favourites ?? []; favouriteNote = '' }
+    } catch (e) {
+      if (life.signal.aborted || seq !== favouritesLoadSeq) return
+      if (e instanceof UnauthorizedError) onsignedout?.(e)
+      else favouriteNote = 'Couldn’t read your favourite models just now.'
+    }
+  }
+  function modelOptionsFor(): SlotOption[] {
+    if (!defaultTool) return []
+    return modelOptions({
+      tool: defaultTool, current: defaultModel, machine: modelMachine, favourites, recent: [],
+      suggestions: modelSuggestions(defaultTool), selectedModel: defaultModel,
+      host: machine?.host ?? '', agentName: toolName(defaultTool),
+    }).map(o => o.value === '' ? o : {
+      ...o, starLabel: starLabel(defaultTool, o.value, !!o.starred),
+      onstar: () => { void toggleStar(o.value, !!o.starred) },
+    })
+  }
+  let favouriteQueue: Promise<void> = Promise.resolve()
+  let favouriteMutationSeq = 0
+  async function toggleStar(value: string, starred: boolean) {
+    const tool = defaultTool
+    if (!tool || !value || busy) return
+    const key = favouriteKey(tool, value)
+    const before = favourites.find(f => favouriteKey(f.tool, f.model) === key) ?? null
+    const mutation = ++favouriteMutationSeq
+    favouritesLoadSeq++
+    favouriteNote = ''
+    favourites = starred ? favourites.filter(f => favouriteKey(f.tool, f.model) !== key) : before ? favourites : [...favourites, { tool, model: value, agentDefault: false }]
+    favouriteQueue = favouriteQueue.then(async () => {
+      try {
+        if (starred) await removeModelFavourite(tool, value)
+        else {
+          const answer = await addModelFavourite(tool, value)
+          if (!life.signal.aborted && mutation === favouriteMutationSeq && answer?.favourites) favourites = answer.favourites
+        }
+      } catch (e) {
+        if (life.signal.aborted) return
+        if (e instanceof UnauthorizedError || e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+        favourites = favourites.filter(f => favouriteKey(f.tool, f.model) !== key)
+        if (before) favourites = [...favourites, before]
+        favouriteNote = (e as { message?: string })?.message ? (e as Error).message : 'Couldn’t update your favourites just now. Try again.'
+      }
+    })
+    await favouriteQueue
+  }
+  function openPicker() { if (busy || !defaultTool) return; pickerOpen = true }
+  function pickModel(value: string) { defaultModel = value; edited() }
+
   function shutdown(returnFocus: boolean) {
     life.abort()
     starterPrompt = ''
+    pickerOpen = false
     operation = null
     dialog?.close()
     if (returnFocus && opener?.isConnected) opener.focus()
@@ -203,7 +328,7 @@
   function inputFor(): FolderProjectInput {
     const repo = known.get(dir)
     const isRepo = repo === undefined ? undefined : repo === 'root'
-    const n = name.trim(), model = cleanModel(defaultModel), branch = baseBranch.trim()
+    const n = name.trim(), model = cleanModel(defaultModel), effort = defaultEffort, branch = baseBranch.trim()
     if (!editing) {
       const input: FolderProjectInput = { host, dir }
       if (isRepo !== undefined) input.isRepo = isRepo
@@ -213,6 +338,7 @@
       if (branch) input.baseBranch = branch
       if (defaultTool) input.defaultTool = defaultTool
       if (model) input.defaultModel = model
+      if (effort) input.defaultEffort = effort
       return input
     }
     // A change sends only what changed: absent keeps, "" clears.
@@ -232,20 +358,23 @@
     if (promptKnown && starterPrompt !== (editing.starterPrompt ?? '')) input.starterPrompt = starterPrompt
     if (branch !== editing.baseBranch) input.baseBranch = branch
     else if (moved && branch && isRepo !== true) input.baseBranch = ''
-    if (defaultTool !== editing.defaultTool) input.defaultTool = defaultTool
-    if (model !== editing.defaultModel) input.defaultModel = model
+    if (defaultTool !== (editing.defaultTool ?? '')) input.defaultTool = defaultTool
+    if (model !== (editing.defaultModel ?? '')) input.defaultModel = model
+    if (effort !== (editing.defaultEffort ?? '')) input.defaultEffort = effort
     return input
   }
 
   const definite = (e: unknown) => e instanceof TerminalError && [400, 401, 403, 404, 409, 410, 413, 422, 429].includes(e.status)
   // The field a refusal names, so focus goes there (opening its fold first).
   async function focusField(field: string) {
-    const fold = field === 'starterPrompt' ? promptFold : ['baseBranch', 'defaultTool', 'defaultModel'].includes(field) ? moreFold : undefined
+    const fold = field === 'starterPrompt' ? promptFold : ['baseBranch', 'defaultTool', 'defaultModel', 'defaultEffort'].includes(field) ? moreFold : undefined
     if (fold) fold.open = true
     await tick()
     if (life.signal.aborted) return
-    const target = ({ host: 'machine', dir: 'folder', name: 'name', worktreeDefault: 'worktree', starterPrompt: 'prompt', baseBranch: 'branch', defaultTool: 'tool', defaultModel: 'model' } as Record<string, string>)[field]
-    const el = target ? dialog?.querySelector<HTMLElement>(`#${CSS.escape(`${id}-${target}`)}`) : null
+    const target = ({ host: 'machine', dir: 'folder', name: 'name', worktreeDefault: 'worktree', starterPrompt: 'prompt', baseBranch: 'branch', defaultTool: 'tool', defaultModel: 'model', defaultEffort: 'effort' } as Record<string, string>)[field]
+    let el = target ? dialog?.querySelector<HTMLElement>(`#${CSS.escape(`${id}-${target}`)}`) : null
+    // A disabled model picker has no agent to pick for: the agent select is the field to fix.
+    if (el instanceof HTMLButtonElement && el.disabled) el = dialog?.querySelector<HTMLElement>(`#${CSS.escape(`${id}-tool`)}`) ?? null
     ;(el ?? submitButton)?.focus()
   }
   // Control and format characters and the two Unicode line separators, as the server refuses them.
@@ -256,9 +385,19 @@
     if (Array.from(n).length > 80 || NAME_BAD.test(n)) return 'Give the project a name of 1 to 80 characters, without line breaks or control characters.'
     return ''
   }
+  function modelProblem(): string {
+    if (cleanModel(defaultModel) !== '' && defaultTool === '') return 'Choose a default agent before setting a default model.'
+    return validateModel(defaultModel) ?? ''
+  }
+  function effortProblem(): string {
+    if (defaultEffort === '') return ''
+    if (!takesEffort) return 'A default effort needs a default agent that takes one.'
+    if (!['low', 'medium', 'high'].includes(defaultEffort)) return "Choose low, medium or high thinking, or the agent's default."
+    return ''
+  }
 
   // The fields as they read now, by the name a change sends.
-  const fields = (): Required<Mine> => ({ host, dir, name: name.trim(), worktreeDefault, starterPrompt, baseBranch: baseBranch.trim(), defaultTool, defaultModel: cleanModel(defaultModel) })
+  const fields = (): Required<Mine> => ({ host, dir, name: name.trim(), worktreeDefault, starterPrompt, baseBranch: baseBranch.trim(), defaultTool, defaultModel: cleanModel(defaultModel), defaultEffort })
   function fill(p: Mine) {
     if (p.host !== undefined) host = p.host
     if (p.dir !== undefined) dir = p.dir
@@ -268,6 +407,7 @@
     if (p.baseBranch !== undefined) baseBranch = p.baseBranch
     if (p.defaultTool !== undefined) defaultTool = p.defaultTool
     if (p.defaultModel !== undefined) defaultModel = p.defaultModel
+    if (p.defaultEffort !== undefined) defaultEffort = p.defaultEffort
   }
   // Someone else saved first: read the latest version (with its starter prompt), put it in the fields, and keep what this
   // person had changed in a list they can use again with one press. Nothing is saved until they press Save.
@@ -281,7 +421,7 @@
       if (life.signal.aborted) return
       editing = latest
       fill({ host: latest.host, dir: latest.dir, name: latest.name, worktreeDefault: latest.worktreeDefault, starterPrompt: latest.starterPrompt ?? '',
-        baseBranch: latest.baseBranch, defaultTool: latest.defaultTool, defaultModel: latest.defaultModel })
+        baseBranch: latest.baseBranch, defaultTool: latest.defaultTool ?? '', defaultModel: latest.defaultModel ?? '', defaultEffort: latest.defaultEffort ?? '' })
       known.clear(); notes.clear(); knowSaved(latest); checkSeq++; clearBranches()
       fieldNote = null
       mine = changed.length ? Object.fromEntries(changed.map(k => [k, now[k]])) as Mine : null
@@ -315,6 +455,7 @@
     if (m.baseBranch !== undefined) out.push({ label: 'Default base branch', value: shown(m.baseBranch) })
     if (m.defaultTool !== undefined) out.push({ label: 'Default agent', value: m.defaultTool ? toolName(m.defaultTool) : "The launch bar's choice" })
     if (m.defaultModel !== undefined) out.push({ label: 'Default model', value: shown(m.defaultModel) })
+    if (m.defaultEffort !== undefined) out.push({ label: 'Default thinking', value: shown(m.defaultEffort) })
     return out
   }
 
@@ -327,7 +468,8 @@
       message = ''
       const invalid: [string, string] | null = nameProblem() ? ['name', nameProblem()]
         : promptKnown && validatePrompt(defaultTool, starterPrompt) ? ['starterPrompt', validatePrompt(defaultTool, starterPrompt)!]
-        : validateModel(defaultModel) ? ['defaultModel', validateModel(defaultModel)!] : null
+        : modelProblem() ? ['defaultModel', modelProblem()]
+        : effortProblem() ? ['defaultEffort', effortProblem()] : null
       if (invalid) { failed = true; message = invalid[1]; void focusField(invalid[0]); return }
       const input = inputFor()
       if (editing && Object.keys(input).length === 0) { failed = false; message = 'Nothing has changed.'; return }
@@ -373,7 +515,16 @@
   onMount(() => {
     dialog?.showModal()
     if (canAutoFocus()) folderInput?.focus()
-    return () => { life.abort(); starterPrompt = '' }
+    // A phone opens the model list as the shared bottom sheet; a mouse gets the popover.
+    const coarse = matchMedia('(pointer: coarse)')
+    const readPointer = () => { touch = coarse.matches }
+    readPointer()
+    coarse.addEventListener?.('change', readPointer)
+    void loadFavourites()
+    return () => {
+      life.abort(); starterPrompt = ''
+      coarse.removeEventListener?.('change', readPointer)
+    }
   })
 </script>
 
@@ -468,7 +619,8 @@
 
         <details class="fold" bind:this={moreFold} ontoggle={foldToggled}>
           <summary>More defaults</summary>
-          <div class="fold-body three">
+          <div class="fold-body defaults">
+            <p class="hint defaults-hint">Used when you start a session in this project. You can still change it.</p>
             <div class="field">
               <label class="label" for={`${id}-branch`}>Default base branch</label>
               <input id={`${id}-branch`} bind:value={baseBranch} list={`${id}-branches`} placeholder="The repository's default" autocomplete="off" spellcheck="false" maxlength="255" />
@@ -478,17 +630,33 @@
             <div class="field">
               <label class="label" for={`${id}-tool`}>Default agent</label>
               <div class="select-wrap">
-                <select id={`${id}-tool`} bind:value={defaultTool}>
+                <select id={`${id}-tool`} bind:value={defaultTool} onchange={toolChanged}>
                   <option value="">The launch bar's choice</option>
-                  {#each TOOLS as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
+                  {#each agentOptions as t (t.id)}<option value={t.id} disabled={t.current}>{t.current ? `${t.name} · not available on this machine` : t.name}</option>{/each}
                 </select>
                 <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
               </div>
             </div>
             <div class="field">
-              <label class="label" for={`${id}-model`}>Default model</label>
-              <input id={`${id}-model`} bind:value={defaultModel} placeholder="Agent default" autocomplete="off" spellcheck="false" maxlength="100" />
+              <span class="label">Default model</span>
+              <button id={`${id}-model`} type="button" class="picker" bind:this={modelButton} disabled={!defaultTool}
+                aria-haspopup="dialog" aria-label={`Default model: ${modelLabel}`} onclick={openPicker}>
+                <span class="value">{modelLabel}</span><span class="chev" aria-hidden="true">⌄</span>
+              </button>
+              {#if !defaultTool}<p class="hint">Choose a default agent before setting a default model.</p>{/if}
+              {#if modelStatusLine}<p class="hint model-status">{modelStatusLine}</p>{/if}
             </div>
+            {#if takesEffort}
+              <div class="field">
+                <label class="label" for={`${id}-effort`}>Default thinking</label>
+                <div class="select-wrap">
+                  <select id={`${id}-effort`} bind:value={defaultEffort}>
+                    {#each effortOptions as value (value || 'default')}<option value={value}>{value || 'default'}</option>{/each}
+                  </select>
+                  <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+                </div>
+              </div>
+            {/if}
           </div>
         </details>
       </fieldset>
@@ -505,6 +673,12 @@
       </div>
     </footer>
   </form>
+  {#if pickerOpen}
+    <SlotPicker label="Default model" options={modelOptionsFor()} value={defaultModel} sheet={touch} opener={modelButton}
+      filter="Filter models" status={modelStatusLine}
+      other={{ label: 'Other…', field: 'Model name', validate: validateModel }}
+      onpick={pickModel} onclose={() => { pickerOpen = false }} />
+  {/if}
 </dialog>
 
 <style>
@@ -563,7 +737,13 @@
   summary { cursor: pointer; color: var(--muted); font-size: 13px; width: fit-content; }
   summary:hover { color: var(--ink); }
   .fold-body { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-  .fold-body.three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .fold-body.defaults { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .defaults-hint { grid-column: 1 / -1; }
+  .picker { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-width: 0; height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: 14px var(--sans); text-align: left; cursor: pointer; }
+  .picker:disabled { opacity: .55; cursor: default; }
+  .picker .value { min-width: 0; overflow-wrap: anywhere; }
+  .picker .chev { flex: none; color: var(--muted); }
+  .model-status { overflow-wrap: anywhere; }
   .over { color: var(--bad); }
   footer { display: flex; align-items: center; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--line-soft); }
   .chosen { display: none; }
@@ -586,7 +766,7 @@
   .reload { height: 44px; }
   /* Touch: every control is at least 44 px (a tablet's fields are 42 px with a mouse); the folds' headings too. */
   @media (pointer: coarse) {
-    .ghost, .toggle, .machine-row { height: 44px; }
+    .ghost, .toggle, .machine-row, .picker { height: 44px; }
     input:not([type=checkbox]), select { height: 44px; min-height: 44px; }
     .select-wrap .chev { top: 15px; }
     summary { padding: 12px 0; line-height: 20px; }
@@ -613,7 +793,8 @@
     .toggle { height: 48px; border-radius: 10px; }
     .select-wrap .chev { top: 17px; }
     .pair { flex-direction: column; }
-    .fold-body.three { grid-template-columns: minmax(0, 1fr); }
+    .fold-body.defaults { grid-template-columns: minmax(0, 1fr); }
+    .picker { height: 48px; border-radius: 10px; font-size: 16px; }
     footer { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px 16px 16px; background: var(--bg-sunk); }
     .chosen { display: flex; align-items: baseline; gap: 8px; margin: 0; font-size: 13px; min-width: 0; }
     .chosen .path { flex-grow: 1; min-width: 0; font-family: var(--mono); color: var(--ink); overflow-wrap: anywhere; }

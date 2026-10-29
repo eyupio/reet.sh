@@ -1,11 +1,11 @@
 # Agent models: read from the machine, favourites and defaults
 
-A session can carry a model. Today the value is free text with static hints in
-the browser; the model-name rule is the same in the browser, controller and
-connector (`internal/terminalproto/launch.go`). This PR adds a negotiated
-`models-v1` extension so a machine can list the models its agent reports, caches
-that list on the controller, and lets an account keep favourites and launch
-defaults. The web picker is the next PR; nothing here changes a launch path.
+A session can carry a model. The model-name rule is the same in the browser,
+controller and connector (`internal/terminalproto/launch.go`). A negotiated
+`models-v1` extension lets a machine list the models its agent reports; the
+controller caches that list and lets an account keep favourites and launch
+defaults. The shared model picker is used everywhere a model or default is
+chosen; a list is a suggestion and never changes the launch path.
 
 ## What a machine can list
 
@@ -129,17 +129,34 @@ are available to any signed-in account. Audit rows name the tool and model only:
 
 ## What is here, and what is next
 
-The launch bar now opens on the project, account and favourite defaults, reads
-the chosen machine's list automatically, and shows the agent default, favourites,
-Recent, the machine list by provider, reet's suggestions and Other…, with a star
-and an honest status/Refresh line. A read failure never blocks Start. See
-[terminal layout](ui-verification.md) for the size/touch evidence.
+The models UI now exists wherever a model or a default is chosen:
 
-The Start an agent dialog, Add project/Project settings, Settings › Agents (the
-account default and favourites manager), the Machines "Agents" section, Activity
-and the hover-card model are the next UI PR (M8–M11). Until then the profile
-defaults and favourites are editable only through the API in those places, the
-Start dialog still has its old select, and only OpenCode has a machine list.
+- **Home's launch bar** opens on the project, account and favourite defaults,
+  reads the chosen machine's list automatically, and shows the agent default,
+  favourites, Recent, the machine list by provider, reet's suggestions and
+  Other…, with a star and an honest status/Refresh line.
+- **Start an agent** uses the same picker, applies the project or account
+  defaults when it has one, and offers **Thinking** for an agent that takes it
+  (Cline). A read or star failure only changes the status line and never
+  disables Start.
+- **Add project** and **Project settings** choose the default agent (including
+  Cline), model and thinking with the picker for that project's machine.
+- **Settings › Agents** holds the account defaults for sessions without a
+  project, the base-branch/worktree defaults, and the favourites manager (order,
+  removal, add from any machine's cached list, and a default for an agent).
+- **Machines → a machine's Settings → Agents** lists the installed launchable
+  agents and the model state last read: “42 read 3 h ago”, “not supported”,
+  “couldn't read: timed out”, “off”, “offline” or “update”. **Refresh** asks the
+  machine only when it is online and models-capable; offline disables it and
+  says so. A failed refresh keeps the last list and age.
+- **Activity** names model reads and favourite changes in plain words, and a
+  profile edit that names a default reads as that default change. A session's
+  hover card shows its agent and model.
+
+Only OpenCode has a machine list; other agents show favourites, suggestions and
+Other…, and say so. A per-machine default stays deferred. The next stage is
+Program 2 (structured OpenCode sessions), not more model UI. See
+[terminal layout](ui-verification.md) for the size/touch evidence.
 
 No real provider or paid model was used to test this backend: the listing parser
 and runner are tested with fake executables, the protocol with round-trip and

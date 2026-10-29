@@ -12,7 +12,7 @@
 // Plus: the long skill name fits its heading once the card is expanded. The fixture's names contain no hyphens on purpose;
 // a browser may break a line after a hyphen, which would hide the problem.
 // REET_E2E_ONLY=<regexp> limits the screens (matched against the name), REET_E2E_WIDTHS=320,390 the widths.
-import { chromium } from '@playwright/test'
+import { chromium, expect } from '@playwright/test'
 import { homeExtra, HOST80, installApi, LONGHOST, LONGSKILL, PROJECT80, SESSION80 } from './helpers/longtext.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
@@ -70,7 +70,15 @@ const SCREENS = [
  {name:'sessions', path:'/sessions'},
  {name:'machines', path:'/machines'},
  {name:'machines: start agent dialog', path:'/machines', action:click('Start an agent')},
- {name:'machines: settings dialog', path:'/machines', action:async page => { await page.getByRole('article',{name:LONGHOST}).locator('summary[aria-label^="More options"]').click(); await page.getByRole('menuitem',{name:'Settings…',exact:true}).click() }},
+ {name:'machines: settings dialog', path:'/machines', action:async page => {
+  await page.getByRole('article',{name:LONGHOST}).locator('summary[aria-label^="More options"]').click()
+  await page.getByRole('menuitem',{name:'Settings…',exact:true}).click()
+  const d=page.locator('dialog[open]').last()
+  await expect(d.getByRole('heading',{name:'Agents',exact:true})).toBeVisible()
+  const claude=d.locator('[data-agent="claude"]')
+  await expect(claude.locator('.model-state')).toHaveText(/^2 read .+ ago$/)
+  await expect(claude.getByRole('button',{name:'Refresh Claude Code models'})).toBeEnabled()
+ }},
  {name:'machines: commands dialog', path:'/machines', action:async page => { await page.getByRole('article',{name:LONGHOST}).locator('summary[aria-label^="More options"]').click(); await page.getByRole('menuitem',{name:'Commands…',exact:true}).click() }},
  {name:'machine focus page', path:`/machines?machine=${LONGHOST}`},
  {name:'sync', path:'/sync'},
@@ -96,7 +104,7 @@ const SCREENS = [
  {name:'support', path:'/support'},
  {name:'support ticket', path:'/support/41'},
  {name:'notifications', path:'/notifications'},
- ...['profile','security','sso','sessions','mcp','tokens','backups'].map(p => ({name:`account ${p}`, path:`/account/${p}`})),
+ ...['profile','agents','security','sso','sessions','mcp','tokens','backups'].map(p => ({name:`account ${p}`, path:`/account/${p}`})),
  {name:'activity', path:'/activity'}, // /activity is rewritten to /account/activity in place (no reload) and opens the account's Activity section
  // The Add project sheet behind the rail's Add (on the Sessions screen on a phone), with a 120-character folder chosen and the
  // browser open on it: the folder field, the breadcrumb, the folder names and the pinned chosen folder.

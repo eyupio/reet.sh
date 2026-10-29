@@ -1,5 +1,6 @@
 import type { Machine } from './api'
-import { CATALOGUE } from './catalogue'
+import { CATALOGUE, agentChoices } from './catalogue'
+import type { TerminalMachine } from './terminal/api'
 
 // What the "Start an agent" dialog checks before it asks a machine to start an agent CLI, and the exact sentences it
 // shows when the machine or the controller refuses. Pure: no DOM, no fetch. The limits match the controller and the
@@ -12,8 +13,8 @@ export const TOOLS: { id: string; name: string }[] = [
   { id: 'opencode', name: 'OpenCode' },
   { id: 'gemini', name: 'Gemini CLI' },
 ]
-// These two take the prompt as an operand and could read a one-word prompt as a subcommand.
-const NEEDS_TWO_WORDS = new Set(['claude', 'codex'])
+// These take the prompt as an operand and could read a one-word prompt as a subcommand.
+const NEEDS_TWO_WORDS = new Set(['claude', 'codex', 'cline'])
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,99}$/
 const SOMETHING_CHANGED = 'Something changed. Check again.'
 
@@ -24,14 +25,13 @@ export const toolName = (tool: string | undefined): string => (tool ? nameOf(too
 
 const UPDATE_TO_LAUNCH = 'Update reet on this machine to start agents.'
 export type ToolChoice = { id: string; name: string; available: boolean; reason: string }
-/** Every built-in tool, offered only when the machine takes launch requests and reports the tool as installed. */
-export function toolChoices(caps: { launch?: boolean; tools?: unknown } | undefined): ToolChoice[] {
-  const launch = caps?.launch === true
-  const tools = Array.isArray(caps?.tools) ? caps.tools : []
-  return TOOLS.map(t => {
-    const available = launch && tools.includes(t.id)
-    return { id: t.id, name: t.name, available, reason: available ? '' : launch ? 'Not installed on this machine.' : UPDATE_TO_LAUNCH }
-  })
+/** Every catalogue agent, offered only when the machine takes launch requests and reports it installed. The catalogue and
+ *  the machine's own gate decide: an old connector keeps the original four, an agents-v2 one may offer Cline too. */
+export function toolChoices(machine: TerminalMachine | undefined): ToolChoice[] {
+  if (!machine) return CATALOGUE.map(agent => ({ id: agent.id, name: agent.name, available: false, reason: UPDATE_TO_LAUNCH }))
+  return agentChoices(machine).map(choice => ({
+    id: choice.agent.id, name: choice.agent.name, available: choice.available, reason: choice.reason ?? '',
+  }))
 }
 
 /** The Activity line for a `terminal-launch` audit event (machine, host, tool, model, dir; the prompt is never recorded). */
@@ -221,10 +221,11 @@ export function preselect(machines: { agentId: string; host: string; ready: bool
   return { agentId: ready.agentId, note: from ? `${from.host} isn't ready, so ${ready.host} is selected.` : '' }
 }
 
-export type LaunchChoices = { key: string; model: string; folder: string }
-/** A new machine or agent (the key) starts the model and folder afresh; the same key keeps them exactly. */
-export function rekey(prev: LaunchChoices, key: string): LaunchChoices {
-  return prev.key === key ? prev : { key, model: '', folder: '' }
+export type LaunchChoices = { key: string; model: string; folder: string; effort?: string }
+/** A new machine or agent (the key) re-resolves the model and effort to the given defaults and clears the folder; the same
+ *  key keeps every choice exactly. */
+export function rekey(prev: LaunchChoices, key: string, defaults: { model?: string; folder?: string; effort?: string } = {}): LaunchChoices {
+  return prev.key === key ? prev : { key, model: defaults.model ?? '', folder: defaults.folder ?? '', effort: defaults.effort ?? '' }
 }
 
 /** Which field a definite refusal is about, so focus can go there. */

@@ -208,6 +208,7 @@ jobs:
             sleep 1
           done
           node web/tests/phone-dialogs.e2e.mjs
+          node web/tests/account.e2e.mjs
           node web/tests/launch.e2e.mjs
           node web/tests/sessions.e2e.mjs
           node web/tests/sessions-phone.e2e.mjs

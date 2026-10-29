@@ -24,13 +24,16 @@ try {
  // person changed, so they can use it again on top of the latest one; the next save names the latest version.
  if (run('stale edit loads the latest and keeps my changes')) {
   let version = 3
+  let current = saved({starterPrompt:'Read the README first'})
   const patches = []
   const routes = {'/api/v2/folder-projects/fp1': request => {
-   if (request.method() === 'GET') return {status:200, json:version === 3 ? saved({starterPrompt:'Read the README first'}) : saved({version:4, defaultModel:'opus', worktreeDefault:'no', starterPrompt:'Read the README first'})}
+   if (request.method() === 'GET') return current
    const body = request.postDataJSON(), match = request.headers()['if-match']
    patches.push({body, match})
    if (match !== `"${version}"`) return refuse(409, 'project_changed', 'Someone changed this project. Reload it, then try again.')
-   return saved({version:5, name:body.name ?? 'reet', defaultModel:body.defaultModel ?? 'opus', worktreeDefault:'no'})
+   current = saved({...current, ...body, version:version + 1, starterPrompt:''})
+   version++
+   return current
   }}
   const {context,page,errors} = await open({query:'?edit=fp1', routes})
   await page.getByRole('button', {name:'Edit', exact:true}).click()
@@ -38,8 +41,14 @@ try {
   await expect(d).toBeVisible()
   await d.getByRole('textbox', {name:/^Name/}).fill('reet two')
   await d.locator('summary', {hasText:'More defaults'}).click()
-  await d.getByRole('textbox', {name:'Default model'}).fill('sonnet')
+  await d.getByRole('combobox', {name:'Default agent'}).selectOption('cline')
+  await d.getByRole('button', {name:/^Default model:/}).click()
+  const list = page.getByRole('listbox', {name:'Default model'})
+  await list.getByRole('option', {name:'openai/gpt-5', exact:true}).click()
+  await d.getByRole('combobox', {name:'Default thinking'}).selectOption('high')
+  // Someone else saved a non-effort agent and a model of their own.
   version = 4
+  current = saved({version:4, defaultTool:'claude', defaultModel:'sonnet', defaultEffort:'', worktreeDefault:'no', starterPrompt:'Read the README first'})
   await d.getByRole('button', {name:'Save changes'}).click()
   await expect(d.getByRole('status')).toHaveText('Someone changed this project. Reload it, then try again.')
   // The stale version is never sent again: Save waits for the latest version.
@@ -48,20 +57,62 @@ try {
   await expect(reload).toBeFocused()
   await reload.click()
   await expect(d.getByRole('textbox', {name:/^Name/})).toHaveValue('reet')
-  await expect(d.getByRole('textbox', {name:'Default model'})).toHaveValue('opus')
+  await expect(d.getByRole('combobox', {name:'Default agent'})).toHaveValue('claude')
+  await expect(d.getByRole('button', {name:/^Default model:/})).toContainText('sonnet')
+  await expect(d.getByRole('combobox', {name:'Default thinking'})).toHaveCount(0)
   await expect(d.getByRole('combobox', {name:'Worktree for each session'})).toHaveValue('no')
   const mine = d.getByRole('region', {name:'Your changes'})
   await expect(mine).toContainText('Name: reet two')
-  await expect(mine).toContainText('Default model: sonnet')
+  await expect(mine).toContainText('Default agent: Cline')
+  await expect(mine).toContainText('Default model: openai/gpt-5')
+  await expect(mine).toContainText('Default thinking: high')
   await expect(mine).not.toContainText('Worktree')
   await mine.getByRole('button', {name:'Use my changes again'}).click()
   await expect(d.getByRole('textbox', {name:/^Name/})).toHaveValue('reet two')
-  await expect(d.getByRole('textbox', {name:'Default model'})).toHaveValue('sonnet')
+  await expect(d.getByRole('combobox', {name:'Default agent'})).toHaveValue('cline')
+  await expect(d.getByRole('button', {name:/^Default model:/})).toContainText('openai/gpt-5')
+  await expect(d.getByRole('combobox', {name:'Default thinking'})).toHaveValue('high')
   await expect(d.getByRole('combobox', {name:'Worktree for each session'})).toHaveValue('no', {timeout:1000})
   await d.getByRole('button', {name:'Save changes'}).click()
   await expect(page.getByRole('status').filter({hasText:'Sorted.'})).toHaveText('Sorted. reet two saved.')
   expect(patches.map(p => p.match)).toEqual(['"3"', '"4"'])
-  expect(patches[1].body).toEqual({name:'reet two', defaultModel:'sonnet'})
+  expect(patches[1].body).toEqual({name:'reet two', defaultTool:'cline', defaultModel:'openai/gpt-5', defaultEffort:'high'})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // An edit saves the default agent, model and thinking, and opening it again reads the same three back.
+ if (run('default agent, model and thinking round-trip through an edit')) {
+  let current = saved({starterPrompt:'', defaultTool:'claude', defaultModel:'sonnet', defaultEffort:''})
+  const patches = []
+  const routes = {'/api/v2/folder-projects/fp1': request => {
+   if (request.method() === 'GET') return current
+   const body = request.postDataJSON()
+   patches.push(body)
+   current = saved({...current, ...body, version:current.version + 1, starterPrompt:''})
+   return current
+  }}
+  const {context,page,errors,box} = await open({query:'?edit=fp1', routes})
+  await page.getByRole('button', {name:'Edit', exact:true}).click()
+  let d = dialog(page)
+  await expect(d).toBeVisible()
+  await d.locator('summary', {hasText:'More defaults'}).click()
+  await d.getByRole('combobox', {name:'Default agent'}).selectOption('cline')
+  await d.getByRole('button', {name:/^Default model:/}).click()
+  await page.getByRole('listbox', {name:'Default model'}).getByRole('option', {name:'anthropic/claude-sonnet-4-5', exact:true}).click()
+  await d.getByRole('combobox', {name:'Default thinking'}).selectOption('high')
+  await d.getByRole('button', {name:'Save changes'}).click()
+  await expect(page.getByRole('status').filter({hasText:'Sorted.'})).toHaveText('Sorted. reet saved.')
+  expect(patches).toEqual([{defaultTool:'cline', defaultModel:'anthropic/claude-sonnet-4-5', defaultEffort:'high'}])
+  // Read back after the save.
+  await page.getByRole('button', {name:'Edit', exact:true}).click()
+  d = dialog(page)
+  await expect(d).toBeVisible()
+  await d.locator('summary', {hasText:'More defaults'}).click()
+  await expect(d.getByRole('combobox', {name:'Default agent'})).toHaveValue('cline')
+  await expect(d.getByRole('button', {name:/^Default model:/})).toContainText('anthropic/claude-sonnet-4-5')
+  await expect(d.getByRole('combobox', {name:'Default thinking'})).toHaveValue('high')
+  expect(box.modelReads).toContain('cline')
   expect(errors).toEqual([])
   await context.close()
  }

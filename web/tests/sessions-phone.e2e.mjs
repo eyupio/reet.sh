@@ -174,6 +174,20 @@ try {
   await context.close()
  }
 
+ // The hover card shows the agent and model the session was started with, alongside where it runs.
+ if (run('hover card model')) {
+  const {context,page,errors} = await openSession({width:390,height:844})
+  await page.locator('.terminal-toolbar').getByRole('button',{name:'Show sessions',exact:true}).click()
+  const row = page.locator('aside#terminal-sessions').getByRole('button',{name:/^Refactor the store layer on studio/})
+  await row.focus()
+  const card = page.locator('.session-card')
+  await expect(card).toBeVisible()
+  await expect(card).toContainText('Claude Code · sonnet')
+  await expect(card).toContainText('reet · studio')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // The phone rail on Sessions (moved from under In flight on Home): the full rail with its menu, Select and state words, under
  // the session groups as the mock-up's "Projects · N" with Add a project; phone Home has no rail any more.
  if (run('phone rail on Sessions')) {

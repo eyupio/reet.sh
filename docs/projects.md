@@ -143,15 +143,16 @@ sends it to the machine.
 
 ## Session and profile fields
 
-The session listing (`GET /api/v2/terminal/sessions`) now carries, for every session, `tool`, `model`,
-`effort` (always `""` for now), `yolo` (always `false` for now) and `projectId` (the folder project it
-was started in, `null` otherwise), and never the prompt. The profile (`GET`/`PATCH /api/v2/profile`)
-gains `defaultBaseBranch` (blank, the repository's own default, or a valid branch name),
+The session listing (`GET /api/v2/terminal/sessions`) carries, for every session, `tool`, `model`,
+`effort` (the chosen thinking level, or `""`) and `projectId` (the folder project it was started in,
+`null` otherwise), and never the prompt. The profile (`GET`/`PATCH /api/v2/profile`) carries
+`defaultBaseBranch` (blank, the repository's own default, or a valid branch name),
 `worktreesByDefault` (true unless changed): the account default a project's `inherit` means, and
 `defaultTool`, `defaultModel`, `defaultEffort` for a session started outside a project. Model
 favourites are per account under `/api/v2/profile/model-favourites`; see
-[agent models](agent-models.md). No page sets these yet: they are set through the API, and the
-launch bar (the next PR) reads them.
+[agent models](agent-models.md). **Add project** and **Project settings** write the project defaults
+with the shared picker (agent including Cline, model and thinking), **Settings › Agents** writes the
+account defaults and favourites, and Home's launch bar and Start an agent read them.
 
 ## Starter prompts
 

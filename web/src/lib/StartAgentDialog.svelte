@@ -1,9 +1,12 @@
 <script lang="ts">
  import { onMount, tick, untrack } from 'svelte'
  import { shell } from './dialogShell'
- import { UnauthorizedError, type Machine } from './api'
- import { createTerminal, readiness, TerminalError, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
+ import { UnauthorizedError, addModelFavourite, getProfile, listModelFavourites, removeModelFavourite, type Machine } from './api'
+ import { CATALOGUE } from './catalogue'
+ import { effortChoices, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from './models'
+ import { createTerminal, getFolderProject, machineModels, readiness, refreshMachineModels, TerminalError, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
  import { MAX_PROMPT_BYTES, cleanModel, notStartedText, folderChoices, launchSentence, modelSuggestions, preselect, refusalField, refusalText, rekey, titleFor, toolChoices, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
+ import SlotPicker, { type SlotOption } from './launch/SlotPicker.svelte'
 
  // Start an agent CLI in a new terminal session on one machine. One screen, one press. The page names a tool id, a model, a
  // folder and a prompt; the machine decides the program and its flags. Nothing here is kept in browser storage or the URL, and
@@ -37,14 +40,18 @@
 
  const id = $props.id()
  const OTHER = '\u0000other', TYPED = '\u0000typed'
- let dialog = $state<HTMLDialogElement>(), machineSelect = $state<HTMLSelectElement>()
+ let dialog = $state<HTMLDialogElement>(), machineSelect = $state<HTMLSelectElement>(), modelButton = $state<HTMLButtonElement>()
  let startButton = $state<HTMLButtonElement>()
  // svelte-ignore state_referenced_locally
  const opening = preselect(machines, initialAgent)
  let agentId = $state(opening.agentId)
  // Said once, while the machine chosen for you is the one shown: why it is not the one you came from.
  const switchedNote = $derived(agentId === opening.agentId ? opening.note : '')
- let tool = $state(''), modelChoice = $state(''), modelOther = $state(''), folderChoice = $state(''), typedDir = $state(''), prompt = $state('')
+ let tool = $state(''), modelChoice = $state(''), modelOther = $state(''), effort = $state(''), folderChoice = $state(''), typedDir = $state(''), prompt = $state('')
+ // An agent, model or thinking level the person chose survives a late project/profile/favourite read for the same agent.
+ // svelte-ignore state_referenced_locally
+ let explicitTool = $state(CATALOGUE.some(agent => agent.id === initialAgent) ? initialAgent : '')
+ let explicitModel = $state(false), explicitEffort = $state(false)
  let attempted = $state(false), busy = $state(false), message = $state(''), failed = $state(false)
  // The status line holds an attempt's validation message only until the person edits a field: it never outlives the mistake it named.
  let invalidMessage = false
@@ -54,33 +61,106 @@
  let operation = $state<Operation | null>(null)
  const life = new AbortController()
 
+ // The project's own defaults (read once) and the account's: resolved with the catalogue's agent gate, never as a list read.
+ let projectData = $state<FolderProject | null>(null)
+ let accountDefaults = $state<{ defaultTool?: string; defaultModel?: string; defaultEffort?: string } | null>(null)
+ // Favourites and the chosen machine's list are helpers only: a failed read changes the status line and nothing else.
+ let favourites = $state<ModelFavourite[]>([])
+ let favouritesLoadSeq = 0
+ let favouriteMutationSeq = 0
+ let favouriteQueue: Promise<void> = Promise.resolve()
+ let favouriteNote = $state('')
+ type ModelRead = { key: string; loading: boolean; machine: MachineModels | null; error: string }
+ let modelList = $state<ModelRead>({ key: '', loading: false, machine: null, error: '' })
+ let touch = $state(false), pickerOpen = $state(false)
+
  const machine = $derived(machines.find(m => m.agentId === agentId))
- const choices = $derived(toolChoices(machine?.capabilities))
+ const choices = $derived(toolChoices(machine))
  // While a request is held or its outcome unknown, the tool is the one it asked for: a machine-list refresh can't change it.
  const chosenTool = $derived(operation ? operation.launch.tool : choices.find(c => c.id === tool && c.available)?.id ?? choices.find(c => c.available)?.id ?? '')
- // A new machine or agent starts the model and folder afresh: no blank select and no earlier choice coming back.
+ const availableAgents = $derived(choices.filter(c => c.available).map(c => c.id))
+ // Explicit agent > project > account > the favourite marked for the agent > the first available agent. A model and an
+ // effort only come with the agent they belong to; a project/account model needs no static hint or machine list.
+ const resolvedDefaults = $derived.by(() => {
+  const base = resolveLaunchDefaults({ explicitAgent: explicitTool, project: projectData, account: accountDefaults, availableAgents })
+  const agent = base.agent && availableAgents.includes(base.agent) ? base.agent : availableAgents[0] ?? ''
+  const next = agent === '' ? { agent: '', model: '', effort: '' }
+   : agent === base.agent ? base
+   : resolveLaunchDefaults({ explicitAgent: agent, project: projectData, account: accountDefaults, availableAgents })
+  const favourite = favourites.find(f => f.agentDefault && f.tool === next.agent)
+  return favourite
+   ? resolveLaunchDefaults({ explicitAgent: next.agent, project: projectData, account: accountDefaults, favouriteDefault: favourite, availableAgents })
+   : next
+ })
+ // A new machine or agent re-resolves the model and thinking to the defaults, and starts the folder afresh: no blank select
+ // and no earlier choice coming back for the wrong agent.
  let choiceKey = ''
- // The project's folder, filled in once, when the machine it is on is the one first chosen.
- // svelte-ignore state_referenced_locally
- let pendingDir = initialDir && opening.agentId === initialAgent ? initialDir : ''
+ // The resolved agent (not the raw radio) is what re-resolves: a late project or profile read that names a different
+ // agent must move the choice too, not only its model.
+ const desiredKey = $derived(agentId + '\u0000' + resolvedDefaults.agent)
  $effect.pre(() => {
-  const key = agentId + '\u0000' + chosenTool
+  const key = desiredKey
+  const defaults = resolvedDefaults
   untrack(() => {
    // Nothing that would change the held request is reset while it is held.
    if (operation) return
-   const next = rekey({ key: choiceKey, model: modelChoice, folder: folderChoice }, key)
+   const next = rekey({ key: choiceKey, model: modelChoice, folder: folderChoice, effort }, key, { model: defaults.model, effort: defaults.effort })
    if (next.key === choiceKey) return
-   choiceKey = next.key; modelChoice = next.model; folderChoice = next.folder; modelOther = ''; typedDir = ''
-   if (pendingDir) {
-    const listed = folderChoices(machines.find(m => m.agentId === agentId), snapshot).some(f => f.path === pendingDir)
-    folderChoice = listed ? pendingDir : TYPED
-    if (!listed) typedDir = pendingDir
-    pendingDir = ''
+   choiceKey = next.key
+   explicitModel = false; explicitEffort = false
+   modelChoice = next.model; effort = next.effort ?? ''; folderChoice = next.folder; modelOther = ''; typedDir = ''
+   tool = defaults.agent
+   // The project's folder is the start for its own machine, including after a machine or agent change.
+   const projectDir = agentId === initialAgent ? initialDir : ''
+   if (projectDir) {
+    const listed = folderChoices(machines.find(m => m.agentId === agentId), snapshot).some(f => f.path === projectDir)
+    folderChoice = listed ? projectDir : TYPED
+    if (!listed) typedDir = projectDir
    }
   })
  })
- const suggestions = $derived(chosenTool ? modelSuggestions(chosenTool) : [])
- const model = $derived(modelChoice === OTHER ? cleanModel(modelOther) : suggestions.includes(modelChoice) ? modelChoice : '')
+ // A late project, profile or favourites read fills the defaults only while the person has not chosen that field.
+ $effect(() => {
+  const key = desiredKey
+  const defaults = resolvedDefaults
+  if (!machine || operation) return
+  untrack(() => {
+   if (key !== choiceKey) return
+   if (!explicitModel && modelChoice !== OTHER && modelChoice !== defaults.model) modelChoice = defaults.model
+   if (!explicitEffort && effort !== defaults.effort) effort = defaults.effort
+  })
+ })
+ // Any model value the picker gives is sent as chosen; a project/account default needs no static hint.
+ const model = $derived(modelChoice === OTHER ? cleanModel(modelOther) : cleanModel(modelChoice))
+ const effortOptions = $derived(effortChoices(chosenTool))
+ const modelLabel = $derived(modelChoice === OTHER ? cleanModel(modelOther) || 'Other…' : modelChoice || 'Agent default')
+ const modelKey = $derived(machine && chosenTool ? `${machine.agentId}\u0000${chosenTool}` : '')
+ const modelMachine = $derived(modelList.key === modelKey ? modelList.machine : null)
+ const modelLoading = $derived(!!modelKey && modelList.key === modelKey && modelList.loading)
+ const modelReadError = $derived(modelList.key === modelKey ? modelList.error : '')
+ const modelCapable = $derived(!!machine?.ready && !!machine?.capabilities?.models && !machine?.capabilities?.modelsOff)
+ const blankModels = (state: MachineModels['state']): MachineModels => ({ tool: chosenTool, state, models: [], more: false, source: '', version: '', fetchedAt: null, checkedAt: null, reason: '', sentence: '' })
+ const modelStatusInfo = $derived.by(() => {
+  const host = machine?.host ?? ''
+  if (!machine) return modelStatus(null, host)
+  // The machine's current facts win over a cached list: offline, off and old do not look freshly read.
+  if (!machine.ready) return modelStatus(modelMachine ? { ...modelMachine, state: 'offline', sentence: '' } : blankModels('offline'), host)
+  if (machine.capabilities?.modelsOff) return modelStatus(modelMachine ? { ...modelMachine, state: 'off', sentence: '' } : blankModels('off'), host)
+  if (machine.capabilities && !machine.capabilities.models) return modelStatus(modelMachine ? { ...modelMachine, state: 'update', sentence: '' } : blankModels('update'), host)
+  if (!modelMachine) return modelStatus(null, host)
+  return modelStatus(modelMachine, host)
+ })
+ const modelStatusLine = $derived.by(() => {
+  if (!modelKey) return ''
+  if (modelLoading) return `Reading ${machine?.host || 'the machine'}’s models…`
+  const ageWord = modelMachine?.state === 'failed' ? 'Checked' : 'Read'
+  const line = [modelReadError || modelStatusInfo.sentence, !modelReadError && modelStatusInfo.age ? `${ageWord} ${modelStatusInfo.age}.` : ''].filter(Boolean).join(' ')
+  return [line, favouriteNote].filter(Boolean).join(' ')
+ })
+ const modelStatusAction = $derived.by(() => {
+  if (!modelKey || !modelStatusInfo.canRefresh || !modelCapable) return undefined
+  return { label: 'Refresh', onclick: () => void refreshModels(), disabled: modelLoading }
+ })
  const folders = $derived(folderChoices(machine, snapshot))
  const dir = $derived(folderChoice === TYPED ? typedDir : folders.some(f => f.path === folderChoice) ? folderChoice : '')
  const promptBytes = $derived(new TextEncoder().encode(prompt).length)
@@ -100,8 +180,128 @@
  // While a request is held, the line says what was asked for, not what the current machine list would offer.
  const sentence = $derived(operation ? launchSentence(operation.launch.tool, operation.launch.dir ?? '', operation.host, !!operation.launch.prompt) : machine && chosenTool ? launchSentence(chosenTool, dir, machine.host, prompt !== '') : '')
 
+ // The machine's list follows the machine and agent. A read failure is a status line: suggestions, Other and Start stay.
+ function failedModels(tool: string, sentence: string, previous: MachineModels | null): MachineModels {
+  return previous
+   ? { ...previous, state: 'failed', sentence, checkedAt: Date.now() }
+   : { tool, state: 'failed', models: [], more: false, source: '', version: '', fetchedAt: null, checkedAt: Date.now(), reason: '', sentence }
+ }
+ async function readModels(agentId: string, tool: string, key: string) {
+  modelList = { key, loading: true, machine: modelList.key === key ? modelList.machine : null, error: '' }
+  try {
+   const next = await machineModels(agentId, tool, life.signal)
+   if (life.signal.aborted || modelList.key !== key) return
+   modelList = { key, loading: false, machine: next, error: '' }
+  } catch (e) {
+   if (life.signal.aborted || modelList.key !== key) return
+   if (e instanceof UnauthorizedError || e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+   const sentence = `Couldn’t read ${machine?.host || 'the machine'}’s models just now. Favourites and suggestions still work.`
+   modelList = { key, loading: false, machine: failedModels(tool, sentence, modelList.machine), error: sentence }
+  }
+ }
+ $effect(() => {
+  const key = modelKey, agentId = machine?.agentId ?? '', tool = chosenTool
+  if (!key || !agentId || !tool) return
+  if (untrack(() => modelList.key === key && (modelList.loading || modelList.machine))) return
+  untrack(() => { void readModels(agentId, tool, key) })
+ })
+ async function refreshModels() {
+  const key = modelKey, agentId = machine?.agentId ?? '', tool = chosenTool
+  if (!key || !agentId || !tool || modelList.loading) return
+  const before = modelList.key === key ? modelList.machine : null
+  modelList = { key, loading: true, machine: before, error: '' }
+  try {
+   const next = await refreshMachineModels(agentId, tool, life.signal)
+   if (life.signal.aborted || modelList.key !== key) return
+   // An offline answer keeps the last list on screen; the status line says the machine is offline.
+   if (next.state === 'offline' && before) modelList = { key, loading: false, machine: { ...next, models: before.models, fetchedAt: before.fetchedAt }, error: '' }
+   else modelList = { key, loading: false, machine: next, error: '' }
+  } catch (e) {
+   if (life.signal.aborted || modelList.key !== key) return
+   if (e instanceof UnauthorizedError || e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+   const sentence = e instanceof TerminalError && e.status === 429 ? 'Slow down a moment, then try again. The last list is still here.'
+    : e instanceof TerminalError && e.status === 409 ? 'Another read is already running. Try again in a moment. The last list is still here.'
+    : `Couldn’t refresh ${machine?.host || 'the machine'}’s models. The last list is still here.`
+   modelList = { key, loading: false, machine: before, error: sentence }
+  }
+ }
+ // Favourites are read once; a star changes the local list first and the API in order, restoring only its own row on failure.
+ async function loadFavourites() {
+  const seq = ++favouritesLoadSeq
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+   const answer = await Promise.race([
+    listModelFavourites(life.signal),
+    new Promise<never>((_, no) => { timer = setTimeout(() => no(new Error('timeout')), 10_000) }),
+   ])
+   if (!life.signal.aborted && seq === favouritesLoadSeq) { favourites = answer.favourites ?? []; favouriteNote = '' }
+  } catch (e) {
+   if (!life.signal.aborted && (e instanceof UnauthorizedError || e instanceof TerminalError && e.status === 401)) onsignedout?.(new UnauthorizedError())
+   else if (!life.signal.aborted && seq === favouritesLoadSeq) favouriteNote = 'Couldn’t read your favourite models just now.'
+  } finally { clearTimeout(timer) }
+ }
+ async function toggleStar(value: string, starred: boolean) {
+  const agent = chosenTool
+  if (!agent || !value) return
+  const key = favouriteKey(agent, value)
+  const beforeEntry = favourites.find(f => favouriteKey(f.tool, f.model) === key) ?? null
+  const mutation = ++favouriteMutationSeq
+  favouritesLoadSeq++
+  favouriteNote = ''
+  favourites = starred ? favourites.filter(f => favouriteKey(f.tool, f.model) !== key) : beforeEntry ? favourites : [...favourites, { tool: agent, model: value, agentDefault: false }]
+  favouriteQueue = favouriteQueue.then(async () => {
+   try {
+    if (starred) await removeModelFavourite(agent, value)
+    else {
+      const answer = await addModelFavourite(agent, value)
+      if (!life.signal.aborted && mutation === favouriteMutationSeq && answer?.favourites) favourites = answer.favourites
+    }
+   } catch (e) {
+    if (life.signal.aborted) return
+    if (e instanceof UnauthorizedError || e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+    favourites = favourites.filter(f => favouriteKey(f.tool, f.model) !== key)
+    if (beforeEntry) favourites = [...favourites, beforeEntry]
+    favouriteNote = (e as { message?: string })?.message ? (e as Error).message : 'Couldn’t update your favourites just now. Try again.'
+   }
+  })
+  await favouriteQueue
+ }
+ function modelOptionsFor(): SlotOption[] {
+  if (!chosenTool) return []
+  return modelOptions({
+   tool: chosenTool, current: model, machine: modelMachine, favourites, recent: [], suggestions: modelSuggestions(chosenTool),
+   selectedModel: model, host: machine?.host ?? '', agentName: toolName(chosenTool),
+  }).map(o => o.value === '' ? o : {
+   ...o, starLabel: starLabel(chosenTool, o.value, !!o.starred), onstar: () => { void toggleStar(o.value, !!o.starred) },
+  })
+ }
+ function openPicker() { if (locked || !chosenTool) return; pickerOpen = true }
+ function pickModel(value: string) { explicitModel = true; modelChoice = value; modelOther = ''; edited() }
+ function selectTool(next: string) { if (locked) return; explicitTool = next; tool = next; edited() }
+
+ // The project is read once for its own defaults; a failure falls back to the account and favourites.
+ async function loadProject() {
+  if (!projectId) return
+  try { projectData = await getFolderProject(projectId, life.signal) }
+  catch (e) {
+   if (!life.signal.aborted && (e instanceof UnauthorizedError || e instanceof TerminalError && e.status === 401)) onsignedout?.(new UnauthorizedError())
+   else if (!life.signal.aborted) projectData = null
+  }
+ }
+ async function loadAccount() {
+  try {
+   const answer = await getProfile()
+   if (life.signal.aborted) return
+   accountDefaults = { defaultTool: answer.profile.defaultTool, defaultModel: answer.profile.defaultModel, defaultEffort: answer.profile.defaultEffort }
+  } catch (e) {
+   if (!life.signal.aborted && e instanceof UnauthorizedError) onsignedout?.(e)
+   else if (!life.signal.aborted) accountDefaults = null
+  }
+ }
+
  function shutdown(returnFocus: boolean) {
   life.abort()
+  pickerOpen = false
   prompt = ''
   operation = null
   dialog?.close()
@@ -122,20 +322,23 @@
  function focusFor(where: string) {
   if (where === 'machine') return field('machine')
   if (where === 'tool') return dialog?.querySelector<HTMLElement>(`input[name="${CSS.escape(`${id}-tool`)}"]:checked`)
+  if (where === 'model') return modelButton
   if (where === 'folder') return folderChoice === TYPED ? field('dir') : field('folder')
   if (where === 'prompt') return field('prompt')
   return startButton
  }
  async function start() {
   if (busy || life.signal.aborted) return
+  pickerOpen = false
   attempted = true
   if (!operation) {
    if (blocked || !machine) return
    // The errors are derived, so they already count this attempt; no await here, or a second press could slip past the busy guard.
-   const invalid = modelError ? ['model-other', modelError] : dirError ? ['dir', dirError] : promptError ? ['prompt', promptError] : null
+   const invalid = modelError ? ['model', modelError] : dirError ? ['dir', dirError] : promptError ? ['prompt', promptError] : null
    if (invalid) { failed = true; message = invalid[1]; invalidMessage = true; field(invalid[0])?.focus(); return }
    const launch: LaunchRequest & { tool: string } = { tool: chosenTool }
    if (model) launch.model = model
+   if (effort && effortOptions.length > 1) launch.effort = effort as NonNullable<LaunchRequest['effort']>
    if (dir) launch.dir = dir
    if (prompt) launch.prompt = prompt
    if (projectId && machine.agentId === initialAgent && dir === initialDir) launch.projectId = projectId
@@ -208,7 +411,16 @@
  onMount(() => {
   dialog?.showModal()
   machineSelect?.focus()
-  return () => { stopLeaving(); life.abort(); prompt = '' }
+  // A phone opens the picker as the shared bottom sheet; a mouse gets the popover.
+  const coarse = matchMedia('(pointer: coarse)')
+  const readPointer = () => { touch = coarse.matches }
+  readPointer()
+  coarse.addEventListener?.('change', readPointer)
+  // The profile is read even without a project, so a machine card or the workspace gets the account defaults.
+  void loadFavourites()
+  void loadAccount()
+  if (projectId) void loadProject()
+  return () => { stopLeaving(); life.abort(); prompt = ''; coarse.removeEventListener?.('change', readPointer) }
  })
 </script>
 
@@ -241,7 +453,7 @@
     <legend>Agent</legend>
     {#each choices as choice (choice.id)}
      <div class="tool" class:off={!choice.available}>
-      <input type="radio" id={`${id}-tool-${choice.id}`} name={`${id}-tool`} value={choice.id} checked={choice.id === chosenTool} disabled={!choice.available} onchange={() => (tool = choice.id)} aria-describedby={choice.available ? undefined : `${id}-why-${choice.id}`} />
+      <input type="radio" id={`${id}-tool-${choice.id}`} name={`${id}-tool`} value={choice.id} checked={choice.id === chosenTool} disabled={!choice.available} onchange={() => selectTool(choice.id)} aria-describedby={choice.available ? undefined : `${id}-why-${choice.id}`} />
       <span><label for={`${id}-tool-${choice.id}`}>{choice.name}</label>{#if !choice.available}<small id={`${id}-why-${choice.id}`} class:vh={!machine?.capabilities?.launch}>{choice.reason}</small>{/if}</span>
      </div>
     {/each}
@@ -249,18 +461,22 @@
 
    <div class="field">
     <label for={`${id}-model`}>Model <span class="optional">optional</span></label>
-    <select id={`${id}-model`} bind:value={modelChoice} disabled={!chosenTool}>
-     <option value="">Agent default</option>
-     {#each suggestions as name (name)}<option value={name}>{name}</option>{/each}
-     <option value={OTHER}>Other…</option>
-    </select>
-    {#if modelChoice === OTHER}
-     <label for={`${id}-model-other`} class="sub">Model name</label>
-     <input id={`${id}-model-other`} bind:value={modelOther} autocomplete="off" spellcheck="false" maxlength="100" aria-invalid={modelError ? 'true' : undefined} aria-describedby={modelError ? `${id}-model-error` : undefined} />
-     {#if modelError}<p class="reason" id={`${id}-model-error`}>{modelError}</p>{/if}
-    {/if}
+    <button id={`${id}-model`} type="button" class="picker" bind:this={modelButton} disabled={!chosenTool}
+      aria-haspopup="dialog" aria-label={`Model: ${modelLabel}`} onclick={openPicker}>
+     <span class="value">{modelLabel}</span><span class="chev" aria-hidden="true">⌄</span>
+    </button>
+    {#if modelChoice === OTHER && modelError}<p class="reason" id={`${id}-model-error`}>{modelError}</p>{/if}
     <p class="hint">Suggestions are hints. The agent says itself if it doesn't know a model.</p>
    </div>
+
+   {#if effortOptions.length > 1}
+    <div class="field">
+     <label for={`${id}-effort`}>Thinking</label>
+     <select id={`${id}-effort`} bind:value={effort} onchange={() => { explicitEffort = true; edited() }} disabled={!chosenTool}>
+      {#each effortOptions as value (value || 'default')}<option value={value}>{value || 'default'}</option>{/each}
+     </select>
+    </div>
+   {/if}
 
    <div class="field">
     <label for={`${id}-folder`}>Folder</label>
@@ -292,6 +508,12 @@
    <button class="btn primary" type="submit" disabled={busy || (!operation && !!blocked)} aria-busy={busy} bind:this={startButton}>{busy ? 'Starting…' : operation ? 'Try the same request again' : 'Start'}</button>
   </footer>
  </form>
+ {#if pickerOpen}
+  <SlotPicker label="Model" options={modelOptionsFor()} value={model} sheet={touch} opener={modelButton}
+   filter="Filter models" status={modelStatusLine} statusAction={modelStatusAction}
+   other={{ label: 'Other…', field: 'Model name', validate: validateModel }}
+   onpick={pickModel} onclose={() => { pickerOpen = false }} />
+ {/if}
 </dialog>
 
 <style>
@@ -313,8 +535,12 @@
  label.sub { font-weight: 500; margin-top: 4px; }
  .optional { color: var(--muted); font-weight: 400; font-size: .78rem; }
  select, input:not([type=radio]), textarea { min-width: 0; width: 100%; min-height: 42px; padding: 8px 10px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+ .picker { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; width: 100%; min-height: 42px; padding: 8px 10px; font: inherit; color: var(--ink); text-align: left; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+ .picker:disabled { opacity: .55; cursor: default; }
+ .picker .value { min-width: 0; overflow-wrap: anywhere; }
+ .picker .chev { flex: none; color: var(--muted); }
  /* A phone zooms into a field under 16 px when it is focused; `font: inherit` above would otherwise beat app.css's rule. */
- @media (max-width: 560px) { select, input:not([type=radio]), textarea { font-size: 16px; } }
+ @media (max-width: 560px) { select, input:not([type=radio]), textarea, .picker { font-size: 16px; } }
  textarea { resize: vertical; min-height: 80px; }
  [aria-invalid='true'] { border-color: var(--bad); }
  .tools { gap: 6px; }

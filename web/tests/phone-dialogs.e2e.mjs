@@ -19,7 +19,7 @@
 //    scrolls the field into view but the dialog itself.
 // REET_E2E_ONLY=<regexp> limits the dialogs, REET_E2E_VIEWPORTS=320x568,844x390 the screens. REET_DIALOG_SHOTS=<dir> saves a
 // screenshot of each state there, and REET_DIALOG_LOG=1 prints what was measured.
-import { chromium } from '@playwright/test'
+import { chromium, expect } from '@playwright/test'
 import { installApi, LONGHOST, sessions } from './helpers/longtext.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
@@ -46,7 +46,14 @@ const DIALOGS = [
  {name:'private skills', path:'/machines', open:p => p.locator('[data-private-skills]:not([disabled])').first().evaluate(el => el.click()), sheet:'full'},
  {name:'skill imports', path:'/machines', open:press('Import a machine skill…'), sheet:'full'},
  {name:'machine commands', path:'/machines', open:cardMenu('Commands…'), primary:'Done', sheet:'full'},
- {name:'machine settings', path:'/machines', open:cardMenu('Settings…'), primary:'Forget machine…', sheet:'full'},
+ {name:'machine settings', path:'/machines', open:cardMenu('Settings…'), primary:'Forget machine…', sheet:'full', check:async page => {
+  const d=page.locator('dialog[open]').last()
+  await expect(d.getByRole('heading',{name:'Agents',exact:true})).toBeVisible()
+  const claude=d.locator('[data-agent="claude"]')
+  await expect(claude.locator('.model-state')).toHaveText(/^2 read .+ ago$/)
+  await expect(claude.getByRole('button',{name:'Refresh Claude Code models'})).toBeEnabled()
+  await expect(d).not.toContainText(/not connected for terminals|is offline/)
+ }},
  {name:'confirmation', path:'/machines', open:async p => { await cardMenu('Settings…')(p); await p.getByRole('button', {name:'Forget machine…'}).click() }, sheet:'bottom'},
  // Folder projects in the project rail, on the Sessions screen on a phone (PR H): Add, a card's Edit, Worktrees and Remove from reet.
  {name:'add project', path:'/sessions', open:press('Add a project', {exact:true}), field:TEXT, sheet:'full'},
@@ -283,6 +290,7 @@ async function check(viewport) {
    } catch (e) { failures.push(`${p.width}x${p.height} ${spec.name}: could not open it (${e.message.split('\n')[0]})`); continue }
    await p.settled()
    await frames(p.page)
+   if (spec.check) { try { await spec.check(p.page) } catch (e) { failures.push(`${p.width}x${p.height} ${spec.name}: ${e.message.split('\n')[0]}`) } }
    const rest = await p.page.evaluate(measure, {primary:spec.primary, last:spec.last})
    await record(p, spec, 'rest', rest)
    failures.push(...problems(rest, {width:p.width, height:p.height, state:'rest', spec}))

@@ -3,10 +3,10 @@
 import { openWorkspace } from './workspace.mjs'
 
 export const HOME = '/home/dev'
-export const caps = over => ({protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,worktree:true,browse:true,branches:true,tools:['claude','codex'],...over})
+export const caps = over => ({protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,agentsV2:true,models:true,worktree:true,browse:true,branches:true,tools:['claude','codex','opencode','gemini','cline'],...over})
 export const machines = [
  {agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:caps()},
- {agentId:'a2',host:'desk',ready:false,serverEnabled:true,capabilities:caps()},
+ {agentId:'a2',host:'desk',ready:false,serverEnabled:true,capabilities:caps({agentsV2:false,models:false})},
 ]
 export const dir = (name, repoRoot=false) => ({name,dir:true,repoRoot,hidden:name.startsWith('.')})
 // The tree: path -> {repo, repoTop, entries}. `big` has 250 folders, so it pages.
@@ -37,12 +37,14 @@ export function browseAnswer(url) {
  const page = shown.slice(0, 200)
  return {path, home:HOME, parent:path === HOME ? '' : path.slice(0, path.lastIndexOf('/')), repo:node.repo, repoTop:node.repoTop ?? '', entries:page, more:shown.length > 200, partial:false, scanned:node.entries.length, omitted:0}
 }
-export const saved = (over={}) => ({id:'fp1',host:'a1',machine:'studio',dir:`${HOME}/reet`,name:'reet',isRepo:true,baseBranch:'',worktreeDefault:'inherit',defaultTool:'',defaultModel:'',hasStarterPrompt:true,note:'',position:0,createdAt:1,updatedAt:1,version:3,...over})
+export const saved = (over={}) => ({id:'fp1',host:'a1',machine:'studio',dir:`${HOME}/reet`,name:'reet',isRepo:true,baseBranch:'',worktreeDefault:'inherit',defaultTool:'',defaultModel:'',defaultEffort:'',hasStarterPrompt:true,note:'',position:0,createdAt:1,updatedAt:1,version:3,...over})
+const modelsFor = tool => ({tool, state:'listed', models:[{id:'anthropic/claude-sonnet-4-5',provider:'anthropic'},{id:'openai/gpt-5',provider:'openai'}], more:false, source:'fixture', version:'', fetchedAt:Date.now(), checkedAt:Date.now(), reason:'', sentence:''})
 
 // The fixture page with the API above. `box.fail` answers the next browse with a refusal; `box.browses` records each one.
 // `options.routes` answers paths of its own, ahead of these.
 export async function openFixture(browser, harness, options={}) {
- const box = {browses:[], writes:[], fail:null, branchReads:[], branchFail:null}
+ const box = {browses:[], writes:[], fail:null, branchReads:[], branchFail:null, modelReads:[], modelFail:null, favouriteReads:0, favouriteFail:null,
+  favourites:[{tool:'cline', model:'anthropic/claude-opus-4-1', agentDefault:false}]}
  const routes = {
   '/api/v2/terminal/machines': {machines},
   '/api/v2/machines/a1/browse': request => {
@@ -58,6 +60,23 @@ export async function openFixture(browser, harness, options={}) {
    if (box.branchFail) { const f = box.branchFail; box.branchFail = null; return f }
    const branches = {[`${HOME}/reet`]:['main','dev'], [`${HOME}/blog`]:['trunk'], [`${HOME}/site`]:[]}[dir]
    return branches ? {current:branches[0] ?? '', default:branches[0] ?? '', branches, more:false} : refuse(422, 'not_repo_root', "That folder isn't the top of a git repository.")
+  },
+  '/api/v2/profile/model-favourites': () => {
+   box.favouriteReads++
+   if (box.favouriteFail) { const f = box.favouriteFail; box.favouriteFail = null; return f }
+   return {version:1, favourites:box.favourites}
+  },
+  '/api/v2/machines/a1/models': request => {
+   const tool = new URL(request.url()).searchParams.get('tool') ?? ''
+   box.modelReads.push(tool)
+   if (box.modelFail) { const f = box.modelFail; box.modelFail = null; return f }
+   return modelsFor(tool)
+  },
+  '/api/v2/machines/a2/models': request => {
+   const tool = new URL(request.url()).searchParams.get('tool') ?? ''
+   box.modelReads.push(tool)
+   if (box.modelFail) { const f = box.modelFail; box.modelFail = null; return f }
+   return modelsFor(tool)
   },
   '/api/v2/folder-projects': request => {
    const body = request.postDataJSON()

@@ -40,6 +40,9 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
    if(state.status.mode==='none')return route.fulfill({status:403,json:{error:'machine health requires an authenticated instance'}})
    return json({serverNow:Date.now(),machines:[]})
   }
+  if(path==='/api/v2/profile/model-favourites')return json(modelFavourites())
+  if(/^\/api\/v2\/machines\/[^/]+\/models$/.test(path))return json(modelList({state:'unsupported', models:[]}))
+  if(/^\/api\/v2\/machines\/[^/]+\/models\/refresh$/.test(path))return json(modelList({state:'unsupported', models:[]}))
   if(path==='/api/v2/terminal/status')return json(terminalStatus)
   if(path==='/api/v2/terminal/machines')return json({machines:terminalMachines})
   if(path==='/api/v2/terminal/sessions')return json({sessions:[]})

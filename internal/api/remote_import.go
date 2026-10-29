@@ -92,7 +92,7 @@ func (s *server) browserSkillImports(w http.ResponseWriter, r *http.Request) {
 }
 func remoteImportError(w http.ResponseWriter, err error) {
 	if err == store.ErrRemoteImportCapacity {
-		writeErr(w, 409, "Import history limit reached (128 requests). Finish or cancel pending work, then dismiss finished request history before creating another.")
+		writeErr(w, 409, "Transfer history is full. Finish or cancel pending work, then dismiss finished request history before creating another.")
 		return
 	}
 	if err == store.ErrRemoteImport || err == store.ErrContentObservationStale || err == store.ErrRemoteNotFound {

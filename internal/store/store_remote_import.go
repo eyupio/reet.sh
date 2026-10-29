@@ -190,7 +190,11 @@ func (s *Store) CreateRemoteImportFor(uid int64, in RemoteImportCreate) (out Rem
 		if err = tx.QueryRow(`SELECT count(*) FROM machine_import_requests WHERE user_id=?`, uid).Scan(&total); err != nil {
 			return err
 		}
-		if total >= 128 {
+		limit := 128
+		if in.SyncSkillID != "" {
+			limit = 1024
+		}
+		if total >= limit {
 			return ErrRemoteImportCapacity
 		}
 		if err = tx.QueryRow(`SELECT count(*) FROM machine_import_requests WHERE agent_id=? AND state IN ('queued','previewing','reviewing','approved','uploading')`, in.AgentID).Scan(&busy); err != nil {
@@ -200,6 +204,11 @@ func (s *Store) CreateRemoteImportFor(uid int64, in RemoteImportCreate) (out Rem
 			return ErrRemoteImport
 		}
 		out = RemoteImport{FollowShelf: in.FollowShelf, SyncSkillID: in.SyncSkillID, DestinationID: in.DestinationID, ID: syncID(), RequestKey: in.RequestKey, AgentID: in.AgentID, EnvironmentID: in.EnvironmentID, Name: in.Name, Instance: instance, State: "queued", BundleID: in.BundleID, ExpectedBase: in.ExpectedBase, CreatedAt: now(), UpdatedAt: now(), ExpiresAt: now() + 10*60*1000, Excluded: []string{}}
+		// A batch may wait behind other skills or an offline destination. No
+		// file preview exists yet; start its short transfer lease on dispatch.
+		if in.SyncSkillID != "" {
+			out.ExpiresAt = now() + 24*60*60*1000
+		}
 		err = tx.QueryRow(`SELECT e.host,e.agent,e.project FROM environments e JOIN sync_agents a ON a.user_id=e.user_id AND a.host=e.host COLLATE NOCASE WHERE e.id=? AND e.user_id=? AND a.id=?`, in.EnvironmentID, uid, in.AgentID).Scan(&out.Host, &out.Agent, &out.Project)
 		if err != nil || !contentobs.ValidScope(out.Agent, out.Project) {
 			return ErrRemoteImport
@@ -259,6 +268,12 @@ func (s *Store) ClaimRemoteImportFor(uid int64, agent, instance string) (work *R
 			return err
 		}
 		for _, r := range pending {
+			if r.State == "queued" && r.SyncSkillID != "" && r.ExpiresAt >= now() {
+				r.Instance = instance
+				if running == 0 {
+					r.ExpiresAt = now() + 10*60*1000
+				}
+			}
 			if r.Instance != instance || r.ExpiresAt < now() {
 				r.State = "expired"
 				r.Error = "preview_expired"

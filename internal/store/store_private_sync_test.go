@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -224,5 +225,32 @@ func TestIndividualMachineCopyPreservesWholeShelfPolicy(t *testing.T) {
 				t.Fatal("individual transfer disabled following shelf", targets, err)
 			}
 		})
+	}
+}
+
+func TestMachineSkillSyncBatchQueuesBeyondInteractiveImportLimit(t *testing.T) {
+	s, uid, a, b, dest, r, _ := machineSyncFixture(t)
+	for i := 1; i < 130; i++ {
+		if _, err := s.RequestMachineSkillSync(uid, "local/demo", b.Host, r.EnvironmentID, fmt.Sprintf("batch_machine_sync_%04d", i), dest, false); err != nil {
+			t.Fatalf("batch stopped at %d: %v", i, err)
+		}
+	}
+	// The binary may have restarted while this request waited in the batch.
+	// It has no approved preview yet, so dispatch reads fresh files and binds
+	// the new connector generation for the subsequent preview/upload steps.
+	if err := s.withTx(func(tx *sql.Tx) error {
+		current, err := readImport(tx, uid, r.ID)
+		if err != nil {
+			return err
+		}
+		current.CreatedAt = now() - 20*60*1000
+		current.ExpiresAt = now() + 1000
+		return writeImport(tx, uid, current)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	work, err := s.ClaimRemoteImportFor(uid, a.ID, strings.Repeat("b", 48))
+	if err != nil || work == nil || work.Instance != strings.Repeat("b", 48) || work.ExpiresAt < now()+9*60*1000 {
+		t.Fatal(work, err)
 	}
 }

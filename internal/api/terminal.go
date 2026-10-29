@@ -41,6 +41,7 @@ func (s *server) registerTerminalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/terminal/socket", s.terminal(s.terminalSocket))
 	mux.HandleFunc("POST /api/v2/terminal/worktrees/status", s.terminal(s.terminalWorktreeStatus))
 	mux.HandleFunc("POST /api/v2/terminal/worktrees/remove", s.terminal(s.terminalWorktreeRemove))
+	s.registerTerminalChatRoutes(mux)
 }
 
 // Deliberately accounts-only in v1. Single-token, anonymous, API and MCP
@@ -209,11 +210,16 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		// ProjectID is the folder project the session belongs to, checked
 		// here and recorded by the controller only; the machine never sees it.
 		ProjectID string `json:"projectId"`
+		// Structured starts an OpenCode chat; trust confirms the repository
+		// plugin warning. Both are controller-side choices and are never
+		// inferred by the machine.
+		Structured bool `json:"structured"`
+		Trust      bool `json:"trust"`
 	}
 	if !terminalJSON(w, r, &in) {
 		return
 	}
-	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project, ProjectID: in.ProjectID, Base: in.Base, Effort: in.Effort, Yolo: in.Yolo, Resume: in.Resume}
+	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project, ProjectID: in.ProjectID, Base: in.Base, Effort: in.Effort, Yolo: in.Yolo, Resume: in.Resume, Structured: in.Structured, Trust: in.Trust}
 	uid := s.uid(r)
 	// The project is checked before any machine is asked, so an unknown
 	// project is refused the same way whether the machine is online or not.
@@ -251,6 +257,16 @@ func (s *server) terminalCreateRecorded(uid int64, agent, requestID string) bool
 // terminalCreateError maps launch refusals to stable codes and plain
 // sentences; every other error keeps its existing terminal mapping.
 func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64, agent, tool string) {
+	var trust *terminalbroker.ACPTrustError
+	if errors.As(err, &trust) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "This folder has OpenCode plugins. Start only in a folder you trust.", "code": "acp_trust_required", "detail": trust.Detail})
+		return
+	}
+	var acpUnavailable *terminalbroker.ACPUnavailableError
+	if errors.As(err, &acpUnavailable) {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": acpUnavailable.Detail, "code": "acp_unavailable", "detail": acpUnavailable.Detail})
+		return
+	}
 	switch {
 	case errors.Is(err, store.ErrFolderProjectNotFound):
 		// The same reply for an unknown id and another account's id.
@@ -291,6 +307,10 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 		writeErrCode(w, http.StatusUnprocessableEntity, "tool_not_installed", "tool", "That agent isn't installed on that machine.", "")
 	case errors.Is(err, terminalbroker.ErrLaunchFailed):
 		writeErrCode(w, http.StatusUnprocessableEntity, "folder_unavailable", "dir", "That folder isn't available on that machine.", "")
+	case errors.Is(err, terminalbroker.ErrACPUnsupported):
+		writeErrCode(w, http.StatusConflict, "acp_unavailable", "", "Update reet on that machine to use OpenCode chats.", "")
+	case errors.Is(err, terminalbroker.ErrACPVersion):
+		writeErrCode(w, http.StatusConflict, "acp_version", "", "Chat needs OpenCode 1.19.5 on that machine.", "")
 	default:
 		terminalError(w, err)
 	}
@@ -314,7 +334,7 @@ func (s *server) terminalToolInstalled(uid int64, agent, tool string) bool {
 // prompt is deliberately absent: it is user text kept only with the session.
 func (s *server) auditTerminalLaunch(uid int64, agent string, in terminalproto.Create, session store.TerminalSession) {
 	host := s.machineHost(uid, agent)
-	detail := map[string]string{"machine": agent, "host": host, "tool": in.Tool, "model": in.Model, "dir": in.Dir, "effort": in.Effort, "base": in.Base, "yolo": strconv.FormatBool(in.Yolo), "resume": strconv.FormatBool(in.Resume)}
+	detail := map[string]string{"machine": agent, "host": host, "tool": in.Tool, "model": in.Model, "dir": in.Dir, "effort": in.Effort, "base": in.Base, "yolo": strconv.FormatBool(in.Yolo), "resume": strconv.FormatBool(in.Resume), "structured": strconv.FormatBool(in.Structured)}
 	if in.ProjectID != "" {
 		detail["projectId"] = in.ProjectID
 	}
@@ -381,6 +401,7 @@ func (s *server) terminalArchive(w http.ResponseWriter, r *http.Request) {
 		terminalError(w, err)
 		return
 	}
+	s.terminals.CloseChat(s.uid(r), r.PathValue("id"))
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 

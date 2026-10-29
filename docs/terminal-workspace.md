@@ -76,14 +76,19 @@ beside it). Its parts:
   are held in memory: nothing is stored, and the address carries only the session's ids.
 - **Header**: the title, `agent · model · started …`, the state pill (Home's state words, with where the word came from in
   its tooltip and read out; while this browser's connection to a live session is down it says that instead, such as
-  "Reconnecting" or "Disconnected", from the connection), a **YOLO** badge when on, **Chat | Terminal** with Terminal chosen and Chat disabled ("Chat
-  arrives with structured sessions.", R21), and the actions menu (⋮, or Shift+F10 on it): Rename, Theatre view, Copy branch,
+  "Reconnecting" or "Disconnected", from the connection), a **YOLO** badge when on, **Chat | Terminal** — Terminal chosen for a shell, Chat chosen for a
+  structured OpenCode chat (and Terminal disabled there), and Chat disabled with its reason for a
+  shell — and the actions menu (⋮, or Shift+F10 on it): Rename, Theatre view, Copy branch,
   End session or Remove from history, Check and remove worktree. Tab from the open menu goes on to the control after ⋮
   (Shift+Tab back to ⋮), and a reconnecting terminal never takes focus out of it. A terminal session shows no steps and no
   progress bar (R10). A tab's close button says the session keeps running, or for a finished one that it stays in its
   history.
 - **The terminal pane**, unchanged. Its footer starts with **Approvals: Ask me** (or **Approvals: YOLO**). When the
   device asks for reduced motion the terminal's cursor does not blink.
+- **The chat pane** for a structured OpenCode session ([structured sessions](structured-sessions.md)): the streamed
+  conversation, tool calls, approval cards with **Allow once** and **Deny**, a composer (Enter sends, Shift+Enter adds a
+  line), **Stop**, and the watchdog's "still working" notice. It asks before an edit or command; there is no shell in this
+  session. It has no terminal or session tabs on a phone; the usual slim header and End actions stay.
 - **Context panel** (340 px): *Where it's working* (machine and whether it is reporting, project, branch, worktree: "own
   copy" or "the checkout"); *Changed files* for a session in its own worktree (the first 20 paths from the worktree status
   and the total, read when the panel opens on the session and again only from **Refresh**, R19); *Skills on this machine*

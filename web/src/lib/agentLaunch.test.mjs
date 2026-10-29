@@ -276,3 +276,16 @@ test('a 200 for a session the machine did not start is said plainly; a started o
   assert.equal(notStartedText('ended'), said)
   for (const state of ['creating', 'running', 'end_requested', 'exited']) assert.equal(notStartedText(state), '')
 })
+
+test('a chat sentence says it asks before it acts', () => {
+  const sentence = launchSentence('opencode', '/home/me/site', 'laptop', false, true)
+  assert.match(sentence, /OpenCode chat/)
+  assert.match(sentence, /asks before it edits a file or runs a command/)
+  assert.match(launchSentence('opencode', '', 'laptop', true, true), /first message/)
+})
+
+test('the chat refusals have plain sentences', () => {
+  assert.match(refusalText(409, 'acp_version'), /OpenCode 1\.19\.5/)
+  assert.match(refusalText(409, 'acp_unavailable', 'No OpenCode here.'), /No OpenCode here\./)
+  assert.match(refusalText(409, 'acp_trust_required', 'This folder has OpenCode plugins.'), /OpenCode plugins/)
+})

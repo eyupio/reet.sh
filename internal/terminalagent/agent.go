@@ -105,6 +105,7 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 				}
 			}()
 		}
+		chats := newChatHost(ctx, opts, generation, send)
 		attachments := map[string]*terminalhost.Attachment{}
 		// worktreeSlot allows one worktree status or remove at a time on this
 		// machine. It runs on its own goroutine so the dispatcher, and the
@@ -205,6 +206,16 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 					reply.Body = terminalproto.Result{Code: terminalproto.YoloRefused}
 					return send(callCtx, reply)
 				}
+			}
+			switch msg.Body.(type) {
+			case *terminalproto.ACPPrompt, *terminalproto.ACPCancel, *terminalproto.ACPPermission:
+				if !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
+			}
+			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Structured && !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) {
+				reply.Body = terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "Update reet on this machine to use OpenCode chats."}
+				return send(callCtx, reply)
 			}
 			// Worktree status and remove are served only on a generation that
 			// negotiated worktree-v1, and are always answered with a
@@ -386,38 +397,78 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 				released = true
 				return nil
 			}
-			if managerErr != nil {
-				return send(callCtx, reply)
-			}
 			switch op := msg.Body.(type) {
+			case *terminalproto.Create:
+				if op.Structured {
+					changed, err := chats.open(msg.RequestID, msg.SessionID, *op)
+					if err != nil {
+						reply.Body = chatResult(err)
+						return send(callCtx, reply)
+					}
+					reply.Body = changed
+					return respond(nil)
+				}
+			case *terminalproto.End:
+				if _, ok := chats.snapshot(msg.SessionID); ok {
+					changed, err := chats.end(msg.SessionID)
+					if err != nil {
+						return respond(err)
+					}
+					reply.Body = changed
+					return respond(nil)
+				}
+			case *terminalproto.ACPPrompt:
+				if err := chats.prompt(msg.SessionID, op.Text); err != nil {
+					return respond(err)
+				}
+				reply.Body = terminalproto.Result{Code: terminalproto.OK}
+				return send(callCtx, reply)
+			case *terminalproto.ACPCancel:
+				if err := chats.cancel(msg.SessionID); err != nil {
+					return respond(err)
+				}
+				reply.Body = terminalproto.Result{Code: terminalproto.OK}
+				return send(callCtx, reply)
+			case *terminalproto.ACPPermission:
+				if err := chats.permission(msg.SessionID, op.PermissionID, op.Allow); err != nil {
+					return respond(err)
+				}
+				reply.Body = terminalproto.Result{Code: terminalproto.OK}
+				return send(callCtx, reply)
 			case *terminalproto.Reconcile:
 				if op.Complete || len(op.Sessions) != 0 {
 					return terminalproto.ErrInvalid
 				}
-				if err := m.Reconcile(callCtx); err != nil {
-					return respond(err)
-				}
-				sessions, err := m.List(callCtx)
-				if err != nil {
-					return respond(err)
-				}
-				// A complete snapshot covers every live shell (at most eight) and recent
-				// final receipts. Older absent controller records safely become lost.
-				sort.Slice(sessions, func(i, j int) bool {
-					if sessions[i].State.ReservesQuota() != sessions[j].State.ReservesQuota() {
-						return sessions[i].State.ReservesQuota()
-					}
-					return sessions[i].UpdatedAt > sessions[j].UpdatedAt
-				})
-				if len(sessions) > 32 {
-					sessions = sessions[:32]
-				}
 				snapshot := terminalproto.Reconcile{Complete: true, Sessions: []terminalproto.SessionSnapshot{}}
-				for _, s := range sessions {
-					snapshot.Sessions = append(snapshot.Sessions, terminalproto.SessionSnapshot{ID: s.ID, Title: s.Title, State: s.State, ExitCode: s.ExitCode})
+				if m != nil {
+					if err := m.Reconcile(callCtx); err != nil {
+						return respond(err)
+					}
+					sessions, err := m.List(callCtx)
+					if err != nil {
+						return respond(err)
+					}
+					sort.Slice(sessions, func(i, j int) bool {
+						if sessions[i].State.ReservesQuota() != sessions[j].State.ReservesQuota() {
+							return sessions[i].State.ReservesQuota()
+						}
+						return sessions[i].UpdatedAt > sessions[j].UpdatedAt
+					})
+					for _, s := range sessions {
+						snapshot.Sessions = append(snapshot.Sessions, terminalproto.SessionSnapshot{ID: s.ID, Title: s.Title, State: s.State, ExitCode: s.ExitCode})
+					}
+				}
+				snapshot.Sessions = append(snapshot.Sessions, chats.snapshots()...)
+				if len(snapshot.Sessions) > 32 {
+					snapshot.Sessions = snapshot.Sessions[:32]
 				}
 				reply.Body = snapshot
 				return respond(nil)
+			}
+			if managerErr != nil {
+				return send(callCtx, reply)
+			}
+			switch op := msg.Body.(type) {
 			case *terminalproto.Create:
 				s, err := m.Create(callCtx, msg.RequestID, msg.SessionID, *op)
 				if err != nil {
@@ -517,6 +568,7 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 		}
 		return handler, func() {
 			cancel()
+			chats.close()
 			if m != nil {
 				m.Close()
 			}

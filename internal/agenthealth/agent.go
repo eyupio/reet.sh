@@ -51,6 +51,7 @@ type AgentConfig struct {
 	uploadsAllowed    bool
 	models            bool
 	modelsAllowed     bool
+	acp               bool
 	OnConnection      func(bool)
 	TerminalSession   TerminalFactory
 	control           func(context.Context, terminalproto.Message) error
@@ -681,6 +682,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.clipboard = terminalproto.SupportsClipboard(advertised)
 	cfg.uploads = terminalproto.SupportsUpload(advertised)
 	cfg.models = terminalproto.SupportsModels(advertised)
+	cfg.acp = terminalproto.SupportsACP(advertised)
 }
 
 // setTerminalFeatures tells the terminal dispatcher which negotiated
@@ -724,6 +726,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.models {
 		features = append(features, terminalproto.ModelsFeature)
+	}
+	if cfg.acp {
+		features = append(features, terminalproto.ACPFeature)
 	}
 	return strings.Join(features, ",")
 }
@@ -800,6 +805,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		UploadsOff:      cfg.uploads && control && enabled && !cfg.uploadsAllowed,
 		Models:          cfg.models && control && enabled && cfg.modelsAllowed,
 		ModelsOff:       cfg.models && control && enabled && !cfg.modelsAllowed,
+		ACP:             cfg.acp && control && enabled && slices.Contains(tools, "opencode"),
 		Branches:        cfg.branches && worktree && enabled,
 		TerminalControl: cfg.TerminalSession != nil,
 		CommandHistory:  cfg.commandHistory && cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin"),

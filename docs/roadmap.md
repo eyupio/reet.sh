@@ -7,7 +7,6 @@ These are directions, not commitments: there are no dates.
 Next, in this order:
 
 - **Copy and paste in sessions, images included.** Paste text without a review step where the agent already guards against it, paste or drop an image into a session (kept in a private folder for that session on its machine, removed after a day), and copy an agent's own copy actions to your clipboard right after you ask for them.
-- **Structured sessions (Program 2).** A chat view over the agent protocol with approval cards (Allow once or Deny), starting with OpenCode in workspaces you trust. Terminal sessions stay as they are.
 
 Later:
 

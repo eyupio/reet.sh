@@ -1125,7 +1125,7 @@ Deviations, each with its reason:
 
 - The sessions panel (left) and the workspace toolbar stay: the panel is how another session is opened in this browser tab (R20's tabs gather there) and its tests and behaviour are #233's. The tabs sit in the toolbar's row instead of a 46 px strip of their own, so the terminal keeps the height `terminal-workspace` holds it to (the usable-height rule must not regress).
 - The context panel docks beside the terminal only with 1100 px of room for the screen (at 1440 with the panel docked at 280 px it does; at 1360 it is behind **Details**), not by the window's width alone: with the sessions panel docked, a 340 px panel at 1360 would leave the terminal under 60 % of the workspace. Theatre view also puts it behind Details. Over the terminal it has its own **Close details** (it covers the header's Details); Escape closes it too.
-- The conversation column is the live terminal pane, unchanged, with its own header (title, host, Live, Disconnect, Manage) and toolbar: the spec's Program 1 conversation. The chat view, plan checklist, edit card, decision card and composer are Program 2 (R21); **Chat** is disabled with "Chat arrives with structured sessions." (tooltip and accessible description).
+- The conversation column is the live terminal pane, unchanged, with its own header (title, host, Live, Disconnect, Manage) and toolbar: the spec's Program 1 conversation. The chat view, plan checklist, edit card, decision card and composer were Program 2 (R21). Since the structured chat slice, **Chat** is enabled for a structured OpenCode session; a shell keeps Chat disabled with "Chat is for a structured OpenCode session." (tooltip and accessible description). The plan checklist and decision cards beyond the approval card are still not built.
 - **Approvals: Ask me** (or YOLO) is the first item of the pane's footer, not a composer's footer: there is no composer until Program 2.
 - The state pill uses Home's state words ("Running", "Exited 0", …) with their source ("From the session's state") in its tooltip and read out; the drawing's "Waiting for you" needs the attention signal (PR G, deferred). No step count or progress bar (R10).
 - Machine line: "studio ● online" from the health report (offline, reconnecting or "no report yet" otherwise); the drawing's machine name is the example's. A session outside a worktree says Branch "Not recorded" and Worktree "the checkout": the listing records a branch only for a worktree session.
@@ -1455,3 +1455,25 @@ Tests and checks:
 Not checked: a physical phone, Safari or Firefox, a real provider-backed OpenCode list, a 500-model
 list under a slow reader, a live agent CLI with a project/account default, or a real machine's model
 Refresh. The Add project picker is exercised by its own fixtures, not in this PR's new browser runs.
+
+## Structured OpenCode chats — 29 October 2026
+
+The session screen's Chat tab and the Start dialog's Chat choice were checked against the existing screen and sheet
+tokens; the drawings have no chat screen, so there is no mock-up comparison. The chat keeps the session header, the
+sessions panel and the phone's slim header. Its additions are a status line, message bubbles, tool rows, approval cards
+and a composer.
+
+- `chat.e2e.mjs` passed at 1360 × 900 and at 390 × 844 with a fake `EventSource`: the Start dialog offered Chat for
+  OpenCode and hid the model picker; the create body carried `structured: true` and `trust: true` but no model or effort;
+  the session opened on Chat with Terminal disabled; streamed agent chunks joined; a command approval was answered with
+  **Allow once**; a message sent; **Stop** cancelled; the phone showed no sideways scroll; and a truncated reset said
+  earlier messages were gone. The fixture also sees no browser storage write.
+- `start-agent.e2e.mjs` passed unchanged (the Chat choice is hidden for an agent without `acp`, so every existing case
+  still holds).
+- `npm --prefix web run check` passed (unit tests including the chat reducer, `svelte-check` 0 errors/0 warnings);
+  `npm --prefix web run build` passed.
+- `go test ./...` passed. `internal/opencodeacp` covers the fake ACP child (permission allow/deny, cancel, timeout, mode
+  refusal, version refusal, plugin trust, watchdog, fs mirror, environment scrub). `TestRealOpenCodeStart` opened a
+  session with the exact `opencode-ai@1.19.5` binary in a throwaway HOME (opt-in; skipped in CI).
+- Not checked: a physical phone, Safari or Firefox, a live model turn or provider, images, modes or MCP servers. The chat
+  history is in memory; a server restart or a machine connection loss ends it.

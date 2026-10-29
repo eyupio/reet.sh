@@ -490,3 +490,20 @@ func TestPrivateIdentityAndAdditiveMigration(t *testing.T) {
 		t.Fatal("identity exposed by formatting/JSON")
 	}
 }
+
+func TestStructuredSessionPersistsAndReadsBack(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	in := terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Dir: "/home/tester/site", Structured: true, Trust: true}
+	got, created, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, in)
+	if err != nil || !created || !got.Structured {
+		t.Fatalf("reserve: %+v created=%v err=%v", got, created, err)
+	}
+	back, err := s.TerminalSessionFor(uid, got.ID)
+	if err != nil || !back.Structured || back.Tool != "opencode" || back.Dir != in.Dir {
+		t.Fatalf("read back: %+v %v", back, err)
+	}
+	list, err := s.TerminalSessionsFor(uid)
+	if err != nil || len(list) != 1 || !list[0].Structured {
+		t.Fatalf("list: %+v %v", list, err)
+	}
+}

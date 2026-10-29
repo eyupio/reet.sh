@@ -2,8 +2,8 @@ import type { Project, ProjectRun, WorktreeStatus, WorktreeTarget } from '../pro
 import type { MachineModels } from '../models'
 
 export type SessionState = 'creating' | 'running' | 'end_requested' | 'ended' | 'exited' | 'lost'
-export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string }
-export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string; structured?: boolean }
+export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -23,7 +23,7 @@ export class TerminalError extends Error {
   constructor(status: number, message: string, code?: string, detail?: string, field?: string) { super(message); this.status = status; if (code) this.code = code; if (detail) this.detail = detail; if (field) this.field = field }
 }
 /** What to start instead of a plain shell. Only the fields that are set are sent; the machine decides the program and flags. */
-export type LaunchRequest = { tool?: string; model?: string; dir?: string; prompt?: string; base?: string; effort?: 'low' | 'medium' | 'high'; yolo?: boolean; resume?: boolean; worktree?: string; project?: string
+export type LaunchRequest = { tool?: string; model?: string; dir?: string; prompt?: string; base?: string; effort?: 'low' | 'medium' | 'high'; yolo?: boolean; resume?: boolean; worktree?: string; project?: string; structured?: boolean; trust?: boolean
   /** The folder project the session belongs to (checked by the controller, never sent to the machine). */
   projectId?: string }
 export function validTerminalTitle(title:string):boolean {return !!title.trim()&&Array.from(title).length<=80&&!/[\p{Cc}\p{Cf}\u2028\u2029]/u.test(title)}
@@ -94,6 +94,8 @@ export async function createTerminal(agentId: string, requestId: string, title: 
   for (const key of ['tool', 'model', 'dir', 'prompt', 'projectId', 'base', 'effort', 'worktree', 'project'] as const) if (launch?.[key]) body[key] = launch[key]
   if (launch?.yolo) body.yolo = true
   if (launch?.resume) body.resume = true
+  if (launch?.structured) body.structured = true
+  if (launch?.trust) body.trust = true
   return (await terminalRequest('/api/v2/terminal/sessions', { method: 'POST', signal, body: JSON.stringify(body) })).json()
 }
 export async function terminalTicket(session: string, cols: number, rows: number, takeover: boolean, signal?: AbortSignal): Promise<string> { return (await (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(session)}/attachments`, { method: 'POST', body: JSON.stringify({ cols, rows, takeover }), signal })).json()).ticket }
@@ -287,3 +289,7 @@ export function branchesURL(agentId: string, dir: string, filter?: string): stri
 }
 export async function browseFolder(agentId: string, query: BrowseQuery, signal?: AbortSignal): Promise<BrowseResult> { return (await terminalRequest(browseURL(agentId, query), { signal: within(signal) })).json() }
 export async function listBranches(agentId: string, dir: string, filter?: string, signal?: AbortSignal): Promise<BranchesResult> { return (await terminalRequest(branchesURL(agentId, dir, filter), { signal: within(signal) })).json() }
+export function chatURL(id: string): string { return `/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat` }
+export async function chatPrompt(id: string, text: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/prompt`, { method: 'POST', body: JSON.stringify({ text }) }) }
+export async function chatCancel(id: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/cancel`, { method: 'POST', body: '{}' }) }
+export async function chatAnswer(id: string, permissionId: string, allow: boolean): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/permissions/${encodeURIComponent(permissionId)}`, { method: 'POST', body: JSON.stringify({ allow }) }) }

@@ -171,6 +171,7 @@ test('session header: agent · model · started, and the decisions line', () => 
   assert.equal(decisionsLine({ yolo: false }), 'Asked in the terminal.')
   assert.equal(decisionsLine({}), 'Asked in the terminal.')
   assert.equal(decisionsLine({ yolo: true }), 'YOLO: reet answers yes, this once, to each request.')
+  assert.equal(decisionsLine({ structured: true }), 'Asked in the chat: Allow once or Deny.')
 })
 
 test('changed files: at most twenty paths and the total', () => {

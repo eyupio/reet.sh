@@ -47,7 +47,7 @@
  let agentId = $state(opening.agentId)
  // Said once, while the machine chosen for you is the one shown: why it is not the one you came from.
  const switchedNote = $derived(agentId === opening.agentId ? opening.note : '')
- let tool = $state(''), modelChoice = $state(''), modelOther = $state(''), effort = $state(''), folderChoice = $state(''), typedDir = $state(''), prompt = $state('')
+ let tool = $state(''), modelChoice = $state(''), modelOther = $state(''), effort = $state(''), folderChoice = $state(''), typedDir = $state(''), prompt = $state(''), structured = $state(false)
  // An agent, model or thinking level the person chose survives a late project/profile/favourite read for the same agent.
  // svelte-ignore state_referenced_locally
  let explicitTool = $state(CATALOGUE.some(agent => agent.id === initialAgent) ? initialAgent : '')
@@ -133,6 +133,8 @@
  // Any model value the picker gives is sent as chosen; a project/account default needs no static hint.
  const model = $derived(modelChoice === OTHER ? cleanModel(modelOther) : cleanModel(modelChoice))
  const effortOptions = $derived(effortChoices(chosenTool))
+ const chatCapable = $derived(chosenTool === 'opencode' && !!machine?.capabilities?.acp)
+ $effect(() => { if (structured && pickerOpen) pickerOpen = false; if (!chatCapable) structured = false })
  const modelLabel = $derived(modelChoice === OTHER ? cleanModel(modelOther) || 'Other…' : modelChoice || 'Agent default')
  const modelKey = $derived(machine && chosenTool ? `${machine.agentId}\u0000${chosenTool}` : '')
  const modelMachine = $derived(modelList.key === modelKey ? modelList.machine : null)
@@ -178,7 +180,7 @@
  const promptError = $derived(chosenTool ? validatePrompt(chosenTool, prompt) ?? '' : '')
  const locked = $derived(busy || operation !== null)
  // While a request is held, the line says what was asked for, not what the current machine list would offer.
- const sentence = $derived(operation ? launchSentence(operation.launch.tool, operation.launch.dir ?? '', operation.host, !!operation.launch.prompt) : machine && chosenTool ? launchSentence(chosenTool, dir, machine.host, prompt !== '') : '')
+ const sentence = $derived(operation ? launchSentence(operation.launch.tool, operation.launch.dir ?? '', operation.host, !!operation.launch.prompt, !!operation.launch.structured) : machine && chosenTool ? launchSentence(chosenTool, dir, machine.host, prompt !== '', structured) : '')
 
  // The machine's list follows the machine and agent. A read failure is a status line: suggestions, Other and Start stay.
  function failedModels(tool: string, sentence: string, previous: MachineModels | null): MachineModels {
@@ -334,11 +336,12 @@
   if (!operation) {
    if (blocked || !machine) return
    // The errors are derived, so they already count this attempt; no await here, or a second press could slip past the busy guard.
-   const invalid = modelError ? ['model', modelError] : dirError ? ['dir', dirError] : promptError ? ['prompt', promptError] : null
+   const invalid = !structured && modelError ? ['model', modelError] : dirError ? ['dir', dirError] : promptError ? ['prompt', promptError] : null
    if (invalid) { failed = true; message = invalid[1]; invalidMessage = true; field(invalid[0])?.focus(); return }
    const launch: LaunchRequest & { tool: string } = { tool: chosenTool }
-   if (model) launch.model = model
-   if (effort && effortOptions.length > 1) launch.effort = effort as NonNullable<LaunchRequest['effort']>
+   if (structured) { launch.structured = true; launch.trust = true }
+   if (!structured && model) launch.model = model
+   if (!structured && effort && effortOptions.length > 1) launch.effort = effort as NonNullable<LaunchRequest['effort']>
    if (dir) launch.dir = dir
    if (prompt) launch.prompt = prompt
    if (projectId && machine.agentId === initialAgent && dir === initialDir) launch.projectId = projectId
@@ -348,7 +351,7 @@
   busy = true; failed = false; invalidMessage = false
   message = `Starting ${toolName(op.launch.tool)} on ${op.host}… this can take a few seconds.`
   try {
-   const session = await createTerminal(op.agentId, op.requestId, op.title, 100, 30, AbortSignal.any([life.signal, AbortSignal.timeout(15000)]), op.launch)
+   const session = await createTerminal(op.agentId, op.requestId, op.title, 100, 30, AbortSignal.any([life.signal, AbortSignal.timeout(structured ? 25000 : 15000)]), op.launch)
    if (life.signal.aborted) return
    // Answered, but the machine did not start it: nothing is running, so this request is done and the next Start is a new one.
    const notStarted = notStartedText(session.state)
@@ -459,6 +462,14 @@
     {/each}
    </fieldset>
 
+   {#if chatCapable}
+    <div class="field chat-choice">
+     <label class="check"><input type="checkbox" bind:checked={structured} onchange={edited} /> Chat, not a terminal</label>
+     <p class="hint">OpenCode asks before it edits a file or runs a command. Any plugins in this folder's <code>.opencode</code> run when the chat starts, so use a folder you trust. Chat history stays in memory and ends when the machine connection does.</p>
+    </div>
+   {/if}
+
+   {#if !structured}
    <div class="field">
     <label for={`${id}-model`}>Model <span class="optional">optional</span></label>
     <button id={`${id}-model`} type="button" class="picker" bind:this={modelButton} disabled={!chosenTool}
@@ -476,6 +487,9 @@
       {#each effortOptions as value (value || 'default')}<option value={value}>{value || 'default'}</option>{/each}
      </select>
     </div>
+   {/if}
+   {:else}
+    <div class="field"><p class="hint">Uses OpenCode's configured model and thinking. The first message is the opening prompt.</p></div>
    {/if}
 
    <div class="field">
@@ -508,8 +522,8 @@
    <button class="btn primary" type="submit" disabled={busy || (!operation && !!blocked)} aria-busy={busy} bind:this={startButton}>{busy ? 'Starting…' : operation ? 'Try the same request again' : 'Start'}</button>
   </footer>
  </form>
- {#if pickerOpen}
-  <SlotPicker label="Model" options={modelOptionsFor()} value={model} sheet={touch} opener={modelButton}
+ {#if pickerOpen && !structured}
+  <SlotPicker label="Model" options={modelOptionsFor()} value={model} sheet={touch} opener={modelButton ?? null}
    filter="Filter models" status={modelStatusLine} statusAction={modelStatusAction}
    other={{ label: 'Other…', field: 'Model name', validate: validateModel }}
    onpick={pickModel} onclose={() => { pickerOpen = false }} />
@@ -556,6 +570,9 @@
  .hint, small { margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.5; }
  .count.over { color: var(--bad); }
  .reason { margin: 0; color: var(--bad); font-size: .83rem; line-height: 1.5; }
+ .chat-choice .check { display: flex; align-items: flex-start; gap: 8px; font-weight: 600; }
+ .chat-choice .check input { margin-top: 2px; }
+ .chat-choice code { font-size: .9em; }
  .sentence { margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--bg); font-size: .85rem; line-height: 1.5; }
  .status { flex: 1 0 100%; margin: 0; font-size: .85rem; line-height: 1.5; }
  .status.bad { color: var(--bad); }

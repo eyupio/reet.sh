@@ -1,15 +1,17 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { getProfile, getSyncState, UnauthorizedError, type SyncState } from '../api'
-  import { folderProjectList, machineHealth, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
+  import { createTerminal, folderProjectList, machineHealth, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
-  import { attentionCount, fleetCards, handedProjects, reporting, inFlight, needsYou, projectRunning, projectWorktrees, sessionOwners, type GroupBy, type HomeSession } from '../home'
+  import { notStartedText, refusalText } from '../agentLaunch'
+  import { attentionCount, fleetCards, handedProjects, reporting, inFlight, needsYou, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type GroupBy, type HomeSession } from '../home'
   import type { LaunchDefaults } from '../launchBar'
   import LaunchBar from '../launch/LaunchBar.svelte'
   import FleetStrip from './FleetStrip.svelte'
   import InFlight from './InFlight.svelte'
   import NeedsYou from './NeedsYou.svelte'
   import ProjectRailHost from './ProjectRailHost.svelte'
+  import NewSessionDialog from './NewSessionDialog.svelte'
 
   // Home on today's data. A writer in accounts mode gets the project rail, the fleet strip, In flight, Needs you and the docked
   // launch bar; everyone else signed in gets the fleet strip alone (R16). Everything comes from the existing loaders and
@@ -50,6 +52,8 @@
   let sessions = $state<HomeSession[] | undefined>()
   let sync = $state<SyncState | undefined>()
   let projects = $state<FolderProject[] | undefined>()
+  // The terminal machines (with readiness and launch capabilities), read with the rest for the launch bar and every start.
+  let terminals = $state<TerminalMachine[] | undefined>()
   let savedWaiting = $state(0)
   // The project an address chose (/?project=<id>): its card is marked and the launch bar opens on it.
   let chosen = $state(new URLSearchParams(location.search).get('project') ?? '')
@@ -63,7 +67,7 @@
   const bounded = () => AbortSignal.any([life.signal, AbortSignal.timeout(POLL_MS)])
 
   const emptySync: SyncState = { environments: [], targets: [], agents: [], jobs: [] }
-  const cards = $derived(fleetCards(health ?? [], sessions ?? [], sync ?? emptySync, now))
+  const cards = $derived(fleetCards(health ?? [], sessions ?? [], sync ?? emptySync, now, terminals ?? []))
   const owners = $derived(sessionOwners(sessions ?? [], projects ?? []))
   const projectColours = $derived(new Map((projects ?? []).map(p => [p.id, p.colour])))
   const groups = $derived(inFlight(sessions ?? [], owners, health ?? [], groupBy, now))
@@ -132,8 +136,6 @@
   const NARROW = '(max-width: 1099px)'
   let narrow = $state(typeof matchMedia === 'function' && matchMedia(NARROW).matches)
 
-  // The launch bar and the Add project dialog need the terminal machines (with their readiness and launch capabilities).
-  let terminals = $state<TerminalMachine[] | undefined>()
   let notice = $state<{ text: string; href?: string; bad?: boolean } | null>(null)
   // The rail and what its cards do (ProjectRailHost); the launch bar's project slot opens its Add project too.
   let host = $state<ProjectRailHost>()
@@ -200,6 +202,51 @@
     void load(true)
   }
 
+  // A machine's + or its menu's New session asks which project on it, or a terminal. The project then starts through the
+  // launch bar, so its defaults, refusals and navigation are the same as the bar's Start.
+  let chooser = $state<{ card: FleetCard; opener: HTMLElement } | null>(null)
+  function newSessionOn(card: FleetCard, opener: HTMLElement) { notice = null; chooser = { card, opener } }
+  function startProjectNow(project: FolderProject) {
+    chooser = null
+    if (!bar) { notice = { text: 'Home is still opening. Try again in a moment.', bad: true }; return }
+    void bar.startProject(project)
+  }
+  // A terminal session is a shell on the machine: no agent, no prompt, no project. It goes straight to the new session.
+  // A request whose reply was lost is kept per machine and sent again with the same request id, exactly as the launch
+  // bar's Start does, so choosing New terminal twice can never make a second shell.
+  type ShellRequest = { requestId: string; title: string }
+  let shellRequests = $state<Record<string, ShellRequest>>({})
+  let shellStarting = ''
+  function forgetShell(agentId: string) { const next = { ...shellRequests }; delete next[agentId]; shellRequests = next }
+  async function startTerminalOn(card: FleetCard, opener?: HTMLElement | null) {
+    chooser = null
+    if (shellStarting) return
+    const why = readiness(terminals?.find(m => m.agentId === card.agentId))
+    if (why) { notice = { text: why, bad: true }; opener?.focus(); return }
+    const request = shellRequests[card.agentId] ?? { requestId: crypto.randomUUID(), title: 'Shell' }
+    if (!shellRequests[card.agentId]) shellRequests = { ...shellRequests, [card.agentId]: request }
+    shellStarting = card.agentId
+    notice = null
+    try {
+      const session = await createTerminal(card.agentId, request.requestId, request.title, 100, 30, bounded())
+      if (life.signal.aborted) return
+      const notStarted = notStartedText(session.state)
+      if (notStarted) { forgetShell(card.agentId); notice = { text: notStarted, bad: true }; return }
+      forgetShell(card.agentId)
+      sessions = [session, ...(sessions ?? []).filter(s => s.id !== session.id)]
+      location.assign(sessionHref(session))
+    } catch (e) {
+      if (life.signal.aborted) return
+      if (e instanceof UnauthorizedError || (e instanceof TerminalError && e.status === 401)) { life.abort(); onsignedout(new UnauthorizedError()); return }
+      if (e instanceof TerminalError && [400, 403, 404, 409, 422].includes(e.status)) {
+        forgetShell(card.agentId)
+        notice = { text: refusalText(e.status, e.code, e.message), bad: true }
+      } else {
+        notice = { text: "We didn't hear back, so the terminal may have started. Choosing New terminal again asks about the same request.", bad: true }
+      }
+    } finally { shellStarting = '' }
+  }
+
   // The redirect note goes into its live region after the page is drawn, so it is announced.
   let movedShown = $state(false)
   onMount(() => {
@@ -232,18 +279,26 @@
   {#if writer}
     <ProjectRailHost bind:this={host} rail={!narrow} {projects} failed={projectsFailed} {savedWaiting} {sessions} {sessionsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees}
       chosen={launchProject ?? chosen} {selecting} {selected} onselecting={setSelecting} ontoggle={toggleSelected} onchoose={(project) => chooseProject(project)}
+      onnew={startProjectNow}
       signal={bounded} onsettle={settle} onwaiting={(n) => (savedWaiting = n)} onmachines={(m) => (terminals = m)} onnotice={(n) => (notice = n)} onreload={() => void load(true)}
       onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
   {/if}
   <div class="column">
     <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? (narrow ? 'Projects now live on the Sessions screen.' : 'Projects now live in the rail on Home.') : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
-    <FleetStrip {cards} sessions={writer && sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined} />
+    <FleetStrip {cards} sessions={writer && sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined}
+      onnew={writer ? newSessionOn : undefined} onterminal={writer ? startTerminalOn : undefined} />
     {#if writer}
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}</div>
       <div class="work">
         <NeedsYou cards={needs} />
         <InFlight {groups} {owners} machines={health ?? []} {offline} {now} loaded={sessions !== undefined} failed={sessionsFailed} {groupBy} onchoose={choose} {projectColours} />
       </div>
+      {#if chooser && writer}
+        <NewSessionDialog host={chooser.card.name} agentId={chooser.card.agentId} machine={terminals?.find(m => m.agentId === chooser?.card.agentId)} machinesLoaded={terminals !== undefined} projects={projects ?? []}
+          loaded={projects !== undefined} onproject={startProjectNow}
+          onterminal={() => { const target = chooser; if (target) void startTerminalOn(target.card, target.opener) }}
+          onclose={() => { const opener = chooser?.opener; chooser = null; opener?.focus() }} />
+      {/if}
       <LaunchBar bind:this={bar} {projects} {projectsFailed} machines={terminals} sessions={sessions} {profile} initialProject={chosen} selection={selecting ? selected : []}
         ready={projects !== undefined && (sessions !== undefined || sessionsFailed) && profileRead}
         onproject={(id) => (launchProject = id)} onstarted={started} onrun={() => void load(true)} onrundone={() => { if (selecting) setSelecting(false) }} onleavefailed={leaveFailed} onaddproject={openAdd} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />

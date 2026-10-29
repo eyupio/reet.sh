@@ -14,7 +14,7 @@
   // projects: 2 to 12 of them; the strip shows how many are chosen.
   let { projects, failed = false, reporting, running, known = true, worktrees, savedWaiting = 0, chosen = '', busy, importing = false, pending, moving = false,
     selecting = false, selected = [], onselecting, ontoggle, variant = 'home', selectAction,
-    onadd, onchoose, onedit, onworktrees, onremove, onmove, ondismiss, onimport, oncolour }: {
+    onadd, onchoose, onnew, onedit, onworktrees, onremove, onmove, ondismiss, onimport, oncolour }: {
     projects: FolderProject[] | undefined
     /** The projects could not be read and none were read before. */
     failed?: boolean
@@ -46,8 +46,10 @@
     /** What Select leads to where there is no launch bar to take the chosen projects (the Sessions screen). */
     selectAction?: Snippet
     onadd: (opener: HTMLElement) => void
-    /** Sets the launch bar's project (a card, or New session here). */
+    /** Sets the launch bar's project (a card, or New session here where it cannot start at once). */
     onchoose: (project: FolderProject, opener: HTMLElement) => void
+    /** Starts a session in this project at once (the card's +, or New session here). Falls back to `onchoose`. */
+    onnew?: (project: FolderProject, opener: HTMLElement) => void
     onedit: (project: FolderProject, opener: HTMLElement) => void
     onworktrees: (project: FolderProject, opener: HTMLElement) => void
     onremove: (project: FolderProject, opener: HTMLElement) => void
@@ -224,6 +226,12 @@
     if (panelOpen) closePanel(false)
     onchoose(p, el)
   }
+  // A card's + and New session here start at once; a page without a launch bar (the Sessions rail) navigates instead.
+  function startCard(p: FolderProject, el: HTMLElement) {
+    if (panelOpen) closePanel(false)
+    if (onnew) onnew(p, el)
+    else onchoose(p, el)
+  }
   function outside(event: PointerEvent) {
     const target = event.target as HTMLElement
     if (menuFor && !target.closest('.menu, .more')) closeMenu()
@@ -300,10 +308,15 @@
                 {#if wt}<span class="wt">{worktreesInUse(wt)}</span>{/if}
               </span>
             </button>
-            {#if !selecting}<button type="button" class="more" aria-label={`More for ${p.name}`} aria-haspopup="menu" aria-expanded={menuFor === p.id}
-              aria-controls={menuFor === p.id ? `${id}-menu-${p.id}` : undefined} onclick={(e) => openMenu(p, e.currentTarget)}>
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
-            </button>{/if}
+            {#if !selecting}
+              {#if onnew}<button type="button" class="start" aria-label={`New session in ${p.name}`} title="Start a session in this project" onclick={(e) => startCard(p, e.currentTarget)}>
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" /></svg>
+              </button>{/if}
+              <button type="button" class="more" aria-label={`More for ${p.name}`} aria-haspopup="menu" aria-expanded={menuFor === p.id}
+                aria-controls={menuFor === p.id ? `${id}-menu-${p.id}` : undefined} onclick={(e) => openMenu(p, e.currentTarget)}>
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
+              </button>
+            {/if}
             {#if p.note}
               <div class="note" role="note">
                 <p>Moved from your saved Projects. The starter prompts of {p.note} weren't kept here; their old runs are in Activity.</p>
@@ -366,7 +379,7 @@
     {@const index = (projects ?? []).findIndex(item => item.id === project.id)}
     <!-- svelte-ignore a11y_interactive_supports_focus -->
     <div class="menu" id={`${id}-menu-${project.id}`} style:left={`${menuX}px`} style:top={`${menuY}px`} role="menu" aria-label={project.name} tabindex="-1" onkeydown={menuKeys}>
-      <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => chooseCard(target, o)) }}>New session here</button>
+      <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => startCard(target, o)) }}>New session here</button>
       <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => onedit(target, o)) }}>Edit</button>
       <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => onworktrees(target, o)) }}>Worktrees</button>
       <button type="button" role="menuitem" disabled={moving || pending.size > 0 || index === 0} onclick={() => { const target = project; closeMenu(true); onmove(target, -1) }}>Move up</button>
@@ -394,7 +407,7 @@
   .card { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
   .card:hover { border-color: var(--line-strong); }
   .card.chosen { border-color: var(--accent); }
-  .top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .top { display: flex; align-items: center; gap: 8px; min-width: 0; padding-right: 58px; }
   .icon { width: 14px; height: 14px; flex: none; }
   .icon.repo { fill: var(--repo); }
   .icon.folder { color: var(--muted); }
@@ -407,9 +420,12 @@
   .state.warn { color: var(--warn); }
   .wt { margin-left: auto; flex: none; white-space: nowrap; }
   /* The card's menu button shows on hover or keyboard focus with a mouse, and always on touch. */
-  .more { position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--card-raised); color: var(--ink-soft); cursor: pointer; opacity: 0; }
-  .more svg { width: 16px; height: 16px; }
-  .item:hover .more, .more:focus-visible, .more[aria-expanded='true'] { opacity: 1; }
+  .more, .start { position: absolute; top: 6px; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--card-raised); color: var(--ink-soft); cursor: pointer; opacity: 0; }
+  .more { right: 6px; }
+  /* The + is always in reach: it is the one press that starts a session in this project. */
+  .start { right: 38px; opacity: 1; }
+  .more svg, .start svg { width: 15px; height: 15px; }
+  .item:hover .more, .more:focus-visible, .start:focus-visible, .more[aria-expanded='true'] { opacity: 1; }
   .menu { position: fixed; z-index: 30; min-width: 198px; display: flex; flex-direction: column; padding: 4px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card-raised); box-shadow: 0 12px 30px var(--scrim); }
   .menu button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
   .menu button:hover:not(:disabled), .menu button:focus-visible { background: var(--line-soft); }
@@ -451,9 +467,11 @@
   @media (pointer: coarse) {
     .close-panel, .head-more { width: 44px; height: 44px; }
     .add { height: 44px; }
-    .card { padding-right: 56px; }
-    .more { opacity: 1; top: 50%; right: 4px; transform: translateY(-50%); width: 44px; height: 44px; border: 0; background: transparent; }
-    .item:has(.note) .more { top: 4px; transform: none; }
+    .card { padding-right: 96px; }
+    .more, .start { opacity: 1; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border: 0; background: transparent; }
+    .more { right: 4px; }
+    .start { right: 48px; }
+    .item:has(.note) .more, .item:has(.note) .start { top: 4px; transform: none; }
     .menu { top: 52px; }
     .menu button { min-height: 44px; }
     .ghost { min-height: 44px; }

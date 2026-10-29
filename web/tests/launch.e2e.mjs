@@ -324,8 +324,9 @@ try {
   await strip.context.close()
  }
 
- // A rail card (or its New session here) puts that project in the sentence with its own defaults: agent, model and worktree
- // choice; its starter prompt is offered with the chip and goes out only once the person uses it.
+ // A rail card puts that project in the sentence with its own defaults: agent, model and worktree choice; its starter
+ // prompt is offered with the chip and goes out only once the person uses it. (The card's + and New session here start at
+ // once instead; Home's browser checks cover that.)
  // The Sessions screen's rail hands its chosen projects over in the address: Home keeps only ids it knows (each once, in rail
  // order), then takes `projects` out of the address (the rest stays), so a reload does not choose them again.
  if (run('projects handed over in the address')) {
@@ -357,13 +358,12 @@ try {
   await expect.poll(() => sentenceText(page)).toBe('Run Codex with gpt-5-codex on Site at studio in the checkout')
   await expect(prompt(page)).toBeFocused()
   await expect(prompt(page)).toHaveValue('')
-  // Back to a project that names no agent (the choice stays, with its own base and worktree), then New session here from
-  // Site's menu: Site's defaults again.
+  // Back to a project that names no agent (the choice stays, with its own base and worktree), then Site's card again:
+  // Site's defaults.
   await pick(page,'Agent','Claude Code')
   await rail.locator('.card').filter({hasText:'Store rewrite'}).click()
   await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
-  await rail.getByRole('button',{name:'More for Site'}).click()
-  await page.getByRole('menuitem',{name:'New session here'}).click()
+  await rail.locator('.card').filter({hasText:'Site'}).click()
   await expect.poll(() => sentenceText(page)).toBe('Run Codex with gpt-5-codex on Site at studio in the checkout')
   await bar(page).getByRole('button',{name:'Use the starter prompt'}).click()
   await expect(prompt(page)).toHaveValue('Tidy the site build and say what changed')

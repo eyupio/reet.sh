@@ -76,12 +76,14 @@ so a finished session's worktree is never counted, and nothing shows at 0. The f
 same figure per machine ("no worktrees in use" included). The foot reads "Folders are browsed live on
 the machine".
 
-Choosing a card, or **New session here** in its menu, sets the launch bar's project: its default agent
-and model, its base branch and its worktree choice go into the sentence, and focus moves to the prompt.
-The start carries the project's id, so the session is listed under it. While the bar has a start out
-or kept for a retry, a card changes nothing and the bar's status line says why. Each card's menu (its button shows on hover or
-keyboard focus with a mouse, always on touch; arrow keys move, Escape closes): **New session here**,
-**Edit**, **Worktrees**, **Move up**, **Move down** and **Remove from reet**.
+Choosing a card sets the launch bar's project: its default agent and model, its base branch and its
+worktree choice go into the sentence, and focus moves to the prompt. The card's **+** and **New
+session here** in its menu start a session in that project at once with those defaults; the start
+carries the project's id, so the session is listed under it. While the bar has a start out or kept for
+a retry, a card changes nothing and the bar's status line says why. Each card's menu (its button shows
+on hover or keyboard focus with a mouse, always on touch; arrow keys move, Escape closes): **New
+session here**, **Edit**, **Worktrees**, **Move up**, **Move down** and **Remove from reet**. A
+machine's own **+** on Home asks which project on that machine to start, or offers a terminal session.
 
 - **Add** opens the folder browser on the first machine that can browse; a machine that cannot (it is
   offline, runs an older reet, or has browsing switched off) still takes a typed path, checked again

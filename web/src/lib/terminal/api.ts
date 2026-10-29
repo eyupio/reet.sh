@@ -2,7 +2,7 @@ import type { Project, ProjectRun, WorktreeStatus, WorktreeTarget } from '../pro
 
 export type SessionState = 'creating' | 'running' | 'end_requested' | 'ended' | 'exited' | 'lost'
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string }
-export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -44,6 +44,33 @@ export async function terminalRequest(path: string, init: RequestInit = {}): Pro
     throw new TerminalError(response.status, message, code, detail, field)
   }
   return response
+}
+/** Upload one image body as sent by the browser. It never goes through
+ *  terminalRequest, which forces a JSON Content-Type on every body. */
+export async function terminalUpload(session: string, image: Blob, signal?: AbortSignal): Promise<{ path: string; reference: string }> {
+  const response = await fetch(`/api/v2/terminal/sessions/${encodeURIComponent(session)}/uploads`, {
+    method: 'POST',
+    body: image,
+    headers: new Headers({ 'Content-Type': image.type }),
+    credentials: 'same-origin',
+    cache: 'no-store',
+    signal,
+  })
+  if (!response.ok) {
+    let message = 'The terminal connection is unavailable.', code: string | undefined, detail: string | undefined, field: string | undefined
+    try {
+      const body = await response.json()
+      if (typeof body?.error === 'string' && body.error) message = body.error
+      if (typeof body?.code === 'string' && body.code) code = body.code
+      if (typeof body?.detail === 'string' && body.detail) detail = body.detail
+      if (typeof body?.field === 'string' && body.field) field = body.field
+    } catch { /* fixed fallback */ }
+    throw new TerminalError(response.status, message, code, detail, field)
+  }
+  const path = decodeURIComponent(response.headers.get('X-Reet-Upload-Path') ?? '')
+  const reference = decodeURIComponent(response.headers.get('X-Reet-Upload-Reference') ?? '')
+  if (!reference) throw new TerminalError(response.status, 'The upload did not return a path.')
+  return { path, reference }
 }
 export async function terminalMachines(signal?: AbortSignal): Promise<TerminalMachine[]> { return (await (await terminalRequest('/api/v2/terminal/machines', { signal })).json()).machines }
 export type TerminalControllerStatus={configured:boolean;available:boolean;reason:string}

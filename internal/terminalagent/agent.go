@@ -98,6 +98,8 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 		// at a time on this connection, each run like a worktree request.
 		browseSlot := make(chan struct{}, 1)
 		branchesSlot := make(chan struct{}, 1)
+		// uploads bounds the image transfers in flight on this connection.
+		uploads := &uploadCounter{max: maxUploadsInFlight}
 		// aside runs work for reply off the dispatcher. A second request while
 		// slot is held, or while maxAsideRunning of running are alive, is
 		// answered busy at once. The answer is work's result, or late when
@@ -250,6 +252,67 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 					func(ctx context.Context) terminalproto.Body {
 						return terminalhost.ListBranches(ctx, home, req, git)
 					})
+			case *terminalproto.Upload:
+				// Uploads are served only on a generation that negotiated
+				// upload-v1. Without it the message is a protocol error and
+				// nothing is sent back, as for browse and branches.
+				if !terminalproto.SupportsUpload(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
+				// The local switches are checked before the manager: a machine
+				// that turned uploads or terminal access off answers at once,
+				// without opening a stream.
+				if !allowed(opts.Consent) || !allowed(opts.UploadConsent) {
+					reply.Body = terminalproto.Result{Code: terminalproto.UploadsOff}
+					return send(callCtx, reply)
+				}
+				if managerErr != nil {
+					reply.Body = terminalproto.Result{Code: terminalproto.Unavailable}
+					return send(callCtx, reply)
+				}
+				sessions, err := m.List(callCtx)
+				if err != nil {
+					return respond(err)
+				}
+				running := false
+				for _, s := range sessions {
+					if s.ID == msg.SessionID && s.State == terminalproto.Running {
+						running = true
+						break
+					}
+				}
+				if !running {
+					reply.Body = terminalproto.Result{Code: terminalproto.NotFound}
+					return send(callCtx, reply)
+				}
+				if !uploads.acquire() {
+					reply.Body = terminalproto.Result{Code: terminalproto.UploadBusy}
+					return send(callCtx, reply)
+				}
+				released := false
+				defer func() {
+					if !released {
+						uploads.release()
+					}
+				}()
+				c, err := dialUploadStream(callCtx, client, headers, msg, op.StreamToken, terminalproto.UploadOperation)
+				if err != nil {
+					return respond(terminalhost.ErrNotRunning)
+				}
+				reply.Body = terminalproto.Result{Code: terminalproto.OK}
+				if err := send(callCtx, reply); err != nil {
+					c.CloseNow()
+					return err
+				}
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					defer uploads.release()
+					defer c.CloseNow()
+					serveUpload(callCtx, c, m, msg.SessionID, *op)
+				}()
+				released = true
+				return nil
 			}
 			if managerErr != nil {
 				return send(callCtx, reply)
@@ -388,6 +451,157 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 			wg.Wait()
 		}
 	}
+}
+
+// dialUploadStream is the production reverse-stream dialer; tests replace it
+// to check the operation and lifecycle without a live controller.
+var dialUploadStream = stream
+
+// maxUploadsInFlight is the most image transfers one connection serves at
+// once. A further request is refused before any stream opens.
+const maxUploadsInFlight = 2
+
+// uploadCounter counts the uploads running on one connection.
+type uploadCounter struct {
+	max int32
+	n   atomic.Int32
+}
+
+func (c *uploadCounter) acquire() bool {
+	for {
+		n := c.n.Load()
+		if n >= c.max {
+			return false
+		}
+		if c.n.CompareAndSwap(n, n+1) {
+			return true
+		}
+	}
+}
+
+func (c *uploadCounter) release() { c.n.Add(-1) }
+
+// uploadConn is the reverse stream an upload reads. *websocket.Conn satisfies
+// it; tests use an in-memory fake.
+type uploadConn interface {
+	Read(context.Context) (websocket.MessageType, []byte, error)
+	Write(context.Context, websocket.MessageType, []byte) error
+	Close(websocket.StatusCode, string) error
+	CloseNow() error
+	SetReadLimit(int64)
+}
+
+// uploadSink stores the bytes an upload streams in. *terminalhost.Manager
+// satisfies it.
+type uploadSink interface {
+	WriteUpload(context.Context, string, terminalproto.Upload, io.Reader) (string, error)
+}
+
+var (
+	errUploadShort             = errors.New("upload stream ended before its declared size")
+	errUploadInvalidFrame      = errors.New("upload stream carried an invalid binary frame")
+	errUploadFrameTooLarge     = errors.New("upload stream carried an oversize frame")
+	errUploadNonBinaryFrame    = errors.New("upload stream carried a non-binary frame")
+	errUploadFrameOverDeclared = errors.New("upload stream carried more bytes than declared")
+)
+
+// serveUpload reads the reverse stream's binary frames into the sink and sends
+// exactly one final UploadResult text frame before closing normally. It never
+// answers with a path or hash on an error.
+func serveUpload(ctx context.Context, c uploadConn, sink uploadSink, sessionID string, req terminalproto.Upload) terminalproto.UploadResult {
+	c.SetReadLimit(terminalproto.MaxBinaryBytes)
+	pr, pw := io.Pipe()
+	readCtx, cancelRead := context.WithCancel(ctx)
+	defer cancelRead()
+	readErr := make(chan error, 1)
+	go func() {
+		err := readUploadFrames(readCtx, c, pw, req.Size)
+		_ = pw.CloseWithError(err)
+		readErr <- err
+	}()
+	path, writeErr := sink.WriteUpload(ctx, sessionID, req, pr)
+	cancelRead()
+	_ = pr.Close()
+	frameErr := <-readErr
+	result := terminalproto.UploadResult{Code: uploadResultCode(writeErr, frameErr)}
+	if result.Code == terminalproto.UploadOK {
+		result.Path = path
+	}
+	if payload, err := json.Marshal(result); err == nil {
+		writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_ = c.Write(writeCtx, websocket.MessageText, payload)
+		cancel()
+	}
+	_ = c.Close(websocket.StatusNormalClosure, "")
+	return result
+}
+
+// readUploadFrames copies exactly the declared number of bytes from binary
+// frames into w, then returns without waiting for a close: the controller
+// reads the result and closes after it. A short stream, a non-binary or empty
+// frame, a frame over the binary limit and a frame that would exceed the
+// declared size are errors so the result can name them.
+func readUploadFrames(ctx context.Context, c uploadConn, w io.Writer, size int64) error {
+	if size < 1 || size > terminalproto.MaxUploadBytes {
+		return errUploadFrameTooLarge
+	}
+	var total int64
+	for total < size {
+		kind, data, err := c.Read(ctx)
+		if err != nil {
+			if websocket.CloseStatus(err) == websocket.StatusMessageTooBig {
+				return errUploadFrameTooLarge
+			}
+			return errUploadShort
+		}
+		if kind != websocket.MessageBinary {
+			return errUploadNonBinaryFrame
+		}
+		if len(data) == 0 {
+			return errUploadInvalidFrame
+		}
+		if len(data) > terminalproto.MaxBinaryBytes {
+			return errUploadFrameTooLarge
+		}
+		if total+int64(len(data)) > size {
+			return errUploadFrameOverDeclared
+		}
+		total += int64(len(data))
+		if _, err := w.Write(data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func uploadResultCode(writeErr, frameErr error) terminalproto.UploadCode {
+	switch {
+	case errors.Is(writeErr, terminalhost.ErrUploadDisabled):
+		return terminalproto.UploadDisabled
+	case errors.Is(writeErr, terminalhost.ErrUploadTooLarge):
+		return terminalproto.UploadTooLarge
+	case errors.Is(writeErr, terminalhost.ErrUploadType):
+		return terminalproto.UploadType
+	case errors.Is(writeErr, terminalhost.ErrUploadQuota):
+		return terminalproto.UploadQuota
+	case errors.Is(writeErr, terminalhost.ErrUploadMismatch):
+		return terminalproto.UploadMismatch
+	}
+	switch {
+	case errors.Is(frameErr, errUploadFrameTooLarge):
+		return terminalproto.UploadTooLarge
+	case errors.Is(frameErr, errUploadNonBinaryFrame), errors.Is(frameErr, errUploadInvalidFrame):
+		return terminalproto.UploadType
+	case errors.Is(frameErr, errUploadShort), errors.Is(frameErr, errUploadFrameOverDeclared):
+		return terminalproto.UploadMismatch
+	}
+	if writeErr == nil && frameErr == nil {
+		return terminalproto.UploadOK
+	}
+	if errors.Is(writeErr, terminalproto.ErrInvalid) {
+		return terminalproto.UploadType
+	}
+	return terminalproto.UploadFailed
 }
 
 // allowed reports whether a local switch is present and on.

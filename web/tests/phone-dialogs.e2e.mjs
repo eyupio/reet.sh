@@ -67,6 +67,7 @@ const DIALOGS = [
  {name:'history drawer', path:live, open:tool('Recent history'), last:true, sheet:'full'},
  {name:'commands drawer', path:live, open:tool('Saved commands'), field:'input[type=search]', last:true, sheet:'full'},
  {name:'command editor drawer', path:live, open:async p => { await tool('Saved commands')(p); await p.locator('dialog[open]').getByRole('button', {name:/New command/}).click() }, field:'textarea', last:true, sheet:'full'},
+ {name:'select text', path:live, open:tool('Select text'), last:true, sheet:'bottom'},
 ]
 
 // Runs in the page: the top dialog's geometry against the part of the screen that can be seen.

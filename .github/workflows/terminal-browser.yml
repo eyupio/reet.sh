@@ -209,6 +209,8 @@ jobs:
           node web/tests/launch.e2e.mjs
           node web/tests/sessions.e2e.mjs
           node web/tests/sessions-phone.e2e.mjs
+          node web/tests/terminal-clipboard.e2e.mjs
+          node web/tests/terminal-upload.e2e.mjs
       # The Add project dialog and its folder browser (about 15-20 s). It serves its own component fixture with Vite, so it
       # needs no preview server, and it runs here rather than in the terminal job, which is close to its time limit.
       - name: Add a project by browsing a machine's folders

@@ -6,7 +6,7 @@
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import '@xterm/xterm/css/xterm.css'
   import { TerminalConnection, type ConnectionState } from './connection'
-  import { terminalClosed, type TerminalSession } from './api'
+  import { terminalClosed, terminalUpload, refusalSentence, type TerminalSession } from './api'
   import { terminalShortcut } from './keyboard'
   import WorkspaceDialog from './WorkspaceDialog.svelte'
   import TerminalAppearance from './TerminalAppearance.svelte'
@@ -14,11 +14,18 @@
   import OutputScrollback from './OutputScrollback.svelte'
   import CommandLibrary from './CommandLibrary.svelte'
   import TerminalIcon from './TerminalIcon.svelte'
+  import TerminalSelectText from './TerminalSelectText.svelte'
+  import UploadChip from './UploadChip.svelte'
   import {initialFontSize,hostSize,ResizeSender,pageViewport,browserViewport,overflowEdges,repaintOnReturn,FONT_MIN,FONT_MAX,LANDSCAPE_PHONE,PHONE_TOUCH,type Size} from './sizing'
+  import {pasteNeedsReview,pasteTooLarge,sanitizePaste} from './paste'
+  import {screenText,lastLines,allText,selectionText} from './copy'
+  import {imageFiles,joinReferences,uploadInsertionAllowed,validateImage} from './upload'
+  import {parseOsc52,formatCopySize} from './osc52'
+  import {copyText} from '../clipboard'
   import {paletteFor,terminalPalettes,type CursorShape} from './themes'
   import type {TerminalCommand} from './api'
 
-  let { session, host, user = '', onrename, onend, onarchive, archiveDisabled=false, historySupported=false, actionDisabled = false, theatre=$bindable(false),sessionsVisible=false,onsessions,keyboard=false,holdSize=false,footnote='' }: { session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; onarchive?:()=>void; archiveDisabled?:boolean;historySupported?:boolean; actionDisabled?: boolean; theatre?:boolean;sessionsVisible?:boolean;onsessions?:()=>void;keyboard?:boolean;holdSize?:boolean;footnote?:string } = $props()
+  let { session, host, user = '', onrename, onend, onarchive, archiveDisabled=false, historySupported=false, actionDisabled = false, theatre=$bindable(false),sessionsVisible=false,onsessions,keyboard=false,holdSize=false,footnote='',uploadsSupported=false,uploadsOff=false }: { session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; onarchive?:()=>void; archiveDisabled?:boolean;historySupported?:boolean; actionDisabled?: boolean; theatre?:boolean;sessionsVisible?:boolean;onsessions?:()=>void;keyboard?:boolean;holdSize?:boolean;footnote?:string;uploadsSupported?:boolean;uploadsOff?:boolean } = $props()
   let element = $state<HTMLDivElement>(),screenFrame=$state<HTMLDivElement>()
   let pane=$state<HTMLElement>(),searchInput=$state<HTMLInputElement>(),viewportHeight=$state(innerHeight),viewportTop=$state(0)
   let connectionState = $state<ConnectionState>('connecting'), message = $state('')
@@ -34,26 +41,41 @@
   const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
   let feedback = $state(''), terminalBackground=$state('#101820'),terminalForeground=$state('#dce5ef')
   let pendingPaste = $state<{text:string;generation:number;execute?:boolean}|null>(null), generation=0, alive=true
+  let fileInput=$state<HTMLInputElement>(), uploads=$state<{id:number;name:string;size:number;controller:AbortController}[]>([])
+  let draggingFiles=$state(false), staleUploads=$state<string[]|null>(null), uploadSeq=0
   let historyOpen=$state(false),appearanceOpen=$state(false),commandsOpen=$state(false),palette=$state('system'),cursor=$state<CursorShape>('bar')
   let scrollbackOpen=$state(false)
+  let selectOpen=$state(false), selectModel=$state('')
+  let copyOnSelect=$state(false)
+  let pendingCopy=$state<{text:string;bytes:number}|null>(null),lastGestureAt=-Infinity
+  let selectionTimer: ReturnType<typeof setTimeout> | undefined
   let landscape=$state(false)
   function toggleSessions(){if(maximised){maximised=false;if(!sessionsVisible)onsessions?.()}else onsessions?.()}
   function openScrollback(){historyOpen=false;scrollbackOpen=true}
   async function closeScrollback(){scrollbackOpen=false;await tick();terminal?.focus()}
+  function openSelect(){
+    if(scrollbackOpen){feedback='Return to live output before copying.';return}
+    const buffer=terminal?.buffer.active
+    const text=buffer?selectionText(buffer):''
+    if(!text){feedback='There is nothing to copy yet.';return}
+    feedback='';selectModel=text;selectOpen=true
+  }
+  async function closeSelect(){selectOpen=false;selectModel='';await tick();restoreFocus()}
   let applyTheme:(()=>void)|undefined
   let modifier = $state<'Ctrl'|'Alt'|null>(null)
   export function disconnect(){connection?.detach()}
   function choosePalette(id:string){palette=id;try{localStorage.setItem('reet-terminal-palette',id)}catch{/* optional preference */}applyTheme?.()}
   function chooseCursor(shape:CursorShape){cursor=shape;if(terminal)terminal.options.cursorStyle=shape;try{localStorage.setItem('reet-terminal-cursor',shape)}catch{/* optional preference */}}
+  function chooseCopyOnSelect(on:boolean){copyOnSelect=on;if(!on){clearTimeout(selectionTimer);selectionTimer=undefined}try{localStorage.setItem('reet-terminal-copy-on-select',on?'1':'0')}catch{/* optional preference */}}
   async function insertSaved(item:TerminalCommand){
     const intended=generation;scrollbackOpen=false;commandsOpen=false;await tick()
     if(!alive||intended!==generation||!live){feedback='Connection changed. Open Commands again after reconnecting; nothing was inserted.';return}
-    paste(item.command,/\t/.test(item.command));restoreFocus()
+    paste(item.command,/[\t\r\n]/.test(item.command));restoreFocus()
   }
   async function insertHistory(text:string,run:boolean){
     const intended=generation;scrollbackOpen=false;if(!run){historyOpen=false;await tick()}
     if(!alive||intended!==generation||!live){feedback='Connection changed. Open History again after reconnecting; nothing was sent.';return}
-    if(run)pendingPaste={text,generation,execute:true};else paste(text,/\t/.test(text));restoreFocus()
+    if(run)pendingPaste={text,generation,execute:true};else paste(text,/[\t\r\n]/.test(text));restoreFocus()
   }
   function find(next=true) { found=!query||!!(next?search?.findNext(query,{caseSensitive:false,regex:false}):search?.findPrevious(query,{caseSensitive:false,regex:false})) }
   function changeFont(delta:number) { fontSize=Math.min(FONT_MAX,Math.max(FONT_MIN,fontSize+delta));if(terminal)terminal.options.fontSize=fontSize;try{localStorage.setItem('reet-terminal-font',String(fontSize))}catch{/* preferences are optional */}fitTerminal?.() }
@@ -62,23 +84,206 @@
   const focusHeldElsewhere=()=>!!document.activeElement?.closest('[data-keeps-focus]')
   function restoreFocus() { if(alive&&!scrollbackOpen&&!pendingPaste&&!document.querySelector('dialog[open]')&&!focusHeldElsewhere())terminal?.focus() }
   async function copy() { const text=scrollbackOpen?window.getSelection()?.toString():terminal?.getSelection();if(!text){feedback='Select terminal text first.';return}try{await navigator.clipboard.writeText(text);feedback='Selection copied.'}catch{feedback='Clipboard access was denied. Use your browser’s copy command.'}finally{restoreFocus()} }
+  async function copyBuffer(kind:'screen'|'50'|'200'|'all') {
+    if(scrollbackOpen){feedback='Return to live output before copying.';return}
+    const buffer=terminal?.buffer.active
+    if(!buffer){feedback='There is nothing to copy yet.';return}
+    const text=kind==='screen'?screenText(buffer,terminal?.rows??0):kind==='50'?lastLines(buffer,50):kind==='200'?lastLines(buffer,200):allText(buffer)
+    if(!text){feedback='There is nothing to copy yet.';return}
+    const copied=await copyText(text)
+    feedback=copied?kind==='screen'?'Copied the screen.':kind==='50'?'Copied the last 50 lines.':kind==='200'?'Copied the last 200 lines.':'Copied all terminal output.':'Clipboard access was denied. Use your browser’s copy command.'
+    restoreFocus()
+  }
+  function noteGesture(){lastGestureAt=performance.now()}
+  async function copyPending(){
+    const pending=pendingCopy
+    if(!pending)return
+    pendingCopy=null
+    const copied=await copyText(pending.text)
+    feedback=copied?'Agent copied to your clipboard.':'Clipboard access was denied. Use your browser’s copy command.'
+  }
+  function handleOsc52(data:string){
+    const result=parseOsc52(data)
+    if(result.kind==='ignore'){
+      if(result.reason==='large')feedback='The agent tried to copy more than 1 MiB.'
+      return
+    }
+    if(performance.now()-lastGestureAt<=2000&&document.hasFocus()){
+      void copyText(result.text).then(copied=>{
+        if(!alive)return
+        if(copied){pendingCopy=null;feedback='Agent copied to your clipboard.'}
+        else{pendingCopy={text:result.text,bytes:result.bytes};feedback=''}
+      })
+      return
+    }
+    feedback=''
+    pendingCopy={text:result.text,bytes:result.bytes}
+  }
+  const uploadsOffSentence='Image uploads are off on this machine.'
+  const uploadUnsupportedSentence='Update reet on that machine to attach images.'
+  type UploadOutcome={ok:true;reference:string}|{ok:false;cancelled:boolean;message?:string}
+  function imageRefusal(reason:'type'|'size'|'empty'):string {
+    if(reason==='empty')return 'That image is empty.'
+    if(reason==='size')return 'That image is larger than 5 MiB.'
+    return 'Attach a PNG, JPEG, GIF or WebP image.'
+  }
+  function refusals(reasons:string[]):string {
+    return reasons.length===1?reasons[0]:`${reasons.length} images were refused. ${reasons[0]}`
+  }
+  function cancelUpload(id:number) {
+    const chip=uploads.find(item=>item.id===id)
+    if(!chip)return
+    uploads=uploads.filter(item=>item.id!==id)
+    chip.controller.abort()
+  }
+  async function uploadOne(image:File):Promise<UploadOutcome> {
+    const controller=new AbortController()
+    const chip={id:++uploadSeq,name:image.name||'image',size:image.size,controller}
+    uploads=[...uploads,chip]
+    try {
+      const result=await terminalUpload(session.id,image,controller.signal)
+      return {ok:true,reference:result.reference}
+    } catch(error) {
+      if(controller.signal.aborted)return {ok:false,cancelled:true}
+      return {ok:false,cancelled:false,message:refusalSentence(error)}
+    } finally {
+      uploads=uploads.filter(item=>item.id!==chip.id)
+    }
+  }
+  async function startUploads(images:File[]) {
+    if(!images.length)return
+    feedback=''
+    if(uploadsOff){feedback=uploadsOffSentence;return}
+    if(!uploadsSupported){feedback=uploadUnsupportedSentence;return}
+    if(!alive)return
+    if(!live){feedback='Reconnect before attaching an image. Nothing was uploaded.';return}
+    if(scrollbackOpen){feedback='Return to live output before attaching an image.';return}
+    staleUploads=null
+    const accepted:File[]=[], reasons:string[]=[]
+    for(const image of images){
+      const check=validateImage({type:image.type,size:image.size})
+      if(check.ok)accepted.push(image)
+      else reasons.push(imageRefusal(check.reason))
+    }
+    if(!accepted.length){feedback=refusals(reasons);return}
+    const started=generation
+    const outcomes=await Promise.all(accepted.map(image=>uploadOne(image)))
+    if(!alive)return
+    const references=outcomes.flatMap(item=>item.ok?[item.reference]:[])
+    const failed=outcomes.filter((item):item is {ok:false;cancelled:boolean;message?:string}=>!item.ok&&!item.cancelled)
+    const cancelled=outcomes.filter(item=>!item.ok&&item.cancelled).length
+    const messages:string[]=[]
+    if(references.length){
+      if(uploadInsertionAllowed(started,generation,live,alive)&&!scrollbackOpen){
+        terminal?.paste(joinReferences(references))
+        messages.push(references.length===1?'Uploaded and inserted the path.':`Uploaded ${references.length} images and inserted their paths.`)
+      } else staleUploads=references
+    }
+    if(failed.length){
+      const first=failed.find(item=>item.message)?.message
+      messages.push(`${failed.length} ${failed.length===1?'image':'images'} failed.${first?` ${first}`:''}`)
+    }
+    if(cancelled&&!references.length&&!failed.length&&!staleUploads)messages.push('Upload cancelled.')
+    if(reasons.length)messages.push(`Skipped ${reasons.length} ${reasons.length===1?'image':'images'}: ${reasons[0]}`)
+    if(messages.length)feedback=messages.join(' ')
+    restoreFocus()
+  }
+  function chooseImages() {
+    if(uploadsOff||!uploadsSupported)return
+    fileInput?.click()
+  }
+  function pickedImages(event:Event) {
+    const input=event.currentTarget as HTMLInputElement
+    const files=Array.from(input.files??[])
+    input.value=''
+    void startUploads(files)
+  }
+  function isFileDrag(event:DragEvent):boolean {
+    return Array.from(event.dataTransfer?.types??[]).includes('Files')
+  }
+  function dragFiles(event:DragEvent) {
+    if(!isFileDrag(event))return
+    event.preventDefault()
+    if(event.dataTransfer)event.dataTransfer.dropEffect='copy'
+    draggingFiles=true
+  }
+  function leaveFiles(event:DragEvent) {
+    if(!isFileDrag(event))return
+    const related=event.relatedTarget
+    if(related instanceof Node&&(event.currentTarget as HTMLElement).contains(related))return
+    draggingFiles=false
+  }
+  function dropFiles(event:DragEvent) {
+    if(!isFileDrag(event))return
+    event.preventDefault()
+    draggingFiles=false
+    const images=Array.from(event.dataTransfer?.files??[]).filter(file=>file.type.startsWith('image/'))
+    if(!images.length){feedback=uploadsOff?uploadsOffSentence:!uploadsSupported?uploadUnsupportedSentence:'Attach a PNG, JPEG, GIF or WebP image.';return}
+    void startUploads(images)
+  }
+  async function copyStaleUpload() {
+    if(!staleUploads)return
+    const copied=await copyText(staleUploads.join(' '))
+    feedback=copied?'Path copied.':'Clipboard access was denied. Use your browser’s copy command.'
+  }
   function paste(text:string,review=false) {
     feedback=''
+    const clean=sanitizePaste(text)
+    if(!clean){feedback='Nothing to paste.';return}
     if(scrollbackOpen){feedback='Return to live output before pasting.';return}
     if(!live){feedback='Reconnect before pasting. Nothing was sent.';return}
-    if(new TextEncoder().encode(text).length>240*1024){feedback='Paste is too large. Limit it to 240 KiB.';return}
-    if(review||/[\r\n\x00-\x08\x0b-\x1f\x7f]/.test(text)||text.length>2000)pendingPaste={text,generation}
-    else {modifier=null;terminal?.paste(text)}
+    if(pasteTooLarge(clean)){feedback='Paste is too large. Limit it to 240 KiB.';return}
+    const {review:needsReview}=pasteNeedsReview(clean,{bracketed:terminal?.modes.bracketedPasteMode===true,force:review})
+    if(needsReview){pendingPaste={text:clean,generation};return}
+    modifier=null;terminal?.paste(clean)
+    const lines=clean.split('\n').length
+    if(lines>1)feedback=`Pasted ${lines} lines as one block.`
   }
+  function confirmDetails(text:string,execute?:boolean) { const clean=sanitizePaste(text);return execute?clean:clean.slice(0,2000)+(clean.length>2000?'\n… preview truncated':'') }
   async function confirmPaste() {
     const pending=pendingPaste;pendingPaste=null;if(!pending)return
     if(pending.execute){historyOpen=false;await tick()}
     if(!alive||!live||pending.generation!==generation){feedback=pending.execute?'Connection changed. Choose the command again after reconnecting; nothing was sent.':'Connection changed. Paste again after reconnecting; nothing was sent.';return}
-    modifier=null;terminal?.paste(pending.text)
+    const text=sanitizePaste(pending.text)
+    if(!text){feedback='Nothing to paste.';terminal?.focus();return}
+    modifier=null;terminal?.paste(text)
     if(pending.execute)feedback=connection?.text('\r')?'Command sent to the active terminal.':'Connection changed while sending. Check the terminal before retrying.'
     terminal?.focus()
   }
-  async function readClipboard() {feedback='';const started=generation;try{const text=await navigator.clipboard.readText();if(!alive)return;if(started!==generation){feedback='Connection changed. Paste again; nothing was sent.';return}paste(text)}catch{if(alive)feedback='Clipboard access was denied. Paste with your keyboard inside the terminal.'}finally{restoreFocus()} }
+  async function readClipboard() {
+    feedback=''
+    const started=generation
+    try {
+      let items:ClipboardItems|null=null
+      try{items=navigator.clipboard?.read?await navigator.clipboard.read():null}catch{/* fall back to text below */}
+      if(!alive)return
+      if(started!==generation){feedback='Connection changed. Paste again; nothing was sent.';return}
+      if(items){
+        for(const item of items){
+          if(!item.types.includes('text/plain'))continue
+          paste(await (await item.getType('text/plain')).text());return
+        }
+        const images:File[]=[]
+        for(const item of items){
+          for(const type of item.types){
+            if(!type.startsWith('image/'))continue
+            try{
+              const blob=await item.getType(type)
+              const extension=type.slice('image/'.length).replace(/[^a-z0-9.+-]/gi,'')||'img'
+              images.push(new File([blob],`clipboard.${extension}`,{type}))
+            }catch{/* try the next clipboard item */}
+          }
+        }
+        if(images.length){await startUploads(images);return}
+      }
+      const text=await navigator.clipboard.readText()
+      if(!alive)return
+      if(started!==generation){feedback='Connection changed. Paste again; nothing was sent.';return}
+      paste(text)
+    } catch {
+      if(alive)feedback='Clipboard access was denied. Paste with your keyboard inside the terminal.'
+    } finally {restoreFocus()}
+  }
   function key(value:string) {modifier=null;if(live&&!scrollbackOpen){connection?.text(value);terminal?.focus()} }
   $effect(()=>{const query=matchMedia(LANDSCAPE_PHONE),update=()=>landscape=query.matches;update();query.addEventListener('change',update);return()=>query.removeEventListener('change',update)})
   $effect(()=>{if(searching)searchInput?.focus()})
@@ -122,12 +327,13 @@
     // Phones (portrait or landscape) start at 11 px so agent layouts get about 54 columns at 390 px; a stored size always wins.
     const phone=matchMedia(PHONE_TOUCH).matches
     try{fontSize=initialFontSize(localStorage.getItem('reet-terminal-font'),phone)}catch{fontSize=initialFontSize(null,phone)/* optional preference */}
-    try{const saved=localStorage.getItem('reet-terminal-palette');if(saved==='system'||terminalPalettes.some(item=>item.id===saved))palette=saved!;const shape=localStorage.getItem('reet-terminal-cursor');if(shape==='bar'||shape==='block'||shape==='underline')cursor=shape}catch{/* optional preferences */}
+    try{const saved=localStorage.getItem('reet-terminal-palette');if(saved==='system'||terminalPalettes.some(item=>item.id===saved))palette=saved!;const shape=localStorage.getItem('reet-terminal-cursor');if(shape==='bar'||shape==='block'||shape==='underline')cursor=shape;copyOnSelect=localStorage.getItem('reet-terminal-copy-on-select')==='1'}catch{/* optional preferences */}
     const term = new Terminal({ cursorStyle:cursor,cursorBlink:!matchMedia('(prefers-reduced-motion: reduce)').matches,fontSize:14,fontFamily:'"DejaVu Sans Mono", "SFMono-Regular", Consolas, monospace',scrollback:5000,screenReaderMode:true,allowProposedApi:false,windowOptions:{},minimumContrastRatio:4.5 })
     terminal = term;term.options.fontSize=fontSize;term.loadAddon(fit);search=new SearchAddon();term.loadAddon(search);term.open(element)
-    const onPaste=(event:ClipboardEvent)=>{event.preventDefault();event.stopImmediatePropagation();paste(event.clipboardData?.getData('text/plain')||'')}
+    const onPaste=(event:ClipboardEvent)=>{event.preventDefault();event.stopImmediatePropagation();const images=imageFiles(event.clipboardData?.items);if(images.length){void startUploads(images);return}paste(event.clipboardData?.getData('text/plain')||'')}
     element.addEventListener('paste',onPaste,true)
     term.attachCustomKeyEventHandler(event=>{
+      if(event.type==='keydown')noteGesture()
       const shortcut=terminalShortcut(event,term.hasSelection(),mac)
       if(event.type==='keydown'&&event.shiftKey&&event.key==='PageUp'){event.preventDefault();openScrollback();return false}
       if(shortcut==='native-paste')return false
@@ -135,9 +341,22 @@
       if(shortcut==='search'){event.preventDefault();searching=!searching;return false}
       return true
     })
-    const selection=term.onSelectionChange(()=>hasSelection=term.hasSelection())
-    // No terminal-controlled clipboard writes or active OSC hyperlinks.
-    const clipboard = term.parser.registerOscHandler(52, () => true)
+    const selection=term.onSelectionChange(()=>{
+      hasSelection=term.hasSelection()
+      clearTimeout(selectionTimer);selectionTimer=undefined
+      if(!copyOnSelect||!hasSelection)return
+      // A drag fires selection changes on every row; copy once the selection settles.
+      selectionTimer=setTimeout(()=>{
+        selectionTimer=undefined
+        if(!alive||!copyOnSelect)return
+        const text=term.getSelection()
+        if(!text)return
+        void copyText(text).then(copied=>{if(!alive)return;feedback=copied?'Selection copied.':'Clipboard access was denied. Use your browser’s copy command.';restoreFocus()})
+      },150)
+    })
+    // An agent may write to the clipboard only behind a fresh gesture or an explicit
+    // Copy it; queries, reads and empty writes never touch it. OSC 8 stays off.
+    const clipboard = term.parser.registerOscHandler(52, data => { handleOsc52(data); return true })
     const links = term.parser.registerOscHandler(8, () => true)
     // Queued observers, redraws and connection notifications can outlive this
     // pane during session removal. A disposed xterm has no render dimensions.
@@ -175,19 +394,19 @@
     const sizes = new ResizeObserver(resize); sizes.observe(element);fit.fit()
     fitTerminal=resize
     // Refresh after parsing and fitting so accessibility rows match full redraws.
-    connection = new TerminalConnection({session:session.id,dimensions:()=>{if(!alive)return {cols:80,rows:24};const size=grid();clip();sender.known(size);restoringGrid=true;return size},renderer:{write:(bytes,reset,done)=>{if(!alive)return;if(reset)term.reset();term.write(bytes,()=>{if(!alive)return;term.refresh(0,term.rows-1);done()})}},onstate:(next,detail)=>{if(!alive)return;if(next!=='resynchronising'){restoringGrid=false;if(next==='live')resize()}generation++;modifier=null;if(next==='access_denied'){historyOpen=false;scrollbackOpen=false};connectionState=next;if(next==='live'){if(attached)redraw();attached=true}message=detail;term.options.disableStdin=next!=='live';if(next==='live'&&!scrollbackOpen&&!searching&&!pendingPaste&&!contextMenu&&!document.querySelector('dialog[open]')&&!focusHeldElsewhere())term.focus()}})
+    connection = new TerminalConnection({session:session.id,dimensions:()=>{if(!alive)return {cols:80,rows:24};const size=grid();clip();sender.known(size);restoringGrid=true;return size},renderer:{write:(bytes,reset,done)=>{if(!alive)return;if(reset)term.reset();term.write(bytes,()=>{if(!alive)return;term.refresh(0,term.rows-1);done()})}},onstate:(next,detail)=>{if(!alive)return;if(next!=='resynchronising'){restoringGrid=false;if(next==='live')resize()}generation++;modifier=null;if(next==='access_denied'){historyOpen=false;scrollbackOpen=false;selectOpen=false;selectModel='';pendingCopy=null};connectionState=next;if(next==='live'){if(attached)redraw();attached=true}message=detail;term.options.disableStdin=next!=='live';if(next==='live'&&!scrollbackOpen&&!searching&&!pendingPaste&&!contextMenu&&!document.querySelector('dialog[open]')&&!focusHeldElsewhere())term.focus()}})
     term.options.disableStdin=true
     const input=term.onData((text)=>{if(scrollbackOpen)return;let value=text;if(modifier==='Ctrl'&&/^[a-zA-Z@\[\]\\^_]$/.test(text))value=String.fromCharCode(text.toUpperCase().charCodeAt(0)&31);else if(modifier==='Alt')value='\x1b'+text;modifier=null;connection?.text(value)})
     const binary=term.onBinary((data)=>!scrollbackOpen&&connection?.send(Uint8Array.from(data,c=>c.charCodeAt(0)&255)))
     const online=()=>connection?.recover(),visible=()=>{if(document.visibilityState!=='visible'){hiddenAt=performance.now();return}const now=performance.now(),hiddenFor=hiddenAt===null?0:now-hiddenAt;hiddenAt=null;resize();if(repaintOnReturn({hiddenFor,coarse:coarse.matches,sinceRepaint:now-repaintedAt}))redraw();connection?.recover()}
     window.addEventListener('online',online);document.addEventListener('visibilitychange',visible)
     void connection.connect()
-    return ()=>{alive=false;element?.removeEventListener('paste',onPaste,true);search?.dispose();search=undefined;fitTerminal=undefined;sizeSender=undefined;sender.dispose();connection?.dispose();connection=undefined;cancelAnimationFrame(frame);cancelAnimationFrame(clipFrame);sizes.disconnect();observer.disconnect();media.removeEventListener('change',theme);window.removeEventListener('online',online);document.removeEventListener('visibilitychange',visible);selection.dispose();input.dispose();binary.dispose();clipboard.dispose();links.dispose();applyTheme=undefined;term.dispose();terminal=undefined}
+    return ()=>{alive=false;pendingCopy=null;staleUploads=null;for(const chip of uploads)chip.controller.abort();uploads=[];clearTimeout(selectionTimer);selectionTimer=undefined;element?.removeEventListener('paste',onPaste,true);search?.dispose();search=undefined;fitTerminal=undefined;sizeSender=undefined;sender.dispose();connection?.dispose();connection=undefined;cancelAnimationFrame(frame);cancelAnimationFrame(clipFrame);sizes.disconnect();observer.disconnect();media.removeEventListener('change',theme);window.removeEventListener('online',online);document.removeEventListener('visibilitychange',visible);selection.dispose();input.dispose();binary.dispose();clipboard.dispose();links.dispose();applyTheme=undefined;term.dispose();terminal=undefined}
   })
 </script>
 
 <svelte:window onclick={event=>{if(contextMenu&&event.target instanceof Node&&!menu?.contains(event.target))contextMenu=null}} onblur={()=>contextMenu=null} />
-<section class="pane" class:maximised class:keyboard bind:this={pane} role={maximised?'dialog':'region'} aria-modal={maximised?true:undefined} tabindex="-1" aria-label={`${session.title} · Terminal on ${host}`} style={`--terminal-viewport:${viewportHeight}px;--terminal-top:${viewportTop}px;--terminal-font-size:${fontSize}px;--terminal-bg:${terminalBackground};--terminal-fg:${terminalForeground}`} data-connection-state={connectionState}>
+<section class="pane" class:maximised class:keyboard bind:this={pane} onpointerdown={noteGesture} role={maximised?'dialog':'region'} aria-modal={maximised?true:undefined} tabindex="-1" aria-label={`${session.title} · Terminal on ${host}`} style={`--terminal-viewport:${viewportHeight}px;--terminal-top:${viewportTop}px;--terminal-font-size:${fontSize}px;--terminal-bg:${terminalBackground};--terminal-fg:${terminalForeground}`} data-connection-state={connectionState}>
   <header><div class="identity"><span class="terminal-icon" aria-hidden="true">›_</span><strong>{session.title}</strong><span class="host" title={`${user ? user+'@' : ''}${host}`}>{user ? `${user}@` : ''}{host}</span></div><div class="controls"><span class="state" class:live><span aria-hidden="true">●</span> {stateLabel}</span>{#if live}<button type="button" onclick={()=>connection?.detach()}>Disconnect</button>{:else if connectionState==='taken_over'}<button type="button" class="continue" onclick={()=>void connection?.connect(true)}>Continue here</button>{:else if connectionState==='detached'}<button type="button" onclick={()=>void connection?.connect()}>Reconnect</button>{:else if connectionState==='reconnecting'}<button type="button" onclick={()=>connection?.recover()}>Retry now</button>{/if}{#if onrename||onend||onarchive&&terminalClosed(session.state)}<details class="session-menu"><summary>Manage</summary><div>{#if onrename}<button disabled={actionDisabled} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onrename?.()}}>Rename</button>{/if}{#if onend}<button class="end" disabled={actionDisabled||!['creating','running','end_requested'].includes(session.state)} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onend?.()}}>{session.state==='end_requested'?'Retry end request':'End session'}</button>{/if}{#if onarchive&&terminalClosed(session.state)}<button disabled={archiveDisabled} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onarchive?.()}}>Remove from history</button>{/if}</div></details>{/if}</div></header>
   {#if message}<p class="connection-message" role="status">{message}</p>{/if}
   {#if maximised}<p class="connection-message maximise-hint">Alt+Shift+M restores the workspace. Tab inside the terminal remains a shell key.</p>{/if}
@@ -196,7 +415,10 @@
       {#if onsessions&&(!sessionsVisible||maximised)}<button class="show-sessions" onclick={toggleSessions} aria-label="Show sessions" title="Show session sidebar"><span aria-hidden="true">›</span><span>Show sessions</span></button>{/if}
       <button onclick={()=>{if(scrollbackOpen)pane?.querySelector<HTMLInputElement>('[aria-label="Find in earlier output"]')?.focus();else searching=!searching}} aria-expanded={searching} aria-label="Search" title="Search terminal output"><TerminalIcon name="search"/><span class="tool-label">Search</span></button>
       <button onclick={()=>void copy()} aria-label="Copy selection" title="Copy selected output"><TerminalIcon name="copy"/><span class="tool-label">Copy</span></button>
+      <button onclick={()=>void copyBuffer('screen')} disabled={scrollbackOpen} aria-label="Copy screen" title="Copy the visible screen"><TerminalIcon name="screen"/><span class="tool-label">Screen</span></button>
+      <button onclick={openSelect} disabled={scrollbackOpen} aria-label="Select text" title="Select terminal text"><TerminalIcon name="select"/><span class="tool-label">Select text</span></button>
       <button onclick={()=>void readClipboard()} disabled={!live||scrollbackOpen} aria-label="Paste" title="Paste clipboard"><TerminalIcon name="paste"/><span class="tool-label">Paste</span></button>
+      {#if uploadsSupported||uploadsOff}<button onclick={chooseImages} disabled={uploadsOff} aria-label="Attach image" title={uploadsOff?uploadsOffSentence:'Attach a PNG, JPEG, GIF or WebP image'}><TerminalIcon name="image"/><span class="tool-label">Attach</span></button>{#if uploadsOff}<span class="upload-off" role="status">Image uploads are off on this machine.</span>{/if}{/if}
       <span class="tool-divider" aria-hidden="true"></span>
       <button onclick={()=>key("\x03")} disabled={!live||scrollbackOpen} aria-label="Interrupt shell" title="Interrupt · Ctrl+C"><TerminalIcon name="interrupt"/><span class="tool-label">Interrupt</span></button>
       <button onclick={()=>commandsOpen=true} aria-label="Saved commands" title="Your saved commands"><TerminalIcon name="commands"/><span>Commands</span></button>
@@ -216,16 +438,20 @@
   {#if landscape}<div class="tool-rows">{@render toolbar()}{@render keys()}</div>{:else}{@render toolbar()}{/if}
   {#if searching}<form class="tools" onsubmit={e=>{e.preventDefault();find()}}><label>Find in terminal <input bind:this={searchInput} bind:value={query} maxlength="200" autocomplete="off" spellcheck="false" oninput={e=>{query=e.currentTarget.value;find()}} /></label><button>Next match</button><button type="button" onclick={()=>find(false)}>Previous match</button><button type="button" onclick={()=>{searching=false;search?.clearDecorations();terminal?.focus()}}>Close search</button><span role="status">{found?'':'No matches'}</span></form>{/if}
   {#if feedback}<p class="connection-message" role="status">{feedback}</p>{/if}
-  <div class="screen-frame" bind:this={screenFrame}><div class="screen" class:reading={scrollbackOpen} inert={scrollbackOpen} bind:this={element} role="region" aria-label="Remote terminal screen" oncontextmenu={openContext}></div>{#if scrollbackOpen}<OutputScrollback session={session.id} onclose={()=>void closeScrollback()}/>{/if}</div>
+  {#if staleUploads}<div class="agent-copy" role="status"><span>Uploaded, but the connection changed; nothing was inserted. Paste the path: <code>{staleUploads.join(' ')}</code></span><button type="button" onclick={()=>void copyStaleUpload()}>Copy path</button><button type="button" onclick={()=>staleUploads=null}>Dismiss</button></div>{/if}
+  {#if pendingCopy}<div class="agent-copy" role="status"><span>The agent copied {formatCopySize(pendingCopy.bytes)}.</span><button type="button" onclick={()=>void copyPending()}>Copy it</button><button type="button" onclick={()=>pendingCopy=null}>Dismiss</button></div>{/if}
+  <input class="upload-input" bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple tabindex="-1" aria-hidden="true" onchange={pickedImages} />
+  <div class="screen-frame" bind:this={screenFrame} role="group" aria-label="Terminal screen drop area" ondragenter={dragFiles} ondragover={dragFiles} ondragleave={leaveFiles} ondrop={dropFiles}><div class="screen" class:reading={scrollbackOpen} inert={scrollbackOpen} bind:this={element} role="region" aria-label="Remote terminal screen" oncontextmenu={openContext}></div>{#if scrollbackOpen}<OutputScrollback session={session.id} onclose={()=>void closeScrollback()}/>{/if}{#if draggingFiles}<div class="drop-overlay" aria-hidden="true">Drop an image to upload.</div>{/if}{#if uploads.length}<div class="upload-chips">{#each uploads as chip (chip.id)}<UploadChip name={chip.name} size={chip.size} oncancel={()=>cancelUpload(chip.id)}/>{/each}</div>{/if}</div>
   {#if !landscape}{@render keys()}{/if}
   <footer>{#if footnote}<span class="approvals">{footnote}</span>{/if}<span class="link-state">{scrollbackOpen?'Reading earlier output · your live shell keeps running':live?'Connected privately · input goes directly to this shell':'Input paused · disconnected keystrokes are never replayed'}</span><button type="button" disabled={!live} onclick={()=>void closeScrollback()}>Focus terminal</button></footer>
-{#if contextMenu}<div class="clipboard-menu" role="menu" aria-label="Terminal actions" tabindex="-1" bind:this={menu} style={`left:${contextMenu.x}px;top:${contextMenu.y}px`} onkeydown={contextKey}><button role="menuitem" disabled={!hasSelection} onclick={()=>{contextMenu=null;void copy()}}>Copy selection</button><button role="menuitem" disabled={!live} onclick={()=>{contextMenu=null;void readClipboard()}}>Paste</button><button role="menuitem" onclick={()=>{contextMenu=null;commandsOpen=true}}>Saved commands…</button><button role="menuitem" onclick={()=>{contextMenu=null;historyOpen=true}}>Command history…</button><button role="menuitem" onclick={()=>{contextMenu=null;openScrollback()}}>Earlier output…</button><button role="menuitem" onclick={()=>{contextMenu=null;appearanceOpen=true}}>Appearance…</button>{#if onsessions}<button role="menuitem" onclick={()=>{contextMenu=null;toggleSessions()}}>{sessionsVisible&&!maximised?'Hide sessions':'Show sessions'}</button>{/if}<button role="menuitem" onclick={closeContext}>Close menu</button></div>{/if}
+{#if contextMenu}<div class="clipboard-menu" role="menu" aria-label="Terminal actions" tabindex="-1" bind:this={menu} style={`left:${contextMenu.x}px;top:${contextMenu.y}px`} onkeydown={contextKey}><button role="menuitem" disabled={!hasSelection} onclick={()=>{contextMenu=null;void copy()}}>Copy selection</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('screen')}}>Copy screen</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('50')}}>Copy last 50 lines</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('200')}}>Copy last 200 lines</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('all')}}>Copy all</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;openSelect()}}>Select text…</button><button role="menuitem" disabled={!live} onclick={()=>{contextMenu=null;void readClipboard()}}>Paste</button><button role="menuitem" onclick={()=>{contextMenu=null;commandsOpen=true}}>Saved commands…</button><button role="menuitem" onclick={()=>{contextMenu=null;historyOpen=true}}>Command history…</button><button role="menuitem" onclick={()=>{contextMenu=null;openScrollback()}}>Earlier output…</button><button role="menuitem" onclick={()=>{contextMenu=null;appearanceOpen=true}}>Appearance…</button>{#if onsessions}<button role="menuitem" onclick={()=>{contextMenu=null;toggleSessions()}}>{sessionsVisible&&!maximised?'Hide sessions':'Show sessions'}</button>{/if}<button role="menuitem" onclick={closeContext}>Close menu</button></div>{/if}
 </section>
 
-{#if appearanceOpen}<WorkspaceDialog title="Terminal appearance" placement="drawer" onclose={()=>appearanceOpen=false}><TerminalAppearance {palette} {fontSize} {cursor} onpalette={choosePalette} onfont={changeFont} oncursor={chooseCursor}/></WorkspaceDialog>{/if}
+{#if appearanceOpen}<WorkspaceDialog title="Terminal appearance" placement="drawer" onclose={()=>appearanceOpen=false}><TerminalAppearance {palette} {fontSize} {cursor} {copyOnSelect} onpalette={choosePalette} onfont={changeFont} oncursor={chooseCursor} oncopyselect={chooseCopyOnSelect}/></WorkspaceDialog>{/if}
 {#if commandsOpen}<CommandLibrary onclose={()=>commandsOpen=false} oninsert={item=>void insertSaved(item)} canInsert={live} context={`${user?user+'@':''}${host} · ${session.title}`}/>{/if}
 {#if historyOpen}<CommandHistory session={session.id} context={`${user?user+'@':''}${host} · ${session.title}`} supported={historySupported} canInsert={live} onclose={()=>historyOpen=false} oninsert={(text,run)=>void insertHistory(text,run)} onoutput={openScrollback}/>{/if}
-{#if pendingPaste}<ConfirmDialog title={pendingPaste.execute?'Run this command in the active terminal?':'Paste into the remote shell?'} body={pendingPaste.execute?`Send this command to ${host} · ${session.title} and press Enter. Be at a shell prompt; an open program receives terminal input instead.`:'This text contains multiple lines, control characters, or a large block. It may execute commands immediately.'} details={pendingPaste.execute?pendingPaste.text:pendingPaste.text.slice(0,2000)+(pendingPaste.text.length>2000?'\n… preview truncated':'')} confirmLabel={pendingPaste.execute?'Run command':'Paste text'} onconfirm={confirmPaste} oncancel={()=>{const running=pendingPaste?.execute;pendingPaste=null;if(!running)terminal?.focus()}} />{/if}
+{#if pendingPaste}<ConfirmDialog title={pendingPaste.execute?'Run this command in the active terminal?':'Paste into the remote shell?'} body={pendingPaste.execute?`Send this command to ${host} · ${session.title} and press Enter. Be at a shell prompt; an open program receives terminal input instead.`:'This text contains multiple lines, control characters, or a large block. It may execute commands immediately.'} details={confirmDetails(pendingPaste.text,pendingPaste.execute)} confirmLabel={pendingPaste.execute?'Run command':'Paste text'} onconfirm={confirmPaste} oncancel={()=>{const running=pendingPaste?.execute;pendingPaste=null;if(!running)terminal?.focus()}} />{/if}
+{#if selectOpen}<TerminalSelectText text={selectModel} onclose={closeSelect}/>{/if}
 
 <style>
   .pane {display:flex;flex-direction:column;position:relative;min-height:0;min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:12px;background:var(--card)}
@@ -244,18 +470,27 @@
   button.continue {background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
   .tools {display:flex;gap:6px;align-items:center;flex-wrap:nowrap;overflow-x:auto;min-width:0;scrollbar-width:thin;padding:6px 10px;border-bottom:1px solid var(--line);font-size:.72rem}
   .tools>button,.tools label {flex-shrink:0}
+  .upload-off {font-size:.66rem;color:var(--muted);white-space:nowrap;align-self:center}
   .terminal-toolbar{background:var(--bg);padding:5px 8px;gap:2px}.terminal-toolbar button{display:flex;align-items:center;gap:6px;border-color:transparent;background:transparent;font-size:.72rem;padding:6px 8px;min-height:32px}.terminal-toolbar button:hover:not(:disabled){background:var(--card);border-color:var(--line)}.tool-space{flex:1}.tool-divider{height:16px;width:1px;background:var(--line);margin:0 5px;flex-shrink:0}
   .tools label {display:flex;gap:8px;align-items:center;min-width:0}
   .tools input {min-width:0;max-width:180px;font-size:.8rem}
   .tools button:hover:not(:disabled) {border-color:var(--accent);background:var(--tint)}
   .tools button[aria-pressed=true] {border-color:var(--accent);color:var(--accent-text)}
   .tools.mobile-keys {display:none;border-top:1px solid var(--line);border-bottom:0}
+  .upload-input {display:none}
   .screen-frame {position:relative;flex:1;height:0;min-height:0;min-width:0;overflow:hidden;padding:12px 10px 8px 14px}
   .screen {height:100%;min-height:0;min-width:0;overflow:hidden;padding:0}
+  .drop-overlay {position:absolute;inset:6px;z-index:4;display:grid;place-items:center;border:1px dashed var(--accent);border-radius:8px;background:color-mix(in srgb,var(--bg) 88%,transparent);color:var(--ink);font-size:.8rem;pointer-events:none}
+  .upload-chips {position:absolute;top:8px;right:8px;z-index:3;display:grid;gap:6px;max-width:min(260px,calc(100% - 16px));max-height:calc(100% - 48px);overflow:auto;pointer-events:none}
   .screen.reading {visibility:hidden}
   .screen :global(.xterm) {height:100%;padding:0}
   .screen :global(.xterm-viewport) {overscroll-behavior:contain}
   .connection-message {max-height:72px;overflow:auto;padding:6px 12px;margin:0;font-size:.73rem;background:var(--tint);border-bottom:1px solid var(--line)}
+  .agent-copy {display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 12px;font-size:.73rem;background:var(--tint);border-bottom:1px solid var(--line)}
+  .agent-copy span {flex:1;min-width:0;overflow-wrap:anywhere}
+  .agent-copy code {font-size:.68rem}
+  .agent-copy button {font-size:.7rem;min-height:28px;padding:3px 8px}
+  @media(pointer:coarse) {.agent-copy button {min-width:40px;min-height:40px}}
   footer {padding:5px 10px;border-top:1px solid var(--line);display:flex;gap:12px;justify-content:space-between;align-items:center;font-size:.65rem;color:var(--muted)}
   footer button {font-size:.65rem;min-height:28px;padding:3px 8px}
   /* The session screen's Approvals line (Ask me or YOLO), first in the footer. */
@@ -300,7 +535,7 @@
     .pane.maximised {inset:0;top:var(--terminal-top,0px);height:var(--terminal-viewport,100dvh);border-radius:0}
     .pane.maximised footer {padding-bottom:max(2px,env(safe-area-inset-bottom))}
   }
-  @media(pointer:coarse) {.tools button,.controls>button,.session-menu>summary {min-height:40px}}
+  @media(pointer:coarse) {.tools button,.controls>button,.session-menu>summary,.clipboard-menu button {min-width:40px;min-height:40px}}
   /* Touch targets keep a 40 × 40 px hit area; on phones the rows lose their padding instead. */
   @media(max-width:650px) and (pointer:coarse),(max-height:500px) and (pointer:coarse) and (orientation:landscape) {header,.tools,.terminal-toolbar {padding-top:0;padding-bottom:0}.terminal-toolbar button,.mobile-keys button {min-width:40px}.controls>button,.session-menu>summary,footer button {min-width:40px;min-height:40px}footer {padding-top:0;padding-bottom:0}}
   /* Sideways: tools and extra keys share one row, and the footer gives its line to the screen (the state stays in the header). */

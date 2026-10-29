@@ -275,10 +275,47 @@ execution is disabled. See [the archive contract](terminal-history-archive.md).
   in editable app fields. Terminal output cannot be cut.
 - Right-click opens the terminal Copy/Paste menu. Shift+right-click preserves the
   browser menu. Arrow keys, Home/End and Escape work in the local clipboard menu.
-- Multiple lines, control characters and large pastes require confirmation. A
-  reconnect invalidates pending paste approval; disconnected input is not replayed.
-- OSC 52 clipboard writes and OSC 8 active hyperlinks remain disabled. Terminal
-  text is not persisted to browser storage. Font size is a local preference.
+- Copy without dragging: **Copy screen** (the visible rows) is in the toolbar and
+  the menu, beside **Copy last 50 lines**, **Copy last 200 lines** and **Copy all**.
+  These read xterm's local buffer, never the network; trailing spaces are trimmed
+  and blank lines kept. They are disabled while the Scrollback snapshot is open,
+  because that view shows different text. An empty range says
+  "There is nothing to copy yet."
+- **Copy when I select text** in Appearance is off unless chosen. It is saved in
+  this browser as `reet-terminal-copy-on-select` and copies a settled, non-empty
+  selection once, saying "Selection copied." Nothing is copied while it is off.
+- **Select text** in the toolbar and the menu opens a read-only bottom sheet filled
+  from the local buffer (the last 2,000 lines, at most 256 KiB), so a phone's
+  native long-press selection works without replacing xterm. **Copy selection**
+  copies what you selected, **Copy all** copies the sheet's text, and closing
+  discards it: the text is transient in the browser and is never saved. It is
+  disabled while Scrollback is open, and closing returns focus to the terminal.
+- Pasted text is stripped of bracketed-paste markers and every ESC byte. With
+  bracketed paste enabled by the remote program, ordinary multi-line text (no
+  control characters other than tab and newline, at most 64 KiB) goes in as one
+  block without confirmation. Without bracketed paste, multiple lines, control
+  characters and large pastes still require confirmation. A paste that is empty
+  after sanitising sends nothing. A reconnect invalidates pending paste approval;
+  disconnected input is not replayed.
+- OSC 8 active hyperlinks remain disabled. An agent's OSC 52 clipboard write is
+  accepted write-only, at most 1 MiB, and only after a recent pointer or key
+  gesture in the pane or an explicit **Copy it** press; a read-back query is never
+  answered and an empty write is ignored. Terminal text is not persisted to
+  browser storage. Font size is a local preference.
+- **Attach image** (or an image paste, the Paste button when the clipboard holds
+  only an image, or a file dropped on the screen) uploads a PNG, JPEG, GIF or WebP
+  image up to 5 MiB to a private per-session folder on the machine, outside the
+  project. The browser inserts the returned path with a space either side and never
+  presses Enter; the path is text, and the session and its tool decide whether that
+  text becomes an attachment. Uploads are held in memory only and are never saved
+  in browser storage. A machine that reports uploads off says "Image uploads are
+  off on this machine."; an older machine says "Update reet on that machine to
+  attach images." The machine keeps at most 20 images and 50 MiB per session,
+  removes the folder when the session ends, and sweeps anything older than 24
+  hours. The controller records one audit row with the machine, host, tool, image
+  type and a size bucket only. Uploads can be turned off on the machine with
+  `reet terminal uploads off`; an OSC 52 write can be turned off with
+  `reet terminal clipboard off` (see [remote machine operations](remote-machine-operations.md)).
 
 These interactions use the existing private terminal transport; they do not add a
 new direct SSH adapter. Phone viewport emulation is not a physical keyboard test.
@@ -386,7 +423,8 @@ inside the terminal panel. It reads the machine's most recent 2,000 lines / 256 
 using the existing bounded output-history API. Scroll vertically/horizontally,
 select text, use Page Up/Down, or search and move between literal matches. It is a
 read-only snapshot; Refresh obtains newer output, and Back to live returns input
-focus to the same running shell. Nothing is saved in browser storage. The live
+focus to the same running shell. Its header's **Copy all** copies the snapshot it
+is showing without saving it. Nothing is saved in browser storage. The live
 xterm stays mounted and receives redraws behind the reader; no keystrokes from
 reading/search are forwarded. Scrolling an interactive app such as `top` remains
 under that app's control. Tmux's alternate-screen rendering means a browser-only

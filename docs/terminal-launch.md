@@ -77,6 +77,15 @@ other one-shot flag; a test pins the only flags used to `--model`, `--prompt` an
 | `opencode` | `opencode --model <model> --prompt <prompt>` | https://opencode.ai/docs/cli/: "opencode [project]" starts the terminal UI, with `--prompt` and `--model`. The positional is a project path, so the prompt goes through the flag. |
 | `gemini` | `gemini --model <model> --prompt-interactive <prompt>` | https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/cli-reference.md and `packages/cli/src/config/config.ts`: `--prompt-interactive` runs the prompt and continues interactively; `--model` sets the model. `-p/--prompt` is headless and is deliberately not used. |
 
+## Uploaded images
+
+An image attached in the browser is stored by the machine outside the project and
+the browser types its path into the session. reet makes no claim that a particular
+agent turns that path into an image attachment: the path is text, and the agent and
+model decide what to do with it. Per-agent image-path behaviour at the pinned
+versions has not been checked, so the interface says it is a path. See
+[terminal workspace](terminal-workspace.md) for the upload limits and privacy.
+
 With no model the `--model <model>` pair is left out; with no prompt the prompt
 part is left out. All rows were confirmed on 2026-10-25. Only `claude` was
 confirmed against a binary's own help text; the others were confirmed from the

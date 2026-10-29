@@ -31,6 +31,14 @@ type ManagerOptions struct {
 	// (reet terminal browse on|off) before each browse request. nil or an
 	// error refuses browsing. The connector reads it; the manager does not.
 	BrowseConsent func() error
+	// ClipboardConsent re-reads the machine's local clipboard switch
+	// (reet terminal clipboard on|off). nil means forwarding is allowed, as
+	// it is by default. An error turns the tmux server's set-clipboard off.
+	ClipboardConsent func() error
+	// UploadConsent re-reads the machine's local upload switch
+	// (reet terminal uploads on|off). nil means uploads are allowed, as they
+	// are by default. An error refuses every upload.
+	UploadConsent func() error
 }
 
 type Manager struct {
@@ -39,15 +47,27 @@ type Manager struct {
 	home       string
 	tmux       Tmux
 	consent    func() error
+	// clipboardConsent nil means clipboard forwarding is allowed.
+	clipboardConsent func() error
+	// uploadConsent nil means image uploads are allowed.
+	uploadConsent func() error
+	// clipboardSet and clipboardOn remember the last set-clipboard value the
+	// manager applied to the running tmux server.
+	clipboardSet bool
+	clipboardOn  bool
 	// lookPath finds agent binaries for launch presets; tests replace it.
 	lookPath func(string) (string, error)
 	// git runs git for worktrees (ExecGit); tests replace it.
-	git         GitRunner
-	mu          sync.Mutex
-	closed      bool
-	attachments map[string]*Attachment
-	deadSeen    map[string]time.Time
-	changed     chan struct{}
+	git      GitRunner
+	mu       sync.Mutex
+	uploadMu sync.Mutex
+	// uploadReserved counts quota already promised to uploads that are
+	// streaming but have not published a file yet.
+	uploadReserved map[string]uploadReservation
+	closed         bool
+	attachments    map[string]*Attachment
+	deadSeen       map[string]time.Time
+	changed        chan struct{}
 }
 
 func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
@@ -71,7 +91,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 	if git == nil {
 		git = ExecGit
 	}
-	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, lookPath: exec.LookPath, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, changed: make(chan struct{})}
+	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, lookPath: exec.LookPath, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, changed: make(chan struct{})}
 	// Validate a present registry even when tmux is offline. Never silently
 	// repair an unreadable file or adopt sessions from another enrollment.
 	lock, err := m.registryLock(ctx)
@@ -79,9 +99,19 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 		return nil, err
 	}
 	defer lock.Close()
-	if _, err := m.loadRegistry(); err != nil {
+	registry, err := m.loadRegistry()
+	if err != nil {
 		return nil, err
 	}
+	// Uploads are derived state: an unsweepable upload root must not stop the
+	// connector. Only folders for sessions that still reserve quota survive.
+	active := make(map[string]bool, len(registry.Sessions))
+	for id, s := range registry.Sessions {
+		if s.State.ReservesQuota() {
+			active[id] = true
+		}
+	}
+	_ = m.sweepUploads(active, time.Now())
 	return m, nil
 }
 
@@ -373,8 +403,14 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 	names, err := m.sessionNames(ctx)
 	if err != nil {
+		// A stopped server forgets the option; a later server start must
+		// apply the current switch again.
+		m.clipboardSet = false
 		return err
 	}
+	// A clipboard option that cannot be set must not end the manager; a later
+	// reconcile tries again.
+	_ = m.applyClipboard(ctx)
 	changed := false
 	for id, s := range r.Sessions {
 		if !s.State.ReservesQuota() {
@@ -437,6 +473,7 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 				_ = a.Close()
 				delete(m.attachments, id)
 			}
+			_ = m.removeUploads(id)
 		}
 	}
 	// Persist the exit observation before removing dead panes. A later pass can
@@ -491,6 +528,7 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 func (m *Manager) Run(ctx context.Context) error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	lastSweep := time.Now()
 	for {
 		if ctx.Err() != nil {
 			return m.Close()
@@ -509,6 +547,18 @@ func (m *Manager) Run(ctx context.Context) error {
 		if err != nil && !errors.Is(err, ErrNotRunning) && ctx.Err() == nil {
 			_ = m.Close()
 			return err
+		}
+		if time.Since(lastSweep) >= uploadSweepInterval {
+			if sessions, err := m.List(ctx); err == nil {
+				active := make(map[string]bool, len(sessions))
+				for _, s := range sessions {
+					if s.State.ReservesQuota() {
+						active[s.ID] = true
+					}
+				}
+				_ = m.sweepUploads(active, time.Now())
+			}
+			lastSweep = time.Now()
 		}
 		select {
 		case <-ctx.Done():

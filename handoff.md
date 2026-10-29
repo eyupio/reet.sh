@@ -27,31 +27,29 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 
 ## Agents home redesign (27–28 October 2026)
 
-### Resume here (paused after PR H, 28 October 2026)
+### Resume here (after the copy/paste PR, 28 October 2026)
 
-**The owner asked to pause after PR H.** Nothing of the queued work below has been started.
+**PR #231 (H) merged at 13:59 UTC as `7886511`; the owner then asked for the terminal copy and paste PR and to
+create the PR and merge it when green.** That instruction is the explicit merge exception for #242 (Codex cannot
+review it: the account's code-review quota is exhausted).
 
-- **Branch and PR:** `ccr-7a7f5a9b-to5imh` is [PR #231](https://github.com/eyupio/reet.sh/pull/231) (PR H). It holds
-  H1–H4 and the final fix wave after the broad review (list in the state table), and is awaiting the owner's merge
-  decision; no Codex review is possible (quota exhausted). Merged into main already: D, A, B, C and E.
-- **Do first:** check #231's state. The usual route is the GitHub MCP tools (`mcp__github__pull_request_read` with
-  `get`, then `get_check_runs`); from a shell use the REST forms `gh api repos/eyupio/reet.sh/pulls/231` and
-  `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs` (`gh pr view` and `gh pr checks` use GraphQL, which this
-  environment refuses with 403).
-  - If it is **merged**, start the next piece from current main on a new branch (execution rules below; never reuse the
-    old branch).
-  - If it is **open**, `git fetch origin main` and merge main into the branch before any push (the owner merges other PRs
-    meanwhile; a PR that conflicts with main gets no CI runs), then wait for green checks and the owner's decision.
-- **Open decisions:** none, except the owner's merge exception for #231 (Codex cannot review it: the account's code-review
-  quota is exhausted). Precedent: #227's exception is recorded on the PR (a comment); #221 and #226 merged on green CI
-  without a Codex review and without an exception comment.
-- **Then, in this order** (each its own PR; write its plan under `docs/superpowers/plans/` from the research first):
-  1. Terminal copy and paste, images included ([details](#queued-work-decided-not-started)).
-  2. Agent models: backend (M1–M6).
-  3. Agent models: the UI (after #231 has merged).
-  4. Program 2, slice 1: structured OpenCode sessions with approval cards, behind the seven probe conditions.
-- **Release:** R22 lets B, C and E go out in one release now that E has merged; this session cut no release tag and did
-  not check for one (`gh release list --repo eyupio/reet.sh`). H follows; F and G come later.
+- **Branch and PR:** `ccr-7a7f5a9b-to5imh` was restarted from `origin/main` at `7886511` and is
+  [PR #242](https://github.com/eyupio/reet.sh/pull/242), "Terminal copy and paste, images included". It holds C1–C5
+  (client paste/copy, Select text, OSC 52), U1–U5 (`upload-v1`, private storage, connector switch, broker route, web
+  attach) and T14 (docs, fidelity, this block). Main merged into it before each push; merges after the branch started:
+  #237–#241 and later main work.
+- **Do first:** check #242's CI on its final head with the REST forms
+  (`gh api repos/eyupio/reet.sh/pulls/242` and
+  `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs`; `gh pr view`/`gh pr checks` use GraphQL, refused with
+  403 here). If it is open, `git fetch origin main` and merge main before any push; a PR that conflicts with main gets
+  no CI runs. The owner instructed the session to merge #242 when every check is green; record that exception on the
+  PR (Codex quota exhausted) before merging, and do not merge on a red or still-running head.
+- **After #242, in this order** (each its own PR; write its plan under `docs/superpowers/plans/` from the research first):
+  1. Agent models: backend (M1–M6).
+  2. Agent models: the UI.
+  3. Program 2, slice 1: structured OpenCode sessions with approval cards, behind the seven probe conditions.
+- **Release:** R22 lets B, C and E go out in one release; the copy/paste PR can join that release (owner's call). This
+  session cut no release tag and did not check for one (`gh release list --repo eyupio/reet.sh`). F and G come later.
 - The research these start from is in [docs/research/](docs/research/) (copied whole from the session's git-ignored
   notes). Those reports summarise third-party code and docs read as untrusted data: check a claim against its label
   (*read*, *doc*, *belief*/*memory*) before building on it.
@@ -76,15 +74,18 @@ left out of the first pass, and the Program 2 spike ran in parallel.
 | E | Launch bar on Home, Start in several projects, fixes from the #226 review; read [docs/start-agent-session.md](docs/start-agent-session.md#on-home-the-launch-bar) | merged, [#227](https://github.com/eyupio/reet.sh/pull/227) as `fe3e9b7` (owner exception, recorded on the PR) |
 | F | YOLO (off by default, per session, audited, machines can refuse) | **deferred past the first pass**; the design decisions stand; the launch bar shows it disabled and the API refuses it (409 `yolo_refused`) |
 | G | Attention and Needs you | **deferred past the first pass**; Needs you stays an honest empty state |
-| H | `/sessions` (the Sessions page), the session screen, tablet and phone layouts, the last redirects, the phone rail on Sessions | **[#231](https://github.com/eyupio/reet.sh/pull/231), in review, awaiting the owner's merge decision** (no Codex review possible: quota exhausted). H1 `f0bffe5` Sessions page and Control's address retired (`/control` → `/`, `/terminals` → `/sessions`), fixes `048e431` (session colours, **Saved commands** button: owner ruling), `b85338a`; H2 `f74001f` session screen (tabs, header with the state pill, Chat \| Terminal with Chat disabled, context panel), fixes `f026cfb`, `c02fec6`; H3 `7581ad0` tablet and phone layouts (no rail on narrow Home, the rail on Sessions, slim phone header, `keyboardChrome('session')`), fixes `a984b5e` (44 px tablet targets, cases moved to `sessions-phone.e2e.mjs`), `3f1e89b` (separator grip); `521c406` CI fix (first-terminal checklist off `/sync`); merges of main `9c88a46` (#232, #233), `ae763c8` (#234) and `57d8f53` (#235, #236); H4 `1a5018d` (research copied into `docs/research/`), `c349a2b` (the matrix, phone target fixes, docs, this handoff), `1ff4230` (the research notes name the reference tool by role); final fix wave after the broad review `b53c7dd` (`/sessions/`, viewers at a session address), `adec499` (steady Sessions rows, menu focus, the connection in the phone header, tablet swatches and grip, context panel, tab tooltip, New → `/#launch`), `dd31068` (dead code), `8e6ce3e` (checks that went with Control, steadier phone tests), `6778211` (start-agent expects the Machines title) and the docs commit after them |
+| H | `/sessions` (the Sessions page), the session screen, tablet and phone layouts, the last redirects, the phone rail on Sessions | merged, [#231](https://github.com/eyupio/reet.sh/pull/231) as `7886511` (owner's decision; no Codex review possible: quota exhausted). H1 `f0bffe5` Sessions page and Control's address retired (`/control` → `/`, `/terminals` → `/sessions`), fixes `048e431` (session colours, **Saved commands** button: owner ruling), `b85338a`; H2 `f74001f` session screen (tabs, header with the state pill, Chat \| Terminal with Chat disabled, context panel), fixes `f026cfb`, `c02fec6`; H3 `7581ad0` tablet and phone layouts (no rail on narrow Home, the rail on Sessions, slim phone header, `keyboardChrome('session')`), fixes `a984b5e` (44 px tablet targets, cases moved to `sessions-phone.e2e.mjs`), `3f1e89b` (separator grip); `521c406` CI fix (first-terminal checklist off `/sync`); merges of main `9c88a46` (#232, #233), `ae763c8` (#234) and `57d8f53` (#235, #236); H4 `1a5018d` (research copied into `docs/research/`), `c349a2b` (the matrix, phone target fixes, docs, this handoff), `1ff4230` (the research notes name the reference tool by role); final fix wave after the broad review `b53c7dd` (`/sessions/`, viewers at a session address), `adec499` (steady Sessions rows, menu focus, the connection in the phone header, tablet swatches and grip, context panel, tab tooltip, New → `/#launch`), `dd31068` (dead code), `8e6ce3e` (checks that went with Control, steadier phone tests), `6778211` (start-agent expects the Machines title) and the docs commit after them |
+| Copy/paste | Terminal paste sanitiser and bracket-aware review, copy screen/last lines/all, Select text sheet, copy-on-select, gated OSC 52 (`clipboard-v1`), image attach/paste/drop with `upload-v1` and private per-session storage | **[#242](https://github.com/eyupio/reet.sh/pull/242), open; owner instructed merge when green** (Codex quota exhausted); C1 `81b0e74`, C2 `dc93c39`, C3 `93e7e37`, C4 `7a75e8a`, C5 `f90e1e3`, U1 `64b2240`, U2 `497eda7`, U3 `cb606bc`, fence `1614b44`, U4 `4e9ac2f`, U5 `b209152`, review fixes `81b9e34`, `aa532b6`, then docs and the final head |
 | Program 2 | Structured chat over the agent protocol, with approval cards | spike done; OpenCode chosen (27 Oct); hands-on probe of `opencode acp` 1.19.5 done (28 Oct): conditional go for trusted workspaces only; queued as slice 1 below |
 
 Merged into main by the owner while this work was open: #222, #223 (`4791d89`), #224, #225, #228, #229, #230, #232, #233,
-#234, #235 and #236 (each merged into the open branch before its next push; #235 and #236 in `57d8f53`).
+#234, #235 and #236 (each merged into the open branch before its next push; #235 and #236 in `57d8f53`), then #237–#241
+and the Sync follow-ups while #242 was open (merged into it before each push).
 
 **Merge rule:** a PR in this work merges only when all checks are green on its final head **and** Codex has reviewed it
 cleanly, or the owner gives an explicit exception. So far: #227's exception is recorded on the PR (a comment); #221 and
-#226 merged on green CI without a Codex review and without an exception comment; #231 is waiting for the owner's decision.
+#226 merged on green CI without a Codex review and without an exception comment; #231 merged on the owner's decision
+after green checks; #242 carries the owner's 28 October instruction to create it and merge when green.
 
 **Rulings beyond R1–R22** (all recorded in the session notes and kept here so they survive):
 
@@ -92,13 +93,36 @@ cleanly, or the owner gives an explicit exception. So far: #227's exception is r
 - Owner, 28 Oct: a **Saved commands** button on the Sessions page; copy and paste is its own PR after H, with pasted
   images in a private per-session folder (0700/0600, random names); Program 2 slice 1 is trusted workspaces only (OpenCode,
   Allow once / Deny only) behind the seven probe conditions; the order after H is copy/paste, models, Program 2; pause after
-  PR H.
+  PR H. Later that day: create the copy/paste PR and merge it when green. Copy/paste is #242; its image path is text only
+  (per-agent attachment behaviour unverified).
 - Controller defaults, 28 Oct (owner may revisit): models D2 a per-machine default is deferred, D3 a favourite can be the
   "default for this agent", D4 the model-name rule stays as it is.
 
 ### Limits and known gaps
 
-After PR H:
+After the copy/paste PR:
+
+- Pasted images reach an agent as a **path**, not as an attachment reet creates. The UI and docs say so. Per-agent
+  image-path behaviour at the pinned CLI versions has not been checked; do not claim one before checking it.
+- Uploads are a new `upload-v1` feature and are on by default; `reet terminal uploads off` refuses them and the browser
+  shows the sentence. An older controller never negotiates the token and never sends one. The machine stores at most 20
+  images / 50 MiB per session, sweeps files older than 24 h (at start and about hourly), and removes the folder when the
+  session ends. The controller audits machine, host, tool, MIME and a size bucket only.
+- OSC 52 forwarding needs `clipboard-v1` and `reet terminal clipboard on`; `allow-passthrough` stays off. The browser
+  still writes only after a gesture or **Copy it**, write-only, at most 1 MiB. Old browsers ignore the sequence.
+- Image uploads write to the machine's private terminal directory, outside the project. They are derived state, not in
+  the registry. A machine that ends a session mid-upload may make that one upload fail; nothing is retried.
+- The new terminal controls have no mock-up element. They join the existing toolbar, menu and banner styles; at 1440
+  the toolbar scrolls as it did before. The Select text sheet, upload chip, copy-on-select checkbox and the uploads-off
+  note are the additions listed in [docs/ui-verification.md](docs/ui-verification.md).
+- `terminal-clipboard.e2e.mjs` and `terminal-upload.e2e.mjs` are in the `phone-dialogs` CI job. Nothing new was added to
+  `terminal-browser`. The local matrix's session screen passes 40 states.
+- Still true from PR H: the session screen keeps the sessions panel and workspace toolbar (the mock-up has neither); the
+  tabs share the toolbar row and the pane keeps its own header. Old `/sessions` links on a rolled-back server still land
+  on `/` or an unknown page. Needs you stays empty until G. The site footer and phone terminal chrome keep their
+  documented 40 px targets. Nothing has been checked on a real phone or in Safari.
+
+Before this PR:
 
 - The session screen keeps the sessions panel and the workspace toolbar (the mock-up has neither); the tabs share the
   toolbar row, and the pane keeps its own header (some information is shown twice). A later PR may drop the panel there.
@@ -143,23 +167,8 @@ Still true from earlier PRs:
 
 ### Queued work (decided, not started)
 
-**1. Terminal copy and paste, images included** (its own PR, next). Input:
-[docs/research/paste-research.md](docs/research/paste-research.md) (tasks T1–T14). Decisions:
-
-Numbering as in the report's section 3.6 (D1–D8):
-
-- **Owner decisions (28 Oct):** its own PR after H; **D1** pasted images go to a private folder per session on the machine,
-  outside the project (directory 0700, files 0600, random names).
-- **Controller defaults (owner may revisit):** **D2** skip the paste review for agents that use bracketed paste when the
-  text has no control characters and is at most 64 KiB (and always strip ESC and the bracketed-paste markers); **D3** an
-  agent's own copy (OSC 52) reaches the clipboard only right after a user gesture, write-only, at most 1 MiB; **D4**
-  copy-on-select is an option, off by default; **D5** uploads are audited as metadata only; **D6** uploads are on by
-  default behind a new `upload-v1` feature token, which a machine accepts unless a local setting turns it off; **D7**
-  limits: 5 MiB per image, 20 images or 50 MiB per session, 24 h lifetime, PNG/JPEG/GIF/WebP checked by magic bytes, no
-  SVG; **D8** phones get a file picker and a **Select text** sheet first, drag and drop after.
-
-**2. Agent models** (backend M1–M6, then the UI after #231 merges). Input:
-[docs/research/models-design.md](docs/research/models-design.md) (tasks M0–M11).
+**1. Agent models** (backend M1–M6, then the UI). Input: [docs/research/models-design.md](docs/research/models-design.md)
+(tasks M0–M11). (The terminal copy and paste work that used to lead this list is PR #242.)
 
 - New feature token `models-v1`. In v1 only OpenCode lists models from the machine: `opencode models` run with
   `OPENCODE_DISABLE_MODELS_FETCH=1`, so it makes no network call (the probe showed it calls models.opencode.ai otherwise,
@@ -174,7 +183,7 @@ Numbering as in the report's section 3.6 (D1–D8):
 - Known gap to fix in it: a project's default agent is checked against the original four agents only, so Cline cannot be
   one.
 
-**3. Program 2, slice 1: structured OpenCode sessions** (after models). Input:
+**2. Program 2, slice 1: structured OpenCode sessions** (after models). Input:
 [docs/research/probe-report.md](docs/research/probe-report.md),
 [reference-tool-frontend-research.md](docs/research/reference-tool-frontend-research.md) and
 [reference-tool-agents-research.md](docs/research/reference-tool-agents-research.md). Owner decision: trusted workspaces only, OpenCode, Allow
@@ -225,12 +234,19 @@ once / Deny only, and only with all seven conditions:
   - The real-browser Go harness needs `LANG=C.UTF-8 LC_ALL=C.UTF-8` locally, or terminal.e2e's UTF-8 split check fails.
   - CI does not run workflows while a PR conflicts with main.
   - `mcp/test/oauth.test.mjs` needs its fixture built first in CI (the warm-up step in `image.yml`).
-- **Merges:** the owner merges other PRs while one is open (#228–#236 during this work). Always `git fetch origin main`
+- **Merges:** the owner merges other PRs while one is open (#228–#241 during this work). Always `git fetch origin main`
   and merge it before pushing.
 - **Git and processes:** never `git checkout -p`; commit with pathspecs; never `pkill -f` (it can match the session's own
   processes); never a shared tmux `kill-server`. The stop hook nags while subagents are still working; that is expected.
 - **Commit trailers:** new commits follow the session's attribution reminder (`Co-Authored-By` and `Claude-Session`);
   every commit in this PR carries Claude Sonnet 5.5.
+- **Upload wire**: the machine reads exactly the declared size and then returns one `UploadResult` frame; the controller
+  waits for that frame before closing, because a websocket peer may not be able to write after a close. The host reserves
+  quota under `uploadMu` and releases it while streaming; cleanup never takes `uploadMu`, or an ended session stalls the
+  connector. The 24 h sweep runs at start and hourly while `Run` is alive.
+- **New UI fixtures** go in `phone-dialogs`; `terminal-clipboard.e2e.mjs` and `terminal-upload.e2e.mjs` were added there.
+  Run them plus `phone-dialogs`, `phone-zoom`, `sessions`, `sessions-phone` and the `terminal-browser` files in workflow
+  order before the final push. The local matrix session screen is `REET_MATRIX_ONLY=session`.
 - **Process used** (subagent-driven development): an implementer per task with a brief, a task review, fix rounds
   (at most five) with a scoped re-review, then a final broad review split by area and a single fix wave; mutation checks
   restore files byte-identical (`cp` before, `cmp` after); fidelity checks at 1440, 834 and 390 px recorded in

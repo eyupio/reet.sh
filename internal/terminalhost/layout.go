@@ -142,7 +142,9 @@ func ensureTmuxConfig(layout Layout) error {
 }
 
 // tmuxConfig is intentionally minimal. It never sources a personal file, loads
-// plugins, or enables clipboard/escape-sequence passthrough.
+// plugins, or enables escape-sequence passthrough. Clipboard writes (OSC 52)
+// start off here; the manager follows the local clipboard switch at runtime.
+// The clipboard-v1 negotiation gates the connector's capability separately.
 const tmuxConfig = `set -g history-limit 5000
 set -g default-terminal "screen-256color"
 set -g escape-time 10

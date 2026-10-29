@@ -81,6 +81,8 @@ type server struct {
 	browseOnce   sync.Once
 	browseLimits *browseLimits
 	browseAudit  *browseAudit
+	// Image uploads per account (terminal_upload.go).
+	uploadLimits uploadLimits
 	// Folder-project writes per account (folder_projects.go).
 	folderWritesMu sync.Mutex
 	folderWrites   *auth.Limiter
@@ -580,8 +582,10 @@ func (s *server) auth(next http.Handler) http.Handler {
 				return
 			}
 			// An identity provider's logout call is a form post, by its standard;
-			// it is exempt on its exact path and nowhere else.
-			if (r.Method == http.MethodPost || r.Method == http.MethodPatch) && r.URL.Path != ssoLogoutPath &&
+			// it is exempt on its exact path and nowhere else. An image upload is
+			// the one other non-JSON write: its own handler requires an exact
+			// image Content-Type and the terminal wrapper checks the origin.
+			if (r.Method == http.MethodPost || r.Method == http.MethodPatch) && r.URL.Path != ssoLogoutPath && !terminalUploadPath(r.URL.Path) &&
 				!strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
 				writeErr(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 				return
@@ -881,7 +885,12 @@ func stageLabel(sk store.Skill) string {
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
+	// Marshal first: encoding/json escapes <, > and & in strings, and a
+	// failure never leaves half an object on the wire.
+	data, err := json.Marshal(v)
+	if err == nil {
+		_, _ = w.Write(data)
+	}
 }
 
 func writeErr(w http.ResponseWriter, code int, msg string) {

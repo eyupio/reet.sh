@@ -119,7 +119,9 @@ const (
 // of Browse, by a connector that negotiated browse-v1 but has folder browse
 // switched off locally, so a controller can tell that from an older
 // connector. It is sent only on a connection that negotiated browse-v1: an
-// older controller's strict decoder would refuse the field.
+// older controller's strict decoder would refuse the field. Clipboard is sent
+// only on a connection that negotiated clipboard-v1, for the same reason.
+// Uploads and UploadsOff follow the same rule for upload-v1.
 type Capabilities struct {
 	Launch bool `json:"launch,omitempty"`
 	// Yolo is reserved: no connector may advertise it until YOLO launches exist,
@@ -133,6 +135,9 @@ type Capabilities struct {
 	Browse          bool      `json:"browse,omitempty"`
 	Branches        bool      `json:"branches,omitempty"`
 	BrowseOff       bool      `json:"browseOff,omitempty"`
+	Clipboard       bool      `json:"clipboard,omitempty"`
+	Uploads         bool      `json:"uploads,omitempty"`
+	UploadsOff      bool      `json:"uploadsOff,omitempty"`
 	TerminalControl bool      `json:"terminalControl,omitempty"`
 	ProtocolVersion int       `json:"protocolVersion"`
 	OS              string    `json:"os"`
@@ -160,7 +165,10 @@ func (c Capabilities) ValidateFor(features string) error {
 	if c.CommandHistory && !c.TerminalControl || c.Worktree && !c.Launch {
 		return ErrInvalid
 	}
-	if c.Browse && !c.TerminalControl || c.Branches && !c.Worktree || c.BrowseOff && (c.Browse || !c.TerminalControl) {
+	if c.Browse && !c.TerminalControl || c.Branches && !c.Worktree || c.BrowseOff && (c.Browse || !c.TerminalControl) || c.Clipboard && !c.TerminalControl {
+		return ErrInvalid
+	}
+	if c.Uploads && !c.TerminalControl || c.UploadsOff && (c.Uploads || !c.TerminalControl) {
 		return ErrInvalid
 	}
 	if c.ProtocolVersion < 1 || c.ProtocolVersion > 65535 || !plainText(c.OSUser, 128) || strings.TrimSpace(c.OSUser) == "" {
@@ -359,10 +367,16 @@ const (
 	LaunchFailed            ResultCode = "launch_failed"
 	LaunchOptionUnsupported ResultCode = "launch_option_unsupported"
 	YoloRefused             ResultCode = "yolo_refused"
+	// UploadsOff refuses an upload before any stream is opened because the
+	// machine's local upload switch or terminal consent is off.
+	UploadsOff ResultCode = "uploads_off"
+	// UploadBusy refuses an upload before any stream is opened because two
+	// transfers are already in flight on this connection.
+	UploadBusy ResultCode = "upload_busy"
 )
 
 func (c ResultCode) Valid() bool {
-	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict || c == LaunchFailed || c == LaunchOptionUnsupported || c == YoloRefused || c == WorktreeChanged || c == WorktreeRefused
+	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict || c == LaunchFailed || c == LaunchOptionUnsupported || c == YoloRefused || c == WorktreeChanged || c == WorktreeRefused || c == UploadsOff || c == UploadBusy
 }
 
 type Result struct {
@@ -412,8 +426,8 @@ func (m Message) Validate() error {
 		return ErrInvalid
 	}
 	kind := m.Body.kind()
-	session := kind == "create" || kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "end" || kind == "history" || kind == "command_history" || kind == "session_changed"
-	attachment := kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "history" || kind == "command_history" || kind == "result" && m.AttachmentID != ""
+	session := kind == "create" || kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "end" || kind == "history" || kind == "command_history" || kind == "session_changed" || kind == "upload"
+	attachment := kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "history" || kind == "command_history" || kind == "upload" || kind == "result" && m.AttachmentID != ""
 	if session && !ValidID(m.SessionID) || !session && m.SessionID != "" && (kind != "result" || !ValidID(m.SessionID)) {
 		return ErrInvalid
 	}
@@ -493,6 +507,8 @@ func Decode(data []byte) (Message, error) {
 		b = &Branches{}
 	case "branches_result":
 		b = &BranchesResult{}
+	case "upload":
+		b = &Upload{}
 	case "result":
 		b = &Result{}
 	case "session_changed":

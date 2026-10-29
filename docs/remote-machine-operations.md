@@ -209,8 +209,13 @@ with the same database, sealing key and enrollments, then resume existing sessio
 attachments; local shells remain. `reet terminal browse off` (also `reet agent terminal browse off`)
 keeps terminal access but stops reet listing this machine's folders; `on` allows it
 again and `status` shows it. It is on by default and also refused while terminal
-access is off. Revoking enrollment cuts private access and
-prevents new authorization; it does not terminate independent local tmux work.
+access is off. `reet terminal uploads on|off|status` (also `reet agent terminal uploads …`)
+controls whether the browser may attach an image to a session; it is on by default,
+writes only to the private terminal directory, and is refused while terminal access
+is off. `reet terminal clipboard on|off|status` (also `reet agent terminal clipboard …`)
+controls whether an agent's OSC 52 write reaches the browser; it is on by default and
+only changes what the attached tmux server forwards. Revoking enrollment cuts private
+access and prevents new authorization; it does not terminate independent local tmux work.
 Sign-out closes that browser login's attachments. Forgetting an inventory report
 is not credential revocation. End work locally if the controller is unavailable.
 

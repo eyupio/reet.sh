@@ -5,6 +5,7 @@ package terminalhost
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -73,6 +74,30 @@ func (m *Manager) defaults(ctx context.Context) error {
 			return err
 		}
 	}
+	return m.applyClipboard(ctx)
+}
+
+// applyClipboard follows the local clipboard switch on the running tmux
+// server. OSC 52 reaches the attached browser only when set-clipboard is on;
+// allow-passthrough stays off. It skips the command when the remembered value
+// already matches, and forgets it after ErrNotRunning so a later server start
+// applies the current switch.
+func (m *Manager) applyClipboard(ctx context.Context) error {
+	on := m.clipboardConsent == nil || m.clipboardConsent() == nil
+	if m.clipboardSet && m.clipboardOn == on {
+		return nil
+	}
+	value := "off"
+	if on {
+		value = "on"
+	}
+	if _, err := m.command(ctx, 0, "set-option", "-g", "set-clipboard", value); err != nil {
+		if errors.Is(err, ErrNotRunning) {
+			m.clipboardSet = false
+		}
+		return err
+	}
+	m.clipboardSet, m.clipboardOn = true, on
 	return nil
 }
 func (m *Manager) sessionNames(ctx context.Context) (map[string]bool, error) {

@@ -55,7 +55,13 @@ launch bar's sentence and moves focus to the prompt.
 
 The bar is docked at the foot of Home (`web/src/lib/launch/LaunchBar.svelte`; its rules are in
 `web/src/lib/launchBar.ts`). It is a **Describe the job** box, **Start**, and the launch sentence,
-whose bold words are the choices:
+whose bold words are the choices.
+
+For OpenCode on a machine that advertises `acp`, the sentence says **as a chat** by default and Start
+opens the native reet chat instead of the terminal UI. The **Session** word switches it to **as a
+terminal**; the model, worktree and thinking choices come back for that terminal. A chat runs in the
+chosen project folder (not a worktree), uses OpenCode's configured model, and can attach images
+through Home's existing pasted-image path. A chat starts in one folder at a time.
 
 > Run **Claude Code** with **default** on **Store rewrite** at **studio** from **main** in **a fresh worktree** · thinking **high**
 

@@ -25,17 +25,23 @@ export type LaunchChoice = {
   prompt: string
   /** Never stored: every launch and every fresh choice is back on 'ask'. */
   approvals: 'ask' | 'yolo'
+  /** OpenCode on an acp machine starts as a native chat by default; false or absent is the terminal UI. */
+  chat?: boolean
 }
 /** The person's launch defaults from the profile (`defaultBaseBranch`, `worktreesByDefault`, which is true when absent). */
 export type LaunchDefaults = Partial<Pick<Profile, 'defaultBaseBranch' | 'worktreesByDefault' | 'defaultTool' | 'defaultModel' | 'defaultEffort'>>
 export type LaunchProject = Pick<FolderProject, 'id' | 'name' | 'host' | 'machine' | 'dir' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'defaultTool' | 'defaultModel' | 'defaultEffort'>
 export type LaunchMachine = Pick<TerminalMachine, 'agentId' | 'host' | 'ready' | 'capabilities'>
 /** One piece of the sentence: a named slot is a button; slot '' is a plain word between them. */
-export type SentencePart = { slot: '' | 'agent' | 'model' | 'project' | 'machine' | 'branch' | 'worktree' | 'checkout' | 'effort'; text: string }
+export type SentencePart = { slot: '' | 'agent' | 'chat' | 'model' | 'project' | 'machine' | 'branch' | 'worktree' | 'checkout' | 'effort'; text: string }
 /** What `createTerminal(agentId, requestId, title, cols, rows, signal, launch)` takes for one session. */
 export type LaunchCreate = { agentId: string; requestId: string; title: string; launch: LaunchRequest }
 /** How a launch choice is resolved from the project, account and favourite defaults. */
 export type LaunchResolveOptions = { machines?: LaunchMachine[]; favourites?: ModelFavourite[]; availableAgents?: string[]; explicitModel?: boolean; explicitEffort?: boolean }
+
+/** Whether this agent on this machine can run a native chat. */
+const supportsChat = (agent: string, host: string | undefined, machines: LaunchMachine[] | undefined): boolean =>
+  agent === 'opencode' && !!machines?.find(m => m.agentId === host)?.capabilities?.acp
 
 const UPDATE_FOR_OPTION = 'Update reet on that machine to use that option.'
 const NO_OPTION = "That agent doesn't take that option."
@@ -99,6 +105,7 @@ export function initialChoice(projects: LaunchProject[], profile: LaunchDefaults
     agent: next.agent, model: next.model, projectIds: first ? [first.id] : [],
     branch: first?.baseBranch || profile.defaultBaseBranch || '', worktree: worktreeFor(first ?? undefined, profile),
     effort: next.effort as Effort, prompt: '', approvals: 'ask',
+    ...(supportsChat(next.agent, first?.host, options.machines) ? { chat: true } : {}),
   }
 }
 
@@ -132,17 +139,25 @@ export function withProject(choice: LaunchChoice, project: LaunchProject, profil
   const sameAgent = next.agent === choice.agent
   const keepModel = !!options.explicitModel && sameAgent
   const keepEffort = !!options.explicitEffort && sameAgent
-  const { homeMachine: _, ...rest } = choice
+  const { homeMachine: _home, chat: _chat, ...rest } = choice
+  const chat = supportsChat(next.agent, project.host, options.machines) && choice.chat !== false
   return {
     ...rest, agent: next.agent, model: keepModel ? choice.model : next.model, projectIds: [project.id],
     branch: project.baseBranch || profile.defaultBaseBranch || '', worktree: worktreeFor(project, profile), effort: (keepEffort ? choice.effort : next.effort) as Effort,
+    ...(chat ? { chat: true } : {}),
   }
 }
 
 /** The choice for an agent the person picked: the model and effort are resolved for that agent, never kept from the old one. */
 export function withAgent(choice: LaunchChoice, agent: string, project: LaunchProject | null, profile: LaunchDefaults, options: LaunchResolveOptions = {}): LaunchChoice {
   const next = resolved(agent, project, profile, options)
-  return { ...choice, agent: next.agent, model: next.model, effort: next.effort as Effort }
+  const host = project?.host ?? choice.homeMachine
+  const chat = supportsChat(next.agent, host, options.machines) && choice.chat !== false
+  const out: LaunchChoice = { ...choice, agent: next.agent, model: next.model, effort: next.effort as Effort }
+  if (chat) out.chat = true
+  else if (next.agent === 'opencode' && choice.chat === false) out.chat = false
+  else delete out.chat
+  return out
 }
 
 /**
@@ -167,17 +182,23 @@ export function withHome(choice: LaunchChoice, agentId: string, profile: LaunchD
   const next = resolved(choice.agent, null, profile, options)
   const keepModel = !!options.explicitModel
   const keepEffort = !!options.explicitEffort
-  return { ...choice, projectIds: [], homeMachine: agentId, branch: '', model: keepModel ? choice.model : next.model, effort: (keepEffort ? choice.effort : next.effort) as Effort }
+  const chat = supportsChat(next.agent, agentId, options.machines) && choice.chat !== false
+  const out: LaunchChoice = { ...choice, projectIds: [], homeMachine: agentId, branch: '', model: keepModel ? choice.model : next.model, effort: (keepEffort ? choice.effort : next.effort) as Effort }
+  if (chat) out.chat = true
+  else if (next.agent === 'opencode' && choice.chat === false) out.chat = false
+  else delete out.chat
+  return out
 }
 
 /** The phone's one summary line: "Claude Code on reet at studio · main · fresh worktree" (the model is in the Change sheet). */
 export function summary(parts: SentencePart[]): string {
   const text = (slot: SentencePart['slot']) => parts.find(p => p.slot === slot)?.text ?? ''
   const out = [`${text('agent')} on ${text('project')} at ${text('machine')}`]
+  const chat = parts.some(p => p.slot === 'chat' && p.text === 'a chat')
   const worktree = text('worktree')
-  if (worktree === 'a fresh worktree') out.push(text('branch'), 'fresh worktree')
-  else if (worktree) out.push(worktree)
-  if (parts.some(p => p.slot === 'effort')) out.push(`thinking ${text('effort')}`)
+  if (!chat && worktree === 'a fresh worktree') out.push(text('branch'), 'fresh worktree')
+  else if (!chat && worktree) out.push(worktree)
+  if (!chat && parts.some(p => p.slot === 'effort')) out.push(`thinking ${text('effort')}`)
   return out.join(' · ')
 }
 
@@ -210,13 +231,19 @@ export function sentence(choice: LaunchChoice, projects: LaunchProject[], machin
     project = 'a project'
     machine = 'a machine'
   }
+  const chatHost = picked.length === 1 ? picked[0].host : picked.length === 0 ? choice.homeMachine : undefined
+  const supports = choice.chat === true || supportsChat(choice.agent, chatHost, machines)
+  const chat = supports && choice.chat === true
+  const opening: SentencePart[] = []
+  if (supports) opening.push(word('as'), { slot: 'chat', text: chat ? 'a chat' : 'a terminal' })
+  if (!chat) opening.push(word('with'), { slot: 'model', text: cleanModel(choice.model) || 'default' })
   const parts: SentencePart[] = [
     word('Run'), { slot: 'agent', text: toolName(choice.agent || undefined) },
-    word('with'), { slot: 'model', text: cleanModel(choice.model) || 'default' },
+    ...opening,
     word('on'), { slot: 'project', text: project },
     word('at'), { slot: 'machine', text: machine },
   ]
-  if (picked.some(p => p.isRepo)) {
+  if (!chat && picked.some(p => p.isRepo)) {
     if (choice.worktree) {
       const branch = picked.length > 1 ? "each project's default" : choice.branch || current || 'the current branch'
       parts.push(word('from'), { slot: 'branch', text: branch }, word('in'), { slot: 'worktree', text: 'a fresh worktree' })
@@ -225,7 +252,7 @@ export function sentence(choice: LaunchChoice, projects: LaunchProject[], machin
       if (picked.length === 1) parts.push({ slot: 'checkout', text: current ? `Works in the checkout on ${current}.` : 'Works in the checkout.' })
     }
   }
-  if (takesEffort(choice.agent)) parts.push(word('·'), word('thinking'), { slot: 'effort', text: choice.effort || 'default' })
+  if (!chat && takesEffort(choice.agent)) parts.push(word('·'), word('thinking'), { slot: 'effort', text: choice.effort || 'default' })
   return parts
 }
 
@@ -238,6 +265,14 @@ export function startable(choice: LaunchChoice, projects: LaunchProject[], machi
   if (!agent?.enabled) return agent?.disabledReason ?? "reet doesn't start this agent yet."
   const prompt = validatePrompt(choice.agent, choice.prompt)
   if (prompt) return prompt
+  if (choice.chat === true) {
+    if (picked.length > 1) return 'A chat starts in one folder at a time. Choose one project, or change it to a terminal.'
+    if (choice.effort || choice.approvals === 'yolo') return 'A chat uses its own model and approvals; change it to a terminal for those choices.'
+    const target = machines.find(x => x.agentId === (picked[0]?.host ?? choice.homeMachine ?? ''))
+    if (readiness(target)) return readiness(target)!
+    if (!target?.capabilities?.acp) return 'Update reet on that machine to start OpenCode chats.'
+    return null
+  }
   const model = validateModel(choice.model)
   if (model) return model
   if (choice.effort && !agent.effort) return NO_OPTION
@@ -280,20 +315,22 @@ export function defaultTitle(prompt: string, fallback = ''): string {
  * takes it, `yolo` only when chosen; nothing else is added. The project folder is sent as it is, whatever its name.
  */
 export function toCreate(choice: LaunchChoice, project: LaunchProject | null, requestId: string, runToken: string, profile: LaunchDefaults = {}): LaunchCreate {
+  const chat = choice.chat === true && choice.agent === 'opencode'
   const launch: LaunchRequest = { tool: choice.agent }
+  if (chat) { launch.structured = true; launch.trust = true }
   const model = cleanModel(choice.model)
-  if (model) launch.model = model
+  if (!chat && model) launch.model = model
   if (project) launch.dir = project.dir
   if (choice.prompt) launch.prompt = choice.prompt
   if (project) launch.projectId = project.id
-  if (project?.isRepo && choice.worktree) {
+  if (!chat && project?.isRepo && choice.worktree) {
     launch.worktree = runToken
     launch.project = projectSlug(project.name)
     const base = baseFor(choice, project, profile)
     if (base) launch.base = base
   }
-  if (choice.effort && takesEffort(choice.agent)) launch.effort = choice.effort
-  if (choice.approvals === 'yolo') launch.yolo = true
+  if (!chat && choice.effort && takesEffort(choice.agent)) launch.effort = choice.effort
+  if (!chat && choice.approvals === 'yolo') launch.yolo = true
   return {
     agentId: project ? project.host : choice.homeMachine ?? '',
     requestId,

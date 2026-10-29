@@ -407,7 +407,7 @@ func TestUploadPathHeadersSurviveSpecialCharacters(t *testing.T) {
 	if rec.Code != 200 || pathErr != nil || refErr != nil || gotPath != path {
 		t.Fatalf("path header: %d %q %v", rec.Code, gotPath, pathErr)
 	}
-	if gotReference != "'"+path+"'" {
+	if gotReference != uploadReference(path) {
 		t.Fatalf("reference header: %q", gotReference)
 	}
 }

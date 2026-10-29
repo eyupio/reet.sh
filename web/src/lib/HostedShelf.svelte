@@ -39,7 +39,7 @@
       <article>
         <div class="identity"><a class="name" href={`/hosting?edit=${encodeURIComponent(skill.slug)}`}>{skill.slug}</a><p>{skill.description || 'Add a description in the editor.'}</p></div>
         <div class="sharing">
-          <label><span class:public={skill.published}>{skill.published ? 'Public' : 'Private draft'}</span><input type="checkbox" role="switch" checked={skill.published} aria-label={`Make ${skill.slug} public`} disabled={!canWrite || !!saving} onchange={event => void publish(skill, event.currentTarget.checked)} /></label>
+          <label><span class:public={skill.published}>{skill.published ? 'Public' : 'Private draft'}</span><input type="checkbox" role="switch" checked={skill.published} aria-label={`Make ${skill.slug} public`} disabled={!canWrite || !!saving} onchange={async event => { const input = event.currentTarget; await publish(skill, input.checked); input.checked = !!skills.find(item => item.slug === skill.slug)?.published }} /></label>
           <small>{skill.published ? 'Anyone with the link can use this skill.' : 'Only you can access this draft.'}</small>
         </div>
         <div class="actions">

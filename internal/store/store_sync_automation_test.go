@@ -187,3 +187,49 @@ func TestRunFinishesAfterDelayedApproval(t *testing.T) {
 		t.Fatalf("review never settled: %+v", runs)
 	}
 }
+
+func TestFollowedSourceProblemPreservesLastGoodSelection(t *testing.T) {
+	s, uid, id := controlFixture(t)
+	if err := s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", Mode: "additive", FollowSource: true}); err != nil {
+		t.Fatal(err)
+	}
+	a, _, _ := s.EnrollSyncAgent(uid, "laptop", "test")
+	a.KeepSynced = true
+	if _, err := s.UpsertLocalFor(uid, "local-only", Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MaintainSync(uid, "owner", a); err != nil {
+		t.Fatal(err)
+	}
+	targets, _ := s.SyncTargetsFor(uid)
+	if len(targets[0].Desired) != 1 || targets[0].Problem == "" {
+		t.Fatalf("lost good selection or hid source failure: %+v", targets)
+	}
+	jobs, _ := s.SyncJobsFor(uid)
+	if len(jobs) != 0 {
+		t.Fatal("queued work with unresolved sources")
+	}
+}
+
+func TestAutomationFindsPendingWorkOutsideVisibleHistory(t *testing.T) {
+	s, uid, id := controlFixture(t)
+	s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", Mode: "additive", SkillIDs: []string{"a/b/one"}})
+	a, _, _ := s.EnrollSyncAgent(uid, "laptop", "test")
+	a.KeepSynced = true
+	j, _ := s.QueueSyncJob(uid, a.ID, id, "auto")
+	s.db.Exec(`UPDATE sync_jobs SET created_at=0 WHERE id=?`, j.ID)
+	// A busy account can push an old pending job out of the bounded activity read.
+	for range 510 {
+		if _, err := s.db.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,revision,created_at,updated_at) VALUES(?,?,?,'','scan','succeeded','',1,1)`, syncID(), uid, a.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.MaintainSync(uid, "owner", a); err != nil {
+		t.Fatal(err)
+	}
+	var pending int
+	s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE agent_id=? AND status='queued'`, a.ID).Scan(&pending)
+	if pending != 1 {
+		t.Fatalf("duplicate work from truncated history: %d", pending)
+	}
+}

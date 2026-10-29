@@ -10,10 +10,11 @@ try {
  for (const width of [390,1280]) {
   let sync = initial()
   const writes=[]
+  let failToggle=false
   const fixture=await openWorkspace(browser,{width,height:900,touch:width===390,skills:[one,two],sync,routes:{
    '/api/v2/sync':()=>sync,
    '/api/v2/sync/candidates':{skills:[one,two]},
-   '/api/v2/sync/agents':request=>{const body=request.postDataJSON();writes.push(body);sync.agents[0].keepSynced=body.action==='keep-sync-on';return sync},
+   '/api/v2/sync/agents':request=>{const body=request.postDataJSON();if(failToggle)return {status:409,json:{error:'Could not save machine setting'}};writes.push(body);sync.agents[0].keepSynced=body.action==='keep-sync-on';return sync},
    '/api/v2/sync/desired':request=>{const body=request.postDataJSON();writes.push(body);sync.targets=[{target:scope,sourceId:'shelf',sourceName:'Shelf',mode:body.mode,desired:body.skillIds.map(id=>[one,two].find(skill=>skill.id===id)),missing:[one],extra:[],revision:'new',followSource:body.followSource}];return sync},
    '/api/v2/sync/run':request=>{writes.push(request.postDataJSON());sync.jobs=[{id:'new-job',agentId:'a1',targetId:'shared',kind:'auto',status:'running',plan:{},stage:'apply',stages:[{key:'read',label:'Read machine',status:'done'},{key:'plan',label:'Plan changes',status:'done'},{key:'apply',label:'Apply changes',status:'running',detail:'Installing review · 1 of 2'}],createdAt:Date.now(),updatedAt:Date.now()}];return sync},
   }})
@@ -23,6 +24,11 @@ try {
   await expect(page.getByRole('heading',{name:'Choose what to sync',exact:true})).not.toBeVisible()
   await page.getByRole('switch',{name:'Keep Elitebook synced'}).check()
   await expect(page.getByRole('switch',{name:'Keep Elitebook synced'})).toBeChecked()
+  failToggle=true
+  await page.getByRole('switch',{name:'Keep Elitebook synced'}).click()
+  await expect(page.getByText('Could not save machine setting')).toBeVisible()
+  await expect(page.getByRole('switch',{name:'Keep Elitebook synced'})).toBeChecked()
+  failToggle=false
   if (process.env.REET_CAPTURE) await page.screenshot({path:`/workspace/work/sync-${width}.png`,fullPage:true})
   await page.getByRole('button',{name:'Sync now',exact:true}).click()
   await expect(page.getByText('Installing review · 1 of 2')).toBeVisible()

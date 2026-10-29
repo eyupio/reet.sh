@@ -129,7 +129,7 @@ test('the logo draws the real logo.svg with the ink and accent tokens', () => {
 
 // Components use tokens only. Files listed here are always checked whole; with a git base (REET_THEME_BASE, or the merge
 // base with origin/main) every line this branch adds to a component is checked too.
-const LITERAL = /#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?|oklch|lab|lch)\(|\b(white|black)\b(?=\s*[;}"'])/
+const LITERAL = /(?<![\w/])#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?|oklch|lab|lch)\(|\b(white|black)\b(?=\s*[;}"'])/
 const ALWAYS = ['src/lib/Logo.svelte']
 const git = args => execFileSync('git', args, { cwd: web, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
 const base = () => { try { return process.env.REET_THEME_BASE || git(['merge-base', 'HEAD', 'origin/main']).trim() } catch { return '' } }
@@ -146,6 +146,12 @@ const strip = text => {
     at = end
   }
 }
+
+test('URL fragments are not CSS colour literals', () => {
+  assert.equal(LITERAL.test("const connectHref = '/machines#add-machine'"), false)
+  assert.equal(LITERAL.test('color: #add;'), true)
+  assert.equal(LITERAL.test('background:#ffffff;'), true)
+})
 
 test('no literal colour in a component', () => {
   const offences = []

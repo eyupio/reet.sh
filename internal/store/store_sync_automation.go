@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"slices"
@@ -19,14 +20,12 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 	if err != nil {
 		return err
 	}
-	jobs, err := s.SyncJobsFor(uid)
-	if err != nil {
+	var pending int
+	if err = s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND status IN ('queued','running','awaiting-approval')`, uid, agent.ID).Scan(&pending); err != nil {
 		return err
 	}
-	for _, job := range jobs {
-		if job.AgentID == agent.ID && (job.Status == "queued" || job.Status == "running" || job.Status == "awaiting-approval") {
-			return nil
-		}
+	if pending > 0 {
+		return nil
 	}
 	envs, err := s.SyncEnvironmentsFor(uid)
 	if err != nil {
@@ -110,14 +109,12 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 		}
 		// A failed attempt needs a deliberate fix/retry. Continuous sync must not
 		// turn a permissions or provenance problem into hundreds of failed jobs.
-		var latest *SyncJob
-		for i := range jobs {
-			job := &jobs[i]
-			if job.AgentID == agent.ID && job.TargetID == target.Target.ID && job.Revision == target.Revision && (latest == nil || job.CreatedAt > latest.CreatedAt) {
-				latest = job
-			}
+		var latestStatus string
+		err := s.db.QueryRow(`SELECT status FROM sync_jobs WHERE user_id=? AND agent_id=? AND target_id=? AND revision=? ORDER BY created_at DESC,updated_at DESC LIMIT 1`, uid, agent.ID, target.Target.ID, target.Revision).Scan(&latestStatus)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
 		}
-		if latest != nil && (latest.Status == "failed" || latest.Status == "cancelled") {
+		if latestStatus == "failed" || latestStatus == "cancelled" {
 			continue
 		}
 		if len(target.Missing) == 0 && (target.Mode == "additive" || len(target.Extra) == 0) {

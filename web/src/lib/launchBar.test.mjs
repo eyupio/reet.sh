@@ -401,5 +401,7 @@ test('without acp OpenCode stays a terminal and history is absent', () => {
   assert.equal('chat' in moved, false)
   const acp = machine('m-studio', 'studio', { tools: ['opencode'], acp: true, acpHistory: true })
   assert.equal(withProject(choice({ agent: 'claude' }), openProject, profile, { machines: [acp] }).chat, true)
+  const explicitTerminal = withProject({ ...start, chat: false }, openProject, profile, { machines: [acp] })
+  assert.equal(explicitTerminal.chat, false)
   assert.equal(withHome(choice({ agent: 'opencode' }), 'm-studio', profile, { machines: [acp] }).chat, true)
 })

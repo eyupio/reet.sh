@@ -141,11 +141,13 @@ export function withProject(choice: LaunchChoice, project: LaunchProject, profil
   const keepEffort = !!options.explicitEffort && sameAgent
   const { homeMachine: _home, chat: _chat, ...rest } = choice
   const chat = supportsChat(next.agent, project.host, options.machines) && choice.chat !== false
-  return {
+  const out: LaunchChoice = {
     ...rest, agent: next.agent, model: keepModel ? choice.model : next.model, projectIds: [project.id],
     branch: project.baseBranch || profile.defaultBaseBranch || '', worktree: worktreeFor(project, profile), effort: (keepEffort ? choice.effort : next.effort) as Effort,
-    ...(chat ? { chat: true } : {}),
   }
+  if (chat) out.chat = true
+  else if (next.agent === 'opencode' && choice.chat === false) out.chat = false
+  return out
 }
 
 /** The choice for an agent the person picked: the model and effort are resolved for that agent, never kept from the old one. */

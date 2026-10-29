@@ -17,7 +17,7 @@
   // handed every write's answer (`onsettle`), so a poll on its way never overwrites it; sentences go to the page's own live
   // region (`onnotice`). Nothing is stored in the browser.
   let { projects, failed = false, savedWaiting = 0, sessions, sessionsFailed = false, reporting, running, known, worktrees, chosen = '',
-    selecting = false, selected = [], onselecting, ontoggle, onchoose, signal, onsettle, onwaiting, onmachines, onnotice, onreload, onsignedout,
+    selecting = false, selected = [], onselecting, ontoggle, onchoose, onnew, signal, onsettle, onwaiting, onmachines, onnotice, onreload, onsignedout,
     variant = 'home', selectAction, rail = true }: {
     projects: FolderProject[] | undefined
     failed?: boolean
@@ -34,6 +34,8 @@
     onselecting?: (on: boolean, first?: FolderProject) => void
     ontoggle?: (project: FolderProject) => void
     onchoose: (project: FolderProject, opener: HTMLElement) => void
+    /** Starts a session in a project at once (the card's +, and New session here). Without it the card chooses the project. */
+    onnew?: (project: FolderProject, opener: HTMLElement) => void
     /** A bounded abort signal for each request (the page's life and its timeout). */
     signal: () => AbortSignal
     /** A write's answer: the list as it now is. */
@@ -192,7 +194,7 @@
 
 {#if rail}<ProjectRail {projects} {failed} {reporting} {running} {known} {worktrees} {savedWaiting} {chosen} busy={checking} {importing} {pending} {moving}
   {selecting} {selected} {onselecting} {ontoggle} {variant} {selectAction}
-  onadd={(opener) => void openAdd(opener)} {onchoose} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}
+  {onnew} onadd={(opener) => void openAdd(opener)} {onchoose} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}
   onremove={(project, opener) => (removing = { project, opener })} onmove={move} ondismiss={dismiss} onimport={bringIn} oncolour={colour} />{/if}
 
 {#if adding && terminals}

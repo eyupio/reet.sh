@@ -34,8 +34,10 @@ local consent, and the session limits (8 per machine, 32 per account).
 **Close** and Escape both close the dialog without sending anything and return focus to the button
 you pressed, except while a request is in flight (see below).
 
-Home has no Start an agent button: a rail card and its **New session here** set the launch bar's
-project instead of opening this dialog.
+Home has no Start an agent button. Its rail card's **+**, and **New session here** in the card's
+menu, start a session in that project at once with the project's default agent, model, base branch
+and worktree choice (no dialog, no prompt). Choosing the card itself still puts the project in the
+launch bar's sentence and moves focus to the prompt.
 
 ## On Home: the launch bar
 
@@ -54,11 +56,18 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
   with the prompt empty and Approvals on **Ask me**. After every start Approvals is back on Ask me.
   **YOLO** is shown disabled ("reet doesn't start YOLO sessions yet.") and the controller refuses it
   (409 `yolo_refused`) until a later release.
-- **The rail.** Choosing a rail card, or **New session here** in its menu, puts that project in the
-  sentence with its own default agent, model, base branch and worktree choice, then moves focus to the
-  prompt. `/?project=<id>` does the same once. While a start is out or kept for a retry, a card
-  changes nothing and the status line says "Finish or discard the current start first." ("Wait for the
-  current start to finish." while the request is out), after what the bar already said.
+- **The rail.** Choosing a rail card puts that project in the sentence with its own default agent,
+  model, base branch and worktree choice, then moves focus to the prompt. `/?project=<id>` does the
+  same once. The card's **+** and **New session here** start at once instead, sending the bar's Start
+  with that project; a refusal appears on the bar, with the project left in the sentence so it can be
+  fixed. While a start is out or kept for a retry, any of these changes nothing and the status line
+  says "Finish or discard the current start first." ("Wait for the current start to finish." while the
+  request is out), after what the bar already said.
+- **Machines on Home.** Each machine card's **+** and its menu's **New session…** ask what to start
+  there: one of that machine's folder projects, which starts at once with the project's defaults, or
+  **Terminal session**, a plain shell in the machine's home folder. Its menu also offers **New
+  terminal**, **Open on Machines** and **Skills & sync**. The machine's pills report what its last
+  scan says is installed: agents, skills and MCP (which no agent reports yet, so it reads "MCP —").
 - **Base branch.** The Branch slot is the base of the fresh worktree. `base` is sent only when it is
   chosen: by the person, by the project's base branch or by the account's default base branch.
   Otherwise nothing is sent, the worktree starts from the checkout's current commit, and the sentence

@@ -112,6 +112,23 @@ test('sessions running counts running and starting sessions; ending, finished an
   assert.equal(h.agentSessionIds, undefined)
 })
 
+test('installed pills report agents, skills and MCP from that machine only', () => {
+  const sync = {
+    ...emptySync(),
+    machines: [{ host: 'studio', groups: [], skillCount: 3 }],
+    environments: [
+      { id: 'e1', name: 'Claude', kind: 'machine', agent: 'claude', host: 'studio', skills: [{ id: 'k1', name: 'One' }, { id: 'k2', name: 'Two' }, { id: 'k3', name: 'Three' }], scannedAt: NOW, complete: true, os: 'linux', arch: 'x64', version: '1' },
+      { id: 'e2', name: 'Codex', kind: 'machine', agent: 'agents', host: 'studio', skills: [{ id: 'k1', name: 'One' }], scannedAt: NOW, complete: true, os: 'linux', arch: 'x64', version: '1' },
+      { id: 'e3', name: 'Claude', kind: 'machine', agent: 'claude', host: 'desk', skills: [], scannedAt: NOW, complete: true, os: 'darwin', arch: 'arm64', version: '1' },
+    ],
+  }
+  const terminals = [{ agentId: 'a1', host: 'studio', capabilities: { tools: ['claude', 'codex'], protocolVersion: 1, os: 'linux', osUser: 'me', terminalEnabled: true, healthEnabled: true, readiness: 'ready' } }]
+  const [studio, desk, unknown] = fleetCards([machine('a1', 'studio'), machine('a2', 'desk'), machine('a3', 'pi')], [], sync, NOW, terminals)
+  assert.deepEqual(studio.installed, { agents: ['claude', 'codex'], skills: 3, mcp: null })
+  assert.deepEqual(desk.installed, { agents: ['claude'], skills: 0, mcp: null })
+  assert.deepEqual(unknown.installed, { agents: null, skills: null, mcp: null })
+})
+
 test('skills line never says in sync without a check', () => {
   const studio = [machine('a1', 'studio')]
   const line = sync => fleetCards(studio, [], sync, NOW)[0].skills

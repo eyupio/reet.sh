@@ -123,6 +123,23 @@
     void tick().then(() => field?.focus({ preventScroll: phone }))
   }
   export function focusPrompt() { field?.focus() }
+  /**
+   * Start a session in one project at once, with that project's own defaults and the prompt as it is (often empty). A
+   * rail card's + and its New session here use this instead of only moving the sentence: there is no dialog and no wait
+   * for a prompt.
+   * A locked bar, or one that has not opened yet, says why in the bar's own status line, and the project stays in the
+   * sentence so Start can be pressed by hand.
+   */
+  export async function startProject(project: FolderProject): Promise<boolean> {
+    if (!choice) { hint = 'The bar is still opening. Choose the project again in a moment.'; return false }
+    if (locked) { hint = busy || leaving ? 'Wait for the current start to finish.' : 'Finish or discard the current start first.'; return false }
+    choice = withProject(choice, project, profile)
+    message = ''; hint = ''
+    await tick()
+    if (reason !== null) { hint = reason; return false }
+    await start()
+    return true
+  }
   // The rail's selection, in rail order: two or more projects start together; one is that project; none goes back to one.
   // It is applied whenever it changes and the bar is free, so a change made while the bar was locked (a kept request) or
   // before its first choice is applied as soon as it can be: the rail and the bar never name different projects.

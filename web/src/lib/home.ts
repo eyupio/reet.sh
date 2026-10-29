@@ -1,4 +1,4 @@
-import type { FolderProject, MachineHealth, TerminalSession, SessionState } from './terminal/api'
+import type { FolderProject, MachineHealth, TerminalMachine, TerminalSession, SessionState } from './terminal/api'
 import type { SyncJob, SyncState } from './api'
 
 // Pure logic for Home on today's data: the fleet strip's cards, the In flight groups and the Needs you list.
@@ -24,6 +24,16 @@ export type FleetCard = {
    *  record, so a finished session's worktree is not counted: it may have been removed. */
   worktrees: number
   skills: { text: string; tone: 'good' | 'warn' | 'muted' }
+  /** What the machine is known to have installed. null means no scan has reported it, not that there is none. */
+  installed: InstalledTools
+}
+export type InstalledTools = {
+  /** The agents the machine can start or that reported a skill scope, or null when nothing has reported. */
+  agents: string[] | null
+  /** The distinct skills installed across the machine's agent scopes, or null when no scan has reported. */
+  skills: number | null
+  /** MCP servers are not in the machine's sync report yet; null says so rather than claiming there are none. */
+  mcp: number | null
 }
 export type SessionOwner = { id: string; name: string }
 /** What the listing carries: the worktree fields only for a session started in its own worktree, and the folder project
@@ -128,7 +138,24 @@ function skillsOf(agentId: string, sync: SyncState, now: number): FleetCard['ski
   return { text: `skills in sync · checked ${ago(Math.max(0, now - oldest))}`, tone: 'good' }
 }
 
-export function fleetCards(machines: MachineHealth[], sessions: TerminalSession[], sync: SyncState, now: number): FleetCard[] {
+/** What one machine's last scan and terminal report say is installed. Nothing is inferred from another machine. */
+export function machineInstalled(agentId: string, host: string, sync: SyncState, terminals: Pick<TerminalMachine, 'agentId' | 'host' | 'capabilities'>[] = [],
+  capabilities?: { tools?: string[] }): InstalledTools {
+  const wanted = host.toLowerCase()
+  const groups = (sync.environments ?? []).filter(group => group.host.toLowerCase() === wanted)
+  const reported = groups.map(group => group.agent).filter(Boolean)
+  const tools = terminals.find(machine => machine.agentId === agentId)?.capabilities?.tools ?? capabilities?.tools
+  // Shared agents and Codex are one installed agent under two names; count it once.
+  const agents = tools !== undefined || reported.length
+    ? [...new Set([...(tools ?? []), ...reported].map(id => id === 'agents' ? 'codex' : id))]
+    : null
+  const skills = (sync.machines ?? []).find(machine => machine.host.toLowerCase() === wanted)?.skillCount
+    ?? (groups.length ? new Set(groups.flatMap(group => (group.skills ?? []).map(skill => skill.id))).size : null)
+  return { agents, skills, mcp: null }
+}
+
+export function fleetCards(machines: MachineHealth[], sessions: TerminalSession[], sync: SyncState, now: number,
+  terminals: Pick<TerminalMachine, 'agentId' | 'host' | 'capabilities'>[] = []): FleetCard[] {
   return machines.map(m => ({
     agentId: m.agentId,
     name: m.host,
@@ -142,6 +169,7 @@ export function fleetCards(machines: MachineHealth[], sessions: TerminalSession[
     disk: diskOf(m),
     worktrees: inUse(sessions.filter(s => s.agentId === m.agentId)),
     skills: skillsOf(m.agentId, sync, now),
+    installed: machineInstalled(m.agentId, m.host, sync, terminals, m.capabilities),
   }))
 }
 

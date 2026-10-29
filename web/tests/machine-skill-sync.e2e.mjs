@@ -27,6 +27,12 @@ try {
   await expect(dialog.getByRole('heading',{name:'Reading improve from Elitebook'})).toBeVisible()
   expect(writes).toHaveLength(1)
   expect(writes[0]).toMatchObject({skillId:'local/improve',destination:'PROD_Snicket',sourceId:source.environments[0].id})
+  request={...request,state:'failed',error:'source_changed'}
+  await expect(dialog.getByRole('heading',{name:'Sync needs attention'})).toBeVisible({timeout:7000})
+  await dialog.getByRole('button',{name:'Fix and try again',exact:true}).click()
+  await expect(dialog.getByRole('heading',{name:'Reading improve from Elitebook'})).toBeVisible()
+  expect(writes).toHaveLength(2)
+  expect(writes[1].requestKey).not.toBe(writes[0].requestKey)
   request={...request,state:'completed',syncRunId:'transfer_copy1'}
   sync.runs=[{id:'transfer_copy1',status:'running',targets:[request.destinationId]}]
   sync.jobs=[{id:'install1',targetId:request.destinationId,status:'running',message:'Installing improve · 1 of 1',createdAt:Date.now()}]

@@ -162,3 +162,67 @@ func TestMachineSkillSyncCannotBypassFileReviewOrOwnership(t *testing.T) {
 		t.Fatal("foreign skill accepted")
 	}
 }
+
+func TestKeepSyncedPreparesNewMachineOnlyShelfSkillOnce(t *testing.T) {
+	s, uid, a, b, dest, r, files := machineSyncFixture(t)
+	r = finishMachineCopy(t, s, uid, a, r, files)
+	if err := s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: dest, SourceID: "shelf", Mode: "additive", FollowSource: true}); err != nil {
+		t.Fatal(err)
+	}
+	// The already imported skill is now desired; a newly discovered local skill
+	// must join a whole-shelf policy without asking the user to find its URL.
+	if _, err := s.UpsertLocalFor(uid, "new-local", Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordEnvironmentFor(uid, "local/new-local", a.Host, "agents", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	b.KeepSynced = true
+	if err := s.MaintainSync(uid, "owner", b); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MaintainSync(uid, "owner", b); err != nil {
+		t.Fatal(err)
+	}
+	requests, _, err := s.RemoteImportsFor(uid)
+	if err != nil || len(requests) != 2 {
+		t.Fatal("duplicate automatic transfers", requests, err)
+	}
+	var created RemoteImport
+	for _, request := range requests {
+		if request.SyncSkillID == "local/new-local" {
+			created = request
+		}
+	}
+	if created.ID == "" || created.DestinationID != dest || !created.FollowShelf {
+		t.Fatal(created)
+	}
+}
+
+func TestIndividualMachineCopyPreservesWholeShelfPolicy(t *testing.T) {
+	for _, pending := range []bool{false, true} {
+		t.Run(map[bool]string{false: "ready", true: "another copy pending"}[pending], func(t *testing.T) {
+			s, uid, a, _, dest, r, files := machineSyncFixture(t)
+			// A policy saved before this newly discovered local skill was reported.
+			if err := s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: dest, SourceID: "shelf", Mode: "additive"}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.db.Exec(`UPDATE sync_policies SET follow_source=1 WHERE target_id=?`, dest); err != nil {
+				t.Fatal(err)
+			}
+			if pending {
+				if _, err := s.UpsertLocalFor(uid, "later", Patch{}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			finishMachineCopy(t, s, uid, a, r, files)
+			if err := s.AdvanceMachineSkillSyncs(uid, "owner"); err != nil {
+				t.Fatal(err)
+			}
+			targets, err := s.SyncTargetsFor(uid)
+			if err != nil || len(targets) != 1 || !targets[0].FollowSource || len(targets[0].Desired) != 1 {
+				t.Fatal("individual transfer disabled following shelf", targets, err)
+			}
+		})
+	}
+}

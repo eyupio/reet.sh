@@ -111,6 +111,11 @@ func TestCollectRecoversAgentSpecificSourceURLWithoutCrossingScopes(t *testing.T
 }
 
 func TestPrivateSkillSyncApplyAndSubsequentPreview(t *testing.T) {
+	for _, mode := range []string{"additive", "bidirectional"} {
+		t.Run(mode, func(t *testing.T) { privateSkillSyncApplyAndSubsequentPreview(t, mode) })
+	}
+}
+func privateSkillSyncApplyAndSubsequentPreview(t *testing.T, mode string) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	dir := filepath.Join(home, ".agents", "skills")
@@ -121,7 +126,7 @@ func TestPrivateSkillSyncApplyAndSubsequentPreview(t *testing.T) {
 	manifest, _ := skillbundle.FromContents(files)
 	revision := store.PrivateSkillRevision{ID: strings.Repeat("a", 32), BundleID: strings.Repeat("b", 32), ManifestDigest: manifest.Digest, Files: files}
 	skill := store.SyncSkill{ID: "local/demo", Name: "demo", Slug: "demo", SourceType: "private", Source: "private:" + revision.BundleID + ":" + revision.ID + ":" + manifest.Digest}
-	target := store.SyncTarget{Target: store.Environment{ID: "target", Name: "Desktop", Host: "desktop", Agent: "agents"}, Mode: "additive", Revision: "revision", Desired: []store.SyncSkill{skill}}
+	target := store.SyncTarget{Target: store.Environment{ID: "target", Name: "Desktop", Host: "desktop", Agent: "agents"}, Mode: mode, Revision: "revision", Desired: []store.SyncSkill{skill}}
 	downloads := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -148,4 +153,13 @@ func TestPrivateSkillSyncApplyAndSubsequentPreview(t *testing.T) {
 	if downloads != 1 {
 		t.Fatal("already matching private copy downloaded again", downloads, out.String())
 	}
+	if mode == "bidirectional" {
+		if err := os.WriteFile(filepath.Join(dir, "demo", "SKILL.md"), []byte("Changed after installation"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := runSync(args, strings.NewReader("Desktop\n"), &out, execute, "test"); err == nil || !strings.Contains(err.Error(), "local changes need review") {
+			t.Fatal("edited private files bypassed reconciliation", err)
+		}
+	}
+
 }

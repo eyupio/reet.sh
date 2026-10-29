@@ -74,6 +74,15 @@ func (s *Store) RequestMachineSkillSync(uid int64, skillID, destination, sourceI
 		if sourceID != "" && sourceID != e.ID {
 			continue
 		}
+		enrolled := false
+		for _, a := range agents {
+			if strings.EqualFold(a.Host, e.Host) && !a.Paused {
+				enrolled = true
+			}
+		}
+		if !enrolled {
+			continue
+		}
 		for _, have := range e.Skills {
 			if have.ID == skillID {
 				if source == nil || e.Agent == "agents" {
@@ -188,12 +197,16 @@ func (s *Store) advanceMachineSkillSync(uid int64, role string, r RemoteImport) 
 	if e != nil {
 		return e
 	}
+	wantFollow := r.FollowShelf
 	in := DesiredSelection{TargetID: r.DestinationID, SourceID: "shelf", Mode: "additive", SkillIDs: []string{r.SyncSkillID}}
 	for _, target := range targets {
 		if target.Target.ID == r.DestinationID {
 			in.Revision = target.Revision
 			in.Mode = target.Mode
 			in.SourceID = target.SourceID
+			if target.SourceID == "shelf" && target.FollowSource {
+				wantFollow = true
+			}
 			for _, sk := range target.Desired {
 				if sk.ID != r.SyncSkillID {
 					in.SkillIDs = append(in.SkillIDs, sk.ID)
@@ -205,7 +218,7 @@ func (s *Store) advanceMachineSkillSync(uid int64, role string, r RemoteImport) 
 			}
 		}
 	}
-	if r.FollowShelf && in.SourceID == "shelf" && in.ListID == 0 {
+	if wantFollow && in.SourceID == "shelf" && in.ListID == 0 {
 		candidates, e := s.SyncCandidatesFor(uid, role, 0)
 		if e != nil {
 			return e
@@ -214,6 +227,7 @@ func (s *Store) advanceMachineSkillSync(uid int64, role string, r RemoteImport) 
 		for _, sk := range candidates {
 			if sk.Source == "" || sk.SourceType == "local" {
 				in.FollowSource = false
+				in.FollowPending = true
 			}
 		}
 	}

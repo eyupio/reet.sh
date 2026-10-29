@@ -384,6 +384,23 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 			return nil, fmt.Errorf("cannot read target skills directory: %w", err)
 		}
 		desired := target.Desired
+		// An imported private copy has no public lock-file URL. Compare its
+		// actual file digest against the pinned revision instead of reinstalling
+		// it on every sync or guessing an upstream from its name.
+		for i := range actual {
+			for _, want := range desired {
+				if want.SourceType == "private" && actual[i].Name == want.Slug {
+					digest, e := privateSkillDigest(filepath.Join(targetPath, want.Slug))
+					if e != nil {
+						return nil, e
+					}
+					actual[i].Digest = digest
+					if parts := privateSourcePattern.FindStringSubmatch(want.Source); parts != nil && digest == parts[3] {
+						actual[i].Source = want.Source
+					}
+				}
+			}
+		}
 		if target.Mode == "bidirectional" {
 			// A changed local set must be reconciled and saved in the web UI first.
 			base := map[string]string{}
@@ -414,23 +431,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 				return nil, errors.New("local changes need review in Compare & sync; save the reconciled selection before applying")
 			}
 		}
-		// An imported private copy has no public lock-file URL. Compare its
-		// actual file digest against the pinned revision instead of reinstalling
-		// it on every sync or guessing an upstream from its name.
-		for i := range actual {
-			for _, want := range desired {
-				if want.SourceType == "private" && actual[i].Name == want.Slug {
-					digest, e := privateSkillDigest(filepath.Join(targetPath, want.Slug))
-					if e != nil {
-						return nil, e
-					}
-					actual[i].Digest = digest
-					if parts := privateSourcePattern.FindStringSubmatch(want.Source); parts != nil && digest == parts[3] {
-						actual[i].Source = want.Source
-					}
-				}
-			}
-		}
+
 		actions, err := planSync(desired, actual)
 		if target.Mode == "additive" {
 			// Preserve extras, including local-only skills, in additive mode.

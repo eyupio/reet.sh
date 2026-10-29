@@ -45,6 +45,20 @@
       "tarball": "https://registry.npmjs.org/@cline/cli-linux-x64/-/cli-linux-x64-3.0.74.tgz",
       "integrity": "sha512-Em6BmcqAnwV/UXjdaQY7abeECNzq9O1NjQ7N5a/dOQQpVQlP1S04qmP/xOxgWBh0eS5Mln3z6y3m++DBcYYn3Q==",
       "commands": []
+    },
+    {
+      "capture": "opencode",
+      "package": "opencode-ai",
+      "version": "1.19.5",
+      "tarball": "https://registry.npmjs.org/opencode-ai/-/opencode-ai-1.19.5.tgz",
+      "integrity": "sha512-tEqMvQahfhdDj8vceYpXtoIrvjPXm5XRfetWnPN5YISueU7adNx9JcUA3zZ+2GKuDVgDpGdQe1ZLtCZDjqodvA==",
+      "commands": [
+        "opencode --version",
+        "opencode --help",
+        "opencode models --help",
+        "OPENCODE_DISABLE_MODELS_FETCH=1 opencode models"
+      ],
+      "notes": "Copied from the recorded 28 October 2026 probe (docs/research/probe-report.md), not a new run. The models command was run with a fresh HOME and OPENCODE_DISABLE_MODELS_FETCH=1; the probe observed no network call. No agent turn, prompt or ACP session was run for this capture."
     }
   ],
   "limits": [
@@ -52,6 +66,7 @@
     "Installs stayed in work/cli-capture with lifecycle scripts disabled.",
     "Pi remains disabled: its README says no permission popups; its parser treats @ text as file input and does not implement the -- separator.",
     "Cursor remains disabled: the official cursor.com install destination was refused by network policy.",
-    "The original four preset arguments retain prior reviewed evidence; only installed Codex help was captured in this environment."
+    "The original four preset arguments retain prior reviewed evidence; only installed Codex help was captured in this environment.",
+    "The OpenCode capture is the probe report's verbatim 1.19.5 output; only version, help and models listing were run, with models fetch disabled."
   ]
 }

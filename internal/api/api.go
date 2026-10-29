@@ -885,7 +885,12 @@ func stageLabel(sk store.Skill) string {
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
+	// Marshal first: encoding/json escapes <, > and & in strings, and a
+	// failure never leaves half an object on the wire.
+	data, err := json.Marshal(v)
+	if err == nil {
+		_, _ = w.Write(data)
+	}
 }
 
 func writeErr(w http.ResponseWriter, code int, msg string) {

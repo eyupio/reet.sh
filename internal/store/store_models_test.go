@@ -126,6 +126,22 @@ func TestMachineModelsFailedRefreshKeepsTheLastGoodList(t *testing.T) {
 	}
 }
 
+func TestMachineModelsFailureThenSuccessReplacesTheList(t *testing.T) {
+	s, uid, a, _ := terminalFixture(t)
+	base := MachineModels{AgentID: a.ID, Tool: "opencode", State: MachineModelsFailed, Reason: terminalproto.ModelsTimedOut, CheckedAt: 1}
+	if err := s.UpsertMachineModelsFor(uid, base); err != nil {
+		t.Fatal(err)
+	}
+	good := MachineModels{AgentID: a.ID, Tool: "opencode", State: MachineModelsListed, Models: []terminalproto.ModelEntry{{ID: "a/b", Provider: "a"}}, Source: "opencode models", FetchedAt: 2, CheckedAt: 2}
+	if err := s.UpsertMachineModelsFor(uid, good); err != nil {
+		t.Fatal(err)
+	}
+	row, ok, err := s.MachineModelsFor(uid, a.ID, "opencode")
+	if err != nil || !ok || row.State != MachineModelsListed || len(row.Models) != 1 || row.FetchedAt != 2 || row.Reason != "" {
+		t.Fatalf("recovery: %+v %v %v", row, ok, err)
+	}
+}
+
 func TestMachineModelsUnsupportedAndOffAreStoredWithoutAModelsList(t *testing.T) {
 	s, uid, a, _ := terminalFixture(t)
 	for name, tc := range map[string]struct {

@@ -214,6 +214,17 @@ func TestListModelsSkipsAProviderPastTheProtocolBound(t *testing.T) {
 	}
 }
 
+func TestListModelsNotInstalledAndDuplicateLines(t *testing.T) {
+	missing := func(string) (string, error) { return "", os.ErrNotExist }
+	if r := ListModels(t.Context(), "opencode", missing, shortTempDir(t)); r.Reason != terminalproto.ModelsNotInstalled {
+		t.Fatalf("not installed: %+v", r)
+	}
+	r := listModelsForTest(t, "printf 'a/b\\na/b\\na/c\\n'\n")
+	if r.Reason != "" || len(r.Models) != 2 || r.Models[0].ID != "a/b" || r.Models[1].ID != "a/c" {
+		t.Fatalf("duplicates: %+v", r)
+	}
+}
+
 func TestListModelsCapsAtFiveHundred(t *testing.T) {
 	// 501 entries are read; the list is capped at MaxModels before the encoded
 	// answer is trimmed to MaxModelsReplyBytes (which is smaller than 500

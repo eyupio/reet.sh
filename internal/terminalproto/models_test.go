@@ -105,6 +105,18 @@ func TestModelsResultRoundTripAndLimits(t *testing.T) {
 	}
 }
 
+func TestModelsResultRejectsAnOversizeAcceptedList(t *testing.T) {
+	entries := make([]ModelEntry, 0, MaxModels)
+	for i := 0; i < MaxModels; i++ {
+		id := fmt.Sprintf("provider-%03d/%s", i, strings.Repeat("x", 60))
+		entries = append(entries, ModelEntry{ID: id, Provider: fmt.Sprintf("provider-%03d", i)})
+	}
+	result := ModelsResult{Tool: "opencode", Models: entries}
+	if (Message{Version: Version, RequestID: testID, Generation: 1, Body: result}).Validate() == nil {
+		t.Fatal("an encoded result over MaxModelsReplyBytes was accepted")
+	}
+}
+
 func TestModelsCapabilities(t *testing.T) {
 	base := Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "u", TerminalEnabled: true, HealthEnabled: true, Readiness: Ready, TerminalControl: true}
 	base.Models = true

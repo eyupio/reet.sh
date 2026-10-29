@@ -376,3 +376,31 @@ func TestControllerOptionTableMatchesCatalogue(t *testing.T) {
 		}
 	}
 }
+
+func TestOnlyOpenCodeHasAConfirmedModelListing(t *testing.T) {
+	if !ListsModels("opencode") {
+		t.Fatal("OpenCode should list models")
+	}
+	for _, tool := range []string{"claude", "codex", "gemini", "cline", "pi", "cursor", "unknown"} {
+		if ListsModels(tool) {
+			t.Fatalf("%s should not run a model listing", tool)
+		}
+	}
+	for _, p := range Catalogue {
+		if p.ID != "opencode" || p.ModelList == nil {
+			continue
+		}
+		if len(p.ModelList.Argv) != 1 || p.ModelList.Argv[0] != "models" {
+			t.Fatalf("OpenCode argv drifted: %#v", p.ModelList.Argv)
+		}
+		want := map[string]bool{"OPENCODE_DISABLE_MODELS_FETCH=1": true, "OPENCODE_DISABLE_AUTOUPDATE=1": true, "NO_COLOR=1": true, "LANG=C.UTF-8": true, "CI=1": true}
+		for _, env := range p.ModelList.Env {
+			delete(want, env)
+		}
+		if len(want) != 0 {
+			t.Fatalf("OpenCode listing env missing %v", want)
+		}
+		return
+	}
+	t.Fatal("OpenCode has no model listing row")
+}

@@ -1499,6 +1499,9 @@ and a composer.
 The chat pane keeps the slice 1 layout. The additions are the image chips and Attach image control in its composer, and
 the session menu's **Continue chat with history…** item for a closed chat. There is no drawing for either.
 
+- `launch.e2e.mjs` passed the Home case: an OpenCode project on an `acp` machine said "Run OpenCode as a chat", hid the
+  model/worktree slots, switched to "as a terminal" and back through the Session slot, and sent `structured: true`,
+  `trust: true`, the folder and prompt with no model, worktree or effort.
 - `chat.e2e.mjs` passed at 1360 × 900 and 390 × 844: **Chat with OpenCode** was on by default; an attached PNG was uploaded to the machine and the prompt carried
   `Image: /…/launch-uploads/shot.png`; a closed structured session exposed Continue chat with history…, and the create body
   carried `structured: true`, `trust: true`, `resumeAcp` and the old folder with no prompt model.

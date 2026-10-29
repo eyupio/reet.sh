@@ -52,7 +52,7 @@
 
   const id = $props.id()
   const ADD = '\u0000add', HOME = '\u0000home:'
-  const LABELS: Record<string, string> = { agent: 'Agent', model: 'Model', project: 'Project', machine: 'Machine', branch: 'Branch', worktree: 'Worktree', effort: 'Thinking' }
+  const LABELS: Record<string, string> = { agent: 'Agent', chat: 'Session', model: 'Model', project: 'Project', machine: 'Machine', branch: 'Branch', worktree: 'Worktree', effort: 'Thinking' }
   const LOST_TAIL = 'Check your sessions before starting another. If you discard it and start again, a second agent may start.'
   const LOST = `We didn't hear back, so the agent may have started. ${LOST_TAIL}`
   const LOST_RUN = "We didn't hear back, so the agents may have started. Check your sessions before starting again. If you discard it and start again, more agents may start."
@@ -88,6 +88,14 @@
       if (p) { next = withProject(next, p, profile, options); named = p.id }
       choice = next
     })
+  })
+  // If the machine list arrives after the first choice, an OpenCode choice not yet
+  // toggled to a terminal becomes a chat. An explicit terminal (chat === false) stays.
+  $effect(() => {
+    const current = choice, all = machines
+    if (!current || locked || current.agent !== 'opencode' || current.chat !== undefined) return
+    const host = current.projectIds.length === 1 ? projects?.find(p => p.id === current.projectIds[0])?.host : current.homeMachine
+    if (all?.find(m => m.agentId === host)?.capabilities?.acp) choice = { ...current, chat: true }
   })
   // Favourites are a help, not a prerequisite: the bar opens on the project/account defaults and the favourite
   // marked for the agent only fills a model that neither of those set. A late favourites read therefore cannot hold up
@@ -209,7 +217,7 @@
   const modelTargetId = $derived(picked.length > 0 ? (pickedHosts.length === 1 ? pickedHosts[0] : '') : (choice?.homeMachine ?? ''))
   const modelTarget = $derived(machines?.find(m => m.agentId === modelTargetId))
   const modelHost = $derived(modelTarget?.host ?? hostOf(modelTargetId))
-  const modelKey = $derived(choice && modelTargetId ? `${modelTargetId}\u0000${choice.agent}` : '')
+  const modelKey = $derived(choice && !choice.chat && modelTargetId ? `${modelTargetId}\u0000${choice.agent}` : '')
   const modelMachine = $derived(modelList.key === modelKey ? modelList.machine : null)
   const modelLoading = $derived(!!modelKey && modelList.key === modelKey && modelList.loading)
   const modelError = $derived(modelList.key === modelKey ? modelList.error : '')
@@ -417,6 +425,7 @@
       const offers = target ? agentChoices(target) : CATALOGUE.map(agent => ({ agent, available: agent.enabled, reason: agent.enabled ? undefined : agent.disabledReason }))
       return offers.map(o => ({ value: o.agent.id, label: o.agent.name, disabled: !o.available, reason: o.available ? undefined : o.reason }))
     }
+    if (slot === 'chat') return [{ value: 'chat', label: 'a chat' }, { value: 'terminal', label: 'a terminal' }]
     if (slot === 'model') return modelOptionsFor()
     if (slot === 'project') {
       const out: SlotOption[] = (projects ?? []).map(p => {
@@ -444,6 +453,7 @@
   function valueOf(slot: string): string {
     if (!choice) return ''
     if (slot === 'agent') return choice.agent
+    if (slot === 'chat') return choice.chat ? 'chat' : 'terminal'
     if (slot === 'model') return cleanModel(choice.model)
     if (slot === 'project') return choice.projectIds[0] ?? (choice.homeMachine ? HOME + choice.homeMachine : '')
     if (slot === 'machine') return choice.homeMachine ?? ''
@@ -459,7 +469,8 @@
       const project = picked.length === 1 ? picked[0] : null
       explicitModel = false; explicitEffort = false
       choice = withAgent(choice, value, project, profile, { machines: machines ?? [], favourites })
-    } else if (slot === 'model') { explicitModel = true; choice = { ...choice, model: value } }
+    } else if (slot === 'chat') choice = value === 'chat' ? { ...choice, chat: true } : { ...choice, chat: false }
+    else if (slot === 'model') { explicitModel = true; choice = { ...choice, model: value } }
     else if (slot === 'project') {
       if (value === ADD) { const opener = open?.opener; if (opener) onaddproject?.(opener); return }
       if (value.startsWith(HOME)) { choice = withHome(choice, value.slice(HOME.length), profile, { favourites, explicitModel, explicitEffort }); return }
@@ -643,7 +654,7 @@
     busy = true; failed = false
     message = `Starting ${toolName(op.launch.tool)} on ${op.host}…`
     try {
-      const session = await createTerminal(op.agentId, op.requestId, op.title, 100, 30, AbortSignal.any([life.signal, AbortSignal.timeout(15000)]), op.launch)
+      const session = await createTerminal(op.agentId, op.requestId, op.title, 100, 30, AbortSignal.any([life.signal, AbortSignal.timeout(op.launch.structured ? 60000 : 15000)]), op.launch)
       if (life.signal.aborted) return
       // Answered, but the machine did not start it: nothing is running, so this request is done and the next Start is a new one.
       const notStarted = notStartedText(session.state)

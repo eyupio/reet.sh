@@ -1511,6 +1511,31 @@ try {
   }
  }
 
+ // OpenCode on an acp machine is a native chat by default; the Session slot can still choose the terminal.
+ if (run('OpenCode starts a native chat by default')) {
+  const acp = tmachines().map(m => ({...m, capabilities:caps({tools:['opencode'], acp:true, acpHistory:true})}))
+  const projects = [{...fprojects()[0], defaultTool:'opencode'}]
+  const {context,page,errors,box} = await launch({projects, routes:{'/api/v2/terminal/machines':()=>({machines:acp})}})
+  await page.goto(base)
+  await expect.poll(() => sentenceText(page)).toContain('Run OpenCode as a chat')
+  await expect(slot(page,'Session')).toHaveAccessibleName('Session: a chat')
+  await expect(slot(page,'Model')).toHaveCount(0)
+  await expect(slot(page,'Worktree')).toHaveCount(0)
+  await pick(page,'Session','a terminal')
+  await expect.poll(() => sentenceText(page)).toContain('as a terminal with')
+  await expect(slot(page,'Model')).toBeVisible()
+  await pick(page,'Session','a chat')
+  await prompt(page).fill('fix the failing build')
+  await startButton(page).click()
+  await expect.poll(() => box.posts.length).toBe(1)
+  expect(box.posts[0]).toMatchObject({tool:'opencode', structured:true, trust:true, dir:'/home/dev/store', prompt:'fix the failing build'})
+  expect(box.posts[0].model).toBeUndefined()
+  expect(box.posts[0].worktree).toBeUndefined()
+  expect(box.posts[0].effort).toBeUndefined()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  console.log('Launch bar: Select and start in several projects (lost reply, status sheet, retry, touch, 320 px, strip count), one press with the resolved defaults and Recent, profile defaults, machine lists and Refresh, several machines, favourites and stars, Other, a failed list, offline/old/off states, tablet and phone model pickers, each slot, unready machines, the starter prompt chip, lost replies and refusals, a -x folder, the locked bar and a card chosen while it is locked, a refusal kept across the same selection, Show run status going once all started or after a later start, Enter and Shift+Enter (and no key on touch), a pasted image uploaded before the session starts and its path in the prompt, the phone Change sheet and the landscape phone with one Change, the keyboard-open prompt, Tab and Escape from a list, no card marked for the home folder, branch reads, the YOLO reason, Stop selecting on the strip, unread projects, a removed project under a kept request, a run that is gone and nothing in storage checked.')
 } finally {
  await browser.close()
